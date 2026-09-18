@@ -1,4 +1,7 @@
-import type { ListInboxItemsQuery } from "@openmeld/schemas/types";
+import type {
+  InboxPresentation,
+  ListInboxItemsQuery,
+} from "@openmeld/schemas/types";
 
 const INBOX_PATH = "/v1/inbox";
 
@@ -19,6 +22,9 @@ export function buildInboxPath(query: ListInboxItemsQuery = {}): string {
   if (query.limit !== undefined) {
     search.set("limit", String(query.limit));
   }
+  if (query.presentation !== undefined) {
+    search.set("presentation", query.presentation);
+  }
   if (query.view !== undefined) {
     search.set("view", query.view);
   }
@@ -26,8 +32,13 @@ export function buildInboxPath(query: ListInboxItemsQuery = {}): string {
   return suffix ? `${INBOX_PATH}?${suffix}` : INBOX_PATH;
 }
 
-export function buildInboxSummaryPath(): string {
-  return `${INBOX_PATH}/summary`;
+export function buildInboxSummaryPath(
+  presentation?: InboxPresentation
+): string {
+  const base = `${INBOX_PATH}/summary`;
+  return presentation === undefined
+    ? base
+    : `${base}?${new URLSearchParams({ presentation })}`;
 }
 
 export function buildCenterAgentInboxSummaryPath(): string {
@@ -62,8 +73,13 @@ export function buildInboxItemPath(itemId: string): string {
   return `${INBOX_PATH}/items/${encodeURIComponent(itemId)}`;
 }
 
-export function buildInboxMarkAllReadPath(): string {
-  return `${INBOX_PATH}/mark-all-read`;
+export function buildInboxMarkAllReadPath(
+  presentation?: InboxPresentation
+): string {
+  const base = `${INBOX_PATH}/mark-all-read`;
+  return presentation === undefined
+    ? base
+    : `${base}?${new URLSearchParams({ presentation })}`;
 }
 
 export function buildInboxPreferencesPath(): string {

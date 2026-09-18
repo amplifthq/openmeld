@@ -123,13 +123,13 @@ it("releases a restored reading position when the user sends and follows the lat
 	expect(result.current.autoScroll).toBe(true);
 });
 
-it("loads earlier history for an anchor outside the latest page", async () => {
+it("does not block or move the reader when the saved anchor is no longer cached", async () => {
 	const f = fixture();
 	writeSpaceConversationPosition(f.key, {
 		anchorSignalId: "message-a",
 		offsetFromVisibleTop: 20,
 	});
-	const { rerender } = renderHook(useSpaceConversationPosition, {
+	const { result, rerender } = renderHook(useSpaceConversationPosition, {
 		initialProps: {
 			...f.input,
 			hasEarlierHistory: true,
@@ -139,10 +139,18 @@ it("loads earlier history for an anchor outside the latest page", async () => {
 	await act(async () => {
 		await vi.advanceTimersByTimeAsync(40);
 	});
-	expect(f.input.onLoadEarlierHistory).toHaveBeenCalledOnce();
-	rerender({ ...f.input, historyVersion: 2, hasEarlierHistory: false });
-	act(() => vi.advanceTimersByTime(40));
-	expect(f.input.viewport.scrollTop).toBe(780);
+	expect(f.input.onLoadEarlierHistory).not.toHaveBeenCalled();
+	expect(result.current.restorationStatus).toBe("ready");
+	f.input.viewport.scrollTop = 200;
+	act(() => {
+		result.current.onScroll(f.input.viewport);
+		vi.advanceTimersByTime(150);
+	});
+	expect(readSpaceConversationPosition(f.key)).not.toEqual({
+		anchorSignalId: "message-a",
+		offsetFromVisibleTop: 20,
+	});
+	rerender({ ...f.input, historyVersion: 2 });
 });
 
 it("saves before navigation without waiting for scrollend, and keeps different Spaces independent", () => {
@@ -190,7 +198,7 @@ it("waits for a scroll pause before measuring and ignores callback identity chan
 	});
 });
 
-it("restores from a recorded message when a long temporary reply disappears", async () => {
+it("falls back without fetching when a recorded anchor was evicted", async () => {
 	const f = fixture();
 	const stream = document.createElement("div");
 	stream.dataset.signalId = "stream:submission-reading-position";
@@ -212,8 +220,9 @@ it("restores from a recorded message when a long temporary reply disappears", as
 		offsetFromVisibleTop: -300,
 	});
 	stream.remove();
+	f.input.viewport.scrollTop = 0;
 	const onLoadHistoryAround = vi.fn(async () => true);
-	const { rerender } = renderHook(useSpaceConversationPosition, {
+	renderHook(useSpaceConversationPosition, {
 		initialProps: {
 			...f.input,
 			hasEarlierHistory: true,
@@ -224,9 +233,6 @@ it("restores from a recorded message when a long temporary reply disappears", as
 	await act(async () => {
 		await vi.advanceTimersByTimeAsync(40);
 	});
-	expect(onLoadHistoryAround).toHaveBeenCalledExactlyOnceWith("message-a");
-	f.input.viewport.scrollTop = 0;
-	rerender({ ...f.input, hasEarlierHistory: false, onLoadHistoryAround });
-	act(() => vi.advanceTimersByTime(40));
-	expect(f.input.viewport.scrollTop).toBe(1100);
+	expect(onLoadHistoryAround).not.toHaveBeenCalled();
+	expect(f.input.viewport.scrollTop).toBe(0);
 });

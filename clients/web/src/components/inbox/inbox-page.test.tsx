@@ -624,6 +624,7 @@ describe("InboxPage", () => {
 		await waitFor(() => {
 			expect(markAllCurrentInboxItemsReadMock).toHaveBeenCalledWith({
 				organizationId: "organization-123",
+				presentation: "attention",
 			});
 		});
 		expect(
@@ -675,7 +676,7 @@ describe("InboxPage", () => {
 		await waitFor(() => {
 			expect(
 				queryClient.getQueryData<{ pages: ListInboxItemsResponse[] }>(
-					inboxQueryKeys.list("organization-123", "all")
+					inboxQueryKeys.list("organization-123", "attention", "all")
 				)?.pages[0]?.items
 			).toEqual([]);
 		});
@@ -739,6 +740,7 @@ function renderInboxPage(input: {
 	queryClient.setQueryData(
 		inboxQueryKeys.list(
 			"organization-123",
+			"attention",
 			input.unreadOnly ? "unread" : (input.view ?? "all")
 		),
 		{

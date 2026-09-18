@@ -1,10 +1,13 @@
 import type { SignalEnvelope } from "@openmeld/schemas/types";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readSpaceConversationPosition } from "#/lib/space-conversation-position";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { mergeSpaceTimelineEnvelopes } from "#/lib/spaces/timeline";
-import { SPACE_HISTORY_SIGNAL_KINDS } from "#/query/spaces/history";
+import {
+	SPACE_HISTORY_SIGNAL_KINDS,
+	writeSpaceHistoryEnvelopesToCache,
+} from "#/query/spaces/history";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 
 export function useSpaceHistoryNavigation(input: {
@@ -15,6 +18,7 @@ export function useSpaceHistoryNavigation(input: {
 	accessRejected: boolean;
 	liveEnvelopes: readonly SignalEnvelope[];
 }) {
+	const queryClient = useQueryClient();
 	const identity = `${input.spaceId}:${input.profileId}`;
 	const [window, setWindow] = useState<HistoryWindow | null>(null);
 	const [liveBoundary, setLiveBoundary] = useState<{
@@ -142,6 +146,12 @@ export function useSpaceHistoryNavigation(input: {
 			if (!result.envelopes.some((item) => item.id === signalId)) {
 				throw new Error("This message is no longer available.");
 			}
+			writeSpaceHistoryEnvelopesToCache({
+				envelopes: result.envelopes,
+				queryClient,
+				spaceId: input.spaceId,
+				openMeldProfileId: input.profileId,
+			});
 			// The around SQL applies signal-kind and main-timeline filters before
 			// LIMIT. A full side may have more; a short side is an actual boundary.
 			const anchorIndex = result.envelopes.findIndex(

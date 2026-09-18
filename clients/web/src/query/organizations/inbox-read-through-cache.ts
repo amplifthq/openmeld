@@ -1,6 +1,5 @@
 import type {
 	CenterAgentInboxSummaryResponse,
-	InboxSummaryResponse,
 	SpaceInboxSummaryResponse,
 	SpaceInboxUnreadTarget,
 	SpaceInboxUnreadTargetsResponse,
@@ -66,12 +65,6 @@ export function optimisticallyMarkSpaceInboxReadThrough(input: {
 		removedCount: removedTargets.length,
 		rollbacks,
 		targetsAreComplete: !currentTargets.hasMoreTargets,
-	});
-	updateInboxSummary({
-		organizationId: input.organizationId,
-		queryClient: input.queryClient,
-		removedCount: removedTargets.length,
-		rollbacks,
 	});
 	if (input.destination === "center-agent") {
 		updateCenterAgentSummary({
@@ -174,33 +167,6 @@ function updateSpaceSummary(input: {
 	};
 	setOptimisticQueryData({
 		next,
-		previous,
-		queryClient: input.queryClient,
-		queryKey,
-		rollbacks: input.rollbacks,
-	});
-}
-
-function updateInboxSummary(input: {
-	organizationId: string;
-	queryClient: QueryClient;
-	removedCount: number;
-	rollbacks: Rollback[];
-}) {
-	const queryKey = inboxQueryKeys.summary(input.organizationId);
-	const previous =
-		input.queryClient.getQueryData<InboxSummaryResponse>(queryKey);
-	if (!previous) {
-		return;
-	}
-	setOptimisticQueryData({
-		next: {
-			...previous,
-			totalUnreadCount: Math.max(
-				0,
-				previous.totalUnreadCount - input.removedCount
-			),
-		},
 		previous,
 		queryClient: input.queryClient,
 		queryKey,

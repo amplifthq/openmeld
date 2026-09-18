@@ -350,7 +350,9 @@ Inbox message notification preferences have two Core-owned D1 records:
 `inbox_conversation_notification_preferences` stores explicit overrides per
 account, Organization, and Space. Absence of an override means live inheritance.
 These records never write Inbox read state, urgency, email deliveries, or Space
-membership. Core verifies active Organization membership and current conversation
+membership. Core may use an explicit mute as a read-time filter for the opt-in
+Inbox attention presentation; the raw Inbox projection and delivery ledger stay
+unchanged. Core verifies active Organization membership and current conversation
 access before reading or changing a conversation preference. Browser delivery
 re-reads the authorized preference after its delivery lock; browser-local
 permission and sound settings remain local.

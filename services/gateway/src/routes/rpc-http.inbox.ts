@@ -16,10 +16,12 @@ import {
   inboxMessageNotificationPreferencesQuerySchema,
   inboxMessageNotificationPreferencesResponseSchema,
   inboxNotificationPreferencesResponseSchema,
+  inboxSummaryQuerySchema,
   inboxSummaryResponseSchema,
   listInboxItemsQuerySchema,
   listInboxItemsResponseSchema,
   listInboxItemsWireResponseSchema,
+  markAllInboxItemsReadQuerySchema,
   markAllInboxItemsReadResponseSchema,
   markCenterAgentInboxReadThroughBodySchema,
   markCenterAgentInboxReadThroughResponseSchema,
@@ -58,6 +60,10 @@ const INBOX_MESSAGE_PREFERENCES_ROUTE = `${INBOX_ROUTE}/message-notification-pre
 const INBOX_ITEM_READ_ROUTE = `${INBOX_ROUTE}/items/:itemId/read`;
 const INBOX_ITEM_DISMISS_ROUTE = `${INBOX_ROUTE}/items/:itemId/dismiss`;
 const INBOX_ITEM_ROUTE = `${INBOX_ROUTE}/items/:itemId`;
+const SPACE_INBOX_CONVERSATION_COUNTS_VERSIONS = new Set([
+  "2",
+  OPENMELD_INBOX_SUMMARY_VERSION,
+]);
 
 export function registerInboxRoutes(app: Hono<HonoBindings>): void {
   app.get(INBOX_MESSAGE_PREFERENCES_ROUTE, (c) => {
@@ -154,8 +160,9 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       resolveSuccessPayload: (result) => {
         const response = spaceInboxSummaryResponseSchema.parse(result);
         if (
-          c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ===
-          OPENMELD_INBOX_SUMMARY_VERSION
+          SPACE_INBOX_CONVERSATION_COUNTS_VERSIONS.has(
+            c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ?? ""
+          )
         ) {
           return response;
         }
@@ -250,30 +257,46 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
     });
   });
 
-  app.get(INBOX_SUMMARY_ROUTE, (c) =>
-    executeRpcRoute({
+  app.get(INBOX_SUMMARY_ROUTE, (c) => {
+    const query = inboxSummaryQuerySchema.safeParse(c.req.query());
+    if (!query.success) {
+      return invalidPayloadResponse(
+        c,
+        INBOX_SUMMARY_ROUTE,
+        "GET",
+        query.error.issues[0]?.message
+      );
+    }
+    return executeRpcRoute({
       c,
       execute: async () =>
         await c.var.coreRpc.getInboxSummary({
           context: buildCoreRpcContext(c),
+          ...query.data,
         }),
       method: "GET",
       responseSchema: inboxSummaryResponseSchema,
       resolveSuccessPayload: (result) => {
         const response = inboxSummaryResponseSchema.parse(result);
-        if (
-          ["1", OPENMELD_INBOX_SUMMARY_VERSION].includes(
-            c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ?? ""
-          )
-        ) {
+        const requestedVersion =
+          c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ?? "";
+        if (requestedVersion === OPENMELD_INBOX_SUMMARY_VERSION) {
           return response;
         }
-        const { unreadUrgentUpdateCount: _urgentCount, ...legacy } = response;
+        const {
+          ordinaryUnreadCount: _ordinaryCount,
+          unreadMentionCount: _mentionCount,
+          ...versionTwo
+        } = response;
+        if (["1", "2"].includes(requestedVersion)) {
+          return versionTwo;
+        }
+        const { unreadUrgentUpdateCount: _urgentCount, ...legacy } = versionTwo;
         return legacy;
       },
       route: INBOX_SUMMARY_ROUTE,
-    })
-  );
+    });
+  });
 
   app.get(INBOX_ITEM_ROUTE, (c) => {
     const params = inboxItemRouteParamsSchema.safeParse(c.req.param());
@@ -370,18 +393,28 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
     });
   });
 
-  app.post(INBOX_MARK_ALL_READ_ROUTE, (c) =>
-    executeRpcRoute({
+  app.post(INBOX_MARK_ALL_READ_ROUTE, (c) => {
+    const query = markAllInboxItemsReadQuerySchema.safeParse(c.req.query());
+    if (!query.success) {
+      return invalidPayloadResponse(
+        c,
+        INBOX_MARK_ALL_READ_ROUTE,
+        "POST",
+        query.error.issues[0]?.message
+      );
+    }
+    return executeRpcRoute({
       c,
       execute: async () =>
         await c.var.coreRpc.markAllInboxItemsRead({
           context: buildCoreRpcContext(c),
+          ...query.data,
         }),
       method: "POST",
       responseSchema: markAllInboxItemsReadResponseSchema,
       route: INBOX_MARK_ALL_READ_ROUTE,
-    })
-  );
+    });
+  });
 
   app.get(INBOX_PREFERENCES_ROUTE, (c) =>
     executeRpcRoute({

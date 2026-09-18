@@ -6,6 +6,7 @@ import {
   type DesktopComputerConnectionProgress,
   type DesktopComputerDisconnectResult,
   type DesktopComputerOperation,
+  type DesktopInboxAttention,
   type DesktopInstalledTarget,
   desktopComputerConnectionRequestSchema,
   desktopComputerDisconnectRequestSchema,
@@ -52,7 +53,7 @@ declare const __OPENMELD_DESKTOP_INSTALLED_TARGET__: DesktopInstalledTarget | nu
 
 export function initializeDesktopPilot(
   getWindow: () => BrowserWindow | null,
-  setUnreadCount: (count: number | null) => void
+  setInboxAttention: (attention: DesktopInboxAttention | null) => void
 ) {
   const installedTarget = __OPENMELD_DESKTOP_INSTALLED_TARGET__
     ? desktopInstalledTargetSchema.parse(__OPENMELD_DESKTOP_INSTALLED_TARGET__)
@@ -150,7 +151,7 @@ export function initializeDesktopPilot(
   });
   const notifications = createPilotNotifications({
     auth,
-    setUnreadCount,
+    setInboxAttention,
     webOrigin,
     getWindow,
     webBuild: platform.webBuild,

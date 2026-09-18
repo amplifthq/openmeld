@@ -238,7 +238,13 @@ describe("Inbox HTTP contracts", () => {
       view: "needs_action",
     });
     expect(
-      listInboxItemsQuerySchema.safeParse({ view: "mentions" }).success
+      listInboxItemsQuerySchema.parse({
+        presentation: "attention",
+        view: "mentions",
+      })
+    ).toEqual({ presentation: "attention", view: "mentions" });
+    expect(
+      listInboxItemsQuerySchema.safeParse({ presentation: "unknown" }).success
     ).toBe(false);
     expect(markInboxItemReadBodySchema.safeParse({ read: true }).success).toBe(
       true

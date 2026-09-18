@@ -56,7 +56,7 @@ const request = {
 };
 
 function setup(window: BrowserWindow | null = null) {
-  const setUnreadCount = vi.fn();
+  const setInboxAttention = vi.fn();
   const session = vi.fn(async () => ({
     user: { id: "user-a", name: "A", email: "a@example.com" },
   }));
@@ -74,7 +74,7 @@ function setup(window: BrowserWindow | null = null) {
       : Response.json({ item })
   );
   const notifications = createPilotNotifications({
-    setUnreadCount,
+    setInboxAttention,
     auth: { session, cloudRequest },
     webOrigin: "https://openmeld.ai",
     webBuild: "a".repeat(64),
@@ -88,28 +88,35 @@ function setup(window: BrowserWindow | null = null) {
     enabled: true,
     visibleConversation: null,
   });
-  return { notifications, session, cloudRequest, setUnreadCount };
+  return { notifications, session, cloudRequest, setInboxAttention };
 }
 
-it("keeps the Inbox count independent of notification permission and clears it on logout", async () => {
-  const { notifications, setUnreadCount } = setup();
+const attention = {
+  ordinaryUnreadCount: 150,
+  unreadMentionCount: 1,
+  unreadUrgentUpdateCount: 1,
+  unresolvedActionCount: 2,
+};
+
+it("keeps Inbox attention independent of notification permission and clears it on logout", async () => {
+  const { notifications, setInboxAttention } = setup();
   await notifications.setContext({
     userId: "user-a",
     organizationId: "org-a",
     enabled: false,
     visibleConversation: null,
-    unreadCount: 7,
+    attention,
   });
-  expect(setUnreadCount).toHaveBeenLastCalledWith(7);
+  expect(setInboxAttention).toHaveBeenLastCalledWith(attention);
   notifications.clear();
-  expect(setUnreadCount).toHaveBeenLastCalledWith(null);
+  expect(setInboxAttention).toHaveBeenLastCalledWith(null);
 });
 
 it.each([
   "logout",
   "organization switch",
 ])("rejects a count that completes after %s", async (change) => {
-  const { notifications, session, setUnreadCount } = setup();
+  const { notifications, session, setInboxAttention } = setup();
   const held = Promise.withResolvers<Awaited<ReturnType<typeof session>>>();
   session.mockReturnValueOnce(held.promise);
   const pending = notifications.setContext({
@@ -117,7 +124,7 @@ it.each([
     organizationId: "org-a",
     enabled: false,
     visibleConversation: null,
-    unreadCount: 7,
+    attention,
   });
   if (change === "logout") {
     notifications.clear();
@@ -127,17 +134,17 @@ it.each([
       organizationId: "org-b",
       enabled: false,
       visibleConversation: null,
-      unreadCount: null,
+      attention: null,
     });
   }
   held.resolve({ user: { id: "user-a", name: "A", email: "a@example.com" } });
   await pending;
-  expect(setUnreadCount).toHaveBeenLastCalledWith(null);
-  expect(setUnreadCount).not.toHaveBeenCalledWith(7);
+  expect(setInboxAttention).toHaveBeenLastCalledWith(null);
+  expect(setInboxAttention).not.toHaveBeenCalledWith(attention);
 });
 
 it("rejects a late old-account count after the native account changes", async () => {
-  const { notifications, session, setUnreadCount } = setup();
+  const { notifications, session, setInboxAttention } = setup();
   session.mockResolvedValue({
     user: { id: "user-b", name: "B", email: "b@example.com" },
   });
@@ -146,10 +153,10 @@ it("rejects a late old-account count after the native account changes", async ()
     organizationId: "org-a",
     enabled: false,
     visibleConversation: null,
-    unreadCount: 7,
+    attention,
   });
-  expect(setUnreadCount).toHaveBeenLastCalledWith(null);
-  expect(setUnreadCount).not.toHaveBeenCalledWith(7);
+  expect(setInboxAttention).toHaveBeenLastCalledWith(null);
+  expect(setInboxAttention).not.toHaveBeenCalledWith(attention);
 });
 
 beforeEach(() => {

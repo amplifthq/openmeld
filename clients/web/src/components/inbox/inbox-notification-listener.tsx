@@ -15,6 +15,7 @@ import {
 	useCallback,
 	useEffect,
 	useLayoutEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -113,9 +114,22 @@ export function InboxNotificationListener(input: {
 		}),
 		refetchInterval: false,
 	});
-	const unreadCount = summaryQuery.isError
-		? null
-		: (summaryQuery.data?.totalUnreadCount ?? null);
+	const attentionSummary = summaryQuery.data;
+	const attention = useMemo(
+		() =>
+			summaryQuery.isError ||
+			attentionSummary?.unreadUrgentUpdateCount === undefined ||
+			attentionSummary.unreadMentionCount === undefined ||
+			attentionSummary.ordinaryUnreadCount === undefined
+				? null
+				: {
+						ordinaryUnreadCount: attentionSummary.ordinaryUnreadCount,
+						unreadMentionCount: attentionSummary.unreadMentionCount,
+						unreadUrgentUpdateCount: attentionSummary.unreadUrgentUpdateCount,
+						unresolvedActionCount: attentionSummary.unresolvedActionCount,
+					},
+		[attentionSummary, summaryQuery.isError]
+	);
 	const feedIdentity = `${input.organizationId}:${input.organizationSlug}:${input.userId}:${notificationsEnabled}`;
 	useLayoutEffect(() => {
 		const desktop = getDesktopPlatform();
@@ -126,11 +140,11 @@ export function InboxNotificationListener(input: {
 			console.warn("[openmeld.desktop.notification_context_failed]", { error });
 		desktop
 			.setNotificationContext({
+				attention,
 				userId: input.userId,
 				organizationId: input.organizationId,
 				enabled: notificationsEnabled,
 				navigationKey,
-				unreadCount,
 				visibleConversation,
 			})
 			.catch(reportFailure);
@@ -138,7 +152,7 @@ export function InboxNotificationListener(input: {
 		input.userId,
 		input.organizationId,
 		notificationsEnabled,
-		unreadCount,
+		attention,
 		visibleConversation,
 		navigationKey,
 	]);
@@ -188,6 +202,7 @@ export function InboxNotificationListener(input: {
 		...inboxItemsInfiniteQueryOptions({
 			enabled: notificationsEnabled,
 			organizationId: input.organizationId,
+			presentation: "raw",
 			view: "all",
 		}),
 		refetchInterval:

@@ -21,9 +21,14 @@ import type { SpaceHistoryNavigationController } from "./use-space-history-navig
 
 export type SpaceHistoryActions = {
 	onBack?: () => void;
-	onLatest: () => void;
+	reserveLatest: () => SpaceHistoryLatestReservation;
 	isHistorical: boolean;
 	pending: boolean;
+};
+
+export type SpaceHistoryLatestReservation = {
+	isCurrent: () => boolean;
+	navigate: () => Promise<boolean>;
 };
 
 type Position = { signalId: string; offset: number };
@@ -58,6 +63,14 @@ export function SpaceHistoryRail(input: {
 	const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const jumpSequence = useRef(0);
+	const latestState = useRef({
+		controller: input.controller,
+		scrollElement: input.scrollElement,
+	});
+	latestState.current = {
+		controller: input.controller,
+		scrollElement: input.scrollElement,
+	};
 	const entries = input.controller.directory?.entries ?? [];
 	const selected = entries[activeIndex ?? 0];
 	const closePreview = () => {
@@ -205,20 +218,38 @@ export function SpaceHistoryRail(input: {
 			setActiveIndex(null);
 		}, 180);
 	};
-	const latest = () => {
-		jumpSequence.current += 1;
-		setPrevious(readPosition(input.scrollElement));
-		closePreview();
-		input.controller.latest();
-		input.onFollowLatest();
-		requestAnimationFrame(() =>
-			requestAnimationFrame(() =>
-				input.scrollElement?.scrollTo({
-					top: input.scrollElement.scrollHeight,
+	const reserveLatest = (): SpaceHistoryLatestReservation => {
+		const sequence = ++jumpSequence.current;
+		const isCurrent = () => sequence === jumpSequence.current;
+		return {
+			isCurrent,
+			navigate: async () => {
+				if (!isCurrent()) {
+					return false;
+				}
+				setPrevious(readPosition(input.scrollElement));
+				closePreview();
+				input.controller.latest();
+				input.onFollowLatest();
+				await new Promise<void>((resolve) => {
+					requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+				});
+				const current = latestState.current;
+				if (
+					!isCurrent() ||
+					current.controller.activeWindow ||
+					current.controller.pending ||
+					!current.scrollElement
+				) {
+					return false;
+				}
+				current.scrollElement.scrollTo({
+					top: current.scrollElement.scrollHeight,
 					behavior: "instant",
-				})
-			)
-		);
+				});
+				return isCurrent();
+			},
+		};
 	};
 
 	return (
@@ -403,7 +434,7 @@ export function SpaceHistoryRail(input: {
 							jump(previous.signalId, previous);
 						}
 					: undefined,
-				onLatest: latest,
+				reserveLatest,
 				isHistorical: !!input.controller.activeWindow,
 				pending: input.controller.pending,
 			})}

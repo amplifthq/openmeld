@@ -1,14 +1,16 @@
 import type { SignalEnvelope } from "@openmeld/schemas/types";
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	clearSpaceConversationPositions,
 	writeSpaceConversationPosition,
 } from "#/lib/space-conversation-position";
 import { useSpaceHistoryNavigation } from "./use-space-history-navigation";
 
+const queryClient = vi.hoisted(() => ({ setQueryData: vi.fn() }));
 vi.mock("@tanstack/react-query", () => ({
 	useQuery: () => ({ data: undefined, isPending: false, isError: false }),
+	useQueryClient: () => queryClient,
 }));
 
 const historyApi = vi.hoisted(() => ({ listSignalEnvelopes: vi.fn() }));
@@ -20,6 +22,8 @@ vi.mock("#/lib/spaces/api", () => ({
 const message = (id: string) => ({ id }) as SignalEnvelope;
 
 describe("returning to the live Space history", () => {
+	beforeEach(() => queryClient.setQueryData.mockClear());
+
 	it.each([
 		"target changed",
 		"return to latest",
@@ -106,6 +110,7 @@ describe("returning to the live Space history", () => {
 		await act(async () => {
 			expect(await result.current.open(old.id)).toBe(true);
 		});
+		expect(queryClient.setQueryData).toHaveBeenCalledOnce();
 		const recalled = {
 			...old,
 			data: {

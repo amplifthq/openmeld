@@ -1408,6 +1408,7 @@ export function useSpaceLandingController(input: {
 	onInitialPendingMessageConsumed?: () => void;
 	onViewedThroughTs?: (throughTs: number) => Promise<void> | void;
 	unreadStateReady?: boolean;
+	unreadTotalCount: number;
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
 	organizationId?: string | null;
 	orgSlug?: string;
@@ -1675,6 +1676,12 @@ export function useSpaceLandingController(input: {
 		accessRejected: Boolean(currentAccessRejection),
 	});
 	const unreadState = useSpaceUnread({
+		identity: [
+			input.ownerAccountId,
+			input.organizationId,
+			input.spaceId,
+			input.profileId,
+		].join(":"),
 		isReady: input.unreadStateReady === true,
 		targets: input.unreadTargets ?? [],
 	});
@@ -2674,7 +2681,7 @@ export function useSpaceLandingController(input: {
 		textareaRef: mentionAuthoring.textareaRef,
 		timelineItems,
 		firstUnreadSignalId: unreadState.firstSignalId,
-		unreadCount: unreadState.count,
+		unreadCount: input.unreadTotalCount,
 		unreadStateReady: unreadState.isReady,
 		wakeStopRequestStatusBySelectorKey,
 	};

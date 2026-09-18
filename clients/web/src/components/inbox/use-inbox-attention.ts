@@ -19,7 +19,12 @@ export function resolveInboxAttention(input: {
 		} as const;
 	}
 	const summary = input.summary;
-	if (input.unavailable || summary?.unreadUrgentUpdateCount === undefined) {
+	if (
+		input.unavailable ||
+		summary?.unreadUrgentUpdateCount === undefined ||
+		summary.unreadMentionCount === undefined ||
+		summary.ordinaryUnreadCount === undefined
+	) {
 		return {
 			count: null,
 			tone: null,

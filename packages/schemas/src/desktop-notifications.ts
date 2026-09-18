@@ -31,12 +31,23 @@ export const desktopNotificationTestSchema = z.strictObject({
   userId: z.string().min(1),
   soundEnabled: z.boolean(),
 });
+export const desktopInboxAttentionSchema = z.strictObject({
+  ordinaryUnreadCount: z.number().int().nonnegative().safe(),
+  unreadMentionCount: z.number().int().nonnegative().safe(),
+  unreadUrgentUpdateCount: z.number().int().nonnegative().safe(),
+  unresolvedActionCount: z.number().int().nonnegative().safe(),
+});
+export type DesktopInboxAttention = z.infer<typeof desktopInboxAttentionSchema>;
 export const desktopNotificationContextSchema = z
   .strictObject({
     userId: z.string().min(1),
     organizationId: z.string().min(1),
     enabled: z.boolean(),
     navigationKey: z.string().max(200).optional(),
+    attention: desktopInboxAttentionSchema.nullable().optional(),
+    // Accepted only for compatibility with an older renderer. It is not used
+    // as the native attention title because the scalar mixes quiet backlog
+    // with important work.
     unreadCount: z.number().int().nonnegative().safe().nullable().optional(),
     visibleConversation: inboxVisibleConversationSchema.nullable(),
   })

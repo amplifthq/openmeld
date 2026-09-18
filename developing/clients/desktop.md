@@ -117,16 +117,21 @@ notification confirms only native acknowledgement, not that a person saw it.
 Notifications continue when the window is hidden and end when the GUI quits;
 the independent Service has no notification responsibility.
 
-On macOS, the menu bar icon also shows the current Organization's canonical
-Inbox unread count from `totalUnreadCount`, capped visually at `99+`. Ordinary
-unread items contribute; read but unresolved actions do not. Zero or unknown
-counts show no number. This uses the shared summary query and existing native
-refresh cadence, independently of notification delivery permission. The trusted
-renderer supplies only a schema-validated count and account scope; Main verifies
-the native account before displaying it. Logout, account or Organization changes,
-and stale asynchronous results clear or reject the previous count. No separate
-Inbox store, Service polling, Dock badge, or Windows behavior is introduced.
-Tray creation applies the latest observed title even if the count arrived first.
+On macOS, the menu bar icon shows the current Organization's Core-owned Inbox
+attention presentation. Open actions/reviews and unread urgent updates combine
+as `!N`; unread Human mentions show as `@N`; ordinary unread shows only `•` when
+no stronger category exists. Each numeric category caps visually at `99+`, and
+the tooltip breaks out actions/reviews, urgent updates, mentions, and other
+unread updates. Muted ordinary conversation updates are absent without becoming
+read, while protected attention remains visible. Zero or unknown attention shows
+no title. This uses the shared summary query and existing native refresh cadence,
+independently of notification delivery permission. The trusted renderer supplies
+only a schema-validated categorized object and account scope; Main verifies the
+native account before displaying it. Logout, account or Organization changes,
+and stale asynchronous results clear or reject the previous attention. No
+separate Inbox store, Service polling, Dock badge, or Windows behavior is
+introduced. Tray creation applies the latest observed title even if attention
+arrived first.
 
 The A1 foundation is opt-in with `OPENMELD_DESKTOP_PILOT=1`. It requires a
 dev-local or canary lane and a configured loopback Web endpoint. Production

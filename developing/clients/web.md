@@ -993,9 +993,13 @@ post-onboarding destination. Inbox uses the full-width inset app surface without
 an empty secondary sidebar.
 
 The full page is also reached from the permanent bottom-right Inbox launcher's
-maximize action. The compact launcher preview reads the same Core list and
-summary, uses the same structured source mapping and read mutation, and owns no
-parallel unread state.
+maximize action. The full page, compact launcher preview, and shared attention
+indicators opt into Core's mute-aware attention presentation. Muted ordinary
+updates remain raw unread history; open actions/reviews, unread urgent updates,
+and unread structured Human mentions remain presented. The notification reader
+continues to use the raw list because delivery policy is evaluated separately.
+The compact preview reads the same Core list and summary, uses the same
+structured source mapping and read mutation, and owns no parallel unread state.
 
 The page provides **All**, **Unread**, **Needs action**, and permission-gated
 **Needs review** filters, an explicit **Mark all as read** action, and a
@@ -1007,7 +1011,8 @@ accessible read/unread and **Dismiss** actions. Dismiss optimistically removes
 the row and updates unread and attention counts, restores the exact prior cache
 on failure, and never changes source state. Dismissing a directly linked item
 also clears the item selector so Web does not present its deliberate removal as
-an availability error.
+an availability error. Mark all targets the same attention presentation, so
+hidden muted ordinary updates are not silently read.
 
 The optional `?item={itemId}` deep link reads that exact recipient-authorized
 Core item by ID, places it in the canonical **All** view when it is outside the
@@ -4507,6 +4512,28 @@ advancing the read watermark past them, and temporary progress cannot advance it
 After that dwell,
 the existing optimistic Inbox projection updates before the server write settles;
 failed writes retain the existing rollback and reconciliation path.
+Web freezes each main or Thread **New messages** divider at the first Core
+unread target observed for that visit and uses Core's complete unread count for
+the navigation shortcut. Shortcut dismissal records the current server summary
+cutoff locally; it hides that batch without acknowledging it and does not depend
+on viewport geometry. Thread targets open the exact reply instead of treating
+the root message as the destination.
+
+When the main conversation has unread targets, the existing latest-message
+control is also the explicit catch-up action. Web first reads a fresh Core Space
+Inbox summary to freeze the accepted main-timeline cutoff, then mounts the live
+tail and settles its scroll position before writing the main watermark through
+that exact occurrence time. The activation reserves its history-navigation
+revision before the summary read begins. A newer accepted history navigation,
+unmounted view, or changed Organization/Space identity abandons the activation
+before it can switch to the live tail or start the write, and discards its
+unused cutoff. The same activation never advances a Thread watermark or
+includes messages arriving after its cutoff; only an actual failed write keeps
+the original cutoff for retry. Visible-message and explicit writes share one per-scope
+serializer that coalesces queued higher watermarks, so an older invalidation
+cannot replace a newer optimistic projection. Failures retain the cutoff for
+retry and state that the user reached the latest messages but marking them read
+failed.
 Scroll events only check distance from the latest messages. Layout and preference
 writes happen at the endpoint change, never per animation frame. The viewport
 height changes once with a matching scroll offset to preserve the reading anchor.

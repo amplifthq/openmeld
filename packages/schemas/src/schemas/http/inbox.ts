@@ -26,10 +26,12 @@ export const inboxViewSchema = z.enum([
   "unread",
   "needs_action",
   "needs_review",
+  "mentions",
   "updates",
   "urgent_updates",
   "recent_updates",
 ]);
+export const inboxPresentationSchema = z.enum(["attention"]);
 export const inboxAttentionSchema = z.enum(["update", "action_required"]);
 export const inboxImportanceSchema = z.enum(["normal", "urgent"]);
 export const inboxResolutionStatusSchema = z.enum([
@@ -194,7 +196,12 @@ export const inboxItemSchema = inboxItemWireSchema.transform((item) => ({
 export const listInboxItemsQuerySchema = z.strictObject({
   cursor: z.string().trim().min(1).max(1024).optional(),
   limit: z.coerce.number().int().min(1).max(INBOX_LIST_MAX_LIMIT).optional(),
+  presentation: inboxPresentationSchema.optional(),
   view: inboxViewSchema.optional(),
+});
+
+export const inboxSummaryQuerySchema = z.strictObject({
+  presentation: inboxPresentationSchema.optional(),
 });
 
 export const listInboxItemsResponseSchema = z.strictObject({
@@ -215,6 +222,10 @@ export const inboxSummaryResponseSchema = z.strictObject({
   unresolvedActionCount: z.number().int().nonnegative(),
   // Absent during receiver-first rollout means unknown, never zero.
   unreadUrgentUpdateCount: z.number().int().nonnegative().optional(),
+  // Attention-presentation categories are disjoint. They are absent from
+  // legacy/raw summaries and required by consumers only after opt-in.
+  unreadMentionCount: z.number().int().nonnegative().optional(),
+  ordinaryUnreadCount: z.number().int().nonnegative().optional(),
 });
 
 export const centerAgentInboxSummaryResponseSchema = z.strictObject({
@@ -375,6 +386,10 @@ export const markAllInboxItemsReadResponseSchema = z.strictObject({
   markedReadCount: z.number().int().nonnegative(),
 });
 
+export const markAllInboxItemsReadQuerySchema = z.strictObject({
+  presentation: inboxPresentationSchema.optional(),
+});
+
 const inboxSourceCandidateWireSchema = z.strictObject({
   attention: inboxAttentionSchema,
   contextLabel: contextLabelSchema.nullable(),
@@ -408,6 +423,7 @@ export const listInboxItemsRpcInputSchema = listInboxItemsQuerySchema.extend({
 });
 export const getInboxSummaryRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
+  presentation: inboxPresentationSchema.optional(),
 });
 export const getCenterAgentInboxSummaryRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
@@ -444,6 +460,7 @@ export const markInboxItemReadRpcInputSchema =
   });
 export const markAllInboxItemsReadRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
+  presentation: inboxPresentationSchema.optional(),
 });
 export const getInboxNotificationPreferencesRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,

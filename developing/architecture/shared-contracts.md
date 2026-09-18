@@ -75,14 +75,15 @@ late native events cannot turn cancellation into delivery. Delivered alerts
 retain click-back across Organization switches; account invalidation clears all.
 This is a delivery permit, not account or Inbox authority; native
 session and recipient-authorized Core reads remain mandatory.
-The optional nullable `unreadCount` in the same context projects the existing
-Core Inbox summary's `totalUnreadCount` for the macOS menu bar. It includes
-ordinary unread items, not read unresolved actions, and is independent of delivery
-preferences. Main accepts only a bounded numeric value, checks native account
-identity, and rejects results after context or session invalidation; it never
-accepts arbitrary tray text. Zero and unknown counts hide the number. The
-existing native refresh signal refreshes the shared summary without introducing
-another polling owner or unread store.
+The optional nullable categorized `attention` object in the same context
+projects Core's mute-aware attention summary for the macOS menu bar. It carries
+ordinary unread, unread mention, unread urgent-update, and unresolved-action
+counts; native Main derives the bounded title and tooltip and never accepts
+arbitrary tray text. The deprecated nullable `unreadCount` remains accepted only
+for older matching renderers and is ignored by current Main. Account identity,
+context generation, and session invalidation fence late results. Unknown
+attention hides the title. The existing native refresh signal refreshes the
+shared summary without introducing another polling owner or unread store.
 These additions ship with the matching local renderer and require no cloud,
 CLI, Service, Wake or runtime contract change. Existing Desktop bundles retain
 their existing behavior; cloud rollout does not require a new Desktop floor.
@@ -1109,20 +1110,32 @@ Inbox summary version `1` adds `unreadUrgentUpdateCount`, disjoint from
 `unresolvedActionCount`. Core derives both from the same recipient/access-filtered
 query; clients never count a list page to reconstruct them. The additive field
 is optional only for receiver-first interoperability: absent means unknown.
-Current API clients send `x-openmeld-inbox-summary-version: 2`; Gateway keeps
-the urgent summary field for versions `1` and `2` and removes it for older strict clients,
+Current API clients send `x-openmeld-inbox-summary-version: 3`; Gateway keeps
+the urgent summary field for versions `1` through `3` and removes it for older strict clients,
 including already-open Web tabs. Version `2` also exposes `chatUnreadCount`,
 `chatUnresolvedActionCount`, `chatUnreadUrgentUpdateCount`, and grouped `attention`
 on Space summaries. These are recipient/access-filtered Core aggregates across
 all current DMs; the three totals do not inherit the unread grouped-row limit.
 Missing fields mean unknown, not zero. Gateway strips the four additions for
-older summary clients. The UI waits for known values without a Checking badge.
+older summary clients. Version `3` adds the opt-in `presentation=attention`
+list, summary, and mark-all projection plus `unreadMentionCount` and
+`ordinaryUnreadCount`. Core filters only muted ordinary conversation updates at
+read time; raw rows, read state, source truth, and delivery policy are unchanged.
+The `mentions` list view prevents older unread structured Human mentions from
+being displaced by recent ordinary updates. Gateway retains Space-summary
+version `2` conversation counts for old clients while version `3` adds only the
+Inbox attention fields. Only `presentation=attention` removes mentions from
+`recent_updates`; unversioned legacy/raw callers retain them because those
+clients do not query the separate `mentions` view. The UI waits for known values without a Checking badge.
 Deploy compatible Gateway first, Core second, and Web last. New Gateway accepts
 old Core output; new Web reports unknown if the field is absent. The new
 `urgent_updates` and `recent_updates` preview list views are available only after Core and Gateway support them;
 unsupported queries fail visibly, with no empty-list fallback. Rollback Web
-before Core, then Gateway; retain the compatible Gateway while Core emits the
-field. CLI, Service, Skills, setup, Wake and Space action contracts are unchanged.
+and Desktop before Core, then Gateway; retain the compatible Gateway while Core
+emits the fields. Receiver-first order is schemas/API and Gateway, then Core,
+then Web and the matching Desktop bundle. No database migration or local
+component epoch is required. CLI, Service, Skills, setup, Wake and Space action
+contracts are unchanged.
 
 Each client maps only supported targets to its canonical navigation surface.
 Unknown target kinds fail closed and remain visible without creating an
