@@ -77,7 +77,11 @@ it("passes paths and publisher as data to bounded system PowerShell, never inter
     maxBuffer: 16_384,
     windowsHide: true,
   });
-  expect(options?.env).not.toHaveProperty("PSMODULEPATH");
+  expect(
+    Object.keys(options?.env ?? {}).some(
+      (key) => key.toUpperCase() === "PSMODULEPATH"
+    )
+  ).toBe(false);
   const payload = JSON.parse(
     Buffer.from(
       options?.env.OPENMELD_SIGNATURE_REQUEST ?? "",

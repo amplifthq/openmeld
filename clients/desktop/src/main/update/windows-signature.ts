@@ -13,6 +13,9 @@ const VERIFY_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
+# Bind verification to this system PowerShell installation, not an inherited
+# PowerShell 7/user module with the same name.
+Import-Module -Name (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
 $r = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:OPENMELD_SIGNATURE_REQUEST)))
 $path = [IO.Path]::GetFullPath($r.path)
 $signature = Microsoft.PowerShell.Security\Get-AuthenticodeSignature -LiteralPath $path -ErrorAction Stop
