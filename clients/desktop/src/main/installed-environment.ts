@@ -44,7 +44,11 @@ export function installedCommandEnvironment(
       ? join(homedir(), ".openmeld")
       : (computer?.home ?? join(userData, "unconfigured-service"));
   return {
-    openMeldBin: join(home, "bin", "openmeld"),
+    // Windows uses the published npm distribution, discovered on PATH or from
+    // this lane's active Service bundle; no Mac binary path or Electron runtime.
+    ...(process.platform === "win32"
+      ? {}
+      : { openMeldBin: join(home, "bin", "openmeld") }),
     env: {
       ...env,
       OPENMELD_HOME: home,

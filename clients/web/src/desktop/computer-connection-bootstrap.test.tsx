@@ -33,8 +33,8 @@ vi.mock("node:child_process", async () => {
 	};
 	return { ...childProcess, default: childProcess };
 });
-vi.mock("../../../desktop/src/main/cli/managed-binary", () => ({
-	installManagedBinary: boundary.install,
+vi.mock("../../../desktop/src/main/cli/computer-tools", () => ({
+	installComputerTools: boundary.install,
 }));
 vi.mock("./platform", () => ({
 	getDesktopPlatform: () => ({
@@ -121,6 +121,7 @@ function mountConnection(failure: Error, configure?: () => void) {
 	boundary.install.mockImplementation(async () => {
 		await installation;
 		installed = true;
+		return "/test-owned/installed-tools/openmeld.js";
 	});
 	boundary.session.mockResolvedValue({ user });
 	boundary.refetchDirectory.mockResolvedValue({ isError: false });

@@ -44,7 +44,7 @@ describe("Windows Desktop command environment", () => {
       PRIVATE_SECRET: "not-forwarded",
     };
     try {
-      const { env } = installedCommandEnvironment(
+      const { env, openMeldBin } = installedCommandEnvironment(
         { kind: "production", webOrigin: "https://openmeld.ai" } as Parameters<
           typeof installedCommandEnvironment
         >[0],
@@ -57,6 +57,7 @@ describe("Windows Desktop command environment", () => {
         APPDATA: process.env.APPDATA,
         TEMP: "C:\\Temp",
       });
+      expect(openMeldBin).toBeUndefined(); // Windows must discover npm/JS, not a fixed Mac binary.
       expect(env).not.toHaveProperty("PRIVATE_SECRET");
     } finally {
       process.env = original;
