@@ -256,6 +256,14 @@ file-backed output. GUI exit does not stop it or the OS-managed Service. The
 existing Prepare continuation journal and maintenance worker retain recovery
 ownership. Completion requires CLI `setup.complete` and a completed Core Prepare
 snapshot; errors retain a shared local-machine action and diagnostic correlation.
+Main also retains the current native connection operation and its eventual
+result in memory for the signed-in account. A connection page opened after the
+operation started adopts that operation through bounded IPC observation; it
+never starts a second `connectComputer` call. Pending and settled events share
+the operation identity, while account changes, sign-out, and retired operation
+IDs reject late progress. A settled page refreshes the authoritative Computer
+projection before presenting success, and restoration of the previous account
+does not replace the original account-switch failure.
 
 The standalone connection page reads the same native account-aligned Computer
 projection as Working folder selection. A positive connection shows Connected
@@ -276,6 +284,9 @@ Connect can enroll this Mac again; Forget is never required for account switchin
 
 Setup progress comes from actual CLI agent-output stages. Percentages are shown
 only for a measured byte transfer, never for overall setup or a GUI deadline.
+Download byte observations are coalesced to a bounded UI cadence while stage
+changes and the final byte count remain immediate. Optional progress callbacks
+are isolated from download, verification, installation, and setup control.
 Failed setup retains its original subprocess error and any
 blocked Prepare step even if the final snapshot read fails. A private temporary
 diagnostic file retains the last 100 parsed events, with bounded, redacted

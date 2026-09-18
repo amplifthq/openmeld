@@ -2,8 +2,10 @@ import { join, resolve } from "node:path";
 import {
   DESKTOP_APP_ORIGIN,
   DESKTOP_AUTH_SCHEME,
+  type DesktopComputerConnectionOperation,
   type DesktopComputerConnectionProgress,
   type DesktopInstalledTarget,
+  desktopComputerConnectionRequestSchema,
   desktopInstalledTargetSchema,
   desktopPlatformSchema,
 } from "@openmeld/schemas";
@@ -219,6 +221,21 @@ export function initializeDesktopPilot(
       );
       let latestConnectionProgress: DesktopComputerConnectionProgress | null =
         null;
+      let latestConnectionOperation: DesktopComputerConnectionOperation | null =
+        null;
+      const publishConnectionOperation = (
+        operation: DesktopComputerConnectionOperation | null
+      ) => {
+        latestConnectionOperation = operation;
+        if (!operation) {
+          return;
+        }
+        const owner = getWindow()?.webContents;
+        if (owner && !owner.isDestroyed()) {
+          owner.send(PILOT_IPC.connectionOperation, operation);
+        }
+      };
+      const readLatestConnectionProgress = () => latestConnectionProgress;
       const handlers = {
         [PILOT_IPC.platform]: () => platform,
         [PILOT_IPC.localComputer]: readLocalComputer,
@@ -228,12 +245,14 @@ export function initializeDesktopPilot(
         },
         [PILOT_IPC.signIn]: () => {
           latestConnectionProgress = null;
+          latestConnectionOperation = null;
           notifications.clear();
           streams.closeAll();
           return auth.signIn();
         },
         [PILOT_IPC.signOut]: () => {
           latestConnectionProgress = null;
+          latestConnectionOperation = null;
           notifications.clear();
           streams.closeAll();
           return auth.signOut();
@@ -260,6 +279,17 @@ export function initializeDesktopPilot(
         },
         onProgress: (progress) => {
           latestConnectionProgress = progress;
+          if (
+            latestConnectionOperation?.status === "pending" &&
+            latestConnectionOperation.expectedAccount ===
+              progress.expectedAccount
+          ) {
+            publishConnectionOperation({
+              ...latestConnectionOperation,
+              operationId: progress.operationId,
+              progress,
+            });
+          }
           const owner = getWindow()?.webContents;
           if (owner && !owner.isDestroyed()) {
             owner.send(PILOT_IPC.connectionProgress, progress);
@@ -289,13 +319,59 @@ export function initializeDesktopPilot(
           return disconnectComputer(request);
         }
       );
-      ipcMain.handle(PILOT_IPC.connectComputer, (event, request: unknown) => {
-        authorize(event);
-        return connectComputer(request);
-      });
+      ipcMain.handle(
+        PILOT_IPC.connectComputer,
+        async (event, request: unknown) => {
+          authorize(event);
+          const intent = desktopComputerConnectionRequestSchema.parse(request);
+          if (latestConnectionOperation?.status === "pending") {
+            throw new Error("A computer connection is already in progress.");
+          }
+          latestConnectionProgress = null;
+          publishConnectionOperation({
+            expectedAccount: intent.expectedAccount,
+            operationId: null,
+            status: "pending",
+            progress: null,
+            result: null,
+            errorMessage: null,
+          });
+          try {
+            const result = await connectComputer(intent);
+            const settledProgress = readLatestConnectionProgress();
+            publishConnectionOperation({
+              expectedAccount: intent.expectedAccount,
+              operationId: settledProgress?.operationId ?? null,
+              status: "settled",
+              progress: settledProgress,
+              result,
+              errorMessage: null,
+            });
+            return result;
+          } catch (error) {
+            const settledProgress = readLatestConnectionProgress();
+            publishConnectionOperation({
+              expectedAccount: intent.expectedAccount,
+              operationId: settledProgress?.operationId ?? null,
+              status: "settled",
+              progress: settledProgress,
+              result: null,
+              errorMessage:
+                error instanceof Error && error.message.trim()
+                  ? error.message.trim()
+                  : "This computer could not connect. Try again.",
+            });
+            throw error;
+          }
+        }
+      );
       ipcMain.handle(PILOT_IPC.connectionProgressCurrent, (event) => {
         authorize(event);
         return latestConnectionProgress;
+      });
+      ipcMain.handle(PILOT_IPC.connectionOperationCurrent, (event) => {
+        authorize(event);
+        return latestConnectionOperation;
       });
       for (const [channel, handler] of Object.entries(handlers)) {
         ipcMain.handle(channel, (event) => {

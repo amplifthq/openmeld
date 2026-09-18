@@ -23,7 +23,9 @@ const state = vi.hoisted(() => ({
 	}),
 	disconnect: vi.fn().mockResolvedValue(false),
 	currentProgress: vi.fn().mockResolvedValue(null),
+	currentOperation: vi.fn().mockResolvedValue(null),
 	progressHandler: null as ((event: unknown) => void) | null,
+	operationHandler: null as ((event: unknown) => void) | null,
 	account: "account-a",
 }));
 vi.mock("./platform", () => ({
@@ -31,11 +33,18 @@ vi.mock("./platform", () => ({
 		connectComputer: state.connect,
 		disconnectComputer: state.disconnect,
 		connectionProgressCurrent: state.currentProgress,
+		connectionOperationCurrent: state.currentOperation,
 		localComputer: state.localComputer,
 		onConnectionProgress: (handler: (event: unknown) => void) => {
 			state.progressHandler = handler;
 			return () => {
 				state.progressHandler = null;
+			};
+		},
+		onConnectionOperation: (handler: (event: unknown) => void) => {
+			state.operationHandler = handler;
+			return () => {
+				state.operationHandler = null;
 			};
 		},
 	}),
@@ -57,7 +66,9 @@ afterEach(() => {
 	vi.clearAllMocks();
 	state.account = "account-a";
 	state.currentProgress.mockResolvedValue(null);
+	state.currentOperation.mockResolvedValue(null);
 	state.progressHandler = null;
+	state.operationHandler = null;
 	state.localComputer.mockResolvedValue({
 		status: "unavailable",
 		message: "Connect this computer.",
@@ -130,6 +141,88 @@ it("opens Web on the exact Desktop-created Prepare Session", async () => {
 			"/o/org-a/connect?observePrepareSessionId=prepare-desktop-1"
 		)
 	);
+});
+
+it.each([
+	{
+		label: "completion",
+		result: {
+			status: "reused",
+			connection: { deviceId: "device-a", runtimeLane: "prod" },
+		},
+		expected: "Using the existing connection.",
+	},
+	{
+		label: "failure",
+		result: {
+			status: "failed",
+			message: "The account switch failed.",
+			diagnosticId: "diagnostic-a",
+		},
+		expected: "The account switch failed.",
+	},
+	{
+		label: "cancellation",
+		result: { status: "cancelled" },
+		expected: "Connection unchanged.",
+	},
+])("adopts $label from the existing main-process operation after remount", async ({
+	result,
+	expected,
+}) => {
+	const pending = desktopOperation({ status: "pending" });
+	state.currentOperation.mockResolvedValue(pending);
+	const first = renderConnection(<DesktopComputerConnection />);
+	await waitFor(() =>
+		expect(
+			screen
+				.getByRole("button", { name: "Connecting…" })
+				.hasAttribute("disabled")
+		).toBe(true)
+	);
+	first.unmount();
+
+	renderConnection(<DesktopComputerConnection />);
+	await waitFor(() => expect(state.operationHandler).not.toBeNull());
+	const settled = desktopOperation({ status: "settled", result });
+	state.currentOperation.mockResolvedValue(settled);
+	state.operationHandler?.(settled);
+
+	expect(await screen.findByText(expected)).toBeTruthy();
+	const buttonName =
+		result.status === "failed" ? "Try again" : "Connect this Mac";
+	await waitFor(() =>
+		expect(
+			screen.getByRole("button", { name: buttonName }).hasAttribute("disabled")
+		).toBe(false)
+	);
+	expect(state.connect).not.toHaveBeenCalled();
+});
+
+it("does not let late active progress reopen a settled adopted operation", async () => {
+	state.currentOperation.mockResolvedValue(
+		desktopOperation({ status: "pending" })
+	);
+	renderConnection(<DesktopComputerConnection />);
+	await waitFor(() => expect(state.operationHandler).not.toBeNull());
+	const settled = desktopOperation({
+		status: "settled",
+		result: { status: "cancelled" },
+	});
+	state.currentOperation.mockResolvedValue(settled);
+	state.operationHandler?.(settled);
+	await screen.findByText("Connection unchanged.");
+
+	state.progressHandler?.(connectionProgress(99));
+
+	await waitFor(() =>
+		expect(
+			screen
+				.getByRole("button", { name: "Connect this Mac" })
+				.hasAttribute("disabled")
+		).toBe(false)
+	);
+	expect(state.connect).not.toHaveBeenCalled();
 });
 
 it.each([
@@ -226,6 +319,36 @@ function renderConnection(
 			<QueryClientProvider client={client}>{children}</QueryClientProvider>
 		),
 	});
+}
+
+function connectionProgress(sequence = 1) {
+	return {
+		schemaVersion: 1 as const,
+		expectedAccount: "account-a",
+		operationId: "operation-adopted",
+		attemptId: "attempt-adopted",
+		prepareSessionId: "prepare-adopted",
+		sequence,
+		startedAt: "2026-09-17T00:00:00.000Z",
+		observedAt: "2026-09-17T00:00:01.000Z",
+		phase: "connecting_service" as const,
+		state: "active" as const,
+		code: "desktop.connection.connecting_service",
+	};
+}
+
+function desktopOperation(input: {
+	status: "pending" | "settled";
+	result?: unknown;
+}) {
+	return {
+		expectedAccount: "account-a",
+		operationId: "operation-adopted",
+		status: input.status,
+		progress: connectionProgress(),
+		result: input.result ?? null,
+		errorMessage: null,
+	};
 }
 
 it.each([

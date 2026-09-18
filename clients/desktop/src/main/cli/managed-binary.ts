@@ -22,6 +22,56 @@ export async function installManagedBinary(
     onStage?: (stage: "downloading" | "verifying" | "installing") => void;
   } = {}
 ) {
+  const reportStage = (stage: "downloading" | "verifying" | "installing") => {
+    try {
+      observation.onStage?.(stage);
+    } catch {
+      // Optional UI observation never controls installation.
+    }
+  };
+  let pendingDownloadProgress: CliBinaryDownloadProgress | null = null;
+  let progressTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastProgressAt = 0;
+  const emitDownloadProgress = (progress: CliBinaryDownloadProgress) => {
+    lastProgressAt = Date.now();
+    try {
+      observation.onDownloadProgress?.(progress);
+    } catch {
+      // Optional UI observation never controls the artifact reader.
+    }
+  };
+  const flushDownloadProgress = () => {
+    if (progressTimer) {
+      clearTimeout(progressTimer);
+      progressTimer = null;
+    }
+    if (pendingDownloadProgress) {
+      const progress = pendingDownloadProgress;
+      pendingDownloadProgress = null;
+      emitDownloadProgress(progress);
+    }
+  };
+  const reportDownloadProgress = (progress: CliBinaryDownloadProgress) => {
+    const now = Date.now();
+    if (
+      lastProgressAt === 0 ||
+      now - lastProgressAt >= 350 ||
+      progress.receivedBytes >= progress.totalBytes
+    ) {
+      pendingDownloadProgress = null;
+      if (progressTimer) {
+        clearTimeout(progressTimer);
+        progressTimer = null;
+      }
+      emitDownloadProgress(progress);
+      return;
+    }
+    pendingDownloadProgress = progress;
+    progressTimer ??= setTimeout(
+      flushDownloadProgress,
+      350 - (now - lastProgressAt)
+    );
+  };
   if (process.platform !== "darwin" || process.arch !== "arm64") {
     throw new Error("Connecting this computer requires an Apple silicon Mac.");
   }
@@ -52,24 +102,29 @@ export async function installManagedBinary(
   if (new URL(plan.downloadUrl).origin !== manifestUrl.origin) {
     throw new Error("OpenMeld Tools returned an unexpected download location.");
   }
-  observation.onStage?.("downloading");
-  const bytes = await downloadCliBinaryUpdateArtifact({
-    downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
-    fetchImpl: (input, init) => fetch(input, { ...init, redirect: "error" }),
-    onDeltaFallback: () => {
-      /* A new installation always uses the complete artifact. */
-    },
-    onProgress: observation.onDownloadProgress,
-    plan,
-    release,
-  });
+  reportStage("downloading");
+  let bytes: Uint8Array;
+  try {
+    bytes = await downloadCliBinaryUpdateArtifact({
+      downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
+      fetchImpl: (input, init) => fetch(input, { ...init, redirect: "error" }),
+      onDeltaFallback: () => {
+        /* A new installation always uses the complete artifact. */
+      },
+      onProgress: reportDownloadProgress,
+      plan,
+      release,
+    });
+  } finally {
+    flushDownloadProgress();
+  }
   const temporary = await mkdtemp(join(tmpdir(), "openmeld-desktop-install-"));
   const artifactPath = join(temporary, "openmeld");
   const exec = promisify(execFile);
   try {
     await writeFile(artifactPath, bytes, { mode: 0o700 });
     await chmod(artifactPath, 0o700);
-    observation.onStage?.("verifying");
+    reportStage("verifying");
     await verifyCliBinaryCodeSignature({
       artifactPath,
       release,
@@ -87,13 +142,16 @@ export async function installManagedBinary(
       },
     });
     // No npm, shell, or GUI-owned Service installation. Never force a downgrade.
-    observation.onStage?.("installing");
+    reportStage("installing");
     await exec(artifactPath, ["install-self", "--json"], {
       env: deps.env,
       timeout: 0,
       maxBuffer: 1024 * 1024,
     });
   } finally {
+    if (progressTimer) {
+      clearTimeout(progressTimer);
+    }
     await rm(temporary, { recursive: true, force: true });
   }
 }

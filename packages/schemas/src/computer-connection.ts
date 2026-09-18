@@ -1,5 +1,8 @@
 import * as z from "zod/v4";
-import { computerConnectionProgressObservationSchema } from "./computer-connection-progress";
+import {
+  computerConnectionProgressObservationSchema,
+  computerConnectionProgressPhaseSchema,
+} from "./computer-connection-progress";
 import {
   createPrepareSessionRequestSchema,
   prepareSessionSnapshotSchema,
@@ -21,7 +24,12 @@ const computerSetupVerboseOutputSchema = z.object({
   code: z.string().min(1).max(256),
   text: z.string().optional(),
   message: z.string().optional(),
-  data: z.object({ state: z.string().optional() }).optional(),
+  data: z
+    .object({
+      state: z.string().optional(),
+      phase: computerConnectionProgressPhaseSchema.optional(),
+    })
+    .optional(),
 });
 
 // Both envelopes are emitted by the CLI's existing Agent View presenter.
@@ -43,6 +51,7 @@ export const computerSetupOutputSchema = z.union([
       data: event.d,
     })),
 ]);
+export type ComputerSetupOutput = z.infer<typeof computerSetupOutputSchema>;
 
 export const desktopComputerConnectionProgressSchema =
   computerConnectionProgressObservationSchema.extend({
@@ -115,4 +124,16 @@ export type DesktopComputerConnectionRequest = z.infer<
 >;
 export type DesktopComputerConnectionResult = z.infer<
   typeof desktopComputerConnectionResultSchema
+>;
+
+export const desktopComputerConnectionOperationSchema = z.strictObject({
+  expectedAccount: computerConnectionIntentSchema.shape.expectedAccount,
+  operationId: z.string().min(1).max(128).nullable(),
+  status: z.enum(["pending", "settled"]),
+  progress: desktopComputerConnectionProgressSchema.nullable(),
+  result: desktopComputerConnectionResultSchema.nullable(),
+  errorMessage: z.string().min(1).max(4096).nullable(),
+});
+export type DesktopComputerConnectionOperation = z.infer<
+  typeof desktopComputerConnectionOperationSchema
 >;

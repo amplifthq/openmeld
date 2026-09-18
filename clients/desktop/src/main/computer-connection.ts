@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { createComputerAuthorizationGrant } from "@openmeld/api-client";
 import {
+  type ComputerSetupOutput,
   computerConnectionReviewSchema,
   computerSetupOutputSchema,
   DESKTOP_APP_ORIGIN,
@@ -198,8 +199,11 @@ export function createComputerConnection(input: {
                     if (input.sessionRevision?.() !== sessionRevision) {
                       return;
                     }
-                    const phase = phaseForSetupEvent(event.code);
-                    observe(phase, event.code, { detail: event.message });
+                    const phase = phaseForSetupEvent(event);
+                    observe(phase, event.code, {
+                      detail: event.message,
+                      state: event.state,
+                    });
                   },
                 }
               ),
@@ -483,22 +487,22 @@ async function reviewComputerConnection(
   }
 }
 
-function phaseForSetupEvent(
-  code: string
-): DesktopComputerConnectionProgress["phase"] {
-  if (code.includes("restore") || code.includes("rollback")) {
-    return "restoring";
+function phaseForSetupEvent(event: {
+  code: string;
+  phase?: DesktopComputerConnectionProgress["phase"];
+}): DesktopComputerConnectionProgress["phase"] {
+  if (event.phase) {
+    return event.phase;
   }
-  if (
-    code.includes("controlled_shutdown_draining") ||
-    code.includes("stop_or_drain")
-  ) {
-    return "waiting_for_current_work";
-  }
-  if (code.includes("confirm") || code.includes("complete")) {
-    return "confirming";
-  }
-  return "connecting_service";
+  const legacyPhaseByCode: Record<
+    string,
+    DesktopComputerConnectionProgress["phase"]
+  > = {
+    "prepare.session.progress.refresh_service": "connecting_service",
+    "prepare.session.progress.report_runtime": "confirming",
+    "prepare.session.progress.verify_setup": "confirming",
+  };
+  return legacyPhaseByCode[event.code] ?? "connecting_service";
 }
 
 export async function runConnectionSetup(
@@ -510,6 +514,8 @@ export async function runConnectionSetup(
     onProgress?(progress: {
       code: string;
       message: string;
+      phase?: DesktopComputerConnectionProgress["phase"];
+      state?: DesktopComputerConnectionProgress["state"];
     }): void | Promise<void>;
   } = {}
 ) {
@@ -546,40 +552,37 @@ export async function runConnectionSetup(
   let completed = false;
   let failure: string | null = null;
   const acceptLine = (line: string) => {
-    let raw: unknown;
-    try {
-      raw = JSON.parse(line);
-    } catch {
+    const parsedLine = parseComputerSetupOutputLine(line);
+    if (parsedLine.kind === "unstructured") {
       // Native startup failures can precede the CLI's structured presenter.
       // Preserve their redacted text as diagnostics, never as progress/state.
       remember({ code: "process.output", message: redact(line.trim()) });
       return;
     }
-    const parsed = computerSetupOutputSchema.safeParse(raw);
-    if (!parsed.success) {
+    if (parsedLine.kind === "ignored") {
       return;
     }
-    const event = parsed.data;
+    const { event, raw } = parsedLine;
     if (event.code === (options.completedEvent ?? "setup.complete")) {
       completed = true;
     }
     const issue = localMachineIssueAgentEventSchema.safeParse(raw);
-    const message = redact(
-      issue.success ? issue.data.message : (event.message ?? event.text ?? "")
-    );
+    const message = redact(resolveSetupEventMessage(event, issue));
     if (!message) {
       return;
     }
-    const item = { code: event.code, message };
+    const progressState = resolveSetupProgressState(event.data?.state);
+    const item = {
+      code: event.code,
+      message,
+      ...(event.data?.phase ? { phase: event.data.phase } : {}),
+      ...(progressState ? { state: progressState } : {}),
+    };
     remember(item);
-    if (
-      issue.success ||
-      event.type === "error" ||
-      event.data?.state === "failed"
-    ) {
+    if (isSetupFailure(event, issue.success)) {
       failure = message;
     }
-    if (event.data?.state || event.type === "error") {
+    if (isObservableSetupEvent(event)) {
       // A slow or failed observer cannot consume output or change CLI success.
       Promise.resolve()
         .then(() => options.onProgress?.(item))
@@ -663,6 +666,55 @@ export async function runConnectionSetup(
       await rm(directory, { recursive: true, force: true });
     }
   }
+}
+
+function resolveSetupEventMessage(
+  event: ComputerSetupOutput,
+  issue: ReturnType<typeof localMachineIssueAgentEventSchema.safeParse>
+) {
+  return issue.success
+    ? issue.data.message
+    : (event.message ?? event.text ?? "");
+}
+
+function isSetupFailure(event: ComputerSetupOutput, isMachineIssue: boolean) {
+  return (
+    isMachineIssue || event.type === "error" || event.data?.state === "failed"
+  );
+}
+
+function isObservableSetupEvent(event: ComputerSetupOutput) {
+  return Boolean(event.data?.state) || event.type === "error";
+}
+
+function parseComputerSetupOutputLine(
+  line: string
+):
+  | { kind: "event"; event: ComputerSetupOutput; raw: unknown }
+  | { kind: "ignored" }
+  | { kind: "unstructured" } {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(line);
+  } catch {
+    return { kind: "unstructured" };
+  }
+  const parsed = computerSetupOutputSchema.safeParse(raw);
+  return parsed.success
+    ? { kind: "event", event: parsed.data, raw }
+    : { kind: "ignored" };
+}
+
+function resolveSetupProgressState(
+  state: string | undefined
+): DesktopComputerConnectionProgress["state"] | undefined {
+  if (state === "started" || state === "active") {
+    return "active";
+  }
+  if (state === "completed" || state === "failed") {
+    return state;
+  }
+  return undefined;
 }
 
 class ComputerOperationError extends Error {

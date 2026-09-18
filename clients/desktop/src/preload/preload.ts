@@ -1,5 +1,6 @@
 import {
   type DesktopNotificationActivation,
+  desktopComputerConnectionOperationSchema,
   desktopComputerConnectionProgressSchema,
   desktopNotificationActivationSchema,
   desktopSpaceStreamEventSchema,
@@ -171,6 +172,14 @@ contextBridge.exposeInMainWorld("openmeldDesktop", {
       .safeParse(await ipcRenderer.invoke(PILOT_IPC.connectionProgressCurrent));
     return parsed.success ? parsed.data : null;
   },
+  connectionOperationCurrent: async () => {
+    const parsed = desktopComputerConnectionOperationSchema
+      .nullable()
+      .safeParse(
+        await ipcRenderer.invoke(PILOT_IPC.connectionOperationCurrent)
+      );
+    return parsed.success ? parsed.data : null;
+  },
   onConnectionProgress: (handler) => {
     const listener = (_event: IpcRendererEvent, value: unknown) => {
       const parsed = desktopComputerConnectionProgressSchema.safeParse(value);
@@ -181,6 +190,17 @@ contextBridge.exposeInMainWorld("openmeldDesktop", {
     ipcRenderer.on(PILOT_IPC.connectionProgress, listener);
     return () =>
       ipcRenderer.removeListener(PILOT_IPC.connectionProgress, listener);
+  },
+  onConnectionOperation: (handler) => {
+    const listener = (_event: IpcRendererEvent, value: unknown) => {
+      const parsed = desktopComputerConnectionOperationSchema.safeParse(value);
+      if (parsed.success) {
+        handler(parsed.data);
+      }
+    };
+    ipcRenderer.on(PILOT_IPC.connectionOperation, listener);
+    return () =>
+      ipcRenderer.removeListener(PILOT_IPC.connectionOperation, listener);
   },
   onSessionChanged: (handler) => {
     const listener = () => handler();

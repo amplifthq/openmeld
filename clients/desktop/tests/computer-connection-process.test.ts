@@ -61,6 +61,60 @@ describe("computer setup process outcome", () => {
       await rm(home, { recursive: true, force: true });
     }
   });
+
+  it("parses structured rollback recovery without turning restoration into setup success", async () => {
+    const home = await mkdtemp(join(tmpdir(), "desktop-recovery-test-"));
+    const marker = join(home, "continue");
+    let diagnosticDirectory: string | undefined;
+    try {
+      const progress: Array<{ code: string; phase?: string; state?: string }> =
+        [];
+      const result = runConnectionSetup(
+        process.execPath,
+        [
+          "-e",
+          `
+		const fs = require('node:fs');
+		fs.watch(${JSON.stringify(home)}, () => {
+			if (!fs.existsSync(${JSON.stringify(marker)})) return;
+			console.log(JSON.stringify({type:'line',code:'setup.computer_handoff_recovery.completed',text:'Restored the previous computer connection.',data:{phase:'restoring',state:'completed'}}));
+			console.log(JSON.stringify({type:'error',code:'setup.failed',message:'The account switch failed.',data:{state:'failed'}}));
+			process.exit(1);
+		});
+		console.log(JSON.stringify({type:'line',code:'setup.computer_handoff_recovery.started',text:'Restoring the previous computer connection.',data:{phase:'restoring',state:'active'}}));
+	`,
+        ],
+        { ...process.env, OPENMELD_HOME: home },
+        {
+          onProgress: async (event) => {
+            progress.push(event);
+            if (event.code === "setup.computer_handoff_recovery.started") {
+              await writeFile(marker, "continue");
+            }
+          },
+        }
+      );
+      const error = await result.catch(
+        (failure: Error & { diagnosticsPath: string }) => failure
+      );
+      expect(progress).toContainEqual(
+        expect.objectContaining({
+          code: "setup.computer_handoff_recovery.started",
+          phase: "restoring",
+          state: "active",
+        })
+      );
+      expect(error).toMatchObject({ message: "The account switch failed." });
+      if (error) {
+        diagnosticDirectory = dirname(error.diagnosticsPath);
+      }
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      if (diagnosticDirectory) {
+        await rm(diagnosticDirectory, { recursive: true, force: true });
+      }
+    }
+  });
   it.each([
     { code: 0, event: "setup.complete", succeeds: true },
     { code: 1, event: "setup.complete", succeeds: false },

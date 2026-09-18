@@ -1,4 +1,5 @@
 import {
+	type DesktopComputerConnectionOperation,
 	type DesktopComputerConnectionProgress,
 	desktopComputerConnectionResultSchema,
 } from "@openmeld/schemas";
@@ -40,6 +41,51 @@ type ComputerConnectionProps = {
 	onContinue?: () => void;
 };
 
+async function applyAdoptedConnectionSettlement(input: {
+	connectionRefetch(): Promise<unknown>;
+	isActive(): boolean;
+	localRuntimesRefetch(): Promise<unknown>;
+	onCompleted?: ComputerConnectionProps["onCompleted"];
+	onContinue?: ComputerConnectionProps["onContinue"];
+	operationState: DesktopComputerConnectionOperation;
+	setDiagnosticId(value: string | null): void;
+	setDiagnosticsPath(value: string | null): void;
+	setFailed(value: boolean): void;
+	setMessage(value: string | null): void;
+}) {
+	if (input.operationState.errorMessage) {
+		input.setFailed(true);
+		input.setMessage(input.operationState.errorMessage);
+		return;
+	}
+	const result = input.operationState.result;
+	if (!result) {
+		return;
+	}
+	if (result.status === "cancelled") {
+		input.setMessage("Connection unchanged.");
+		return;
+	}
+	if (result.status === "failed") {
+		input.setFailed(true);
+		input.setMessage(result.message);
+		input.setDiagnosticId(result.diagnosticId);
+		input.setDiagnosticsPath(result.diagnosticsPath ?? null);
+		return;
+	}
+	await Promise.all([input.localRuntimesRefetch(), input.connectionRefetch()]);
+	if (!input.isActive()) {
+		return;
+	}
+	input.onCompleted?.(
+		result.status === "completed" ? result.snapshot : result.connection
+	);
+	input.setMessage(
+		result.status === "completed" ? null : "Using the existing connection."
+	);
+	input.onContinue?.();
+}
+
 export function DesktopComputerConnection(input: ComputerConnectionProps) {
 	const { routeIntent } = useBringAgentsSetupContext();
 	const account = useAuthSession().data?.user.id;
@@ -73,6 +119,9 @@ function useComputerConnection(input: ComputerConnectionProps) {
 	const [diagnosticsPath, setDiagnosticsPath] = useState<string | null>(null);
 	const [progress, setProgress] =
 		useState<DesktopComputerConnectionProgress | null>(null);
+	const progressRef = useRef<DesktopComputerConnectionProgress | null>(null);
+	const ownedConnectRef = useRef(false);
+	const settledOperationIdsRef = useRef(new Set<string>());
 	const expectedAccount = session.data?.user.id;
 	const intent = setup.routeIntent;
 	const connected =
@@ -86,34 +135,113 @@ function useComputerConnection(input: ComputerConnectionProps) {
 		if (!desktop) {
 			return;
 		}
-		const accept = (event: DesktopComputerConnectionProgress) => {
-			if (event.expectedAccount !== expectedAccount) {
+		const accept = (event: DesktopComputerConnectionProgress): boolean => {
+			if (
+				event.expectedAccount !== expectedAccount ||
+				settledOperationIdsRef.current.has(event.operationId) ||
+				!isNewerComputerConnectionProgress(progressRef.current, event)
+			) {
+				return false;
+			}
+			progressRef.current = event;
+			setProgress(event);
+			return true;
+		};
+		const settleAdoptedOperation = async (
+			operationState: DesktopComputerConnectionOperation
+		) => {
+			if (
+				ownedConnectRef.current ||
+				operationState.expectedAccount !== expectedAccount ||
+				operationState.status !== "settled" ||
+				!active.current
+			) {
 				return;
 			}
-			setProgress((current) =>
-				isNewerComputerConnectionProgress(current, event) ? event : current
-			);
-			if (event.state === "active") {
-				setOperation("connect");
+			if (operationState.operationId) {
+				settledOperationIdsRef.current.add(operationState.operationId);
 			}
+			if (operationState.progress) {
+				const finalProgress =
+					operationState.progress.state === "active"
+						? null
+						: operationState.progress;
+				progressRef.current = finalProgress;
+				setProgress(finalProgress);
+			}
+			setOperation(null);
+			await applyAdoptedConnectionSettlement({
+				connectionRefetch: connection.refetch,
+				isActive: () => active.current,
+				localRuntimesRefetch: setup.localRuntimesQuery.refetch,
+				onCompleted: input.onCompleted,
+				onContinue: input.onContinue,
+				operationState,
+				setDiagnosticId,
+				setDiagnosticsPath,
+				setFailed,
+				setMessage,
+			});
 		};
-		desktop.connectionProgressCurrent().then((event) => {
-			if (event?.state === "active" && active.current) {
-				accept(event);
+		const acceptOperation = (
+			operationState: DesktopComputerConnectionOperation
+		) => {
+			if (operationState.expectedAccount !== expectedAccount) {
+				return;
+			}
+			if (operationState.status === "pending") {
+				if (operationState.progress) {
+					accept(operationState.progress);
+				}
+				if (!ownedConnectRef.current) {
+					setOperation("connect");
+				}
+				return;
+			}
+			settleAdoptedOperation(operationState).catch((error: unknown) => {
+				if (!active.current) {
+					return;
+				}
+				setFailed(true);
+				setMessage(
+					formatDesktopError(
+						error,
+						"This computer could not confirm its connection. Try again."
+					)
+				);
+				setOperation(null);
+			});
+		};
+		desktop.connectionOperationCurrent().then((operationState) => {
+			if (operationState && active.current) {
+				acceptOperation(operationState);
 			}
 		});
-		return desktop.onConnectionProgress(accept);
-	}, [expectedAccount]);
+		const stopProgress = desktop.onConnectionProgress(accept);
+		const stopOperation = desktop.onConnectionOperation(acceptOperation);
+		return () => {
+			stopProgress();
+			stopOperation();
+		};
+	}, [
+		connection.refetch,
+		expectedAccount,
+		input.onCompleted,
+		input.onContinue,
+		setup.localRuntimesQuery.refetch,
+	]);
 	const connect = async () => {
 		const desktop = getDesktopPlatform();
 		if (!(desktop && expectedAccount)) {
 			return;
 		}
 		setOperation("connect");
+		ownedConnectRef.current = true;
 		setFailed(false);
 		setDiagnosticId(null);
 		setDiagnosticsPath(null);
 		setProgress(null);
+		progressRef.current = null;
 		setMessage(null);
 		try {
 			const result = desktopComputerConnectionResultSchema.parse(
@@ -158,6 +286,7 @@ function useComputerConnection(input: ComputerConnectionProps) {
 				formatDesktopError(error, "This computer could not connect. Try again.")
 			);
 		} finally {
+			ownedConnectRef.current = false;
 			setOperation(null);
 		}
 	};
