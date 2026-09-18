@@ -1,5 +1,19 @@
 # Inbox
 
+## Agent Context
+
+- Purpose: Define OpenMeld's workspace Inbox, attention model, item lifecycle,
+  delivery channels, first-release source coverage, and product boundaries.
+- Read this when: You are changing Inbox items, unread or attention counts,
+  Inbox delivery, notification preferences, browser notifications, urgent email,
+  or a product source that creates or resolves an Inbox item.
+- Update this when: Inbox scope, classification, lifecycle, delivery policy,
+  source coverage, navigation, or ownership changes.
+- Do not use this for: Source-domain business truth, Agent Task execution,
+  Feedback Issue storage, Space message storage, or provider-specific messaging.
+- Source of truth: This file owns the Inbox product model. Source owner documents
+  remain authoritative for the work or event represented by an Inbox item.
+
 ## Attention feed and frozen selections
 
 Permission and plan-review requests are ordinary Needs review items; questions
@@ -85,21 +99,6 @@ and rechecks current authorization. Later messages, delayed outbox deliveries,
 and formerly hidden muted history cannot be accidentally cleared. These bulk
 operations do not advance a conversation viewport watermark or close a request.
 Counts describe canonical items rather than the number of grouped rows.
-
-## Agent Context
-
-- Purpose: Define OpenMeld's workspace Inbox, attention model, item lifecycle,
-  delivery channels, first-release source coverage, and product boundaries.
-- Read this when: You are changing Inbox items, unread or attention counts,
-  Inbox delivery, notification preferences, browser notifications, urgent email,
-  or a product source that creates or resolves an Inbox item.
-- Update this when: Inbox scope, classification, lifecycle, delivery policy,
-  source coverage, navigation, or ownership changes.
-- Do not use this for: Source-domain business truth, Agent Task execution,
- Feedback Issue storage, Space message storage, or
-  provider-specific messaging.
-- Source of truth: This file owns the Inbox product model. Source owner documents
-  remain authoritative for the work or event represented by an Inbox item.
 
 ## Product promise
 
