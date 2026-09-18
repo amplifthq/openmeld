@@ -1,10 +1,10 @@
 "use client";
 
 import type {
+	InboxFeedCategory,
+	InboxFeedCounts,
 	InboxItem,
-	InboxSummaryResponse,
-	InboxView,
-	MarkAllInboxItemsReadResponse,
+	MutateInboxFeedBody,
 } from "@openmeld/schemas/types";
 import {
 	AlertDialog,
@@ -22,40 +22,30 @@ import {
 	TabsSubtleItem,
 	TabsSubtlePanel,
 } from "@openmeld/ui/fluid/tabs-subtle";
-import {
-	useInfiniteQuery,
-	useMutation,
-	useQuery,
-	useQueryClient,
-} from "@tanstack/react-query";
+import { RobotIcon } from "@phosphor-icons/react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AppPageHeader } from "#/components/app/app-page-header";
-import { isInboxReview } from "#/lib/inbox/review";
-import {
-	type InboxFailure,
-	markAllCurrentInboxItemsRead,
-} from "#/lib/organizations/inbox";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { inboxItemQueryOptions } from "#/query/organizations/inbox";
 import {
-	inboxItemQueryOptions,
-	inboxItemsInfiniteQueryOptions,
-	inboxQueryKeys,
-	inboxSummaryQueryOptions,
-	invalidateInboxFacts,
-} from "#/query/organizations/inbox";
-import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
+	useMutateOrganizationInboxFeed,
+	useOrganizationInboxFeed,
+} from "#/query/organizations/inbox-feed";
 import {
-	captureInboxCacheSnapshots,
-	type InboxCacheSnapshots,
-	restoreInboxCacheSnapshots,
-	updateAllCachedInboxItems,
-} from "./inbox-page-cache";
+	InboxFeedView,
+	resolveInboxFeedLoadMoreState,
+} from "./inbox-feed-view";
+import { InboxItemsList } from "./inbox-list";
 import {
+	InboxEmptyState,
+	InboxInfiniteScrollTrigger,
+	InboxInitialError,
 	InboxItemLookupWarning,
+	InboxListSkeleton,
 	InboxRefreshWarning,
-	InboxViewContent,
 } from "./inbox-page-presentation";
 import { INBOX_TABS } from "./inbox-page-tabs";
 import { InvitationReview } from "./invitation-review";
@@ -66,203 +56,114 @@ export function InboxPage(input: {
 	itemId?: string;
 	requestId?: string;
 	onItemDismissed?: (itemId: string) => void;
-	onViewChange: (view: InboxView) => void;
+	onViewChange: (view: InboxFeedCategory) => void;
 	onUnreadOnlyChange?: (unreadOnly: boolean) => void;
+	onAgentsOnlyChange?: (agentsOnly: boolean) => void;
 	unreadOnly?: boolean;
-	view: InboxView;
+	agentsOnly?: boolean;
+	view: InboxFeedCategory;
 }) {
-	const queryClient = useQueryClient();
 	const { currentOrganization, currentUserId } = useAppOrganization();
-	const role = useQuery(
-		organizationMemberRoleQueryOptions({
-			organizationId: currentOrganization.id,
-			userId: currentUserId,
-			enabled: !currentOrganization.isPersonal,
-		})
-	);
-	const reviews = useInfiniteQuery(
-		inboxItemsInfiniteQueryOptions({
-			organizationId: currentOrganization.id,
-			view: "needs_review",
-			enabled: !currentOrganization.isPersonal,
-		})
-	);
-	const showReviews =
-		role.data === "owner" ||
-		role.data === "admin" ||
-		(reviews.data?.pages[0]?.items.length ?? 0) > 0;
-	const tabs = INBOX_TABS.filter(
-		(tab) => tab.view !== "needs_review" || showReviews
-	);
-	useEffect(() => {
-		if (
-			input.view === "needs_review" &&
-			!showReviews &&
-			role.isSuccess &&
-			reviews.isSuccess
-		) {
-			input.onViewChange("all");
-		}
-	}, [
-		input.view,
-		input.onViewChange,
-		showReviews,
-		role.isSuccess,
-		reviews.isSuccess,
-	]);
-	const [announcement, setAnnouncement] = useState("");
-	const [confirmMarkAllRead, setConfirmMarkAllRead] = useState(false);
-	const [itemElements] = useState(() => new Map<string, HTMLAnchorElement>());
-	const appliedItemIdRef = useRef<string | null>(null);
-	const [deepLinkMarkedReadItemIds] = useState(() => new Set<string>());
-	const itemsQuery = useInfiniteQuery(
-		inboxItemsInfiniteQueryOptions({
-			organizationId: currentOrganization.id,
-			view: input.unreadOnly ? "unread" : input.view,
-		})
-	);
-	const summaryQuery = useQuery(
-		inboxSummaryQueryOptions({ organizationId: currentOrganization.id })
-	);
-	const deepLinkedItemQuery = useQuery(
-		inboxItemQueryOptions({
-			enabled: input.itemId !== undefined,
-			itemId: input.itemId ?? "",
-			organizationId: currentOrganization.id,
-		})
-	);
-	const listedItems = useMemo(() => {
-		const loaded = itemsQuery.data?.pages.flatMap((page) => page.items) ?? [];
-		if (!input.unreadOnly) {
-			return loaded;
-		}
-		return loaded.filter((item) => {
-			if (item.readAt !== null) {
-				return false;
-			}
-			if (input.view === "all") {
-				return true;
-			}
-			const actionable =
-				item.attention === "action_required" &&
-				item.resolutionStatus === "open";
-			return (
-				actionable &&
-				(input.view === "needs_review"
-					? isInboxReview(item)
-					: !isInboxReview(item))
-			);
-		});
-	}, [itemsQuery.data, input.unreadOnly, input.view]);
-	const items = useMemo(
-		() => mergeDeepLinkedInboxItem(listedItems, deepLinkedItemQuery.data?.item),
-		[deepLinkedItemQuery.data?.item, listedItems]
-	);
-	const focusedItemId =
-		input.itemId && deepLinkedItemQuery.data?.item.id === input.itemId
-			? input.itemId
-			: undefined;
-	const selectedIndex = Math.max(
-		0,
-		tabs.findIndex((tab) => tab.view === input.view)
-	);
-	const registerItemElement = useCallback(
-		(itemId: string, element: HTMLAnchorElement | null) => {
-			if (element) {
-				itemElements.set(itemId, element);
-				return;
-			}
-			itemElements.delete(itemId);
-		},
-		[itemElements]
-	);
-
-	const { setRead: markItemRead } = useInboxItemReadMutation({
-		onAnnouncement: setAnnouncement,
+	const filters = {
+		category: input.view,
+		unreadOnly: input.unreadOnly ?? false,
+		agentsOnly: input.agentsOnly ?? false,
+	};
+	const feed = useOrganizationInboxFeed({
+		...filters,
+		accountId: currentUserId,
 		organizationId: currentOrganization.id,
 	});
-	const { dismiss: dismissItem } = useInboxItemDismissMutation({
+	const deepLink = useQuery(
+		inboxItemQueryOptions({
+			organizationId: currentOrganization.id,
+			itemId: input.itemId ?? "",
+			enabled: Boolean(input.itemId),
+		})
+	);
+	const [announcement, setAnnouncement] = useState("");
+	const [confirmation, setConfirmation] = useState<{
+		snapshotId: string;
+	} | null>(null);
+	const { setRead } = useInboxItemReadMutation({
+		organizationId: currentOrganization.id,
+		onAnnouncement: setAnnouncement,
+	});
+	const { dismiss } = useInboxItemDismissMutation({
+		organizationId: currentOrganization.id,
 		onAnnouncement: setAnnouncement,
 		onDismissed: input.onItemDismissed,
-		organizationId: currentOrganization.id,
 	});
-
-	const markAllReadMutation = useMutation<
-		MarkAllInboxItemsReadResponse,
-		InboxFailure,
-		void,
-		InboxCacheSnapshots
-	>({
-		mutationFn: async () =>
-			await markAllCurrentInboxItemsRead({
-				organizationId: currentOrganization.id,
-				presentation: "attention",
-			}),
-		onError: (_error, _variables, context) => {
-			restoreInboxCacheSnapshots(queryClient, context);
-			setAnnouncement("Could not mark all Inbox items as read.");
-			toast.error("Could not mark all Inbox items as read.");
+	const selection = useMutateOrganizationInboxFeed(currentOrganization.id);
+	const mutateSelection = (body: MutateInboxFeedBody) =>
+		selection.mutate(body, {
+			onSuccess: (response) =>
+				setAnnouncement(
+					`${response.changedCount} updates ${body.operation === "read" ? "marked as read" : "dismissed"}. Pending requests remain open.`
+				),
+			onError: () =>
+				toast.error(
+					"This selection could not be updated. Refresh your Inbox and try again."
+				),
+		});
+	const sourceItem = deepLink.data?.item;
+	const itemElement = useRef<HTMLAnchorElement | null>(null);
+	const appliedItem = useRef<string | null>(null);
+	const registerItem = useCallback(
+		(_id: string, element: HTMLAnchorElement | null) => {
+			itemElement.current = element;
 		},
-		onMutate: async () => {
-			await queryClient.cancelQueries({
-				queryKey: inboxQueryKeys.organization(currentOrganization.id),
-			});
-			const context = captureInboxCacheSnapshots(
-				queryClient,
-				currentOrganization.id
-			);
-			const readAt = new Date().toISOString();
-			updateAllCachedInboxItems({
-				organizationId: currentOrganization.id,
-				queryClient,
-				update: (item) => (item.readAt === null ? { ...item, readAt } : item),
-			});
-			queryClient.setQueryData<InboxSummaryResponse>(
-				inboxQueryKeys.summary(currentOrganization.id),
-				(current) => (current ? { ...current, totalUnreadCount: 0 } : current)
-			);
-			return context;
-		},
-		onSettled: async () => {
-			await invalidateInboxFacts({
-				organizationId: currentOrganization.id,
-				queryClient,
-			});
-		},
-		onSuccess: (response) => {
-			setAnnouncement(
-				response.markedReadCount === 1
-					? "1 Inbox item marked as read."
-					: `${response.markedReadCount} Inbox items marked as read.`
-			);
-		},
-	});
-
+		[]
+	);
 	useEffect(() => {
-		if (!input.itemId) {
-			appliedItemIdRef.current = null;
+		const key = sourceItem
+			? `${currentUserId}:${currentOrganization.id}:${sourceItem.id}`
+			: null;
+		if (
+			!(sourceItem && itemElement.current && key) ||
+			appliedItem.current === key
+		) {
 			return;
 		}
-		applyInboxItemDeepLinkFocus({
-			appliedItemIdRef,
-			deepLinkMarkedReadItemIds,
-			item: deepLinkedItemQuery.data?.item,
-			itemElements,
-			markItemRead,
-			setAnnouncement,
+		appliedItem.current = key;
+		itemElement.current.focus({ preventScroll: true });
+		itemElement.current.scrollIntoView?.({
+			behavior: "auto",
+			block: "nearest",
 		});
-	}, [
-		deepLinkedItemQuery.data?.item,
-		deepLinkMarkedReadItemIds,
-		input.itemId,
-		itemElements,
-		markItemRead,
-	]);
-
+		setRead(sourceItem, true);
+		setAnnouncement(`Opened ${sourceItem.title}.`);
+	}, [sourceItem, currentUserId, currentOrganization.id, setRead]);
+	const rows = useMemo(() => {
+		const seen = new Set<string>();
+		return (feed.data?.pages.flatMap((page) => page.rows) ?? []).filter(
+			(row) => {
+				if (seen.has(row.groupKey)) {
+					return false;
+				}
+				seen.add(row.groupKey);
+				return (
+					(row.itemCount > 1 || row.item.id !== sourceItem?.id) &&
+					!(
+						input.requestId &&
+						row.item.sourceTarget.kind === "organization_join_request" &&
+						row.item.sourceTarget.requestId === input.requestId
+					)
+				);
+			}
+		);
+	}, [feed.data, sourceItem?.id, input.requestId]);
+	const firstPage = feed.data?.pages[0];
+	const selectedIndex = Math.max(
+		0,
+		INBOX_TABS.findIndex((tab) => tab.view === input.view)
+	);
+	const loadMoreState = resolveInboxFeedLoadMoreState(feed);
+	const openItem = (item: InboxItem) => setRead(item, true);
 	return (
 		<div className="flex min-w-0 flex-col gap-6">
 			<AppPageHeader
-				description="Updates, actions, and reviews in one place."
+				description="Your conversations, decisions, and updates in one place."
 				eyebrow={
 					currentOrganization.isPersonal
 						? "Personal workspace"
@@ -271,8 +172,72 @@ export function InboxPage(input: {
 				id="inbox-heading"
 				title="Inbox"
 			/>
-
 			<div className="flex min-w-0 flex-col gap-4">
+				<div className="flex min-w-0 flex-col gap-3">
+					<TabsSubtle
+						className="w-fit max-w-full"
+						idPrefix="inbox-view"
+						onSelect={(index) => {
+							const tab = INBOX_TABS[index];
+							if (tab && tab.view !== input.view) {
+								input.onViewChange(tab.view);
+							}
+						}}
+						selectedIndex={selectedIndex}
+					>
+						{INBOX_TABS.map((tab, index) => (
+							<TabsSubtleItem index={index} key={tab.view} label={tab.label} />
+						))}
+					</TabsSubtle>
+					<div className="flex flex-wrap items-center justify-between gap-3">
+						<div className="flex flex-wrap items-center gap-4">
+							<label
+								className="flex cursor-pointer items-center gap-2 text-muted-foreground text-sm"
+								htmlFor="inbox-unread-only"
+							>
+								<Switch
+									aria-label="Unread only"
+									checked={filters.unreadOnly}
+									id="inbox-unread-only"
+									onCheckedChange={(value) => input.onUnreadOnlyChange?.(value)}
+								/>
+								Unread only
+							</label>
+							<Button
+								aria-pressed={filters.agentsOnly}
+								className="gap-2"
+								onClick={() => input.onAgentsOnlyChange?.(!filters.agentsOnly)}
+								size="sm"
+								variant={filters.agentsOnly ? "secondary" : "outline"}
+							>
+								<RobotIcon aria-hidden="true" className="size-4" />
+								Agents
+							</Button>
+						</div>
+						<div className="flex flex-wrap items-center gap-3">
+							{firstPage ? (
+								<span
+									className="text-muted-foreground text-xs tabular-nums"
+									title="Matching Inbox items"
+								>
+									{countForCategory(firstPage.counts, input.view)} items
+								</span>
+							) : null}
+							{firstPage && firstPage.counts.unread > 0 ? (
+								<Button
+									disabled={selection.isPending}
+									onClick={() =>
+										setConfirmation({ snapshotId: firstPage.snapshotId })
+									}
+									size="sm"
+									variant="ghost"
+								>
+									Mark this view as read
+								</Button>
+							) : null}
+						</div>
+					</div>
+				</div>
 				{input.requestId ? (
 					<section
 						aria-label="Invitation request"
@@ -289,134 +254,115 @@ export function InboxPage(input: {
 						</Link>
 					</section>
 				) : null}
-				<div className="flex flex-wrap items-center justify-between gap-3">
-					<TabsSubtle
-						className="w-fit max-w-full"
-						idPrefix="inbox-view"
-						onSelect={(index) => {
-							const tab = tabs[index];
-							if (tab && tab.view !== input.view) {
-								input.onViewChange(tab.view);
-							}
-						}}
-						selectedIndex={selectedIndex}
-					>
-						{tabs.map((tab, index) => (
-							<TabsSubtleItem index={index} key={tab.view} label={tab.label} />
-						))}
-					</TabsSubtle>
-					<div className="flex flex-wrap items-center gap-3">
-						{input.unreadOnly &&
-						(summaryQuery.data?.totalUnreadCount ?? 0) > 0 ? (
-							<Button
-								disabled={markAllReadMutation.isPending}
-								onClick={() => setConfirmMarkAllRead(true)}
-								size="sm"
-								variant="outline"
-							>
-								{markAllReadMutation.isPending
-									? "Marking as read…"
-									: "Mark all as read"}
-							</Button>
-						) : null}
-						<label
-							className="flex cursor-pointer items-center gap-2 text-muted-foreground text-sm"
-							htmlFor="inbox-unread-only"
-						>
-							Unread only
-							<Switch
-								aria-label="Unread only"
-								checked={input.unreadOnly ?? false}
-								id="inbox-unread-only"
-								onCheckedChange={(checked) =>
-									input.onUnreadOnlyChange?.(checked)
-								}
-							/>
-						</label>
-					</div>
-				</div>
-
-				{deepLinkedItemQuery.error?.status === 404 ? (
-					<output
-						aria-label="Inbox item isn't available"
-						className="rounded-md border border-border/70 bg-muted/40 px-3 py-2 text-muted-foreground text-sm"
-					>
+				{sourceItem ? (
+					<section aria-label="Selected update" className="min-w-0">
+						<h2 className="mb-2 text-muted-foreground text-xs">
+							Selected update
+						</h2>
+						<InboxItemsList
+							focusedItemId={sourceItem.id}
+							items={[sourceItem]}
+							onDismiss={dismiss}
+							onOpenItem={openItem}
+							onSetRead={setRead}
+							organizationSlug={currentOrganization.slug}
+							registerItemElement={registerItem}
+						/>
+					</section>
+				) : null}
+				{input.itemId && deepLink.isPending ? <InboxListSkeleton /> : null}
+				{deepLink.error?.status === 404 ? (
+					<output className="rounded-md border border-border/70 bg-muted/40 px-3 py-2 text-muted-foreground text-sm">
 						This Inbox item isn’t available. It may have been removed or you may
 						no longer have access.
 					</output>
 				) : null}
-				{deepLinkedItemQuery.isError &&
-				deepLinkedItemQuery.error.status !== 404 ? (
-					<InboxItemLookupWarning
-						onRetry={() => deepLinkedItemQuery.refetch()}
-					/>
+				{deepLink.isError && deepLink.error.status !== 404 ? (
+					<InboxItemLookupWarning onRetry={() => deepLink.refetch()} />
 				) : null}
-
-				{itemsQuery.isRefetchError &&
-				!itemsQuery.isFetchNextPageError &&
-				itemsQuery.data ? (
-					<InboxRefreshWarning onRetry={() => itemsQuery.refetch()} />
+				{feed.isRefetchError && feed.data && !feed.isFetchNextPageError ? (
+					<InboxRefreshWarning onRetry={() => feed.refetch()} />
 				) : null}
-
-				{tabs.map((tab, index) => (
+				{INBOX_TABS.map((tab, index) => (
 					<TabsSubtlePanel
 						idPrefix="inbox-view"
 						index={index}
 						key={tab.view}
 						selectedIndex={selectedIndex}
 					>
-						<InboxViewContent
-							focusedItemId={focusedItemId}
-							isError={itemsQuery.isError && !itemsQuery.data}
-							isLoading={itemsQuery.isPending}
-							items={
-								input.requestId
-									? items.filter(
-											(item) =>
-												item.sourceTarget.kind !==
-													"organization_join_request" ||
-												item.sourceTarget.requestId !== input.requestId
-										)
-									: items
-							}
-							loadMoreState={resolveInboxLoadMoreState(itemsQuery)}
-							onDismiss={dismissItem}
-							onLoadMore={() => itemsQuery.fetchNextPage()}
-							onOpenItem={(item) => markItemRead(item, true)}
-							onRetry={() => itemsQuery.refetch()}
-							onSetRead={markItemRead}
-							organizationSlug={currentOrganization.slug}
-							registerItemElement={registerItemElement}
-							unreadOnly={input.unreadOnly}
-							view={tab.view}
-						/>
+						{index === selectedIndex ? (
+							<div className="flex min-w-0 flex-col gap-4">
+								{feed.isPending ? <InboxListSkeleton /> : null}
+								{feed.isError && !feed.data ? (
+									<InboxInitialError onRetry={() => feed.refetch()} />
+								) : null}
+								{firstPage && rows.length > 0 ? (
+									<InboxFeedView
+										accountId={currentUserId}
+										filters={filters}
+										isMutating={selection.isPending}
+										onDismiss={dismiss}
+										onOpenItem={openItem}
+										onSelection={mutateSelection}
+										onSetRead={setRead}
+										organizationId={currentOrganization.id}
+										organizationSlug={currentOrganization.slug}
+										rows={rows}
+										snapshotId={firstPage.snapshotId}
+									/>
+								) : null}
+								{firstPage &&
+								rows.length === 0 &&
+								!sourceItem &&
+								!feed.hasNextPage ? (
+									<InboxEmptyState
+										unreadOnly={filters.unreadOnly}
+										view={input.view}
+									/>
+								) : null}
+								{loadMoreState ? (
+									<InboxInfiniteScrollTrigger
+										onLoadMore={() => feed.fetchNextPage()}
+										state={loadMoreState}
+									/>
+								) : null}
+							</div>
+						) : null}
 					</TabsSubtlePanel>
 				))}
 			</div>
-
 			<AlertDialog
-				onOpenChange={setConfirmMarkAllRead}
-				open={confirmMarkAllRead}
+				onOpenChange={(open) => {
+					if (!open) {
+						setConfirmation(null);
+					}
+				}}
+				open={confirmation !== null}
 			>
 				<AlertDialogContent>
 					<AlertDialogHeader>
-						<AlertDialogTitle>Mark all as read?</AlertDialogTitle>
+						<AlertDialogTitle>Mark this view as read?</AlertDialogTitle>
 						<AlertDialogDescription>
-							All your Inbox items in {currentOrganization.name} will be marked
-							as read, including Space messages outside this filter. This also
-							clears their unread indicators in Spaces. Pending actions and
-							reviews stay open.
+							Mark unread updates in this filtered selection as read, including
+							its other pages. New messages and items outside this selection
+							stay unread. Pending requests stay open.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogCancel>Cancel</AlertDialogCancel>
 						<Button
+							disabled={selection.isPending}
 							onClick={() => {
-								setConfirmMarkAllRead(false);
-								markAllReadMutation.mutate();
+								if (confirmation) {
+									mutateSelection({
+										snapshotId: confirmation.snapshotId,
+										operation: "read",
+									});
+								}
+								setConfirmation(null);
 							}}
 						>
-							Mark all as read
+							Mark this view as read
 						</Button>
 					</AlertDialogFooter>
 				</AlertDialogContent>
@@ -428,58 +374,25 @@ export function InboxPage(input: {
 	);
 }
 
-function resolveInboxLoadMoreState(input: {
-	hasNextPage: boolean;
-	isFetchingNextPage: boolean;
-	isFetchNextPageError: boolean;
-}): "error" | "idle" | "loading" | undefined {
-	if (input.isFetchingNextPage) {
-		return "loading";
+function countForCategory(
+	counts: InboxFeedCounts,
+	category: InboxFeedCategory
+): number {
+	if (category === "needs_action") {
+		return counts.needsAction;
 	}
-	if (input.isFetchNextPageError) {
-		return "error";
+	if (category === "needs_review") {
+		return counts.needsReview;
 	}
-	return input.hasNextPage ? "idle" : undefined;
+	return counts[category];
 }
 
-function applyInboxItemDeepLinkFocus(input: {
-	appliedItemIdRef: { current: string | null };
-	deepLinkMarkedReadItemIds: Set<string>;
-	item: InboxItem | undefined;
-	itemElements: ReadonlyMap<string, HTMLAnchorElement>;
-	markItemRead: (item: InboxItem, read: boolean) => void;
-	setAnnouncement: (announcement: string) => void;
-}): boolean {
-	if (!input.item) {
-		return false;
-	}
-	if (input.appliedItemIdRef.current === input.item.id) {
-		return true;
-	}
-	const targetElement = input.itemElements.get(input.item.id);
-	if (!targetElement) {
-		return true;
-	}
-	input.appliedItemIdRef.current = input.item.id;
-	if (
-		input.item.readAt === null &&
-		!input.deepLinkMarkedReadItemIds.has(input.item.id)
-	) {
-		input.deepLinkMarkedReadItemIds.add(input.item.id);
-		input.markItemRead(input.item, true);
-	}
-	targetElement.scrollIntoView({ block: "center" });
-	targetElement.focus({ preventScroll: true });
-	input.setAnnouncement(`${input.item.title} selected in Inbox.`);
-	return true;
-}
-
-function mergeDeepLinkedInboxItem(
+/** Exact deep links stay accessible even outside the selected category/page. */
+export function mergeDeepLinkedInboxItem(
 	items: readonly InboxItem[],
-	deepLinkedItem: InboxItem | undefined
-): readonly InboxItem[] {
-	if (!deepLinkedItem || items.some((item) => item.id === deepLinkedItem.id)) {
-		return items;
-	}
-	return [deepLinkedItem, ...items];
+	item: InboxItem | undefined
+): InboxItem[] {
+	return item
+		? [item, ...items.filter((candidate) => candidate.id !== item.id)]
+		: [...items];
 }

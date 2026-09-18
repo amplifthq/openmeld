@@ -127,7 +127,7 @@ export function InboxViewContent(input: {
 	);
 }
 
-function InboxInfiniteScrollTrigger(input: {
+export function InboxInfiniteScrollTrigger(input: {
 	onLoadMore: () => Promise<unknown>;
 	state: InboxLoadMoreState;
 }) {
@@ -271,7 +271,7 @@ function compareInboxAttention(left: InboxItem, right: InboxItem): number {
 	return right.occurredAt.localeCompare(left.occurredAt);
 }
 
-function InboxListSkeleton() {
+export function InboxListSkeleton() {
 	return (
 		<div
 			aria-busy="true"
@@ -295,7 +295,10 @@ function InboxListSkeleton() {
 	);
 }
 
-function InboxEmptyState(input: { view: InboxView; unreadOnly?: boolean }) {
+export function InboxEmptyState(input: {
+	view: InboxView;
+	unreadOnly?: boolean;
+}) {
 	const copy = resolveInboxEmptyStateCopy(input.view, input.unreadOnly);
 	return (
 		<div className="flex min-h-60 flex-col items-center justify-center rounded-md border border-border/70 bg-card px-6 py-12 text-center">
@@ -328,6 +331,13 @@ function resolveInboxEmptyStateCopy(
 			title: titles[view as keyof typeof titles] ?? "No unread items",
 		};
 	}
+	if (view === "mentions") {
+		return {
+			title: "No mentions",
+			description:
+				"Messages that explicitly mention you or your personal Agents appear here.",
+		};
+	}
 	if (view === "needs_review") {
 		return {
 			title: "No pending reviews",
@@ -347,7 +357,7 @@ function resolveInboxEmptyStateCopy(
 	};
 }
 
-function InboxInitialError(input: { onRetry: () => Promise<unknown> }) {
+export function InboxInitialError(input: { onRetry: () => Promise<unknown> }) {
 	return (
 		<div
 			className="flex min-h-60 flex-col items-center justify-center rounded-md border border-border/70 bg-card px-6 py-12 text-center"
