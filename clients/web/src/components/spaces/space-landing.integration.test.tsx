@@ -49,13 +49,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // These submission tests start with an empty draft store; browser reload
 // persistence is outside this component/API integration boundary.
-const composerDraftRead = vi.hoisted(() => ({ error: null as Error | null }));
+const composerDraftRead = vi.hoisted(() => ({
+	error: null as Error | null,
+	task: null as Promise<[]> | null,
+}));
 vi.mock("#/lib/spaces/composer-file-drafts", () => ({
 	isComposerFileDraftRetired: () => false,
 	readComposerFileDraftCleanup: () => [],
 	retryComposerFileDraftCleanup: async () => undefined,
 	subscribeComposerFileDrafts: () => () => undefined,
 	readComposerFileDrafts: () => {
+		if (composerDraftRead.task) {
+			return composerDraftRead.task;
+		}
 		if (composerDraftRead.error) {
 			return Promise.reject(composerDraftRead.error);
 		}
@@ -821,6 +827,7 @@ function buildLocalRuntimeCacheInvalidations(
 
 describe("SpaceLanding", () => {
 	beforeEach(() => {
+		composerDraftRead.task = null;
 		composerDraftRead.error = null;
 		vi.stubGlobal(
 			"IntersectionObserver",
@@ -1161,6 +1168,45 @@ describe("SpaceLanding", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledTimes(1));
+	});
+
+	it("admits one Space submission when button and Enter join attachment discovery", async () => {
+		let releaseDiscovery: (drafts: []) => void = () => undefined;
+		composerDraftRead.task = new Promise<[]>((resolve) => {
+			releaseDiscovery = resolve;
+		});
+		const postNormalMessageMock = vi
+			.fn()
+			.mockResolvedValue(
+				createTextSignal({ id: "signal-single-admission", text: "Send once" })
+			);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+		});
+		renderSpaceLanding();
+		const editor = screen.getByRole("textbox", { name: "Message this space" });
+		await setComposerValue(editor, "Send once");
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		fireEvent.keyDown(editor, { key: "Enter" });
+		releaseDiscovery([]);
+		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledTimes(1));
+		expect(postNormalMessageMock).toHaveBeenCalledWith(
+			expect.objectContaining({ text: "Send once" })
+		);
 	});
 
 	it("hard-refreshes Space members while a previous members query is waiting to retry", async () => {

@@ -363,6 +363,53 @@ describe("CenterAgentPage", () => {
 		expect(readPending()).toBe(pending);
 	});
 
+	it.each([
+		"bootstrap",
+		"route",
+	])("admits one %s pending message while attachment discovery settles", async (loadingPhase) => {
+		const storage = await import("#/lib/spaces/composer-file-drafts");
+		renderSpaceLandingLoadingFallback = true;
+		let releaseDiscovery: (drafts: []) => void = () => undefined;
+		const discovery = new Promise<[]>((resolve) => {
+			releaseDiscovery = resolve;
+		});
+		vi.spyOn(storage, "readComposerFileDrafts").mockReturnValueOnce(discovery);
+		const saveSpy = vi.spyOn(storage, "saveComposerFileDraft");
+		const { queryClient } =
+			loadingPhase === "bootstrap"
+				? renderCenterAgentPage(readyRouteData())
+				: renderWithQueryClient(
+						<CenterAgentPendingConversation
+							organizationId="org-acme"
+							organizationSlug="acme"
+							ownerAccountId="user-1"
+						/>
+					);
+		const composer = screen.getByRole("textbox", {
+			name: "Message Center Agent",
+		});
+		const file = new File(["one"], "one.txt", { type: "text/plain" });
+		fireEvent.change(composer, { target: { value: "Keep the attachment" } });
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: { files: [file] },
+		});
+		await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1));
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		fireEvent.keyDown(composer, { key: "Enter" });
+		releaseDiscovery([]);
+		await waitFor(() =>
+			expect(
+				readCenterAgentPendingMessage(queryClient, {
+					organizationSlug: "acme",
+				})
+			).toMatchObject({
+				text: "Keep the attachment",
+				files: [file],
+				fileDrafts: [expect.objectContaining({ file })],
+			})
+		);
+	});
+
 	it("hands an Inbox reply target to the Center Agent conversation", () => {
 		renderCenterAgentPage(
 			readyRouteData(),

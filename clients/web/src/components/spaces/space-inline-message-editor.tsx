@@ -5,7 +5,10 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
-import { isSpaceComposerFileInProgress } from "#/lib/spaces/composer-attachment";
+import {
+	isSpaceComposerFileInProgress,
+	type SpaceComposerFile,
+} from "#/lib/spaces/composer-attachment";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import {
 	SpaceComposerAttachmentRecovery,
@@ -205,7 +208,9 @@ function InlineEditor({
 		saving.current = true;
 		setUploading(true);
 		setError(null);
+		let submittedFiles: readonly SpaceComposerFile[] = [];
 		try {
+			await files.waitForDiscovery();
 			const blocked = addressingTargets.find(
 				(target) =>
 					newWake &&
@@ -235,7 +240,8 @@ function InlineEditor({
 					"Keep the original Wake token. Type @ to add it back, or cancel this edit."
 				);
 			}
-			const published = await files.publishReadyFiles(files.files);
+			submittedFiles = files.claimSubmissionFiles();
+			const published = await files.publishReadyFiles(submittedFiles);
 			const messageEnvelope = editedEnvelope(item, draft);
 			const accepted = await editing.save(
 				item,
@@ -255,6 +261,7 @@ function InlineEditor({
 					: "Unable to save. Try again."
 			);
 		} finally {
+			files.finishSubmission(submittedFiles);
 			saving.current = false;
 			setUploading(false);
 		}

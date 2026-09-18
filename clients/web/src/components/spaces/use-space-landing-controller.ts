@@ -1726,8 +1726,7 @@ export function useSpaceLandingController(input: {
 		setBlockedWakeProfileId: setComposerBlockedWakeProfileId,
 		setErrorMessage: setComposerErrorMessage,
 	} = composerSession.feedback;
-	const { inFlightRef: composerSendInFlightRef, isSending: isSendingMessage } =
-		composerSession.send;
+	const { isSending: isSendingMessage } = composerSession.send;
 	const restoreColdLoadingComposerFocusRef = useRef(false);
 	useLayoutEffect(() => {
 		if (!(statusReady && restoreColdLoadingComposerFocusRef.current)) {
@@ -2713,7 +2712,7 @@ export function useSpaceLandingController(input: {
 		retryFiles?: readonly SpaceComposerFile[];
 		throwOnFailure?: boolean;
 	}) {
-		if (composerSendInFlightRef.current) {
+		if (!composerSession.send.begin()) {
 			return;
 		}
 		if (!options?.retrySubmission) {
@@ -2725,6 +2724,7 @@ export function useSpaceLandingController(input: {
 						? error.message
 						: "Couldn't restore your attachment drafts. Retry to continue.";
 				setComposerErrorMessage(message);
+				composerSession.send.finish();
 				throwSpaceSendFailureWhenRequested({
 					error: error instanceof Error ? error : new Error(message),
 					postedMessage: false,
@@ -2745,6 +2745,7 @@ export function useSpaceLandingController(input: {
 		});
 		if (sendAttempt.status !== "ready" && !options?.retrySubmission) {
 			setComposerErrorMessage(sendAttempt.errorMessage);
+			composerSession.send.finish();
 			throwSpaceSendFailureWhenRequested({
 				error: new Error(
 					sendAttempt.errorMessage ??
@@ -2761,7 +2762,6 @@ export function useSpaceLandingController(input: {
 		});
 
 		historyNavigation.latest();
-		composerSession.send.begin();
 		const request = composerSession.send.reserveRequest();
 
 		let postedMessage = false;
@@ -3720,11 +3720,8 @@ function useSpaceThreadController(input: {
 		setBlockedWakeProfileId: setComposerBlockedWakeProfileId,
 		setErrorMessage: setComposerErrorMessage,
 	} = composerSession.feedback;
-	const {
-		inFlightRef: threadComposerSendInFlightRef,
-		isSending: isSendingMessage,
-		setIsSending: setIsSendingMessage,
-	} = composerSession.send;
+	const { isSending: isSendingMessage, setIsSending: setIsSendingMessage } =
+		composerSession.send;
 	const activeThread =
 		threads.find((thread) => thread.threadId === activeThreadId) ?? null;
 	const persistedThreadSignals = useMemo(
@@ -3989,7 +3986,7 @@ function useSpaceThreadController(input: {
 			clientMessageId: string;
 		}
 	) {
-		if (threadComposerSendInFlightRef.current || !input.statusReady) {
+		if (!(input.statusReady && composerSession.send.begin())) {
 			return;
 		}
 		if (!retry) {
@@ -4001,6 +3998,7 @@ function useSpaceThreadController(input: {
 						? error.message
 						: "Couldn't restore your attachment drafts. Retry to continue."
 				);
+				composerSession.send.finish();
 				return;
 			}
 		}
@@ -4018,14 +4016,14 @@ function useSpaceThreadController(input: {
 		});
 		if ((blockedReason && !retry) || !thread) {
 			setComposerErrorMessage(blockedReason);
+			composerSession.send.finish();
 			return;
 		}
 		const submittedThread = thread;
 
-		composerSession.send.begin();
-
 		const clientMessageId = retry?.clientMessageId ?? createClientMessageId();
 		let posted = false;
+		let localAdmissionReleased = false;
 		let pendingSubmission: PendingComposerSubmission | null = null;
 		let publishedLocalIds: readonly string[] = [];
 		let submittedFiles: readonly SpaceComposerFile[] = [];
@@ -4045,11 +4043,14 @@ function useSpaceThreadController(input: {
 			pendingSubmission = preparedSubmission;
 			submittedFiles =
 				retry?.files ?? composerSession.recordPendingSubmission();
-			composerSession.send.finish();
 			await sendPreparedThreadMessage({
 				composerFiles: submittedFiles,
 				clientMessageId,
-				onMessageStaged: options?.onMessageStaged,
+				onMessageStaged: (stagedClientMessageId) => {
+					options?.onMessageStaged?.(stagedClientMessageId);
+					composerSession.send.finish();
+					localAdmissionReleased = true;
+				},
 				prepareFiles: async () => {
 					const publishedFiles =
 						await composerFilesController.publishReadyFiles(submittedFiles);
@@ -4080,7 +4081,9 @@ function useSpaceThreadController(input: {
 			if (posted) {
 				composerFilesController.finishSubmission(submittedFiles);
 			}
-			composerSession.send.finish();
+			if (!localAdmissionReleased) {
+				composerSession.send.finish();
+			}
 		}
 		async function handleSubmissionFailure(error: unknown) {
 			if (pendingSubmission && !posted) {

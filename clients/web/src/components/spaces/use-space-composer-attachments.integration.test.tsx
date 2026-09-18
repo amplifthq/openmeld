@@ -237,3 +237,115 @@ it("clears a failed empty restoration after the mounted UI retries it", async ()
 		).toBeNull()
 	);
 });
+
+it("handles every caller that joins one failed cleanup retry", async () => {
+	const storage = await import("#/lib/spaces/composer-file-drafts");
+	Object.defineProperty(globalThis, "indexedDB", {
+		configurable: true,
+		value: new IDBFactory(),
+	});
+	api.stageComposerUpload.mockImplementation(async (input) => ({
+		expiresAt: "2099-09-10T00:00:00.000Z",
+		id: input.uploadId,
+		mimeType: input.mimeType,
+		name: input.name,
+		sizeBytes: 3,
+	}));
+	const controller = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "integration",
+			profileId: "joined-cleanup-human",
+			spaceId: "joined-cleanup-space",
+		})
+	);
+	await act(async () => {
+		await controller.result.current.addFiles([
+			new File(["one"], "one.txt", { type: "text/plain" }),
+		]);
+	});
+	const id = controller.result.current.files[0]?.localId;
+	if (!id) {
+		throw new Error("Expected an attachment.");
+	}
+	vi.spyOn(IDBDatabase.prototype, "transaction").mockImplementationOnce(() => {
+		throw new DOMException("Delete failed", "UnknownError");
+	});
+	act(() => controller.result.current.removeFile(id));
+	await waitFor(() =>
+		expect(controller.result.current.cleanup).toEqual([
+			expect.objectContaining({ id, status: "failed" }),
+		])
+	);
+	let rejectRetry: (error: Error) => void = () => undefined;
+	const retryGate = new Promise<void>((_resolve, reject) => {
+		rejectRetry = reject;
+	});
+	const retrySpy = vi
+		.spyOn(storage, "retryComposerFileDraftCleanup")
+		.mockReturnValueOnce(retryGate);
+	const first = controller.result.current.retryCleanup(id);
+	const second = controller.result.current.retryCleanup(id);
+	rejectRetry(new Error("cleanup unavailable"));
+	await expect(Promise.allSettled([first, second])).resolves.toEqual([
+		expect.objectContaining({ status: "fulfilled" }),
+		expect.objectContaining({ status: "fulfilled" }),
+	]);
+	expect(retrySpy).toHaveBeenCalledTimes(1);
+	expect(controller.result.current.cleanup).toEqual([
+		expect.objectContaining({ id, status: "failed" }),
+	]);
+	retrySpy.mockRestore();
+	await controller.result.current.retryCleanup(id);
+	await waitFor(() => expect(controller.result.current.cleanup).toEqual([]));
+});
+
+it("claims the current attachment batch after discovery restores it", async () => {
+	const storage = await import("#/lib/spaces/composer-file-drafts");
+	const restoredDraft = {
+		createdAt: 1,
+		expiresAt: Date.now() + 60_000,
+		id: "restored-edit-file",
+		scope: "integration:edit-human:edit-space:edit:message-1",
+		file: new File(["edit"], "edit.txt", { type: "text/plain" }),
+		publishMutationId: "publish-restored-edit-file",
+	};
+	let releaseDiscovery: (drafts: [typeof restoredDraft]) => void = () =>
+		undefined;
+	vi.spyOn(storage, "readComposerFileDrafts").mockReturnValueOnce(
+		new Promise((resolve) => {
+			releaseDiscovery = resolve;
+		})
+	);
+	api.stageComposerUpload.mockImplementation(async (input) => ({
+		expiresAt: "2099-09-10T00:00:00.000Z",
+		id: input.uploadId,
+		mimeType: input.mimeType,
+		name: input.name,
+		sizeBytes: 4,
+	}));
+	const controller = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "integration",
+			profileId: "edit-human",
+			spaceId: "edit-space",
+			draftScope: "edit:message-1",
+			deferUpload: true,
+		})
+	);
+	const renderSnapshot = controller.result.current.files;
+	let discovery!: Promise<void>;
+	act(() => {
+		discovery = controller.result.current.waitForDiscovery();
+	});
+	releaseDiscovery([restoredDraft]);
+	await act(async () => discovery);
+	const claimed = controller.result.current.claimSubmissionFiles();
+	expect(renderSnapshot).toEqual([]);
+	expect(claimed).toEqual([
+		expect.objectContaining({
+			fileName: "edit.txt",
+			localId: "restored-edit-file",
+		}),
+	]);
+	controller.result.current.finishSubmission(claimed);
+});

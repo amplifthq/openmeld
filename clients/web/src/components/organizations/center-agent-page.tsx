@@ -4,7 +4,7 @@ import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { GearSixIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
@@ -226,6 +226,7 @@ function CenterAgentDirectMessageEntry(input: {
 		]
 	);
 	const [retryPending, setRetryPending] = useState(false);
+	const pendingSubmissionAdmissionRef = useRef(false);
 	const profilesQuery = useQuery(
 		buildStartProfilesQueryOptions({ enabled: true, storageScope })
 	);
@@ -245,17 +246,27 @@ function CenterAgentDirectMessageEntry(input: {
 			}
 			onComposerChange={setComposerText}
 			onSend={async () => {
+				if (pendingSubmissionAdmissionRef.current) {
+					return;
+				}
+				pendingSubmissionAdmissionRef.current = true;
+				let claimedDrafts: ReturnType<typeof files.claimSubmissionDrafts> = [];
 				setComposerErrorMessage(null);
 				const text = composerText.trim();
 				if (
 					!(text || files.files.length) ||
 					readCenterAgentPendingMessage(queryClient, pendingScope)
 				) {
+					pendingSubmissionAdmissionRef.current = false;
 					return;
 				}
 				try {
 					await files.waitForDiscovery();
+					if (readCenterAgentPendingMessage(queryClient, pendingScope)) {
+						return;
+					}
 					const fileDrafts = files.claimSubmissionDrafts();
+					claimedDrafts = fileDrafts;
 					const nextPendingMessage = createPendingCenterAgentMessage(text);
 					nextPendingMessage.createdAtMs = Math.max(
 						nextPendingMessage.createdAtMs,
@@ -269,11 +280,18 @@ function CenterAgentDirectMessageEntry(input: {
 						nextPendingMessage
 					);
 				} catch (error) {
+					files.finishSubmission(
+						files.getSubmissionFiles({
+							ids: claimedDrafts.map((draft) => draft.id),
+						})
+					);
 					setComposerErrorMessage(
 						error instanceof Error
 							? error.message
 							: "Couldn't prepare your attachments. Retry to continue."
 					);
+				} finally {
+					pendingSubmissionAdmissionRef.current = false;
 				}
 			}}
 			organizationSlug={input.organizationSlug}

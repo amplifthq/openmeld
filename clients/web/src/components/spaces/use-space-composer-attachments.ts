@@ -601,6 +601,11 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 		},
 		[assertDiscoveryReady, session]
 	);
+	const claimSubmissionFiles = useCallback(() => {
+		const candidates = preflightSubmission();
+		beginSubmission(candidates.map((item) => item.localId));
+		return candidates;
+	}, [beginSubmission, preflightSubmission]);
 
 	const retryCleanup = useCallback(
 		async (localId: string) => {
@@ -613,14 +618,15 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 			}
 			const existing = session.cleanupTasks.get(localId);
 			if (existing) {
-				return await existing;
+				await existing;
+				return;
 			}
-			const task = retryComposerFileDraftCleanup(localId);
+			const task = retryComposerFileDraftCleanup(localId).catch((error) => {
+				console.error("Could not retry attachment cleanup", { error, localId });
+			});
 			session.cleanupTasks.set(localId, task);
 			try {
 				await task;
-			} catch (error) {
-				console.error("Could not retry attachment cleanup", { error, localId });
 			} finally {
 				if (session.cleanupTasks.get(localId) === task) {
 					session.cleanupTasks.delete(localId);
@@ -693,6 +699,9 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 			return selected;
 		},
 		beginSubmission,
+		// Fresh mutation callers claim the current session batch after discovery.
+		// Captured send retries continue to use their already-owned snapshot.
+		claimSubmissionFiles,
 		preflightSubmission,
 		waitForDiscovery,
 		finishSubmission,
