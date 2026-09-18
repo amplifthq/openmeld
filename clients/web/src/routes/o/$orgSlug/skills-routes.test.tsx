@@ -455,7 +455,7 @@ describe("Skill navigation with the real UnsavedChangesGuard", () => {
 		});
 	});
 
-	it("does not leave when additional input arrives during Save and leave", async () => {
+	it("reports a saved submission with newer edits and leaves after saving those edits", async () => {
 		let completeSave: (value: { skill: OrganizationSkill }) => void = () => {
 			throw new Error("Save promise has not been initialized.");
 		};
@@ -487,15 +487,25 @@ describe("Skill navigation with the real UnsavedChangesGuard", () => {
 			})
 		);
 		await screen.findByText(
-			"OpenMeld couldn't save your changes. Fix the error and try again."
+			"Your previous changes were saved, but you have newer unsaved changes. Save again before leaving."
 		);
+		expect(
+			screen.queryByText(
+				"OpenMeld couldn't save your changes. Fix the error and try again."
+			)
+		).toBeNull();
 		expect(router.state.location.pathname).toBe("/o/acme/skills/skill-one");
-		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 		expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(
 			"newer-work"
 		);
-		fireEvent.click(await screen.findByRole("button", { name: "Save" }));
-		await waitFor(() => expect(updateSkill).toHaveBeenCalledTimes(2));
+		updateSkill.mockResolvedValueOnce({
+			skill: createOrganizationSkillFixture({ version: 3, name: "newer-work" }),
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Save and leave" }));
+		await waitFor(() =>
+			expect(router.state.location.pathname).toBe("/o/acme/skills")
+		);
+		expect(updateSkill).toHaveBeenCalledTimes(2);
 		expect(updateSkill.mock.calls[1]?.[0]).toMatchObject({
 			expectedVersion: 2,
 			expectedActiveReleaseId: "skill-one-release-2",

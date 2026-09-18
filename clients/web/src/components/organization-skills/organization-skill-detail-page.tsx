@@ -34,7 +34,10 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { type SetStateAction, useEffect, useRef, useState } from "react";
 import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-navigation";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
-import { UnsavedChangesGuard } from "#/components/forms/unsaved-changes-guard";
+import {
+	type SaveBeforeLeaveResult,
+	UnsavedChangesGuard,
+} from "#/components/forms/unsaved-changes-guard";
 import { OrganizationSkillFiles } from "#/components/organization-skills/organization-skill-files";
 import { OrganizationSkillMaintainersDialog } from "#/components/organization-skills/organization-skill-maintainers-dialog";
 import { OrganizationSkillPortableFields } from "#/components/organization-skills/organization-skill-portable-fields";
@@ -287,7 +290,7 @@ function OrganizationSkillEditor(input: {
 			});
 		},
 	});
-	const save = async (): Promise<boolean> => {
+	const save = async (): Promise<SaveBeforeLeaveResult> => {
 		if (
 			!(input.skill.permissions.canEdit && bundleValid && hasUnsavedChanges) ||
 			saveMutation.isPending
@@ -299,7 +302,9 @@ function OrganizationSkillEditor(input: {
 			await saveMutation.mutateAsync(draft);
 			// A queued editor change is not part of the completed Save. In
 			// particular, Save and leave must not discard such newer input.
-			return editRevision.current === submittedRevision;
+			return editRevision.current === submittedRevision
+				? true
+				: "saved-with-unsaved-changes";
 		} catch {
 			return false;
 		}

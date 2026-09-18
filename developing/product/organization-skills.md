@@ -338,6 +338,12 @@ Internal navigation with unsaved changes opens:
 
 **Save and leave** awaits a successful Save before proceeding. A failure, or
 additional input made while that Save is in flight, keeps the user on the page.
+A successful submission with newer unsaved changes is not a Save failure: the
+dialog confirms that the previous changes were saved and asks the user to save
+again before leaving. The next Save uses the newly accepted baseline. Actual
+failures and conflicts retain failure feedback. The shared guard preserves its
+boolean return contract for existing callers and also accepts the explicit
+`saved-with-unsaved-changes` result; only `true` permits navigation.
 The real router guard covers Team tabs, **All Skills**, browser Back/Forward,
 cached Skill changes, and Organization switching. Browser refresh, close, or
 external navigation uses the native browser before-unload prompt.

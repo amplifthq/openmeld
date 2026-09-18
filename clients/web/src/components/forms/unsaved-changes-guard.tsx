@@ -14,6 +14,13 @@ import { useLayoutEffect, useState } from "react";
 import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
 
 /**
+ * Existing callers return true when safe to leave, or false on failure.
+ * A successful submission can instead retain newer unsaved input; that outcome
+ * must keep navigation blocked without reporting the submission as failed.
+ */
+export type SaveBeforeLeaveResult = boolean | "saved-with-unsaved-changes";
+
+/**
  * One navigation contract for directly editable Web surfaces. Internal
  * navigation gets an actionable dialog; refresh, close, and external
  * navigation use the browser's native before-unload warning.
@@ -21,7 +28,7 @@ import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery"
 export function UnsavedChangesGuard(input: {
 	description: string;
 	hasUnsavedChanges: boolean;
-	onSave: () => Promise<boolean>;
+	onSave: () => Promise<SaveBeforeLeaveResult>;
 	saving?: boolean;
 }) {
 	useLayoutEffect(
@@ -47,7 +54,7 @@ export function UnsavedChangesGuard(input: {
 			}}
 			onSaveAndLeave={async () => {
 				const saved = await input.onSave();
-				if (saved && blocker.status === "blocked") {
+				if (saved === true && blocker.status === "blocked") {
 					blocker.proceed();
 				}
 				return saved;
@@ -63,13 +70,15 @@ export function UnsavedChangesDialog(input: {
 	description: string;
 	onCancel: () => void;
 	onDiscard: () => void;
-	onSaveAndLeave: () => Promise<boolean>;
+	onSaveAndLeave: () => Promise<SaveBeforeLeaveResult>;
 	open: boolean;
 	saving?: boolean;
 }) {
-	const [saveFailed, setSaveFailed] = useState(false);
+	const [saveResult, setSaveResult] = useState<SaveBeforeLeaveResult | null>(
+		null
+	);
 	const cancel = () => {
-		setSaveFailed(false);
+		setSaveResult(null);
 		input.onCancel();
 	};
 
@@ -87,10 +96,16 @@ export function UnsavedChangesDialog(input: {
 					<DialogTitle>Save changes before leaving?</DialogTitle>
 					<DialogDescription>{input.description}</DialogDescription>
 				</DialogHeader>
-				{saveFailed ? (
+				{saveResult === false ? (
 					<p className="text-destructive text-sm" role="alert">
 						OpenMeld couldn't save your changes. Fix the error and try again.
 					</p>
+				) : null}
+				{saveResult === "saved-with-unsaved-changes" ? (
+					<output className="block text-muted-foreground text-sm">
+						Your previous changes were saved, but you have newer unsaved
+						changes. Save again before leaving.
+					</output>
 				) : null}
 				<DialogFooter>
 					<Button disabled={input.saving} onClick={cancel} variant="outline">
@@ -99,7 +114,7 @@ export function UnsavedChangesDialog(input: {
 					<Button
 						disabled={input.saving}
 						onClick={() => {
-							setSaveFailed(false);
+							setSaveResult(null);
 							input.onDiscard();
 						}}
 						variant="outline"
@@ -109,16 +124,16 @@ export function UnsavedChangesDialog(input: {
 					<Button
 						disabled={input.saving}
 						onClick={() => {
-							setSaveFailed(false);
+							setSaveResult(null);
 							input
 								.onSaveAndLeave()
-								.then((saved) => setSaveFailed(!saved))
+								.then((result) => setSaveResult(result))
 								.catch((error: unknown) => {
 									console.error(
 										"Failed to save before leaving the page.",
 										error
 									);
-									setSaveFailed(true);
+									setSaveResult(false);
 								});
 						}}
 					>

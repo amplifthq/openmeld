@@ -193,7 +193,9 @@ describe("Organization Skill editing", () => {
 	});
 
 	it("loads canonical saved rich text into both editors before the next edit", async () => {
-		updateSkill.mockResolvedValueOnce({ skill: richSnapshot(2) });
+		updateSkill
+			.mockResolvedValueOnce({ skill: richSnapshot(2) })
+			.mockResolvedValueOnce({ skill: richSnapshot(3) });
 		renderEditor([richSnapshot(1)]);
 		await screen.findByLabelText("Name");
 		openReference();
@@ -214,8 +216,12 @@ describe("Organization Skill editing", () => {
 		).toBe(true);
 		await appendRichText(richEditor("instructions"), "NEXT");
 		await appendRichText(richEditor("reference"), "NEXT");
-		fireEvent.click(screen.getByRole("button", { name: "Save" }));
-		await waitFor(() => expect(updateSkill).toHaveBeenCalledTimes(2));
+		fireEvent.click(screen.getByRole("link", { name: "All Skills" }));
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Save and leave" })
+		);
+		await screen.findByRole("heading", { name: "Skills catalog" });
+		expect(updateSkill).toHaveBeenCalledTimes(2);
 		expect(updateSkill.mock.calls[1]?.[0]).toMatchObject({
 			expectedVersion: 2,
 			expectedActiveReleaseId: "skill-one-release-2",
