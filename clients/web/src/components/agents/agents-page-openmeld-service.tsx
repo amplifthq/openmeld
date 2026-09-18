@@ -603,6 +603,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 	} else {
 		serviceContent = (
 			<CurrentLocalRuntimeServiceFacts
+				computer={input.computer}
 				currentLocalRuntimeReplyReadiness={
 					input.currentLocalRuntimeReplyReadiness
 				}
@@ -646,17 +647,6 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 			description="Connects this computer to OpenMeld and manages local tools."
 		>
 			{serviceContent}
-			<DesktopComputerRecovery
-				computer={input.computer}
-				isReconcilingStatus={input.isReconcilingStatus}
-				key={JSON.stringify(
-					input.currentLocalRuntimeReplyReadiness?.currentTarget
-				)}
-				readiness={input.currentLocalRuntimeReplyReadiness}
-				replyReadiness={input.replyReadiness}
-				setupPath={setupPath}
-				updatePath={serviceUpdatePath}
-			/>
 			<ComputerConnectionHistory
 				storageScope={input.recovery.storageScope}
 				target={input.currentLocalRuntimeReplyReadiness?.currentTarget}
@@ -695,12 +685,9 @@ function OpenMeldToolsCardFrame(input: {
 }
 
 function DesktopComputerRecovery(input: {
+	action: OpenMeldToolsAction | null;
 	computer: LocalRuntimeComputer;
-	isReconcilingStatus: boolean;
 	readiness: CurrentLocalRuntimeReplyReadinessResponse | null;
-	replyReadiness: ComputerReplyReadiness | null;
-	setupPath: string;
-	updatePath: string;
 }) {
 	const [state, setState] = useState<"idle" | "opening" | "opened" | "failed">(
 		"idle"
@@ -721,24 +708,19 @@ function DesktopComputerRecovery(input: {
 				candidate.deviceId === target.deviceId &&
 				candidate.runtimeLane === target.runtimeLane
 		);
-	const update = hasOpenMeldToolsUpdate(
-		input.readiness?.localComponents ?? null
-	);
-	const reconnect =
-		input.replyReadiness?.status === "needs_repair" ||
-		input.replyReadiness?.status === "needs_setup";
-	if (!getDesktopPlatform() || input.isReconcilingStatus) {
+	if (!getDesktopPlatform()) {
 		return null;
 	}
 	if (
 		!(
 			targetKnown &&
 			input.computer.connectedComputerId &&
-			(update || reconnect)
+			input.action?.kind === "link"
 		)
 	) {
 		return null;
 	}
+	const path = input.action.path;
 	const open = async () => {
 		if (opening.current) {
 			return;
@@ -746,7 +728,7 @@ function DesktopComputerRecovery(input: {
 		opening.current = true;
 		setState("opening");
 		try {
-			await openDesktopWeb(update ? input.updatePath : input.setupPath);
+			await openDesktopWeb(path);
 			if (active.current) {
 				setState("opened");
 			}
@@ -758,7 +740,10 @@ function DesktopComputerRecovery(input: {
 			opening.current = false;
 		}
 	};
-	const label = update ? "Update in browser" : "Reconnect in browser";
+	const label =
+		input.action.label === UPDATE_MANUALLY_LABEL
+			? "Update in browser"
+			: "Reconnect in browser";
 	return (
 		<div className="space-y-2 border-t pt-3">
 			<Button
@@ -946,6 +931,7 @@ function ComputerReportDetails(input: { computer: LocalRuntimeComputer }) {
 }
 
 function CurrentLocalRuntimeServiceFacts(input: {
+	computer: LocalRuntimeComputer;
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 	executionTarget: LocalRuntimeExecutionTarget | null;
 	expectedServiceVersion: string | null;
@@ -1042,11 +1028,12 @@ function CurrentLocalRuntimeServiceFacts(input: {
 		serviceVersionValue,
 		skillsUpdate,
 	});
+	const displayAction = resolveCoreActionableOpenMeldToolsDisplayAction({
+		action: display.primaryAction,
+		localComponents,
+	});
 	const primaryAction = resolveCurrentOpenMeldToolsPrimaryAction({
-		displayAction: resolveCoreActionableOpenMeldToolsDisplayAction({
-			action: display.primaryAction,
-			localComponents,
-		}),
+		displayAction,
 		maintenanceAvailable: maintenance !== null,
 		onUpdateOpenMeldTools: input.onUpdateOpenMeldTools,
 		updateIsActive,
@@ -1104,6 +1091,14 @@ function CurrentLocalRuntimeServiceFacts(input: {
 					</div>
 				) : null}
 			</div>
+			<DesktopComputerRecovery
+				action={displayAction}
+				computer={input.computer}
+				key={JSON.stringify(
+					input.currentLocalRuntimeReplyReadiness?.currentTarget
+				)}
+				readiness={input.currentLocalRuntimeReplyReadiness}
+			/>
 			<OpenMeldToolsUpdateFeedback
 				confirmationPending={
 					input.pendingManagedUpdate?.kind === "confirmation"
