@@ -2,6 +2,7 @@ import type { DesktopUpdaterState } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import { SettingsRow } from "@openmeld/ui/components/settings-row";
 import { SettingsSection } from "@openmeld/ui/components/settings-section";
+import { cn } from "@openmeld/ui/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useLayoutEffect, useState, useSyncExternalStore } from "react";
@@ -32,10 +33,29 @@ const subscribe = (listener: () => void) => {
 export function useDesktopUpdater() {
 	return useSyncExternalStore(
 		subscribe,
-		() => snapshot,
+		() => (getDesktopPlatform() ? snapshot : null),
 		() => null
 	);
 }
+export const DESKTOP_UPDATE_ATTENTION_LABEL = "Desktop update pending";
+
+export function useDesktopUpdateAttention() {
+	return desktopUpdaterPresentation(useDesktopUpdater()).attention;
+}
+
+export function DesktopUpdateIndicator(input: { className?: string }) {
+	return (
+		<span
+			aria-hidden="true"
+			className={cn(
+				"size-1.5 shrink-0 rounded-full bg-unread",
+				input.className
+			)}
+			data-slot="desktop-update-indicator"
+		/>
+	);
+}
+
 const restartPathKey = "openmeld.desktop.update-return";
 const editingEvents = [
 	"beforeinput",

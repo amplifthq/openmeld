@@ -3,9 +3,19 @@ import type {
 	DesktopUpdaterState,
 } from "@openmeld/schemas";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
+import { AppSettingsButton } from "#/components/app/app-settings-button";
+import { SettingsInnerSidebar } from "#/components/settings/settings-page";
 import {
 	clearCenterAgentPendingMessage,
 	createPendingCenterAgentMessage,
@@ -17,6 +27,7 @@ import { DesktopUpdater, DesktopUpdatesSection } from "./updater";
 const editingPaused = /Editing is paused/;
 
 const native = vi.hoisted(() => ({
+	enabled: true,
 	prepare: undefined as
 		| undefined
 		| ((request: DesktopUpdaterRestartRequest) => Promise<void>),
@@ -42,23 +53,43 @@ const router = vi.hoisted(() => ({
 	history: { location: { href: "/o/team/spaces/space?thread=thread" } },
 	navigate: vi.fn(),
 }));
-vi.mock("@tanstack/react-router", () => ({ useRouter: () => router }));
+vi.mock("@tanstack/react-router", async () => ({
+	...(await vi.importActual<typeof import("@tanstack/react-router")>(
+		"@tanstack/react-router"
+	)),
+	useRouter: () => router,
+	Link: ({
+		to,
+		children,
+		activeOptions: _active,
+		...props
+	}: ComponentProps<"a"> & { to: string; activeOptions?: unknown }) => (
+		<a href={to} {...props}>
+			{children}
+		</a>
+	),
+}));
 vi.mock("./platform", () => ({
-	getDesktopPlatform: () => ({
-		...native.bridge,
-		onUpdaterChanged: (callback: typeof native.changed) => {
-			native.changed = callback;
-			return () => undefined;
-		},
-		onUpdaterPrepare: (callback: typeof native.prepare) => {
-			native.prepare = callback;
-			return () => undefined;
-		},
-	}),
+	getDesktopPlatform: () =>
+		native.enabled
+			? {
+					...native.bridge,
+					onUpdaterChanged: (callback: typeof native.changed) => {
+						native.changed = callback;
+						return () => undefined;
+					},
+					onUpdaterPrepare: (callback: typeof native.prepare) => {
+						native.prepare = callback;
+						return () => undefined;
+					},
+				}
+			: null,
 }));
 afterEach(() => {
 	cleanup();
 	localStorage.clear();
+	native.enabled = true;
+	vi.clearAllMocks();
 });
 it("keeps the installed version separate from the changing update status", async () => {
 	const currentState: DesktopUpdaterState = {
@@ -84,7 +115,9 @@ it("keeps the installed version separate from the changing update status", async
 	if (!settings) {
 		throw new Error("Expected the Desktop Updates settings section.");
 	}
-	await within(settings).findByText("OpenMeld is up to date.");
+	await within(settings).findByText(
+		"You're up to date. No updates are available."
+	);
 	expect(within(settings).getByText("Installed version")).toBeTruthy();
 	expect(within(settings).getByText("Version 0.1.1")).toBeTruthy();
 	expect(within(settings).queryByText("Available version")).toBeNull();
@@ -100,7 +133,9 @@ it("keeps the installed version separate from the changing update status", async
 	expect(within(settings).getByText("Available version")).toBeTruthy();
 	expect(within(settings).getByText("Version 0.1.2")).toBeTruthy();
 	expect(
-		within(settings).getByText("Downloading version 0.1.2… 42%")
+		within(settings).getByText(
+			"Downloading update… Downloading version 0.1.2. 42% downloaded."
+		)
 	).toBeTruthy();
 	const notice = screen.getByRole("complementary", { name: "Desktop update" });
 	expect(within(notice).getByRole("heading", { name: "Updates" })).toBeTruthy();
@@ -115,11 +150,114 @@ it("keeps the installed version separate from the changing update status", async
 		})
 	);
 	expect(
-		within(settings).getByText("Version 0.1.2 is ready to install.")
+		within(settings).getByText(
+			"Ready to restart. Version 0.1.2 is downloaded. Restart to finish updating."
+		)
 	).toBeTruthy();
 	within(settings).getByRole("button", { name: "Restart to update" }).click();
 	expect(native.bridge.updaterAction).toHaveBeenCalledWith("restart");
 });
+it.each([
+	"page",
+	"dialog",
+] as const)("keeps both navigation entries on the same native attention in the %s presentation", async (presentation) => {
+	const openSettings = vi.fn();
+	const navigate = vi.fn();
+	const navigationRole = presentation === "dialog" ? "button" : "link";
+	const { container, rerender } = render(
+		<QueryClientProvider client={new QueryClient()}>
+			<DesktopUpdater />
+			<AppSettingsButton
+				className="size-7"
+				isActive={false}
+				onClick={openSettings}
+			/>
+			<SettingsInnerSidebar
+				activeSectionId="account"
+				isPersonalWorkspace={false}
+				items={[
+					{ id: "updates", title: "Updates", to: "/o/team/settings/updates" },
+				]}
+				onNavigate={presentation === "dialog" ? navigate : undefined}
+				onSendFeedback={vi.fn()}
+				organizationName="Team"
+				organizationRole="owner"
+				presentation={presentation}
+			/>
+		</QueryClientProvider>
+	);
+	await screen.findByRole("button", {
+		name: "Settings, Desktop update pending",
+	});
+	const updatesEntry = screen.getByRole(navigationRole, {
+		name: "Updates, Desktop update pending",
+	});
+	if (presentation === "dialog") {
+		fireEvent.click(updatesEntry);
+		expect(navigate).toHaveBeenCalledWith("updates");
+	} else {
+		expect(updatesEntry.getAttribute("href")).toBe("/o/team/settings/updates");
+	}
+	fireEvent.click(
+		screen.getByRole("button", { name: "Settings, Desktop update pending" })
+	);
+	expect(openSettings).toHaveBeenCalledOnce();
+	fireEvent.click(screen.getByRole("button", { name: "Later" }));
+	expect(
+		container.querySelectorAll('[data-slot="desktop-update-indicator"]')
+	).toHaveLength(2);
+	for (const status of ["downloading", "checking", "error"] as const) {
+		act(() =>
+			native.changed?.({
+				status,
+				currentVersion: "0.1.1",
+				version: "0.1.2",
+				percent: null,
+				errorStage: status === "error" ? "check" : null,
+			})
+		);
+		expect(
+			container.querySelectorAll('[data-slot="desktop-update-indicator"]')
+		).toHaveLength(2);
+	}
+	act(() =>
+		native.changed?.({
+			status: "current",
+			currentVersion: "0.1.1",
+			version: null,
+			percent: null,
+			errorStage: null,
+		})
+	);
+	expect(
+		container.querySelectorAll('[data-slot="desktop-update-indicator"]')
+	).toHaveLength(0);
+	expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
+	expect(screen.getByRole(navigationRole, { name: "Updates" })).toBeTruthy();
+	// A retained Desktop snapshot must not leak attention into a plain Web host.
+	act(() =>
+		native.changed?.({
+			status: "available",
+			currentVersion: "0.1.1",
+			version: "0.1.2",
+			percent: null,
+			errorStage: null,
+		})
+	);
+	native.enabled = false;
+	rerender(
+		<AppSettingsButton
+			className="size-7"
+			isActive={false}
+			onClick={openSettings}
+		/>
+	);
+	expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
+	expect(
+		container.querySelectorAll('[data-slot="desktop-update-indicator"]')
+	).toHaveLength(0);
+});
+
 it.each([
 	"installing",
 	"error",
