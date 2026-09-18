@@ -77,7 +77,7 @@ describe("Computer Space file transfer", () => {
         ...file.latestRevision,
         id: write.revisionId,
         fileId: write.fileId,
-        revision: 1,
+        revision: (write.baseRevision ?? 0) + 1,
       },
     }));
     const stored = new Map<string, Uint8Array>();
@@ -112,8 +112,8 @@ describe("Computer Space file transfer", () => {
       },
       workingDirectory: "/computer/spaces/current",
     });
-    const [download, upload] = tools;
-    if (!(download && upload)) {
+    const [download, upload, save, attach] = tools;
+    if (!(download && upload && save && attach)) {
       throw new Error("Missing file tools");
     }
     const downloaded = (await download.execute({
@@ -152,5 +152,40 @@ describe("Computer Space file transfer", () => {
       })
     ).rejects.toThrow();
     expect(writeSpaceFileContent).toHaveBeenCalledTimes(1);
+    const saved = await save.execute({
+      path: downloaded.path,
+      fileId: file.id,
+      baseRevision: 2,
+      mimeType: "application/octet-stream",
+      clientMutationId: "save-work",
+    });
+    expect(saved).toMatchObject({
+      attachedToFinalReply: false,
+      file: { id: file.id, latestRevision: { revision: 3 } },
+    });
+    expect(writeSpaceFileContent.mock.calls[1]?.[0].write).toMatchObject({
+      fileId: file.id,
+      baseRevision: 2,
+    });
+    expect(
+      (await readRemoteAgentCallbackContext(storage, "files"))?.outputFiles
+    ).toHaveLength(1);
+    writeSpaceFileContent.mockRejectedValueOnce(
+      new Error("space_file.conflict")
+    );
+    await expect(
+      save.execute({
+        path: downloaded.path,
+        fileId: file.id,
+        baseRevision: 2,
+        mimeType: "application/octet-stream",
+        clientMutationId: "stale-work",
+      })
+    ).rejects.toThrow("space_file.conflict");
+    expect(stored.get(downloaded.path)).toEqual(bytes);
+    await attach.execute({ fileId: file.id, revision: 2 });
+    expect(
+      (await readRemoteAgentCallbackContext(storage, "files"))?.outputFiles
+    ).toContainEqual(expect.objectContaining({ fileId: file.id, revision: 2 }));
   });
 });

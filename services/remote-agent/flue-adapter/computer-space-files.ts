@@ -1,6 +1,7 @@
 import {
   resolveSpaceFileContentResponseSchema,
-  SPACE_FILE_MAX_SIZE_BYTES,
+  SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
+  spaceMessageFileReferenceSchema,
 } from "@openmeld/schemas";
 import {
   integer,
@@ -14,13 +15,17 @@ import {
   strictObject,
   string,
 } from "valibot";
-import type {
-  RemoteAgentCallbackContext,
-  RemoteAgentCoreWorkerBinding,
-  RemoteAgentStorage,
+import {
+  appendRemoteAgentOutputFile,
+  type RemoteAgentCallbackContext,
+  type RemoteAgentCoreWorkerBinding,
+  type RemoteAgentStorage,
 } from "../agent-core/callback-context";
 import { callCoreRpc } from "../agent-core/core-rpc";
-import { publishRemoteAgentOutputFile } from "../agent-core/space-file-output";
+import {
+  publishRemoteAgentOutputFile,
+  saveRemoteAgentSpaceFile,
+} from "../agent-core/space-file-output";
 import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import type { AgentComputerWorkspaceAccess } from "./agent-computer-workspace-access";
@@ -35,6 +40,15 @@ const uploadInput = strictObject({
   path: pipe(string(), minLength(1), maxLength(1024)),
   mimeType: pipe(string(), minLength(1), maxLength(255)),
   clientMutationId: identifier,
+});
+const saveInput = strictObject({
+  ...uploadInput.entries,
+  fileId: identifier,
+  baseRevision: pipe(number(), integer(), minValue(1)),
+});
+const attachInput = strictObject({
+  fileId: identifier,
+  revision: pipe(number(), integer(), minValue(1)),
 });
 
 export function getComputerSpaceFileTools(input: {
@@ -74,7 +88,7 @@ export function getComputerSpaceFileTools(input: {
         const metadata =
           resolveSpaceFileContentResponseSchema.parse(rawMetadata);
         if (
-          bytes.byteLength > SPACE_FILE_MAX_SIZE_BYTES ||
+          bytes.byteLength > SPACE_FILE_RAW_UPLOAD_MAX_BYTES ||
           bytes.byteLength !== metadata.revision.sizeBytes
         ) {
           throw new Error(
@@ -108,7 +122,7 @@ export function getComputerSpaceFileTools(input: {
             await createAgentComputerFileHandoff({
               workspace,
               workingDirectory: input.workingDirectory,
-              maxBinaryFileBytes: SPACE_FILE_MAX_SIZE_BYTES,
+              maxBinaryFileBytes: SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
             }).readBinaryFile(request.path)
         );
         return await publishRemoteAgentOutputFile({
@@ -122,6 +136,64 @@ export function getComputerSpaceFileTools(input: {
           storage: input.storage,
           submissionId: input.context.submissionId,
         });
+      },
+    },
+    {
+      name: "openmeld_save_space_file",
+      description:
+        "Save selected Computer bytes as a new revision of an existing Space file, without attaching it to your final reply. Supply the original fileId and baseRevision you edited. A stale base conflicts; preserve your edits and review the incoming version instead of substituting a newer base. Reuse clientMutationId only for the exact same bytes and request. Supports files up to 10 MiB.",
+      input: saveInput,
+      execute: async (rawInput) => {
+        const request = parse(saveInput, rawInput);
+        const file = await input.workspaceAccess.withWorkspace(
+          async (workspace) =>
+            await createAgentComputerFileHandoff({
+              workspace,
+              workingDirectory: input.workingDirectory,
+              maxBinaryFileBytes: SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
+            }).readBinaryFile(request.path)
+        );
+        return await saveRemoteAgentSpaceFile({
+          baseRevision: request.baseRevision,
+          bytes: Uint8Array.from(file.bytes).buffer,
+          clientMutationId: request.clientMutationId,
+          context,
+          coreWorker: input.coreWorker,
+          fileId: request.fileId,
+          mimeType: request.mimeType,
+          spaceId,
+        });
+      },
+    },
+    {
+      name: "openmeld_attach_space_file",
+      description:
+        "Select an existing exact Space file revision for your final reply. This does not save Computer changes or publish a message yet. Use the revision returned by a successful save; never substitute the latest version for the result you intend to deliver.",
+      input: attachInput,
+      execute: async (rawInput) => {
+        const request = parse(attachInput, rawInput);
+        const response = await callCoreRpc(
+          input.coreWorker,
+          "readSpaceFileContent",
+          { context, spaceId, content: { ...request, spaceId } },
+          (binding, payload) => binding.readSpaceFileContent?.(payload)
+        );
+        const { bytes: _bytes, ...rawMetadata } = response;
+        const metadata =
+          resolveSpaceFileContentResponseSchema.parse(rawMetadata);
+        const file = spaceMessageFileReferenceSchema.parse({
+          fileId: metadata.file.id,
+          revision: metadata.revision.revision,
+          name: metadata.file.name,
+          mimeType: metadata.revision.mimeType,
+          sizeBytes: metadata.revision.sizeBytes,
+        });
+        await appendRemoteAgentOutputFile({
+          file,
+          storage: input.storage,
+          submissionId: input.context.submissionId,
+        });
+        return { attachedToFinalReply: true, file };
       },
     },
   ];
