@@ -5,6 +5,8 @@ import {
 } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
+import { normalizeCommandEnvironment } from "./process-environment.js";
+import { resolvePlatformCommand } from "./process-launch.js";
 
 const PROCESS_TABLE_COLUMN_SEPARATOR = /\s+/u;
 const PROCESS_TABLE_LINE_SEPARATOR = /\r?\n/u;
@@ -241,14 +243,18 @@ export function spawnAgentControllerProcess(input: {
 }): SpawnedAgentControllerProcess {
   const signalTarget = resolveAgentControllerProcessSignalTarget();
   const supervisionId = input.supervisionId ?? randomUUID();
-  const child = spawn(input.bin, input.args, {
+  const env = normalizeCommandEnvironment(input.env);
+  const invocation = resolvePlatformCommand(input.bin, input.args, env);
+  const child = spawn(invocation.bin, invocation.args, {
     cwd: input.cwd,
     detached: signalTarget === "process_group",
     env: {
-      ...input.env,
+      ...env,
       [PROCESS_SUPERVISION_ENV_KEY]: supervisionId,
     },
-    shell: input.shell,
+    shell: process.platform === "win32" ? false : input.shell,
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+    windowsHide: true,
     stdio: ["pipe", "pipe", "pipe"],
   });
   const processId = typeof child.pid === "number" ? child.pid : null;

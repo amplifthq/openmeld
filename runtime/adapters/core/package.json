@@ -14,6 +14,14 @@
       "types": "./dist/process-environment.d.ts",
       "default": "./dist/process-environment.js"
     },
+    "./windows-system": {
+      "types": "./dist/windows-system.d.ts",
+      "default": "./dist/windows-system.js"
+    },
+    "./process-launch": {
+      "types": "./dist/process-launch.d.ts",
+      "default": "./dist/process-launch.js"
+    },
     "./drivers/cli-driver": {
       "types": "./dist/drivers/cli-driver.d.ts",
       "default": "./dist/drivers/cli-driver.js"
