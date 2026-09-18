@@ -16,6 +16,7 @@ import {
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-navigation";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { useDesktopServiceControlStatus } from "#/desktop/desktop-service-controls";
 import { getDesktopPlatform } from "#/desktop/platform";
 import { useDesktopComputerConnection } from "#/desktop/use-computer-connection";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
@@ -40,23 +41,40 @@ import {
 
 const COMPUTERS_SERVICE_STATUS_REFETCH_INTERVAL_MS = 10_000;
 
-function desktopConnectionAction(orgSlug: string, profileId: string | null) {
-	return getDesktopPlatform() ? (
-		<DesktopConnectComputerAction orgSlug={orgSlug} profileId={profileId} />
+function desktopConnectionAction(
+	orgSlug: string,
+	profileId: string | null,
+	deviceId: string | undefined
+) {
+	return getDesktopPlatform() && deviceId ? (
+		<DesktopConnectComputerAction
+			deviceId={deviceId}
+			orgSlug={orgSlug}
+			profileId={profileId}
+		/>
 	) : null;
 }
 
 function DesktopConnectComputerAction({
+	deviceId,
 	orgSlug,
 	profileId,
 }: {
+	deviceId: string;
 	orgSlug: string;
 	profileId?: string | null;
 }) {
 	const connection = useDesktopComputerConnection();
+	const localStatus = useDesktopServiceControlStatus();
 	const connected = connection.data?.status === "available";
 	const label = connected ? "Disconnect" : "Connect";
-	if (!getDesktopPlatform()) {
+	// Connection availability and local identity are separate: a disconnected
+	// Mac still has device evidence, while a selected remote Computer is not local.
+	if (
+		localStatus.isPending ||
+		localStatus.isError ||
+		localStatus.data?.service.controlCapabilities?.deviceId !== deviceId
+	) {
 		return null;
 	}
 	return (
@@ -282,7 +300,11 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 				<ComputersPageBody
 					computerGroups={computerGroups}
 					computerResolutionIsPending={computerResolutionIsPending}
-					connectionAction={desktopConnectionAction(orgSlug, ownerProfileId)}
+					connectionAction={desktopConnectionAction(
+						orgSlug,
+						ownerProfileId,
+						selectedComputer?.deviceId
+					)}
 					isReconcilingCurrentToolsStatus={isReconcilingCurrentToolsStatus}
 					onRetry={() => {
 						Promise.all([
