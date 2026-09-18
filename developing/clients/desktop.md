@@ -404,9 +404,10 @@ messages; raw output is removed on completion. The UI exposes its path alongside
 the Prepare correlation ID. These diagnostics do not establish an incident's
 root cause without the failed operation's evidence.
 
-Signed production previews use `desktop:package:production-preview`, the same
-installed build pipeline and existing Developer ID/Keychain notarization as local
-acceptance. Production preview requires the exact clean merged release SHA and
+Signed production previews use `desktop:package:production-preview` and the same
+installed build pipeline as local acceptance. macOS retains the existing
+Developer ID/Keychain notarization. Windows uses native per-user NSIS with an
+explicitly configured Authenticode identity. Production preview requires the exact clean merged release SHA and
 rejects disposable settings. Its signed source record binds the release SHA,
 production identity, and renderer fingerprint; publication uses the immutable
 candidate workflow in [Development Workflow](../engineering/development-workflow.md#desktop-preview-release-workflow).
@@ -414,14 +415,51 @@ Building and uploading do not select a default update. Web offers an account-fre
 page at `/desktop`, with an immutable `/desktop?candidate=<hash>` override.
 An explicit promotion selects the default download and update feed together.
 
+### Windows package and release boundary
+
+Windows x64 and ARM64 are separate installer and update targets. NSIS installs
+for the current user without requesting elevation and preserves application data
+on uninstall. Desktop installation/uninstallation does not install, stop or remove
+the independent OpenMeld Service. Connecting this Computer remains an explicit
+CLI-owned action; Node.js with npm is a prerequisite for Windows.
+
+Root packaging commands use portable JavaScript, not POSIX inline environment
+assignments. Windows packaging skips Mac icon/notarization tools. Unsigned
+packages are limited to disposable acceptance and cannot use production updates.
+Production requires the exact clean, approved, merged source and
+`OPENMELD_DESKTOP_WINDOWS_PUBLISHER` matching the actual certificate. A missing
+signer is not replaced with the Apple team identity.
+
+Before publication/promotion, native Windows inspection verifies Authenticode
+on both the NSIS installer and its extracted application. Full 7-Zip with NSIS
+support is a release-workstation prerequisite, not shipped runtime machinery.
+Inspection never executes installation. It checks the signed payload's PE
+architecture, package version, production target, source/renderer records and
+updater publisher/feed, then confirms the installer hash has not changed. A
+neighboring unpacked directory or sidecar file is not signed-source evidence.
+Commands live in the existing Desktop release workflow. These code guards are
+not proof that a signed OpenMeld Windows artifact has been built or accepted.
+
 ### In-app updates
 
-Production macOS builds use electron-updater 6.8.9. Main owns the update snapshot;
+Production builds use electron-updater 6.8.9: MacUpdater for macOS and NsisUpdater
+for Windows. Main owns the update snapshot;
 the shared renderer's Updates section, Settings indicator, notice, and native
 Check for Updates menu consume it. The native entry is independent of cloud
 admission and sign-in. Development and disposable packages cannot update from
 the production feed. Renderer IPC accepts only check, download, and restart
 actions, never an origin, file path, or installer arguments.
+
+Windows activation validates the installed source receipt and `app-update.yml`
+against the actual architecture, fixed platform feed and exactly one configured
+publisher. Missing or mismatched metadata makes updates unavailable. The public
+NSIS verifier hook requires successful Authenticode evidence and an exact
+publisher match; missing PowerShell, errors, unsigned executables and unexpected
+output all reject. External metadata URLs, another platform's payload, multiple
+files and web installer packages are rejected before download. Manual download,
+draft-safe restart and independent Service lifetime remain unchanged. Actual
+signed A-to-B updates, normal-user installation/uninstallation and native DPI/IME
+behavior require separate Windows acceptance.
 
 Desktop Settings places Updates after Privacy & Safety in the Personal group.
 The page always identifies the installed Desktop version from Main's existing

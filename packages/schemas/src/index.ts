@@ -155,12 +155,20 @@ export {
   DESKTOP_PROMOTED_RELEASE_KEY,
   DESKTOP_UPDATE_FEED_URL,
   type DesktopCandidateManifest,
+  type DesktopReleasePlatform,
   desktopCandidateIdSchema,
   desktopCandidateLocation,
   desktopCandidateManifestKey,
   desktopCandidateManifestSchema,
+  desktopCandidateUpdateArtifact,
+  desktopPlatformUpdateFeedUrl,
+  desktopPromotedReleaseKey,
   desktopPromotedReleaseSchema,
+  desktopReleasePlatformSchema,
   desktopUpdaterFeedSchema,
+  desktopUpdaterFeedSchemaForPlatform,
+  desktopWindowsBuildSchema,
+  resolveDesktopReleasePlatform,
 } from "./desktop-release";
 export * from "./desktop-updater";
 export {

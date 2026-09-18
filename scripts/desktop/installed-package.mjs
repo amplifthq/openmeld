@@ -1,6 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { runOwnedCommand } from "../dev/owned-command.mjs";
+import { buildInstalledPlatformPlan } from "./installed-platform.ts";
 import { readInstalledDesktopTarget } from "./installed-target.ts";
 import { stageDesktopRenderer } from "./private-package.mjs";
 import {
@@ -16,9 +17,14 @@ const productionSource =
     ? desktopProductionSource(process.env)
     : null;
 const target = readInstalledDesktopTarget(process.env);
-if (!target || process.platform !== "darwin" || process.arch !== "arm64") {
-  throw new Error("Select an installed Desktop target on macOS Apple Silicon.");
+if (!target) {
+  throw new Error("Select a fixed installed Desktop target.");
 }
+const plan = buildInstalledPlatformPlan({
+  env: process.env,
+  target,
+  signedMode,
+});
 const staged = stageDesktopRenderer(root, target);
 if (productionSource) {
   writeFileSync(
@@ -26,11 +32,18 @@ if (productionSource) {
       "../../clients/desktop/dist/production-preview-source.json",
       import.meta.url
     ),
-    JSON.stringify({ ...productionSource, webBuild: staged.webBuild, target })
+    JSON.stringify({
+      ...productionSource,
+      webBuild: staged.webBuild,
+      target,
+      ...(plan.windows ? { windows: plan.windows } : {}),
+    })
   );
 }
 for (const args of [
-  ["--dir", "clients/desktop", "icons:generate"],
+  ...(plan.generateMacIcons
+    ? [["--dir", "clients/desktop", "icons:generate"]]
+    : []),
   ["--dir", "clients/desktop", "build"],
   [
     "--dir",
@@ -39,10 +52,7 @@ for (const args of [
     "electron-builder",
     "--config",
     "electron-builder.installed.config.mjs",
-    "--mac",
-    "dmg",
-    ...(signedMode === "production-preview" ? ["zip"] : []),
-    "--arm64",
+    ...plan.args,
     "--publish",
     "never",
   ],
@@ -54,7 +64,12 @@ for (const args of [
   }
   const code = await runOwnedCommand("pnpm", args, {
     cwd: root,
-    env: { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: "false" },
+    env: {
+      ...process.env,
+      ...(plan.generateMacIcons || !signedMode
+        ? { CSC_IDENTITY_AUTO_DISCOVERY: "false" }
+        : {}),
+    },
   });
   if (code !== 0) {
     process.exitCode = code;

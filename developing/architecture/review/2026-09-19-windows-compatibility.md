@@ -57,6 +57,30 @@ failure is not a confirmed incident diagnosis without its logs.
 | R02 | PowerShell process inventory | Encoding, timeout, and error diagnostics |
 | R03 | Proxy and certificate handling | Environment-specific risk; incident unconfirmed |
 
+## Implementation disposition
+
+W01-W11 have candidate code corrections: npm bootstrap returns its verified JS
+entry; launch consumers preserve complete invocation; Windows environment keys
+are normalized; account lifecycle uses native process identity and pre-grant
+ownership; folder policy uses platform paths; Codex has a Windows physical
+boundary probe; Wake Jobs own descendants; signed Desktop release/update
+contracts are platform-scoped; native caption controls and Ctrl shortcuts are
+present; focused native Windows CI exercises the contracts. The table above
+records baseline findings, not the current implementation's capabilities.
+
+R01's Claude SDK public spawn boundary has native Windows fixture coverage;
+authenticated Claude execution remains acceptance. R02's bounded UTF-8
+PowerShell inventory is implemented. R03 remains an incident-specific network
+risk requiring the colleague's logs; no TLS, firewall, privilege or account
+protection is disabled to make it appear resolved.
+
+PR #1163's English delivery comments record each pushed candidate and its exact
+validation. Read current PR HEAD rather than applying an earlier green CI result
+to newer source. Keep source tests, child-process tests, native Windows CI and
+signed-in product smoke separate. Signing publisher and full release-workstation
+7-Zip are explicit operator prerequisites. No signed OpenMeld Windows installer
+or production update has been published by this implementation.
+
 ## Acceptance
 
 Use an ordinary signed-in Windows user and an isolated non-production lane.

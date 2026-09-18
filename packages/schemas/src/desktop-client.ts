@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { desktopWindowsBuildSchema } from "./desktop-release";
 import { peopleComputerTargetSchema } from "./schemas/http/people-computers";
 
 export const desktopLocalComputerSchema = z.discriminatedUnion("status", [
@@ -58,6 +59,7 @@ export const desktopProductionSourceSchema = z.strictObject({
   target: desktopInstalledTargetSchema.refine(
     (target) => target.kind === "production"
   ),
+  windows: desktopWindowsBuildSchema.optional(),
 });
 
 /** Fixed client identities select protocols, never a caller-provided URL. */

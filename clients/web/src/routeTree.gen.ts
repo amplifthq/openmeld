@@ -107,6 +107,10 @@ import { Route as V1ProfilesAgentsRouteImport } from './routes/v1/profiles/agent
 import { Route as V1ProfilesCapabilitiesRouteImport } from './routes/v1/profiles/capabilities'
 import { Route as V1ProfilesHumansRouteImport } from './routes/v1/profiles/humans'
 import { Route as DesktopUpdatesCandidateDesktopDotzipRouteImport } from './routes/desktop/updates/$candidate/desktop[.zip]'
+import { Route as DesktopUpdatesCandidateWindowsArm64DotexeRouteImport } from './routes/desktop/updates/$candidate/windows-arm64[.exe]'
+import { Route as DesktopUpdatesCandidateWindowsX64DotexeRouteImport } from './routes/desktop/updates/$candidate/windows-x64[.exe]'
+import { Route as DesktopUpdatesWindowsArm64LatestDotymlRouteImport } from './routes/desktop/updates/windows-arm64/latest[.yml]'
+import { Route as DesktopUpdatesWindowsX64LatestDotymlRouteImport } from './routes/desktop/updates/windows-x64/latest[.yml]'
 import { Route as OOrgSlugCenterAgentIndexRouteImport } from './routes/o/$orgSlug/_center-agent/index'
 import { Route as OOrgSlugCenterAgentCenterAgentRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent'
 import { Route as OOrgSlugCenterAgentDeskRouteImport } from './routes/o/$orgSlug/_center-agent/desk'
@@ -680,6 +684,30 @@ const DesktopUpdatesCandidateDesktopDotzipRoute =
     path: '/updates/$candidate/desktop.zip',
     getParentRoute: () => DesktopRoute,
   } as any)
+const DesktopUpdatesCandidateWindowsArm64DotexeRoute =
+  DesktopUpdatesCandidateWindowsArm64DotexeRouteImport.update({
+    id: '/updates/$candidate/windows-arm64.exe',
+    path: '/updates/$candidate/windows-arm64.exe',
+    getParentRoute: () => DesktopRoute,
+  } as any)
+const DesktopUpdatesCandidateWindowsX64DotexeRoute =
+  DesktopUpdatesCandidateWindowsX64DotexeRouteImport.update({
+    id: '/updates/$candidate/windows-x64.exe',
+    path: '/updates/$candidate/windows-x64.exe',
+    getParentRoute: () => DesktopRoute,
+  } as any)
+const DesktopUpdatesWindowsArm64LatestDotymlRoute =
+  DesktopUpdatesWindowsArm64LatestDotymlRouteImport.update({
+    id: '/updates/windows-arm64/latest.yml',
+    path: '/updates/windows-arm64/latest.yml',
+    getParentRoute: () => DesktopRoute,
+  } as any)
+const DesktopUpdatesWindowsX64LatestDotymlRoute =
+  DesktopUpdatesWindowsX64LatestDotymlRouteImport.update({
+    id: '/updates/windows-x64/latest.yml',
+    path: '/updates/windows-x64/latest.yml',
+    getParentRoute: () => DesktopRoute,
+  } as any)
 const OOrgSlugCenterAgentIndexRoute =
   OOrgSlugCenterAgentIndexRouteImport.update({
     id: '/',
@@ -1127,6 +1155,10 @@ export interface FileRoutesByFullPath {
   '/v1/profiles/capabilities': typeof V1ProfilesCapabilitiesRoute
   '/v1/profiles/humans': typeof V1ProfilesHumansRoute
   '/desktop/updates/$candidate/desktop.zip': typeof DesktopUpdatesCandidateDesktopDotzipRoute
+  '/desktop/updates/$candidate/windows-arm64.exe': typeof DesktopUpdatesCandidateWindowsArm64DotexeRoute
+  '/desktop/updates/$candidate/windows-x64.exe': typeof DesktopUpdatesCandidateWindowsX64DotexeRoute
+  '/desktop/updates/windows-arm64/latest.yml': typeof DesktopUpdatesWindowsArm64LatestDotymlRoute
+  '/desktop/updates/windows-x64/latest.yml': typeof DesktopUpdatesWindowsX64LatestDotymlRoute
   '/o/$orgSlug/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
@@ -1281,6 +1313,10 @@ export interface FileRoutesByTo {
   '/v1/profiles/capabilities': typeof V1ProfilesCapabilitiesRoute
   '/v1/profiles/humans': typeof V1ProfilesHumansRoute
   '/desktop/updates/$candidate/desktop.zip': typeof DesktopUpdatesCandidateDesktopDotzipRoute
+  '/desktop/updates/$candidate/windows-arm64.exe': typeof DesktopUpdatesCandidateWindowsArm64DotexeRoute
+  '/desktop/updates/$candidate/windows-x64.exe': typeof DesktopUpdatesCandidateWindowsX64DotexeRoute
+  '/desktop/updates/windows-arm64/latest.yml': typeof DesktopUpdatesWindowsArm64LatestDotymlRoute
+  '/desktop/updates/windows-x64/latest.yml': typeof DesktopUpdatesWindowsX64LatestDotymlRoute
   '/o/$orgSlug/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
@@ -1441,6 +1477,10 @@ export interface FileRoutesById {
   '/v1/profiles/capabilities': typeof V1ProfilesCapabilitiesRoute
   '/v1/profiles/humans': typeof V1ProfilesHumansRoute
   '/desktop/updates/$candidate/desktop.zip': typeof DesktopUpdatesCandidateDesktopDotzipRoute
+  '/desktop/updates/$candidate/windows-arm64.exe': typeof DesktopUpdatesCandidateWindowsArm64DotexeRoute
+  '/desktop/updates/$candidate/windows-x64.exe': typeof DesktopUpdatesCandidateWindowsX64DotexeRoute
+  '/desktop/updates/windows-arm64/latest.yml': typeof DesktopUpdatesWindowsArm64LatestDotymlRoute
+  '/desktop/updates/windows-x64/latest.yml': typeof DesktopUpdatesWindowsX64LatestDotymlRoute
   '/o/$orgSlug/_center-agent/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/_center-agent/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
@@ -1604,6 +1644,10 @@ export interface FileRouteTypes {
     | '/v1/profiles/capabilities'
     | '/v1/profiles/humans'
     | '/desktop/updates/$candidate/desktop.zip'
+    | '/desktop/updates/$candidate/windows-arm64.exe'
+    | '/desktop/updates/$candidate/windows-x64.exe'
+    | '/desktop/updates/windows-arm64/latest.yml'
+    | '/desktop/updates/windows-x64/latest.yml'
     | '/o/$orgSlug/center-agent'
     | '/o/$orgSlug/desk'
     | '/o/$orgSlug/agent-activity/changes'
@@ -1758,6 +1802,10 @@ export interface FileRouteTypes {
     | '/v1/profiles/capabilities'
     | '/v1/profiles/humans'
     | '/desktop/updates/$candidate/desktop.zip'
+    | '/desktop/updates/$candidate/windows-arm64.exe'
+    | '/desktop/updates/$candidate/windows-x64.exe'
+    | '/desktop/updates/windows-arm64/latest.yml'
+    | '/desktop/updates/windows-x64/latest.yml'
     | '/o/$orgSlug/desk'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
@@ -1917,6 +1965,10 @@ export interface FileRouteTypes {
     | '/v1/profiles/capabilities'
     | '/v1/profiles/humans'
     | '/desktop/updates/$candidate/desktop.zip'
+    | '/desktop/updates/$candidate/windows-arm64.exe'
+    | '/desktop/updates/$candidate/windows-x64.exe'
+    | '/desktop/updates/windows-arm64/latest.yml'
+    | '/desktop/updates/windows-x64/latest.yml'
     | '/o/$orgSlug/_center-agent/center-agent'
     | '/o/$orgSlug/_center-agent/desk'
     | '/o/$orgSlug/agent-activity/changes'
@@ -2730,6 +2782,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DesktopUpdatesCandidateDesktopDotzipRouteImport
       parentRoute: typeof DesktopRoute
     }
+    '/desktop/updates/$candidate/windows-arm64.exe': {
+      id: '/desktop/updates/$candidate/windows-arm64.exe'
+      path: '/updates/$candidate/windows-arm64.exe'
+      fullPath: '/desktop/updates/$candidate/windows-arm64.exe'
+      preLoaderRoute: typeof DesktopUpdatesCandidateWindowsArm64DotexeRouteImport
+      parentRoute: typeof DesktopRoute
+    }
+    '/desktop/updates/$candidate/windows-x64.exe': {
+      id: '/desktop/updates/$candidate/windows-x64.exe'
+      path: '/updates/$candidate/windows-x64.exe'
+      fullPath: '/desktop/updates/$candidate/windows-x64.exe'
+      preLoaderRoute: typeof DesktopUpdatesCandidateWindowsX64DotexeRouteImport
+      parentRoute: typeof DesktopRoute
+    }
+    '/desktop/updates/windows-arm64/latest.yml': {
+      id: '/desktop/updates/windows-arm64/latest.yml'
+      path: '/updates/windows-arm64/latest.yml'
+      fullPath: '/desktop/updates/windows-arm64/latest.yml'
+      preLoaderRoute: typeof DesktopUpdatesWindowsArm64LatestDotymlRouteImport
+      parentRoute: typeof DesktopRoute
+    }
+    '/desktop/updates/windows-x64/latest.yml': {
+      id: '/desktop/updates/windows-x64/latest.yml'
+      path: '/updates/windows-x64/latest.yml'
+      fullPath: '/desktop/updates/windows-x64/latest.yml'
+      preLoaderRoute: typeof DesktopUpdatesWindowsX64LatestDotymlRouteImport
+      parentRoute: typeof DesktopRoute
+    }
     '/o/$orgSlug/_center-agent/': {
       id: '/o/$orgSlug/_center-agent/'
       path: '/'
@@ -3184,6 +3264,10 @@ interface DesktopRouteChildren {
   DesktopUpdateDotjsonRoute: typeof DesktopUpdateDotjsonRoute
   DesktopUpdatesLatestMacDotymlRoute: typeof DesktopUpdatesLatestMacDotymlRoute
   DesktopUpdatesCandidateDesktopDotzipRoute: typeof DesktopUpdatesCandidateDesktopDotzipRoute
+  DesktopUpdatesCandidateWindowsArm64DotexeRoute: typeof DesktopUpdatesCandidateWindowsArm64DotexeRoute
+  DesktopUpdatesCandidateWindowsX64DotexeRoute: typeof DesktopUpdatesCandidateWindowsX64DotexeRoute
+  DesktopUpdatesWindowsArm64LatestDotymlRoute: typeof DesktopUpdatesWindowsArm64LatestDotymlRoute
+  DesktopUpdatesWindowsX64LatestDotymlRoute: typeof DesktopUpdatesWindowsX64LatestDotymlRoute
 }
 
 const DesktopRouteChildren: DesktopRouteChildren = {
@@ -3192,6 +3276,14 @@ const DesktopRouteChildren: DesktopRouteChildren = {
   DesktopUpdatesLatestMacDotymlRoute: DesktopUpdatesLatestMacDotymlRoute,
   DesktopUpdatesCandidateDesktopDotzipRoute:
     DesktopUpdatesCandidateDesktopDotzipRoute,
+  DesktopUpdatesCandidateWindowsArm64DotexeRoute:
+    DesktopUpdatesCandidateWindowsArm64DotexeRoute,
+  DesktopUpdatesCandidateWindowsX64DotexeRoute:
+    DesktopUpdatesCandidateWindowsX64DotexeRoute,
+  DesktopUpdatesWindowsArm64LatestDotymlRoute:
+    DesktopUpdatesWindowsArm64LatestDotymlRoute,
+  DesktopUpdatesWindowsX64LatestDotymlRoute:
+    DesktopUpdatesWindowsX64LatestDotymlRoute,
 }
 
 const DesktopRouteWithChildren =
@@ -3688,13 +3780,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

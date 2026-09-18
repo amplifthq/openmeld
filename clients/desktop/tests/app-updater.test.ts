@@ -1,11 +1,15 @@
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
+import type { DesktopReleasePlatform } from "@openmeld/schemas";
 import type { AutoUpdater } from "electron";
 import type { MacUpdater, UpdateCheckResult } from "electron-updater";
 import { describe, expect, it, vi } from "vitest";
 import { createAppUpdater } from "../src/main/update/app-updater";
 
-function fixture(url = `/desktop/updates/${"a".repeat(64)}/desktop.zip`) {
+function fixture(
+  url = `/desktop/updates/${"a".repeat(64)}/desktop.zip`,
+  platform: DesktopReleasePlatform = "macos-arm64"
+) {
   const events = new EventEmitter();
   const info = {
     version: "0.1.2",
@@ -37,6 +41,7 @@ function fixture(url = `/desktop/updates/${"a".repeat(64)}/desktop.zip`) {
   const setInstalling = vi.fn();
   const controller = createAppUpdater({
     updater: driver as unknown as MacUpdater,
+    platform,
     currentVersion: "0.1.1",
     publish: vi.fn(),
     prepareRestart,
@@ -45,6 +50,45 @@ function fixture(url = `/desktop/updates/${"a".repeat(64)}/desktop.zip`) {
   return { controller, driver, prepareRestart, setInstalling };
 }
 describe("Desktop update consent", () => {
+  it.each([
+    "windows-x64",
+    "windows-arm64",
+  ] as const)("uses the %s feed and preserves manual consent and draft protection", async (platform) => {
+    const { controller, driver, prepareRestart } = fixture(
+      `/desktop/updates/${"a".repeat(64)}/${platform}.exe`,
+      platform
+    );
+    expect(driver.setFeedURL).toHaveBeenCalledWith({
+      provider: "generic",
+      url: `https://openmeld.ai/desktop/updates/${platform}`,
+    });
+    await controller.act("check");
+    expect(controller.snapshot().status).toBe("available");
+    expect(driver.downloadUpdate).not.toHaveBeenCalled();
+    await controller.act("download");
+    prepareRestart.mockResolvedValueOnce(false);
+    await controller.act("restart");
+    expect(driver.quitAndInstall).not.toHaveBeenCalled();
+    await controller.act("restart");
+    expect(driver.quitAndInstall).toHaveBeenCalledOnce();
+  });
+  it.each([
+    "desktop.zip",
+    "windows-arm64.exe",
+  ])("never downloads the wrong Windows architecture/platform: %s", async (filename) => {
+    const { controller, driver } = fixture(
+      `/desktop/updates/${"a".repeat(64)}/${filename}`,
+      "windows-x64"
+    );
+    await controller.act("check");
+    await controller.act("download");
+    expect(controller.snapshot()).toMatchObject({
+      status: "error",
+      errorStage: "check",
+    });
+    expect(driver.downloadUpdate).not.toHaveBeenCalled();
+  });
+
   it("keeps the accepted install terminal if installation handoff throws", async () => {
     const { controller, driver, setInstalling } = fixture();
     await controller.act("check");

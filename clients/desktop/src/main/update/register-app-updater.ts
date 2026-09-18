@@ -11,11 +11,25 @@ import {
   type IpcMainInvokeEvent,
   ipcMain,
 } from "electron";
-import { MacUpdater } from "electron-updater";
 import { PILOT_IPC } from "../../shared/pilot-bridge";
 import { desktopUpdaterPresentation } from "../../shared/updater-presentation";
 import type { DesktopUpdateView } from "../../shared/view-types";
 import { createAppUpdater } from "./app-updater";
+import { createNativeDesktopUpdater } from "./native-updater";
+
+function readNativeUpdater(enabled: boolean) {
+  if (!enabled) {
+    return null;
+  }
+  try {
+    return createNativeDesktopUpdater({ resourcesPath: process.resourcesPath });
+  } catch (error) {
+    console.warn("[desktop.update_configuration_unavailable]", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+    return null;
+  }
+}
 
 export function registerAppUpdater(input: {
   enabled: boolean;
@@ -34,9 +48,10 @@ export function registerAppUpdater(input: {
     requestId: string;
     complete: (saved: boolean) => void;
   } | null = null;
-  const controller = input.enabled
+  const native = readNativeUpdater(input.enabled);
+  const controller = native
     ? createAppUpdater({
-        updater: new MacUpdater(),
+        ...native,
         currentVersion: app.getVersion(),
         setInstalling: input.setInstalling,
         publish: (state) =>

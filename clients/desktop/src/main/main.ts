@@ -829,7 +829,7 @@ function bootstrapApp(): void {
       const updater = registerAppUpdater({
         enabled:
           app.isPackaged &&
-          process.platform === "darwin" &&
+          (process.platform === "darwin" || process.platform === "win32") &&
           pilot?.installedTarget?.kind === "production",
         authorize: authorizeRenderer,
         getWindow: () => mainWindow,

@@ -64,11 +64,24 @@ fixed production feed and starts download or installation. These local IPC
 additions ship with the matching bundled renderer; cloud, CLI, Service, Skills,
 Core and Gateway execution contracts and their version floors do not change.
 
-`desktop-release.ts` owns immutable candidate metadata and the sole promoted
-release pointer. The optional ZIP metadata preserves older DMG-only candidate
-links, but promotion requires a ZIP. The default page, legacy JSON and updater
-feed derive their version from that same pointer. No separate latest manifest
-may be edited or uploaded for electron-updater.
+`desktop-release.ts` owns immutable candidate metadata and one promoted pointer
+per platform. The macOS pointer, DMG/ZIP paths, legacy JSON and feed keep their
+existing shapes; older DMG-only candidate links remain readable, but macOS
+promotion requires the ZIP. Windows x64 and ARM64 candidates require SHA-512 and
+the configured Authenticode publisher for their immutable installer, reject ZIP
+metadata, and use separate platform pointers and strict platform feeds. The
+selected page, default download and updater derive from that same platform's
+pointer; an absent Windows release never falls back to macOS. Artifact paths are
+derived from validated metadata, never arbitrary request or stored paths.
+
+Windows signed build receipts add optional `windows` metadata to the existing
+production source receipt. Mac receipts remain byte-shape compatible. Deploy
+the additive Web readers before publishing Windows candidates; old strict readers
+cannot serve the new platforms. The installed Windows app independently matches
+its architecture, fixed feed and configured publisher before enabling NSIS
+updates. No separate latest manifest, provider web-installer package, or signing
+identity from downloaded metadata is accepted. These are Desktop release
+contracts; they add no Core/Gateway Wake epoch or Service readiness owner.
 
 `desktop-notifications.ts` owns additive renderer/native Inbox reference,
 test-request and delivery-result contracts. Only the current trusted window
