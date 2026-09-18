@@ -1,5 +1,18 @@
 # Windows Compatibility Implementation
 
+## Agent Context
+
+- Purpose: Track the Windows audit, repair scope, and pending native acceptance.
+- Read this when: Implementing or reviewing Windows Computer, Wake, or Desktop compatibility.
+- Update this when: A finding is corrected, implemented, or validated.
+- Do not use this for: Current release availability or permission to deploy.
+- Source of truth: The accompanying Draft PR records evidence; scoped architecture and client owner documents define the product contracts.
+
+Status: Implementation in progress; native Windows acceptance remains pending.
+
+Remove when the fixes ship and their acceptance evidence is retained in the PR
+and the stable contracts have been incorporated into the scoped owner documents.
+
 ## Scope and evidence
 
 The review baseline is `c8637337950992ff3f104f2ee0e6c8f5e3c1a92d`.
