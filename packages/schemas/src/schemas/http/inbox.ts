@@ -34,6 +34,62 @@ export const inboxViewSchema = z.enum([
 export const inboxPresentationSchema = z.enum(["attention"]);
 export const inboxAttentionSchema = z.enum(["update", "action_required"]);
 export const inboxImportanceSchema = z.enum(["normal", "urgent"]);
+export const inboxRecipientReasonSchema = z.enum([
+  "human_mention",
+  "thread_reply",
+  "requester",
+  "direct_message",
+  "space_member",
+  "agent_owner",
+]);
+const inboxAgentProfileIdsSchema = z.array(identifierSchema).max(100);
+
+/** Source-owned relevance, not authorization or notification-channel consent. */
+export const inboxSourceFactsSchema = z
+  .strictObject({
+    version: z.literal(1),
+    agentProfileIds: inboxAgentProfileIdsSchema.optional(),
+    personalAgentProfileIds: inboxAgentProfileIdsSchema.optional(),
+    mentionedAgentProfileIds: inboxAgentProfileIdsSchema.optional(),
+    firstContactAgentProfileIds: inboxAgentProfileIdsSchema.optional(),
+    recipientReasons: z.array(inboxRecipientReasonSchema).min(1).max(6),
+    requestCategory: z.enum(["action", "review"]).optional(),
+  })
+  .superRefine((facts, context) => {
+    const agents = new Set(facts.agentProfileIds ?? []);
+    const personalAgents = new Set(facts.personalAgentProfileIds ?? []);
+    for (const field of [
+      "personalAgentProfileIds",
+      "mentionedAgentProfileIds",
+    ] as const) {
+      if (facts[field]?.some((id) => !agents.has(id))) {
+        context.addIssue({
+          code: "custom",
+          message: "Agent relevance must name an actual Agent in this event.",
+          path: [field],
+        });
+      }
+    }
+    if (
+      facts.firstContactAgentProfileIds?.some((id) => !personalAgents.has(id))
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "First contact must name the recipient's personal Agent.",
+        path: ["firstContactAgentProfileIds"],
+      });
+    }
+    if (
+      personalAgents.size > 0 &&
+      !facts.recipientReasons.includes("agent_owner")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Personal Agent relevance requires an owner relationship.",
+        path: ["recipientReasons"],
+      });
+    }
+  });
 export const inboxResolutionStatusSchema = z.enum([
   "not_applicable",
   "open",
@@ -169,6 +225,7 @@ export const inboxItemWireSchema = z
     readAt: isoDateTimeSchema.nullable(),
     recipientUserId: identifierSchema,
     resolutionStatus: inboxResolutionStatusSchema,
+    sourceFacts: inboxSourceFactsSchema.optional(),
     sourceTarget: inboxSourceTargetSchema,
     title: titleSchema,
     updatedAt: isoDateTimeSchema,
@@ -402,6 +459,7 @@ const inboxSourceCandidateWireSchema = z.strictObject({
   recipientUserId: identifierSchema,
   sourceKey: identifierSchema,
   sourceKind: inboxSourceKindSchema,
+  sourceFacts: inboxSourceFactsSchema.optional(),
   sourceTarget: inboxSourceTargetSchema,
   title: titleSchema,
 });

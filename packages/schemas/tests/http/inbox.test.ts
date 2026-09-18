@@ -39,6 +39,42 @@ const item = {
 } as const;
 
 describe("Inbox HTTP contracts", () => {
+  it("carries source-owned relevance separately from urgency and business state", () => {
+    const sourceFacts = {
+      version: 1,
+      agentProfileIds: ["personal-agent"],
+      personalAgentProfileIds: ["personal-agent"],
+      mentionedAgentProfileIds: ["personal-agent"],
+      firstContactAgentProfileIds: ["personal-agent"],
+      recipientReasons: ["human_mention", "agent_owner"],
+    };
+    const awareness = {
+      ...item,
+      attention: "update",
+      importance: "normal",
+      kind: "space_mention",
+      resolutionStatus: "not_applicable",
+      sourceFacts,
+      sourceTarget: { kind: "space", spaceId: "space_1", signalId: "signal_1" },
+    };
+    expect(inboxItemSchema.parse(awareness)).toEqual(awareness);
+    expect(
+      inboxItemSchema.safeParse({
+        ...awareness,
+        sourceFacts: {
+          ...sourceFacts,
+          firstContactAgentProfileIds: ["unrelated"],
+        },
+      }).success
+    ).toBe(false);
+    expect(
+      inboxItemSchema.safeParse({
+        ...awareness,
+        sourceFacts: { ...sourceFacts, arbitraryRecipient: "another-user" },
+      }).success
+    ).toBe(false);
+  });
+
   it("accepts the canonical member-private item shape", () => {
     expect(inboxItemSchema.parse(item)).toEqual(item);
   });
