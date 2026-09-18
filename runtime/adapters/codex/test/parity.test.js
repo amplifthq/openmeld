@@ -960,19 +960,23 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    if (startupAttempt <= hangingTurnStartAttempts) return;",
       "    const prompt = message.params.input[0].text;",
       "    const cwd = message.params.cwd;",
-      "    write({ jsonrpc: '2.0', id: message.id, result: { turn: { id: 'turn-1', items: [], itemsView: 'complete', status: 'inProgress', error: null, startedAt: 1, completedAt: null, durationMs: null } } });",
-      "    activeTurn = { cwd, prompt, threadId: message.params.threadId, turnId: 'turn-1' };",
-      "    turnCompleted = false;",
-      "    const serverRequest = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_REQUEST;",
-      "    if (serverRequest) {",
-      "      const parsed = JSON.parse(serverRequest);",
-      "      pendingServerRequest = { id: 700, method: parsed.method };",
-      "      write({ jsonrpc: '2.0', id: pendingServerRequest.id, method: parsed.method, params: parsed.params });",
-      "      if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_EXIT_AFTER_REQUEST === '1') setImmediate(() => process.exit(0));",
-      "      return;",
-      "    }",
-      "    const delayMs = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_TURN_DELAY_MS ?? '10');",
-      "    completionTimer = setTimeout(() => completeTurn('completed'), delayMs);",
+      "    const startDelayMs = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_TURN_START_RESPONSE_DELAY_MS ?? '0');",
+      "    const onStart = () => {",
+      "      write({ jsonrpc: '2.0', id: message.id, result: { turn: { id: 'turn-1', items: [], itemsView: 'complete', status: 'inProgress', error: null, startedAt: 1, completedAt: null, durationMs: null } } });",
+      "      activeTurn = { cwd, prompt, threadId: message.params.threadId, turnId: 'turn-1' };",
+      "      turnCompleted = false;",
+      "      const serverRequest = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_REQUEST;",
+      "      if (serverRequest) {",
+      "        const parsed = JSON.parse(serverRequest);",
+      "        pendingServerRequest = { id: 700, method: parsed.method };",
+      "        write({ jsonrpc: '2.0', id: pendingServerRequest.id, method: parsed.method, params: parsed.params });",
+      "        if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_EXIT_AFTER_REQUEST === '1') setImmediate(() => process.exit(0));",
+      "        return;",
+      "      }",
+      "      const delayMs = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_TURN_DELAY_MS ?? '10');",
+      "      completionTimer = setTimeout(() => completeTurn('completed'), delayMs);",
+      "    };",
+      "    if (startDelayMs > 0) setTimeout(onStart, startDelayMs); else onStart();",
       "    return;",
       "  }",
       "  if (message.method === 'turn/interrupt') {",
@@ -2818,6 +2822,72 @@ test("codex adapter interrupts active app-server turns by task id", async () => 
       threadId: "thread-new-1",
       turnId: "turn-1",
     });
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("stop evidence records turnWasRunning=true when cancelled while turn/start is in flight", async () => {
+  const { createCodexAdapter, READ_CODEX_DISPATCH_STOP_EVIDENCE } =
+    await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-stop-ack-"));
+  const dispatchDir = await mkdtemp(
+    join(tmpdir(), "codex-app-stop-ack-dispatch-")
+  );
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    const adapter = createCodexAdapter({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+    });
+    const dispatchOutcome = adapter.dispatch({
+      agentControllerConversationId: "thread-stop-during-start",
+      agentId: "agt-demo",
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_TURN_START_RESPONSE_DELAY_MS: "300",
+      },
+      prompt: "continue",
+      runtimeContext: createRuntimeContext(dispatchDir),
+      sourceEventId: "evt-stop-during-start",
+      spaceId: "space-1",
+      taskId: "task-stop-during-start",
+      transportMode: "codex-app-server",
+    });
+
+    await waitForFakeAppServerMethod(logPath, "turn/start");
+    const controlResult = await adapter.cancel({
+      taskId: "task-stop-during-start",
+    });
+    await dispatchOutcome;
+
+    assert.equal(controlResult.accepted, true);
+    const stopEvidence = adapter[READ_CODEX_DISPATCH_STOP_EVIDENCE](
+      "task-stop-during-start"
+    );
+    assert.ok(stopEvidence, "stopEvidence should be recorded");
+    assert.equal(
+      stopEvidence.turnWasRunning,
+      true,
+      "turnWasRunning must be true when cancelled while turn/start is in flight"
+    );
+
+    // Repeated stop should not overwrite turnWasRunning to false
+    await adapter.cancel({
+      taskId: "task-stop-during-start",
+    });
+    const stopEvidenceAfter = adapter[READ_CODEX_DISPATCH_STOP_EVIDENCE](
+      "task-stop-during-start"
+    );
+    assert.equal(
+      stopEvidenceAfter.turnWasRunning,
+      true,
+      "repeated stop must preserve turnWasRunning=true"
+    );
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });

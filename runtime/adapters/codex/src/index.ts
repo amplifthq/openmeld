@@ -499,10 +499,14 @@ function recordStoppedCodexDispatch(input: {
   stoppedDispatches: Map<string, StoppedCodexDispatch>;
   turnWasRunning: boolean;
 }): void {
+  const existing = input.stoppedDispatches.get(input.request.taskId);
+  const turnWasRunning = existing
+    ? existing.turnWasRunning || input.turnWasRunning
+    : input.turnWasRunning;
   input.stoppedDispatches.set(input.request.taskId, {
-    stoppedAtMs: Date.now(),
+    stoppedAtMs: existing?.stoppedAtMs ?? Date.now(),
     taskId: input.request.taskId,
-    turnWasRunning: input.turnWasRunning,
+    turnWasRunning,
   });
 }
 
