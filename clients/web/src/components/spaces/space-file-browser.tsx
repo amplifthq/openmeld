@@ -70,6 +70,7 @@ export function SpaceFileBrowser(input: {
 	onDismissError: () => void;
 	onMove: (entry: SpaceFileEntry) => void;
 	onNewFolder: () => void;
+	onHandOff?: () => void;
 	onNewMarkdownFile: () => void;
 	onOpen: (entry: SpaceFileEntry) => void;
 	onOpenBreadcrumb: (folderId: string | null, name: string) => void;
@@ -199,6 +200,16 @@ export function SpaceFileBrowser(input: {
 								<UploadSimpleIcon aria-hidden="true" />
 								Upload
 							</Button>
+							{input.onHandOff ? (
+								<Button
+									disabled={input.busy}
+									onClick={input.onHandOff}
+									size="sm"
+									variant="outline"
+								>
+									Hand off
+								</Button>
+							) : null}
 							<DropdownMenu>
 								<DropdownMenuTrigger
 									render={<Button disabled={input.busy} size="sm" />}

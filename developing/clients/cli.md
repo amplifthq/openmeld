@@ -970,6 +970,37 @@ Deployment order and the separate W2/W5 Remote Agent windows live in
 
 ### Space File Commands
 
+Selected-file work uses these explicit boundaries:
+
+```text
+openmeld space files working-copy prepare <space-id> --selection <json> --directory <new-directory>
+openmeld space files working-copy status <space-id> <copy-id>
+openmeld space files working-copy resume <space-id> <copy-id>
+openmeld space files working-copy commit <space-id> <copy-id>
+openmeld space files working-copy reconcile <space-id> <copy-id>
+openmeld space files working-copy incoming <space-id> <copy-id> --directory <new-directory>
+openmeld space files handoff <space-id> --manifest <json> --target <profile-id> --client-message-id <stable-id> [--thread <thread-id>]
+```
+
+Selection JSON follows `spaceWorkSelectionSchema`; the handoff follows
+`spaceWorkHandoffSchema`. Prepare requires a fresh directory. Resume preserves
+edits to completed downloads. Commit freezes changed bytes and persists their
+mutation identities before upload. Reconcile retries those exact bytes after
+an unknown outcome, keeping subsequent local edits dirty. Incoming downloads
+the current shared versions to a separate directory for manual comparison;
+it never resets the existing copy. No background watcher uploads changes.
+
+Use commit's returned exact references in a later handoff or final reply.
+Handoff posts one complete message through existing Wake admission. It does not
+upload an arbitrary directory or claim that the successor started. Account or
+Organization changes fence network work. Working copies are lane-, account-,
+Organization-, Space-, and Profile-scoped local bookkeeping, not permission.
+
+An admitted selected-work Wake prepares the same working copy before running.
+Its `working_copy` model tool exposes status, commit, and reconcile only for
+that Wake's copy; final `reply` can select returned exact file references.
+Automatic workstation execution is currently macOS Codex App Server only.
+
 `openmeld space files` is the canonical terminal and workstation-Agent entry to
 the current Space filesystem. The MVP commands are:
 

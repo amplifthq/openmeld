@@ -7397,6 +7397,34 @@ receiver or disable affected management until it is restored.
 
 ## Owner Boundaries
 
+### Selected Space work compatibility
+
+`spaceWorkHandoffSchema` is the shared optional selected-work payload in Message
+metadata, Thread posts, dispatch source snapshots, and hosted admission. The
+origin remains the real containing Message/Thread. The public normal-message
+request adds `workHandoffVersion: 1` so an older strict Gateway rejects new
+handoff callers rather than silently dropping their metadata.
+
+Roll out Core receivers, the hosted receiver, Gateway, then Web/new CLI callers.
+Core and Remote Agent must both understand the optional payload before enabling
+hosted handoffs. New Service handshakes negotiate `spaceWorkHandoff` through the
+Gateway header and Core socket attachment. New Core never sends this work to an
+old Service lacking that capability. Old Core/new Service and ordinary
+new-Core/old-Service setup, Wake, status, trace, and self-rescue keep their
+existing contracts. No global execution epoch or managed Skill version bump is
+needed: the new operation is capability-gated and existing operations are not
+reinterpreted. The next CLI/Service artifacts must carry the implementation;
+feature branches defer release stamping through the release-ready command.
+
+Exact Skill reads use the optional selected-release response described above;
+an absent exact release fails rather than selecting latest. Agent reads check
+active account membership and the owned active Agent Profile and never grant
+Skill editing permissions. Desktop uses the same Web/CLI/Service boundaries;
+there is no new Desktop execution or file authority, and no native Desktop
+working-copy manager is claimed. Rollback removes new callers before receivers;
+retain pending local copies and immutable shared revisions. No DB migration or
+resource binding is introduced.
+
 This document owns shared contracts and reusable policy boundaries.
 
 Use scoped owner documents for related rules:

@@ -19,6 +19,24 @@
 
 ## Product Role
 
+Selected Space work reuses this carrier and RuntimeCoordinator. Before local
+execution, the Service materializes the exact admitted file/Skill selection
+into a fresh child of the isolated task workspace. It advertises the optional
+`spaceWorkHandoff` capability on macOS only; unsupported routes fail with an
+update-required outcome instead of running a prompt without its selected inputs.
+Codex App Server and the existing Space-only containment verifier remain
+required. A working directory or separate metadata directory is not itself an
+OS security boundary.
+
+Managed working-copy metadata lives under the effective lane root, outside the
+Agent-editable task content. Its scope binds deployment URL, account,
+Organization, Space, Profile, and copy identity on the current device. Per-copy
+locks, frozen pending bytes, and acknowledged revision/hash records support
+crash recovery without owning cloud file authority. Every network operation
+rechecks the current account/Organization and uses ordinary authorized file
+APIs. Unsent edits are retained across failures; account changes never migrate
+pending uploads into another account. No automatic cleanup discards them.
+
 OpenMeld Service is the local execution carrier and trust boundary between OpenMeld cloud
 collaboration and work performed on the user's computer.
 
