@@ -33,9 +33,9 @@ describe("CenterAgentHeaderTabs", () => {
 				organizationSlug="acme"
 			/>
 		);
-		fireEvent.click(screen.getByRole("tab", { name: "Skills" }));
+		fireEvent.click(screen.getByRole("tab", { name: "Routines" }));
 		expect(navigateSpy).toHaveBeenLastCalledWith({
-			to: "/o/acme/center-agent/skills?draft=new",
+			to: "/o/acme/center-agent/routines?draft=new",
 		});
 		fireEvent.click(screen.getByRole("tab", { name: "Messages" }));
 		expect(navigateSpy).toHaveBeenLastCalledWith({
@@ -58,12 +58,12 @@ describe("CenterAgentHeaderTabs", () => {
 			screen.getByRole("tab", { name: "Graph" }),
 			screen.getByRole("tab", { name: "Files" }),
 			screen.getByRole("tab", { name: "Routines" }),
-			screen.getByRole("tab", { name: "Skills" }),
 			screen.getByRole("tab", { name: "Channels" }),
 		]);
+		expect(screen.queryByRole("tab", { name: "Skills" })).toBeNull();
 	});
 
-	it("opens Routines, Skills, and Channels from the header", () => {
+	it("opens Routines and Channels from their remaining header indices", () => {
 		render(
 			<CenterAgentHeaderTabs
 				activeSectionId="chat"
@@ -73,16 +73,12 @@ describe("CenterAgentHeaderTabs", () => {
 		);
 
 		fireEvent.click(screen.getByRole("tab", { name: "Routines" }));
-		fireEvent.click(screen.getByRole("tab", { name: "Skills" }));
 		fireEvent.click(screen.getByRole("tab", { name: "Channels" }));
 
 		expect(navigateSpy).toHaveBeenNthCalledWith(1, {
 			to: "/o/acme/center-agent/routines",
 		});
 		expect(navigateSpy).toHaveBeenNthCalledWith(2, {
-			to: "/o/acme/center-agent/skills",
-		});
-		expect(navigateSpy).toHaveBeenNthCalledWith(3, {
 			to: "/o/acme/center-agent/channels",
 		});
 	});
@@ -90,7 +86,7 @@ describe("CenterAgentHeaderTabs", () => {
 	it("returns from a management page to the requested conversation view", () => {
 		render(
 			<CenterAgentHeaderTabs
-				activeSectionId="skills"
+				activeSectionId="channels"
 				idPrefix="center-agent-test"
 				organizationSlug="acme"
 			/>

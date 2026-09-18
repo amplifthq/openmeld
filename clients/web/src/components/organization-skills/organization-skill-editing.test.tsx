@@ -17,6 +17,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { organizationSkillQueryKeys } from "#/query/organizations/organization-skills";
+import { createOrganizationSkillFixture as skillSnapshot } from "#/test-support/organization-skill";
 import {
 	createTestQueryClient,
 	TestQueryClientProvider,
@@ -78,7 +79,7 @@ describe("Organization Skill editing", () => {
 			)
 		);
 		await screen.findByText("222222222222");
-		fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
 		await waitFor(() => expect(updateSkill).toHaveBeenCalled());
 		expect(updateSkill.mock.calls[0]?.[0]).toMatchObject({
 			expectedOrganizationId: "org-acme",
@@ -112,7 +113,6 @@ describe("Organization Skill editing", () => {
 			(
 				screen.getByRole("button", {
 					name: "Save",
-					exact: true,
 				}) as HTMLButtonElement
 			).disabled
 		).toBe(true);
@@ -137,7 +137,6 @@ describe("Organization Skill editing", () => {
 			(
 				screen.getByRole("button", {
 					name: "Save",
-					exact: true,
 				}) as HTMLButtonElement
 			).disabled
 		).toBe(true);
@@ -151,7 +150,7 @@ describe("Organization Skill editing", () => {
 		fireEvent.change(await screen.findByLabelText("Name"), {
 			target: { value: "  saved-name  " },
 		});
-		fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
 		await waitFor(() =>
 			expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(
 				"saved-name"
@@ -161,14 +160,13 @@ describe("Organization Skill editing", () => {
 			(
 				screen.getByRole("button", {
 					name: "Save",
-					exact: true,
 				}) as HTMLButtonElement
 			).disabled
 		).toBe(true);
 		fireEvent.change(screen.getByLabelText("Description"), {
 			target: { value: "My next edit." },
 		});
-		fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
 		await waitFor(() => expect(updateSkill).toHaveBeenCalledTimes(2));
 		expect(updateSkill.mock.calls[1]?.[0]).toMatchObject({
 			expectedVersion: 2,
@@ -183,7 +181,7 @@ describe("Organization Skill editing", () => {
 		fireEvent.change(await screen.findByLabelText("Name"), {
 			target: { value: "submitted-name" },
 		});
-		fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
 		await waitFor(() => expect(updateSkill).toHaveBeenCalledTimes(1));
 		// An already queued editor callback may arrive after controls disable.
 		fireEvent.change(screen.getByLabelText("Name"), {
@@ -205,7 +203,6 @@ describe("Organization Skill editing", () => {
 				(
 					screen.getByRole("button", {
 						name: "Save",
-						exact: true,
 					}) as HTMLButtonElement
 				).disabled
 			).toBe(false)
@@ -218,7 +215,7 @@ describe("Organization Skill editing", () => {
 				organizationSkillQueryKeys.detail("org-acme", "skill-one")
 			)
 		).toMatchObject({ skill: { version: 3 } });
-		fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
 		await waitFor(() => expect(updateSkill).toHaveBeenCalledTimes(2));
 		expect(updateSkill.mock.calls[1]?.[0]).toMatchObject({
 			expectedVersion: 2,
@@ -241,9 +238,9 @@ describe("Organization Skill editing", () => {
 		expect(
 			((await screen.findByLabelText("Name")) as HTMLInputElement).disabled
 		).toBe(!canEdit);
-		expect(
-			Boolean(screen.queryByRole("button", { name: "Save", exact: true }))
-		).toBe(canEdit);
+		expect(Boolean(screen.queryByRole("button", { name: "Save" }))).toBe(
+			canEdit
+		);
 		expect(
 			Boolean(
 				screen.queryByRole("switch", { name: "Enable Organization Skill" })
@@ -252,9 +249,9 @@ describe("Organization Skill editing", () => {
 		expect(Boolean(screen.queryByRole("button", { name: "Maintainers" }))).toBe(
 			canManage
 		);
-		expect(
-			Boolean(screen.queryByRole("button", { name: "Remove", exact: true }))
-		).toBe(canManage);
+		expect(Boolean(screen.queryByRole("button", { name: "Remove" }))).toBe(
+			canManage
+		);
 	});
 });
 
@@ -291,48 +288,6 @@ function renderEditor(skills: OrganizationSkill[]) {
 		</TestQueryClientProvider>
 	);
 	return { queryClient, router };
-}
-
-function skillSnapshot(
-	input: { id?: string; name?: string; version?: number; orgSlug?: string } = {}
-): OrganizationSkill {
-	const id = input.id ?? "skill-one";
-	const version = input.version ?? 1;
-	const name = input.name ?? "first-skill";
-	const release = {
-		id: `${id}-release-${version}`,
-		digest: String(version).repeat(64),
-		createdAt: "2026-08-24T01:00:00.000Z",
-		createdByUserId: "user-1",
-		source: { kind: "created" as const },
-	};
-	return {
-		id,
-		version,
-		name,
-		organizationId: `org-${input.orgSlug ?? "acme"}`,
-		description: "Review a shared working method.",
-		enabled: true,
-		createdAt: release.createdAt,
-		updatedAt: release.createdAt,
-		source: release.source,
-		activeRelease: release,
-		releases: [release],
-		maintainerUserIds: ["user-1"],
-		permissions: { canEdit: true, canManage: false },
-		bundle: {
-			files: [],
-			instructions: "Review the evidence.",
-			portable: {
-				name,
-				description: "Review a shared working method.",
-				allowedTools: null,
-				compatibility: null,
-				license: null,
-				metadata: {},
-			},
-		},
-	};
 }
 
 function deferred<T>() {

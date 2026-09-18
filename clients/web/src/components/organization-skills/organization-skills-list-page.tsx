@@ -33,7 +33,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppEmptyState } from "#/components/app/app-empty-state";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
@@ -56,9 +56,21 @@ const PORTABLE_SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export function OrganizationSkillsListPage() {
 	const { currentOrganization } = useAppOrganization();
+	return <OrganizationSkillsCatalog key={currentOrganization.id} />;
+}
+
+function OrganizationSkillsCatalog() {
+	const { currentOrganization } = useAppOrganization();
 	const isPersonalWorkspace = currentOrganization.isPersonal === true;
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
+	const active = useRef(true);
+	useEffect(() => {
+		active.current = true;
+		return () => {
+			active.current = false;
+		};
+	}, []);
 	const skillsQuery = useQuery(
 		organizationSkillsQueryOptions({
 			organizationId: currentOrganization.id,
@@ -95,6 +107,11 @@ export function OrganizationSkillsListPage() {
 		await queryClient.invalidateQueries({
 			queryKey: organizationSkillQueryKeys.list(currentOrganization.id),
 		});
+		// A create/install finishing after an Organization switch belongs to
+		// its original cache, not to the newly displayed workspace or route.
+		if (!active.current) {
+			return;
+		}
 		await navigate({
 			to: buildOrganizationSkillPath({
 				orgSlug: currentOrganization.slug,
@@ -110,12 +127,17 @@ export function OrganizationSkillsListPage() {
 					action={isEmpty ? undefined : actions}
 					description={
 						isPersonalWorkspace
-							? "Manage the optional working methods your Center Agent and local agents use in this personal workspace."
-							: "Manage the optional working methods your Organization shares with Center Agent and local agents."
+							? "Shared working methods for Center Agent, local agents, and personal remote agents in this personal workspace."
+							: "Shared working methods for Center Agent, local agents, and personal remote agents in this Organization."
 					}
 					eyebrow={isPersonalWorkspace ? "Personal workspace" : "Organization"}
 					title="Skills"
 				/>
+				<p className="max-w-3xl text-muted-foreground text-sm">
+					Enabled Skills are available to authorized agents, which load or
+					activate them when needed. Enabling a Skill does not make every agent
+					use it automatically.
+				</p>
 
 				{!isEmpty && (
 					<div className="relative max-w-xl">

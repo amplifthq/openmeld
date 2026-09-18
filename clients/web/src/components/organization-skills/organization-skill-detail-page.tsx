@@ -265,7 +265,6 @@ function OrganizationSkillEditor(input: {
 				queryKey: organizationSkillQueryKeys.list(input.organizationId),
 			});
 			await navigate({
-				ignoreBlocker: true,
 				to: buildOrganizationSkillsPath(input.orgSlug),
 			});
 		},
@@ -381,8 +380,8 @@ function OrganizationSkillEditor(input: {
 						Instructions
 					</h2>
 					<p className="mt-1 text-muted-foreground text-sm">
-						The method Center Agent and local agents read when they activate
-						this Skill.
+						Instructions an authorized agent reads when loading or activating
+						this Skill. Availability does not mean it is already in use.
 					</p>
 				</div>
 				<MarkdownEditor
@@ -439,8 +438,9 @@ function OrganizationSkillEditor(input: {
 							Remove {input.skill.name} from {input.organizationName}?
 						</DialogTitle>
 						<DialogDescription>
-							This removes the Skill from future Center Agent and local-agent
-							work. OpenMeld retains its release and audit evidence.
+							This removes the Skill from future agent work in this workspace.
+							Work already in progress keeps its pinned release. OpenMeld
+							retains its release and audit evidence.
 						</DialogDescription>
 					</DialogHeader>
 					<DialogFooter>

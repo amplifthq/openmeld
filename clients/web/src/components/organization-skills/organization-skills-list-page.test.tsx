@@ -1,11 +1,14 @@
+import type { OrganizationSkill } from "@openmeld/schemas/types";
 import {
 	createMemoryHistory,
 	createRootRoute,
 	createRoute,
 	createRouter,
 	RouterProvider,
+	useParams,
 } from "@tanstack/react-router";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -13,6 +16,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createOrganizationSkillFixture } from "#/test-support/organization-skill";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { OrganizationSkillsListPage } from "./organization-skills-list-page";
 
@@ -20,6 +24,7 @@ const ORGANIZATION_COPY_PATTERN = /Organization/;
 
 const {
 	currentOrganizationMock,
+	createCurrentOrganizationSkillMock,
 	importCurrentOrganizationSkillFromGitHubMock,
 	listCurrentOrganizationSkillsMock,
 	previewCurrentOrganizationSkillFromGitHubMock,
@@ -30,15 +35,23 @@ const {
 		name: "Acme",
 		slug: "acme",
 	},
+	createCurrentOrganizationSkillMock: vi.fn(),
 	importCurrentOrganizationSkillFromGitHubMock: vi.fn(),
 	listCurrentOrganizationSkillsMock: vi.fn(),
 	previewCurrentOrganizationSkillFromGitHubMock: vi.fn(),
 }));
 
 vi.mock("#/lib/organizations/organization-context", () => ({
-	useAppOrganization: () => ({
-		currentOrganization: currentOrganizationMock,
-	}),
+	useAppOrganization: () => {
+		const { orgSlug } = useParams({ strict: false });
+		return {
+			currentOrganization: {
+				...currentOrganizationMock,
+				id: `org-${orgSlug}`,
+				slug: orgSlug,
+			},
+		};
+	},
 }));
 
 vi.mock("#/lib/organizations/organization-skills", async (importOriginal) => {
@@ -48,6 +61,7 @@ vi.mock("#/lib/organizations/organization-skills", async (importOriginal) => {
 		>();
 	return {
 		...original,
+		createCurrentOrganizationSkill: createCurrentOrganizationSkillMock,
 		importCurrentOrganizationSkillFromGitHub:
 			importCurrentOrganizationSkillFromGitHubMock,
 		listCurrentOrganizationSkills: listCurrentOrganizationSkillsMock,
@@ -56,9 +70,13 @@ vi.mock("#/lib/organizations/organization-skills", async (importOriginal) => {
 	};
 });
 
-afterEach(cleanup);
+afterEach(() => {
+	cleanup();
+	vi.restoreAllMocks();
+});
 
 beforeEach(() => {
+	vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
 	Object.assign(currentOrganizationMock, {
 		id: "org-acme",
 		isPersonal: false,
@@ -66,6 +84,7 @@ beforeEach(() => {
 		slug: "acme",
 	});
 	listCurrentOrganizationSkillsMock.mockReset();
+	createCurrentOrganizationSkillMock.mockReset();
 	previewCurrentOrganizationSkillFromGitHubMock.mockReset();
 	importCurrentOrganizationSkillFromGitHubMock.mockReset();
 });
@@ -92,6 +111,12 @@ describe("OrganizationSkillsListPage", () => {
 
 		expect(await screen.findByText("customer-risk-review")).toBeTruthy();
 		expect(screen.getByText("Organization")).toBeTruthy();
+		expect(
+			screen
+				.getByText("customer-risk-review")
+				.closest("a")
+				?.getAttribute("href")
+		).toBe("/o/acme/skills/risk-review");
 		expect(screen.getByText("support-digest")).toBeTruthy();
 		expect(document.querySelectorAll("[data-fluid-card-item]")).toHaveLength(2);
 		expect(listCurrentOrganizationSkillsMock).toHaveBeenCalledWith(
@@ -141,7 +166,7 @@ describe("OrganizationSkillsListPage", () => {
 		expect(await screen.findByText("Personal workspace")).toBeTruthy();
 		expect(
 			await screen.findByText(
-				"Manage the optional working methods your Center Agent and local agents use in this personal workspace."
+				"Shared working methods for Center Agent, local agents, and personal remote agents in this personal workspace."
 			)
 		).toBeTruthy();
 		expect(
@@ -210,7 +235,7 @@ describe("OrganizationSkillsListPage", () => {
 				releases: [],
 			},
 		});
-		renderPage();
+		const { router } = renderPage();
 
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Install from GitHub" })
@@ -237,6 +262,93 @@ describe("OrganizationSkillsListPage", () => {
 				}
 			)
 		);
+		await waitFor(() =>
+			expect(router.state.location.pathname).toBe(
+				"/o/acme/skills/release-review"
+			)
+		);
+	});
+
+	it("opens the canonical detail after creating a Skill", async () => {
+		listCurrentOrganizationSkillsMock.mockResolvedValue({
+			canManage: true,
+			organizationId: "org-acme",
+			skills: [],
+		});
+		createCurrentOrganizationSkillMock.mockResolvedValue({
+			skill: createOrganizationSkillFixture({ id: "created-skill" }),
+		});
+		const { router } = renderPage();
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Create skill" })
+		);
+		fireEvent.change(screen.getByLabelText("Name"), {
+			target: { value: "new-skill" },
+		});
+		fireEvent.change(screen.getByLabelText("Description"), {
+			target: { value: "A shared working method." },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Create skill" }));
+		await waitFor(() =>
+			expect(router.state.location.pathname).toBe(
+				"/o/acme/skills/created-skill"
+			)
+		);
+		expect(createCurrentOrganizationSkillMock).toHaveBeenCalledWith({
+			expectedOrganizationId: "org-acme",
+			name: "new-skill",
+			description: "A shared working method.",
+			instructions: "",
+		});
+	});
+
+	it("does not let an old Organization's delayed creation navigate or overwrite a new draft", async () => {
+		listCurrentOrganizationSkillsMock.mockImplementation(
+			async ({ organizationId }) => ({
+				canManage: true,
+				organizationId,
+				skills: [],
+			})
+		);
+		const pending = deferred<{ skill: OrganizationSkill }>();
+		createCurrentOrganizationSkillMock.mockReturnValueOnce(pending.promise);
+		const { router } = renderPage();
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Create skill" })
+		);
+		fireEvent.change(screen.getByLabelText("Name"), {
+			target: { value: "acme-draft" },
+		});
+		fireEvent.change(screen.getByLabelText("Description"), {
+			target: { value: "Acme method." },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Create skill" }));
+		await waitFor(() =>
+			expect(createCurrentOrganizationSkillMock).toHaveBeenCalledTimes(1)
+		);
+		await act(async () => {
+			await router.navigate({
+				to: "/o/$orgSlug/skills",
+				params: { orgSlug: "beta" },
+			});
+		});
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Create skill" })
+		);
+		expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("");
+		fireEvent.change(screen.getByLabelText("Name"), {
+			target: { value: "beta-draft" },
+		});
+		await act(async () =>
+			pending.resolve({
+				skill: createOrganizationSkillFixture({ id: "acme-result" }),
+			})
+		);
+		expect(router.state.location.pathname).toBe("/o/beta/skills");
+		expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(
+			"beta-draft"
+		);
 	});
 });
 
@@ -245,21 +357,25 @@ function renderPage() {
 	const route = createRoute({
 		component: OrganizationSkillsListPage,
 		getParentRoute: () => rootRoute,
-		path: "/o/$orgSlug/center-agent/skills",
+		path: "/o/$orgSlug/skills",
+	});
+	const detail = createRoute({
+		getParentRoute: () => rootRoute,
+		path: "/o/$orgSlug/skills/$skillId",
+		component: () => <h1>{detail.useParams().skillId}</h1>,
 	});
 	const router = createRouter({
 		history: createMemoryHistory({
-			initialEntries: [
-				`/o/${currentOrganizationMock.slug}/center-agent/skills`,
-			],
+			initialEntries: [`/o/${currentOrganizationMock.slug}/skills`],
 		}),
-		routeTree: rootRoute.addChildren([route]),
+		routeTree: rootRoute.addChildren([route, detail]),
 	});
-	return render(
+	const rendered = render(
 		<TestQueryClientProvider>
 			<RouterProvider router={router} />
 		</TestQueryClientProvider>
 	);
+	return { ...rendered, router };
 }
 
 function skillSummary(input: {
@@ -286,4 +402,14 @@ function skillSummary(input: {
 		updatedAt: "2026-07-26T08:00:00.000Z",
 		version: 1,
 	};
+}
+
+function deferred<T>() {
+	let resolve: (value: T) => void = () => {
+		throw new Error("Deferred promise is not initialized.");
+	};
+	const promise = new Promise<T>((complete) => {
+		resolve = complete;
+	});
+	return { promise, resolve };
 }

@@ -21,12 +21,10 @@ import {
 	buildOrganizationCenterAgentRoutinesPath,
 	buildOrganizationChannelsPath,
 	buildOrganizationMemoryPath,
-	buildOrganizationSkillsPath,
 } from "#/lib/organizations/organization-routes";
 
 const ROUTINES_TAB_INDEX = 3;
-const SKILLS_TAB_INDEX = 4;
-const CHANNELS_TAB_INDEX = 5;
+const CHANNELS_TAB_INDEX = 4;
 
 export function CenterAgentHeaderTabs(input: {
 	activeSectionId: CenterAgentSectionId;
@@ -100,8 +98,7 @@ export function CenterAgentHeaderTabs(input: {
 			<TabsSubtleItem index={2} label="Files" labelClassName="text-sm" />
 
 			<TabsSubtleItem index={3} label="Routines" labelClassName="text-sm" />
-			<TabsSubtleItem index={4} label="Skills" labelClassName="text-sm" />
-			<TabsSubtleItem index={5} label="Channels" labelClassName="text-sm" />
+			<TabsSubtleItem index={4} label="Channels" labelClassName="text-sm" />
 		</TabsSubtle>
 	);
 }
@@ -139,9 +136,6 @@ function resolveCenterAgentHeaderTabIndex(input: {
 	if (input.activeSectionId === "routines") {
 		return ROUTINES_TAB_INDEX;
 	}
-	if (input.activeSectionId === "skills") {
-		return SKILLS_TAB_INDEX;
-	}
 	if (input.activeSectionId === "channels") {
 		return CHANNELS_TAB_INDEX;
 	}
@@ -160,8 +154,6 @@ function resolveCenterAgentHeaderDestination(input: {
 			return buildOrganizationChannelsPath(input.organizationSlug);
 		case ROUTINES_TAB_INDEX:
 			return buildOrganizationCenterAgentRoutinesPath(input.organizationSlug);
-		case SKILLS_TAB_INDEX:
-			return buildOrganizationSkillsPath(input.organizationSlug);
 		default:
 			throw new Error(`Unknown Center Agent header tab index: ${input.index}`);
 	}
