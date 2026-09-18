@@ -236,7 +236,12 @@ describe("OpenMeldServiceCard", () => {
 		expect(desktop.openWeb).not.toHaveBeenCalled();
 	});
 
-	it("does not apply an old browser result to another Computer", async () => {
+	it.each([
+		"computer",
+		"account",
+		"organization",
+		"lane",
+	])("does not apply an old browser result after the %s changes", async (scope) => {
 		desktop.enabled = true;
 		let resolveOpen!: () => void;
 		desktop.openWeb.mockImplementation(
@@ -254,15 +259,26 @@ describe("OpenMeldServiceCard", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Reconnect in browser" })
 		);
-		view.rerender(
-			buildOpenMeldServiceCard({
-				...input,
-				computer: {
-					...buildComputer(),
-					connectedComputerId: "another-computer",
-				},
-			})
-		);
+		const next = {
+			...input,
+			computer: buildComputer(),
+			organizationId: "org-acme",
+			storageScope: "test",
+		};
+		if (scope === "computer") {
+			next.computer.connectedComputerId = "another-computer";
+		}
+		if (scope === "account") {
+			next.storageScope = "another-account";
+		}
+		if (scope === "organization") {
+			next.organizationId = "another-org";
+		}
+		if (scope === "lane") {
+			next.currentLocalRuntimeReplyReadiness =
+				buildCurrentLocalRuntimeReplyReadiness({ runtimeLane: "canary" });
+		}
+		view.rerender(buildOpenMeldServiceCard(next));
 		await act(async () => resolveOpen());
 		expect(screen.queryByText("Continue in your browser.")).toBeNull();
 	});
@@ -2157,6 +2173,8 @@ function renderOpenMeldServiceCard(input: {
 }
 
 function buildOpenMeldServiceCard(input: {
+	organizationId?: string;
+	storageScope?: string;
 	computer?: LocalRuntimeComputer;
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 	hasSelectedEnvironment?: boolean;
@@ -2174,9 +2192,12 @@ function buildOpenMeldServiceCard(input: {
 				focusService={false}
 				hasSelectedEnvironment={input.hasSelectedEnvironment ?? true}
 				isReconcilingStatus={input.isReconcilingStatus ?? false}
-				organizationId="org-acme"
+				organizationId={input.organizationId ?? "org-acme"}
 				queryClient={queryClientStub}
-				recovery={buildRecoveryStub()}
+				recovery={{
+					...buildRecoveryStub(),
+					storageScope: input.storageScope ?? "test",
+				}}
 				replyReadiness={input.replyReadiness}
 				setupCompleteRefreshPending={false}
 			/>
