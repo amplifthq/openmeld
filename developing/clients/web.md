@@ -4987,6 +4987,27 @@ requires explicit navigation out of the observation URL. Progress is accepted
 only for the Terminal epoch in the current snapshot, so a replaced Terminal or
 completed session cannot be reactivated by a late frame.
 
+The standalone native Desktop Computer page centers its card below Back within
+the existing app-shell scroll content; it does not introduce a fixed viewport or
+nested scroll area. Only the icon-only Back link is square and circular, retaining
+shared focus and touch sizing. Text Back, browser setup, New Agent embedding,
+Space recovery, update flows, and exact-session observers retain their original
+layout and navigation context.
+
+The native page explicitly presents its first unknown connection check. A
+same-account native display snapshot stays usable during ordinary background
+refetch; missing identity/target and active mutations still block submission.
+Display caching never authorizes a mutation. Each observer belongs to its full
+account/request context, and each manually submitted operation has a local
+observation revision. Remounting resumes the native owner's pending operation;
+old requests, a delayed current-operation read, duplicate settlement, and late
+pending cannot complete or relock a different request. Disconnect consumes the
+same native record rather than replaying retained connect success. Confirmation,
+cancellation, completion, and unconfirmed outcomes retain their distinct meaning;
+refresh warnings do not erase confirmed native completion. Historical update
+failures and Skills advisories remain independent from the Computer card's
+Core-owned current Service liveness projection.
+
 When setup starts from `Reconnect Computer` on an existing Computer,
 Web carries that stable `connectedComputerId` into the Prepare Session. A local
 service reinstall may report a new `deviceId`; Web still follows the session and

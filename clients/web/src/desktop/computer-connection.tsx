@@ -2,7 +2,13 @@ import {
 	type DesktopComputerConnectionOperation,
 	type DesktopComputerConnectionProgress,
 	type DesktopComputerConnectionRequest,
+	type DesktopComputerConnectionResult,
+	type DesktopComputerDisconnectOperation,
+	type DesktopComputerDisconnectPhase,
+	type DesktopComputerDisconnectResult,
+	type DesktopComputerOperation,
 	desktopComputerConnectionResultSchema,
+	desktopComputerDisconnectResultSchema,
 } from "@openmeld/schemas";
 import type {
 	CreatePrepareSessionRequest,
@@ -16,7 +22,7 @@ import {
 import { Button } from "@openmeld/ui/components/button";
 import { SettingsAddComputerCardContent } from "@openmeld/ui/components/settings-computers";
 import { CheckIcon } from "@phosphor-icons/react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useBringAgentsSetupContext } from "#/components/connect/bring-agents-setup-context";
 import { useAuthSession } from "#/hooks/auth.hooks";
 import {
@@ -74,11 +80,15 @@ async function applyAdoptedConnectionSettlement(input: {
 	localRuntimesRefetch(): Promise<unknown>;
 	onCompleted?: ComputerConnectionProps["onCompleted"];
 	onContinue?: ComputerConnectionProps["onContinue"];
-	operationState: DesktopComputerConnectionOperation;
+	operationState: Pick<
+		DesktopComputerConnectionOperation,
+		"result" | "errorMessage"
+	>;
 	setDiagnosticId(value: string | null): void;
 	setDiagnosticsPath(value: string | null): void;
 	setFailed(value: boolean): void;
 	setMessage(value: string | null): void;
+	setRefreshWarning(value: string | null): void;
 }) {
 	if (input.operationState.errorMessage) {
 		input.setFailed(true);
@@ -100,21 +110,55 @@ async function applyAdoptedConnectionSettlement(input: {
 		input.setDiagnosticsPath(result.diagnosticsPath ?? null);
 		return;
 	}
-	await Promise.all([input.localRuntimesRefetch(), input.connectionRefetch()]);
+	input.setMessage(
+		result.status === "completed"
+			? "Computer connected."
+			: "Using the existing connection."
+	);
+	await refreshConnectionDisplay(input);
 	if (!input.isActive()) {
 		return;
 	}
 	input.onCompleted?.(
 		result.status === "completed" ? result.snapshot : result.connection
 	);
-	input.setMessage(
-		result.status === "completed" ? null : "Using the existing connection."
-	);
 	input.onContinue?.();
 }
 
+async function refreshConnectionDisplay(input: {
+	connectionRefetch(): Promise<unknown>;
+	localRuntimesRefetch(): Promise<unknown>;
+	isActive(): boolean;
+	setRefreshWarning(value: string | null): void;
+}) {
+	const refresh = async (read: () => Promise<unknown>) => {
+		try {
+			const result = await read();
+			if (
+				result &&
+				typeof result === "object" &&
+				"isError" in result &&
+				result.isError
+			) {
+				throw new Error("Connection display refresh failed");
+			}
+		} catch {
+			if (input.isActive()) {
+				input.setRefreshWarning(
+					"The operation completed, but the connection display could not refresh. Check the connection again."
+				);
+			}
+		}
+	};
+	// The native result already confirms the operation. The cloud directory is
+	// independent and must not hold its completion callback or misreport failure.
+	refresh(input.localRuntimesRefetch);
+	await refresh(input.connectionRefetch);
+}
+
 export function DesktopComputerConnection(input: ComputerConnectionProps) {
-	const { routeIntent } = useBringAgentsSetupContext();
+	const { routeIntent, selectedHumanProfileId, targetSpaceId } =
+		useBringAgentsSetupContext();
 	const account = useAuthSession().data?.user.id;
 	if (
 		routeIntent.serviceAction === "update_service" ||
@@ -122,7 +166,19 @@ export function DesktopComputerConnection(input: ComputerConnectionProps) {
 	) {
 		return <DesktopWebConnection {...input} intent={routeIntent} />;
 	}
-	return <NativeComputerConnection {...input} key={account} />;
+	// Each mounted observer belongs to one account AND request. An old async
+	// completion cannot mutate a new request, including A → B → A navigation.
+	const requestKey = JSON.stringify([
+		account,
+		selectedHumanProfileId,
+		targetSpaceId,
+		routeIntent.resetThisComputer,
+		routeIntent.connectedComputerId,
+		input.sourceNavigationAction?.spaceId,
+		input.sourceNavigationAction?.signalId,
+		input.allowDisconnect,
+	]);
+	return <NativeComputerConnection {...input} key={requestKey} />;
 }
 
 function useComputerConnection(input: ComputerConnectionProps) {
@@ -147,7 +203,15 @@ function useComputerConnection(input: ComputerConnectionProps) {
 	const [progress, setProgress] =
 		useState<DesktopComputerConnectionProgress | null>(null);
 	const progressRef = useRef<DesktopComputerConnectionProgress | null>(null);
-	const ownedConnectRef = useRef(false);
+	const ownedOperationRef = useRef<"connect" | "disconnect" | null>(null);
+	const operationRef = useRef<"connect" | "disconnect" | null>(null);
+	const actionRevisionRef = useRef(0);
+	const [disconnectPhase, setDisconnectPhase] =
+		useState<DesktopComputerDisconnectPhase>("checking");
+	const disconnectPhaseRef = useRef<DesktopComputerDisconnectPhase>("checking");
+	const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
+	const [needsCheck, setNeedsCheck] = useState(false);
+	const [diagnosticCode, setDiagnosticCode] = useState<string | null>(null);
 	const adoptedOperationIdRef = useRef<string | null>(null);
 	const adoptedRequestKeyRef = useRef<string | null>(null);
 	const handledSettlementIdsRef = useRef(new Set<string>());
@@ -168,12 +232,60 @@ function useComputerConnection(input: ComputerConnectionProps) {
 	const connectionRequestKey = connectionRequest
 		? buildConnectionRequestKey(connectionRequest)
 		: null;
-	const connected =
+	const canDisconnect =
 		input.allowDisconnect &&
 		!intent.resetThisComputer &&
 		!input.sourceNavigationAction &&
-		!intent.connectedComputerId &&
-		connection.data?.status === "available";
+		!intent.connectedComputerId;
+	const trustedDisplay = Boolean(
+		connection.data &&
+			(connection.data.status === "unavailable" ||
+				connection.data.accountId === expectedAccount)
+	);
+	const connected =
+		canDisconnect &&
+		connection.data?.status === "available" &&
+		connection.data.accountId === expectedAccount;
+	const isCurrentAction = useCallback(
+		(revision: number) =>
+			active.current && actionRevisionRef.current === revision,
+		[]
+	);
+	const refreshDisplay = useCallback(
+		(revision: number) =>
+			refreshConnectionDisplay({
+				connectionRefetch: connection.refetch,
+				localRuntimesRefetch: setup.localRuntimesQuery.refetch,
+				isActive: () => isCurrentAction(revision),
+				setRefreshWarning,
+			}),
+		[connection.refetch, setup.localRuntimesQuery.refetch, isCurrentAction]
+	);
+	const applyDisconnectResult = useCallback(
+		async (result: DesktopComputerDisconnectResult, revision: number) => {
+			if (!isCurrentAction(revision)) {
+				return;
+			}
+			if (result.status === "cancelled") {
+				setMessage("Disconnect cancelled. The connection was not changed.");
+				return;
+			}
+			if (result.status === "disconnected") {
+				setMessage(
+					"Disconnected. This Mac remains in your Computers list. Desktop stays signed in."
+				);
+				await refreshDisplay(revision);
+				return;
+			}
+			setFailed(true);
+			setNeedsCheck(true);
+			setMessage(result.message);
+			setDiagnosticCode(result.code);
+			setDiagnosticId(result.diagnosticId ?? null);
+			setDiagnosticsPath(result.diagnosticsPath ?? null);
+		},
+		[isCurrentAction, refreshDisplay]
+	);
 	useEffect(() => {
 		if (adoptedRequestKeyRef.current !== connectionRequestKey) {
 			adoptedRequestKeyRef.current = connectionRequestKey;
@@ -188,8 +300,13 @@ function useComputerConnection(input: ComputerConnectionProps) {
 		if (!desktop) {
 			return;
 		}
+		let observing = true;
+		let receivedEvent = false;
+		const readRevision = actionRevisionRef.current;
 		const accept = (event: DesktopComputerConnectionProgress): boolean => {
 			if (
+				!(observing && active.current) ||
+				operationRef.current === "disconnect" ||
 				event.expectedAccount !== expectedAccount ||
 				settledProgressIdsRef.current.has(event.operationId) ||
 				!isNewerComputerConnectionProgress(progressRef.current, event)
@@ -204,7 +321,6 @@ function useComputerConnection(input: ComputerConnectionProps) {
 			operationState: DesktopComputerConnectionOperation
 		) => {
 			if (
-				ownedConnectRef.current ||
 				connectionRequestKey === null ||
 				buildConnectionRequestKey(operationState.request) !==
 					connectionRequestKey ||
@@ -231,10 +347,15 @@ function useComputerConnection(input: ComputerConnectionProps) {
 				progressRef.current = finalProgress;
 				setProgress(finalProgress);
 			}
-			setOperation(null);
+			if (ownedOperationRef.current) {
+				return;
+			}
+			const revision = actionRevisionRef.current;
+			operationRef.current = "connect";
+			setOperation("connect");
 			await applyAdoptedConnectionSettlement({
 				connectionRefetch: connection.refetch,
-				isActive: () => active.current,
+				isActive: () => isCurrentAction(revision),
 				localRuntimesRefetch: setup.localRuntimesQuery.refetch,
 				onCompleted: input.onCompleted,
 				onContinue: input.onContinue,
@@ -243,12 +364,76 @@ function useComputerConnection(input: ComputerConnectionProps) {
 				setDiagnosticsPath,
 				setFailed,
 				setMessage,
+				setRefreshWarning,
+			});
+			if (isCurrentAction(revision)) {
+				operationRef.current = null;
+				setOperation(null);
+			}
+		};
+		const acceptDisconnectOperation = (
+			operationState: DesktopComputerDisconnectOperation
+		) => {
+			if (
+				!canDisconnect ||
+				operationState.request.expectedAccount !== expectedAccount ||
+				ownedOperationRef.current === "connect" ||
+				!canAdoptConnectionOperation({
+					adoptedOperationId: adoptedOperationIdRef.current,
+					handledSettlementIds: handledSettlementIdsRef.current,
+					operationId: operationState.operationId,
+				})
+			) {
+				return;
+			}
+			adoptedOperationIdRef.current = operationState.operationId;
+			progressRef.current = null;
+			setProgress(null);
+			if (operationState.status === "pending") {
+				const phases: DesktopComputerDisconnectPhase[] = [
+					"checking",
+					"waiting_for_confirmation",
+					"disconnecting",
+				];
+				if (
+					phases.indexOf(operationState.phase) >=
+					phases.indexOf(disconnectPhaseRef.current)
+				) {
+					disconnectPhaseRef.current = operationState.phase;
+					setDisconnectPhase(operationState.phase);
+				}
+				operationRef.current = "disconnect";
+				setOperation("disconnect");
+				return;
+			}
+			handledSettlementIdsRef.current.add(operationState.operationId);
+			if (ownedOperationRef.current) {
+				return;
+			}
+			const revision = actionRevisionRef.current;
+			operationRef.current = "disconnect";
+			setOperation("disconnect");
+			applyDisconnectResult(
+				operationState.result ?? {
+					status: "unconfirmed",
+					code: "desktop.disconnect.unconfirmed",
+					message:
+						"The Disconnect result could not be confirmed. Check the connection before trying again.",
+				},
+				revision
+			).finally(() => {
+				if (isCurrentAction(revision)) {
+					operationRef.current = null;
+					setOperation(null);
+				}
 			});
 		};
-		const acceptOperation = (
+		const acceptConnectOperation = (
 			operationState: DesktopComputerConnectionOperation
 		) => {
 			if (
+				ownedOperationRef.current === "disconnect" ||
+				operationRef.current === "disconnect" ||
 				connectionRequestKey === null ||
 				buildConnectionRequestKey(operationState.request) !==
 					connectionRequestKey
@@ -269,132 +454,230 @@ function useComputerConnection(input: ComputerConnectionProps) {
 				if (operationState.progress) {
 					accept(operationState.progress);
 				}
-				if (!ownedConnectRef.current) {
+				if (!ownedOperationRef.current) {
+					operationRef.current = "connect";
 					setOperation("connect");
 				}
 				return;
 			}
-			settleAdoptedOperation(operationState).catch((error: unknown) => {
-				if (!active.current) {
+			const revision = actionRevisionRef.current;
+			settleAdoptedOperation(operationState).catch(() => {
+				if (!isCurrentAction(revision)) {
 					return;
 				}
-				setFailed(true);
-				setMessage(
-					formatDesktopError(
-						error,
-						"This computer could not confirm its connection. Try again."
-					)
+				setRefreshWarning(
+					"The connection result was received, but the page could not finish refreshing. Check the connection again."
 				);
+				operationRef.current = null;
 				setOperation(null);
 			});
 		};
-		desktop.connectionOperationCurrent().then((operationState) => {
-			if (operationState && active.current) {
-				acceptOperation(operationState);
+		const readOperation =
+			desktop.computerOperationCurrent ?? desktop.connectionOperationCurrent;
+		const acceptOperation = (operationState: DesktopComputerOperation) => {
+			if (!(observing && active.current)) {
+				return;
 			}
-		});
+			if ("kind" in operationState) {
+				acceptDisconnectOperation(operationState);
+			} else {
+				acceptConnectOperation(operationState);
+			}
+		};
+		readOperation()
+			.then((operationState) => {
+				if (
+					operationState &&
+					observing &&
+					!receivedEvent &&
+					isCurrentAction(readRevision)
+				) {
+					acceptOperation(operationState);
+				}
+			})
+			.catch(() => {
+				if (observing && isCurrentAction(readRevision)) {
+					setRefreshWarning(
+						"The current computer operation could not be checked. Check the connection again."
+					);
+				}
+			});
 		const stopProgress = desktop.onConnectionProgress(accept);
-		const stopOperation = desktop.onConnectionOperation(acceptOperation);
+		const subscribe =
+			desktop.onComputerOperation ?? desktop.onConnectionOperation;
+		const stopOperation = subscribe((operationState) => {
+			receivedEvent = true;
+			acceptOperation(operationState);
+		});
 		return () => {
+			observing = false;
 			stopProgress();
 			stopOperation();
 		};
 	}, [
+		applyDisconnectResult,
+		canDisconnect,
 		connection.refetch,
 		connectionRequestKey,
 		expectedAccount,
 		input.onCompleted,
 		input.onContinue,
+		isCurrentAction,
 		setup.localRuntimesQuery.refetch,
 	]);
-	const connect = async () => {
-		const desktop = getDesktopPlatform();
-		if (!(desktop && connectionRequest)) {
-			return;
+	const beginOperation = (kind: "connect" | "disconnect") => {
+		if (
+			operationRef.current ||
+			!trustedDisplay ||
+			needsCheck ||
+			!expectedAccount
+		) {
+			return null;
 		}
-		setOperation("connect");
-		ownedConnectRef.current = true;
+		if (adoptedOperationIdRef.current) {
+			handledSettlementIdsRef.current.add(adoptedOperationIdRef.current);
+		}
+		if (progressRef.current) {
+			settledProgressIdsRef.current.add(progressRef.current.operationId);
+		}
+		adoptedOperationIdRef.current = null;
+		actionRevisionRef.current += 1;
+		operationRef.current = kind;
+		ownedOperationRef.current = kind;
+		setOperation(kind);
 		setFailed(false);
 		setDiagnosticId(null);
 		setDiagnosticsPath(null);
+		setDiagnosticCode(null);
+		setRefreshWarning(null);
 		setProgress(null);
 		progressRef.current = null;
 		setMessage(null);
+		disconnectPhaseRef.current = "checking";
+		setDisconnectPhase("checking");
+		return actionRevisionRef.current;
+	};
+	const finishOwnedOperation = (revision: number) => {
+		if (!isCurrentAction(revision)) {
+			return;
+		}
+		if (adoptedOperationIdRef.current) {
+			handledSettlementIdsRef.current.add(adoptedOperationIdRef.current);
+		}
+		if (progressRef.current) {
+			settledProgressIdsRef.current.add(progressRef.current.operationId);
+		}
+		ownedOperationRef.current = null;
+		operationRef.current = null;
+		setOperation(null);
+	};
+	const connect = async () => {
+		const desktop = getDesktopPlatform();
+		if (!(desktop && connectionRequest && setup.selectedHumanProfileId)) {
+			return;
+		}
+		const revision = beginOperation("connect");
+		if (revision === null) {
+			return;
+		}
+		let result: DesktopComputerConnectionResult;
 		try {
-			const result = desktopComputerConnectionResultSchema.parse(
+			result = desktopComputerConnectionResultSchema.parse(
 				await desktop.connectComputer(connectionRequest)
 			);
-			if (!active.current) {
-				return;
-			}
-			if (result.status === "cancelled") {
-				setMessage("Connection unchanged.");
-				return;
-			}
-			if (result.status === "failed") {
-				setFailed(true);
-				setMessage(result.message);
-				setDiagnosticId(result.diagnosticId);
-				setDiagnosticsPath(result.diagnosticsPath ?? null);
-				return;
-			}
-			await setup.localRuntimesQuery.refetch();
-			await connection.refetch();
-			if (!active.current) {
-				return;
-			}
-			input.onCompleted?.(
-				result.status === "completed" ? result.snapshot : result.connection
-			);
-			setMessage(
-				result.status === "completed" ? null : "Using the existing connection."
-			);
-			input.onContinue?.();
 		} catch (error) {
-			setFailed(true);
-			setMessage(
-				formatDesktopError(error, "This computer could not connect. Try again.")
-			);
+			if (isCurrentAction(revision)) {
+				setFailed(true);
+				setMessage(
+					formatDesktopError(
+						error,
+						"This computer could not connect. Try again."
+					)
+				);
+			}
+			finishOwnedOperation(revision);
+			return;
+		}
+		if (!isCurrentAction(revision)) {
+			return;
+		}
+		try {
+			await applyAdoptedConnectionSettlement({
+				connectionRefetch: connection.refetch,
+				localRuntimesRefetch: setup.localRuntimesQuery.refetch,
+				isActive: () => isCurrentAction(revision),
+				onCompleted: input.onCompleted,
+				onContinue: input.onContinue,
+				operationState: {
+					result,
+					errorMessage: null,
+				},
+				setDiagnosticId,
+				setDiagnosticsPath,
+				setFailed,
+				setMessage,
+				setRefreshWarning,
+			});
+		} catch {
+			if (isCurrentAction(revision)) {
+				setRefreshWarning(
+					"The connection result was received, but the page could not finish refreshing. Check the connection again."
+				);
+			}
 		} finally {
-			ownedConnectRef.current = false;
-			setOperation(null);
+			finishOwnedOperation(revision);
 		}
 	};
 	const disconnect = async () => {
 		const desktop = getDesktopPlatform();
-		if (!(desktop && expectedAccount)) {
+		if (
+			!(desktop && expectedAccount && connected) ||
+			connection.data?.status !== "available"
+		) {
 			return;
 		}
-		setOperation("disconnect");
-		setFailed(false);
-		setMessage(null);
-		setDiagnosticId(null);
-		setDiagnosticsPath(null);
-		setProgress(null);
+		const revision = beginOperation("disconnect");
+		if (revision === null) {
+			return;
+		}
 		try {
-			if (await desktop.disconnectComputer({ expectedAccount })) {
-				if (!active.current) {
-					return;
-				}
-				await Promise.all([
-					connection.refetch(),
-					setup.localRuntimesQuery.refetch(),
-				]);
-				if (!active.current) {
-					return;
-				}
-				setMessage("Disconnected. This Mac remains in your Computers list.");
-			}
-		} catch (error) {
-			setFailed(true);
-			setMessage(
-				formatDesktopError(
-					error,
-					"This Mac could not disconnect. Check its connection and try again."
-				)
+			const result = desktop.disconnectComputerWithFeedback
+				? desktopComputerDisconnectResultSchema.parse(
+						await desktop.disconnectComputerWithFeedback({
+							expectedAccount,
+							expectedConnection: connection.data.target,
+						})
+					)
+				: {
+						status: (await desktop.disconnectComputer({ expectedAccount }))
+							? ("disconnected" as const)
+							: ("cancelled" as const),
+					};
+			await applyDisconnectResult(result, revision);
+		} catch {
+			await applyDisconnectResult(
+				{
+					status: "unconfirmed",
+					code: "desktop.disconnect.unconfirmed",
+					message:
+						"The Disconnect result could not be confirmed. Check the connection before trying again.",
+				},
+				revision
 			);
 		} finally {
-			setOperation(null);
+			finishOwnedOperation(revision);
+		}
+	};
+	const checkConnection = async () => {
+		const revision = actionRevisionRef.current;
+		try {
+			const result = await connection.refetch({ throwOnError: true });
+			if (isCurrentAction(revision) && !result.isError) {
+				setNeedsCheck(false);
+				setRefreshWarning(null);
+			}
+		} catch {
+			// The query's existing error is the visible result; no mutation retry.
 		}
 	};
 	return {
@@ -409,10 +692,16 @@ function useComputerConnection(input: ComputerConnectionProps) {
 		diagnosticId,
 		diagnosticsPath,
 		progress,
+		disconnectPhase,
+		refreshWarning,
+		needsCheck,
+		diagnosticCode,
+		checkConnection,
+		checking: !trustedDisplay && connection.isPending,
 		disabled:
 			pending ||
-			connection.isFetching ||
-			connection.isPending ||
+			needsCheck ||
+			!trustedDisplay ||
 			!expectedAccount ||
 			!(connected || setup.selectedHumanProfileId),
 	};
@@ -471,6 +760,89 @@ function DesktopWebConnection(
 	);
 }
 
+function nativeConnectionActionLabel(
+	state: Pick<
+		ReturnType<typeof useComputerConnection>,
+		"failed" | "connected" | "operation" | "disconnectPhase" | "checking"
+	>,
+	disconnectFeedbackAvailable: boolean
+) {
+	if (state.operation === "disconnect") {
+		return disconnectFeedbackAvailable
+			? {
+					checking: "Checking connection…",
+					waiting_for_confirmation: "Waiting for confirmation…",
+					disconnecting: "Disconnecting…",
+				}[state.disconnectPhase]
+			: "Disconnect requested…";
+	}
+	if (state.operation === "connect") {
+		return "Connecting…";
+	}
+	if (state.checking) {
+		return "Checking this Mac…";
+	}
+	if (state.connected) {
+		return "Disconnect this Mac";
+	}
+	return state.failed ? "Try again" : "Connect this Mac";
+}
+
+function ConnectionDiagnostics(input: {
+	diagnosticId: string | null;
+	diagnosticCode: string | null;
+	diagnosticsPath: string | null;
+}) {
+	if (!(input.diagnosticId || input.diagnosticCode || input.diagnosticsPath)) {
+		return null;
+	}
+	return (
+		<details className="max-w-full text-muted-foreground text-xs">
+			<summary>Connection details</summary>
+			{input.diagnosticCode ? (
+				<p className="break-all">{input.diagnosticCode}</p>
+			) : null}
+			{input.diagnosticId ? (
+				<p className="break-all">{input.diagnosticId}</p>
+			) : null}
+			{input.diagnosticsPath ? (
+				<p className="break-all">Diagnostic file: {input.diagnosticsPath}</p>
+			) : null}
+		</details>
+	);
+}
+
+function DisconnectProgress(input: {
+	detailed: boolean;
+	phase: DesktopComputerDisconnectPhase;
+}) {
+	const description = input.detailed
+		? {
+				checking: "Checking this Mac before Disconnect…",
+				waiting_for_confirmation:
+					"Waiting for confirmation in Desktop. Choose Cancel or Disconnect this Mac in the native dialog.",
+				disconnecting:
+					"Disconnect confirmed. Waiting for OpenMeld to report the final result…",
+			}[input.phase]
+		: "Waiting for Desktop to confirm or complete Disconnect…";
+	return (
+		<output aria-live="polite" className="text-muted-foreground text-sm">
+			{description}
+		</output>
+	);
+}
+
+function ConnectionReadError({ error }: { error: unknown }) {
+	if (!error) {
+		return null;
+	}
+	return (
+		<p className="text-sm" role="alert">
+			{formatDesktopError(error, "Couldn’t check this Mac’s connection.")}
+		</p>
+	);
+}
+
 function NativeComputerConnection(input: ComputerConnectionProps) {
 	const {
 		connection,
@@ -485,16 +857,23 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 		diagnosticsPath,
 		progress,
 		disabled,
+		disconnectPhase,
+		refreshWarning,
+		needsCheck,
+		diagnosticCode,
+		checkConnection,
+		checking,
 	} = useComputerConnection(input);
-	let actionLabel = failed ? "Try again" : "Connect this Mac";
-	if (connected) {
-		actionLabel = "Disconnect this Mac";
-	}
-	if (operation === "connect") {
-		actionLabel = "Connecting…";
-	}
-	if (operation === "disconnect") {
-		actionLabel = "Disconnecting…";
+	const disconnectFeedbackAvailable = Boolean(
+		getDesktopPlatform()?.disconnectComputerWithFeedback
+	);
+	const actionLabel = nativeConnectionActionLabel(
+		{ failed, connected, operation, disconnectPhase, checking },
+		disconnectFeedbackAvailable
+	);
+	let title = connected ? "Connected" : "Connect this Mac";
+	if (needsCheck) {
+		title = "Connection unconfirmed";
 	}
 	let description = "Local agents can keep working after you quit Desktop.";
 	if (connection.data?.status === "unavailable" && !pending) {
@@ -505,34 +884,30 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 		prepareSessionId: progress?.prepareSessionId ?? null,
 	});
 	return (
-		<div className="mx-auto flex w-full max-w-lg flex-col items-center gap-4 rounded-md border border-border border-dashed px-6 py-8 text-center">
+		<div className="mx-auto flex w-full min-w-0 max-w-lg flex-col items-center gap-4 rounded-md border border-border border-dashed px-6 py-8 text-center [overflow-wrap:anywhere]">
 			<SettingsAddComputerCardContent
 				description={description}
 				descriptionClassName="max-w-sm"
 				icon={
-					connected ? (
+					connected && !needsCheck ? (
 						<CheckIcon aria-hidden="true" className="size-5" />
 					) : undefined
 				}
-				title={connected ? "Connected" : "Connect this Mac"}
+				title={title}
 			/>
-			{connection.isError ? (
-				<div className="space-y-2 text-sm" role="alert">
-					<p>
-						{formatDesktopError(
-							connection.error,
-							"Couldn’t check this Mac’s connection."
-						)}
-					</p>
-					<Button
-						disabled={connection.isFetching || pending}
-						onClick={() => connection.refetch()}
-						size="sm"
-						variant="outline"
-					>
-						Check connection
-					</Button>
-				</div>
+			<ConnectionReadError error={connection.error} />
+			{refreshWarning ? (
+				<output className="text-sm">{refreshWarning}</output>
+			) : null}
+			{connection.isError || refreshWarning || needsCheck ? (
+				<Button
+					disabled={connection.isFetching || pending}
+					onClick={checkConnection}
+					size="sm"
+					variant="outline"
+				>
+					Check connection
+				</Button>
 			) : null}
 			<Button
 				disabled={disabled}
@@ -542,17 +917,21 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 			>
 				{actionLabel}
 			</Button>
-			{pending ? <ConnectionProgress progress={progress} /> : null}
-			<ObserveConnectionProgressInWebButton path={observeInWebPath} />
-			{diagnosticId ? (
-				<details className="text-muted-foreground text-xs">
-					<summary>Connection details</summary>
-					<p>{diagnosticId}</p>
-					{diagnosticsPath ? (
-						<p className="break-all">Diagnostic file: {diagnosticsPath}</p>
-					) : null}
-				</details>
+			{operation === "connect" || (checking && !pending) ? (
+				<ConnectionProgress progress={progress} />
 			) : null}
+			{operation === "disconnect" ? (
+				<DisconnectProgress
+					detailed={disconnectFeedbackAvailable}
+					phase={disconnectPhase}
+				/>
+			) : null}
+			<ObserveConnectionProgressInWebButton path={observeInWebPath} />
+			<ConnectionDiagnostics
+				diagnosticCode={diagnosticCode}
+				diagnosticId={diagnosticId}
+				diagnosticsPath={diagnosticsPath}
+			/>
 			{message ? (
 				<p className="text-sm" role={failed ? "alert" : "status"}>
 					{message}

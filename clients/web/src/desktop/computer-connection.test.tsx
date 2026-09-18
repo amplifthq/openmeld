@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -22,6 +23,9 @@ const state = vi.hoisted(() => ({
 		message: "Connect this computer.",
 	}),
 	disconnect: vi.fn().mockResolvedValue(false),
+	disconnectWithFeedback: vi.fn(),
+	feedbackAvailable: false,
+	localRuntimesRefetch: vi.fn().mockResolvedValue({ isError: false }),
 	currentProgress: vi.fn().mockResolvedValue(null),
 	currentOperation: vi.fn().mockResolvedValue(null),
 	progressHandler: null as ((event: unknown) => void) | null,
@@ -32,6 +36,20 @@ vi.mock("./platform", () => ({
 	getDesktopPlatform: () => ({
 		connectComputer: state.connect,
 		disconnectComputer: state.disconnect,
+		disconnectComputerWithFeedback: state.feedbackAvailable
+			? state.disconnectWithFeedback
+			: undefined,
+		computerOperationCurrent: state.feedbackAvailable
+			? state.currentOperation
+			: undefined,
+		onComputerOperation: state.feedbackAvailable
+			? (handler: (event: unknown) => void) => {
+					state.operationHandler = handler;
+					return () => {
+						state.operationHandler = null;
+					};
+				}
+			: undefined,
 		connectionProgressCurrent: state.currentProgress,
 		connectionOperationCurrent: state.currentOperation,
 		localComputer: state.localComputer,
@@ -58,13 +76,17 @@ vi.mock("#/components/connect/bring-agents-setup-context", () => ({
 		routeIntent: state.routeIntent,
 		selectedHumanProfileId: "11111111-1111-4111-8111-111111111111",
 		targetSpaceId: null,
-		localRuntimesQuery: { refetch: vi.fn() },
+		localRuntimesQuery: { refetch: state.localRuntimesRefetch },
 	}),
 }));
 afterEach(() => {
 	cleanup();
 	vi.clearAllMocks();
 	state.account = "account-a";
+	state.feedbackAvailable = false;
+	state.disconnect.mockReset().mockResolvedValue(false);
+	state.disconnectWithFeedback.mockReset();
+	state.localRuntimesRefetch.mockReset().mockResolvedValue({ isError: false });
 	state.routeIntent = {
 		kind: "account_computer_setup",
 		resetThisComputer: false,
@@ -86,7 +108,9 @@ it("shows measured download progress without inventing an overall percentage", a
 	};
 	state.connect.mockReturnValue(new Promise(() => undefined));
 	renderConnection(<DesktopComputerConnection />);
-	const button = screen.getByRole("button", { name: "Connect this Mac" });
+	const button = await screen.findByRole("button", {
+		name: "Connect this Mac",
+	});
 	await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
 	fireEvent.click(button);
 	await waitFor(() => expect(state.progressHandler).not.toBeNull());
@@ -119,7 +143,9 @@ it("shows measured download progress without inventing an overall percentage", a
 it("opens Web on the exact Desktop-created Prepare Session", async () => {
 	state.connect.mockReturnValue(new Promise(() => undefined));
 	renderConnection(<DesktopComputerConnection orgSlug="org-a" />);
-	const connect = screen.getByRole("button", { name: "Connect this Mac" });
+	const connect = await screen.findByRole("button", {
+		name: "Connect this Mac",
+	});
 	await waitFor(() => expect(connect.hasAttribute("disabled")).toBe(false));
 	fireEvent.click(connect);
 	await waitFor(() => expect(state.progressHandler).not.toBeNull());
@@ -388,7 +414,9 @@ it.each([
 			sourceNavigationAction={sourceNavigationAction}
 		/>
 	);
-	const button = screen.getByRole("button", { name: "Connect this Mac" });
+	const button = await screen.findByRole("button", {
+		name: "Connect this Mac",
+	});
 	await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
 	fireEvent.click(button);
 	await waitFor(() =>
@@ -401,6 +429,434 @@ it.each([
 		)
 	);
 });
+
+it("explains the first unknown state before offering a connection action", async () => {
+	const check = createDeferred<unknown>();
+	state.localComputer.mockReturnValue(check.promise);
+	renderConnection(<DesktopComputerConnection allowDisconnect />);
+	expect(
+		screen
+			.getByRole("button", { name: "Checking this Mac…" })
+			.hasAttribute("disabled")
+	).toBe(true);
+	expect(screen.getByText("Checking this Mac’s connection…")).toBeTruthy();
+	expect(
+		screen.queryByRole("button", { name: "Disconnect this Mac" })
+	).toBeNull();
+	await act(() => {
+		check.resolve({ status: "unavailable", message: "No connection yet." });
+	});
+	await waitFor(() =>
+		expect(
+			screen
+				.getByRole("button", { name: "Connect this Mac" })
+				.hasAttribute("disabled")
+		).toBe(false)
+	);
+});
+
+it.each([
+	"account-a",
+	"account-b",
+])("uses background display data only for its matching account: %s", async (accountId) => {
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	client.setQueryData(["desktop", "computer-connection", "account-a"], {
+		...availableComputer(),
+		accountId,
+	});
+	state.localComputer.mockReturnValue(new Promise(() => undefined));
+	renderConnection(<DesktopComputerConnection allowDisconnect />, client);
+	const button = screen.getByRole("button", {
+		name:
+			accountId === "account-a" ? "Disconnect this Mac" : "Connect this Mac",
+	});
+	expect(button.hasAttribute("disabled")).toBe(accountId !== "account-a");
+	await waitFor(() => expect(state.localComputer).toHaveBeenCalledOnce());
+	expect(client.isFetching()).toBe(1);
+});
+
+it("reports real Disconnect stages, refuses duplicate requests and keeps the outer operation identity", async () => {
+	state.feedbackAvailable = true;
+	state.localComputer.mockResolvedValue(availableComputer());
+	const result = createDeferred<unknown>();
+	state.disconnectWithFeedback.mockReturnValue(result.promise);
+	renderConnection(<DesktopComputerConnection allowDisconnect />);
+	const button = await screen.findByRole("button", {
+		name: "Disconnect this Mac",
+	});
+	fireEvent.click(button);
+	fireEvent.click(button);
+	expect(state.disconnectWithFeedback).toHaveBeenCalledOnce();
+	expect(state.disconnectWithFeedback).toHaveBeenCalledWith({
+		expectedAccount: "account-a",
+		expectedConnection: availableComputer().target,
+	});
+	expect(screen.getByText("Checking this Mac before Disconnect…")).toBeTruthy();
+	await act(() => {
+		state.operationHandler?.(disconnectOperation("waiting_for_confirmation"));
+	});
+	expect(
+		screen
+			.getByRole("button", { name: "Waiting for confirmation…" })
+			.hasAttribute("disabled")
+	).toBe(true);
+	expect(
+		screen.getByText(
+			"Waiting for confirmation in Desktop. Choose Cancel or Disconnect this Mac in the native dialog."
+		)
+	).toBeTruthy();
+	await act(() => {
+		state.operationHandler?.({
+			...disconnectOperation("disconnecting", { status: "disconnected" }),
+			operationId: "another-operation",
+		});
+	});
+	expect(
+		screen.getByRole("button", { name: "Waiting for confirmation…" })
+	).toBeTruthy();
+	await act(() => {
+		state.operationHandler?.(disconnectOperation("disconnecting"));
+	});
+	expect(
+		screen.getByText(
+			"Disconnect confirmed. Waiting for OpenMeld to report the final result…"
+		)
+	).toBeTruthy();
+	await act(() => {
+		state.operationHandler?.(disconnectOperation("checking"));
+		state.operationHandler?.(
+			disconnectOperation("disconnecting", { status: "cancelled" })
+		);
+		result.resolve({ status: "cancelled" });
+	});
+	expect(
+		await screen.findByText(
+			"Disconnect cancelled. The connection was not changed."
+		)
+	).toBeTruthy();
+	expect(screen.queryByRole("alert")).toBeNull();
+	expect(state.localComputer).toHaveBeenCalledOnce();
+	expect(state.disconnect).not.toHaveBeenCalled();
+});
+
+it.each([
+	"connection_changed",
+	"failed",
+	"unconfirmed",
+] as const)("shows a %s Disconnect result with diagnostics and requires a read before another mutation", async (status) => {
+	state.feedbackAvailable = true;
+	state.localComputer.mockResolvedValue(availableComputer());
+	state.disconnectWithFeedback.mockResolvedValue({
+		status,
+		code: `desktop.disconnect.${status}`,
+		message: "Check the connection before trying again.",
+		diagnosticId: "operation-diagnostic-a",
+		diagnosticsPath: "/test-owned/computer-operation/diagnostics.json",
+	});
+	renderConnection(<DesktopComputerConnection allowDisconnect />);
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Disconnect this Mac" })
+	);
+	expect(
+		await screen.findByText("Check the connection before trying again.")
+	).toBeTruthy();
+	expect(screen.getByText("Connection unconfirmed")).toBeTruthy();
+	expect(screen.getByText(`desktop.disconnect.${status}`)).toBeTruthy();
+	expect(screen.getByText("operation-diagnostic-a")).toBeTruthy();
+	expect(
+		screen.getByText(
+			"Diagnostic file: /test-owned/computer-operation/diagnostics.json"
+		)
+	).toBeTruthy();
+	expect(
+		screen
+			.getByRole("button", { name: "Disconnect this Mac" })
+			.hasAttribute("disabled")
+	).toBe(true);
+	expect(
+		screen.queryByText(
+			"Disconnected. This Mac remains in your Computers list. Desktop stays signed in."
+		)
+	).toBeNull();
+	expect(state.localComputer).toHaveBeenCalledOnce();
+	state.localComputer.mockResolvedValue({
+		status: "unavailable",
+		message: "No confirmed connection.",
+	});
+	fireEvent.click(screen.getByRole("button", { name: "Check connection" }));
+	await waitFor(() =>
+		expect(
+			screen.getByRole("button", { name: "Try again" }).hasAttribute("disabled")
+		).toBe(false)
+	);
+	expect(state.disconnectWithFeedback).toHaveBeenCalledOnce();
+	expect(state.connect).not.toHaveBeenCalled();
+});
+
+it("does not mistake an IPC rejection for a known Disconnect failure", async () => {
+	state.feedbackAvailable = true;
+	state.localComputer.mockResolvedValue(availableComputer());
+	state.disconnectWithFeedback.mockRejectedValue(
+		new Error("Raw private failure detail")
+	);
+	renderConnection(<DesktopComputerConnection allowDisconnect />);
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Disconnect this Mac" })
+	);
+	expect(
+		await screen.findByText(
+			"The Disconnect result could not be confirmed. Check the connection before trying again."
+		)
+	).toBeTruthy();
+	expect(screen.queryByText("Raw private failure detail")).toBeNull();
+	expect(screen.getByRole("button", { name: "Check connection" })).toBeTruthy();
+});
+
+it("reopens a pending native Disconnect and never replays retained connect success or late pending", async () => {
+	state.feedbackAvailable = true;
+	state.localComputer.mockResolvedValue(availableComputer());
+	state.currentOperation.mockResolvedValue(
+		disconnectOperation("waiting_for_confirmation")
+	);
+	const onCompleted = vi.fn();
+	const onContinue = vi.fn();
+	const page = (
+		<DesktopComputerConnection
+			allowDisconnect
+			onCompleted={onCompleted}
+			onContinue={onContinue}
+		/>
+	);
+	const first = renderConnection(page);
+	await screen.findByRole("button", { name: "Waiting for confirmation…" });
+	first.unmount();
+	renderConnection(page);
+	await screen.findByRole("button", { name: "Waiting for confirmation…" });
+	state.localComputer.mockResolvedValue({
+		status: "unavailable",
+		message: "No connection.",
+	});
+	state.localRuntimesRefetch.mockReturnValue(new Promise(() => undefined));
+	await act(() => {
+		state.operationHandler?.(
+			disconnectOperation("disconnecting", { status: "disconnected" })
+		);
+	});
+	expect(
+		await screen.findByText(
+			"Disconnected. This Mac remains in your Computers list. Desktop stays signed in."
+		)
+	).toBeTruthy();
+	await waitFor(() =>
+		expect(
+			screen
+				.getByRole("button", { name: "Connect this Mac" })
+				.hasAttribute("disabled")
+		).toBe(false)
+	);
+	await act(() => {
+		state.operationHandler?.(
+			desktopOperation({
+				status: "settled",
+				result: { status: "reused", connection: availableComputer().target },
+			})
+		);
+		state.operationHandler?.(disconnectOperation("checking"));
+	});
+	expect(screen.queryByText("Using the existing connection.")).toBeNull();
+	expect(
+		screen.queryByRole("button", { name: "Checking connection…" })
+	).toBeNull();
+	expect(onCompleted).not.toHaveBeenCalled();
+	expect(onContinue).not.toHaveBeenCalled();
+	expect(state.disconnectWithFeedback).not.toHaveBeenCalled();
+	expect(state.connect).not.toHaveBeenCalled();
+});
+
+it.each([
+	"slow_directory",
+	"failed_directory",
+	"failed_native_read",
+])("does not turn confirmed connection into failure or wait for ancillary refresh: %s", async (refresh) => {
+	state.connect.mockResolvedValue({
+		status: "reused",
+		connection: availableComputer().target,
+	});
+	const onCompleted = vi.fn();
+	const onContinue = vi.fn();
+	renderConnection(
+		<DesktopComputerConnection
+			onCompleted={onCompleted}
+			onContinue={onContinue}
+		/>
+	);
+	const button = await screen.findByRole("button", {
+		name: "Connect this Mac",
+	});
+	if (refresh === "slow_directory") {
+		state.localRuntimesRefetch.mockReturnValue(new Promise(() => undefined));
+	} else if (refresh === "failed_directory") {
+		state.localRuntimesRefetch.mockResolvedValue({ isError: true });
+	} else {
+		state.localComputer.mockRejectedValue(
+			new Error("Couldn’t check this Mac’s connection.")
+		);
+	}
+	fireEvent.click(button);
+	await waitFor(() => expect(onCompleted).toHaveBeenCalledOnce());
+	expect(onContinue).toHaveBeenCalledOnce();
+	expect(screen.getByText("Using the existing connection.")).toBeTruthy();
+	expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+	expect(state.localRuntimesRefetch).toHaveBeenCalledOnce();
+	expect(state.localComputer).toHaveBeenCalledTimes(2);
+	if (refresh !== "slow_directory") {
+		expect(
+			await screen.findByText(
+				"The operation completed, but the connection display could not refresh. Check the connection again."
+			)
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Check connection" })
+		).toBeTruthy();
+	}
+});
+
+it.each([
+	"native_result",
+	"native_refresh",
+])("ignores an old result when the same account changes request during %s", async (stage) => {
+	const completion = createDeferred<unknown>();
+	const refresh = createDeferred<unknown>();
+	state.connect.mockReturnValue(completion.promise);
+	const onCompleted = vi.fn();
+	const onContinue = vi.fn();
+	const view = renderConnection(
+		<DesktopComputerConnection
+			onCompleted={onCompleted}
+			onContinue={onContinue}
+		/>
+	);
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Connect this Mac" })
+	);
+	if (stage === "native_refresh") {
+		state.localComputer.mockReturnValue(refresh.promise);
+		await act(() => {
+			completion.resolve({
+				status: "reused",
+				connection: availableComputer().target,
+			});
+		});
+		await waitFor(() => expect(state.localComputer).toHaveBeenCalledTimes(2));
+	}
+	state.routeIntent = {
+		kind: "account_computer_setup",
+		resetThisComputer: true,
+		connectedComputerId: "another-computer",
+	};
+	view.rerender(
+		<DesktopComputerConnection
+			onCompleted={onCompleted}
+			onContinue={onContinue}
+		/>
+	);
+	await act(() => {
+		completion.resolve({
+			status: "reused",
+			connection: availableComputer().target,
+		});
+		refresh.resolve({ status: "unavailable", message: "No connection." });
+	});
+	await screen.findByRole("button", { name: "Connect this Mac" });
+	expect(onCompleted).not.toHaveBeenCalled();
+	expect(onContinue).not.toHaveBeenCalled();
+	expect(screen.queryByText("Using the existing connection.")).toBeNull();
+});
+
+it("ignores a stale current read and processes an owned event plus IPC result only once", async () => {
+	const current = createDeferred<unknown>();
+	const native = createDeferred<unknown>();
+	state.currentOperation.mockReturnValue(current.promise);
+	state.connect.mockReturnValue(native.promise);
+	const onCompleted = vi.fn();
+	const onContinue = vi.fn();
+	renderConnection(
+		<DesktopComputerConnection
+			onCompleted={onCompleted}
+			onContinue={onContinue}
+		/>
+	);
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Connect this Mac" })
+	);
+	await act(() => {
+		current.resolve(
+			desktopOperation({
+				status: "settled",
+				operationId: "old-operation",
+				result: { status: "reused", connection: availableComputer().target },
+			})
+		);
+	});
+	expect(onCompleted).not.toHaveBeenCalled();
+	expect(
+		screen.getByRole("button", { name: "Connecting…" }).hasAttribute("disabled")
+	).toBe(true);
+	const result = { status: "reused", connection: availableComputer().target };
+	await act(() => {
+		state.operationHandler?.(desktopOperation({ status: "pending" }));
+		state.operationHandler?.(desktopOperation({ status: "settled", result }));
+		native.resolve(result);
+	});
+	await waitFor(() => expect(onCompleted).toHaveBeenCalledOnce());
+	expect(onContinue).toHaveBeenCalledOnce();
+	await act(() => {
+		state.operationHandler?.(desktopOperation({ status: "settled", result }));
+		state.operationHandler?.(desktopOperation({ status: "pending" }));
+	});
+	expect(onCompleted).toHaveBeenCalledOnce();
+	expect(onContinue).toHaveBeenCalledOnce();
+	expect(
+		screen
+			.getByRole("button", { name: "Connect this Mac" })
+			.hasAttribute("disabled")
+	).toBe(false);
+});
+
+function createDeferred<T>() {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((done) => {
+		resolve = done;
+	});
+	return { promise, resolve };
+}
+
+function availableComputer() {
+	return {
+		status: "available" as const,
+		accountId: "account-a",
+		target: { deviceId: "this-mac", runtimeLane: "prod" as const },
+	};
+}
+
+function disconnectOperation(
+	phase: "checking" | "waiting_for_confirmation" | "disconnecting",
+	result?: { status: "cancelled" | "disconnected" }
+) {
+	return {
+		kind: "disconnect",
+		operationId: "desktop-disconnect-a",
+		request: {
+			expectedAccount: "account-a",
+			expectedConnection: availableComputer().target,
+		},
+		status: result ? "settled" : "pending",
+		phase,
+		result: result ?? null,
+	};
+}
 
 function renderConnection(
 	ui: React.ReactNode,
@@ -532,7 +988,9 @@ it("does not continue a previous account's completed connection after Desktop ch
 	const view = renderConnection(
 		<DesktopComputerConnection onCompleted={onCompleted} />
 	);
-	const button = screen.getByRole("button", { name: "Connect this Mac" });
+	const button = await screen.findByRole("button", {
+		name: "Connect this Mac",
+	});
 	await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
 	fireEvent.click(button);
 	state.account = "account-b";
@@ -549,7 +1007,5 @@ it("does not continue a previous account's completed connection after Desktop ch
 		).toBe(false)
 	);
 	expect(onCompleted).not.toHaveBeenCalled();
-	expect(
-		screen.queryByText("Using this computer's existing connection.")
-	).toBeNull();
+	expect(screen.queryByText("Using the existing connection.")).toBeNull();
 });

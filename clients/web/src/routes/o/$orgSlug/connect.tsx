@@ -1,5 +1,6 @@
 import { buttonVariants } from "@openmeld/ui/components/button";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
+import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo } from "react";
@@ -8,6 +9,7 @@ import { appShellStaticData } from "#/components/app/shell-layout";
 import { useStartFlowGuard } from "#/components/app/start-flow-guard";
 import { BringAgentsSetupProvider } from "#/components/connect/bring-agents-setup-context";
 import { StartBringAgentsSetupPage } from "#/components/connect/start-bring-agents-setup-page";
+import { getDesktopPlatform } from "#/desktop/platform";
 import {
 	buildConnectRouteSearch,
 	type ConnectRouteIntent,
@@ -76,6 +78,13 @@ function WebConnectContent(input: {
 		[search]
 	);
 	const backTo = resolveConnectBackTarget(routeIntent, orgSlug);
+	const centerNativeCard = Boolean(
+		getDesktopPlatform() &&
+			routeIntent.kind === "account_computer_setup" &&
+			routeIntent.serviceAction !== "update_service" &&
+			!isCreatingAgent &&
+			!search.observePrepareSessionId
+	);
 
 	// Fresh-session consumption must land back on the org-scoped Connect route with session/reset
 	// cleared. For space recovery the space params must survive so
@@ -114,40 +123,60 @@ function WebConnectContent(input: {
 
 	return (
 		<AppFullWidthLayout
+			contentLayout={centerNativeCard ? "flush" : "centered"}
 			initialOuterSidebarState={
 				input.initialOuterSidebarState ?? APP_SIDEBAR_DEFAULT_STATES.outer
 			}
 		>
-			<TooltipHint
-				content={
-					search.returnTo === "agent_creation"
-						? "Back to creating Agent"
-						: "Back"
+			<div
+				className={
+					centerNativeCard
+						? "flex min-h-full flex-1 flex-col gap-4 px-4 pt-8 pb-6 sm:px-6 lg:px-8"
+						: "contents"
 				}
 			>
-				<Link
-					aria-label={isCreatingAgent ? "Back to creating Agent" : "Back"}
-					className={buttonVariants({
-						className: "w-fit self-start justify-self-start",
-						size: isCreatingAgent ? "sm" : "icon-sm",
-						variant: "ghost",
-					})}
-					to={backTo}
+				<TooltipHint
+					content={
+						search.returnTo === "agent_creation"
+							? "Back to creating Agent"
+							: "Back"
+					}
 				>
-					<ArrowLeftIcon aria-hidden="true" />
-					{isCreatingAgent ? "Back to creating Agent" : null}
-				</Link>
-			</TooltipHint>
-			<BringAgentsSetupProvider routeIntent={routeIntent}>
-				<StartBringAgentsSetupPage
-					autoReturnOnCompletion={false}
-					observePrepareSessionId={search.observePrepareSessionId}
-					orgSlug={orgSlug}
-					selfRoute={buildOrganizationConnectPath({ orgSlug })}
-					selfRouteSearch={resetConsumedSearch}
-					showBackControl={false}
-				/>
-			</BringAgentsSetupProvider>
+					<Link
+						aria-label={isCreatingAgent ? "Back to creating Agent" : "Back"}
+						className={cn(
+							buttonVariants({
+								size: isCreatingAgent ? "sm" : "icon-sm",
+								variant: "ghost",
+							}),
+							"self-start justify-self-start",
+							isCreatingAgent ? "w-fit" : "aspect-square rounded-full"
+						)}
+						to={backTo}
+					>
+						<ArrowLeftIcon aria-hidden="true" />
+						{isCreatingAgent ? "Back to creating Agent" : null}
+					</Link>
+				</TooltipHint>
+				<div
+					className={
+						centerNativeCard
+							? "flex flex-1 flex-col justify-center"
+							: "contents"
+					}
+				>
+					<BringAgentsSetupProvider routeIntent={routeIntent}>
+						<StartBringAgentsSetupPage
+							autoReturnOnCompletion={false}
+							observePrepareSessionId={search.observePrepareSessionId}
+							orgSlug={orgSlug}
+							selfRoute={buildOrganizationConnectPath({ orgSlug })}
+							selfRouteSearch={resetConsumedSearch}
+							showBackControl={false}
+						/>
+					</BringAgentsSetupProvider>
+				</div>
+			</div>
 		</AppFullWidthLayout>
 	);
 }

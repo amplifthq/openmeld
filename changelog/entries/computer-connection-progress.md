@@ -12,3 +12,13 @@ OpenMeld Tools are required. The matching Web setup session follows the same
 live stages, can be opened directly from Desktop once the session exists, and
 marks interrupted observation as reconnecting without changing how connection
 success is determined.
+
+The standalone Desktop connection page keeps its Back button easy to reach and
+centers the connection card in the available space. It explains the first
+connection check without disabling known, account-aligned controls during an
+ordinary background refresh. Disconnect now shows when Desktop is checking the
+connection, waiting for confirmation, and executing the request. Cancellation,
+confirmed disconnection, and an unconfirmed result have distinct messages and a
+safe next step; connection details retain the diagnostic reference. Disconnect
+keeps Desktop signed in and leaves the Computer in the cloud list. Reopening an
+operation resumes its feedback without replaying a previous connection result.
