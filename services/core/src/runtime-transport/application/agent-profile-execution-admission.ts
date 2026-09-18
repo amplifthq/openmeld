@@ -28,6 +28,7 @@ import {
   approveAgentProfileWorkQueue,
   authorizeAgentProfileWorkContinuation,
   createAgentProfileWorkCoordinator,
+  dropRetiredAgentProfileWork,
   handOffOccupiedAgentProfileWork,
   markAgentProfileWorkContinuationNeedsAttention,
   markAgentProfileWorkControllerConversationOccupancy,
@@ -2613,8 +2614,16 @@ async function writeRuntimeCoordinatorHeadLifecycleWithAdmissionInTransaction(in
     };
   }
   contextPlan = capabilityAdmission.plan;
-  const contextAdmission = await beginContextMigrationForAcceptedWork({
+  // A new Wake must never be queued behind work whose Wake is already gone or
+  // settled, so admission reconciles the queue before it takes a position.
+  const reconciliation = await resolveAgentProfileWorkReconciliation({
     admission,
+    isNewAdmission: input.blockForExecutionTargetMutation,
+    nowMs: input.nowMs,
+    transaction: input.transaction,
+  });
+  const contextAdmission = await beginContextMigrationForAcceptedWork({
+    admission: reconciliation.admission,
     isNewAdmission: input.blockForExecutionTargetMutation,
     record: contextPlan.record,
     nowMs: input.nowMs,
@@ -2637,10 +2646,19 @@ async function writeRuntimeCoordinatorHeadLifecycleWithAdmissionInTransaction(in
     await input.transaction.setAlarm(input.nowMs);
   }
 
-  const currentMutation = admissionWithWork.executionTargetMutation;
+  const reconciledPromotions =
+    await applyAgentProfileWorkReconciliationPromotions({
+      admission: admissionWithWork,
+      nowMs: input.nowMs,
+      promotedItems: reconciliation.promotedItems,
+      transaction: input.transaction,
+    });
+
+  const currentMutation =
+    reconciledPromotions.admission.executionTargetMutation;
   const admissionAfterHeadWrite = applyHeadLifecycleToAdmission({
     admission: {
-      ...admissionWithWork,
+      ...reconciledPromotions.admission,
       executionTargetMutation:
         currentMutation && currentMutation.expiresAtMs > input.nowMs
           ? currentMutation
@@ -2664,14 +2682,32 @@ async function writeRuntimeCoordinatorHeadLifecycleWithAdmissionInTransaction(in
     preparation: prepared,
     transaction: input.transaction,
   });
-  const result: AgentProfileWorkCoordinatorHeadWriteBaseResult = workAcceptance
-    ? {
-        effectiveRecord,
-        ...workAcceptance,
+  return resolveHeadLifecycleAdmissionWriteResult({
+    effectiveRecord,
+    pendingPromotion:
+      terminalTransition.pendingPromotion ??
+      reconciledPromotions.pendingPromotion,
+    workAcceptance,
+  });
+}
+
+function resolveHeadLifecycleAdmissionWriteResult(input: {
+  effectiveRecord: RuntimeCoordinatorHeadLifecycleRecord;
+  pendingPromotion: PendingAgentProfileWorkPromotion | null;
+  workAcceptance:
+    | {
+        queuePosition: number;
+        status: "queued" | "started";
+        waitingCount: number;
       }
-    : { effectiveRecord, status: "written" as const };
-  return terminalTransition.pendingPromotion
-    ? { ...result, pendingPromotion: terminalTransition.pendingPromotion }
+    | undefined;
+}): AgentProfileWorkCoordinatorHeadWriteResult {
+  const result: AgentProfileWorkCoordinatorHeadWriteBaseResult =
+    input.workAcceptance
+      ? { effectiveRecord: input.effectiveRecord, ...input.workAcceptance }
+      : { effectiveRecord: input.effectiveRecord, status: "written" as const };
+  return input.pendingPromotion
+    ? { ...result, pendingPromotion: input.pendingPromotion }
     : result;
 }
 
@@ -4731,6 +4767,175 @@ async function removeTerminalExecutionAgentProfileWorkAndPromoteSuccessor(input:
     targetWakeLifecycleId: currentItem.targetWakeLifecycleId,
     transaction: input.transaction,
   });
+}
+
+/**
+ * Reconciles this Profile's ordered work against canonical Wake truth.
+ *
+ * The head lifecycle record and its execution token authority own what
+ * happened to one Wake; `workItems` only claims a place in this Profile's
+ * queue for it. When a head is missing or already terminal, its claim can
+ * never move again: promotion requires a `queued` head, and the terminal
+ * transition that would settle it has already run. The claim then holds its
+ * reservation permanently, and because a `queued` head carries no deadline of
+ * its own, every later Wake accumulates behind it at a growing position and
+ * never dispatches. Active-reference repair cannot correct that — it rebuilds
+ * references from canonical storage and cannot reconstruct queue metadata — so
+ * admission reconciles the claims itself.
+ *
+ * Planning stays read-only: the caller applies the promotions once it knows
+ * the surrounding admission transition will be persisted.
+ *
+ * A paused Coordinator is left untouched. Its recovery gate already holds the
+ * reservation for a decision only the owner can make, and answering that
+ * decision belongs to the recovery path.
+ */
+async function resolveAgentProfileWorkReconciliation(input: {
+  admission: AgentProfileExecutionAdmissionRecord;
+  isNewAdmission: boolean;
+  nowMs: number;
+  transaction: Pick<DurableObjectTransaction, "get">;
+}): Promise<{
+  admission: AgentProfileExecutionAdmissionRecord;
+  promotedItems: AgentProfileWorkCoordinatorItem[];
+}> {
+  if (
+    !input.isNewAdmission ||
+    input.admission.workItems.length === 0 ||
+    input.admission.recoveryGate
+  ) {
+    return { admission: input.admission, promotedItems: [] };
+  }
+  const retired = await resolveRetiredAgentProfileWork(input);
+  if (retired.targetWakeLifecycleIds.size === 0) {
+    return { admission: input.admission, promotedItems: [] };
+  }
+  const dropped = dropRetiredAgentProfileWork({
+    coordinator: projectAgentProfileWorkCoordinator(input.admission),
+    nowMs: input.nowMs,
+    retiredTargetWakeLifecycleIds: retired.targetWakeLifecycleIds,
+  });
+  console.warn("[runtime_coordinator.agent_profile_retired_work_dropped]", {
+    promotedTargetWakeLifecycleIds: dropped.promotedItems.map(
+      (item) => item.targetWakeLifecycleId
+    ),
+    retiredTargetWakeLifecycleIds: dropped.removedItems.map(
+      (item) => item.targetWakeLifecycleId
+    ),
+    targetProfileId: input.admission.targetProfileId,
+  });
+  return {
+    admission: {
+      ...input.admission,
+      activeExecutionIds: input.admission.activeExecutionIds.filter(
+        (executionId) => !retired.executionIds.has(executionId)
+      ),
+      activeHeadLifecycleIds: input.admission.activeHeadLifecycleIds.filter(
+        (targetWakeLifecycleId) =>
+          !retired.targetWakeLifecycleIds.has(targetWakeLifecycleId)
+      ),
+      revision: dropped.coordinator.revision,
+      updatedAtMs: dropped.coordinator.updatedAtMs,
+      workItems: dropped.coordinator.workItems,
+    },
+    promotedItems: dropped.promotedItems,
+  };
+}
+
+async function applyAgentProfileWorkReconciliationPromotions(input: {
+  admission: AgentProfileExecutionAdmissionRecord;
+  nowMs: number;
+  promotedItems: readonly AgentProfileWorkCoordinatorItem[];
+  transaction: DurableObjectTransaction;
+}): Promise<{
+  admission: AgentProfileExecutionAdmissionRecord;
+  pendingPromotion: PendingAgentProfileWorkPromotion | null;
+}> {
+  let admission = input.admission;
+  let pendingPromotion: PendingAgentProfileWorkPromotion | null = null;
+  for (const item of input.promotedItems) {
+    const promotion = await promoteAgentProfileWorkItem({
+      admission,
+      item,
+      nowMs: input.nowMs,
+      transaction: input.transaction,
+    });
+    admission = promotion.admission;
+    pendingPromotion ??= promotion.pendingPromotion;
+  }
+  return { admission, pendingPromotion };
+}
+
+/**
+ * Names the work whose Wake can no longer reach this queue.
+ *
+ * Only proven-retired work is named. Missing or unreadable execution authority
+ * keeps its claim, because a live execution must never lose its reservation to
+ * a storage read this transaction cannot interpret.
+ */
+async function resolveRetiredAgentProfileWork(input: {
+  admission: AgentProfileExecutionAdmissionRecord;
+  transaction: Pick<DurableObjectTransaction, "get">;
+}): Promise<{
+  executionIds: Set<string>;
+  targetWakeLifecycleIds: Set<string>;
+}> {
+  const storedHeads = await input.transaction.get<unknown>(
+    input.admission.workItems.map((item) =>
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(item.targetWakeLifecycleId)
+    )
+  );
+  const executionIds = new Set<string>();
+  const targetWakeLifecycleIds = new Set<string>();
+  const linkedExecutions: Array<{
+    executionId: string;
+    targetWakeLifecycleId: string;
+  }> = [];
+  for (const item of input.admission.workItems) {
+    const rawHead = storedHeads.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(item.targetWakeLifecycleId)
+    );
+    if (
+      !isRuntimeCoordinatorHeadLifecycleRecord(rawHead) ||
+      rawHead.targetWakeLifecycleId !== item.targetWakeLifecycleId ||
+      rawHead.targetWakeLifecycleIdentity.targetProfileId !==
+        input.admission.targetProfileId ||
+      isTerminalHeadLifecycleStatus(rawHead.status)
+    ) {
+      targetWakeLifecycleIds.add(item.targetWakeLifecycleId);
+      continue;
+    }
+    if (
+      rawHead.status === "execution_linked" &&
+      rawHead.runtimeCoordinatorExecutionId
+    ) {
+      linkedExecutions.push({
+        executionId: rawHead.runtimeCoordinatorExecutionId,
+        targetWakeLifecycleId: item.targetWakeLifecycleId,
+      });
+    }
+  }
+  if (linkedExecutions.length === 0) {
+    return { executionIds, targetWakeLifecycleIds };
+  }
+  const storedAuthorities = await input.transaction.get<unknown>(
+    linkedExecutions.map((reference) =>
+      buildRuntimeCoordinatorTokenAuthorityStorageKey(reference.executionId)
+    )
+  );
+  for (const reference of linkedExecutions) {
+    const parsed =
+      runtimeCoordinatorExecutionTokenAuthorityRecordSchema.safeParse(
+        storedAuthorities.get(
+          buildRuntimeCoordinatorTokenAuthorityStorageKey(reference.executionId)
+        )
+      );
+    if (parsed.success && parsed.data.terminalOutcome) {
+      executionIds.add(reference.executionId);
+      targetWakeLifecycleIds.add(reference.targetWakeLifecycleId);
+    }
+  }
+  return { executionIds, targetWakeLifecycleIds };
 }
 
 async function resolveHeadTerminalWorkTransition(input: {
