@@ -353,12 +353,19 @@ describe("runtime reporting Core RPC write", () => {
       });
       const approveQueuedWork = vi.fn();
       const skipInterruptedWork = vi.fn();
+      // The interrupted attempt is already gone, so Usage recovery reaches the
+      // Space start and this case can exercise the source-mismatch decision.
+      const requestLocalAttemptWithdrawal = vi
+        .fn()
+        .mockResolvedValue({ status: "withdrawn" });
       const ownerShard = {
         rpcApproveAgentProfileWorkQueue: approveQueuedWork,
         rpcMarkAgentProfileWorkContinuationNeedsAttention:
           markContinuationNeedsAttention,
         rpcMarkAgentProfileWorkUsageAvailable: markUsageAvailable,
         rpcReadAgentProfileWorkRecovery: readRecovery,
+        rpcRequestAgentProfileWorkLocalAttemptWithdrawal:
+          requestLocalAttemptWithdrawal,
         rpcSkipAgentProfileInterruptedWork: skipInterruptedWork,
       };
       const startContinuation = vi

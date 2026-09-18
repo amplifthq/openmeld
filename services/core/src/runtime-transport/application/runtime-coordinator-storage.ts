@@ -297,8 +297,21 @@ export async function recordRuntimeCoordinatorLocalAttemptWithdrawnInStorage(inp
         input.runtimeCoordinatorExecutionId ||
       latest.lastDeliveryProvenance.daemonSessionId !== input.daemonSessionId ||
       latest.dispatchId !== input.resolvedDispatchId ||
-      latest.sanitizedDeliveryRequest.payload.taskId !== input.resolvedTaskId ||
-      authority.currentRunId !== latest.activeRunId
+      latest.sanitizedDeliveryRequest.payload.taskId !== input.resolvedTaskId
+    ) {
+      return null;
+    }
+    // The run is what this acknowledgement can speak for. A terminal decision
+    // retires that run and clears `currentRunId`, so requiring a current run
+    // would discard exactly the acknowledgements that matter here. Requiring
+    // that the run was never superseded is the check that still holds: it
+    // refuses a late answer about an attempt a newer one has already replaced.
+    const acknowledgedRun = authority.runsById[latest.activeRunId];
+    if (
+      !acknowledgedRun ||
+      acknowledgedRun.supersededByRunId !== null ||
+      (authority.currentRunId !== null &&
+        authority.currentRunId !== latest.activeRunId)
     ) {
       return null;
     }

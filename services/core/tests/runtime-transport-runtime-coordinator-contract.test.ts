@@ -19367,6 +19367,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         spaceFetchRequests,
         state,
         storageRecords,
+        waitUntilTasks,
       } = createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
@@ -19505,6 +19506,102 @@ describe("runtime transport runtime coordinator transport contract", () => {
         desiredStatus: "open",
         stage: "resolve_occupied_conversation",
         targetWakeLifecycleId: occupiedTargetWakeLifecycleId,
+      });
+      // Core closed this execution on stale evidence, so nothing yet proves the
+      // attempt on the computer is gone.
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorRunCommandStateStorageKey(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )
+      ).toMatchObject({
+        localAttemptWithdrawal: { status: "requested" },
+      });
+      await expect(
+        (
+          hub as unknown as {
+            rpcReadAgentProfileWorkRecovery: (input: {
+              ownerUserId: string;
+              targetProfileId: string;
+            }) => Promise<unknown>;
+          }
+        ).rpcReadAgentProfileWorkRecovery({
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toMatchObject({
+        interruptedLocalAttempt: "awaiting_withdrawal",
+      });
+
+      // The Service answers the withdrawal it was asked for. The Wake Stop
+      // lifecycle cannot advance a terminal execution, but that answer is the
+      // only proof replacement work has, so it must be kept.
+      await submitWakeStopLocalControlResult({
+        hub,
+        socket,
+        state,
+        waitUntilTasks,
+      });
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorRunCommandStateStorageKey(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )
+      ).toMatchObject({
+        localAttemptWithdrawal: {
+          reasonCode: "adapter.cancel.accepted",
+          status: "withdrawn",
+        },
+      });
+      await expect(
+        (
+          hub as unknown as {
+            rpcReadAgentProfileWorkRecovery: (input: {
+              ownerUserId: string;
+              targetProfileId: string;
+            }) => Promise<unknown>;
+          }
+        ).rpcReadAgentProfileWorkRecovery({
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toMatchObject({
+        interruptedLocalAttempt: "withdrawn",
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("refuses a withdrawal acknowledgement that names a different task", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const { hub, sentFrames, socket, state, storageRecords, waitUntilTasks } =
+        createHarness({
+          agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+        });
+      await issueDeliveryToken({ hub, sentFrames, socket, state });
+      enableWakeStopControl(state);
+      await requestRuntimeCoordinatorWakeStop(hub);
+
+      await submitWakeStopLocalControlResult({
+        hub,
+        resolvedTaskId: "task-from-another-run",
+        socket,
+        state,
+        waitUntilTasks,
+      });
+
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorRunCommandStateStorageKey(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )
+      ).not.toMatchObject({
+        localAttemptWithdrawal: { status: "withdrawn" },
       });
     } finally {
       nowSpy.mockRestore();
