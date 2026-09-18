@@ -28,6 +28,13 @@ const setCurrentOpenMeldToolsMaintenanceMock = vi.hoisted(() => vi.fn());
 const setQueryDataMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
+const desktop = vi.hoisted(() => ({ enabled: false, openWeb: vi.fn() }));
+
+vi.mock("#/desktop/platform", () => ({
+	canConfigureLocalComputer: (eligible = true) => eligible && !desktop.enabled,
+	getDesktopPlatform: () => (desktop.enabled ? {} : null),
+	openDesktopWeb: desktop.openWeb,
+}));
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({ children, to, ...props }: { children: ReactNode; to: string }) => (
@@ -98,11 +105,252 @@ const queryClientStub = {
 
 describe("OpenMeldServiceCard", () => {
 	afterEach(() => {
+		desktop.enabled = false;
+		desktop.openWeb.mockReset();
 		cleanup();
 		vi.useRealTimers();
 		vi.clearAllMocks();
 		vi.restoreAllMocks();
 		refreshSharedCachesMock.mockResolvedValue(undefined);
+	});
+
+	it.each([
+		false,
+		true,
+	])("opens the selected owner's recovery in a browser (update=%s) without a lifecycle write", async (update) => {
+		desktop.enabled = true;
+		desktop.openWeb.mockResolvedValue(undefined);
+		const readiness = buildCurrentLocalRuntimeReplyReadiness();
+		if (update) {
+			readiness.localComponents.service.status = "update_required";
+		} else {
+			readiness.service.connected = false;
+		}
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: readiness,
+			replyReadiness: update
+				? SERVICE_UPDATE_REQUIRED_REPLY_READINESS
+				: SERVICE_NOT_CONNECTED_REPLY_READINESS,
+			computer: buildComputer({ isCurrent: false }),
+		});
+		expect(desktop.openWeb).not.toHaveBeenCalled();
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: update ? "Update in browser" : "Reconnect in browser",
+			})
+		);
+		await waitFor(() => expect(desktop.openWeb).toHaveBeenCalledOnce());
+		expect(desktop.openWeb).toHaveBeenCalledWith(
+			update
+				? "/o/acme/connect?connectedComputerId=computer-macbook-pro&serviceAction=update_service&session=fresh"
+				: "/o/acme/connect?connectedComputerId=computer-macbook-pro&session=fresh"
+		);
+		expect(
+			screen.getByText(
+				"Run any setup command on Felix's MacBook Pro, the computer shown on this card. Sign in to its owner's account in the browser."
+			)
+		).toBeTruthy();
+		expect(requestCurrentOpenMeldToolsUpdateMock).not.toHaveBeenCalled();
+		expect(setCurrentOpenMeldToolsMaintenanceMock).not.toHaveBeenCalled();
+	});
+
+	it("bounds browser opening and shows a retry after failure", async () => {
+		desktop.enabled = true;
+		let rejectOpen!: (error: Error) => void;
+		desktop.openWeb.mockImplementation(
+			() =>
+				new Promise<void>((_resolve, reject) => {
+					rejectOpen = reject;
+				})
+		);
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness:
+				buildCurrentLocalRuntimeReplyReadiness(),
+			replyReadiness: SERVICE_NOT_CONNECTED_REPLY_READINESS,
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Reconnect in browser" })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Opening browser…" }));
+		expect(desktop.openWeb).toHaveBeenCalledOnce();
+		await act(async () => rejectOpen(new Error("offline")));
+		expect(
+			screen.getByText("Could not open the browser. Try again.")
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Reconnect in browser" })
+		).toBeTruthy();
+	});
+
+	it.each([
+		"needs_help",
+		"restored",
+	] as const)("keeps %s history separate from a newer connection report", (phase) => {
+		const readiness = buildCurrentLocalRuntimeReplyReadiness({
+			maintenance: { automaticUpdatesEnabled: true, status: "ready" },
+			updateOperation: buildUpdateOperation({ phase }),
+		});
+		readiness.runtime.lastObservedAtMs = Date.parse("2026-08-25T10:01:00Z");
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: readiness,
+			replyReadiness: READY_REPLY_READINESS,
+		});
+		expect(screen.getByText("Connected")).toBeTruthy();
+		expect(screen.getByText("Last update failed.")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Service has connected since that attempt. This does not confirm that the update target was installed."
+			)
+		).toBeTruthy();
+		expect(readiness.localComponents.updateOperation?.phase).toBe(phase);
+		expect(requestCurrentOpenMeldToolsUpdateMock).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		"unselected",
+		"missing",
+		"wrong-device",
+		"reconciling",
+	])("does not guess a Desktop recovery target when %s", (kind) => {
+		desktop.enabled = true;
+		const readiness = buildCurrentLocalRuntimeReplyReadiness();
+		if (kind === "missing") {
+			readiness.currentTarget = { availability: "missing" };
+		}
+		if (kind === "wrong-device") {
+			readiness.currentTarget = {
+				availability: "resolved",
+				deviceId: "another-device",
+				runtimeLane: "prod",
+			};
+		}
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: readiness,
+			replyReadiness: SERVICE_NOT_CONNECTED_REPLY_READINESS,
+			hasSelectedEnvironment: kind !== "unselected",
+			isReconcilingStatus: kind === "reconciling",
+		});
+		expect(
+			screen.queryByRole("button", { name: "Reconnect in browser" })
+		).toBeNull();
+		expect(desktop.openWeb).not.toHaveBeenCalled();
+	});
+
+	it("does not apply an old browser result to another Computer", async () => {
+		desktop.enabled = true;
+		let resolveOpen!: () => void;
+		desktop.openWeb.mockImplementation(
+			() =>
+				new Promise<void>((resolve) => {
+					resolveOpen = resolve;
+				})
+		);
+		const input = {
+			currentLocalRuntimeReplyReadiness:
+				buildCurrentLocalRuntimeReplyReadiness(),
+			replyReadiness: SERVICE_NOT_CONNECTED_REPLY_READINESS,
+		};
+		const view = renderOpenMeldServiceCard(input);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Reconnect in browser" })
+		);
+		view.rerender(
+			buildOpenMeldServiceCard({
+				...input,
+				computer: {
+					...buildComputer(),
+					connectedComputerId: "another-computer",
+				},
+			})
+		);
+		await act(async () => resolveOpen());
+		expect(screen.queryByText("Continue in your browser.")).toBeNull();
+	});
+
+	it("keeps team cards read-only on Desktop", () => {
+		desktop.enabled = true;
+		render(
+			<OpenMeldServiceCard
+				computer={{
+					deviceDisplayName: "Other Mac",
+					ownerLabel: "Other owner",
+					serviceState: "needs_attention",
+				}}
+				view="team"
+			/>
+		);
+		expect(screen.queryByRole("button")).toBeNull();
+		expect(desktop.openWeb).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		"offline",
+		"stale",
+		"lane",
+		"device",
+		"account",
+	])("does not infer recovery from a %s observation", (kind) => {
+		const readiness = buildCurrentLocalRuntimeReplyReadiness({
+			updateOperation: buildUpdateOperation({ phase: "needs_help" }),
+		});
+		readiness.runtime.lastObservedAtMs = Date.parse("2026-08-25T10:01:00Z");
+		if (kind === "offline") {
+			readiness.service.connected = false;
+		}
+		if (kind === "stale") {
+			readiness.runtime.lastObservedAtMs = Date.parse("2026-08-25T09:59:00Z");
+		}
+		if (kind === "lane") {
+			readiness.service.sessionLane = "prod";
+		}
+		if (kind === "device") {
+			readiness.service.sessionDeviceId = "another-device";
+		}
+		if (kind === "account") {
+			readiness.service.matchingCurrentRuntime = false;
+		}
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: readiness,
+			replyReadiness: READY_REPLY_READINESS,
+		});
+		expect(screen.getByText("Last update failed.")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Waiting for a current connection report after that attempt."
+			)
+		).toBeTruthy();
+		expect(screen.getByText("Last update details")).toBeTruthy();
+	});
+
+	it.each([
+		"service",
+		"skills",
+	] as const)("keeps current %s updates separate from split-target failed history", (component) => {
+		const readiness = buildCurrentLocalRuntimeReplyReadiness({
+			updateOperation: {
+				...buildUpdateOperation({ phase: "restored" }),
+				targetCliVersion: "0.8.0",
+				targetServiceVersion: "0.7.92",
+			},
+		});
+		readiness.runtime.lastObservedAtMs = Date.parse("2026-08-25T10:01:00Z");
+		readiness.localComponents[component].status = "update_required";
+		readiness.localComponents[component].wakeBlocked = true;
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: readiness,
+			replyReadiness: READY_REPLY_READINESS,
+		});
+		expect(screen.getAllByText("Update required").length).toBeGreaterThan(0);
+		expect(
+			screen.getByText("Requested CLI: 0.8.0; Service: 0.7.92")
+		).toBeTruthy();
+		expect(
+			screen.getByText(
+				"The previous installation was restored; the requested update did not complete."
+			)
+		).toBeTruthy();
+		expect(screen.queryByText("Disconnected")).toBeNull();
+		expect(requestCurrentOpenMeldToolsUpdateMock).not.toHaveBeenCalled();
 	});
 
 	it("summarizes a healthy installation as one ready OpenMeld Tools outcome", () => {
@@ -547,7 +795,7 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("Update failed. Try again.")).toBeTruthy();
+		expect(screen.getByText("Last update failed.")).toBeTruthy();
 		expect(screen.queryByText("Up to date")).toBeNull();
 		expect(screen.getByText("Connected")).toBeTruthy();
 	});
@@ -987,7 +1235,7 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
-		expect(screen.getByText("Update failed. Try again.")).toBeTruthy();
+		expect(screen.getByText("Last update failed.")).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
 		expect(screen.getByRole("link", { name: "Update manually" })).toBeTruthy();
 	});

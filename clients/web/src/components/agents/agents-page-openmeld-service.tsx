@@ -70,7 +70,11 @@ import {
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
-import { canConfigureLocalComputer } from "#/desktop/platform";
+import {
+	canConfigureLocalComputer,
+	getDesktopPlatform,
+	openDesktopWeb,
+} from "#/desktop/platform";
 import { copyCliEntryCommand } from "#/lib/cli-entry-command";
 import {
 	type ComputerSummaryStatus,
@@ -158,7 +162,18 @@ export function OpenMeldServiceCard(
 	if (input.view === "team") {
 		return <TeamOpenMeldServiceCard computer={input.computer} />;
 	}
-	return <OwnedOpenMeldServiceCard {...input} />;
+	return (
+		<OwnedOpenMeldServiceCard
+			{...input}
+			key={[
+				input.recovery.storageScope,
+				input.organizationId,
+				input.computer.connectedComputerId,
+				input.computer.deviceId,
+				input.recovery.selectedExecutionTarget?.runtimeLane,
+			].join(":")}
+		/>
+	);
 }
 
 function TeamOpenMeldServiceCard(input: {
@@ -631,6 +646,17 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 			description="Connects this computer to OpenMeld and manages local tools."
 		>
 			{serviceContent}
+			<DesktopComputerRecovery
+				computer={input.computer}
+				isReconcilingStatus={input.isReconcilingStatus}
+				key={JSON.stringify(
+					input.currentLocalRuntimeReplyReadiness?.currentTarget
+				)}
+				readiness={input.currentLocalRuntimeReplyReadiness}
+				replyReadiness={input.replyReadiness}
+				setupPath={setupPath}
+				updatePath={serviceUpdatePath}
+			/>
 			<ComputerConnectionHistory
 				storageScope={input.recovery.storageScope}
 				target={input.currentLocalRuntimeReplyReadiness?.currentTarget}
@@ -665,6 +691,100 @@ function OpenMeldToolsCardFrame(input: {
 				{input.children}
 			</CardContent>
 		</Card>
+	);
+}
+
+function DesktopComputerRecovery(input: {
+	computer: LocalRuntimeComputer;
+	isReconcilingStatus: boolean;
+	readiness: CurrentLocalRuntimeReplyReadinessResponse | null;
+	replyReadiness: ComputerReplyReadiness | null;
+	setupPath: string;
+	updatePath: string;
+}) {
+	const [state, setState] = useState<"idle" | "opening" | "opened" | "failed">(
+		"idle"
+	);
+	const opening = useRef(false);
+	const active = useRef(true);
+	useEffect(() => {
+		active.current = true;
+		return () => {
+			active.current = false;
+		};
+	}, []);
+	const target = input.readiness?.currentTarget;
+	const targetKnown =
+		target?.availability === "resolved" &&
+		input.computer.executionTargets.some(
+			(candidate) =>
+				candidate.deviceId === target.deviceId &&
+				candidate.runtimeLane === target.runtimeLane
+		);
+	const update = hasOpenMeldToolsUpdate(
+		input.readiness?.localComponents ?? null
+	);
+	const reconnect =
+		input.replyReadiness?.status === "needs_repair" ||
+		input.replyReadiness?.status === "needs_setup";
+	if (!getDesktopPlatform() || input.isReconcilingStatus) {
+		return null;
+	}
+	if (
+		!(
+			targetKnown &&
+			input.computer.connectedComputerId &&
+			(update || reconnect)
+		)
+	) {
+		return null;
+	}
+	const open = async () => {
+		if (opening.current) {
+			return;
+		}
+		opening.current = true;
+		setState("opening");
+		try {
+			await openDesktopWeb(update ? input.updatePath : input.setupPath);
+			if (active.current) {
+				setState("opened");
+			}
+		} catch {
+			if (active.current) {
+				setState("failed");
+			}
+		} finally {
+			opening.current = false;
+		}
+	};
+	const label = update ? "Update in browser" : "Reconnect in browser";
+	return (
+		<div className="space-y-2 border-t pt-3">
+			<Button
+				disabled={state === "opening"}
+				onClick={open}
+				size="sm"
+				variant="outline"
+			>
+				{state === "opening" ? "Opening browser…" : label}
+			</Button>
+			<p className="text-muted-foreground text-xs">
+				Run any setup command on {input.computer.deviceDisplayName}, the
+				computer shown on this card. Sign in to its owner's account in the
+				browser.
+			</p>
+			{state === "opened" ? (
+				<output className="text-muted-foreground text-xs">
+					Continue in your browser.
+				</output>
+			) : null}
+			{state === "failed" ? (
+				<p className="text-destructive text-xs" role="alert">
+					Could not open the browser. Try again.
+				</p>
+			) : null}
+		</div>
 	);
 }
 
@@ -984,19 +1104,18 @@ function CurrentLocalRuntimeServiceFacts(input: {
 					</div>
 				) : null}
 			</div>
-			{maintenance ? (
-				<OpenMeldToolsUpdateFeedback
-					confirmationPending={
-						input.pendingManagedUpdate?.kind === "confirmation"
-					}
-					failureCode={updateFailureCode}
-					operation={updateOperation}
-					requestFailed={input.updateRequestFailed && updateOperation === null}
-					requesting={input.isUpdatingTools}
-					targetObserved={updateTargetObserved}
-					verificationExhausted={input.updateVerificationExhausted}
-				/>
-			) : null}
+			<OpenMeldToolsUpdateFeedback
+				confirmationPending={
+					input.pendingManagedUpdate?.kind === "confirmation"
+				}
+				failureCode={updateFailureCode}
+				operation={updateOperation}
+				readiness={input.currentLocalRuntimeReplyReadiness}
+				requestFailed={input.updateRequestFailed && updateOperation === null}
+				requesting={input.isUpdatingTools}
+				targetObserved={updateTargetObserved}
+				verificationExhausted={input.updateVerificationExhausted}
+			/>
 
 			{display.hideVersionDetails ? null : (
 				<details className="border-t pt-3">
@@ -1667,6 +1786,7 @@ type OpenMeldToolsAction =
 	  };
 
 function OpenMeldToolsUpdateFeedback(input: {
+	readiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 	confirmationPending: boolean;
 	failureCode: OpenMeldToolsUpdateFailureCode | null;
 	operation:
@@ -1681,9 +1801,38 @@ function OpenMeldToolsUpdateFeedback(input: {
 	if (!updateStatus) {
 		return null;
 	}
+	const failed =
+		input.operation?.phase === "needs_help" ||
+		input.operation?.phase === "restored";
+	const target = input.readiness?.currentTarget;
+	const service = input.readiness?.service;
+	const runtime = input.readiness?.runtime;
+	// Core owns connection freshness and account alignment. A later matching
+	// report proves reconnection only, never installed/running bundle integrity.
+	const reconnected =
+		failed &&
+		target?.availability === "resolved" &&
+		service?.connected &&
+		service.matchingCurrentRuntime &&
+		service.sessionDeviceId === target.deviceId &&
+		service.sessionLane === target.runtimeLane &&
+		runtime?.deviceId === target.deviceId &&
+		runtime.runtimeLane === target.runtimeLane &&
+		(runtime.lastObservedAtMs ?? 0) >
+			Date.parse(input.operation?.updatedAt ?? "");
+	const targets = input.operation
+		? resolveOpenMeldToolsUpdateTargetVersions(input.operation)
+		: null;
 	return (
 		<div className="flex flex-col gap-3 border-border/60 border-t py-4 sm:flex-row sm:items-center sm:justify-between">
 			<div className="min-w-0">
+				{failed ? (
+					<p className="text-muted-foreground text-xs">
+						{reconnected
+							? "Service has connected since that attempt. This does not confirm that the update target was installed."
+							: "Waiting for a current connection report after that attempt."}
+					</p>
+				) : null}
 				{updateStatus ? (
 					<p
 						aria-atomic="true"
@@ -1692,6 +1841,28 @@ function OpenMeldToolsUpdateFeedback(input: {
 					>
 						{updateStatus}
 					</p>
+				) : null}
+				{failed && input.operation ? (
+					<details className="mt-2 text-muted-foreground text-xs">
+						<summary className="cursor-pointer">Last update details</summary>
+						<p>Operation: {input.operation.operationId}</p>
+						<p>Recorded: {input.operation.updatedAt}</p>
+						<p>
+							Requested CLI: {targets?.cliVersion}; Service:{" "}
+							{targets?.serviceVersion}
+						</p>
+						{input.operation.phase === "restored" ? (
+							<p>
+								The previous installation was restored; the requested update did
+								not complete.
+							</p>
+						) : null}
+						<p>
+							{input.failureCode
+								? formatOpenMeldToolsUpdateFailureMessage(input.failureCode)
+								: "The update did not finish successfully."}
+						</p>
+					</details>
 				) : null}
 			</div>
 		</div>
@@ -1752,9 +1923,7 @@ function formatOpenMeldToolsUpdatePhase(input: {
 			return input.targetObserved ? null : "Verifying…";
 		case "restored":
 		case "needs_help":
-			return input.failureCode
-				? formatOpenMeldToolsUpdateFailureMessage(input.failureCode)
-				: "Update failed. Try again.";
+			return "Last update failed.";
 		default: {
 			const exhaustive: never = input.phase;
 			return exhaustive;
