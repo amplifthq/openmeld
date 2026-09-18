@@ -125,7 +125,10 @@ function createMainWindow(
     show: false,
     title: APP_NAME,
     backgroundColor: WINDOW_BACKGROUND,
-    titleBarStyle: "hiddenInset",
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
+    ...(process.platform !== "darwin"
+      ? { titleBarOverlay: { height: 38 } }
+      : {}),
     webPreferences: {
       ...(pilot ? { session: pilot.getSession() } : {}),
       preload: join(import.meta.dirname, "../preload/index.cjs"),

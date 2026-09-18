@@ -34,6 +34,13 @@ Pages that supply their own inner sidebar, such as standalone Settings and
 Agent Activity, retain their existing narrow-window drawer opener. The titlebar
 does not take ownership of those sidebars.
 
+Windows uses Electron's native titlebar overlay for minimize, maximize and close;
+shared navigation stays inside the overlay's CSS safe area rather than using
+macOS traffic-light insets. Sidebar, Back and Forward use Ctrl on Windows and
+Command on macOS, with matching hints. IME composition, repeated keydown, input
+editors, modal dialogs and the other platform modifier do not trigger these
+shortcuts. Platform hints are presentation only and confer no local capability.
+
 Back and Forward use the shared router history. Desktop retains only the
 observed history-index bounds for the current account, not another entry stack.
 Native session invalidation, account changes, and leaving workspace routes
