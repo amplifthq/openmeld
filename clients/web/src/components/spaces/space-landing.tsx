@@ -2189,6 +2189,8 @@ function SpaceLandingConversation({
 			composerAuthoredMentions={controller.composerAuthoredMentions}
 			composerBlockedWakeProfileId={controller.composerBlockedWakeProfileId}
 			composerErrorMessage={controller.composerErrorMessage}
+			composerFileCleanup={controller.composerFileCleanup}
+			composerFileRestorationError={controller.composerFileRestorationError}
 			composerFiles={controller.composerFiles}
 			composerMembers={
 				controller.membersSnapshot
@@ -2275,6 +2277,9 @@ function SpaceLandingConversation({
 			onRemoveComposerFile={controller.onRemoveComposerFile}
 			onReplyToMessage={controller.onReplyToMessage}
 			onReportMessage={controller.onReportMessage}
+			onRetryComposerFile={controller.onRetryComposerFile}
+			onRetryComposerFileCleanup={controller.onRetryComposerFileCleanup}
+			onRetryComposerFileRestoration={controller.onRetryComposerFileRestoration}
 			onSend={controller.onSend}
 			onSendStarterPrompt={controller.onSendText}
 			onSpaceViewChange={spaceFileNavigation.changeSpaceView}
@@ -2822,7 +2827,11 @@ function SpaceLandingSecondaryPanels({
 					controller.threadComposerBlockedWakeProfileId
 				}
 				composerErrorMessage={controller.threadComposerErrorMessage}
+				composerFileCleanup={controller.threadComposerFileCleanup}
 				composerFileLimitReached={controller.threadComposerFileLimitReached}
+				composerFileRestorationError={
+					controller.threadComposerFileRestorationError
+				}
 				composerFiles={controller.threadComposerFiles}
 				composerHasAuthoredMentions={
 					controller.threadComposerHasAuthoredMentions
@@ -2878,6 +2887,11 @@ function SpaceLandingSecondaryPanels({
 				onRecoverExecution={controller.onRecoverExecution}
 				onRemoveComposerFile={controller.onRemoveThreadComposerFile}
 				onReportMessage={controller.onReportMessage}
+				onRetryComposerFile={controller.onRetryThreadComposerFile}
+				onRetryComposerFileCleanup={controller.onRetryThreadComposerFileCleanup}
+				onRetryComposerFileRestoration={
+					controller.onRetryThreadComposerFileRestoration
+				}
 				onSend={controller.onThreadSend}
 				onSendText={controller.onThreadSendText}
 				onViewedThroughTs={

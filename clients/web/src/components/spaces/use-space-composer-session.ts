@@ -74,6 +74,7 @@ export function useSpaceComposerSession(input: {
 			fileIds?: readonly string[];
 			submittedAtMs?: number;
 		}) => {
+			files.preflightSubmission(submission?.fileIds);
 			authoring.recordPendingSubmission(submission?.submittedAtMs);
 			return files.beginSubmission(submission?.fileIds);
 		},

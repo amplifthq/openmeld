@@ -55,6 +55,7 @@ import {
 } from "#/lib/profiles/agent-profile-runtime-binding";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
+import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
 import { removeDeletedSpaceFromAccountHistory } from "#/lib/spaces/delete-space-history-cleanup";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
@@ -1145,6 +1146,8 @@ export type SpaceLandingController =
 			composerMentionEmptyMessage?: string;
 			composerFiles: readonly SpaceComposerFile[];
 			composerFileLimitReached: boolean;
+			composerFileCleanup: readonly ComposerFileDraftCleanup[];
+			composerFileRestorationError: unknown | null;
 			composerBlockedWakeProfileId: string | null;
 			composerErrorMessage: string | null;
 			composerHasAuthoredMentions: boolean;
@@ -1187,6 +1190,9 @@ export type SpaceLandingController =
 			onClearComposerReplyTo: () => void;
 			onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 			onRemoveComposerFile: (localId: string) => void;
+			onRetryComposerFile: (localId: string) => Promise<void>;
+			onRetryComposerFileCleanup: (localId: string) => Promise<void>;
+			onRetryComposerFileRestoration: () => void;
 			onConversationViewedThroughTs?: (
 				timestamp: number
 			) => Promise<void> | void;
@@ -1229,6 +1235,9 @@ export type SpaceLandingController =
 			}) => void;
 			onAddThreadComposerFiles: (files: readonly File[]) => Promise<void>;
 			onRemoveThreadComposerFile: (localId: string) => void;
+			onRetryThreadComposerFile: (localId: string) => Promise<void>;
+			onRetryThreadComposerFileCleanup: (localId: string) => Promise<void>;
+			onRetryThreadComposerFileRestoration: () => void;
 			onReplyToMessage: (item: SpaceTimelineItem) => void;
 			onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 			onRecoverExecution: (
@@ -1262,6 +1271,8 @@ export type SpaceLandingController =
 			threadComposerText: string;
 			threadComposerFiles: readonly SpaceComposerFile[];
 			threadComposerFileLimitReached: boolean;
+			threadComposerFileCleanup: readonly ComposerFileDraftCleanup[];
+			threadComposerFileRestorationError: unknown | null;
 			threadFilePreviewUrlsById: ReadonlyMap<string, string>;
 			threadEphemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 			threads: readonly SpaceThread[];
@@ -1725,8 +1736,7 @@ export function useSpaceLandingController(input: {
 		setBlockedWakeProfileId: setComposerBlockedWakeProfileId,
 		setErrorMessage: setComposerErrorMessage,
 	} = composerSession.feedback;
-	const { inFlightRef: composerSendInFlightRef, isSending: isSendingMessage } =
-		composerSession.send;
+	const { isSending: isSendingMessage } = composerSession.send;
 	const restoreColdLoadingComposerFocusRef = useRef(false);
 	useLayoutEffect(() => {
 		if (!(statusReady && restoreColdLoadingComposerFocusRef.current)) {
@@ -2501,6 +2511,8 @@ export function useSpaceLandingController(input: {
 		composerMentionEmptyMessage: mentionAuthoring.mentionEmptyMessage,
 		composerFiles: composerFilesController.files,
 		composerFileLimitReached: composerFilesController.isAtLimit,
+		composerFileCleanup: composerFilesController.cleanup,
+		composerFileRestorationError: composerFilesController.restorationError,
 		composerErrorMessage,
 		composerBlockedWakeProfileId,
 		composerHasAuthoredMentions: mentionAuthoring.hasAuthoredMentions,
@@ -2546,6 +2558,9 @@ export function useSpaceLandingController(input: {
 		onClearComposerReplyTo: mentionAuthoring.onClearReplyTo,
 		onAddComposerFiles: composerFilesController.addFiles,
 		onRemoveComposerFile: composerFilesController.removeFile,
+		onRetryComposerFile: composerFilesController.retryFile,
+		onRetryComposerFileCleanup: composerFilesController.retryCleanup,
+		onRetryComposerFileRestoration: composerFilesController.retryRestoration,
 		onConversationViewedThroughTs: resolveConfirmedViewedThroughHandler({
 			isCurrentAccessConfirmed: statusReady && unreadState.isReady,
 			onViewedThroughTs: input.onViewedThroughTs,
@@ -2608,6 +2623,11 @@ export function useSpaceLandingController(input: {
 		},
 		onAddThreadComposerFiles: threadController.onAddThreadComposerFiles,
 		onRemoveThreadComposerFile: threadController.onRemoveThreadComposerFile,
+		onRetryThreadComposerFile: threadController.onRetryThreadComposerFile,
+		onRetryThreadComposerFileCleanup:
+			threadController.onRetryThreadComposerFileCleanup,
+		onRetryThreadComposerFileRestoration:
+			threadController.onRetryThreadComposerFileRestoration,
 		onReplyToMessage: (item: SpaceTimelineItem) => {
 			mentionAuthoring.onReplyToSignal({
 				signalId: item.id,
@@ -2640,6 +2660,9 @@ export function useSpaceLandingController(input: {
 		threadComposerFiles: threadController.threadComposerFiles,
 		threadComposerFileLimitReached:
 			threadController.threadComposerFileLimitReached,
+		threadComposerFileCleanup: threadController.threadComposerFileCleanup,
+		threadComposerFileRestorationError:
+			threadController.threadComposerFileRestorationError,
 		threadFilePreviewUrlsById: threadController.threadFilePreviewUrlsById,
 		threadEphemeralActivityItems: filterSpaceWakeProgressItems({
 			presentation: wakeProgressPresentationQuery.data,
@@ -2673,6 +2696,7 @@ export function useSpaceLandingController(input: {
 		wakeStopRequestStatusBySelectorKey,
 	};
 
+	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: send orchestration preserves ordered local staging, admission, publication, and recovery.
 	async function sendMessage(options?: {
 		contextSelection?: SpaceComposerSendOptions["contextSelection"];
 		deviceWait?: SpaceComposerSendOptions["deviceWait"];
@@ -2682,8 +2706,34 @@ export function useSpaceLandingController(input: {
 		retryFiles?: readonly SpaceComposerFile[];
 		throwOnFailure?: boolean;
 	}) {
-		if (composerSendInFlightRef.current) {
+		if (!composerSession.send.begin()) {
 			return;
+		}
+		let localAdmissionReleased = false;
+		const releaseLocalAdmission = () => {
+			if (localAdmissionReleased) {
+				return;
+			}
+			localAdmissionReleased = true;
+			composerSession.send.finish();
+		};
+		if (!options?.retrySubmission) {
+			try {
+				await composerFilesController.waitForDiscovery();
+			} catch (error) {
+				const message =
+					error instanceof Error
+						? error.message
+						: "Couldn't restore your attachment drafts. Retry to continue.";
+				setComposerErrorMessage(message);
+				releaseLocalAdmission();
+				throwSpaceSendFailureWhenRequested({
+					error: error instanceof Error ? error : new Error(message),
+					postedMessage: false,
+					throwOnFailure: options?.throwOnFailure === true,
+				});
+				return;
+			}
 		}
 		const pendingFiles = resolvePendingSubmissionFiles(
 			composerFilesController,
@@ -2697,6 +2747,7 @@ export function useSpaceLandingController(input: {
 		});
 		if (sendAttempt.status !== "ready" && !options?.retrySubmission) {
 			setComposerErrorMessage(sendAttempt.errorMessage);
+			releaseLocalAdmission();
 			throwSpaceSendFailureWhenRequested({
 				error: new Error(
 					sendAttempt.errorMessage ??
@@ -2713,7 +2764,6 @@ export function useSpaceLandingController(input: {
 		});
 
 		historyNavigation.latest();
-		composerSession.send.begin();
 		const request = composerSession.send.reserveRequest();
 
 		let postedMessage = false;
@@ -2758,7 +2808,7 @@ export function useSpaceLandingController(input: {
 				status: statusSnapshot,
 			});
 			options?.onMessageStaged?.(messageSeed.clientMessageId);
-			composerSession.send.finish();
+			releaseLocalAdmission();
 			await request.ready;
 			const sendBoundary = await resolveSpaceComposerSendBoundary({
 				ensureEntryConfirmed,
@@ -2820,7 +2870,7 @@ export function useSpaceLandingController(input: {
 			if (postedMessage) {
 				composerFilesController.finishSubmission(submittedFiles);
 			}
-			composerSession.send.finish();
+			releaseLocalAdmission();
 		}
 		async function handleSubmissionFailure(error: unknown) {
 			const sendError = unwrapPreparedSpaceMessageSendError(error);
@@ -3689,11 +3739,8 @@ function useSpaceThreadController(input: {
 		setBlockedWakeProfileId: setComposerBlockedWakeProfileId,
 		setErrorMessage: setComposerErrorMessage,
 	} = composerSession.feedback;
-	const {
-		inFlightRef: threadComposerSendInFlightRef,
-		isSending: isSendingMessage,
-		setIsSending: setIsSendingMessage,
-	} = composerSession.send;
+	const { isSending: isSendingMessage, setIsSending: setIsSendingMessage } =
+		composerSession.send;
 	const activeThread =
 		threads.find((thread) => thread.threadId === activeThreadId) ?? null;
 	const persistedThreadSignals = useMemo(
@@ -3788,6 +3835,10 @@ function useSpaceThreadController(input: {
 		},
 		onAddThreadComposerFiles: composerFilesController.addFiles,
 		onRemoveThreadComposerFile: composerFilesController.removeFile,
+		onRetryThreadComposerFile: composerFilesController.retryFile,
+		onRetryThreadComposerFileCleanup: composerFilesController.retryCleanup,
+		onRetryThreadComposerFileRestoration:
+			composerFilesController.retryRestoration,
 		threadComposerBlockedWakeProfileId: composerBlockedWakeProfileId,
 		threadComposerAddressingTargets: resolveComposerAddressingTargets({
 			addressingTargets: mentionAuthoring.addressingTargets,
@@ -3802,6 +3853,9 @@ function useSpaceThreadController(input: {
 		threadComposerText: mentionAuthoring.composerText,
 		threadComposerFiles: composerFilesController.files,
 		threadComposerFileLimitReached: composerFilesController.isAtLimit,
+		threadComposerFileCleanup: composerFilesController.cleanup,
+		threadComposerFileRestorationError:
+			composerFilesController.restorationError,
 		threadFilePreviewUrlsById,
 		threadEphemeralActivityItems: wakeProgressItems,
 		threadPreviews,
@@ -3941,6 +3995,7 @@ function useSpaceThreadController(input: {
 		}
 	}
 
+	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: thread send orchestration preserves ordered staging, publication, and retry identity.
 	async function sendMessage(
 		options?: SpaceComposerSendOptions,
 		retry?: {
@@ -3950,8 +4005,21 @@ function useSpaceThreadController(input: {
 			clientMessageId: string;
 		}
 	) {
-		if (threadComposerSendInFlightRef.current || !input.statusReady) {
+		if (!(input.statusReady && composerSession.send.begin())) {
 			return;
+		}
+		if (!retry) {
+			try {
+				await composerFilesController.waitForDiscovery();
+			} catch (error) {
+				setComposerErrorMessage(
+					error instanceof Error
+						? error.message
+						: "Couldn't restore your attachment drafts. Retry to continue."
+				);
+				composerSession.send.finish();
+				return;
+			}
 		}
 		const thread = retry?.thread ?? activeThread;
 		const trimmedText =
@@ -3967,14 +4035,14 @@ function useSpaceThreadController(input: {
 		});
 		if ((blockedReason && !retry) || !thread) {
 			setComposerErrorMessage(blockedReason);
+			composerSession.send.finish();
 			return;
 		}
 		const submittedThread = thread;
 
-		composerSession.send.begin();
-
 		const clientMessageId = retry?.clientMessageId ?? createClientMessageId();
 		let posted = false;
+		let localAdmissionReleased = false;
 		let pendingSubmission: PendingComposerSubmission | null = null;
 		let publishedLocalIds: readonly string[] = [];
 		let submittedFiles: readonly SpaceComposerFile[] = [];
@@ -3994,11 +4062,14 @@ function useSpaceThreadController(input: {
 			pendingSubmission = preparedSubmission;
 			submittedFiles =
 				retry?.files ?? composerSession.recordPendingSubmission();
-			composerSession.send.finish();
 			await sendPreparedThreadMessage({
 				composerFiles: submittedFiles,
 				clientMessageId,
-				onMessageStaged: options?.onMessageStaged,
+				onMessageStaged: (stagedClientMessageId) => {
+					options?.onMessageStaged?.(stagedClientMessageId);
+					composerSession.send.finish();
+					localAdmissionReleased = true;
+				},
 				prepareFiles: async () => {
 					const publishedFiles =
 						await composerFilesController.publishReadyFiles(submittedFiles);
@@ -4029,7 +4100,9 @@ function useSpaceThreadController(input: {
 			if (posted) {
 				composerFilesController.finishSubmission(submittedFiles);
 			}
-			composerSession.send.finish();
+			if (!localAdmissionReleased) {
+				composerSession.send.finish();
+			}
 		}
 		async function handleSubmissionFailure(error: unknown) {
 			if (pendingSubmission && !posted) {

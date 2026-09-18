@@ -1,7 +1,10 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
-import { SpaceComposerFileTray } from "./space-composer-attachments";
+import {
+	SpaceComposerAttachmentRecovery,
+	SpaceComposerFileTray,
+} from "./space-composer-attachments";
 
 vi.mock("@phosphor-icons/react", () => ({
 	FileIcon: () => <span />,
@@ -19,6 +22,7 @@ describe("SpaceComposerFileTray", () => {
 
 	it("keeps attachments in one scrolling row and announces file failures", () => {
 		const onRemove = vi.fn();
+		const onRetry = vi.fn();
 		render(
 			<SpaceComposerFileTray
 				disabled={false}
@@ -33,12 +37,14 @@ describe("SpaceComposerFileTray", () => {
 					createComposerFile({
 						errorMessage: "OpenMeld couldn’t add this file. Try again.",
 						errorRequestId: "request-file-failed",
+						failurePhase: "stage",
 						fileName: "broken.pdf",
 						localId: "failed-file",
 						status: "failed",
 					}),
 				]}
 				onRemove={onRemove}
+				onRetry={onRetry}
 			/>
 		);
 
@@ -57,6 +63,35 @@ describe("SpaceComposerFileTray", () => {
 		});
 		fireEvent.click(removeReadyFile);
 		expect(onRemove).toHaveBeenCalledWith("ready-file");
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		expect(onRetry).toHaveBeenCalledWith("failed-file");
+	});
+
+	it("keeps failed cleanup and restoration actions available", () => {
+		const onRetryCleanup = vi.fn();
+		const onRetryRestoration = vi.fn();
+		render(
+			<SpaceComposerAttachmentRecovery
+				cleanup={[
+					{
+						error: new Error("connection closing"),
+						fileName: "broken.png",
+						id: "broken-file",
+						reason: "removed",
+						revision: 3,
+						scope: "acme:human:space",
+						status: "failed",
+					},
+				]}
+				onRetryCleanup={onRetryCleanup}
+				onRetryRestoration={onRetryRestoration}
+				restorationError={new Error("connection closing")}
+			/>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Retry cleanup" }));
+		expect(onRetryCleanup).toHaveBeenCalledWith("broken-file");
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		expect(onRetryRestoration).toHaveBeenCalledOnce();
 	});
 });
 
@@ -66,6 +101,7 @@ function createComposerFile(
 	return {
 		errorMessage: null,
 		errorRequestId: null,
+		failurePhase: null,
 		fileName: "launch-brief.pdf",
 		localId: "ready-file",
 		mimeType: "application/pdf",

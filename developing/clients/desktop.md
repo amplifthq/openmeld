@@ -385,10 +385,11 @@ Restart freezes document editing, flushes active text through the existing
 composer draft owner, and refuses while navigation guards, pending sends,
 attachment writes, failed attachment persistence, or unfinished uploads block
 leaving. Normal messages, Threads, and Center Agent text use `useComposerDraft`;
-file blobs and upload references retain their existing IndexedDB owner. New
-Center Agent chat file selections are still memory-only and block restart until
-sent or removed. Center Agent handoffs read their existing pending-message
-owner and also block restart. Pending
+file blobs and upload references retain their existing shared Web IndexedDB
+owner, including scoped recovery after a renderer remount. New Center Agent chat
+file selections use that same account-scoped owner and block restart until sent
+or removed. Center Agent handoffs read their existing pending-message owner and
+also block restart. Pending
 send acknowledgements remain with existing reconciliation: updating never
 resends a message. The current workspace URL is retained for the normal router
 to authorize after relaunch. Native credentials, account data, and app identity
