@@ -26,7 +26,6 @@ export type NativeCommandInvocation = {
 const CMD_META_CHARACTERS = new Set('()[]%!^"`<>&|;, *?');
 const BATCH_PATH_PATTERN = /\.(?:cmd|bat)$/iu;
 const NODE_SCRIPT_PATTERN = /\.(?:cjs|mjs|js)$/iu;
-const CMD_SHIM_PATH_PATTERN = /node_modules[\\/]\.bin[\\/][^\\/]+\.cmd$/iu;
 const INVALID_BATCH_TEXT = /[\r\n\0]/u;
 const SCRIPT_LINES = /\r?\n/u;
 // npm/cmd-shim's Node wrapper. Only this complete control prefix is unwrapped;
@@ -82,13 +81,13 @@ export function resolvePlatformCommand(
       { code: "WINDOWS_BATCH_ARGUMENT_UNSUPPORTED" }
     );
   }
-  // The same two parsing layers handled by cross-spawn: native CRT quoting,
-  // then cmd metacharacter escaping (twice for node_modules/.bin shims).
-  // This is not Node's unsafe `shell: true` concatenation of raw arguments.
-  const doubleEscape = CMD_SHIM_PATH_PATTERN.test(command);
+  // A batch entry reparses forwarded arguments (for example through %*) even
+  // outside node_modules/.bin. Protect both cmd parsing layers, not just npm's
+  // conventional shim directory. Native executables and recognized Node shims
+  // above do not pass through either layer.
   const escapedArgs = args.map((value) => {
     const escaped = escapeCmdText(quoteWindowsProcessArgument(value));
-    return doubleEscape ? escapeCmdText(escaped) : escaped;
+    return escapeCmdText(escaped);
   });
   const statement = [
     escapeCmdText(win32.normalize(command)),
