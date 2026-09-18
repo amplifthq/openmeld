@@ -261,6 +261,36 @@ Loading connection status must not block opening the catalog or a Plugin's
 settings. Route loaders do not await connection snapshots; the mounted page
 owns loading, cached status, and retry feedback after organization authorization.
 
+### Organization Skills
+
+Team tabs are **People / Agents / Plugins / Skills**. The Organization Skill
+catalog at `/o/{orgSlug}/skills` and detail at `/o/{orgSlug}/skills/{skillId}`
+share Team's header, member sidebar, page padding, and rail highlight. Pending
+and error states retain that ownership; neither route mounts Center Agent state.
+All members can discover and browse Skills, while Core-projected permissions
+control editing and management. Personal workspaces use this same model with
+appropriate copy, not a second scope selector or catalog.
+
+Legacy `/center-agent/skills` list and detail leaves redirect with replacement,
+preserving encoded identity, hash, and validated global `appSettings` state.
+They do not propagate Center Agent conversation selectors or Plugin scope.
+Team tab selection starts without inherited search/hash context. Switching
+Organizations from a canonical or legacy Skills list/detail opens the target
+Organization's list without an old Skill identity. New links use Web route
+builders; API paths and Agent consumption contracts are unchanged.
+
+Editing uses the shared unsaved-changes guard and an Organization/Skill-scoped
+draft paired with its original release/version. Background refresh cannot give
+old content new save expectations or discard a dirty draft. Save completion
+preserves newer input. Team navigation, All Skills, browser history, and
+Organization switching remain guarded. The version-bound
+[`@tanstack/history` patch](../../patches/tanstack-history.md) reverses the actual
+blocked history traversal so cancellation restores the address bar as well as
+the page; retain its regressions when upgrading the dependency.
+
+The enduring product and authorization contract is
+[Organization Skills](../product/organization-skills.md).
+
 ### Collaboration presentation
 
 Sending from a conversation or thread Composer returns focus during the send
@@ -712,7 +742,7 @@ current Computer exists, it opens the normal setup flow.
 
 The global Center Agent surface has no secondary sidebar. Its persistent header
 navigation is exactly **Messages**, **Graph**, **Files**, **Routines**,
-**Skills**, and **Channels**, in that order. Messages, Graph, and Files preserve the
+and **Channels**, in that order. Skills management belongs to Team. Messages, Graph, and Files preserve the
 selected Center Agent conversation surface. One compact header menu
 preserves **Memory**. The
 conversation variant of that menu also preserves **Conversation information**.
@@ -978,9 +1008,11 @@ archive filter, title editing, previews, and drag ordering remain available.
 
 The full Center Agent page, header, starter cards, composer, and all capability
 surfaces reuse their existing components. Messages, Graph, Files,
-Routines, Skills, Channels, Memory, settings, and conversation
-information remain available. Capability routes stay under `/center-agent/*`
-and highlight Direct messages. The starter cards continue scrolling with the conversation.
+Routines, Channels, Memory, settings, and conversation
+information remain available. Center Agent work routes stay under
+`/center-agent/*` and highlight Direct messages; Skills management instead lives
+under `/skills` and highlights Team, and settings remain in global App Settings.
+The starter cards continue scrolling with the conversation.
 No second conversation controller or message store is introduced.
 
 ### Inbox
@@ -1648,6 +1680,9 @@ this order:
    sidebar; keep Routines, Skills, and Channels in the conversation header;
    keep Memory and Center Agent settings in the header menu; and
    retire the redundant About surface and Slack shortcut.
+
+Team Skills supersedes W-NAV6's Skills placement: the catalog and detail now
+belong to Team, with legacy Center Agent Skills URLs retained only as redirects.
 
 The temporary Organization rail destination was removed in W-NAV4. The
 2026-07-27 consolidation also removes root Routines and the former
