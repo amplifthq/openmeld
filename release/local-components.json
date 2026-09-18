@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-17T08:53:25.441Z",
+  "updatedAt": "2026-09-18T01:59:00.784Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
       "packageVersion": "0.3.213",
       "updatePolicy": "available",
-      "reason": "Existing CLI control-plane clients remain compatible; updated clients wait for admitted Service stops without changing the wire schema."
+      "reason": "Existing clients remain compatible; structured connection progress is capability-negotiated and older clients keep the existing coarse setup flow."
     },
     "service": {
-      "bundleHash": "b33a11d4bb220eb3d893996338cf5089339bacb2dc8ee1a7682e79a80e0f9b8f",
+      "bundleHash": "673a5c62cb70b147321df5ee438c272af2876ca28c10934c1e438d92dede9ce3",
       "bundleVersion": "0.3.213",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Existing cloud and local control-plane schemas remain compatible; updated Services keep admitted controlled stops alive while allowing shutdown to interrupt held non-work bootstrap I/O."
+      "reason": "Existing cloud and local clients remain compatible; progress observation is optional and does not change Prepare completion or Service lifecycle authority."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
