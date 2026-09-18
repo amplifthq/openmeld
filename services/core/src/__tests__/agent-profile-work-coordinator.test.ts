@@ -10,6 +10,7 @@ import {
   approveAgentProfileWorkQueue,
   authorizeAgentProfileWorkContinuation,
   createAgentProfileWorkCoordinator,
+  dropRetiredAgentProfileWork,
   handOffOccupiedAgentProfileWork,
   markAgentProfileWorkContinuationNeedsAttention,
   markAgentProfileWorkControllerConversationOccupancy,
@@ -1251,6 +1252,100 @@ describe("occupied work handoff", () => {
       summarizeAgentProfileWorkCoordinator(settled.coordinator).currentWork
         ?.dispatchId
     ).toBe("dispatch-2");
+  });
+});
+
+describe("dropping retired work", () => {
+  const queueOf = (items: readonly AgentProfileWorkCoordinatorItem[]) => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1_700_000_000_000,
+      targetProfileId: PROFILE_ID,
+    });
+    for (const item of items) {
+      coordinator = acceptAgentProfileWork({
+        coordinator,
+        item,
+        nowMs: item.enqueuedAtMs,
+      }).coordinator;
+    }
+    return coordinator;
+  };
+
+  it("releases the reservation a retired Wake held and promotes the next waiter", () => {
+    const coordinator = queueOf([workItem(1), workItem(2), workItem(3)]);
+
+    const dropped = dropRetiredAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_500,
+      retiredTargetWakeLifecycleIds: new Set(["wake-1"]),
+    });
+
+    expect(dropped.removedItems.map((item) => item.dispatchId)).toEqual([
+      "dispatch-1",
+    ]);
+    expect(dropped.promotedItems.map((item) => item.dispatchId)).toEqual([
+      "dispatch-2",
+    ]);
+    const summary = summarizeAgentProfileWorkCoordinator(dropped.coordinator);
+    expect(summary.currentWork?.dispatchId).toBe("dispatch-2");
+    expect(summary.waitingCount).toBe(1);
+  });
+
+  it("promotes past a run of retired work instead of handing the slot to another retired Wake", () => {
+    const coordinator = queueOf([workItem(1), workItem(2), workItem(3)]);
+
+    const dropped = dropRetiredAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_500,
+      retiredTargetWakeLifecycleIds: new Set(["wake-1", "wake-2"]),
+    });
+
+    expect(dropped.promotedItems.map((item) => item.dispatchId)).toEqual([
+      "dispatch-3",
+    ]);
+    expect(
+      summarizeAgentProfileWorkCoordinator(dropped.coordinator).waitingCount
+    ).toBe(0);
+  });
+
+  it("refills every free execution context reservation the retired work was blocking", () => {
+    const coordinator = queueOf([
+      { ...workItem(1), executionContextId: "context-1" },
+      { ...workItem(2), executionContextId: "context-1" },
+      { ...workItem(3), executionContextId: "context-2" },
+    ]);
+    expect(
+      reservedAgentProfileWork(coordinator).map((item) => item.dispatchId)
+    ).toEqual(["dispatch-1", "dispatch-3"]);
+
+    const dropped = dropRetiredAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_500,
+      retiredTargetWakeLifecycleIds: new Set(["wake-1"]),
+    });
+
+    expect(dropped.promotedItems.map((item) => item.dispatchId)).toEqual([
+      "dispatch-2",
+    ]);
+    expect(
+      reservedAgentProfileWork(dropped.coordinator).map(
+        (item) => item.dispatchId
+      )
+    ).toEqual(["dispatch-2", "dispatch-3"]);
+  });
+
+  it("leaves the queue untouched when no named work is still claimed", () => {
+    const coordinator = queueOf([workItem(1), workItem(2)]);
+
+    const dropped = dropRetiredAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_500,
+      retiredTargetWakeLifecycleIds: new Set(["wake-9"]),
+    });
+
+    expect(dropped.coordinator).toBe(coordinator);
+    expect(dropped.removedItems).toEqual([]);
+    expect(dropped.promotedItems).toEqual([]);
   });
 });
 
