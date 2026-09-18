@@ -19,6 +19,10 @@ import { createAppUpdater } from "./app-updater";
 
 export function registerAppUpdater(input: {
   enabled: boolean;
+  inboxSource?: {
+    identity: Pick<DesktopUpdaterState, "installationId" | "lane">;
+    observe: (state: DesktopUpdaterState) => Promise<void>;
+  };
   authorize: (event: IpcMainInvokeEvent) => void;
   getWindow: () => BrowserWindow | null;
   setInstalling: (value: boolean) => void;
@@ -34,13 +38,32 @@ export function registerAppUpdater(input: {
     requestId: string;
     complete: (saved: boolean) => void;
   } | null = null;
+  const withIdentity = (state: DesktopUpdaterState): DesktopUpdaterState => ({
+    ...state,
+    ...input.inboxSource?.identity,
+  });
+  const observe = (state: DesktopUpdaterState) => {
+    try {
+      input.inboxSource
+        ?.observe(state)
+        .catch((error: unknown) =>
+          console.warn("[openmeld.desktop.inbox_observer_failed]", { error })
+        );
+    } catch (error) {
+      console.warn("[openmeld.desktop.inbox_observer_failed]", { error });
+    }
+  };
   const controller = input.enabled
     ? createAppUpdater({
         updater: new MacUpdater(),
         currentVersion: app.getVersion(),
         setInstalling: input.setInstalling,
-        publish: (state) =>
-          input.getWindow()?.webContents.send(PILOT_IPC.updaterChanged, state),
+        publish: (state) => {
+          input
+            .getWindow()
+            ?.webContents.send(PILOT_IPC.updaterChanged, withIdentity(state));
+          observe(state);
+        },
         prepareRestart: () =>
           new Promise<boolean>((resolve) => {
             const window = input.getWindow();
@@ -66,7 +89,7 @@ export function registerAppUpdater(input: {
     : null;
   ipcMain.handle(PILOT_IPC.updaterState, (event) => {
     input.authorize(event);
-    return controller?.snapshot() ?? unavailable;
+    return withIdentity(controller?.snapshot() ?? unavailable);
   });
   ipcMain.handle(PILOT_IPC.updaterAction, (event, value: unknown) => {
     input.authorize(event);
@@ -82,6 +105,7 @@ export function registerAppUpdater(input: {
   });
   let menuOpen = false;
   if (controller) {
+    observe(controller.snapshot());
     setInterval(
       () => {
         controller.act("check").catch(console.error);

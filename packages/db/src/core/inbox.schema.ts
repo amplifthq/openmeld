@@ -10,6 +10,38 @@ import {
 } from "drizzle-orm/sqlite-core";
 import { organizations, users } from "../auth/auth.schema.ts";
 
+/** Monotonic native installation facts, not another notification/read ledger. */
+export const desktopUpdateInstallations = sqliteTable(
+  "desktop_update_installations",
+  {
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    installationId: text("installation_id").notNull(),
+    lane: text("lane").notNull(),
+    sequence: integer("sequence").notNull(),
+    observationJson: text("observation_json").notNull(),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.ownerUserId, table.installationId, table.lane],
+    }),
+    check(
+      "desktop_update_installations_sequence_check",
+      sql`"sequence" > 0 and "updated_at_ms" >= 0`
+    ),
+    check(
+      "desktop_update_installations_json_check",
+      sql`json_valid("observation_json") and json_type("observation_json") = 'object'`
+    ),
+    check(
+      "desktop_update_installations_lane_check",
+      sql`"lane" in ('prod', 'dev-local', 'canary')`
+    ),
+  ]
+);
+
 /** Short-lived query cutoffs, never copies of conversation or Inbox content. */
 export const inboxFeedSnapshots = sqliteTable(
   "inbox_feed_snapshots",

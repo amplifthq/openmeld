@@ -189,7 +189,7 @@ export const desktopUpdateInboxSourceTargetSchema = z.strictObject({
   installationId: identifierSchema,
   lane: daemonServiceLaneSchema,
   deviceName: z.string().trim().min(1).max(120),
-  version: z.string().trim().min(1).max(80),
+  version: z.string().trim().min(1).max(100),
   platform: z.enum(["darwin", "win32", "linux"]),
   state: z.enum(["available", "installed", "superseded"]),
 });

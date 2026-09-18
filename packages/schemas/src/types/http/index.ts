@@ -540,6 +540,7 @@ export type {
 } from "./feedback";
 export type { GatewayErrorCode, GatewayErrorEnvelope } from "./gateway-error";
 export type * from "./inbox";
+export type * from "./inbox-desktop-updates";
 export type * from "./inbox-feed";
 export type { ListSignalsQuery } from "./list-signals-query";
 export type {

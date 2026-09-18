@@ -21,6 +21,20 @@ survive Hub restart and D1 failure. A ready heartbeat ends the same item; read a
 Dismiss never end it. Device re-enrollment is rechecked on registration generation
 change. The source does not write any Wake result or RuntimeCoordinator decision.
 
+Desktop Main observes the existing native updater and reports installed/applicable
+release facts through the session-bound account endpoint. It retains one local
+installation id and a monotonic source sequence, not a notification lock. Core
+atomically advances that sequence and projects one ordinary Inbox item per
+account, installation, lane and offered release. Checking, download progress and
+Later are not new events. A reported installed app version can mark an offer
+installed; opening and Dismiss cannot. A newer verified feed supersedes obsolete
+offers without asserting installation. Source retries preserve item identity,
+read/Dismiss and occurrence time, and never enqueue email. Only the matching
+native installation can open its Updates controls; Web shows device-specific
+guidance. Native observation failure never blocks the updater. This is trusted
+first-party client observation under the current account, not cryptographic
+device attestation or proof that a person saw a notification.
+
 The canonical attention feed is `GET /v1/inbox/feed`. All, Mentions, Needs action
 and Needs review combine independently with `unreadOnly` and `agentsOnly`.
 Mentions includes structured Human mentions and current personal-Agent mentions

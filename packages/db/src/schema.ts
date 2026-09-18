@@ -44,6 +44,7 @@ export const {
   inboxEmailDeliveries,
   inboxItems,
   inboxFeedSnapshots,
+  desktopUpdateInstallations,
   inboxFeedSnapshotMembers,
   inboxNotificationPreferences,
   inboxMessageNotificationDefaults,

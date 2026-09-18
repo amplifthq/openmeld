@@ -34,6 +34,7 @@ import {
 	useMutateOrganizationInboxFeed,
 	useOrganizationInboxFeed,
 } from "#/query/organizations/inbox-feed";
+import { InboxDesktopUpdateDetails } from "./inbox-desktop-update-details";
 import {
 	InboxFeedView,
 	resolveInboxFeedLoadMoreState,
@@ -268,6 +269,9 @@ export function InboxPage(input: {
 							organizationSlug={currentOrganization.slug}
 							registerItemElement={registerItem}
 						/>
+						{sourceItem.sourceTarget.kind === "desktop_update" ? (
+							<InboxDesktopUpdateDetails target={sourceItem.sourceTarget} />
+						) : null}
 					</section>
 				) : null}
 				{input.itemId && deepLink.isPending ? <InboxListSkeleton /> : null}

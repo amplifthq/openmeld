@@ -66,7 +66,10 @@ export function isInboxNotificationEligible(
   item: InboxItem,
   mode: InboxConversationNotificationMode = "mentions_and_replies"
 ): boolean {
-  if (item.resolutionStatus === "resolved") {
+  if (
+    item.resolutionStatus === "resolved" ||
+    item.sourceTarget.kind === "desktop_update"
+  ) {
     return false;
   }
   if (inboxMessageNotificationSpaceId(item)) {

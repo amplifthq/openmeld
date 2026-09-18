@@ -80,6 +80,7 @@ import {
 } from "./feedback.schema.ts";
 import { openMeldDaemonForgottenDevices } from "./forgotten-device.schema.ts";
 import {
+  desktopUpdateInstallations,
   inboxCenterAgentReadWatermarks,
   inboxConversationNotificationPreferences,
   inboxEmailDeliveries,
@@ -1663,6 +1664,7 @@ export const coreSchema = {
   inboxItems,
   inboxFeedSnapshots,
   inboxFeedSnapshotMembers,
+  desktopUpdateInstallations,
   inboxNotificationPreferences,
   inboxMessageNotificationDefaults,
   inboxConversationNotificationPreferences,

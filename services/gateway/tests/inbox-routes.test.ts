@@ -76,6 +76,49 @@ const HUMAN_MENTION_ITEM = {
 };
 
 describe("Inbox routes", () => {
+  it("accepts native update observations only through a session-bound native transport and validates the complete account-source body", async () => {
+    const { coreRpc, env } = makeEnv();
+    const body = {
+      schemaVersion: 1,
+      expectedUserId: "owner-1",
+      installationId: "11111111-2222-4333-8444-555555555555",
+      sequence: 1,
+      lane: "dev-local",
+      deviceName: "Test Mac",
+      platform: "darwin",
+      installedVersion: "0.1.3",
+      availableVersion: "0.1.4",
+    };
+    const url = "http://local/v1/account/desktop-update-observations";
+    const browser = await app.fetch(
+      jsonRequest(url, "PUT", body, { origin: "http://local" }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(browser.status).toBe(400);
+    expect(coreRpc.reportDesktopUpdateObservation).not.toHaveBeenCalled();
+    const native = await app.fetch(
+      jsonRequest(url, "PUT", body, { origin: "openmeld-desktop://app" }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(native.status).toBe(200);
+    expect(coreRpc.reportDesktopUpdateObservation).toHaveBeenCalledWith(
+      expect.objectContaining({ observation: body })
+    );
+    const injected = await app.fetch(
+      jsonRequest(
+        url,
+        "PUT",
+        { ...body, organizationId: "org-2" },
+        { origin: "openmeld-desktop://app" }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(injected.status).toBe(400);
+    expect(coreRpc.reportDesktopUpdateObservation).toHaveBeenCalledOnce();
+  });
   it.each([
     "7",
     "8",
@@ -765,6 +808,10 @@ describe("Inbox routes", () => {
 
 function makeEnv() {
   const coreRpc = {
+    reportDesktopUpdateObservation: vi.fn(async () => ({
+      accepted: true,
+      sequence: 1,
+    })),
     listInboxFeed: vi.fn(async () => ({
       organizationId: "org-1",
       snapshotId: "snapshot",

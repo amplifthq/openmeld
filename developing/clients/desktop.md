@@ -75,6 +75,16 @@ do not move business rules into that package.
 
 ### Native Inbox notifications
 
+Native updater observations use the account-scoped Inbox source contract. Main
+keeps its installation identity under its existing userData directory, reports
+only trusted updater/app-version facts, and fences each report to the observed
+account. This source is independent of the currently selected Organization.
+The renderer cannot submit an update observation or installation result. Failed
+Inbox writes retry independently; native updater execution remains available.
+Only current production updater-supported installations produce live observations;
+isolated tests use the same observer with captured native state inputs and must
+not be reported as actual production update/install evidence.
+
 Account message-notification defaults and conversation overrides apply to
 Desktop as well as Web. The shared API-client notification policy evaluates
 ordinary messages, Human reply markers, and mute consistently. Native delivery

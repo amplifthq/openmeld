@@ -1247,6 +1247,13 @@
       "when": 1789749074740,
       "tag": "0177_jittery_white_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 178,
+      "version": "6",
+      "when": 1789754038904,
+      "tag": "0178_slimy_oracle",
+      "breakpoints": true
     }
   ]
 }

@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { DesktopInboxAttention } from "@openmeld/schemas";
@@ -44,6 +45,7 @@ import type {
 import { createPilotServiceHandlers } from "./pilot-service";
 import { registerOpenMeldIpcHandlers } from "./register-ipc";
 import { assertTrustedRenderer } from "./renderer-trust";
+import { createDesktopUpdateInboxReporter } from "./update/desktop-update-inbox-reporter";
 import { registerAppUpdater } from "./update/register-app-updater";
 
 // Keep the native window at the full Desktop workspace size from launch so the
@@ -108,6 +110,9 @@ const pilot = initializeDesktopPilot(
   invalidateOpenTrayMenu
 );
 let appUpdater: ReturnType<typeof registerAppUpdater> | null = null;
+let inboxUpdateReporter:
+  | ReturnType<typeof createDesktopUpdateInboxReporter>
+  | undefined;
 
 type SyncTrayOptions = {
   showProblem: boolean;
@@ -823,11 +828,34 @@ function bootstrapApp(): void {
   runBackgroundTask(
     app.whenReady().then(() => {
       pilot?.install(authorizeRenderer);
+      const nativeUpdatesEnabled =
+        app.isPackaged &&
+        process.platform === "darwin" &&
+        pilot?.installedTarget?.kind === "production";
+      if (nativeUpdatesEnabled && pilot) {
+        try {
+          const currentPilot = pilot;
+          inboxUpdateReporter = createDesktopUpdateInboxReporter({
+            userData: app.getPath("userData"),
+            lane: "prod",
+            deviceName: hostname(),
+            platform: "darwin",
+            currentUserId: async () =>
+              (await currentPilot.auth.session()).user?.id ?? null,
+            send: currentPilot.reportDesktopUpdateObservation,
+          });
+          currentPilot.setDesktopUpdateAccountListener(
+            inboxUpdateReporter.accountChanged
+          );
+        } catch (error) {
+          console.warn("[openmeld.desktop.inbox_update_source_unavailable]", {
+            error,
+          });
+        }
+      }
       const updater = registerAppUpdater({
-        enabled:
-          app.isPackaged &&
-          process.platform === "darwin" &&
-          pilot?.installedTarget?.kind === "production",
+        enabled: nativeUpdatesEnabled,
+        inboxSource: inboxUpdateReporter,
         authorize: authorizeRenderer,
         getWindow: () => mainWindow,
         setInstalling: (value) => {
@@ -950,6 +978,7 @@ function createWindowIpcHandlers(
 }
 
 app.on("will-quit", () => {
+  inboxUpdateReporter?.dispose();
   pilot?.dispose();
   ipcDisposer?.();
   ipcDisposer = null;

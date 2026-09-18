@@ -400,6 +400,7 @@ import {
   clearCoreCenterAgentOrganizationNativeDeliveryData,
   createCoreCenterAgentMemoryService,
 } from "./center-agent-memory/core-memory-service";
+import { rpcReportDesktopUpdateObservation } from "./computers/desktop-update-inbox";
 import { readModelCatalog } from "./config/model-catalog";
 import {
   rpcListPluginAccess,
@@ -3831,6 +3832,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 
   listRoutineRuns(input: ListRoutineRunsInput) {
     return super.listRoutineRuns(input);
+  }
+
+  reportDesktopUpdateObservation(
+    input: import("@openmeld/schemas/types").DesktopUpdateObservationRpcInput
+  ) {
+    return rpcReportDesktopUpdateObservation(this.env, input);
   }
 
   listInboxFeed(input: ListInboxFeedRpcInput): Promise<InboxFeedResponse> {
