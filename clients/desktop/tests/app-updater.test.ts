@@ -148,7 +148,18 @@ describe("Desktop update consent", () => {
     expect(driver.checkForUpdates).toHaveBeenCalledTimes(1);
     expect(controller.snapshot().status).toBe("available");
     expect(driver.downloadUpdate).not.toHaveBeenCalled();
+    driver.downloadUpdate.mockImplementationOnce(() => {
+      driver.emit("download-progress", { percent: 100 });
+      return Promise.resolve([]);
+    });
     await Promise.all([controller.act("download"), controller.act("download")]);
+    expect(controller.snapshot()).toMatchObject({
+      status: "downloading",
+      percent: 100,
+    });
+    await controller.act("restart");
+    expect(driver.quitAndInstall).not.toHaveBeenCalled();
+    driver.emit("update-downloaded");
     expect(controller.snapshot().status).toBe("downloaded");
     expect(driver.downloadUpdate).toHaveBeenCalledTimes(1);
     expect(driver.quitAndInstall).not.toHaveBeenCalled();

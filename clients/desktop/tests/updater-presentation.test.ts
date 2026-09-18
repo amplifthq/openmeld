@@ -193,7 +193,7 @@ describe("Desktop updater presentation", () => {
       percent: 100,
     });
     expect(result.action).toBeUndefined();
-    expect(result.message).toContain("100% downloaded");
+    expect(result.message).toContain("100%");
     expect(result.headline).toBe("Downloading update…");
   });
 

@@ -21,7 +21,7 @@ export function desktopUpdaterPresentation(state: DesktopUpdaterState | null) {
     : `${description.headline}.`;
   const progress =
     state?.status === "downloading" && state.percent !== null
-      ? ` ${Math.round(state.percent)}% downloaded.`
+      ? ` ${Math.round(state.percent)}%`
       : "";
   return {
     action: undefined as DesktopUpdaterAction | undefined,
@@ -29,6 +29,16 @@ export function desktopUpdaterPresentation(state: DesktopUpdaterState | null) {
     attention: false,
     notice: "none" as NoticePolicy,
     ...description,
+    busy:
+      !state ||
+      ["checking", "downloading", "preparing", "installing"].includes(
+        state.status
+      ),
+    // Notices keep one heading, but must not drop an error's cause or safety copy.
+    noticeMessage:
+      state?.status === "error" || description.notice === "required"
+        ? `${sentence} ${description.description}`
+        : description.description,
     // Native dialogs do not render the React heading: keep a complete message.
     message: `${sentence} ${description.description}${progress}`.trim(),
     // Neither progress ticks nor repeated checks create another interruption.
