@@ -546,9 +546,13 @@ describe("PublicSpacePage", () => {
 
 		const linkedReply = await screen.findByText("The linked public reply.");
 		expect(linkedReply.closest('[aria-label="Thread"]')).not.toBeNull();
-		expect(
-			linkedReply.closest('[data-signal-id="linked-thread-reply"]')
-		).not.toBeNull();
+		const replyRow = linkedReply.closest(
+			'[data-signal-id="linked-thread-reply"]'
+		);
+		await waitFor(() => {
+			expect(replyRow?.getAttribute("data-highlighted")).toBe("true");
+			expect(document.activeElement).toBe(replyRow);
+		});
 	});
 
 	it("keeps completed root Wakes terminal in public threads when the thread query omits the top-level reply", async () => {

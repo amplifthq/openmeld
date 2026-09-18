@@ -1057,6 +1057,7 @@ function PublicSpacePanels({ input }: { input: PublicSpaceOpenViewProps }) {
 				currentOwnerUserId={null}
 				ephemeralActivityItems={EMPTY_EPHEMERAL_ACTIVITY_ITEMS}
 				initialFocusSignalId={input.initialFocusSignalId}
+				initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 				isAgentRecoveryPending={() => false}
 				isDiagnosticReportPending={() => false}
 				isDiagnosticReportSent={() => false}
