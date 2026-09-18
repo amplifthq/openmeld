@@ -1,5 +1,6 @@
 "use client";
 
+import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import type { LarkPlatformProvider } from "@openmeld/schemas/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -146,6 +147,18 @@ function PersonalWorkspaceMessageChannelsContent(input: {
 	);
 }
 
+function canRetainChannelDisplay(error: StructuredApiClientFailure | null) {
+	if (!error) {
+		return true;
+	}
+	// Retain last-known display through transient refresh failures, never through
+	// access revocation, changed identity, or malformed projection errors.
+	if (error.code === "gateway.invalid_response") {
+		return false;
+	}
+	return !error.status || error.status >= 500;
+}
+
 function OrganizationMessageChannelsContent(input: {
 	currentUserId: string;
 	organizationId: string;
@@ -247,13 +260,15 @@ function OrganizationMessageChannelsContent(input: {
 				designationError={null}
 				fallback="OpenMeld could not load this organization’s channels."
 			/>
-			{channelsQuery.data && !channelsQuery.isError ? (
+			{channelsQuery.data && canRetainChannelDisplay(channelsQuery.error) ? (
 				<CenterAgentMessageChannelsSection
 					activeRegistrations={
 						activeRegistrationsQuery.data?.registrations ?? []
 					}
 					activeRegistrationsChecking={activeRegistrationsQuery.isFetching}
-					activeRegistrationsUnavailable={activeRegistrationsQuery.isError}
+					activeRegistrationsUnavailable={
+						activeRegistrationsQuery.isError || channelsQuery.isError
+					}
 					availableProviders={channelsQuery.data.availableLarkPlatformProviders}
 					canManage={canManage && roleQuery.isSuccess}
 					connections={channelsQuery.data.connections}
