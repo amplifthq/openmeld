@@ -136,6 +136,9 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@openmeld/adapter-core':
+        specifier: workspace:*
+        version: link:../../runtime/adapters/core
       '@openmeld/local-service':
         specifier: workspace:*
         version: link:../../runtime/local-service

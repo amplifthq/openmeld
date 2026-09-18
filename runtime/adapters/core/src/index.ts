@@ -128,6 +128,10 @@ export {
   verifyCliLaunchContract,
   verifyLaunchContractFiles,
 } from "./launch-contract.js";
+export {
+  normalizeCommandEnvironment,
+  WINDOWS_RUNTIME_ENV_KEYS,
+} from "./process-environment.js";
 export { createProviderOriginalError } from "./provider-original-error.js";
 export {
   type AdapterProviderUsageLimit,

@@ -10,6 +10,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./process-environment": {
+      "types": "./dist/process-environment.d.ts",
+      "default": "./dist/process-environment.js"
+    },
     "./drivers/cli-driver": {
       "types": "./dist/drivers/cli-driver.d.ts",
       "default": "./dist/drivers/cli-driver.js"

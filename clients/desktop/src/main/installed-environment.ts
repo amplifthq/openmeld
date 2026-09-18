@@ -1,5 +1,9 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  normalizeCommandEnvironment,
+  WINDOWS_RUNTIME_ENV_KEYS,
+} from "@openmeld/adapter-core/process-environment";
 import type { DesktopInstalledTarget } from "@openmeld/schemas";
 import type { CommandDeps } from "./cli/commands";
 
@@ -15,6 +19,7 @@ export function installedCommandEnvironment(
   userData: string
 ): CommandDeps {
   const env: NodeJS.ProcessEnv = {};
+  const source = normalizeCommandEnvironment(process.env);
   const computer =
     typeof __OPENMELD_DESKTOP_COMPUTER_ENVIRONMENT__ === "undefined"
       ? null
@@ -28,9 +33,10 @@ export function installedCommandEnvironment(
     "TMPDIR",
     "LANG",
     "LC_ALL",
+    ...(process.platform === "win32" ? WINDOWS_RUNTIME_ENV_KEYS : []),
   ]) {
-    if (process.env[key]) {
-      env[key] = process.env[key];
+    if (source[key]) {
+      env[key] = source[key];
     }
   }
   const home =
