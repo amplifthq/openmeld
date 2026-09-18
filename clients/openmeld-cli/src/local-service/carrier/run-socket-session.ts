@@ -139,12 +139,9 @@ import {
   type DaemonCatalogSyncSignal,
   readDaemonCatalogSyncSignal,
 } from "../state/catalog-sync-signal";
+import { parseDaemonFrame, sendDaemonFrame } from "./daemon-frame-transport";
 import { createDaemonStreamKeepalive } from "./daemon-stream-keepalive";
-import {
-  handleDaemonSocketFrame,
-  parseDaemonFrame,
-  sendDaemonFrame,
-} from "./frame-router";
+import { handleDaemonSocketFrame } from "./frame-router";
 import { waitForHeartbeatResponse } from "./heartbeat-loop";
 import { waitForRegisterResponse } from "./register-session";
 import type { ServiceLocalComponentsObservation } from "./service-local-components-observation";

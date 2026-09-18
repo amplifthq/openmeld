@@ -109,6 +109,12 @@ export type LedgerPaths = {
   stateTempFilePath: string;
 };
 
+// Execution emits frames; it does not own, close, or reconnect a cloud socket.
+export type DaemonFrameSink = {
+  readonly bufferedAmount?: number;
+  send(data: string): void;
+};
+
 export type CurrentDaemonSocketRef = {
   reasoningStreamEnabled?: boolean;
   reasoningPreferenceListeners?: Set<() => void>;

@@ -2937,6 +2937,12 @@ The marker means the code is part of one of these explicitly scoped groups:
 
 The current codebase has one local-service implementation layout:
 
+`carrier/daemon-frame-transport.ts` owns frame parsing, registration and
+heartbeat acknowledgments, and transport-error correlation without importing
+the dispatch/adapter graph. Execution frame handling remains a separate
+consumer. This module boundary alone is not process isolation or a change to
+execution ownership.
+
 ```text
 clients/openmeld-cli/src/local-service/  host-bound service loop, lifecycle, inventory, reporting, diagnostics, status, and execution
 runtime/local-service/              private package for reusable local service carrier policy and pure service helpers
