@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-17T04:47:23.145Z",
+  "updatedAt": "2026-09-16T17:59:16.039Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.213",
+      "packageVersion": "0.3.212",
       "updatePolicy": "available",
       "reason": "This batch preserves the existing cloud/CLI contracts; new Desktop controls require the new optional CLI capability."
     },
     "service": {
-      "bundleHash": "5ec76f3a2fbd5a1a02c87b3ddb5327e3f6469dd95ce42a450b8ef5a85782518c",
-      "bundleVersion": "0.3.213",
+      "bundleHash": "0c4513d865a5e9cd66437333667d9d58cee0760aefb9ed307e26d4fcc99c3420",
+      "bundleVersion": "0.3.212",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services remain compatible because Inbox attention presentation is cloud-owned and Wake, setup, status, and diagnostics contracts are unchanged."
+      "reason": "Existing Services remain compatible; this batch improves local download, update and installation safety without a new runtime epoch."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",

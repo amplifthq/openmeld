@@ -16,6 +16,7 @@ import {
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TestQueryClientProvider } from "#/test-support/query-client";
+import { createDesktopHandlers } from "../../../../desktop/src/main/ipc-handlers";
 import {
 	OpenMeldServiceCard,
 	type OpenMeldServiceCardOwnerProps,
@@ -119,7 +120,14 @@ describe("OpenMeldServiceCard", () => {
 		true,
 	])("opens the selected owner's recovery in a browser (update=%s) without a lifecycle write", async (update) => {
 		desktop.enabled = true;
-		desktop.openWeb.mockResolvedValue(undefined);
+		const openExternal = vi.fn(async () => undefined);
+		const handlers = createDesktopHandlers({
+			commandDeps: {
+				env: { ...process.env, WEB_APP_URL: "http://localhost:3000" },
+			},
+			openExternal,
+		});
+		desktop.openWeb.mockImplementation(handlers.openWeb);
 		const readiness = buildCurrentLocalRuntimeReplyReadiness();
 		if (update) {
 			readiness.localComponents.service.status = "update_required";
@@ -144,6 +152,11 @@ describe("OpenMeldServiceCard", () => {
 			update
 				? "/o/acme/connect?connectedComputerId=computer-macbook-pro&serviceAction=update_service&session=fresh"
 				: "/o/acme/connect?connectedComputerId=computer-macbook-pro&session=fresh"
+		);
+		expect(openExternal).toHaveBeenCalledExactlyOnceWith(
+			update
+				? "http://localhost:3000/o/acme/connect?connectedComputerId=computer-macbook-pro&serviceAction=update_service&session=fresh"
+				: "http://localhost:3000/o/acme/connect?connectedComputerId=computer-macbook-pro&session=fresh"
 		);
 		expect(
 			screen.getByText(
