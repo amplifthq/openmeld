@@ -1,5 +1,22 @@
 const CODEX_THREAD_ID_ENV = "CODEX_THREAD_ID";
 const CLAUDE_CODE_SESSION_ID_ENV = "CLAUDE_CODE_SESSION_ID";
+const CODEX_LIKE_ENV_VARS = [
+  "CODEX_SHELL",
+  "CODEX_CI",
+  "CODEX_SESSION_ID",
+  "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
+] as const;
+
+/**
+ * Every variable detection reads. Detection takes the whole ambient
+ * environment, so a test that sets only the variable it asserts on still
+ * detects whatever agent session runs the test; suites pin this full list.
+ */
+export const LOCAL_AGENT_ENVIRONMENT_ENV_VARS = [
+  CLAUDE_CODE_SESSION_ID_ENV,
+  CODEX_THREAD_ID_ENV,
+  ...CODEX_LIKE_ENV_VARS,
+] as const;
 
 export type DetectedLocalAgentEnvironment =
   | {
@@ -51,11 +68,8 @@ export function detectLocalAgentEnvironment(
 }
 
 function isCodexLikeEnvironment(env: NodeJS.ProcessEnv): boolean {
-  return Boolean(
-    normalizeOptionalString(env.CODEX_SHELL) ||
-      normalizeOptionalString(env.CODEX_CI) ||
-      normalizeOptionalString(env.CODEX_SESSION_ID) ||
-      normalizeOptionalString(env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE)
+  return CODEX_LIKE_ENV_VARS.some((name) =>
+    Boolean(normalizeOptionalString(env[name]))
   );
 }
 

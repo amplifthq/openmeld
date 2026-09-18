@@ -16,6 +16,8 @@ const MAX_UPGRADE_REJECTION_BODY_BYTES = 2048;
 const UPGRADE_REJECTION_BODY_READ_TIMEOUT_MS = 1000;
 const OPENMELD_REQUEST_ID_HEADER = "x-openmeld-request-id";
 const CLOUDFLARE_RAY_HEADER = "cf-ray";
+const WEBSOCKET_ERROR_FALLBACK =
+  "WebSocket connection failed without additional details.";
 
 export class WebSocketConnectionError extends Error {
   readonly kind: "open_timeout" | "closed_before_open" | "upgrade_rejected";
@@ -41,9 +43,15 @@ export async function connectWebSocket(
 ): Promise<WsClient> {
   return await new Promise((resolve, reject) => {
     let settled = false;
-    const ws = new WebSocket(url, {
-      headers: input?.headers,
-    });
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(url, {
+        headers: input?.headers,
+      });
+    } catch (error) {
+      reject(normalizeWebSocketError(error));
+      return;
+    }
     const openTimeoutMs = normalizeOpenTimeoutMs(input?.openTimeoutMs);
     const openTimeout =
       openTimeoutMs === null
@@ -128,7 +136,7 @@ export async function connectWebSocket(
           );
         },
         onError: (handler) => {
-          ws.on("error", handler);
+          ws.on("error", (error) => handler(normalizeWebSocketError(error)));
         },
         waitUntilClosed: async () => {
           await closePromise;
@@ -144,9 +152,49 @@ export async function connectWebSocket(
       if (openTimeout) {
         clearTimeout(openTimeout);
       }
-      reject(err);
+      reject(normalizeWebSocketError(err));
     });
   });
+}
+
+export function normalizeWebSocketError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+
+  const nestedError = readErrorLikeField(error, "error");
+  if (nestedError instanceof Error) {
+    return nestedError;
+  }
+
+  const message =
+    normalizeErrorText(readErrorLikeField(error, "message")) ??
+    normalizeErrorText(nestedError) ??
+    normalizeErrorText(readErrorLikeField(nestedError, "message")) ??
+    normalizeErrorText(error);
+  return new Error(message ?? WEBSOCKET_ERROR_FALLBACK);
+}
+
+function readErrorLikeField(
+  value: unknown,
+  field: "error" | "message"
+): unknown {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  try {
+    return (value as Record<string, unknown>)[field];
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeErrorText(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
 }
 
 function isBunRuntime(): boolean {

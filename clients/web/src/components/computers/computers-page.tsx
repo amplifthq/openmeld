@@ -17,6 +17,7 @@ import { useLocalAgentRecoveryController } from "#/components/agents/use-local-a
 import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-navigation";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { getDesktopPlatform } from "#/desktop/platform";
+import { useDesktopComputerConnection } from "#/desktop/use-computer-connection";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveConnectedLocalRuntime } from "#/lib/connect/connected-runtime";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -39,17 +40,46 @@ import {
 
 const COMPUTERS_SERVICE_STATUS_REFETCH_INTERVAL_MS = 10_000;
 
-function renderDesktopConnectComputerAction(orgSlug: string) {
+function desktopConnectionAction(orgSlug: string, profileId: string | null) {
+	return getDesktopPlatform() ? (
+		<DesktopConnectComputerAction orgSlug={orgSlug} profileId={profileId} />
+	) : null;
+}
+
+function DesktopConnectComputerAction({
+	orgSlug,
+	profileId,
+}: {
+	orgSlug: string;
+	profileId?: string | null;
+}) {
+	const connection = useDesktopComputerConnection();
+	const label =
+		connection.data?.status === "available"
+			? "Disconnect this Mac"
+			: "Connect this Mac";
+	let status = connection.data?.status === "available" ? "Connected" : null;
+	if (connection.isError) {
+		status = "Connection unconfirmed";
+	}
 	if (!getDesktopPlatform()) {
 		return null;
 	}
 	return (
-		<Link
-			className={buttonVariants({ size: "sm", variant: "outline" })}
-			to={buildConnectComputerPath({ orgSlug })}
-		>
-			Connect this Mac
-		</Link>
+		<div className="flex items-center gap-2">
+			{status ? (
+				<span className="text-muted-foreground text-sm">{status}</span>
+			) : null}
+			<Link
+				className={buttonVariants({ size: "sm", variant: "outline" })}
+				to={buildConnectComputerPath({
+					orgSlug,
+					profileId: profileId ?? undefined,
+				})}
+			>
+				{connection.isPending ? "Checking connection…" : label}
+			</Link>
+		</div>
 	);
 }
 
@@ -214,7 +244,7 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	return (
 		<>
 			<AppPageHeader
-				action={renderDesktopConnectComputerAction(orgSlug)}
+				action={desktopConnectionAction(orgSlug, ownerProfileId)}
 				description={sectionDescription}
 				eyebrow="Run agents locally"
 				id="computers-heading"

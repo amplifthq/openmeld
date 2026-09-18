@@ -20,6 +20,14 @@ if (args.length === 2 && args[0] === "service" && args[1] === "update-worker") {
     const { runMaintenanceUpgrade } = await import("./commands/upgrade");
     await runMaintenanceUpgrade(args[0] === "maintenance-align-service");
   } catch (error) {
+    try {
+      const { emitOpenMeldToolsUpdateFailureFrame } = await import(
+        "./local-service/maintenance/openmeld-tools-update-process-frame"
+      );
+      emitOpenMeldToolsUpdateFailureFrame(error);
+    } catch {
+      // The local worker log below remains the fallback when framing fails.
+    }
     console.error("[openmeld.maintenance.upgrade_failed]", error);
     process.exitCode = 1;
   }

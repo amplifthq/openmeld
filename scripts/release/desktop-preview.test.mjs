@@ -16,6 +16,7 @@ test("legacy unsigned upload refuses publication before reading artifacts", () =
 });
 
 import {
+  assertDesktopPromotionVersion,
   buildDesktopCandidateMetadata,
   buildDesktopPreviewMetadata,
   buildWranglerObjectPutArgs,
@@ -24,6 +25,14 @@ import {
   DEFAULT_R2_BUCKET_NAME,
   resolveDesktopArtifactName,
 } from "./desktop-preview.mjs";
+
+test("Desktop promotion requires an increasing stable app version", () => {
+  assert.doesNotThrow(() => assertDesktopPromotionVersion("0.1.1", null));
+  assert.doesNotThrow(() => assertDesktopPromotionVersion("0.1.2", "0.1.1"));
+  for (const version of ["0.1.1", "0.1.0", "0.1.2-preview.0", "../0.1.2"]) {
+    assert.throws(() => assertDesktopPromotionVersion(version, "0.1.1"));
+  }
+});
 
 test("candidate publication selects only hash-scoped keys and rejects path injection", () => {
   const input = {

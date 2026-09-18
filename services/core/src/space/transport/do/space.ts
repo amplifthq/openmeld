@@ -464,7 +464,11 @@ import {
   DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE,
   processDispatchOutboxCandidates,
 } from "../../application/dispatch-outbox-batch-service";
-import { resolveOrganizationSpaceSelfJoinUserId } from "../../application/organization-space-self-join";
+import {
+  allowsExternalSpaceLinkJoin,
+  resolveHumanSpaceSelfJoinUserId,
+  resolveOrganizationSpaceSelfJoinUserId,
+} from "../../application/organization-space-self-join";
 import { ReasoningReplay } from "../../application/reasoning-replay";
 import {
   assertSpaceAccessMatchesSpace,
@@ -5467,6 +5471,9 @@ export class Space extends DurableObject<CoreBindings> {
         authoringPolicy: "user_authored",
         clientMessageId: continuationClientMessageId,
         context: continuationContext,
+        ...(input.contextSelection
+          ? { contextSelection: input.contextSelection }
+          : {}),
         messageEnvelope: {
           activationTargets: [input.targetProfileId],
           referenceTargets:
@@ -6737,6 +6744,34 @@ export class Space extends DurableObject<CoreBindings> {
     return false;
   }
 
+  async rpcResolveReadTarget(
+    input: GetSpaceMetaInput &
+      import("@openmeld/schemas/types").SpaceEntryTarget
+  ): Promise<import("@openmeld/schemas/types").SpaceEntryTarget> {
+    this.applySpaceRef(input.spaceId);
+    if (!input.spaceAccess) {
+      throw new Error("Space access is required");
+    }
+    await assertRpcSpaceAccessAuthorized(
+      await this.authorizeSpaceAccess(input.spaceAccess)
+    );
+    const placement = input.signalId
+      ? readSpaceThreadSignalPlacementBySignalId(
+          this.ctx.storage.sql,
+          input.signalId
+        )
+      : null;
+    const thread = placement
+      ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
+      : null;
+    const threadRootSignalId = thread?.rootSignalId ?? input.threadRootSignalId;
+    return {
+      spaceId: input.spaceId,
+      ...(input.signalId ? { signalId: input.signalId } : {}),
+      ...(threadRootSignalId ? { threadRootSignalId } : {}),
+    };
+  }
+
   async rpcGetMeta(input: GetSpaceMetaInput): Promise<SpaceMeta> {
     this.applySpaceRef(input.spaceId);
     const response = await this.dispatchMetaRequest(
@@ -6758,6 +6793,12 @@ export class Space extends DurableObject<CoreBindings> {
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse> {
     this.applySpaceRef(input.spaceId);
+    if (!input.mutation && input.spaceAccess) {
+      await assertRpcSpaceAccessAuthorized(
+        await this.authorizeSpaceAccess(input.spaceAccess)
+      );
+      return this.readMessagePins();
+    }
     const response = await this.dispatchPasswordProtectedMethod(
       this.buildDirectRpcRequest({
         path: "/message-pins",
@@ -6778,6 +6819,12 @@ export class Space extends DurableObject<CoreBindings> {
     input: ListSpaceTasksInput
   ): Promise<ListSpaceTasksResponse> {
     this.applySpaceRef(input.spaceId);
+    if (input.spaceAccess) {
+      await assertRpcSpaceAccessAuthorized(
+        await this.authorizeSpaceAccess(input.spaceAccess)
+      );
+      return this.spaceTaskService.list(input.phase);
+    }
     const response = await this.dispatchPasswordProtectedMethod(
       this.buildDirectRpcRequest({
         path: "/tasks",
@@ -6797,6 +6844,12 @@ export class Space extends DurableObject<CoreBindings> {
 
   async rpcGetTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse> {
     this.applySpaceRef(input.spaceId);
+    if (input.spaceAccess) {
+      await assertRpcSpaceAccessAuthorized(
+        await this.authorizeSpaceAccess(input.spaceAccess)
+      );
+      return this.spaceTaskService.read(input.taskId);
+    }
     const response = await this.dispatchPasswordProtectedMethod(
       this.buildDirectRpcRequest({
         path: `/tasks/${encodeURIComponent(input.taskId)}`,
@@ -6874,6 +6927,12 @@ export class Space extends DurableObject<CoreBindings> {
 
   async rpcFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse> {
     this.applySpaceRef(input.spaceId);
+    if (!input.mutation && input.spaceAccess) {
+      await assertRpcSpaceAccessAuthorized(
+        await this.authorizeSpaceAccess(input.spaceAccess)
+      );
+      return this.readFilePins();
+    }
     const response = await this.dispatchPasswordProtectedMethod(
       this.buildDirectRpcRequest({
         path: "/file-pins",
@@ -8133,7 +8192,10 @@ export class Space extends DurableObject<CoreBindings> {
         ? {}
         : { spacePassword: input.password }),
     });
-    const resolved = this.resolveSpaceAccessFromRequest(request, {});
+    const resolved = this.resolveSpaceAccessFromRequest(
+      request,
+      pickSpaceDispatchAccessOptions(input)
+    );
     if (!resolved.ok) {
       return readSpaceRpcJsonOrThrow(
         this.unauthenticatedResponse(resolved.requestId)
@@ -14427,6 +14489,7 @@ export class Space extends DurableObject<CoreBindings> {
       return currentMembership.response;
     }
 
+    const joinPolicyUpdatedAt = metaRecord.updatedAt;
     const joinAuthorization = await authorizeSpaceJoinAccess({
       context,
       hasActiveMemberForOwnerUserId: (ownerUserId) =>
@@ -14440,20 +14503,18 @@ export class Space extends DurableObject<CoreBindings> {
       spacePassword,
       verifySpacePasswordProof,
     });
-    const selfJoinUserId = resolveOrganizationSpaceSelfJoinUserId({
+    const linkJoinUserId = resolveHumanSpaceSelfJoinUserId({
       context,
       members: parsed.data.members,
-      meta: metaRecord,
     });
-    const organizationMembership =
-      !joinAuthorization.ok && selfJoinUserId
-        ? await resolveOrganizationMembershipById({
-            env: this.bindings,
-            organizationId: metaRecord.organizationId,
-            userId: selfJoinUserId,
-            requestId: context.actorContext.requestId,
-          })
-        : null;
+    const organizationMembership = linkJoinUserId
+      ? await resolveOrganizationMembershipById({
+          env: this.bindings,
+          organizationId: metaRecord.organizationId,
+          userId: linkJoinUserId,
+          requestId: context.actorContext.requestId,
+        })
+      : null;
     if (
       organizationMembership &&
       !organizationMembership.ok &&
@@ -14469,6 +14530,13 @@ export class Space extends DurableObject<CoreBindings> {
     metaRecord = this.readSpaceMetaRecord();
     if (!metaRecord) {
       return this.spaceNotFoundResponse();
+    }
+    const externalLinkJoin = organizationMembership?.ok === false;
+    if (externalLinkJoin && !allowsExternalSpaceLinkJoin(metaRecord)) {
+      return this.spaceAccessAuthorizationFailureResponse({
+        code: "space.membership_required",
+        requestId: context.actorContext.requestId,
+      });
     }
     const organizationSelfJoin =
       organizationMembership?.ok === true &&
@@ -14528,18 +14596,37 @@ export class Space extends DurableObject<CoreBindings> {
       );
     }
 
-    const response = await addSpaceMembersUseCase({
-      sql: this.ctx.storage.sql,
-      env: this.bindings,
-      spaceId: this.spaceId,
-      members: parsed.data.members,
-      actorProfileId: context.actorContext.openMeldProfileId,
-      actorOwnerUserId: context.actorContext.ownerUserId,
-      actorDisplayName:
-        context.actorContext.profileName ?? context.actorContext.ownerName,
-      viewerOwnerUserId: context.actorContext.ownerUserId,
-      viewerProfileId: context.actorContext.openMeldProfileId,
-      liveSessions: this.sessions.values(),
+    // Password and Organization checks may yield. Never commit an admission
+    // against policy that changed while those checks were in flight.
+    if (this.readSpaceMetaRecord()?.updatedAt !== joinPolicyUpdatedAt) {
+      return this.spaceAccessAuthorizationFailureResponse({
+        code: "space.membership_required",
+        requestId: context.actorContext.requestId,
+      });
+    }
+    const response = this.ctx.storage.transactionSync(() => {
+      const result = addSpaceMembersUseCase({
+        sql: this.ctx.storage.sql,
+        env: this.bindings,
+        spaceId: this.spaceId,
+        members: parsed.data.members,
+        actorProfileId: context.actorContext.openMeldProfileId,
+        actorOwnerUserId: context.actorContext.ownerUserId,
+        actorDisplayName:
+          context.actorContext.profileName ?? context.actorContext.ownerName,
+        viewerOwnerUserId: context.actorContext.ownerUserId,
+        viewerProfileId: context.actorContext.openMeldProfileId,
+        liveSessions: this.sessions.values(),
+      });
+      if (externalLinkJoin && linkJoinUserId) {
+        this.ctx.storage.sql.exec(
+          "INSERT INTO space_guest_users (user_id, invitation_id, joined_at) VALUES (?, ?, ?) ON CONFLICT (user_id) DO NOTHING",
+          linkJoinUserId,
+          `public-link:${this.spaceId}`,
+          Date.now()
+        );
+      }
+      return result;
     });
     await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
     if (response.addedMemberIds.length > 0) {

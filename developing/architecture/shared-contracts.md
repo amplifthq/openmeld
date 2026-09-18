@@ -27,6 +27,39 @@
 
 ## Desktop platform contract
 
+`computer-connection.ts` owns the account-bound native Connect/Disconnect
+requests, progress events, and connection result. These IPC additions ship with
+their bundled renderer. Progress accepts the CLI's existing verbose and compact
+Agent View envelopes. Failed Connect results may include a local redacted
+diagnostic-file path; it is not a cloud URL or credential.
+
+The existing strict `computer-connection-v1` review output is unchanged, so old
+Desktop builds can still read new CLI versions. The additive reviewed
+`computer disconnect` CLI command requires updated Tools; an older CLI refuses
+it without stopping or logging out. Existing cloud setup, Wake, Space actions,
+status, diagnostics, and self-rescue contracts are unchanged in both rollout
+directions. No execution epoch or cloud minimum-version increase is needed.
+Publish the compatible CLI update before shipping this Desktop capability;
+local-component stamping remains deferred to the authorized release worktree.
+Feature candidates still run base-aware `verify:release-ready --defer-release`
+through Final Candidate; deferring publication metadata does not skip packaged
+CLI/Service build verification.
+The explicit-device Forget route already uses Core account authorization.
+
+`desktop-updater.ts` owns main/renderer update snapshots, action names and the
+request-scoped restart preparation reply. Existing trusted-window authorization
+applies before every updater IPC call. Renderer replies contain only the main
+request ID and whether existing owners saved their work. Main alone selects the
+fixed production feed and starts download or installation. These local IPC
+additions ship with the matching bundled renderer; cloud, CLI, Service, Skills,
+Core and Gateway execution contracts and their version floors do not change.
+
+`desktop-release.ts` owns immutable candidate metadata and the sole promoted
+release pointer. The optional ZIP metadata preserves older DMG-only candidate
+links, but promotion requires a ZIP. The default page, legacy JSON and updater
+feed derive their version from that same pointer. No separate latest manifest
+may be edited or uploaded for electron-updater.
+
 `desktop-notifications.ts` owns additive renderer/native Inbox reference,
 test-request and delivery-result contracts. Only the current trusted window
 can request delivery. Native credentials reread the recipient-authorized Core
@@ -42,6 +75,14 @@ late native events cannot turn cancellation into delivery. Delivered alerts
 retain click-back across Organization switches; account invalidation clears all.
 This is a delivery permit, not account or Inbox authority; native
 session and recipient-authorized Core reads remain mandatory.
+The optional nullable `unreadCount` in the same context projects the existing
+Core Inbox summary's `totalUnreadCount` for the macOS menu bar. It includes
+ordinary unread items, not read unresolved actions, and is independent of delivery
+preferences. Main accepts only a bounded numeric value, checks native account
+identity, and rejects results after context or session invalidation; it never
+accepts arbitrary tray text. Zero and unknown counts hide the number. The
+existing native refresh signal refreshes the shared summary without introducing
+another polling owner or unread store.
 These additions ship with the matching local renderer and require no cloud,
 CLI, Service, Wake or runtime contract change. Existing Desktop bundles retain
 their existing behavior; cloud rollout does not require a new Desktop floor.
@@ -60,6 +101,16 @@ compiles `https://openmeld.ai`; runtime renderer or lane configuration cannot
 select a different endpoint. Native owns SDK credentials and strips response
 cookies from renderer output. Generated server functions and generic Auth APIs
 remain unavailable to installed renderers.
+
+The same schema file owns the bundled Desktop Space-stream IPC events. A close
+event carries its required numeric WebSocket close code and reason from native
+Main through preload to the matching renderer. Preload rejects incomplete or
+extra shapes, and the renderer adapts a validated close into `CloseEvent` for
+the existing shared Space consumer. This is transport evidence, not another
+source of Space access or live-state truth. Because Main, preload, and renderer
+ship as one Desktop bundle, this expanded internal shape requires no installed
+contract-version bump and changes no cloud, CLI, Service, Core, or Gateway
+payload.
 
 `GET /v1/cli/release` projects only `channels.stable.version` from the existing
 public CLI binary manifest. `cliReleaseSchema` and the shared API client own its
@@ -1909,9 +1960,14 @@ managed skill target count. It may also include the computer-owned OpenMeld
 Tools maintenance preference as `maintenance.automaticUpdatesEnabled` plus a
 bounded `ready | needs_help` status. When an OpenMeld Tools update exists, the same
 object may include the Service-owned safe operation projection: opaque id,
-phase, request source, target version, urgency, and timestamps. Core passes
-the maintenance and operation projections through unchanged; it does not create
-another update state.
+phase, request source, target version, urgency, and timestamps. The operation
+shape remains unchanged. A fully-prefixed, allowlisted update failure code may
+travel through the existing CLI component `reasonCodes`; Core carries only the
+first recognized code when the associated operation is `restored` or
+`needs_help`. It drops the code when the operation is absent or non-terminal,
+and drops every other Service-provided diagnostic string. Web maps the surviving
+code to fixed user-safe copy under the same terminal-phase gate. Raw stderr and
+diagnostic error text remain local. Core does not create another update state.
 
 `local-components.ts`, `daemon/runtime-transport.ts`, and
 `http/local-runtimes.ts` also own the strict OpenMeld Tools control contract.
@@ -2171,6 +2227,12 @@ This JPEG/PNG attachment contract remains a read and runtime compatibility
 surface for messages authored before canonical chat files. New Web and CLI
 Composer uploads must use the Space File contract below. No migration or
 dual-write projects old attachment objects into Files.
+
+Attachment downloads use the owning Space's current read authorization, including
+anonymous public reading and Space-only Guests. Core derives the Organization
+from the authorized Space, never the reader's selected Organization. Download
+responses use `private, no-store`; upload and deletion retain their existing
+authenticated membership requirements.
 
 `packages/schemas` owns the shared Space attachment descriptor, upload query and
 response schemas, Core RPC metadata payloads, MIME and size limits, and
@@ -2797,8 +2859,16 @@ Agent Space-stream paths:
   identity and a versioned positive tool-call limit; it is not a completed or
   failed callback body and cannot carry assistant text. The turn envelope owns
   the matching continuation attempt, previous submission id, and reason. Core
-  consumes this additive event before the Remote Agent emits it; older final
-  callback bodies remain valid throughout rollout.
+  retains this consumer for existing checkpoint recovery. Current workers do
+  not emit a new checkpoint on normal tool-budget boundaries: assignment-wide
+  safety exhaustion produces the existing failed callback with shared reason
+  `remote_agent.tool_call_budget_exceeded`. The private worker execution record
+  owns a legacy checkpoint before callback projection; its public execution
+  status remains `completed` for that internal submission, not for the entire
+  native delivery. Failure and cancellation override checkpoint recovery.
+  Older final callback bodies remain valid; no CLI/Service protocol version or
+  D1 migration changes. Rollback must drain new private worker state as described
+  in the Remote Agent runtime owner document.
 - `packages/schemas/src/schemas/daemon/runtime-transport.ts` owns the Local
   OpenMeld Service-to-Core privacy-bounded tool-activity frame. The frame
   carries RuntimeCoordinator execution identity, current execution-token echo,
@@ -6114,6 +6184,14 @@ send targets. Clients, Core, and dispatch prompts may adapt source facts before
 calling this layer, but they must not rebuild separate member-directory,
 mention-label, or send-target rules locally.
 
+Shared Wake progress matching also belongs to `packages/space`. Two known,
+different dispatch IDs cannot match through a common source or client-message
+ID. Matching local pending identity may gain a dispatch ID, and accepted final
+signals clear only that execution. This is projection policy, including Core's
+recent-signal cleanup; it adds no execution writer, wire field, persisted state,
+or new Stop eligibility rule. Web's scoped outcome cache remembers accepted
+evidence for presentation only.
+
 The member directory is a Space read projection and authoring aid. It must not
 become Space membership truth, Agent Profile readiness truth, Binding truth, or
 RuntimeCoordinator execution authority.
@@ -6489,6 +6567,9 @@ submit only a selection. Core constructs requester/discussion scope and assigns
 the context once. Native conversation IDs and local workspace fingerprints are
 resolved from retained Core context records. Results echo the context ID; native
 history checkpoints are stored per accepted Wake and survive Head retirement.
+A fork source's completed-history boundary is optional in the assignment: when
+no checkpoint was frozen, Core names the source identity and the harness
+confirms the boundary from that source's own retained history.
 
 An omitted access preference selects `space_context`; local project access is
 explicit or inherited from an authorized fork source. `workspace: isolated`
@@ -7076,6 +7157,15 @@ entries is never a valid degradation.
 
 ## Space Entry Resolution Contract
 
+Public HTML advertises `GET /v1/spaces/:spaceId/context` as an alternate JSON
+representation. `spaceReadContextSchema` is a discovery directory, not a second
+content store: it links existing authorized Space reads and explains bounded
+pagination and Thread/file relationships. Message pages expose `Link: rel=next`.
+All anonymous-readable resources return `private, no-store` and `noindex,
+nofollow`; these headers are not a guarantee against copying or model training.
+An authorized reply-only entry target resolves its canonical Thread root in the
+Space owner before clients perform navigation.
+
 `packages/schemas/src/schemas/http/space-entry.ts` owns the shared Space entry
 target and resolution read model. The target preserves the Space plus optional
 message and Thread-root focus so a client can continue to the original
@@ -7087,6 +7177,17 @@ projection into separate `view` and `participation` outcomes. This separation
 is required because `public_view_join_password` permits reading while still
 requiring a password to join. Web, CLI, and Agent View consume the result; they
 must not rebuild the access table from HTTP status codes or client caches.
+
+Entry resolution reads the existing authorized Space metadata RPC for the name
+and access mode, then the existing viewer membership projection. It must not
+read full status, Agent readiness, runtime routes, or Service health to decide
+entry. Metadata and status enforce the same canonical Space access policy;
+missing access-mode evidence fails closed. The response contract is unchanged.
+Status member summaries also omit optional readiness counts and do not enrich
+runtime readiness. Operational members remain the readiness owner, and absence
+of those optional counts is not an offline verdict. Existing schema consumers
+accept these omissions; no CLI, Service, Wake, setup, publication, or diagnostic
+contract/version changes or coordinated rollout are required.
 
 The resolver is a read projection, not an authorization token. Every content
 or mutation endpoint still performs its own Core-owned authorization. Same-

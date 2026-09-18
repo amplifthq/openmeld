@@ -1,4 +1,23 @@
 import type { SpaceComposerUploadDescriptor } from "@openmeld/schemas/types";
+import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
+
+let pendingWrites = 0;
+const failedWrites = new Set<string>();
+registerClientVersionRecoveryBlocker(
+	() => pendingWrites > 0 || failedWrites.size > 0
+);
+async function persistFileDraft(id: string, write: () => Promise<void>) {
+	pendingWrites++;
+	try {
+		await write();
+		failedWrites.delete(id);
+	} catch (error) {
+		failedWrites.add(id);
+		throw error;
+	} finally {
+		pendingWrites--;
+	}
+}
 
 export type ComposerFileDraft = {
 	id: string;
@@ -10,9 +29,21 @@ export type ComposerFileDraft = {
 	upload?: SpaceComposerUploadDescriptor;
 };
 
+export type ComposerFileSelection = Pick<
+	ComposerFileDraft,
+	"id" | "file" | "publishMutationId" | "upload"
+>;
+
 let database: Promise<IDBDatabase> | undefined;
 // File batches can be added within one millisecond; preserve selection order.
 let lastCreatedAt = 0;
+const draftListeners = new Set<(scope: string) => void>();
+export function subscribeComposerFileDrafts(listener: (scope: string) => void) {
+	draftListeners.add(listener);
+	return () => {
+		draftListeners.delete(listener);
+	};
+}
 function openDatabase() {
 	database ??= new Promise<IDBDatabase>((resolve, reject) => {
 		const request = indexedDB.open("openmeld-composer-files", 1);
@@ -27,7 +58,7 @@ function openDatabase() {
 	return database;
 }
 
-export async function saveComposerFileDraft(
+async function writeComposerFileDraft(
 	input: Omit<ComposerFileDraft, "expiresAt" | "createdAt">
 ) {
 	const createdAt = Math.max(Date.now(), lastCreatedAt + 1);
@@ -49,11 +80,14 @@ export async function saveComposerFileDraft(
 		tx.onabort = () => reject(tx.error);
 		tx.onerror = () => reject(tx.error);
 	});
+	for (const listener of draftListeners) {
+		listener(input.scope);
+	}
 }
 
 // Update only an existing draft: a late upload completion must never recreate
 // a file the user removed or already sent.
-export async function saveComposerFileDraftUpload(
+async function writeComposerFileDraftUpload(
 	id: string,
 	upload: SpaceComposerUploadDescriptor
 ) {
@@ -73,7 +107,7 @@ export async function saveComposerFileDraftUpload(
 	});
 }
 
-export async function removeComposerFileDraft(id: string) {
+async function deleteComposerFileDraft(id: string) {
 	const db = await openDatabase();
 	await new Promise<void>((resolve, reject) => {
 		const tx = db.transaction("files", "readwrite");
@@ -97,6 +131,30 @@ export async function readComposerFileDrafts(
 		request.onsuccess = () => resolve(request.result);
 		request.onerror = () => reject(request.error);
 	});
+	return retainCurrentDrafts(drafts);
+}
+
+// An in-flight send keeps attachment IDs while its route hands storage ownership
+// to the ready conversation. Read those same files even after their scope moves.
+export async function readComposerFileDraftsByIds(
+	ids: readonly string[]
+): Promise<ComposerFileDraft[]> {
+	const db = await openDatabase();
+	const store = db.transaction("files").objectStore("files");
+	const drafts = await Promise.all(
+		ids.map(
+			(id) =>
+				new Promise<ComposerFileDraft | undefined>((resolve, reject) => {
+					const request = store.get(id);
+					request.onsuccess = () => resolve(request.result);
+					request.onerror = () => reject(request.error);
+				})
+		)
+	);
+	return retainCurrentDrafts(drafts.filter((draft) => draft !== undefined));
+}
+
+async function retainCurrentDrafts(drafts: ComposerFileDraft[]) {
 	await Promise.all(
 		drafts
 			.filter((d) => d.expiresAt <= Date.now())
@@ -105,4 +163,19 @@ export async function readComposerFileDrafts(
 	return drafts
 		.filter((d) => d.expiresAt > Date.now())
 		.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+}
+
+export function saveComposerFileDraft(
+	input: Omit<ComposerFileDraft, "expiresAt" | "createdAt">
+) {
+	return persistFileDraft(input.id, () => writeComposerFileDraft(input));
+}
+export function saveComposerFileDraftUpload(
+	id: string,
+	upload: SpaceComposerUploadDescriptor
+) {
+	return persistFileDraft(id, () => writeComposerFileDraftUpload(id, upload));
+}
+export function removeComposerFileDraft(id: string) {
+	return persistFileDraft(id, () => deleteComposerFileDraft(id));
 }

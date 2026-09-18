@@ -1,8 +1,10 @@
+import type { AccountSession } from "@openmeld/schemas";
 import type { QueryClient } from "@tanstack/react-query";
 import { clearAllComposerDrafts } from "#/lib/composer-draft-storage";
 import { clearSpaceConversationPositions } from "#/lib/space-conversation-position";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
+import { userQueryKeys } from "#/query/query-keys";
 
 export const ACCOUNT_AUTH_CHANGE_STORAGE_KEY =
 	"openmeld.auth.account-change.v1";
@@ -15,9 +17,14 @@ export type AccountAuthChangeReason =
 
 export async function resetAccountScopedQueriesAfterAuthChange(
 	queryClient: QueryClient,
-	options?: { queryPersistence?: BrowserQueryPersistenceController }
+	options?: {
+		preserveComposerDrafts?: boolean;
+		queryPersistence?: BrowserQueryPersistenceController;
+	}
 ): Promise<void> {
-	clearAllComposerDrafts();
+	if (!options?.preserveComposerDrafts) {
+		clearAllComposerDrafts();
+	}
 	clearSpaceConversationPositions();
 	const queryPersistence =
 		options?.queryPersistence ?? resolveAppQueryPersistenceController();
@@ -32,6 +39,36 @@ export async function resetAccountScopedQueriesAfterAuthChange(
 	}
 	await queryClient.cancelQueries({});
 	queryClient.removeQueries({});
+}
+
+export function readKnownAccountIdBeforeSessionRevalidation(
+	queryClient: QueryClient
+): string | undefined {
+	return queryClient.getQueryData<AccountSession>(userQueryKeys.session)?.user
+		.id;
+}
+
+export function sessionReadConfirmsPrivateCleanup(input: {
+	previousAccountId: string | null | undefined;
+	nextAccountId: string | null;
+}): boolean {
+	return (
+		input.nextAccountId === null ||
+		(typeof input.previousAccountId === "string" &&
+			input.previousAccountId !== input.nextAccountId)
+	);
+}
+
+export async function clearPrivateAccountStateAfterSessionRead(
+	queryClient: QueryClient,
+	input: {
+		previousAccountId: string | null | undefined;
+		nextAccountId: string | null;
+	}
+): Promise<void> {
+	if (sessionReadConfirmsPrivateCleanup(input)) {
+		await resetAccountScopedQueriesAfterAuthChange(queryClient);
+	}
 }
 
 export async function completeAccountAuthChange(

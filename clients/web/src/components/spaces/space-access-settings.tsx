@@ -147,13 +147,18 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 					) : null}
 				</section>
 			)}
-			{hasExternalAccess && !isShare ? (
+			{isShare ? null : (
 				<section className="space-y-2 border-border/60 border-t pt-4">
 					<div className="flex items-center gap-2 font-medium text-sm">
 						<GlobeIcon aria-hidden="true" className="size-4" />
-						Link access is enabled
+						Link access
 					</div>
 					<p className="text-muted-foreground text-xs/relaxed">{audience}</p>
+					<p className="text-muted-foreground text-xs/relaxed">
+						Public reading shares all existing and future messages, Threads,
+						files, and shared Space context without sign-in. Reading does not
+						join the Space.
+					</p>
 					<Accordion>
 						<AccordionItem value="link-access">
 							<AccordionTrigger
@@ -177,7 +182,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 						</AccordionItem>
 					</Accordion>
 				</section>
-			) : null}
+			)}
 			{!isShare &&
 			input.canManageAccess &&
 			organization &&
@@ -229,9 +234,9 @@ function describeLinkAccess(
 ): string {
 	switch (accessMode) {
 		case "public":
-			return "Anyone with the link can view and join this Space.";
+			return "Anyone with the link can read this Space. External visitors can join only when guests are allowed.";
 		case "public_view_join_password":
-			return "Anyone with the link can view. People outside the organization need a password to join.";
+			return "Anyone with the link can read. External visitors need a password and guest access to join.";
 		case "protected":
 			return "People with the password can view and join this Space.";
 		default:

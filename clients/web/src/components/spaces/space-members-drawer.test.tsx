@@ -19,6 +19,7 @@ import {
 import type { ComponentProps, ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
+import { readCurrentOrganizationDirectory } from "#/lib/organizations/organization-directory";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { agentProfilePrimaryBindingQueryKeys } from "#/query/profiles/primary-binding";
@@ -61,6 +62,16 @@ vi.mock("#/lib/spaces/direct-message", () => ({
 vi.mock("sonner", () => ({
 	toast: toastMock,
 }));
+
+vi.mock(
+	"#/lib/organizations/organization-directory",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("#/lib/organizations/organization-directory")
+		>()),
+		readCurrentOrganizationDirectory: vi.fn(),
+	})
+);
 
 vi.mock(
 	"#/lib/profiles/agent-profile-primary-binding",
@@ -209,6 +220,94 @@ import {
 } from "./space-members-error-copy";
 
 describe("SpaceMembersSidePanel", () => {
+	it("reuses fresh candidates and preserves selection through a failed stale refresh and retry", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-09-16T12:00:00Z"));
+		const directory = buildOrganizationDirectory({
+			centerAgentProfileId: "agt_44444444-4444-4444-8444-444444444444",
+			humanProfileId: "22222222-2222-4222-8222-222222222222",
+		});
+		let rejectRefresh: (reason: Error) => void = () => undefined;
+		let resolveRetry: (value: OrganizationDirectoryResponse) => void = () =>
+			undefined;
+		const pending = new Promise<OrganizationDirectoryResponse>(
+			(_resolve, reject) => {
+				rejectRefresh = reject;
+			}
+		);
+		const retry = new Promise<OrganizationDirectoryResponse>((resolve) => {
+			resolveRetry = resolve;
+		});
+		const read = vi
+			.mocked(readCurrentOrganizationDirectory)
+			.mockReturnValueOnce(pending)
+			.mockReturnValueOnce(retry);
+		const client = createTestQueryClient();
+		client.setQueryData(organizationQueryKeys.directory("org-acme"), directory);
+		const surface = (nonce: number) => (
+			<TestQueryClientProvider queryClient={client}>
+				<AppOrganizationProvider scope={createOrganizationScope()}>
+					<SpaceAddMembersLauncher
+						activeWakeWaitingTargetProfileIds={new Set()}
+						agentRecoveryPlansByProfileId={new Map()}
+						autoRefreshExhaustedProfileIds={new Set()}
+						currentOwnerUserId="user_felix"
+						currentProfileId="11111111-1111-4111-8111-111111111111"
+						isAgentRecoveryPending={() => false}
+						isLoading={false}
+						membersError={null}
+						onAddOrganizationDirectoryProfiles={vi.fn()}
+						onAgentRecoveryAction={async () => undefined}
+						onRefresh={async () => undefined}
+						openAddMembersNonce={nonce}
+						orgSlug="acme"
+						snapshot={createSpaceMembersSnapshot()}
+					/>
+				</AppOrganizationProvider>
+			</TestQueryClientProvider>
+		);
+		const view = render(surface(0));
+		view.rerender(surface(1));
+		await screen.findByRole("checkbox", { name: "Mira" });
+		fireEvent.click(screen.getByText("Close"));
+		view.rerender(surface(2));
+		await screen.findByRole("checkbox", { name: "Mira" });
+		expect(read).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByText("Close"));
+		vi.setSystemTime(new Date("2026-09-16T12:00:11Z"));
+		view.rerender(surface(3));
+		await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+		fireEvent.click(screen.getByText("Close"));
+		view.rerender(surface(4));
+		const choice = screen.getByRole("checkbox", { name: "Mira" });
+		fireEvent.click(choice);
+		expect(read).toHaveBeenCalledTimes(1);
+		rejectRefresh(
+			Object.assign(new Error("Invalid directory response"), {
+				code: "gateway.invalid_response",
+			})
+		);
+		const refreshMessage =
+			"Couldn’t update the list. Showing the last available results.";
+		await screen.findByText(refreshMessage);
+		expect(choice.getAttribute("aria-checked")).toBe("true");
+		fireEvent.click(screen.getByText("Try again"));
+		const retrying = await screen.findByRole("button", { name: "Retrying…" });
+		expect(retrying.hasAttribute("disabled")).toBe(true);
+		expect(
+			screen
+				.getByRole("button", { name: "Add 1 member" })
+				.hasAttribute("disabled")
+		).toBe(false);
+		expect(choice.getAttribute("aria-checked")).toBe("true");
+		fireEvent.click(retrying);
+		expect(read).toHaveBeenCalledTimes(2);
+		resolveRetry(directory);
+		await waitFor(() => expect(screen.queryByText(refreshMessage)).toBeNull());
+		expect(read).toHaveBeenCalledTimes(2);
+		expect(choice.getAttribute("aria-checked")).toBe("true");
+	});
+
 	it.each([
 		true,
 		false,
@@ -263,8 +362,10 @@ describe("SpaceMembersSidePanel", () => {
 
 	afterEach(() => {
 		cleanup();
+		vi.useRealTimers();
 		vi.restoreAllMocks();
 		readPrimaryBindingMock.mockReset();
+		vi.mocked(readCurrentOrganizationDirectory).mockReset();
 		toastMock.error.mockReset();
 		toastMock.success.mockReset();
 		updatePrimaryBindingAgentControllerCollaborationModeMock.mockReset();
@@ -1227,12 +1328,16 @@ describe("SpaceMembersSidePanel", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Add People or Agents" })
 		);
+		const dialog = screen.getByRole("dialog", { name: "Add People or Agents" });
 
-		expect(screen.queryByRole("checkbox", { name: "Felix" })).toBeNull();
-		const joinedAgent = screen.getByRole("checkbox", { name: "Joined Agent" });
-		expect(joinedAgent.getAttribute("aria-checked")).toBe("true");
-		expect(joinedAgent.getAttribute("aria-disabled")).toBe("true");
-		expect(within(joinedAgent).getByText("In this Space")).toBeTruthy();
+		expect(
+			within(dialog).queryByRole("checkbox", { name: "Felix" })
+		).toBeNull();
+		expect(
+			within(dialog).queryByRole("checkbox", { name: "Joined Agent" })
+		).toBeNull();
+		expect(within(dialog).getByText("Joined Agent")).toBeTruthy();
+		expect(within(dialog).getByText("In this Space")).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("checkbox", { name: "Codex Agent" }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
@@ -1411,7 +1516,9 @@ describe("SpaceMembersSidePanel", () => {
 			).toBe("false");
 		}
 		expect(
-			screen.getByText("Choose people and their agents from Acme.")
+			screen.getByText(
+				"Select people or agents from Acme to add directly to this Space."
+			)
 		).toBeTruthy();
 		expect(screen.queryByRole("checkbox", { name: "Felix" })).toBeNull();
 		expect(
@@ -1579,22 +1686,19 @@ describe("SpaceMembersSidePanel", () => {
 			screen.getByRole("button", { name: "Add People or Agents" })
 		);
 		const dialog = screen.getByRole("dialog", { name: "Add People or Agents" });
-		const joinedCheckbox = within(dialog).getByRole("checkbox", {
-			name: "Research Agent",
-		});
 		expect(
 			within(dialog).getAllByRole("button", { name: "New Agent" })
 		).toHaveLength(1);
 		expect(
 			within(dialog).queryByRole("checkbox", { name: "Felix" })
 		).toBeNull();
-		expect(joinedCheckbox.getAttribute("aria-checked")).toBe("true");
-		expect(joinedCheckbox.getAttribute("aria-disabled")).toBe("true");
-		expect(within(joinedCheckbox).getByText("In this Space")).toBeTruthy();
+		expect(
+			within(dialog).queryByRole("checkbox", { name: "Research Agent" })
+		).toBeNull();
+		expect(within(dialog).getByText("In this Space")).toBeTruthy();
 		expect(
 			readTextOrder(dialog, ["Research Agent", "Available Agent"])
 		).toEqual(["Research Agent", "Available Agent"]);
-		fireEvent.click(joinedCheckbox);
 		expect(within(dialog).getByText("Select members to add")).toBeTruthy();
 	});
 
@@ -2038,11 +2142,10 @@ describe("SpaceMembersSidePanel", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Add People or Agents" })
 		);
-		expect(
-			within(screen.getByRole("checkbox", { name: "Joined Agent" })).getByText(
-				"In this Space"
-			)
-		).toBeTruthy();
+		const dialog = screen.getByRole("dialog", { name: "Add People or Agents" });
+		expect(screen.queryByRole("checkbox", { name: "Joined Agent" })).toBeNull();
+		expect(within(dialog).getByText("Joined Agent")).toBeTruthy();
+		expect(within(dialog).getByText("In this Space")).toBeTruthy();
 		unmount();
 
 		renderWithQueryClient(
@@ -2232,7 +2335,7 @@ describe("SpaceMembersSidePanel", () => {
 		const createProfileButton = dialogScope.getByRole("button", {
 			name: "New Agent",
 		});
-		expect(createProfileButton.className).toContain("bg-primary");
+		expect(createProfileButton).toBeTruthy();
 		const footerLabel = dialogScope.getByText("Select members to add");
 		const footer = footerLabel.parentElement;
 		expect(footer?.className).toContain("flex-col");

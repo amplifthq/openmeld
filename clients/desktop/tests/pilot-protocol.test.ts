@@ -138,6 +138,10 @@ it("admits installed API requests before credentials and preserves SDK errors wi
           headers: {
             "set-cookie": "session=native-renewal",
             "cache-control": "private, no-store",
+            "x-openmeld-request-id": "desktop-read-42",
+            "server-timing": "core;dur=17.5",
+            authorization: "must-not-reach-renderer",
+            "x-private-debug": "must-not-reach-renderer",
           },
         }
       )
@@ -189,6 +193,10 @@ it("admits installed API requests before credentials and preserves SDK errors wi
   expect(await response.json()).toEqual({ code: "business.denied" });
   expect(response.headers.get("cache-control")).toBe("private, no-store");
   expect(response.headers.has("set-cookie")).toBe(false);
+  expect(response.headers.get("x-openmeld-request-id")).toBe("desktop-read-42");
+  expect(response.headers.get("server-timing")).toBe("core;dur=17.5");
+  expect(response.headers.has("authorization")).toBe(false);
+  expect(response.headers.has("x-private-debug")).toBe(false);
   const call = cloudRequest.mock.calls[0];
   if (!call) {
     throw new Error("Expected SDK request");
@@ -295,7 +303,6 @@ it("serves local page files and confines credentials to the configured cloud ori
       ],
       ["PUT", "/v1/local-runtimes/current/local-agents/codex/installations"],
       ["POST", "/v1/devices/current/forget"],
-      ["POST", "/v1/devices/device/forget"],
       ["PUT", "/v1/local-runtimes/current/openmeld-tools/maintenance"],
       ["POST", "/v1/prepare/sessions"],
       ["POST", "/v1/local-runtimes/current/openmeld-tools/%75pdate"],
@@ -313,13 +320,14 @@ it("serves local page files and confines credentials to the configured cloud ori
         "/v1/people-computers/device/lanes/dev-local/local-agents/codex/installations",
       ],
       ["POST", "/v1/spaces/space/messages"],
+      ["POST", "/v1/devices/device/forget"],
     ]) {
       expect(
         (await handle(new Request(`${DESKTOP_APP_ORIGIN}${path}`, { method })))
           .status
       ).toBe(200);
     }
-    expect(fetchCloud).toHaveBeenCalledTimes(3);
+    expect(fetchCloud).toHaveBeenCalledTimes(4);
   } finally {
     await rm(assets, { recursive: true, force: true });
   }

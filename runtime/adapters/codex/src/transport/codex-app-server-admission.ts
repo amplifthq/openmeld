@@ -4,6 +4,7 @@ export type CodexAppServerControlOperation =
   | "collaborationMode/list"
   | "thread/fork"
   | "thread/name/set"
+  | "thread/read"
   | "thread/resume"
   | "thread/start"
   | "turn/start";
@@ -23,6 +24,8 @@ const CONTROL_REQUEST_TIMEOUT_MS_BY_OPERATION: Record<
   "collaborationMode/list": FAST_METADATA_ADMISSION_TIMEOUT_MS,
   "thread/fork": COLD_CONTROLLER_ADMISSION_TIMEOUT_MS,
   "thread/name/set": FAST_METADATA_ADMISSION_TIMEOUT_MS,
+  // Reading history is a storage read: it does not initialize tools or MCP.
+  "thread/read": FAST_METADATA_ADMISSION_TIMEOUT_MS,
   // Resume loads the thread and initializes its tools/MCP just like start.
   "thread/resume": COLD_CONTROLLER_ADMISSION_TIMEOUT_MS,
   "thread/start": COLD_CONTROLLER_ADMISSION_TIMEOUT_MS,

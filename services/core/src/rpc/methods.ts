@@ -2408,6 +2408,12 @@ export type ExecuteExecutionRecoveryInput = {
 
 export type StartUsageExhaustedContinuationInput = {
   continuationClientMessageId: string;
+  /**
+   * Set only when the continuation cannot reuse the interrupted conversation.
+   * An occupied native conversation is the case: the re-post has to name the
+   * branch explicitly, because `auto` would resolve back to the same context.
+   */
+  contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
   interruptedClientMessageId: string;
   interruptedDispatchId: string;
   interruptedSourceSignalId: string;
@@ -5522,10 +5528,17 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       status: 503,
     });
   }
-  if (
-    recovery.status !== "available" ||
-    recovery.action !== parsedBody.data.action
-  ) {
+  const isAllowedAction =
+    recovery.status === "available" &&
+    (recovery.action === parsedBody.data.action ||
+      (recovery.action === "fork_interrupted_work" &&
+        (parsedBody.data.action === "skip_interrupted_work" ||
+          parsedBody.data.action === "continue_interrupted_work")) ||
+      (recovery.action === "continue_interrupted_work" &&
+        Boolean(recovery.forkInterruptedConversation) &&
+        parsedBody.data.action === "fork_interrupted_work"));
+
+  if (!isAllowedAction) {
     throw createCoreRpcHttpError({
       code: "agent_profile_work_recovery.not_pending",
       reason: "This recovery action is no longer needed.",
@@ -5539,6 +5552,25 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       ownerUserId: request.owner.id,
       targetProfileId: request.agentProfileId,
     });
+  } else if (parsedBody.data.action === "fork_interrupted_work") {
+    const continuation = await executeAgentProfileWorkContinuation({
+      context: request.context,
+      env,
+      expectedInterruptedTargetWakeLifecycleId:
+        parsedBody.data.expectedInterruptedTargetWakeLifecycleId,
+      forkInterruptedConversation: true,
+      ownerShard,
+      ownerUserId: request.owner.id,
+      recovery,
+      targetProfileId: request.agentProfileId,
+    });
+    if (continuation === "deferred") {
+      throw createCoreRpcHttpError({
+        code: "agent_profile_work_recovery.temporarily_unavailable",
+        reason: "OpenMeld is checking this Agent’s paused work. Try again.",
+        status: 503,
+      });
+    }
   } else if (parsedBody.data.action === "skip_interrupted_work") {
     await executeAgentProfileInterruptedWorkSkip({
       expectedInterruptedTargetWakeLifecycleId:
@@ -5565,7 +5597,7 @@ export async function rpcExecuteAgentProfileWorkRecovery(
     }
   }
   return executeAgentProfileWorkRecoveryResponseSchema.parse({
-    action: recovery.action,
+    action: parsedBody.data.action,
     status: "accepted",
   });
 }
@@ -5748,6 +5780,8 @@ function shouldMarkUsageContinuationNeedsAttention(error: unknown): boolean {
 async function executeAgentProfileWorkContinuation(input: {
   context: CoreRpcContextInput;
   env: CoreBindings;
+  expectedInterruptedTargetWakeLifecycleId?: string;
+  forkInterruptedConversation?: boolean;
   ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
   ownerUserId: string;
   recovery: Extract<
@@ -5763,6 +5797,17 @@ async function executeAgentProfileWorkContinuation(input: {
     )
   ) {
     return "deferred";
+  }
+  if (
+    input.expectedInterruptedTargetWakeLifecycleId !== undefined &&
+    input.expectedInterruptedTargetWakeLifecycleId !==
+      input.recovery.interruptedTargetWakeLifecycleId
+  ) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.not_pending",
+      reason: "This recovery action is no longer needed.",
+      status: 409,
+    });
   }
   const deterministicIdentity = await buildAgentProfileWorkContinuationIdentity(
     {
@@ -5784,6 +5829,10 @@ async function executeAgentProfileWorkContinuation(input: {
     spaceId,
     targetProfileId: input.targetProfileId,
   });
+  const forkInterruptedConversation = Boolean(
+    input.forkInterruptedConversation ||
+      input.recovery.forkInterruptedConversation
+  );
   if (input.recovery.authorizedContinuationClientMessageId === null) {
     const currentTarget =
       await requireCurrentAgentProfileWorkContinuationTarget({
@@ -5800,6 +5849,9 @@ async function executeAgentProfileWorkContinuation(input: {
         currentDefaultProjectId: currentTarget.defaultProjectId,
         expectedInterruptedTargetWakeLifecycleId:
           input.recovery.interruptedTargetWakeLifecycleId,
+        ...(forkInterruptedConversation
+          ? { forkInterruptedConversation: true }
+          : {}),
         ownerUserId: input.ownerUserId,
         requireAcceptedExecutionTargetRevision: true,
         targetProfileId: input.targetProfileId,
@@ -5811,6 +5863,17 @@ async function executeAgentProfileWorkContinuation(input: {
   await stub.rpcStartUsageExhaustedContinuation({
     continuationClientMessageId,
     context: input.context,
+    // The interrupted Wake is the fork source: §4C resolves and verifies the
+    // boundary from the source's own history, so the branch never inherits a
+    // turn the provider had not settled.
+    ...(forkInterruptedConversation
+      ? {
+          contextSelection: {
+            mode: "fork" as const,
+            sourceWakeId: input.recovery.interruptedTargetWakeLifecycleId,
+          },
+        }
+      : {}),
     interruptedClientMessageId: input.recovery.interruptedClientMessageId,
     interruptedDispatchId: input.recovery.interruptedDispatchId,
     interruptedSourceSignalId: input.recovery.interruptedSourceSignalId,
@@ -18753,7 +18816,7 @@ export async function rpcGetSpaceEntryResolution(
       : false;
   if (
     access.kind === "allowed" &&
-    access.status.accessMode === "members_only" &&
+    access.meta.accessMode === "members_only" &&
     !organizationMember &&
     !guest
   ) {
@@ -18789,6 +18852,13 @@ export async function rpcGetSpaceEntryResolution(
   });
   if (guest && response.view.state === "allowed") {
     response.view.experience = "guest";
+  }
+  if (response.view.state === "allowed" && target.signalId) {
+    const { stub } = resolveRpcSpaceStubOrThrow(env, target.spaceId);
+    response.target = await stub.rpcResolveReadTarget({
+      ...target,
+      spaceAccess,
+    });
   }
   return getSpaceEntryResolutionResponseSchema.parse(response);
 }
@@ -18844,9 +18914,12 @@ async function resolveSpaceEntryAccess(input: {
   spaceAccess: SpaceAccessContext;
   spaceId: string;
 }): Promise<SpaceEntryAccessResult> {
-  let status: GetSpaceStatusResponse;
+  let meta: SpaceMeta;
   try {
-    status = await rpcGetSpaceStatus(input.env, {
+    const { stub } = resolveRpcSpaceStubOrThrow(input.env, input.spaceId);
+    // The metadata read uses the same Space access policy as status, without
+    // reading member presentation, runtime routes, or Service health.
+    meta = await stub.rpcGetMeta({
       spaceId: input.spaceId,
       spaceAccess: input.spaceAccess,
     });
@@ -18861,6 +18934,13 @@ async function resolveSpaceEntryAccess(input: {
     }
     throw error;
   }
+  if (!meta.accessMode) {
+    throw createCoreRpcHttpError({
+      status: 503,
+      code: "space.access_unavailable",
+      reason: "The Space access mode could not be resolved.",
+    });
+  }
   const activeMember = input.context
     ? (
         await rpcGetSpaceViewerMembership(input.env, {
@@ -18870,7 +18950,15 @@ async function resolveSpaceEntryAccess(input: {
         })
       ).activeMemberProfiles.length > 0
     : false;
-  return { activeMember, kind: "allowed", status };
+  return {
+    activeMember,
+    kind: "allowed",
+    meta: {
+      name: meta.name,
+      accessMode: meta.accessMode,
+      allowGuests: meta.allowGuests === true,
+    },
+  };
 }
 
 export async function rpcGetSpaceConversationState(
@@ -19535,10 +19623,12 @@ export async function rpcResolveSpaceAttachmentForDownload(
   env: CoreBindings,
   input: ResolveSpaceAttachmentForDownloadInput
 ): Promise<SpaceAttachmentDescriptor> {
-  const access = await requireSpaceAttachmentAccess(env, input);
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const meta = await stub.rpcGetMeta({ spaceId, spaceAccess });
   const payload = resolveSpaceAttachmentForDownloadPayloadSchema.safeParse({
     attachmentId: input.attachmentId,
-    spaceId: access.spaceId,
+    spaceId,
   });
   if (!payload.success) {
     throwAttachmentNotFound();
@@ -19546,9 +19636,9 @@ export async function rpcResolveSpaceAttachmentForDownload(
 
   const attachment = await readSpaceAttachmentRecord({
     attachmentId: payload.data.attachmentId,
-    db: access.db,
-    organizationId: access.organizationId,
-    spaceId: access.spaceId,
+    db: requireSpaceAttachmentDb(env),
+    organizationId: meta.organizationId,
+    spaceId,
   });
   if (!attachment) {
     throwAttachmentNotFound();
@@ -24911,18 +25001,32 @@ export async function rpcSpaceFilePins(
   env: CoreBindings,
   input: SpaceFilePinsInput
 ): Promise<SpaceFilePinsResponse> {
-  const context = requireRpcContext(input.context);
+  const context = input.mutation
+    ? requireRpcContext(input.context)
+    : input.context;
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  return await stub.rpcFilePins({ ...input, spaceId, context });
+  return await stub.rpcFilePins({
+    ...input,
+    spaceId,
+    context,
+    spaceAccess: resolveRpcSpaceAccess(input),
+  });
 }
 
 export async function rpcSpaceMessagePins(
   env: CoreBindings,
   input: SpaceMessagePinsInput
 ): Promise<SpaceMessagePinsResponse> {
-  const context = requireRpcContext(input.context);
+  const context = input.mutation
+    ? requireRpcContext(input.context)
+    : input.context;
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  return await stub.rpcMessagePins({ ...input, spaceId, context });
+  return await stub.rpcMessagePins({
+    ...input,
+    spaceId,
+    context,
+    spaceAccess: resolveRpcSpaceAccess(input),
+  });
 }
 
 export async function rpcListSpaceTasks(
@@ -24930,12 +25034,15 @@ export async function rpcListSpaceTasks(
   input: ListSpaceTasksInput
 ): Promise<ListSpaceTasksResponse> {
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  const context = await authorizeSpaceTaskRpcContext(
-    env,
+  const context = input.context
+    ? await authorizeSpaceTaskRpcContext(env, spaceId, input.context)
+    : undefined;
+  return await stub.rpcListTasks({
+    ...input,
     spaceId,
-    requireRpcContext(input.context)
-  );
-  return await stub.rpcListTasks({ ...input, spaceId, context });
+    context,
+    spaceAccess: resolveRpcSpaceAccess({ ...input, context }),
+  });
 }
 
 export async function rpcGetSpaceTask(
@@ -24943,12 +25050,15 @@ export async function rpcGetSpaceTask(
   input: GetSpaceTaskInput
 ): Promise<SpaceTaskResponse> {
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  const context = await authorizeSpaceTaskRpcContext(
-    env,
+  const context = input.context
+    ? await authorizeSpaceTaskRpcContext(env, spaceId, input.context)
+    : undefined;
+  return await stub.rpcGetTask({
+    ...input,
     spaceId,
-    requireRpcContext(input.context)
-  );
-  return await stub.rpcGetTask({ ...input, spaceId, context });
+    context,
+    spaceAccess: resolveRpcSpaceAccess({ ...input, context }),
+  });
 }
 
 export async function rpcCreateSpaceTask(

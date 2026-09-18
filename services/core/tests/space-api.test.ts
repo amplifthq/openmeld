@@ -44,6 +44,7 @@ import {
   rpcCreateCenterAgentContextManifest,
   rpcCreateSpace,
   rpcGetSpaceBoard,
+  rpcGetSpaceEntryResolution,
   rpcGetSpaceStatus,
   rpcListCenterAgentSessions,
   rpcOpenCenterAgentDirectMessageSpace,
@@ -1134,6 +1135,31 @@ describe("OpenMeld Core", () => {
       expect(nativeStop).not.toHaveBeenCalled();
       expect(preAgentStop).not.toHaveBeenCalled();
     });
+  });
+
+  it.each([
+    ["public", "allowed"],
+    ["protected", "password_required"],
+    ["members_only", "unavailable"],
+  ] as const)("resolves anonymous %s entry through the authorized metadata read", async (accessMode, state) => {
+    const spaceId = await createSpace({
+      accessMode,
+      ...(accessMode === "protected" ? { password: "entry-secret" } : {}),
+    });
+    const result = await rpcGetSpaceEntryResolution(
+      env as unknown as CoreBindings,
+      {
+        spaceId,
+        spaceAccess: createAnonymousViewerSpaceAccessContext({
+          spaceId,
+          requestId: "entry-resolution-test",
+        }),
+      }
+    );
+    expect(result.view.state).toBe(state);
+    if (state !== "allowed") {
+      expect(result.safeContext).toEqual({});
+    }
   });
 
   it("routes Wake Stop POST requests to a typed response instead of 404", async () => {
@@ -9446,6 +9472,19 @@ describe("OpenMeld Core", () => {
     expect(threads.threads).toEqual([]);
     expect(threads.previews).toEqual([]);
 
+    const reader = namespace.get(namespace.idFromString(spaceId));
+    const readInput = { spaceId, spaceAccess: anonymousAccess };
+    const readSharedContext = [
+      () => reader.rpcGetHistoryNavigation(readInput),
+      () => reader.rpcListSpaceFiles(readInput),
+      () => reader.rpcListTasks(readInput),
+      () => reader.rpcMessagePins(readInput),
+      () => reader.rpcFilePins(readInput),
+    ];
+    for (const read of readSharedContext) {
+      await expect(read()).resolves.toBeDefined();
+    }
+
     const writeError = await rpcPostSignal(env as unknown as CoreBindings, {
       spaceId,
       profile: {
@@ -9466,6 +9505,18 @@ describe("OpenMeld Core", () => {
         code: "space.access.read_only",
       },
     });
+    await runInDurableObject(reader, (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE space_meta SET access_mode = 'members_only'"
+      );
+    });
+    for (const read of readSharedContext) {
+      const error = await read().then(
+        () => null,
+        (failure: unknown) => failure
+      );
+      expect(String(error)).toContain("space.membership_required");
+    }
   });
 
   it("requires writable access before returning an idempotent direct RPC signal", async () => {

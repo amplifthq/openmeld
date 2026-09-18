@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runProfileCurrentSession } from "../src/profile/current-session-command";
+import { stubNoDetectedLocalAgentEnvironment } from "./helpers/local-agent-environment";
 
 const { getCurrentSessionMock, presenter } = vi.hoisted(() => ({
   getCurrentSessionMock: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock("../src/space/api-client-foundation", () => ({
 describe("profiles current-session", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    stubNoDetectedLocalAgentEnvironment();
     vi.stubEnv("CODEX_THREAD_ID", "thread-current");
     getCurrentSessionMock.mockResolvedValue({
       currentOrganizationId: "org-1",

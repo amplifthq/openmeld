@@ -27,6 +27,144 @@ import {
 } from "./production-release.mjs";
 
 const REMOTE_SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
+const SPACE_TASK_PATHS = [
+  "packages/schemas/src/schemas/http/space-tasks.ts",
+  "services/core/src/rpc/methods.ts",
+  "services/core/src/space/transport/do/space.ts",
+  "services/gateway/src/routes/rpc-http.space-tasks.ts",
+  "clients/openmeld-cli/src/space/dispatch-task.ts",
+  "services/remote-agent/agent-core/tools.ts",
+];
+const SPACE_TASK_SCOPE_ERROR = /Space Task .*require/u;
+const SPACE_TASK_CONFLICT_ERROR = /Space Task receivers.*conflict/u;
+
+test("deploys Space Task RPC and HTTP receivers before their real callers", () => {
+  const plan = buildProductionReleasePlan({
+    base: "previous-release",
+    sourceSha: REMOTE_SOURCE_SHA,
+    scope: "web,cli,gateway,core,remote-agent",
+    changedPaths: SPACE_TASK_PATHS,
+  });
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.label),
+    [
+      "Deploy Core with the current published CLI projection",
+      "Verify Core deployment is visible",
+      "Deploy Gateway Worker",
+      "Verify Gateway Worker health",
+      "Deploy Web",
+      "Verify Web health",
+      "Deploy Remote Agent Worker",
+      "Verify Remote Agent deployment is visible",
+      "Publish CLI and deploy its Core release projection",
+      "Verify final R2/npm/Core alignment",
+    ]
+  );
+  assert.deepEqual(plan.deploySteps[0].args, [
+    "scripts/release/deploy-core-current-cli-projection.mjs",
+    "--release-sha",
+    REMOTE_SOURCE_SHA,
+  ]);
+  const automatic = resolveAutomaticReleaseScopes({
+    affectedPackages: ["openmeld-web"],
+    changedPaths: SPACE_TASK_PATHS,
+  });
+  assert.ok(
+    ["core", "gateway", "cli", "web"].every((scope) =>
+      automatic.includes(scope)
+    )
+  );
+});
+
+test("allows a Space Task receiver stage with the immutable published CLI projection", () => {
+  for (const scope of ["core", "core,gateway", "core,remote-agent"]) {
+    const plan = buildProductionReleasePlan({
+      base: "previous-release",
+      sourceSha: REMOTE_SOURCE_SHA,
+      scope,
+      changedPaths: SPACE_TASK_PATHS,
+    });
+    assert.equal(
+      plan.deploySteps[0].label,
+      "Deploy Core with the current published CLI projection"
+    );
+    assert.equal(
+      plan.deploySteps[1].label,
+      "Verify Core deployment is visible"
+    );
+    assert.ok(
+      !plan.deploySteps.some((step) => step.internalOperation === "publish-cli")
+    );
+    for (const steps of [plan.preflightSteps, plan.verifySteps]) {
+      assert.ok(
+        !steps.some(
+          (step) => step.label === "Verify Core CLI channel compatibility"
+        )
+      );
+    }
+    assert.ok(
+      plan.preflightSteps.some(
+        (step) => step.label === "Verify production Core Queue resources"
+      )
+    );
+  }
+  for (const scopes of [
+    ["cli"],
+    ["web"],
+    ["gateway"],
+    ["remote-agent"],
+    ["core", "cli"],
+    ["core", "web"],
+  ]) {
+    assert.throws(
+      () =>
+        buildProductionDeployStepSpecs(scopes, {
+          changedPaths: SPACE_TASK_PATHS,
+        }),
+      SPACE_TASK_SCOPE_ERROR
+    );
+  }
+});
+
+test("rejects opposing Space Task receiver orders instead of overriding existing constraints", () => {
+  for (const otherPaths of [
+    ["services/remote-agent/.flue/cloudflare.ts"],
+    [
+      "packages/schemas/src/schemas/http/auth-device-authorization.ts",
+      "clients/web/src/lib/cli-entry-command.ts",
+      "clients/openmeld-cli/src/openmeld.ts",
+    ],
+    [
+      "packages/schemas/src/schemas/http/space-wake-progress.ts",
+      "clients/openmeld-cli/src/space/wake-control-command.ts",
+    ],
+  ]) {
+    assert.throws(
+      () =>
+        buildProductionDeployStepSpecs(
+          ["core", "gateway", "web", "remote-agent", "cli"],
+          {
+            changedPaths: [...SPACE_TASK_PATHS, ...otherPaths],
+          }
+        ),
+      SPACE_TASK_CONFLICT_ERROR
+    );
+  }
+  for (const omitted of SPACE_TASK_PATHS.slice(0, 3)) {
+    const plan = buildProductionReleasePlan({
+      base: "previous-release",
+      sourceSha: REMOTE_SOURCE_SHA,
+      scope: "core",
+      changedPaths: SPACE_TASK_PATHS.filter((file) => file !== omitted),
+    });
+    assert.equal(plan.deploySteps[0].label, "Deploy Core Worker");
+    assert.ok(
+      plan.preflightSteps.some(
+        (step) => step.label === "Verify Core CLI channel compatibility"
+      )
+    );
+  }
+});
 const DEVICE_WAIT_ORDER_ERROR =
   /Device wait requires Core before Gateway and Web/u;
 const PERSONAL_CORE_RECEIVER_ERROR = /require the Core receiver/u;

@@ -15,9 +15,20 @@ vi.mock("#/lib/spaces/api", () => ({
 	createUnscopedWebSpaceApi: () => api,
 }));
 const drafts = vi.hoisted(() => new Map<string, ComposerFileDraft>());
+const draftListeners = vi.hoisted(() => new Set<(scope: string) => void>());
+const draftReadGates = vi.hoisted(
+	() => new Map<string, Promise<ComposerFileDraft[]>>()
+);
 vi.mock("#/lib/spaces/composer-file-drafts", () => ({
+	subscribeComposerFileDrafts: (listener: (scope: string) => void) => {
+		draftListeners.add(listener);
+		return () => draftListeners.delete(listener);
+	},
 	saveComposerFileDraft: (draft: ComposerFileDraft) => {
 		drafts.set(draft.id, draft);
+		for (const listener of draftListeners) {
+			listener(draft.scope);
+		}
 		return Promise.resolve();
 	},
 	saveComposerFileDraftUpload: (
@@ -35,13 +46,17 @@ vi.mock("#/lib/spaces/composer-file-drafts", () => ({
 		return Promise.resolve();
 	},
 	readComposerFileDrafts: async (scope: string) =>
+		draftReadGates.get(scope) ??
 		[...drafts.values()].filter((draft) => draft.scope === scope),
+	readComposerFileDraftsByIds: async (ids: string[]) =>
+		[...drafts.values()].filter((draft) => ids.includes(draft.id)),
 }));
 
 afterEach(() => {
 	cleanup();
 	vi.clearAllMocks();
 	drafts.clear();
+	draftReadGates.clear();
 });
 
 function setup() {
@@ -69,6 +84,167 @@ function setup() {
 		}
 	);
 }
+
+it("hands local new-chat drafts to the Space upload owner once with their original identities", async () => {
+	setup();
+	const local = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "human",
+			spaceId: "new-chat",
+			deferUpload: true,
+		})
+	);
+	await act(async () => {
+		await local.result.current.addFiles([
+			new File(["brief"], "brief.txt", { type: "text/plain" }),
+		]);
+	});
+	expect(api.stageComposerUpload).not.toHaveBeenCalled();
+	const saved = await local.result.current.readFileDrafts();
+	local.unmount();
+	const destination = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "human",
+			spaceId: "created-space",
+		})
+	);
+	await act(async () => {
+		await destination.result.current.addFiles(
+			saved.map((draft) => draft.file),
+			saved
+		);
+	});
+	await act(async () => {
+		await destination.result.current.addFiles(
+			saved.map((draft) => draft.file),
+			saved
+		);
+	});
+	expect(api.stageComposerUpload).toHaveBeenCalledTimes(1);
+	expect(destination.result.current.files).toHaveLength(1);
+	expect(destination.result.current.files[0].localId).toBe(saved[0].id);
+	expect(destination.result.current.files[0].publishMutationId).toBe(
+		saved[0].publishMutationId
+	);
+});
+
+it.each([
+	false,
+	true,
+])("adopts a loading draft into the ready composer, including a late save: %s", async (lateSave) => {
+	setup();
+	const local = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "",
+			spaceId: "chat",
+			storageKey: "account:pending-chat",
+			deferUpload: true,
+		})
+	);
+	const add = () =>
+		local.result.current.addFiles([
+			new File(["brief"], "brief.txt", { type: "text/plain" }),
+		]);
+	if (!lateSave) {
+		await act(add);
+	}
+	const destination = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "human",
+			spaceId: "chat",
+			restoreFromScopes: ["account:pending-chat"],
+		})
+	);
+	if (lateSave) {
+		await act(add);
+	}
+	await waitFor(() => expect(destination.result.current.files).toHaveLength(1));
+	expect(destination.result.current.files[0].localId).toBe(
+		local.result.current.files[0].localId
+	);
+	await waitFor(() => expect(api.stageComposerUpload).toHaveBeenCalledTimes(1));
+	// A send started by the loading route must still read the same attachment
+	// after the ready composer has taken over its storage scope.
+	const handoff = await local.result.current.readFileDrafts();
+	expect(handoff.map((draft) => draft.id)).toEqual([
+		destination.result.current.files[0].localId,
+	]);
+	act(() =>
+		destination.result.current.removeFile(
+			destination.result.current.files[0].localId
+		)
+	);
+	expect(destination.result.current.files).toHaveLength(0);
+});
+
+it.each([
+	"remove",
+	"consume",
+	"clear",
+	"keep",
+] as const)("does not undo %s when an older restoration finishes, and still adopts new files", async (action) => {
+	setup();
+	const hook = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "human",
+			spaceId: "chat",
+			restoreFromScopes: ["loading-chat"],
+		})
+	);
+	await act(async () =>
+		hook.result.current.addFiles([new File(["first"], "first.txt")])
+	);
+	const firstId = hook.result.current.files[0].localId;
+	let release!: (drafts: ComposerFileDraft[]) => void;
+	draftReadGates.set(
+		"loading-chat",
+		new Promise((resolve) => {
+			release = resolve;
+		})
+	);
+	act(() => {
+		for (const listener of draftListeners) {
+			listener("loading-chat");
+		}
+	});
+	act(() => {
+		if (action === "remove") {
+			hook.result.current.removeFile(firstId);
+		}
+		if (action === "clear") {
+			hook.result.current.clearFiles();
+		}
+		if (action === "consume") {
+			const submitted = hook.result.current.beginSubmission();
+			hook.result.current.consumePublishedFiles([firstId]);
+			hook.result.current.finishSubmission(submitted);
+		}
+	});
+	expect(hook.result.current.files).toHaveLength(action === "keep" ? 1 : 0);
+	// A different file saved by the loading owner must still be adopted.
+	const loading = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "human",
+			spaceId: "chat",
+			storageKey: "loading-chat",
+			deferUpload: true,
+		})
+	);
+	draftReadGates.delete("loading-chat");
+	await act(async () =>
+		loading.result.current.addFiles([new File(["second"], "second.txt")])
+	);
+	await act(async () => release([]));
+	expect(hook.result.current.files.map((file) => file.fileName)).toEqual(
+		action === "keep" ? ["first.txt", "second.txt"] : ["second.txt"]
+	);
+});
 
 it("keeps each conversation's attachments and pending upload when navigating away", async () => {
 	const hook = setup();

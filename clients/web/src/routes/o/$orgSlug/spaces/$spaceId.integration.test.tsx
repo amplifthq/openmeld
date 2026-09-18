@@ -1,4 +1,8 @@
-import type { GetSpaceStatusResponse } from "@openmeld/schemas/types";
+import type {
+	GetSpaceStatusResponse,
+	ListSpaceThreadsResponse,
+	SpaceBootstrapResponse,
+} from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -12,7 +16,9 @@ import {
 import { resolveLastUsedHumanProfileStorageKey } from "#/lib/spaces/last-used-profile";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import { startQueryKeys } from "#/query/query-keys";
+import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import { createSpaceConversationDisplaySnapshot } from "#/query/spaces/display-snapshot";
+import { spaceEntryResolutionQueryOptions } from "#/query/spaces/entry-resolution";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import {
 	createTestQueryClient,
@@ -218,6 +224,91 @@ describe("app space entry route", () => {
 		window.localStorage.clear();
 		vi.restoreAllMocks();
 	});
+	it("shows only the known title and conversation layout while cold access is pending", async () => {
+		resolveSpaceEntryMock.mockImplementation(
+			() => new Promise(() => undefined)
+		);
+		const queryClient = createTestQueryClient();
+		queryClient.setQueryData(
+			accountSpaceQueryKeys.items("profile-123", "account"),
+			{
+				pinnedItems: [],
+				spaceItems: [
+					createAccountSpaceItem({
+						activeMemberCount: 2,
+						spaceId: "space-123",
+						spacePurpose: "collaboration",
+					}),
+				],
+			}
+		);
+		renderAppSpaceEntry({
+			spaceId: "space-123",
+			profileId: "profile-123",
+			queryClient,
+		});
+		expect(
+			await screen.findByText("Current Human and Build Agent")
+		).toBeTruthy();
+		expect(screen.queryByText("Opening Space")).toBeNull();
+		expect(screen.queryByTestId("space-landing")).toBeNull();
+		expect(getBootstrapMock).not.toHaveBeenCalled();
+	});
+	it.each([
+		undefined,
+		"reply-1",
+	])("reuses prefetched entry on a cold click with target %s, even when the catalog infers a Thread", async (signalId) => {
+		const queryClient = createTestQueryClient();
+		const threadId = "thr_11111111-1111-4111-8111-111111111111";
+		const createdAt = "2026-09-15T00:00:00Z";
+		const catalog: ListSpaceThreadsResponse = {
+			threads: [
+				{
+					threadId,
+					spaceId: "space-123",
+					rootSignalId: "root-1",
+					createdAt,
+					updatedAt: createdAt,
+					createdByProfileId: "profile-123",
+				},
+			],
+			previews: [
+				{
+					threadId,
+					replyCount: 1,
+					signals: [],
+					placements: [
+						{ threadId, signalId: "reply-1", placement: "thread", createdAt },
+					],
+				},
+			],
+		};
+		queryClient.setQueryData(
+			spaceQueryKeys.threads("space-123", "profile-123"),
+			catalog
+		);
+		await queryClient.prefetchQuery(
+			spaceEntryResolutionQueryOptions({
+				enabled: true,
+				signalId,
+				spaceId: "space-123",
+				openMeldProfileId: "profile-123",
+			})
+		);
+		renderAppSpaceEntry({
+			focusSignalId: signalId,
+			spaceId: "space-123",
+			profileId: "profile-123",
+			queryClient,
+		});
+		expect(await screen.findByTestId("space-landing")).toBeTruthy();
+		expect(resolveSpaceEntryMock).toHaveBeenCalledOnce();
+		expect(
+			queryClient.getQueryData(
+				spaceQueryKeys.displaySnapshot("space-123", "profile-123")
+			)
+		).toBeUndefined();
+	});
 
 	it("restores a saved conversation on browser mount without waiting for the entry resolver or a client loader", async () => {
 		const queryClient = createTestQueryClient();
@@ -388,6 +479,7 @@ describe("app space entry route", () => {
 			spaceId: "space-123",
 		});
 		await waitFor(() => expect(getBootstrapMock).toHaveBeenCalledOnce());
+		expect(getSpaceStatusMock).not.toHaveBeenCalled();
 		expect(getBootstrapMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				spaceId: "space-123",
@@ -464,7 +556,7 @@ describe("app space entry route", () => {
 	});
 
 	it("redirects a current Direct Message from its legacy Space URL to the canonical route", async () => {
-		getSpaceStatusMock.mockResolvedValue(
+		mockBootstrapStatus(
 			createSpaceStatus({
 				spaceId: "space-dm",
 				spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
@@ -500,7 +592,7 @@ describe("app space entry route", () => {
 	});
 
 	it("opens a newly created Direct Message without flashing or redirecting through Spaces when the account index is still stale", async () => {
-		getSpaceStatusMock.mockResolvedValue(
+		mockBootstrapStatus(
 			createSpaceStatus({
 				spaceId: "space-new-dm",
 				spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
@@ -555,6 +647,12 @@ describe("app space entry route", () => {
 	});
 
 	it("preserves the exact focus target when a non-DM uses the Direct Messages URL", async () => {
+		mockBootstrapStatus(
+			createSpaceStatus({
+				spaceId: "space-regular",
+				spacePurpose: "collaboration",
+			})
+		);
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -585,6 +683,14 @@ describe("app space entry route", () => {
 	});
 
 	it("keeps a degraded three-member DM-origin Space on the Spaces route", async () => {
+		const queryClient = createTestQueryClient();
+		mockBootstrapStatus(
+			createSpaceStatus({
+				spaceId: "space-degraded-dm",
+				spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+				activeMemberCount: 3,
+			})
+		);
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -600,14 +706,23 @@ describe("app space entry route", () => {
 			profileId: "profile-123",
 			selectedHumanProfileId: "profile-123",
 			spaceId: "space-degraded-dm",
+			queryClient,
 		});
 
+		await waitFor(() =>
+			expect(
+				queryClient.getQueryData(
+					spaceQueryKeys.bootstrap("space-degraded-dm", "profile-123")
+				)
+			).toBeDefined()
+		);
 		expect(await screen.findByTestId("space-landing")).toBeTruthy();
 		expect(navigateMock).not.toHaveBeenCalled();
 	});
 
 	it("keeps a converted two-member DM-origin Space on the Spaces route", async () => {
-		getSpaceStatusMock.mockResolvedValue(
+		const queryClient = createTestQueryClient();
+		mockBootstrapStatus(
 			createSpaceStatus({
 				directMessageConvertedAt: "2026-08-07T12:00:00.000Z",
 				spaceId: "space-converted-dm",
@@ -619,8 +734,16 @@ describe("app space entry route", () => {
 			profileId: "profile-123",
 			selectedHumanProfileId: "profile-123",
 			spaceId: "space-converted-dm",
+			queryClient,
 		});
 
+		await waitFor(() =>
+			expect(
+				queryClient.getQueryData(
+					spaceQueryKeys.bootstrap("space-converted-dm", "profile-123")
+				)
+			).toBeDefined()
+		);
 		expect(await screen.findByTestId("space-landing")).toBeTruthy();
 		expect(navigateMock).not.toHaveBeenCalled();
 	});
@@ -881,7 +1004,24 @@ function createAccountSpaceItem(input: {
 	};
 }
 
+function mockBootstrapStatus(status: GetSpaceStatusResponse) {
+	const bootstrap: SpaceBootstrapResponse = {
+		status,
+		members: {
+			agents: [],
+			humans: [],
+			generatedAt: status.generatedAt,
+			spaceId: status.spaceId,
+			summary: { totalCount: 0, humanCount: 0, agentCount: 0, liveNowCount: 0 },
+		},
+		history: { signals: [], nextCursor: null },
+		threads: { threads: [], previews: [] },
+	};
+	getBootstrapMock.mockResolvedValue(bootstrap);
+}
+
 function createSpaceStatus(input: {
+	activeMemberCount?: number;
 	directMessageConvertedAt?: string;
 	spaceId: string;
 	spacePurpose: string;
@@ -903,8 +1043,8 @@ function createSpaceStatus(input: {
 		entryBrief: "default" as const,
 		dispatchBrief: "default" as const,
 		members: {
-			totalCount: 2,
-			humanCount: 2,
+			totalCount: input.activeMemberCount ?? 2,
+			humanCount: input.activeMemberCount ?? 2,
 			agentCount: 0,
 			liveNowCount: 1,
 			liveHumanCount: 1,

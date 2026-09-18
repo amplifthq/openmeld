@@ -130,7 +130,12 @@ export const desktopSpaceStreamEventSchema = z.discriminatedUnion("type", [
     data: z.string(),
   }),
   z.strictObject({ id: desktopSpaceStreamIdSchema, type: z.literal("error") }),
-  z.strictObject({ id: desktopSpaceStreamIdSchema, type: z.literal("close") }),
+  z.strictObject({
+    id: desktopSpaceStreamIdSchema,
+    type: z.literal("close"),
+    code: z.number().int().min(0).max(65_535),
+    reason: z.string(),
+  }),
 ]);
 export type DesktopSpaceStreamEvent = z.infer<
   typeof desktopSpaceStreamEventSchema

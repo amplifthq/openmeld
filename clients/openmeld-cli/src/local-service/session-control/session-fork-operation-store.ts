@@ -25,7 +25,14 @@ const contextForkRequestSchema = z.strictObject({
   completedHistoryId: z.string().min(1),
   workingDirectory: z.string().min(1),
 });
-type ContextForkRequest = z.infer<typeof contextForkRequestSchema>;
+export type ContextForkRequest = z.infer<typeof contextForkRequestSchema>;
+export type ContextForkRequestInput = {
+  kind: "execution_context";
+  operationId: string;
+  sourceNativeSessionId: string;
+  completedHistoryId?: string;
+  workingDirectory: string;
+};
 const contextForkResultSchema = z.discriminatedUnion("status", [
   contextForkRequestSchema.extend({
     status: z.literal("completed"),
@@ -44,10 +51,12 @@ type ForkOperationResult =
   | ContextForkResult;
 
 type StoredOperation = {
+  completedHistoryId?: string;
   operationId: string;
   requestFingerprint: string;
   result: ForkOperationResult | null;
   schema: typeof RECORD_SCHEMA;
+  sourceNativeSessionId?: string;
   updatedAtMs: number;
 };
 
@@ -71,19 +80,27 @@ type ReadRecordsResult =
 const storeTails = new Map<string, Promise<void>>();
 
 export async function runAgentSessionForkOperation(input: {
-  execute: () => Promise<{ childNativeSessionId: string }>;
+  execute: (input?: {
+    completedHistoryId: string;
+  }) => Promise<{ childNativeSessionId: string }>;
   ledgerRootPath: string;
   request: ForkRequest;
 }): Promise<RuntimeTransportForkAgentSessionResult>;
 export async function runAgentSessionForkOperation(input: {
-  execute: () => Promise<{ childNativeSessionId: string }>;
+  execute: (input?: {
+    completedHistoryId: string;
+  }) => Promise<{ childNativeSessionId: string }>;
   ledgerRootPath: string;
-  request: ContextForkRequest;
+  request: ContextForkRequestInput;
+  resolveCompletedHistoryId?: () => Promise<string>;
 }): Promise<ContextForkResult>;
 export async function runAgentSessionForkOperation(input: {
-  execute: () => Promise<{ childNativeSessionId: string }>;
+  execute: (input?: {
+    completedHistoryId: string;
+  }) => Promise<{ childNativeSessionId: string }>;
   ledgerRootPath: string;
-  request: ForkOperationRequest;
+  request: ForkRequest | ContextForkRequestInput;
+  resolveCompletedHistoryId?: () => Promise<string>;
 }): Promise<ForkOperationResult> {
   const previous = storeTails.get(input.ledgerRootPath) ?? Promise.resolve();
   let release!: () => void;
@@ -103,36 +120,108 @@ export async function runAgentSessionForkOperation(input: {
   }
 }
 
-async function runSerialized(input: {
-  execute: () => Promise<{ childNativeSessionId: string }>;
-  ledgerRootPath: string;
-  request: ForkOperationRequest;
-}): Promise<ForkOperationResult> {
-  const stored = await readRecords(input.ledgerRootPath);
-  if (!stored.ok) {
-    return rejected(input.request, stored.reasonCode, stored.reasonCode);
-  }
-  const records = stored.records;
-  const fingerprint = stableJson(input.request);
-  const existing = records.find(
-    (record) => record.operationId === input.request.operationId
-  );
-  if (existing) {
-    if (existing.requestFingerprint !== fingerprint) {
+function handleExistingOperation(
+  existing: StoredOperation,
+  request: ForkRequest | ContextForkRequestInput
+): ForkOperationResult {
+  let effectiveRequest: ForkOperationRequest;
+
+  if ("kind" in request && request.kind === "execution_context") {
+    const frozenCompletedHistoryId =
+      existing.completedHistoryId ??
+      (existing.result && "completedHistoryId" in existing.result
+        ? existing.result.completedHistoryId
+        : undefined);
+
+    const requestedCompletedHistoryId = request.completedHistoryId;
+
+    if (
+      requestedCompletedHistoryId &&
+      frozenCompletedHistoryId &&
+      requestedCompletedHistoryId !== frozenCompletedHistoryId
+    ) {
       return rejected(
-        input.request,
+        { ...request, completedHistoryId: requestedCompletedHistoryId },
         "agent_session_fork.operation_identity_conflict",
         "This Fork operation id was already used for a different Session."
       );
     }
-    return (
-      existing.result ??
-      outcomeUnknown(
-        input.request,
-        "The provider Fork started, but no authoritative child Session id was recorded."
-      )
+
+    effectiveRequest = {
+      ...request,
+      completedHistoryId:
+        requestedCompletedHistoryId ?? frozenCompletedHistoryId ?? "",
+    };
+  } else {
+    effectiveRequest = request as ForkRequest;
+  }
+
+  const fingerprint = stableJson(effectiveRequest);
+  if (existing.requestFingerprint !== fingerprint) {
+    return rejected(
+      effectiveRequest,
+      "agent_session_fork.operation_identity_conflict",
+      "This Fork operation id was already used for a different Session."
     );
   }
+  return (
+    existing.result ??
+    outcomeUnknown(
+      effectiveRequest,
+      "The provider Fork started, but no authoritative child Session id was recorded."
+    )
+  );
+}
+
+async function resolveEffectiveCreationRequest(
+  request: ForkRequest | ContextForkRequestInput,
+  resolveCompletedHistoryId?: () => Promise<string>
+): Promise<ForkOperationRequest> {
+  if (!("kind" in request && request.kind === "execution_context")) {
+    return request as ForkRequest;
+  }
+  let completedHistoryId = request.completedHistoryId;
+  if (!completedHistoryId && resolveCompletedHistoryId) {
+    completedHistoryId = await resolveCompletedHistoryId();
+  }
+  if (!completedHistoryId) {
+    throw new Error("execution_context.fork_checkpoint_unavailable");
+  }
+  return {
+    ...request,
+    completedHistoryId,
+  };
+}
+
+async function runSerialized(input: {
+  execute: (input?: {
+    completedHistoryId: string;
+  }) => Promise<{ childNativeSessionId: string }>;
+  ledgerRootPath: string;
+  request: ForkRequest | ContextForkRequestInput;
+  resolveCompletedHistoryId?: () => Promise<string>;
+}): Promise<ForkOperationResult> {
+  const stored = await readRecords(input.ledgerRootPath);
+  if (!stored.ok) {
+    return rejected(
+      input.request as ForkOperationRequest,
+      stored.reasonCode,
+      stored.reasonCode
+    );
+  }
+  const records = stored.records;
+  const existing = records.find(
+    (record) => record.operationId === input.request.operationId
+  );
+  if (existing) {
+    return handleExistingOperation(existing, input.request);
+  }
+
+  const effectiveRequest = await resolveEffectiveCreationRequest(
+    input.request,
+    input.resolveCompletedHistoryId
+  );
+  const fingerprint = stableJson(effectiveRequest);
   if (
     records.filter(
       (record) =>
@@ -140,13 +229,19 @@ async function runSerialized(input: {
     ).length >= MAX_RETAINED_RECORDS
   ) {
     return rejected(
-      input.request,
+      effectiveRequest,
       "agent_session_fork.unresolved_operation_limit",
       "Resolve uncertain fork operations before starting another fork."
     );
   }
   const started: StoredOperation = {
-    operationId: input.request.operationId,
+    ...("completedHistoryId" in effectiveRequest
+      ? { completedHistoryId: effectiveRequest.completedHistoryId }
+      : {}),
+    ...("sourceNativeSessionId" in effectiveRequest
+      ? { sourceNativeSessionId: effectiveRequest.sourceNativeSessionId }
+      : {}),
+    operationId: effectiveRequest.operationId,
     requestFingerprint: fingerprint,
     result: null,
     schema: RECORD_SCHEMA,
@@ -156,24 +251,28 @@ async function runSerialized(input: {
     await writeRecords(input.ledgerRootPath, [...records, started]);
   } catch (error) {
     return rejected(
-      input.request,
+      effectiveRequest,
       "agent_session_fork.operation_store_unavailable",
       toErrorMessage(error)
     );
   }
   let result: ForkOperationResult;
   try {
-    const forked = await input.execute();
+    const forked = await input.execute(
+      "completedHistoryId" in effectiveRequest
+        ? { completedHistoryId: effectiveRequest.completedHistoryId }
+        : undefined
+    );
     result = parseForkOperationResult({
-      ...input.request,
+      ...effectiveRequest,
       childNativeSessionId: forked.childNativeSessionId,
       status: "completed",
     });
   } catch (error) {
     const reasonCode = readErrorCode(error);
     result = reasonCode
-      ? rejected(input.request, reasonCode, toErrorMessage(error))
-      : outcomeUnknown(input.request, toErrorMessage(error));
+      ? rejected(effectiveRequest, reasonCode, toErrorMessage(error))
+      : outcomeUnknown(effectiveRequest, toErrorMessage(error));
   }
   try {
     await writeRecords(input.ledgerRootPath, [
@@ -182,7 +281,7 @@ async function runSerialized(input: {
     ]);
   } catch (error) {
     return outcomeUnknown(
-      input.request,
+      effectiveRequest,
       `The provider Fork finished, but OpenMeld could not record its result: ${toErrorMessage(error)}`
     );
   }

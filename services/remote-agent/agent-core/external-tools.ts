@@ -159,6 +159,7 @@ type AttachmentBucket = {
 };
 
 export type RemoteAgentExternalToolEnv = RemoteAgentModelEnv & {
+  REMOTE_AGENT_TOOL_CALL_LIMIT?: string;
   BROWSER?: BrowserRun;
   LOADER?: WorkerLoader;
   OPENMELD_OBSERVABILITY?: AnalyticsEngineDataset;

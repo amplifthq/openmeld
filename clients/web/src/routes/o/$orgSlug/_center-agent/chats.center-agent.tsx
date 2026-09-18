@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useLocation } from "@tanstack/react-router";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { CenterAgentNewChat } from "#/components/organizations/center-agent-new-chat";
@@ -8,6 +8,7 @@ import {
 	APP_ROUTE_PENDING_DELAY_MS,
 	APP_ROUTE_PENDING_MIN_DURATION_MS,
 } from "#/lib/app-route-loading";
+import { readInboxSourceFocusRequestId } from "#/lib/inbox/source-focus-request";
 import { loadCenterAgentRouteData } from "#/lib/organizations/center-agent-route-loader";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 
@@ -57,14 +58,26 @@ function CenterAgentConversationPending() {
 
 function CenterAgentChatRoute() {
 	const directMessageRouteData = Route.useLoaderData();
-	const { focusSignalId, session, view, draft, group } = Route.useSearch();
+	const {
+		focusSignalId,
+		focusThreadRootSignalId,
+		session,
+		view,
+		draft,
+		group,
+	} = Route.useSearch();
+	const focusRequestId = useLocation({
+		select: (location) => readInboxSourceFocusRequestId(location.state),
+	});
 	if (draft === "new") {
 		return <CenterAgentNewChat group={group} view={view} />;
 	}
 	return (
 		<CenterAgentPage
 			directMessageRouteData={directMessageRouteData}
+			initialFocusRequestId={focusRequestId}
 			initialFocusSignalId={focusSignalId}
+			initialFocusThreadRootSignalId={focusThreadRootSignalId}
 			initialSpaceView={view}
 			key={session ?? "default"}
 			sessionId={session}
