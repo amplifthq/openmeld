@@ -22,6 +22,40 @@ export function SkeletonRegion({
 
 const ROW_IDS = ["first", "second", "third", "fourth"] as const;
 
+/** Header and fixed-height rows for tabular read surfaces, never fake data. */
+export function SkeletonTable({
+  label,
+  className,
+  columns = 3,
+}: {
+  label: string;
+  className?: string;
+  columns?: 2 | 3 | 4;
+}) {
+  return (
+    <SkeletonRegion className={className} label={label}>
+      <div className="divide-y divide-border/60 rounded-md border border-border/60">
+        {ROW_IDS.map((row) => (
+          <div
+            className="grid gap-4 px-4 py-4"
+            key={row}
+            style={{
+              gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+            }}
+          >
+            {ROW_IDS.slice(0, columns).map((column) => (
+              <Skeleton
+                className={row === "first" ? "h-3 w-2/3" : "h-4 w-3/4"}
+                key={column}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    </SkeletonRegion>
+  );
+}
+
 export function SkeletonRows({
   label,
   className,

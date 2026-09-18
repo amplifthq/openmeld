@@ -15,7 +15,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
@@ -53,6 +52,7 @@ import {
 	formatShortDate,
 	resolveSpaceFileErrorMessage,
 } from "./space-file-utils";
+import { SpaceFilesSkeleton } from "./space-panel-skeletons";
 import { useSpaceFilePinAction } from "./space-pins";
 import { useSpaceFileImageSource } from "./use-space-file-image-source";
 
@@ -300,17 +300,7 @@ function SpaceFileBrowserContent(input: {
 	view: "active" | "trash";
 }) {
 	if (input.isPending) {
-		return (
-			<output
-				aria-busy="true"
-				aria-label="Loading files"
-				className="grid gap-2"
-			>
-				<Skeleton className="h-14 w-full rounded-md" />
-				<Skeleton className="h-14 w-full rounded-md" />
-				<Skeleton className="h-14 w-full rounded-md" />
-			</output>
-		);
+		return <SpaceFilesSkeleton />;
 	}
 	if (input.error) {
 		return (

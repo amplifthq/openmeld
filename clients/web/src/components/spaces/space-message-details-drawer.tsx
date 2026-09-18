@@ -6,6 +6,7 @@ import type {
 import { buildPublicSpaceEntryUrl } from "@openmeld/space";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import {
 	Tooltip,
 	TooltipContent,
@@ -346,9 +347,7 @@ function MessageDetailsBody(input: {
 		return (
 			<div className="flex flex-col gap-5">
 				<MessageLinkSection messageLink={input.messageLink} />
-				<p className="text-muted-foreground text-sm">
-					Loading message details...
-				</p>
+				<SkeletonRows label="Loading message details" />
 			</div>
 		);
 	}

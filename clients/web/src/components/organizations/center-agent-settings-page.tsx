@@ -15,6 +15,7 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
+import { SkeletonForm } from "@openmeld/ui/components/skeleton-content";
 import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import {
 	ChatCircleTextIcon,
@@ -115,6 +116,18 @@ export type CenterAgentSettingsRoleState = {
 	isError: boolean;
 	isPending: boolean;
 };
+
+function isCenterAgentIdentityPending(input: {
+	designationPending: boolean;
+	hasDesignation: boolean;
+	directoryPending: boolean;
+	hasProfile: boolean;
+}) {
+	return (
+		input.designationPending ||
+		(input.hasDesignation && input.directoryPending && !input.hasProfile)
+	);
+}
 
 export function CenterAgentSettingsContent(input: {
 	agentProfiles: readonly DirectoryAgentProfile[];
@@ -336,8 +349,17 @@ export function CenterAgentSettingsContent(input: {
 				isPersonalWorkspace={input.isPersonalWorkspace}
 				organizationId={input.organizationId}
 			/>
-			{designationQuery.isPending ? (
-				<p className="text-muted-foreground text-sm">Loading Center Agent.</p>
+			{isCenterAgentIdentityPending({
+				designationPending: designationQuery.isPending,
+				hasDesignation: designation !== null,
+				directoryPending: input.isDirectoryPending,
+				hasProfile: Boolean(designatedProfile),
+			}) ? (
+				<SkeletonForm
+					className="rounded-md border border-border/70 p-5"
+					fields={2}
+					label="Loading Center Agent"
+				/>
 			) : null}
 			{designationQuery.isError ? (
 				<CenterAgentErrorState

@@ -4,7 +4,9 @@ import {
 	DialogContent,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import { SkeletonRegion } from "@openmeld/ui/components/skeleton-content";
 import { lazy, Suspense } from "react";
+import { SpaceConversationSkeleton } from "./space-conversation-skeleton";
 import { SpaceEntryGate } from "./space-entry-gate";
 
 const SpaceLanding = lazy(() =>
@@ -51,9 +53,12 @@ export function SpaceDirectoryPreview(input: {
 							{() => (
 								<Suspense
 									fallback={
-										<output className="p-8 text-muted-foreground text-sm">
-											Loading conversation…
-										</output>
+										<SkeletonRegion
+											className="p-8"
+											label="Loading conversation"
+										>
+											<SpaceConversationSkeleton />
+										</SkeletonRegion>
 									}
 								>
 									<SpaceLanding

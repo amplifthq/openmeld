@@ -49,6 +49,7 @@ import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
 import { SettingsAddComputerCardContent } from "@openmeld/ui/components/settings-computers";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { SkeletonForm } from "@openmeld/ui/components/skeleton-content";
 import {
 	Tooltip,
 	TooltipContent,
@@ -4965,11 +4966,7 @@ function AgentProfileEditFieldsState(input: {
 	loadErrorMessage: string | null;
 }) {
 	if (input.isLoading) {
-		return (
-			<p className="py-6 text-muted-foreground text-sm">
-				Loading Agent settings...
-			</p>
-		);
+		return <SkeletonForm className="py-6" label="Loading Agent settings" />;
 	}
 	if (input.loadErrorMessage) {
 		return (

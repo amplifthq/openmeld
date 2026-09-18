@@ -1,3 +1,4 @@
+import { SkeletonTable } from "@openmeld/ui/components/skeleton-content";
 import { readPendingAgentProfileCreationLocalSetup } from "#/lib/profiles/agent-profile-creation-local-setup";
 
 ("use client");
@@ -644,9 +645,7 @@ function AgentsWorkspaceHome(input: {
 		);
 	} else if (input.isOrganizationContext) {
 		requestPanel = (
-			<p className="rounded-md border border-border/70 px-4 py-6 text-muted-foreground text-sm">
-				Loading Agent creation history…
-			</p>
+			<SkeletonTable columns={4} label="Loading Agent creation history" />
 		);
 	}
 

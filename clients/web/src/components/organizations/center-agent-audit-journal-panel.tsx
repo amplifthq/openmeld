@@ -5,6 +5,7 @@ import type {
 	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import {
 	BookOpenTextIcon,
 	BuildingsIcon,
@@ -214,7 +215,9 @@ export function CenterAgentAuditJournalPanel(input: {
 	);
 
 	if (auditQuery.isPending) {
-		return <CenterAgentInlineState label="Loading Center Agent audit log." />;
+		return (
+			<SkeletonRows className="p-5" label="Loading Center Agent audit log" />
+		);
 	}
 	if (auditQuery.isError) {
 		return (
@@ -440,12 +443,6 @@ function CenterAgentErrorState(input: {
 				Retry
 			</Button>
 		</div>
-	);
-}
-
-function CenterAgentInlineState(input: { label: string }) {
-	return (
-		<div className="px-5 py-4 text-muted-foreground text-sm">{input.label}</div>
 	);
 }
 

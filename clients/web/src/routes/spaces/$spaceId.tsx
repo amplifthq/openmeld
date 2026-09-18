@@ -20,6 +20,7 @@ import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { OpenMeldLogoStrong } from "@openmeld/ui/components/openmeld-logo-strong";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
@@ -341,7 +342,7 @@ function GuestSpacePage(input: {
 	if (profiles.isPending) {
 		return (
 			<PublicSpaceEntryFrame>
-				<p>Loading your Space…</p>
+				<SkeletonRows label="Loading your Space" rows={1} />
 			</PublicSpaceEntryFrame>
 		);
 	}

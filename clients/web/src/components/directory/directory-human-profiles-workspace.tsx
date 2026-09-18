@@ -37,6 +37,7 @@ import { localPeopleSidebarFixtures } from "#/lib/dev/people-sidebar-fixtures";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { PeopleSidebar } from "./people-sidebar";
 import { TeamHome } from "./team-home";
+import { TeamHomeSkeleton } from "./team-home-skeleton";
 
 type LocalAgentRecoveryController = ReturnType<
 	typeof useLocalAgentRecoveryController
@@ -406,7 +407,7 @@ function HumanProfileWorkspaceState(input: {
 				</div>
 			</SkeletonRegion>
 		) : (
-			<SkeletonRows className="p-6" label="Loading people" rows={4} />
+			<TeamHomeSkeleton className="p-6" label="Loading people" />
 		);
 	}
 	const message = input.errorMessage ?? input.emptyMessage;
