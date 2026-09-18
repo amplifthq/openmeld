@@ -52,10 +52,15 @@ const APP_HEIGHT = 720;
 const APP_MIN_WIDTH = 960;
 const APP_MIN_HEIGHT = 640;
 const APP_NAME = "OpenMeld";
-const TRAY_PREVIEW_HEADLINE_MAX_LENGTH = 34;
-const TRAY_PREVIEW_BODY_MAX_LENGTH = 38;
-const TRAY_PREVIEW_FALLBACK_HEADLINE_MAX_LENGTH = 22;
-const TRAY_PREVIEW_FALLBACK_BODY_MAX_LENGTH = 18;
+// These UTF-16 text budgets keep native auto-layout compact without claiming a
+// pixel width. Truncation always retreats to a complete grapheme boundary.
+const TRAY_PREVIEW_SOURCE_TEXT_BUDGET = 30;
+const TRAY_PREVIEW_BODY_TEXT_BUDGET = 32;
+const TRAY_PREVIEW_FALLBACK_SOURCE_TEXT_BUDGET = 22;
+const TRAY_PREVIEW_FALLBACK_BODY_TEXT_BUDGET = 18;
+const NATIVE_MENU_GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, {
+  granularity: "grapheme",
+});
 const APP_ICON_PATH = join(import.meta.dirname, "../../resources/icon.png");
 const TRAY_ICON_PATH = join(
   import.meta.dirname,
@@ -512,13 +517,14 @@ function trayPreviewMenuItems(
     const source = item.contextLabel
       ? `${item.title} · ${item.contextLabel}`
       : item.title;
+    const relativeTime = formatRelativeTime(item.occurredAt);
     const headline = `${truncateNativeMenuText(
       source,
-      TRAY_PREVIEW_HEADLINE_MAX_LENGTH
-    )} · ${formatRelativeTime(item.occurredAt)}`;
+      TRAY_PREVIEW_SOURCE_TEXT_BUDGET
+    )} · ${relativeTime}`;
     const preview = truncateNativeMenuText(
       item.preview,
-      TRAY_PREVIEW_BODY_MAX_LENGTH
+      TRAY_PREVIEW_BODY_TEXT_BUDGET
     );
     const supportsSublabel = resolveNativeMenuCapabilities().sublabel;
     return [
@@ -527,11 +533,11 @@ function trayPreviewMenuItems(
         label: supportsSublabel
           ? headline
           : `${truncateNativeMenuText(
-              headline,
-              TRAY_PREVIEW_FALLBACK_HEADLINE_MAX_LENGTH
-            )} — ${truncateNativeMenuText(
+              source,
+              TRAY_PREVIEW_FALLBACK_SOURCE_TEXT_BUDGET
+            )} · ${relativeTime} — ${truncateNativeMenuText(
               item.preview,
-              TRAY_PREVIEW_FALLBACK_BODY_MAX_LENGTH
+              TRAY_PREVIEW_FALLBACK_BODY_TEXT_BUDGET
             )}`,
         ...(supportsSublabel ? { sublabel: preview } : {}),
         toolTip: item.preview,
@@ -668,12 +674,28 @@ function resolveNativeMenuCapabilities(): {
   };
 }
 
-function truncateNativeMenuText(value: string, maxLength: number): string {
+function truncateNativeMenuText(value: string, textBudget: number): string {
   const normalized = value.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLength) {
+  if (normalized.length <= textBudget) {
     return normalized;
   }
-  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+  if (textBudget <= 0) {
+    return "";
+  }
+  if (textBudget === 1) {
+    return "…";
+  }
+
+  const contentBudget = textBudget - 1;
+  let truncationIndex = 0;
+  for (const grapheme of NATIVE_MENU_GRAPHEME_SEGMENTER.segment(normalized)) {
+    const nextIndex = grapheme.index + grapheme.segment.length;
+    if (nextIndex > contentBudget) {
+      break;
+    }
+    truncationIndex = nextIndex;
+  }
+  return `${normalized.slice(0, truncationIndex).trimEnd()}…`;
 }
 
 function formatRelativeTime(value: string): string {

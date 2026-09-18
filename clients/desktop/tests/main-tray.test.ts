@@ -846,24 +846,24 @@ describe("main tray behavior", () => {
     });
     inboxTitle.setPresentation?.({
       item: {
-        contextLabel: "Design review",
+        contextLabel: "",
         occurredAt: new Date().toISOString(),
-        preview: "Please check the latest layout.",
+        preview: "p".repeat(19),
         reference: {
           itemId: "item-1",
           organizationId: "org-1",
           organizationSlug: "acme",
           userId: "user-1",
         },
-        title: "Morgan",
+        title: "L".repeat(23),
       },
       status: "ready",
     });
 
     expect(trayMenuItem("Computer — Connected")).toBeTruthy();
     expect(
-      trayMenuLabels().some((label) => label.includes("Please check"))
-    ).toBe(true);
+      trayMenuItem(`${"L".repeat(21)}… · now — ${"p".repeat(17)}…`)
+    ).toBeTruthy();
   });
 
   it("renders and activates one exact unread preview", async () => {
@@ -918,34 +918,80 @@ describe("main tray behavior", () => {
     expect(tray?.closeContextMenu).toHaveBeenCalledOnce();
   });
 
-  it("keeps long unread previews compact and on one line", async () => {
+  it("keeps native preview text within its budgets at grapheme boundaries", async () => {
     setTestPlatform("darwin");
     await importMain();
-    inboxTitle.setPresentation?.({
-      item: {
-        contextLabel:
-          "A very long conversation name that must not size the menu",
-        occurredAt: new Date().toISOString(),
-        preview:
-          "First line with a long preview that would otherwise make the native menu extremely wide.\nSecond line that must never wrap.",
-        reference: {
-          itemId: "item-long",
-          organizationId: "org-1",
-          organizationSlug: "acme",
-          userId: "user-1",
-        },
-        title: "A very long notification title that also needs truncation",
+    const cases = [
+      {
+        name: "short text",
+        preview: "Short preview",
+        title: "Short title",
+        expectedLabel: "Short title · now",
+        expectedSublabel: "Short preview",
       },
-      status: "ready",
-    });
+      {
+        name: "exact budgets",
+        preview: "p".repeat(32),
+        title: "T".repeat(30),
+        expectedLabel: `${"T".repeat(30)} · now`,
+        expectedSublabel: "p".repeat(32),
+      },
+      {
+        name: "long English text",
+        preview: `${"p".repeat(16)}\n${"p".repeat(17)}`,
+        title: "T".repeat(31),
+        expectedLabel: `${"T".repeat(29)}… · now`,
+        expectedSublabel: `${"p".repeat(16)} ${"p".repeat(14)}…`,
+      },
+      {
+        name: "long Chinese text",
+        preview: "文".repeat(33),
+        title: "标".repeat(31),
+        expectedLabel: `${"标".repeat(29)}… · now`,
+        expectedSublabel: `${"文".repeat(31)}…`,
+      },
+      {
+        name: "ordinary emoji on the truncation boundary",
+        preview: `${"b".repeat(30)}😀x`,
+        title: `${"a".repeat(28)}😀x`,
+        expectedLabel: `${"a".repeat(28)}… · now`,
+        expectedSublabel: `${"b".repeat(30)}…`,
+      },
+      {
+        name: "family emoji crossing the truncation boundary",
+        preview: `${"f".repeat(30)}👨‍👩‍👧‍👦x`,
+        title: "Family update",
+        expectedLabel: "Family update · now",
+        expectedSublabel: `${"f".repeat(30)}…`,
+      },
+    ];
 
-    const preview = trayMenuTemplate()?.find(
-      (item) => item.sublabel !== undefined
-    );
-    expect(preview?.label?.length).toBeLessThanOrEqual(41);
-    expect(preview?.sublabel?.length).toBeLessThanOrEqual(38);
-    expect(preview?.sublabel).not.toContain("\n");
-    expect(preview?.sublabel).toContain("…");
+    for (const testCase of cases) {
+      inboxTitle.setPresentation?.({
+        item: {
+          contextLabel: "",
+          occurredAt: new Date().toISOString(),
+          preview: testCase.preview,
+          reference: {
+            itemId: `item-${testCase.name}`,
+            organizationId: "org-1",
+            organizationSlug: "acme",
+            userId: "user-1",
+          },
+          title: testCase.title,
+        },
+        status: "ready",
+      });
+
+      const preview = trayMenuTemplate()?.find(
+        (item) => item.sublabel !== undefined
+      );
+      expect(preview?.label, testCase.name).toBe(testCase.expectedLabel);
+      expect(preview?.sublabel, testCase.name).toBe(testCase.expectedSublabel);
+      expect(preview?.label?.length, testCase.name).toBeLessThanOrEqual(36);
+      expect(preview?.sublabel?.length, testCase.name).toBeLessThanOrEqual(32);
+      expect(preview?.sublabel, testCase.name).not.toContain("\n");
+    }
   });
 
   it("quits the desktop app from the tray menu", async () => {
