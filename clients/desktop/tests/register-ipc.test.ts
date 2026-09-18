@@ -57,6 +57,7 @@ describe("registerOpenMeldIpcHandlers", () => {
         getAgents: vi.fn(),
         setAgentEnabled: vi.fn(),
         openWeb: vi.fn(),
+        openExternal: vi.fn(),
         getDesktopSettings: vi.fn(),
         setOpenAtLogin: vi.fn(),
         getDesktopUpdateStatus: vi.fn(),
@@ -217,6 +218,55 @@ describe("registerOpenMeldIpcHandlers", () => {
 
     expect(openWeb).toHaveBeenCalledWith(LOCAL_AGENTS_GUIDE_PATH);
     expect(openWeb).toHaveBeenCalledTimes(1);
+  });
+
+  it("validates external browser URLs inside the trusted IPC boundary", async () => {
+    const { registerOpenMeldIpcHandlers } = await import(
+      "../src/main/register-ipc"
+    );
+    const openExternal = vi.fn(() => Promise.resolve());
+    const authorize = vi.fn();
+
+    registerOpenMeldIpcHandlers(
+      {
+        getAuthStatus: vi.fn(),
+        signIn: vi.fn(),
+        signOutOnThisMac: vi.fn(),
+        getServiceStatus: vi.fn(),
+        installService: vi.fn(),
+        installCli: vi.fn(),
+        updateService: vi.fn(),
+        startService: vi.fn(),
+        stopService: vi.fn(),
+        upgradeCli: vi.fn(),
+        setServiceAutoStart: vi.fn(),
+        setupComputer: vi.fn(),
+        getAgents: vi.fn(),
+        setAgentEnabled: vi.fn(),
+        openWeb: vi.fn(),
+        openExternal,
+        getDesktopSettings: vi.fn(),
+        setOpenAtLogin: vi.fn(),
+        getDesktopUpdateStatus: vi.fn(),
+        openDesktopDownloadPage: vi.fn(),
+        openNodeDownloadPage: vi.fn(),
+      },
+      authorize
+    );
+
+    const openHandler = handle.mock.calls.find(
+      ([channel]) => channel === OPENMELD_IPC.openExternal
+    )?.[1] as ((_event: unknown, url: unknown) => Promise<unknown>) | undefined;
+    const event = {};
+
+    await openHandler?.(event, "https://example.com/docs?q=1#intro");
+    expect(() => openHandler?.(event, "javascript:alert(1)")).toThrow();
+
+    expect(authorize).toHaveBeenCalledWith(event);
+    expect(openExternal).toHaveBeenCalledWith(
+      "https://example.com/docs?q=1#intro"
+    );
+    expect(openExternal).toHaveBeenCalledTimes(1);
   });
 
   it("registers Desktop update awareness channels", async () => {

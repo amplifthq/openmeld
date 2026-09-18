@@ -4,6 +4,7 @@ import type {
   GetInboxItemResponse,
   InboxMessageNotificationPreferencesResponse,
   InboxNotificationPreferencesResponse,
+  InboxPresentation,
   InboxSummaryResponse,
   InboxView,
   ListInboxItemsResponse,
@@ -65,15 +66,19 @@ export type InboxApi = {
     input?: InboxRequestInput & {
       cursor?: string;
       limit?: number;
+      presentation?: InboxPresentation;
+      notificationPreview?: "true";
       view?: InboxView;
     }
   ) => Promise<ListInboxItemsResponse>;
-  summary: (input?: InboxRequestInput) => Promise<InboxSummaryResponse>;
+  summary: (
+    input?: InboxRequestInput & { presentation?: InboxPresentation }
+  ) => Promise<InboxSummaryResponse>;
   markRead: (
     input: InboxRequestInput & { itemId: string; read: boolean }
   ) => Promise<MarkInboxItemReadResponse>;
   markAllRead: (
-    input?: InboxRequestInput
+    input?: InboxRequestInput & { presentation?: InboxPresentation }
   ) => Promise<MarkAllInboxItemsReadResponse>;
   getPreferences: (
     input?: InboxRequestInput

@@ -14,9 +14,11 @@ import {
   inboxMessageNotificationPreferencesQuerySchema,
   inboxMessageNotificationPreferencesResponseSchema,
   inboxNotificationPreferencesResponseSchema,
+  inboxSummaryQuerySchema,
   inboxSummaryResponseSchema,
   listInboxItemsQuerySchema,
   listInboxItemsResponseSchema,
+  markAllInboxItemsReadQuerySchema,
   markAllInboxItemsReadResponseSchema,
   markCenterAgentInboxReadThroughBodySchema,
   markCenterAgentInboxReadThroughResponseSchema,
@@ -129,6 +131,12 @@ export const createInboxApi: CreateInboxApi = (
       {
         ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
         ...(input.limit === undefined ? {} : { limit: input.limit }),
+        ...(input.presentation === undefined
+          ? {}
+          : { presentation: input.presentation }),
+        ...(input.notificationPreview === undefined
+          ? {}
+          : { notificationPreview: input.notificationPreview }),
         ...(input.view === undefined ? {} : { view: input.view }),
       },
       "Inbox list request is invalid."
@@ -143,8 +151,15 @@ export const createInboxApi: CreateInboxApi = (
       url: buildInboxPath(query),
     });
   },
-  summary: async (input = {}) =>
-    await client.requestJson({
+  summary: async (input = {}) => {
+    const query = requireValidInput(
+      inboxSummaryQuerySchema,
+      input.presentation === undefined
+        ? {}
+        : { presentation: input.presentation },
+      "Inbox summary request is invalid."
+    );
+    return await client.requestJson({
       ...requestOptions(input),
       invalidMessage: "invalid Inbox summary response",
       headers: {
@@ -153,8 +168,9 @@ export const createInboxApi: CreateInboxApi = (
       method: "GET",
       operation: "inbox.summary",
       schema: inboxSummaryResponseSchema,
-      url: buildInboxSummaryPath(),
-    }),
+      url: buildInboxSummaryPath(query.presentation),
+    });
+  },
   markRead: async (input) => {
     const params = requireValidInput(
       inboxItemRouteParamsSchema,
@@ -180,15 +196,23 @@ export const createInboxApi: CreateInboxApi = (
       url: buildInboxItemReadPath(params.itemId),
     });
   },
-  markAllRead: async (input = {}) =>
-    await client.requestJson({
+  markAllRead: async (input = {}) => {
+    const query = requireValidInput(
+      markAllInboxItemsReadQuerySchema,
+      input.presentation === undefined
+        ? {}
+        : { presentation: input.presentation },
+      "Inbox mark-all-read request is invalid."
+    );
+    return await client.requestJson({
       ...requestOptions(input),
       invalidMessage: "invalid Inbox mark-all-read response",
       method: "POST",
       operation: "inbox.mark_all_read",
       schema: markAllInboxItemsReadResponseSchema,
-      url: buildInboxMarkAllReadPath(),
-    }),
+      url: buildInboxMarkAllReadPath(query.presentation),
+    });
+  },
   markCenterAgentReadThrough: async (input) => {
     const body = requireValidInput(
       markCenterAgentInboxReadThroughBodySchema,

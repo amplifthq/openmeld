@@ -230,7 +230,11 @@ export function App({ bridge, skipSplash = false }: AppProps) {
         // Shrink the wide splash window down to the compact app size.
         bridge.enterApp().catch(noop);
       }
-      setActiveDestination(destination);
+      setActiveDestination(
+        destination === "computer" || destination === "inbox"
+          ? "home"
+          : destination
+      );
       setPhase("app");
     },
     [bridge]
@@ -589,7 +593,7 @@ function HeaderActions({
 
   return (
     <Button onClick={onOpenWeb} size="sm">
-      Open OpenMeld Web
+      Open web app
     </Button>
   );
 }
@@ -603,11 +607,11 @@ function DesktopUpdateNotice({
 }) {
   const required = update.status === "required";
   const title = required
-    ? "OpenMeld Desktop update required"
-    : "OpenMeld Desktop update available";
+    ? "OpenMeld update required"
+    : "OpenMeld update available";
   const fallbackDescription = required
-    ? "Install the latest OpenMeld Desktop build to keep this app supported."
-    : "A newer OpenMeld Desktop build is available.";
+    ? "Install the latest OpenMeld build to keep this app supported."
+    : "A newer OpenMeld build is available.";
   const versionLine = update.latestVersion
     ? `Current ${formatVersion(update.currentVersion)} · Latest v${update.latestVersion}`
     : null;
@@ -685,7 +689,7 @@ function HomeActionsMenu({
         >
           <HomeMenuItem
             Icon={ArrowSquareOutIcon}
-            label="Open OpenMeld Web"
+            label="Open web app"
             onSelect={() => closeAndRun(onOpenWeb)}
           />
           {screen === "connected" ? (
@@ -979,7 +983,7 @@ function agentLoadErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
     return error.message;
   }
-  return "OpenMeld Desktop could not load local agents on this Mac.";
+  return "OpenMeld could not load local agents on this Mac.";
 }
 
 function noop() {

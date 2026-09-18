@@ -338,7 +338,7 @@ export function SpaceMembersDrawer(
 		>
 			<Drawer.Portal>
 				<Drawer.Backdrop className="fixed inset-0 z-40 bg-background/60 transition-opacity duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0" />
-				<Drawer.Viewport className="fixed inset-0 z-50 flex justify-end">
+				<Drawer.Viewport className="fixed inset-0 z-[45] flex justify-end">
 					<Drawer.Popup
 						className="flex h-full translate-x-[var(--drawer-swipe-movement-x,0px)] border-border border-l bg-background outline-none transition-transform duration-200 ease-out data-ending-style:translate-x-full data-starting-style:translate-x-full data-swiping:transition-none motion-reduce:translate-x-0 motion-reduce:transition-opacity motion-reduce:data-ending-style:translate-x-0 motion-reduce:data-starting-style:translate-x-0 motion-reduce:data-ending-style:opacity-0 motion-reduce:data-starting-style:opacity-0"
 						id="space-members-drawer"

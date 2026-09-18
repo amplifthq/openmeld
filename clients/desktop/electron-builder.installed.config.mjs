@@ -53,7 +53,7 @@ if (signedMode) {
 export default {
   ...build,
   appId: target.appId,
-  productName: target.dataDirectory,
+  productName: build.productName,
   directories: { output: signedMode ? `dist/${signedMode}` : "dist/installed" },
   files: build.files
     .filter((file) => file !== "out/**/*")

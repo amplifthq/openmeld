@@ -35,7 +35,7 @@ vi.mock("#/lib/organizations/inbox", () => ({
 
 const DEFAULT_BUTTON_PATTERN = /Conversation notifications: Use default/;
 const DEFAULT_PATTERN = /Use default/;
-const EMAIL_PATTERN = /Urgent email alerts are controlled in Settings/;
+const MUTE_EXPLANATION_PATTERN = /Muting keeps messages unread here/;
 const inherited = {
 	organizationId: "org-1",
 	spaceId: "space-1",
@@ -156,6 +156,6 @@ describe("Conversation notification menu", () => {
 				.getByRole("menuitemradio", { name: DEFAULT_PATTERN })
 				.getAttribute("aria-checked")
 		).toBe("true");
-		expect(screen.getByText(EMAIL_PATTERN)).toBeTruthy();
+		expect(screen.getByText(MUTE_EXPLANATION_PATTERN)).toBeTruthy();
 	});
 });

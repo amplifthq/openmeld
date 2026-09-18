@@ -4,7 +4,7 @@ import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { GearSixIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
@@ -173,6 +173,9 @@ function CenterAgentDirectMessageEntry(input: {
 		: null;
 	const composerDraft = useComposerDraft({ scope: composerDraftScope });
 	const composerText = composerDraft.content.text;
+	const [composerErrorMessage, setComposerErrorMessage] = useState<
+		string | null
+	>(null);
 	const setComposerText = (text: string) => {
 		composerDraft.setContent((currentDraft) => ({
 			...currentDraft,
@@ -223,6 +226,7 @@ function CenterAgentDirectMessageEntry(input: {
 		]
 	);
 	const [retryPending, setRetryPending] = useState(false);
+	const pendingSubmissionAdmissionRef = useRef(false);
 	const profilesQuery = useQuery(
 		buildStartProfilesQueryOptions({ enabled: true, storageScope })
 	);
@@ -233,6 +237,7 @@ function CenterAgentDirectMessageEntry(input: {
 	const optimisticConversation = (files: SpaceComposerFilesController) => (
 		<CenterAgentOptimisticConversation
 			attachments={files}
+			composerErrorMessage={composerErrorMessage}
 			composerText={pendingMessage ? "" : composerText}
 			conversationTitle={
 				resolvedSessionId
@@ -240,28 +245,54 @@ function CenterAgentDirectMessageEntry(input: {
 					: undefined
 			}
 			onComposerChange={setComposerText}
-			onSend={() => {
+			onSend={async () => {
+				if (pendingSubmissionAdmissionRef.current) {
+					return;
+				}
+				pendingSubmissionAdmissionRef.current = true;
+				let claimedDrafts: ReturnType<typeof files.claimSubmissionDrafts> = [];
+				setComposerErrorMessage(null);
 				const text = composerText.trim();
 				if (
 					!(text || files.files.length) ||
 					readCenterAgentPendingMessage(queryClient, pendingScope)
 				) {
+					pendingSubmissionAdmissionRef.current = false;
 					return;
 				}
-				const nextPendingMessage = createPendingCenterAgentMessage(text);
-				nextPendingMessage.createdAtMs = Math.max(
-					nextPendingMessage.createdAtMs,
-					composerDraft.record.updatedAtMs
-				);
-				nextPendingMessage.fileDrafts = files.claimSubmissionDrafts();
-				nextPendingMessage.files = nextPendingMessage.fileDrafts.map(
-					(draft) => draft.file
-				);
-				writeCenterAgentPendingMessage(
-					queryClient,
-					pendingScope,
-					nextPendingMessage
-				);
+				try {
+					await files.waitForDiscovery();
+					if (readCenterAgentPendingMessage(queryClient, pendingScope)) {
+						return;
+					}
+					const fileDrafts = files.claimSubmissionDrafts();
+					claimedDrafts = fileDrafts;
+					const nextPendingMessage = createPendingCenterAgentMessage(text);
+					nextPendingMessage.createdAtMs = Math.max(
+						nextPendingMessage.createdAtMs,
+						composerDraft.record.updatedAtMs
+					);
+					nextPendingMessage.fileDrafts = fileDrafts;
+					nextPendingMessage.files = fileDrafts.map((draft) => draft.file);
+					writeCenterAgentPendingMessage(
+						queryClient,
+						pendingScope,
+						nextPendingMessage
+					);
+				} catch (error) {
+					files.finishSubmission(
+						files.getSubmissionFiles({
+							ids: claimedDrafts.map((draft) => draft.id),
+						})
+					);
+					setComposerErrorMessage(
+						error instanceof Error
+							? error.message
+							: "Couldn't prepare your attachments. Retry to continue."
+					);
+				} finally {
+					pendingSubmissionAdmissionRef.current = false;
+				}
 			}}
 			organizationSlug={input.organizationSlug}
 			pendingMessage={pendingMessage}

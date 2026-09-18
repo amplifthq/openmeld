@@ -264,6 +264,32 @@ test("requires the selected release version to match package and manifest truth"
         targetVersion: "0.7.96",
       })
     );
+    const releaseManifestPath = join(repoRoot, "release/local-components.json");
+    const retainedServiceManifest = JSON.parse(
+      readFileSync(releaseManifestPath, "utf8")
+    );
+    retainedServiceManifest.components.service.bundleVersion = "0.7.95";
+    await writeFile(
+      releaseManifestPath,
+      `${JSON.stringify(retainedServiceManifest, null, 2)}\n`
+    );
+    assert.doesNotThrow(() =>
+      assertCliReleaseVersionTarget({
+        cwd: repoRoot,
+        targetVersion: "0.7.96",
+      })
+    );
+    retainedServiceManifest.components.service.bundleVersion = "0.7.97";
+    await writeFile(
+      releaseManifestPath,
+      `${JSON.stringify(retainedServiceManifest, null, 2)}\n`
+    );
+    assert.throws(() =>
+      assertCliReleaseVersionTarget({
+        cwd: repoRoot,
+        targetVersion: "0.7.96",
+      })
+    );
     assert.throws(
       () =>
         assertCliReleaseVersionTarget({

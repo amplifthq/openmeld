@@ -17,6 +17,7 @@ function ShapeConsumer() {
   return (
     <button
       data-background-class={shapeClasses.bg}
+      data-control-group-class={shapeClasses.controlGroup}
       data-item-class={shapeClasses.item}
       data-merged-radius={shapeClasses.mergedRadius}
       data-shape={shape}
@@ -43,6 +44,7 @@ describe("ShapeProvider", () => {
     expect(control.getAttribute("data-shape")).toBe("rounded");
     expect(control.getAttribute("data-item-class")).toBe("rounded-md");
     expect(control.getAttribute("data-background-class")).toBe("rounded-md");
+    expect(control.getAttribute("data-control-group-class")).toBe("rounded-lg");
     expect(control.getAttribute("data-merged-radius")).toBe("8");
   });
 

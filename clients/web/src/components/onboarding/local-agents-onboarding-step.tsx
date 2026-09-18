@@ -7,6 +7,7 @@ import { ArrowRightIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { BringAgentsSetupProvider } from "#/components/connect/bring-agents-setup-context";
 import { ComputerSetupFlow } from "#/components/connect/start-bring-agents-setup-page";
+import { OnboardingStepLayout } from "#/components/onboarding/onboarding-step-layout";
 import { DEFAULT_CONNECT_ROUTE_INTENT } from "#/lib/connect/connect-route";
 import { listLocalAgentInstallGuides } from "#/lib/local-agent-install-guides";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -20,47 +21,55 @@ export function LocalAgentsOnboardingStep(input: { onContinue: () => void }) {
 		currentOrganization.slug
 	);
 	return (
-		<div className="flex flex-1 flex-col">
-			<div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-5">
-				{LOCAL_AGENT_GUIDES.map((guide) => (
-					<LocalAgentLogo
-						icon={
-							<LocalAgentBrandLogo
-								agentId={`builtin:${guide.agentId}`}
-								className="size-8"
-								size="md"
+		<OnboardingStepLayout
+			body={
+				<>
+					<div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-5">
+						{LOCAL_AGENT_GUIDES.map((guide) => (
+							<LocalAgentLogo
+								icon={
+									<LocalAgentBrandLogo
+										agentId={`builtin:${guide.agentId}`}
+										className="size-8"
+										size="md"
+									/>
+								}
+								key={guide.agentId}
+								label={guide.displayName}
 							/>
-						}
-						key={guide.agentId}
-						label={guide.displayName}
-					/>
-				))}
-			</div>
-			<p className="mb-5 text-muted-foreground text-sm leading-6">
-				Run one command. OpenMeld connects this computer and finds the agents
-				already installed.
-			</p>
-			<div className="flex-1">
-				<BringAgentsSetupProvider routeIntent={DEFAULT_CONNECT_ROUTE_INTENT}>
-					<ComputerSetupFlow
-						autoReturnOnCompletion={false}
-						orgSlug={currentOrganization.slug}
-						preferExistingConnection
-						presentation="embedded"
-						selfRoute={onboardingPath}
-					/>
-				</BringAgentsSetupProvider>
-			</div>
-			<div className="mt-6 flex items-center justify-between gap-4 border-border/70 border-t pt-5">
-				<p className="text-muted-foreground text-xs">
-					Optional. Continue while setup runs, or come back later.
-				</p>
-				<Button onClick={input.onContinue} type="button">
-					Continue
-					<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
-				</Button>
-			</div>
-		</div>
+						))}
+					</div>
+					<p className="mb-5 text-muted-foreground text-sm leading-6">
+						Run one command. OpenMeld connects this computer and finds the
+						agents already installed.
+					</p>
+					<div>
+						<BringAgentsSetupProvider
+							routeIntent={DEFAULT_CONNECT_ROUTE_INTENT}
+						>
+							<ComputerSetupFlow
+								autoReturnOnCompletion={false}
+								orgSlug={currentOrganization.slug}
+								preferExistingConnection
+								presentation="embedded"
+								selfRoute={onboardingPath}
+							/>
+						</BringAgentsSetupProvider>
+					</div>
+				</>
+			}
+			footer={
+				<div className="flex items-center justify-between gap-4 max-sm:items-end">
+					<p className="text-muted-foreground text-xs">
+						Optional. Continue while setup runs, or come back later.
+					</p>
+					<Button onClick={input.onContinue} type="button">
+						Continue
+						<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
+					</Button>
+				</div>
+			}
+		/>
 	);
 }
 

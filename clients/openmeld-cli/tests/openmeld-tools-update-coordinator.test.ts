@@ -142,9 +142,17 @@ describe("OpenMeld Tools update coordinator", () => {
     expect(dependencies.assessUpdate).toHaveBeenCalledWith({
       forceRefresh: true,
     });
-    expect(dependencies.runUpgrade).toHaveBeenCalledTimes(1);
+    expect(dependencies.runUpgrade).toHaveBeenCalledWith({
+      operationId: "update-1",
+      requestedAt: NOW,
+      requestSource: "web",
+      targetCliVersion: "0.3.105",
+      targetServiceVersion: "0.3.105",
+    });
     expect(dependencies.state.lastAttempt?.operation).toMatchObject({
       phase: "updated",
+      targetCliVersion: "0.3.105",
+      targetServiceVersion: "0.3.105",
     });
   });
 
@@ -193,6 +201,8 @@ describe("OpenMeld Tools update coordinator", () => {
       operationId: "update-1",
       requestedAt: NOW,
       requestSource: "automatic",
+      targetCliVersion: "0.3.105",
+      targetServiceVersion: "0.3.105",
     });
   });
 
@@ -305,6 +315,28 @@ describe("OpenMeld Tools update coordinator", () => {
     });
     expect(dependencies.persistAttempt).not.toHaveBeenCalled();
     expect(dependencies.runUpgrade).not.toHaveBeenCalled();
+  });
+
+  it("records separate CLI and retained Service targets", async () => {
+    const dependencies = createDependencies({ serviceVersion: "0.3.104" });
+    const coordinator = createOpenMeldToolsUpdateCoordinator(dependencies);
+
+    const result = await coordinator.requestUpdate({ requestSource: "web" });
+    expect(result).toMatchObject({
+      status: "started",
+      operation: {
+        targetCliVersion: "0.3.105",
+        targetServiceVersion: "0.3.104",
+        targetVersion: "0.3.105",
+      },
+    });
+    await coordinator.waitForIdle();
+    expect(dependencies.runUpgrade).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetCliVersion: "0.3.105",
+        targetServiceVersion: "0.3.104",
+      })
+    );
   });
 
   it("executes the protected npm carrier without loading business bundle state", () => {

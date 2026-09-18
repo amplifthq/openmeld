@@ -162,6 +162,13 @@ export const resolveActiveOrganizationEntryPath = createServerFn({
 		return entryPath;
 	});
 
+export class NoAvailableOrganizationError extends Error {
+	constructor() {
+		super("No organization is available for this account.");
+		this.name = "NoAvailableOrganizationError";
+	}
+}
+
 export async function resolveOptionalActiveOrganizationEntryPath(input: {
 	data: { routeFamily: string };
 }): Promise<string | null> {
@@ -177,7 +184,7 @@ export async function resolveOptionalActiveOrganizationEntryPath(input: {
 		context.defaultOrganizationId
 	);
 	if (!organization) {
-		throw new Error("No organization is available for this account.");
+		throw new NoAvailableOrganizationError();
 	}
 	return buildOrganizationDefaultPath(organization.slug);
 }

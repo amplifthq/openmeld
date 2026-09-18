@@ -9,6 +9,7 @@ import type {
 	GetInboxItemResponse,
 	InboxMessageNotificationPreferencesResponse,
 	InboxNotificationPreferencesResponse,
+	InboxPresentation,
 	InboxSummaryResponse,
 	InboxView,
 	ListInboxItemsResponse,
@@ -50,6 +51,7 @@ export async function listCurrentInboxItems(input: {
 	cursor?: string;
 	limit?: number;
 	organizationId: string;
+	presentation?: InboxPresentation;
 	signal?: AbortSignal;
 	view?: InboxView;
 }): Promise<ListInboxItemsResponse> {
@@ -57,6 +59,7 @@ export async function listCurrentInboxItems(input: {
 		const response = await createWebInboxApi(input.organizationId).list({
 			cursor: input.cursor,
 			limit: input.limit,
+			presentation: input.presentation,
 			signal: input.signal,
 			view: input.view,
 		});
@@ -82,10 +85,12 @@ export async function getCurrentInboxItem(input: {
 
 export async function getCurrentInboxSummary(input: {
 	organizationId: string;
+	presentation?: InboxPresentation;
 	signal?: AbortSignal;
 }): Promise<InboxSummaryResponse> {
 	return await runInboxOperation(async () => {
 		const response = await createWebInboxApi(input.organizationId).summary({
+			presentation: input.presentation,
 			signal: input.signal,
 		});
 		assertOrganizationMatch(response.organizationId, input.organizationId);
@@ -185,9 +190,12 @@ export async function markCurrentInboxItemRead(input: {
 
 export async function markAllCurrentInboxItemsRead(input: {
 	organizationId: string;
+	presentation?: InboxPresentation;
 }): Promise<MarkAllInboxItemsReadResponse> {
 	return await runInboxOperation(async () =>
-		createWebInboxApi(input.organizationId).markAllRead()
+		createWebInboxApi(input.organizationId).markAllRead({
+			presentation: input.presentation,
+		})
 	);
 }
 

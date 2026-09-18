@@ -30,9 +30,12 @@ def seed(context, sid, index, members):
             return
         prompt, answer = TOPICS[index % len(TOPICS)]
         speakers = [context.human["profile_id"], *members]
-        count = 480 if index == 0 else 90 if index == 1 else 31 if index == 4 else 3
+        count = 240 if index == 28 else 480 if index == 0 else 90 if index == 1 else 31 if index == 4 else 3
         texts = []
         for n in range(count):
+            if index == 28:
+                texts.append(f"read1141-main-{n + 1:03d}")
+                continue
             question, response = TOPICS[(n // 3) % len(TOPICS)]
             cycle = n // (3 * len(TOPICS)) + 1
             text = [f"Review {cycle}: {question}", response + "\n\nThe next step is to review the proposed change in the complete workflow.\n\n- Check the first attempt from a fresh session.\n- Keep the original reading position when new messages arrive.\n- Record the final decision in this Space.",
@@ -43,9 +46,17 @@ def seed(context, sid, index, members):
             profile = context.db.execute("SELECT profile_name,profile_kind FROM openmeld_profiles WHERE profile_id=?", (pid,)).fetchone()
             mid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"fixture-conversation:{sid}:{n}"))
             ts = last - (count - 1 - n) * (6 * 3600_000 if count > 3 else 180_000)
+            data = {"text": text}
+            if index == 7 and n == 2:
+                data["messageEnvelope"] = {
+                    "activationTargets": [],
+                    "referenceTargets": [],
+                    "replyToSignalId": str(uuid.uuid5(uuid.NAMESPACE_URL, f"fixture-conversation:{sid}:0")),
+                    "text": text,
+                }
             envelope = {"v": 1, "id": mid, "spaceId": sid, "ts": ts,
                         "profile": {"kind": profile[1], "profileId": pid, "profileName": profile[0]},
-                        "type": "signal.text", "data": {"text": text}}
+                        "type": "signal.text", "data": data}
             db.execute("INSERT OR REPLACE INTO space_signals (id,ts,type,profile_id,profile_kind,client_message_id,payload_json) VALUES (?,?,?,?,?,?,?)",
                        (mid, ts, envelope["type"], pid, profile[1], mid, json.dumps(envelope)))
         if index in (12, 13, 22):

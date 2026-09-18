@@ -66,10 +66,23 @@ export const openMeldToolsUpdateOperationSchema = z.strictObject({
   phase: openMeldToolsUpdateOperationPhaseSchema,
   requestSource: openMeldToolsUpdateRequestSourceSchema,
   requestedAt: z.iso.datetime({ offset: true }),
+  targetCliVersion: nonEmptyStringSchema.optional(),
+  targetServiceVersion: nonEmptyStringSchema.optional(),
   targetVersion: nonEmptyStringSchema,
   updatedAt: z.iso.datetime({ offset: true }),
   urgency: z.enum(["available", "required"]),
 });
+
+export function resolveOpenMeldToolsUpdateTargetVersions(operation: {
+  targetCliVersion?: string;
+  targetServiceVersion?: string;
+  targetVersion: string;
+}): { cliVersion: string; serviceVersion: string } {
+  return {
+    cliVersion: operation.targetCliVersion ?? operation.targetVersion,
+    serviceVersion: operation.targetServiceVersion ?? operation.targetVersion,
+  };
+}
 
 export const openMeldToolsMaintenanceProjectionSchema = z.strictObject({
   automaticUpdatesEnabled: z.boolean(),

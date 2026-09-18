@@ -3,6 +3,7 @@ import { buildPublicSpaceEntryPath } from "@openmeld/space";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { ArrowRightIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import { organizationAgentRuntimeOverviewQueryOptions } from "#/query/organizations/organization-directory";
@@ -124,13 +125,13 @@ export function AgentTaskActivitySummary({ profileId }: { profileId: string }) {
 					{queued > 0 ? ` · ${queued} queued` : ""}
 				</span>
 				{current ? (
-					<a
+					<Link
 						className="flex min-w-0 items-center gap-1 text-muted-foreground hover:text-foreground"
-						href={current.href}
+						to={current.href}
 					>
 						<span className="truncate">{current.title}</span>
 						<ArrowRightIcon aria-hidden="true" className="size-3.5 shrink-0" />
-					</a>
+					</Link>
 				) : null}
 			</div>
 			<AgentTaskActivityTime timestamp={activity?.lastTaskActivityAt} />

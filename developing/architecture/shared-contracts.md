@@ -75,14 +75,15 @@ late native events cannot turn cancellation into delivery. Delivered alerts
 retain click-back across Organization switches; account invalidation clears all.
 This is a delivery permit, not account or Inbox authority; native
 session and recipient-authorized Core reads remain mandatory.
-The optional nullable `unreadCount` in the same context projects the existing
-Core Inbox summary's `totalUnreadCount` for the macOS menu bar. It includes
-ordinary unread items, not read unresolved actions, and is independent of delivery
-preferences. Main accepts only a bounded numeric value, checks native account
-identity, and rejects results after context or session invalidation; it never
-accepts arbitrary tray text. Zero and unknown counts hide the number. The
-existing native refresh signal refreshes the shared summary without introducing
-another polling owner or unread store.
+The optional nullable categorized `attention` object in the same context
+projects Core's mute-aware attention summary for the macOS menu bar. It carries
+ordinary unread, unread mention, unread urgent-update, and unresolved-action
+counts; native Main derives the bounded title and tooltip and never accepts
+arbitrary tray text. The deprecated nullable `unreadCount` remains accepted only
+for older matching renderers and is ignored by current Main. Account identity,
+context generation, and session invalidation fence late results. Unknown
+attention hides the title. The existing native refresh signal refreshes the
+shared summary without introducing another polling owner or unread store.
 These additions ship with the matching local renderer and require no cloud,
 CLI, Service, Wake or runtime contract change. Existing Desktop bundles retain
 their existing behavior; cloud rollout does not require a new Desktop floor.
@@ -1109,20 +1110,32 @@ Inbox summary version `1` adds `unreadUrgentUpdateCount`, disjoint from
 `unresolvedActionCount`. Core derives both from the same recipient/access-filtered
 query; clients never count a list page to reconstruct them. The additive field
 is optional only for receiver-first interoperability: absent means unknown.
-Current API clients send `x-openmeld-inbox-summary-version: 2`; Gateway keeps
-the urgent summary field for versions `1` and `2` and removes it for older strict clients,
+Current API clients send `x-openmeld-inbox-summary-version: 3`; Gateway keeps
+the urgent summary field for versions `1` through `3` and removes it for older strict clients,
 including already-open Web tabs. Version `2` also exposes `chatUnreadCount`,
 `chatUnresolvedActionCount`, `chatUnreadUrgentUpdateCount`, and grouped `attention`
 on Space summaries. These are recipient/access-filtered Core aggregates across
 all current DMs; the three totals do not inherit the unread grouped-row limit.
 Missing fields mean unknown, not zero. Gateway strips the four additions for
-older summary clients. The UI waits for known values without a Checking badge.
+older summary clients. Version `3` adds the opt-in `presentation=attention`
+list, summary, and mark-all projection plus `unreadMentionCount` and
+`ordinaryUnreadCount`. Core filters only muted ordinary conversation updates at
+read time; raw rows, read state, source truth, and delivery policy are unchanged.
+The `mentions` list view prevents older unread structured Human mentions from
+being displaced by recent ordinary updates. Gateway retains Space-summary
+version `2` conversation counts for old clients while version `3` adds only the
+Inbox attention fields. Only `presentation=attention` removes mentions from
+`recent_updates`; unversioned legacy/raw callers retain them because those
+clients do not query the separate `mentions` view. The UI waits for known values without a Checking badge.
 Deploy compatible Gateway first, Core second, and Web last. New Gateway accepts
 old Core output; new Web reports unknown if the field is absent. The new
 `urgent_updates` and `recent_updates` preview list views are available only after Core and Gateway support them;
 unsupported queries fail visibly, with no empty-list fallback. Rollback Web
-before Core, then Gateway; retain the compatible Gateway while Core emits the
-field. CLI, Service, Skills, setup, Wake and Space action contracts are unchanged.
+and Desktop before Core, then Gateway; retain the compatible Gateway while Core
+emits the fields. Receiver-first order is schemas/API and Gateway, then Core,
+then Web and the matching Desktop bundle. No database migration or local
+component epoch is required. CLI, Service, Skills, setup, Wake and Space action
+contracts are unchanged.
 
 Each client maps only supported targets to its canonical navigation surface.
 Unknown target kinds fail closed and remain visible without creating an
@@ -1610,6 +1623,23 @@ under `schemas/ci` or `schemas/release` therefore require their behavior and
 workflow contract tests, but do not by themselves create a local-component
 release. Product-facing and runtime schemas elsewhere in `packages/schemas`
 remain release-sensitive.
+
+### Prepare Connection Progress Observation Contract
+
+Prepare connection progress uses a versioned, strict observation payload with
+operation and attempt identity, producer sequence, timestamp, semantic phase,
+state, and optional bounded detail or measured byte transfer. Terminal may send
+the observation only for its authenticated Prepare Session and current
+connection epoch. Core relays a latest-only value to Web without a D1 event,
+Prepare mutation, or `sessionRevision` change. Receivers treat unsupported
+progress as optional and retain the existing coarse snapshot experience.
+The relayed payload retains the Terminal connection epoch. Core accepts only
+the current epoch and increasing producer sequence, retires cached progress
+when the Terminal is replaced or the session ends, and isolates each optional
+Web observer write. An observer delivery failure cannot become a Terminal
+write failure or reject an authoritative Prepare step. Web binds observations
+to the epoch in its current snapshot; producer timestamps never arbitrate
+between attempts.
 
 ### Prepare Diagnostics Lifecycle Journal Contract
 
@@ -5682,6 +5712,16 @@ Service projection `required` even when the latest artifact is advisory:
   public npm publish, so the inherited ATS `0.7.x` floor does not carry into
   the new line. After that marker lands on `main`, future release-line changes
   do not bypass floor monotonicity.
+
+The local update-operation schema keeps `targetVersion` as the required legacy
+aggregate target and adds optional `targetCliVersion` and
+`targetServiceVersion`. New producers set both split targets. Mixed-version
+readers fall back independently to `targetVersion` when either optional field
+is absent, so old operations remain readable while new CLI-only releases can
+name an older selected Service without manufacturing version equality. These
+fields describe one operation's expected observations; they do not create a
+second release-policy, Service-health, or Wakeability owner.
+
 - Skills policy is build-imported into Core and compared with the OpenMeld
   Service's reported `localComponents.skills.installedBundleHash`. That reported
   hash is the installed OpenMeld-managed skills artifact hash, not the per-target
@@ -6141,11 +6181,20 @@ membership writer and records these additions with the existing
 `added_by_member` source.
 
 `packages/schemas/src/schemas/http/space-access-mode.ts` owns the shared Space
-access mode contract. `space_meta.accessMode` is the source-of-truth projection
+access mode and link-join policy contract. `space_meta.accessMode` is the
+source-of-truth projection
 for whether a Space is public, public to view but password-gated to join, or
 member-only for creator/current-member/same-account access. The Space password remains a single
 Space credential; access mode changes may set, reuse, or clear that one password
 proof, but must not introduce a second join-only or view-only password.
+
+`space_meta.linkJoinPolicy` is a narrow restriction on the link-derived join
+grant: `access_mode` retains the access-mode behavior and `invite_only` denies
+link self-joining without changing reading, Organization-open joining, direct
+addition, accepted invitations, or existing membership. Core owns its write and
+enforcement. A missing persisted value resolves to legacy `access_mode`
+behavior; omission from an access-mode write preserves the existing resolved
+value.
 
 `packages/schemas/src/schemas/http/space-meta.ts` also owns the pure initial
 access policy used only while creating a Space. Core and creation clients must
@@ -6154,13 +6203,13 @@ call `resolveInitialSpaceAccessMode`; they must not independently recreate the
 its stored visibility and access mode remain independent facts and readers must
 not apply the creation policy to reconstruct either one.
 
-`GetSpaceStatusResponse` projects both access facts from the same Space meta
+`GetSpaceStatusResponse` projects all access facts from the same Space meta
 record: optional `organizationVisibility` describes Organization discovery and
-self-service joining, while required `accessMode` describes what a person with
-the link can do. The optional field permits a staged Core, Gateway, and CLI
-rollout: new readers accept an older response without it, and older readers
-strip the additive field. Clients must label the facts separately and must not
-derive one from the other.
+self-service joining, required `accessMode` describes link reading/password
+behavior, and optional `linkJoinPolicy` restricts link-derived joining.
+Space-access contract version 2 carries the new policy; version 1 strips only
+that field, while the legacy projection also strips ownership and Guest fields.
+Clients must label the facts separately and must not derive one from another.
 
 `packages/schemas/src/schemas/http/space-status.ts` owns the bounded
 `latestVisibleUpdate.previewText` projection. Core applies the shared UTF-16
@@ -7296,11 +7345,12 @@ and mutations. Re-enabling restores admitted guests; removing a guest is permane
 until a new invitation is accepted. Internal discovery never includes unrelated
 private Spaces; a pending invitation exposes only its recipient's invitation card.
 
-New clients send `x-openmeld-space-access-version: 1` on Space metadata, status,
+New clients send `x-openmeld-space-access-version: 2` on Space metadata, status,
 and bootstrap requests. Gateway projects the legacy response without the new
-ownership and guest fields for older strict-schema clients. Web forwards the
-header. Additive metadata fields alone are not sufficient compatibility when old
-clients reject unknown properties.
+ownership and guest fields for unversioned strict-schema clients, and projects
+version 1 without `linkJoinPolicy`. Web forwards the header. Additive metadata
+fields alone are not sufficient compatibility when old clients reject unknown
+properties.
 
 Space dispatch snapshots carry server-derived `callerContext` (relationship,
 Space role, and result audience), preserved through hosted and workstation delivery.

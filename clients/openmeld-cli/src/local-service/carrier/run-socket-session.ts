@@ -2465,28 +2465,24 @@ export async function runDaemonSocketSession(input: {
       reason: "register_conflict",
       scheduleReason: "register_conflict",
     });
-  } else {
-    const bootstrapPlan = resolveBootstrapCatalogSyncPlan({
-      isRouteCatalogResolved: input.isRouteCatalogResolved?.() ?? true,
-      syncIntervalMs: resolveCatalogSyncIntervalMs({
-        heartbeatIntervalMs: currentHeartbeatIntervalMs,
-      }),
-    });
-    if (bootstrapPlan.persistCache) {
-      await persistAcceptedRouteCatalogCache();
-    }
-    scheduleCatalogSyncNext(bootstrapPlan.nextSyncDelayMs);
   }
-  const initialCatalogSyncSignal = await readDaemonCatalogSyncSignal().catch(
-    () => null
-  );
-  latestCatalogSyncSignalMarker = resolveCatalogSyncSignalMarker(
-    initialCatalogSyncSignal
-  );
-  scheduleCatalogSyncSignalPoll();
-
-  await sendHeartbeat();
-  keepalive.start();
+  const bootstrap = await completeRegisteredSessionBootstrap({
+    heartbeatIntervalMs: currentHeartbeatIntervalMs,
+    isRouteCatalogResolved: input.isRouteCatalogResolved?.() ?? true,
+    persistAcceptedRouteCatalogCache,
+    registerRejected: registerResponse.rejectedProfiles.length > 0,
+    scheduleCatalogSyncNext,
+    shutdownRequested: input.shutdownRequested,
+  });
+  const bootstrapShutdownStopCause = bootstrap.shutdownStopCause;
+  if (!bootstrapShutdownStopCause) {
+    latestCatalogSyncSignalMarker = resolveCatalogSyncSignalMarker(
+      bootstrap.initialCatalogSyncSignal
+    );
+    scheduleCatalogSyncSignalPoll();
+    await sendHeartbeat();
+    keepalive.start();
+  }
 
   async function finishControlledShutdown(
     stopCause: RuntimeTransportStopCause
@@ -2495,8 +2491,35 @@ export async function runDaemonSocketSession(input: {
     acceptingDispatches = false;
     shutdownStopCause = stopCause;
     clearHeartbeatTimer();
+    emitRunLine({
+      presenter: input.presenter,
+      code: "daemon.run.controlled_shutdown_started",
+      text: "controlled shutdown was admitted; waiting for the active heartbeat to settle",
+      payload: {
+        daemonSessionId: input.daemonSessionId,
+        stopCause: shutdownStopCause,
+      },
+    });
     await waitForHeartbeatIdle();
+    emitRunLine({
+      presenter: input.presenter,
+      code: "daemon.run.controlled_shutdown_inflight_heartbeat_completed",
+      text: "controlled shutdown finished waiting for the active heartbeat",
+      payload: {
+        daemonSessionId: input.daemonSessionId,
+        stopCause: shutdownStopCause,
+      },
+    });
     await sendHeartbeat();
+    emitRunLine({
+      presenter: input.presenter,
+      code: "daemon.run.controlled_shutdown_final_heartbeat_completed",
+      text: "controlled shutdown completed its final heartbeat",
+      payload: {
+        daemonSessionId: input.daemonSessionId,
+        stopCause: shutdownStopCause,
+      },
+    });
     const drainState = localExecutionSlots.getDrainState();
     emitRunLine({
       presenter: input.presenter,
@@ -2573,13 +2596,18 @@ export async function runDaemonSocketSession(input: {
     return true;
   }
 
-  const sessionExit = await Promise.race([
-    waitForClose.then(() => ({ kind: "socket_closed" as const })),
-    input.shutdownRequested?.then((stopCause) => ({
-      kind: "shutdown_requested" as const,
-      stopCause,
-    })) ?? new Promise<never>(() => undefined),
-  ]);
+  const sessionExit = bootstrapShutdownStopCause
+    ? ({
+        kind: "shutdown_requested" as const,
+        stopCause: bootstrapShutdownStopCause,
+      } as const)
+    : await Promise.race([
+        waitForClose.then(() => ({ kind: "socket_closed" as const })),
+        input.shutdownRequested?.then((stopCause) => ({
+          kind: "shutdown_requested" as const,
+          stopCause,
+        })) ?? new Promise<never>(() => undefined),
+      ]);
   if (sessionExit.kind === "shutdown_requested" && !closed) {
     controlledShutdownCompleted = await finishControlledShutdown(
       sessionExit.stopCause
@@ -2656,6 +2684,74 @@ async function withDaemonRunTimeout<T>(input: {
       clearTimeout(timeout);
     }
   }
+}
+
+async function completeRegisteredSessionBootstrap(input: {
+  heartbeatIntervalMs: number;
+  isRouteCatalogResolved: boolean;
+  persistAcceptedRouteCatalogCache: () => Promise<void>;
+  registerRejected: boolean;
+  scheduleCatalogSyncNext: (delayMs: number) => void;
+  shutdownRequested?: Promise<RuntimeTransportStopCause>;
+}): Promise<{
+  initialCatalogSyncSignal: DaemonCatalogSyncSignal | null;
+  shutdownStopCause: RuntimeTransportStopCause | null;
+}> {
+  if (!input.registerRejected) {
+    const bootstrapPlan = resolveBootstrapCatalogSyncPlan({
+      isRouteCatalogResolved: input.isRouteCatalogResolved,
+      syncIntervalMs: resolveCatalogSyncIntervalMs({
+        heartbeatIntervalMs: input.heartbeatIntervalMs,
+      }),
+    });
+    if (bootstrapPlan.persistCache) {
+      const persistence = await awaitOperationOrShutdown({
+        operation: input.persistAcceptedRouteCatalogCache(),
+        shutdownRequested: input.shutdownRequested,
+      });
+      if (persistence.kind === "shutdown_requested") {
+        return {
+          initialCatalogSyncSignal: null,
+          shutdownStopCause: persistence.stopCause,
+        };
+      }
+    }
+    input.scheduleCatalogSyncNext(bootstrapPlan.nextSyncDelayMs);
+  }
+
+  const catalogSignal = await awaitOperationOrShutdown({
+    operation: readDaemonCatalogSyncSignal().catch(() => null),
+    shutdownRequested: input.shutdownRequested,
+  });
+  if (catalogSignal.kind === "shutdown_requested") {
+    return {
+      initialCatalogSyncSignal: null,
+      shutdownStopCause: catalogSignal.stopCause,
+    };
+  }
+  return {
+    initialCatalogSyncSignal: catalogSignal.value,
+    shutdownStopCause: null,
+  };
+}
+
+async function awaitOperationOrShutdown<T>(input: {
+  operation: Promise<T>;
+  shutdownRequested?: Promise<RuntimeTransportStopCause>;
+}): Promise<
+  | { kind: "completed"; value: T }
+  | { kind: "shutdown_requested"; stopCause: RuntimeTransportStopCause }
+> {
+  if (!input.shutdownRequested) {
+    return { kind: "completed", value: await input.operation };
+  }
+  return await Promise.race([
+    input.operation.then((value) => ({ kind: "completed" as const, value })),
+    input.shutdownRequested.then((stopCause) => ({
+      kind: "shutdown_requested" as const,
+      stopCause,
+    })),
+  ]);
 }
 
 async function waitForPromiseDeadline(input: {

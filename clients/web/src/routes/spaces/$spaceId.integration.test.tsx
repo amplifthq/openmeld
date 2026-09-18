@@ -10,8 +10,12 @@ import {
 	within,
 } from "@testing-library/react";
 import { type ReactNode, useEffect } from "react";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TestQueryClientProvider } from "#/test-support/query-client";
+import {
+	createTestQueryClient,
+	TestQueryClientProvider,
+} from "#/test-support/query-client";
 
 const {
 	openMeldLogoStrongMock,
@@ -255,6 +259,46 @@ describe("PublicSpacePage", () => {
 		).toBeNull();
 	});
 
+	it("renders preloaded public messages as server HTML text instead of the loading shell", async () => {
+		const api = createPublicSpaceApi();
+		const queryClient = createTestQueryClient();
+		queryClient.setQueryData(
+			["spaces", "entry-resolution", "space-123", null, null, null],
+			await api.resolveEntry({ spaceId: "space-123" })
+		);
+		queryClient.setQueryData(
+			["public-space", "space-123", "status"],
+			await api.getStatus({ spaceId: "space-123" })
+		);
+		queryClient.setQueryData(
+			["public-space", "space-123", "signals", "main:latest"],
+			await api.listSignalEnvelopes({ spaceId: "space-123" })
+		);
+		queryClient.setQueryData(
+			["public-space", "space-123", "threads"],
+			await api.listThreads({ spaceId: "space-123" })
+		);
+		queryClient.setQueryData(
+			["spaces", "space-123", "__public_space_viewer__", "history-navigation"],
+			await api.getHistoryNavigation({ spaceId: "space-123" })
+		);
+		const apiCreationsBeforeRender = createWebSpaceApiMock.mock.calls.length;
+
+		const html = renderToString(
+			<TestQueryClientProvider queryClient={queryClient}>
+				<PublicSpacePage isAuthenticated={false} spaceId="space-123" />
+			</TestQueryClientProvider>
+		);
+		const body = document.createElement("body");
+		body.innerHTML = html;
+
+		expect(body.textContent).toContain("Hello public viewer.");
+		expect(body.textContent).not.toContain("Loading the latest messages");
+		expect(createWebSpaceApiMock).toHaveBeenCalledTimes(
+			apiCreationsBeforeRender
+		);
+	});
+
 	it.each([
 		"self_join_available",
 		"owner_add_required",
@@ -440,7 +484,11 @@ describe("PublicSpacePage", () => {
 		fireEvent.mouseEnter(
 			rootMessage.closest("[data-signal-id]") as HTMLElement
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Open thread" }));
+		const openThreadLink = screen.getByRole("link", { name: "Open thread" });
+		expect(openThreadLink.getAttribute("href")).toBe(
+			"/spaces/space-123?threadRootSignalId=signal-center-root"
+		);
+		fireEvent.click(openThreadLink);
 
 		const threadPanel = await screen.findByLabelText("Thread");
 		expect(
@@ -498,9 +546,13 @@ describe("PublicSpacePage", () => {
 
 		const linkedReply = await screen.findByText("The linked public reply.");
 		expect(linkedReply.closest('[aria-label="Thread"]')).not.toBeNull();
-		expect(
-			linkedReply.closest('[data-signal-id="linked-thread-reply"]')
-		).not.toBeNull();
+		const replyRow = linkedReply.closest(
+			'[data-signal-id="linked-thread-reply"]'
+		);
+		await waitFor(() => {
+			expect(replyRow?.getAttribute("data-highlighted")).toBe("true");
+			expect(document.activeElement).toBe(replyRow);
+		});
 	});
 
 	it("keeps completed root Wakes terminal in public threads when the thread query omits the top-level reply", async () => {
@@ -551,7 +603,7 @@ describe("PublicSpacePage", () => {
 		fireEvent.mouseEnter(
 			rootMessage?.closest("[data-signal-id]") as HTMLElement
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Open thread" }));
+		fireEvent.click(screen.getByRole("link", { name: "Open thread" }));
 
 		const threadPanel = await screen.findByLabelText("Thread");
 		expect(await within(threadPanel).findByText(rootText)).not.toBeNull();

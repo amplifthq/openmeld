@@ -15,12 +15,13 @@ import {
 	CaretRightIcon,
 	DesktopTowerIcon,
 	GearSixIcon,
+	GlobeHemisphereWestIcon,
 	MagnifyingGlassIcon,
 	MoonIcon,
 	SignOutIcon,
 	SunIcon,
 } from "@phosphor-icons/react";
-import { useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
@@ -28,7 +29,7 @@ import { useOrganizationInviteEntry } from "#/components/organizations/use-organ
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { useAppSettings } from "#/components/settings/use-app-settings";
 import { DesktopSignOutMenuItem } from "#/desktop/desktop-account-actions";
-import { getDesktopPlatform } from "#/desktop/platform";
+import { getDesktopPlatform, openDesktopWeb } from "#/desktop/platform";
 import { useDesktopUpdater } from "#/desktop/updater";
 import { useLogoutAction } from "#/hooks/auth-form.hooks";
 import {
@@ -64,17 +65,27 @@ function DesktopUpdateDot() {
 		/>
 	);
 }
-function DesktopDownloadMenuItem({ index }: { index: number }) {
-	if (getDesktopPlatform()) {
-		return null;
-	}
+function PlatformAppMenuItem(input: { index: number; webPath: string }) {
+	const desktop = getDesktopPlatform();
 	return (
 		<FluidDropdownMenuItem
-			index={index}
-			onClick={() => window.location.assign("/desktop")}
+			index={input.index}
+			onClick={() => {
+				if (desktop) {
+					openDesktopWeb(input.webPath).catch((error: unknown) =>
+						toast.error(
+							error instanceof Error
+								? error.message
+								: "Unable to open the web app. Try again."
+						)
+					);
+					return;
+				}
+				window.location.assign("/desktop");
+			}}
 		>
-			<DesktopTowerIcon />
-			Download Desktop
+			{desktop ? <GlobeHemisphereWestIcon /> : <DesktopTowerIcon />}
+			{desktop ? "Open Web App" : "Download Desktop App"}
 		</FluidDropdownMenuItem>
 	);
 }
@@ -94,6 +105,9 @@ export function AppSidebarFooter({
 	const iconOnly = mode === "icon";
 	const computerAttentionLabel = useCurrentComputer()?.attentionLabel;
 	const navigate = useNavigate();
+	const currentWebPath = useLocation({
+		select: (location) => location.href,
+	});
 	const name = account.name?.trim() || account.email || "Account";
 	const settingsLabel = "Settings";
 	const openSettings = useAppSettings();
@@ -254,12 +268,14 @@ export function AppSidebarFooter({
 								<GearSixIcon />
 								Settings
 							</FluidDropdownMenuItem>
-							<DesktopDownloadMenuItem
+							<PlatformAppMenuItem
 								index={invitationEntry.nextMenuIndex + 2}
+								webPath={currentWebPath}
 							/>
+							<DropdownMenuSeparator className="my-1" />
 							{desktop ? (
 								<DesktopSignOutMenuItem
-									index={invitationEntry.nextMenuIndex + 2}
+									index={invitationEntry.nextMenuIndex + 3}
 								/>
 							) : (
 								<FluidDropdownMenuItem

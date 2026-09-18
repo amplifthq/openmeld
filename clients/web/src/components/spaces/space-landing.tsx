@@ -523,6 +523,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 			isDirectMessageConversation: input.isDirectMessageConversation === true,
 		}),
 		organizationId,
+		profileId: input.profileId,
 		spaceId: input.spaceId,
 	});
 	const recovery = useLocalAgentRecoveryController({
@@ -562,6 +563,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 				: (throughOccurredAtMs) =>
 						spaceInboxReadPosition.markReadThrough(throughOccurredAtMs),
 		unreadStateReady: spaceInboxReadPosition.isReady,
+		unreadTotalCount: spaceInboxReadPosition.totalUnreadCount,
 		unreadTargets: spaceInboxReadPosition.targets,
 		onInitialPendingMessageConsumed: input.onInitialPendingMessageConsumed,
 		onWakeFinalOutcomeFactsRefresh: refreshWakeFinalOutcomeFacts,
@@ -1772,7 +1774,6 @@ function SpaceLandingReady({
 							}
 							onReconnectLiveUpdates={controller.onReconnectLiveUpdates}
 							onSetAccessMode={controller.onSetAccessMode}
-							onSetVisibility={controller.onSetVisibility}
 							onUpdateSpaceName={controller.onUpdateSpaceName}
 							renderFrame={false}
 							setupRecallAction={setupRecallAction}
@@ -2188,6 +2189,8 @@ function SpaceLandingConversation({
 			composerAuthoredMentions={controller.composerAuthoredMentions}
 			composerBlockedWakeProfileId={controller.composerBlockedWakeProfileId}
 			composerErrorMessage={controller.composerErrorMessage}
+			composerFileCleanup={controller.composerFileCleanup}
+			composerFileRestorationError={controller.composerFileRestorationError}
 			composerFiles={controller.composerFiles}
 			composerMembers={
 				controller.membersSnapshot
@@ -2260,10 +2263,23 @@ function SpaceLandingConversation({
 			onOpenSpaceFile={openSpaceFile}
 			onOpenThread={controller.onOpenThread}
 			onOpenUnreadThread={controller.onOpenUnreadThread}
+			onPrepareCatchUpUnread={
+				input.readingEnabled !== false &&
+				currentProfileIsActiveSpaceMember &&
+				spaceInboxReadPosition.isReady &&
+				spaceInboxReadPosition.targets.some(
+					(target) => target.threadRootSignalId === null
+				)
+					? spaceInboxReadPosition.prepareCatchUpMain
+					: undefined
+			}
 			onRecoverExecution={controller.onRecoverExecution}
 			onRemoveComposerFile={controller.onRemoveComposerFile}
 			onReplyToMessage={controller.onReplyToMessage}
 			onReportMessage={controller.onReportMessage}
+			onRetryComposerFile={controller.onRetryComposerFile}
+			onRetryComposerFileCleanup={controller.onRetryComposerFileCleanup}
+			onRetryComposerFileRestoration={controller.onRetryComposerFileRestoration}
 			onSend={controller.onSend}
 			onSendStarterPrompt={controller.onSendText}
 			onSpaceViewChange={spaceFileNavigation.changeSpaceView}
@@ -2346,6 +2362,7 @@ function SpaceLandingConversation({
 			threads={controller.threads}
 			threadsErrorMessage={controller.threadsErrorMessage}
 			timelineItems={controller.timelineItems}
+			unreadBatchOccurredAtMs={spaceInboxReadPosition.latestUnreadOccurredAtMs}
 			unreadCount={controller.unreadCount}
 			unreadTargets={spaceInboxReadPosition.targets}
 			viewState={{
@@ -2810,7 +2827,11 @@ function SpaceLandingSecondaryPanels({
 					controller.threadComposerBlockedWakeProfileId
 				}
 				composerErrorMessage={controller.threadComposerErrorMessage}
+				composerFileCleanup={controller.threadComposerFileCleanup}
 				composerFileLimitReached={controller.threadComposerFileLimitReached}
+				composerFileRestorationError={
+					controller.threadComposerFileRestorationError
+				}
 				composerFiles={controller.threadComposerFiles}
 				composerHasAuthoredMentions={
 					controller.threadComposerHasAuthoredMentions
@@ -2866,6 +2887,11 @@ function SpaceLandingSecondaryPanels({
 				onRecoverExecution={controller.onRecoverExecution}
 				onRemoveComposerFile={controller.onRemoveThreadComposerFile}
 				onReportMessage={controller.onReportMessage}
+				onRetryComposerFile={controller.onRetryThreadComposerFile}
+				onRetryComposerFileCleanup={controller.onRetryThreadComposerFileCleanup}
+				onRetryComposerFileRestoration={
+					controller.onRetryThreadComposerFileRestoration
+				}
 				onSend={controller.onThreadSend}
 				onSendText={controller.onThreadSendText}
 				onViewedThroughTs={
@@ -2896,6 +2922,7 @@ function SpaceLandingSecondaryPanels({
 				spaceReferencesById={spaceReferencesById}
 				spaceTimelineItems={controller.timelineItems}
 				textareaRef={controller.threadTextareaRef}
+				unreadStateReady={spaceInboxReadPosition.isReady}
 				unreadTargets={spaceInboxReadPosition.targets}
 				wakeFailureTargetContextsByProfileId={
 					wakeFailureTargetContextsByProfileId

@@ -181,6 +181,14 @@ Attachment restoration rejects IDs removed, cleared, or successfully consumed
 in the same file session, even when an older storage read finishes later. The
 admission rule is shared by restoration and explicit handoff; distinct late-saved
 IDs remain eligible for adoption.
+Attachment preparation reports validation, initial local persistence, remote
+staging, staged-descriptor persistence, and publication failures separately.
+Space, Thread, Center Agent pending/ready, and inline-edit composers expose the
+same attachment retry and scoped cleanup recovery. Concurrent retry gestures
+join one preparation task, and late upload results cannot restore a removed or
+consumed attachment. A new Center Agent session is not created until its local
+attachment handoff can be read; a failed handoff returns to the editable draft
+instead of leaving the pending conversation locked.
 
 Sidebar activity indicators resolve their destination from an authorized
 active-Wake progress read on click, without adding per-row subscriptions.
@@ -1025,9 +1033,13 @@ post-onboarding destination. Inbox uses the full-width inset app surface without
 an empty secondary sidebar.
 
 The full page is also reached from the permanent bottom-right Inbox launcher's
-maximize action. The compact launcher preview reads the same Core list and
-summary, uses the same structured source mapping and read mutation, and owns no
-parallel unread state.
+maximize action. The full page, compact launcher preview, and shared attention
+indicators opt into Core's mute-aware attention presentation. Muted ordinary
+updates remain raw unread history; open actions/reviews, unread urgent updates,
+and unread structured Human mentions remain presented. The notification reader
+continues to use the raw list because delivery policy is evaluated separately.
+The compact preview reads the same Core list and summary, uses the same
+structured source mapping and read mutation, and owns no parallel unread state.
 
 The page provides **All**, **Unread**, **Needs action**, and permission-gated
 **Needs review** filters, an explicit **Mark all as read** action, and a
@@ -1039,7 +1051,8 @@ accessible read/unread and **Dismiss** actions. Dismiss optimistically removes
 the row and updates unread and attention counts, restores the exact prior cache
 on failure, and never changes source state. Dismissing a directly linked item
 also clears the item selector so Web does not present its deliberate removal as
-an availability error.
+an availability error. Mark all targets the same attention presentation, so
+hidden muted ordinary updates are not silently read.
 
 The optional `?item={itemId}` deep link reads that exact recipient-authorized
 Core item by ID, places it in the canonical **All** view when it is outside the
@@ -3591,31 +3604,53 @@ region continues to announce connection changes. These states do not derive
 Computer connectivity or override Core-owned Agent readiness.
 
 **Space settings** uses the shared Fluid Dialog and Settings navigation, with
-General, Access, and Advanced sections. General contains the canonical name and
-the existing global browser-notification control. Access owns the Fluid Select
-for who can join, guest-access enablement, and member ownership management.
-Share groups invitations as "Invite people by email" and "Invite people by link", with
-guest invitations through one Teammate/Guest selector. Choosing Guest prompts
-Owners for confirmation when guest access is off; it does not require a trip to
-Settings. Share shows the current audience without membership or role editors.
-Copy Space link does not grant access; teammate invitation links
-explicitly describe Organization admission. Both surfaces reuse the same access
-facts and invitation components rather than defining separate permission rules.
-Pending invitations use progressive disclosure.
-Opening Share prepares the first invitation link through Auth's idempotent POST
-endpoint. A single conditional insert checks link history: reopening reuses an
-active link and never recreates an expired or revoked one. Renew explicitly
-replaces a link; Revoke, Renew, and Copy stay right-aligned. Access settings keeps
-Copy Space link beside the audience heading, above the member list, and presents
-guest access as a Switch with confirmation before enabling it.
+General, Members, Share & Access, and Advanced sections. General contains the
+canonical name and the existing global browser-notification control. Members
+directly shows the member and ownership controls without an accordion; its
+**Invite people** action opens the shared invitation view. Share & Access owns
+Organization visibility, link reading, joining, and guest participation. Its fixed
+footer places **Share this Space** opposite the draft controls and **Save
+changes** action. **Share or invite** is link-first: it asks **Who can read this
+Space?**, then asks **Who can join this Space?** when joining applies. Each
+selected value reflects the effective Organization and external audience, not
+only the raw link rule. The main view does not show
+a permanent URL field, Organization visibility, guest access, members, or the
+invitation form. For invitation-only joining, **Invite people to join** sits
+beside the relevant selector and opens that form as a child view in the same
+dialog; it is not a permanent footer action. Guest invitations use one
+Guest/Teammate selector. Submitting the first Guest
+invitation while guest access is off prompts Owners for confirmation, then
+enables guest access and continues the same invitation; it does not require a
+trip to Settings or a separate enable step. Copy link never grants access. A
+changed policy stays a visible local draft until the owner uses **Save and copy
+link** in Share or invite or **Save changes** in Share & Access. Share or invite
+saves first and copies only after persistence succeeds; clipboard failure
+reveals the URL for manual recovery without reversing the successful save or
+claiming copy success. Both surfaces reuse the same access facts and invitation
+components rather than defining separate permission rules. Pending invitations
+use progressive disclosure.
+
+The Share or invite dialog and Share & Access settings replace each other as
+controlled surfaces while preserving one unsaved draft. Closing either surface
+requires one explicit discard decision;
+switching between them does not prompt. Entering invitations with a dirty access
+draft offers save and continue, discard and continue, or go back. Selecting the
+teammate invitation surface loads persisted invitation-link
+state; merely opening Share or invite does not create or renew one. A single conditional
+insert checks link history: reopening reuses an active link and never recreates
+an expired or revoked one. Renew explicitly replaces a link; Revoke, Renew, and
+Copy stay right-aligned. Share & Access keeps guest participation in the same draft and fixed
+save footer as the other policy fields. Turning it off warns that existing
+guests are blocked rather than removed, so restoring it restores their access.
+Public reading remains available to anonymous readers and does not require guest
+access. Share or invite does not duplicate the guest-access switch.
 Invitation links are read from Auth when the panel opens, scoped to the account,
 Organization, optional Space, and direct/request mode. A mutation response is
 not the only way to display an existing link. Failed reads offer retry rather
 than presenting the absence of a link.
 New Web Spaces use members-only access; General access selects only invited
 people or everyone at the Organization. Existing external link modes remain
-visible and editable under a separate disclosure, without changing either
-policy implicitly. Advanced contains Space ID, CLI join command, joined profile, and existing
+visible and editable without changing either policy implicitly. Advanced contains Space ID, CLI join command, joined profile, and existing
 confirmed leave/delete actions. **Chat settings** shares the same composition but
 omits Access, CLI join, and lifecycle mutations while the conversation is a DM.
 The creator profile,
@@ -3670,6 +3705,18 @@ explicit join. Joining reloads the shared entry so Core chooses the guest or
 Organization experience. Public entry revalidates on focus and every 15 seconds
 while visible; rejection removes the mounted reader. Its HTML advertises the
 shared JSON context directory and is not cacheable or indexable.
+
+For an allowed public entry, the ordinary `/spaces/:spaceId` response also
+server-renders a bounded conversation window into its initial HTML. A targeted
+message or Thread link renders the Core-resolved anchor window and selected
+Thread; the latest view renders a bounded recent window. Existing history and
+Thread controls expose same-Space links so a reader without JavaScript can move
+through older windows, return to latest, and open Threads. Hydration reuses the
+same request-scoped query data and preserves the interactive reader. Web must
+resolve access before reading or serializing conversation content, must not
+derive policy locally, and must keep both public HTML and its content-bearing
+GET server-function responses private and non-cacheable, including denied
+access, invalid input, and upstream failures.
 
 Organization-scoped routes retain the App shell for permitted public reads and
 membership gates. Tenant-neutral links resolve to the Organization App route
@@ -4542,6 +4589,28 @@ advancing the read watermark past them, and temporary progress cannot advance it
 After that dwell,
 the existing optimistic Inbox projection updates before the server write settles;
 failed writes retain the existing rollback and reconciliation path.
+Web freezes each main or Thread **New messages** divider at the first Core
+unread target observed for that visit and uses Core's complete unread count for
+the navigation shortcut. Shortcut dismissal records the current server summary
+cutoff locally; it hides that batch without acknowledging it and does not depend
+on viewport geometry. Thread targets open the exact reply instead of treating
+the root message as the destination.
+
+When the main conversation has unread targets, the existing latest-message
+control is also the explicit catch-up action. Web first reads a fresh Core Space
+Inbox summary to freeze the accepted main-timeline cutoff, then mounts the live
+tail and settles its scroll position before writing the main watermark through
+that exact occurrence time. The activation reserves its history-navigation
+revision before the summary read begins. A newer accepted history navigation,
+unmounted view, or changed Organization/Space identity abandons the activation
+before it can switch to the live tail or start the write, and discards its
+unused cutoff. The same activation never advances a Thread watermark or
+includes messages arriving after its cutoff; only an actual failed write keeps
+the original cutoff for retry. Visible-message and explicit writes share one per-scope
+serializer that coalesces queued higher watermarks, so an older invalidation
+cannot replace a newer optimistic projection. Failures retain the cutoff for
+retry and state that the user reached the latest messages but marking them read
+failed.
 Scroll events only check distance from the latest messages. Layout and preference
 writes happen at the endpoint change, never per animation frame. The viewport
 height changes once with a matching scroll offset to preserve the reading anchor.
@@ -4563,6 +4632,10 @@ bottom row while retaining the normal page inset and the Sidebar footer.
 Computer stays in the account menu above Settings. Its warning/danger avatar
 and menu indicators consume the same shared current-Computer presentation as
 the optional toolbar shortcut; hiding a shortcut does not clear attention.
+The account menu's platform slot is reciprocal: Web shows Download desktop app,
+while the shared renderer running inside Desktop shows Open web app and opens
+the equivalent authorized route in the system browser. The slot remains above
+Settings and does not create a second navigation or authentication authority.
 
 Selecting a Human or Agent identity in a Space opens one compact profile
 popover rather than a table-style details dialog. A Human popover shows the
@@ -5000,6 +5073,48 @@ the visible command, overwrite the persisted session pointer, or satisfy refresh
 deduplication for the new session. Choosing `Set up again` increments that fence
 before Web requests the replacement session, so the invalidation does not depend
 on a later React render or network response.
+
+While that exact Prepare Session is active, Web may render the latest structured
+connection-progress observation carried by its existing Prepare stream. Web
+must fence observations by session, operation, attempt, and sequence; a stale
+observation cannot replace a newer attempt. Measured transfer bytes may render
+a percentage, while other phases remain indeterminate. The observation never
+advances Prepare, changes its success criteria, or substitutes for its canonical
+terminal snapshot. Desktop may open the organization Connect route with one
+explicit non-secret Prepare Session ID so the signed-in owner can observe that
+same session; this route reads and subscribes only, and does not create another
+Prepare Session or mint setup authorization. When the observation stream is
+reconnecting, Web retains the last confirmed stage without animating it as
+fresh work.
+Exact-session observation remains read-only across initial load, snapshots,
+refresh, reconnect, and not-found handling. It neither reads nor overwrites the
+ordinary Connect flow's persisted session pointer and exposes no command,
+authorization, or start-over mutation. If the named session expires, Web keeps
+the observer on an unavailable state for that ID; beginning a new connection
+requires explicit navigation out of the observation URL. Progress is accepted
+only for the Terminal epoch in the current snapshot, so a replaced Terminal or
+completed session cannot be reactivated by a late frame.
+
+The standalone native Desktop Computer page centers its card below Back within
+the existing app-shell scroll content; it does not introduce a fixed viewport or
+nested scroll area. Only the icon-only Back link is square and circular, retaining
+shared focus and touch sizing. Text Back, browser setup, New Agent embedding,
+Space recovery, update flows, and exact-session observers retain their original
+layout and navigation context.
+
+The native page explicitly presents its first unknown connection check. A
+same-account native display snapshot stays usable during ordinary background
+refetch; missing identity/target and active mutations still block submission.
+Display caching never authorizes a mutation. Each observer belongs to its full
+account/request context, and each manually submitted operation has a local
+observation revision. Remounting resumes the native owner's pending operation;
+old requests, a delayed current-operation read, duplicate settlement, and late
+pending cannot complete or relock a different request. Disconnect consumes the
+same native record rather than replaying retained connect success. Confirmation,
+cancellation, completion, and unconfirmed outcomes retain their distinct meaning;
+refresh warnings do not erase confirmed native completion. Historical update
+failures and Skills advisories remain independent from the Computer card's
+Core-owned current Service liveness projection.
 
 When setup starts from `Reconnect Computer` on an existing Computer,
 Web carries that stable `connectedComputerId` into the Prepare Session. A local

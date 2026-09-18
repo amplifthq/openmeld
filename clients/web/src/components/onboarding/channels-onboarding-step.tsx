@@ -17,6 +17,7 @@ import {
 } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { OnboardingStepLayout } from "#/components/onboarding/onboarding-step-layout";
 import { AppLogo } from "#/components/organizations/app-logo";
 import { LarkPlatformChannelDialog } from "#/components/organizations/lark-platform-channel-dialog";
 import { requiresLarkPlatformSetupAuthorization } from "#/components/organizations/lark-platform-setup-authorization";
@@ -26,6 +27,12 @@ import {
 	SLACK_CHANNEL_IDENTITY,
 } from "#/components/organizations/plugin-catalog";
 import { useLarkPlatformChannelManagement } from "#/components/organizations/use-lark-platform-channel-management";
+import {
+	type AuthorizationBrowser,
+	closeAuthorizationBrowser,
+	openAuthorizationBrowser,
+	prepareAuthorizationBrowser,
+} from "#/desktop/authorization-browser";
 import { resolveCenterAgentErrorMessage } from "#/lib/organizations/center-agent";
 import { resolveMessageChannelErrorMessage } from "#/lib/organizations/message-channels";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -52,7 +59,7 @@ export function ChannelsOnboardingStep(input: { onContinue: () => void }) {
 	const [slackAuthorizationError, setSlackAuthorizationError] = useState<
 		string | null
 	>(null);
-	const slackAuthorizationPopupRef = useRef<Window | null>(null);
+	const slackAuthorizationPopupRef = useRef<AuthorizationBrowser | null>(null);
 	const roleQuery = useQuery(
 		organizationMemberRoleQueryOptions({
 			enabled: currentOrganization.isPersonal !== true,
@@ -92,7 +99,7 @@ export function ChannelsOnboardingStep(input: { onContinue: () => void }) {
 	const slackConnected =
 		designationQuery.data?.slackConnection?.connected === true;
 	const closeSlackAuthorizationPopup = useCallback(() => {
-		slackAuthorizationPopupRef.current?.close();
+		closeAuthorizationBrowser(slackAuthorizationPopupRef.current);
 		slackAuthorizationPopupRef.current = null;
 	}, []);
 
@@ -145,15 +152,12 @@ export function ChannelsOnboardingStep(input: { onContinue: () => void }) {
 		[closeSlackAuthorizationPopup]
 	);
 
-	const startSlackAuthorization = () => {
+	const startSlackAuthorization = async () => {
 		if (!(canManage && designationQuery.isSuccess) || slackConnected) {
 			return;
 		}
 		setSlackAuthorizationError(null);
-		const popup = window.open(
-			buildSlackOAuthStartPath({
-				organizationSlug: currentOrganization.slug,
-			}),
+		const popup = prepareAuthorizationBrowser(
 			"openmeld-slack-authorization",
 			"popup,width=720,height=760"
 		);
@@ -163,10 +167,23 @@ export function ChannelsOnboardingStep(input: { onContinue: () => void }) {
 			);
 			return;
 		}
-		popup.opener = null;
 		slackAuthorizationPopupRef.current = popup;
-		setSlackAuthorizationWaiting(true);
-		popup.focus();
+		try {
+			await openAuthorizationBrowser(
+				popup,
+				buildSlackOAuthStartPath({
+					organizationSlug: currentOrganization.slug,
+				})
+			);
+			setSlackAuthorizationWaiting(true);
+		} catch (error) {
+			closeSlackAuthorizationPopup();
+			setSlackAuthorizationError(
+				error instanceof Error
+					? error.message
+					: "Could not open Slack authorization. Try again."
+			);
+		}
 	};
 	const retryReads = () => {
 		Promise.allSettled([
@@ -189,89 +206,94 @@ export function ChannelsOnboardingStep(input: { onContinue: () => void }) {
 
 	return (
 		<>
-			<div className="flex flex-1 flex-col">
-				<div className="grid gap-3">
-					<ChannelChoice
-						accountName={
-							designationQuery.data?.slackConnection?.workspaceName ?? null
-						}
-						canManage={canManage}
-						connected={slackConnected}
-						description="Let your team message Center Agent from Slack."
-						disabled={
-							slackAuthorizationWaiting ||
-							designationQuery.isPending ||
-							designationQuery.isError
-						}
-						label="Slack"
-						logo={SLACK_CHANNEL_IDENTITY}
-						onManage={startSlackAuthorization}
-						pending={slackAuthorizationWaiting}
-					/>
-					{resolveVisibleLarkProviders({
-						availableProviders:
-							channelsQuery.data?.availableLarkPlatformProviders ?? [],
-						connections: channelsQuery.data?.connections ?? [],
-					}).map((provider) => (
-						<LarkChannelChoice
-							activeRegistration={activeRegistrationsQuery.data?.registrations.find(
-								(registration) => registration.provider === provider
-							)}
-							canManage={canManage}
-							connection={channelsQuery.data?.connections.find(
-								(connection) => connection.provider === provider
-							)}
-							key={provider}
-							onCancelSetup={() => larkPlatform.cancelSetup(provider)}
-							onManage={() => larkPlatform.manage(provider)}
-							pending={larkPlatform.beginPendingProvider === provider}
-							provider={provider}
-						/>
-					))}
-				</div>
-
-				{channelsError ? (
-					<div
-						className="mt-3 flex items-start justify-between gap-3 rounded-md border border-destructive/25 bg-destructive/5 p-3"
-						role="alert"
-					>
-						<div className="flex min-w-0 items-start gap-2">
-							<WarningCircleIcon
-								aria-hidden="true"
-								className="mt-0.5 size-4 shrink-0 text-destructive"
+			<OnboardingStepLayout
+				body={
+					<>
+						<div className="grid gap-3">
+							<ChannelChoice
+								accountName={
+									designationQuery.data?.slackConnection?.workspaceName ?? null
+								}
+								canManage={canManage}
+								connected={slackConnected}
+								description="Let your team message Center Agent from Slack."
+								disabled={
+									slackAuthorizationWaiting ||
+									designationQuery.isPending ||
+									designationQuery.isError
+								}
+								label="Slack"
+								logo={SLACK_CHANNEL_IDENTITY}
+								onManage={startSlackAuthorization}
+								pending={slackAuthorizationWaiting}
 							/>
-							<p className="text-destructive text-xs leading-5">
-								{resolveChannelsErrorMessage(channelsError)}
-							</p>
+							{resolveVisibleLarkProviders({
+								availableProviders:
+									channelsQuery.data?.availableLarkPlatformProviders ?? [],
+								connections: channelsQuery.data?.connections ?? [],
+							}).map((provider) => (
+								<LarkChannelChoice
+									activeRegistration={activeRegistrationsQuery.data?.registrations.find(
+										(registration) => registration.provider === provider
+									)}
+									canManage={canManage}
+									connection={channelsQuery.data?.connections.find(
+										(connection) => connection.provider === provider
+									)}
+									key={provider}
+									onCancelSetup={() => larkPlatform.cancelSetup(provider)}
+									onManage={() => larkPlatform.manage(provider)}
+									pending={larkPlatform.beginPendingProvider === provider}
+									provider={provider}
+								/>
+							))}
 						</div>
-						<Button
-							onClick={retryReads}
-							size="xs"
-							type="button"
-							variant="outline"
-						>
-							Retry
+
+						{channelsError ? (
+							<div
+								className="mt-3 flex items-start justify-between gap-3 rounded-md border border-destructive/25 bg-destructive/5 p-3"
+								role="alert"
+							>
+								<div className="flex min-w-0 items-start gap-2">
+									<WarningCircleIcon
+										aria-hidden="true"
+										className="mt-0.5 size-4 shrink-0 text-destructive"
+									/>
+									<p className="text-destructive text-xs leading-5">
+										{resolveChannelsErrorMessage(channelsError)}
+									</p>
+								</div>
+								<Button
+									onClick={retryReads}
+									size="xs"
+									type="button"
+									variant="outline"
+								>
+									Retry
+								</Button>
+							</div>
+						) : null}
+						{slackAuthorizationError ? (
+							<p className="mt-3 text-destructive text-xs" role="alert">
+								{slackAuthorizationError}
+							</p>
+						) : null}
+					</>
+				}
+				footer={
+					<div className="flex items-center justify-between gap-4 max-sm:items-end">
+						<p className="text-muted-foreground text-xs">
+							{canManage
+								? "Connect one now, or do it later."
+								: "An organization admin manages shared Channels."}
+						</p>
+						<Button onClick={input.onContinue} type="button">
+							Continue
+							<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
 						</Button>
 					</div>
-				) : null}
-				{slackAuthorizationError ? (
-					<p className="mt-3 text-destructive text-xs" role="alert">
-						{slackAuthorizationError}
-					</p>
-				) : null}
-
-				<div className="mt-auto flex items-center justify-between gap-4 border-border/70 border-t pt-5">
-					<p className="text-muted-foreground text-xs">
-						{canManage
-							? "Connect one now, or do it later."
-							: "An organization admin manages shared Channels."}
-					</p>
-					<Button onClick={input.onContinue} type="button">
-						Continue
-						<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
-					</Button>
-				</div>
-			</div>
+				}
+			/>
 			<LarkPlatformChannelDialog
 				canManage={canManage}
 				connection={larkPlatform.connection}

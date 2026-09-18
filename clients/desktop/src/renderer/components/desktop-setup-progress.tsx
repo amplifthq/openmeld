@@ -31,7 +31,7 @@ export function DesktopSetupProgress({
       <SetupTimeline>
         <SetupTimelineStep
           state="complete"
-          summary="OpenMeld Desktop is ready to run setup from this app."
+          summary="OpenMeld is ready to run setup from this app."
           title="Check requirements"
         />
         <SetupTimelineStep
@@ -54,8 +54,7 @@ export function DesktopSetupProgress({
       </SetupTimeline>
       {setupInProgress ? (
         <p className="text-muted-foreground text-xs">
-          Keep OpenMeld Desktop open while setup runs. No terminal commands are
-          needed.
+          Keep OpenMeld open while setup runs. No terminal commands are needed.
         </p>
       ) : null}
     </div>
@@ -92,7 +91,7 @@ function setupProgressCopy(mode: DesktopSetupProgressMode): {
     return {
       actionTitle: "Reconnect this Mac",
       activeSummary:
-        "OpenMeld Desktop is refreshing OpenMeld CLI, OpenMeld Service, and local agent connections.",
+        "OpenMeld is refreshing OpenMeld CLI, OpenMeld Service, and local agent connections.",
       blockedSummary:
         "Reconnect did not finish yet. Try again when you are ready.",
     };
@@ -100,7 +99,7 @@ function setupProgressCopy(mode: DesktopSetupProgressMode): {
   return {
     actionTitle: "Set up this Mac",
     activeSummary:
-      "OpenMeld Desktop is installing or updating OpenMeld CLI, preparing OpenMeld Service, and connecting local agents.",
+      "OpenMeld is installing or updating OpenMeld CLI, preparing OpenMeld Service, and connecting local agents.",
     blockedSummary: "Setup did not finish yet. Try again when you are ready.",
   };
 }

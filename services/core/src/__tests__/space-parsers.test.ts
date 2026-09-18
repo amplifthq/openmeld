@@ -269,12 +269,16 @@ describe("space parsers", () => {
     it("accepts and normalizes the single Space password", () => {
       const parsed = parseSetSpaceAccessModeBody({
         accessMode: "protected",
+        allowGuests: true,
         password: "  Abc!2345  ",
+        visibility: "public",
       });
       expect(parsed).toEqual({
         ok: true,
         accessMode: "protected",
+        allowGuests: true,
         password: "Abc!2345",
+        visibility: "public",
       });
     });
 

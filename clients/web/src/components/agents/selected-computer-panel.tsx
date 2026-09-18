@@ -12,7 +12,7 @@ import {
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
 import { type QueryClient, useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { DesktopServiceControls } from "#/desktop/desktop-service-controls";
 import { canConfigureLocalComputer } from "#/desktop/platform";
@@ -31,6 +31,7 @@ const SETUP_COMPLETE_REFRESH_GRACE_MS = 12_000;
 
 export function SelectedComputerPanel(input: {
 	computer: LocalRuntimeComputer;
+	connectionAction?: ReactNode;
 	focusFileAccess: boolean;
 	focusService: boolean;
 	isReconcilingStatus: boolean;
@@ -147,6 +148,7 @@ export function SelectedComputerPanel(input: {
 			) : null}
 			<OpenMeldServiceCard
 				computer={input.computer}
+				connectionAction={input.connectionAction}
 				currentExpectedServiceVersion={
 					input.recovery.expectedServiceVersion ?? null
 				}
