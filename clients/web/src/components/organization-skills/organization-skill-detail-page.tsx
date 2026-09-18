@@ -31,7 +31,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { type SetStateAction, useEffect, useRef, useState } from "react";
 import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-navigation";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
 import { UnsavedChangesGuard } from "#/components/forms/unsaved-changes-guard";
@@ -123,6 +123,7 @@ function OrganizationSkillDetailContent(input: {
 	}
 	return (
 		<OrganizationSkillEditor
+			key={JSON.stringify([input.organizationId, input.skillId])}
 			organizationId={input.organizationId}
 			organizationName={input.organizationName}
 			orgSlug={input.orgSlug}
@@ -139,13 +140,28 @@ function OrganizationSkillEditor(input: {
 }) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
-	const [bundle, setBundle] = useState(input.skill.bundle);
+	// Identity is isolated above. Content and concurrency expectations advance
+	// together, never merely because a newer query result arrived while editing.
+	const [draft, setDraft] = useState(() => ({
+		baseline: input.skill,
+		bundle: input.skill.bundle,
+	}));
+	const editRevision = useRef(0);
+	const bundle = draft.bundle;
+	const setBundle = (update: SetStateAction<OrganizationSkillBundle>) => {
+		editRevision.current += 1;
+		setDraft((current) => ({
+			...current,
+			bundle: typeof update === "function" ? update(current.bundle) : update,
+		}));
+	};
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [deleteOpen, setDeleteOpen] = useState(false);
 	const [maintainersOpen, setMaintainersOpen] = useState(false);
 	const [removed, setRemoved] = useState(false);
 	const hasUnsavedChanges =
-		!removed && canonicalBundle(bundle) !== canonicalBundle(input.skill.bundle);
+		!removed &&
+		canonicalBundle(bundle) !== canonicalBundle(draft.baseline.bundle);
 	const bundleValid =
 		PORTABLE_SKILL_NAME_PATTERN.test(bundle.portable.name.trim()) &&
 		bundle.portable.description.trim().length > 0 &&
@@ -154,21 +170,24 @@ function OrganizationSkillEditor(input: {
 		) &&
 		bundle.instructions.length <= ORGANIZATION_SKILL_INSTRUCTIONS_MAX_CHARS;
 	const refresh = async (skill: OrganizationSkill) => {
-		queryClient.setQueryData(
+		queryClient.setQueryData<GetOrganizationSkillResponse>(
 			organizationSkillQueryKeys.detail(input.organizationId, skill.id),
-			{ skill }
+			(current) =>
+				current?.skill && current.skill.version > skill.version
+					? current
+					: { skill }
 		);
 		await queryClient.invalidateQueries({
 			queryKey: organizationSkillQueryKeys.list(input.organizationId),
 		});
 	};
 	const saveMutation = useMutation({
-		mutationFn: async () =>
+		mutationFn: async (submitted: typeof draft) =>
 			await updateCurrentOrganizationSkill({
-				bundle,
-				expectedActiveReleaseId: input.skill.activeRelease.id,
+				bundle: submitted.bundle,
+				expectedActiveReleaseId: submitted.baseline.activeRelease.id,
 				expectedOrganizationId: input.organizationId,
-				expectedVersion: input.skill.version,
+				expectedVersion: submitted.baseline.version,
 				skillId: input.skill.id,
 			}),
 		onError: (error) => {
@@ -177,10 +196,32 @@ function OrganizationSkillEditor(input: {
 		onMutate: () => {
 			setErrorMessage(null);
 		},
-		onSuccess: async (response) => {
+		onSuccess: async (response, submitted) => {
+			setDraft((current) => ({
+				baseline: response.skill,
+				bundle:
+					canonicalBundle(current.bundle) === canonicalBundle(submitted.bundle)
+						? response.skill.bundle
+						: current.bundle,
+			}));
 			await refresh(response.skill);
 		},
 	});
+	useEffect(() => {
+		if (saveMutation.isPending) {
+			return;
+		}
+		setDraft((current) => {
+			if (
+				input.skill.version <= current.baseline.version ||
+				canonicalBundle(current.bundle) !==
+					canonicalBundle(current.baseline.bundle)
+			) {
+				return current;
+			}
+			return { baseline: input.skill, bundle: input.skill.bundle };
+		});
+	}, [input.skill, saveMutation.isPending]);
 	const enabledMutation = useMutation({
 		mutationFn: async (enabled: boolean) =>
 			await setCurrentOrganizationSkillEnabled({
@@ -230,12 +271,18 @@ function OrganizationSkillEditor(input: {
 		},
 	});
 	const save = async (): Promise<boolean> => {
-		if (!(bundleValid && hasUnsavedChanges) || saveMutation.isPending) {
+		if (
+			!(input.skill.permissions.canEdit && bundleValid && hasUnsavedChanges) ||
+			saveMutation.isPending
+		) {
 			return false;
 		}
+		const submittedRevision = editRevision.current;
 		try {
-			await saveMutation.mutateAsync();
-			return true;
+			await saveMutation.mutateAsync(draft);
+			// A queued editor change is not part of the completed Save. In
+			// particular, Save and leave must not discard such newer input.
+			return editRevision.current === submittedRevision;
 		} catch {
 			return false;
 		}
