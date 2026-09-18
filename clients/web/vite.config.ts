@@ -5,23 +5,28 @@ import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { readInstalledDesktopTarget } from "../../scripts/desktop/installed-target";
 // @ts-expect-error Build-only JavaScript helper.
 import { desktopWebBuildIdentity } from "../../scripts/desktop/web-build-identity.mjs";
+import { resolveCliBuildEnvironment } from "./scripts/cli-target-config";
 import { desktopPilotBuildPrerequisites } from "./scripts/desktop-pilot-build";
 import { resolveIsolatedWebDevSettings } from "./scripts/isolated-dev-config.ts";
 
 const isolatedDev = resolveIsolatedWebDevSettings(process.env);
 
-const config = defineConfig(({ command }) => {
+const config = defineConfig(({ command, mode }) => {
 	const installedTarget = readInstalledDesktopTarget(process.env);
 	if (installedTarget) {
 		Object.assign(process.env, {
 			VITE_BETTER_AUTH_URL: installedTarget.webOrigin,
 		});
 	}
+	const cliBuildEnvironment = resolveCliBuildEnvironment({
+		...loadEnv(mode, import.meta.dirname, "VITE_"),
+		...process.env,
+	});
 	const desktopPilotBuild =
 		process.env.OPENMELD_DESKTOP_PILOT === "1" &&
 		command === "build" &&
@@ -53,6 +58,12 @@ const config = defineConfig(({ command }) => {
 	}
 	return {
 		define: {
+			...Object.fromEntries(
+				Object.entries(cliBuildEnvironment).map(([key, value]) => [
+					`import.meta.env.${key}`,
+					JSON.stringify(value),
+				])
+			),
 			__OPENMELD_DESKTOP_WEB_BUILD__: JSON.stringify(desktopWebBuild),
 			__OPENMELD_DESKTOP_PILOT__: JSON.stringify(desktopPilotBuild),
 			__OPENMELD_WEB_BUILD__: JSON.stringify({
