@@ -244,6 +244,16 @@ verifies transport and executable hashes and the production signing identity.
 The verified binary's `install-self` owns installation. No Node/npm prerequisite,
 arbitrary renderer executable, URL, path, or shell command is accepted.
 
+The read-only local Computer projection recognizes only the same bootstrap
+conditions: a missing executable (`ENOENT`) or an exit-1 unknown `computer` /
+`connection-review` command. With the native account unchanged across the read,
+it returns the existing `unavailable` shape and explains that explicit Connect
+will install or update OpenMeld Tools. It neither installs during a query nor
+claims a connected identity. Other review failures, invalid output, permission
+errors and authentication-read failures still fail closed. Connect retains its
+own native account check, verified installer and post-install connection review;
+the renderer's unknown-state guard is not relaxed. No IPC/schema change is needed.
+
 Main creates the existing Core Prepare Session and uses the shared API client's
 Device Authorization sequence with its authenticated native SDK transport. The
 grant creates an independent Computer session in the CLI; native cookies never

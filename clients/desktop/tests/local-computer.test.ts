@@ -2,7 +2,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { readComputerConnection } from "../src/main/computer-connection";
 import { createLocalComputerReader } from "../src/main/local-computer";
 
-vi.mock("../src/main/computer-connection", () => ({
+vi.mock("../src/main/computer-connection", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/main/computer-connection")>()),
   readComputerConnection: vi.fn(),
 }));
 afterEach(() => vi.clearAllMocks());
@@ -49,6 +50,10 @@ it.each([
     session
       .mockResolvedValueOnce({ user })
       .mockResolvedValue({ user: { ...user, id: "owner-b" } });
+    await expect(
+      createLocalComputerReader({ session }, deps)()
+    ).rejects.toThrow("Couldn’t check this Mac’s connection");
+    return;
   }
   const result = await createLocalComputerReader({ session }, deps)();
   expect(result.status).toBe(

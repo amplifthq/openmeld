@@ -523,6 +523,22 @@ function assertConnectionEnvironment(env?: NodeJS.ProcessEnv) {
 
 const UNSUPPORTED_CONNECTION_COMMAND =
   /error: unknown command '(?:computer|connection-review)'/;
+
+// Shared by the read-only projection and the explicit Connect bootstrap. Do not
+// interpret authentication failures or malformed review output as missing tools.
+export function isComputerConnectionBootstrapError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const failure = error as { code?: unknown; stderr?: unknown };
+  return (
+    failure.code === "ENOENT" ||
+    (failure.code === 1 &&
+      typeof failure.stderr === "string" &&
+      UNSUPPORTED_CONNECTION_COMMAND.test(failure.stderr))
+  );
+}
+
 export async function readComputerConnection(bin: string, deps: CommandDeps) {
   const result = await promisify(execFile)(
     bin,
@@ -547,11 +563,7 @@ async function reviewComputerConnection(
   try {
     return await readComputerConnection(bin, deps);
   } catch (error) {
-    const failure = error as { code?: string | number; stderr?: string };
-    const unsupported =
-      failure.code === 1 &&
-      UNSUPPORTED_CONNECTION_COMMAND.test(failure.stderr ?? "");
-    if (failure.code !== "ENOENT" && !unsupported) {
+    if (!isComputerConnectionBootstrapError(error)) {
       throw error;
     }
     await installManagedBinary(webOrigin, deps, {

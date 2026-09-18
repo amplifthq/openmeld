@@ -22,3 +22,8 @@ confirmed disconnection, and an unconfirmed result have distinct messages and a
 safe next step; connection details retain the diagnostic reference. Disconnect
 keeps Desktop signed in and leaves the Computer in the cloud list. Reopening an
 operation resumes its feedback without replaying a previous connection result.
+
+Connect this Mac also remains available when OpenMeld Tools are missing or too
+old to check the connection. Choosing Connect uses the verified installer;
+opening or refreshing the page never installs tools automatically. Identity and
+other read errors still require a successful check before proceeding.
