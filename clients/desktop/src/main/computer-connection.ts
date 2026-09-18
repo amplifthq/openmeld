@@ -16,12 +16,15 @@ import {
   DESKTOP_WEB_BUILD_HEADER,
   type DesktopComputerConnectionProgress,
   type DesktopComputerConnectionResult,
+  type DesktopComputerDisconnectPhase,
+  type DesktopComputerDisconnectResult,
   desktopComputerConnectionRequestSchema,
   desktopComputerDisconnectRequestSchema,
   localMachineIssueAgentEventSchema,
   prepareSessionResponseSchema,
   prepareSessionWithTokenResponseSchema,
   redactPrepareStepDiagnosticsText,
+  SERVICE_ACCOUNT_STOP_REFUSED_CODE,
 } from "@openmeld/schemas";
 import type { CommandDeps } from "./cli/commands";
 import { installManagedBinary } from "./cli/managed-binary";
@@ -339,37 +342,117 @@ async function finishConnectionSetup(input: {
   };
 }
 
+const DISCONNECT_CONNECTION_CHANGED = {
+  status: "connection_changed",
+  code: "desktop.disconnect.connection_changed",
+  message:
+    "The account or this Mac’s connection changed. Disconnect was not started. Check the connection again.",
+} as const satisfies DesktopComputerDisconnectResult;
+
+function presentDisconnectFailure(
+  error: unknown,
+  commandRequested: boolean,
+  commandStarted: boolean
+): DesktopComputerDisconnectResult {
+  const unconfirmed = {
+    status: "unconfirmed",
+    code: "desktop.disconnect.unconfirmed",
+    message:
+      "Disconnect may have been accepted, but its final result could not be confirmed. Check the connection before trying again.",
+  } as const;
+  if (error instanceof ComputerOperationError) {
+    const diagnostics = { diagnosticsPath: error.diagnosticsPath };
+    if (
+      error.code === "service.account_admission.account_changed" ||
+      error.code === "service.account_admission.account_mismatch"
+    ) {
+      return {
+        ...DISCONNECT_CONNECTION_CHANGED,
+        code: error.code,
+        ...diagnostics,
+      };
+    }
+    if (error.code === SERVICE_ACCOUNT_STOP_REFUSED_CODE) {
+      return {
+        status: "failed",
+        code: error.code,
+        message:
+          "The Service did not accept Disconnect. Check its status before trying again.",
+        ...diagnostics,
+      };
+    }
+    return { ...unconfirmed, ...diagnostics };
+  }
+  if (commandStarted) {
+    return unconfirmed;
+  }
+  return {
+    status: "failed",
+    code: commandRequested
+      ? "desktop.disconnect.start_failed"
+      : "desktop.disconnect.check_failed",
+    message:
+      "Disconnect was not started. Check your sign-in and OpenMeld Tools, then check the connection again.",
+  };
+}
+
 export function createComputerDisconnection(input: {
   auth: Pick<PilotAuth, "session">;
   commandDeps: CommandDeps;
   confirmDisconnect(): Promise<boolean>;
+  sessionRevision?(): number;
+  onPhase?(phase: DesktopComputerDisconnectPhase): void;
 }) {
-  return async (request: unknown): Promise<boolean> => {
+  return async (request: unknown): Promise<DesktopComputerDisconnectResult> => {
     const intent = desktopComputerDisconnectRequestSchema.parse(request);
-    const assertAccount = async () => {
-      if ((await input.auth.session()).user?.id !== intent.expectedAccount) {
-        throw new Error(
-          "Desktop sign-in changed. Review the connection again."
-        );
+    const revision = input.sessionRevision?.();
+    const accountMatches = async () =>
+      (await input.auth.session()).user?.id === intent.expectedAccount &&
+      input.sessionRevision?.() === revision;
+    const changed = DISCONNECT_CONNECTION_CHANGED;
+    const reportPhase = (phase: DesktopComputerDisconnectPhase) => {
+      try {
+        input.onPhase?.(phase);
+      } catch {
+        // UI observation cannot cancel or change the native operation.
       }
     };
-    await assertAccount();
-    assertConnectionEnvironment(input.commandDeps.env);
-    const bin = resolveOpenMeldBin({
-      env: input.commandDeps.env,
-      override: input.commandDeps.openMeldBin,
-    });
-    const review = await readComputerConnection(bin, input.commandDeps);
-    if (review.account?.id !== intent.expectedAccount) {
-      throw new Error(
-        "This Mac is connected to a different account. Its connection was not changed."
-      );
-    }
-    if (!(await input.confirmDisconnect())) {
-      return false;
-    }
-    await assertAccount();
+    let commandRequested = false;
+    let commandStarted = false;
     try {
+      reportPhase("checking");
+      assertConnectionEnvironment(input.commandDeps.env);
+      const bin = resolveOpenMeldBin({
+        env: input.commandDeps.env,
+        override: input.commandDeps.openMeldBin,
+      });
+      // These are independent reads, not permission to mutate. The CLI still
+      // rechecks the exact reviewed session and Service ownership under its lock.
+      const [sameAccount, review] = await Promise.all([
+        accountMatches(),
+        readComputerConnection(bin, input.commandDeps),
+      ]);
+      if (
+        !sameAccount ||
+        input.sessionRevision?.() !== revision ||
+        review.account?.id !== intent.expectedAccount ||
+        (intent.expectedConnection &&
+          (review.existingConnection?.deviceId !==
+            intent.expectedConnection.deviceId ||
+            review.existingConnection.runtimeLane !==
+              intent.expectedConnection.runtimeLane))
+      ) {
+        return changed;
+      }
+      reportPhase("waiting_for_confirmation");
+      if (!(await input.confirmDisconnect())) {
+        return { status: "cancelled" };
+      }
+      if (!(await accountMatches())) {
+        return changed;
+      }
+      reportPhase("disconnecting");
+      commandRequested = true;
       await runConnectionSetup(
         bin,
         [
@@ -384,17 +467,17 @@ export function createComputerDisconnection(input: {
           "agent",
         ],
         input.commandDeps.env,
-        { completedEvent: "computer.disconnected" }
+        {
+          completedEvent: "computer.disconnected",
+          onStarted: () => {
+            commandStarted = true;
+          },
+        }
       );
+      return { status: "disconnected" };
     } catch (error) {
-      if (error instanceof ComputerOperationError) {
-        throw new Error(
-          `${error.message} Diagnostic file: ${error.diagnosticsPath}`
-        );
-      }
-      throw error;
+      return presentDisconnectFailure(error, commandRequested, commandStarted);
     }
-    return true;
   };
 }
 
@@ -511,6 +594,7 @@ export async function runConnectionSetup(
   env?: NodeJS.ProcessEnv,
   options: {
     completedEvent?: "setup.complete" | "computer.disconnected";
+    onStarted?(): void;
     onProgress?(progress: {
       code: string;
       message: string;
@@ -551,6 +635,7 @@ export async function runConnectionSetup(
   };
   let completed = false;
   let failure: string | null = null;
+  let failureCode: string | null = null;
   const acceptLine = (line: string) => {
     const parsedLine = parseComputerSetupOutputLine(line);
     if (parsedLine.kind === "unstructured") {
@@ -563,10 +648,14 @@ export async function runConnectionSetup(
       return;
     }
     const { event, raw } = parsedLine;
-    if (event.code === (options.completedEvent ?? "setup.complete")) {
+    const issue = localMachineIssueAgentEventSchema.safeParse(raw);
+    const failed = isSetupFailure(event, issue.success);
+    if (failed) {
+      completed = false;
+      failureCode = event.code;
+    } else if (event.code === (options.completedEvent ?? "setup.complete")) {
       completed = true;
     }
-    const issue = localMachineIssueAgentEventSchema.safeParse(raw);
     const message = redact(resolveSetupEventMessage(event, issue));
     if (!message) {
       return;
@@ -579,7 +668,7 @@ export async function runConnectionSetup(
       ...(progressState ? { state: progressState } : {}),
     };
     remember(item);
-    if (isSetupFailure(event, issue.success)) {
+    if (failed) {
       failure = message;
     }
     if (isObservableSetupEvent(event)) {
@@ -624,6 +713,13 @@ export async function runConnectionSetup(
       detached: true,
       stdio: ["ignore", log.fd, log.fd],
     });
+    child.once("spawn", () => {
+      try {
+        options.onStarted?.();
+      } catch {
+        // Starting a UI observer is not part of command success.
+      }
+    });
     // The CLI's existing Prepare continuation and OS-managed Service survive
     // GUI exit. A regular file keeps output independent of the GUI's pipes.
     const completion = new Promise<number | null>((resolve, reject) => {
@@ -656,7 +752,8 @@ export async function runConnectionSetup(
           (options.completedEvent === "computer.disconnected"
             ? "This Mac could not disconnect. Update OpenMeld Tools, then try again."
             : "OpenMeld could not finish connecting this computer. Review its connection details and try again."),
-        diagnosticsPath
+        diagnosticsPath,
+        failureCode
       );
     }
   } finally {
@@ -719,8 +816,10 @@ function resolveSetupProgressState(
 
 class ComputerOperationError extends Error {
   readonly diagnosticsPath: string;
-  constructor(message: string, diagnosticsPath: string) {
+  readonly code: string | null;
+  constructor(message: string, diagnosticsPath: string, code: string | null) {
     super(message);
     this.diagnosticsPath = diagnosticsPath;
+    this.code = code;
   }
 }

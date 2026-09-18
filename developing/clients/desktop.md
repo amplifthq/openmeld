@@ -261,9 +261,14 @@ result in memory for the signed-in account. A connection page opened after the
 operation started adopts that operation through bounded IPC observation; it
 never starts a second `connectComputer` call. Pending and settled events share
 the operation identity, while account changes, sign-out, and retired operation
-IDs reject late progress. A settled page refreshes the authoritative Computer
-projection before presenting success, and restoration of the previous account
-does not replace the original account-switch failure.
+IDs reject late progress. The main-generated operation ID remains stable across
+initial pending, CLI progress, and settlement; the CLI progress ID stays nested
+inside the operation. A confirmed native result can be presented immediately;
+the page refreshes the authoritative Computer projection before completing its
+continuation. Independent cloud-directory refresh does not hold that continuation.
+Refresh failure is a separate display warning, not a failed native operation.
+Restoration of the previous account does not replace the original account-switch
+failure.
 
 The standalone connection page reads the same native account-aligned Computer
 projection as Working folder selection. A positive connection shows Connected
@@ -281,6 +286,39 @@ credentials. A changed account or same-account replacement session cannot be
 stopped by stale reviewed intent. Retry can finish credential cleanup only after
 the matching Service owner's stopped intent and verified runtime absence.
 Connect can enroll this Mac again; Forget is never required for account switching.
+
+The optional `disconnectComputerWithFeedback` bridge capability returns a strict
+shared result: `cancelled`, `disconnected`, `connection_changed`, `failed`, or
+`unconfirmed`. New callers include the displayed device/lane as
+`expectedConnection`; main compares it with the account-aligned CLI review before
+confirmation. Independent account and connection reads run together, but the
+native account/session revision is checked again after confirmation and the CLI
+still admits the exact reviewed session under its existing lifecycle lock.
+`checking`, `waiting_for_confirmation`, and `disconnecting` are emitted at those
+real code boundaries; they do not infer which Agent is draining.
+
+Connect and Disconnect share the existing main-process operation record and
+exclusion boundary. Disconnect replaces retained connect success at dispatch.
+`computerOperationCurrent` and `onComputerOperation` expose a strict union on the
+existing operation IPC channels; no new Service owner or operation registry is
+introduced. Sign-out clears presentation, not accepted work's exclusion; late
+settlement cannot repopulate the new account's record. The original connect-only
+observers ignore Disconnect records. The original `disconnectComputer` method
+still returns a boolean for cancellation/success and throws for all non-success
+failures; an older renderer never receives a truthy error object. A renderer on
+an older bridge uses that original method and honest generic waiting copy rather
+than inventing stages. Rich feedback and resumption require the new bundled
+main/preload; the normal Desktop renderer fingerprint gate remains unchanged.
+
+Only a successful CLI exit plus `computer.disconnected` completion evidence
+confirms disconnection. Explicit Stop refusal is a known failure; a timeout,
+missing terminal event, failed transport, or post-admission ownership change is
+not proof of success or proof that nothing stopped. Such unconfirmed results
+require an explicit status check before another mutation, never automatic
+restart, repeated Disconnect, or force kill. User-visible diagnostics contain
+only a bounded code, correlation ID, and the existing redacted generated file
+path. No raw CLI output or arbitrary file/URL execution channel is exposed.
+
 
 Setup progress comes from actual CLI agent-output stages. Percentages are shown
 only for a measured byte transfer, never for overall setup or a GUI deadline.

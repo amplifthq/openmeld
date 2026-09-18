@@ -80,6 +80,9 @@ export const computerConnectionReviewSchema = z.strictObject({
 
 export const desktopComputerDisconnectRequestSchema = z.strictObject({
   expectedAccount: computerConnectionIntentSchema.shape.expectedAccount,
+  expectedConnection: computerConnectionReviewSchema.shape.existingConnection
+    .unwrap()
+    .optional(),
 });
 export type DesktopComputerDisconnectRequest = z.infer<
   typeof desktopComputerDisconnectRequestSchema
@@ -136,4 +139,50 @@ export const desktopComputerConnectionOperationSchema = z.strictObject({
 });
 export type DesktopComputerConnectionOperation = z.infer<
   typeof desktopComputerConnectionOperationSchema
+>;
+
+export const desktopComputerDisconnectPhaseSchema = z.enum([
+  "checking",
+  "waiting_for_confirmation",
+  "disconnecting",
+]);
+export type DesktopComputerDisconnectPhase = z.infer<
+  typeof desktopComputerDisconnectPhaseSchema
+>;
+
+export const desktopComputerDisconnectResultSchema = z.union([
+  z.strictObject({ status: z.literal("disconnected") }),
+  z.strictObject({ status: z.literal("cancelled") }),
+  z.strictObject({
+    status: z.enum(["connection_changed", "failed", "unconfirmed"]),
+    code: z.string().min(1).max(256),
+    message: z.string().min(1).max(4096),
+    diagnosticId: z.string().min(1).max(128).optional(),
+    diagnosticsPath: z.string().min(1).max(4096).optional(),
+  }),
+]);
+export type DesktopComputerDisconnectResult = z.infer<
+  typeof desktopComputerDisconnectResultSchema
+>;
+
+export const desktopComputerDisconnectOperationSchema = z.strictObject({
+  kind: z.literal("disconnect"),
+  operationId: desktopComputerConnectionOperationSchema.shape.operationId,
+  request: desktopComputerDisconnectRequestSchema,
+  status: z.enum(["pending", "settled"]),
+  phase: desktopComputerDisconnectPhaseSchema,
+  result: desktopComputerDisconnectResultSchema.nullable(),
+});
+export type DesktopComputerDisconnectOperation = z.infer<
+  typeof desktopComputerDisconnectOperationSchema
+>;
+
+// One native operation owner. The original connect-only observer continues to
+// validate its original schema; newer observers also understand Disconnect.
+export const desktopComputerOperationSchema = z.union([
+  desktopComputerConnectionOperationSchema,
+  desktopComputerDisconnectOperationSchema,
+]);
+export type DesktopComputerOperation = z.infer<
+  typeof desktopComputerOperationSchema
 >;

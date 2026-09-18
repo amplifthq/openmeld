@@ -4,6 +4,8 @@ import type {
   DesktopComputerConnectionRequest,
   DesktopComputerConnectionResult,
   DesktopComputerDisconnectRequest,
+  DesktopComputerDisconnectResult,
+  DesktopComputerOperation,
   DesktopLocalComputer,
   DesktopNotificationActivation,
   DesktopNotificationContext,
@@ -46,6 +48,7 @@ export const PILOT_IPC = {
   signOut: "desktop:sign-out",
   connectComputer: "desktop:connect-computer",
   disconnectComputer: "desktop:disconnect-computer",
+  disconnectComputerWithFeedback: "desktop:disconnect-computer-with-feedback",
   connectionProgress: "desktop:connection-progress",
   connectionProgressCurrent: "desktop:connection-progress-current",
   connectionOperation: "desktop:connection-operation",
@@ -86,6 +89,13 @@ export type DesktopPilotBridge = DesktopSpaceStreamBridge & {
     input: DesktopComputerConnectionRequest
   ): Promise<DesktopComputerConnectionResult>;
   disconnectComputer(input: DesktopComputerDisconnectRequest): Promise<boolean>;
+  disconnectComputerWithFeedback?(
+    input: DesktopComputerDisconnectRequest
+  ): Promise<DesktopComputerDisconnectResult>;
+  computerOperationCurrent?(): Promise<DesktopComputerOperation | null>;
+  onComputerOperation?(
+    handler: (operation: DesktopComputerOperation) => void
+  ): () => void;
   connectionProgressCurrent(): Promise<DesktopComputerConnectionProgress | null>;
   connectionOperationCurrent(): Promise<DesktopComputerConnectionOperation | null>;
   onConnectionProgress(
