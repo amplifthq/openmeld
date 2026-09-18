@@ -6734,6 +6734,210 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toHaveLength(promotionRedriveCount);
   });
 
+  it("drops retired queue entries so a new Wake is not queued behind work that can never run", async () => {
+    const { hub, socket, spaceFetchRequests, state, storageRecords } =
+      createHarness();
+    configureCompatibleRoute({ socket, state });
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+
+    const queuedIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-message-retired-2",
+      dispatchId: "dispatch-retired-2",
+      sourceSignalId: "signal-retired-2",
+      spaceId: "b".repeat(64),
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest({
+            dispatchId: "dispatch-retired-2",
+            idempotencyKey: "idempotency-retired-2",
+            targetWakeLifecycleIdentity: queuedIdentity,
+          })
+        )
+      ).json()
+    ).resolves.toMatchObject({
+      action: "wait_in_queue",
+      queuePosition: 1,
+      status: "queued",
+    });
+
+    // The reserved Wake's canonical head is gone, so nothing can promote its
+    // queue entry and no terminal transition can settle it again.
+    const reservedIdentity =
+      buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
+    storageRecords.delete(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        reservedIdentity.targetWakeLifecycleId
+      )
+    );
+
+    const newIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-message-retired-3",
+      dispatchId: "dispatch-retired-3",
+      sourceSignalId: "signal-retired-3",
+      spaceId: "c".repeat(64),
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest({
+            dispatchId: "dispatch-retired-3",
+            idempotencyKey: "idempotency-retired-3",
+            targetWakeLifecycleIdentity: newIdentity,
+          })
+        )
+      ).json()
+    ).resolves.toMatchObject({
+      action: "wait_in_queue",
+      queuePosition: 1,
+      status: "queued",
+      waitingCount: 1,
+    });
+
+    expect(
+      (
+        storageRecords.get(
+          runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+            TARGET_AGENT_PROFILE_ID
+          )
+        ) as
+          | {
+              activeHeadLifecycleIds?: string[];
+              workItems?: Array<{ dispatchId: string }>;
+            }
+          | undefined
+      )?.workItems?.map((item) => item.dispatchId)
+    ).toEqual(["dispatch-retired-2", "dispatch-retired-3"]);
+    expect(
+      (
+        storageRecords.get(
+          runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+            TARGET_AGENT_PROFILE_ID
+          )
+        ) as { activeHeadLifecycleIds?: string[] } | undefined
+      )?.activeHeadLifecycleIds
+    ).not.toContain(reservedIdentity.targetWakeLifecycleId);
+    expect(
+      storageRecords.get(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          queuedIdentity.targetWakeLifecycleId
+        )
+      )
+    ).toMatchObject({
+      primaryDispatchId: "dispatch-retired-2",
+      status: "accepted",
+    });
+    expect(spaceFetchRequests).toContainEqual({
+      body: {
+        reason: "agent_profile_work_coordinator_promotion",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+        targetWakeLifecycleId: queuedIdentity.targetWakeLifecycleId,
+      },
+      path: "/internal/dispatches/dispatch-retired-2/redrive",
+    });
+
+    await expect(
+      (
+        hub as unknown as {
+          rpcReadAgentProfileOperationalContexts: (input: {
+            includeWorkReferences: boolean;
+            ownerUserId: string;
+            targetProfileIds: string[];
+          }) => Promise<unknown>;
+        }
+      ).rpcReadAgentProfileOperationalContexts({
+        includeWorkReferences: true,
+        ownerUserId: "owner-1",
+        targetProfileIds: [TARGET_AGENT_PROFILE_ID],
+      })
+    ).resolves.toEqual({
+      contexts: [
+        {
+          operationalContext: {
+            currentWorkReference: {
+              sourceSignalId: "signal-retired-2",
+              spaceId: "b".repeat(64),
+            },
+            queuedWorkReferences: [
+              {
+                sourceSignalId: "signal-retired-3",
+                spaceId: "c".repeat(64),
+              },
+            ],
+            status: "working",
+            waitingCount: 1,
+          },
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        },
+      ],
+    });
+  });
+
+  it("keeps a running Wake's reservation when its execution authority cannot be read", async () => {
+    const { hub, socket, state, storageRecords } = createHarness();
+    configureCompatibleRoute({ socket, state });
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    const deliveryResponse = await (
+      hub as unknown as {
+        handleDeliverDispatchRequest: (request: Request) => Promise<Response>;
+      }
+    ).handleDeliverDispatchRequest(
+      new Request("https://runtime-transport.test/deliver-dispatch", {
+        body: JSON.stringify(buildDeliverRequest()),
+        method: "POST",
+      })
+    );
+    expect(deliveryResponse.status).toBe(200);
+    const [tokenAuthorityKey] =
+      findRuntimeCoordinatorExecutionTokenAuthorityEntry(storageRecords) ?? [];
+    if (!tokenAuthorityKey) {
+      throw new Error("Expected stored token authority.");
+    }
+    storageRecords.delete(tokenAuthorityKey);
+
+    const newIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-message-unreadable-authority",
+      dispatchId: "dispatch-unreadable-authority",
+      sourceSignalId: "signal-unreadable-authority",
+      spaceId: "b".repeat(64),
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest({
+            dispatchId: "dispatch-unreadable-authority",
+            idempotencyKey: "idempotency-unreadable-authority",
+            targetWakeLifecycleIdentity: newIdentity,
+          })
+        )
+      ).json()
+    ).resolves.toMatchObject({
+      action: "wait_in_queue",
+      queuePosition: 1,
+      status: "queued",
+    });
+    expect(
+      (
+        storageRecords.get(
+          runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+            TARGET_AGENT_PROFILE_ID
+          )
+        ) as { workItems?: Array<{ dispatchId: string }> } | undefined
+      )?.workItems?.map((item) => item.dispatchId)
+    ).toEqual(["dispatch-1", "dispatch-unreadable-authority"]);
+  });
+
   it("promotes the FIFO successor when completion lands during an execution-index generation repair", async () => {
     const { hub, socket, spaceFetchRequests, state, storageRecords } =
       createHarness();

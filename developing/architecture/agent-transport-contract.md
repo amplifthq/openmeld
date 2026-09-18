@@ -319,6 +319,23 @@ external redrive did not complete. A repeated terminal event is idempotent and
 cannot repeat a promotion. Route or Service `waiting` does not release a
 reservation.
 
+A Coordinator work item is only a scheduling claim over one Wake; the head
+lifecycle record and its execution token authority remain that Wake's truth. A
+claim whose head is missing or already terminal, or whose linked execution
+already holds a terminal outcome, is retired: nothing can promote it and no
+terminal transition can settle it again. Retired claims must not keep holding a
+reservation, because a `queued` head carries no deadline of its own, so every
+later Wake would accumulate behind work that can never run. New-Wake admission
+therefore reconciles that Profile's claims against canonical head truth inside
+the same owner-shard transaction, retires the whole proven-retired set in one
+transition, prunes the matching active references, and promotes eligible
+successors through the ordinary promotion marker and redrive path. Missing or
+unreadable execution authority keeps its claim; only proven-retired work is
+released. A paused Coordinator is left untouched, because its recovery gate
+holds the reservation for an owner decision. Active-reference repair does not
+replace this reconciliation: it rebuilds references from canonical storage keys
+and cannot reconstruct queue metadata.
+
 Independent workstation tasks use Core-assigned Execution Contexts. Core admits
 at most five contexts for one Agent Profile, with one writer per context and
 at most 50 waiting Wakes. Legacy work without a context drains exclusively.
