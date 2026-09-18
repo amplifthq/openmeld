@@ -474,6 +474,136 @@ describe("Agent Profile work recovery Core RPC", () => {
       harness.close();
     }
   });
+
+  it("skips occupied work when recovery action is fork_interrupted_work", async () => {
+    const harness = createRecoveryHarness();
+    const runtimeTransportStub = createRuntimeTransportStub({
+      recovery: buildAvailableRecovery({ action: "fork_interrupted_work" }),
+    });
+    try {
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(
+          createEnv({ db: harness.db, runtimeTransportStub }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            body: {
+              action: "skip_interrupted_work",
+              expectedInterruptedTargetWakeLifecycleId:
+                TARGET_WAKE_LIFECYCLE_ID,
+            },
+            context: CONTEXT,
+          }
+        )
+      ).resolves.toEqual({
+        action: "skip_interrupted_work",
+        status: "accepted",
+      });
+      expect(
+        runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
+      ).toHaveBeenCalledOnce();
+      expect(
+        runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
+      ).toHaveBeenCalledWith({
+        expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
+        ownerUserId: "owner-1",
+        targetProfileId: AGENT_PROFILE_ID,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("persists fork intent across continuation retry after initial Space creation failure", async () => {
+    const harness = createRecoveryHarness();
+    let currentRecovery = buildAvailableRecovery({
+      action: "fork_interrupted_work",
+    });
+    const runtimeTransportStub = createRuntimeTransportStub({
+      recovery: () => currentRecovery,
+    });
+    runtimeTransportStub.rpcAuthorizeAgentProfileWorkContinuation.mockImplementation(
+      (input) => {
+        currentRecovery = {
+          ...buildAvailableRecovery({
+            action: "fork_interrupted_work",
+            authorizedContinuationClientMessageId:
+              input.continuationClientMessageId,
+            forkInterruptedConversation: true,
+          }),
+        };
+        return Promise.resolve({ status: "authorized" as const });
+      }
+    );
+
+    let spaceCallCount = 0;
+    const startedContinuations: Record<string, unknown>[] = [];
+    const spaceStub = {
+      rpcExecuteExecutionRecovery: vi.fn(),
+      rpcInspectExecutionRecovery: vi.fn(),
+      rpcStartUsageExhaustedContinuation: vi.fn(
+        (continuation: Record<string, unknown>) => {
+          spaceCallCount++;
+          if (spaceCallCount === 1) {
+            return Promise.reject(new Error("temporary space failure"));
+          }
+          startedContinuations.push(continuation);
+          return Promise.resolve({
+            continuationClientMessageId: String(
+              continuation.continuationClientMessageId
+            ),
+            operationId: String(continuation.operationId),
+            status: "started" as const,
+          });
+        }
+      ),
+    };
+    const env = createEnv({ db: harness.db, runtimeTransportStub, spaceStub });
+
+    try {
+      // First attempt: user triggers fork, authorization succeeds on Hub, but Space start fails
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(env, {
+          agentProfileId: AGENT_PROFILE_ID,
+          body: {
+            action: "fork_interrupted_work",
+            expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
+          },
+          context: CONTEXT,
+        })
+      ).rejects.toThrow("temporary space failure");
+
+      expect(
+        runtimeTransportStub.rpcAuthorizeAgentProfileWorkContinuation
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          forkInterruptedConversation: true,
+        })
+      );
+
+      // Second attempt (retry / page refresh): client retries with continue_interrupted_work
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(env, {
+          agentProfileId: AGENT_PROFILE_ID,
+          body: { action: "continue_interrupted_work" },
+          context: CONTEXT,
+        })
+      ).resolves.toEqual({
+        action: "continue_interrupted_work",
+        status: "accepted",
+      });
+
+      // Assert Space received contextSelection mode: "fork" on retry
+      expect(startedContinuations).toHaveLength(1);
+      expect(startedContinuations[0]).toMatchObject({
+        contextSelection: {
+          mode: "fork",
+          sourceWakeId: TARGET_WAKE_LIFECYCLE_ID,
+        },
+      });
+    } finally {
+      harness.close();
+    }
+  });
 });
 
 function createRecoveryHarness() {
@@ -650,13 +780,18 @@ function buildAvailableRecovery(input: {
   action:
     | "approve_queued_work"
     | "continue_interrupted_work"
+    | "fork_interrupted_work"
     | "skip_interrupted_work";
   authorizedContinuationClientMessageId?: string | null;
+  forkInterruptedConversation?: boolean;
 }) {
   return {
     action: input.action,
     authorizedContinuationClientMessageId:
       input.authorizedContinuationClientMessageId ?? null,
+    ...(input.forkInterruptedConversation
+      ? { forkInterruptedConversation: true }
+      : {}),
     interruptedClientMessageId: "client-interrupted",
     interruptedDispatchId: "dispatch-interrupted",
     interruptedSourceSignalId: "signal-interrupted",

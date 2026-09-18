@@ -61,6 +61,8 @@ import {
   runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema,
   runtimeTransportAgentProfileWorkContinuationNeedsAttentionRequestSchema,
   runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseSchema,
+  runtimeTransportAgentProfileWorkHandoffRequestSchema,
+  runtimeTransportAgentProfileWorkHandoffResponseSchema,
   runtimeTransportAgentProfileWorkQueueApproveRequestSchema,
   runtimeTransportAgentProfileWorkQueueApproveResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryReadRequestSchema,
@@ -201,6 +203,8 @@ import type {
   RuntimeTransportAgentProfileWorkContinuationAuthorizeResponse,
   RuntimeTransportAgentProfileWorkContinuationNeedsAttentionRequest,
   RuntimeTransportAgentProfileWorkContinuationNeedsAttentionResponse,
+  RuntimeTransportAgentProfileWorkHandoffRequest,
+  RuntimeTransportAgentProfileWorkHandoffResponse,
   RuntimeTransportAgentProfileWorkQueueApproveRequest,
   RuntimeTransportAgentProfileWorkQueueApproveResponse,
   RuntimeTransportAgentProfileWorkRecoveryReadRequest,
@@ -336,6 +340,7 @@ import {
   approveRuntimeCoordinatorAgentProfileWorkQueue,
   authorizeRuntimeCoordinatorAgentProfileWorkContinuation,
   completeRuntimeCoordinatorAgentProfileWorkRecoveryInboxProjection,
+  handOffRuntimeCoordinatorOccupiedAgentProfileWork,
   listDrainingAgentProfileContextMigrations,
   markRuntimeCoordinatorAgentProfileWorkContinuationNeedsAttention,
   markRuntimeCoordinatorAgentProfileWorkControllerConversationOccupancy,
@@ -345,6 +350,7 @@ import {
   readRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarmAtMs,
   readRuntimeCoordinatorAgentProfileExecutionStateFromAdmission,
   readRuntimeCoordinatorAgentProfileOperationalContextsFromAdmission,
+  readRuntimeCoordinatorAgentProfileWorkControllerConversationOccupied,
   readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmission,
   releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation,
   resolveNextAgentProfileContextMigrationAlarmAtMs,
@@ -442,6 +448,7 @@ import {
   buildMissingPublicationFactsClosureDiagnostics,
   buildPreExecutionHandoffFailureResultRef,
   buildRuntimeCoordinatorCancelledExecutionRecord,
+  buildRuntimeCoordinatorControllerConversationOccupiedTerminalPlan,
   buildRuntimeCoordinatorDecisionId,
   buildRuntimeCoordinatorDeliveryExpiredTerminalPlan,
   buildRuntimeCoordinatorExecutionRecordFromAuthority,
@@ -487,6 +494,7 @@ import {
   normalizeRuntimeCoordinatorHeadWaitingBoundary,
   omitRuntimeCoordinatorHeadPublicationRetry,
   parkRuntimeCoordinatorFinalizationRetryEntry,
+  RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
   RUNTIME_COORDINATOR_DECISION_MODEL_VERSION,
   RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE,
   RUNTIME_COORDINATOR_FINALIZATION_RETRY_DELAY_MS,
@@ -1050,6 +1058,7 @@ type RuntimeCoordinatorWakeStopControlPayload =
   | OpenMeldDaemonCancelPayload
   | OpenMeldDaemonInterruptPayload;
 type RuntimeCoordinatorLostRunTerminalReasonCode =
+  | typeof RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
   | typeof RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE
   | typeof RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE
   | typeof RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE;
@@ -1057,6 +1066,9 @@ type RuntimeCoordinatorLostRunTerminalReasonCode =
 const resolveRuntimeCoordinatorLostRunTerminalPlan = (
   expiryCause: RuntimeCoordinatorRunExpiryCause
 ): RuntimeCoordinatorTerminalDecisionPlan => {
+  if (expiryCause === "controller_conversation_occupied") {
+    return buildRuntimeCoordinatorControllerConversationOccupiedTerminalPlan();
+  }
   if (expiryCause === "local_progress_stale") {
     return buildRuntimeCoordinatorProgressStaleTerminalPlan();
   }
@@ -1069,6 +1081,9 @@ const resolveRuntimeCoordinatorLostRunTerminalPlan = (
 const resolveRuntimeCoordinatorLostRunReasonCode = (
   expiryCause: RuntimeCoordinatorRunExpiryCause
 ): RuntimeCoordinatorLostRunTerminalReasonCode => {
+  if (expiryCause === "controller_conversation_occupied") {
+    return RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE;
+  }
   if (expiryCause === "local_progress_stale") {
     return RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE;
   }
@@ -1082,8 +1097,21 @@ const resolveRuntimeCoordinatorLostRunPublicationPresentation = (
   reasonCode: RuntimeCoordinatorLostRunTerminalReasonCode
 ): {
   blockerSlug: string;
-  noticeVariant: "delivery_expired" | "local_runtime_lost" | "progress_stale";
+  noticeVariant:
+    | "controller_conversation_occupied"
+    | "delivery_expired"
+    | "local_runtime_lost"
+    | "progress_stale";
 } => {
+  if (
+    reasonCode ===
+    RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
+  ) {
+    return {
+      blockerSlug: "controller-conversation-occupied",
+      noticeVariant: "controller_conversation_occupied",
+    };
+  }
   if (reasonCode === RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE) {
     return {
       blockerSlug: "progress-stale",
@@ -1875,6 +1903,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         currentDefaultProjectId: parsed.data.currentDefaultProjectId,
         expectedInterruptedTargetWakeLifecycleId:
           parsed.data.expectedInterruptedTargetWakeLifecycleId,
+        forkInterruptedConversation: parsed.data.forkInterruptedConversation,
         nowMs: Date.now(),
         ownerUserId: parsed.data.ownerUserId,
         storage: this.ctx.storage,
@@ -1894,8 +1923,105 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       if (response.status === "needs_attention") {
         this.scheduledHousekeepingAlarmAtMs = undefined;
       }
+      if (response.status === "authorized" && response.interruptedExecution) {
+        await this.stopSupersededInterruptedExecution({
+          interruptedExecution: response.interruptedExecution,
+          ownerUserId: parsed.data.ownerUserId,
+          targetProfileId: parsed.data.targetProfileId,
+        });
+      }
     }
     return runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema.parse(
+      response
+    );
+  }
+
+  private async stopSupersededInterruptedExecution(input: {
+    interruptedExecution: {
+      dispatchId: string;
+      runtimeCoordinatorExecutionId: string;
+    };
+    ownerUserId: string;
+    targetProfileId: string;
+  }): Promise<void> {
+    const oldExecutionId =
+      input.interruptedExecution.runtimeCoordinatorExecutionId;
+    const oldCommandState = await this.readRuntimeCoordinatorRunCommandState(
+      oldExecutionId
+    ).catch(() => null);
+    if (!oldCommandState) {
+      return;
+    }
+    await this.requestRuntimeCoordinatorWakeStop({
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      ownerUserId: input.ownerUserId,
+      runtimeCoordinatorExecutionId: oldExecutionId,
+      dispatchId: oldCommandState.dispatchId,
+      spaceId: oldCommandState.sanitizedDeliveryRequest.payload.spaceId,
+      sourceClientMessageId: oldCommandState.sourceClientMessageId,
+      targetProfileId: input.targetProfileId,
+      reason: "superseded_by_continuation",
+    }).catch(() => null);
+
+    const session = this.state.sessionsById.get(
+      oldCommandState.sanitizedDeliveryRequest.daemonSessionId
+    );
+    if (!session?.socket) {
+      return;
+    }
+    try {
+      this.sendFrame(session.socket, {
+        code: "daemon.local_agent_control.cancel",
+        payload: {
+          requestId: buildRuntimeCoordinatorWakeStopControlRequestId(
+            oldCommandState.runtimeCoordinatorExecutionId
+          ),
+          payload: {
+            runtimeCoordinatorExecutionId:
+              oldCommandState.runtimeCoordinatorExecutionId,
+            target: {
+              by: "task",
+              taskId: oldCommandState.sanitizedDeliveryRequest.payload.taskId,
+            },
+            reason: "superseded_by_continuation",
+          },
+        },
+      });
+    } catch {
+      // Best effort frame delivery
+    }
+  }
+
+  async rpcHandOffOccupiedAgentProfileWork(
+    input: RuntimeTransportAgentProfileWorkHandoffRequest
+  ): Promise<RuntimeTransportAgentProfileWorkHandoffResponse> {
+    const parsed =
+      runtimeTransportAgentProfileWorkHandoffRequestSchema.safeParse(input);
+    if (!parsed.success) {
+      return { status: "unavailable" };
+    }
+    const response = await handOffRuntimeCoordinatorOccupiedAgentProfileWork({
+      nowMs: Date.now(),
+      ownerUserId: parsed.data.ownerUserId,
+      sourceDispatchId: parsed.data.sourceDispatchId,
+      sourceTargetWakeLifecycleId: parsed.data.sourceTargetWakeLifecycleId,
+      storage: this.ctx.storage,
+      successorDispatchId: parsed.data.successorDispatchId,
+      successorExecutionContextId: parsed.data.successorExecutionContextId,
+      successorTargetWakeLifecycleId:
+        parsed.data.successorTargetWakeLifecycleId,
+      targetProfileId: parsed.data.targetProfileId,
+    });
+    if (response.status === "unavailable") {
+      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+    }
+    if (response.status === "handed_off") {
+      this.publishAgentReadinessInvalidated({
+        profileIds: [parsed.data.targetProfileId],
+        reason: "agent_profile_work_coordinator.changed",
+      });
+    }
+    return runtimeTransportAgentProfileWorkHandoffResponseSchema.parse(
       response
     );
   }
@@ -11182,6 +11308,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       const profile = profileScopeResult.scope;
       const interruptedClientMessageId =
         interruptedHead.targetWakeLifecycleIdentity.clientMessageId;
+      for (const supersededStage of intent.supersededStages) {
+        // The decision the owner was asked to make has moved to another stage.
+        // Closing the stage it left has to happen here, because only one intent
+        // exists per profile and the source key digests the stage.
+        await resolveAgentProfileWorkRecoveryInboxItem({
+          db: targetInboxDb,
+          interruptedClientMessageId,
+          organizationId: profile.organizationId,
+          profileId: intent.targetProfileId,
+          resolvedAtMs: intent.updatedAtMs,
+          stage: supersededStage,
+        });
+      }
       if (intent.desiredStatus === "open") {
         await projectAgentProfileWorkRecoveryInboxItem({
           db: targetInboxDb,
@@ -11193,7 +11332,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           profileId: intent.targetProfileId,
           profileName: profile.profileName,
           sourceTarget:
-            intent.stage === "review_interrupted_work"
+            intent.stage === "review_interrupted_work" ||
+            intent.stage === "resolve_occupied_conversation"
               ? {
                   kind: "space",
                   signalId:
@@ -15114,6 +15254,36 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       reasonCode: terminalPlan.reasonCode,
     });
 
+    if (input.expiryCause === "controller_conversation_occupied") {
+      const session = this.state.sessionsById.get(
+        input.commandState.sanitizedDeliveryRequest.daemonSessionId
+      );
+      if (session?.socket) {
+        try {
+          this.sendFrame(session.socket, {
+            code: "daemon.local_agent_control.cancel",
+            payload: {
+              requestId: buildRuntimeCoordinatorWakeStopControlRequestId(
+                input.commandState.runtimeCoordinatorExecutionId
+              ),
+              payload: {
+                runtimeCoordinatorExecutionId:
+                  input.commandState.runtimeCoordinatorExecutionId,
+                target: {
+                  by: "task",
+                  taskId:
+                    input.commandState.sanitizedDeliveryRequest.payload.taskId,
+                },
+                reason: "controller_conversation_occupied_timeout",
+              },
+            },
+          });
+        } catch {
+          // Socket send failure is best effort
+        }
+      }
+    }
+
     const stopCause = this.state.sessionsById.get(
       input.commandState.sanitizedDeliveryRequest.daemonSessionId
     )?.stopCause;
@@ -15997,6 +16167,45 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
   }
 
+  /**
+   * Names the cause behind a stale-progress terminal.
+   *
+   * Same watchdog, different cause: an occupied native conversation produces
+   * exactly one lifecycle event and then nothing, so it reaches the stale
+   * threshold looking like a lost computer. Core still holds the occupancy flag
+   * the Adapter reported, and naming it here is what lets the Wake fail with
+   * its real reason and settle into an owner decision instead of a "reconnect
+   * the computer" dead end.
+   */
+  private async resolveRuntimeCoordinatorStaleProgressCause(input: {
+    dispatchId: string;
+    targetProfileId: string;
+  }): Promise<{
+    expiryCause: RuntimeCoordinatorRunExpiryCause;
+    reasonCode:
+      | typeof RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
+      | typeof RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE;
+  }> {
+    const occupied =
+      await readRuntimeCoordinatorAgentProfileWorkControllerConversationOccupied(
+        {
+          dispatchId: input.dispatchId,
+          storage: this.ctx.storage,
+          targetProfileId: input.targetProfileId,
+        }
+      );
+    return occupied
+      ? {
+          expiryCause: "controller_conversation_occupied",
+          reasonCode:
+            RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
+        }
+      : {
+          expiryCause: "local_progress_stale",
+          reasonCode: RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE,
+        };
+  }
+
   private async redeliverRuntimeCoordinatorCurrentRun(input: {
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
     decision: RuntimeTransportRuntimeCoordinatorDecisionRequest;
@@ -16014,6 +16223,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         commandState: RuntimeCoordinatorRunCommandState;
         expiryCause: RuntimeCoordinatorRunExpiryCause;
         reasonCode:
+          | typeof RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
           | typeof RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE
           | typeof RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE;
       }
@@ -16093,8 +16303,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           ok: false,
           terminal: true,
           commandState,
-          expiryCause: "local_progress_stale",
-          reasonCode: RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE,
+          ...(await this.resolveRuntimeCoordinatorStaleProgressCause({
+            dispatchId: commandState.dispatchId,
+            targetProfileId: commandState.targetProfileId,
+          })),
         };
       }
       return {

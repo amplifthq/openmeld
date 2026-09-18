@@ -7,6 +7,7 @@ const FALLBACK_TARGET_AGENT_NAME = "This agent";
 // match the given noticeType is ignored.
 export type SystemNoticeTextVariant =
   | "agent_profile_deleted"
+  | "controller_conversation_occupied"
   | "delivery_expired"
   | "local_runtime_lost"
   | "progress_stale"
@@ -37,6 +38,13 @@ export function buildSystemNoticeText(input: {
       const targetName = normalizedActorName ?? FALLBACK_TARGET_AGENT_NAME;
       if (input.variant === "delivery_expired") {
         return `${targetName} did not receive this Wake before it expired. Wake the Agent again when its computer is connected.`;
+      }
+      if (input.variant === "controller_conversation_occupied") {
+        // The computer is fine; another app holds the conversation's writer
+        // lock. Naming the wrong cause here sent owners to reconnect a computer
+        // that was never disconnected. The continuation is a new branch, never a
+        // resume: the other app keeps the original conversation.
+        return `${targetName} could not use this conversation because another app has it open. Continue on a new branch of it, or skip the work.`;
       }
       if (input.variant === "progress_stale") {
         return `${targetName} stopped making progress on this Wake. Reconnect the computer before trying again.`;
