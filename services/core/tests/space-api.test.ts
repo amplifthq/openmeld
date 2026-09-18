@@ -1766,6 +1766,93 @@ describe("OpenMeld Core", () => {
     );
   });
 
+  it("enforces invite-only link joining at the member admission boundary", async () => {
+    const ownerProfile: Partial<TestAuthProfile> = {
+      profileId: SECOND_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      profileName: "Space Host",
+      ownerUserId: "owner-invite-only-host",
+      openMeldProfileId: SECOND_HUMAN_PROFILE_ID,
+    };
+    const outsiderProfile: Partial<TestAuthProfile> = {
+      profileId: THIRD_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      profileName: "Outside Visitor",
+      ownerUserId: "owner-invite-only-outsider",
+      openMeldProfileId: THIRD_HUMAN_PROFILE_ID,
+    };
+    const spaceId = await createSpace(
+      { name: "invite-only-link-room" },
+      ownerProfile
+    );
+    const guestAccessResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/meta`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ allowGuests: true }),
+      },
+      ownerProfile
+    );
+    expect(guestAccessResponse.status).toBe(200);
+    await guestAccessResponse.json();
+
+    const joinBody = JSON.stringify({
+      members: [
+        {
+          profileId: THIRD_HUMAN_PROFILE_ID,
+          profileName: "Outside Visitor",
+          profileKind: "human",
+          ownerUserId: "owner-invite-only-outsider",
+          ownerName: "Outside Visitor",
+          agentControllerRef: null,
+        },
+      ],
+    });
+    const blocked = await fetchSpaceDoWithOpenMeldAuth(
+      { path: "/members", spaceId },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: joinBody,
+      },
+      outsiderProfile
+    );
+    expect(blocked.status).toBe(403);
+    await expect(blocked.json()).resolves.toMatchObject({
+      code: "space.membership_required",
+    });
+
+    const enableLinkJoin = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/access-mode`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          accessMode: "public",
+          linkJoinPolicy: "access_mode",
+        }),
+      },
+      ownerProfile
+    );
+    expect(enableLinkJoin.status).toBe(200);
+    await enableLinkJoin.json();
+
+    const admitted = await fetchSpaceDoWithOpenMeldAuth(
+      { path: "/members", spaceId },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: joinBody,
+      },
+      outsiderProfile
+    );
+    expect(admitted.status).toBe(200);
+    await expect(admitted.json()).resolves.toMatchObject({
+      addedMemberIds: [THIRD_HUMAN_PROFILE_ID],
+    });
+  });
+
   it("atomically requires actor membership for protected member batches", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,

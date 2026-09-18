@@ -676,6 +676,7 @@ import type {
   SpaceHistoryNavigation,
   SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
+  SpaceLinkJoinPolicy,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceMessageAttachment,
@@ -2778,7 +2779,10 @@ export type ClearSpacePasswordInput = {
 export type SetSpaceAccessModeInput = {
   spaceId: string;
   accessMode: SpaceAccessMode;
+  allowGuests?: boolean;
+  linkJoinPolicy?: SpaceLinkJoinPolicy;
   password?: string;
+  visibility?: "public" | "private";
   context?: CoreRpcContextInput;
 };
 
@@ -18957,6 +18961,7 @@ async function resolveSpaceEntryAccess(input: {
       name: meta.name,
       accessMode: meta.accessMode,
       allowGuests: meta.allowGuests === true,
+      linkJoinPolicy: meta.linkJoinPolicy,
     },
   };
 }
@@ -21416,7 +21421,14 @@ export async function rpcSetSpaceAccessMode(
   return await stub.rpcSetAccessMode({
     spaceId,
     accessMode: input.accessMode,
+    ...(input.allowGuests === undefined
+      ? {}
+      : { allowGuests: input.allowGuests }),
+    ...(input.linkJoinPolicy === undefined
+      ? {}
+      : { linkJoinPolicy: input.linkJoinPolicy }),
     ...(input.password === undefined ? {} : { password: input.password }),
+    ...(input.visibility === undefined ? {} : { visibility: input.visibility }),
     context,
   });
 }

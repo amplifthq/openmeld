@@ -90,7 +90,7 @@ export function InvitationRequestLink(input: {
 	return (
 		<div className={cn("space-y-2 border-t pt-3", input.className)}>
 			<p className="font-medium text-sm">
-				{input.spaceId ? "Invite people by link" : "Invite link"}
+				{input.spaceId ? "Invite teammates by link" : "Invite link"}
 			</p>
 			<p className="text-muted-foreground text-sm">
 				{(link?.mode ?? mode) === "direct"

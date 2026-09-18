@@ -3,7 +3,10 @@ import type {
   ResolvedSpaceMemberProfile,
 } from "@openmeld/schemas/types";
 import { resolveSpaceAccess } from "@openmeld/space";
-import type { SpaceMetaRecord } from "../infrastructure/sql/space-meta-repo";
+import {
+  resolveSpaceMetaLinkJoinPolicy,
+  type SpaceMetaRecord,
+} from "../infrastructure/sql/space-meta-repo";
 
 export function resolveHumanSpaceSelfJoinUserId(input: {
   context: OpenMeldRequestContext;
@@ -29,6 +32,7 @@ export function allowsExternalSpaceLinkJoin(meta: SpaceMetaRecord): boolean {
   return (
     meta.allowGuests === true &&
     meta.accessMode !== "members_only" &&
+    resolveSpaceMetaLinkJoinPolicy(meta) !== "invite_only" &&
     !(meta.directMessage && !meta.directMessage.convertedAt)
   );
 }

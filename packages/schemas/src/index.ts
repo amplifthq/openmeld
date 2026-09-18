@@ -288,6 +288,7 @@ export {
 } from "./service-account-admission";
 export {
   projectLegacySpaceAccessView,
+  projectSpaceAccessViewForVersion,
   SPACE_ACCESS_VERSION,
   SPACE_ACCESS_VERSION_HEADER,
 } from "./space-access-version";

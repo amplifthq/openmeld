@@ -6171,11 +6171,20 @@ membership writer and records these additions with the existing
 `added_by_member` source.
 
 `packages/schemas/src/schemas/http/space-access-mode.ts` owns the shared Space
-access mode contract. `space_meta.accessMode` is the source-of-truth projection
+access mode and link-join policy contract. `space_meta.accessMode` is the
+source-of-truth projection
 for whether a Space is public, public to view but password-gated to join, or
 member-only for creator/current-member/same-account access. The Space password remains a single
 Space credential; access mode changes may set, reuse, or clear that one password
 proof, but must not introduce a second join-only or view-only password.
+
+`space_meta.linkJoinPolicy` is a narrow restriction on the link-derived join
+grant: `access_mode` retains the access-mode behavior and `invite_only` denies
+link self-joining without changing reading, Organization-open joining, direct
+addition, accepted invitations, or existing membership. Core owns its write and
+enforcement. A missing persisted value resolves to legacy `access_mode`
+behavior; omission from an access-mode write preserves the existing resolved
+value.
 
 `packages/schemas/src/schemas/http/space-meta.ts` also owns the pure initial
 access policy used only while creating a Space. Core and creation clients must
@@ -6184,13 +6193,13 @@ call `resolveInitialSpaceAccessMode`; they must not independently recreate the
 its stored visibility and access mode remain independent facts and readers must
 not apply the creation policy to reconstruct either one.
 
-`GetSpaceStatusResponse` projects both access facts from the same Space meta
+`GetSpaceStatusResponse` projects all access facts from the same Space meta
 record: optional `organizationVisibility` describes Organization discovery and
-self-service joining, while required `accessMode` describes what a person with
-the link can do. The optional field permits a staged Core, Gateway, and CLI
-rollout: new readers accept an older response without it, and older readers
-strip the additive field. Clients must label the facts separately and must not
-derive one from the other.
+self-service joining, required `accessMode` describes link reading/password
+behavior, and optional `linkJoinPolicy` restricts link-derived joining.
+Space-access contract version 2 carries the new policy; version 1 strips only
+that field, while the legacy projection also strips ownership and Guest fields.
+Clients must label the facts separately and must not derive one from another.
 
 `packages/schemas/src/schemas/http/space-status.ts` owns the bounded
 `latestVisibleUpdate.previewText` projection. Core applies the shared UTF-16
@@ -7326,11 +7335,12 @@ and mutations. Re-enabling restores admitted guests; removing a guest is permane
 until a new invitation is accepted. Internal discovery never includes unrelated
 private Spaces; a pending invitation exposes only its recipient's invitation card.
 
-New clients send `x-openmeld-space-access-version: 1` on Space metadata, status,
+New clients send `x-openmeld-space-access-version: 2` on Space metadata, status,
 and bootstrap requests. Gateway projects the legacy response without the new
-ownership and guest fields for older strict-schema clients. Web forwards the
-header. Additive metadata fields alone are not sufficient compatibility when old
-clients reject unknown properties.
+ownership and guest fields for unversioned strict-schema clients, and projects
+version 1 without `linkJoinPolicy`. Web forwards the header. Additive metadata
+fields alone are not sufficient compatibility when old clients reject unknown
+properties.
 
 Space dispatch snapshots carry server-derived `callerContext` (relationship,
 Space role, and result audience), preserved through hosted and workstation delivery.

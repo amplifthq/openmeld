@@ -1,6 +1,9 @@
 "use client";
 
-import type { SpaceAccessMode } from "@openmeld/schemas/types";
+import type {
+	SpaceAccessMode,
+	SpaceLinkJoinPolicy,
+} from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { Dialog, DialogTrigger } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
@@ -19,6 +22,8 @@ import type { SpaceAccessUpdateInput } from "./space-access-editor";
 import { SpaceAccessSettings } from "./space-access-settings";
 import { SpaceInfoNotificationsSection } from "./space-info-notifications-section";
 import { SpaceNameEditor } from "./space-name-editor";
+import { SpaceOwnersSection } from "./space-owners-section";
+import type { SpaceSharingDraftController } from "./use-space-sharing-draft";
 
 type SpaceInfoLeaveAction = {
 	errorMessage: string | null;
@@ -26,15 +31,19 @@ type SpaceInfoLeaveAction = {
 	onLeave: () => Promise<void> | void;
 };
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: the shared settings shell keeps mutually exclusive sections in one dialog.
 export function SpaceSettingsDialog(input: {
 	access: {
+		allowGuests?: boolean;
 		canManage: boolean;
 		errorMessage: string | null;
 		isPending: boolean;
+		linkJoinPolicy?: SpaceLinkJoinPolicy;
 		mode: SpaceAccessMode;
 		onSetMode: (input: SpaceAccessUpdateInput) => Promise<void>;
 	};
 	currentProfileName: string | null;
+	draftController: SpaceSharingDraftController;
 	openMeldProfileId?: string;
 	deleteAction: {
 		errorMessage: string | null;
@@ -53,11 +62,13 @@ export function SpaceSettingsDialog(input: {
 		value: string;
 	};
 	onOpenChange?: (open: boolean) => void;
+	onOpenInvitations?: () => void;
+	onOpenShare?: () => void;
 	open?: boolean;
+	initialSection?: "access" | "advanced" | "general" | "members";
 	showTrigger?: boolean;
 	spaceId: string;
 	visibility?: "public" | "private";
-	onSetVisibility?: (visibility: "public" | "private") => Promise<void>;
 }) {
 	const [internalOpen, setInternalOpen] = useState(false);
 	const [section, setSection] = useState("general");
@@ -74,6 +85,12 @@ export function SpaceSettingsDialog(input: {
 	const conversationLabel = isDirectConversation ? "Chat" : "Space";
 	const open = input.open ?? internalOpen;
 	const handleOpenChange = input.onOpenChange ?? setInternalOpen;
+
+	useEffect(() => {
+		if (open && input.initialSection) {
+			setSection(input.initialSection);
+		}
+	}, [input.initialSection, open]);
 
 	return (
 		<Dialog onOpenChange={handleOpenChange} open={open}>
@@ -99,6 +116,7 @@ export function SpaceSettingsDialog(input: {
 				</Tooltip>
 			)}
 			<SettingsDialogContent
+				contentScrollable={section !== "access"}
 				description="Manage this conversation."
 				navigation={
 					<SettingsNav
@@ -107,7 +125,10 @@ export function SpaceSettingsDialog(input: {
 							{ id: "general", title: "General" },
 							...(isDirectConversation
 								? []
-								: [{ id: "access", title: "Access" }]),
+								: [
+										{ id: "members", title: "Members" },
+										{ id: "access", title: "Share & Access" },
+									]),
 							{ id: "advanced", title: "Advanced" },
 						]}
 						onNavigate={setSection}
@@ -116,13 +137,18 @@ export function SpaceSettingsDialog(input: {
 				scrollTestId="space-info-dialog-scroll-area"
 				title={`${conversationLabel} settings`}
 			>
-				<h2 className="pr-8 font-medium text-base">
-					{
-						{ general: "General", access: "Access", advanced: "Advanced" }[
-							section
-						]
-					}
-				</h2>
+				{section === "access" ? null : (
+					<h2 className="pr-8 font-medium text-base">
+						{
+							{
+								general: "General",
+								access: "Share & Access",
+								advanced: "Advanced",
+								members: "Members",
+							}[section]
+						}
+					</h2>
+				)}
 				{section === "advanced" && input.currentProfileName ? (
 					<SpaceInfoReadOnlyField
 						label="Joined profile"
@@ -162,14 +188,40 @@ export function SpaceSettingsDialog(input: {
 					</>
 				)}
 				{section === "general" && <SpaceInfoNotificationsSection />}
+				{section === "members" && showSpaceAccessControls ? (
+					<div className="grid gap-4">
+						{input.onOpenInvitations ? (
+							<div className="flex justify-end">
+								<Button
+									onClick={input.onOpenInvitations}
+									size="sm"
+									type="button"
+									variant="secondary"
+								>
+									Invite people to join
+								</Button>
+							</div>
+						) : null}
+						<SpaceOwnersSection
+							canManage={input.access.canManage}
+							collapsible={false}
+							openMeldProfileId={input.openMeldProfileId}
+							spaceId={input.spaceId}
+						/>
+					</div>
+				) : null}
 				{section === "access" && showSpaceAccessControls ? (
 					<SpaceAccessSettings
 						accessMode={input.access.mode}
+						allowGuests={input.access.allowGuests}
 						canManageAccess={input.access.canManage}
+						draftController={input.draftController}
 						errorMessage={input.access.errorMessage}
 						isPending={input.access.isPending}
+						linkJoinPolicy={input.access.linkJoinPolicy}
+						onOpenInvitations={input.onOpenInvitations}
+						onOpenShare={input.onOpenShare}
 						onSetAccessMode={input.access.onSetMode}
-						onSetVisibility={input.onSetVisibility}
 						openMeldProfileId={input.openMeldProfileId}
 						spaceId={input.spaceId}
 						visibility={input.visibility}

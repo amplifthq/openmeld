@@ -1,11 +1,20 @@
 import type { GetSpaceStatusResponse } from "@openmeld/schemas/types";
 import { isDirectMessageSpace } from "@openmeld/space";
+import { Button } from "@openmeld/ui/components/button";
+import {
+	Dialog,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@openmeld/ui/components/dialog";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipHint,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon, WarningIcon } from "@phosphor-icons/react";
@@ -25,6 +34,7 @@ import { SpacePinsRecallAction } from "./space-pins";
 import { useSpaceReadingHeader } from "./space-reading-header";
 import { SpaceSettingsDialog } from "./space-settings-dialog";
 import { SpaceShareDialog } from "./space-share-dialog";
+import { useSpaceSharingDraft } from "./use-space-sharing-draft";
 
 export type SpaceWindowHeaderSubtitleItem = {
 	key: string;
@@ -193,23 +203,53 @@ export function SpaceHeader(input: {
 	showDeleteSpaceAction: boolean;
 	onSetAccessMode: (input: {
 		accessMode: GetSpaceStatusResponse["accessMode"];
+		linkJoinPolicy?: GetSpaceStatusResponse["linkJoinPolicy"];
 		password?: string;
 	}) => Promise<void>;
 	onUpdateSpaceName: (name: string) => Promise<void>;
-	onSetVisibility?: (visibility: "public" | "private") => Promise<void>;
 	spaceNameErrorMessage: string | null;
 	status: GetSpaceStatusResponse;
 }) {
-	const [spaceInformationOpen, setSpaceInformationOpen] = useState(false);
+	const [activeDialog, setActiveDialog] = useState<"settings" | "share" | null>(
+		null
+	);
+	const [settingsInitialSection, setSettingsInitialSection] = useState<
+		"access" | "general" | "members"
+	>("general");
+	const [shareInitialView, setShareInitialView] = useState<"invite" | "main">(
+		"main"
+	);
+	const [isConfirmingDraftClose, setIsConfirmingDraftClose] = useState(false);
 	const spaceName = resolveHeaderTitle(
 		input.conversationTitle,
 		input.status.name
 	);
+	const sharingDraft = useSpaceSharingDraft({
+		accessMode: input.status.accessMode,
+		allowGuests: input.status.allowGuests,
+		linkJoinPolicy: input.status.linkJoinPolicy,
+		spaceId: input.status.spaceId,
+		visibility: input.status.organizationVisibility,
+	});
 	const isDirectMessage = isDirectMessageSpace({
 		activeMemberCount: input.status.members.totalCount,
 		directMessageConvertedAt: input.status.directMessageConvertedAt,
 		purpose: input.status.spacePurpose,
 	});
+	const handleDialogOpenChange = (
+		dialog: "settings" | "share",
+		open: boolean
+	) => {
+		if (open) {
+			setActiveDialog(dialog);
+			return;
+		}
+		if (sharingDraft.isDirty) {
+			setIsConfirmingDraftClose(true);
+			return;
+		}
+		setActiveDialog(null);
+	};
 
 	return (
 		<SpaceWindowHeader
@@ -240,11 +280,25 @@ export function SpaceHeader(input: {
 						{input.hideShareControl === true ? null : (
 							<SpaceShareDialog
 								accessMode={input.status.accessMode}
+								allowGuests={input.status.allowGuests}
 								canManageAccess={input.canManageSpaceAccess}
+								draftController={sharingDraft}
 								errorMessage={input.accessModeErrorMessage}
+								initialShareView={shareInitialView}
 								isPending={input.isAccessModePending}
+								linkJoinPolicy={input.status.linkJoinPolicy}
+								onOpenAccessSettings={() => {
+									setSettingsInitialSection("access");
+									setActiveDialog("settings");
+								}}
+								onOpenChange={(open) => {
+									if (open) {
+										setShareInitialView("main");
+									}
+									handleDialogOpenChange("share", open);
+								}}
 								onSetAccessMode={input.onSetAccessMode}
-								onSetVisibility={input.onSetVisibility}
+								open={activeDialog === "share"}
 								openMeldProfileId={input.currentProfileId}
 								spaceId={input.status.spaceId}
 								spaceName={spaceName}
@@ -256,15 +310,18 @@ export function SpaceHeader(input: {
 								ariaLabel={input.menuLabel ?? "More options"}
 								items={input.menuItems}
 								onOpenConversationInformation={() => {
-									setSpaceInformationOpen(true);
+									setSettingsInitialSection("general");
+									setActiveDialog("settings");
 								}}
 							/>
 						) : null}
 						<SpaceSettingsDialog
 							access={{
+								allowGuests: input.status.allowGuests,
 								canManage: input.canManageSpaceAccess,
 								errorMessage: input.accessModeErrorMessage,
 								isPending: input.isAccessModePending,
+								linkJoinPolicy: input.status.linkJoinPolicy,
 								mode: input.status.accessMode,
 								onSetMode: input.onSetAccessMode,
 							}}
@@ -275,6 +332,8 @@ export function SpaceHeader(input: {
 								isVisible: input.showDeleteSpaceAction,
 								onDelete: input.onDeleteSpace,
 							}}
+							draftController={sharingDraft}
+							initialSection={settingsInitialSection}
 							isCenterAgentDirectMessage={input.isCenterAgentDirectMessage}
 							isDirectMessage={isDirectMessage}
 							leaveAction={
@@ -293,16 +352,52 @@ export function SpaceHeader(input: {
 								onSave: input.onUpdateSpaceName,
 								value: spaceName,
 							}}
-							onOpenChange={
-								input.menuItems ? setSpaceInformationOpen : undefined
-							}
-							onSetVisibility={input.onSetVisibility}
-							open={input.menuItems ? spaceInformationOpen : undefined}
+							onOpenChange={(open) => handleDialogOpenChange("settings", open)}
+							onOpenInvitations={() => {
+								setShareInitialView(sharingDraft.isDirty ? "main" : "invite");
+								setActiveDialog("share");
+							}}
+							onOpenShare={() => {
+								setShareInitialView("main");
+								setActiveDialog("share");
+							}}
+							open={activeDialog === "settings"}
 							openMeldProfileId={input.currentProfileId}
 							showTrigger={!input.menuItems}
 							spaceId={input.status.spaceId}
 							visibility={input.status.organizationVisibility}
 						/>
+						<Dialog
+							onOpenChange={setIsConfirmingDraftClose}
+							open={isConfirmingDraftClose}
+						>
+							<DialogContent size="sm">
+								<DialogHeader>
+									<DialogTitle>Discard unsaved access changes?</DialogTitle>
+									<DialogDescription>
+										Your changes have not been applied to this Space.
+									</DialogDescription>
+								</DialogHeader>
+								<DialogFooter>
+									<Button
+										onClick={() => setIsConfirmingDraftClose(false)}
+										variant="secondary"
+									>
+										Keep editing
+									</Button>
+									<Button
+										onClick={() => {
+											sharingDraft.reset();
+											setIsConfirmingDraftClose(false);
+											setActiveDialog(null);
+										}}
+										variant="destructive"
+									>
+										Discard changes
+									</Button>
+								</DialogFooter>
+							</DialogContent>
+						</Dialog>
 					</div>
 				</>
 			}
