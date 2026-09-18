@@ -50,7 +50,7 @@ type SpaceConversationPanelOverrides = Partial<
 };
 
 const FAILED_TEXT_PATTERN = /failed/i;
-const THREAD_REPLY_LINK_PATTERN = /^Open reply from Felix:/;
+const THREAD_REPLY_PREVIEW_PATTERN = /^Open reply from Felix:/;
 const UNREAD_JUMP_PATTERN = /Jump to first unread/;
 const RETRY_BUTTON_NAME_PATTERN = /retry/i;
 const REFERENCED_SPACE_ID = "c".repeat(64);
@@ -1351,16 +1351,16 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		expect(
-			screen.getByRole("link", { name: "Open Space Launch Planning" })
-		).toBeTruthy();
-		fireEvent.click(
-			screen.getByRole("link", { name: "Open Space Launch Planning" })
-		);
-		expect(onOpenThread).not.toHaveBeenCalled();
-		const preview = screen.getByRole("link", {
-			name: THREAD_REPLY_LINK_PATTERN,
+		const memberSpaceLink = screen.getByRole("link", {
+			name: "Open Space Launch Planning",
 		});
+		const memberExternalLink = screen.getByRole("link", {
+			name: "https://example.com",
+		});
+		fireEvent.click(memberSpaceLink);
+		fireEvent.click(memberExternalLink);
+		expect(onOpenThread).not.toHaveBeenCalled();
+		const preview = screen.getByLabelText(THREAD_REPLY_PREVIEW_PATTERN);
 		fireEvent.click(preview);
 		fireEvent.keyDown(preview, { key: "Enter" });
 		fireEvent.keyDown(preview, { key: " " });
@@ -1376,6 +1376,66 @@ describe("SpaceConversationPanel", () => {
 		fireEvent.click(preview);
 		expect(onOpenUnreadThread).toHaveBeenCalledTimes(3);
 		selection.mockRestore();
+		fireEvent.pointerDown(preview, { clientX: 0, clientY: 0 });
+		fireEvent.click(preview, { clientX: 10, clientY: 0 });
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(3);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Open reply from Felix" })
+		);
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(4);
+
+		cleanup();
+		onOpenThread.mockClear();
+		onOpenUnreadThread.mockClear();
+		renderSpaceConversationPanel({
+			onOpenThread,
+			onOpenUnreadThread,
+			readOnly: true,
+			spaceId: "space-123",
+			spaceReferencesById: createSpaceReferences(),
+			threadPreviews: [createThreadPreview(thread.threadId)],
+			threads: [thread],
+			timelineItems: [
+				createTimelineItem({ id: thread.rootSignalId, text: "Root message" }),
+			],
+		});
+		const publicSpaceLink = screen.getByRole("link", {
+			name: "Open Space Launch Planning",
+		});
+		const externalLink = screen.getByRole("link", {
+			name: "https://example.com",
+		});
+		const replyLink = screen.getByRole("link", {
+			name: "Open reply from Felix",
+		});
+		const publicPreview = screen.getByLabelText(THREAD_REPLY_PREVIEW_PATTERN);
+		expect(publicSpaceLink.parentElement?.closest("a")).toBeNull();
+		expect(externalLink.parentElement?.closest("a")).toBeNull();
+		expect(replyLink.getAttribute("href")).toContain(
+			"threadRootSignalId=sig-root"
+		);
+		expect(replyLink.getAttribute("href")).toContain(
+			"signalId=sig-thread-preview"
+		);
+		fireEvent.click(publicSpaceLink);
+		fireEvent.click(externalLink);
+		expect(onOpenThread).not.toHaveBeenCalled();
+		fireEvent.click(publicPreview);
+		expect(onOpenUnreadThread).toHaveBeenLastCalledWith({
+			rootSignalId: thread.rootSignalId,
+			signalId: "sig-thread-preview",
+			threadId: thread.threadId,
+		});
+		fireEvent.click(replyLink);
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(2);
+		const modifiedReplyClick = new MouseEvent("click", {
+			bubbles: true,
+			button: 0,
+			cancelable: true,
+			metaKey: true,
+		});
+		expect(replyLink.dispatchEvent(modifiedReplyClick)).toBe(true);
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(2);
 	});
 
 	it("renders structured Wake targets as inline Agent identities in the read-only main timeline", () => {
@@ -3157,6 +3217,109 @@ describe("SpaceConversationPanel", () => {
 		await waitFor(() => expect(abandon).toHaveBeenCalledOnce());
 		expect(latest).not.toHaveBeenCalled();
 		expect(commit).not.toHaveBeenCalled();
+	});
+
+	it("lets an anchored public history view navigate to the real latest URL", () => {
+		const latest = vi.fn();
+		const signal = {
+			...createThreadPreviewSignal(),
+			data: { text: "Old anchored message" },
+			id: "sig-old",
+		};
+		const historyNavigation = {
+			activeWindow: {
+				envelopes: [signal],
+				hasAfter: true,
+				hasBefore: true,
+				identity: "space-123:public",
+			},
+			directory: {
+				entries: [
+					{
+						author: "Felix",
+						count: 30,
+						endAt: 20,
+						endSignalId: signal.id,
+						preview: "Old anchored message",
+						signalId: signal.id,
+						startAt: 10,
+					},
+				],
+				total: 240,
+			},
+			directoryError: false,
+			directoryPending: false,
+			earlierHref: "/spaces/space-123?signalId=sig-earlier",
+			error: null,
+			hasHiddenLiveHistory: false,
+			hrefForSignalId: (signalId: string) =>
+				`/spaces/space-123?signalId=${signalId}`,
+			latest,
+			latestHref: "/spaces/space-123",
+			loadAfter: vi.fn(async () => false),
+			loadBefore: vi.fn(async () => false),
+			open: vi.fn(async () => true),
+			newerHref: "/spaces/space-123?signalId=sig-old",
+			pending: false,
+			retryDirectory: vi.fn(),
+			revealCachedBefore: vi.fn(),
+			visibleLiveEnvelopes: [signal],
+		} as NonNullable<SpaceConversationPanelInput["historyNavigation"]>;
+		renderSpaceConversationPanel({
+			historyNavigation,
+			timelineItems: buildSpaceTimelineItems({
+				envelopes: [signal],
+				membersSnapshot: null,
+			}),
+		});
+
+		const latestLink = screen.getByRole("button", {
+			name: "Jump to latest message",
+		});
+		expect(latestLink.getAttribute("href")).toBe("/spaces/space-123");
+		const click = new MouseEvent("click", {
+			bubbles: true,
+			button: 0,
+			cancelable: true,
+		});
+		expect(latestLink.dispatchEvent(click)).toBe(true);
+		expect(latest).not.toHaveBeenCalled();
+		expect(document.querySelector(".space-history-tick")?.tagName).toBe("A");
+		const newerLink = screen.getByRole("button", {
+			name: "Load newer messages",
+		});
+		expect(newerLink.tagName).toBe("A");
+		expect(newerLink.getAttribute("href")).toBe(
+			"/spaces/space-123?signalId=sig-old"
+		);
+		fireEvent.click(newerLink);
+		expect(historyNavigation.loadAfter).toHaveBeenCalledTimes(1);
+		const modifiedClick = new MouseEvent("click", {
+			bubbles: true,
+			button: 0,
+			cancelable: true,
+			ctrlKey: true,
+		});
+		expect(newerLink.dispatchEvent(modifiedClick)).toBe(true);
+		expect(historyNavigation.loadAfter).toHaveBeenCalledTimes(1);
+
+		cleanup();
+		renderSpaceConversationPanel({
+			historyNavigation: {
+				...historyNavigation,
+				earlierHref: undefined,
+				hrefForSignalId: undefined,
+				latestHref: undefined,
+				newerHref: undefined,
+			},
+			timelineItems: buildSpaceTimelineItems({
+				envelopes: [signal],
+				membersSnapshot: null,
+			}),
+		});
+		expect(document.querySelector(".space-history-tick")?.tagName).toBe(
+			"BUTTON"
+		);
 	});
 
 	it("renders profile avatars and keeps message time outside the bubble", () => {
@@ -5304,9 +5467,14 @@ function createThreadPreview(threadId: string): SpaceThreadPreview {
 	};
 }
 
-function createThreadPreviewSignal(): SignalEnvelope {
+function createThreadPreviewSignal(): Extract<
+	SignalEnvelope,
+	{ type: "signal.text" }
+> {
 	return {
-		data: { text: `/spaces/${REFERENCED_SPACE_ID}` },
+		data: {
+			text: `https://example.com /spaces/${REFERENCED_SPACE_ID}`,
+		},
 		id: "sig-thread-preview",
 		profile: {
 			kind: "human",

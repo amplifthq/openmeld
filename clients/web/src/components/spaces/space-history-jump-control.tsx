@@ -169,7 +169,23 @@ export function SpaceHistoryJumpControl({
 										aria-label={actionLabel}
 										className="rounded-full max-lg:pointer-fine:min-h-8 max-lg:pointer-fine:min-w-8"
 										disabled={pending}
-										onClick={handleLatest}
+										nativeButton={!history?.latestHref}
+										onClick={(event) => {
+											if (history?.latestHref) {
+												return;
+											}
+											event.preventDefault();
+											return handleLatest();
+										}}
+										render={
+											history?.latestHref ? (
+												<a href={history.latestHref}>
+													<span className="sr-only">
+														Jump to latest message
+													</span>
+												</a>
+											) : undefined
+										}
 										size="icon"
 										variant="ghost"
 									/>

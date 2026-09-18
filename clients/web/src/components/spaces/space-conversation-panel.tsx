@@ -539,16 +539,6 @@ function useSpaceMessageTaskAction(input: {
 	const [pendingSourceSignalId, setPendingSourceSignalId] = useState<
 		string | null
 	>(null);
-	const taskApi = useMemo(
-		() =>
-			organizationSlug
-				? createOrganizationScopedWebSpaceApi({
-						organizationSlug,
-						openMeldProfileId,
-					})
-				: createUnscopedWebSpaceApi({ openMeldProfileId }),
-		[openMeldProfileId, organizationSlug]
-	);
 	const onAdd = useCallback(
 		async (item: SpaceTimelineItem, threadId: string | null) => {
 			if (disabled || !spaceId || pendingSourceSignalId) {
@@ -561,6 +551,12 @@ function useSpaceMessageTaskAction(input: {
 					compactText.length > SPACE_TASK_TITLE_MAX_CHARS
 						? `${compactText.slice(0, SPACE_TASK_TITLE_MAX_CHARS - 1).trimEnd()}…`
 						: compactText || `Follow up on ${item.actorName}'s message`;
+				const taskApi = organizationSlug
+					? createOrganizationScopedWebSpaceApi({
+							organizationSlug,
+							openMeldProfileId,
+						})
+					: createUnscopedWebSpaceApi({ openMeldProfileId });
 				await taskApi.createTask({
 					spaceId,
 					body: {
@@ -592,10 +588,11 @@ function useSpaceMessageTaskAction(input: {
 		[
 			disabled,
 			onSpaceViewChange,
+			openMeldProfileId,
+			organizationSlug,
 			pendingSourceSignalId,
 			queryClient,
 			spaceId,
-			taskApi,
 		]
 	);
 	return { onAdd: disabled ? undefined : onAdd, pendingSourceSignalId };
@@ -909,16 +906,7 @@ function SpaceConversationPanelContent(
 									data-space-conversation-content-width=""
 								>
 									{conversationBody}
-									{input.historyNavigation?.activeWindow?.hasAfter && (
-										<Button
-											className="mx-auto mt-4 mb-16"
-											disabled={input.historyNavigation.pending}
-											onClick={() => input.historyNavigation?.loadAfter()}
-											variant="ghost"
-										>
-											Load newer messages
-										</Button>
-									)}
+									<LoadNewerMessagesControl history={input.historyNavigation} />
 								</MessageScrollerContent>
 							</MessageScrollerViewport>
 							{!input.historyNavigation && (
@@ -3017,6 +3005,17 @@ function ConversationBubbleContent(input: {
 				profileId={parent.selfProfileId}
 				spaceReferencesById={parent.spaceReferencesById}
 				thread={parent.threadsByRootSignalId.get(input.item.id) ?? null}
+				threadHref={
+					parent.readOnly && parent.spaceId
+						? (signalId) =>
+								`/spaces/${encodeURIComponent(parent.spaceId ?? "")}?${new URLSearchParams(
+									{
+										...(signalId ? { signalId } : {}),
+										threadRootSignalId: input.item.id,
+									}
+								)}`
+						: undefined
+				}
 				unreadCount={
 					parent.unreadTargets.filter(
 						(target) => target.threadRootSignalId === input.item.id
@@ -3586,6 +3585,55 @@ function resolveReplyItemsForMessage(input: {
 	);
 }
 
+function isModifiedNavigationClick(event: {
+	altKey: boolean;
+	button: number;
+	ctrlKey: boolean;
+	metaKey: boolean;
+	shiftKey: boolean;
+}) {
+	return (
+		event.button !== 0 ||
+		event.altKey ||
+		event.ctrlKey ||
+		event.metaKey ||
+		event.shiftKey
+	);
+}
+
+function LoadNewerMessagesControl(input: {
+	history?: SpaceHistoryNavigationController;
+}) {
+	if (!input.history?.activeWindow?.hasAfter) {
+		return null;
+	}
+	const href = input.history.newerHref;
+	return (
+		<Button
+			className="mx-auto mt-4 mb-16"
+			disabled={input.history.pending}
+			nativeButton={!href}
+			onClick={(event) => {
+				if (href && isModifiedNavigationClick(event)) {
+					return;
+				}
+				event.preventDefault();
+				input.history?.loadAfter();
+			}}
+			render={
+				href ? (
+					<a href={href}>
+						<span className="sr-only">Load newer messages</span>
+					</a>
+				) : undefined
+			}
+			variant="ghost"
+		>
+			Load newer messages
+		</Button>
+	);
+}
+
 function ThreadPreview(input: {
 	isReplyInProgress: boolean;
 	profileId: string;
@@ -3594,6 +3642,7 @@ function ThreadPreview(input: {
 	onOpenThread: (threadId: string, signalId?: string) => void;
 	preview: SpaceThreadPreview | null;
 	spaceReferencesById?: SpaceMessageReferencesById;
+	threadHref?: (signalId?: string) => string;
 	thread: SpaceThread | null;
 }) {
 	const queryClient = useQueryClient();
@@ -3612,6 +3661,7 @@ function ThreadPreview(input: {
 	const unreadLabel = `${String(input.unreadCount)} unread`;
 	const countLabel = input.unreadCount > 0 ? unreadLabel : replyCountText;
 	const showCount = input.unreadCount > 0 || replyCount > 0;
+	const ThreadTarget = input.threadHref ? "a" : "button";
 	const spaceReferencesById =
 		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
 	const prefetch = () => {
@@ -3628,7 +3678,7 @@ function ThreadPreview(input: {
 	return (
 		<div className="flex w-full min-w-0 max-w-full flex-col gap-1.5 overflow-hidden border-border border-t pt-2">
 			{previewItems.map((item) => (
-				// biome-ignore lint/a11y/useSemanticElements: The preview contains independently usable links and selectable text.
+				// biome-ignore lint/a11y/useSemanticElements: A native button cannot contain the reply's independent message links.
 				<div
 					aria-label={`Open reply from ${item.actorName}: ${threadReplyPreviewText(item.text)}`}
 					className="flex w-full min-w-0 max-w-full cursor-pointer items-start gap-2 overflow-hidden pe-2 hover:underline focus-visible:outline focus-visible:outline-ring"
@@ -3658,20 +3708,19 @@ function ThreadPreview(input: {
 					}}
 					onFocus={prefetch}
 					onKeyDown={(event) => {
-						if (
-							event.target !== event.currentTarget ||
-							!(event.key === "Enter" || event.key === " ")
-						) {
+						if (event.target !== event.currentTarget) {
 							return;
 						}
-						event.preventDefault();
-						input.onOpenThread(thread.threadId, item.id);
+						if (event.key === "Enter" || event.key === " ") {
+							event.preventDefault();
+							input.onOpenThread(thread.threadId, item.id);
+						}
 					}}
 					onPointerDown={(event) => {
 						pointerStart.current = { x: event.clientX, y: event.clientY };
 					}}
 					onPointerEnter={prefetch}
-					role="link"
+					role="button"
 					tabIndex={0}
 				>
 					{!item.recalledAt && (
@@ -3685,16 +3734,45 @@ function ThreadPreview(input: {
 							text={threadReplyPreviewText(item.text)}
 						/>
 					</span>
-					<time
-						className="shrink-0 text-muted-foreground/75 text-xs leading-5"
-						dateTime={new Date(item.createdAtMs).toISOString()}
-						title={new Date(item.createdAtMs).toLocaleString("en-US")}
-					>
-						{formatDirectMessageTime(item.createdAtMs)}
-					</time>
+					{input.threadHref ? (
+						<a
+							aria-label={`Open reply from ${item.actorName}`}
+							className="shrink-0 text-muted-foreground/75 text-xs leading-5"
+							href={input.threadHref(item.id)}
+							onClick={(event) => {
+								if (isModifiedNavigationClick(event)) {
+									return;
+								}
+								event.preventDefault();
+								input.onOpenThread(thread.threadId, item.id);
+							}}
+						>
+							<time
+								dateTime={new Date(item.createdAtMs).toISOString()}
+								title={new Date(item.createdAtMs).toLocaleString("en-US")}
+							>
+								{formatDirectMessageTime(item.createdAtMs)}
+							</time>
+						</a>
+					) : (
+						<button
+							aria-label={`Open reply from ${item.actorName}`}
+							className="shrink-0 text-muted-foreground/75 text-xs leading-5 hover:underline focus-visible:outline focus-visible:outline-ring"
+							onClick={() => input.onOpenThread(thread.threadId, item.id)}
+							onFocus={prefetch}
+							type="button"
+						>
+							<time
+								dateTime={new Date(item.createdAtMs).toISOString()}
+								title={new Date(item.createdAtMs).toLocaleString("en-US")}
+							>
+								{formatDirectMessageTime(item.createdAtMs)}
+							</time>
+						</button>
+					)}
 				</div>
 			))}
-			<button
+			<ThreadTarget
 				aria-label={showCount ? `Open thread (${countLabel})` : "Open thread"}
 				className={cn(
 					"inline-flex w-fit items-center gap-1.5 text-xs leading-5 hover:text-foreground hover:underline",
@@ -3702,11 +3780,15 @@ function ThreadPreview(input: {
 						? "font-medium text-unread dark:text-blue-200"
 						: "text-muted-foreground"
 				)}
-				onClick={() => input.onOpenThread(thread.threadId)}
+				href={input.threadHref?.()}
+				onClick={(event) => {
+					event.preventDefault();
+					input.onOpenThread(thread.threadId);
+				}}
 				onFocus={prefetch}
 				onPointerEnter={prefetch}
 				title="Only threads you start or reply to count as unread. Read the thread to clear its unread replies and reactions."
-				type="button"
+				type={ThreadTarget === "button" ? "button" : undefined}
 			>
 				<ChatCircleIcon aria-hidden="true" className="size-3.5" />
 				<span>Open thread</span>
@@ -3722,7 +3804,7 @@ function ThreadPreview(input: {
 						{countLabel}
 					</span>
 				) : null}
-			</button>
+			</ThreadTarget>
 		</div>
 	);
 }

@@ -342,8 +342,8 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 	});
 	const attachments = input.item.attachments ?? [];
 	const files = input.item.files ?? [];
-	const spaceApi = useMemo(
-		() =>
+	const spaceApi = useMemo(() => {
+		const createApi = () =>
 			input.orgSlug
 				? createOrganizationScopedWebSpaceApi({
 						openMeldProfileId: input.openMeldProfileId,
@@ -351,9 +351,15 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 					})
 				: createUnscopedWebSpaceApi({
 						openMeldProfileId: input.openMeldProfileId,
-					}),
-		[input.openMeldProfileId, input.orgSlug]
-	);
+					});
+		return {
+			downloadFileContent: (
+				...args: Parameters<SpaceApi["downloadFileContent"]>
+			) => createApi().downloadFileContent(...args),
+			getLinkPreviews: (...args: Parameters<SpaceApi["getLinkPreviews"]>) =>
+				createApi().getLinkPreviews(...args),
+		};
+	}, [input.openMeldProfileId, input.orgSlug]);
 	const body = renderSpaceMessageTextContent({
 		additionalRemarkPlugins: references.additionalRemarkPlugins,
 		profileMentionProfilesById: references.profileMentionProfilesById,

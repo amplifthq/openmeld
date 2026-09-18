@@ -19,6 +19,7 @@ function makeEnv(input?: {
   coreRpc: {
     getSpaceConversationState: ReturnType<typeof vi.fn>;
     getSpaceEntryResolution: ReturnType<typeof vi.fn>;
+    getSpaceHistoryNavigation: ReturnType<typeof vi.fn>;
     getSpaceStatus: ReturnType<typeof vi.fn>;
     getSpaceMembers: ReturnType<typeof vi.fn>;
     getSpaceMemberDirectory: ReturnType<typeof vi.fn>;
@@ -54,6 +55,10 @@ function makeEnv(input?: {
       participation: { state: "self_join_available" as const },
       safeContext: { spaceName: "Demo" },
       recovery: null,
+    })),
+    getSpaceHistoryNavigation: vi.fn(async () => ({
+      entries: [],
+      total: 0,
     })),
     getSpaceStatus: vi.fn(async () => ({
       spaceId: "demo",
@@ -211,6 +216,58 @@ async function readJsonBody(response: Response): Promise<unknown> {
 }
 
 describe("public space boundary", () => {
+  it("serves the complete anonymous first-render read set without bootstrap", async () => {
+    const spaceId = "a".repeat(64);
+    const { env, coreRpc } = makeEnv({
+      authOverrides: {
+        resolveRequestAuth: vi.fn(async () => ({
+          ok: true,
+          claims: {
+            authenticated: false,
+            requestId: "req-first-render",
+            ownerIds: [],
+            authMethod: "none",
+          },
+        })),
+      },
+    });
+    const paths = [
+      "entry-resolution",
+      "status",
+      "signals?limit=80&recent=1",
+      "threads",
+      "history-navigation",
+    ];
+    const responses = await Promise.all(
+      paths.map((path) =>
+        app.fetch(
+          new Request(`http://local/v1/spaces/${spaceId}/${path}`),
+          env,
+          TEST_EXECUTION_CONTEXT
+        )
+      )
+    );
+
+    expect(responses.map((response) => response.status)).toEqual([
+      200, 200, 200, 200, 200,
+    ]);
+    for (const response of responses) {
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+    }
+    expect(coreRpc.getSpaceEntryResolution).toHaveBeenCalledOnce();
+    expect(coreRpc.getSpaceStatus).toHaveBeenCalledOnce();
+    expect(coreRpc.listSignals).toHaveBeenCalledOnce();
+    expect(coreRpc.listSpaceThreads).toHaveBeenCalledOnce();
+    expect(coreRpc.getSpaceHistoryNavigation).toHaveBeenCalledOnce();
+
+    const bootstrap = await app.fetch(
+      new Request(`http://local/v1/spaces/${spaceId}/bootstrap`),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(bootstrap.status).toBe(401);
+  });
+
   it("forwards the complete Space entry target through one resolver", async () => {
     const spaceId =
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

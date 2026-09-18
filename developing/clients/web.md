@@ -3663,6 +3663,18 @@ Organization experience. Public entry revalidates on focus and every 15 seconds
 while visible; rejection removes the mounted reader. Its HTML advertises the
 shared JSON context directory and is not cacheable or indexable.
 
+For an allowed public entry, the ordinary `/spaces/:spaceId` response also
+server-renders a bounded conversation window into its initial HTML. A targeted
+message or Thread link renders the Core-resolved anchor window and selected
+Thread; the latest view renders a bounded recent window. Existing history and
+Thread controls expose same-Space links so a reader without JavaScript can move
+through older windows, return to latest, and open Threads. Hydration reuses the
+same request-scoped query data and preserves the interactive reader. Web must
+resolve access before reading or serializing conversation content, must not
+derive policy locally, and must keep both public HTML and its content-bearing
+GET server-function responses private and non-cacheable, including denied
+access, invalid input, and upstream failures.
+
 Organization-scoped routes retain the App shell for permitted public reads and
 membership gates. Tenant-neutral links resolve to the Organization App route
 before mounting a public viewer when Core supplies the caller's Organization

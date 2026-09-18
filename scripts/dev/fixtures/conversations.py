@@ -30,9 +30,12 @@ def seed(context, sid, index, members):
             return
         prompt, answer = TOPICS[index % len(TOPICS)]
         speakers = [context.human["profile_id"], *members]
-        count = 480 if index == 0 else 90 if index == 1 else 31 if index == 4 else 3
+        count = 240 if index == 28 else 480 if index == 0 else 90 if index == 1 else 31 if index == 4 else 3
         texts = []
         for n in range(count):
+            if index == 28:
+                texts.append(f"read1141-main-{n + 1:03d}")
+                continue
             question, response = TOPICS[(n // 3) % len(TOPICS)]
             cycle = n // (3 * len(TOPICS)) + 1
             text = [f"Review {cycle}: {question}", response + "\n\nThe next step is to review the proposed change in the complete workflow.\n\n- Check the first attempt from a fresh session.\n- Keep the original reading position when new messages arrive.\n- Record the final decision in this Space.",
