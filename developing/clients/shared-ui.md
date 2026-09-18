@@ -249,6 +249,34 @@ two, matching the runtime Tabs selection. Cards and their shared hover
 indicators use `rounded-md`; editor popovers rise one further surface level.
 Do not reintroduce card-local border/shadow recipes or oversized radius overrides.
 
+The Agent dashboard includes a read-only Usage limits card in the same grid.
+It reuses the shared quota donut, status rules, provider labels, and observation
+times; it is not an editable setting or an independent source of Wakeability.
+Its readout must load independently of the owner's editable Binding settings.
+
+### Loading regions
+
+Keep the authorized shell, navigation, known identity, and unrelated usable
+content visible while a region loads. Shared `SkeletonRegion`, `SkeletonRows`,
+`SkeletonForm`, and `SkeletonTable` are presentation only: the caller owns query
+state, authorization, retry, and empty-state decisions. Choose shapes and
+geometry that match the actual card, list, form, table, or conversation; one
+whole-page gray rectangle is not an equivalent replacement. Shapes are
+decorative, with one accessible announcement per region and reduced-motion
+support. Never turn an unknown setting into an unchecked switch or default
+selection while waiting for its saved value.
+
+First-load placeholders must not clear same-subject content during background
+refresh. Do not preserve one account, Organization, Profile, Computer, or Binding's
+content under another identity; revocation and identity failures are not normal
+stale-data refreshes. Keep error/offline outcomes separate from pending and
+confirmed-empty results. Existing mutation progress, download progress, and
+pagination feedback remain inline rather than replacing loaded content.
+
+Lazy Space panels import their fallback shapes from a lightweight module, not
+from the lazy panel itself. Code loading and data loading reuse the same panel
+geometry without defeating the code-splitting boundary.
+
 Welcome Create/Join actions reuse Fluid Card shared-layout hover with disabled
 items excluded from highlighting. Radio selection uses the same offset-two
 surface recipe as Tabs. Web composers share `PromptInput` and a dedicated
