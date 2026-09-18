@@ -152,6 +152,11 @@ describe("OpenMeldServiceCard", () => {
 		).toBeTruthy();
 		expect(requestCurrentOpenMeldToolsUpdateMock).not.toHaveBeenCalled();
 		expect(setCurrentOpenMeldToolsMaintenanceMock).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "OpenMeld options" }));
+		fireEvent.click(screen.getByText("Check status"));
+		await waitFor(() => expect(refreshSharedCachesMock).toHaveBeenCalledOnce());
+		expect(requestCurrentOpenMeldToolsUpdateMock).not.toHaveBeenCalled();
+		expect(setCurrentOpenMeldToolsMaintenanceMock).not.toHaveBeenCalled();
 	});
 
 	it("bounds browser opening and shows a retry after failure", async () => {
@@ -224,7 +229,15 @@ describe("OpenMeldServiceCard", () => {
 				runtimeLane: "prod",
 			};
 		}
+		const computer = buildComputer();
+		if (kind === "unselected" && computer.executionTargets[0]) {
+			computer.executionTargets.push({
+				...computer.executionTargets[0],
+				runtimeLane: "canary",
+			});
+		}
 		renderOpenMeldServiceCard({
+			computer,
 			currentLocalRuntimeReplyReadiness: readiness,
 			replyReadiness: SERVICE_NOT_CONNECTED_REPLY_READINESS,
 			hasSelectedEnvironment: kind !== "unselected",
@@ -234,6 +247,13 @@ describe("OpenMeldServiceCard", () => {
 			screen.queryByRole("button", { name: "Reconnect in browser" })
 		).toBeNull();
 		expect(desktop.openWeb).not.toHaveBeenCalled();
+		if (kind === "unselected") {
+			expect(
+				screen.getByText(
+					"This computer has multiple Service connections. Open Advanced connection details below to choose one."
+				)
+			).toBeTruthy();
+		}
 	});
 
 	it.each([
