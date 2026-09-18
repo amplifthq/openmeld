@@ -113,26 +113,48 @@ const JOBS_BY_RUN = new Map([
   ],
   [
     29_446_538_975,
-    [releaseJob("Release Core Worker / ⚙️ Deploy Core Worker", CORE_SHA)],
+    [
+      releaseJob("Release Core Worker / ⚙️ Deploy Core Worker", CORE_SHA, {
+        completedAt: "2026-07-15T20:05:00Z",
+      }),
+    ],
   ],
-  [29_441_305_612, [releaseJob("Publish CLI And Release Core", CLI_SHA)]],
+  [
+    29_441_305_612,
+    [
+      releaseJob("Publish CLI And Release Core", CLI_SHA, {
+        completedAt: "2026-07-15T18:45:00Z",
+      }),
+    ],
+  ],
   [
     29_411_679_542,
     [
-      releaseJob("Apply Production DB Migrations", DATABASE_AUTH_SHA),
+      releaseJob("Apply Production DB Migrations", DATABASE_AUTH_SHA, {
+        completedAt: "2026-07-15T11:35:00Z",
+      }),
       releaseJob(
         "Release Auth Worker / 🛡️ Deploy Auth Worker",
-        DATABASE_AUTH_SHA
+        DATABASE_AUTH_SHA,
+        { completedAt: "2026-07-15T11:40:00Z" }
       ),
     ],
   ],
   [
     29_406_486_374,
-    [releaseJob("🚪 Deploy Gateway Worker", GATEWAY_REMOTE_SHA)],
+    [
+      releaseJob("🚪 Deploy Gateway Worker", GATEWAY_REMOTE_SHA, {
+        completedAt: "2026-07-15T10:05:00Z",
+      }),
+    ],
   ],
   [
     29_406_361_325,
-    [releaseJob("🤖 Deploy Remote Agent Worker", GATEWAY_REMOTE_SHA)],
+    [
+      releaseJob("🤖 Deploy Remote Agent Worker", GATEWAY_REMOTE_SHA, {
+        completedAt: "2026-07-15T10:01:00Z",
+      }),
+    ],
   ],
 ]);
 

@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { publishGuardedLocalReleaseEvidence } from "./production-release-evidence.mjs";
+import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
 import {
   acquireProductionScopeLease,
   releaseProductionScopeLease,
@@ -654,6 +654,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   assertWakeProgressOptInDeployOrder(orderedScopes, changedPaths);
   assertSpaceHistoryQueryDeployOrder(orderedScopes, changedPaths);
   for (const scope of orderedScopes) {
+    const start = steps.length;
     appendProductionDeployScopeSteps({
       deployOrderProfile,
       releaseSha: input.releaseSha,
@@ -661,14 +662,36 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
       selected,
       steps,
     });
+    annotateReleaseScope(steps, start, scope);
   }
   if (selected.has("cli")) {
     steps.push({
       internalOperation: "publish-cli",
       label: "Verify final R2/npm/Core alignment",
     });
+    annotateReleaseScope(steps, steps.length - 1, "cli");
   }
   return steps;
+}
+
+function annotateReleaseScope(steps, start, scope) {
+  for (let index = start; index < steps.length; index += 1) {
+    steps[index] = {
+      ...steps[index],
+      releaseScope: scope,
+      completesReleaseScope: index === steps.length - 1,
+      ...(scope === "cli"
+        ? {
+            receiptWorkerDeploymentArgs: [
+              "--config",
+              "services/core/wrangler.jsonc",
+              "--env",
+              "prod",
+            ],
+          }
+        : {}),
+    };
+  }
 }
 
 function appendProductionDeployScopeSteps(input) {
@@ -1779,7 +1802,7 @@ export async function executeProductionDeploySteps(input) {
         env: input.env ?? process.env,
         withBinary: true,
       });
-      input.afterStep?.(step);
+      await input.afterStep?.(step);
       continue;
     }
     if (step.workerDeploymentArgs) {
@@ -1797,8 +1820,8 @@ export async function executeProductionDeploySteps(input) {
       });
       printCurrentWorkerVersions(step.label, result, write);
     }
-    adapters.runStep(step);
-    input.afterStep?.(step);
+    await adapters.runStep(step);
+    await input.afterStep?.(step);
   }
 }
 
@@ -1918,10 +1941,11 @@ async function main(argv) {
     return;
   }
   await executeWithProductionScopeLeases({
-    afterSuccess: ({ scopes, sourceSha }) =>
-      publishGuardedLocalReleaseEvidence({ scopes, sourceSha }),
     execute: () =>
-      executeProductionDeploySteps({
+      executeRecordedProductionDeploySteps({
+        sourceSha: plan.sourceSha,
+        executeSteps: executeProductionDeploySteps,
+        runCommand: runReadOnlyCommand,
         afterStep: () => assertSourceStillMatches(plan.sourceSha),
         steps: plan.deploySteps,
       }),
@@ -2016,6 +2040,7 @@ function workerDeploymentHealthStep(input) {
     args: ["exec", "wrangler", "deployments", "list", ...input.args, "--json"],
     command: "pnpm",
     label: input.label,
+    receiptWorkerDeploymentArgs: input.args,
   };
 }
 

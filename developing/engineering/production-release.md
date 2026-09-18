@@ -84,17 +84,39 @@ The resolved source SHA is the cutoff for that release. Commits that reach
 `main` after the cutoff belong to the next release; do not restart or widen an
 already-running release merely to chase a newer `main`.
 
-After every fully successful guarded local release, the executor atomically
-advances one ref per completed scope under
-`refs/heads/openmeld-production-release-evidence/<scope>`. Each ref advances an
-append-only evidence chain whose latest record contains the exact released
-first-parent `main` commit and completion time. `release:status` combines those
-records with hosted release jobs and uses the latest completed event for each
-scope. A successful redeploy of the same source SHA is still a new completed
-event and must advance that scope's evidence ref with its later completion time.
-A workstation release therefore cannot disappear merely because no GitHub
-deployment job ran, and an explicit rollback remains visible as the latest
-deployed source instead of being mistaken for a failed evidence write.
+Guarded local releases advance the existing append-only refs under
+`refs/heads/openmeld-production-release-evidence/<scope>` while retaining the
+selected component leases. Each component first records `started`, then
+`applied` with its observed identity after the deploy command, and `verified`
+only after its existing health and source checks. A later failure records
+`failed`, distinguishing unknown application from an observed applied version.
+Previously verified components remain visible even when another component fails;
+this never creates an overall successful-release record for a partial run.
+
+Schema version 2 records the attempt, component index, status, source/tree,
+time, and observed Worker version/traffic. Database and CLI receipts retain an
+explicit `release-source` identity rather than inventing a binary hash or a
+migration watermark; the guarded DB and CLI commands retain their existing
+verification responsibilities. CLI steps record CLI/Core together. Version 1
+success records remain readable. Older readers that do not understand version 2
+must fail closed; use current-main release tooling, not a manual success override.
+If receipt publication fails, stop before another component. Reconcile the
+retained started/applied record against live evidence before another attempt.
+An identical event retry is idempotent; changing an event or moving a completed
+attempt backward is rejected. A later same-SHA redeploy or explicit rollback is
+a new event, with the existing atomic compare-and-swap ref protection.
+
+`release:status` pages relevant workflows and all job attempts rather than
+filtering an all-workflow 250-run window. It compares actual job completion
+times, never workflow creation order. A missing source, invalid completion time,
+ambiguous tie, API failure or safety-bound truncation remains explicit evidence
+uncertainty; it cannot silently make the affected component current. A known
+later deployment can supersede an older unreadable-source event, but the
+historical limitation remains in the report. Historical planner failures are
+contained in per-component `unknown` results; a genuine current-change planning
+conflict still blocks. JSON and human output retain both scoped and global
+blockers. This is a projection of available recorded deployments, not an
+independent live-production acceptance check.
 
 `--deployed` remains a one-run diagnostic override for historical releases that
 predate these refs. It is not the normal completion path:

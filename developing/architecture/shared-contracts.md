@@ -1616,7 +1616,19 @@ credentials, deployment, health, and recovery. The end-to-end lifecycle and
 reuse rules remain solely in
 `developing/engineering/agent-native-delivery.md`.
 
-These two delivery-control schemas are engineering contracts consumed directly
+`packages/schemas/src/schemas/release/production-release-evidence.ts` owns the
+strict per-component metadata in the existing guarded release evidence refs.
+Version 1 describes a legacy successful release. Version 2 distinguishes a
+started attempt, applied identity, verified completion, and failed operation,
+with immutable attempt/component identity. Unknown application must not claim an
+applied identity. Worker identities retain version IDs and complete traffic;
+CLI/database records explicitly identify the verified release source rather than
+inventing artifact or migration metadata. New readers accept both versions;
+unknown versions remain an error. This is deployment evidence, not a replacement
+for source, lease, channel, health, or release authorization checks. Publication
+and recovery remain owned by `developing/engineering/production-release.md`.
+
+These delivery-control schemas are engineering contracts consumed directly
 by repository tooling. They are not exported from the package-wide runtime
 schema index and are not packaged into the CLI or OpenMeld Service. Changes
 under `schemas/ci` or `schemas/release` therefore require their behavior and

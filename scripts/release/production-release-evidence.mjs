@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-
+import { productionReleaseEvidenceSchema } from "../../packages/schemas/src/schemas/release/production-release-evidence.ts";
 import { productionReleaseScopeSchema } from "../../packages/schemas/src/schemas/release/production-scope-lease.ts";
 import { createProductionScopeLeaseGitEnvironment } from "./production-scope-lease.mjs";
 
@@ -26,11 +26,31 @@ export function publishGuardedLocalReleaseEvidence(input) {
     );
   }
 
-  const currentEvidence = readGuardedLocalReleaseEvidence(context);
+  if (
+    input.receipts &&
+    (Object.keys(input.receipts).length !== scopes.length ||
+      scopes.some((scope) => !input.receipts[scope]))
+  ) {
+    throw new Error(
+      "Component receipts must cover exactly the selected scopes."
+    );
+  }
+  const currentEvidence = readGuardedLocalReleaseEvidence(
+    context,
+    new Set(scopes)
+  );
   const pending = [];
   for (const scope of scopes) {
     const current = currentEvidence.get(scope);
-    const metadata = createEvidenceMetadata(context, scope, sourceSha);
+    const metadata = createEvidenceMetadata(
+      context,
+      scope,
+      sourceSha,
+      input.receipts?.[scope]
+    );
+    if (isRecordedReceipt(current?.metadata, metadata)) {
+      continue;
+    }
     pending.push({
       evidenceSha: createEvidenceCommit(context, current, metadata),
       expectedSha: current?.evidenceSha ?? "",
@@ -38,6 +58,10 @@ export function publishGuardedLocalReleaseEvidence(input) {
       ref: evidenceRef(scope),
       scope,
     });
+  }
+
+  if (pending.length === 0) {
+    return { published: true, scopes, sourceSha };
   }
 
   const args = ["push", "--no-verify", "--porcelain", "--atomic"];
@@ -56,7 +80,7 @@ export function publishGuardedLocalReleaseEvidence(input) {
   }
   return {
     published: true,
-    scopes: pending.map((item) => item.scope),
+    scopes,
     sourceSha,
   };
 }
@@ -68,6 +92,12 @@ export function readGuardedLocalReleaseSources(input = {}) {
       scope,
       {
         recordedAt: evidence.metadata.recordedAt,
+        ...(evidence.metadata.receipt
+          ? {
+              receipt: evidence.metadata.receipt,
+              evidenceSha: evidence.evidenceSha,
+            }
+          : {}),
         sha: evidence.metadata.sourceSha,
         source: "guarded-local",
         url: undefined,
@@ -76,7 +106,7 @@ export function readGuardedLocalReleaseSources(input = {}) {
   );
 }
 
-function readGuardedLocalReleaseEvidence(context) {
+function readGuardedLocalReleaseEvidence(context, selectedScopes) {
   const result = runGit(
     context,
     ["ls-remote", "--refs", context.remote, `${EVIDENCE_REF_PREFIX}/*`],
@@ -98,6 +128,9 @@ function readGuardedLocalReleaseEvidence(context) {
       continue;
     }
     const scope = productionReleaseScopeSchema.parse(ref.slice(prefix.length));
+    if (selectedScopes && !selectedScopes.has(scope)) {
+      continue;
+    }
     const evidenceSha = requireExactSha(
       `${scope} guarded local release evidence`,
       shaValue
@@ -150,15 +183,56 @@ function evidenceRef(scope) {
   return `${EVIDENCE_REF_PREFIX}/${scope}`;
 }
 
-function createEvidenceMetadata(context, scope, sourceSha) {
-  return {
+function createEvidenceMetadata(context, scope, sourceSha, receipt) {
+  return productionReleaseEvidenceSchema.parse({
     evidenceId: randomUUID(),
     kind: EVIDENCE_KIND,
     recordedAt: context.now.toISOString(),
-    schemaVersion: 1,
+    schemaVersion: receipt ? 2 : 1,
     scope,
     sourceSha,
-  };
+    ...(receipt ? { receipt } : {}),
+  });
+}
+
+function isRecordedReceipt(current, next) {
+  if (!(current && next.receipt)) {
+    return false;
+  }
+  const previous = current.receipt;
+  if (
+    previous?.attemptId === next.receipt.attemptId &&
+    previous.componentIndex === next.receipt.componentIndex &&
+    previous.status === next.receipt.status
+  ) {
+    if (
+      current.sourceSha !== next.sourceSha ||
+      JSON.stringify(previous) !== JSON.stringify(next.receipt)
+    ) {
+      throw new Error(
+        "An existing component event cannot be rewritten with different evidence."
+      );
+    }
+    return true;
+  }
+  if (Date.parse(next.recordedAt) < Date.parse(current.recordedAt)) {
+    throw new Error(
+      "Refusing an older component receipt; reconcile the latest deployment evidence first."
+    );
+  }
+  if (previous?.attemptId === next.receipt.attemptId) {
+    const order = { started: 0, applied: 1, verified: 2, failed: 2 };
+    if (
+      next.receipt.componentIndex < previous.componentIndex ||
+      (next.receipt.componentIndex === previous.componentIndex &&
+        order[next.receipt.status] <= order[previous.status])
+    ) {
+      throw new Error(
+        "A completed component event cannot move backward or change its terminal outcome."
+      );
+    }
+  }
+  return false;
 }
 
 function createEvidenceCommit(context, current, metadata) {
@@ -199,21 +273,13 @@ function parseEvidenceMetadata(input) {
       `Guarded local release evidence ${input.evidenceSha} has malformed metadata.`
     );
   }
-  const recordedAt = new Date(metadata.recordedAt);
-  if (
-    metadata.kind !== EVIDENCE_KIND ||
-    metadata.schemaVersion !== 1 ||
-    metadata.scope !== input.scope ||
-    !EXACT_SHA_PATTERN.test(String(metadata.sourceSha ?? "")) ||
-    typeof metadata.evidenceId !== "string" ||
-    metadata.evidenceId.length === 0 ||
-    Number.isNaN(recordedAt.getTime())
-  ) {
+  const parsed = productionReleaseEvidenceSchema.safeParse(metadata);
+  if (!parsed.success || parsed.data.scope !== input.scope) {
     throw new Error(
       `Guarded local release evidence ${input.evidenceSha} violates its metadata contract.`
     );
   }
-  return metadata;
+  return parsed.data;
 }
 
 function runGit(context, args, options = {}) {
