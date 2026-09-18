@@ -330,9 +330,21 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       method: "GET",
       responseSchema: inboxSummaryResponseSchema,
       resolveSuccessPayload: (result) => {
-        const response = inboxSummaryResponseSchema.parse(result);
+        const parsed = inboxSummaryResponseSchema.parse(result);
+        const {
+          priorityCount: _priority,
+          needsActionCount: _action,
+          needsReviewCount: _review,
+          unreadPriorityUpdateCount: _priorityUpdates,
+          ...legacyResponse
+        } = parsed;
         const requestedVersion =
           c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ?? "";
+        const response =
+          requestedVersion === OPENMELD_INBOX_SUMMARY_VERSION &&
+          resolveInboxSourceTargetVersion(c) === "current"
+            ? parsed
+            : legacyResponse;
         if (requestedVersion === OPENMELD_INBOX_SUMMARY_VERSION) {
           return response;
         }

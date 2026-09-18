@@ -72,6 +72,20 @@ export function isInboxNotificationEligible(
   ) {
     return false;
   }
+  const ownerOnly =
+    item.sourceFacts?.recipientReasons.every(
+      (reason) => reason === "agent_owner"
+    ) === true;
+  const firstContact =
+    (item.sourceFacts?.firstContactAgentProfileIds?.length ?? 0) > 0;
+  if (
+    ownerOnly &&
+    item.attention === "update" &&
+    !firstContact &&
+    item.importance !== "urgent"
+  ) {
+    return false;
+  }
   if (inboxMessageNotificationSpaceId(item)) {
     if (mode === "muted") {
       return false;
@@ -81,6 +95,9 @@ export function isInboxNotificationEligible(
     }
   }
   if (item.importance === "urgent") {
+    return true;
+  }
+  if (firstContact) {
     return true;
   }
   if (

@@ -11,6 +11,7 @@ import {
   readInboxItemBySource,
   resolveOrganizationDocumentDraftInboxItemsOutsideRecipientSet as resolveOrganizationDocumentDraftInboxItemsOutsideRecipientSetInRepo,
 } from "../infrastructure/d1/inbox-item-repo";
+import { repairLegacyInteractionAttention } from "./inbox-legacy-interaction-attention";
 import {
   normalizeLegacySpaceAwareness,
   repairLegacySpaceAwareness,
@@ -54,6 +55,23 @@ export async function ensureInboxItem(input: {
       recipientUserId: candidate.recipientUserId,
       sourceKey: candidate.sourceKey,
       sourceKind: candidate.sourceKind,
+    });
+  }
+  if (
+    existing &&
+    (await repairLegacyInteractionAttention({
+      candidate,
+      existing,
+      db: input.db,
+      nowMs: input.nowMs,
+    }))
+  ) {
+    existing = await readInboxItemBySource({
+      db: input.db,
+      organizationId: candidate.organizationId,
+      recipientUserId: candidate.recipientUserId,
+      sourceKind: candidate.sourceKind,
+      sourceKey: candidate.sourceKey,
     });
   }
   if (existing) {

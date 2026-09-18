@@ -263,6 +263,7 @@ export async function showInboxNotification(input: {
 	}
 	// Coalesce owner awareness alerts within each minute without changing unread counts.
 	const deliveryKey =
+		!input.item.sourceFacts &&
 		input.item.sourceTarget.kind === "space" &&
 		input.item.sourceTarget.agentOwnerActivity === true
 			? `agent-owner:${input.userId}:${input.item.sourceTarget.spaceId}:${Math.floor(Date.parse(input.item.occurredAt) / 60_000)}`
@@ -298,6 +299,7 @@ export async function showInboxNotification(input: {
 				(currentItem.attention === "action_required" &&
 					currentItem.resolutionStatus === "open"),
 			tag:
+				!currentItem.sourceFacts &&
 				currentItem.sourceTarget.kind === "space" &&
 				currentItem.sourceTarget.agentOwnerActivity === true
 					? `openmeld-agent-owner:${input.userId}:${currentItem.sourceTarget.spaceId}`

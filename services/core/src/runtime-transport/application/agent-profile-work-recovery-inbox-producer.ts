@@ -55,6 +55,13 @@ export async function projectAgentProfileWorkRecoveryInboxItem(
       recipientUserId: input.ownerUserId,
       sourceKey: await buildAgentProfileWorkRecoveryInboxSourceKey(input),
       sourceKind: AGENT_PROFILE_WORK_RECOVERY_SOURCE_KIND,
+      sourceFacts: {
+        version: 1,
+        recipientReasons: ["requester"],
+        agentProfileIds: [input.profileId],
+        requestCategory:
+          input.stage === "approve_queued_work" ? "review" : "action",
+      },
       sourceTarget: input.sourceTarget ?? {
         kind: "agent_profile",
         profileId: input.profileId,

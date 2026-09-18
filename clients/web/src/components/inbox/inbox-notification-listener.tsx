@@ -130,6 +130,15 @@ export function InboxNotificationListener(input: {
 						unreadMentionCount: attentionSummary.unreadMentionCount,
 						unreadUrgentUpdateCount: attentionSummary.unreadUrgentUpdateCount,
 						unresolvedActionCount: attentionSummary.unresolvedActionCount,
+						...(attentionSummary.priorityCount === undefined
+							? {}
+							: {
+									priorityCount: attentionSummary.priorityCount,
+									needsActionCount: attentionSummary.needsActionCount,
+									needsReviewCount: attentionSummary.needsReviewCount,
+									unreadPriorityUpdateCount:
+										attentionSummary.unreadPriorityUpdateCount,
+								}),
 					},
 		[attentionSummary, summaryQuery.isError]
 	);

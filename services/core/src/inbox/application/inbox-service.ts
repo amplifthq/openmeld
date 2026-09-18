@@ -27,6 +27,11 @@ import {
 } from "@openmeld/space";
 import { isReadPositionWithinAllowedFutureSkew } from "../../shared/read-position";
 import { personalAgentOwnerAccessSql } from "./inbox-agent-owner-access";
+import {
+  INBOX_OPEN_REVIEW,
+  INBOX_PRIORITY,
+  INBOX_UNREAD_PRIORITY_UPDATE,
+} from "./inbox-attention-predicates";
 import { currentInboxSourceFactsSql } from "./inbox-current-source-facts";
 import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
 
@@ -53,6 +58,8 @@ export const INBOX_ATTENTION_PRESENTATION_FILTER = `
     attention = 'update'
     AND importance = 'normal'
     AND kind NOT IN ('space_mention', 'space_reference')
+    AND coalesce(json_array_length(${currentInboxSourceFactsSql("inbox_items")}, '$.firstContactAgentProfileIds'), 0) = 0
+    AND coalesce(json_array_length(${currentInboxSourceFactsSql("inbox_items")}, '$.mentionedAgentProfileIds'), 0) = 0
     AND ${INBOX_SPACE_TARGET_FILTER}
     AND EXISTS (
       SELECT 1
@@ -812,6 +819,9 @@ export function createInboxService(input: {
             SELECT
               coalesce(sum(CASE WHEN read_at_ms IS NULL THEN 1 ELSE 0 END), 0)
                 AS unread_count,
+              coalesce(sum(CASE WHEN ${INBOX_PRIORITY} THEN 1 ELSE 0 END), 0) AS priority_count,
+              coalesce(sum(CASE WHEN ${INBOX_OPEN_REVIEW} THEN 1 ELSE 0 END), 0) AS review_count,
+              coalesce(sum(CASE WHEN ${INBOX_UNREAD_PRIORITY_UPDATE} THEN 1 ELSE 0 END), 0) AS priority_update_count,
               coalesce(sum(CASE
                 WHEN attention = 'action_required' AND resolution_status = 'open'
                 THEN 1 ELSE 0 END), 0) AS action_count,
@@ -836,6 +846,9 @@ export function createInboxService(input: {
         .bind(summaryInput.organizationId, summaryInput.recipientUserId)
         .first<{
           action_count: number;
+          priority_count: number;
+          review_count: number;
+          priority_update_count: number;
           mention_count: number;
           ordinary_unread_count: number;
           unread_count: number;
@@ -845,6 +858,16 @@ export function createInboxService(input: {
         organizationId: summaryInput.organizationId,
         totalUnreadCount: countValue(row?.unread_count),
         unresolvedActionCount: countValue(row?.action_count),
+        ...(input.includeAccountItems &&
+        summaryInput.presentation === "attention"
+          ? {
+              priorityCount: countValue(row?.priority_count),
+              needsReviewCount: countValue(row?.review_count),
+              needsActionCount:
+                countValue(row?.action_count) - countValue(row?.review_count),
+              unreadPriorityUpdateCount: countValue(row?.priority_update_count),
+            }
+          : {}),
         unreadUrgentUpdateCount: countValue(row?.urgent_update_count),
         ...(summaryInput.presentation === "attention"
           ? {

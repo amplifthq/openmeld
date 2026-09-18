@@ -671,11 +671,16 @@ function formatTrayAttentionTitle(
     return "";
   }
   const important =
+    attention.priorityCount ??
     attention.unresolvedActionCount + attention.unreadUrgentUpdateCount;
   const segments = [
     ...(important > 0 ? [`!${formatTrayAttentionCount(important)}`] : []),
     ...(attention.unreadMentionCount > 0
       ? [`@${formatTrayAttentionCount(attention.unreadMentionCount)}`]
+      : []),
+    ...(attention.priorityCount !== undefined &&
+    attention.unresolvedActionCount > 0
+      ? [`·${formatTrayAttentionCount(attention.unresolvedActionCount)}`]
       : []),
   ];
   if (segments.length > 0) {
@@ -691,6 +696,11 @@ function formatTrayAttentionTooltip(
     return null;
   }
   const details = [
+    ...(attention.needsActionCount === undefined
+      ? []
+      : [
+          `${attention.needsActionCount} needs action, ${attention.needsReviewCount ?? 0} needs review`,
+        ]),
     ...(attention.unresolvedActionCount > 0
       ? [
           `${attention.unresolvedActionCount} pending ${attention.unresolvedActionCount === 1 ? "action or review" : "actions or reviews"}`,
@@ -698,7 +708,7 @@ function formatTrayAttentionTooltip(
       : []),
     ...(attention.unreadUrgentUpdateCount > 0
       ? [
-          `${attention.unreadUrgentUpdateCount} unread urgent ${attention.unreadUrgentUpdateCount === 1 ? "update" : "updates"}`,
+          `${attention.unreadUrgentUpdateCount} unread priority ${attention.unreadUrgentUpdateCount === 1 ? "update" : "updates"}`,
         ]
       : []),
     ...(attention.unreadMentionCount > 0

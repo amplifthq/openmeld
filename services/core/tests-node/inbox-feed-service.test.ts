@@ -9,6 +9,83 @@ import { createInboxService } from "../src/inbox/application/inbox-service";
 import { createInboxFeedFixture } from "./helpers/inbox-feed.test-support";
 
 describe("canonical Inbox attention feed", () => {
+  it("shares priority and request categories with the unpaged summary while respecting read, first contact and mute facts", async () => {
+    const f = createInboxFeedFixture();
+    try {
+      f.agent("codex");
+      await f.item("first", {
+        sourceFacts: facts(true),
+        sourceTarget: {
+          kind: "space",
+          spaceId: "space",
+          signalId: "first",
+          agentOwnerActivity: true,
+        },
+      });
+      const review = await f.item("review", {
+        attention: "action_required",
+        kind: "agent_interaction",
+        sourceKind: "runtime_coordinator_interaction",
+        sourceFacts: {
+          version: 1,
+          recipientReasons: ["requester"],
+          requestCategory: "review",
+        },
+      });
+      await f.item("answer", {
+        attention: "action_required",
+        kind: "agent_interaction",
+        sourceKind: "runtime_coordinator_interaction",
+        sourceFacts: {
+          version: 1,
+          recipientReasons: ["requester"],
+          requestCategory: "action",
+        },
+      });
+      f.run({
+        sql: "INSERT INTO inbox_conversation_notification_preferences VALUES ('owner', 'org', 'space', 'muted')",
+      });
+      const service = createInboxService({
+        db: f.db,
+        includeAccountItems: true,
+      });
+      await service.markRead({
+        ...f.identity,
+        itemId: review.itemId,
+        read: true,
+      });
+      const feed = await createInboxFeedService({ db: f.db }).list(f.identity);
+      const summary = await service.summary({
+        ...f.identity,
+        presentation: "attention",
+      });
+      expect(summary).toMatchObject({
+        priorityCount: 1,
+        needsReviewCount: 1,
+        needsActionCount: 1,
+        unreadPriorityUpdateCount: 1,
+      });
+      expect(feed.counts).toMatchObject({
+        priority: summary.priorityCount,
+        needsReview: summary.needsReviewCount,
+        needsAction: summary.needsActionCount,
+      });
+      expect(
+        feed.rows.find((row) => row.item.id === review.itemId)
+      ).toMatchObject({
+        dot: null,
+        section: "open",
+        requestCategory: "review",
+      });
+      const legacy = await createInboxService({ db: f.db }).summary({
+        ...f.identity,
+        presentation: "attention",
+      });
+      expect(legacy).not.toHaveProperty("priorityCount");
+    } finally {
+      f.close();
+    }
+  });
   it("keeps an old priority request ahead of recent conversations across the full dataset and paging", async () => {
     const fixture = createInboxFeedFixture();
     try {

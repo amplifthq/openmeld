@@ -316,6 +316,11 @@ export const listInboxItemsWireResponseSchema = z.strictObject({
 });
 
 export const inboxSummaryResponseSchema = z.strictObject({
+  // Opt-in version-9 source facts: priority is not synonymous with open work.
+  priorityCount: z.number().int().nonnegative().optional(),
+  needsActionCount: z.number().int().nonnegative().optional(),
+  needsReviewCount: z.number().int().nonnegative().optional(),
+  unreadPriorityUpdateCount: z.number().int().nonnegative().optional(),
   organizationId: identifierSchema,
   totalUnreadCount: z.number().int().nonnegative(),
   unresolvedActionCount: z.number().int().nonnegative(),

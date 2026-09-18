@@ -2,6 +2,25 @@
 
 ## Attention feed and frozen selections
 
+Permission and plan-review requests are ordinary Needs review items; questions
+are ordinary Needs action items. The RuntimeCoordinator source supplies that
+classification and does not infer urgency from local execution or request kind.
+Recovery remains source-prioritized, with queue approval classified as review.
+An exact legacy source replay can enrich missing classification and correct old
+forced urgency without reopening, clearing, or re-notifying the item. Generic
+Inbox source conflict checks remain strict; real explicit priority from another
+source is not globally downgraded.
+
+Version-9 summary receivers get priority, open-action and open-review counts from
+the same full authorized dataset as the feed. Ordinary open work remains visible
+without a red alarm. First personal-Agent contact participates in yellow priority
+presentation without acquiring urgent email eligibility. Owner-only follow-up
+chat is ordinary unread history, not repeated notifications; explicit Human
+mentions, replies and requester relations survive owner-observer noise controls.
+Structured source facts use per-item delivery identities rather than the retired
+minute-bucket observer coalescing. Existing browser/native acknowledgement and
+visibility boundaries remain separate; no cross-device delivery lock is added.
+
 Typed Computer connection and Desktop update events have account scope in the
 same Inbox table (`organization_id IS NULL`), never an arbitrary Organization
 or one copy per Organization. Authorized Organization views may include the

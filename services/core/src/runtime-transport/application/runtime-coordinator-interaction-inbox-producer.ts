@@ -72,7 +72,7 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
         input.targetProfileName,
         INBOX_CONTEXT_LABEL_MAX_CHARS
       ),
-      importance: "urgent",
+      importance: "normal",
       kind: "agent_interaction",
       occurredAtMs: input.interaction.requestedAtMs,
       organizationId: target.organizationId,
@@ -80,6 +80,12 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
       recipientUserId: input.ownerUserId,
       sourceKey: await buildRuntimeCoordinatorInteractionInboxSourceKey(input),
       sourceKind: RUNTIME_COORDINATOR_INTERACTION_SOURCE_KIND,
+      sourceFacts: {
+        version: 1,
+        recipientReasons: ["requester"],
+        requestCategory:
+          input.interaction.kind === "question" ? "action" : "review",
+      },
       sourceTarget: {
         interactionId: input.interaction.interactionId,
         kind: "agent_interaction",
