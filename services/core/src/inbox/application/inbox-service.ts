@@ -170,6 +170,7 @@ type InboxItemRow = {
   recipient_user_id: string;
   resolution_status: InboxItem["resolutionStatus"];
   source_target_json: string;
+  source_facts_json: string | null;
   title: string;
   updated_at_ms: number;
 };
@@ -622,6 +623,7 @@ export function createInboxService(input: {
               preview,
               context_label,
               source_target_json,
+              source_facts_json,
               resolution_status,
               read_at_ms,
               occurred_at_ms,
@@ -1150,6 +1152,7 @@ async function readInboxItem(input: {
           preview,
           context_label,
           source_target_json,
+          source_facts_json,
           resolution_status,
           read_at_ms,
           occurred_at_ms,
@@ -1200,6 +1203,9 @@ function mapInboxItemRow(row: InboxItemRow): InboxItem {
         : toIsoTimestamp(row.read_at_ms, "read_at_ms"),
     recipientUserId: row.recipient_user_id,
     resolutionStatus: row.resolution_status,
+    ...(row.source_facts_json
+      ? { sourceFacts: JSON.parse(row.source_facts_json) }
+      : {}),
     sourceTarget: sourceTarget.data,
     title: row.title,
     updatedAt: toIsoTimestamp(row.updated_at_ms, "updated_at_ms"),

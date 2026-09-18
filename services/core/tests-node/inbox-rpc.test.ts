@@ -1,4 +1,7 @@
-import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
+import type {
+  InboxSourceFacts,
+  OpenMeldRequestContext,
+} from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { ensureInboxItem } from "../src/inbox/application/inbox-item-service";
 import {
@@ -20,6 +23,43 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox Core RPC", () => {
+  it("returns durable relevance facts only to receivers that explicitly support them", async () => {
+    const harness = createInboxHarness();
+    try {
+      const sourceFacts: InboxSourceFacts = {
+        version: 1,
+        recipientReasons: ["thread_reply"],
+        agentProfileIds: ["codex"],
+      };
+      const saved = await seedItem(harness.db, "user-1", true, sourceFacts);
+      const env = { OPENMELD_DB: harness.db } as unknown as CoreBindings;
+      for (const includeSourceFacts of [undefined, true]) {
+        const request = {
+          context: contextFor("user-1"),
+          includeReplyToRecipient: true,
+          includeSourceFacts,
+        };
+        const list = await rpcListInboxItems(env, request);
+        const get = await rpcGetInboxItem(env, {
+          ...request,
+          itemId: saved.itemId,
+        });
+        const read = await rpcMarkInboxItemRead(env, {
+          ...request,
+          itemId: saved.itemId,
+          read: false,
+        });
+        for (const item of [list.items[0], get.item, read.item]) {
+          expect(item?.sourceFacts).toEqual(
+            includeSourceFacts ? sourceFacts : undefined
+          );
+          expect(item?.sourceTarget).toHaveProperty("replyToRecipient", true);
+        }
+      }
+    } finally {
+      harness.close();
+    }
+  });
   it("persists Human reply facts but returns them only to an opted-in RPC receiver", async () => {
     const harness = createInboxHarness();
     try {
@@ -203,7 +243,8 @@ function contextFor(userId: string): OpenMeldRequestContext {
 async function seedItem(
   db: D1Database,
   recipientUserId: string,
-  replyToRecipient?: boolean
+  replyToRecipient?: boolean,
+  sourceFacts?: InboxSourceFacts
 ) {
   return await ensureInboxItem({
     candidate: {
@@ -217,6 +258,7 @@ async function seedItem(
       recipientUserId,
       sourceKey: "signal-1",
       sourceKind: "space_signal",
+      sourceFacts,
       sourceTarget: {
         replyToRecipient,
         kind: "space",

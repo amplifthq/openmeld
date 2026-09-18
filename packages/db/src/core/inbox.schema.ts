@@ -29,6 +29,7 @@ export const inboxItems = sqliteTable(
     sourceKind: text("source_kind").notNull(),
     sourceKey: text("source_key").notNull(),
     sourceTargetJson: text("source_target_json").notNull(),
+    sourceFactsJson: text("source_facts_json"),
     resolutionStatus: text("resolution_status").notNull(),
     readAtMs: integer("read_at_ms"),
     clearedAtMs: integer("cleared_at_ms"),

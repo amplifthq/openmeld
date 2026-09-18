@@ -242,6 +242,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       execute: async () =>
         await c.var.coreRpc.listInboxItems({
           includeReplyToRecipient: true,
+          includeSourceFacts: true,
           ...query.data,
           context: buildCoreRpcContext(c),
         }),
@@ -313,6 +314,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       execute: async () =>
         await c.var.coreRpc.getInboxItem({
           includeReplyToRecipient: true,
+          includeSourceFacts: true,
           context: buildCoreRpcContext(c),
           itemId: params.data.itemId,
         }),
@@ -376,6 +378,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       execute: async () =>
         await c.var.coreRpc.markInboxItemRead({
           includeReplyToRecipient: true,
+          includeSourceFacts: true,
           ...body.data,
           context: buildCoreRpcContext(c),
           itemId: params.data.itemId,
@@ -505,6 +508,7 @@ function resolveInboxItemResponse(input: {
 type InboxItem = z.infer<typeof listInboxItemsResponseSchema>["items"][number];
 type InboxItemKindClientVersion = "current" | "legacy";
 type InboxSourceTargetClientVersion =
+  | "attention_unaware"
   | "reply_unaware"
   | "owner_unaware"
   | "current"
@@ -554,11 +558,9 @@ function projectInboxItemForClient(input: {
   ) {
     sourceTarget = { kind: "center_agent" };
   }
-  if (kind === input.item.kind && sourceTarget === input.item.sourceTarget) {
-    return input.item;
-  }
+  const { sourceFacts: _sourceFacts, ...legacyItem } = input.item;
   return {
-    ...input.item,
+    ...legacyItem,
     kind,
     sourceTarget,
   };
@@ -568,6 +570,9 @@ function projectInboxSpaceTargetForClient(
   sourceTarget: Extract<InboxItem["sourceTarget"], { kind: "space" }>,
   version: Exclude<InboxSourceTargetClientVersion, "current">
 ): InboxItem["sourceTarget"] {
+  if (version === "attention_unaware") {
+    return sourceTarget;
+  }
   const { replyToRecipient: _reply, ...replyUnaware } = sourceTarget;
   if (version === "reply_unaware") {
     return replyUnaware;
@@ -598,6 +603,9 @@ function resolveInboxSourceTargetVersion(
   const version = c.req.header(OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION);
   if (version === OPENMELD_INBOX_SOURCE_TARGET_VERSION) {
     return "current";
+  }
+  if (version === "7") {
+    return "attention_unaware";
   }
   if (version === "6") {
     return "reply_unaware";

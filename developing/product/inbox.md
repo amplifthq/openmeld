@@ -436,20 +436,34 @@ reserves room for each group; full Inbox remains the complete list. It may say
 
 ### Space message unread behavior
 
-New Human-authored messages in conversations containing an ordinary personal
-Agent also address that Agent's current owner, even without Human membership.
-Self-authored messages do not generate this owner alert. Core validates current
-personal ownership and excludes managed Agents and the designated Center Agent.
-The owner receives one urgent `space_message` update per source message with
-`sourceTarget.agentOwnerActivity: true`; overlapping member delivery is deduplicated.
-This marker describes owner awareness, not an action request. It counts in the
-existing Inbox urgent badge, but contributes only ordinary unread state to
-Chats/Spaces navigation. Owner reads use the existing Space read watermark.
-Current ownership and membership are rechecked on delivery and reads; alerts
-never add Human membership or grant write access. No historical backfill occurs.
-Browser delivery retains its permission/visible-conversation gates and groups
-owner alerts by conversation and source minute. These awareness updates do not
-generate urgent email.
+An Agent's presence alone never makes a message relevant to its owner. Personal
+owner awareness requires actual structured Agent addressing, a Human message
+in that Agent's DM, or that Agent's own published reply. Activation and Reference
+both carry mention relevance; Reference never starts work. Automatic Thread Wake
+continuation is not an explicit new contact. Center Agent and other managed
+Agents have no personal owner for Inbox purposes. Local/Remote placement changes
+none of these rules.
+
+Space freezes first-contact identity in the publication transaction using the
+Organization, exact main/DM or Thread-root scope, initiating Human **account**,
+recipient account, and personal Agent. Only that first source signal carries
+`sourceFacts.firstContactAgentProfileIds`; later messages and retries preserve
+the original identity. A second Human Profile of the same account cannot create
+a self reminder. Long-running main/DM scopes conservatively have one contact
+boundary: no topic inference, model turn, cooldown, read or Dismiss resets it.
+Retained structured history seeds existing contacts without replaying awareness;
+an unavailable/pruned prefix is conservatively not treated as a provable first.
+
+The underlying update remains `importance: normal`, so first-contact awareness
+does not create an urgent email. Source facts distinguish Agent activity,
+personal-Agent mentions and merged Human mention/reply/requester/owner reasons.
+An explicitly addressed Agent's owner can receive the exact Thread item without
+subscribing to the entire Space or gaining Human membership/write permission.
+Current ownership and membership remain read/delivery authorities. Recipient
+selection is frozen before a fallible Inbox write, while current eligibility is
+checked independently on retries. The bounded rollout repair preserves item ids,
+occurrence/read/Dismiss/resolution state and terminal email receipts; it only
+downgrades the retired owner-observer writer and suppresses pending urgent mail.
 
 Authorship does not establish reading. Web composer sends confirm only their
 exact authored message with `authorHasRead: true`; Core omits that author's

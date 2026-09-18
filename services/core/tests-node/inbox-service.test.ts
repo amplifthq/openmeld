@@ -471,7 +471,7 @@ describe("Inbox service", () => {
     {
       kind: "space_message" as const,
       importance: "urgent" as const,
-      urgentCount: 1,
+      urgentCount: 0,
     },
     {
       kind: "agent_reply" as const,

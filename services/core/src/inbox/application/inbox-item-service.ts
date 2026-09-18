@@ -11,6 +11,10 @@ import {
   readInboxItemBySource,
   resolveOrganizationDocumentDraftInboxItemsOutsideRecipientSet as resolveOrganizationDocumentDraftInboxItemsOutsideRecipientSetInRepo,
 } from "../infrastructure/d1/inbox-item-repo";
+import {
+  normalizeLegacySpaceAwareness,
+  repairLegacySpaceAwareness,
+} from "./inbox-legacy-space-awareness";
 
 export class InboxSourceConflictError extends Error {
   constructor() {
@@ -24,15 +28,34 @@ export async function ensureInboxItem(input: {
   db: D1Database;
   nowMs: number;
 }): Promise<{ deliveryId: string | null; itemId: string }> {
-  const candidate = inboxSourceCandidateSchema.parse(input.candidate);
+  const candidate = normalizeLegacySpaceAwareness(
+    inboxSourceCandidateSchema.parse(input.candidate)
+  );
   assertValidTimestamp(input.nowMs, "nowMs");
-  const existing = await readInboxItemBySource({
+  let existing = await readInboxItemBySource({
     db: input.db,
     organizationId: candidate.organizationId,
     recipientUserId: candidate.recipientUserId,
     sourceKey: candidate.sourceKey,
     sourceKind: candidate.sourceKind,
   });
+  if (
+    existing &&
+    (await repairLegacySpaceAwareness({
+      candidate,
+      db: input.db,
+      existing,
+      nowMs: input.nowMs,
+    }))
+  ) {
+    existing = await readInboxItemBySource({
+      db: input.db,
+      organizationId: candidate.organizationId,
+      recipientUserId: candidate.recipientUserId,
+      sourceKey: candidate.sourceKey,
+      sourceKind: candidate.sourceKind,
+    });
+  }
   if (existing) {
     assertCandidateMatchesExisting(candidate, existing);
   }
@@ -223,6 +246,7 @@ function assertCandidateMatchesExisting(
     kind: InboxSourceCandidate["kind"];
     occurredAtMs: number;
     sourceTargetJson: string;
+    sourceFactsJson: string | null;
   }
 ): void {
   if (
@@ -230,6 +254,8 @@ function assertCandidateMatchesExisting(
     existing.attention !== candidate.attention ||
     existing.importance !== candidate.importance ||
     existing.occurredAtMs !== candidate.occurredAtMs ||
+    existing.sourceFactsJson !==
+      (candidate.sourceFacts ? JSON.stringify(candidate.sourceFacts) : null) ||
     existing.sourceTargetJson !== JSON.stringify(candidate.sourceTarget)
   ) {
     throw new InboxSourceConflictError();

@@ -479,6 +479,7 @@ function normalizeInboxItemWireKind(
 export const listInboxItemsRpcInputSchema = listInboxItemsQuerySchema.extend({
   context: openMeldRequestContextSchema,
   includeReplyToRecipient: z.boolean().optional(),
+  includeSourceFacts: z.boolean().optional(),
 });
 export const getInboxSummaryRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
@@ -505,6 +506,7 @@ export const markSpaceInboxReadThroughRpcInputSchema =
 export const getInboxItemRpcInputSchema = inboxItemRouteParamsSchema.extend({
   context: openMeldRequestContextSchema,
   includeReplyToRecipient: z.boolean().optional(),
+  includeSourceFacts: z.boolean().optional(),
 });
 export const dismissInboxItemRpcInputSchema = inboxItemRouteParamsSchema.extend(
   {
@@ -515,6 +517,7 @@ export const markInboxItemReadRpcInputSchema =
   markInboxItemReadBodySchema.extend({
     context: openMeldRequestContextSchema,
     includeReplyToRecipient: z.boolean().optional(),
+    includeSourceFacts: z.boolean().optional(),
     itemId: identifierSchema,
   });
 export const markAllInboxItemsReadRpcInputSchema = z.strictObject({

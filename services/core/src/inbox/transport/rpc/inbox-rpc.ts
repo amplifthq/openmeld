@@ -113,7 +113,8 @@ export async function rpcListInboxItems(
           items: response.items.map((item) =>
             projectReplyToRecipientForReceiver(
               item,
-              request.includeReplyToRecipient
+              request.includeReplyToRecipient,
+              request.includeSourceFacts
             )
           ),
         }))
@@ -140,7 +141,8 @@ export async function rpcGetInboxItem(
         .then((response) => ({
           item: projectReplyToRecipientForReceiver(
             response.item,
-            request.includeReplyToRecipient
+            request.includeReplyToRecipient,
+            request.includeSourceFacts
           ),
         }))
     )
@@ -283,7 +285,8 @@ export async function rpcMarkInboxItemRead(
         .then((response) => ({
           item: projectReplyToRecipientForReceiver(
             response.item,
-            request.includeReplyToRecipient
+            request.includeReplyToRecipient,
+            request.includeSourceFacts
           ),
         }))
     )
@@ -393,14 +396,20 @@ export async function rpcUpdateInboxMessageNotificationPreferences(
  * unchanged even after Core starts persisting recipient-specific reply facts. */
 function projectReplyToRecipientForReceiver(
   item: InboxItem,
-  includeReplyToRecipient?: boolean
+  includeReplyToRecipient?: boolean,
+  includeSourceFacts?: boolean
 ): InboxItem {
-  if (includeReplyToRecipient === true || item.sourceTarget.kind !== "space") {
-    return item;
+  const { sourceFacts: _sourceFacts, ...legacyItem } = item;
+  const compatibleItem = includeSourceFacts === true ? item : legacyItem;
+  if (
+    includeReplyToRecipient === true ||
+    compatibleItem.sourceTarget.kind !== "space"
+  ) {
+    return compatibleItem;
   }
   const { replyToRecipient: _replyToRecipient, ...sourceTarget } =
-    item.sourceTarget;
-  return { ...item, sourceTarget };
+    compatibleItem.sourceTarget;
+  return { ...compatibleItem, sourceTarget };
 }
 
 async function prepareRequest(

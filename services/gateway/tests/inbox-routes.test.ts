@@ -155,7 +155,7 @@ describe("Inbox routes", () => {
     }
   });
 
-  it("preserves older routing while exposing recipient reply facts only to version 7", async () => {
+  it("preserves older routing and gates new source facts independently of version 7 reply facts", async () => {
     const { coreRpc, env } = makeEnv();
     const sourceTarget = {
       kind: "space" as const,
@@ -167,17 +167,31 @@ describe("Inbox routes", () => {
       replyToRecipient: true,
     };
     coreRpc.listInboxItems.mockResolvedValue({
-      items: [{ ...HUMAN_MENTION_ITEM, sourceTarget }],
+      items: [
+        {
+          ...HUMAN_MENTION_ITEM,
+          sourceTarget,
+          sourceFacts: { version: 1, recipientReasons: ["human_mention"] },
+        },
+      ],
       nextCursor: null,
       organizationId: "org-1",
     });
     coreRpc.getInboxItem.mockResolvedValue({
-      item: { ...HUMAN_MENTION_ITEM, sourceTarget },
+      item: {
+        ...HUMAN_MENTION_ITEM,
+        sourceTarget,
+        sourceFacts: { version: 1, recipientReasons: ["human_mention"] },
+      },
     });
     coreRpc.markInboxItemRead.mockResolvedValue({
-      item: { ...HUMAN_MENTION_ITEM, sourceTarget },
+      item: {
+        ...HUMAN_MENTION_ITEM,
+        sourceTarget,
+        sourceFacts: { version: 1, recipientReasons: ["human_mention"] },
+      },
     });
-    for (const version of ["4", "5", "6", "7"]) {
+    for (const version of ["4", "5", "6", "7", "8"]) {
       const headers = { "x-openmeld-inbox-source-target-version": version };
       const expectedTarget = {
         kind: "space",
@@ -185,8 +199,10 @@ describe("Inbox routes", () => {
         signalId: "reply",
         threadRootSignalId: "root",
         ...(version !== "4" ? { directMessage: true } : {}),
-        ...(["6", "7"].includes(version) ? { agentOwnerActivity: true } : {}),
-        ...(version === "7" ? { replyToRecipient: true } : {}),
+        ...(["6", "7", "8"].includes(version)
+          ? { agentOwnerActivity: true }
+          : {}),
+        ...(["7", "8"].includes(version) ? { replyToRecipient: true } : {}),
       };
       for (const request of [
         new Request("http://local/v1/inbox", { headers }),
@@ -209,6 +225,16 @@ describe("Inbox routes", () => {
         expect((body.item ?? body.items?.[0])?.sourceTarget).toEqual(
           expectedTarget
         );
+        if (version === "8") {
+          expect(body.item ?? body.items?.[0]).toHaveProperty("sourceFacts", {
+            version: 1,
+            recipientReasons: ["human_mention"],
+          });
+        } else {
+          expect(body.item ?? body.items?.[0]).not.toHaveProperty(
+            "sourceFacts"
+          );
+        }
       }
     }
     expect(coreRpc.listInboxItems).toHaveBeenLastCalledWith(

@@ -1007,6 +1007,18 @@ tool authority, a conversation id, or a substitute for source authorization.
 
 ### Inbox contracts
 
+Source-target version `8` adds optional, strict `sourceFacts` to canonical Inbox
+items. The source records actual Agent relevance, personal-Agent mentions,
+persistent first-contact identity and merged recipient reasons independently of
+legacy urgency and request resolution. List, direct-item and mark-read RPCs
+return it only with `includeSourceFacts: true`; Gateway strips it for version `7`
+and older clients without dropping their existing reply/target fields. Deploy
+the additive Core reader before the Gateway writer. Stored source facts require
+retaining compatible readers during rollback; never discard/recreate items to
+undo a projection. The additive D1 migration also narrowly repairs the retired
+owner-awareness writer, and Space schema v43 persists publication/contact and
+projection-selection receipts in the source transaction boundary.
+
 Human thread reply awareness adds optional `replyToRecipient` to Space Inbox
 targets without adding an Inbox kind or changing urgency. Space emits true only
 for a different Human account replying to the recipient's retained thread root,
