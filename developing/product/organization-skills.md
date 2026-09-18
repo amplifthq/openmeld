@@ -420,10 +420,18 @@ Phase 1 exposes:
 openmeld skills list
 openmeld skills show <name-or-id>
 openmeld skills load <name-or-id>
+openmeld skills load <name-or-id> --release <release-id>
 ```
 
 Every command supports Human View, `--view agent`, and the existing explicit
 `--json` output contract where applicable. Responses use shared strict schemas.
+
+Without `--release`, loading selects the active enabled release. An explicit
+release loads that immutable bundle, including companion files, after Core
+checks current membership, Skill ownership, enablement, and release existence.
+It never changes the active release or falls back to it. A server that does not
+return the selected release is unsupported for exact loading. Cached bytes do
+not bypass the fresh read authorization.
 
 The previous top-level `openmeld skills` setup commands manage OpenMeld's own
 local helper instructions, not Organization Skills. Their canonical ownership

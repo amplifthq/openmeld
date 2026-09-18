@@ -823,6 +823,14 @@ tools, CLI, Remote Agent, and Local OpenMeld Service consume the same Core
 contracts. A runtime or delegated snapshot names exact Skill and release ids
 plus a content digest; `latest` is never a valid execution descriptor.
 
+Skill detail reads accept an optional `releaseId`. Only that explicit request
+adds `selectedRelease` (the immutable runtime release bundle) to the response;
+the ordinary `skill.activeRelease` and `skill.bundle` still describe the active
+release. Core rechecks enablement for exact loading and scopes the release to
+the authorized Organization and Skill. Deploy Core, then Gateway, before CLI
+callers of `skills load --release`; older receivers must not cause latest-release
+fallback. Existing requests and in-flight runtime snapshots retain their semantics.
+
 The portable `SKILL.md` frontmatter remains an Agent Skills content contract.
 OpenMeld ownership, enablement, maintainers, source provenance, audit, and
 release state stay outside portable frontmatter in Core-owned schemas.

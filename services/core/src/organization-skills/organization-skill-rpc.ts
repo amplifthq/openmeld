@@ -78,6 +78,15 @@ export async function rpcGetOrganizationSkill(
   const { actor, service } = await prepareHumanRequest(env, request.context);
   return parseResponse(getOrganizationSkillResponseSchema, {
     skill: await service.get(actor, request.skillId),
+    ...(request.releaseId === undefined
+      ? {}
+      : {
+          selectedRelease: await service.getEnabledRelease(
+            actor,
+            request.skillId,
+            request.releaseId
+          ),
+        }),
   });
 }
 

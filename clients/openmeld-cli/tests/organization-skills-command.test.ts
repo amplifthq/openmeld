@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import type { OrganizationSkillsApi } from "@openmeld/api-client";
 import { stringifyOrganizationSkillBundleCanonicalJson } from "@openmeld/schemas";
 import type {
@@ -112,13 +113,34 @@ describe("Organization Skills CLI", () => {
     });
   });
 
-  it("loads an enabled exact release without installing it globally", async () => {
+  it.each([
+    undefined,
+    "historical-release",
+  ])("loads the selected release %s without installing it globally", async (releaseId) => {
     await withTempHome(async (home) => {
-      const { dependencies } = createDependencies();
+      const { dependencies, get } = createDependencies();
+      if (releaseId) {
+        const historicalBundle = {
+          ...bundle,
+          instructions: "Use the historical method.",
+        };
+        const selectedRelease = {
+          bundle: historicalBundle,
+          digest: createHash("sha256")
+            .update(
+              stringifyOrganizationSkillBundleCanonicalJson(historicalBundle)
+            )
+            .digest("hex"),
+          releaseId,
+          skillId: skill.id,
+        };
+        get.mockResolvedValue({ skill, selectedRelease });
+      }
       const { plainStdout } = await withCapturedStdio(async () => {
         await runOrganizationSkillsLoad(
           {
             skill: "skill-1",
+            releaseId,
             view: "agent",
           },
           dependencies
@@ -135,13 +157,18 @@ describe("Organization Skills CLI", () => {
       expect(result.payload).toEqual(
         expect.objectContaining({
           organizationId: "org-1",
-          releaseId: "release-1",
+          releaseId: releaseId ?? "release-1",
           skillMarkdownPath: expect.stringContaining(
-            "/organization-skills/org-1/skill-1/release-1/SKILL.md"
+            `/organization-skills/org-1/skill-1/${releaseId ?? "release-1"}/SKILL.md`
           ),
         })
       );
       expect(result.payload.skillMarkdownPath).toContain(home);
+      expect(
+        await readFile(result.payload.skillMarkdownPath, "utf8")
+      ).toContain(
+        releaseId ? "Use the historical method." : bundle.instructions
+      );
       expect(result.payload.skillMarkdownPath).not.toContain(
         "/.agents/skills/"
       );
@@ -163,6 +190,20 @@ describe("Organization Skills CLI", () => {
           dependencies
         )
       ).rejects.toThrow("is disabled");
+    });
+  });
+
+  it("does not substitute the active release when the server omits an exact selection", async () => {
+    await withTempHome(async () => {
+      const { dependencies } = createDependencies();
+      const materialize = vi.fn();
+      await expect(
+        runOrganizationSkillsLoad(
+          { skill: skill.id, releaseId: "missing-release", view: "agent" },
+          { ...dependencies, materialize }
+        )
+      ).rejects.toThrow("requested Skill release was not returned");
+      expect(materialize).not.toHaveBeenCalled();
     });
   });
 });
@@ -191,7 +232,9 @@ function createDependencies(selectedSkill: OrganizationSkill = skill): {
       },
     ],
   }));
-  const get = vi.fn(async () => ({ skill: selectedSkill }));
+  const get = vi.fn<OrganizationSkillsApi["get"]>(async () => ({
+    skill: selectedSkill,
+  }));
   const api = {
     get,
     list,

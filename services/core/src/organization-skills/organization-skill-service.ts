@@ -189,6 +189,44 @@ export function createOrganizationSkillService(
       });
     },
 
+    async getEnabledRelease(
+      actor: OrganizationSkillReadActor,
+      skillId: string,
+      releaseId: string
+    ) {
+      const skill = await requireSkill(
+        dependencies.db,
+        actor.organizationId,
+        skillId
+      );
+      if (skill.enabled !== 1) {
+        throw createCoreRpcHttpError({
+          code: "organization_skill.disabled",
+          reason: "Enable this Organization Skill before loading a release.",
+          status: 403,
+        });
+      }
+      const release = await dependencies.db
+        .prepare(
+          "SELECT * FROM organization_skill_releases WHERE organization_id = ? AND skill_id = ? AND id = ? LIMIT 1"
+        )
+        .bind(actor.organizationId, skillId, releaseId)
+        .first<ReleaseRow>();
+      if (!release) {
+        throw createCoreRpcHttpError({
+          code: "organization_skill.release_missing",
+          reason: "The selected Skill release is unavailable.",
+          status: 404,
+        });
+      }
+      return {
+        bundle: await readReleaseBundle(dependencies.bucket, release),
+        digest: release.digest,
+        releaseId: release.id,
+        skillId: release.skill_id,
+      };
+    },
+
     async installBundle(
       actor: OrganizationSkillActor,
       input: {
