@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { normalizeCommandEnvironment } from "./process-environment.js";
 import { resolvePlatformCommand } from "./process-launch.js";
+import { spawnWindowsJobProcess } from "./windows-process-job.js";
 
 const PROCESS_TABLE_COLUMN_SEPARATOR = /\s+/u;
 const PROCESS_TABLE_LINE_SEPARATOR = /\r?\n/u;
@@ -243,8 +244,22 @@ export function spawnAgentControllerProcess(input: {
 }): SpawnedAgentControllerProcess {
   const signalTarget = resolveAgentControllerProcessSignalTarget();
   const supervisionId = input.supervisionId ?? randomUUID();
-  const env = normalizeCommandEnvironment(input.env);
+  const env = {
+    ...normalizeCommandEnvironment(input.env),
+    [PROCESS_SUPERVISION_ENV_KEY]: supervisionId,
+  };
   const invocation = resolvePlatformCommand(input.bin, input.args, env);
+  if (process.platform === "win32") {
+    const job = spawnWindowsJobProcess({ invocation, env, cwd: input.cwd });
+    return {
+      child: job.child,
+      processId: job.child.pid ?? null,
+      signalTarget,
+      supervisionId,
+      terminate: job.terminate,
+      terminateRemainingDescendants: job.cleanup,
+    };
+  }
   const child = spawn(invocation.bin, invocation.args, {
     cwd: input.cwd,
     detached: signalTarget === "process_group",
@@ -252,7 +267,7 @@ export function spawnAgentControllerProcess(input: {
       ...env,
       [PROCESS_SUPERVISION_ENV_KEY]: supervisionId,
     },
-    shell: process.platform === "win32" ? false : input.shell,
+    shell: input.shell,
     windowsVerbatimArguments: invocation.windowsVerbatimArguments,
     windowsHide: true,
     stdio: ["pipe", "pipe", "pipe"],

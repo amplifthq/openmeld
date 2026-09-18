@@ -1157,8 +1157,8 @@ macOS and Linux assign one opaque supervision identity before the controller
 starts, and controller descendants inherit that identity. Stop snapshots the
 controller's current descendant tree, signals the whole recorded group, and
 also signals supervised descendants that created their own process groups,
-while Windows keeps the direct-process path. The adapter retains discovered
-process IDs through graceful-to-force escalation and uses the supervision
+while Windows records the native Job supervisor as the direct signal target.
+The POSIX adapter retains discovered process IDs through graceful-to-force escalation and uses the supervision
 identity after process exit, so reparenting cannot hide unfinished provider
 work. Descendant discovery is auxiliary to signaling the known process group
 and already recorded descendants: a discovery failure must emit a structured
@@ -1166,6 +1166,24 @@ diagnostic after those signal attempts and must never crash the OpenMeld
 Service or suppress the primary Stop. A wrapper or controller exit therefore
 cannot silently orphan a detached supervised descendant or keep a local
 execution slot occupied after an accepted Stop.
+
+On Windows 10 and newer, the shared process boundary launches each Agent
+Controller inside a native kill-on-close Job using atomic process-creation Job
+assignment. It does not create an unowned process and attach it afterward.
+Only the selected invocation's supervisor owns the Job handle; standard streams
+are inherited explicitly, and the Job handle is not. Normal controller exit,
+supervisor termination, or loss of the original caller's process handle ends
+owned descendants. Cleanup waits for the supervisor to exit and verifies an
+empty or destroyed Job before reporting success. A bounded cleanup wait may
+fail visibly; it is never a deadline on a healthy running Wake.
+
+This is process lifetime supervision, not a filesystem sandbox or authority to
+kill arbitrary same-name processes. Provider permission enforcement remains
+separate. Work delegated through external brokers such as WMI or a remote
+machine is not claimed to be a normal descendant of this Job. Native provider
+sandbox/nested-Job compatibility requires Windows acceptance. The fixed helper
+uses system PowerShell and a reviewed native API bridge; denial by enterprise
+policy is a visible launch failure, never permission to fall back uncontained.
 
 A long-lived or multi-thread Agent Controller whose request protocol carries an
 explicit workspace starts its host process in an OS runtime directory, not in

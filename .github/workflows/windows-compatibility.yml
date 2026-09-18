@@ -1,0 +1,42 @@
+name: Windows compatibility
+
+on:
+  pull_request:
+    paths:
+      - clients/openmeld-cli/**
+      - clients/desktop/**
+      - clients/web/src/desktop/**
+      - runtime/adapters/**
+      - packages/schemas/**
+      - .github/workflows/windows-compatibility.yml
+      - pnpm-lock.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-compatibility-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-contracts:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build Windows process and provider contracts
+        run: pnpm exec turbo run build --filter=@openmeld/adapter-codex --filter=@openmeld/adapter-claude-code --concurrency=1
+      - name: Exercise native argv, Job ownership, SDK streams, and physical probe rejection
+        run: node --test --test-concurrency=1 runtime/adapters/core/test/process-launch.test.js runtime/adapters/core/test/process-environment.test.js runtime/adapters/core/test/windows-system.test.js runtime/adapters/core/test/windows-process-job.test.js runtime/adapters/codex/test/workspace-access-probe.test.js runtime/adapters/claude-code/test/windows-process.test.js
+      # These tests use disposable process trees only. They do not install a
+      # production Service or require a provider login. Interactive Task Scheduler
+      # and real Codex sandbox acceptance remain a separately recorded user smoke.

@@ -37,6 +37,7 @@ import {
   materializeCliLaunchCommand,
   resolveDispatchSpaceActionMcpServer,
 } from "@openmeld/adapter-core";
+import { resolvePlatformCommand } from "@openmeld/adapter-core/process-launch";
 import { createClaudeAgentSdkToolActivityTracker } from "../output/claude-tool-activity.js";
 import { projectClaudeCodeUsageLimits } from "../usage/claude-code-usage-limits.js";
 import {
@@ -550,10 +551,19 @@ export async function resolveClaudeAgentSdkExecutable(input: {
     launchContract: input.launchContract,
   });
   if (process.platform === "win32") {
-    const launcher = createClaudeWindowsProcessLauncher(launchCommand);
+    const invocation = resolvePlatformCommand(
+      launchCommand.bin,
+      launchCommand.argsPrefix
+    );
+    // A Node script must be exposed as Node + a prefix, not handed to the SDK
+    // as a script that it would independently reinterpret with another runtime.
+    const selected = invocation.windowsVerbatimArguments
+      ? launchCommand
+      : { bin: invocation.bin, argsPrefix: invocation.args };
+    const launcher = createClaudeWindowsProcessLauncher(selected);
     return {
       cleanup: launcher.cleanup,
-      pathToClaudeCodeExecutable: launchCommand.bin,
+      pathToClaudeCodeExecutable: selected.bin,
       spawnProcess: launcher.spawn,
     };
   }

@@ -45,7 +45,6 @@ export function createClaudeWindowsProcessLauncher(command: CliLaunchCommand) {
       const closed = new Promise<void>((resolve) => {
         child.once("close", () => {
           options.signal.removeEventListener("abort", abort);
-          active.delete(runtime);
           resolve();
         });
       });
@@ -80,6 +79,7 @@ export function createClaudeWindowsProcessLauncher(command: CliLaunchCommand) {
             throw result.error;
           }
           await closed;
+          active.delete(runtime);
         })
       );
     },
