@@ -15,7 +15,10 @@ import {
 	SpaceWindowHeader,
 } from "#/components/spaces/space-header";
 import type { SpaceView } from "#/components/spaces/space-view";
-import { useSpaceComposerFiles } from "#/components/spaces/use-space-composer-attachments";
+import {
+	ComposerFileDiscoveryError,
+	useSpaceComposerFiles,
+} from "#/components/spaces/use-space-composer-attachments";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import {
 	type ComposerDraftScope,
@@ -208,7 +211,11 @@ export function CenterAgentNewChat({
 		},
 		onError: (cause) => {
 			setMessage(null);
-			setError(toStructuredApiClientFailure(cause).message);
+			setError(
+				cause instanceof ComposerFileDiscoveryError
+					? cause.message
+					: toStructuredApiClientFailure(cause).message
+			);
 		},
 	});
 	const startSend = async (prompt?: string) => {

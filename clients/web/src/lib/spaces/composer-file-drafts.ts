@@ -44,23 +44,31 @@ const mutationTails = new Map<string, Promise<void>>();
 const firstAdmissions = new Map<string, FirstAdmission>();
 const retirements = new Map<string, Retirement>();
 const cleanupById = new Map<string, ComposerFileDraftCleanup>();
-const draftListeners = new Set<(scope: string) => void>();
+export type ComposerFileDraftChangeKind = "cleanup" | "draft";
+const draftListeners = new Set<
+	(scope: string, kind: ComposerFileDraftChangeKind) => void
+>();
 
 registerClientVersionRecoveryBlocker(
 	() => pendingWrites > 0 || failedWrites.size > 0 || cleanupById.size > 0
 );
 
-export function subscribeComposerFileDrafts(listener: (scope: string) => void) {
+export function subscribeComposerFileDrafts(
+	listener: (scope: string, kind: ComposerFileDraftChangeKind) => void
+) {
 	draftListeners.add(listener);
 	return () => {
 		draftListeners.delete(listener);
 	};
 }
 
-function notifyDraftListeners(scope: string) {
+function notifyDraftListeners(
+	scope: string,
+	kind: ComposerFileDraftChangeKind
+) {
 	for (const listener of draftListeners) {
 		try {
-			listener(scope);
+			listener(scope, kind);
 		} catch (error) {
 			console.error("Could not notify an attachment draft subscriber", {
 				error,
@@ -253,18 +261,19 @@ export async function readComposerFileDraftsByIds(
 	return retainCurrentDrafts(drafts);
 }
 
-async function retainCurrentDrafts(drafts: ComposerFileDraft[]) {
-	await Promise.all(
-		drafts
-			.filter((draft) => draft.expiresAt <= Date.now())
-			.map((draft) =>
-				removeComposerFileDraft(draft.id, {
-					fileName: draft.file.name || "Untitled file",
-					reason: "expired",
-					scope: draft.scope,
-				})
-			)
-	);
+function retainCurrentDrafts(drafts: ComposerFileDraft[]) {
+	for (const draft of drafts.filter((item) => item.expiresAt <= Date.now())) {
+		removeComposerFileDraft(draft.id, {
+			fileName: draft.file.name || "Untitled file",
+			reason: "expired",
+			scope: draft.scope,
+		}).catch((error) =>
+			console.error("Could not remove expired attachment draft", {
+				error,
+				id: draft.id,
+			})
+		);
+	}
 	return drafts
 		.filter(
 			(draft) => draft.expiresAt > Date.now() && !retirements.has(draft.id)
@@ -286,7 +295,7 @@ export function saveComposerFileDraft(
 		onCommitted: (_result, revision) => {
 			resolveWriteFailure(input.id, "draft", revision);
 			firstAdmissions.delete(input.id);
-			notifyDraftListeners(input.scope);
+			notifyDraftListeners(input.scope, "draft");
 		},
 	});
 }
@@ -334,7 +343,7 @@ export function removeComposerFileDraft(
 			revision,
 			status: "pending",
 		});
-		notifyDraftListeners(cleanup.scope);
+		notifyDraftListeners(cleanup.scope, "cleanup");
 	}
 	return enqueueFileMutation({
 		id,
@@ -346,7 +355,7 @@ export function removeComposerFileDraft(
 			const cleanupState = cleanupById.get(id);
 			if (cleanupState && cleanupState.revision <= committedRevision) {
 				cleanupById.delete(id);
-				notifyDraftListeners(cleanupState.scope);
+				notifyDraftListeners(cleanupState.scope, "cleanup");
 			}
 		},
 		onFailed: (error, failedRevision) => {
@@ -358,7 +367,7 @@ export function removeComposerFileDraft(
 					revision: failedRevision,
 					status: "failed",
 				});
-				notifyDraftListeners(cleanupState.scope);
+				notifyDraftListeners(cleanupState.scope, "cleanup");
 			}
 		},
 	});

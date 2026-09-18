@@ -2703,6 +2703,7 @@ export function useSpaceLandingController(input: {
 		wakeStopRequestStatusBySelectorKey,
 	};
 
+	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: send orchestration preserves ordered local staging, admission, publication, and recovery.
 	async function sendMessage(options?: {
 		contextSelection?: SpaceComposerSendOptions["contextSelection"];
 		deviceWait?: SpaceComposerSendOptions["deviceWait"];
@@ -2714,6 +2715,23 @@ export function useSpaceLandingController(input: {
 	}) {
 		if (composerSendInFlightRef.current) {
 			return;
+		}
+		if (!options?.retrySubmission) {
+			try {
+				await composerFilesController.waitForDiscovery();
+			} catch (error) {
+				const message =
+					error instanceof Error
+						? error.message
+						: "Couldn't restore your attachment drafts. Retry to continue.";
+				setComposerErrorMessage(message);
+				throwSpaceSendFailureWhenRequested({
+					error: error instanceof Error ? error : new Error(message),
+					postedMessage: false,
+					throwOnFailure: options?.throwOnFailure === true,
+				});
+				return;
+			}
 		}
 		const pendingFiles = resolvePendingSubmissionFiles(
 			composerFilesController,
@@ -3961,6 +3979,7 @@ function useSpaceThreadController(input: {
 		}
 	}
 
+	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: thread send orchestration preserves ordered staging, publication, and retry identity.
 	async function sendMessage(
 		options?: SpaceComposerSendOptions,
 		retry?: {
@@ -3972,6 +3991,18 @@ function useSpaceThreadController(input: {
 	) {
 		if (threadComposerSendInFlightRef.current || !input.statusReady) {
 			return;
+		}
+		if (!retry) {
+			try {
+				await composerFilesController.waitForDiscovery();
+			} catch (error) {
+				setComposerErrorMessage(
+					error instanceof Error
+						? error.message
+						: "Couldn't restore your attachment drafts. Retry to continue."
+				);
+				return;
+			}
 		}
 		const thread = retry?.thread ?? activeThread;
 		const trimmedText =

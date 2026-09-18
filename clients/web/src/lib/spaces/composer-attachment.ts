@@ -17,6 +17,7 @@ export type SpaceComposerFile = {
 	previewUrl: string | null;
 	progress: number;
 	publishMutationId: string;
+	publicationAttempted?: boolean;
 	status: "uploading" | "ready" | "failed";
 	upload: SpaceComposerUploadDescriptor | null;
 };

@@ -204,7 +204,7 @@ it("returns a failed local attachment handoff to an editable new chat", async ()
 	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 	await waitFor(() =>
 		expect(screen.getByRole("alert").textContent).toContain(
-			"Database connection is closing"
+			"Couldn't restore your attachment drafts. Retry to continue."
 		)
 	);
 	expect(createSession).not.toHaveBeenCalled();

@@ -4,7 +4,10 @@ import {
 	SPACE_FILE_MAX_SIZE_BYTES,
 	SPACE_MESSAGE_FILE_MAX_COUNT,
 } from "@openmeld/schemas";
-import type { SpaceMessageFileReference } from "@openmeld/schemas/types";
+import type {
+	SpaceComposerUploadDescriptor,
+	SpaceMessageFileReference,
+} from "@openmeld/schemas/types";
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
@@ -14,6 +17,7 @@ import type {
 	SpaceComposerFile,
 } from "#/lib/spaces/composer-attachment";
 import {
+	type ComposerFileDraft,
 	type ComposerFileSelection,
 	isComposerFileDraftRetired,
 	readComposerFileDraftCleanup,
@@ -39,6 +43,40 @@ type ComposerFileScope = {
 	restoreFromScopes?: readonly string[];
 };
 
+type ComposerFileDiscoveryResult =
+	| { status: "ready" }
+	| { error: unknown; status: "failed" }
+	| { status: "superseded" };
+
+type ComposerFileDiscoveryState =
+	| { generation: number; status: "not_started" }
+	| {
+			generation: number;
+			status: "loading";
+			task: Promise<ComposerFileDiscoveryResult>;
+	  }
+	| { generation: number; status: "ready" }
+	| { error: unknown; generation: number; status: "failed" };
+
+export class ComposerFileDiscoveryError extends Error {
+	readonly cause: unknown;
+
+	constructor(cause: unknown) {
+		super("Couldn't restore your attachment drafts. Retry to continue.");
+		this.name = "ComposerFileDiscoveryError";
+		this.cause = cause;
+	}
+}
+
+function assertComposerFileDiscoveryReady(state: ComposerFileDiscoveryState) {
+	if (state.status === "failed") {
+		throw new ComposerFileDiscoveryError(state.error);
+	}
+	if (state.status !== "ready") {
+		throw new ComposerFileDiscoveryError(null);
+	}
+}
+
 function createFileSession(input: ComposerFileScope) {
 	return {
 		submittingIds: new Set<string>(),
@@ -50,10 +88,15 @@ function createFileSession(input: ComposerFileScope) {
 		// An older draft read must not undo removal or successful consumption.
 		retiredFileIds: new Set<string>(),
 		previewUrlsByLocalId: new Map<string, string>(),
-		restorationError: null as unknown | null,
-		retryRestoration: null as (() => void) | null,
+		discovery: {
+			generation: 0,
+			status: "not_started",
+		} as ComposerFileDiscoveryState,
+		retryRestoration: null as
+			| (() => Promise<ComposerFileDiscoveryResult>)
+			| null,
+		cleanupTasks: new Map<string, Promise<void>>(),
 		scope: input,
-		restorationTask: Promise.resolve() as Promise<unknown>,
 	};
 }
 
@@ -280,15 +323,19 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 				return;
 			}
 
+			// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: selection restoration keeps identity, validation, and preview ownership together.
 			const pending = acceptedFiles.map((file, index) => {
 				const restoredDraft = selected[index]?.draft;
 				const savedUpload = restoredDraft?.upload;
-				const upload =
-					savedUpload && Date.parse(savedUpload.expiresAt) > Date.now()
-						? savedUpload
-						: null;
 				const localId =
 					restoredDraft?.id ?? `composer-file:${crypto.randomUUID()}`;
+				const uploadIsValid = savedUpload
+					? isComposerUploadDescriptorValid(savedUpload, localId)
+					: false;
+				let status: SpaceComposerFile["status"] = "uploading";
+				if (savedUpload) {
+					status = uploadIsValid ? "ready" : "failed";
+				}
 				const mimeType = resolveSpaceFileMimeType({
 					declaredMimeType: file.type,
 					fileName: file.name,
@@ -304,18 +351,22 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 				return {
 					file,
 					item: {
-						errorMessage: null,
+						errorMessage:
+							savedUpload && !uploadIsValid
+								? "This attachment upload expired. Retry to prepare it again."
+								: null,
 						errorRequestId: null,
-						failurePhase: null,
+						failurePhase:
+							savedUpload && !uploadIsValid ? "persist-upload" : null,
 						fileName: file.name || "Untitled file",
 						localId,
 						mimeType,
 						previewUrl,
-						progress: upload ? 100 : 0,
+						progress: savedUpload ? 100 : 0,
 						publishMutationId:
 							restoredDraft?.publishMutationId ?? crypto.randomUUID(),
-						status: upload ? "ready" : "uploading",
-						upload,
+						status,
+						upload: savedUpload ?? null,
 					} satisfies SpaceComposerFile,
 				};
 			});
@@ -326,7 +377,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 
 			await Promise.all(
 				pending.map(({ item }) => {
-					if (item.upload) {
+					if (item.status !== "uploading") {
 						return Promise.resolve();
 					}
 					return startOrJoinFilePreparation(item.localId);
@@ -341,36 +392,60 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 		let disposed = false;
 		const scopes: string[] = [scopeKey, ...JSON.parse(migrationScopesKey)];
 		const restore = () => {
-			session.restorationTask = Promise.all(scopes.map(readComposerFileDrafts))
+			const generation = session.discovery.generation + 1;
+			const task = Promise.all(scopes.map(readComposerFileDrafts))
 				.then((batches) => batches.flat())
 				.then((drafts) => {
-					session.restorationError = null;
-					if (!disposed && drafts.length) {
-						return addFiles(
+					if (disposed || session.discovery.generation !== generation) {
+						return { status: "superseded" } as const;
+					}
+					if (drafts.length) {
+						addFiles(
 							drafts.map((d) => d.file),
 							drafts
+						).catch((error) =>
+							console.error(
+								"Could not prepare restored attachment drafts",
+								error
+							)
 						);
 					}
+					session.discovery = { generation, status: "ready" };
+					refresh();
+					return { status: "ready" } as const;
 				})
 				.catch((error) => {
-					session.restorationError = error;
-					if (!disposed) {
-						refresh();
+					if (disposed || session.discovery.generation !== generation) {
+						return { status: "superseded" } as const;
 					}
+					session.discovery = { error, generation, status: "failed" };
+					refresh();
 					console.error("Could not restore attachment drafts", error);
+					return { error, status: "failed" } as const;
 				});
+			session.discovery = { generation, status: "loading", task };
+			refresh();
+			return task;
 		};
 		session.retryRestoration = restore;
 		restore();
 		// A drop can finish saving after the loading composer unmounts. The ready
 		// owner must adopt that draft too, using the same file/publication identity.
-		const unsubscribe = subscribeComposerFileDrafts((scope) => {
+		const unsubscribe = subscribeComposerFileDrafts((scope, kind) => {
 			if (scopes.includes(scope)) {
-				restore();
+				if (kind === "cleanup") {
+					refresh();
+				} else {
+					restore();
+				}
 			}
 		});
 		return () => {
 			disposed = true;
+			session.discovery = {
+				generation: session.discovery.generation + 1,
+				status: "not_started",
+			};
 			if (session.retryRestoration === restore) {
 				session.retryRestoration = null;
 			}
@@ -380,6 +455,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 
 	const beginSubmission = useCallback(
 		(ids?: readonly string[]) => {
+			assertComposerFileDiscoveryReady(session.discovery);
 			const submitted = session.files.filter((file) =>
 				ids
 					? ids.includes(file.localId)
@@ -426,8 +502,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 			if (
 				readyFiles.some(
 					(file) =>
-						!file ||
-						file.status !== "ready" ||
+						file?.status !== "ready" ||
 						file.failurePhase !== null ||
 						!file.upload ||
 						!session.activeFileIds.has(file.localId) ||
@@ -493,11 +568,23 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 		[session, startOrJoinFilePreparation]
 	);
 
-	return {
-		addFiles,
-		claimSubmissionDrafts: (): ComposerFileSelection[] => {
-			const candidates = session.files.filter(
-				(file) => !session.submittingIds.has(file.localId)
+	const assertDiscoveryReady = useCallback(() => {
+		assertComposerFileDiscoveryReady(session.discovery);
+	}, [session]);
+	const waitForDiscovery = useCallback(async () => {
+		const discovery = session.discovery;
+		if (discovery.status === "loading") {
+			await discovery.task;
+		}
+		assertComposerFileDiscoveryReady(session.discovery);
+	}, [session]);
+	const preflightSubmission = useCallback(
+		(ids?: readonly string[]) => {
+			assertDiscoveryReady();
+			const candidates = session.files.filter((file) =>
+				ids
+					? ids.includes(file.localId)
+					: !session.submittingIds.has(file.localId)
 			);
 			const unavailable = candidates.find(
 				(item) =>
@@ -510,6 +597,43 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 					"Couldn't save your attachments. Retry or remove them to continue."
 				);
 			}
+			return candidates;
+		},
+		[assertDiscoveryReady, session]
+	);
+
+	const retryCleanup = useCallback(
+		async (localId: string) => {
+			if (
+				!readComposerFileDraftCleanup(scopeKey).some(
+					(item) => item.id === localId
+				)
+			) {
+				return;
+			}
+			const existing = session.cleanupTasks.get(localId);
+			if (existing) {
+				return await existing;
+			}
+			const task = retryComposerFileDraftCleanup(localId);
+			session.cleanupTasks.set(localId, task);
+			try {
+				await task;
+			} catch (error) {
+				console.error("Could not retry attachment cleanup", { error, localId });
+			} finally {
+				if (session.cleanupTasks.get(localId) === task) {
+					session.cleanupTasks.delete(localId);
+				}
+			}
+		},
+		[scopeKey, session]
+	);
+
+	return {
+		addFiles,
+		claimSubmissionDrafts: (): ComposerFileSelection[] => {
+			const candidates = preflightSubmission();
 			const selections = candidates.map((item) => {
 				const file = session.sourceFiles.get(item.localId);
 				if (!file) {
@@ -542,13 +666,22 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 				return source ? [source] : [];
 			}),
 		readFileDrafts: async () => {
-			await session.restorationTask;
+			const discovery = session.discovery;
+			if (discovery.status === "loading") {
+				await discovery.task;
+			}
+			assertDiscoveryReady();
 			const selectedIds = [...session.activeFileIds];
 			if (selectedIds.length === 0) {
 				return [];
 			}
 			await Promise.all(selectedIds.map((id) => session.uploadTasks.get(id)));
-			const drafts = await readComposerFileDraftsByIds(selectedIds);
+			let drafts: ComposerFileDraft[];
+			try {
+				drafts = await readComposerFileDraftsByIds(selectedIds);
+			} catch (error) {
+				throw new ComposerFileDiscoveryError(error);
+			}
 			const selected = drafts.filter((draft) =>
 				session.activeFileIds.has(draft.id)
 			);
@@ -560,6 +693,8 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 			return selected;
 		},
 		beginSubmission,
+		preflightSubmission,
+		waitForDiscovery,
 		finishSubmission,
 		clearFiles,
 		consumePublishedFiles,
@@ -571,14 +706,16 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 				.length >= SPACE_MESSAGE_FILE_MAX_COUNT,
 		publishReadyFiles,
 		cleanup: readComposerFileDraftCleanup(scopeKey),
-		restorationError: session.restorationError,
+		restorationError:
+			session.discovery.status === "failed" ? session.discovery.error : null,
 		removeFile,
-		retryCleanup: retryComposerFileDraftCleanup,
+		retryCleanup,
 		retryFile,
 		retryRestoration: () => session.retryRestoration?.(),
 	};
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: preparation is one ordered persistence/staging transaction with phase-specific recovery.
 async function preparePendingFile(input: {
 	deferUpload?: boolean;
 	draftScopeKey: string;
@@ -634,6 +771,25 @@ async function preparePendingFile(input: {
 			return;
 		}
 		let upload = currentBeforePersistence.upload;
+		if (
+			upload &&
+			!currentBeforePersistence.publicationAttempted &&
+			!isComposerUploadDescriptorValid(upload, input.item.localId)
+		) {
+			phase = "stage";
+			const api = createUnscopedWebSpaceApi({
+				openMeldProfileId: input.profileId,
+			});
+			await api.discardComposerUpload({
+				spaceId: input.spaceId,
+				uploadId: upload.id,
+			});
+			upload = null;
+			updateFile(input.setFiles, input.item.localId, (current) => ({
+				...current,
+				upload: null,
+			}));
+		}
 		if (!upload) {
 			phase = "stage";
 			const api = createUnscopedWebSpaceApi({
@@ -659,6 +815,11 @@ async function preparePendingFile(input: {
 				...current,
 				upload,
 			}));
+			if (!isComposerUploadDescriptorValid(upload, input.item.localId)) {
+				throw new Error(
+					"The attachment upload is still expired. Try again later."
+				);
+			}
 		}
 		if (!input.activeFileIds.has(input.item.localId)) {
 			discardComposerUploadIds({
@@ -768,6 +929,20 @@ async function publishPendingFile(input: {
 		return null;
 	}
 	try {
+		if (
+			!(
+				input.file.publicationAttempted ||
+				isComposerUploadDescriptorValid(upload, input.file.localId)
+			)
+		) {
+			throw new Error(
+				"This attachment upload expired. Retry to prepare it again."
+			);
+		}
+		updateFile(input.setFiles, input.file.localId, (current) => ({
+			...current,
+			publicationAttempted: true,
+		}));
 		const api = createUnscopedWebSpaceApi({
 			openMeldProfileId: input.profileId,
 		});
@@ -793,6 +968,7 @@ async function publishPendingFile(input: {
 			uploadId: upload.id,
 		});
 		const failure = resolveUploadFailure(error);
+		const uploadUnavailable = isAuthoritativeComposerUploadUnavailable(error);
 		updateFile(input.setFiles, input.file.localId, (current) => ({
 			...current,
 			errorMessage: failure.message,
@@ -800,9 +976,32 @@ async function publishPendingFile(input: {
 			failurePhase: "publish",
 			progress: 100,
 			status: "failed",
+			publicationAttempted: uploadUnavailable
+				? false
+				: current.publicationAttempted,
+			upload: uploadUnavailable ? null : current.upload,
 		}));
 		return null;
 	}
+}
+
+function isComposerUploadDescriptorValid(
+	upload: SpaceComposerUploadDescriptor,
+	localId: string
+): boolean {
+	const expiresAtMs = Date.parse(upload.expiresAt);
+	return (
+		upload.id === localId.replace("composer-file:", "") &&
+		Number.isFinite(expiresAtMs) &&
+		expiresAtMs > Date.now()
+	);
+}
+
+function isAuthoritativeComposerUploadUnavailable(error: unknown): boolean {
+	const failure = toStructuredApiClientFailure(error);
+	return (
+		failure.status === 404 && failure.upstreamCode === "space_file.not_found"
+	);
 }
 
 function discardStagedFiles(input: {

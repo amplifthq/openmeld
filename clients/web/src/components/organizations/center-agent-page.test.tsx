@@ -250,7 +250,7 @@ describe("CenterAgentPage", () => {
 		).toBe("Keep this loading-state draft");
 	});
 
-	it("queues the first message locally while Space bootstrap is pending", () => {
+	it("queues the first message locally while Space bootstrap is pending", async () => {
 		renderSpaceLandingLoadingFallback = true;
 		renderCenterAgentPage(readyRouteData());
 
@@ -258,16 +258,19 @@ describe("CenterAgentPage", () => {
 			name: "Message Center Agent",
 		});
 		fireEvent.change(composer, { target: { value: "Draft the first plan" } });
+		await act(async () => undefined);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		expect(screen.getByText("Draft the first plan")).toBeTruthy();
 		expect(screen.queryByText("Sending…")).toBeNull();
-		expect(screen.getByRole("button", { name: "Sending…" })).toBeTruthy();
+		expect(
+			await screen.findByRole("button", { name: "Sending…" })
+		).toBeTruthy();
 		expect((composer as HTMLTextAreaElement).value).toBe("");
 		expect((composer as HTMLTextAreaElement).disabled).toBe(true);
 	});
 
-	it("hands the pending message to the real conversation without waiting for the profile list", () => {
+	it("hands the pending message to the real conversation without waiting for the profile list", async () => {
 		renderSpaceLandingLoadingFallback = true;
 		renderCenterAgentPage(readyRouteData());
 
@@ -279,16 +282,18 @@ describe("CenterAgentPage", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
-		expect(spaceLandingSpy).toHaveBeenLastCalledWith(
-			expect.objectContaining({
-				accountProfiles: [],
-				initialPendingMessage: expect.objectContaining({
-					text: "Ship the onboarding plan",
-				}),
-				orgSlug: "acme",
-				profileId: "human-1",
-				spaceId: "space-ca-dm",
-			})
+		await waitFor(() =>
+			expect(spaceLandingSpy).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					accountProfiles: [],
+					initialPendingMessage: expect.objectContaining({
+						text: "Ship the onboarding plan",
+					}),
+					orgSlug: "acme",
+					profileId: "human-1",
+					spaceId: "space-ca-dm",
+				})
+			)
 		);
 		expect(navigateSpy).not.toHaveBeenCalled();
 	});
@@ -333,6 +338,7 @@ describe("CenterAgentPage", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 		const readPending = () =>
 			readCenterAgentPendingMessage(queryClient, { organizationSlug: "acme" });
+		await waitFor(() => expect(readPending()).not.toBeNull());
 		const pending = readPending();
 		expect(pending).toMatchObject({
 			text: "First message",

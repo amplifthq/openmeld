@@ -49,12 +49,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // These submission tests start with an empty draft store; browser reload
 // persistence is outside this component/API integration boundary.
+const composerDraftRead = vi.hoisted(() => ({ error: null as Error | null }));
 vi.mock("#/lib/spaces/composer-file-drafts", () => ({
 	isComposerFileDraftRetired: () => false,
 	readComposerFileDraftCleanup: () => [],
 	retryComposerFileDraftCleanup: async () => undefined,
 	subscribeComposerFileDrafts: () => () => undefined,
-	readComposerFileDrafts: async () => [],
+	readComposerFileDrafts: () => {
+		if (composerDraftRead.error) {
+			return Promise.reject(composerDraftRead.error);
+		}
+		return Promise.resolve([]);
+	},
 	readComposerFileDraftsByIds: async () => [],
 	removeComposerFileDraft: async () => undefined,
 	saveComposerFileDraft: async () => undefined,
@@ -815,6 +821,7 @@ function buildLocalRuntimeCacheInvalidations(
 
 describe("SpaceLanding", () => {
 	beforeEach(() => {
+		composerDraftRead.error = null;
 		vi.stubGlobal(
 			"IntersectionObserver",
 			class {
@@ -1098,6 +1105,62 @@ describe("SpaceLanding", () => {
 		expect(
 			document.querySelector('[data-space-conversation-presentation="compact"]')
 		).toBeTruthy();
+	});
+
+	it.each([
+		"button",
+		"keyboard",
+	] as const)("keeps the Space draft when attachment discovery fails from the %s submit path", async (method) => {
+		composerDraftRead.error = new Error("database connection is closing");
+		const postNormalMessageMock = vi.fn().mockResolvedValue(
+			createTextSignal({
+				id: "signal-after-recovery",
+				text: "Draft survives",
+			})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+		});
+		renderSpaceLanding();
+		const textarea = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		await setComposerValue(textarea, "Draft survives");
+		await screen.findByText("Couldn't restore your attachment drafts.");
+
+		if (method === "button") {
+			fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		} else {
+			fireEvent.keyDown(textarea, { key: "Enter" });
+		}
+
+		await waitFor(() =>
+			expect(textarea.textContent).toContain("Draft survives")
+		);
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		composerDraftRead.error = null;
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		await waitFor(() =>
+			expect(
+				screen.queryByText("Couldn't restore your attachment drafts.")
+			).toBeNull()
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledTimes(1));
 	});
 
 	it("hard-refreshes Space members while a previous members query is waiting to retry", async () => {
@@ -13350,12 +13413,14 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(textarea, "Optimistic hello");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-		expect(readComposerValue(textarea)).toBe("");
-		expect(
-			within(
-				screen.getByRole("log", { name: "Conversation history" })
-			).getByText("Optimistic hello")
-		).toBeTruthy();
+		await waitFor(() => {
+			expect(readComposerValue(textarea)).toBe("");
+			expect(
+				within(
+					screen.getByRole("log", { name: "Conversation history" })
+				).getByText("Optimistic hello")
+			).toBeTruthy();
+		});
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 		await waitFor(() => expect(statusRefetch).toHaveBeenCalled());
 		await act(async () => releaseStatus?.());
@@ -13614,8 +13679,15 @@ describe("SpaceLanding", () => {
 
 		await screen.findByRole("group", { name: "Files to send" });
 		expect(stageComposerUploadMock).toHaveBeenCalledTimes(2);
-		expect(stageComposerUploadMock.mock.calls[1]?.[0]).toEqual(
-			stageComposerUploadMock.mock.calls[0]?.[0]
+		expect(stageComposerUploadMock.mock.calls[1]?.[0]).toMatchObject({
+			bytes: stageComposerUploadMock.mock.calls[0]?.[0].bytes,
+			mimeType: stageComposerUploadMock.mock.calls[0]?.[0].mimeType,
+			name: stageComposerUploadMock.mock.calls[0]?.[0].name,
+			spaceId: stageComposerUploadMock.mock.calls[0]?.[0].spaceId,
+			uploadId: stageComposerUploadMock.mock.calls[0]?.[0].uploadId,
+		});
+		expect(stageComposerUploadMock.mock.calls[1]?.[0].signal).toBe(
+			stageComposerUploadMock.mock.calls[0]?.[0].signal
 		);
 	});
 
@@ -13682,7 +13754,9 @@ describe("SpaceLanding", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 		const log = screen.getByRole("log", { name: "Conversation history" });
-		expect(within(log).getByText("brief.pdf")).toBeTruthy();
+		await waitFor(() =>
+			expect(within(log).getByText("brief.pdf")).toBeTruthy()
+		);
 		expect(within(log).queryByText("Open in Files")).toBeNull();
 		expect(
 			within(log).getByRole("button", { name: "Copy message" })
@@ -14952,7 +15026,11 @@ describe("SpaceLanding", () => {
 			).disabled
 		).toBe(false);
 		fireEvent.keyDown(textarea, { key: "Enter" });
-		expect(screen.getByText("My next message", { selector: "p" })).toBeTruthy();
+		await waitFor(() =>
+			expect(
+				screen.getByText("My next message", { selector: "p" })
+			).toBeTruthy()
+		);
 		await waitFor(() => expect(readComposerValue(textarea)).toBe(""));
 		await setComposerValue(textarea, "Third draft");
 		expect(postNormalMessageMock).toHaveBeenCalledTimes(1);
@@ -20875,7 +20953,7 @@ function createSpaceComposerUpload(input: {
 	sizeBytes: number;
 }) {
 	return {
-		expiresAt: "2026-07-12T00:00:00.000Z",
+		expiresAt: "2099-07-12T00:00:00.000Z",
 		...input,
 	};
 }

@@ -93,6 +93,7 @@ export function CenterAgentOptimisticConversation(input: {
 	emptyContent?: ReactNode;
 	header?: ReactNode;
 	composerText: string;
+	composerErrorMessage?: string | null;
 	onComposerChange: (value: string) => void;
 	onSend: () => void;
 	pendingMessage: PendingCenterAgentMessage | null;
@@ -200,10 +201,10 @@ export function CenterAgentOptimisticConversation(input: {
 												<div className="leading-[26px]">
 													{input.pendingMessage.text}
 												</div>
-												{input.pendingMessage.files?.map((file, index) => (
+												{input.pendingMessage.files?.map((file) => (
 													<PendingAttachment
 														file={file}
-														key={`${file.name}:${index}`}
+														key={`${file.name}:${file.size}:${file.lastModified}`}
 													/>
 												))}
 											</BubbleContent>
@@ -221,6 +222,11 @@ export function CenterAgentOptimisticConversation(input: {
 				</div>
 				<footer className="shrink-0 bg-background">
 					<div className="w-full py-4" data-space-conversation-content-width="">
+						{input.composerErrorMessage ? (
+							<p className="pb-2 text-destructive text-sm" role="alert">
+								{input.composerErrorMessage}
+							</p>
+						) : null}
 						<PromptInput
 							className="relative w-full"
 							disabled={isSending}

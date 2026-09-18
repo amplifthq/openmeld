@@ -173,6 +173,9 @@ function CenterAgentDirectMessageEntry(input: {
 		: null;
 	const composerDraft = useComposerDraft({ scope: composerDraftScope });
 	const composerText = composerDraft.content.text;
+	const [composerErrorMessage, setComposerErrorMessage] = useState<
+		string | null
+	>(null);
 	const setComposerText = (text: string) => {
 		composerDraft.setContent((currentDraft) => ({
 			...currentDraft,
@@ -233,6 +236,7 @@ function CenterAgentDirectMessageEntry(input: {
 	const optimisticConversation = (files: SpaceComposerFilesController) => (
 		<CenterAgentOptimisticConversation
 			attachments={files}
+			composerErrorMessage={composerErrorMessage}
 			composerText={pendingMessage ? "" : composerText}
 			conversationTitle={
 				resolvedSessionId
@@ -240,7 +244,8 @@ function CenterAgentDirectMessageEntry(input: {
 					: undefined
 			}
 			onComposerChange={setComposerText}
-			onSend={() => {
+			onSend={async () => {
+				setComposerErrorMessage(null);
 				const text = composerText.trim();
 				if (
 					!(text || files.files.length) ||
@@ -248,20 +253,28 @@ function CenterAgentDirectMessageEntry(input: {
 				) {
 					return;
 				}
-				const nextPendingMessage = createPendingCenterAgentMessage(text);
-				nextPendingMessage.createdAtMs = Math.max(
-					nextPendingMessage.createdAtMs,
-					composerDraft.record.updatedAtMs
-				);
-				nextPendingMessage.fileDrafts = files.claimSubmissionDrafts();
-				nextPendingMessage.files = nextPendingMessage.fileDrafts.map(
-					(draft) => draft.file
-				);
-				writeCenterAgentPendingMessage(
-					queryClient,
-					pendingScope,
-					nextPendingMessage
-				);
+				try {
+					await files.waitForDiscovery();
+					const fileDrafts = files.claimSubmissionDrafts();
+					const nextPendingMessage = createPendingCenterAgentMessage(text);
+					nextPendingMessage.createdAtMs = Math.max(
+						nextPendingMessage.createdAtMs,
+						composerDraft.record.updatedAtMs
+					);
+					nextPendingMessage.fileDrafts = fileDrafts;
+					nextPendingMessage.files = fileDrafts.map((draft) => draft.file);
+					writeCenterAgentPendingMessage(
+						queryClient,
+						pendingScope,
+						nextPendingMessage
+					);
+				} catch (error) {
+					setComposerErrorMessage(
+						error instanceof Error
+							? error.message
+							: "Couldn't prepare your attachments. Retry to continue."
+					);
+				}
 			}}
 			organizationSlug={input.organizationSlug}
 			pendingMessage={pendingMessage}
