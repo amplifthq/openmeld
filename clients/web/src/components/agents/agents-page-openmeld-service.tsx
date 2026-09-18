@@ -121,6 +121,7 @@ type PendingManagedUpdate =
 
 export type OpenMeldServiceCardOwnerProps = {
 	computer: LocalRuntimeComputer;
+	connectionAction?: ReactNode;
 	currentExpectedServiceVersion: string | null;
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 	focusService: boolean;
@@ -525,6 +526,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 						showCheckStatus={false}
 					/>
 				}
+				connectionAction={input.connectionAction}
 				description="Connects this computer to OpenMeld and manages local tools."
 			>
 				<p className="text-muted-foreground text-sm">
@@ -626,6 +628,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 			className={cn(
 				resolveAgentsPageFocusedSurfaceClassName(isServiceHighlighted)
 			)}
+			connectionAction={input.connectionAction}
 			description="Connects this computer to OpenMeld and manages local tools."
 		>
 			{serviceContent}
@@ -640,6 +643,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 
 function OpenMeldToolsCardFrame(input: {
 	action?: ReactNode;
+	connectionAction?: ReactNode;
 	cardRef?: Ref<HTMLDivElement>;
 	children: ReactNode;
 	className?: string;
@@ -657,7 +661,12 @@ function OpenMeldToolsCardFrame(input: {
 					{COMPUTER_CONNECTION_CARD_TITLE}
 				</CardTitle>
 				<CardDescription>{input.description}</CardDescription>
-				{input.action ? <CardAction>{input.action}</CardAction> : null}
+				{input.action || input.connectionAction ? (
+					<CardAction className="flex flex-wrap items-center justify-end gap-2">
+						{input.connectionAction}
+						{input.action}
+					</CardAction>
+				) : null}
 			</CardHeader>
 			<CardContent className="flex flex-col gap-3">
 				{input.children}

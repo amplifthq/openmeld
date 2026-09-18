@@ -7,7 +7,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { type ReactNode, useEffect } from "react";
 import { formatComputerTabPlatform } from "#/components/agents/agents-page-computer";
 import {
 	SelectedComputerPanel,
@@ -54,24 +54,23 @@ function DesktopConnectComputerAction({
 	profileId?: string | null;
 }) {
 	const connection = useDesktopComputerConnection();
-	const label =
-		connection.data?.status === "available"
-			? "Disconnect this Mac"
-			: "Connect this Mac";
-	let status = connection.data?.status === "available" ? "Connected" : null;
-	if (connection.isError) {
-		status = "Connection unconfirmed";
-	}
+	const connected = connection.data?.status === "available";
+	const label = connected ? "Disconnect" : "Connect";
 	if (!getDesktopPlatform()) {
 		return null;
 	}
 	return (
 		<div className="flex items-center gap-2">
-			{status ? (
-				<span className="text-muted-foreground text-sm">{status}</span>
+			{connection.isError ? (
+				<span className="text-muted-foreground text-sm">
+					Connection unconfirmed
+				</span>
 			) : null}
 			<Link
-				className={buttonVariants({ size: "sm", variant: "outline" })}
+				className={buttonVariants({
+					size: "sm",
+					variant: connected ? "outline" : "default",
+				})}
 				to={buildConnectComputerPath({
 					orgSlug,
 					profileId: profileId ?? undefined,
@@ -244,7 +243,6 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	return (
 		<>
 			<AppPageHeader
-				action={desktopConnectionAction(orgSlug, ownerProfileId)}
 				description={sectionDescription}
 				eyebrow="Run agents locally"
 				id="computers-heading"
@@ -284,6 +282,7 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 				<ComputersPageBody
 					computerGroups={computerGroups}
 					computerResolutionIsPending={computerResolutionIsPending}
+					connectionAction={desktopConnectionAction(orgSlug, ownerProfileId)}
 					isReconcilingCurrentToolsStatus={isReconcilingCurrentToolsStatus}
 					onRetry={() => {
 						Promise.all([
@@ -333,6 +332,7 @@ function needsFreshOrganizationProjection(
 }
 
 function ComputersPageBody(input: {
+	connectionAction: ReactNode;
 	computerGroups: readonly OrganizationComputerGroup[];
 	computerResolutionIsPending: boolean;
 	isReconcilingCurrentToolsStatus: boolean;
@@ -355,6 +355,7 @@ function ComputersPageBody(input: {
 		return (
 			<SelectedComputerPanel
 				computer={input.selectedComputer}
+				connectionAction={input.connectionAction}
 				focusFileAccess={input.routeState.computersFocusFileAccess}
 				focusService={input.routeState.computersFocusService}
 				isReconcilingStatus={input.isReconcilingCurrentToolsStatus}
