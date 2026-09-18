@@ -119,7 +119,7 @@ export type CurrentDaemonSocketRef = {
   reasoningStreamEnabled?: boolean;
   reasoningPreferenceListeners?: Set<() => void>;
   connectionGeneration: number | null;
-  socket: import("../../transport/ws").WsClient | null;
+  socket: DaemonFrameSink | null;
 };
 
 export type DaemonDispatchLimits = {

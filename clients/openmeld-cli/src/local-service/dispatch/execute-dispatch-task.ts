@@ -99,7 +99,6 @@ import {
 } from "../../runtime/dispatch-space-action-context";
 import type { Presenter } from "../../runtime/presenter/types";
 import { fetchSpaceMeta } from "../../space/meta-api";
-import type { WsClient } from "../../transport/ws";
 import { resolveProviderRuntimeDispatchContinuation } from "../continuation/provider-runtime-continuation";
 import {
   emitRunLine,
@@ -108,6 +107,7 @@ import {
 } from "../core/logger";
 import type {
   CurrentDaemonSocketRef,
+  DaemonFrameSink,
   DaemonProfileRouteConfig,
   InflightDispatchMeta,
   LedgerPaths,
@@ -280,7 +280,7 @@ export function enqueueDispatchDeliverFrame(input: {
   requestCurrentWorkingFolderFactRefresh?: () => void;
   presenter: Presenter;
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): void {
   // OPENMELD_SERVICE_THIN_CORE: RuntimeCoordinator task intake.
   // The daemon may accept, queue, and execute a token-backed local task, then
@@ -866,7 +866,7 @@ export async function handleDispatchDeliverFrame(input: {
   requestCurrentWorkingFolderFactRefresh?: () => void;
   presenter: Presenter;
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): Promise<LocalExecutionSlotTaskResult> {
   const { currentSocketRef } = input;
   emitDispatchLocalPhaseJournalEvent({
@@ -4650,7 +4650,7 @@ function maybeRejectDispatchPreflight(input: {
   parsedTask: ReturnType<typeof parseDispatchTask>;
   ledgerPaths: LedgerPaths;
   presenter: Presenter;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): LocalExecutionSlotTaskResult | null {
   const staleLeaseResult = maybeRejectStaleLease({
     activeLeaseEpoch: input.activeLeaseEpoch,
@@ -4936,7 +4936,7 @@ function maybeRejectStaleLease(input: {
   ledgerPaths: LedgerPaths;
   parsedTask: ReturnType<typeof parseDispatchTask>;
   presenter: Presenter;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): LocalExecutionSlotTaskResult | null {
   if (
     input.activeLeaseEpoch === undefined ||
@@ -4974,7 +4974,7 @@ function maybeRejectInvalidDispatchTask(input: {
   ledgerPaths: LedgerPaths;
   parsedTask: ReturnType<typeof parseDispatchTask>;
   presenter: Presenter;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): LocalExecutionSlotTaskResult | null {
   if (input.parsedTask) {
     return null;
@@ -5010,7 +5010,7 @@ function resolveValidatedDispatchDeliveryInput(input: {
   localAdapterContainer: LocalDaemonAdapterContainer;
   presenter: Presenter;
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }):
   | {
       result: LocalExecutionSlotTaskResult;
@@ -5099,7 +5099,7 @@ function maybeRejectUnsupportedController(input: {
   runtimeControllerSupport: ReturnType<
     typeof resolveLocalRuntimeControllerSupport
   >;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): LocalExecutionSlotTaskResult | null {
   if (input.runtimeControllerSupport.supported) {
     return null;

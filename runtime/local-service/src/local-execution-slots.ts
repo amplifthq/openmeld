@@ -354,12 +354,13 @@ export function createLocalExecutionSlots(input: {
     }
   };
 
+  const isQuiescent = (): boolean =>
+    pendingTasks.length === 0 &&
+    activeGlobal === 0 &&
+    adapterOperationIds.size === 0;
+
   const notifyDrainWaitersIfIdle = (): void => {
-    if (
-      pendingTasks.length > 0 ||
-      activeGlobal > 0 ||
-      adapterOperationIds.size > 0
-    ) {
+    if (!isQuiescent()) {
       return;
     }
     while (drainWaiters.length > 0) {
@@ -485,6 +486,7 @@ export function createLocalExecutionSlots(input: {
   };
 
   return {
+    isQuiescent,
     getAdapterOperationStatus(
       adapterId: string
     ): LocalExecutionSlotAdapterOperationStatus {
@@ -627,11 +629,7 @@ export function createLocalExecutionSlots(input: {
       };
     },
     drain(): Promise<void> {
-      if (
-        pendingTasks.length === 0 &&
-        activeGlobal === 0 &&
-        adapterOperationIds.size === 0
-      ) {
+      if (isQuiescent()) {
         return Promise.resolve();
       }
       return new Promise<void>((resolve) => {

@@ -13,10 +13,10 @@ import {
   runtimeTransportLocalAgentControlInterruptFramePayloadSchema,
 } from "@openmeld/schemas";
 import type { Presenter } from "../../runtime/presenter/types";
-import type { WsClient } from "../../transport/ws";
 import { emitRunLine, toErrorMessage } from "../core/logger";
 import type {
   CurrentDaemonSocketRef,
+  DaemonFrameSink,
   DaemonProfileRouteConfig,
   InflightDispatchMeta,
   LedgerPaths,
@@ -46,7 +46,7 @@ function handleDispatchInteractionResponse(input: {
   payload: Record<string, unknown>;
   pendingAgentInteractionRegistry: PendingAgentInteractionRegistry;
   presenter: Presenter;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): void {
   const parsedResponse =
     runtimeTransportDispatchInteractionResponseFramePayloadSchema.safeParse(
@@ -194,7 +194,7 @@ export function handleDaemonSocketFrame(input: {
   requestCurrentWorkingFolderFactRefresh?: () => void;
   presenter: Presenter;
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
-  socket: WsClient;
+  socket: DaemonFrameSink;
   waiters: PendingFrameWaiters;
 }): void {
   switch (input.parsedFrame.code) {
