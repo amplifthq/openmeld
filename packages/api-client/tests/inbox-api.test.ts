@@ -102,11 +102,12 @@ describe("api-client Inbox API", () => {
       buildInboxPath({
         cursor: "cursor value",
         limit: 25,
+        notificationPreview: "true",
         presentation: "attention",
         view: "unread",
       })
     ).toBe(
-      "/v1/inbox?cursor=cursor+value&limit=25&presentation=attention&view=unread"
+      "/v1/inbox?cursor=cursor+value&limit=25&presentation=attention&notificationPreview=true&view=unread"
     );
     expect(buildInboxSummaryPath("attention")).toBe(
       "/v1/inbox/summary?presentation=attention"

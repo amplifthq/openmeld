@@ -134,6 +134,9 @@ export const createInboxApi: CreateInboxApi = (
         ...(input.presentation === undefined
           ? {}
           : { presentation: input.presentation }),
+        ...(input.notificationPreview === undefined
+          ? {}
+          : { notificationPreview: input.notificationPreview }),
         ...(input.view === undefined ? {} : { view: input.view }),
       },
       "Inbox list request is invalid."

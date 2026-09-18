@@ -64,6 +64,55 @@ const INBOX_ATTENTION_PRESENTATION_FILTER = `
     )
   )
 `;
+const INBOX_NOTIFICATION_EFFECTIVE_MODE_SQL = `COALESCE(
+  (
+    SELECT mode
+    FROM inbox_conversation_notification_preferences
+    WHERE user_id = inbox_items.recipient_user_id
+      AND organization_id = inbox_items.organization_id
+      AND space_id = json_extract(inbox_items.source_target_json, '$.spaceId')
+  ),
+  (
+    SELECT mode
+    FROM inbox_message_notification_defaults
+    WHERE user_id = inbox_items.recipient_user_id
+  ),
+  'mentions_and_replies'
+)`;
+const INBOX_NOTIFICATION_PREVIEW_FILTER = `
+  read_at_ms IS NULL
+  AND resolution_status != 'resolved'
+  AND attention = 'update'
+  AND source_kind = 'space_signal'
+  AND json_extract(source_target_json, '$.kind') IN ('space', 'center_agent')
+  AND kind IN (
+    'space_message',
+    'space_mention',
+    'space_reference',
+    'agent_reply',
+    'wake_outcome',
+    'center_agent_update'
+  )
+  AND ${INBOX_NOTIFICATION_EFFECTIVE_MODE_SQL} != 'muted'
+  AND (
+    ${INBOX_NOTIFICATION_EFFECTIVE_MODE_SQL} = 'all_messages'
+    OR importance = 'urgent'
+    OR kind IN (
+      'space_mention',
+      'space_reference',
+      'agent_reply',
+      'wake_outcome'
+    )
+    OR (
+      kind = 'space_message'
+      AND json_extract(source_target_json, '$.kind') = 'space'
+      AND (
+        COALESCE(json_extract(source_target_json, '$.directMessage'), 0) = 1
+        OR COALESCE(json_extract(source_target_json, '$.replyToRecipient'), 0) = 1
+      )
+    )
+  )
+`;
 const INBOX_CENTER_AGENT_MESSAGE_FILTER = `
   source_kind = 'space_signal'
   AND attention = 'update'
@@ -523,6 +572,7 @@ export function createInboxService(input: {
     async list(listInput: {
       cursor?: string;
       limit?: number;
+      notificationPreview?: boolean;
       organizationId: string;
       presentation?: InboxPresentation;
       recipientUserId: string;
@@ -550,6 +600,9 @@ export function createInboxService(input: {
         filters.push(INBOX_ATTENTION_PRESENTATION_FILTER);
       }
       appendViewFilter(filters, parsedView.data, listInput.presentation);
+      if (listInput.notificationPreview) {
+        filters.push(INBOX_NOTIFICATION_PREVIEW_FILTER);
+      }
       if (cursor) {
         filters.push("(occurred_at_ms < ? OR (occurred_at_ms = ? AND id < ?))");
         bindings.push(cursor.occurredAtMs, cursor.occurredAtMs, cursor.id);

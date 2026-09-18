@@ -17,7 +17,10 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { toast } from "sonner";
 import { MessageResponse } from "#/components/ai/message-response";
+import { DesktopAwareLink } from "#/desktop/desktop-aware-link";
+import { getDesktopPlatform } from "#/desktop/platform";
 import {
 	createOrganizationScopedWebSpaceApi,
 	createUnscopedWebSpaceApi,
@@ -32,6 +35,7 @@ import {
 import { Marker, MarkerContent } from "./primitives/marker";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import { SpaceFileHtmlBadge } from "./space-file-html-badge";
+import { downloadUrlContent } from "./space-file-utils";
 import { SpaceImagePreview } from "./space-image-preview";
 import { SpaceInlineMessageEditor } from "./space-inline-message-editor";
 import { collapseSpaceMessage } from "./space-message-collapse";
@@ -612,7 +616,7 @@ function renderSpaceMessageNavigationAction(input: {
 		);
 	}
 	return (
-		<a
+		<DesktopAwareLink
 			className={cn(
 				buttonVariants({ size: "sm", variant: "outline" }),
 				"w-fit"
@@ -621,7 +625,7 @@ function renderSpaceMessageNavigationAction(input: {
 			href={input.action.url}
 		>
 			{input.action.label}
-		</a>
+		</DesktopAwareLink>
 	);
 }
 
@@ -879,10 +883,23 @@ function SpaceMessageAttachmentImage(input: {
 	return (
 		<SpaceImagePreview
 			altText={altText}
-			focusedAction={{
-				href: downloadPath,
-				label: "Open original",
-			}}
+			focusedAction={
+				getDesktopPlatform()
+					? {
+							label: "Download original",
+							onSelect: () => {
+								downloadUrlContent(altText, downloadPath).catch(
+									(error: unknown) =>
+										toast.error(
+											error instanceof Error
+												? error.message
+												: "Could not download this image. Try again."
+										)
+								);
+							},
+						}
+					: { href: downloadPath, label: "Open original" }
+			}
 			height={input.attachment.height}
 			imageSource={imageSource}
 			isSingle={input.isSingle}

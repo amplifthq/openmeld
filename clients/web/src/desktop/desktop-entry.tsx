@@ -3,9 +3,12 @@ import { Button } from "@openmeld/ui/components/button";
 import { OPENMELD_LOGO_THEME_COLORS } from "@openmeld/ui/lib/openmeld-logo-theme";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearch } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { OpenMeldLogo } from "#/components/openmeld-logo-weak";
-import { resolveOptionalActiveOrganizationEntryPath } from "#/lib/organizations/organization-scope";
+import {
+	NoAvailableOrganizationError,
+	resolveOptionalActiveOrganizationEntryPath,
+} from "#/lib/organizations/organization-scope";
 import {
 	clearPrivateAccountStateAfterSessionRead,
 	readKnownAccountIdBeforeSessionRevalidation,
@@ -24,6 +27,9 @@ export function DesktopEntry() {
 	const pending = pendingOperation !== null;
 	const [error, setError] = useState<string | null>(null);
 	const [browserOpened, setBrowserOpened] = useState(false);
+	const [signedOut, setSignedOut] = useState(false);
+	const [workspaceUnavailable, setWorkspaceUnavailable] = useState(false);
+	const primaryAction = useRef<() => void>(() => undefined);
 	const bridge = getDesktopPlatform();
 
 	useEffect(() => {
@@ -32,6 +38,9 @@ export function DesktopEntry() {
 			return;
 		}
 		let disposed = false;
+		let busy = false;
+		let canSignIn = false;
+		let noWorkspace = false;
 		let revision = 0;
 		let prepared = Promise.resolve();
 		let sessionInvalidationRevision = 0;
@@ -40,6 +49,16 @@ export function DesktopEntry() {
 			readKnownAccountIdBeforeSessionRevalidation(queryClient);
 		let pendingInvalidationPreviousAccountId: string | null | undefined;
 		const refresh = (sessionChanged = false) => {
+			if (disposed || ((busy || noWorkspace) && !sessionChanged)) {
+				return;
+			}
+			busy = true;
+			canSignIn = false;
+			setSignedOut(false);
+			setPendingOperation("session");
+			setError(null);
+			noWorkspace = false;
+			setWorkspaceUnavailable(false);
 			if (sessionChanged) {
 				if (
 					sessionInvalidationRevision === handledSessionInvalidationRevision
@@ -47,8 +66,6 @@ export function DesktopEntry() {
 					pendingInvalidationPreviousAccountId = confirmedAccountId;
 				}
 				sessionInvalidationRevision += 1;
-				setPendingOperation("session");
-				setError(null);
 			}
 			const refreshPreviousAccountId = confirmedAccountId;
 			const current = ++revision;
@@ -86,11 +103,11 @@ export function DesktopEntry() {
 						return;
 					}
 					confirmedAccountId = result.accountId;
-					const path = await resolveDesktopEntry(result.session, returnPath);
-					if (path && active()) {
-						await router.navigate({ to: path, replace: true });
-					}
-					if (active() && result.hasPendingSessionInvalidation) {
+					canSignIn = result.accountId === null;
+					setSignedOut(canSignIn);
+					// The session read has handled this invalidation even if workspace
+					// resolution fails. A later retry must not clear same-account data again.
+					if (result.hasPendingSessionInvalidation) {
 						handledSessionInvalidationRevision = result.invalidationRevision;
 						if (
 							handledSessionInvalidationRevision === sessionInvalidationRevision
@@ -98,19 +115,74 @@ export function DesktopEntry() {
 							pendingInvalidationPreviousAccountId = undefined;
 						}
 					}
+					const path = await resolveDesktopEntry(result.session, returnPath);
+					if (path && active()) {
+						await router.navigate({ to: path, replace: true });
+					}
 				})
 				.catch((failure: unknown) => {
 					if (active()) {
+						if (failure instanceof NoAvailableOrganizationError) {
+							noWorkspace = true;
+							setWorkspaceUnavailable(true);
+							setError(failure.message);
+							return;
+						}
 						setError(
 							formatDesktopError(
 								failure,
-								"Could not open your workspace. Try signing in again."
+								"Could not open your workspace. Check your connection and try again."
 							)
 						);
 					}
 				})
 				.finally(() => {
 					if (active()) {
+						busy = false;
+						setPendingOperation(null);
+					}
+				});
+		};
+		primaryAction.current = () => {
+			if (
+				disposed ||
+				busy ||
+				router.state.location.pathname !== "/desktop-shell"
+			) {
+				return;
+			}
+			if (!canSignIn) {
+				refresh();
+				return;
+			}
+			busy = true;
+			const current = ++revision;
+			const active = () =>
+				!disposed &&
+				current === revision &&
+				router.state.location.pathname === "/desktop-shell";
+			setError(null);
+			setPendingOperation("browser");
+			bridge
+				.signIn()
+				.then(() => {
+					if (active()) {
+						setBrowserOpened(true);
+					}
+				})
+				.catch((failure: unknown) => {
+					if (active()) {
+						setError(
+							formatDesktopError(
+								failure,
+								"Could not open your browser. Try again."
+							)
+						);
+					}
+				})
+				.finally(() => {
+					if (active()) {
+						busy = false;
 						setPendingOperation(null);
 					}
 				});
@@ -121,16 +193,24 @@ export function DesktopEntry() {
 		window.addEventListener("focus", onFocus);
 		return () => {
 			disposed = true;
+			primaryAction.current = () => undefined;
 			unsubscribe();
 			window.removeEventListener("focus", onFocus);
 		};
 	}, [bridge, router, returnPath, queryClient]);
 
-	const copy = desktopEntryCopy(
-		Boolean(bridge),
-		pendingOperation,
-		browserOpened && !error
-	);
+	const copy = workspaceUnavailable
+		? {
+				title: "Workspace unavailable",
+				description: "This account has no available workspace.",
+				action: "Retry",
+			}
+		: desktopEntryCopy(
+				Boolean(bridge),
+				pendingOperation,
+				browserOpened && !error,
+				signedOut
+			);
 	return (
 		<main className="flex min-h-svh items-center justify-center bg-[var(--app-canvas)] p-6">
 			<section
@@ -151,27 +231,11 @@ export function DesktopEntry() {
 						{error}
 					</p>
 				)}
-				{bridge && (
+				{bridge && !workspaceUnavailable && (
 					<Button
 						className="w-full"
 						disabled={pending}
-						onClick={async () => {
-							setError(null);
-							setPendingOperation("browser");
-							try {
-								await bridge.signIn();
-								setBrowserOpened(true);
-							} catch (failure) {
-								setError(
-									formatDesktopError(
-										failure,
-										"Could not open your browser. Try again."
-									)
-								);
-							} finally {
-								setPendingOperation(null);
-							}
-						}}
+						onClick={() => primaryAction.current()}
 					>
 						{copy.action}
 					</Button>
@@ -217,7 +281,8 @@ async function revalidateDesktopEntry(input: {
 function desktopEntryCopy(
 	available: boolean,
 	pending: "session" | "browser" | null,
-	browserOpened: boolean
+	browserOpened: boolean,
+	signedOut: boolean
 ) {
 	if (!available) {
 		return {
@@ -239,6 +304,13 @@ function desktopEntryCopy(
 			title: "Opening your workspace",
 			description: "Checking your sign-in…",
 			action: "Please wait…",
+		};
+	}
+	if (!signedOut) {
+		return {
+			title: "Open your workspace",
+			description: "Try loading your workspace again.",
+			action: "Retry",
 		};
 	}
 	if (browserOpened) {
@@ -272,7 +344,7 @@ async function resolveDesktopEntry(
 	});
 	if (!path) {
 		throw new Error(
-			"Your workspace could not be opened. Try signing in again."
+			"Could not open your workspace. Check your connection and try again."
 		);
 	}
 	return path;

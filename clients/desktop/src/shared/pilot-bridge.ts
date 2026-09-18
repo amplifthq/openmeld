@@ -68,6 +68,8 @@ export type DesktopPilotBridge = DesktopSpaceStreamBridge & {
     handler: (request: DesktopUpdaterRestartRequest) => void
   ): () => void;
   onWindowDestinationChange: OpenMeldBridge["onWindowDestinationChange"];
+  onNavigationRequest: OpenMeldBridge["onNavigationRequest"];
+  openExternal: OpenMeldBridge["openExternal"];
   setNotificationContext(input: DesktopNotificationContext): Promise<void>;
   showNotification(
     input: DesktopNotificationRequest

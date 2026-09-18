@@ -25,6 +25,9 @@ export function buildInboxPath(query: ListInboxItemsQuery = {}): string {
   if (query.presentation !== undefined) {
     search.set("presentation", query.presentation);
   }
+  if (query.notificationPreview !== undefined) {
+    search.set("notificationPreview", query.notificationPreview);
+  }
   if (query.view !== undefined) {
     search.set("view", query.view);
   }

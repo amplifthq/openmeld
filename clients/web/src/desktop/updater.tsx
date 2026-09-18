@@ -220,12 +220,12 @@ export function DesktopUpdatesSection(input: {
 		return (
 			<section aria-labelledby="desktop-updates-heading">
 				<AppPageHeader
-					description="See the installed version and check for OpenMeld Desktop updates."
+					description="See the installed version and check for OpenMeld updates."
 					eyebrow="Personal"
 					id="desktop-updates-heading"
 					title="Updates"
 				/>
-				<SettingsSection id="desktop-update" title="OpenMeld Desktop">
+				<SettingsSection id="desktop-update" title="OpenMeld">
 					<SettingsRow
 						control={
 							<span className="text-foreground text-sm">

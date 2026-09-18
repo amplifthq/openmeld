@@ -4597,6 +4597,10 @@ bottom row while retaining the normal page inset and the Sidebar footer.
 Computer stays in the account menu above Settings. Its warning/danger avatar
 and menu indicators consume the same shared current-Computer presentation as
 the optional toolbar shortcut; hiding a shortcut does not clear attention.
+The account menu's platform slot is reciprocal: Web shows Download desktop app,
+while the shared renderer running inside Desktop shows Open web app and opens
+the equivalent authorized route in the system browser. The slot remains above
+Settings and does not create a second navigation or authentication authority.
 
 Selecting a Human or Agent identity in a Space opens one compact profile
 popover rather than a table-style details dialog. A Human popover shows the

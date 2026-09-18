@@ -19,6 +19,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useCurrentComputer } from "#/components/app/current-computer";
 import { useInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
 import { getDesktopPlatform } from "#/desktop/platform";
 import { useDesktopUpdater } from "#/desktop/updater";
@@ -100,6 +101,7 @@ export function InboxNotificationListener(input: {
 	const { pathname, state: locationState } = useLocation();
 	const navigationKey = locationState?.__TSR_key;
 	const visibleConversation = useInboxVisibleConversation();
+	const computer = useCurrentComputer();
 	const [settingsState, setSettingsState] = useState(() => ({
 		enabled: readInboxNotificationSettings({ userId: input.userId }).enabled,
 		userId: input.userId,
@@ -130,9 +132,37 @@ export function InboxNotificationListener(input: {
 					},
 		[attentionSummary, summaryQuery.isError]
 	);
+	const unreadCount = summaryQuery.isError
+		? null
+		: (summaryQuery.data?.totalUnreadCount ?? null);
+	let unreadCountStatus: "loading" | "ready" | "unavailable" = "loading";
+	if (summaryQuery.isError) {
+		unreadCountStatus = "unavailable";
+	} else if (summaryQuery.data) {
+		unreadCountStatus = "ready";
+	}
+	const desktop = getDesktopPlatform();
+	const itemsQuery = useInfiniteQuery({
+		...inboxItemsInfiniteQueryOptions({
+			enabled: notificationsEnabled || Boolean(desktop),
+			organizationId: input.organizationId,
+			presentation: "raw",
+			view: "all",
+		}),
+		refetchInterval:
+			notificationsEnabled && !desktop
+				? INBOX_NOTIFICATION_POLL_INTERVAL_MS
+				: false,
+		refetchIntervalInBackground: true,
+	});
 	const feedIdentity = `${input.organizationId}:${input.organizationSlug}:${input.userId}:${notificationsEnabled}`;
+	let latestUnreadStatus: "loading" | "ready" | "unavailable" = "loading";
+	if (itemsQuery.isError) {
+		latestUnreadStatus = "unavailable";
+	} else if (itemsQuery.data) {
+		latestUnreadStatus = "ready";
+	}
 	useLayoutEffect(() => {
-		const desktop = getDesktopPlatform();
 		if (!desktop) {
 			return;
 		}
@@ -143,16 +173,33 @@ export function InboxNotificationListener(input: {
 				attention,
 				userId: input.userId,
 				organizationId: input.organizationId,
+				organizationSlug: input.organizationSlug,
 				enabled: notificationsEnabled,
+				computer: {
+					available: Boolean(computer?.destination),
+					statusLabel: computer?.statusLabel ?? "Checking…",
+				},
+				inboxRefreshRevision: itemsQuery.dataUpdatedAt,
+				latestUnreadStatus,
 				navigationKey,
+				unreadCount,
+				unreadCountStatus,
 				visibleConversation,
 			})
 			.catch(reportFailure);
 	}, [
 		input.userId,
 		input.organizationId,
+		input.organizationSlug,
+		computer?.destination,
+		computer?.statusLabel,
+		desktop,
+		latestUnreadStatus,
+		itemsQuery.dataUpdatedAt,
 		notificationsEnabled,
 		attention,
+		unreadCount,
+		unreadCountStatus,
 		visibleConversation,
 		navigationKey,
 	]);
@@ -198,30 +245,14 @@ export function InboxNotificationListener(input: {
 		userId: input.userId,
 		visibleConversation,
 	});
-	const itemsQuery = useInfiniteQuery({
-		...inboxItemsInfiniteQueryOptions({
-			enabled: notificationsEnabled,
-			organizationId: input.organizationId,
-			presentation: "raw",
-			view: "all",
-		}),
-		refetchInterval:
-			notificationsEnabled && !getDesktopPlatform()
-				? INBOX_NOTIFICATION_POLL_INTERVAL_MS
-				: false,
-		refetchIntervalInBackground: true,
-	});
 	useEffect(
 		() =>
-			getDesktopPlatform()?.onNotificationPoll(() => {
+			desktop?.onNotificationPoll(() => {
 				summaryQuery.refetch({ cancelRefetch: false }).catch((error: unknown) =>
 					console.warn("[openmeld.desktop.inbox_summary_refresh_failed]", {
 						error,
 					})
 				);
-				if (!notificationsEnabled) {
-					return;
-				}
 				itemsQuery.refetch({ cancelRefetch: false }).catch((error: unknown) =>
 					console.warn("[openmeld.desktop.notification_refresh_failed]", {
 						error,
@@ -229,7 +260,7 @@ export function InboxNotificationListener(input: {
 				);
 				setDeliveryRetryRevision((current) => current + 1);
 			}),
-		[notificationsEnabled, itemsQuery.refetch, summaryQuery.refetch]
+		[desktop, itemsQuery.refetch, summaryQuery.refetch]
 	);
 	const cancelDeliveryRetry = useCallback((ownedFeedIdentity?: string) => {
 		if (

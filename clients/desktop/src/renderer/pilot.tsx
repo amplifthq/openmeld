@@ -28,7 +28,7 @@ function Pilot() {
   }, []);
   return (
     <main className="mx-auto max-w-lg space-y-4 p-12">
-      <h1 className="font-semibold text-xl">OpenMeld Desktop</h1>
+      <h1 className="font-semibold text-xl">OpenMeld</h1>
       <p>
         {session?.user
           ? `Signed in as ${session.user.email}`

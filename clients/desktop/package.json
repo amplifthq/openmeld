@@ -1,7 +1,7 @@
 {
   "$schema": "https://www.schemastore.org/package.json",
   "name": "@openmeld/desktop",
-  "productName": "OpenMeld Desktop",
+  "productName": "OpenMeld",
   "version": "0.1.2",
   "private": true,
   "type": "module",
@@ -44,7 +44,7 @@
   "build": {
     "forceCodeSigning": true,
     "appId": "sh.openmeld.desktop",
-    "productName": "OpenMeld Desktop",
+    "productName": "OpenMeld",
     "directories": {
       "output": "dist/release"
     },
@@ -57,6 +57,9 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
+      "extendInfo": {
+        "CFBundleDisplayName": "OpenMeld"
+      },
       "icon": "resources/icon.icns",
       "identity": "-",
       "notarize": false,

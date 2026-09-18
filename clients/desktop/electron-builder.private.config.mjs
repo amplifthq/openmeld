@@ -9,7 +9,7 @@ const { build } = JSON.parse(
 export default {
   ...build,
   appId: "sh.openmeld.desktop.dev",
-  productName: "OpenMeld Desktop Private",
+  productName: build.productName,
   directories: { output: "dist/private" },
   files: build.files
     .filter((file) => file !== "out/**/*")

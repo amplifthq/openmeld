@@ -133,6 +133,18 @@ separate Inbox store, Service polling, Dock badge, or Windows behavior is
 introduced. Tray creation applies the latest observed title even if attention
 arrived first.
 
+The macOS menu bar menu is the compact native entry to the current Desktop
+workspace. It shows the newest eligible unread message as one preview, then
+Open inbox, Open app, Computer, Settings…, and Quit OpenMeld. Opening the menu
+does not mark anything read. Activating the preview re-reads that exact Inbox
+item under the current account, restores the existing window, and navigates to
+the exact message or Thread reply without acknowledging unrelated unread work.
+Open app restores the renderer's existing route rather than choosing a new
+home. The menu does not expose the version, a separate Web app row, or Service
+lifecycle controls. Quitting the GUI retains the independent Service lifecycle.
+The native menu keeps its current snapshot while open, so a refresh cannot
+retarget the row under the pointer.
+
 The A1 foundation is opt-in with `OPENMELD_DESKTOP_PILOT=1`. It requires a
 dev-local or canary lane and a configured loopback Web endpoint. Production
 endpoints are rejected. The ordinary status/control renderer remains available
@@ -161,6 +173,14 @@ packaged inline scripts for CSP. It never enables arbitrary inline scripts.
   Invalidation removes stale private query and persistence state but retains
   account-scoped Composer drafts until the authoritative reread confirms no
   session or a different account. Explicit sign-out still clears those drafts.
+  Entry distinguishes an unknown/failed session read from confirmed sign-out.
+  Manual Retry and focus reuse the same serialized, revision-fenced revalidation;
+  native session changes supersede older reads. Temporary workspace failures do
+  not initiate browser sign-in or repeat an already handled account invalidation.
+  Failed protected-route session reads return to this entry with the existing
+  validated workspace path, query, and hash, without clearing account data.
+  Confirmed missing Organization membership retains the shared explicit error
+  rather than selecting an Organization or automatically retrying.
   Its Space stream methods open a subscription by ID/Space/Profile, send only
   the existing keepalive ping, close it, and deliver transport events. No URL,
   credentials, or business-write frames are accepted.
@@ -181,6 +201,11 @@ The authorized shared App Settings dialog consumes that intent through
 context. No separate Settings page or account bypass is introduced: before an
 authorized workspace mounts, the existing sign-in entry remains in control.
 Settings intents respect the updater's document interaction freeze.
+
+Visible product copy calls the application OpenMeld. The installed bundle,
+authentication client identity, data directories, and update channels retain
+their existing stable identifiers. Desktop's account menu includes Open web app;
+it opens the equivalent authorized Web route in the system browser.
 
 The cloud response allowlist includes `x-openmeld-request-id` and `Server-Timing`
 for shared diagnostics. It still strips cookies, credentials and unlisted headers.

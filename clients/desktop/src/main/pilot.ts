@@ -53,7 +53,16 @@ declare const __OPENMELD_DESKTOP_INSTALLED_TARGET__: DesktopInstalledTarget | nu
 
 export function initializeDesktopPilot(
   getWindow: () => BrowserWindow | null,
-  setInboxAttention: (attention: DesktopInboxAttention | null) => void
+  setInboxAttention: (attention: DesktopInboxAttention | null) => void,
+  setTrayPresentation?: Parameters<
+    typeof createPilotNotifications
+  >[0]["setTrayPresentation"],
+  setTrayContext?: Parameters<
+    typeof createPilotNotifications
+  >[0]["setTrayContext"],
+  invalidateTrayScope?: Parameters<
+    typeof createPilotNotifications
+  >[0]["invalidateTrayScope"]
 ) {
   const installedTarget = __OPENMELD_DESKTOP_INSTALLED_TARGET__
     ? desktopInstalledTargetSchema.parse(__OPENMELD_DESKTOP_INSTALLED_TARGET__)
@@ -152,6 +161,9 @@ export function initializeDesktopPilot(
   const notifications = createPilotNotifications({
     auth,
     setInboxAttention,
+    setTrayPresentation,
+    setTrayContext,
+    invalidateTrayScope,
     webOrigin,
     getWindow,
     webBuild: platform.webBuild,
@@ -168,6 +180,7 @@ export function initializeDesktopPilot(
   const diagnosticsEnabled =
     !app.isPackaged && process.env.OPENMELD_DESKTOP_DIAGNOSTICS === "1";
   return {
+    activateNotification: notifications.activate,
     auth,
     installedTarget,
     diagnosticsEnabled,
@@ -192,6 +205,7 @@ export function initializeDesktopPilot(
       }
     },
     rendererUrl: `${DESKTOP_APP_ORIGIN}/${sharedAssets ? "desktop-shell" : "pilot.html"}`,
+    webOrigin,
     install(authorize: (event: IpcMainInvokeEvent) => void) {
       // Preserve the Inbox feed cadence without changing document visibility.
       notificationPoll = setInterval(() => {

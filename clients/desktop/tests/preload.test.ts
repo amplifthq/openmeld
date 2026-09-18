@@ -203,8 +203,10 @@ describe("preload bridge", () => {
       "getServiceStatus",
       "installCli",
       "installService",
+      "onNavigationRequest",
       "onWindowDestinationChange",
       "openDesktopDownloadPage",
+      "openExternal",
       "openNodeDownloadPage",
       "openWeb",
       "quitDesktop",
@@ -236,6 +238,7 @@ describe("preload bridge", () => {
       getAgents(): Promise<unknown>;
       openDesktopDownloadPage(): Promise<unknown>;
       openNodeDownloadPage(): Promise<unknown>;
+      openExternal(url: string): Promise<unknown>;
       openWeb(path?: string): Promise<unknown>;
       quitDesktop(): Promise<unknown>;
       setAgentEnabled(agentId: string, enabled: boolean): Promise<unknown>;
@@ -255,6 +258,7 @@ describe("preload bridge", () => {
     await openmeld.getAgents();
     await openmeld.openDesktopDownloadPage();
     await openmeld.openNodeDownloadPage();
+    await openmeld.openExternal("https://example.com/docs");
     await openmeld.openWeb(LOCAL_AGENTS_GUIDE_PATH);
     await openmeld.setAgentEnabled("codex", true);
     await openmeld.setServiceAutoStart(true);
@@ -274,6 +278,7 @@ describe("preload bridge", () => {
       [OPENMELD_IPC.getAgents],
       [OPENMELD_IPC.openDesktopDownloadPage],
       [OPENMELD_IPC.openNodeDownloadPage],
+      [OPENMELD_IPC.openExternal, "https://example.com/docs"],
       [OPENMELD_IPC.openWeb, LOCAL_AGENTS_GUIDE_PATH],
       [OPENMELD_IPC.setAgentEnabled, "codex", true],
       [OPENMELD_IPC.setServiceAutoStart, true],
@@ -323,5 +328,27 @@ describe("preload bridge", () => {
     const stale = vi.fn();
     shared.onWindowDestinationChange(stale)();
     expect(stale).not.toHaveBeenCalled();
+  });
+
+  it("retains one early Router navigation and stops delivery after unsubscribe", async () => {
+    await import("../src/preload/preload");
+    const bridge = exposeInMainWorld.mock.calls.find(
+      ([name]) => name === "openmeldDesktop"
+    )?.[1] as DesktopPilotBridge;
+    const listener = on.mock.calls.find(
+      ([channel]) => channel === WINDOW_IPC.navigateHref
+    )?.[1] as ((_event: unknown, href: unknown) => void) | undefined;
+    const handler = vi.fn();
+
+    listener?.({}, "https://evil.example/o/acme");
+    listener?.({}, "/o/acme/agents?profileId=agent-1#activity");
+    const unsubscribe = bridge.onNavigationRequest(handler);
+
+    expect(handler).toHaveBeenCalledExactlyOnceWith(
+      "/o/acme/agents?profileId=agent-1#activity"
+    );
+    unsubscribe();
+    listener?.({}, "/o/acme/spaces/space-1");
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 });

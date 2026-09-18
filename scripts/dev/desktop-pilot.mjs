@@ -1,5 +1,5 @@
 import { accessSync, constants, realpathSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import {
@@ -37,7 +37,7 @@ export function resolveDesktopPilotLaunch({
   }
   const userData = join(lane.openMeldHome, "desktop", "user-data");
   const executable = appPath
-    ? resolve(appPath, "Contents/MacOS/OpenMeld Desktop Private")
+    ? resolve(appPath, "Contents/MacOS", basename(appPath, ".app"))
     : "pnpm";
   if (appPath) {
     try {

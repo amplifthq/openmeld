@@ -39,6 +39,9 @@ const bridge = vi.hoisted(() => ({
 	onSessionChanged: vi.fn<(callback: () => void) => () => void>(
 		() => () => undefined
 	),
+	onNavigationRequest: vi.fn<(callback: (href: string) => void) => () => void>(
+		() => () => undefined
+	),
 	session: vi.fn<() => Promise<DesktopSession>>(),
 }));
 const router = vi.hoisted(() => ({
@@ -46,7 +49,8 @@ const router = vi.hoisted(() => ({
 	invalidate: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock("./platform", () => ({
+vi.mock("./platform", async (importOriginal) => ({
+	...(await importOriginal<typeof import("./platform")>()),
 	getDesktopPlatform: () => (native.available ? bridge : null),
 }));
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
@@ -59,6 +63,7 @@ beforeEach(() => {
 	router.history = createMemoryHistory({ initialEntries: ["/desktop-shell"] });
 	router.invalidate.mockClear();
 	bridge.onSessionChanged.mockClear();
+	bridge.onNavigationRequest.mockClear();
 	bridge.session.mockReset();
 });
 afterEach(() => {
@@ -69,6 +74,35 @@ afterEach(() => {
 });
 
 describe("Desktop document hydration", () => {
+	it("routes a native app navigation request without reloading the document", async () => {
+		native.available = true;
+		document.body.inert = false;
+		const client = new QueryClient();
+		render(
+			<QueryClientProvider client={client}>
+				<DesktopFrame>
+					<main>Workspace</main>
+				</DesktopFrame>
+			</QueryClientProvider>
+		);
+		const navigate = bridge.onNavigationRequest.mock.calls.at(-1)?.[0];
+		if (!navigate) {
+			throw new Error("Missing native navigation listener");
+		}
+		await waitFor(() => expect(document.body.inert).toBe(false));
+
+		act(() => navigate("/o/team/agents?profileId=agent-1#activity"));
+
+		expect(router.history?.location.href).toBe(
+			"/o/team/agents?profileId=agent-1#activity"
+		);
+		act(() => navigate("/v1/private"));
+		expect(router.history?.location.href).toBe(
+			"/o/team/agents?profileId=agent-1#activity"
+		);
+		client.clear();
+	});
+
 	it("preserves an unmounted Composer draft while native identity revalidation is pending and confirms the same account", async () => {
 		native.available = true;
 		native.pathname = "/o/team/spaces";

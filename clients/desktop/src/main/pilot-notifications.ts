@@ -32,6 +32,9 @@ export function createPilotNotifications(input: {
   ensureCompatible: () => Promise<void>;
   getWindow: () => BrowserWindow | null;
   setInboxAttention?: (attention: DesktopInboxAttention | null) => void;
+  setTrayPresentation?: (presentation: DesktopTrayPresentation) => void;
+  setTrayContext?: (context: DesktopTrayContext | null) => void;
+  invalidateTrayScope?: () => void;
 }) {
   let generation = 0;
   let activationRevision = 0;
@@ -66,7 +69,10 @@ export function createPilotNotifications(input: {
     generation += 1;
     contextRevision += 1;
     context = null;
+    input.invalidateTrayScope?.();
     input.setInboxAttention?.(null);
+    input.setTrayPresentation?.({ status: "signed_out" });
+    input.setTrayContext?.(null);
     for (const attempt of pending.values()) {
       attempt.cancel();
     }
@@ -77,7 +83,7 @@ export function createPilotNotifications(input: {
   };
   const currentAccount = async (userId: string, epoch: number) =>
     (await input.auth.session()).user?.id === userId && epoch === generation;
-  const createApi = (reference: DesktopNotificationReference) =>
+  const createApi = (scope: { organizationId: string }) =>
     createInboxApi(
       createOpenMeldApiClient({
         baseUrl: input.webOrigin,
@@ -87,8 +93,7 @@ export function createPilotNotifications(input: {
             headers: new Headers({
               origin: DESKTOP_APP_ORIGIN,
               ...Object.fromEntries(new Headers(init?.headers)),
-              [OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID]:
-                reference.organizationId,
+              [OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID]: scope.organizationId,
               [input.installed
                 ? DESKTOP_CONTRACT_HEADER
                 : DESKTOP_WEB_BUILD_HEADER]: input.installed
@@ -224,7 +229,133 @@ export function createPilotNotifications(input: {
       }
     });
   };
+  const noCandidateStatus = (
+    next: NonNullable<DesktopNotificationContext>
+  ): Exclude<DesktopTrayPresentation, { status: "ready" }>["status"] => {
+    if (!next.latestUnreadStatus || next.latestUnreadStatus === "loading") {
+      return "loading";
+    }
+    if (next.latestUnreadStatus === "unavailable") {
+      return "unavailable";
+    }
+    if (
+      next.unreadCountStatus === "loading" ||
+      (!next.unreadCountStatus && next.unreadCount == null)
+    ) {
+      return "loading";
+    }
+    if (next.unreadCountStatus === "unavailable") {
+      return "unavailable";
+    }
+    return next.unreadCount && next.unreadCount > 0
+      ? "no_unread_messages"
+      : "empty";
+  };
+  const trayContextChanged = async (
+    next: NonNullable<DesktopNotificationContext>,
+    epoch: number
+  ) =>
+    context !== next ||
+    generation !== epoch ||
+    !(await currentAccount(next.userId, epoch));
+  const assertInboxOrganization = (
+    actualOrganizationId: string,
+    expectedOrganizationId: string
+  ) => {
+    if (actualOrganizationId !== expectedOrganizationId) {
+      throw new Error("Inbox preview organization changed.");
+    }
+  };
+  const findLatestEligibleUnread = async (
+    next: NonNullable<DesktopNotificationContext>,
+    epoch: number
+  ): Promise<
+    | { item: InboxItem; reference: DesktopNotificationReference }
+    | "context_changed"
+    | "scan_incomplete"
+    | null
+  > => {
+    if (!next.organizationSlug) {
+      return "scan_incomplete";
+    }
+    const organizationSlug = next.organizationSlug;
+    const response = await createApi(next).list({
+      limit: 1,
+      notificationPreview: "true",
+      view: "unread",
+    });
+    if (await trayContextChanged(next, epoch)) {
+      return "context_changed";
+    }
+    assertInboxOrganization(response.organizationId, next.organizationId);
+    const item = response.items[0];
+    return item
+      ? {
+          item,
+          reference: {
+            itemId: item.id,
+            organizationId: next.organizationId,
+            organizationSlug,
+            userId: next.userId,
+          },
+        }
+      : null;
+  };
+  const refreshTrayPresentation = async (
+    next: NonNullable<DesktopNotificationContext>,
+    epoch: number
+  ) => {
+    if (!next.latestUnreadStatus || next.latestUnreadStatus !== "ready") {
+      input.setTrayPresentation?.({ status: noCandidateStatus(next) });
+      return;
+    }
+    try {
+      const candidate = await findLatestEligibleUnread(next, epoch);
+      if (candidate === "context_changed") {
+        return;
+      }
+      if (candidate === "scan_incomplete") {
+        input.setTrayPresentation?.({ status: "unavailable" });
+        return;
+      }
+      if (!candidate) {
+        input.setTrayPresentation?.({ status: noCandidateStatus(next) });
+        return;
+      }
+      input.setTrayPresentation?.({
+        item: {
+          contextLabel: candidate.item.contextLabel,
+          occurredAt: candidate.item.occurredAt,
+          preview: candidate.item.preview,
+          reference: candidate.reference,
+          title: candidate.item.title,
+        },
+        status: "ready",
+      });
+    } catch (error) {
+      if (context === next && generation === epoch) {
+        input.setTrayPresentation?.({ status: "unavailable" });
+      }
+      throw error;
+    }
+  };
+  const validateContextAccount = async (
+    next: NonNullable<DesktopNotificationContext>,
+    epoch: number
+  ) => {
+    try {
+      return await currentAccount(next.userId, epoch);
+    } catch (error) {
+      if (context === next && generation === epoch) {
+        input.setInboxAttention?.(null);
+      }
+      throw error;
+    }
+  };
   return {
+    activate(reference: DesktopNotificationReference) {
+      return activate(reference, generation);
+    },
     clear,
     refreshVisibility,
     async setContext(raw: unknown) {
@@ -241,28 +372,40 @@ export function createPilotNotifications(input: {
         contextRevision += 1;
       }
       if (scopeChanged) {
+        input.invalidateTrayScope?.();
         input.setInboxAttention?.(null);
+        input.setTrayPresentation?.({ status: "loading" });
+        input.setTrayContext?.(null);
       }
       context = next;
       refreshVisibility();
       const epoch = generation;
-      if (next?.attention == null) {
+      if (!next) {
+        input.setTrayPresentation?.({ status: "signed_out" });
         input.setInboxAttention?.(null);
+        input.setTrayContext?.(null);
         return;
       }
-      let accountMatches: boolean;
-      try {
-        accountMatches = await currentAccount(next.userId, epoch);
-      } catch (error) {
-        if (context === next && generation === epoch) {
-          input.setInboxAttention?.(null);
-        }
-        throw error;
-      }
+      const accountMatches = await validateContextAccount(next, epoch);
       if (context !== next || generation !== epoch) {
         return;
       }
-      input.setInboxAttention?.(accountMatches ? next.attention : null);
+      input.setInboxAttention?.(
+        accountMatches &&
+          next.unreadCountStatus !== "loading" &&
+          next.unreadCountStatus !== "unavailable"
+          ? (next.attention ?? null)
+          : null
+      );
+      if (!accountMatches) {
+        input.setTrayPresentation?.({ status: "signed_out" });
+        return;
+      }
+      input.setTrayContext?.({
+        ...(next.computer ? { computer: next.computer } : {}),
+        unreadCount: next.unreadCount,
+      });
+      await refreshTrayPresentation(next, epoch);
     },
     async show(raw: unknown): Promise<DesktopNotificationResult> {
       const request = desktopNotificationRequestSchema.parse(raw);
@@ -329,6 +472,31 @@ export function createPilotNotifications(input: {
     },
   };
 }
+
+export type DesktopTrayPresentation =
+  | {
+      status:
+        | "empty"
+        | "loading"
+        | "no_unread_messages"
+        | "signed_out"
+        | "unavailable";
+    }
+  | {
+      item: {
+        contextLabel: string | null;
+        occurredAt: string;
+        preview: string;
+        reference: DesktopNotificationReference;
+        title: string;
+      };
+      status: "ready";
+    };
+
+export type DesktopTrayContext = {
+  computer?: NonNullable<DesktopNotificationContext>["computer"];
+  unreadCount: number | null | undefined;
+};
 
 function sameNotificationScope(
   current: DesktopNotificationContext,
