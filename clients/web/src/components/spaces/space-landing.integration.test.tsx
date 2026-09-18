@@ -53,6 +53,10 @@ const composerDraftRead = vi.hoisted(() => ({
 	error: null as Error | null,
 	task: null as Promise<[]> | null,
 }));
+const composerDiscoveryWait = vi.hoisted(() => ({
+	task: null as Promise<void> | null,
+	onEntered: null as (() => void) | null,
+}));
 vi.mock("#/lib/spaces/composer-file-drafts", () => ({
 	isComposerFileDraftRetired: () => false,
 	readComposerFileDraftCleanup: () => [],
@@ -72,6 +76,31 @@ vi.mock("#/lib/spaces/composer-file-drafts", () => ({
 	saveComposerFileDraft: async () => undefined,
 	saveComposerFileDraftUpload: async () => undefined,
 }));
+vi.mock("./use-space-composer-session", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("./use-space-composer-session")>();
+	return {
+		...actual,
+		useSpaceComposerSession: (
+			input: Parameters<typeof actual.useSpaceComposerSession>[0]
+		) => {
+			const session = actual.useSpaceComposerSession(input);
+			return {
+				...session,
+				files: {
+					...session.files,
+					waitForDiscovery: async () => {
+						await session.files.waitForDiscovery();
+						if (composerDiscoveryWait.task) {
+							composerDiscoveryWait.onEntered?.();
+							await composerDiscoveryWait.task;
+						}
+					},
+				},
+			};
+		},
+	};
+});
 
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
@@ -829,6 +858,8 @@ describe("SpaceLanding", () => {
 	beforeEach(() => {
 		composerDraftRead.task = null;
 		composerDraftRead.error = null;
+		composerDiscoveryWait.task = null;
+		composerDiscoveryWait.onEntered = null;
 		vi.stubGlobal(
 			"IntersectionObserver",
 			class {
@@ -1207,6 +1238,115 @@ describe("SpaceLanding", () => {
 		expect(postNormalMessageMock).toHaveBeenCalledWith(
 			expect.objectContaining({ text: "Send once" })
 		);
+	});
+
+	it("does not release the next submission admission when a previous send settles", async () => {
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "text/plain",
+			name: "second.txt",
+		});
+		const postResolvers: Array<
+			(signal: ReturnType<typeof createTextSignal>) => void
+		> = [];
+		const postNormalMessageMock = vi.fn().mockImplementation(
+			() =>
+				new Promise<ReturnType<typeof createTextSignal>>((resolve) => {
+					postResolvers.push(resolve);
+				})
+		);
+		const stageComposerUploadMock = vi.fn().mockImplementation(async (input) =>
+			createSpaceComposerUpload({
+				id: input.uploadId,
+				mimeType: input.mimeType,
+				name: input.name,
+				sizeBytes: input.bytes.size,
+			})
+		);
+		const publishComposerUploadMock = vi.fn().mockResolvedValue(descriptor);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: stageComposerUploadMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		const editor = screen.getByRole("textbox", { name: "Message this space" });
+		const send = screen.getByRole("button", { name: "Send message" });
+		await setComposerValue(editor, "First message");
+		fireEvent.click(send);
+		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledTimes(1));
+
+		let releaseSecondDiscovery: () => void = () => undefined;
+		composerDiscoveryWait.task = new Promise<void>((resolve) => {
+			releaseSecondDiscovery = resolve;
+		});
+		let secondDiscoveryEntered: () => void = () => undefined;
+		const secondDiscoveryStarted = new Promise<void>((resolve) => {
+			secondDiscoveryEntered = resolve;
+		});
+		composerDiscoveryWait.onEntered = secondDiscoveryEntered;
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["second"], "second.txt", { type: "text/plain" })],
+			},
+		});
+		await waitFor(() =>
+			expect(stageComposerUploadMock).toHaveBeenCalledTimes(1)
+		);
+		await setComposerValue(editor, "Second message");
+		fireEvent.click(send);
+		await secondDiscoveryStarted;
+		expect(postNormalMessageMock).toHaveBeenCalledTimes(1);
+
+		await act(async () => {
+			postResolvers[0]?.(
+				createTextSignal({ id: "signal-first", text: "First message" })
+			);
+			await Promise.resolve();
+		});
+		await waitFor(() =>
+			expect(
+				document.querySelector('[data-signal-id="signal-first"]')
+			).toBeTruthy()
+		);
+		fireEvent.click(send);
+		await act(async () => {
+			releaseSecondDiscovery();
+			await Promise.resolve();
+		});
+
+		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledTimes(2));
+		expect(
+			screen.getAllByText("Second message", { selector: "p" })
+		).toHaveLength(1);
+		const [firstInput, secondInput] = postNormalMessageMock.mock.calls.map(
+			([input]) => input
+		);
+		expect(firstInput.text).toBe("First message");
+		expect(secondInput.text).toBe("Second message");
+		expect(secondInput.files).toEqual([
+			createSpaceMessageFileReference(descriptor),
+		]);
+		expect(secondInput.meta.clientMessageId).not.toBe(
+			firstInput.meta.clientMessageId
+		);
+		expect(
+			postNormalMessageMock.mock.calls.filter(
+				([input]) => input.text === "Second message"
+			)
+		).toHaveLength(1);
+		expect(publishComposerUploadMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("hard-refreshes Space members while a previous members query is waiting to retry", async () => {

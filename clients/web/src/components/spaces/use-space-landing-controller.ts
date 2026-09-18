@@ -2715,6 +2715,14 @@ export function useSpaceLandingController(input: {
 		if (!composerSession.send.begin()) {
 			return;
 		}
+		let localAdmissionReleased = false;
+		const releaseLocalAdmission = () => {
+			if (localAdmissionReleased) {
+				return;
+			}
+			localAdmissionReleased = true;
+			composerSession.send.finish();
+		};
 		if (!options?.retrySubmission) {
 			try {
 				await composerFilesController.waitForDiscovery();
@@ -2724,7 +2732,7 @@ export function useSpaceLandingController(input: {
 						? error.message
 						: "Couldn't restore your attachment drafts. Retry to continue.";
 				setComposerErrorMessage(message);
-				composerSession.send.finish();
+				releaseLocalAdmission();
 				throwSpaceSendFailureWhenRequested({
 					error: error instanceof Error ? error : new Error(message),
 					postedMessage: false,
@@ -2745,7 +2753,7 @@ export function useSpaceLandingController(input: {
 		});
 		if (sendAttempt.status !== "ready" && !options?.retrySubmission) {
 			setComposerErrorMessage(sendAttempt.errorMessage);
-			composerSession.send.finish();
+			releaseLocalAdmission();
 			throwSpaceSendFailureWhenRequested({
 				error: new Error(
 					sendAttempt.errorMessage ??
@@ -2806,7 +2814,7 @@ export function useSpaceLandingController(input: {
 				status: statusSnapshot,
 			});
 			options?.onMessageStaged?.(messageSeed.clientMessageId);
-			composerSession.send.finish();
+			releaseLocalAdmission();
 			await request.ready;
 			const sendBoundary = await resolveSpaceComposerSendBoundary({
 				ensureEntryConfirmed,
@@ -2868,7 +2876,7 @@ export function useSpaceLandingController(input: {
 			if (postedMessage) {
 				composerFilesController.finishSubmission(submittedFiles);
 			}
-			composerSession.send.finish();
+			releaseLocalAdmission();
 		}
 		async function handleSubmissionFailure(error: unknown) {
 			const sendError = unwrapPreparedSpaceMessageSendError(error);
