@@ -456,8 +456,13 @@ describe("Skill navigation with the real UnsavedChangesGuard", () => {
 	});
 
 	it("does not leave when additional input arrives during Save and leave", async () => {
-		const pending = Promise.withResolvers<{ skill: OrganizationSkill }>();
-		updateSkill.mockReturnValueOnce(pending.promise);
+		let completeSave: (value: { skill: OrganizationSkill }) => void = () => {
+			throw new Error("Save promise has not been initialized.");
+		};
+		const pending = new Promise<{ skill: OrganizationSkill }>((resolve) => {
+			completeSave = resolve;
+		});
+		updateSkill.mockReturnValueOnce(pending);
 		const { router } = renderRoutes("/o/acme/skills/skill-one", {
 			skills: [createOrganizationSkillFixture()],
 		});
@@ -474,7 +479,7 @@ describe("Skill navigation with the real UnsavedChangesGuard", () => {
 			target: { value: "newer-work" },
 		});
 		await act(() =>
-			pending.resolve({
+			completeSave({
 				skill: createOrganizationSkillFixture({
 					version: 2,
 					name: "submitted-work",
