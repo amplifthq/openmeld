@@ -97,7 +97,9 @@ export function AgentProfileWorkspaceDetail(input: {
 	) {
 		operationalRecoveryAction = (
 			<ProfileDetailsRecoveryActionButton
-				compact={projectedRecoveryAction.kind === "skip_interrupted_work"}
+				compact={isInterruptedWorkRecoveryActionKind(
+					projectedRecoveryAction.kind
+				)}
 				isPending={input.isRecoveryActionPending}
 				onRecoveryAction={input.onRecoveryAction}
 				recoveryAction={projectedRecoveryAction}
@@ -456,6 +458,14 @@ function AgentProfileCurrentActivity(input: {
 	);
 }
 
+// Both of these decide the fate of the interrupted Wake itself, so they belong
+// beside it rather than in the card footer that starts queued work.
+function isInterruptedWorkRecoveryActionKind(
+	kind: ProfileDetailsRecoveryAction["kind"]
+): boolean {
+	return kind === "skip_interrupted_work" || kind === "fork_interrupted_work";
+}
+
 function resolveActivityRecoveryActions(input: {
 	recoveryAction: ReactNode;
 	recoveryActionKind: ProfileDetailsRecoveryAction["kind"] | null;
@@ -463,7 +473,10 @@ function resolveActivityRecoveryActions(input: {
 	footerRecoveryAction: ReactNode;
 	interruptedRecoveryAction: ReactNode;
 } {
-	if (input.recoveryActionKind === "skip_interrupted_work") {
+	if (
+		input.recoveryActionKind &&
+		isInterruptedWorkRecoveryActionKind(input.recoveryActionKind)
+	) {
 		return {
 			footerRecoveryAction: null,
 			interruptedRecoveryAction: input.recoveryAction,

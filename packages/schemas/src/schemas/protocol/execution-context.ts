@@ -48,7 +48,12 @@ export const executionContextAssignmentSchema = z.strictObject({
       contextId: z.string().uuid(),
       sourceWakeId: reference,
       nativeConversationId: reference,
-      completedHistoryId: reference,
+      // Absent when the boundary is confirmed by read-only preparation instead
+      // of by a frozen checkpoint: the source may be a thread OpenMeld never
+      // finished a turn on, and only the harness can say where its settled
+      // history ends. Core still names the exact source context, Wake, native
+      // conversation, and workspace the fork must inherit.
+      completedHistoryId: reference.optional(),
       runtimeWorkspaceFingerprint: reference,
       workspace,
     })

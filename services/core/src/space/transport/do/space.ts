@@ -5471,6 +5471,9 @@ export class Space extends DurableObject<CoreBindings> {
         authoringPolicy: "user_authored",
         clientMessageId: continuationClientMessageId,
         context: continuationContext,
+        ...(input.contextSelection
+          ? { contextSelection: input.contextSelection }
+          : {}),
         messageEnvelope: {
           activationTargets: [input.targetProfileId],
           referenceTargets:
