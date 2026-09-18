@@ -2094,8 +2094,12 @@ recognized entries whose exact owners are all proven dead; unknown entries and
 unknown process identity fail closed. There is no live-owner timeout. Older
 single-entry readers cannot remove a nonempty multi-owner directory, including
 after their malformed-lock grace period. Read-only probes outside a lifecycle
-operation do not acquire this lock. Windows retains ordinary lifecycle behavior;
-the account-checked control path below is unavailable there.
+operation do not acquire this lock. On Windows, Task Scheduler control uses the
+same owner-scoped entries with the exact process creation FILETIME. PowerShell
+waits for an explicit stdin grant before any COM operation; failed attachment or
+EOF before grant has no Task Scheduler effect. Once granted, a surviving control
+process retains the fence until its exact owner exits. This is separate from a
+Wake Job: the independent OS-scheduled Service must survive the requesting CLI.
 
 ### Account-checked Service start and stop
 
@@ -2169,6 +2173,18 @@ the authenticated `account_control_capabilities` control request must also retur
 explicit support from the actual carrier. No status schema, lifecycle mutation,
 startup attempt, shutdown attempt, or compensation is part of the query. Unsupported
 or uncertain pairs return disabled controls. This capability is not Wakeability.
+
+Windows npm installations use the same account admission, durable cancellation,
+startup receipt, controlled drain, and exact-session Disconnect. Native process
+creation FILETIME replaces POSIX `ps` identity; a live process with unavailable
+identity remains fenced. The capability probe invokes the integrity-aligned
+active JS entry directly with the exact Node executable that Start registers,
+never the repairing launcher. Its Windows-only v2 response identifies both Node
+and the entry script; a v1 response from an older Windows CLI does not prove
+support. The old macOS v1 response is unchanged. A running carrier must also
+confirm the authenticated control capability. Existing Windows tasks must use
+the current SID's interactive token, ordinary privileges, and the expected
+single system-PowerShell action before any task mutation is permitted.
 
 ### Registration reconciliation
 

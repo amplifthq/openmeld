@@ -520,13 +520,16 @@ It rejects a different observed process owner; missing or failed drain evidence
 does not enter this completion path.
 
 The CLI prerequisite accepts `service start|stop --json --expected-account <id>`
-for an already connected POSIX Service. Its owning admission contract is in
+for an already connected macOS binary or Windows npm Service. Its owning admission contract is in
 [Local OpenMeld Service](../architecture/local-openmeld-service.md#account-checked-service-start-and-stop).
 This authorizes only existing-Service Start/Stop. Main rejects missing, changed,
 unsupported or concurrent intent and preserves explicit CLI refusal or uncertainty.
 `service control-capabilities --json` is a separate read-only query; it does not
 extend the established strict status response. Version strings are not capability
-evidence. Old, npm, non-macOS and unverifiable pairs omit usable controls.
+evidence. Old or unverifiable pairs omit usable controls. Windows capability
+requires the exact Node executable and verified active JS entry, plus explicit
+support from an already running carrier; it never infers support from an npm
+version or a successful unguarded Service command.
 
 ## Cloud transport and compatibility
 

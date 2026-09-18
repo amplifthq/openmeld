@@ -46,6 +46,16 @@ through Final Candidate; deferring publication metadata does not skip packaged
 CLI/Service build verification.
 The explicit-device Forget route already uses Core account authorization.
 
+Windows account-checked Service control adds a local-only
+`account-checked-service-control-v2` capability response identifying the native
+Node executable and verified active JS entry. The macOS v1 response remains
+byte-shape compatible. Old Windows v1 responders are not accepted as support;
+unknown process identities and unknown lock entries retain a fail-closed fence.
+Prepare, Wake, Space actions, Service status, trace, and cloud transport schemas
+are unchanged. The CLI/Service update must precede Windows Desktop activation;
+no cloud execution epoch increase is required to discover this new local
+capability. Release metadata is stamped only in the authorized release lane.
+
 `desktop-updater.ts` owns main/renderer update snapshots, action names and the
 request-scoped restart preparation reply. Existing trusted-window authorization
 applies before every updater IPC call. Renderer replies contain only the main
