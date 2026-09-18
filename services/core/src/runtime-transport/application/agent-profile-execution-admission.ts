@@ -12,6 +12,7 @@ import type {
   RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse,
   RuntimeTransportAgentProfileExecutionTargetMutationReleaseResponse,
   RuntimeTransportAgentProfileOperationalContextsResponse,
+  RuntimeTransportAgentProfileWorkContinuationAuthorizeResponse,
   RuntimeTransportAgentProfileWorkRecoveryReadResponse,
 } from "@openmeld/schemas/types";
 import {
@@ -1762,6 +1763,22 @@ export async function markRuntimeCoordinatorAgentProfileWorkUsageAvailable(input
   });
 }
 
+/**
+ * What authorizing a continuation tells its caller.
+ *
+ * `interruptedExecution` is the Coordinator's own stop target for the work the
+ * continuation replaces. It is internal control state, so the caller must act
+ * on it and then answer the public RPC with the contract's fields alone; the
+ * shared authorize response is a strict object that carries only `status`.
+ */
+export type RuntimeCoordinatorAgentProfileWorkContinuationAuthorization = {
+  interruptedExecution?: {
+    dispatchId: string;
+    runtimeCoordinatorExecutionId: string;
+  } | null;
+  status: RuntimeTransportAgentProfileWorkContinuationAuthorizeResponse["status"];
+};
+
 export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(input: {
   continuationClientMessageId: string;
   currentAgentControllerRef: string;
@@ -1774,13 +1791,7 @@ export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(in
   ownerUserId: string;
   storage: ExecutionAdmissionStorage;
   targetProfileId: string;
-}): Promise<{
-  interruptedExecution?: {
-    dispatchId: string;
-    runtimeCoordinatorExecutionId: string;
-  } | null;
-  status: "authorized" | "needs_attention" | "not_pending" | "unavailable";
-}> {
+}): Promise<RuntimeCoordinatorAgentProfileWorkContinuationAuthorization> {
   const storageKey = buildExecutionAdmissionStorageKey(input.targetProfileId);
   const readyIndex = await ensureExecutionIndexReady({
     nowMs: input.nowMs,

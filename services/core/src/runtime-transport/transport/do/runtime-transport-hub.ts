@@ -1931,8 +1931,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         });
       }
     }
+    // The stop target is Coordinator control state, not part of the public
+    // answer. Returning the whole internal result would fail this strict
+    // contract after the authorization has already been committed.
     return runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema.parse(
-      response
+      { status: response.status }
     );
   }
 
