@@ -403,12 +403,44 @@ the production feed. Renderer IPC accepts only check, download, and restart
 actions, never an origin, file path, or installer arguments.
 
 Desktop Settings places Updates after Privacy & Safety in the Personal group.
-The page always identifies the installed Desktop version from Main's existing
-`currentVersion`, then presents the changing check, target version, download
-progress, restart, or failure state separately. A downloaded version remains an
-available version until restart completes; the renderer never claims that a
-download is installed. The compact update notice reuses the same status and
-action without inheriting the full Settings page heading or version rows.
+The outer Settings control and inner Updates item consume the same native-derived
+attention policy and existing unread-blue indicator. Opening Settings, viewing
+Updates, or choosing Later does not acknowledge installation or clear attention.
+Checking and check errors retain attention only when Main still reports a target
+version. Idle, current, unavailable, preparation, installation, and terminal
+installation errors do not show an ordinary pending-update dot. These indicators
+are independent of Inbox counts and do not appear without a Desktop bridge.
+
+Updates is status-first: the result and explanation are on the left, one existing
+primary Button (`variant="default"`) is on the right, and `currentVersion` remains
+secondary information. A container query stacks the action below the result in a
+narrow pane. The corner Surface uses an unread-blue Updates heading, a muted
+keyboard-accessible Later action at top right, and a full-content-width primary
+button. It never takes focus from ongoing work. Both layouts consume
+`desktopUpdaterPresentation`; product policy stays outside `packages/ui`.
+
+An unknown snapshot is not an up-to-date result. An initial bridge read failure
+keeps the existing safety freeze and explains native Quit/reopen recovery; a
+newer native event supersedes a late initial answer or failure. Progress is
+indeterminate when Main has no percentage, and 100% while downloading does not
+authorize restart. Only native downloaded state offers Restart to update.
+Check, download, and restart errors offer their corresponding native action;
+terminal installation errors never offer a renderer action. Rejected IPC calls
+show a transport failure without manufacturing native success.
+
+Later dismisses only a meaningful version/phase/error-stage identity for the
+mounted renderer session. Progress ticks, repeated checks, and retries through
+an already dismissed identity do not create a notice loop. A different version,
+verified completion, or a new error stage can surface again. While the actual
+Updates section is mounted, ordinary corner notices are hidden without being
+dismissed. Required preparation, installation, terminal-error, and initial-read
+failure guidance is never suppressed by that visibility rule. No new polling,
+automatic checking on Settings mount, or persisted update authority is added.
+
+The isolated component fixture and repeatable visual checks live in
+`clients/web/tests/desktop-updater-visual/`. Its updater bridge is synthetic and
+never contacts a feed or installs anything. Component screenshots and native
+controller tests are not signed-package A-to-B acceptance.
 
 Launch and six-hour checks run automatically. Both `autoDownload` and `autoInstallOnAppQuit` are
 explicitly false. Download requires consent; after checksum verification the
