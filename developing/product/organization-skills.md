@@ -337,7 +337,9 @@ Internal navigation with unsaved changes opens:
 - actions: **Cancel**, **Discard changes**, **Save and leave**
 
 **Save and leave** awaits a successful Save before proceeding. A failure, or
-additional input made while that Save is in flight, keeps the user on the page.
+additional unsaved content remaining after that Save, keeps the user on the page.
+Leave safety compares the settled draft with its accepted baseline, not the
+number of editor callbacks; unchanged or reverted input does not prevent leaving.
 A successful submission with newer unsaved changes is not a Save failure: the
 dialog confirms that the previous changes were saved and asks the user to save
 again before leaving. The next Save uses the newly accepted baseline. Actual

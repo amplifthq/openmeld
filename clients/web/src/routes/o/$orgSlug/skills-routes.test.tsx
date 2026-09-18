@@ -455,7 +455,11 @@ describe("Skill navigation with the real UnsavedChangesGuard", () => {
 		});
 	});
 
-	it("reports a saved submission with newer edits and leaves after saving those edits", async () => {
+	it.each([
+		"newer",
+		"unchanged",
+		"reverted",
+	] as const)("classifies successful Save and leave with %s queued input", async (queuedInput) => {
 		let completeSave: (value: { skill: OrganizationSkill }) => void = () => {
 			throw new Error("Save promise has not been initialized.");
 		};
@@ -474,10 +478,17 @@ describe("Skill navigation with the real UnsavedChangesGuard", () => {
 			await screen.findByRole("button", { name: "Save and leave" })
 		);
 		await waitFor(() => expect(updateSkill).toHaveBeenCalledTimes(1));
-		// Simulate an editor callback queued before the modal disabled its controls.
+		// Simulate editor callbacks queued before the modal disabled its controls.
 		fireEvent.change(screen.getByLabelText("Name"), {
-			target: { value: "newer-work" },
+			target: {
+				value: queuedInput === "unchanged" ? "submitted-work" : "newer-work",
+			},
 		});
+		if (queuedInput === "reverted") {
+			fireEvent.change(screen.getByLabelText("Name"), {
+				target: { value: "submitted-work" },
+			});
+		}
 		await act(() =>
 			completeSave({
 				skill: createOrganizationSkillFixture({
@@ -486,6 +497,13 @@ describe("Skill navigation with the real UnsavedChangesGuard", () => {
 				}),
 			})
 		);
+		if (queuedInput !== "newer") {
+			await waitFor(() =>
+				expect(router.state.location.pathname).toBe("/o/acme/skills")
+			);
+			expect(updateSkill).toHaveBeenCalledTimes(1);
+			return;
+		}
 		await screen.findByText(
 			"Your previous changes were saved, but you have newer unsaved changes. Save again before leaving."
 		);

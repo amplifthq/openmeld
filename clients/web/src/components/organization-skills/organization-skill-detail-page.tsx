@@ -31,7 +31,13 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type SetStateAction, useEffect, useRef, useState } from "react";
+import {
+	type SetStateAction,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-navigation";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
 import {
@@ -158,11 +164,20 @@ function OrganizationSkillEditor(input: {
 		bundle: input.skill.bundle,
 		contentGeneration: 0,
 	}));
-	const editRevision = useRef(0);
+	// Event callbacks and Save settlement must see the same draft even before
+	// React commits the next render. Keep every draft transition on this path.
+	const latestDraft = useRef(draft);
+	const updateDraft = useCallback(
+		(update: (current: typeof draft) => typeof draft) => {
+			const next = update(latestDraft.current);
+			latestDraft.current = next;
+			setDraft(next);
+		},
+		[]
+	);
 	const bundle = draft.bundle;
 	const setBundle = (update: SetStateAction<OrganizationSkillBundle>) => {
-		editRevision.current += 1;
-		setDraft((current) => ({
+		updateDraft((current) => ({
 			...current,
 			bundle: typeof update === "function" ? update(current.bundle) : update,
 		}));
@@ -209,7 +224,7 @@ function OrganizationSkillEditor(input: {
 			setErrorMessage(null);
 		},
 		onSuccess: async (response, submitted) => {
-			setDraft((current) => {
+			updateDraft((current) => {
 				const adoptSavedContent =
 					canonicalBundle(current.bundle) === canonicalBundle(submitted.bundle);
 				return {
@@ -228,7 +243,7 @@ function OrganizationSkillEditor(input: {
 		if (saveMutation.isPending) {
 			return;
 		}
-		setDraft((current) => {
+		updateDraft((current) => {
 			if (
 				input.skill.version <= current.baseline.version ||
 				canonicalBundle(current.bundle) !==
@@ -242,7 +257,7 @@ function OrganizationSkillEditor(input: {
 				contentGeneration: current.contentGeneration + 1,
 			};
 		});
-	}, [input.skill, saveMutation.isPending]);
+	}, [input.skill, saveMutation.isPending, updateDraft]);
 	const enabledMutation = useMutation({
 		mutationFn: async (enabled: boolean) =>
 			await setCurrentOrganizationSkillEnabled({
@@ -297,12 +312,13 @@ function OrganizationSkillEditor(input: {
 		) {
 			return false;
 		}
-		const submittedRevision = editRevision.current;
 		try {
-			await saveMutation.mutateAsync(draft);
-			// A queued editor change is not part of the completed Save. In
-			// particular, Save and leave must not discard such newer input.
-			return editRevision.current === submittedRevision
+			await saveMutation.mutateAsync(latestDraft.current);
+			// Only remaining content blocks leaving: identical callbacks or an
+			// edit reverted during Save are not newer unsaved work.
+			const current = latestDraft.current;
+			return canonicalBundle(current.bundle) ===
+				canonicalBundle(current.baseline.bundle)
 				? true
 				: "saved-with-unsaved-changes";
 		} catch {
