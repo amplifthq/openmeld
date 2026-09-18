@@ -2,6 +2,16 @@
 
 ## Attention feed and frozen selections
 
+Typed Computer connection and Desktop update events have account scope in the
+same Inbox table (`organization_id IS NULL`), never an arbitrary Organization
+or one copy per Organization. Authorized Organization views may include the
+current account's items; read and Dismiss target the same canonical id. Other
+Organizations' private records never enter that view. Version 9 source-target
+receivers opt in; older HTTP and RPC receivers retain their Organization-only
+shape and cannot accidentally mutate account records. Computer access also
+rechecks current device ownership and forgetting. Device sources do not enqueue
+email merely because a connection action has yellow priority.
+
 The canonical attention feed is `GET /v1/inbox/feed`. All, Mentions, Needs action
 and Needs review combine independently with `unreadOnly` and `agentsOnly`.
 Mentions includes structured Human mentions and current personal-Agent mentions

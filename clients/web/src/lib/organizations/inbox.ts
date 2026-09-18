@@ -1,5 +1,6 @@
 import {
 	createInboxApi,
+	isInboxItemInOrganizationScope,
 	type StructuredApiClientFailure,
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
@@ -102,7 +103,9 @@ export async function getCurrentInboxItem(input: {
 			itemId: input.itemId,
 			signal: input.signal,
 		});
-		assertOrganizationMatch(response.item.organizationId, input.organizationId);
+		if (!isInboxItemInOrganizationScope(response.item, input.organizationId)) {
+			throw new Error("Inbox response organization mismatch.");
+		}
 		return response;
 	});
 }
@@ -207,7 +210,9 @@ export async function markCurrentInboxItemRead(input: {
 			itemId: input.itemId,
 			read: input.read,
 		});
-		assertOrganizationMatch(response.item.organizationId, input.organizationId);
+		if (!isInboxItemInOrganizationScope(response.item, input.organizationId)) {
+			throw new Error("Inbox response organization mismatch.");
+		}
 		return response;
 	});
 }

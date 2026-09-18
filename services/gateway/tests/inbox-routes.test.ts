@@ -76,6 +76,24 @@ const HUMAN_MENTION_ITEM = {
 };
 
 describe("Inbox routes", () => {
+  it.each([
+    "7",
+    "8",
+    "9",
+  ])("opts version %s into account items only when all its readers support device scope", async (version) => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      new Request("http://local/v1/inbox", {
+        headers: { "x-openmeld-inbox-source-target-version": version },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(coreRpc.listInboxItems).toHaveBeenCalledWith(
+      expect.objectContaining({ includeAccountItems: version === "9" })
+    );
+  });
   it("forwards server feed filters and frozen scopes without accepting client-selected recipients", async () => {
     const { coreRpc, env } = makeEnv();
     const response = await app.fetch(

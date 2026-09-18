@@ -152,6 +152,7 @@ export const createInboxApi: CreateInboxApi = (
     return await client.requestJson({
       ...requestOptions(input),
       invalidMessage: "invalid Inbox dismiss response",
+      headers: inboxSourceTargetVersionHeaders(),
       method: "PUT",
       operation: "inbox.item.dismiss",
       schema: dismissInboxItemResponseSchema,
@@ -212,6 +213,7 @@ export const createInboxApi: CreateInboxApi = (
       ...requestOptions(input),
       invalidMessage: "invalid Inbox summary response",
       headers: {
+        ...inboxSourceTargetVersionHeaders(),
         [OPENMELD_HEADER_INBOX_SUMMARY_VERSION]: OPENMELD_INBOX_SUMMARY_VERSION,
       },
       method: "GET",
@@ -289,6 +291,7 @@ export const createInboxApi: CreateInboxApi = (
       method: "GET",
       operation: "inbox.space.summary",
       headers: {
+        ...inboxSourceTargetVersionHeaders(),
         [OPENMELD_HEADER_INBOX_SUMMARY_VERSION]: OPENMELD_INBOX_SUMMARY_VERSION,
       },
       schema: spaceInboxSummaryResponseSchema,

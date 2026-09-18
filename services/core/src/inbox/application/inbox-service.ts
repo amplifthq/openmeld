@@ -165,7 +165,7 @@ export type InboxItemRow = {
   importance: InboxItem["importance"];
   kind: InboxItem["kind"];
   occurred_at_ms: number;
-  organization_id: string;
+  organization_id: string | null;
   preview: string;
   read_at_ms: number | null;
   recipient_user_id: string;
@@ -195,10 +195,12 @@ export class InboxServiceError extends Error {
 
 export function createInboxService(input: {
   db: D1Database;
+  includeAccountItems?: boolean;
   nowMs?: () => number;
   canManageOrganization?: boolean;
 }) {
   const nowMs = input.nowMs ?? Date.now;
+  const ITEM_SCOPE_FILTER = inboxItemScopeSql(input.includeAccountItems);
   const CURRENT_SOURCE_ACCESS_FILTER = buildCurrentInboxSourceAccessSql(
     "inbox_items",
     input.canManageOrganization === true
@@ -454,7 +456,7 @@ export function createInboxService(input: {
                 cleared_at_ms = coalesce(cleared_at_ms, ?),
                 updated_at_ms = max(updated_at_ms, ?)
               WHERE id = ?
-                AND organization_id = ?
+                AND ${ITEM_SCOPE_FILTER}
                 AND recipient_user_id = ?
                 AND cleared_at_ms IS NULL
                 AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -484,7 +486,7 @@ export function createInboxService(input: {
                   SELECT 1
                   FROM inbox_items
                   WHERE id = ?
-                    AND organization_id = ?
+                    AND ${ITEM_SCOPE_FILTER}
                     AND recipient_user_id = ?
                     AND cleared_at_ms IS NOT NULL
                     AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -506,6 +508,7 @@ export function createInboxService(input: {
       if (changedRows(itemResult) === 0) {
         const existing = await hasAccessibleInboxItem({
           canManageOrganization: input.canManageOrganization,
+          includeAccountItems: input.includeAccountItems,
           db: input.db,
           itemId: dismissInput.itemId,
           organizationId: dismissInput.organizationId,
@@ -532,6 +535,7 @@ export function createInboxService(input: {
       requireIdentifier(getInput.recipientUserId, "recipientUserId");
       const item = await readInboxItem({
         canManageOrganization: input.canManageOrganization,
+        includeAccountItems: input.includeAccountItems,
         db: input.db,
         itemId: getInput.itemId,
         organizationId: getInput.organizationId,
@@ -589,7 +593,7 @@ export function createInboxService(input: {
       const limit = normalizeLimit(listInput.limit);
       const cursor = decodeCursor(listInput.cursor);
       const filters = [
-        "organization_id = ?",
+        ITEM_SCOPE_FILTER,
         "recipient_user_id = ?",
         "cleared_at_ms IS NULL",
         CURRENT_SOURCE_ACCESS_FILTER,
@@ -748,7 +752,7 @@ export function createInboxService(input: {
               END,
               updated_at_ms = max(updated_at_ms, ?)
             WHERE id = ?
-              AND organization_id = ?
+              AND ${ITEM_SCOPE_FILTER}
               AND recipient_user_id = ?
               AND cleared_at_ms IS NULL
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -766,6 +770,7 @@ export function createInboxService(input: {
       if (changedRows(result) === 0) {
         const existing = await readInboxItem({
           canManageOrganization: input.canManageOrganization,
+          includeAccountItems: input.includeAccountItems,
           db: input.db,
           itemId: markInput.itemId,
           organizationId: markInput.organizationId,
@@ -782,6 +787,7 @@ export function createInboxService(input: {
       }
       const item = await readInboxItem({
         canManageOrganization: input.canManageOrganization,
+        includeAccountItems: input.includeAccountItems,
         db: input.db,
         itemId: markInput.itemId,
         organizationId: markInput.organizationId,
@@ -816,7 +822,7 @@ export function createInboxService(input: {
               coalesce(sum(CASE WHEN ${ORDINARY_UNREAD_ATTENTION_FILTER}
                 THEN 1 ELSE 0 END), 0) AS ordinary_unread_count
             FROM inbox_items
-            WHERE organization_id = ?
+            WHERE ${ITEM_SCOPE_FILTER}
               AND recipient_user_id = ?
               AND cleared_at_ms IS NULL
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -1102,6 +1108,7 @@ async function markSpaceInboxReadThrough(input: {
 
 async function hasAccessibleInboxItem(input: {
   canManageOrganization?: boolean;
+  includeAccountItems?: boolean;
   db: D1Database;
   itemId: string;
   organizationId: string;
@@ -1117,7 +1124,7 @@ async function hasAccessibleInboxItem(input: {
         SELECT id
         FROM inbox_items
         WHERE id = ?
-          AND organization_id = ?
+          AND ${inboxItemScopeSql(input.includeAccountItems)}
           AND recipient_user_id = ?
           AND ${CURRENT_SOURCE_ACCESS_FILTER}
         LIMIT 1
@@ -1130,6 +1137,7 @@ async function hasAccessibleInboxItem(input: {
 
 async function readInboxItem(input: {
   canManageOrganization?: boolean;
+  includeAccountItems?: boolean;
   db: D1Database;
   itemId: string;
   organizationId: string;
@@ -1161,7 +1169,7 @@ async function readInboxItem(input: {
           updated_at_ms
         FROM inbox_items
         WHERE id = ?
-          AND organization_id = ?
+          AND ${inboxItemScopeSql(input.includeAccountItems)}
           AND recipient_user_id = ?
           AND cleared_at_ms IS NULL
           AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -1171,6 +1179,12 @@ async function readInboxItem(input: {
     .bind(input.itemId, input.organizationId, input.recipientUserId)
     .first<InboxItemRow>();
   return row ? mapInboxItemRow(row) : null;
+}
+
+function inboxItemScopeSql(includeAccountItems = false): string {
+  return includeAccountItems
+    ? "(organization_id = ? OR organization_id IS NULL)"
+    : "organization_id = ?";
 }
 
 export function mapInboxItemRow(row: InboxItemRow): InboxItem {

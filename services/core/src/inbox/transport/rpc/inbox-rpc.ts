@@ -135,7 +135,11 @@ export async function rpcDismissInboxItem(
   input: DismissInboxItemRpcInput
 ): Promise<DismissInboxItemResponse> {
   const request = parseRequest(dismissInboxItemRpcInputSchema, input);
-  const prepared = await prepareRequest(env, request.context);
+  const prepared = await prepareRequest(
+    env,
+    request.context,
+    request.includeAccountItems
+  );
   return parseResponse(
     dismissInboxItemResponseSchema,
     await runService(() =>
@@ -153,7 +157,11 @@ export async function rpcListInboxItems(
   input: ListInboxItemsRpcInput
 ): Promise<ListInboxItemsResponse> {
   const request = parseRequest(listInboxItemsRpcInputSchema, input);
-  const prepared = await prepareRequest(env, request.context);
+  const prepared = await prepareRequest(
+    env,
+    request.context,
+    request.includeAccountItems
+  );
   await reconcileInvitationInbox(prepared.db, prepared.organizationId);
   return parseResponse(
     listInboxItemsResponseSchema,
@@ -189,7 +197,11 @@ export async function rpcGetInboxItem(
   input: GetInboxItemRpcInput
 ): Promise<GetInboxItemResponse> {
   const request = parseRequest(getInboxItemRpcInputSchema, input);
-  const prepared = await prepareRequest(env, request.context);
+  const prepared = await prepareRequest(
+    env,
+    request.context,
+    request.includeAccountItems
+  );
   await reconcileInvitationInbox(prepared.db, prepared.organizationId);
   return parseResponse(
     getInboxItemResponseSchema,
@@ -216,7 +228,11 @@ export async function rpcGetInboxSummary(
   input: GetInboxSummaryRpcInput
 ): Promise<InboxSummaryResponse> {
   const request = parseRequest(getInboxSummaryRpcInputSchema, input);
-  const prepared = await prepareRequest(env, request.context);
+  const prepared = await prepareRequest(
+    env,
+    request.context,
+    request.includeAccountItems
+  );
   await reconcileInvitationInbox(prepared.db, prepared.organizationId);
   return parseResponse(
     inboxSummaryResponseSchema,
@@ -333,7 +349,11 @@ export async function rpcMarkInboxItemRead(
   input: MarkInboxItemReadRpcInput
 ): Promise<MarkInboxItemReadResponse> {
   const request = parseRequest(markInboxItemReadRpcInputSchema, input);
-  const prepared = await prepareRequest(env, request.context);
+  const prepared = await prepareRequest(
+    env,
+    request.context,
+    request.includeAccountItems
+  );
   return parseResponse(
     markInboxItemReadResponseSchema,
     await runService(() =>
@@ -476,7 +496,8 @@ function projectReplyToRecipientForReceiver(
 
 async function prepareRequest(
   env: CoreBindings,
-  context: ListInboxItemsRpcInput["context"]
+  context: ListInboxItemsRpcInput["context"],
+  includeAccountItems = false
 ) {
   const membership = await resolveActiveOrganizationMembership({
     context,
@@ -504,6 +525,7 @@ async function prepareRequest(
       membership.role === "owner" || membership.role === "admin",
     service: createInboxService({
       db,
+      includeAccountItems,
       canManageOrganization:
         membership.role === "owner" || membership.role === "admin",
     }),

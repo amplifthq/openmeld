@@ -293,6 +293,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
         await c.var.coreRpc.listInboxItems({
           includeReplyToRecipient: true,
           includeSourceFacts: true,
+          includeAccountItems: resolveInboxSourceTargetVersion(c) === "current",
           ...query.data,
           context: buildCoreRpcContext(c),
         }),
@@ -322,6 +323,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.getInboxSummary({
+          includeAccountItems: resolveInboxSourceTargetVersion(c) === "current",
           context: buildCoreRpcContext(c),
           ...query.data,
         }),
@@ -365,6 +367,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
         await c.var.coreRpc.getInboxItem({
           includeReplyToRecipient: true,
           includeSourceFacts: true,
+          includeAccountItems: resolveInboxSourceTargetVersion(c) === "current",
           context: buildCoreRpcContext(c),
           itemId: params.data.itemId,
         }),
@@ -395,6 +398,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.dismissInboxItem({
+          includeAccountItems: resolveInboxSourceTargetVersion(c) === "current",
           context: buildCoreRpcContext(c),
           itemId: params.data.itemId,
         }),
@@ -429,6 +433,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
         await c.var.coreRpc.markInboxItemRead({
           includeReplyToRecipient: true,
           includeSourceFacts: true,
+          includeAccountItems: resolveInboxSourceTargetVersion(c) === "current",
           ...body.data,
           context: buildCoreRpcContext(c),
           itemId: params.data.itemId,
@@ -558,6 +563,7 @@ function resolveInboxItemResponse(input: {
 type InboxItem = z.infer<typeof listInboxItemsResponseSchema>["items"][number];
 type InboxItemKindClientVersion = "current" | "legacy";
 type InboxSourceTargetClientVersion =
+  | "account_unaware"
   | "attention_unaware"
   | "reply_unaware"
   | "owner_unaware"
@@ -581,7 +587,10 @@ function projectInboxItemForClient(input: {
   if (kind === "space_mention" && input.itemKindVersion === "legacy") {
     kind = "space_reference";
   }
-  if (input.sourceTargetVersion === "current") {
+  if (
+    input.sourceTargetVersion === "current" ||
+    input.sourceTargetVersion === "account_unaware"
+  ) {
     return kind === input.item.kind ? input.item : { ...input.item, kind };
   }
   let sourceTarget: InboxItem["sourceTarget"] = input.item.sourceTarget;
@@ -653,6 +662,9 @@ function resolveInboxSourceTargetVersion(
   const version = c.req.header(OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION);
   if (version === OPENMELD_INBOX_SOURCE_TARGET_VERSION) {
     return "current";
+  }
+  if (version === "8") {
+    return "account_unaware";
   }
   if (version === "7") {
     return "attention_unaware";

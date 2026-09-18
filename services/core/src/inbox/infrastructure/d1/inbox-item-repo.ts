@@ -260,6 +260,8 @@ function readInboxTargetScope(
     case "organization_join_request":
     case "message_channel":
     case "organization_document":
+    case "computer_connection":
+    case "desktop_update":
     case "settings":
       return null;
     default:

@@ -389,7 +389,10 @@ function InboxKindIcon(input: { item: InboxItem }): ReactNode {
 				<CheckCircleIcon aria-hidden="true" className="size-4" />
 			);
 		case "system_issue":
+		case "computer_connection":
 			return <WarningCircleIcon aria-hidden="true" className="size-4" />;
+		case "desktop_update":
+			return <CheckCircleIcon aria-hidden="true" className="size-4" />;
 		default:
 			return assertNever(input.item.kind);
 	}

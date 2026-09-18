@@ -1,5 +1,6 @@
 import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
+import { daemonServiceLaneSchema } from "../daemon/service-contract";
 import { slackMessagePermalinkSchema } from "../runtime/message-channel";
 
 export const INBOX_TITLE_MAX_CHARS = 160;
@@ -41,6 +42,7 @@ export const inboxRecipientReasonSchema = z.enum([
   "direct_message",
   "space_member",
   "agent_owner",
+  "device_owner",
 ]);
 const inboxAgentProfileIdsSchema = z.array(identifierSchema).max(100);
 
@@ -52,7 +54,7 @@ export const inboxSourceFactsSchema = z
     personalAgentProfileIds: inboxAgentProfileIdsSchema.optional(),
     mentionedAgentProfileIds: inboxAgentProfileIdsSchema.optional(),
     firstContactAgentProfileIds: inboxAgentProfileIdsSchema.optional(),
-    recipientReasons: z.array(inboxRecipientReasonSchema).min(1).max(6),
+    recipientReasons: z.array(inboxRecipientReasonSchema).min(1).max(7),
     requestCategory: z.enum(["action", "review"]).optional(),
   })
   .superRefine((facts, context) => {
@@ -105,6 +107,8 @@ export const inboxItemKindSchema = z.enum([
   "document_review",
   "organization_request",
   "system_issue",
+  "computer_connection",
+  "desktop_update",
 ]);
 const inboxItemWireKindSchema = z.union([
   inboxItemKindSchema,
@@ -121,6 +125,8 @@ export const inboxSourceKindSchema = z.enum([
   "organization_member_request",
   "agent_profile_work_recovery",
   "system_attention_event",
+  "computer_connection",
+  "desktop_update",
 ]);
 
 export const centerAgentAttentionImpactSchema = z.enum([
@@ -169,7 +175,28 @@ export const slackInboxSourceTargetSchema = z.strictObject({
   threadRootMessageId: identifierSchema,
 });
 
+export const computerInboxSourceTargetSchema = z.strictObject({
+  kind: z.literal("computer_connection"),
+  computerId: identifierSchema,
+  deviceId: identifierSchema,
+  incidentId: identifierSchema,
+  lane: daemonServiceLaneSchema,
+  state: z.enum(["disconnected", "restored", "deactivated"]),
+});
+
+export const desktopUpdateInboxSourceTargetSchema = z.strictObject({
+  kind: z.literal("desktop_update"),
+  installationId: identifierSchema,
+  lane: daemonServiceLaneSchema,
+  deviceName: z.string().trim().min(1).max(120),
+  version: z.string().trim().min(1).max(80),
+  platform: z.enum(["darwin", "win32", "linux"]),
+  state: z.enum(["available", "installed", "superseded"]),
+});
+
 export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
+  computerInboxSourceTargetSchema,
+  desktopUpdateInboxSourceTargetSchema,
   z.strictObject({
     kind: z.literal("organization_join_request"),
     requestId: identifierSchema,
@@ -220,7 +247,7 @@ export const inboxItemWireSchema = z
     importance: inboxImportanceSchema,
     kind: inboxItemWireKindSchema,
     occurredAt: isoDateTimeSchema,
-    organizationId: identifierSchema,
+    organizationId: identifierSchema.nullable(),
     preview: previewSchema,
     readAt: isoDateTimeSchema.nullable(),
     recipientUserId: identifierSchema,
@@ -231,6 +258,20 @@ export const inboxItemWireSchema = z
     updatedAt: isoDateTimeSchema,
   })
   .superRefine((item, context) => {
+    const accountTarget =
+      item.sourceTarget.kind === "computer_connection" ||
+      item.sourceTarget.kind === "desktop_update";
+    if (
+      (item.organizationId === null) !== accountTarget ||
+      (accountTarget && item.kind !== item.sourceTarget.kind)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Account Inbox scope is reserved for a matching typed device event.",
+        path: ["organizationId"],
+      });
+    }
     const validResolution =
       item.attention === "update"
         ? item.resolutionStatus === "not_applicable"
@@ -480,9 +521,11 @@ export const listInboxItemsRpcInputSchema = listInboxItemsQuerySchema.extend({
   context: openMeldRequestContextSchema,
   includeReplyToRecipient: z.boolean().optional(),
   includeSourceFacts: z.boolean().optional(),
+  includeAccountItems: z.boolean().optional(),
 });
 export const getInboxSummaryRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
+  includeAccountItems: z.boolean().optional(),
   presentation: inboxPresentationSchema.optional(),
 });
 export const getCenterAgentInboxSummaryRpcInputSchema = z.strictObject({
@@ -507,10 +550,12 @@ export const getInboxItemRpcInputSchema = inboxItemRouteParamsSchema.extend({
   context: openMeldRequestContextSchema,
   includeReplyToRecipient: z.boolean().optional(),
   includeSourceFacts: z.boolean().optional(),
+  includeAccountItems: z.boolean().optional(),
 });
 export const dismissInboxItemRpcInputSchema = inboxItemRouteParamsSchema.extend(
   {
     context: openMeldRequestContextSchema,
+    includeAccountItems: z.boolean().optional(),
   }
 );
 export const markInboxItemReadRpcInputSchema =
@@ -518,6 +563,7 @@ export const markInboxItemReadRpcInputSchema =
     context: openMeldRequestContextSchema,
     includeReplyToRecipient: z.boolean().optional(),
     includeSourceFacts: z.boolean().optional(),
+    includeAccountItems: z.boolean().optional(),
     itemId: identifierSchema,
   });
 export const markAllInboxItemsReadRpcInputSchema = z.strictObject({

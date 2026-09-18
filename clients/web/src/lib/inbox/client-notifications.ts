@@ -232,6 +232,7 @@ export async function showInboxNotification(input: {
 		| Promise<InboxNotificationDeliveryReadiness>;
 	onActivate: (item: InboxItem) => void;
 	organizationSlug?: string;
+	organizationId?: string;
 	userId: string;
 	viewingSourceSession: boolean;
 }): Promise<InboxNotificationDeliveryResult> {
@@ -672,12 +673,13 @@ async function deliverDesktopInboxNotification(
 	currentItem: InboxItem,
 	deliveryKey: string
 ): Promise<InboxNotificationDeliveryResult> {
-	if (!input.organizationSlug) {
+	const organizationId = currentItem.organizationId ?? input.organizationId;
+	if (!(input.organizationSlug && organizationId)) {
 		return { reason: "context_changed", status: "deferred" };
 	}
 	const result = await getDesktopPlatform()?.showNotification({
 		userId: input.userId,
-		organizationId: currentItem.organizationId,
+		organizationId,
 		organizationSlug: input.organizationSlug,
 		itemId: currentItem.id,
 		soundEnabled: readDesktopNotificationPreference(input.userId, "sound"),

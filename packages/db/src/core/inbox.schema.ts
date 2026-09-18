@@ -50,9 +50,9 @@ export const inboxItems = sqliteTable(
   "inbox_items",
   {
     id: text("id").primaryKey(),
-    organizationId: text("organization_id")
-      .notNull()
-      .references(() => organizations.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     recipientUserId: text("recipient_user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -75,6 +75,13 @@ export const inboxItems = sqliteTable(
     updatedAtMs: integer("updated_at_ms").notNull(),
   },
   (table) => [
+    uniqueIndex("inbox_items_account_source_unique")
+      .on(table.recipientUserId, table.sourceKind, table.sourceKey)
+      .where(sql`"organization_id" is null`),
+    check(
+      "inbox_items_account_scope_check",
+      sql`("organization_id" is not null and "source_kind" not in ('computer_connection', 'desktop_update')) or ("organization_id" is null and "source_kind" in ('computer_connection', 'desktop_update') and "kind" = "source_kind" and json_extract("source_target_json", '$.kind') = "source_kind")`
+    ),
     uniqueIndex("inbox_items_recipient_source_unique").on(
       table.organizationId,
       table.recipientUserId,
@@ -115,7 +122,7 @@ export const inboxItems = sqliteTable(
     ),
     check(
       "inbox_items_kind_check",
-      sql`"kind" in ('space_message', 'space_reference', 'space_mention', 'agent_reply', 'agent_interaction', 'wake_outcome', 'center_agent_update', 'center_agent_task', 'document_review', 'organization_request', 'system_issue')`
+      sql`"kind" in ('space_message', 'space_reference', 'space_mention', 'agent_reply', 'agent_interaction', 'wake_outcome', 'center_agent_update', 'center_agent_task', 'document_review', 'organization_request', 'system_issue', 'computer_connection', 'desktop_update')`
     ),
     check(
       "inbox_items_attention_check",
@@ -127,7 +134,7 @@ export const inboxItems = sqliteTable(
     ),
     check(
       "inbox_items_source_kind_check",
-      sql`"source_kind" in ('space_signal', 'runtime_coordinator_interaction', 'remote_agent_native_delivery', 'remote_agent_native_interaction', 'center_agent_task_event', 'organization_document_draft', 'organization_opportunity', 'organization_member_request', 'agent_profile_work_recovery', 'system_attention_event')`
+      sql`"source_kind" in ('space_signal', 'runtime_coordinator_interaction', 'remote_agent_native_delivery', 'remote_agent_native_interaction', 'center_agent_task_event', 'organization_document_draft', 'organization_opportunity', 'organization_member_request', 'agent_profile_work_recovery', 'system_attention_event', 'computer_connection', 'desktop_update')`
     ),
     check(
       "inbox_items_resolution_check",

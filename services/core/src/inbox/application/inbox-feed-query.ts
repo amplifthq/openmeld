@@ -28,7 +28,7 @@ export function inboxFeedCte(
     sql: `WITH source_rows AS (
       SELECT inbox_items.*, ${currentInboxSourceFactsSql("inbox_items")} AS current_source_facts
       FROM inbox_items
-      WHERE organization_id = ? AND recipient_user_id = ? AND cleared_at_ms IS NULL AND rowid <= ?
+      WHERE (organization_id = ? OR organization_id IS NULL) AND recipient_user_id = ? AND cleared_at_ms IS NULL AND rowid <= ?
         ${scope.snapshotId ? "AND EXISTS (SELECT 1 FROM inbox_feed_snapshot_members WHERE snapshot_id = ? AND item_id = inbox_items.id)" : ""}
         AND ${buildCurrentInboxSourceAccessSql("inbox_items", canManageOrganization)}
         AND ${INBOX_ATTENTION_PRESENTATION_FILTER}
