@@ -7132,6 +7132,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       authorizedContinuationClientMessageId: null,
       interruptedClientMessageId: "client-message-1",
       interruptedDispatchId: "dispatch-1",
+      // The computer never acknowledged that the interrupted attempt is gone,
+      // so replacement work has nothing to verify yet.
+      interruptedLocalAttempt: "awaiting_withdrawal",
       interruptedSourceSignalId: "signal-1",
       interruptedTargetWakeLifecycleId:
         buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity
@@ -10704,6 +10707,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       authorizedContinuationClientMessageId: null,
       interruptedClientMessageId: "client-message-1",
       interruptedDispatchId: "dispatch-1",
+      // The computer never acknowledged that the interrupted attempt is gone,
+      // so replacement work has nothing to verify yet.
+      interruptedLocalAttempt: "awaiting_withdrawal",
       interruptedSourceSignalId: "signal-1",
       interruptedTargetWakeLifecycleId:
         buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity
