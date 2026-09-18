@@ -17,6 +17,10 @@ const TARGET_CORE_TAG = "openmeld-release-1234567890abcdef";
 const TARGET_SHA = "a".repeat(40);
 const ARTIFACT_SHA = "b".repeat(64);
 const ARCHIVE_SHA = "c".repeat(64);
+const RETAINED_SERVICE_ARTIFACT_SIZE_RE =
+  /retained Service raw artifact size does not match/u;
+const WRONG_SELECTED_SERVICE_RE =
+  /selects Service 0\.2\.43, not target 0\.2\.42/u;
 const CURRENT_VERSION_ID = "11111111-1111-1111-1111-111111111111";
 const WRANGLER_RELEASE_STATE = JSON.parse(
   readFileSync(
@@ -127,6 +131,30 @@ test("skips the CLI binary channel at the published-record criterion", () => {
     reason:
       "the production manifest has 0.2.43 with required floor 0.2.40, the darwin-arm64 raw URL matches its recorded size, and the gzip archive hashes and reconstructs the recorded binary",
   });
+});
+
+test("skips only after the retained Service artifact is also verified", () => {
+  const input = completeBinaryInput();
+  input.targetServiceVersion = "0.2.42";
+  input.manifest.channels.stable.service = {
+    platforms: input.manifest.channels.stable.platforms,
+    version: "0.2.42",
+  };
+  input.serviceArtifactProbe = { ...input.artifactProbe };
+  input.serviceArchiveProbe = { ...input.archiveProbe };
+
+  assert.equal(decideCliBinaryStage(input).action, "SKIP");
+  input.serviceArtifactProbe.contentLength -= 1;
+  assert.match(
+    decideCliBinaryStage(input).reason,
+    RETAINED_SERVICE_ARTIFACT_SIZE_RE
+  );
+});
+
+test("fails when an immutable CLI selects the wrong Service version", () => {
+  const input = completeBinaryInput();
+  input.targetServiceVersion = "0.2.42";
+  assert.match(decideCliBinaryStage(input).reason, WRONG_SELECTED_SERVICE_RE);
 });
 
 test("fails before mutating immutable R2 artifacts when the version exists with the wrong required floor", () => {

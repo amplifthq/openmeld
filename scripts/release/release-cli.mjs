@@ -19,6 +19,8 @@ import {
 
 const DIRTY_PATH_PREVIEW_LIMIT = 24;
 const LINE_SPLIT_REGEX = /\r?\n/u;
+const CANONICAL_RELEASE_VERSION_PATTERN =
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
 
 export function parseGitStatusPorcelain(output) {
   return String(output)
@@ -287,7 +289,8 @@ export function assertCliReleaseVersionTarget(input = {}) {
   if (
     packageVersion === input.targetVersion &&
     manifestCliVersion === input.targetVersion &&
-    manifestServiceVersion === input.targetVersion
+    CANONICAL_RELEASE_VERSION_PATTERN.test(manifestServiceVersion) &&
+    compareSemverCore(manifestServiceVersion, input.targetVersion) <= 0
   ) {
     return;
   }

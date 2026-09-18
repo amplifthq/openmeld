@@ -27,7 +27,10 @@ Release only what changed.
 - A Web fix releases Web.
 - A Gateway fix releases Gateway.
 - A database migration plus Core change releases Database, then Core.
-- A CLI patch publishes CLI and updates its required Core projection.
+- A CLI patch publishes CLI and updates its required Core projection. When the
+  base-aware classifier proves no Service-owned input changed, the release may
+  retain the exact prior published Service; otherwise CLI and Service remain
+  coupled.
 - Any change to a file that feeds the packaged CLI or OpenMeld Service bundle,
   including the CLI's `src/model-catalog/offline-catalog.json` snapshot, is a
   local-component release even when no runtime behavior changes: stamp from a

@@ -511,7 +511,7 @@ test("the guarded local lane invokes the internal CLI publisher while both lease
   ]);
 });
 
-test("derives deploy scopes from affected deployable packages", () => {
+test("includes the CLI for an affected packaged Service dependency", () => {
   assert.deepEqual(
     resolveAutomaticReleaseScopes({
       affectedPackages: [
@@ -522,7 +522,7 @@ test("derives deploy scopes from affected deployable packages", () => {
       ],
       changedPaths: ["packages/api-client/src/index.ts"],
     }),
-    ["web", "gateway", "core"]
+    ["cli", "web", "gateway", "core"]
   );
 });
 

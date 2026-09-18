@@ -672,7 +672,11 @@ For an update, a handoff response says only that the update started in the
 background after the prepared replacement and durable job reached the operating
 system's update worker. It must not say updated, complete, or aligned. A terminal
 that remains attached may use those completion words only after the operation is
-`updated` and the exact target CLI and Service are observed. The user may close
+`updated` and the exact operation-scoped CLI and Service targets are observed.
+Older operations expose only one legacy target and readers apply it to both
+components. An eligible CLI-only release can explicitly retain an older healthy
+Service, so clients must not substitute the CLI target for a present Service
+target. The user may close
 the Terminal or Web Setup immediately after handoff. The worker waits for all
 accepted Wake work and durable result receipts, resumes after interruption or
 computer restart, verifies the replacement, and restores the previous verified
@@ -682,6 +686,13 @@ version change. Broken or ambiguous Service state remains an explicit repair.
 Core's update projection selects the job policy: `available` keeps admitting new
 Wake work while waiting for an idle switch; `required` stops new admission but
 still lets already accepted work finish safely.
+
+For npm installation or repair, the selected package root must identify the
+requested package name and version before its Service bundle can be prepared.
+An explicit CLI script path is not permission to relabel older package bytes as
+a newer Service. A mismatch fails actionably and leaves the current Service
+untouched. npm continues to source CLI and Service from the same actual package;
+the independent retained-Service selection is a managed-binary release feature.
 `openmeld uninstall` removes local OpenMeld data
 for this device as a whole, while `openmeld service uninstall` removes only the
 daemon registration and disposable Runtime state. The lane's stable local device

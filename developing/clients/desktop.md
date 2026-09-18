@@ -243,6 +243,17 @@ five-minute Setup wrapper.
 
 ### Computer connection
 
+Owner Computer cards offer browser update/reconnect handoff through the existing
+`openDesktopWeb` capability and shared Connect route builder. They carry the
+Organization, stable Computer ID, fresh-session intent and supported update
+action, never credentials or a new local lifecycle command. Unselected or
+unresolved targets stay in the existing selection flow. Instructions name the
+viewed Computer: opening a browser on this Mac does not select this Mac as the
+machine to repair. Browser authorization is independent of Desktop's session.
+Team cards stay read-only; ordinary Web controls remain in place. Pending opens
+are bounded to the displayed account scope, Organization and target; they do not
+apply feedback to a replacement card.
+
 The shared Connect flow, including New Agent's embedded recovery, offers a
 fixed `connectComputer` operation in Desktop. Its strict request contains the
 displayed account and optional Human Profile/Space IDs only. Main validates its
