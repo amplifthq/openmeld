@@ -5627,6 +5627,24 @@ async function executeAgentProfileInterruptedWorkSkip(input: {
   ownerUserId: string;
   targetProfileId: string;
 }): Promise<void> {
+  // Skip promises that OpenMeld will not continue this work, which is Core's
+  // own decision and cannot fail here. Asking the computer to withdraw the
+  // original attempt is the part OpenMeld cannot guarantee, so it is requested
+  // while the gate still names the work and does not hold up the decision.
+  await input.ownerShard
+    .rpcRequestAgentProfileWorkLocalAttemptWithdrawal({
+      expectedInterruptedTargetWakeLifecycleId:
+        input.expectedInterruptedTargetWakeLifecycleId,
+      ownerUserId: input.ownerUserId,
+      targetProfileId: input.targetProfileId,
+    })
+    .catch((error: unknown) => {
+      console.warn("[core.agent_profile_work.skip_withdrawal_request_failed]", {
+        error,
+        targetProfileId: input.targetProfileId,
+      });
+      return null;
+    });
   const skipped = await input.ownerShard.rpcSkipAgentProfileInterruptedWork({
     expectedInterruptedTargetWakeLifecycleId:
       input.expectedInterruptedTargetWakeLifecycleId,

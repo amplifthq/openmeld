@@ -166,6 +166,21 @@ export function isLocalAgentControlStillRunningError(error: unknown): boolean {
 	);
 }
 
+// Waiting for the original request to stop is a stage, not a failure: the
+// owner's choice is kept and nothing has replaced the work yet. Reporting it as
+// an error would tell them their decision was lost.
+export function isAgentProfileWorkAwaitingOriginalStopError(
+	error: unknown
+): boolean {
+	if (typeof error !== "object" || error === null) {
+		return false;
+	}
+	return (
+		(error as { code?: unknown }).code ===
+		"agent_profile_work_recovery.awaiting_original_stop"
+	);
+}
+
 export function isAgentProfileAlreadyRemovedError(error: unknown): boolean {
 	const message = getMutationErrorMessage(error);
 	if (!message) {

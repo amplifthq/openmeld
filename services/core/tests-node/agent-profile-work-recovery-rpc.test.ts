@@ -508,6 +508,49 @@ describe("Agent Profile work recovery Core RPC", () => {
         ownerUserId: "owner-1",
         targetProfileId: AGENT_PROFILE_ID,
       });
+      // Skip tells the owner the work will not continue, so it also asks the
+      // computer to withdraw the attempt rather than leaving it able to start.
+      expect(
+        runtimeTransportStub.rpcRequestAgentProfileWorkLocalAttemptWithdrawal
+      ).toHaveBeenCalledWith({
+        expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
+        ownerUserId: "owner-1",
+        targetProfileId: AGENT_PROFILE_ID,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("still skips the work when the withdrawal request cannot be delivered", async () => {
+    const harness = createRecoveryHarness();
+    const runtimeTransportStub = createRuntimeTransportStub({
+      recovery: buildAvailableRecovery({ action: "fork_interrupted_work" }),
+    });
+    runtimeTransportStub.rpcRequestAgentProfileWorkLocalAttemptWithdrawal.mockRejectedValue(
+      new Error("owner shard unavailable")
+    );
+    try {
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(
+          createEnv({ db: harness.db, runtimeTransportStub }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            body: {
+              action: "skip_interrupted_work",
+              expectedInterruptedTargetWakeLifecycleId:
+                TARGET_WAKE_LIFECYCLE_ID,
+            },
+            context: CONTEXT,
+          }
+        )
+      ).resolves.toEqual({
+        action: "skip_interrupted_work",
+        status: "accepted",
+      });
+      expect(
+        runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
+      ).toHaveBeenCalledOnce();
     } finally {
       harness.close();
     }

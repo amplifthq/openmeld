@@ -1540,6 +1540,30 @@ Execution Recovery action. It uses the owner-only continuation path described
 above, so closing the public action cannot disable deterministic Usage
 recovery.
 
+Storing the owner's continuation decision and holding a safe permit to start
+the replacement work are separate facts. A Core terminal decision is not the
+permit: a stale-evidence terminal is a decision made from missing evidence, so
+the local Agent may still be queued on the conversation the interrupted work
+was waiting for, and starting a replacement on that basis is what produces two
+attempts at one instruction. The permit is the withdrawal of the attempt on the
+user's computer, proven by the Service's own cancel acknowledgement for that
+exact execution, dispatch, task, and delivery session. That acknowledgement is
+durable per-execution evidence pinned to the run it answers for: a late
+acknowledgement cannot retire a run that a newer one superseded, and it must be
+accepted even when the Wake Stop lifecycle cannot advance a terminal execution,
+because it is the only fact replacement work can verify. A head that never
+linked an execution never reached a computer and needs no withdrawal.
+
+Every continuation attempt rereads that prerequisite, including a retry that
+reuses a stored authorization, and re-requests the withdrawal instead of
+assuming an earlier cancellation landed. An unproven withdrawal withholds the
+replacement and reports an explicit awaiting-stop stage with the owner's
+decision retained; it is never an unexplained stall, a silent permission to
+start, or a claim that the attempt stopped. Skip promises only that OpenMeld
+will not continue the work, which Core decides on its own; it requests the same
+withdrawal but does not wait on it, and its copy must not imply that the local
+attempt has stopped or that completed side effects are undone.
+
 An explicit user Stop is not automatically recoverable. A process crash with
 no result must not fabricate completion. An external-side-effect outcome that
 cannot be proven remains outcome-unknown and must not be automatically rerun.
