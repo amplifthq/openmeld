@@ -124,6 +124,7 @@ import {
 } from "#/components/profiles/agent-controller-permission-mode-outcome";
 import { shouldShowAgentProfileProjectSettings } from "#/components/profiles/agent-profile-project-settings";
 import { AgentProfileProjectSettingsDialog } from "#/components/profiles/agent-profile-project-settings-dialog";
+import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import {
 	type AgentProfileModelCompatibilityContext,
 	AgentProfileModelSelectionFields,
@@ -189,6 +190,7 @@ import {
 	updateAgentProfileModelSelection,
 	updateAgentProfileOpenCodePermission,
 } from "./agent-profile-edit-actions";
+import { AgentConfigurationSkeletonCard } from "./agent-profile-skeleton";
 import { AgentProfileWorkspaceDetail } from "./agent-profile-workspace-detail";
 import {
 	type AgentProfileAvailabilityFilter,
@@ -3694,6 +3696,13 @@ function AgentProfileWorkspacePresentation(input: {
 				setupAction={input.input.setupAction}
 			/>
 		);
+	const usageCard = (
+		<AgentProfileUsage
+			agentControllerRef={input.input.primaryAgentControllerRef}
+			profileId={input.input.profile.openMeldProfileId}
+			variant="card"
+		/>
+	);
 	const overflowActions = (
 		<AgentProfileOptionsPopover
 			capabilities={{
@@ -3739,6 +3748,9 @@ function AgentProfileWorkspacePresentation(input: {
 								input.input.pendingState.disablePrimaryBinding
 							}
 							editState={input.input.editState}
+							isLoading={
+								input.input.readinessIsPending && !input.input.editState
+							}
 							modelCatalog={input.input.modelCatalog}
 							modelCompatibilityContext={input.input.modelCompatibilityContext}
 							onControllerChange={input.input.onControllerChange}
@@ -3762,12 +3774,14 @@ function AgentProfileWorkspacePresentation(input: {
 								input.input.ownerProfile?.ownerUserId
 							}
 							runtime={input.runtime}
+							usageCard={usageCard}
 							wakeAvailability={input.input.wakeAvailability}
 						/>
 					) : (
 						<AgentProfileReadOnlyConfigurationOverview
 							controllerModelSummary={controllerModelSummary}
 							details={input.input.details}
+							isLoading={input.input.readinessIsPending}
 							ownerAvatarUrl={input.ownerAvatarUrl}
 							ownerProfileId={
 								input.input.ownerProfile?.openMeldProfileId ??
@@ -3776,6 +3790,7 @@ function AgentProfileWorkspacePresentation(input: {
 							publicProfileConfiguration={
 								input.input.publicProfileConfiguration
 							}
+							usageCard={usageCard}
 						/>
 					)
 				}
@@ -3855,6 +3870,8 @@ function AgentProfileWorkspacePresentation(input: {
 }
 
 type AgentProfileConfigurationOverviewProps = {
+	usageCard?: ReactNode;
+	isLoading?: boolean;
 	agentControllerRef?: string | null;
 	controllerChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
 	controllerChangeOptions: readonly AgentProfileControllerChangeOption[];
@@ -4078,8 +4095,21 @@ export function AgentProfileConfigurationOverview(
 					owner={owner}
 					profileId={ownerProfileId}
 				/>
-				<AgentProfileModelConfigurationCard editor={editor} input={input} />
-				{isHostedAgentControllerRef(input.agentControllerRef) ? null : (
+				{input.isLoading ? (
+					<AgentConfigurationSkeletonCard label="Model" />
+				) : (
+					<AgentProfileModelConfigurationCard editor={editor} input={input} />
+				)}
+				{input.isLoading &&
+				!isHostedAgentControllerRef(input.agentControllerRef) ? (
+					<>
+						<AgentConfigurationSkeletonCard label="Working folder" />
+						<AgentConfigurationSkeletonCard label="Collaboration mode" />
+						<AgentConfigurationSkeletonCard label="Permissions" />
+					</>
+				) : null}
+				{input.isLoading ||
+				isHostedAgentControllerRef(input.agentControllerRef) ? null : (
 					<>
 						<AgentProfileWorkingFolderConfigurationCard
 							disabled={input.disabled}
@@ -4113,12 +4143,15 @@ export function AgentProfileConfigurationOverview(
 						summary={input.runtime.computerName}
 					/>
 				) : null}
+				{input.usageCard}
 			</AgentConfigurationGrid>
 		</section>
 	);
 }
 
 function AgentProfileReadOnlyConfigurationOverview(input: {
+	usageCard?: ReactNode;
+	isLoading?: boolean;
 	controllerModelSummary: string;
 	details: ProfileDetailsSnapshot;
 	ownerAvatarUrl: string | null | undefined;
@@ -4128,6 +4161,7 @@ function AgentProfileReadOnlyConfigurationOverview(input: {
 	> | null;
 }) {
 	const owner = resolveProfileDetailsValue(input.details, "owner") ?? "Unknown";
+	const isLoading = input.isLoading && !input.publicProfileConfiguration;
 	const controllerRef = input.publicProfileConfiguration?.agentControllerRef;
 	const collaborationMode =
 		input.publicProfileConfiguration?.agentControllerCollaborationMode;
@@ -4161,27 +4195,48 @@ function AgentProfileReadOnlyConfigurationOverview(input: {
 					owner={owner}
 					profileId={input.ownerProfileId ?? owner}
 				/>
-				<AgentConfigurationCard
-					icon={<BrainIcon aria-hidden="true" />}
-					itemId="model"
-					label="Model"
-					readOnly
-					summary={input.controllerModelSummary}
-				/>
-				<AgentConfigurationCard
-					icon={<HandIcon aria-hidden="true" />}
-					itemId="collaboration"
-					label="Collaboration mode"
-					readOnly
-					summary={collaborationSummary}
-				/>
-				<AgentConfigurationCard
-					icon={<LockKeyIcon aria-hidden="true" />}
-					itemId="permissions"
-					label="Permissions"
-					readOnly
-					summary={permissionSummary}
-				/>
+				{isLoading ? (
+					<AgentConfigurationSkeletonCard label="Model" />
+				) : (
+					<AgentConfigurationCard
+						icon={<BrainIcon aria-hidden="true" />}
+						itemId="model"
+						label="Model"
+						readOnly
+						summary={input.controllerModelSummary}
+					/>
+				)}
+				{isLoading ? (
+					<AgentConfigurationSkeletonCard label="Collaboration mode" />
+				) : (
+					<AgentConfigurationCard
+						icon={<HandIcon aria-hidden="true" />}
+						itemId="collaboration"
+						label="Collaboration mode"
+						readOnly
+						summary={
+							input.publicProfileConfiguration
+								? collaborationSummary
+								: "Not available"
+						}
+					/>
+				)}
+				{isLoading ? (
+					<AgentConfigurationSkeletonCard label="Permissions" />
+				) : (
+					<AgentConfigurationCard
+						icon={<LockKeyIcon aria-hidden="true" />}
+						itemId="permissions"
+						label="Permissions"
+						readOnly
+						summary={
+							input.publicProfileConfiguration
+								? permissionSummary
+								: "Not available"
+						}
+					/>
+				)}
+				{input.usageCard}
 			</AgentConfigurationGrid>
 		</section>
 	);
@@ -4200,7 +4255,7 @@ function AgentProfileConfigurationHeading(input: { visible: boolean }) {
 			<div className="grid gap-1">
 				<h2 className="font-medium text-sm">How this Agent works</h2>
 				<p className="text-muted-foreground text-xs leading-5">
-					Open a card to change its setup.
+					Agent settings and provider capacity.
 				</p>
 			</div>
 		</div>

@@ -70,7 +70,11 @@ afterEach(() => {
 
 describe("legacy Agent entry", () => {
 	it("keeps Team navigation during a cold lookup and resolves the real owner's canonical path", async () => {
-		const response = Promise.withResolvers<unknown>();
+		let resolve!: (value: unknown) => void;
+		const promise = new Promise<unknown>((complete) => {
+			resolve = complete;
+		});
+		const response = { promise, resolve };
 		state.read.mockReturnValue(response.promise);
 		const client = new QueryClient({
 			defaultOptions: { queries: { retry: false } },

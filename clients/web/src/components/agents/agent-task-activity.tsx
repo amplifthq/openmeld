@@ -53,6 +53,7 @@ export function useAgentTaskActivity(profileId: string) {
 	return {
 		activity,
 		enabled: Boolean(organization),
+		isPending: query.isPending,
 		isError: query.isError,
 		navigation: agentTaskActivityNavigation(activity),
 	};

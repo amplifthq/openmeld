@@ -13,6 +13,8 @@ import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { CardFooter } from "@openmeld/ui/components/card";
 import { Input } from "@openmeld/ui/components/input";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { SkeletonRegion } from "@openmeld/ui/components/skeleton-content";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import {
@@ -40,7 +42,6 @@ import type {
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { AgentProfileConversationsSection } from "#/components/directory/agent-conversations-section";
-import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
 import {
 	AgentTaskActivityTime,
@@ -170,12 +171,18 @@ export function AgentProfileWorkspaceDetail(input: {
 					</div>
 				</div>
 			</div>
-			<AgentProfileUsage
-				profileId={input.profile.openMeldProfileId}
-				variant="details"
-			/>
 			<AgentProfileCurrentActivity
 				activityNavigation={visibleActivityNavigation}
+				isLoading={
+					taskActivity.enabled &&
+					taskActivity.isPending &&
+					!input.operationalContext
+				}
+				isUnavailable={
+					taskActivity.enabled &&
+					taskActivity.isError &&
+					!input.operationalContext
+				}
 				lastTaskActivityAt={taskActivity.activity?.lastTaskActivityAt}
 				operationalContext={input.operationalContext}
 				recoveryAction={operationalRecoveryAction}
@@ -216,6 +223,13 @@ function AgentProfilePresence(input: {
 	wakeAvailabilityIsRefreshing: boolean;
 	wakeAvailabilityNowMs: number;
 }) {
+	if (input.wakeAvailabilityIsPending && !input.wakeAvailability) {
+		return (
+			<SkeletonRegion className="mt-3" label="Loading Agent availability">
+				<Skeleton className="h-5 w-36" />
+			</SkeletonRegion>
+		);
+	}
 	const presentation = resolveAgentProfilePresence(input);
 	const checkedAt = input.wakeAvailability
 		? formatAgentWakeAvailabilityCheckedAt(
@@ -390,12 +404,30 @@ function AgentProfilePresenceIcon(input: {
 }
 
 function AgentProfileCurrentActivity(input: {
+	isLoading?: boolean;
+	isUnavailable?: boolean;
 	activityNavigation: AgentProfileActivityNavigation | null;
 	lastTaskActivityAt?: string | null;
 	operationalContext: AgentProfileOperationalContextInput | null;
 	recoveryAction: ReactNode;
 	recoveryActionKind: ProfileDetailsRecoveryAction["kind"] | null;
 }) {
+	if (input.isLoading || input.isUnavailable) {
+		return (
+			<section className="space-y-3">
+				<h2 className="font-medium text-sm">Current activity</h2>
+				{input.isLoading ? (
+					<SkeletonRegion label="Loading Agent activity">
+						<Skeleton className="h-4 w-48" />
+					</SkeletonRegion>
+				) : (
+					<p className="text-muted-foreground text-sm">
+						Current activity unavailable.
+					</p>
+				)}
+			</section>
+		);
+	}
 	const currentDestination = input.activityNavigation?.current ?? null;
 	const queuedDestinations = input.activityNavigation?.queued ?? [];
 	const { footerRecoveryAction, interruptedRecoveryAction } =
