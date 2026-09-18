@@ -268,6 +268,7 @@ function makeBridge(overrides: Partial<OpenMeldBridge> = {}): OpenMeldBridge {
     getAgents: () => Promise.resolve(agents(false)),
     setAgentEnabled: () => Promise.resolve(agents(true)),
     openWeb: () => Promise.resolve(),
+    openExternal: () => Promise.resolve(),
     getDesktopSettings: () => Promise.resolve(desktopSettings(false)),
     setOpenAtLogin: () => Promise.resolve(desktopSettings(true)),
     getDesktopUpdateStatus: () => Promise.resolve(desktopUpdate()),
@@ -276,6 +277,7 @@ function makeBridge(overrides: Partial<OpenMeldBridge> = {}): OpenMeldBridge {
     enterApp: () => Promise.resolve(),
     quitDesktop: () => Promise.resolve(),
     onWindowDestinationChange: () => () => undefined,
+    onNavigationRequest: () => () => undefined,
     ...overrides,
   };
 }

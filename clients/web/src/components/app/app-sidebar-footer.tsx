@@ -85,7 +85,7 @@ function PlatformAppMenuItem(input: { index: number; webPath: string }) {
 			}}
 		>
 			{desktop ? <GlobeHemisphereWestIcon /> : <DesktopTowerIcon />}
-			{desktop ? "Open web app" : "Download desktop app"}
+			{desktop ? "Open Web App" : "Download Desktop App"}
 		</FluidDropdownMenuItem>
 	);
 }
@@ -106,8 +106,7 @@ export function AppSidebarFooter({
 	const computerAttentionLabel = useCurrentComputer()?.attentionLabel;
 	const navigate = useNavigate();
 	const currentWebPath = useLocation({
-		select: (location) =>
-			`${location.pathname}${location.searchStr}${location.hash}`,
+		select: (location) => location.href,
 	});
 	const name = account.name?.trim() || account.email || "Account";
 	const settingsLabel = "Settings";

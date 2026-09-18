@@ -27,6 +27,12 @@ import {
 	SLACK_CHANNEL_IDENTITY,
 } from "#/components/organizations/plugin-catalog";
 import { useLarkPlatformChannelManagement } from "#/components/organizations/use-lark-platform-channel-management";
+import {
+	type AuthorizationBrowser,
+	closeAuthorizationBrowser,
+	openAuthorizationBrowser,
+	prepareAuthorizationBrowser,
+} from "#/desktop/authorization-browser";
 import { resolveCenterAgentErrorMessage } from "#/lib/organizations/center-agent";
 import { resolveMessageChannelErrorMessage } from "#/lib/organizations/message-channels";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -53,7 +59,7 @@ export function ChannelsOnboardingStep(input: { onContinue: () => void }) {
 	const [slackAuthorizationError, setSlackAuthorizationError] = useState<
 		string | null
 	>(null);
-	const slackAuthorizationPopupRef = useRef<Window | null>(null);
+	const slackAuthorizationPopupRef = useRef<AuthorizationBrowser | null>(null);
 	const roleQuery = useQuery(
 		organizationMemberRoleQueryOptions({
 			enabled: currentOrganization.isPersonal !== true,
@@ -93,7 +99,7 @@ export function ChannelsOnboardingStep(input: { onContinue: () => void }) {
 	const slackConnected =
 		designationQuery.data?.slackConnection?.connected === true;
 	const closeSlackAuthorizationPopup = useCallback(() => {
-		slackAuthorizationPopupRef.current?.close();
+		closeAuthorizationBrowser(slackAuthorizationPopupRef.current);
 		slackAuthorizationPopupRef.current = null;
 	}, []);
 
@@ -146,15 +152,12 @@ export function ChannelsOnboardingStep(input: { onContinue: () => void }) {
 		[closeSlackAuthorizationPopup]
 	);
 
-	const startSlackAuthorization = () => {
+	const startSlackAuthorization = async () => {
 		if (!(canManage && designationQuery.isSuccess) || slackConnected) {
 			return;
 		}
 		setSlackAuthorizationError(null);
-		const popup = window.open(
-			buildSlackOAuthStartPath({
-				organizationSlug: currentOrganization.slug,
-			}),
+		const popup = prepareAuthorizationBrowser(
 			"openmeld-slack-authorization",
 			"popup,width=720,height=760"
 		);
@@ -164,10 +167,23 @@ export function ChannelsOnboardingStep(input: { onContinue: () => void }) {
 			);
 			return;
 		}
-		popup.opener = null;
 		slackAuthorizationPopupRef.current = popup;
-		setSlackAuthorizationWaiting(true);
-		popup.focus();
+		try {
+			await openAuthorizationBrowser(
+				popup,
+				buildSlackOAuthStartPath({
+					organizationSlug: currentOrganization.slug,
+				})
+			);
+			setSlackAuthorizationWaiting(true);
+		} catch (error) {
+			closeSlackAuthorizationPopup();
+			setSlackAuthorizationError(
+				error instanceof Error
+					? error.message
+					: "Could not open Slack authorization. Try again."
+			);
+		}
 	};
 	const retryReads = () => {
 		Promise.allSettled([

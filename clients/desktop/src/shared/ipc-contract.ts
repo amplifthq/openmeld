@@ -35,6 +35,8 @@ export type OpenMeldBridge = {
   setAgentEnabled(agentId: string, enabled: boolean): Promise<AgentsView>;
   /** Opens OpenMeld on the web in the default browser. Optional path must stay on OpenMeld Web. */
   openWeb(path?: string): Promise<void>;
+  /** Opens a validated public HTTP(S), mail, or telephone URL with the system. */
+  openExternal(url: string): Promise<void>;
   getDesktopSettings(): Promise<DesktopSettingsView>;
   setOpenAtLogin(enabled: boolean): Promise<DesktopSettingsView>;
   /** Checks whether this Desktop build should prompt the user to update. */
@@ -52,6 +54,8 @@ export type OpenMeldBridge = {
   onWindowDestinationChange(
     handler: (destination: DesktopWindowDestination) => void
   ): () => void;
+  /** Receives a prevented in-app document navigation for Router handling. */
+  onNavigationRequest(handler: (href: string) => void): () => void;
 };
 
 export type DesktopWindowDestination =
@@ -65,6 +69,7 @@ export type DesktopWindowDestination =
 export const WINDOW_IPC = {
   enterApp: "window:enter-app",
   navigateDestination: "window:navigate-destination",
+  navigateHref: "window:navigate-href",
   quitDesktop: "window:quit-desktop",
 } as const;
 
@@ -84,6 +89,7 @@ export const OPENMELD_IPC = {
   getAgents: "openmeld:get-agents",
   setAgentEnabled: "openmeld:set-agent-enabled",
   openWeb: "openmeld:open-web",
+  openExternal: "openmeld:open-external",
   getDesktopSettings: "openmeld:get-desktop-settings",
   setOpenAtLogin: "openmeld:set-open-at-login",
   getDesktopUpdateStatus: "openmeld:get-desktop-update-status",

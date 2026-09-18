@@ -198,6 +198,7 @@ export function initializeDesktopPilot(
       }
     },
     rendererUrl: `${DESKTOP_APP_ORIGIN}/${sharedAssets ? "desktop-shell" : "pilot.html"}`,
+    webOrigin,
     install(authorize: (event: IpcMainInvokeEvent) => void) {
       // Preserve the Inbox feed cadence without changing document visibility.
       notificationPoll = setInterval(() => {

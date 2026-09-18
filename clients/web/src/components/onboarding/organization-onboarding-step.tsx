@@ -16,6 +16,7 @@ import { type FormEvent, useState } from "react";
 import { OnboardingStepLayout } from "#/components/onboarding/onboarding-step-layout";
 import type { OrganizationOnboardingPreview } from "#/components/onboarding/organization-onboarding-demo";
 import { OrganizationIdentityMark } from "#/components/organizations/organization-identity-mark";
+import { DesktopAwareLink } from "#/desktop/desktop-aware-link";
 import {
 	acceptOrganizationInvitation,
 	acceptOrganizationJoinLink,
@@ -599,12 +600,12 @@ function OrganizationJoinForm(input: {
 							We’ve notified the owners and admins. Once one approves, you can
 							enter the organization from your request page.
 						</p>
-						<a
+						<DesktopAwareLink
 							className="text-sm underline underline-offset-4"
 							href={`/invitation-requests?requestId=${encodeURIComponent(input.requestId)}`}
 						>
 							View request
-						</a>
+						</DesktopAwareLink>
 					</div>
 				}
 				footer={

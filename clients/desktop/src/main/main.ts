@@ -26,8 +26,13 @@ import {
   type DesktopWindowDestination,
   WINDOW_IPC,
 } from "../shared/ipc-contract";
+import { isDesktopAppHref } from "../shared/navigation";
 import type { CliProblem, ServiceView } from "../shared/view-types";
-import { resolveDesktopDownloadPageUrl } from "./desktop-environment";
+import {
+  normalizeExternalBrowserUrl,
+  resolveDesktopDownloadPageUrl,
+  resolveDesktopWebUrl,
+} from "./desktop-environment";
 import { installedCommandEnvironment } from "./installed-environment";
 import { createDesktopHandlers, type DesktopHandlers } from "./ipc-handlers";
 import { initializeDesktopPilot } from "./pilot";
@@ -130,11 +135,23 @@ function createMainWindow(
   pilot?.observeWindow(window.webContents);
 
   window.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalBrowserUrl(url);
+    const browserUrl = resolveBrowserHandoffUrl(url);
+    if (browserUrl) {
+      openExternalBrowserUrl(browserUrl);
+    }
     return { action: "deny" };
   });
-  window.webContents.on("will-navigate", (event) => {
+  window.webContents.on("will-navigate", (event, url) => {
     event.preventDefault();
+    const href = resolveInAppNavigationHref(url);
+    if (href) {
+      window.webContents.send(WINDOW_IPC.navigateHref, href);
+      return;
+    }
+    const browserUrl = resolveBrowserHandoffUrl(url);
+    if (browserUrl) {
+      openExternalBrowserUrl(browserUrl);
+    }
   });
   window.webContents.on("will-prevent-unload", () => {
     if (quitIntent === "ordinary") {
@@ -171,20 +188,55 @@ function createMainWindow(
 }
 
 function openExternalBrowserUrl(value: string): void {
-  let url: URL;
   try {
-    url = new URL(value);
+    runBackgroundTask(shell.openExternal(normalizeExternalBrowserUrl(value)));
   } catch {
     return;
   }
-  if (
-    (url.protocol !== "http:" && url.protocol !== "https:") ||
-    url.username.length > 0 ||
-    url.password.length > 0
-  ) {
-    return;
+}
+
+function resolveInAppNavigationHref(value: string | undefined): string | null {
+  if (!value) {
+    return null;
   }
-  runBackgroundTask(shell.openExternal(url.href), { showError: false });
+  try {
+    const url = new URL(value);
+    const origin = `${url.protocol}//${url.host}`;
+    if (
+      origin !== "openmeld-desktop://app" &&
+      (!pilot || url.origin !== pilot.webOrigin)
+    ) {
+      return null;
+    }
+    const href = `${url.pathname}${url.search}${url.hash}`;
+    return isDesktopAppHref(href) ? href : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveBrowserHandoffUrl(value: string): string | null {
+  const appHref = resolveInAppNavigationHref(value);
+  if (appHref) {
+    try {
+      return resolveDesktopWebUrl({
+        env: pilot?.installedTarget
+          ? installedCommandEnvironment(
+              pilot.installedTarget,
+              app.getPath("userData")
+            ).env
+          : process.env,
+        path: appHref,
+      });
+    } catch {
+      return null;
+    }
+  }
+  try {
+    return normalizeExternalBrowserUrl(value);
+  } catch {
+    return null;
+  }
 }
 
 function configureAppIdentity(): void {
@@ -263,7 +315,7 @@ function createApplicationMenu(): MenuItemConstructorOptions[] {
       submenu: [
         {
           click: () => runTrayAction(() => handlers.openWeb()),
-          label: "Open web app",
+          label: "Open Web App",
         },
       ],
     }

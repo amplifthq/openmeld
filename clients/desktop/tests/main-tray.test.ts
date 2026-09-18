@@ -35,6 +35,7 @@ vi.mock("../src/main/pilot", () => ({
       installedTarget: undefined,
       observeWindow: vi.fn(),
       rendererUrl: "http://desktop.localhost:3200/desktop-shell",
+      webOrigin: "https://openmeld.ai",
     };
   },
 }));
@@ -241,6 +242,7 @@ const desktopMock = vi.hoisted(() => {
     openDesktopDownloadPage: vi.fn(),
     openNodeDownloadPage: vi.fn(),
     openWeb: vi.fn(),
+    openExternal: vi.fn(),
     setAgentEnabled: vi.fn(),
     setOpenAtLogin: vi.fn(),
     setServiceAutoStart: vi.fn(),
@@ -587,7 +589,6 @@ describe("main tray behavior", () => {
     "javascript:alert(1)",
     "file:///tmp/private",
     "data:text/html,unsafe",
-    "openmeld-desktop://app/o/team/spaces",
     "https://user:password@example.com/private",
   ])("denies unsafe external link %s", async (url) => {
     await importMain();
@@ -602,12 +603,26 @@ describe("main tray behavior", () => {
     expect(electronMock.shell.openExternal).not.toHaveBeenCalled();
   });
 
+  it("opens a requested internal new-window target as its configured Web equivalent", async () => {
+    await importMain();
+    const window = electronMock.windowInstances.at(0);
+    const windowOpenHandler = window?.webContents.setWindowOpenHandler.mock
+      .calls[0]?.[0] as (details: { url: string }) => { action: "deny" };
+
+    expect(
+      windowOpenHandler({
+        url: "openmeld-desktop://app/o/team/agents?profileId=agent-%E4%B8%AD#activity",
+      })
+    ).toEqual({ action: "deny" });
+    await Promise.resolve();
+    expect(electronMock.shell.openExternal).toHaveBeenCalledWith(
+      "https://openmeld.ai/o/team/agents?profileId=agent-%E4%B8%AD#activity"
+    );
+  });
+
   it("reports a rejected system-browser handoff without allowing a new window", async () => {
     const failure = new Error("Browser unavailable");
     electronMock.shell.openExternal.mockRejectedValueOnce(failure);
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
     await importMain();
 
     const window = electronMock.windowInstances.at(0);
@@ -620,9 +635,9 @@ describe("main tray behavior", () => {
       action: "deny",
     });
     await vi.waitFor(() =>
-      expect(consoleError).toHaveBeenCalledWith(
-        "[openmeld-desktop.background_task_failed]",
-        failure
+      expect(electronMock.dialog.showErrorBox).toHaveBeenCalledWith(
+        "OpenMeld",
+        failure.message
       )
     );
   });
@@ -639,11 +654,56 @@ describe("main tray behavior", () => {
     const navigationEvent = { preventDefault: vi.fn() };
     const navigationHandler = window?.webContents.on.mock.calls.find(
       ([event]) => event === "will-navigate"
-    )?.[1] as ((event: typeof navigationEvent) => void) | undefined;
+    )?.[1] as
+      | ((event: typeof navigationEvent, url: string) => void)
+      | undefined;
 
-    navigationHandler?.(navigationEvent);
+    navigationHandler?.(
+      navigationEvent,
+      "openmeld-desktop://app/o/team/agents?profileId=agent-1#activity"
+    );
 
     expect(navigationEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(window?.webContents.send).toHaveBeenCalledWith(
+      WINDOW_IPC.navigateHref,
+      "/o/team/agents?profileId=agent-1#activity"
+    );
+  });
+
+  it("routes an ordinary trusted Web app URL internally but keeps API paths out of Router", async () => {
+    await importMain();
+    const window = electronMock.windowInstances.at(0);
+    const navigationHandler = window?.webContents.on.mock.calls.find(
+      ([event]) => event === "will-navigate"
+    )?.[1] as
+      | ((event: { preventDefault(): void }, url: string) => void)
+      | undefined;
+    const event = { preventDefault: vi.fn() };
+
+    navigationHandler?.(
+      event,
+      "https://openmeld.ai/o/team/spaces/space-1?message=signal-1#thread"
+    );
+    expect(window?.webContents.send).toHaveBeenCalledWith(
+      WINDOW_IPC.navigateHref,
+      "/o/team/spaces/space-1?message=signal-1#thread"
+    );
+
+    navigationHandler?.(event, "openmeld-desktop://app/");
+    expect(window?.webContents.send).toHaveBeenLastCalledWith(
+      WINDOW_IPC.navigateHref,
+      "/"
+    );
+
+    navigationHandler?.(
+      event,
+      "https://openmeld.ai/api/oauth/start?token=secret"
+    );
+    await Promise.resolve();
+    expect(window?.webContents.send).toHaveBeenCalledTimes(2);
+    expect(electronMock.shell.openExternal).toHaveBeenCalledWith(
+      "https://openmeld.ai/api/oauth/start?token=secret"
+    );
   });
 
   function trayMenuLabels(): string[] {
@@ -712,7 +772,7 @@ describe("main tray behavior", () => {
     expect(trayMenuLabels()).not.toEqual(
       expect.arrayContaining([
         expect.stringContaining("v0."),
-        "Open web app",
+        "Open Web App",
         "Start OpenMeld Service",
         "Stop OpenMeld Service",
       ])

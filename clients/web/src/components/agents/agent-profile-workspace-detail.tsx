@@ -31,6 +31,7 @@ import {
 	ProhibitIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
+import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import type {
 	AgentProfileActivityDestination,
@@ -621,10 +622,10 @@ function ActivityDestinationLink(input: {
 	}
 	return (
 		<div className="flex min-w-0 items-center">
-			<a
+			<Link
 				aria-label={resolveActivityDestinationAriaLabel(input.destination)}
 				className="group flex min-h-14 min-w-0 flex-1 items-center gap-3 rounded-md bg-transparent px-3 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-				href={input.destination.href}
+				to={input.destination.href}
 			>
 				<span className="shrink-0 text-muted-foreground">{icon}</span>
 				<span className="min-w-0 flex-1">
@@ -651,7 +652,7 @@ function ActivityDestinationLink(input: {
 					aria-hidden="true"
 					className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
 				/>
-			</a>
+			</Link>
 			{input.trailingAction ? (
 				<div className="shrink-0 pe-3">{input.trailingAction}</div>
 			) : null}

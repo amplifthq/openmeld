@@ -48,6 +48,23 @@ export function downloadContent(
 	URL.revokeObjectURL(url);
 }
 
+export async function downloadUrlContent(
+	fileName: string,
+	url: string
+): Promise<void> {
+	const response = await fetch(url, { credentials: "include" });
+	if (!response.ok) {
+		throw new Error("OpenMeld couldn’t download this file.");
+	}
+	const blob = await response.blob();
+	const objectUrl = URL.createObjectURL(blob);
+	const anchor = document.createElement("a");
+	anchor.href = objectUrl;
+	anchor.download = fileName;
+	anchor.click();
+	URL.revokeObjectURL(objectUrl);
+}
+
 export function formatFileSize(sizeBytes: number): string {
 	if (sizeBytes < 1024) {
 		return `${sizeBytes} B`;

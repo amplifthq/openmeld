@@ -41,6 +41,8 @@ describe("Desktop route authentication", () => {
 			onConnectionProgress: vi.fn(() => () => undefined),
 			onSessionChanged: vi.fn(() => () => undefined),
 			onWindowDestinationChange: vi.fn(() => () => undefined),
+			onNavigationRequest: vi.fn(() => () => undefined),
+			openExternal: vi.fn(() => Promise.resolve()),
 			spaceStreamOpen: vi.fn(),
 			spaceStreamClose: vi.fn(),
 			spaceStreamPing: vi.fn(),

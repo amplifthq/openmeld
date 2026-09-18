@@ -3,6 +3,7 @@
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import type { DirectoryIdentityAccount } from "#/components/directory/directory-human-profile-model";
+import { AuthorizationLink } from "#/desktop/authorization-link";
 
 type DirectoryIdentityAccountActionKind = NonNullable<
 	DirectoryIdentityAccount["action"]
@@ -17,13 +18,13 @@ export function DirectoryIdentityAccountActionLink(input: {
 }) {
 	if (input.actionKind === "authorize") {
 		return (
-			<a
+			<AuthorizationLink
 				aria-label={input.ariaLabel}
 				className={input.className}
 				href={input.path}
 			>
 				{input.children}
-			</a>
+			</AuthorizationLink>
 		);
 	}
 	return (
