@@ -25,7 +25,7 @@ export function buildInboxItemSourceNavigation(input: {
 	switch (target.kind) {
 		case "computer_connection":
 			return {
-				href: `${buildOrganizationComputerPath({ deviceId: target.deviceId, orgSlug: input.orgSlug })}?runtimeLane=${encodeURIComponent(target.lane)}`,
+				href: `${buildOrganizationComputerPath({ deviceId: target.deviceId, orgSlug: input.orgSlug })}?focus=service`,
 				openInNewTab: false,
 			};
 		case "desktop_update":

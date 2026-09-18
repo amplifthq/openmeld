@@ -12,6 +12,15 @@ shape and cannot accidentally mutate account records. Computer access also
 rechecks current device ownership and forgetting. Device sources do not enqueue
 email merely because a connection action has yellow priority.
 
+RuntimeTransportHub owns Computer incident facts beside its existing registration,
+heartbeat and alarm owner. A compatible, dispatch-accepting live session first
+establishes expected availability. The existing lease TTL is the reconnect grace;
+initial registration, explicit unknown state, user stop and controlled update do
+not establish a fault. One durable incident and a bounded projection retry slice
+survive Hub restart and D1 failure. A ready heartbeat ends the same item; read and
+Dismiss never end it. Device re-enrollment is rechecked on registration generation
+change. The source does not write any Wake result or RuntimeCoordinator decision.
+
 The canonical attention feed is `GET /v1/inbox/feed`. All, Mentions, Needs action
 and Needs review combine independently with `unreadOnly` and `agentsOnly`.
 Mentions includes structured Human mentions and current personal-Agent mentions
