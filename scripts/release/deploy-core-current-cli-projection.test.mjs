@@ -264,6 +264,7 @@ test("the receiver bridge binds candidate source separately from the retained CL
     },
   });
   try {
+    capture.recordDeploymentBaseline({ status: 0, stdout: "[]" });
     await deployCoreWithCurrentCliProjection({
       releaseSha: CORE_RELEASE_SHA,
       env: capture.env,

@@ -273,14 +273,23 @@ async function executeComponent(input) {
   }
 
   async function executeNewComponent() {
-    await record("started");
     let completed = 0;
+    let started = false;
     try {
       await input.executeSteps({
         cwd: input.cwd,
         env: capture?.env ?? input.env,
         steps: group.steps,
-        beforeStep: input.beforeStep,
+        beforeStep: async (step, workerDeploymentState) => {
+          if (capture && group.scope !== "cli" && completed === 0) {
+            capture.recordDeploymentBaseline(workerDeploymentState);
+          }
+          await input.beforeStep?.(step);
+          if (!started) {
+            await record("started");
+            started = true;
+          }
+        },
         adapters: input.executionAdapters,
         write: input.write,
         afterStep: async (step, result) => {
@@ -326,6 +335,9 @@ async function executeComponent(input) {
       }
     } catch (error) {
       if (error instanceof ReceiptWriteError) {
+        throw error;
+      }
+      if (!started) {
         throw error;
       }
       try {

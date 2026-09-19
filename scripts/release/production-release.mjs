@@ -1811,6 +1811,7 @@ export async function executeProductionDeploySteps(input) {
       await input.afterStep?.(step, publication);
       continue;
     }
+    let workerDeploymentState;
     if (step.workerDeploymentArgs) {
       const result = adapters.runCommand({
         args: [
@@ -1825,8 +1826,9 @@ export async function executeProductionDeploySteps(input) {
         env: input.env ?? process.env,
       });
       printCurrentWorkerVersions(step.label, result, write);
+      workerDeploymentState = result;
     }
-    await input.beforeStep?.(step);
+    await input.beforeStep?.(step, workerDeploymentState);
     const result = await adapters.runStep({
       ...step,
       cwd: input.cwd,

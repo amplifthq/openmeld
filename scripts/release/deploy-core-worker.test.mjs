@@ -54,6 +54,7 @@ test("forwards exact Core activation for staged and atomic deployment, never upl
     });
     const activated = [];
     try {
+      capture.recordDeploymentBaseline({ status: 0, stdout: "[]" });
       deployCoreWorker({
         releaseSha: RELEASE_SHA,
         tag: "exact-core-projection",
@@ -67,10 +68,9 @@ test("forwards exact Core activation for staged and atomic deployment, never upl
           },
         },
       });
-      assert.deepEqual(capture.read(), {
-        versionId: evidence.versionId,
-        proof: "command-output",
-      });
+      const captured = capture.read();
+      assert.equal(captured.versionId, evidence.versionId);
+      assert.equal(captured.proof, "command-output");
       assert.equal(
         activated.includes("Deploy the startup-admitted Core version"),
         trafficPercent === 0

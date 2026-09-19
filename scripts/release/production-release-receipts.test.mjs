@@ -15,6 +15,7 @@ import {
 import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
 
 const IDENTITY_ERROR = /output|correlat|identity|Worker|target/iu;
+const BASELINE_ERROR = /baseline/iu;
 const UNRESOLVED_ERROR = /unresolved|reconcil/iu;
 const SOURCE = "a".repeat(40);
 const ATTEMPT = "00000000-0000-4000-8000-000000000001";
@@ -27,6 +28,7 @@ function fixture(options = {}) {
     latest = new Map(),
     released = [];
   const workerResponse = workerDeploymentResponse(options);
+  let workerVerificationRead = 0;
   const scopes = options.scopes ?? [
     "auth",
     "web",
@@ -69,9 +71,16 @@ function fixture(options = {}) {
           steps: options.steps ?? steps,
           executeSteps: executeProductionDeploySteps,
           runCommand: () =>
-            options.identityFailure ? { status: 1 } : workerResponse,
+            options.identityFailure
+              ? { status: 1 }
+              : (options.workerVerificationResponses?.[
+                  workerVerificationRead++
+                ] ?? workerResponse),
           executionAdapters: {
-            runCommand: () => workerResponse,
+            runCommand: () =>
+              options.baselineFailure
+                ? { status: 1, stderr: "fixture baseline unavailable" }
+                : workerDeploymentResponse({ deployments: [] }),
             runStep: (step) => {
               effects.push(step.label);
               if (step.label === options.failureAt) {
@@ -207,10 +216,33 @@ test("unreadable prior receipts fail closed before attempts or side effects", as
   assert.deepEqual(result.released, ["web"]);
 });
 
+test("unreadable deployment baseline stops before receipts or deployment", async () => {
+  const result = fixture({ scopes: ["web"], baselineFailure: true });
+  await assert.rejects(result.run, BASELINE_ERROR);
+  assert.equal(result.effects.length, 0);
+  assert.equal(result.receipts.length, 0);
+  assert.equal(result.latest.size, 0);
+});
+
 test("does not certify a current version without the deployment command's identity", async () => {
   const result = fixture({ scopes: ["web"], omitOutput: true });
   await assert.rejects(result.run, IDENTITY_ERROR);
   assert.notEqual(result.latest.get("web")?.status, "verified");
+});
+
+test("does not verify a deployment replaced during health checks", async () => {
+  const replacementId = "00000000-0000-4000-8000-000000000999";
+  const result = fixture({
+    scopes: ["web"],
+    workerVerificationResponses: [
+      workerDeploymentResponse(),
+      workerDeploymentResponse({ deploymentId: replacementId }),
+    ],
+  });
+  await assert.rejects(result.run, IDENTITY_ERROR);
+  assert.equal(result.latest.get("web").status, "failed");
+  assert.equal(result.latest.get("web").application, "applied");
+  assert.notEqual(result.latest.get("web").status, "verified");
 });
 
 test("rejects stale output, wrong Worker/environment, wrong live version and wrong Core projection", async () => {

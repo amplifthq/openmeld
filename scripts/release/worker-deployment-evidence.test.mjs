@@ -8,6 +8,7 @@ import {
   FIXTURE_VERSION,
   fixtureWorkerTarget,
   workerDeploymentResponse,
+  writeDeploymentOutput,
 } from "./fixtures/worker-deployment-output.mjs";
 import {
   buildProductionDeployStepSpecs,
@@ -22,6 +23,7 @@ import {
 const SOURCE = "a".repeat(40);
 const OPERATION = "f".repeat(64);
 const OUTPUT_ERROR = /output|projection|source|Worker/iu;
+const CORRELATION_ERROR = /uniquely correlated/iu;
 
 test("actual guarded subprocess inherits its unique output path and reports exact activation", async () => {
   const receipts = [];
@@ -55,7 +57,9 @@ test("actual guarded subprocess inherits its unique output path and reports exac
     resolveWorkerTarget: fixtureWorkerTarget,
     executeSteps: executeProductionDeploySteps,
     runCommand: () => workerDeploymentResponse(),
-    executionAdapters: { runCommand: () => workerDeploymentResponse() },
+    executionAdapters: {
+      runCommand: () => workerDeploymentResponse({ deployments: [] }),
+    },
     publishEvidence: (event) => {
       receipts.push(event.receipts.web);
     },
@@ -71,6 +75,86 @@ test("actual guarded subprocess inherits its unique output path and reports exac
     sourceSha: SOURCE,
     proof: "command-output",
   });
+});
+
+test("correlates exactly one new deployment and rejects old or concurrent same-version records", async () => {
+  const operationTime = Date.now();
+  const oldDeployment = {
+    id: "00000000-0000-4000-8000-000000000100",
+    created_on: "2026-09-18T11:00:00Z",
+    versions: [{ version_id: FIXTURE_VERSION, percentage: 100 }],
+  };
+  const newDeployment = {
+    id: FIXTURE_DEPLOYMENT,
+    created_on: new Date(operationTime).toISOString(),
+    versions: [{ version_id: FIXTURE_VERSION, percentage: 100 }],
+  };
+  const concurrentDeployment = {
+    id: "00000000-0000-4000-8000-000000000200",
+    created_on: new Date(operationTime + 1).toISOString(),
+    versions: [{ version_id: FIXTURE_VERSION, percentage: 100 }],
+  };
+  const unseenStaleDeployment = {
+    id: "00000000-0000-4000-8000-000000000300",
+    created_on: "2026-09-18T12:00:00Z",
+    versions: [{ version_id: FIXTURE_VERSION, percentage: 100 }],
+  };
+
+  for (const scenario of [
+    {
+      name: "old same-version deployment",
+      after: [oldDeployment],
+      succeeds: false,
+    },
+    {
+      name: "concurrent same-version deployments",
+      after: [concurrentDeployment, newDeployment, oldDeployment],
+      succeeds: false,
+    },
+    {
+      name: "unseen stale same-version deployment",
+      after: [unseenStaleDeployment, oldDeployment],
+      succeeds: false,
+    },
+    {
+      name: "one correlated deployment",
+      after: [newDeployment, oldDeployment],
+      succeeds: true,
+    },
+  ]) {
+    const receipts = [];
+    const run = () =>
+      executeRecordedProductionDeploySteps({
+        sourceSha: SOURCE,
+        steps: buildProductionDeployStepSpecs(["web"]),
+        readEvidence: () => new Map(),
+        resolveWorkerTarget: fixtureWorkerTarget,
+        executeSteps: executeProductionDeploySteps,
+        runCommand: () =>
+          workerDeploymentResponse({ deployments: scenario.after }),
+        executionAdapters: {
+          runCommand: () =>
+            workerDeploymentResponse({ deployments: [oldDeployment] }),
+          runStep: (step) => writeDeploymentOutput(step, SOURCE),
+        },
+        publishEvidence: (event) => receipts.push(event.receipts.web),
+        write: () => undefined,
+      });
+    if (scenario.succeeds) {
+      await assert.doesNotReject(run, scenario.name);
+    } else {
+      await assert.rejects(run, CORRELATION_ERROR, scenario.name);
+    }
+    assert.equal(
+      receipts.at(-1)?.status,
+      scenario.succeeds ? "verified" : "failed"
+    );
+    if (scenario.succeeds) {
+      assert.equal(receipts.at(-1).identity.deploymentId, FIXTURE_DEPLOYMENT);
+    } else {
+      assert.equal(receipts.at(-1).identity, undefined);
+    }
+  }
 });
 
 test("production Worker names use Wrangler's actual config resolution", async () => {

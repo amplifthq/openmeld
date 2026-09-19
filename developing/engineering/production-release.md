@@ -95,9 +95,12 @@ this never creates an overall successful-release record for a partial run.
 
 Version 3 binds each attempt to an operation key (source, component, actual
 command and deployment target, including the Core projection). Worker identity
-comes from a fresh command-scoped Wrangler output file, then the observed active
-deployment must contain that exact version at 100% traffic. The active deployment
-ID is checked again after health checks. An arbitrary current version, stale
+comes from a fresh command-scoped Wrangler output file. Before that command, the
+executor retains the target Worker's deployment IDs; afterward exactly one new
+deployment must be the active deployment and contain the command's exact version
+at 100% traffic. Zero or multiple new deployments stop as unresolved instead of
+guessing an ID. The correlated deployment ID is checked again after health
+checks. An arbitrary current version, stale
 output, another Worker/environment, changed projection, or missing output cannot
 be promoted to verified. The guarded Core deploy wrappers forward the already
 admitted version after activation, including atomic migrations; they do not alter

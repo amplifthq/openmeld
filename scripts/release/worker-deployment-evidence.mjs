@@ -9,6 +9,7 @@ import {
 
 const LINES = /\r?\n/u;
 const CONTEXT = "OPENMELD_RELEASE_RECEIPT_CONTEXT";
+const MAX_PLATFORM_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 // The Core admission owner already returns the exact uploaded version, including
 // its atomic-migration branch. Forward that fact at the DEPLOY boundary without
@@ -59,6 +60,7 @@ export function createWorkerDeploymentCapture(input) {
   );
   const file = path.join(directory, "wrangler.jsonl");
   const startedAt = Date.now();
+  let deploymentBaseline;
   const env = {
     ...(input.env ?? process.env),
     WRANGLER_OUTPUT_FILE_PATH: file,
@@ -68,6 +70,17 @@ export function createWorkerDeploymentCapture(input) {
   env.WRANGLER_OUTPUT_FILE_DIRECTORY = undefined;
   return {
     env,
+    recordDeploymentBaseline(result) {
+      if (deploymentBaseline) {
+        throw new Error(
+          "Worker deployment baseline was recorded more than once."
+        );
+      }
+      deploymentBaseline = parseWorkerDeployments(
+        result,
+        "Worker deployment baseline could not be read; no deployment is allowed."
+      );
+    },
     read(publication) {
       if (publication) {
         return readCliProjection(publication, input);
@@ -118,7 +131,17 @@ export function createWorkerDeploymentCapture(input) {
           "Worker output does not match this command's source, target, projection or execution window."
         );
       }
-      return { versionId: event.version_id, proof: "command-output" };
+      if (!deploymentBaseline) {
+        throw new Error(
+          "Worker deployment output has no pre-deploy platform baseline."
+        );
+      }
+      return {
+        versionId: event.version_id,
+        proof: "command-output",
+        deploymentBaseline,
+        deploymentWindow: { startedAt, completedAt: time },
+      };
     },
     close() {
       rmSync(directory, { force: true, recursive: true });
@@ -204,30 +227,54 @@ export async function verifyWorkerDeployment(input) {
       "--json",
     ],
   });
-  if (result.status !== 0) {
-    throw new Error(
-      "Worker activation could not be read; no verified receipt is allowed."
-    );
-  }
-  const deployments = JSON.parse(result.stdout);
-  if (
-    !Array.isArray(deployments) ||
-    deployments.some((d) => !Number.isFinite(Date.parse(d.created_on)))
-  ) {
-    throw new Error(
-      "Worker deployment response has invalid completion identity."
-    );
-  }
+  const deployments = parseWorkerDeployments(
+    result,
+    "Worker activation could not be read; no verified receipt is allowed."
+  );
   const sorted = deployments.toSorted(
     (a, b) => Date.parse(b.created_on) - Date.parse(a.created_on)
   );
   const active = sorted[0];
+  let correlatedDeploymentId = expected.deploymentId;
+  if (!correlatedDeploymentId) {
+    const baseline = expected.deploymentBaseline;
+    if (!baseline) {
+      throw new Error(
+        "Worker deployment identity has neither an exact deployment ID nor a pre-deploy baseline."
+      );
+    }
+    const previousIds = new Set(baseline.map((deployment) => deployment.id));
+    const newlyObserved = sorted.filter(
+      (deployment) => !previousIds.has(deployment.id)
+    );
+    const latestPreviousTime = baseline.reduce(
+      (latest, deployment) =>
+        Math.max(latest, Date.parse(deployment.created_on)),
+      Number.NEGATIVE_INFINITY
+    );
+    const deploymentTime = Date.parse(newlyObserved[0]?.created_on);
+    const window = expected.deploymentWindow;
+    if (
+      newlyObserved.length !== 1 ||
+      newlyObserved[0].id !== active?.id ||
+      deploymentTime <= latestPreviousTime ||
+      !Number.isFinite(window?.startedAt) ||
+      !Number.isFinite(window?.completedAt) ||
+      deploymentTime < window.startedAt - MAX_PLATFORM_CLOCK_SKEW_MS ||
+      deploymentTime > window.completedAt + MAX_PLATFORM_CLOCK_SKEW_MS
+    ) {
+      throw new Error(
+        "Worker deployment cannot be uniquely correlated with this guarded command; reconcile instead of guessing a deployment ID."
+      );
+    }
+    correlatedDeploymentId = newlyObserved[0].id;
+  }
   if (
     !active?.id ||
     (sorted[1] &&
       sorted[1].created_on === active.created_on &&
       sorted[1].id !== active.id) ||
-    (expected.deploymentId && active.id !== expected.deploymentId) ||
+    active.id !== correlatedDeploymentId ||
     active.versions?.length !== 1 ||
     active.versions[0].version_id !== expected.versionId ||
     active.versions[0].percentage !== 100
@@ -246,4 +293,35 @@ export async function verifyWorkerDeployment(input) {
     ...(target.projectionTag ? { projectionTag: target.projectionTag } : {}),
     proof: expected.proof,
   });
+}
+
+function parseWorkerDeployments(result, failureMessage) {
+  if (result?.status !== 0) {
+    throw new Error(failureMessage);
+  }
+  let deployments;
+  try {
+    deployments = JSON.parse(result.stdout);
+  } catch (error) {
+    throw new Error(failureMessage, { cause: error });
+  }
+  const ids = new Set();
+  if (
+    !Array.isArray(deployments) ||
+    deployments.some((deployment) => {
+      if (
+        typeof deployment?.id !== "string" ||
+        !deployment.id ||
+        !Number.isFinite(Date.parse(deployment.created_on)) ||
+        ids.has(deployment.id)
+      ) {
+        return true;
+      }
+      ids.add(deployment.id);
+      return false;
+    })
+  ) {
+    throw new Error(failureMessage);
+  }
+  return deployments;
 }

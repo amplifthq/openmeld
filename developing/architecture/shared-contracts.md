@@ -1626,7 +1626,10 @@ CLI/database records explicitly identify the verified release source rather than
 inventing artifact or migration metadata. Version 3 adds an operation key,
 start time, exact Worker/deployment/version/source identity and projection tag.
 The same owner defines the guarded subprocess context and Core activation
-message. Legacy observations never acquire stronger proof by being reread.
+message. When a command does not return a deployment ID, the release owner binds
+its exact version to exactly one deployment ID absent from the pre-command
+platform baseline; an old match or ambiguous concurrent change remains
+unresolved. Legacy observations never acquire stronger proof by being reread.
 Recovery appends a verified event to the same correlated attempt only after
 read-only identity/health reconciliation; a different attempt cannot overwrite
 an unresolved one. New readers accept all three versions; unknown versions and

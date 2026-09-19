@@ -58,18 +58,20 @@ export function writeDeploymentOutput(step, sourceSha, options = {}) {
 export function workerDeploymentResponse(options = {}) {
   return {
     status: 0,
-    stdout: JSON.stringify([
-      {
-        id: options.deploymentId ?? FIXTURE_DEPLOYMENT,
-        created_on: "2026-09-18T12:00:00Z",
-        versions: [
-          {
-            version_id: options.versionId ?? FIXTURE_VERSION,
-            percentage: options.percentage ?? 100,
-          },
-        ],
-      },
-    ]),
+    stdout: JSON.stringify(
+      options.deployments ?? [
+        {
+          id: options.deploymentId ?? FIXTURE_DEPLOYMENT,
+          created_on: options.createdOn ?? new Date().toISOString(),
+          versions: [
+            {
+              version_id: options.versionId ?? FIXTURE_VERSION,
+              percentage: options.percentage ?? 100,
+            },
+          ],
+        },
+      ]
+    ),
   };
 }
 
