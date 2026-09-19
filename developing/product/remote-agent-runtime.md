@@ -240,7 +240,7 @@ Selected Space files, including binary files up to the existing 10 MiB limit,
 can be downloaded into the current Computer and published back through canonical
 Space Files. Published files attach their exact revision to the final reply.
 `openmeld_upload_computer_file` retains its create-and-attach behavior.
-`openmeld_save_space_file` saves an existing file using its original file id,
+`openmeld_save_computer_file` saves an existing file using its original file id,
 explicit base revision, and stable mutation id. It does not select a final
 attachment. Stale writes preserve the Computer bytes and return the canonical
 Space conflict; callers must not silently replace the base with the latest
@@ -249,6 +249,8 @@ revision for the final reply. These operations use the existing Core writer,
 read authorization, and final publication checks for both hosted roles.
 Computer transfers retain the 10 MiB single-request limit independently of the
 larger Space Files multipart limit.
+The existing `openmeld_save_space_file` tool continues to accept inline UTF-8
+text; its name and input contract remain distinct from Computer file transfers.
 
 Center Agent final Space replies and Space Routine reports may prepare explicit
 Human Profile recipients with `openmeld_set_final_reply_mentions`. The latest

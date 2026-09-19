@@ -139,7 +139,7 @@ export function getComputerSpaceFileTools(input: {
       },
     },
     {
-      name: "openmeld_save_space_file",
+      name: "openmeld_save_computer_file",
       description:
         "Save selected Computer bytes as a new revision of an existing Space file, without attaching it to your final reply. Supply the original fileId and baseRevision you edited. A stale base conflicts; preserve your edits and review the incoming version instead of substituting a newer base. Reuse clientMutationId only for the exact same bytes and request. Supports files up to 10 MiB.",
       input: saveInput,

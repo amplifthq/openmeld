@@ -7,6 +7,7 @@ import {
   type RemoteAgentCoreWorkerBinding,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { getRemoteAgentOpenMeldToolDefinitions } from "../agent-core/tools";
 import { getComputerSpaceFileTools } from "../flue-adapter/computer-space-files";
 import { materializeSpaceWork } from "../flue-adapter/space-work-materialization";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
@@ -114,6 +115,15 @@ describe("Computer Space file transfer", () => {
       workingDirectory: "/computer/spaces/current",
     });
     const [download, upload, save, attach] = tools;
+    const combined = [
+      ...getRemoteAgentOpenMeldToolDefinitions({
+        storage,
+        coreWorker: {},
+        submissionId: context.submissionId,
+      }),
+      ...tools,
+    ].map((tool) => tool.name);
+    expect(new Set(combined).size).toBe(combined.length);
     if (!(download && upload && save && attach)) {
       throw new Error("Missing file tools");
     }
