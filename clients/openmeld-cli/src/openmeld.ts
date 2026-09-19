@@ -1831,8 +1831,12 @@ skillsCmd
   .command("load")
   .description("Load one enabled Skill into the private OpenMeld cache.")
   .argument("<skill>", "Organization Skill name or id")
+  .option(
+    "--release <release-id>",
+    "Load this exact release instead of the active release"
+  )
   .option("--json", "Print one machine-readable JSON envelope.", false)
-  .action(async (skill: string, opts: { json?: boolean }) => {
+  .action(async (skill: string, opts: { json?: boolean; release?: string }) => {
     const view = getGlobalViewOption();
     await runCommandWithEntryChecks({
       routeTokens: ["skills", "load"],
@@ -1840,6 +1844,7 @@ skillsCmd
       run: async () => {
         await runOrganizationSkillsLoad({
           json: opts.json === true,
+          releaseId: opts.release,
           skill,
           view,
         });

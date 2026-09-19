@@ -85,7 +85,37 @@ type RuntimeCatalogUsage = {
 export async function readEnabledOrganizationSkillReleaseSelection(input: {
   db: D1Database;
   organizationId: string;
+  selectedReleases?: OrganizationSkillRuntimeReleaseSelection[];
 }): Promise<OrganizationSkillRuntimeReleaseSelection[]> {
+  if (input.selectedReleases !== undefined) {
+    const selected = input.selectedReleases.map((release) =>
+      organizationSkillRuntimeReleaseSelectionSchema.parse(release)
+    );
+    if (selected.length > ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT) {
+      throw new Error("Too many selected Skill releases.");
+    }
+    let runtimeBytes = 0;
+    for (const release of selected) {
+      const row = await input.db
+        .prepare(
+          "SELECT r.digest, r.manifest_json FROM organization_skill_releases r JOIN organization_skills s ON s.organization_id = r.organization_id AND s.id = r.skill_id WHERE s.organization_id = ? AND s.id = ? AND r.id = ? AND s.enabled = 1 AND s.removed_at IS NULL LIMIT 1"
+        )
+        .bind(input.organizationId, release.skillId, release.releaseId)
+        .first<{ digest: string; manifest_json: string }>();
+      if (!row || row.digest !== release.digest) {
+        throw createCoreRpcHttpError({
+          status: 403,
+          code: "organization_skill.release_unavailable",
+          reason: "The selected Skill release is unavailable or disabled.",
+        });
+      }
+      runtimeBytes += readManifestRuntimeBytes(row.manifest_json);
+    }
+    if (runtimeBytes > ORGANIZATION_SKILL_RUNTIME_CATALOG_MAX_BYTES) {
+      throw runtimeCatalogTooLargeError();
+    }
+    return selected;
+  }
   const rows = await input.db
     .prepare(
       `
@@ -187,6 +217,44 @@ export function createOrganizationSkillService(
         db: dependencies.db,
         skill,
       });
+    },
+
+    async getEnabledRelease(
+      actor: OrganizationSkillReadActor,
+      skillId: string,
+      releaseId: string
+    ) {
+      const skill = await requireSkill(
+        dependencies.db,
+        actor.organizationId,
+        skillId
+      );
+      if (skill.enabled !== 1) {
+        throw createCoreRpcHttpError({
+          code: "organization_skill.disabled",
+          reason: "Enable this Organization Skill before loading a release.",
+          status: 403,
+        });
+      }
+      const release = await dependencies.db
+        .prepare(
+          "SELECT * FROM organization_skill_releases WHERE organization_id = ? AND skill_id = ? AND id = ? LIMIT 1"
+        )
+        .bind(actor.organizationId, skillId, releaseId)
+        .first<ReleaseRow>();
+      if (!release) {
+        throw createCoreRpcHttpError({
+          code: "organization_skill.release_missing",
+          reason: "The selected Skill release is unavailable.",
+          status: 404,
+        });
+      }
+      return {
+        bundle: await readReleaseBundle(dependencies.bucket, release),
+        digest: release.digest,
+        releaseId: release.id,
+        skillId: release.skill_id,
+      };
     },
 
     async installBundle(

@@ -970,6 +970,52 @@ Deployment order and the separate W2/W5 Remote Agent windows live in
 
 ### Space File Commands
 
+Selected-file work uses these explicit boundaries:
+
+```text
+openmeld space files working-copy prepare <space-id> --selection <json> --directory <new-directory>
+openmeld space files working-copy status <space-id> <copy-id>
+openmeld space files working-copy resume <space-id> <copy-id>
+openmeld space files working-copy commit <space-id> <copy-id>
+openmeld space files working-copy reconcile <space-id> <copy-id>
+openmeld space files working-copy refresh <space-id> <copy-id>
+openmeld space files working-copy resolve <space-id> <copy-id> --file-id <file-id> --revision <incoming-revision>
+openmeld space files working-copy incoming <space-id> <copy-id> --directory <new-directory>
+openmeld space files handoff <space-id> --manifest <json> --target <profile-id> --client-message-id <stable-id> [--thread <thread-id>]
+```
+
+Selection JSON follows `spaceWorkSelectionSchema`; the handoff follows
+`spaceWorkHandoffSchema`. Prepare requires a fresh directory. Resume preserves
+edits to completed downloads. Commit freezes changed bytes and persists their
+mutation identities before upload. Reconcile retries those exact bytes after
+an unknown outcome, keeping subsequent local edits dirty. Incoming downloads
+the current shared versions to a separate directory for manual comparison;
+it never resets the existing copy. No background watcher uploads changes.
+
+A definite `space_file.conflict` stops retrying the rejected snapshot. For that
+same copy, `refresh` downloads the conflicting shared version alongside the
+working file; `status` returns its path and revision. Merge into the original
+working file, then explicitly `resolve` that file against the downloaded
+revision before committing. Identical local and incoming bytes can adopt that
+revision without another upload. Resolve rejects an unchanged rejected snapshot
+that differs from incoming, or
+an unprepared revision. It neither merges automatically nor selects latest
+silently. The server still rejects a base that advanced again. The original
+rejected snapshot and incoming content remain available; unknown upload outcomes
+continue to reconcile the same mutation instead of entering this flow.
+
+Use commit's returned exact references in a later handoff or final reply.
+Handoff posts one complete message through existing Wake admission. It does not
+upload an arbitrary directory or claim that the successor started. Account or
+Organization changes fence network work. Working copies are lane-, account-,
+Organization-, Space-, and Profile-scoped local bookkeeping, not permission.
+
+An admitted selected-work Wake prepares the same working copy before running.
+Its `working_copy` model tool exposes status, commit, reconcile, refresh, and
+resolve only for that Wake's copy; final `reply` can select returned exact file
+references. Managed-copy commands require macOS; automatic workstation execution
+requires the Codex App Server permission profile and actual access probe.
+
 `openmeld space files` is the canonical terminal and workstation-Agent entry to
 the current Space filesystem. The MVP commands are:
 

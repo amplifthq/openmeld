@@ -8,6 +8,7 @@ import {
   openMeldRuntimeProfileIdSchema,
   spaceFileEntryIdSchema,
   spaceFileRevisionNumberSchema,
+  spaceMessageFileReferenceSchema,
   spaceTaskIdSchema,
   spaceTaskMutationReceiptSchema,
 } from "@openmeld/schemas";
@@ -29,6 +30,7 @@ import {
   listDispatchSpaceTasks,
   mutateDispatchSpaceTask,
 } from "./dispatch-task";
+import { runDispatchWorkingCopy } from "./dispatch-working-copy";
 
 const FINAL_STATUS_SCHEMA = z.enum([
   "done",
@@ -46,6 +48,44 @@ export function createSpaceActionMcpServer(): McpServer {
     {
       instructions:
         "Use read_history for the bounded text history around the current Wake, and read_file for shared text files in the current Space. Use Space Task tools only when a clear deliverable needs durable ownership, progress, review, or later closure; questions and tiny same-turn actions stay in Messages. Task operations are non-final. Then choose exactly one final OpenMeld Space Action: reply for the exact public message, status for a final visible status, or stay_silent when no public message is needed. Private assistant output is not posted to the Space.",
+    }
+  );
+
+  server.registerTool(
+    "working_copy",
+    {
+      title: "Save or inspect this handoff's files",
+      description:
+        "Inspect or commit this handoff's files; reconcile retries an unknown save. On conflict, refresh downloads the shared version, then status shows its path and revision. Merge it into the original working file, then resolve with fileId and incoming revision before committing again. No automatic merge or overwrite. Does not deliver or close the Wake. No Space, profile or path overrides.",
+      inputSchema: {
+        action: z.enum(["status", "commit", "reconcile", "refresh", "resolve"]),
+        fileId: z.string().optional(),
+        revision: z.number().int().positive().optional(),
+      },
+    },
+    async ({ action, fileId, revision }) => {
+      try {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                await runDispatchWorkingCopy(action, { fileId, revision })
+              ),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text" as const,
+              text: error instanceof Error ? error.message : String(error),
+            },
+          ],
+        };
+      }
     }
   );
 
@@ -296,6 +336,7 @@ export function createSpaceActionMcpServer(): McpServer {
         "Record the exact final public reply for the active OpenMeld Wake. Use real newline characters for paragraph breaks. Optionally wake or reference an Agent, or mention a person, by mention label or profile ID.",
       inputSchema: {
         message: z.string().min(1),
+        files: z.array(spaceMessageFileReferenceSchema).max(10).optional(),
         mentionTargets: z.array(z.string().min(1)).optional(),
         referenceTargets: z.array(z.string().min(1)).optional(),
         wakeTargets: z.array(z.string().min(1)).optional(),
@@ -308,9 +349,10 @@ export function createSpaceActionMcpServer(): McpServer {
         readOnlyHint: false,
       },
     },
-    async ({ mentionTargets, message, referenceTargets, wakeTargets }) =>
+    async ({ files, mentionTargets, message, referenceTargets, wakeTargets }) =>
       executeSpaceAction(() =>
         recordDispatchSpaceReply({
+          files,
           mentionTargets,
           referenceTargets,
           text: message,

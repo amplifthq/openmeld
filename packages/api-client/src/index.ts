@@ -363,6 +363,7 @@ export {
   getSpaceFile,
   listSpaceFileRevisions,
   listSpaceFiles,
+  postSpaceWorkHandoff,
   setSpaceAccessMode,
   trashSpaceFileEntry,
   updateSpaceFileContent,

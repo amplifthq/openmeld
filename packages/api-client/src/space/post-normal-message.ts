@@ -66,6 +66,7 @@ function buildPostNormalMessageBody(input: {
 }): PostNormalMessageBody {
   return {
     text: input.text,
+    ...(input.meta?.workHandoff ? { workHandoffVersion: 1 as const } : {}),
     ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
     ...(input.contextSelection
       ? { contextSelection: input.contextSelection }

@@ -116,6 +116,7 @@ import { DaemonServiceRunError } from "../core/types";
 import { resolveComputerFileAccessAdmission } from "../file-access/computer-file-access-admission";
 import { applyComputerFileAccessAwareness } from "../file-access/computer-file-access-prompt";
 import { readComputerFileAccessPolicy } from "../file-access/computer-file-access-store";
+import { prepareDispatchWorkHandoff } from "../file-access/dispatch-work-handoff";
 import { probeAgentControllerUsageObservationAuth } from "../inventory/agent-controller-interface";
 import { recordRuntimeProviderUsageLimits } from "../inventory/runtime-provider-usage-limits";
 import {
@@ -1171,8 +1172,13 @@ export async function handleDispatchDeliverFrame(input: {
       currentWorkingDirectory: originalWorkingDirectory,
       computerFileAccessStorePath: input.computerFileAccessStorePath,
     });
+    const handoffWorkingDirectory = await prepareDispatchWorkHandoff({
+      task: parsedTask,
+      ownerUserId: input.profileOwnerUserId,
+      workingDirectory: taskWorkspace.workingDirectory,
+    });
     effectiveRuntimeContext = {
-      providerRuntimeWorkingDirectory: taskWorkspace.workingDirectory,
+      providerRuntimeWorkingDirectory: handoffWorkingDirectory,
     };
     runtimePreparation.effectiveRuntimeContext = effectiveRuntimeContext;
     computerFileAccessBoundary = await resolveDispatchComputerFileAccess({
@@ -2977,6 +2983,7 @@ async function resolveDispatchComputerFileAccess(input: {
       workingDirectory,
       policy,
       taskWorkspace: input.taskWorkspace,
+      workingCopyId: input.parsedTask.workingCopyId,
     });
     const verification = await verifier({
       boundary,
@@ -3047,6 +3054,7 @@ function createDispatchSpaceActionRuntimeContext(input: {
   runtimeEnvOverrides: Record<string, string | undefined> | undefined;
 } {
   const contextResult = createDispatchSpaceActionContext({
+    workingCopyId: input.parsedTask.workingCopyId,
     attemptId: input.parsedTask.attemptId,
     dispatchId: input.parsedTask.dispatchId,
     env: process.env,

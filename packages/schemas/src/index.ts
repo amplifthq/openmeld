@@ -324,6 +324,18 @@ export {
   spaceOwnerDepartureResultSchema,
   spaceOwnerDepartureSpaceInputSchema,
 } from "./space-owner-departure";
+export {
+  SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
+  SPACE_WORK_MAX_BYTES,
+  type SpaceWorkHandoff,
+  type SpaceWorkingCopyAccess,
+  type SpaceWorkSelection,
+  spaceWorkHandoffSchema,
+  spaceWorkingCopyAccessSchema,
+  spaceWorkingCopyResultSchema,
+  spaceWorkRelativePathSchema,
+  spaceWorkSelectionSchema,
+} from "./space-work-handoff";
 export type * from "./types/index";
 export {
   WEB_APPLICATION_ERROR_MAX_BYTES,

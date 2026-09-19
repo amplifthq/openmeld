@@ -106,6 +106,7 @@ export const validateSpaceSignalClientMessageIdPolicy = (
 
 export const postNormalMessageBodySchema = z
   .strictObject({
+    workHandoffVersion: z.literal(1).optional(),
     text: signalTextRequestDataSchema.shape.text,
     deviceWait: signalTextRequestDataSchema.shape.deviceWait.optional(),
     contextSelection:
@@ -118,7 +119,8 @@ export const postNormalMessageBodySchema = z
     meta: signalTextRequestDataSchema.shape.meta.optional(),
   })
   .superRefine((value, ctx) => {
-    const parsed = signalTextRequestDataSchema.safeParse(value);
+    const { workHandoffVersion: _workHandoffVersion, ...signalData } = value;
+    const parsed = signalTextRequestDataSchema.safeParse(signalData);
     if (parsed.success) {
       return;
     }

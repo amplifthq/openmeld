@@ -224,6 +224,7 @@ export type RemoteAgentCallbackContext = {
   mentionTargets?: string[];
   organizationId: string;
   organizationSkillReleases?: OrganizationSkillRuntimeReleaseSelection[];
+  workHandoff?: RemoteAgentWorkerSubmitTurnRequest["workHandoff"];
   requestId?: string;
   sourceClientMessageId: string | null;
   sharedSpaceContextEnabled?: boolean;
@@ -664,6 +665,7 @@ export function createRemoteAgentCallbackContext(input: {
     idempotencyKey: input.request.idempotencyKey,
     ...(input.request.v === 1 ? {} : { modelRoute: input.request.modelRoute }),
     organizationId: input.request.organizationId,
+    workHandoff: input.request.workHandoff,
     organizationSkillReleases:
       input.request.organizationSkillReleases?.map((release) => ({
         ...release,

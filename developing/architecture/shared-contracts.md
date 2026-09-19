@@ -833,6 +833,14 @@ tools, CLI, Remote Agent, and Local OpenMeld Service consume the same Core
 contracts. A runtime or delegated snapshot names exact Skill and release ids
 plus a content digest; `latest` is never a valid execution descriptor.
 
+Skill detail reads accept an optional `releaseId`. Only that explicit request
+adds `selectedRelease` (the immutable runtime release bundle) to the response;
+the ordinary `skill.activeRelease` and `skill.bundle` still describe the active
+release. Core rechecks enablement for exact loading and scopes the release to
+the authorized Organization and Skill. Deploy Core, then Gateway, before CLI
+callers of `skills load --release`; older receivers must not cause latest-release
+fallback. Existing requests and in-flight runtime snapshots retain their semantics.
+
 The portable `SKILL.md` frontmatter remains an Agent Skills content contract.
 OpenMeld ownership, enablement, maintainers, source provenance, audit, and
 release state stay outside portable frontmatter in Core-owned schemas.
@@ -7455,6 +7463,44 @@ with transferred ownership; rollback must preserve the ownership enforcement
 receiver or disable affected management until it is restored.
 
 ## Owner Boundaries
+
+### Selected Space work compatibility
+
+`spaceWorkHandoffSchema` is the shared optional selected-work payload in Message
+metadata, Thread posts, dispatch source snapshots, and hosted admission. The
+origin remains the real containing Message/Thread. The public normal-message
+request adds `workHandoffVersion: 1` so an older strict Gateway rejects new
+handoff callers rather than silently dropping their metadata.
+
+Roll out Core receivers, the hosted receiver, Gateway, then Web/new CLI callers.
+Core and Remote Agent must both understand the optional payload before enabling
+hosted handoffs. New Service handshakes negotiate `spaceWorkHandoff` through the
+Gateway header and Core socket attachment. New Core never sends this work to an
+old Service lacking that capability. Old Core/new Service and ordinary
+new-Core/old-Service setup, Wake, status, trace, and self-rescue keep their
+existing contracts. No global execution epoch or managed Skill version bump is
+needed: the new operation is capability-gated and existing operations are not
+reinterpreted. The next CLI/Service artifacts must carry the implementation;
+feature branches defer release stamping through the release-ready command.
+
+Exact Skill reads use the optional selected-release response described above;
+an absent exact release fails rather than selecting latest. Agent reads check
+active account membership and the owned active Agent Profile and never grant
+Skill editing permissions. Desktop uses the same Web/CLI/Service boundaries;
+there is no new Desktop execution or file authority, and no native Desktop
+working-copy manager is claimed. Rollback removes new callers before receivers;
+retain pending local copies and immutable shared revisions. No DB migration or
+resource binding is introduced.
+
+The review fixes keep the same capability-gated rollout. The Service-to-adapter
+boundary adds optional `workingCopyId` only after successful preparation; it
+does not extend public execution-context access modes. The CLI/MCP adds explicit
+refresh/resolve actions and conflict/incoming projections. These ship together
+in the local component artifact; they do not require new cloud operations or
+reinterpret ordinary setup, Wake, Space actions, status, or trace. Unreleased
+first-version handoff artifacts must be replaced before enabling this capability.
+No managed Skill or execution epoch changes are needed. The next local artifact
+remains deferred on this draft branch; release verification must use the base.
 
 This document owns shared contracts and reusable policy boundaries.
 

@@ -19,6 +19,24 @@
 
 ## Product Role
 
+Selected Space work reuses this carrier and RuntimeCoordinator. Before local
+execution, the Service materializes the exact admitted file/Skill selection
+into a fresh child of the isolated task workspace. It advertises the optional
+`spaceWorkHandoff` capability on macOS only; unsupported routes fail with an
+update-required outcome instead of running a prompt without its selected inputs.
+Codex App Server and the existing Space-only containment verifier remain
+required. A working directory or separate metadata directory is not itself an
+OS security boundary.
+
+Managed working-copy metadata lives under the effective lane root, outside the
+Agent-editable task content. Its scope binds deployment URL, account,
+Organization, Space, Profile, and copy identity on the current device. Per-copy
+locks, frozen pending bytes, and acknowledged revision/hash records support
+crash recovery without owning cloud file authority. Every network operation
+rechecks the current account/Organization and uses ordinary authorized file
+APIs. Unsent edits are retained across failures; account changes never migrate
+pending uploads into another account. No automatic cleanup discards them.
+
 OpenMeld Service is the local execution carrier and trust boundary between OpenMeld cloud
 collaboration and work performed on the user's computer.
 
@@ -970,6 +988,23 @@ window without requiring a sandboxed shell to load Node, CLI code, or local
 authentication files. Its Space, source Wake, and acting Profile are fixed by
 the active dispatch, and it rechecks that context after the authorized read.
 This read does not complete or publish the Wake.
+
+A selected-file handoff is the narrow writable exception: after preparation,
+the Service adds the dispatch's `workingCopyId` to the adapter boundary and
+limits its folders to the prepared handoff root, not its parent scratch root.
+Codex must confirm workspace-write access and pass the same real inside/outside
+probe. Ordinary Space-only tasks remain read-only, repair remains read-only,
+and the context still starts a separate native session. Copy receipts and
+upload snapshots remain outside the writable root. This projection changes
+neither Core authorization nor RuntimeCoordinator execution ownership.
+
+Managed-copy reads and file creation require macOS `O_NOFOLLOW_ANY`, which
+rejects symlinks in every path component during the kernel open itself. Leaf-only
+`O_NOFOLLOW` and preflight directory checks are insufficient against a concurrent
+intermediate-directory replacement. Other platforms reject managed-copy commands
+until they have an equivalent verified primitive; explicit file commands remain
+available. This is a Service file-read boundary, not evidence of a production
+Codex sandbox escape.
 
 Claude SDK Space-context invocations expose only dispatch-owned Space tools;
 built-in local tools, ambient MCP servers, and hooks are disabled. User settings
