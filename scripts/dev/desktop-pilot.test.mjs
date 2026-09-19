@@ -10,12 +10,21 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { resolveDesktopPilotLaunch } from "./desktop-pilot.mjs";
+import {
+  resolveDesktopLaunchExitCode,
+  resolveDesktopPilotLaunch,
+} from "./desktop-pilot.mjs";
 
 const MISSING_CLI = /installed CLI/;
 const INVALID_PRESET = /development preset/;
 const WRONG_WORKTREE = /another worktree/;
 const MISSING_APP = /missing its executable/u;
+
+test("a managed Desktop stop ends the launcher cleanly without hiding real app failures", () => {
+  assert.equal(resolveDesktopLaunchExitCode(1, true), 0);
+  assert.equal(resolveDesktopLaunchExitCode(1, false), 1);
+  assert.equal(resolveDesktopLaunchExitCode(0, false), 0);
+});
 
 test("the Desktop launcher uses its owned lane CLI and overrides unrelated parent endpoints", () => {
   const root = mkdtempSync(join(tmpdir(), "openmeld-desktop-launch-"));

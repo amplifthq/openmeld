@@ -4,6 +4,12 @@ import { resolveDesktopBrowserIdentity } from "./desktop-browser-auth";
 it("selects a callback only from the configured backend identity", () => {
 	expect(
 		resolveDesktopBrowserIdentity({
+			webOrigin: "http://wt-aaaaaaaaaaaa.localhost:31000",
+			clientId: "electron",
+		}).authScheme
+	).toBe("sh.openmeld.desktop.dev.wt-aaaaaaaaaaaa.p31000");
+	expect(
+		resolveDesktopBrowserIdentity({
 			webOrigin: "https://openmeld.ai",
 			clientId: "openmeld-desktop",
 		}).authScheme

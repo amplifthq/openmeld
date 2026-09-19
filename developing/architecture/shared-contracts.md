@@ -119,8 +119,18 @@ business handling, and never grants authentication from this header. Packaged
 renderer/native fingerprint and target agreement still protects local assets.
 Private development clients retain their matching-build requirement.
 
-Installed target metadata and the bounded production/private/disposable Auth
-identity mapping live in `packages/schemas/src/desktop-client.ts`. Production
+Installed target metadata lives in `packages/schemas/src/desktop-client.ts`.
+The production/private/disposable Auth mapping is owned by
+`packages/schemas/src/desktop-auth-identity.ts`. Registered worktree loopback
+origins derive an exact per-worktree/port callback under the private namespace;
+only configured Web origins, never browser input, select that identity. Auth
+trusts exactly that callback and native uses the same identity. Production and
+disposable client IDs/schemes are unchanged. Development adoption requires a
+coordinated Web/Auth restart and app rebuild, not a production version-floor change.
+`desktop-development.ts` owns the strict, non-secret build-only worktree coordinates
+used for OS launches without a terminal environment. It grants no authentication,
+ownership, Service connection, or Wake authority. Existing CLI/Core/Gateway/Service
+contracts and execution epochs do not change. Production
 compiles `https://openmeld.ai`; runtime renderer or lane configuration cannot
 select a different endpoint. Native owns SDK credentials and strips response
 cookies from renderer output. Generated server functions and generic Auth APIs
