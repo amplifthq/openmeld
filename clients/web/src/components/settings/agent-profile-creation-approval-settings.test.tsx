@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentProfileCreationApprovalSettings } from "./agent-profile-creation-approval-settings";
 
@@ -47,7 +47,64 @@ describe("AgentProfileCreationApprovalSettings", () => {
 		expect(existingSessions.textContent).toContain("Ask me each time");
 		expect(setPreferenceMock).not.toHaveBeenCalled();
 	});
+
+	it("keeps the descriptions visible without inventing approval values while the read is pending", async () => {
+		const read =
+			deferred<
+				Awaited<
+					ReturnType<
+						typeof import("#/lib/profiles/agent-profile-creation-requests").getAgentProfileCreationApprovalPreference
+					>
+				>
+			>();
+		getPreferenceMock.mockReturnValueOnce(read.promise);
+		renderSettings();
+		expect(screen.getByText("Agent creation permissions")).toBeTruthy();
+		expect(
+			screen.getByRole("status", {
+				name: "Loading Start new conversations approval policy",
+			})
+		).toBeTruthy();
+		expect(
+			screen.getByRole("status", {
+				name: "Loading Continue or copy existing conversations approval policy",
+			})
+		).toBeTruthy();
+		expect(screen.queryByRole("combobox")).toBeNull();
+		expect(screen.queryByText("Ask me each time")).toBeNull();
+		await act(async () =>
+			read.resolve({
+				existingSessionPolicy: "never_allow",
+				newSessionPolicy: "automatically_allow",
+				organizationId: "org-1",
+				updatedAt: null,
+				userId: "user-1",
+			})
+		);
+		expect(
+			(
+				await screen.findByRole("combobox", {
+					name: "Start new conversations approval policy",
+				})
+			).textContent
+		).toContain("Allow without asking");
+		expect(
+			screen.getByRole("combobox", {
+				name: "Continue or copy existing conversations approval policy",
+			}).textContent
+		).toContain("Don’t allow");
+		expect(screen.queryByRole("status")).toBeNull();
+		expect(setPreferenceMock).not.toHaveBeenCalled();
+	});
 });
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((complete) => {
+		resolve = complete;
+	});
+	return { promise, resolve };
+}
 
 function renderSettings() {
 	const queryClient = new QueryClient({

@@ -5,10 +5,36 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { it } from "node:test";
 import { promisify } from "node:util";
-import { verifyCodexWorkspaceAccess } from "../dist/transport/codex-workspace-access-probe.js";
+import {
+  buildCodexWorkspaceProbeCommand,
+  verifyCodexWorkspaceAccess,
+} from "../dist/transport/codex-workspace-access-probe.js";
 
 const execute = promisify(execFile);
 const ACCESS_UNVERIFIED = /workspace_access_unverified/;
+const ENCODED_PATHS_PATTERN = /FromBase64String\('([A-Za-z0-9+/=]+)'\)/u;
+
+it("passes Windows sentinel paths as UTF-8 data to the system PowerShell, not shell source", () => {
+  const paths = [
+    "C:\\Users\\测试 & %PATH%\\outside'file",
+    "D:\\Project with spaces\\inside",
+  ];
+  const command = buildCodexWorkspaceProbeCommand(...paths, "win32", {
+    systemroot: "C:\\Windows",
+  });
+  assert.equal(
+    command[0],
+    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+  );
+  assert.equal(command.at(-2), "-EncodedCommand");
+  const script = Buffer.from(command.at(-1), "base64").toString("utf16le");
+  const payload = script.match(ENCODED_PATHS_PATTERN)?.[1];
+  assert.deepEqual(
+    JSON.parse(Buffer.from(payload, "base64").toString("utf8")),
+    paths
+  );
+  assert.equal(script.includes(paths[0]), false);
+});
 
 it("rejects a runtime that can open a sibling task's files and cleans only its own sentinels", async () => {
   const root = await realpath(

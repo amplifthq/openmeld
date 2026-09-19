@@ -8,6 +8,7 @@ import {
 	resetAccountScopedQueriesAfterAuthChange,
 } from "#/query/auth-boundary";
 import { isDesktopAppHref } from "../../../desktop/src/shared/navigation";
+import { desktopUsesMacControls } from "./chrome-platform";
 import { createDesktopNavigation } from "./navigation";
 import { getDesktopPlatform } from "./platform";
 import { DesktopTitlebarContext } from "./titlebar-context";
@@ -169,7 +170,10 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 	return (
 		<DesktopTitlebarContext.Provider value={titlebar}>
 			<DesktopUpdater />
-			<div className="desktop-window">
+			<div
+				className="desktop-window"
+				data-window-controls={desktopUsesMacControls() ? "mac" : "overlay"}
+			>
 				<div className="desktop-titlebar" ref={setTarget} />
 				<div className="desktop-content">{children}</div>
 			</div>

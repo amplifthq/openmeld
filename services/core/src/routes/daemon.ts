@@ -6,6 +6,7 @@ import {
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
   serviceConnectionDiagnosticIdSchema,
 } from "@openmeld/schemas";
 import type {
@@ -118,6 +119,9 @@ export function registerDaemonRoutes(app: Hono<HonoBindings>): void {
       method: "GET",
       headers: {
         Upgrade: "websocket",
+        ...(c.req.header(SPACE_WORK_HANDOFF_CAPABILITY_HEADER) === "1"
+          ? { [SPACE_WORK_HANDOFF_CAPABILITY_HEADER]: "1" }
+          : {}),
         ...(c.req.header(OPENMELD_REASONING_STREAM_HEADER) === "1"
           ? { [OPENMELD_REASONING_STREAM_HEADER]: "1" }
           : {}),

@@ -6,7 +6,10 @@ import { readInstalledDesktopTarget } from "./installed-target.ts";
 const releaseShaPattern = /^[a-f0-9]{40}$/u;
 
 /** Build-time policy shared by the package entry and direct builder invocation. */
-export function readDesktopSignedPackageMode(env: NodeJS.ProcessEnv) {
+export function readDesktopSignedPackageMode(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform
+) {
   const acceptance = env.OPENMELD_DESKTOP_ACCEPTANCE === "1";
   const production = env.OPENMELD_DESKTOP_PRODUCTION_PREVIEW === "1";
   if (acceptance && production) {
@@ -42,7 +45,7 @@ export function readDesktopSignedPackageMode(env: NodeJS.ProcessEnv) {
     "APPLE_API_ISSUER",
     "CSC_LINK",
   ]) {
-    if (env[name]) {
+    if (platform === "darwin" && env[name]) {
       throw new Error(
         `Unset ${name} to use the local Desktop Keychain profile.`
       );

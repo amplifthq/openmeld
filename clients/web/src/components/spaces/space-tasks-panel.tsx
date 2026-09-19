@@ -2,7 +2,6 @@
 
 import type { SpaceTask, SpaceTaskPhase } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	CheckCircleIcon,
 	CircleIcon,
@@ -10,6 +9,7 @@ import {
 	FlowArrowIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
+import { SpaceTasksSkeleton } from "./space-panel-skeletons";
 import { SpaceTaskCard } from "./space-task-card";
 import { SpaceTaskDetailDrawer } from "./space-task-detail-drawer";
 import {
@@ -247,20 +247,5 @@ function TaskHistory(
 				))}
 			</div>
 		</details>
-	);
-}
-
-function SpaceTasksSkeleton() {
-	return (
-		<output aria-label="Loading Tasks" className="block p-4 sm:p-6">
-			<div className="grid gap-4 md:grid-cols-3">
-				{ACTIVE_COLUMNS.map((column) => (
-					<div key={column.phase}>
-						<Skeleton className="mb-3 h-8 w-32" />
-						<Skeleton className="h-24 w-full rounded-lg" />
-					</div>
-				))}
-			</div>
-		</output>
 	);
 }

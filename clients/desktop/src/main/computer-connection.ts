@@ -1,10 +1,15 @@
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { unwatchFile, watchFile } from "node:fs";
 import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { normalizeCommandEnvironment } from "@openmeld/adapter-core/process-environment";
+import {
+  execPlatformFile as execFile,
+  resolvePlatformCommand,
+} from "@openmeld/adapter-core/process-launch";
 import { createComputerAuthorizationGrant } from "@openmeld/api-client";
 import {
   type ComputerSetupOutput,
@@ -27,7 +32,7 @@ import {
   SERVICE_ACCOUNT_STOP_REFUSED_CODE,
 } from "@openmeld/schemas";
 import type { CommandDeps } from "./cli/commands";
-import { installManagedBinary } from "./cli/managed-binary";
+import { installComputerTools } from "./cli/computer-tools";
 import { resolveOpenMeldBin } from "./cli/resolve-openmeld";
 import type { PilotAuth } from "./pilot-auth";
 
@@ -71,12 +76,12 @@ export function createComputerConnection(input: {
       const account = await assertAccount();
       const deps = input.commandDeps;
       assertConnectionEnvironment(deps.env);
-      const bin = resolveOpenMeldBin({
+      const selectedBin = resolveOpenMeldBin({
         env: deps.env,
         override: deps.openMeldBin,
       });
-      const review = await reviewComputerConnection(
-        bin,
+      const { bin, review } = await reviewComputerConnection(
+        selectedBin,
         input.webOrigin,
         deps,
         observe
@@ -561,12 +566,12 @@ async function reviewComputerConnection(
   ) => void
 ) {
   try {
-    return await readComputerConnection(bin, deps);
+    return { bin, review: await readComputerConnection(bin, deps) };
   } catch (error) {
     if (!isComputerConnectionBootstrapError(error)) {
       throw error;
     }
-    await installManagedBinary(webOrigin, deps, {
+    const installedBin = await installComputerTools(webOrigin, deps, {
       onDownloadProgress: (progress) =>
         observe("downloading", "desktop.tools.download", {
           measurement: {
@@ -578,7 +583,10 @@ async function reviewComputerConnection(
         }),
       onStage: (stage) => observe(stage, `desktop.tools.${stage}`),
     });
-    return await readComputerConnection(bin, deps);
+    return {
+      bin: installedBin,
+      review: await readComputerConnection(installedBin, deps),
+    };
   }
 }
 
@@ -720,8 +728,12 @@ export async function runConnectionSetup(
     reading = reading.then(readOutput).catch(() => undefined);
   };
   try {
-    const child = spawn(bin, args, {
-      env,
+    const commandEnv = normalizeCommandEnvironment(env ?? process.env);
+    const invocation = resolvePlatformCommand(bin, args, commandEnv);
+    const child = spawn(invocation.bin, invocation.args, {
+      env: commandEnv,
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+      windowsHide: true,
       detached: true,
       stdio: ["ignore", log.fd, log.fd],
     });

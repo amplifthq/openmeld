@@ -124,7 +124,6 @@ import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recover
 import { SpaceComposer } from "./space-composer";
 import type { SpaceAgentDirectConversationComposerHintKind } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
-
 import { SpaceHeader } from "./space-header";
 import {
 	isSameOwnerUserId,
@@ -149,6 +148,10 @@ import {
 	SpaceConversationRecoveryBanner,
 	type SpaceSetupVisibility,
 } from "./space-onboarding-banner";
+import {
+	SpaceFilesSkeleton,
+	SpaceTasksSkeleton,
+} from "./space-panel-skeletons";
 import {
 	partitionSpacePendingAgentActions,
 	resolveSpacePendingAgentActionIdentity,
@@ -222,13 +225,7 @@ function SpaceTasksPanelSlot(input: {
 		return null;
 	}
 	return (
-		<Suspense
-			fallback={
-				<output className="p-6 text-muted-foreground text-sm">
-					Loading Tasks…
-				</output>
-			}
-		>
+		<Suspense fallback={<SpaceTasksSkeleton />}>
 			<SpaceTasksPanel
 				key={input.spaceId}
 				membersSnapshot={input.membersSnapshot}
@@ -2215,13 +2212,7 @@ function SpaceLandingConversation({
 			emptyStateTitle={isDirectMessage ? undefined : EMPTY_SPACE_TITLE}
 			ephemeralActivityItems={controller.ephemeralActivityItems}
 			files={
-				<Suspense
-					fallback={
-						<output className="p-6 text-muted-foreground text-sm">
-							Loading files…
-						</output>
-					}
-				>
+				<Suspense fallback={<SpaceFilesSkeleton className="p-6" showToolbar />}>
 					<SpaceFilesPanel
 						fileToOpen={spaceFileToOpen}
 						key={controller.spaceId}

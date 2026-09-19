@@ -10,6 +10,22 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./process-environment": {
+      "types": "./dist/process-environment.d.ts",
+      "default": "./dist/process-environment.js"
+    },
+    "./windows-system": {
+      "types": "./dist/windows-system.d.ts",
+      "default": "./dist/windows-system.js"
+    },
+    "./process-launch": {
+      "types": "./dist/process-launch.d.ts",
+      "default": "./dist/process-launch.js"
+    },
+    "./windows-process-job": {
+      "types": "./dist/windows-process-job.d.ts",
+      "default": "./dist/windows-process-job.js"
+    },
     "./drivers/cli-driver": {
       "types": "./dist/drivers/cli-driver.d.ts",
       "default": "./dist/drivers/cli-driver.js"

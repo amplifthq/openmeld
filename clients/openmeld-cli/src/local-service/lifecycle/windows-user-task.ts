@@ -1,12 +1,21 @@
-import { execFile } from "node:child_process";
-import { win32 } from "node:path";
-import { promisify } from "node:util";
+import { type ExecFileException, execFile } from "node:child_process";
+import { normalizeCommandEnvironment } from "@openmeld/adapter-core/process-environment";
+import {
+  powerShellEncodedArguments,
+  resolveWindowsPowerShellPath,
+} from "@openmeld/adapter-core/windows-system";
 import {
   type WindowsUserTaskRequest,
   windowsUserTaskActionSchema,
   windowsUserTaskRequestSchema,
   windowsUserTaskStatusSchema,
 } from "@openmeld/schemas";
+import { currentDaemonServiceLifecycleLock } from "../../config/daemon-state";
+import {
+  attachLockProcess,
+  type OpenMeldLock,
+  releaseLock,
+} from "../../config/lock";
 
 // Task Scheduler runs in the signed-in user's session, with that user's tokens
 // and ordinary permissions. No password, elevation, or third-party service host.
@@ -16,6 +25,8 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $r = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:OPENMELD_TASK_REQUEST)))
+if ($env:OPENMELD_TASK_GRANT_REQUIRED -eq '1' -and [Console]::In.ReadLine() -ne 'execute') { exit 125 }
+$env:OPENMELD_TASK_GRANT_REQUIRED = $null
 $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 if ($sid -in @('S-1-5-18','S-1-5-19','S-1-5-20')) { throw 'Run OpenMeld setup from your own Windows account, not a system account.' }
 $scheduler = New-Object -ComObject 'Schedule.Service'
@@ -25,6 +36,14 @@ $name = $r.name + '-' + $sid
 $task = $null
 try { $task = $folder.GetTask($name) } catch {
   if ($_.Exception.GetBaseException().HResult -ne -2147024894) { throw }
+}
+if ($task) {
+  $principal = $task.Definition.Principal
+  $taskSid = $principal.UserId
+  if ($taskSid -notmatch '^S-\d-') { $taskSid = ([Security.Principal.NTAccount]$taskSid).Translate([Security.Principal.SecurityIdentifier]).Value }
+  if ($taskSid -ne $sid -or $principal.LogonType -ne 3 -or $principal.RunLevel -ne 0 -or $task.Definition.Actions.Count -ne 1 -or $task.Definition.Actions.Item(1).Path -ne (Join-Path $PSHOME 'powershell.exe')) {
+    throw 'An existing OpenMeld task uses a different user or launch configuration. Resolve that installation before continuing.'
+  }
 }
 # Migration only owns the exact legacy script in this lane. Never stop another
 # user's or an administrator-customized service merely because its name matches.
@@ -102,17 +121,7 @@ switch ($r.operation) {
 `;
 
 export function windowsPowerShellPath(): string {
-  const root = process.env.SystemRoot;
-  if (!(root && win32.isAbsolute(root))) {
-    throw new Error("Windows system directory is unavailable.");
-  }
-  return win32.join(
-    root,
-    "System32",
-    "WindowsPowerShell",
-    "v1.0",
-    "powershell.exe"
-  );
+  return resolveWindowsPowerShellPath();
 }
 
 export function windowsTaskActionArguments(input: {
@@ -191,32 +200,68 @@ export async function runWindowsUserTask(
   legacy: boolean;
   actionArguments: string | null;
 }> {
-  const result = await promisify(execFile)(
+  const lock = currentDaemonServiceLifecycleLock();
+  const payload = Buffer.from(
+    JSON.stringify(windowsUserTaskRequestSchema.parse(request))
+  ).toString("base64");
+  let finish!: (value: {
+    error: ExecFileException | null;
+    stdout: string;
+  }) => void;
+  const completed = new Promise<{
+    error: ExecFileException | null;
+    stdout: string;
+  }>((resolve) => {
+    finish = resolve;
+  });
+  const child = execFile(
     windowsPowerShellPath(),
-    [
-      "-NoLogo",
-      "-NoProfile",
-      "-NonInteractive",
-      "-EncodedCommand",
-      Buffer.from(TASK_CONTROL, "utf16le").toString("base64"),
-    ],
+    powerShellEncodedArguments(TASK_CONTROL),
     {
+      encoding: "utf8",
       windowsHide: true,
       timeout: 30_000,
       maxBuffer: 1024 * 1024,
       env: {
-        ...process.env,
-        OPENMELD_TASK_REQUEST: Buffer.from(
-          JSON.stringify(windowsUserTaskRequestSchema.parse(request))
-        ).toString("base64"),
+        ...normalizeCommandEnvironment(process.env),
+        OPENMELD_TASK_REQUEST: payload,
+        OPENMELD_TASK_GRANT_REQUIRED: lock ? "1" : "0",
       },
+    },
+    (error, stdout) => finish({ error, stdout })
+  );
+  // EOF before the grant prevents the COM operation. Once granted, this exact
+  // PowerShell instance retains the existing lifecycle fence if its CLI dies.
+  // This is not a Wake Job: the independently scheduled Service must survive it.
+  child.stdin?.on("error", () => undefined);
+  let participant: OpenMeldLock | undefined;
+  try {
+    if (lock) {
+      if (!child.pid) {
+        throw new Error("Windows task control did not establish a process.");
+      }
+      participant = await attachLockProcess(lock, child.pid);
     }
-  );
-  const status = windowsUserTaskStatusSchema.safeParse(
-    JSON.parse(result.stdout.trim())
-  );
-  if (!status.success) {
-    throw new Error("Windows returned an invalid OpenMeld task status.");
+    child.stdin?.end(lock ? "execute\n" : undefined);
+    const result = await completed;
+    if (result.error) {
+      throw result.error;
+    }
+    const status = windowsUserTaskStatusSchema.safeParse(
+      JSON.parse(result.stdout.trim())
+    );
+    if (!status.success) {
+      throw new Error("Windows returned an invalid OpenMeld task status.");
+    }
+    return status.data;
+  } finally {
+    child.stdin?.destroy();
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill();
+    }
+    await completed;
+    if (participant) {
+      await releaseLock(participant);
+    }
   }
-  return status.data;
 }

@@ -151,6 +151,23 @@ describe("SettingsRow", () => {
     ).not.toContain("border-b");
   });
 
+  it("accepts a caller className for responsive visibility", () => {
+    render(
+      <SettingsRow
+        className="hidden lg:flex"
+        control={<input />}
+        label="Desktop only"
+      />
+    );
+
+    const className = document.querySelector(
+      '[data-slot="settings-row"]'
+    )?.className;
+    expect(className).toContain("flex-col");
+    expect(className).toContain("hidden");
+    expect(className).toContain("lg:flex");
+  });
+
   it("can stack a full-width control below its label", () => {
     render(
       <SettingsRow

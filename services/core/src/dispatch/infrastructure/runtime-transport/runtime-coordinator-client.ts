@@ -239,6 +239,7 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
         ? { profileMentionLabel: sourceProfileMentionLabel }
         : {}),
       text: renderDispatchSourceText({
+        workHandoff: input.message.sourceSignalSnapshot?.workHandoff,
         text: input.sourceSignal.text,
         quotedMessage: input.message.sourceSignalSnapshot?.quotedMessage,
         contextMessages: input.message.sourceSignalSnapshot?.contextMessages,
@@ -348,10 +349,21 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
   }
   // Preserve the installed Service's strict snapshot shape. Context is rendered
   // into the existing source text at this transport boundary.
-  const { quotedMessage, pinnedFiles, contextMessages, ...sourceSnapshot } =
-    input.sourceSignalSnapshot;
+  const {
+    quotedMessage,
+    pinnedFiles,
+    contextMessages,
+    workHandoff,
+    ...sourceSnapshot
+  } = input.sourceSignalSnapshot;
+  if (workHandoff && input.route.capabilities.spaceWorkHandoff !== true) {
+    throw new Error(
+      "Update this Computer's OpenMeld Service before handing off selected files."
+    );
+  }
   const snapshot = {
     ...sourceSnapshot,
+    ...(workHandoff ? { workHandoff } : {}),
     ...(contextMessages?.length
       ? {
           files: [
@@ -376,6 +388,7 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
       : {}),
     text: renderDispatchSourceText({
       text: sourceSnapshot.text,
+      workHandoff,
       quotedMessage,
       contextMessages,
       pinnedFiles,

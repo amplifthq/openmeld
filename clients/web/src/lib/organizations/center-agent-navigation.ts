@@ -3,8 +3,7 @@ export type CenterAgentSectionId =
 	| "chat"
 	| "memory"
 	| "routines"
-	| "settings"
-	| "skills";
+	| "settings";
 
 const CENTER_AGENT_SECTION_PATH_PATTERN = /^\/o\/[^/]+\/center-agent\/([^/]+)/u;
 
@@ -17,7 +16,6 @@ export function resolveCenterAgentSectionId(
 		case "memory":
 		case "routines":
 		case "settings":
-		case "skills":
 			return section;
 		default:
 			return "chat";

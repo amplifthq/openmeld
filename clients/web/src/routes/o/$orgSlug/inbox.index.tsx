@@ -1,8 +1,11 @@
-import type { InboxView } from "@openmeld/schemas/types";
+import type {
+	InboxFeedCategory,
+	InboxFeedQuery,
+} from "@openmeld/schemas/types";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { InboxPage } from "#/components/inbox/inbox-page";
 
-type InboxRouteView = "all" | "needs-action" | "needs-review";
+type InboxRouteView = "all" | "mentions" | "needs-action" | "needs-review";
 
 export const Route = createFileRoute("/o/$orgSlug/inbox/")({
 	validateSearch: (
@@ -12,17 +15,31 @@ export const Route = createFileRoute("/o/$orgSlug/inbox/")({
 		requestId?: string;
 		view?: InboxRouteView;
 		unread?: boolean;
+		agents?: boolean;
+		people?: boolean;
+		conversation?: InboxFeedQuery["conversationType"];
 	} => {
 		const item = resolveInboxItemId(search.item);
 		return {
 			item,
 			requestId: resolveInboxItemId(search.requestId),
-			view: item ? undefined : resolveInboxRouteView(search.view),
+			view: resolveInboxRouteView(search.view),
+			people:
+				!(search.agents === true || search.agents === "true") &&
+				(search.people === true || search.people === "true")
+					? true
+					: undefined,
+			conversation:
+				search.conversation === "direct_messages" ||
+				search.conversation === "spaces"
+					? search.conversation
+					: undefined,
+			agents:
+				search.agents === true || search.agents === "true" ? true : undefined,
 			unread:
-				!item &&
-				(search.unread === true ||
-					search.unread === "true" ||
-					search.view === "unread")
+				search.unread === true ||
+				search.unread === "true" ||
+				search.view === "unread"
 					? true
 					: undefined,
 		};
@@ -35,14 +52,32 @@ function InboxIndexRoute() {
 	const search = Route.useSearch();
 	return (
 		<InboxPage
+			agentsOnly={search.agents === true}
+			conversationType={search.conversation}
 			itemId={search.item}
+			onFiltersChange={({ agentsOnly, peopleOnly, conversationType }) => {
+				navigate({
+					replace: true,
+					search: {
+						...search,
+						item: undefined,
+						requestId: undefined,
+						agents: agentsOnly || undefined,
+						people: peopleOnly || undefined,
+						conversation:
+							conversationType === "all" ? undefined : conversationType,
+					},
+				}).catch((error: unknown) => {
+					console.error("Failed to change Inbox filters.", error);
+				});
+			}}
 			onItemDismissed={(itemId) => {
 				if (search.item !== itemId) {
 					return;
 				}
 				navigate({
 					replace: true,
-					search: { item: undefined, requestId: undefined, view: undefined },
+					search: { ...search, item: undefined, requestId: undefined },
 				}).catch((error: unknown) => {
 					console.error("Failed to close the dismissed Inbox item.", error);
 				});
@@ -50,7 +85,12 @@ function InboxIndexRoute() {
 			onUnreadOnlyChange={(unreadOnly) => {
 				navigate({
 					replace: true,
-					search: { view: search.view, unread: unreadOnly || undefined },
+					search: {
+						...search,
+						item: undefined,
+						requestId: undefined,
+						unread: unreadOnly || undefined,
+					},
 				}).catch((error: unknown) => {
 					console.error("Failed to change the Inbox unread filter.", error);
 				});
@@ -59,15 +99,16 @@ function InboxIndexRoute() {
 				navigate({
 					replace: true,
 					search: {
+						...search,
 						item: undefined,
 						requestId: undefined,
 						view: buildInboxRouteView(view),
-						unread: search.unread,
 					},
 				}).catch((error: unknown) => {
 					console.error("Failed to change the Inbox view.", error);
 				});
 			}}
+			peopleOnly={search.people === true}
 			requestId={search.requestId}
 			unreadOnly={search.unread === true}
 			view={parseInboxRouteView(search.view)}
@@ -76,7 +117,9 @@ function InboxIndexRoute() {
 }
 
 function resolveInboxRouteView(value: unknown): InboxRouteView | undefined {
-	return value === "needs-action" || value === "needs-review"
+	return value === "needs-action" ||
+		value === "needs-review" ||
+		value === "mentions"
 		? value
 		: undefined;
 }
@@ -91,14 +134,18 @@ function resolveInboxItemId(value: unknown): string | undefined {
 		: undefined;
 }
 
-function parseInboxRouteView(view: InboxRouteView | undefined): InboxView {
+function parseInboxRouteView(
+	view: InboxRouteView | undefined
+): InboxFeedCategory {
 	if (view === "needs-review") {
 		return "needs_review";
 	}
 	return view === "needs-action" ? "needs_action" : (view ?? "all");
 }
 
-function buildInboxRouteView(view: InboxView): InboxRouteView | undefined {
+function buildInboxRouteView(
+	view: InboxFeedCategory
+): InboxRouteView | undefined {
 	return view === "all"
 		? undefined
 		: (view.replace("_", "-") as InboxRouteView);

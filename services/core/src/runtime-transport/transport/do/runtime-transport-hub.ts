@@ -152,6 +152,7 @@ import {
   runtimeTransportSubmitTaskResultRequestSchema,
   runtimeTransportWaitDispatchResultRequestSchema,
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
   serviceConnectionDiagnosticIdSchema,
   toLegacySpaceAddressingWireValue,
   wakeStopEligibilityReadModelSchema,
@@ -381,6 +382,7 @@ import {
   publishAgentReadinessInvalidationToSpaces,
   resolveRouteCatalogChangedInvalidationProfileIds,
 } from "../../application/agent-readiness-invalidation-service";
+import { createComputerConnectionIncidents } from "../../application/computer-connection-incidents";
 import { isDaemonExecutionCompatible } from "../../application/daemon-execution-compatibility";
 import {
   emitDaemonDispatchRuntimeEvidence,
@@ -1615,6 +1617,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       const adoptedSockets = adoptHibernatedSockets(this.ctx, this.state, {
         closeSocket: safeCloseSocket,
       });
+      await this.observeComputerConnectionIncidents();
       this.reapExpiredLeases(Date.now());
       if (restoredRecords.needsPersist || adoptedSockets.needsPersist) {
         await persistServiceRuntimeRecordsNow(this.ctx, this.state);
@@ -1644,6 +1647,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const run = this.createHousekeepingAlarmRun(nowMs);
     this.scheduledHousekeepingAlarmAtMs = null;
     try {
+      await this.observeComputerConnectionIncidents();
       this.reapExpiredLeases(nowMs);
       await this.runHousekeepingAlarmPhase(
         run,
@@ -10311,6 +10315,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.ctx.acceptWebSocket(server);
     this.state.sessionIdBySocket.set(server, null);
     writeRuntimeTransportSocketAttachment(server, {
+      spaceWorkHandoff:
+        request.headers.get(SPACE_WORK_HANDOFF_CAPABILITY_HEADER) === "1",
       connectionDiagnosticId: serviceConnectionDiagnosticIdSchema.safeParse(
         new URL(request.url).searchParams.get(
           SERVICE_CONNECTION_ID_QUERY_PARAMETER
@@ -18622,7 +18628,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       )
     );
     const nextAlarmAtMs = minNullableTimestamp(
-      workAlarmAtMs,
+      minNullableTimestamp(
+        workAlarmAtMs,
+        (await this.getComputerConnectionIncidents()?.nextAlarmAtMs()) ?? null
+      ),
       await resolveNextAgentProfileContextMigrationAlarmAtMs({
         storage: this.ctx.storage,
         nowMs,
@@ -18745,7 +18754,40 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
 
   private readonly persistRuntimeRecords = (): void => {
     persistServiceRuntimeRecords(this.ctx, this.state);
+    this.ctx.waitUntil(
+      this.observeComputerConnectionIncidents().then(() =>
+        this.syncHousekeepingAlarm()
+      )
+    );
   };
+
+  private computerConnectionIncidents:
+    | ReturnType<typeof createComputerConnectionIncidents>
+    | undefined;
+
+  private getComputerConnectionIncidents() {
+    const db = inboxDb(this.env);
+    if (!db) {
+      return undefined;
+    }
+    this.computerConnectionIncidents ??= createComputerConnectionIncidents({
+      storage: this.ctx.storage,
+      db,
+    });
+    return this.computerConnectionIncidents;
+  }
+
+  private async observeComputerConnectionIncidents(): Promise<void> {
+    try {
+      await this.getComputerConnectionIncidents()?.observe(
+        this.state.sessionsById.values()
+      );
+    } catch (error) {
+      console.warn("[core.computer_connection.incident_observation_failed]", {
+        error,
+      });
+    }
+  }
 
   private readonly cleanupExpiredPendingDispatches = (nowMs: number): void => {
     cleanupExpiredPendingDispatches(this.state, nowMs);

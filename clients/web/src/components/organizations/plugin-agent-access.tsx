@@ -8,6 +8,7 @@ import type {
 	PluginConsumer,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import { SkeletonForm } from "@openmeld/ui/components/skeleton-content";
 import {
 	Select,
 	SelectContent,
@@ -53,11 +54,7 @@ export function PluginAgentAccess(input: {
 		queryFn: ({ signal }) => listPluginAccess({ ...input, signal }),
 	});
 	if (access.isPending) {
-		return (
-			<output className="block py-4 text-muted-foreground text-sm">
-				Loading Agent access…
-			</output>
-		);
+		return <SkeletonForm className="py-4" label="Loading Agent access" />;
 	}
 	if (access.isError) {
 		return (

@@ -32,6 +32,7 @@ import {
 	peopleConnectionFilter,
 	resolvePeopleSections,
 } from "./people-sidebar-order";
+import { TeamHomeSkeleton } from "./team-home-skeleton";
 
 export function TeamHome(input: {
 	members: readonly DirectoryHumanProfileRow[];
@@ -180,13 +181,13 @@ export function TeamHome(input: {
 				</div>
 			) : null}
 			<div className="space-y-7 px-[var(--app-page-inline-padding)] pb-8">
-				{filtering && visibleCount === 0 ? (
+				{!sidebar.isPending && filtering && visibleCount === 0 ? (
 					<p className="text-muted-foreground text-sm">
 						No members match your search or filters.
 					</p>
 				) : null}
 				{sidebar.isPending ? (
-					<p className="text-muted-foreground text-sm">Loading team…</p>
+					<TeamHomeSkeleton />
 				) : (
 					sections.map((section) => (
 						<section

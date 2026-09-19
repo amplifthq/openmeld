@@ -23,12 +23,15 @@ vi.mock("node:child_process", async () => {
     }),
   };
 });
-vi.mock("../src/main/cli/managed-binary", () => ({
-  installManagedBinary: mocks.install,
+vi.mock("../src/main/cli/computer-tools", () => ({
+  installComputerTools: mocks.install,
 }));
 
 describe("Desktop computer connection admission", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.install.mockResolvedValue("/test-owned/installed/npm/openmeld.js");
+  });
   it.each([
     "cancelled",
     "account changed",
@@ -241,6 +244,9 @@ describe("Desktop computer connection admission", () => {
     }
     if (scenario === "missing_tools") {
       expect(mocks.install).toHaveBeenCalledOnce();
+      expect(mocks.exec.mock.calls.at(-1)?.[0]).toBe(
+        "/test-owned/installed/npm/openmeld.js"
+      );
     } else {
       expect(mocks.install).not.toHaveBeenCalled();
     }

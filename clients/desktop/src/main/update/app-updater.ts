@@ -1,18 +1,23 @@
 import {
-  DESKTOP_UPDATE_FEED_URL,
+  type DesktopReleasePlatform,
   type DesktopUpdaterAction,
   type DesktopUpdaterState,
-  desktopUpdaterFeedSchema,
+  desktopPlatformUpdateFeedUrl,
+  desktopUpdaterFeedSchemaForPlatform,
 } from "@openmeld/schemas";
-import type { MacUpdater, UpdateInfo } from "electron-updater";
+import type { MacUpdater, NsisUpdater, UpdateInfo } from "electron-updater";
 
-export function assertDesktopUpdateFiles(info: UpdateInfo) {
-  desktopUpdaterFeedSchema.parse(info);
+export function assertDesktopUpdateFiles(
+  info: UpdateInfo,
+  platform: DesktopReleasePlatform = "macos-arm64"
+) {
+  desktopUpdaterFeedSchemaForPlatform(platform).parse(info);
 }
 
 /** Application policy around electron-updater; no Service or account dependency. */
 export function createAppUpdater(input: {
-  updater: MacUpdater;
+  updater: MacUpdater | NsisUpdater;
+  platform?: DesktopReleasePlatform;
   currentVersion: string;
   publish: (state: DesktopUpdaterState) => void;
   prepareRestart: () => Promise<boolean>;
@@ -24,7 +29,11 @@ export function createAppUpdater(input: {
   updater.autoInstallOnAppQuit = false;
   updater.allowDowngrade = false;
   updater.disableDifferentialDownload = true;
-  updater.setFeedURL({ provider: "generic", url: DESKTOP_UPDATE_FEED_URL });
+  const platform = input.platform ?? "macos-arm64";
+  updater.setFeedURL({
+    provider: "generic",
+    url: desktopPlatformUpdateFeedUrl(platform),
+  });
   let state: DesktopUpdaterState = {
     status: "idle",
     currentVersion: input.currentVersion,
@@ -84,7 +93,7 @@ export function createAppUpdater(input: {
     }
     // A newer version is exposed only after its complete feed is trusted.
     if (result.isUpdateAvailable) {
-      assertDesktopUpdateFiles(result.updateInfo);
+      assertDesktopUpdateFiles(result.updateInfo, platform);
     }
     publish({
       status: result.isUpdateAvailable ? "available" : "current",

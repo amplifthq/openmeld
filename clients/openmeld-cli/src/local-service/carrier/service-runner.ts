@@ -19,6 +19,7 @@ import {
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
 } from "@openmeld/schemas";
 import type {
   OpenMeldDaemonControlPlaneResponse,
@@ -63,6 +64,10 @@ import { getConfiguredDaemonDispatchLimits } from "../../config/runtime-config";
 import { ServiceAccountAdmissionError } from "../../config/service-account-admission";
 import type { Presenter } from "../../runtime/presenter";
 import { OPENMELD_VERSION } from "../../runtime/version";
+import {
+  CURRENT_PROCESS_START_IDENTITY,
+  isPreciseProcessStartIdentity,
+} from "../../system/process-identity";
 import type { WsClient } from "../../transport/ws";
 import { connectWebSocket, WebSocketConnectionError } from "../../transport/ws";
 import { resolveLocalConversationExecutionStatus } from "../control-plane/conversation-execution-status";
@@ -193,6 +198,9 @@ function buildLocalServiceCapabilityHeaders(input: {
   localFolderPickerAvailable: boolean;
 }): Record<string, string> {
   return {
+    ...(process.platform === "darwin"
+      ? { [SPACE_WORK_HANDOFF_CAPABILITY_HEADER]: "1" }
+      : {}),
     [OPENMELD_REASONING_STREAM_HEADER]: "1",
     ...(input.localFolderPickerAvailable
       ? {
@@ -910,7 +918,9 @@ const runAccountBoundDaemonServiceLoop = async (
       });
     },
     getContext: async () => ({
-      accountCheckedServiceControl: process.platform !== "win32",
+      accountCheckedServiceControl: isPreciseProcessStartIdentity(
+        CURRENT_PROCESS_START_IDENTITY
+      ),
       healthPayload: {
         checkedAt: nowIsoString(),
         ...toHealthProjection(

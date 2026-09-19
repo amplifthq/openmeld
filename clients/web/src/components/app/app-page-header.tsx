@@ -5,7 +5,7 @@ type AppPageHeaderProps = {
 	action?: ReactNode;
 	description: ReactNode;
 	descriptionWidth?: "constrained" | "full";
-	eyebrow: ReactNode;
+	eyebrow?: ReactNode;
 	id?: string;
 	title: string;
 };
@@ -17,9 +17,11 @@ export function AppPageHeader(input: AppPageHeaderProps) {
 			data-slot="app-page-header"
 		>
 			<div className="flex min-w-0 flex-col gap-1">
-				<p className="font-medium text-muted-foreground text-xs">
-					{input.eyebrow}
-				</p>
+				{input.eyebrow ? (
+					<p className="font-medium text-muted-foreground text-xs">
+						{input.eyebrow}
+					</p>
+				) : null}
 				<h1 className="font-medium text-2xl text-foreground" id={input.id}>
 					{input.title}
 				</h1>
@@ -34,7 +36,12 @@ export function AppPageHeader(input: AppPageHeaderProps) {
 				</p>
 			</div>
 			{input.action ? (
-				<div className="flex shrink-0 flex-wrap items-center gap-2 pt-5">
+				<div
+					className={cn(
+						"flex shrink-0 flex-wrap items-center gap-2",
+						input.eyebrow && "pt-5"
+					)}
+				>
 					{input.action}
 				</div>
 			) : null}

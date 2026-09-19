@@ -3,6 +3,7 @@ import {
   DESKTOP_INSTALLED_AUTH_SCHEME,
   DESKTOP_TEST_AUTH_SCHEME,
 } from "./desktop-auth-identity";
+import { desktopWindowsBuildSchema } from "./desktop-release";
 import { peopleComputerTargetSchema } from "./schemas/http/people-computers";
 
 export const desktopLocalComputerSchema = z.discriminatedUnion("status", [
@@ -59,6 +60,7 @@ export const desktopProductionSourceSchema = z.strictObject({
   target: desktopInstalledTargetSchema.refine(
     (target) => target.kind === "production"
   ),
+  windows: desktopWindowsBuildSchema.optional(),
 });
 
 export const DESKTOP_WEB_BUILD_HEADER = "x-openmeld-desktop-web-build";

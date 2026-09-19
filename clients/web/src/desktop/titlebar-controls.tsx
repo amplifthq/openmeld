@@ -20,6 +20,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
+import { desktopUsesMacControls } from "./chrome-platform";
 import { useDesktopTitlebar } from "./titlebar-context";
 
 export function DesktopTitlebarControls(input: {
@@ -41,6 +42,8 @@ function Controls({
 	const wide = useMediaQuery("(min-width: 64rem)");
 	const account = useOptionalAppOrganization()?.currentUserId ?? null;
 	const { navigation, target } = frame;
+	const macControls = desktopUsesMacControls();
+	const modifierLabel = macControls ? "⌘" : "Ctrl+";
 	const history = useSyncExternalStore(
 		navigation.subscribe,
 		navigation.getSnapshot,
@@ -65,8 +68,9 @@ function Controls({
 				event.defaultPrevented ||
 				event.repeat ||
 				event.isComposing ||
-				!event.metaKey ||
-				event.ctrlKey ||
+				!(macControls
+					? event.metaKey && !event.ctrlKey
+					: event.ctrlKey && !event.metaKey) ||
 				event.altKey ||
 				event.shiftKey
 			) {
@@ -90,7 +94,7 @@ function Controls({
 		};
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [navigation, toggle]);
+	}, [navigation, toggle, macControls]);
 	if (!target) {
 		return null;
 	}
@@ -101,7 +105,7 @@ function Controls({
 				expanded={wide ? state === "expanded" : input.drawerOpen}
 				label="Toggle sidebar"
 				onClick={toggle}
-				shortcut={`⌘${APPLICATION_SHORTCUTS.sidebar.toUpperCase()}`}
+				shortcut={`${modifierLabel}${APPLICATION_SHORTCUTS.sidebar.toUpperCase()}`}
 			>
 				<SidebarSimpleIcon />
 			</Control>
@@ -109,7 +113,7 @@ function Controls({
 				disabled={!history.back}
 				label="Back"
 				onClick={navigation.back}
-				shortcut={`⌘${APPLICATION_SHORTCUTS.desktopBack}`}
+				shortcut={`${modifierLabel}${APPLICATION_SHORTCUTS.desktopBack}`}
 			>
 				<ArrowLeftIcon />
 			</Control>
@@ -117,7 +121,7 @@ function Controls({
 				disabled={!history.forward}
 				label="Forward"
 				onClick={navigation.forward}
-				shortcut={`⌘${APPLICATION_SHORTCUTS.desktopForward}`}
+				shortcut={`${modifierLabel}${APPLICATION_SHORTCUTS.desktopForward}`}
 			>
 				<ArrowRightIcon />
 			</Control>

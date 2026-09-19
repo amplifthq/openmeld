@@ -34,6 +34,13 @@ Pages that supply their own inner sidebar, such as standalone Settings and
 Agent Activity, retain their existing narrow-window drawer opener. The titlebar
 does not take ownership of those sidebars.
 
+Windows uses Electron's native titlebar overlay for minimize, maximize and close;
+shared navigation stays inside the overlay's CSS safe area rather than using
+macOS traffic-light insets. Sidebar, Back and Forward use Ctrl on Windows and
+Command on macOS, with matching hints. IME composition, repeated keydown, input
+editors, modal dialogs and the other platform modifier do not trigger these
+shortcuts. Platform hints are presentation only and confer no local capability.
+
 Back and Forward use the shared router history. Desktop retains only the
 observed history-index bounds for the current account, not another entry stack.
 Native session invalidation, account changes, and leaving workspace routes
@@ -74,6 +81,20 @@ do not move business rules into that package.
 ## Local pilot foundation
 
 ### Native Inbox notifications
+
+Native updater observations use the account-scoped Inbox source contract. Main
+keeps its installation identity under its existing userData directory, reports
+only trusted updater/app-version facts, and fences each report to the observed
+account. This source is independent of the currently selected Organization.
+The renderer cannot submit an update observation or installation result. Its
+credential proxy rejects the observation endpoint before attaching the Main
+session, including encoded paths; Main reports directly through its private
+cloud transport. Origin and session checks alone do not establish native source
+authority. Failed Inbox writes retry independently; native updater execution
+remains available.
+Only current production updater-supported installations produce live observations;
+isolated tests use the same observer with captured native state inputs and must
+not be reported as actual production update/install evidence.
 
 Account message-notification defaults and conversation overrides apply to
 Desktop as well as Web. The shared API-client notification policy evaluates
@@ -118,19 +139,25 @@ Notifications continue when the window is hidden and end when the GUI quits;
 the independent Service has no notification responsibility.
 
 On macOS, the menu bar icon shows the current Organization's Core-owned Inbox
-attention presentation. Open actions/reviews and unread urgent updates combine
-as `!N`; unread Human mentions show as `@N`; ordinary unread shows only `•` when
-no stronger category exists. Each numeric category caps visually at `99+`, and
-the tooltip breaks out actions/reviews, urgent updates, mentions, and other
+attention presentation. Ordinary unread uses a compact monochrome dot within the icon,
+without a numeric title. Priority attention shows `!N`, and unread Human mentions
+show `@N`; both counts remain visible when both exist, capped visually at `99+`.
+Modern summaries use Core's exact `priorityCount`, not every pending request.
+Normal pending work remains a quiet dot when there is no numbered attention.
+The logo and dot share one macOS template image with 1x and 2x representations;
+AppKit owns contrast and selected-state rendering, not hardcoded white, custom
+shadows or an application-theme approximation of the menu bar background.
+The Inbox menu row and tooltip retain exact category counts. The tooltip breaks
+out actions/reviews, urgent updates, mentions, and other
 unread updates. Muted ordinary conversation updates are absent without becoming
 read, while protected attention remains visible. Zero or unknown attention shows
-no title. This uses the shared summary query and existing native refresh cadence,
+no mark. This uses the shared summary query and existing native refresh cadence,
 independently of notification delivery permission. The trusted renderer supplies
 only a schema-validated categorized object and account scope; Main verifies the
 native account before displaying it. Logout, account or Organization changes,
 and stale asynchronous results clear or reject the previous attention. No
 separate Inbox store, Service polling, Dock badge, or Windows behavior is
-introduced. Tray creation applies the latest observed title even if attention
+introduced. Tray creation applies the latest observed indicator even if attention
 arrived first.
 
 The macOS menu bar menu is the compact native entry to the current Desktop
@@ -230,8 +257,10 @@ renderer bridge. Storage is scoped to the configured Web origin.
 Desktop sign-out revokes the Desktop session; it does not run CLI logout.
 The pilot exposes the independently read CLI account ID for comparison with its
 cloud session. This comparison is display evidence, not the mutation fence.
-The existing Computer surface offers Service Start/Stop only when the installed CLI and
-actual macOS binary carrier positively advertise account-checked control.
+The existing Computer surface offers Service Start/Stop only when the installed
+CLI and actual platform carrier positively advertise account-checked control.
+macOS requires its binary carrier; Windows requires the exact Node executable
+and verified active JS entry.
 The renderer sends the displayed account as immutable intent. Main verifies the
 current native session, then passes that same account to the CLI admission owner.
 An account change never retargets an operation. Stop has no GUI execution timeout;
@@ -278,12 +307,26 @@ Desktop offers the original route, or the original Space for a source action,
 without reporting native completion. Once Prepare exists, later authorization,
 account, execution, or snapshot failures retain its diagnostic correlation ID.
 
-When the managed CLI is absent or lacks the connection contract, main downloads
-the fixed Web origin's managed binary manifest and Apple silicon artifact.
+On macOS, when the managed CLI is absent or lacks the connection contract, main
+downloads the fixed Web origin's managed binary manifest and Apple silicon artifact.
 The shared `@openmeld/local-service/cli-binary-update-artifact` implementation
 verifies transport and executable hashes and the production signing identity.
 The verified binary's `install-self` owns installation. No Node/npm prerequisite,
 arbitrary renderer executable, URL, path, or shell command is accepted.
+
+Windows uses the supported npm distribution and an independent Node.js runtime;
+Electron is never the background Service runtime. Explicit Connect checks npm's
+published engine range, resolves its global prefix, pins the exact stable version
+and prefix, and verifies the resulting package and CLI version. It never
+reinstalls/downgrades an equal or newer existing CLI. A custom npm prefix outside
+PATH is supported: the verified JS entry is returned to both the post-install
+connection review and setup rather than retrying the previously missing command.
+Subsequent reads use PATH or the lane's active Service bundle, not a separate
+Desktop installation registry. Missing Node/npm has an actionable prerequisite;
+no shell text, package name, registry URL or executable is accepted from renderer
+input. npm owns acquisition/integrity and CLI setup owns credentials and Service
+registration. Disposable acceptance must preinstall the fixed candidate CLI;
+production bootstrap intentionally resolves only the published stable npm channel.
 
 The read-only local Computer projection recognizes only the same bootstrap
 conditions: a missing executable (`ENOENT`) or an exit-1 unknown `computer` /
@@ -383,32 +426,103 @@ messages; raw output is removed on completion. The UI exposes its path alongside
 the Prepare correlation ID. These diagnostics do not establish an incident's
 root cause without the failed operation's evidence.
 
-Signed production previews use `desktop:package:production-preview`, the same
-installed build pipeline and existing Developer ID/Keychain notarization as local
-acceptance. Production preview requires the exact clean merged release SHA and
-rejects disposable settings. Its signed source record binds the release SHA,
-production identity, and renderer fingerprint; publication uses the immutable
+Signed production previews use `desktop:package:production-preview` and the same
+installed build pipeline as local acceptance. macOS retains the existing
+Developer ID/Keychain notarization. Windows uses native per-user NSIS with an
+explicitly configured Authenticode identity. Production preview requires the
+exact clean merged release SHA and rejects disposable settings. Its signed source
+record binds the release SHA, production identity, and renderer fingerprint;
+publication uses the immutable
 candidate workflow in [Development Workflow](../engineering/development-workflow.md#desktop-preview-release-workflow).
 Building and uploading do not select a default update. Web offers an account-free
 page at `/desktop`, with an immutable `/desktop?candidate=<hash>` override.
 An explicit promotion selects the default download and update feed together.
 
+### Windows package and release boundary
+
+Windows x64 and ARM64 are separate installer and update targets. NSIS installs
+for the current user without requesting elevation and preserves application data
+on uninstall. Desktop installation/uninstallation does not install, stop or remove
+the independent OpenMeld Service. Connecting this Computer remains an explicit
+CLI-owned action; Node.js with npm is a prerequisite for Windows.
+
+Root packaging commands use portable JavaScript, not POSIX inline environment
+assignments. Windows packaging skips Mac icon/notarization tools. Unsigned
+packages are limited to disposable acceptance and cannot use production updates.
+Production requires the exact clean, approved, merged source and
+`OPENMELD_DESKTOP_WINDOWS_PUBLISHER` matching the actual certificate. A missing
+signer is not replaced with the Apple team identity.
+
+Before publication/promotion, native Windows inspection verifies Authenticode
+on both the NSIS installer and its extracted application. Full 7-Zip with NSIS
+support is a release-workstation prerequisite, not shipped runtime machinery.
+Inspection never executes installation. It checks the signed payload's PE
+architecture, package version, production target, source/renderer records and
+updater publisher/feed, then confirms the installer hash has not changed. A
+neighboring unpacked directory or sidecar file is not signed-source evidence.
+Commands live in the existing Desktop release workflow. These code guards are
+not proof that a signed OpenMeld Windows artifact has been built or accepted.
+
 ### In-app updates
 
-Production macOS builds use electron-updater 6.8.9. Main owns the update snapshot;
+Production builds use electron-updater 6.8.9: MacUpdater for macOS and NsisUpdater
+for Windows. Main owns the update snapshot;
 the shared renderer's Updates section, Settings indicator, notice, and native
 Check for Updates menu consume it. The native entry is independent of cloud
 admission and sign-in. Development and disposable packages cannot update from
 the production feed. Renderer IPC accepts only check, download, and restart
 actions, never an origin, file path, or installer arguments.
 
+Windows activation validates the installed source receipt and `app-update.yml`
+against the actual architecture, fixed platform feed and exactly one configured
+publisher. Missing or mismatched metadata makes updates unavailable. The public
+NSIS verifier hook requires successful Authenticode evidence and an exact
+publisher match; missing PowerShell, errors, unsigned executables and unexpected
+output all reject. External metadata URLs, another platform's payload, multiple
+files and web installer packages are rejected before download. Manual download,
+draft-safe restart and independent Service lifetime remain unchanged. Actual
+signed A-to-B updates, normal-user installation/uninstallation and native DPI/IME
+behavior require separate Windows acceptance.
+
 Desktop Settings places Updates after Privacy & Safety in the Personal group.
-The page always identifies the installed Desktop version from Main's existing
-`currentVersion`, then presents the changing check, target version, download
-progress, restart, or failure state separately. A downloaded version remains an
-available version until restart completes; the renderer never claims that a
-download is installed. The compact update notice reuses the same status and
-action without inheriting the full Settings page heading or version rows.
+The outer Settings control and inner Updates item consume the same native-derived
+attention policy and existing unread-blue indicator. Opening Settings, viewing
+Updates, or choosing Later does not acknowledge installation or clear attention.
+Checking and check errors retain attention only when Main still reports a target
+version. Idle, current, unavailable, preparation, installation, and terminal
+installation errors do not show an ordinary pending-update dot. These indicators
+are independent of Inbox counts and do not appear without a Desktop bridge.
+
+Updates is status-first: the result and explanation are on the left, one existing
+primary Button (`variant="default"`) is on the right, and `currentVersion` remains
+secondary information. A container query stacks the action below the result in a
+narrow pane. The corner Surface uses an unread-blue Updates heading, a muted
+keyboard-accessible Later action at top right, and a full-content-width primary
+button. It never takes focus from ongoing work. Both layouts consume
+`desktopUpdaterPresentation`; product policy stays outside `packages/ui`.
+
+An unknown snapshot is not an up-to-date result. An initial bridge read failure
+keeps the existing safety freeze and explains native Quit/reopen recovery; a
+newer native event supersedes a late initial answer or failure. Progress is
+indeterminate when Main has no percentage, and 100% while downloading does not
+authorize restart. Only native downloaded state offers Restart to update.
+Check, download, and restart errors offer their corresponding native action;
+terminal installation errors never offer a renderer action. Rejected IPC calls
+show a transport failure without manufacturing native success.
+
+Later dismisses only a meaningful version/phase/error-stage identity for the
+mounted renderer session. Progress ticks, repeated checks, and retries through
+an already dismissed identity do not create a notice loop. A different version,
+verified completion, or a new error stage can surface again. While the actual
+Updates section is mounted, ordinary corner notices are hidden without being
+dismissed. Required preparation, installation, terminal-error, and initial-read
+failure guidance is never suppressed by that visibility rule. No new polling,
+automatic checking on Settings mount, or persisted update authority is added.
+
+The isolated component fixture and repeatable visual checks live in
+`clients/web/tests/desktop-updater-visual/`. Its updater bridge is synthetic and
+never contacts a feed or installs anything. Component screenshots and native
+controller tests are not signed-package A-to-B acceptance.
 
 Launch and six-hour checks run automatically. Both `autoDownload` and `autoInstallOnAppQuit` are
 explicitly false. Download requires consent; after checksum verification the
@@ -520,13 +634,17 @@ It rejects a different observed process owner; missing or failed drain evidence
 does not enter this completion path.
 
 The CLI prerequisite accepts `service start|stop --json --expected-account <id>`
-for an already connected POSIX Service. Its owning admission contract is in
+for an already connected macOS binary or Windows npm Service. Its owning
+admission contract is in
 [Local OpenMeld Service](../architecture/local-openmeld-service.md#account-checked-service-start-and-stop).
 This authorizes only existing-Service Start/Stop. Main rejects missing, changed,
 unsupported or concurrent intent and preserves explicit CLI refusal or uncertainty.
 `service control-capabilities --json` is a separate read-only query; it does not
 extend the established strict status response. Version strings are not capability
-evidence. Old, npm, non-macOS and unverifiable pairs omit usable controls.
+evidence. Old or unverifiable pairs omit usable controls. Windows capability
+requires the exact Node executable and verified active JS entry, plus explicit
+support from an already running carrier; it never infers support from an npm
+version or a successful unguarded Service command.
 
 ## Cloud transport and compatibility
 

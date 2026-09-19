@@ -11,6 +11,7 @@ import {
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
+  SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
 } from "@openmeld/schemas";
 import type { Hono } from "hono";
 import { logAuditEvent } from "../audit";
@@ -136,6 +137,9 @@ function forwardRecognizedLocalCapabilityHeaders(input: {
   source: Headers;
   target: Headers;
 }): void {
+  if (input.source.get(SPACE_WORK_HANDOFF_CAPABILITY_HEADER) === "1") {
+    input.target.set(SPACE_WORK_HANDOFF_CAPABILITY_HEADER, "1");
+  }
   if (input.source.get(OPENMELD_REASONING_STREAM_HEADER) === "1") {
     input.target.set(OPENMELD_REASONING_STREAM_HEADER, "1");
   }

@@ -24,6 +24,10 @@ import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { SettingsSection } from "@openmeld/ui/components/settings-section";
 import {
+	SkeletonForm,
+	SkeletonRows,
+} from "@openmeld/ui/components/skeleton-content";
+import {
 	Table,
 	TableBody,
 	TableCell,
@@ -127,9 +131,12 @@ function OrganizationSettingsContent(input: {
 	};
 	let content: ReactNode;
 	if (!personal && role.isPending) {
-		content = (
-			<p className="text-muted-foreground text-sm">Loading settings…</p>
-		);
+		content =
+			input.section === "general" || input.section === "security" ? (
+				<SkeletonForm label="Loading settings" />
+			) : (
+				<SkeletonRows label="Loading settings" />
+			);
 	} else if (!personal && role.error) {
 		content = <p role="alert">{role.error.message}</p>;
 	} else if (personal && input.section !== "general") {
@@ -596,9 +603,7 @@ function OrganizationMembersSection(input: {
 			id="organization-members"
 			title="Members and roles"
 		>
-			{input.isPending ? (
-				<p className="text-muted-foreground text-sm">Loading members.</p>
-			) : null}
+			{input.isPending ? <SkeletonRows label="Loading members" /> : null}
 			{input.errorMessage ? (
 				<p className="text-destructive text-sm">{input.errorMessage}</p>
 			) : null}

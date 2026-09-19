@@ -116,6 +116,7 @@ export type SettingsSectionProps = {
 export type SettingsRowProps = {
   label: string;
   description?: string;
+  className?: string;
   status?: SettingsFieldStatus;
   /** Places the control beside the label or on its own full-width row. */
   layout?: "inline" | "stacked";

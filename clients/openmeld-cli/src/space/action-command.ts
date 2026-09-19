@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import type {
   OpenMeldSpaceEgressAction,
+  SpaceMessageFileReference,
   SpaceStatus,
 } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectorySendTargetEntry } from "@openmeld/space";
@@ -62,6 +63,7 @@ export function runSpaceActionReply(input: {
 }
 
 export function recordDispatchSpaceReply(input: {
+  files?: readonly SpaceMessageFileReference[];
   filePaths?: readonly string[];
   messagePartCount?: number;
   mentionTargets?: readonly string[];
@@ -80,6 +82,11 @@ export function recordDispatchSpaceReply(input: {
     wakeTargetCount: input.wakeTargets?.length ?? 0,
   });
   const filePaths = input.filePaths ?? [];
+  if (filePaths.length && input.files?.length) {
+    throw new Error(
+      "Choose uploaded paths or saved file revisions for this reply."
+    );
+  }
   // Uploading a file is a new effect. Expired contexts may recover an exact
   // already-recorded action, but never perform an upload to reconstruct one.
   const context =
@@ -104,7 +111,7 @@ export function recordDispatchSpaceReply(input: {
   if (filePaths.length === 0) {
     return writeSpaceActionReplyRecord({
       context,
-      files: [],
+      files: input.files ? [...input.files] : [],
       targetIds,
       text,
       timing,

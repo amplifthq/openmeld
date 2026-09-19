@@ -448,8 +448,8 @@ describe("SpaceHeader", () => {
 				menuItems: [
 					{
 						icon: SparkleIcon,
-						label: "Skills",
-						to: "/o/acme/center-agent/skills",
+						label: "Memory",
+						to: "/o/acme/center-agent/memory",
 					},
 				],
 			})
@@ -458,7 +458,7 @@ describe("SpaceHeader", () => {
 		expect(screen.queryByRole("button", { name: "Space settings" })).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Center Agent menu" }));
 		expect(
-			await screen.findByRole("menuitem", { name: "Skills" })
+			await screen.findByRole("menuitem", { name: "Memory" })
 		).toBeTruthy();
 		fireEvent.click(screen.getByRole("menuitem", { name: "Chat settings" }));
 

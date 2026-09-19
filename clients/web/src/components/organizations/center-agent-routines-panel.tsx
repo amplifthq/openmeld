@@ -4,6 +4,7 @@ import { formatStoredRoutineSchedule } from "@openmeld/routine-schedule";
 import type { CenterAgentRoutineManagement } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { Switch } from "@openmeld/ui/components/switch";
 import {
 	SharedLayoutGroup,
@@ -203,9 +204,10 @@ function CenterAgentRoutinesPanelContent(input: {
 		return (
 			<div className="flex flex-col gap-6">
 				{pageHeader}
-				<section aria-busy="true" aria-live="polite">
-					<p className="text-muted-foreground text-sm">Loading routines.</p>
-				</section>
+				<SkeletonRows
+					className="rounded-md border border-border/70 p-4"
+					label="Loading routines"
+				/>
 			</div>
 		);
 	}

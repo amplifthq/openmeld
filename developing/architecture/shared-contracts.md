@@ -46,6 +46,16 @@ through Final Candidate; deferring publication metadata does not skip packaged
 CLI/Service build verification.
 The explicit-device Forget route already uses Core account authorization.
 
+Windows account-checked Service control adds a local-only
+`account-checked-service-control-v2` capability response identifying the native
+Node executable and verified active JS entry. The macOS v1 response remains
+byte-shape compatible. Old Windows v1 responders are not accepted as support;
+unknown process identities and unknown lock entries retain a fail-closed fence.
+Prepare, Wake, Space actions, Service status, trace, and cloud transport schemas
+are unchanged. The CLI/Service update must precede Windows Desktop activation;
+no cloud execution epoch increase is required to discover this new local
+capability. Release metadata is stamped only in the authorized release lane.
+
 `desktop-updater.ts` owns main/renderer update snapshots, action names and the
 request-scoped restart preparation reply. Existing trusted-window authorization
 applies before every updater IPC call. Renderer replies contain only the main
@@ -54,11 +64,24 @@ fixed production feed and starts download or installation. These local IPC
 additions ship with the matching bundled renderer; cloud, CLI, Service, Skills,
 Core and Gateway execution contracts and their version floors do not change.
 
-`desktop-release.ts` owns immutable candidate metadata and the sole promoted
-release pointer. The optional ZIP metadata preserves older DMG-only candidate
-links, but promotion requires a ZIP. The default page, legacy JSON and updater
-feed derive their version from that same pointer. No separate latest manifest
-may be edited or uploaded for electron-updater.
+`desktop-release.ts` owns immutable candidate metadata and one promoted pointer
+per platform. The macOS pointer, DMG/ZIP paths, legacy JSON and feed keep their
+existing shapes; older DMG-only candidate links remain readable, but macOS
+promotion requires the ZIP. Windows x64 and ARM64 candidates require SHA-512 and
+the configured Authenticode publisher for their immutable installer, reject ZIP
+metadata, and use separate platform pointers and strict platform feeds. The
+selected page, default download and updater derive from that same platform's
+pointer; an absent Windows release never falls back to macOS. Artifact paths are
+derived from validated metadata, never arbitrary request or stored paths.
+
+Windows signed build receipts add optional `windows` metadata to the existing
+production source receipt. Mac receipts remain byte-shape compatible. Deploy
+the additive Web readers before publishing Windows candidates; old strict readers
+cannot serve the new platforms. The installed Windows app independently matches
+its architecture, fixed feed and configured publisher before enabling NSIS
+updates. No separate latest manifest, provider web-installer package, or signing
+identity from downloaded metadata is accepted. These are Desktop release
+contracts; they add no Core/Gateway Wake epoch or Service readiness owner.
 
 `desktop-notifications.ts` owns additive renderer/native Inbox reference,
 test-request and delivery-result contracts. Only the current trusted window
@@ -833,6 +856,14 @@ tools, CLI, Remote Agent, and Local OpenMeld Service consume the same Core
 contracts. A runtime or delegated snapshot names exact Skill and release ids
 plus a content digest; `latest` is never a valid execution descriptor.
 
+Skill detail reads accept an optional `releaseId`. Only that explicit request
+adds `selectedRelease` (the immutable runtime release bundle) to the response;
+the ordinary `skill.activeRelease` and `skill.bundle` still describe the active
+release. Core rechecks enablement for exact loading and scopes the release to
+the authorized Organization and Skill. Deploy Core, then Gateway, before CLI
+callers of `skills load --release`; older receivers must not cause latest-release
+fallback. Existing requests and in-flight runtime snapshots retain their semantics.
+
 The portable `SKILL.md` frontmatter remains an Agent Skills content contract.
 OpenMeld ownership, enablement, maintainers, source provenance, audit, and
 release state stay outside portable frontmatter in Core-owned schemas.
@@ -1016,6 +1047,42 @@ exactly or admission fails. A plan is disclosure policy, not member authority,
 tool authority, a conversation id, or a substitute for source authorization.
 
 ### Inbox contracts
+
+The additive `/v1/inbox/feed` and `/v1/inbox/feed/state` endpoints use the shared
+`inbox-feed` HTTP/RPC contracts. Filters, counts, rank, group identity, request
+category and status dot are server-owned facts; old list and summary callers
+retain their existing semantics. A mutation takes a server-issued snapshot id,
+optional group key, and read/Dismiss operation—not a caller-selected recipient,
+arbitrary item array or timestamp cutoff. Core verifies current Organization
+membership, binds the snapshot to that account and Organization, and rechecks
+source permissions. SQLite migration 0176 adds expiring snapshot membership
+referencing canonical items; deleting a snapshot never deletes Inbox items.
+
+Feed queries add optional `peopleOnly` and `conversationType` filters.
+The optional `includeSelectionUnreadCount=true` query requests the exact
+category-and-filter-scoped `selectionUnreadCount` across all pages. Unversioned
+callers retain their strict response shape and the existing global filtered
+counts. Web uses this number in the bulk-read label and freezes it alongside
+the snapshot id when opening confirmation; unknown counts disable the action.
+Migration 0179 adds matching snapshot columns with unfiltered defaults, so old
+queries and existing snapshots retain their behavior. Filtered pagination must
+match those stored values; bulk read/Dismiss reuses the frozen membership and
+current source access. No source-target, notification, CLI, Service, Wake or
+permission contract changes. Apply the additive migration, then deploy Core,
+Gateway and Web in that order. New filter callers must not precede the strict
+receivers; rollback removes callers first and retains the additive columns.
+
+Source-target version `8` adds optional, strict `sourceFacts` to canonical Inbox
+items. The source records actual Agent relevance, personal-Agent mentions,
+persistent first-contact identity and merged recipient reasons independently of
+legacy urgency and request resolution. List, direct-item and mark-read RPCs
+return it only with `includeSourceFacts: true`; Gateway strips it for version `7`
+and older clients without dropping their existing reply/target fields. Deploy
+the additive Core reader before the Gateway writer. Stored source facts require
+retaining compatible readers during rollback; never discard/recreate items to
+undo a projection. The additive D1 migration also narrowly repairs the retired
+owner-awareness writer, and Space schema v43 persists publication/contact and
+projection-selection receipts in the source transaction boundary.
 
 Human thread reply awareness adds optional `replyToRecipient` to Space Inbox
 targets without adding an Inbox kind or changing urgency. Space emits true only
@@ -7419,6 +7486,44 @@ with transferred ownership; rollback must preserve the ownership enforcement
 receiver or disable affected management until it is restored.
 
 ## Owner Boundaries
+
+### Selected Space work compatibility
+
+`spaceWorkHandoffSchema` is the shared optional selected-work payload in Message
+metadata, Thread posts, dispatch source snapshots, and hosted admission. The
+origin remains the real containing Message/Thread. The public normal-message
+request adds `workHandoffVersion: 1` so an older strict Gateway rejects new
+handoff callers rather than silently dropping their metadata.
+
+Roll out Core receivers, the hosted receiver, Gateway, then Web/new CLI callers.
+Core and Remote Agent must both understand the optional payload before enabling
+hosted handoffs. New Service handshakes negotiate `spaceWorkHandoff` through the
+Gateway header and Core socket attachment. New Core never sends this work to an
+old Service lacking that capability. Old Core/new Service and ordinary
+new-Core/old-Service setup, Wake, status, trace, and self-rescue keep their
+existing contracts. No global execution epoch or managed Skill version bump is
+needed: the new operation is capability-gated and existing operations are not
+reinterpreted. The next CLI/Service artifacts must carry the implementation;
+feature branches defer release stamping through the release-ready command.
+
+Exact Skill reads use the optional selected-release response described above;
+an absent exact release fails rather than selecting latest. Agent reads check
+active account membership and the owned active Agent Profile and never grant
+Skill editing permissions. Desktop uses the same Web/CLI/Service boundaries;
+there is no new Desktop execution or file authority, and no native Desktop
+working-copy manager is claimed. Rollback removes new callers before receivers;
+retain pending local copies and immutable shared revisions. No DB migration or
+resource binding is introduced.
+
+The review fixes keep the same capability-gated rollout. The Service-to-adapter
+boundary adds optional `workingCopyId` only after successful preparation; it
+does not extend public execution-context access modes. The CLI/MCP adds explicit
+refresh/resolve actions and conflict/incoming projections. These ship together
+in the local component artifact; they do not require new cloud operations or
+reinterpret ordinary setup, Wake, Space actions, status, or trace. Unreleased
+first-version handoff artifacts must be replaced before enabling this capability.
+No managed Skill or execution epoch changes are needed. The next local artifact
+remains deferred on this draft branch; release verification must use the base.
 
 This document owns shared contracts and reusable policy boundaries.
 

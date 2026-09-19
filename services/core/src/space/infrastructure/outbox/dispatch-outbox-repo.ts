@@ -167,6 +167,7 @@ export const createDispatchOutboxRecord = (input: {
     pinnedFiles: input.sourceSignalSnapshot.pinnedFiles,
     attachments: input.sourceSignalSnapshot.attachments,
     files: input.sourceSignalSnapshot.files,
+    workHandoff: input.sourceSignalSnapshot.workHandoff,
     centerAgentInteractionSource:
       input.sourceSignalSnapshot.centerAgentInteractionSource,
     profileId: input.sourceSignalSnapshot.profileId,
@@ -289,6 +290,7 @@ const resolveDispatchChainContextForOutbox = (input: {
 };
 
 const buildSourceSignalSnapshot = (input: {
+  workHandoff?: DispatchSourceSignalSnapshotInput["workHandoff"];
   contextMessages?: DispatchSourceSignalSnapshotInput["contextMessages"];
   callerContext?: NonNullable<
     OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
@@ -323,6 +325,7 @@ const buildSourceSignalSnapshot = (input: {
       ? { attachments: input.attachments }
       : {}),
     ...(input.files && input.files.length > 0 ? { files: input.files } : {}),
+    ...(input.workHandoff ? { workHandoff: input.workHandoff } : {}),
     ...(input.centerAgentInteractionSource
       ? { centerAgentInteractionSource: input.centerAgentInteractionSource }
       : {}),
