@@ -43,6 +43,7 @@ import { createPilotNotifications } from "./pilot-notifications";
 import { createPilotSpaceStreams } from "./pilot-space-stream";
 import { installPilotTransport } from "./pilot-transport";
 import {
+  configureDesktopCredentialStorage,
   configureInstalledUserData,
   configurePilotUserData,
 } from "./pilot-user-data";
@@ -136,6 +137,12 @@ export function initializeDesktopPilot(
   } else {
     configurePilotUserData(app, process.env);
   }
+  configureDesktopCredentialStorage(app, {
+    installed: Boolean(installedTarget),
+    lane,
+    platform: process.platform,
+    webOrigin,
+  });
   let sessionRevision = 0;
   const auth = createPilotAuth(
     webOrigin,

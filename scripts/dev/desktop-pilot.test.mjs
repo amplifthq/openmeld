@@ -68,11 +68,11 @@ test("the Desktop launcher uses its owned lane CLI and overrides unrelated paren
     );
     assert.equal(
       launch.env.OPENMELD_DESKTOP_USER_DATA_DIR,
-      join(home, "desktop/user-data")
+      join(home, "desktop/mock-keychain-user-data")
     );
     assert.equal(
       launch.args.at(-1),
-      `--user-data-dir=${join(home, "desktop/user-data")}`
+      `--user-data-dir=${join(home, "desktop/mock-keychain-user-data")}`
     );
     const appPath = join(root, "OpenMeld Desktop Private.app");
     assert.throws(
@@ -95,7 +95,7 @@ test("the Desktop launcher uses its owned lane CLI and overrides unrelated paren
     assert.equal(packaged.env.OPENMELD_ENV_PRESET, "canary");
     assert.equal(packaged.env.OPENMELD_BIN, cli);
     assert.deepEqual(packaged.args, [
-      `--user-data-dir=${join(home, "desktop/user-data")}`,
+      `--user-data-dir=${join(home, "desktop/mock-keychain-user-data")}`,
     ]);
     assert.throws(
       () => resolveDesktopPilotLaunch({ lane, root, preset: "prod" }),
