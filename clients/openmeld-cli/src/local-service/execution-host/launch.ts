@@ -142,7 +142,11 @@ export function launchExecutionHost(input: {
     } catch (error) {
       // A failed health observation closes admission, never kills/restarts work.
       // A later observation of this same process may establish responsiveness.
-      if (method === "health" || method === "initialize") {
+      if (
+        method === "health" ||
+        method === "initialize" ||
+        method === "heartbeat"
+      ) {
         setResponsive(false);
       }
       throw error;

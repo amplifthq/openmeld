@@ -4817,7 +4817,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_computers",
       description:
-        "Read the verified requester's Computer inventory, exact connection environments, and dated local agent reports. No Computer is identified as the browser's physical computer. Supply an exact target from this inventory to read its OpenMeld Tools status and path-free File Access summary. Never treat a saved report as a live connection, or one Computer's status as an Agent Profile's Wakeability. Requires a private conversation with the verified requester. This read does not start setup or change any Computer.",
+        "Read the verified requester's Computer inventory, exact connection environments, and dated local agent reports. No Computer is identified as the browser's physical computer. Supply an exact target from this inventory to read connection/supervisor and Execution Host observations, local agent diagnostics, OpenMeld Tools status and the path-free File Access summary. This does not actively probe the Host: use its own observation time, and never treat retained admission=open as available when responsive=false. Never treat a saved report as a live connection, or one Computer's status as an Agent Profile's Wakeability. Requires a private conversation with the verified requester. This read does not start setup or change any Computer.",
       input: object({ target: optional(peopleComputerTargetToolInputSchema) }),
       execute: async (payload) => {
         const target =
