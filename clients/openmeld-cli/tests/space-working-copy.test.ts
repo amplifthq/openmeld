@@ -41,9 +41,14 @@ const scope = {
 describe.skipIf(process.platform !== "darwin")(
   "managed Space working copies",
   () => {
-    it("requires an explicit merge after a rejected write and can then save the same file", async () => {
+    it.each([
+      false,
+      true,
+    ])("resolves rejected writes without redundant uploads when contents converge (%s)", async (converged) => {
       const root = await mkdtemp(join(tmpdir(), "openmeld-conflict-"));
       try {
+        const incomingContent = converged ? "local edit" : "remote edit";
+        let remoteRevision = 6;
         const writes: Parameters<SpaceWorkingCopyTransport["write"]>[0][] = [];
         const options = {
           laneRoot: join(root, "lane"),
@@ -51,7 +56,7 @@ describe.skipIf(process.platform !== "darwin")(
           assertCurrentIdentity: async () => undefined,
           transport: {
             read: async (_id: string, revision: number) => ({
-              bytes: Buffer.from(revision === 5 ? "original" : "remote edit"),
+              bytes: Buffer.from(revision === 5 ? "original" : incomingContent),
               revision,
               mimeType: "text/plain",
             }),
@@ -60,7 +65,7 @@ describe.skipIf(process.platform !== "darwin")(
               request: Parameters<SpaceWorkingCopyTransport["write"]>[0]
             ) => {
               writes.push(request);
-              if (request.baseRevision === 5) {
+              if (request.baseRevision !== remoteRevision) {
                 return Promise.reject(
                   new OpenMeldApiClientHttpError({
                     code: "gateway.http_error",
@@ -89,6 +94,9 @@ describe.skipIf(process.platform !== "darwin")(
           "Resolve"
         );
         expect(writes).toHaveLength(1);
+        await expect(
+          restarted.resolve(prepared.copyId, "report", 6)
+        ).rejects.toThrow("explicitly select");
         await restarted.refresh(prepared.copyId);
         const status = (await restarted.status(prepared.copyId)).files[0];
         expect(status).toMatchObject({
@@ -100,11 +108,30 @@ describe.skipIf(process.platform !== "darwin")(
             join(prepared.root, status?.incomingPath ?? ""),
             "utf8"
           )
-        ).toBe("remote edit");
+        ).toBe(converged ? "local edit" : "remote edit");
         expect(await readFile(path, "utf8")).toBe("local edit");
         await expect(
           restarted.resolve(prepared.copyId, "report", 7)
         ).rejects.toThrow("explicitly select");
+        if (converged) {
+          await restarted.resolve(prepared.copyId, "report", 6);
+          const saved = await restarted.commit(prepared.copyId);
+          expect(saved.references[0]).toMatchObject({
+            fileId: "report",
+            revision: 6,
+          });
+          expect(writes).toHaveLength(1);
+          expect(
+            (await restarted.status(prepared.copyId)).files[0]?.status
+          ).toBe("clean");
+          remoteRevision = 7;
+          await writeFile(path, "another local edit");
+          await expect(restarted.commit(prepared.copyId)).rejects.toThrow(
+            "stale base"
+          );
+          expect(writes[1]?.baseRevision).toBe(6);
+          return;
+        }
         await expect(
           restarted.resolve(prepared.copyId, "report", 6)
         ).rejects.toThrow("Merge");

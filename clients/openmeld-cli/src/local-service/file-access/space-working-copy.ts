@@ -428,7 +428,11 @@ export function createSpaceWorkingCopies(input: {
           );
         }
         const bytes = await localBytes(state, file.relativePath);
-        if (!bytes || hash(bytes) === conflict.digest) {
+        const digest = bytes ? hash(bytes) : null;
+        if (
+          !digest ||
+          (digest === conflict.digest && digest !== incoming.digest)
+        ) {
           throw new Error(
             "Merge the incoming version into the working file before resolving. The rejected edit cannot be resubmitted against a newer base unchanged."
           );

@@ -996,7 +996,9 @@ A definite `space_file.conflict` stops retrying the rejected snapshot. For that
 same copy, `refresh` downloads the conflicting shared version alongside the
 working file; `status` returns its path and revision. Merge into the original
 working file, then explicitly `resolve` that file against the downloaded
-revision before committing. Resolve rejects an unchanged rejected snapshot or
+revision before committing. Identical local and incoming bytes can adopt that
+revision without another upload. Resolve rejects an unchanged rejected snapshot
+that differs from incoming, or
 an unprepared revision. It neither merges automatically nor selects latest
 silently. The server still rejects a base that advanced again. The original
 rejected snapshot and incoming content remain available; unknown upload outcomes
