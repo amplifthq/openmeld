@@ -40,6 +40,8 @@ export function OrganizationSkillContextDialog(input: {
 	organizationName: string;
 	canEdit: boolean;
 	hasUnsavedChanges: boolean;
+	saveStatus: string;
+	validationMessage: string | null;
 	valid: boolean;
 	saving: boolean;
 	errorMessage: string | null;
@@ -111,12 +113,27 @@ export function OrganizationSkillContextDialog(input: {
 						</div>
 					)}
 				</ScrollArea>
+				{view === "properties" &&
+					input.hasUnsavedChanges &&
+					input.validationMessage && (
+						<p className="text-destructive text-sm" role="alert">
+							{input.validationMessage}
+						</p>
+					)}
 				{view === "properties" && input.errorMessage && (
 					<p className="text-destructive text-sm" role="alert">
 						{input.errorMessage}
 					</p>
 				)}
 				<DialogFooter>
+					{view === "properties" && input.canEdit && (
+						<output
+							aria-label="Properties save status"
+							className="self-center text-muted-foreground text-xs sm:mr-auto"
+						>
+							{input.saveStatus}
+						</output>
+					)}
 					<Button
 						disabled={input.saving}
 						onClick={input.onClose}

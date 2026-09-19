@@ -37,6 +37,7 @@ import {
 	UnsavedChangesGuard,
 } from "#/components/forms/unsaved-changes-guard";
 import { OrganizationSkillMaintainersDialog } from "#/components/organization-skills/organization-skill-maintainers-dialog";
+import { getDesktopPlatform } from "#/desktop/platform";
 import { copyTextToClipboard } from "#/lib/clipboard";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -405,7 +406,14 @@ function OrganizationSkillEditor(input: {
 				orgSlug: input.orgSlug,
 				skillId: input.skill.id,
 			});
-			copyTextToClipboard(new URL(path, window.location.origin).href)
+			const copy = async () => {
+				const bridge = getDesktopPlatform();
+				const origin = bridge
+					? (await bridge.platform()).webOrigin
+					: window.location.origin;
+				return await copyTextToClipboard(new URL(path, origin).href);
+			};
+			copy()
 				.then((copied) => {
 					if (active.current) {
 						setClipboardNotice(
@@ -529,9 +537,11 @@ function OrganizationSkillEditor(input: {
 				onClose={() => setContextView(null)}
 				onSave={save}
 				organizationName={input.organizationName}
+				saveStatus={saveStatus}
 				saving={busy}
 				skill={input.skill}
 				valid={bundleValid}
+				validationMessage={validationMessage}
 				view={contextView}
 			/>
 

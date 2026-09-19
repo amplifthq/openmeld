@@ -25,10 +25,14 @@ import {
 } from "#/test-support/query-client";
 import { OrganizationSkillDetailPage } from "./organization-skill-detail-page";
 
-const { getSkill, updateSkill } = vi.hoisted(() => ({
+const { getSkill, updateSkill, getPlatform } = vi.hoisted(() => ({
 	getSkill: vi.fn(),
 	updateSkill: vi.fn(),
+	getPlatform: vi.fn(),
 }));
+
+// Native bridge is an external boundary; editing and navigation stay real.
+vi.mock("#/desktop/platform", () => ({ getDesktopPlatform: getPlatform }));
 
 vi.mock("#/lib/organizations/organization-skills", async (importOriginal) => ({
 	...(await importOriginal<
@@ -84,6 +88,7 @@ beforeEach(() => {
 	});
 	vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
 	getSkill.mockReset();
+	getPlatform.mockReset().mockReturnValue(null);
 	updateSkill
 		.mockReset()
 		.mockRejectedValue(new Error("The Skill changed. Reload before saving."));
@@ -174,6 +179,18 @@ describe("Organization Skill editing", () => {
 		expect(document.activeElement).toBe(key);
 		fireEvent.change(key, { target: { value: "team" } });
 		await screen.findByText("A metadata field with that name already exists.");
+		fireEvent.change(key, { target: { value: "" } });
+		expect(screen.getByRole("dialog").textContent).toContain(
+			"Give every metadata field a name in Properties."
+		);
+		expect(
+			(screen.getByRole("button", { name: "Save skill" }) as HTMLButtonElement)
+				.disabled
+		).toBe(true);
+		fireEvent.change(key, { target: { value: "category" } });
+		expect(screen.getByLabelText("Properties save status").textContent).toBe(
+			"Unsaved changes"
+		);
 		expect(
 			(screen.getByLabelText("Metadata value team") as HTMLInputElement).value
 		).toBe("product");
@@ -212,7 +229,13 @@ describe("Organization Skill editing", () => {
 		});
 	});
 
-	it("keeps usage guidance tied to saved identity and reports actual clipboard outcomes", async () => {
+	it.each([
+		null,
+		"http://lane.localhost:31952",
+	])("keeps saved identity and reports actual clipboard outcomes with Web origin %s", async (webOrigin) => {
+		if (webOrigin) {
+			getPlatform.mockReturnValue({ platform: async () => ({ webOrigin }) });
+		}
 		const snapshot = richSnapshot(1);
 		snapshot.enabled = false;
 		const clipboard = vi.fn().mockResolvedValue(undefined);
@@ -245,7 +268,8 @@ describe("Organization Skill editing", () => {
 			await openContext("Copy link", false);
 			await screen.findByText("Link copied");
 			expect(clipboard).toHaveBeenCalledWith(
-				new URL("/o/acme/skills/skill-one", window.location.origin).href
+				new URL("/o/acme/skills/skill-one", webOrigin ?? window.location.origin)
+					.href
 			);
 			clipboard.mockRejectedValue(new Error("Clipboard unavailable"));
 			await openContext("Copy link", false);
@@ -287,6 +311,12 @@ describe("Organization Skill editing", () => {
 		).toBe(true);
 		const loaded = richEditor(surface);
 		expect(loaded.getAttribute("contenteditable")).toBe("true");
+		// Focusing/selecting without changing text is not an edit.
+		await appendRichText(loaded, "");
+		expect(
+			(screen.getByRole("button", { name: "Save" }) as HTMLButtonElement)
+				.disabled
+		).toBe(true);
 		await appendRichText(loaded, "ADDED");
 		expect(document.activeElement).toBe(loaded);
 		expect(richEditor(surface)).toBe(loaded);
@@ -815,14 +845,16 @@ async function appendRichText(
 			// Flush Slate's throttled DOM selection synchronization before pasting.
 			await vi.advanceTimersByTimeAsync(101);
 			beforePaste?.();
-			fireEvent.paste(editor, {
-				clipboardData: {
-					files: [],
-					items: [],
-					types: ["text/plain"],
-					getData: (type: string) => (type === "text/plain" ? text : ""),
-				},
-			});
+			if (text) {
+				fireEvent.paste(editor, {
+					clipboardData: {
+						files: [],
+						items: [],
+						types: ["text/plain"],
+						getData: (type: string) => (type === "text/plain" ? text : ""),
+					},
+				});
+			}
 			await vi.advanceTimersByTimeAsync(0);
 		});
 	} finally {

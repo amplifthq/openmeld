@@ -62,7 +62,9 @@ export function MarkdownEditor(input: MarkdownEditorProps) {
 		>
 			<Plate
 				editor={editor}
-				onChange={({ editor: changedEditor }) => {
+				// Selection and focus are not edits. Serializing them can normalize
+				// untouched Markdown and incorrectly dirty the owning document.
+				onValueChange={({ editor: changedEditor }) => {
 					input.onChange(
 						changedEditor.getApi(MarkdownPlugin).markdown.serialize()
 					);

@@ -4,7 +4,7 @@ import type { OrganizationSkillFile } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
-import { DownloadSimpleIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, DownloadSimpleIcon } from "@phosphor-icons/react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
 import { isEditableSkillReference } from "./organization-skill-validation";
@@ -73,8 +73,12 @@ function SkillFile(input: {
 				onClick={input.onToggle}
 				type="button"
 			>
-				<span className="min-w-0 break-all font-medium text-sm">
-					{input.file.path}
+				<span className="flex min-w-0 flex-1 items-center gap-2 font-medium text-sm">
+					<CaretDownIcon
+						aria-hidden="true"
+						className={`size-4 shrink-0 text-muted-foreground ${input.expanded ? "" : "-rotate-90"}`}
+					/>
+					<span className="break-all">{input.file.path}</span>
 				</span>
 				<span className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
 					{input.file.path.startsWith("scripts/") && (
