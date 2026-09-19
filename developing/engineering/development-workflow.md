@@ -627,6 +627,22 @@ the pilot flag on a package-local build. The client requires the lane's compiled
 loads its environment. The native launch environment cannot supply that value
 retroactively to an already built renderer.
 
+The same worktree producer declares `VITE_OPENMELD_SETUP_USER_FACING_COMMAND`,
+`VITE_OPENMELD_DEV_LANE_ID`, the public Auth/Gateway/Web endpoints, isolated Home,
+and the client/server CLI manifest. The compiled renderer and installer must
+agree on that target. Missing or conflicting isolation fields fail closed;
+production-mode compilation is never permission to select the published lane.
+The unnamed Wrangler environment declares local development, `stg` declares
+Canary, and `prod` (including an installed production Desktop target) declares
+the published lane. Build-time public command endpoints are projected from the
+selected existing Web Wrangler vars, not a second environment registry.
+
+All dynamic Web setup, repair, login, start/stop, Space join, Skill guidance and
+Agent-prompt command prefixes use `resolveWebCliTarget`. Follow-up commands keep
+the isolated Home and endpoints. After installation, `setup.complete` remains
+the authority for the installed command; this build target does not invent an
+installed binary path or certify clean-install acceptance.
+
 ## `OPENMELD_HOME` And Production-State Safety
 
 The published `~/.openmeld` lane is real user state.

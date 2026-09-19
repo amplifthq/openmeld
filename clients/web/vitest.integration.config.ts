@@ -95,6 +95,7 @@ export default defineConfig({
 		},
 	},
 	test: {
+		env: { VITE_OPENMELD_SETUP_USER_FACING_COMMAND: "openmeld-dev" },
 		environment: "jsdom",
 		include: ["src/**/*.integration.test.{ts,tsx}"],
 		maxWorkers: 2,

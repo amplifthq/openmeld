@@ -84,17 +84,64 @@ The resolved source SHA is the cutoff for that release. Commits that reach
 `main` after the cutoff belong to the next release; do not restart or widen an
 already-running release merely to chase a newer `main`.
 
-After every fully successful guarded local release, the executor atomically
-advances one ref per completed scope under
-`refs/heads/openmeld-production-release-evidence/<scope>`. Each ref advances an
-append-only evidence chain whose latest record contains the exact released
-first-parent `main` commit and completion time. `release:status` combines those
-records with hosted release jobs and uses the latest completed event for each
-scope. A successful redeploy of the same source SHA is still a new completed
-event and must advance that scope's evidence ref with its later completion time.
-A workstation release therefore cannot disappear merely because no GitHub
-deployment job ran, and an explicit rollback remains visible as the latest
-deployed source instead of being mistaken for a failed evidence write.
+Guarded local releases advance the existing append-only refs under
+`refs/heads/openmeld-production-release-evidence/<scope>` while retaining the
+selected component leases. Each component first records `started`, then
+`applied` with its observed identity after the deploy command, and `verified`
+only after its existing health and source checks. A later failure records
+`failed`, distinguishing unknown application from an observed applied version.
+Previously verified components remain visible even when another component fails;
+this never creates an overall successful-release record for a partial run.
+
+Version 3 binds each attempt to an operation key (source, component, actual
+command and deployment target, including the Core projection). Worker identity
+comes from a fresh command-scoped Wrangler output file. Before that command, the
+executor retains the target Worker's deployment IDs; afterward exactly one new
+deployment must be the active deployment and contain the command's exact version
+at 100% traffic. Zero or multiple new deployments stop as unresolved instead of
+guessing an ID. The correlated deployment ID is checked again after health
+checks. An arbitrary current version, stale
+output, another Worker/environment, changed projection, or missing output cannot
+be promoted to verified. The guarded Core deploy wrappers forward the already
+admitted version after activation, including atomic migrations; they do not alter
+startup admission, profiling or build policy. The CLI publisher returns its
+existing exact-source/tag/channel verification for no-op projection recovery;
+`cli-projection` evidence explicitly does not claim a new Worker upload.
+
+Before effects, the executor reads retained receipts under the existing leases.
+A matching correlated applied Worker can resume its remaining read-only checks
+and append a completion for the same attempt, without rerunning deployment. A
+failed health check can likewise be recovered only with unchanged identity.
+CLI/Core recovery additionally uses the CLI owner's read-only immutable-channel
+checks, never another publisher invocation. A verified identical operation is
+idempotent. For an intentional new same-source deployment, pass `--redeploy` to
+the guarded `deploy` command only after the prior attempt is resolved; that flag
+cannot override an unresolved attempt. A different-source release or rollback
+still follows ordinary source, channel and lease guards.
+
+Unknown application, missing output, unreadable receipts, mismatched targets and
+unresolved legacy records block before a new attempt or deployment. They require
+separate evidence-backed reconciliation, not a new UUID or a status override.
+Version 1 successes and version 2 observations remain readable at their original
+evidence strength; they are not upgraded into correlated identities. Older
+writers cannot downgrade a retained record. All events remain append-only with
+atomic compare-and-swap, and new completion writes retain the original source,
+operation key, attempt and exact applied identity. Database receipts retain
+`release-source` evidence; uncertain DB application is never replayed blindly.
+Use current-main release tooling; old control checkouts are not certified to
+interpret version 3.
+
+`release:status` pages relevant workflows and all job attempts rather than
+filtering an all-workflow 250-run window. It compares actual job completion
+times, never workflow creation order. A missing source, invalid completion time,
+ambiguous tie, API failure or safety-bound truncation remains explicit evidence
+uncertainty; it cannot silently make the affected component current. A known
+later deployment can supersede an older unreadable-source event, but the
+historical limitation remains in the report. Historical planner failures are
+contained in per-component `unknown` results; a genuine current-change planning
+conflict still blocks. JSON and human output retain both scoped and global
+blockers. This is a projection of available recorded deployments, not an
+independent live-production acceptance check.
 
 `--deployed` remains a one-run diagnostic override for historical releases that
 predate these refs. It is not the normal completion path:
