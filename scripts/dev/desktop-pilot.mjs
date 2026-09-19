@@ -105,6 +105,10 @@ export function resolveDesktopPilotLaunch({
   };
 }
 
+export function resolveDesktopLaunchExitCode(code, aborted) {
+  return aborted ? 0 : code;
+}
+
 async function main() {
   const { values, positionals } = parseArgs({
     options: {
@@ -251,10 +255,14 @@ async function main() {
           console.log(
             "Desktop GUI admitted. No heavy-build slot is retained. Stop only this GUI with pnpm desktop:stop."
           );
-          process.exitCode = await runOwnedCommand(command, args, {
+          const exitCode = await runOwnedCommand(command, args, {
             ...launch,
             env: { ...launch.env, [RESOURCE_TOKEN]: runtime.token },
           });
+          process.exitCode = resolveDesktopLaunchExitCode(
+            exitCode,
+            controller.signal.aborted
+          );
         } finally {
           await runtime.release();
         }
