@@ -92,7 +92,17 @@ export function createSpaceWorkingCopies(input: {
       "Managed working copies are not supported on this platform yet. Use explicit file download and write commands."
     );
   }
-  const scope = hash(JSON.stringify(input.scope));
+  // Service preparation and CLI recovery construct these fields independently.
+  // Preserve the Service's existing record identity, independent of insertion order.
+  const scope = hash(
+    JSON.stringify({
+      accountId: input.scope.accountId,
+      organizationId: input.scope.organizationId,
+      spaceId: input.scope.spaceId,
+      profileId: input.scope.profileId,
+      baseUrl: input.scope.baseUrl,
+    })
+  );
   const directory = join(input.laneRoot, "space-working-copies", scope);
   const metadataPath = (id: string) =>
     join(directory, `${z.string().uuid().parse(id)}.json`);

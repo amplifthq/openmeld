@@ -120,7 +120,17 @@ describe("managed Space working copies", () => {
           (path) => path.endsWith(".bin")
         )
       ).toHaveLength(1);
-      const restarted = createSpaceWorkingCopies(options);
+      // CLI constructs its scope in a different order from Service preparation.
+      const restarted = createSpaceWorkingCopies({
+        ...options,
+        scope: {
+          accountId: scope.accountId,
+          organizationId: scope.organizationId,
+          profileId: scope.profileId,
+          spaceId: scope.spaceId,
+          baseUrl: scope.baseUrl,
+        },
+      });
       await restarted.reconcile(prepared.copyId);
       expect(
         (await readdir(join(root, "lane"), { recursive: true })).filter(
