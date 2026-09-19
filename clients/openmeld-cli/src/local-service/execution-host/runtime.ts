@@ -666,8 +666,13 @@ export function createExecutionHostRuntime(input: {
       await persistExecutionHostCatalog(owner, catalog);
       return {};
     },
-    syncActivity: () => {
+    syncActivity: ({ refreshIntegrations }) => {
       activity.requestSync({ reconcile: true, refreshContext: true });
+      if (refreshIntegrations) {
+        // Startup may have skipped installation because no Project was bound.
+        // Reuse the Host's coalescing scheduler; never block connector control.
+        integrations.request();
+      }
       return {};
     },
     beginDrain,

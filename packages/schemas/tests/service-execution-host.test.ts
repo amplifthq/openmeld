@@ -66,6 +66,21 @@ describe("execution host process boundary", () => {
     ).toBe(false);
   });
 
+  it("keeps ordinary Activity sync compatible and validates explicit integration refresh", () => {
+    const schema = serviceExecutionHostMethods.syncActivity.input;
+    expect(schema.parse({})).toEqual({});
+    expect(schema.parse({ refreshIntegrations: true })).toEqual({
+      refreshIntegrations: true,
+    });
+    expect(schema.safeParse({ refreshIntegrations: "true" }).success).toBe(
+      false
+    );
+    expect(
+      schema.safeParse({ refreshIntegrations: true, rootDir: "/other-lane" })
+        .success
+    ).toBe(false);
+  });
+
   it("rejects host output that claims to register or heartbeat the Computer", () => {
     for (const code of [
       "daemon.session.register",

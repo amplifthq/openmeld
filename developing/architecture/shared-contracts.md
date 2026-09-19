@@ -27,30 +27,6 @@
 
 ## Desktop platform contract
 
-### Local execution-host IPC
-
-`service-execution-host.ts` owns the private supervisor-to-Host protocol.
-Inherited JSON IPC is bounded by message bytes and outstanding requests, with
-reserved control capacity. Each request/reply is scoped to one Host incarnation
-and validated against its fixed method's request and response schemas. A method
-name cannot select arbitrary commands, paths, ports or URLs. Host execution
-frames cannot register or heartbeat a Computer. Transport generation checks
-remain separate from Host incarnation and execution authority.
-
-An observer deadline retires only that waiter; it neither cancels nor retries
-accepted work. Long drain observation can explicitly have no total deadline.
-Process/channel loss is unconfirmed execution, never an empty healthy registry
-or permission to replay a prompt. Existing execution and result identities remain
-the replay owners. The shared live route shape preserves current working-folder
-facts instead of reusing a lossy persisted route cache.
-
-Contract impact: this private interface requires matching supervisor and Host
-artifacts. It adds no cloud capability, public endpoint, alternate auth path or
-minimum client version by itself. Current Service composition remains unchanged
-until the separately validated process integration selects it. IPC fixture
-tests prove serialization and process separation, not production integration,
-packaging, a real Wake or offline Disconnect authority.
-
 `computer-connection.ts` owns the account-bound native Connect/Disconnect
 requests, progress events, and connection result. These IPC additions ship with
 their bundled renderer. Progress accepts the CLI's existing verbose and compact
@@ -319,6 +295,10 @@ in one CLI/Service artifact. An inherited pipe is necessary but not sufficient:
 initialization also checks the current parent, account/session, installation,
 device, lane, endpoints, and Service contract generation. No bearer credential
 or arbitrary executable is supplied through this protocol.
+Requests and replies are validated against their fixed method schemas. Methods
+cannot select arbitrary paths, commands, ports or URLs, and Host execution
+frames cannot register or heartbeat a Computer. Matching supervisor and Host
+artifacts are required; they are not independently upgraded.
 
 Execution frames retain their original RuntimeCoordinator, lease, attempt, and
 Space identities. Host request timeout is an observation failure, never proof
@@ -327,6 +307,18 @@ late frames and authentication failures; a reconnect does not create new work.
 Health and control capacity are bounded independently of normal requests. Host
 snapshots report local facts only; the connector continues to publish the
 existing `acceptingDispatches` and runtime capability contracts.
+Long drain observation may have no total deadline. Process/channel loss is
+unconfirmed execution, not an empty registry or permission to replay prompts.
+The live route shape retains working-folder facts rather than relying on a
+lossy persisted route cache.
+
+Only a Project-connection change opts into `syncActivity.refreshIntegrations`.
+The Host reuses its existing coalescing integration scheduler to register the
+lane and install managed observers after a zero-Project startup. Ordinary `{}`
+Activity sync remains sync-only. This private optional flag adds no public
+control field, caller-selected installation path, or new installer/lifecycle
+owner. Integration refresh errors retain their existing diagnostics and do not
+block connector control.
 
 Contract Impact Audit: existing Core/Gateway/Web/Desktop, Prepare, CLI control,
 Service v1 file, and cloud execution payloads are unchanged. No cloud epoch or

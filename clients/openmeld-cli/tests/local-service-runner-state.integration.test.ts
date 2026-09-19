@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +7,12 @@ import type {
   refreshManagedAgentActivityIntegrations,
 } from "../src/agent-activity/integration-refresh";
 import type { startLocalAgentActivitySyncLoop } from "../src/agent-activity/local-sync";
+import { defaultManagedIntegrationPaths } from "../src/agent-activity/managed-integrations";
+import { bindProject } from "../src/agent-activity/project-bindings";
+import {
+  isAgentActivityRouteRegistered,
+  registerAgentActivityRoute,
+} from "../src/agent-activity/route-registry";
 import type { StoredAuthSession } from "../src/config/auth-session";
 import {
   AuthRequestCredentialError,
@@ -677,9 +683,10 @@ describe("local service runner dual-write", () => {
     // in-session sync resolves the real catalog.
     expect(loadDaemonRouteCatalogMock).not.toHaveBeenCalled();
     const sessionInput = runDaemonSocketSessionMock.mock.calls[0]?.[0];
+    // The fixture requests a Project refresh after the startup refresh.
     expect(
       requestManagedAgentActivityIntegrationRefreshMock
-    ).toHaveBeenCalledTimes(1);
+    ).toHaveBeenCalledTimes(2);
     expect(requestLocalAgentActivitySyncMock).toHaveBeenCalledWith({
       reconcile: true,
       refreshContext: true,
@@ -713,6 +720,81 @@ describe("local service runner dual-write", () => {
       heartbeatAt: "2026-03-14T00:00:05.000Z",
     });
     expect(clearDaemonServiceRuntimeStateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("installs Activity observers when the first Project connects after an empty startup", async () => {
+    const actual = await vi.importActual<
+      typeof import("../src/agent-activity/integration-refresh")
+    >("../src/agent-activity/integration-refresh");
+    const initialRefresh = Promise.withResolvers<void>();
+    const route = {
+      globalRootDir: join(isolatedHome, "activity-registry"),
+      rootDir: isolatedHome,
+    };
+    const paths = defaultManagedIntegrationPaths(isolatedHome);
+    vi.stubEnv("OPENMELD_USER_FACING_CLI_COMMAND", "openmeld-dev");
+    createManagedAgentActivityIntegrationRefreshSchedulerMock.mockImplementation(
+      (options) =>
+        actual.createManagedAgentActivityIntegrationRefreshScheduler({
+          ...options,
+          refresh: () =>
+            actual.refreshManagedAgentActivityIntegrations({
+              homeDir: isolatedHome,
+              rootDir: isolatedHome,
+              register: () => registerAgentActivityRoute(route),
+            }),
+          onResult: (result) => {
+            options.onResult?.(result);
+            initialRefresh.resolve();
+          },
+        })
+    );
+    const connected = Promise.withResolvers<() => void>();
+    runDaemonSocketSessionMock.mockImplementation(async (input) => {
+      connected.resolve(() => input.onLocalProjectConnectionsChanged?.());
+      await input.shutdownRequested;
+    });
+    const loop = runDaemonServiceLoop({
+      baseUrl: "http://localhost:8080",
+      heartbeatIntervalMs: 5000,
+      mode: "background",
+      presenter: {
+        view: "agent",
+        event: vi.fn(),
+        line: vi.fn(),
+        data: vi.fn(),
+      },
+    });
+    try {
+      const projectChanged = await connected.promise;
+      await initialRefresh.promise;
+      await expect(isAgentActivityRouteRegistered(route)).resolves.toBe(false);
+      await expect(
+        readFile(paths.cursorHooksPath, "utf8")
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      const repositoryPath = join(isolatedHome, "first-project");
+      await mkdir(repositoryPath);
+      await bindProject({
+        organizationId: "org-1",
+        projectId: "project-1",
+        projectSlug: "first-project",
+        repositoryFingerprint: null,
+        repositoryPath,
+        rootDir: isolatedHome,
+      });
+      projectChanged();
+      // Assert the actual lane registration and managed configuration, not a
+      // scheduler call count. All integration writes stay in the disposable home.
+      await vi.waitFor(async () => {
+        expect(await isAgentActivityRouteRegistered(route)).toBe(true);
+        expect(await readFile(paths.cursorHooksPath, "utf8")).toContain(
+          "openmeld-dev activity hook --provider cursor"
+        );
+      });
+    } finally {
+      requestServiceSigterm();
+      await loop;
+    }
   });
 
   it("does not advertise Folder Picker when this Service has no system dialog provider", async () => {

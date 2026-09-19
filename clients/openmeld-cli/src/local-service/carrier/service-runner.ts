@@ -833,14 +833,19 @@ const runAccountBoundDaemonServiceLoop = async (
   });
   const controlPlaneDaemonVersion =
     daemonServiceContract?.daemonVersion ?? "unknown";
-  const requestAgentActivitySync = () => {
-    executionHost.call("syncActivity", {}).catch((error: unknown) =>
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.agent_activity_sync_failed",
-        text: `Agent Activity sync unavailable: ${toErrorMessage(error)}`,
-      })
-    );
+  const requestAgentActivitySync = (refreshIntegrations = false) => {
+    executionHost
+      .call(
+        "syncActivity",
+        refreshIntegrations ? { refreshIntegrations: true } : {}
+      )
+      .catch((error: unknown) =>
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.agent_activity_sync_failed",
+          text: `Agent Activity sync unavailable: ${toErrorMessage(error)}`,
+        })
+      );
   };
   const controlPlaneServer = await startLocalDaemonControlPlaneServer({
     // Resolve the current file-backed token per request. Older CLIs may rotate
@@ -992,8 +997,8 @@ const runAccountBoundDaemonServiceLoop = async (
     { executeUpdates: false }
   );
 
-  const refreshAgentActivityForProjectConnectionChange =
-    requestAgentActivitySync;
+  const refreshAgentActivityForProjectConnectionChange = () =>
+    requestAgentActivitySync(true);
 
   const unsubscribeCredentialAvailability = onAuthSessionCredentialAvailable(
     () => {
