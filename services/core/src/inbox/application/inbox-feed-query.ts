@@ -1,4 +1,7 @@
-import type { InboxFeedCategory } from "@openmeld/schemas/types";
+import type {
+  InboxFeedCategory,
+  InboxFeedQuery,
+} from "@openmeld/schemas/types";
 import { currentInboxSourceFactsSql } from "./inbox-current-source-facts";
 import { INBOX_ATTENTION_PRESENTATION_FILTER } from "./inbox-service";
 import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
@@ -9,6 +12,8 @@ export type InboxFeedScope = {
   category: InboxFeedCategory;
   unreadOnly: boolean;
   agentsOnly: boolean;
+  peopleOnly?: boolean;
+  conversationType?: InboxFeedQuery["conversationType"];
   throughRowId: number;
   snapshotId?: string;
 };
@@ -55,13 +60,34 @@ export function inboxFeedCte(
           json_extract(source_target_json, '$.threadRootSignalId'))
         ELSE json_array('item', id) END AS raw_group_key
       FROM source_rows
+    ), conversations AS (
+      SELECT classified.*, (
+        SELECT CASE WHEN conversation.direct_message_pair_key IS NOT NULL
+          AND conversation.direct_message_converted_at_ms IS NULL THEN 'direct_messages' ELSE 'spaces' END
+        FROM space_index_spaces AS conversation
+        WHERE conversation.space_id = json_extract(classified.source_target_json, '$.spaceId')
+          AND conversation.organization_id = classified.organization_id
+          AND conversation.status = 'active'
+      ) AS conversation_type
+      FROM classified
     ), filtered AS (
-      SELECT * FROM classified WHERE ${scope.unreadOnly ? "read_at_ms IS NULL" : "1"}
+      SELECT * FROM conversations WHERE ${scope.unreadOnly ? "read_at_ms IS NULL" : "1"}
         AND ${scope.agentsOnly ? "is_agent = 1" : "1"}
+        AND ${scope.peopleOnly ? "is_agent = 0 AND source_kind = 'space_signal' AND kind IN ('space_message', 'space_mention', 'space_reference')" : "1"}
+        AND ${conversationPredicate(scope.conversationType)}
     ), selected AS (
       SELECT * FROM filtered WHERE ${categoryPredicate(scope.category)}
     )`,
   };
+}
+
+function conversationPredicate(
+  type: InboxFeedScope["conversationType"]
+): string {
+  if (type === "direct_messages") {
+    return "conversation_type = 'direct_messages'";
+  }
+  return type === "spaces" ? "conversation_type = 'spaces'" : "1";
 }
 
 function categoryPredicate(category: InboxFeedCategory): string {
@@ -78,6 +104,7 @@ function categoryPredicate(category: InboxFeedCategory): string {
 }
 
 export const INBOX_FEED_COUNTS_SQL = `SELECT count(*) AS all_count,
+  (SELECT count(*) FROM selected WHERE read_at_ms IS NULL) AS selection_unread_count,
   coalesce(sum(is_mention), 0) AS mention_count,
   coalesce(sum(request_category = 'action'), 0) AS action_count,
   coalesce(sum(request_category = 'review'), 0) AS review_count,

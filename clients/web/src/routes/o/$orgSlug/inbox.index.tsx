@@ -1,4 +1,7 @@
-import type { InboxFeedCategory } from "@openmeld/schemas/types";
+import type {
+	InboxFeedCategory,
+	InboxFeedQuery,
+} from "@openmeld/schemas/types";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { InboxPage } from "#/components/inbox/inbox-page";
 
@@ -13,12 +16,24 @@ export const Route = createFileRoute("/o/$orgSlug/inbox/")({
 		view?: InboxRouteView;
 		unread?: boolean;
 		agents?: boolean;
+		people?: boolean;
+		conversation?: InboxFeedQuery["conversationType"];
 	} => {
 		const item = resolveInboxItemId(search.item);
 		return {
 			item,
 			requestId: resolveInboxItemId(search.requestId),
 			view: resolveInboxRouteView(search.view),
+			people:
+				!(search.agents === true || search.agents === "true") &&
+				(search.people === true || search.people === "true")
+					? true
+					: undefined,
+			conversation:
+				search.conversation === "direct_messages" ||
+				search.conversation === "spaces"
+					? search.conversation
+					: undefined,
 			agents:
 				search.agents === true || search.agents === "true" ? true : undefined,
 			unread:
@@ -38,17 +53,22 @@ function InboxIndexRoute() {
 	return (
 		<InboxPage
 			agentsOnly={search.agents === true}
+			conversationType={search.conversation}
 			itemId={search.item}
-			onAgentsOnlyChange={(agentsOnly) => {
+			onFiltersChange={({ agentsOnly, peopleOnly, conversationType }) => {
 				navigate({
 					replace: true,
 					search: {
-						view: search.view,
-						unread: search.unread,
+						...search,
+						item: undefined,
+						requestId: undefined,
 						agents: agentsOnly || undefined,
+						people: peopleOnly || undefined,
+						conversation:
+							conversationType === "all" ? undefined : conversationType,
 					},
 				}).catch((error: unknown) => {
-					console.error("Failed to change the Inbox Agent filter.", error);
+					console.error("Failed to change Inbox filters.", error);
 				});
 			}}
 			onItemDismissed={(itemId) => {
@@ -66,9 +86,10 @@ function InboxIndexRoute() {
 				navigate({
 					replace: true,
 					search: {
-						view: search.view,
+						...search,
+						item: undefined,
+						requestId: undefined,
 						unread: unreadOnly || undefined,
-						agents: search.agents,
 					},
 				}).catch((error: unknown) => {
 					console.error("Failed to change the Inbox unread filter.", error);
@@ -78,16 +99,16 @@ function InboxIndexRoute() {
 				navigate({
 					replace: true,
 					search: {
+						...search,
 						item: undefined,
 						requestId: undefined,
 						view: buildInboxRouteView(view),
-						unread: search.unread,
-						agents: search.agents,
 					},
 				}).catch((error: unknown) => {
 					console.error("Failed to change the Inbox view.", error);
 				});
 			}}
+			peopleOnly={search.people === true}
 			requestId={search.requestId}
 			unreadOnly={search.unread === true}
 			view={parseInboxRouteView(search.view)}

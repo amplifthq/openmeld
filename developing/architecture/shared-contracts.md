@@ -1017,6 +1017,20 @@ membership, binds the snapshot to that account and Organization, and rechecks
 source permissions. SQLite migration 0176 adds expiring snapshot membership
 referencing canonical items; deleting a snapshot never deletes Inbox items.
 
+Feed queries add optional `peopleOnly` and `conversationType` filters.
+The optional `includeSelectionUnreadCount=true` query requests the exact
+category-and-filter-scoped `selectionUnreadCount` across all pages. Unversioned
+callers retain their strict response shape and the existing global filtered
+counts. Web uses this number in the bulk-read label and freezes it alongside
+the snapshot id when opening confirmation; unknown counts disable the action.
+Migration 0179 adds matching snapshot columns with unfiltered defaults, so old
+queries and existing snapshots retain their behavior. Filtered pagination must
+match those stored values; bulk read/Dismiss reuses the frozen membership and
+current source access. No source-target, notification, CLI, Service, Wake or
+permission contract changes. Apply the additive migration, then deploy Core,
+Gateway and Web in that order. New filter callers must not precede the strict
+receivers; rollback removes callers first and retains the additive columns.
+
 Source-target version `8` adds optional, strict `sourceFacts` to canonical Inbox
 items. The source records actual Agent relevance, personal-Agent mentions,
 persistent first-contact identity and merged recipient reasons independently of

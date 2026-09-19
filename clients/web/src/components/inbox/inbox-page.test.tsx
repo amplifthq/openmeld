@@ -119,12 +119,13 @@ describe("canonical Inbox attention page", () => {
 	it("renders four categories and independent server-side filters without an Agent tab or administrator gate", () => {
 		const onViewChange = vi.fn();
 		const onUnreadOnlyChange = vi.fn();
-		const onAgentsOnlyChange = vi.fn();
+		const onFiltersChange = vi.fn();
 		renderPage({
 			rows: [],
 			onViewChange,
 			onUnreadOnlyChange,
-			onAgentsOnlyChange,
+			onFiltersChange,
+			peopleOnly: true,
 		});
 		expect(screen.getAllByRole("tab")).toHaveLength(4);
 		for (const name of ["All", "Mentions", "Needs action", "Needs review"]) {
@@ -133,13 +134,22 @@ describe("canonical Inbox attention page", () => {
 		expect(screen.queryByRole("tab", { name: "Agents" })).toBeNull();
 		fireEvent.click(screen.getByRole("tab", { name: "Mentions" }));
 		fireEvent.click(screen.getByRole("switch", { name: "Unread only" }));
-		fireEvent.click(screen.getByRole("button", { name: "Agents" }));
+		fireEvent.click(screen.getByRole("button", { name: "Filter Inbox" }));
+		fireEvent.click(screen.getByRole("menuitemradio", { name: "Agents" }));
 		expect(onViewChange).toHaveBeenCalledWith("mentions");
 		expect(onUnreadOnlyChange).toHaveBeenCalledWith(true);
-		expect(onAgentsOnlyChange).toHaveBeenCalledWith(true);
+		expect(onFiltersChange).toHaveBeenCalledWith(
+			expect.objectContaining({ agentsOnly: true, peopleOnly: false })
+		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Clear filters" }));
+		expect(onFiltersChange).toHaveBeenCalledWith({
+			agentsOnly: false,
+			peopleOnly: false,
+			conversationType: "all",
+		});
 		expect(
-			screen.queryByRole("button", { name: "Mark this view as read" })
-		).toBeNull();
+			screen.getByRole("button", { name: "All read" }).hasAttribute("disabled")
+		).toBe(true);
 	});
 
 	it("keeps the page shell, categories and controls visible while only the feed is pending", () => {
@@ -331,7 +341,8 @@ describe("canonical Inbox attention page", () => {
 			nextRows: [next],
 			view: "mentions",
 			unreadOnly: true,
-			agentsOnly: true,
+			peopleOnly: true,
+			conversationType: "direct_messages",
 		});
 		await waitFor(() => expect(observed).toHaveBeenCalled());
 		intersect();
@@ -340,7 +351,8 @@ describe("canonical Inbox attention page", () => {
 			expect.objectContaining({
 				category: "mentions",
 				unreadOnly: "true",
-				agentsOnly: "true",
+				peopleOnly: "true",
+				conversationType: "direct_messages",
 				cursor: "next-page",
 			})
 		);
@@ -524,21 +536,27 @@ describe("canonical Inbox attention page", () => {
 			rows: [row(pending, { section: "open", requestCategory: "action" })],
 		});
 		fireEvent.click(
-			screen.getByRole("button", { name: "Mark this view as read" })
+			screen.getByRole("button", { name: "Mark 1 item as read" })
 		);
 		const dialog = await screen.findByRole("alertdialog", {
-			name: "Mark this view as read?",
+			name: "Mark 1 item as read?",
 		});
 		expect(within(dialog).getByText(FROZEN_SELECTION_DESCRIPTION)).toBeTruthy();
 		expect(mocks.selection).not.toHaveBeenCalled();
 		act(() =>
 			queryClient.setQueryData(queryKey, {
 				pageParams: [undefined],
-				pages: [{ ...page([row(pending)]), snapshotId: "newer-snapshot" }],
+				pages: [
+					{
+						...page([row(pending)]),
+						selectionUnreadCount: 7,
+						snapshotId: "newer-snapshot",
+					},
+				],
 			})
 		);
 		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Mark this view as read" })
+			within(dialog).getByRole("button", { name: "Mark 1 item as read" })
 		);
 		await waitFor(() =>
 			expect(mocks.selection).toHaveBeenCalledExactlyOnceWith({
@@ -601,6 +619,8 @@ function renderPage(
 		category: input.view ?? "all",
 		unreadOnly: input.unreadOnly ?? false,
 		agentsOnly: input.agentsOnly ?? false,
+		peopleOnly: input.peopleOnly,
+		conversationType: input.conversationType,
 	}).queryKey;
 	const first = page(input.rows, input.nextRows ? "next-page" : null);
 	if (input.prime !== false) {
@@ -633,11 +653,13 @@ function renderPage(
 		<QueryClientProvider client={queryClient}>
 			<InboxPage
 				agentsOnly={input.agentsOnly}
+				conversationType={input.conversationType}
 				itemId={input.itemId}
-				onAgentsOnlyChange={input.onAgentsOnlyChange}
+				onFiltersChange={input.onFiltersChange}
 				onItemDismissed={input.onItemDismissed}
 				onUnreadOnlyChange={input.onUnreadOnlyChange}
 				onViewChange={input.onViewChange ?? vi.fn()}
+				peopleOnly={input.peopleOnly}
 				unreadOnly={input.unreadOnly}
 				view={input.view ?? "all"}
 			/>
@@ -655,6 +677,10 @@ function page(
 		snapshotId: "snapshot",
 		snapshotExpiresAt: "2026-09-18T02:00:00Z",
 		nextCursor,
+		selectionUnreadCount: rows.reduce(
+			(n, current) => n + current.unreadCount,
+			0
+		),
 		rows,
 		counts: {
 			all: rows.reduce((n, current) => n + current.itemCount, 0),

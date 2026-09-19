@@ -70,6 +70,18 @@ describe("canonical Inbox attention feed", () => {
         needsReview: summary.needsReviewCount,
         needsAction: summary.needsActionCount,
       });
+      expect(feed).not.toHaveProperty("selectionUnreadCount");
+      const reviewSelection = await createInboxFeedService({ db: f.db }).list(
+        f.identity,
+        { category: "needs_review", includeSelectionUnreadCount: "true" }
+      );
+      expect(reviewSelection.counts.unread).toBeGreaterThan(0);
+      expect(reviewSelection.selectionUnreadCount).toBe(0);
+      const actionSelection = await createInboxFeedService({ db: f.db }).list(
+        f.identity,
+        { category: "needs_action", includeSelectionUnreadCount: "true" }
+      );
+      expect(actionSelection.selectionUnreadCount).toBe(1);
       expect(
         feed.rows.find((row) => row.item.id === review.itemId)
       ).toMatchObject({
@@ -119,7 +131,11 @@ describe("canonical Inbox attention feed", () => {
         db: fixture.db,
         nowMs: () => 11_000,
       });
-      const first = await feed.list(fixture.identity, { limit: 2 });
+      const first = await feed.list(fixture.identity, {
+        limit: 2,
+        includeSelectionUnreadCount: "true",
+      });
+      expect(first.selectionUnreadCount).toBe(83);
       expect(first.rows.map((row) => row.item.id)).toEqual([
         urgent.itemId,
         normal.itemId,
@@ -225,14 +241,88 @@ describe("canonical Inbox attention feed", () => {
           recipientReasons: ["space_member"],
         },
       });
-      const result = await createInboxFeedService({
+      const feed = createInboxFeedService({
         db: fixture.db,
         nowMs: () => 11_000,
-      }).list(fixture.identity, { agentsOnly: "true", limit: 1 });
+      });
+      const result = await feed.list(fixture.identity, {
+        agentsOnly: "true",
+        limit: 1,
+      });
       expect(result.counts.all).toBe(1);
       expect(result.rows[0]?.item.id).toBe(meaningful.itemId);
       expect(result.rows[0]?.itemCount).toBe(1);
       expect(result.nextCursor).toBeNull();
+      fixture.space("dm");
+      fixture.run({
+        sql: "UPDATE space_index_spaces SET direct_message_pair_key = 'human:other' WHERE space_id = 'dm'",
+      });
+      const dmTarget = {
+        kind: "space",
+        spaceId: "dm",
+        directMessage: true,
+      } as const;
+      const humanDm = await fixture.item("human-dm", {
+        sourceTarget: {
+          ...dmTarget,
+          signalId: "human-dm",
+          threadRootSignalId: "one",
+        },
+      });
+      const secondDm = await fixture.item("second-dm", {
+        sourceTarget: {
+          ...dmTarget,
+          signalId: "second-dm",
+          threadRootSignalId: "two",
+        },
+      });
+      await fixture.item("agent-dm", {
+        kind: "agent_reply",
+        sourceTarget: dmTarget,
+      });
+      await fixture.item("computer", {
+        kind: "system_issue",
+        sourceKind: "system_attention_event",
+        sourceTarget: { kind: "settings", section: "computers" },
+      });
+      const people = await feed.list(fixture.identity, { peopleOnly: "true" });
+      expect(people.counts.all).toBe(47);
+      const spaces = await feed.list(fixture.identity, {
+        peopleOnly: "true",
+        conversationType: "spaces",
+      });
+      expect(spaces.counts.all).toBe(45);
+      const query = {
+        peopleOnly: "true",
+        conversationType: "direct_messages",
+        limit: 1,
+      } as const;
+      const first = await feed.list(fixture.identity, query);
+      expect(first.counts.all).toBe(2);
+      expect(first.nextCursor).not.toBeNull();
+      const second = await feed.list(fixture.identity, {
+        ...query,
+        cursor: first.nextCursor ?? "",
+      });
+      expect(
+        new Set([...first.rows, ...second.rows].map((row) => row.item.id))
+      ).toEqual(new Set([humanDm.itemId, secondDm.itemId]));
+      await expect(
+        feed.list(fixture.identity, {
+          ...query,
+          conversationType: "spaces",
+          cursor: first.nextCursor ?? "",
+        })
+      ).rejects.toMatchObject({ code: "inbox.cursor_invalid" });
+      await fixture.item("late-dm", { sourceTarget: dmTarget });
+      expect(
+        await feed.mutate(fixture.identity, {
+          snapshotId: first.snapshotId,
+          operation: "read",
+        })
+      ).toEqual({ changedCount: 2 });
+      const unread = await feed.list(fixture.identity, { unreadOnly: "true" });
+      expect(unread.counts.all).toBe(49);
     } finally {
       fixture.close();
     }

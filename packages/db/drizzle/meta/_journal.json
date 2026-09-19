@@ -1254,6 +1254,13 @@
       "when": 1789754038904,
       "tag": "0178_slimy_oracle",
       "breakpoints": true
+    },
+    {
+      "idx": 179,
+      "version": "6",
+      "when": 1789832461508,
+      "tag": "0179_nasty_ego",
+      "breakpoints": true
     }
   ]
 }

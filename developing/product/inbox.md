@@ -69,7 +69,15 @@ first-party client observation under the current account, not cryptographic
 device attestation or proof that a person saw a notification.
 
 The canonical attention feed is `GET /v1/inbox/feed`. All, Mentions, Needs action
-and Needs review combine independently with `unreadOnly` and `agentsOnly`.
+and Needs review combine independently with unread, activity and conversation
+filters. The activity menu selects All activity, Agents or People; People means
+conversation messages without Agent relevance, not device or system events.
+The conversation menu selects all types, Direct messages or Spaces, using the
+current Space Index DM classification (converted DMs are Spaces). Both groups
+can be combined and persist in the URL; Unread only stays beside the tabs.
+The existing `agentsOnly` query remains supported; `peopleOnly` and
+`conversationType` are additive. Every filter is applied before grouping,
+counts, pagination and frozen bulk operations.
 Mentions includes structured Human mentions and current personal-Agent mentions
 through history, not unmentioned DMs. This does not change the older unread-only
 `view=mentions` API. Agents filters actual interaction/author/recipient facts, not

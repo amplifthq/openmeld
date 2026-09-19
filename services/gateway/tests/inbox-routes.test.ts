@@ -141,7 +141,7 @@ describe("Inbox routes", () => {
     const { coreRpc, env } = makeEnv();
     const response = await app.fetch(
       new Request(
-        "http://local/v1/inbox/feed?category=mentions&agentsOnly=true&unreadOnly=false&limit=20"
+        "http://local/v1/inbox/feed?category=mentions&agentsOnly=false&peopleOnly=true&conversationType=direct_messages&includeSelectionUnreadCount=true&unreadOnly=false&limit=20"
       ),
       env,
       TEST_EXECUTION_CONTEXT
@@ -150,7 +150,10 @@ describe("Inbox routes", () => {
     expect(coreRpc.listInboxFeed).toHaveBeenCalledWith(
       expect.objectContaining({
         category: "mentions",
-        agentsOnly: "true",
+        agentsOnly: "false",
+        peopleOnly: "true",
+        conversationType: "direct_messages",
+        includeSelectionUnreadCount: "true",
         unreadOnly: "false",
         limit: 20,
       })

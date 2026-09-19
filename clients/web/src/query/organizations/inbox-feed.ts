@@ -19,6 +19,8 @@ export type InboxFeedFilters = {
 	category: InboxFeedCategory;
 	unreadOnly: boolean;
 	agentsOnly: boolean;
+	peopleOnly?: boolean;
+	conversationType?: InboxFeedQuery["conversationType"];
 };
 
 export function organizationInboxFeedQueryOptions(
@@ -32,8 +34,12 @@ export function organizationInboxFeedQueryOptions(
 ) {
 	const query: InboxFeedQuery = {
 		category: input.category,
+		includeSelectionUnreadCount: "true",
 		unreadOnly: input.unreadOnly ? "true" : "false",
 		agentsOnly: input.agentsOnly ? "true" : "false",
+		peopleOnly: input.peopleOnly ? "true" : undefined,
+		conversationType:
+			input.conversationType === "all" ? undefined : input.conversationType,
 		limit: input.limit ?? 40,
 		snapshotId: input.snapshotId,
 		groupKey: input.groupKey,

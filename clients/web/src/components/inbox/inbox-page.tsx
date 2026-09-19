@@ -2,7 +2,7 @@
 
 import type {
 	InboxFeedCategory,
-	InboxFeedCounts,
+	InboxFeedQuery,
 	InboxItem,
 	MutateInboxFeedBody,
 } from "@openmeld/schemas/types";
@@ -22,7 +22,6 @@ import {
 	TabsSubtleItem,
 	TabsSubtlePanel,
 } from "@openmeld/ui/fluid/tabs-subtle";
-import { RobotIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -39,6 +38,7 @@ import {
 	InboxFeedView,
 	resolveInboxFeedLoadMoreState,
 } from "./inbox-feed-view";
+import { InboxFilterMenu } from "./inbox-filter-menu";
 import { InboxItemsList } from "./inbox-list";
 import {
 	InboxEmptyState,
@@ -53,15 +53,51 @@ import { InvitationReview } from "./invitation-review";
 import { useInboxItemDismissMutation } from "./use-inbox-item-dismiss-mutation";
 import { useInboxItemReadMutation } from "./use-inbox-item-read-mutation";
 
+function markReadLabel(count: number | null): string {
+	if (count === null) {
+		return "Mark as read";
+	}
+	if (count === 0) {
+		return "All read";
+	}
+	return count === 1 ? "Mark 1 item as read" : `Mark ${count} items as read`;
+}
+
+function InboxSelectionActions(input: {
+	unreadCount: number | null;
+	pending: boolean;
+	onMarkRead: () => void;
+}) {
+	return (
+		<Button
+			className="ml-auto"
+			disabled={
+				input.pending || input.unreadCount === null || input.unreadCount === 0
+			}
+			onClick={input.onMarkRead}
+			size="sm"
+			variant="secondary"
+		>
+			{markReadLabel(input.unreadCount)}
+		</Button>
+	);
+}
+
 export function InboxPage(input: {
 	itemId?: string;
 	requestId?: string;
 	onItemDismissed?: (itemId: string) => void;
 	onViewChange: (view: InboxFeedCategory) => void;
 	onUnreadOnlyChange?: (unreadOnly: boolean) => void;
-	onAgentsOnlyChange?: (agentsOnly: boolean) => void;
+	onFiltersChange?: (filters: {
+		agentsOnly: boolean;
+		peopleOnly: boolean;
+		conversationType: NonNullable<InboxFeedQuery["conversationType"]>;
+	}) => void;
 	unreadOnly?: boolean;
 	agentsOnly?: boolean;
+	peopleOnly?: boolean;
+	conversationType?: InboxFeedQuery["conversationType"];
 	view: InboxFeedCategory;
 }) {
 	const { currentOrganization, currentUserId } = useAppOrganization();
@@ -69,12 +105,18 @@ export function InboxPage(input: {
 		category: input.view,
 		unreadOnly: input.unreadOnly ?? false,
 		agentsOnly: input.agentsOnly ?? false,
+		peopleOnly: input.peopleOnly ?? false,
+		conversationType: input.conversationType ?? "all",
 	};
 	const feed = useOrganizationInboxFeed({
 		...filters,
 		accountId: currentUserId,
 		organizationId: currentOrganization.id,
 	});
+	const hasFilters =
+		filters.agentsOnly ||
+		filters.peopleOnly ||
+		filters.conversationType !== "all";
 	const deepLink = useQuery(
 		inboxItemQueryOptions({
 			organizationId: currentOrganization.id,
@@ -85,6 +127,7 @@ export function InboxPage(input: {
 	const [announcement, setAnnouncement] = useState("");
 	const [confirmation, setConfirmation] = useState<{
 		snapshotId: string;
+		unreadCount: number;
 	} | null>(null);
 	const { setRead } = useInboxItemReadMutation({
 		organizationId: currentOrganization.id,
@@ -155,12 +198,14 @@ export function InboxPage(input: {
 		);
 	}, [feed.data, sourceItem?.id, input.requestId]);
 	const firstPage = feed.data?.pages[0];
+	const selectionUnreadCount = firstPage?.selectionUnreadCount ?? null;
 	const selectedIndex = Math.max(
 		0,
 		INBOX_TABS.findIndex((tab) => tab.view === input.view)
 	);
 	const loadMoreState = resolveInboxFeedLoadMoreState(feed);
 	const openItem = (item: InboxItem) => setRead(item, true);
+	const confirmationLabel = markReadLabel(confirmation?.unreadCount ?? null);
 	return (
 		<div className="flex min-w-0 flex-col gap-6">
 			<AppPageHeader
@@ -175,68 +220,56 @@ export function InboxPage(input: {
 			/>
 			<div className="flex min-w-0 flex-col gap-4">
 				<div className="flex min-w-0 flex-col gap-3">
-					<TabsSubtle
-						className="w-fit max-w-full"
-						idPrefix="inbox-view"
-						onSelect={(index) => {
-							const tab = INBOX_TABS[index];
-							if (tab && tab.view !== input.view) {
-								input.onViewChange(tab.view);
-							}
-						}}
-						selectedIndex={selectedIndex}
-					>
-						{INBOX_TABS.map((tab, index) => (
-							<TabsSubtleItem index={index} key={tab.view} label={tab.label} />
-						))}
-					</TabsSubtle>
-					<div className="flex flex-wrap items-center justify-between gap-3">
-						<div className="flex flex-wrap items-center gap-4">
-							<label
-								className="flex cursor-pointer items-center gap-2 text-muted-foreground text-sm"
-								htmlFor="inbox-unread-only"
-							>
-								<Switch
-									aria-label="Unread only"
-									checked={filters.unreadOnly}
-									id="inbox-unread-only"
-									onCheckedChange={(value) => input.onUnreadOnlyChange?.(value)}
+					<div className="flex min-w-0 flex-wrap items-center justify-between gap-x-6 gap-y-3">
+						<TabsSubtle
+							className="w-fit max-w-full"
+							idPrefix="inbox-view"
+							onSelect={(index) => {
+								const tab = INBOX_TABS[index];
+								if (tab && tab.view !== input.view) {
+									input.onViewChange(tab.view);
+								}
+							}}
+							selectedIndex={selectedIndex}
+						>
+							{INBOX_TABS.map((tab, index) => (
+								<TabsSubtleItem
+									index={index}
+									key={tab.view}
+									label={tab.label}
 								/>
-								Unread only
-							</label>
-							<Button
-								aria-pressed={filters.agentsOnly}
-								className="gap-2"
-								onClick={() => input.onAgentsOnlyChange?.(!filters.agentsOnly)}
-								size="sm"
-								variant={filters.agentsOnly ? "secondary" : "outline"}
-							>
-								<RobotIcon aria-hidden="true" className="size-4" />
-								Agents
-							</Button>
-						</div>
-						<div className="flex flex-wrap items-center gap-3">
-							{firstPage ? (
-								<span
-									className="text-muted-foreground text-xs tabular-nums"
-									title="Matching Inbox items"
-								>
-									{countForCategory(firstPage.counts, input.view)} items
-								</span>
-							) : null}
-							{firstPage && firstPage.counts.unread > 0 ? (
-								<Button
-									disabled={selection.isPending}
-									onClick={() =>
-										setConfirmation({ snapshotId: firstPage.snapshotId })
-									}
-									size="sm"
-									variant="ghost"
-								>
-									Mark this view as read
-								</Button>
-							) : null}
-						</div>
+							))}
+						</TabsSubtle>
+						<label
+							className="ml-auto flex shrink-0 cursor-pointer items-center gap-2 text-muted-foreground text-sm"
+							htmlFor="inbox-unread-only"
+						>
+							<Switch
+								aria-label="Unread only"
+								checked={filters.unreadOnly}
+								id="inbox-unread-only"
+								onCheckedChange={(value) => input.onUnreadOnlyChange?.(value)}
+							/>
+							Unread only
+						</label>
+					</div>
+					<div className="flex min-h-8 flex-wrap items-center justify-between gap-3">
+						<InboxFilterMenu
+							filters={filters}
+							onChange={input.onFiltersChange}
+						/>
+						<InboxSelectionActions
+							onMarkRead={() => {
+								if (firstPage?.selectionUnreadCount !== undefined) {
+									setConfirmation({
+										snapshotId: firstPage.snapshotId,
+										unreadCount: firstPage.selectionUnreadCount,
+									});
+								}
+							}}
+							pending={selection.isPending}
+							unreadCount={selectionUnreadCount}
+						/>
 					</div>
 				</div>
 				{input.requestId ? (
@@ -320,6 +353,7 @@ export function InboxPage(input: {
 								!sourceItem &&
 								!feed.hasNextPage ? (
 									<InboxEmptyState
+										filtered={hasFilters}
 										unreadOnly={filters.unreadOnly}
 										view={input.view}
 									/>
@@ -345,11 +379,11 @@ export function InboxPage(input: {
 			>
 				<AlertDialogContent>
 					<AlertDialogHeader>
-						<AlertDialogTitle>Mark this view as read?</AlertDialogTitle>
+						<AlertDialogTitle>{confirmationLabel}?</AlertDialogTitle>
 						<AlertDialogDescription>
-							Mark unread updates in this filtered selection as read, including
-							its other pages. New messages and items outside this selection
-							stay unread. Pending requests stay open.
+							Only items matching your current filters will be marked as read,
+							including other pages. New messages and items outside this
+							selection stay unread. Pending requests stay open.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
@@ -366,7 +400,7 @@ export function InboxPage(input: {
 								setConfirmation(null);
 							}}
 						>
-							Mark this view as read
+							{confirmationLabel}
 						</Button>
 					</AlertDialogFooter>
 				</AlertDialogContent>
@@ -376,19 +410,6 @@ export function InboxPage(input: {
 			</div>
 		</div>
 	);
-}
-
-function countForCategory(
-	counts: InboxFeedCounts,
-	category: InboxFeedCategory
-): number {
-	if (category === "needs_action") {
-		return counts.needsAction;
-	}
-	if (category === "needs_review") {
-		return counts.needsReview;
-	}
-	return counts[category];
 }
 
 /** Exact deep links stay accessible even outside the selected category/page. */

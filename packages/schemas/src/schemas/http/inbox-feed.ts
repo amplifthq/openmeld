@@ -20,6 +20,9 @@ export const inboxFeedQuerySchema = z.strictObject({
   category: inboxFeedCategorySchema.optional(),
   unreadOnly: z.enum(["true", "false"]).optional(),
   agentsOnly: z.enum(["true", "false"]).optional(),
+  peopleOnly: z.enum(["true", "false"]).optional(),
+  conversationType: z.enum(["all", "direct_messages", "spaces"]).optional(),
+  includeSelectionUnreadCount: z.literal("true").optional(),
   cursor: z.string().min(1).max(8192).optional(),
   limit: z.coerce.number().int().min(1).max(INBOX_LIST_MAX_LIMIT).optional(),
   snapshotId: identifierSchema.optional(),
@@ -48,6 +51,7 @@ export const inboxFeedResponseSchema = z.strictObject({
   snapshotId: identifierSchema,
   snapshotExpiresAt: z.iso.datetime({ offset: true }),
   counts: inboxFeedCountsSchema,
+  selectionUnreadCount: countSchema.optional(),
   rows: z.array(inboxFeedRowSchema).max(INBOX_LIST_MAX_LIMIT),
   nextCursor: z.string().nullable(),
 });

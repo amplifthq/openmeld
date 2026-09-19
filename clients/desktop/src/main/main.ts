@@ -45,6 +45,11 @@ import type {
 import { createPilotServiceHandlers } from "./pilot-service";
 import { registerOpenMeldIpcHandlers } from "./register-ipc";
 import { assertTrustedRenderer } from "./renderer-trust";
+import {
+  createTrayTemplateImage,
+  hasTrayUnreadDot,
+  trayAttentionTitle,
+} from "./tray-image";
 import { createDesktopUpdateInboxReporter } from "./update/desktop-update-inbox-reporter";
 import { registerAppUpdater } from "./update/register-app-updater";
 
@@ -84,7 +89,6 @@ let quitIntent: "none" | "ordinary" | "updater-install" = "none";
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let trayAttention: DesktopInboxAttention | null = null;
-let trayAttentionTitle = "";
 let trayContext: DesktopTrayContext | null = null;
 let trayMenuOpen = false;
 let trayMenuRefreshPending = false;
@@ -93,10 +97,7 @@ const pilot = initializeDesktopPilot(
   () => mainWindow,
   (attention) => {
     trayAttention = attention;
-    if (process.platform === "darwin") {
-      trayAttentionTitle = formatTrayAttentionTitle(attention);
-      tray?.setTitle(trayAttentionTitle);
-    }
+    updateTrayImage();
     updateTrayMenu();
   },
   (presentation) => {
@@ -426,9 +427,7 @@ function sendWindowDestination(
 function createTray(): Tray {
   const nextTray = new Tray(createTrayImage());
   tray = nextTray;
-  if (process.platform === "darwin") {
-    nextTray.setTitle(trayAttentionTitle);
-  }
+  updateTrayImage();
   updateTrayMenu();
   runBackgroundTask(refreshTrayStatus(), { showError: false });
   return nextTray;
@@ -479,8 +478,25 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
     trayActionItem({
       icon: "inbox",
       label: "Open Inbox",
-      ...(unreadCount && unreadCount > 0
-        ? { sublabel: `${unreadCount} unread` }
+      ...(trayAttention || (unreadCount && unreadCount > 0)
+        ? {
+            sublabel: [
+              ...(unreadCount && unreadCount > 0
+                ? [`${unreadCount} unread`]
+                : []),
+              ...(trayAttention?.unreadMentionCount
+                ? [
+                    `${trayAttention.unreadMentionCount} ${trayAttention.unreadMentionCount === 1 ? "mention" : "mentions"}`,
+                  ]
+                : []),
+              ...(trayAttention?.unresolvedActionCount
+                ? [`${trayAttention.unresolvedActionCount} pending`]
+                : []),
+              ...(trayAttention?.unreadUrgentUpdateCount
+                ? [`${trayAttention.unreadUrgentUpdateCount} urgent`]
+                : []),
+            ].join(" · "),
+          }
         : {}),
       click: () => showDesktopWindow("inbox"),
     }),
@@ -563,7 +579,7 @@ function trayPreviewMenuItems(
   }
   const label = {
     loading: "Loading notifications…",
-    no_unread_messages: "No unread messages",
+    no_unread_messages: "No message preview available",
     signed_out: "Sign in to view notifications",
     unavailable: "Notifications unavailable",
   }[presentation.status];
@@ -664,31 +680,6 @@ function resolveTrayTooltip(): string {
   return attention ? `${service}\n${attention}` : service;
 }
 
-function formatTrayAttentionTitle(
-  attention: DesktopInboxAttention | null
-): string {
-  if (!attention) {
-    return "";
-  }
-  const important =
-    attention.priorityCount ??
-    attention.unresolvedActionCount + attention.unreadUrgentUpdateCount;
-  const segments = [
-    ...(important > 0 ? [`!${formatTrayAttentionCount(important)}`] : []),
-    ...(attention.unreadMentionCount > 0
-      ? [`@${formatTrayAttentionCount(attention.unreadMentionCount)}`]
-      : []),
-    ...(attention.priorityCount !== undefined &&
-    attention.unresolvedActionCount > 0
-      ? [`·${formatTrayAttentionCount(attention.unresolvedActionCount)}`]
-      : []),
-  ];
-  if (segments.length > 0) {
-    return segments.join(" ");
-  }
-  return attention.ordinaryUnreadCount > 0 ? "•" : "";
-}
-
 function formatTrayAttentionTooltip(
   attention: DesktopInboxAttention | null
 ): string | null {
@@ -725,10 +716,6 @@ function formatTrayAttentionTooltip(
   return details.length > 0
     ? `Inbox - ${details.join(", ")}`
     : "Inbox - All caught up";
-}
-
-function formatTrayAttentionCount(count: number): string {
-  return count > 99 ? "99+" : String(count);
 }
 
 function resolveNativeMenuCapabilities(): {
@@ -802,13 +789,27 @@ function quitDesktop(): void {
   app.quit();
 }
 
-function createTrayImage() {
+function createTrayImage(unread = false) {
   const image = nativeImage.createFromPath(TRAY_ICON_PATH);
+  if (process.platform === "darwin" && !image.isEmpty()) {
+    return createTrayTemplateImage(image, unread);
+  }
   const resizedImage = image.isEmpty()
     ? createAppIcon()
     : image.resize({ height: 18 });
   resizedImage?.setTemplateImage(true);
   return resizedImage ?? nativeImage.createEmpty();
+}
+
+function updateTrayImage(): void {
+  if (!tray || process.platform !== "darwin") {
+    return;
+  }
+  const title = trayAttentionTitle(trayAttention);
+  const unread = hasTrayUnreadDot(trayAttention);
+  // Native text keeps counts crisp and accessible; ordinary unread has no title.
+  tray.setTitle(title, { fontType: "monospacedDigit" });
+  tray.setImage(createTrayImage(unread));
 }
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();

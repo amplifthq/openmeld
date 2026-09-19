@@ -39,6 +39,8 @@ type SnapshotRow = {
   category: InboxFeedScope["category"];
   unread_only: number;
   agents_only: number;
+  people_only: number;
+  conversation_type: InboxFeedScope["conversationType"];
   through_row_id: number;
   expires_at_ms: number;
 };
@@ -53,6 +55,7 @@ type FeedItemRow = InboxItemRow & {
   request_category: "action" | "review" | null;
 };
 type CountRow = {
+  selection_unread_count: number;
   all_count: number;
   mention_count: number;
   action_count: number;
@@ -93,6 +96,8 @@ export function createInboxFeedService(input: {
       category: row.category,
       unreadOnly: row.unread_only === 1,
       agentsOnly: row.agents_only === 1,
+      peopleOnly: row.people_only === 1,
+      conversationType: row.conversation_type,
       throughRowId: row.through_row_id,
       expiresAtMs: row.expires_at_ms,
       snapshotId: row.id,
@@ -110,6 +115,8 @@ export function createInboxFeedService(input: {
       category: query.category ?? "all",
       unreadOnly: query.unreadOnly === "true",
       agentsOnly: query.agentsOnly === "true",
+      peopleOnly: query.peopleOnly === "true",
+      conversationType: query.conversationType ?? "all",
       throughRowId: Number.MAX_SAFE_INTEGER,
     } as const;
     const cte = inboxFeedCte(seedScope, input.canManageOrganization === true);
@@ -121,8 +128,8 @@ export function createInboxFeedService(input: {
         .bind(created),
       input.db
         .prepare(`INSERT INTO inbox_feed_snapshots
-        (id, organization_id, recipient_user_id, category, unread_only, agents_only, through_row_id, created_at_ms, expires_at_ms)
-        SELECT ?, ?, ?, ?, ?, ?, coalesce(max(rowid), 0), ?, ? FROM inbox_items`)
+        (id, organization_id, recipient_user_id, category, unread_only, agents_only, people_only, conversation_type, through_row_id, created_at_ms, expires_at_ms)
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, coalesce(max(rowid), 0), ?, ? FROM inbox_items`)
         .bind(
           id,
           identity.organizationId,
@@ -130,6 +137,8 @@ export function createInboxFeedService(input: {
           query.category ?? "all",
           query.unreadOnly === "true" ? 1 : 0,
           query.agentsOnly === "true" ? 1 : 0,
+          query.peopleOnly === "true" ? 1 : 0,
+          query.conversationType ?? "all",
           created,
           created + SNAPSHOT_TTL_MS
         ),
@@ -177,7 +186,8 @@ export function createInboxFeedService(input: {
             limit + 1
           ),
       ]);
-      const { counts, candidates } = readQueryResults(results);
+      const { counts, candidates, selectionUnreadCount } =
+        readQueryResults(results);
       const page = candidates.slice(0, limit);
       const last = page.at(-1);
       return inboxFeedResponseSchema.parse({
@@ -185,6 +195,7 @@ export function createInboxFeedService(input: {
         snapshotId: snapshot.id,
         snapshotExpiresAt: new Date(snapshot.expiresAtMs).toISOString(),
         counts,
+        ...selectionCountProjection(query, selectionUnreadCount),
         rows: page.map(mapFeedRow),
         nextCursor:
           candidates.length > limit && last
@@ -224,6 +235,15 @@ export function createInboxFeedService(input: {
   };
 }
 
+function selectionCountProjection(
+  query: InboxFeedQuery,
+  selectionUnreadCount: number
+) {
+  return query.includeSelectionUnreadCount === "true"
+    ? { selectionUnreadCount }
+    : {};
+}
+
 function assertMatchingSnapshot(
   snapshot: Snapshot,
   query: InboxFeedQuery,
@@ -232,7 +252,9 @@ function assertMatchingSnapshot(
   if (
     snapshot.category !== (query.category ?? "all") ||
     snapshot.unreadOnly !== (query.unreadOnly === "true") ||
-    snapshot.agentsOnly !== (query.agentsOnly === "true")
+    snapshot.agentsOnly !== (query.agentsOnly === "true") ||
+    snapshot.peopleOnly !== (query.peopleOnly === "true") ||
+    snapshot.conversationType !== (query.conversationType ?? "all")
   ) {
     throw invalidInboxFeedCursor();
   }
@@ -246,6 +268,7 @@ function assertMatchingSnapshot(
 }
 
 function readQueryResults(results: D1Result[]): {
+  selectionUnreadCount: number;
   counts: InboxFeedCounts;
   candidates: FeedItemRow[];
 } {
@@ -262,6 +285,9 @@ function readQueryResults(results: D1Result[]): {
     throw new Error("Inbox query did not return a complete snapshot page");
   }
   return {
+    selectionUnreadCount: Number(
+      (countResult.results[0] as CountRow).selection_unread_count
+    ),
     counts: mapCounts(countResult.results[0] as CountRow),
     candidates: pageResult.results as FeedItemRow[],
   };

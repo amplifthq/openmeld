@@ -80,6 +80,9 @@ describe("api-client Inbox API", () => {
         category: "mentions",
         unreadOnly: "false",
         agentsOnly: "true",
+        peopleOnly: "false",
+        conversationType: "direct_messages",
+        includeSelectionUnreadCount: "true",
         cursor: "cursor",
         limit: 20,
       })
@@ -90,6 +93,9 @@ describe("api-client Inbox API", () => {
       category: "mentions",
       unreadOnly: "false",
       agentsOnly: "true",
+      peopleOnly: "false",
+      conversationType: "direct_messages",
+      includeSelectionUnreadCount: "true",
       cursor: "cursor",
       limit: "20",
     });

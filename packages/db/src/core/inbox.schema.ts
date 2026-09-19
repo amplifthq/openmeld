@@ -56,6 +56,10 @@ export const inboxFeedSnapshots = sqliteTable(
     category: text("category").notNull(),
     unreadOnly: integer("unread_only", { mode: "boolean" }).notNull(),
     agentsOnly: integer("agents_only", { mode: "boolean" }).notNull(),
+    peopleOnly: integer("people_only", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    conversationType: text("conversation_type").notNull().default("all"),
     throughRowId: integer("through_row_id").notNull(),
     createdAtMs: integer("created_at_ms").notNull(),
     expiresAtMs: integer("expires_at_ms").notNull(),
