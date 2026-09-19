@@ -203,6 +203,9 @@ export function buildIsolatedDevEnvironment(lane) {
     BETTER_AUTH_URL: authUrl,
     VITE_BETTER_AUTH_URL: authUrl,
     VITE_OPENMELD_HOME: lane.openMeldHome,
+    // A compiled Desktop Web build is production-mode JavaScript, not a
+    // production endpoint. Keep its visible setup command in this local lane.
+    VITE_OPENMELD_SETUP_USER_FACING_COMMAND: "openmeld-dev",
     VITE_OPENMELD_CLI_BINARY_MANIFEST_URL: `http://127.0.0.1:${lane.ports.cliBinary}/cli/manifest.json`,
     OPENMELD_CLI_BINARY_MANIFEST_URL: `http://127.0.0.1:${lane.ports.cliBinary}/cli/manifest.json`,
     OPENMELD_CLI_BINARY_DEV_PORT: String(lane.ports.cliBinary),
