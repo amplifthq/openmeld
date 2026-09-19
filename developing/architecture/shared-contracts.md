@@ -1017,6 +1017,42 @@ tool authority, a conversation id, or a substitute for source authorization.
 
 ### Inbox contracts
 
+The additive `/v1/inbox/feed` and `/v1/inbox/feed/state` endpoints use the shared
+`inbox-feed` HTTP/RPC contracts. Filters, counts, rank, group identity, request
+category and status dot are server-owned facts; old list and summary callers
+retain their existing semantics. A mutation takes a server-issued snapshot id,
+optional group key, and read/Dismiss operation—not a caller-selected recipient,
+arbitrary item array or timestamp cutoff. Core verifies current Organization
+membership, binds the snapshot to that account and Organization, and rechecks
+source permissions. SQLite migration 0176 adds expiring snapshot membership
+referencing canonical items; deleting a snapshot never deletes Inbox items.
+
+Feed queries add optional `peopleOnly` and `conversationType` filters.
+The optional `includeSelectionUnreadCount=true` query requests the exact
+category-and-filter-scoped `selectionUnreadCount` across all pages. Unversioned
+callers retain their strict response shape and the existing global filtered
+counts. Web uses this number in the bulk-read label and freezes it alongside
+the snapshot id when opening confirmation; unknown counts disable the action.
+Migration 0179 adds matching snapshot columns with unfiltered defaults, so old
+queries and existing snapshots retain their behavior. Filtered pagination must
+match those stored values; bulk read/Dismiss reuses the frozen membership and
+current source access. No source-target, notification, CLI, Service, Wake or
+permission contract changes. Apply the additive migration, then deploy Core,
+Gateway and Web in that order. New filter callers must not precede the strict
+receivers; rollback removes callers first and retains the additive columns.
+
+Source-target version `8` adds optional, strict `sourceFacts` to canonical Inbox
+items. The source records actual Agent relevance, personal-Agent mentions,
+persistent first-contact identity and merged recipient reasons independently of
+legacy urgency and request resolution. List, direct-item and mark-read RPCs
+return it only with `includeSourceFacts: true`; Gateway strips it for version `7`
+and older clients without dropping their existing reply/target fields. Deploy
+the additive Core reader before the Gateway writer. Stored source facts require
+retaining compatible readers during rollback; never discard/recreate items to
+undo a projection. The additive D1 migration also narrowly repairs the retired
+owner-awareness writer, and Space schema v43 persists publication/contact and
+projection-selection receipts in the source transaction boundary.
+
 Human thread reply awareness adds optional `replyToRecipient` to Space Inbox
 targets without adding an Inbox kind or changing urgency. Space emits true only
 for a different Human account replying to the recipient's retained thread root,

@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { DesktopInboxAttention } from "@openmeld/schemas";
@@ -44,6 +45,12 @@ import type {
 import { createPilotServiceHandlers } from "./pilot-service";
 import { registerOpenMeldIpcHandlers } from "./register-ipc";
 import { assertTrustedRenderer } from "./renderer-trust";
+import {
+  createTrayTemplateImage,
+  hasTrayUnreadDot,
+  trayAttentionTitle,
+} from "./tray-image";
+import { createDesktopUpdateInboxReporter } from "./update/desktop-update-inbox-reporter";
 import { registerAppUpdater } from "./update/register-app-updater";
 
 // Keep the native window at the full Desktop workspace size from launch so the
@@ -82,7 +89,6 @@ let quitIntent: "none" | "ordinary" | "updater-install" = "none";
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let trayAttention: DesktopInboxAttention | null = null;
-let trayAttentionTitle = "";
 let trayContext: DesktopTrayContext | null = null;
 let trayMenuOpen = false;
 let trayMenuRefreshPending = false;
@@ -91,10 +97,7 @@ const pilot = initializeDesktopPilot(
   () => mainWindow,
   (attention) => {
     trayAttention = attention;
-    if (process.platform === "darwin") {
-      trayAttentionTitle = formatTrayAttentionTitle(attention);
-      tray?.setTitle(trayAttentionTitle);
-    }
+    updateTrayImage();
     updateTrayMenu();
   },
   (presentation) => {
@@ -108,6 +111,9 @@ const pilot = initializeDesktopPilot(
   invalidateOpenTrayMenu
 );
 let appUpdater: ReturnType<typeof registerAppUpdater> | null = null;
+let inboxUpdateReporter:
+  | ReturnType<typeof createDesktopUpdateInboxReporter>
+  | undefined;
 
 type SyncTrayOptions = {
   showProblem: boolean;
@@ -421,9 +427,7 @@ function sendWindowDestination(
 function createTray(): Tray {
   const nextTray = new Tray(createTrayImage());
   tray = nextTray;
-  if (process.platform === "darwin") {
-    nextTray.setTitle(trayAttentionTitle);
-  }
+  updateTrayImage();
   updateTrayMenu();
   runBackgroundTask(refreshTrayStatus(), { showError: false });
   return nextTray;
@@ -474,8 +478,25 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
     trayActionItem({
       icon: "inbox",
       label: "Open Inbox",
-      ...(unreadCount && unreadCount > 0
-        ? { sublabel: `${unreadCount} unread` }
+      ...(trayAttention || (unreadCount && unreadCount > 0)
+        ? {
+            sublabel: [
+              ...(unreadCount && unreadCount > 0
+                ? [`${unreadCount} unread`]
+                : []),
+              ...(trayAttention?.unreadMentionCount
+                ? [
+                    `${trayAttention.unreadMentionCount} ${trayAttention.unreadMentionCount === 1 ? "mention" : "mentions"}`,
+                  ]
+                : []),
+              ...(trayAttention?.unresolvedActionCount
+                ? [`${trayAttention.unresolvedActionCount} pending`]
+                : []),
+              ...(trayAttention?.unreadUrgentUpdateCount
+                ? [`${trayAttention.unreadUrgentUpdateCount} urgent`]
+                : []),
+            ].join(" · "),
+          }
         : {}),
       click: () => showDesktopWindow("inbox"),
     }),
@@ -558,7 +579,7 @@ function trayPreviewMenuItems(
   }
   const label = {
     loading: "Loading notifications…",
-    no_unread_messages: "No unread messages",
+    no_unread_messages: "No message preview available",
     signed_out: "Sign in to view notifications",
     unavailable: "Notifications unavailable",
   }[presentation.status];
@@ -659,26 +680,6 @@ function resolveTrayTooltip(): string {
   return attention ? `${service}\n${attention}` : service;
 }
 
-function formatTrayAttentionTitle(
-  attention: DesktopInboxAttention | null
-): string {
-  if (!attention) {
-    return "";
-  }
-  const important =
-    attention.unresolvedActionCount + attention.unreadUrgentUpdateCount;
-  const segments = [
-    ...(important > 0 ? [`!${formatTrayAttentionCount(important)}`] : []),
-    ...(attention.unreadMentionCount > 0
-      ? [`@${formatTrayAttentionCount(attention.unreadMentionCount)}`]
-      : []),
-  ];
-  if (segments.length > 0) {
-    return segments.join(" ");
-  }
-  return attention.ordinaryUnreadCount > 0 ? "•" : "";
-}
-
 function formatTrayAttentionTooltip(
   attention: DesktopInboxAttention | null
 ): string | null {
@@ -686,6 +687,11 @@ function formatTrayAttentionTooltip(
     return null;
   }
   const details = [
+    ...(attention.needsActionCount === undefined
+      ? []
+      : [
+          `${attention.needsActionCount} needs action, ${attention.needsReviewCount ?? 0} needs review`,
+        ]),
     ...(attention.unresolvedActionCount > 0
       ? [
           `${attention.unresolvedActionCount} pending ${attention.unresolvedActionCount === 1 ? "action or review" : "actions or reviews"}`,
@@ -693,7 +699,7 @@ function formatTrayAttentionTooltip(
       : []),
     ...(attention.unreadUrgentUpdateCount > 0
       ? [
-          `${attention.unreadUrgentUpdateCount} unread urgent ${attention.unreadUrgentUpdateCount === 1 ? "update" : "updates"}`,
+          `${attention.unreadUrgentUpdateCount} unread priority ${attention.unreadUrgentUpdateCount === 1 ? "update" : "updates"}`,
         ]
       : []),
     ...(attention.unreadMentionCount > 0
@@ -710,10 +716,6 @@ function formatTrayAttentionTooltip(
   return details.length > 0
     ? `Inbox - ${details.join(", ")}`
     : "Inbox - All caught up";
-}
-
-function formatTrayAttentionCount(count: number): string {
-  return count > 99 ? "99+" : String(count);
 }
 
 function resolveNativeMenuCapabilities(): {
@@ -787,13 +789,27 @@ function quitDesktop(): void {
   app.quit();
 }
 
-function createTrayImage() {
+function createTrayImage(unread = false) {
   const image = nativeImage.createFromPath(TRAY_ICON_PATH);
+  if (process.platform === "darwin" && !image.isEmpty()) {
+    return createTrayTemplateImage(image, unread);
+  }
   const resizedImage = image.isEmpty()
     ? createAppIcon()
     : image.resize({ height: 18 });
   resizedImage?.setTemplateImage(true);
   return resizedImage ?? nativeImage.createEmpty();
+}
+
+function updateTrayImage(): void {
+  if (!tray || process.platform !== "darwin") {
+    return;
+  }
+  const title = trayAttentionTitle(trayAttention);
+  const unread = hasTrayUnreadDot(trayAttention);
+  // Native text keeps counts crisp and accessible; ordinary unread has no title.
+  tray.setTitle(title, { fontType: "monospacedDigit" });
+  tray.setImage(createTrayImage(unread));
 }
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -823,11 +839,34 @@ function bootstrapApp(): void {
   runBackgroundTask(
     app.whenReady().then(() => {
       pilot?.install(authorizeRenderer);
+      const nativeUpdatesEnabled =
+        app.isPackaged &&
+        process.platform === "darwin" &&
+        pilot?.installedTarget?.kind === "production";
+      if (nativeUpdatesEnabled && pilot) {
+        try {
+          const currentPilot = pilot;
+          inboxUpdateReporter = createDesktopUpdateInboxReporter({
+            userData: app.getPath("userData"),
+            lane: "prod",
+            deviceName: hostname(),
+            platform: "darwin",
+            currentUserId: async () =>
+              (await currentPilot.auth.session()).user?.id ?? null,
+            send: currentPilot.reportDesktopUpdateObservation,
+          });
+          currentPilot.setDesktopUpdateAccountListener(
+            inboxUpdateReporter.accountChanged
+          );
+        } catch (error) {
+          console.warn("[openmeld.desktop.inbox_update_source_unavailable]", {
+            error,
+          });
+        }
+      }
       const updater = registerAppUpdater({
-        enabled:
-          app.isPackaged &&
-          process.platform === "darwin" &&
-          pilot?.installedTarget?.kind === "production",
+        enabled: nativeUpdatesEnabled,
+        inboxSource: inboxUpdateReporter,
         authorize: authorizeRenderer,
         getWindow: () => mainWindow,
         setInstalling: (value) => {
@@ -950,6 +989,7 @@ function createWindowIpcHandlers(
 }
 
 app.on("will-quit", () => {
+  inboxUpdateReporter?.dispose();
   pilot?.dispose();
   ipcDisposer?.();
   ipcDisposer = null;

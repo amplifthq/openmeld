@@ -75,6 +75,20 @@ do not move business rules into that package.
 
 ### Native Inbox notifications
 
+Native updater observations use the account-scoped Inbox source contract. Main
+keeps its installation identity under its existing userData directory, reports
+only trusted updater/app-version facts, and fences each report to the observed
+account. This source is independent of the currently selected Organization.
+The renderer cannot submit an update observation or installation result. Its
+credential proxy rejects the observation endpoint before attaching the Main
+session, including encoded paths; Main reports directly through its private
+cloud transport. Origin and session checks alone do not establish native source
+authority. Failed Inbox writes retry independently; native updater execution
+remains available.
+Only current production updater-supported installations produce live observations;
+isolated tests use the same observer with captured native state inputs and must
+not be reported as actual production update/install evidence.
+
 Account message-notification defaults and conversation overrides apply to
 Desktop as well as Web. The shared API-client notification policy evaluates
 ordinary messages, Human reply markers, and mute consistently. Native delivery
@@ -118,19 +132,25 @@ Notifications continue when the window is hidden and end when the GUI quits;
 the independent Service has no notification responsibility.
 
 On macOS, the menu bar icon shows the current Organization's Core-owned Inbox
-attention presentation. Open actions/reviews and unread urgent updates combine
-as `!N`; unread Human mentions show as `@N`; ordinary unread shows only `•` when
-no stronger category exists. Each numeric category caps visually at `99+`, and
-the tooltip breaks out actions/reviews, urgent updates, mentions, and other
+attention presentation. Ordinary unread uses a compact monochrome dot within the icon,
+without a numeric title. Priority attention shows `!N`, and unread Human mentions
+show `@N`; both counts remain visible when both exist, capped visually at `99+`.
+Modern summaries use Core's exact `priorityCount`, not every pending request.
+Normal pending work remains a quiet dot when there is no numbered attention.
+The logo and dot share one macOS template image with 1x and 2x representations;
+AppKit owns contrast and selected-state rendering, not hardcoded white, custom
+shadows or an application-theme approximation of the menu bar background.
+The Inbox menu row and tooltip retain exact category counts. The tooltip breaks
+out actions/reviews, urgent updates, mentions, and other
 unread updates. Muted ordinary conversation updates are absent without becoming
 read, while protected attention remains visible. Zero or unknown attention shows
-no title. This uses the shared summary query and existing native refresh cadence,
+no mark. This uses the shared summary query and existing native refresh cadence,
 independently of notification delivery permission. The trusted renderer supplies
 only a schema-validated categorized object and account scope; Main verifies the
 native account before displaying it. Logout, account or Organization changes,
 and stale asynchronous results clear or reject the previous attention. No
 separate Inbox store, Service polling, Dock badge, or Windows behavior is
-introduced. Tray creation applies the latest observed title even if attention
+introduced. Tray creation applies the latest observed indicator even if attention
 arrived first.
 
 The macOS menu bar menu is the compact native entry to the current Desktop

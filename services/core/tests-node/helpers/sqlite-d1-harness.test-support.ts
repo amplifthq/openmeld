@@ -613,7 +613,7 @@ function createPreparedStatement(
     // D1 batch SELECTs return rows (verified by tests/d1-read-batch.test.ts).
     // Keep the existing mutation path and change-count semantics intact.
     [RUN_IN_TRANSACTION]: () =>
-      statement.sourceSQL.trimStart().toLowerCase().startsWith("select")
+      statement.columns().length > 0
         ? {
             ...toD1RunResult({ changes: 0 }),
             results: statement.all(...params),

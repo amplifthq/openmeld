@@ -10,6 +10,8 @@ import {
   centerAgentInboxSummaryResponseSchema,
   dismissInboxItemResponseSchema,
   getInboxItemResponseSchema,
+  inboxFeedQuerySchema,
+  inboxFeedResponseSchema,
   inboxItemRouteParamsSchema,
   inboxMessageNotificationPreferencesQuerySchema,
   inboxMessageNotificationPreferencesResponseSchema,
@@ -26,6 +28,8 @@ import {
   markInboxItemReadResponseSchema,
   markSpaceInboxReadThroughBodySchema,
   markSpaceInboxReadThroughResponseSchema,
+  mutateInboxFeedBodySchema,
+  mutateInboxFeedResponseSchema,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
   spaceInboxUnreadTargetsRouteParamsSchema,
@@ -36,6 +40,8 @@ import type { OpenMeldApiClientFoundation } from "../client";
 import {
   buildCenterAgentInboxReadThroughPath,
   buildCenterAgentInboxSummaryPath,
+  buildInboxFeedPath,
+  buildInboxFeedStatePath,
   buildInboxItemDismissPath,
   buildInboxItemPath,
   buildInboxItemReadPath,
@@ -53,6 +59,49 @@ import type { CreateInboxApi, InboxRequestInput } from "./types";
 export const createInboxApi: CreateInboxApi = (
   client: OpenMeldApiClientFoundation
 ) => ({
+  feed: async (input = {}) => {
+    const {
+      requestContext: _context,
+      signal: _signal,
+      timeoutMs: _timeout,
+      ...rawQuery
+    } = input;
+    const query = requireValidInput(
+      inboxFeedQuerySchema,
+      rawQuery,
+      "Inbox filters are invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      method: "GET",
+      operation: "inbox.feed",
+      headers: inboxSourceTargetVersionHeaders(),
+      schema: inboxFeedResponseSchema,
+      invalidMessage: "Invalid Inbox attention feed response",
+      url: buildInboxFeedPath(query),
+    });
+  },
+  mutateFeed: async (input) => {
+    const body = requireValidInput(
+      mutateInboxFeedBodySchema,
+      {
+        snapshotId: input.snapshotId,
+        groupKey: input.groupKey,
+        operation: input.operation,
+      },
+      "Inbox selection is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      method: "POST",
+      operation: "inbox.feed.state",
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      schema: mutateInboxFeedResponseSchema,
+      invalidMessage: "Invalid Inbox selection response",
+      url: buildInboxFeedStatePath(),
+    });
+  },
   getMessageNotificationPreferences: async (input = {}) => {
     const query = requireValidInput(
       inboxMessageNotificationPreferencesQuerySchema,
@@ -103,6 +152,7 @@ export const createInboxApi: CreateInboxApi = (
     return await client.requestJson({
       ...requestOptions(input),
       invalidMessage: "invalid Inbox dismiss response",
+      headers: inboxSourceTargetVersionHeaders(),
       method: "PUT",
       operation: "inbox.item.dismiss",
       schema: dismissInboxItemResponseSchema,
@@ -163,6 +213,7 @@ export const createInboxApi: CreateInboxApi = (
       ...requestOptions(input),
       invalidMessage: "invalid Inbox summary response",
       headers: {
+        ...inboxSourceTargetVersionHeaders(),
         [OPENMELD_HEADER_INBOX_SUMMARY_VERSION]: OPENMELD_INBOX_SUMMARY_VERSION,
       },
       method: "GET",
@@ -240,6 +291,7 @@ export const createInboxApi: CreateInboxApi = (
       method: "GET",
       operation: "inbox.space.summary",
       headers: {
+        ...inboxSourceTargetVersionHeaders(),
         [OPENMELD_HEADER_INBOX_SUMMARY_VERSION]: OPENMELD_INBOX_SUMMARY_VERSION,
       },
       schema: spaceInboxSummaryResponseSchema,

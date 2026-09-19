@@ -2,6 +2,7 @@ import {
   createInboxApi,
   createOpenMeldApiClient,
   inboxMessageNotificationSpaceId,
+  isInboxItemInOrganizationScope,
   isInboxItemVisibleConversation,
   isInboxNotificationEligible,
 } from "@openmeld/api-client";
@@ -110,7 +111,7 @@ export function createPilotNotifications(input: {
     });
     if (
       item.recipientUserId !== reference.userId ||
-      item.organizationId !== reference.organizationId ||
+      !isInboxItemInOrganizationScope(item, reference.organizationId) ||
       item.id !== reference.itemId
     ) {
       throw new Error("Notification account changed.");

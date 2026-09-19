@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { daemonServiceLaneSchema } from "./schemas/daemon/service-contract";
 
 export const desktopUpdaterActionSchema = z.enum([
   "check",
@@ -9,6 +10,8 @@ export type DesktopUpdaterAction = z.infer<typeof desktopUpdaterActionSchema>;
 
 /** Main owns this snapshot; UI surfaces never infer installation state. */
 export const desktopUpdaterStateSchema = z.strictObject({
+  installationId: z.string().uuid().optional(),
+  lane: daemonServiceLaneSchema.optional(),
   status: z.enum([
     "unavailable",
     "idle",

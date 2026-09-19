@@ -347,7 +347,7 @@ describe("InboxNotificationListener", () => {
 		);
 	});
 
-	it("primes existing items without notifying, then delivers a newly arrived urgent item", () => {
+	it("primes existing items, ignores delayed legacy owner observations and delivers a new urgent item", () => {
 		const existingItem = createInboxItem({ id: "existing-item" });
 		const newItem = createInboxItem({
 			id: "new-item",
@@ -357,8 +357,30 @@ describe("InboxNotificationListener", () => {
 		const view = renderListener();
 
 		expect(showInboxNotificationMock).not.toHaveBeenCalled();
-
-		currentItems = [newItem, existingItem];
+		const legacyOwner = createInboxItem({
+			id: "delayed-owner-outbox",
+			kind: "space_message",
+			attention: "update",
+			importance: "normal",
+			resolutionStatus: "not_applicable",
+			sourceTarget: {
+				kind: "space",
+				spaceId: "space-123",
+				signalId: "legacy",
+				directMessage: true,
+				agentOwnerActivity: true,
+			},
+		});
+		currentItems = [legacyOwner, existingItem];
+		view.rerender(
+			<InboxNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+		expect(showInboxNotificationMock).not.toHaveBeenCalled();
+		currentItems = [newItem, legacyOwner, existingItem];
 		view.rerender(
 			<InboxNotificationListener
 				organizationId="organization-123"

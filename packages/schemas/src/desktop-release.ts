@@ -1,7 +1,7 @@
 import * as z from "zod/v4";
 
 export const desktopCandidateIdSchema = z.string().regex(/^[a-f0-9]{64}$/u);
-const desktopVersionSchema = z
+export const desktopVersionSchema = z
   .string()
   .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u)
   .max(100);

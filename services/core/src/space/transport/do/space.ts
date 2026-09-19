@@ -503,6 +503,7 @@ import { buildSpaceFileAuditEvent } from "../../application/space-file-audit";
 import { hashSpaceFileStream } from "../../application/space-file-stream";
 import { SpaceFileUploads } from "../../application/space-file-uploads";
 import { prepareSpaceInboxCandidateForCenterAgent } from "../../application/space-inbox-center-agent-candidate";
+import { recordSpaceInboxFirstContacts } from "../../application/space-inbox-first-contact";
 import {
   buildSpaceInboxProjectionOutboxRecord,
   buildSpaceReactionInboxProjectionOutboxRecord,
@@ -15737,6 +15738,10 @@ export class Space extends DurableObject<CoreBindings> {
               .filter(
                 (member) =>
                   member.profileKindSnapshot === "agent" &&
+                  (!candidate.sourceFacts ||
+                    candidate.sourceFacts.personalAgentProfileIds?.includes(
+                      member.profileId
+                    )) &&
                   (candidate.kind !== "agent_reply" ||
                     (reply?.type === "signal.text" &&
                       reply.profile.kind === "agent" &&
@@ -17112,6 +17117,25 @@ export class Space extends DurableObject<CoreBindings> {
     });
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords,
+      firstContactAgentProfileIds: recordSpaceInboxFirstContacts({
+        activeMemberRecords,
+        archiveCursorTs:
+          this.ctx.storage.sql
+            .exec<{ archive_cursor_ts: number | null }>(
+              "SELECT archive_cursor_ts FROM space_meta WHERE space_id = ?",
+              this.spaceId
+            )
+            .toArray()[0]?.archive_cursor_ts ?? null,
+        directMessage: isDirectMessageSpace({
+          purpose: metaRecord.purpose,
+          directMessageConvertedAt: metaRecord.directMessage?.convertedAt,
+          activeMemberCount: activeMemberRecords.length,
+        }),
+        organizationId: metaRecord.organizationId,
+        signal: input.signal,
+        signalContext: input.signalContext,
+        sql: this.ctx.storage.sql,
+      }),
       directMessage: isDirectMessageSpace({
         purpose: metaRecord.purpose,
         directMessageConvertedAt: metaRecord.directMessage?.convertedAt,
