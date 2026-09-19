@@ -1,24 +1,32 @@
 import {
-	DESKTOP_PROMOTED_RELEASE_KEY,
+	type DesktopReleasePlatform,
 	desktopCandidateIdSchema,
 	desktopCandidateLocation,
 	desktopCandidateManifestKey,
 	desktopCandidateManifestSchema,
+	desktopCandidateUpdateArtifact,
+	desktopPromotedReleaseKey,
 	desktopPromotedReleaseSchema,
-	desktopUpdaterFeedSchema,
+	desktopReleasePlatformSchema,
+	desktopUpdaterFeedSchemaForPlatform,
 } from "@openmeld/schemas";
 
 export function parseDesktopCandidateSelector(value: unknown) {
 	return desktopCandidateIdSchema.optional().parse(value);
 }
 
+export function parseDesktopPlatformSelector(value: unknown) {
+	return desktopReleasePlatformSchema.optional().parse(value);
+}
+
 export async function readDesktopCandidateArtifact<T extends { size: number }>(
 	store: DesktopReleaseManifestStore,
 	id: string,
-	loadArtifact: (key: string) => Promise<T | null>
+	loadArtifact: (key: string) => Promise<T | null>,
+	platform?: DesktopReleasePlatform
 ) {
 	const candidate = await readDesktopCandidate(store, id);
-	if (!candidate) {
+	if (!candidate || (platform && candidate.platform !== platform)) {
 		return null;
 	}
 	const artifact = await loadArtifact(candidate.objectKey);
@@ -106,15 +114,20 @@ export async function readDesktopPreviewReleaseManifest(input: {
 }
 
 export async function readPromotedDesktopRelease(
-	store: DesktopReleaseManifestStore
+	store: DesktopReleaseManifestStore,
+	platform: DesktopReleasePlatform = "macos-arm64"
 ) {
-	const object = await store.get(DESKTOP_PROMOTED_RELEASE_KEY);
+	const object = await store.get(desktopPromotedReleaseKey(platform));
 	if (!object) {
 		return null;
 	}
 	const pointer = desktopPromotedReleaseSchema.parse(await object.json());
 	const candidate = await readDesktopCandidate(store, pointer.candidate);
-	if (!candidate?.zip) {
+	if (
+		!candidate ||
+		candidate.platform !== platform ||
+		!desktopCandidateUpdateArtifact(candidate)
+	) {
 		throw new Error("Promoted Desktop release is incomplete.");
 	}
 	return { ...candidate, releaseDate: pointer.promotedAt };
@@ -123,23 +136,24 @@ export async function readPromotedDesktopRelease(
 export function buildDesktopUpdaterFeed(
 	candidate: NonNullable<Awaited<ReturnType<typeof readPromotedDesktopRelease>>>
 ) {
-	if (!candidate.zip) {
-		throw new Error("Desktop release has no update ZIP.");
+	const artifact = desktopCandidateUpdateArtifact(candidate);
+	if (!artifact) {
+		throw new Error("Desktop release has no update artifact.");
 	}
 	// JSON is a YAML subset. Every artifact URL is immutable and derived locally.
 	return JSON.stringify(
-		desktopUpdaterFeedSchema.parse({
+		desktopUpdaterFeedSchemaForPlatform(candidate.platform).parse({
 			version: candidate.version,
 			releaseDate: candidate.releaseDate,
 			files: [
 				{
-					url: candidate.zipDownloadPath,
-					sha512: candidate.zip.sha512,
-					size: candidate.zip.sizeBytes,
+					url: artifact.path,
+					sha512: artifact.sha512,
+					size: artifact.sizeBytes,
 				},
 			],
-			path: candidate.zipDownloadPath,
-			sha512: candidate.zip.sha512,
+			path: artifact.path,
+			sha512: artifact.sha512,
 		})
 	);
 }
@@ -151,7 +165,8 @@ export async function readAvailableDesktopRelease(
 				head: (key: string) => Promise<{ size: number } | null>;
 		  })
 		| undefined,
-	candidate?: string
+	candidate?: string,
+	platform?: DesktopReleasePlatform
 ): Promise<DesktopDownloadRelease | null> {
 	const id = parseDesktopCandidateSelector(candidate);
 	if (!store) {
@@ -161,32 +176,38 @@ export async function readAvailableDesktopRelease(
 		const available = await readDesktopCandidateArtifact(store, id, (key) =>
 			store.head(key)
 		);
-		if (!available) {
+		if (!available || (platform && available.candidate.platform !== platform)) {
 			return null;
 		}
 		return {
+			platform: available.candidate.platform,
 			version: available.candidate.version,
 			sizeBytes: available.candidate.sizeBytes,
 			downloadPath: available.candidate.downloadPath,
 			message: null,
 		};
 	}
-	const release = await readDesktopPreviewReleaseManifest({ store });
+	const release = await readPromotedDesktopRelease(store, platform);
 	if (!release) {
 		return null;
 	}
-	const artifact = await store.head(release.macosArm64.objectKey);
-	return artifact && artifact.size === release.macosArm64.sizeBytes
+	const artifact = await store.head(release.objectKey);
+	return artifact && artifact.size === release.sizeBytes
 		? {
-				version: release.macosArm64.version,
-				sizeBytes: release.macosArm64.sizeBytes,
-				downloadPath: DESKTOP_DOWNLOAD_ROUTE_PATH,
-				message: release.message,
+				platform: release.platform,
+				version: release.version,
+				sizeBytes: release.sizeBytes,
+				downloadPath:
+					release.platform === "macos-arm64"
+						? DESKTOP_DOWNLOAD_ROUTE_PATH
+						: `${DESKTOP_DOWNLOAD_ROUTE_PATH}?platform=${release.platform}`,
+				message: null,
 			}
 		: null;
 }
 
 export type DesktopDownloadRelease = {
+	platform: DesktopReleasePlatform;
 	version: string;
 	sizeBytes: number | null;
 	downloadPath: string;
@@ -238,7 +259,9 @@ export function buildDesktopDownloadHeaders(input: {
 	const headers = new Headers({
 		"cache-control": "public, max-age=300",
 		"content-disposition": `attachment; filename="${input.artifactName}"`,
-		"content-type": "application/x-apple-diskimage",
+		"content-type": input.artifactName.endsWith(".exe")
+			? "application/vnd.microsoft.portable-executable"
+			: "application/x-apple-diskimage",
 		"x-content-type-options": "nosniff",
 	});
 

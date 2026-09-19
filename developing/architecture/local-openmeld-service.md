@@ -1192,8 +1192,8 @@ macOS and Linux assign one opaque supervision identity before the controller
 starts, and controller descendants inherit that identity. Stop snapshots the
 controller's current descendant tree, signals the whole recorded group, and
 also signals supervised descendants that created their own process groups,
-while Windows keeps the direct-process path. The adapter retains discovered
-process IDs through graceful-to-force escalation and uses the supervision
+while Windows records the native Job supervisor as the direct signal target.
+The POSIX adapter retains discovered process IDs through graceful-to-force escalation and uses the supervision
 identity after process exit, so reparenting cannot hide unfinished provider
 work. Descendant discovery is auxiliary to signaling the known process group
 and already recorded descendants: a discovery failure must emit a structured
@@ -1201,6 +1201,24 @@ diagnostic after those signal attempts and must never crash the OpenMeld
 Service or suppress the primary Stop. A wrapper or controller exit therefore
 cannot silently orphan a detached supervised descendant or keep a local
 execution slot occupied after an accepted Stop.
+
+On Windows 10 and newer, the shared process boundary launches each Agent
+Controller inside a native kill-on-close Job using atomic process-creation Job
+assignment. It does not create an unowned process and attach it afterward.
+Only the selected invocation's supervisor owns the Job handle; standard streams
+are inherited explicitly, and the Job handle is not. Normal controller exit,
+supervisor termination, or loss of the original caller's process handle ends
+owned descendants. Cleanup waits for the supervisor to exit and verifies an
+empty or destroyed Job before reporting success. A bounded cleanup wait may
+fail visibly; it is never a deadline on a healthy running Wake.
+
+This is process lifetime supervision, not a filesystem sandbox or authority to
+kill arbitrary same-name processes. Provider permission enforcement remains
+separate. Work delegated through external brokers such as WMI or a remote
+machine is not claimed to be a normal descendant of this Job. Native provider
+sandbox/nested-Job compatibility requires Windows acceptance. The fixed helper
+uses system PowerShell and a reviewed native API bridge; denial by enterprise
+policy is a visible launch failure, never permission to fall back uncontained.
 
 A long-lived or multi-thread Agent Controller whose request protocol carries an
 explicit workspace starts its host process in an OS runtime directory, not in
@@ -2111,8 +2129,12 @@ recognized entries whose exact owners are all proven dead; unknown entries and
 unknown process identity fail closed. There is no live-owner timeout. Older
 single-entry readers cannot remove a nonempty multi-owner directory, including
 after their malformed-lock grace period. Read-only probes outside a lifecycle
-operation do not acquire this lock. Windows retains ordinary lifecycle behavior;
-the account-checked control path below is unavailable there.
+operation do not acquire this lock. On Windows, Task Scheduler control uses the
+same owner-scoped entries with the exact process creation FILETIME. PowerShell
+waits for an explicit stdin grant before any COM operation; failed attachment or
+EOF before grant has no Task Scheduler effect. Once granted, a surviving control
+process retains the fence until its exact owner exits. This is separate from a
+Wake Job: the independent OS-scheduled Service must survive the requesting CLI.
 
 ### Account-checked Service start and stop
 
@@ -2186,6 +2208,18 @@ the authenticated `account_control_capabilities` control request must also retur
 explicit support from the actual carrier. No status schema, lifecycle mutation,
 startup attempt, shutdown attempt, or compensation is part of the query. Unsupported
 or uncertain pairs return disabled controls. This capability is not Wakeability.
+
+Windows npm installations use the same account admission, durable cancellation,
+startup receipt, controlled drain, and exact-session Disconnect. Native process
+creation FILETIME replaces POSIX `ps` identity; a live process with unavailable
+identity remains fenced. The capability probe invokes the integrity-aligned
+active JS entry directly with the exact Node executable that Start registers,
+never the repairing launcher. Its Windows-only v2 response identifies both Node
+and the entry script; a v1 response from an older Windows CLI does not prove
+support. The old macOS v1 response is unchanged. A running carrier must also
+confirm the authenticated control capability. Existing Windows tasks must use
+the current SID's interactive token, ordinary privileges, and the expected
+single system-PowerShell action before any task mutation is permitted.
 
 ### Registration reconciliation
 

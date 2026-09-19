@@ -2531,7 +2531,7 @@ async function registerCurrentCandidateServiceProcess(
   }
   const candidateServiceProcesses = getRegisteredCandidateServiceProcesses(
     currentJournal
-  ).filter(isProcessIdentityAlive);
+  ).filter((candidate) => isProcessIdentityAlive(candidate));
   candidateServiceProcesses.push(currentProcess);
   if (candidateServiceProcesses.length > MAX_CANDIDATE_SERVICE_PROCESSES) {
     throw new Error(

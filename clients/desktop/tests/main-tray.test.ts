@@ -416,6 +416,29 @@ beforeEach(() => {
 });
 
 describe("main tray behavior", () => {
+  it.each([
+    "darwin",
+    "win32",
+    "linux",
+  ] as const)("preserves native window controls on %s", async (platform) => {
+    setTestPlatform(platform);
+    await importMain();
+    const options = electronMock.windowInstances.at(0)?.options;
+    expect(options?.titleBarStyle).toBe(
+      platform === "darwin" ? "hiddenInset" : "hidden"
+    );
+    if (platform === "darwin") {
+      expect(options?.titleBarOverlay).toBeUndefined();
+    } else {
+      expect(options?.titleBarOverlay).toMatchObject({ height: 38 });
+    }
+    expect(options?.webPreferences).toMatchObject({
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    });
+  });
+
   it("keeps the menu bar compact while distinguishing mentions, pending work and ordinary unread", async () => {
     setTestPlatform("darwin");
     inboxTitle.initial = {

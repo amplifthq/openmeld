@@ -131,7 +131,10 @@ function createMainWindow(
     show: false,
     title: APP_NAME,
     backgroundColor: WINDOW_BACKGROUND,
-    titleBarStyle: "hiddenInset",
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
+    ...(process.platform !== "darwin"
+      ? { titleBarOverlay: { height: 38 } }
+      : {}),
     webPreferences: {
       ...(pilot ? { session: pilot.getSession() } : {}),
       preload: join(import.meta.dirname, "../preload/index.cjs"),
@@ -841,7 +844,7 @@ function bootstrapApp(): void {
       pilot?.install(authorizeRenderer);
       const nativeUpdatesEnabled =
         app.isPackaged &&
-        process.platform === "darwin" &&
+        (process.platform === "darwin" || process.platform === "win32") &&
         pilot?.installedTarget?.kind === "production";
       if (nativeUpdatesEnabled && pilot) {
         try {
@@ -850,7 +853,7 @@ function bootstrapApp(): void {
             userData: app.getPath("userData"),
             lane: "prod",
             deviceName: hostname(),
-            platform: "darwin",
+            platform: process.platform === "win32" ? "win32" : "darwin",
             currentUserId: async () =>
               (await currentPilot.auth.session()).user?.id ?? null,
             send: currentPilot.reportDesktopUpdateObservation,

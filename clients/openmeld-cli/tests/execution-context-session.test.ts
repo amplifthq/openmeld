@@ -112,6 +112,26 @@ describe("Execution Context local authority", () => {
         policy,
       })
     ).toThrow("outside_computer_policy");
+    const selected = join(process.cwd(), "allowed");
+    const sibling = join(process.cwd(), "private");
+    expect(() =>
+      executionContextFileAccessBoundary({
+        context: localContext,
+        workingDirectory: sibling,
+        policy: { ...policy, folders: [selected] },
+      })
+    ).toThrow("outside_computer_policy");
+    expect(
+      executionContextFileAccessBoundary({
+        context: localContext,
+        workingDirectory: sibling,
+        policy: {
+          ...policy,
+          mode: "block_selected_folders",
+          folders: [selected],
+        },
+      }).folders
+    ).toEqual([sibling]);
     for (const folder of ["/projects", "/projects/task/private"]) {
       expect(() =>
         executionContextFileAccessBoundary({

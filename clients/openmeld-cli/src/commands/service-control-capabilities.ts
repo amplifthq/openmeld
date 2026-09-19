@@ -10,36 +10,73 @@ import { sendLocalDaemonControlPlaneRequest } from "../local-service/control-pla
 import {
   daemonServiceBinaryExecutablePath,
   readDaemonActiveBundleState,
+  resolveAlignedDaemonActiveBundleEntryPath,
 } from "../local-service/lifecycle/daemon-service-bundle";
 import { resolveDaemonServiceManager } from "../local-service/lifecycle/daemon-service-manager";
 import { readCurrentDaemonRuntimeContext } from "../local-service/lifecycle/daemon-service-runtime";
 
+async function resolveCarrierProbe(
+  platform: "darwin" | "win32",
+  expectedVersion: string
+) {
+  if (platform === "darwin") {
+    return {
+      executable: await realpath(daemonServiceBinaryExecutablePath()),
+      canonicalEntry: null,
+    };
+  }
+  // The npm launcher can repair state. Probe its verified active JS entry
+  // directly with the exact Node executable that guarded Start will register.
+  const entry = await resolveAlignedDaemonActiveBundleEntryPath({
+    expectedVersion,
+  });
+  return entry
+    ? {
+        executable: await realpath(process.execPath),
+        canonicalEntry: await realpath(entry),
+      }
+    : null;
+}
+
 /** Read only: never invoke the repairing npm launcher or a lifecycle operation. */
-export async function readServiceControlCapabilities() {
+export async function readServiceControlCapabilities(
+  platform: NodeJS.Platform = process.platform
+) {
   const unsupported = { deviceId: null, start: false, stop: false };
-  if (process.platform !== "darwin") {
+  if (platform !== "darwin" && platform !== "win32") {
     return unsupported;
   }
   const contract = await readDaemonServiceContract();
   const bundle = await readDaemonActiveBundleState();
   if (
-    contract?.serviceController !== "launchd" ||
-    bundle?.bundleFormat !== "binary_v1"
+    contract?.serviceController !==
+      (platform === "win32" ? "windows-service" : "launchd") ||
+    bundle?.bundleFormat !==
+      (platform === "win32" ? "self_contained_v1" : "binary_v1")
   ) {
     return unsupported;
   }
-  const manager = await resolveDaemonServiceManager("launchd");
+  const manager = await resolveDaemonServiceManager(contract.serviceController);
   if (!(manager && (await manager.status()).installed)) {
     return unsupported;
   }
   // Guarded Start refreshes the supervisor command to this canonical executable.
   // Verify the executable that answered, so an old CLI delegating elsewhere
   // cannot advertise another binary's capability as its own.
-  const executable = await realpath(daemonServiceBinaryExecutablePath());
+  const probe = await resolveCarrierProbe(platform, contract.daemonVersion);
+  if (!probe) {
+    return unsupported;
+  }
+  const { executable, canonicalEntry } = probe;
   const { stdout } = await promisify(execFile)(
     executable,
-    ["service", "control-carrier-capability", "--json"],
-    { timeout: 5000, maxBuffer: 16_384 }
+    [
+      ...(canonicalEntry ? [canonicalEntry] : []),
+      "service",
+      "control-carrier-capability",
+      "--json",
+    ],
+    { timeout: 10_000, maxBuffer: 16_384, windowsHide: true }
   );
   const carrier = serviceControlCarrierCapabilitySchema.safeParse(
     JSON.parse(stdout)
@@ -47,6 +84,15 @@ export async function readServiceControlCapabilities() {
   if (
     !carrier.success ||
     (await realpath(carrier.data.executable)) !== executable
+  ) {
+    return unsupported;
+  }
+  if (
+    platform === "win32" &&
+    (carrier.data.protocol !== "account-checked-service-control-v2" ||
+      (await realpath(carrier.data.entryScript)) !== canonicalEntry ||
+      JSON.stringify(await readDaemonActiveBundleState()) !==
+        JSON.stringify(bundle))
   ) {
     return unsupported;
   }

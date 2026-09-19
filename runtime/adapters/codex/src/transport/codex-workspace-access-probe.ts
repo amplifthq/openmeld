@@ -6,6 +6,10 @@ import type {
   AdapterDispatchExecutionMode,
 } from "@openmeld/adapter-core";
 import {
+  powerShellEncodedArguments,
+  resolveWindowsPowerShellPath,
+} from "@openmeld/adapter-core/windows-system";
+import {
   CODEX_FILE_ACCESS_PERMISSION_PROFILE,
   resolveCodexExecutionContextAccess,
 } from "./codex-file-access-boundary.js";
@@ -40,11 +44,7 @@ export async function verifyCodexWorkspaceAccess(input: {
     return;
   }
   const boundaryRoot = input.boundary.folders[0];
-  if (
-    process.platform === "win32" ||
-    input.boundary.folders.length !== 1 ||
-    !boundaryRoot
-  ) {
+  if (input.boundary.folders.length !== 1 || !boundaryRoot) {
     throw new Error("execution_context.workspace_probe_unsupported");
   }
   const outsideDirectory = await mkdtemp(
@@ -59,14 +59,7 @@ export async function verifyCodexWorkspaceAccess(input: {
     await writeFile(outsidePath, "unchanged\n", { flag: "wx", mode: 0o600 });
     await writeFile(insidePath, "unchanged\n", { flag: "wx", mode: 0o600 });
     const result = await input.execute({
-      command: [
-        "/bin/sh",
-        "-c",
-        PROBE_SCRIPT,
-        "openmeld-probe",
-        outsidePath,
-        insidePath,
-      ],
+      command: buildCodexWorkspaceProbeCommand(outsidePath, insidePath),
       cwd: input.workingDirectory,
       permissionProfile: CODEX_FILE_ACCESS_PERMISSION_PROFILE,
       timeoutMs: 5000,
@@ -94,4 +87,41 @@ export async function verifyCodexWorkspaceAccess(input: {
     await rm(insidePath, { force: true });
     await rm(outsideDirectory, { recursive: true, force: true });
   }
+}
+
+export function buildCodexWorkspaceProbeCommand(
+  outsidePath: string,
+  insidePath: string,
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env
+): string[] {
+  if (platform !== "win32") {
+    return [
+      "/bin/sh",
+      "-c",
+      PROBE_SCRIPT,
+      "openmeld-probe",
+      outsidePath,
+      insidePath,
+    ];
+  }
+  // Paths are encoded data, never PowerShell source or cmd.exe arguments.
+  const payload = Buffer.from(
+    JSON.stringify([outsidePath, insidePath]),
+    "utf8"
+  ).toString("base64");
+  const script = `
+$ErrorActionPreference = 'Stop'
+$paths = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')))
+$results = @()
+foreach ($path in $paths) {
+  try { $null = [IO.File]::ReadAllText($path); $results += 'allowed' } catch { $results += 'denied' }
+  try { [IO.File]::WriteAllText($path, ('changed' + [char]10)); $results += 'allowed' } catch { $results += 'denied' }
+}
+[Console]::Write(($results -join ':'))
+`;
+  return [
+    resolveWindowsPowerShellPath(env),
+    ...powerShellEncodedArguments(script),
+  ];
 }
