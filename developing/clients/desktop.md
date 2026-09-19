@@ -79,8 +79,12 @@ Native updater observations use the account-scoped Inbox source contract. Main
 keeps its installation identity under its existing userData directory, reports
 only trusted updater/app-version facts, and fences each report to the observed
 account. This source is independent of the currently selected Organization.
-The renderer cannot submit an update observation or installation result. Failed
-Inbox writes retry independently; native updater execution remains available.
+The renderer cannot submit an update observation or installation result. Its
+credential proxy rejects the observation endpoint before attaching the Main
+session, including encoded paths; Main reports directly through its private
+cloud transport. Origin and session checks alone do not establish native source
+authority. Failed Inbox writes retry independently; native updater execution
+remains available.
 Only current production updater-supported installations produce live observations;
 isolated tests use the same observer with captured native state inputs and must
 not be reported as actual production update/install evidence.
