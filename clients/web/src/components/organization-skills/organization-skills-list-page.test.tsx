@@ -16,8 +16,12 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { organizationSkillQueryKeys } from "#/query/organizations/organization-skills";
 import { createOrganizationSkillFixture } from "#/test-support/organization-skill";
-import { TestQueryClientProvider } from "#/test-support/query-client";
+import {
+	createTestQueryClient,
+	TestQueryClientProvider,
+} from "#/test-support/query-client";
 import { OrganizationSkillsListPage } from "./organization-skills-list-page";
 
 const ORGANIZATION_COPY_PATTERN = /Organization/;
@@ -45,6 +49,7 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => {
 		const { orgSlug } = useParams({ strict: false });
 		return {
+			storageScope: "account-one",
 			currentOrganization: {
 				...currentOrganizationMock,
 				id: `org-${orgSlug}`,
@@ -90,6 +95,91 @@ beforeEach(() => {
 });
 
 describe("OrganizationSkillsListPage", () => {
+	it("restores catalog filters and scroll after opening a Skill, without transferring them to another organization", async () => {
+		listCurrentOrganizationSkillsMock.mockImplementation(
+			async ({ organizationId }) => ({
+				canManage: false,
+				organizationId,
+				skills: [
+					skillSummary({
+						id: "one",
+						name: "first-skill",
+						description: "First method.",
+					}),
+					skillSummary({
+						id: "two",
+						name: "second-skill",
+						description: "Second method.",
+						enabled: false,
+					}),
+				],
+			})
+		);
+		const { router, container } = renderPage();
+		await screen.findByText("first-skill");
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Filter skills by status" })
+		);
+		fireEvent.click(await screen.findByRole("option", { name: "Disabled" }));
+		expect(screen.queryByText("first-skill")).toBeNull();
+		fireEvent.change(screen.getByLabelText("Search skills"), {
+			target: { value: "second" },
+		});
+		const viewport = container.querySelector<HTMLElement>(
+			'[data-slot="scroll-area-viewport"]'
+		);
+		if (!viewport) {
+			throw new Error("Missing catalog scroll viewport");
+		}
+		viewport.scrollTop = 240;
+		fireEvent.scroll(viewport);
+		fireEvent.click(screen.getByText("second-skill"));
+		await screen.findByRole("heading", { name: "two" });
+		viewport.scrollTop = 0;
+		await act(() => router.navigate({ to: "/o/acme/skills" }));
+		await screen.findByText("second-skill");
+		expect(
+			(screen.getByLabelText("Search skills") as HTMLInputElement).value
+		).toBe("second");
+		expect(viewport.scrollTop).toBe(240);
+		await act(() => router.navigate({ to: "/o/beta/skills" }));
+		await screen.findByText("first-skill");
+		expect(
+			(screen.getByLabelText("Search skills") as HTMLInputElement).value
+		).toBe("");
+		fireEvent.change(screen.getByLabelText("Search skills"), {
+			target: { value: "no-match" },
+		});
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Clear filters" })
+		);
+		expect(screen.getAllByRole("listitem")).toHaveLength(2);
+	});
+
+	it("retains cached rows when background refresh fails", async () => {
+		listCurrentOrganizationSkillsMock.mockResolvedValue({
+			organizationId: "org-acme",
+			canManage: false,
+			skills: [
+				skillSummary({
+					id: "one",
+					name: "first-skill",
+					description: "First method.",
+				}),
+			],
+		});
+		const { queryClient } = renderPage();
+		await screen.findByText("first-skill");
+		listCurrentOrganizationSkillsMock.mockRejectedValue(new Error("Offline"));
+		await act(() =>
+			queryClient.refetchQueries({
+				queryKey: organizationSkillQueryKeys.list("org-acme"),
+			})
+		);
+		await screen.findByText("Could not refresh skills.");
+		expect(screen.getByText("first-skill")).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+	});
 	it("lists every Skill for the immutable route Organization and filters locally", async () => {
 		listCurrentOrganizationSkillsMock.mockResolvedValue({
 			canManage: false,
@@ -110,7 +200,9 @@ describe("OrganizationSkillsListPage", () => {
 		renderPage();
 
 		expect(await screen.findByText("customer-risk-review")).toBeTruthy();
-		expect(screen.getByText("Organization")).toBeTruthy();
+		expect(
+			screen.getByText("Reusable instructions for agents in this workspace.")
+		).toBeTruthy();
 		expect(
 			screen
 				.getByText("customer-risk-review")
@@ -118,13 +210,13 @@ describe("OrganizationSkillsListPage", () => {
 				?.getAttribute("href")
 		).toBe("/o/acme/skills/risk-review");
 		expect(screen.getByText("support-digest")).toBeTruthy();
-		expect(document.querySelectorAll("[data-fluid-card-item]")).toHaveLength(2);
+		expect(screen.getAllByRole("listitem")).toHaveLength(2);
 		expect(listCurrentOrganizationSkillsMock).toHaveBeenCalledWith(
 			expect.objectContaining({ organizationId: "org-acme" })
 		);
 		expect(screen.queryByRole("button", { name: "Create skill" })).toBeNull();
 
-		fireEvent.change(screen.getByRole("textbox", { name: "Search Skills" }), {
+		fireEvent.change(screen.getByRole("textbox", { name: "Search skills" }), {
 			target: { value: "support" },
 		});
 		await waitFor(() =>
@@ -141,11 +233,12 @@ describe("OrganizationSkillsListPage", () => {
 		});
 		renderPage();
 
+		fireEvent.click(await screen.findByRole("button", { name: "Add skill" }));
 		expect(
-			await screen.findByRole("button", { name: "Create skill" })
+			await screen.findByRole("menuitem", { name: "Create skill" })
 		).toBeTruthy();
 		expect(
-			screen.getByRole("button", { name: "Install from GitHub" })
+			screen.getByRole("menuitem", { name: "Install from GitHub" })
 		).toBeTruthy();
 	});
 
@@ -163,21 +256,18 @@ describe("OrganizationSkillsListPage", () => {
 		});
 		renderPage();
 
-		expect(await screen.findByText("Personal workspace")).toBeTruthy();
 		expect(
 			await screen.findByText(
-				"Shared working methods for Center Agent, local agents, and personal remote agents in this personal workspace."
+				"Reusable instructions for agents in this workspace."
 			)
 		).toBeTruthy();
 		expect(
 			await screen.findByText(
-				"This is valid. Skills are optional and only appear after you create or install one."
+				"Add a skill to give your agents a reusable way to work."
 			)
 		).toBeTruthy();
 
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Create skill" })
-		);
+		await openAddAction("Create skill");
 		expect(
 			screen.getByText(
 				"Add an optional working method for this personal workspace."
@@ -237,9 +327,7 @@ describe("OrganizationSkillsListPage", () => {
 		});
 		const { router } = renderPage();
 
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Install from GitHub" })
-		);
+		await openAddAction("Install from GitHub");
 		fireEvent.change(screen.getByLabelText("GitHub URL"), {
 			target: {
 				value: "https://github.com/acme/skills/tree/main/release-review",
@@ -279,9 +367,7 @@ describe("OrganizationSkillsListPage", () => {
 			skill: createOrganizationSkillFixture({ id: "created-skill" }),
 		});
 		const { router } = renderPage();
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Create skill" })
-		);
+		await openAddAction("Create skill");
 		fireEvent.change(screen.getByLabelText("Name"), {
 			target: { value: "new-skill" },
 		});
@@ -313,9 +399,7 @@ describe("OrganizationSkillsListPage", () => {
 		const pending = deferred<{ skill: OrganizationSkill }>();
 		createCurrentOrganizationSkillMock.mockReturnValueOnce(pending.promise);
 		const { router } = renderPage();
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Create skill" })
-		);
+		await openAddAction("Create skill");
 		fireEvent.change(screen.getByLabelText("Name"), {
 			target: { value: "acme-draft" },
 		});
@@ -333,9 +417,7 @@ describe("OrganizationSkillsListPage", () => {
 			});
 		});
 		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Create skill" })
-		);
+		await openAddAction("Create skill");
 		expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("");
 		fireEvent.change(screen.getByLabelText("Name"), {
 			target: { value: "beta-draft" },
@@ -352,7 +434,14 @@ describe("OrganizationSkillsListPage", () => {
 	});
 });
 
+async function openAddAction(name: string) {
+	fireEvent.click(await screen.findByRole("button", { name: "Add skill" }));
+	fireEvent.click(await screen.findByRole("menuitem", { name }));
+	await screen.findByRole("dialog");
+}
+
 function renderPage() {
+	const queryClient = createTestQueryClient();
 	const rootRoute = createRootRoute();
 	const route = createRoute({
 		component: OrganizationSkillsListPage,
@@ -371,17 +460,20 @@ function renderPage() {
 		routeTree: rootRoute.addChildren([route, detail]),
 	});
 	const rendered = render(
-		<TestQueryClientProvider>
-			<RouterProvider router={router} />
+		<TestQueryClientProvider queryClient={queryClient}>
+			<div data-slot="scroll-area-viewport">
+				<RouterProvider router={router} />
+			</div>
 		</TestQueryClientProvider>
 	);
-	return { ...rendered, router };
+	return { ...rendered, router, queryClient };
 }
 
 function skillSummary(input: {
 	description: string;
 	id: string;
 	name: string;
+	enabled?: boolean;
 }) {
 	return {
 		activeRelease: {
@@ -393,7 +485,7 @@ function skillSummary(input: {
 		},
 		createdAt: "2026-07-26T08:00:00.000Z",
 		description: input.description,
-		enabled: true,
+		enabled: input.enabled ?? true,
 		id: input.id,
 		name: input.name,
 		organizationId: "org-acme",

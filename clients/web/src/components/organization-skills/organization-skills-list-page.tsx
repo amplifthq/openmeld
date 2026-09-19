@@ -15,12 +15,26 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import {
+	DropdownMenu,
+	DropdownMenuTrigger,
+} from "@openmeld/ui/components/dropdown-menu";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
-import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+} from "@openmeld/ui/fluid/select";
 import {
 	ArrowClockwiseIcon,
+	FileTextIcon,
 	GithubLogoIcon,
 	MagnifyingGlassIcon,
 	PlusIcon,
@@ -50,13 +64,18 @@ import {
 	organizationSkillQueryKeys,
 	organizationSkillsQueryOptions,
 } from "#/query/organizations/organization-skills";
+import { useSkillCatalogView } from "./use-skill-catalog-view";
 
 const NEW_SKILL_INSTRUCTIONS_MAX_CHARS = 100_000;
 const PORTABLE_SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export function OrganizationSkillsListPage() {
-	const { currentOrganization } = useAppOrganization();
-	return <OrganizationSkillsCatalog key={currentOrganization.id} />;
+	const { currentOrganization, storageScope } = useAppOrganization();
+	return (
+		<OrganizationSkillsCatalog
+			key={JSON.stringify([storageScope, currentOrganization.id])}
+		/>
+	);
 }
 
 function OrganizationSkillsCatalog() {
@@ -76,32 +95,48 @@ function OrganizationSkillsCatalog() {
 			organizationId: currentOrganization.id,
 		})
 	);
-	const [search, setSearch] = useState("");
+	const { root, search, status, update } = useSkillCatalogView(
+		Boolean(skillsQuery.data)
+	);
 	const [createOpen, setCreateOpen] = useState(false);
 	const [installOpen, setInstallOpen] = useState(false);
 	const normalizedSearch = search.trim().toLowerCase();
-	const isEmpty = skillsQuery.isSuccess && skillsQuery.data.skills.length === 0;
 	const actions = skillsQuery.data?.canManage ? (
-		<>
-			<Button onClick={() => setInstallOpen(true)} variant="outline">
-				<GithubLogoIcon aria-hidden="true" /> Install from GitHub
-			</Button>
-			<Button onClick={() => setCreateOpen(true)}>
-				<PlusIcon aria-hidden="true" /> Create skill
-			</Button>
-		</>
+		<DropdownMenu>
+			<DropdownMenuTrigger render={<Button />}>
+				<PlusIcon aria-hidden="true" /> Add skill
+			</DropdownMenuTrigger>
+			<FluidDropdownMenuContent align="end" className="w-52">
+				<FluidDropdownMenuItem index={0} onClick={() => setCreateOpen(true)}>
+					<PlusIcon /> Create skill
+				</FluidDropdownMenuItem>
+				<FluidDropdownMenuItem index={1} onClick={() => setInstallOpen(true)}>
+					<GithubLogoIcon /> Install from GitHub
+				</FluidDropdownMenuItem>
+			</FluidDropdownMenuContent>
+		</DropdownMenu>
 	) : undefined;
 	const filteredSkills = useMemo(
 		() =>
-			(skillsQuery.data?.skills ?? []).filter((skill) => {
-				if (!normalizedSearch) {
-					return true;
-				}
-				return `${skill.name} ${skill.description}`
-					.toLowerCase()
-					.includes(normalizedSearch);
-			}),
-		[normalizedSearch, skillsQuery.data?.skills]
+			(skillsQuery.data?.skills ?? [])
+				.filter((skill) => {
+					if (status !== "all" && skill.enabled !== (status === "enabled")) {
+						return false;
+					}
+					if (!normalizedSearch) {
+						return true;
+					}
+					return `${skill.name} ${skill.description}`
+						.toLowerCase()
+						.includes(normalizedSearch);
+				})
+				.sort(
+					(a, b) =>
+						b.updatedAt.localeCompare(a.updatedAt) ||
+						a.name.localeCompare(b.name) ||
+						a.id.localeCompare(b.id)
+				),
+		[normalizedSearch, skillsQuery.data?.skills, status]
 	);
 	const openSkill = async (skillId: string) => {
 		await queryClient.invalidateQueries({
@@ -122,46 +157,95 @@ function OrganizationSkillsCatalog() {
 
 	return (
 		<>
-			<div className="grid gap-6">
+			<div
+				className="@container/skills mx-auto grid w-full max-w-6xl gap-6"
+				ref={root}
+			>
 				<AppPageHeader
-					action={isEmpty ? undefined : actions}
-					description={
-						isPersonalWorkspace
-							? "Shared working methods for Center Agent, local agents, and personal remote agents in this personal workspace."
-							: "Shared working methods for Center Agent, local agents, and personal remote agents in this Organization."
-					}
-					eyebrow={isPersonalWorkspace ? "Personal workspace" : "Organization"}
+					action={actions}
+					description="Reusable instructions for agents in this workspace."
 					title="Skills"
 				/>
-				<p className="max-w-3xl text-muted-foreground text-sm">
-					Enabled Skills are available to authorized agents, which load or
-					activate them when needed. Enabling a Skill does not make every agent
-					use it automatically.
-				</p>
-
-				{!isEmpty && (
-					<div className="relative max-w-xl">
+				<search className="flex flex-wrap items-center gap-3">
+					<div className="relative min-w-0 flex-1 basis-48">
 						<MagnifyingGlassIcon
 							aria-hidden="true"
 							className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
 						/>
 						<Input
-							aria-label="Search Skills"
+							aria-label="Search skills"
 							className="pl-9"
-							onChange={(event) => setSearch(event.target.value)}
+							onChange={(event) =>
+								update({ search: event.target.value, scrollTop: 0 })
+							}
 							placeholder="Search skills"
 							value={search}
 						/>
 					</div>
-				)}
+					<Select
+						onValueChange={(value) => {
+							if (
+								value === "all" ||
+								value === "enabled" ||
+								value === "disabled"
+							) {
+								update({ status: value, scrollTop: 0 });
+							}
+						}}
+						value={status}
+					>
+						<SelectTrigger
+							aria-label="Filter skills by status"
+							className="w-40"
+							displayValue={`Status: ${{ all: "All", enabled: "Enabled", disabled: "Disabled" }[status]}`}
+						/>
+						<SelectContent>
+							<SelectItem index={0} value="all">
+								All
+							</SelectItem>
+							<SelectItem index={1} value="enabled">
+								Enabled
+							</SelectItem>
+							<SelectItem index={2} value="disabled">
+								Disabled
+							</SelectItem>
+						</SelectContent>
+					</Select>
+				</search>
+				{skillsQuery.isError && skillsQuery.data ? (
+					<div
+						className="flex flex-wrap items-center gap-2 text-sm"
+						role="alert"
+					>
+						<span>Could not refresh skills.</span>
+						<Button
+							onClick={() => skillsQuery.refetch()}
+							size="sm"
+							variant="outline"
+						>
+							Retry
+						</Button>
+					</div>
+				) : null}
 
 				<SkillsListContent
-					emptyActions={isEmpty ? actions : undefined}
+					emptyActions={
+						normalizedSearch || status !== "all" ? (
+							<Button
+								onClick={() =>
+									update({ search: "", status: "all", scrollTop: 0 })
+								}
+								variant="outline"
+							>
+								Clear filters
+							</Button>
+						) : undefined
+					}
 					filteredSkills={filteredSkills}
 					isPersonalWorkspace={isPersonalWorkspace}
 					orgSlug={currentOrganization.slug}
 					query={skillsQuery}
-					searching={normalizedSearch.length > 0}
+					searching={normalizedSearch.length > 0 || status !== "all"}
 				/>
 			</div>
 
@@ -197,12 +281,12 @@ function SkillsListContent(input: {
 		return (
 			<div className="grid gap-3">
 				{[0, 1, 2].map((item) => (
-					<Skeleton className="h-28 w-full" key={item} />
+					<Skeleton className="h-16 w-full" key={item} />
 				))}
 			</div>
 		);
 	}
-	if (input.query.isError) {
+	if (input.query.isError && !input.query.data) {
 		return (
 			<div className="grid justify-items-start gap-3 rounded-md border border-destructive/50 bg-destructive/5 p-6">
 				<h2 className="font-medium text-lg">Could not load Skills</h2>
@@ -218,64 +302,72 @@ function SkillsListContent(input: {
 		);
 	}
 	if (input.filteredSkills.length === 0) {
+		const guidance = input.query.data?.canManage
+			? "Add a skill to give your agents a reusable way to work."
+			: "Workspace admins can add skills here.";
 		return (
 			<AppEmptyState
 				actions={input.emptyActions}
-				description={resolveEmptySkillsDescription({
-					isPersonalWorkspace: input.isPersonalWorkspace,
-					searching: input.searching,
-				})}
+				description={
+					input.searching ? "Try another name or clear your filters." : guidance
+				}
 				icon={<SparkleIcon aria-hidden="true" className="size-5" />}
 				title={input.searching ? "No matching Skills" : "No Skills yet"}
 			/>
 		);
 	}
 	return (
-		<FluidCardGroup className="grid gap-3" role="list">
+		<ul aria-label="Skills" className="divide-y border-y">
 			{input.filteredSkills.map((skill) => (
-				<FluidCardItem itemId={skill.id} key={skill.id} role="listitem">
+				<li key={skill.id}>
 					<Link
-						className="relative z-10 grid h-full gap-2 rounded-md border border-border/70 bg-transparent p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+						className="group grid min-h-18 @min-[760px]/skills:grid-cols-[minmax(0,1fr)_7rem_7rem_5rem] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 px-2 py-3 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
 						to={buildOrganizationSkillPath({
 							orgSlug: input.orgSlug,
 							skillId: skill.id,
 						})}
 					>
-						<div className="flex flex-wrap items-start justify-between gap-3">
+						<div className="flex min-w-0 items-center gap-3">
+							<FileTextIcon
+								aria-hidden="true"
+								className="size-5 shrink-0 text-muted-foreground"
+							/>
 							<div className="min-w-0">
-								<h2 className="truncate font-medium text-base">{skill.name}</h2>
+								<h2 className="truncate font-medium text-sm">{skill.name}</h2>
 								<p className="mt-1 line-clamp-2 text-muted-foreground text-sm">
 									{skill.description}
 								</p>
 							</div>
-							<Badge variant={skill.enabled ? "secondary" : "outline"}>
-								{skill.enabled ? "Enabled" : "Disabled"}
-							</Badge>
 						</div>
-						<p className="text-muted-foreground text-xs">
-							{formatSkillSource(skill)} · Updated{" "}
-							{new Intl.DateTimeFormat("en-US", {
-								dateStyle: "medium",
-							}).format(new Date(skill.updatedAt))}
-						</p>
+						<span className="@min-[760px]/skills:col-auto col-start-1 @min-[760px]/skills:pl-0 pl-8 text-muted-foreground text-xs">
+							{skill.source.kind === "github" ? "GitHub" : "OpenMeld"}
+							<span className="@min-[760px]/skills:hidden">
+								{" "}
+								·{" "}
+								{new Intl.DateTimeFormat("en-US", {
+									dateStyle: "medium",
+								}).format(new Date(skill.updatedAt))}
+							</span>
+						</span>
+						<time
+							className="@min-[760px]/skills:block hidden text-muted-foreground text-xs"
+							dateTime={skill.updatedAt}
+						>
+							{new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(
+								new Date(skill.updatedAt)
+							)}
+						</time>
+						<Badge
+							className="@min-[760px]/skills:col-auto col-start-2 @min-[760px]/skills:row-auto row-start-1"
+							variant={skill.enabled ? "secondary" : "outline"}
+						>
+							{skill.enabled ? "Enabled" : "Disabled"}
+						</Badge>
 					</Link>
-				</FluidCardItem>
+				</li>
 			))}
-		</FluidCardGroup>
+		</ul>
 	);
-}
-
-function resolveEmptySkillsDescription(input: {
-	isPersonalWorkspace: boolean;
-	searching: boolean;
-}): string {
-	if (input.searching) {
-		return "Try a different name or description.";
-	}
-	if (input.isPersonalWorkspace) {
-		return "This is valid. Skills are optional and only appear after you create or install one.";
-	}
-	return "This is valid. Organization Skills are optional and only appear after your team creates or installs one.";
 }
 
 function CreateSkillDialog(input: {
@@ -569,11 +661,4 @@ function GitHubSkillPreview(input: {
 			) : null}
 		</div>
 	);
-}
-
-function formatSkillSource(skill: OrganizationSkillSummary): string {
-	if (skill.source.kind === "created") {
-		return "Created in OpenMeld";
-	}
-	return `GitHub ${skill.source.commitSha.slice(0, 7)}`;
 }
