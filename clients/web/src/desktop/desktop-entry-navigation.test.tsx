@@ -19,6 +19,12 @@ import { beforeDesktopLoad, desktopReturnPath } from "./auth-boundary";
 import { DesktopEntry } from "./desktop-entry";
 
 const bridge = vi.hoisted(() => ({
+	platform: vi.fn(async () => ({
+		platform: "desktop" as const,
+		lane: "dev-local" as const,
+		webOrigin: "http://lane.localhost:3000",
+		webBuild: "a".repeat(64),
+	})),
 	session: vi.fn<() => Promise<DesktopSession>>(),
 	signIn: vi.fn(),
 	signOut: vi.fn(),

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { readInstalledDesktopTarget } from "../../../scripts/desktop/installed-target";
 import {
+  configureDesktopCredentialStorage,
   configureInstalledUserData,
   configurePilotUserData,
 } from "../src/main/pilot-user-data";
@@ -49,7 +50,11 @@ it("verifies the lane GUI directory is effective before callers may initialize a
     };
     const env = {
       OPENMELD_HOME: home,
-      OPENMELD_DESKTOP_USER_DATA_DIR: join(home, "desktop", "user-data"),
+      OPENMELD_DESKTOP_USER_DATA_DIR: join(
+        home,
+        "desktop",
+        "mock-keychain-user-data"
+      ),
     };
     configurePilotUserData(app, env);
     expect(current).toBe(env.OPENMELD_DESKTOP_USER_DATA_DIR);
@@ -66,4 +71,71 @@ it("verifies the lane GUI directory is effective before callers may initialize a
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
+});
+
+it.each([
+  {
+    name: "a macOS localhost source pilot",
+    input: {
+      installed: false,
+      lane: "dev-local" as const,
+      platform: "darwin" as const,
+      webOrigin: "http://lane.localhost:3000",
+    },
+    expected: "mock",
+  },
+  {
+    name: "a Private macOS canary pilot",
+    input: {
+      installed: false,
+      lane: "canary" as const,
+      platform: "darwin" as const,
+      webOrigin: "http://127.0.0.1:3000",
+    },
+    expected: "mock",
+  },
+  {
+    name: "an installed localhost acceptance build",
+    input: {
+      installed: true,
+      lane: "dev-local" as const,
+      platform: "darwin" as const,
+      webOrigin: "http://lane.localhost:3000",
+    },
+    expected: "system",
+  },
+  {
+    name: "a production build with inherited development variables",
+    input: {
+      installed: true,
+      lane: "prod" as const,
+      platform: "darwin" as const,
+      webOrigin: "https://openmeld.ai",
+    },
+    expected: "system",
+  },
+  {
+    name: "a non-macOS localhost pilot",
+    input: {
+      installed: false,
+      lane: "dev-local" as const,
+      platform: "win32" as const,
+      webOrigin: "http://lane.localhost:3000",
+    },
+    expected: "system",
+  },
+])("selects $expected credential storage for $name", ({ input, expected }) => {
+  const commandLine = {
+    appendSwitch: vi.fn(),
+    removeSwitch: vi.fn(),
+  };
+  const mode = configureDesktopCredentialStorage({ commandLine }, input);
+
+  expect(mode).toBe(expected);
+  expect(commandLine.appendSwitch).toHaveBeenCalledTimes(
+    expected === "mock" ? 1 : 0
+  );
+  expect(commandLine.removeSwitch).toHaveBeenCalledTimes(
+    expected === "system" ? 1 : 0
+  );
 });
