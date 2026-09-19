@@ -35,7 +35,11 @@ export function resolveDesktopPilotLaunch({
       { cause }
     );
   }
-  const userData = join(lane.openMeldHome, "desktop", "user-data");
+  const userData = join(
+    lane.openMeldHome,
+    "desktop",
+    "mock-keychain-user-data"
+  );
   const executable = appPath
     ? resolve(appPath, "Contents/MacOS", basename(appPath, ".app"))
     : "pnpm";
