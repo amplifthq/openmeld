@@ -2,6 +2,7 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute, relative } from "node:path";
 import type {
   AdapterComputerFileAccessBoundary,
+  AdapterComputerFileAccessVerificationResult,
   AdapterInteractionCallback,
   AdapterTransportMode,
   AgentControllerPermissionMode,
@@ -22,7 +23,7 @@ export async function resolveComputerFileAccessAdmission(input: {
   transportMode: AdapterTransportMode;
   verifyBoundary?: (
     boundary: AdapterComputerFileAccessBoundary
-  ) => Promise<boolean>;
+  ) => Promise<AdapterComputerFileAccessVerificationResult>;
 }): Promise<{
   boundary: AdapterComputerFileAccessBoundary | null;
   bypassedForThisRun: boolean;
@@ -36,13 +37,17 @@ export async function resolveComputerFileAccessAdmission(input: {
     providerRuntimeWorkingDirectory: input.providerRuntimeWorkingDirectory,
   });
 
-  if (input.verifyBoundary && (await input.verifyBoundary(input.policy))) {
+  const verification = await input.verifyBoundary?.(input.policy);
+  if (verification?.supported) {
     return { boundary: input.policy, bypassedForThisRun: false };
   }
 
+  const launchRejected =
+    verification?.reasonCode === "computer.file_access.launch_rejected";
   const response = await input.onInteractionRequest({
-    description:
-      "OpenMeld can’t verify that this local agent can enforce this computer’s file access boundary. Run this Wake once without the boundary, or cancel it.",
+    description: launchRejected
+      ? "The local agent could not start with the requested file access settings. Cancel and check the selected agent’s version and configuration. Running once without this boundary removes the Computer file access restriction for this Wake."
+      : "OpenMeld can’t verify that this local agent can enforce this computer’s file access boundary. Run this Wake once without the boundary, or cancel it.",
     kind: "permission",
     options: [
       {

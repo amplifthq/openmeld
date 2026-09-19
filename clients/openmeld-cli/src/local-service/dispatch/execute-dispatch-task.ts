@@ -3016,7 +3016,7 @@ async function resolveDispatchComputerFileAccess(input: {
                 input.runtimePreparation.effectiveRuntimeContext
                   .providerRuntimeWorkingDirectory,
             });
-            return verification.supported;
+            return verification;
           },
         }
       : {}),

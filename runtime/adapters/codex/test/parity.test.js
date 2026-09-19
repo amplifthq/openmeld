@@ -4224,53 +4224,64 @@ test("adapter-codex default wait delays force escalation", async () => {
   assert.deepEqual(observedWaits, [expectedEscalationDelayMs]);
 });
 
-test("adapter-codex reuses one exact file access capability attestation", async () => {
-  const { createCodexAdapter } = await import("../dist/index.js");
-  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-boundary-probe-"));
-  const fixturePath = join(fixtureDir, "codex-boundary-probe.mjs");
-  const probeLogPath = join(fixtureDir, "probe-log.txt");
-  await writeFile(
-    fixturePath,
-    [
-      "#!/usr/bin/env node",
-      "import { appendFileSync } from 'node:fs';",
-      `appendFileSync(${JSON.stringify(probeLogPath)}, "probe\\n", "utf8");`,
-      "process.exit(0);",
-    ].join("\n"),
-    "utf8"
-  );
-  await chmod(fixturePath, 0o755);
+for (const probeExit of [0, 2]) {
+  test(`adapter-codex caches path-free file access attestation (probe exit ${probeExit})`, async () => {
+    const { createCodexAdapter } = await import("../dist/index.js");
+    const fixtureDir = await mkdtemp(join(tmpdir(), "codex-boundary-probe-"));
+    const fixturePath = join(fixtureDir, "codex-boundary-probe.mjs");
+    const probeLogPath = join(fixtureDir, "probe-log.txt");
+    await writeFile(
+      fixturePath,
+      [
+        "#!/usr/bin/env node",
+        "import { appendFileSync } from 'node:fs';",
+        `appendFileSync(${JSON.stringify(probeLogPath)}, "probe\\n", "utf8");`,
+        `if (process.argv.includes('--strict-config')) { console.error(${JSON.stringify(`Rejected private configuration at ${fixtureDir}`)}); process.exit(${probeExit}); }`,
+        "process.exit(0);",
+      ].join("\n"),
+      "utf8"
+    );
+    await chmod(fixturePath, 0o755);
 
-  try {
-    const adapter = createCodexAdapter({
-      launchContract: createNodeScriptLaunchContract(fixturePath),
-    });
-    const request = {
-      agentControllerPermissionMode: "codex:askForApproval",
-      boundary: {
-        folders: [fixtureDir],
-        mode: "only_selected_folders",
-        revision: 2,
-        updatedAtMs: 100,
-      },
-      executionMode: "normal",
-      launchContract: createNodeScriptLaunchContract(fixturePath),
-      transportMode: "local-cli",
-      workingDirectory: fixtureDir,
-    };
+    try {
+      const adapter = createCodexAdapter({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+      });
+      const request = {
+        agentControllerPermissionMode: "codex:askForApproval",
+        boundary: {
+          folders: [fixtureDir],
+          mode: "only_selected_folders",
+          revision: 2,
+          updatedAtMs: 100,
+        },
+        executionMode: "normal",
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        transportMode: "local-cli",
+        workingDirectory: fixtureDir,
+      };
 
-    assert.deepEqual(await adapter.verifyComputerFileAccessBoundary(request), {
-      supported: true,
-    });
-    const firstAttestationLog = await readFile(probeLogPath, "utf8");
-    assert.deepEqual(await adapter.verifyComputerFileAccessBoundary(request), {
-      supported: true,
-    });
-    assert.equal(await readFile(probeLogPath, "utf8"), firstAttestationLog);
-  } finally {
-    await rm(fixtureDir, { force: true, recursive: true });
-  }
-});
+      const expected =
+        probeExit === 0
+          ? { supported: true }
+          : {
+              supported: false,
+              reasonCode: "computer.file_access.launch_rejected",
+            };
+      const result = await adapter.verifyComputerFileAccessBoundary(request);
+      assert.deepEqual(result, expected);
+      assert.equal(JSON.stringify(result).includes(fixtureDir), false);
+      const firstAttestationLog = await readFile(probeLogPath, "utf8");
+      assert.deepEqual(
+        await adapter.verifyComputerFileAccessBoundary(request),
+        expected
+      );
+      assert.equal(await readFile(probeLogPath, "utf8"), firstAttestationLog);
+    } finally {
+      await rm(fixtureDir, { force: true, recursive: true });
+    }
+  });
+}
 
 test("codex cli transport maps auth failures from stdout events", async () => {
   const { invokeCodexCliTransport } = await import("../dist/index.js");

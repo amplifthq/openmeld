@@ -159,9 +159,52 @@ describe("Computer file access admission", () => {
         policy,
         providerRuntimeWorkingDirectory: workingFolder,
         transportMode: "codex-app-server",
-        verifyBoundary: () => Promise.resolve(true),
+        verifyBoundary: () => Promise.resolve({ supported: true }),
       })
     ).resolves.toEqual({ boundary: policy, bypassedForThisRun: false });
+  });
+
+  it.each([
+    ["computer.file_access.launch_rejected", true],
+    ["private diagnostic /Users/example/Secrets", false],
+  ] as const)("keeps an unsuccessful boundary check closed and presents only safe guidance (%s)", async (reasonCode, launchRejected) => {
+    const workingFolder = await makeTempDir();
+    const requests: AdapterInteractionRequest[] = [];
+    await expect(
+      resolveComputerFileAccessAdmission({
+        agentControllerRef: "builtin:codex",
+        transportMode: "codex-app-server",
+        policy: {
+          mode: "only_selected_folders",
+          folders: [workingFolder],
+          revision: 1,
+          updatedAtMs: 0,
+        },
+        providerRuntimeWorkingDirectory: workingFolder,
+        verifyBoundary: async () => ({ supported: false as const, reasonCode }),
+        onInteractionRequest: (request) => {
+          requests.push(request);
+          return Promise.resolve({
+            kind: "permission" as const,
+            optionId: "cancel_computer_file_access_run",
+          });
+        },
+      })
+    ).rejects.toMatchObject({ code: "computer.file_access.owner_declined" });
+    expect(requests).toHaveLength(1);
+    expect(
+      requests[0]?.description?.includes("version and configuration")
+    ).toBe(launchRejected);
+    expect(JSON.stringify(requests)).not.toContain("/Users/example/Secrets");
+    const request = requests[0];
+    expect(request?.kind).toBe("permission");
+    if (request?.kind !== "permission") {
+      throw new Error("Expected a file-access decision");
+    }
+    expect(request.options.map((option) => option.optionId)).toEqual([
+      "run_once_without_computer_file_access_boundary",
+      "cancel_computer_file_access_run",
+    ]);
   });
 
   it("asks once when enforcement cannot be verified and accepts an exact-run bypass", async () => {

@@ -716,6 +716,11 @@ longer accepted by current Codex versions. Repair remains read-only with human
 approval, and isolated Execution Contexts retain their separate no-escalation
 `never` policy. No fallback to Full access or boundary bypass is permitted when
 an executable rejects these arguments.
+A completed negative boundary launch check retains the path-free
+`computer.file_access.launch_rejected` diagnosis. The owner decision explains
+that the selected Agent's version/configuration needs checking, rather than
+mistaking a launch rejection for missing consent. Unknown checks keep generic
+verification guidance; raw controller diagnostics and folder paths stay private.
 
 An active policy whose working folder is deterministically outside the boundary
 rejects before controller launch without asking the user. If the selected
