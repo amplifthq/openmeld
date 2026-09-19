@@ -1,27 +1,34 @@
-import type { DesktopUpdaterState } from "@openmeld/schemas";
-import { Button } from "@openmeld/ui/components/button";
-import { SettingsRow } from "@openmeld/ui/components/settings-row";
-import { SettingsSection } from "@openmeld/ui/components/settings-section";
+import type {
+	DesktopUpdaterAction,
+	DesktopUpdaterState,
+} from "@openmeld/schemas";
+import { Surface } from "@openmeld/ui/fluid/surface";
+import { cn } from "@openmeld/ui/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
-import { useLayoutEffect, useState, useSyncExternalStore } from "react";
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 import {
 	hasClientRestartBlocker,
 	registerClientVersionRecoveryBlocker,
 } from "#/client-version-recovery";
-import { AppPageHeader } from "#/components/app/app-page-header";
 import { hasPendingCenterAgentMessages } from "#/lib/organizations/center-agent-pending-message";
 import { desktopUpdaterPresentation } from "../../../desktop/src/shared/updater-presentation";
 import { getDesktopPlatform } from "./platform";
+import { DesktopUpdaterView } from "./updater-view";
 
 let snapshot: DesktopUpdaterState | null = null;
+let initialReadFailed = false;
 const listeners = new Set<() => void>();
-function publish(value: DesktopUpdaterState) {
-	snapshot = value;
+function notify() {
 	for (const listener of listeners) {
 		listener();
 	}
+}
+function publish(value: DesktopUpdaterState | null) {
+	snapshot = value;
+	initialReadFailed = false;
+	notify();
 }
 const subscribe = (listener: () => void) => {
 	listeners.add(listener);
@@ -32,10 +39,47 @@ const subscribe = (listener: () => void) => {
 export function useDesktopUpdater() {
 	return useSyncExternalStore(
 		subscribe,
-		() => snapshot,
+		() => (getDesktopPlatform() ? snapshot : null),
 		() => null
 	);
 }
+export const DESKTOP_UPDATE_ATTENTION_LABEL = "Desktop update pending";
+
+// Visibility is presentation state, not acknowledgement. Tokens make cleanup
+// safe for multiple hosts and Strict Mode's setup/cleanup/setup cycle.
+const settingsViews = new Set<symbol>();
+function useUpdatesSettingsVisible() {
+	return useSyncExternalStore(
+		subscribe,
+		() => settingsViews.size > 0,
+		() => false
+	);
+}
+function useInitialReadFailed() {
+	return useSyncExternalStore(
+		subscribe,
+		() => initialReadFailed,
+		() => false
+	);
+}
+
+export function useDesktopUpdateAttention() {
+	return desktopUpdaterPresentation(useDesktopUpdater()).attention;
+}
+
+export function DesktopUpdateIndicator(input: { className?: string }) {
+	return (
+		<span
+			aria-hidden="true"
+			className={cn(
+				"size-1.5 shrink-0 rounded-full bg-unread",
+				input.className
+			)}
+			data-slot="desktop-update-indicator"
+		/>
+	);
+}
+
 const restartPathKey = "openmeld.desktop.update-return";
 const editingEvents = [
 	"beforeinput",
@@ -55,7 +99,11 @@ export function DesktopUpdater() {
 	const router = useRouter();
 	const queryClient = useQueryClient();
 	const state = useDesktopUpdater();
-	const [dismissed, setDismissed] = useState<string | null>(null);
+	const settingsVisible = useUpdatesSettingsVisible();
+	const readFailed = useInitialReadFailed();
+	const [dismissed, setDismissed] = useState<ReadonlySet<string>>(
+		() => new Set()
+	);
 	useLayoutEffect(() => {
 		const bridge = getDesktopPlatform();
 		if (!bridge) {
@@ -105,7 +153,11 @@ export function DesktopUpdater() {
 		// Freeze a newly mounted renderer until the native authority answers.
 		// A reload must never create an editable window during an accepted install.
 		freezeEditing();
+		publish(null);
 		const unsubscribe = bridge.onUpdaterChanged((next) => {
+			if (disposed) {
+				return;
+			}
 			revision++;
 			acceptSnapshot(next);
 		});
@@ -116,7 +168,13 @@ export function DesktopUpdater() {
 					acceptSnapshot(next);
 				}
 			})
-			.catch(console.error);
+			.catch((error) => {
+				console.error("Could not read Desktop update status.", error);
+				if (!disposed && revision === 0) {
+					initialReadFailed = true;
+					notify();
+				}
+			});
 		const prepare = bridge.onUpdaterPrepare(async ({ requestId }) => {
 			freezeEditing();
 			let saved = false;
@@ -155,117 +213,102 @@ export function DesktopUpdater() {
 			unsubscribe();
 			prepare();
 			restoreEditing?.();
+			publish(null);
 		};
 	}, [router, queryClient]);
-	const noticeKey = state ? `${state.status}:${state.version}` : null;
+	const view = desktopUpdaterPresentation(state);
+	const required = view.notice === "required" || readFailed;
+	const noticeKey = view.noticeKey;
 	if (
-		!state ||
-		dismissed === noticeKey ||
-		!(
-			state.status === "available" ||
-			state.status === "downloaded" ||
-			state.status === "downloading" ||
-			state.status === "preparing" ||
-			state.status === "installing" ||
-			(state.status === "error" && state.errorStage !== "check")
-		)
+		!getDesktopPlatform() ||
+		(!required &&
+			(view.notice === "none" ||
+				settingsVisible ||
+				(noticeKey !== null && dismissed.has(noticeKey))))
 	) {
 		return null;
 	}
 	return (
 		<aside
 			aria-label="Desktop update"
-			className="fixed right-4 bottom-4 z-50 max-w-sm rounded-lg border bg-background p-4 shadow-sm"
+			className="fixed right-4 bottom-4 z-50 w-80 max-w-[calc(100vw-2rem)]"
 		>
-			<DesktopUpdatesSection />
-			{state.status !== "preparing" &&
-			state.status !== "installing" &&
-			state.errorStage !== "install" ? (
-				<Button
-					onClick={() => setDismissed(noticeKey)}
-					size="sm"
-					variant="ghost"
-				>
-					Later
-				</Button>
-			) : null}
+			<Surface className="p-4">
+				<DesktopUpdatesSection
+					onDismiss={
+						!required && noticeKey
+							? () =>
+									setDismissed((previous) => new Set([...previous, noticeKey]))
+							: undefined
+					}
+				/>
+			</Surface>
 		</aside>
 	);
 }
 
 export function DesktopUpdatesSection(input: {
 	presentation?: "notice" | "settings";
+	onDismiss?: () => void;
 }) {
 	const state = useDesktopUpdater();
-	if (!(getDesktopPlatform() && state)) {
+	const readFailed = useInitialReadFailed();
+	const [pending, setPending] = useState(false);
+	const pendingRef = useRef(false);
+	const [failure, setFailure] = useState<{
+		state: DesktopUpdaterState | null;
+		message: string;
+	} | null>(null);
+	const desktop = getDesktopPlatform() !== null;
+	useLayoutEffect(() => {
+		if (!desktop || input.presentation !== "settings") {
+			return;
+		}
+		const token = Symbol("Desktop Updates view");
+		settingsViews.add(token);
+		notify();
+		return () => {
+			settingsViews.delete(token);
+			notify();
+		};
+	}, [desktop, input.presentation]);
+	if (!desktop) {
 		return null;
 	}
-	const { message, action, label } = desktopUpdaterPresentation(state);
-	const actionButton = action ? (
-		<Button
-			onClick={() =>
-				getDesktopPlatform()?.updaterAction(action).catch(console.error)
-			}
-			size="sm"
-			variant="outline"
-		>
-			{label}
-		</Button>
-	) : null;
-	if (input.presentation === "settings") {
-		const availableVersion =
-			state.version && state.version !== state.currentVersion
-				? state.version
-				: null;
-		return (
-			<section aria-labelledby="desktop-updates-heading">
-				<AppPageHeader
-					description="See the installed version and check for OpenMeld updates."
-					eyebrow="Personal"
-					id="desktop-updates-heading"
-					title="Updates"
-				/>
-				<SettingsSection id="desktop-update" title="OpenMeld">
-					<SettingsRow
-						control={
-							<span className="text-foreground text-sm">
-								Version {state.currentVersion}
-							</span>
-						}
-						label="Installed version"
-					/>
-					{availableVersion ? (
-						<SettingsRow
-							control={
-								<span className="text-foreground text-sm">
-									Version {availableVersion}
-								</span>
-							}
-							label="Available version"
-						/>
-					) : null}
-					<SettingsRow
-						control={
-							<div className="flex flex-col items-start gap-3">
-								<output className="text-muted-foreground text-sm">
-									{message}
-								</output>
-								{actionButton}
-							</div>
-						}
-						label="Update status"
-						layout="stacked"
-						showDivider={false}
-					/>
-				</SettingsSection>
-			</section>
-		);
-	}
+	const requestAction = async (action: DesktopUpdaterAction) => {
+		const bridge = getDesktopPlatform();
+		if (
+			!bridge ||
+			pendingRef.current ||
+			desktopUpdaterPresentation(snapshot).action !== action
+		) {
+			return;
+		}
+		pendingRef.current = true;
+		setPending(true);
+		setFailure(null);
+		try {
+			await bridge.updaterAction(action);
+		} catch (error) {
+			console.error(`Could not confirm Desktop ${action} request.`, error);
+			setFailure({
+				state,
+				message: `Couldn't confirm the ${action} request. Check the update status and try again.`,
+			});
+		} finally {
+			pendingRef.current = false;
+			setPending(false);
+		}
+	};
 	return (
-		<section aria-label="Updates" className="space-y-3">
-			<h2 className="font-medium">Updates</h2>
-			<output className="block text-muted-foreground text-sm">{message}</output>
-			{actionButton}
-		</section>
+		<DesktopUpdaterView
+			actionError={failure?.state === state ? failure.message : null}
+			onAction={requestAction}
+			onDismiss={input.onDismiss}
+			pending={pending}
+			presentation={input.presentation ?? "notice"}
+			readError={readFailed}
+			state={state}
+		/>
 	);
 }

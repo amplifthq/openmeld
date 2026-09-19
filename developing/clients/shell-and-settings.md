@@ -194,6 +194,13 @@ supported without normal navigation entry points. Both use the same registry,
 grouped navigation, and section renderers; the presentation does not own another
 copy of settings data or mutation logic.
 
+Contextual navigation accepts an explicit accessible label when an accessory
+adds meaning beyond the visible title. Keep the visible title stable; expose
+pending attention in the accessible label and keep the decorative indicator
+hidden from assistive technology. Route links and dialog buttons use the same
+contract. Desktop's Settings-to-Updates attention policy remains owned by
+`desktop.md`, not by the shared navigation primitives or Inbox counts.
+
 The routes and destination list in this section are not the current Web target.
 Use `developing/clients/web.md` for current routes and placement. The durable
 guidance retained here is that entity destinations use real routes, Binding is
