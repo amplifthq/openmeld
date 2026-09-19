@@ -55,7 +55,7 @@ export function resolveSpaceInboxAgentAddressing(input: {
   const dmInitiations =
     input.signal.data.meta?.threadWakeContinuation === true
       ? []
-      : humanDmAgents.filter((id) => !references.includes(id));
+      : humanDmAgents;
   return {
     agentProfileIds: [
       ...new Set([
@@ -68,7 +68,8 @@ export function resolveSpaceInboxAgentAddressing(input: {
     explicitlyAddressedAgentProfileIds: [
       ...new Set([...explicitActivations, ...references]),
     ].sort(),
-    // A Reference is context, never an implicit assignment of work.
+    // A Reference alone is context. A real Human-Agent DM independently
+    // establishes direct contact, without changing the message's Wake targets.
     initiatingAgentProfileIds:
       input.signal.profile.kind === "human"
         ? [...new Set([...explicitActivations, ...dmInitiations])].sort()

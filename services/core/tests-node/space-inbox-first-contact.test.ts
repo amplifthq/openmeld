@@ -15,6 +15,7 @@ import {
 } from "../src/space/infrastructure/sql/space-member-repo";
 import { ensureSpaceSqlSchema } from "../src/space/infrastructure/sql/space-schema-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
+import { buildDirectMessageDispatchReadyDecisions } from "../src/space/rules/dispatch/direct-message-dispatch";
 
 const CODEX = "agt_22222222-2222-4222-8222-222222222222";
 const FELIX = "11111111-1111-4111-8111-111111111111";
@@ -121,6 +122,64 @@ describe("durable personal-Agent contact identity", () => {
     }
   });
 
+  it("records the first real Agent DM even when it references its recipient, without changing Wake addressing", () => {
+    const fixture = contactFixture();
+    try {
+      fixture.sql.exec(
+        "UPDATE space_members SET status = 'removed' WHERE profile_id = ?",
+        FELIX
+      );
+      const reference = text("dm-reference-first", {
+        activationTargets: [],
+        referenceTargets: [CODEX],
+      });
+      const envelope = structuredClone(reference.data.messageEnvelope);
+      const dispatch = buildDirectMessageDispatchReadyDecisions({
+        activeMemberRecords: listSpaceMemberRecords(fixture.sql, {
+          status: "active",
+        }),
+        senderProfileId: "monica",
+        signal: reference,
+        spacePurpose: "openmeld_dm_space",
+      });
+      expect(dispatch.map((decision) => decision.targetProfileId)).toEqual([
+        CODEX,
+      ]);
+      const first = fixture.publish(reference, undefined, true);
+      expect(
+        first.candidates.flatMap(
+          (candidate) =>
+            candidate.sourceFacts?.firstContactAgentProfileIds ?? []
+        )
+      ).toEqual([CODEX]);
+      expect(reference.data.messageEnvelope).toEqual(envelope);
+      const followup = fixture.publish(
+        text("dm-followup", { activationTargets: [] }),
+        undefined,
+        true
+      );
+      expect(
+        followup.candidates.flatMap(
+          (candidate) =>
+            candidate.sourceFacts?.firstContactAgentProfileIds ?? []
+        )
+      ).toEqual([]);
+      ensureSpaceSqlSchema(fixture.sql);
+      expect(fixture.publish(reference, undefined, true).candidates).toEqual(
+        first.candidates
+      );
+      expect(
+        fixture.db
+          .prepare(
+            "SELECT contact_signal_id FROM space_inbox_personal_agent_contacts"
+          )
+          .all()
+      ).toEqual([{ contact_signal_id: "dm-reference-first" }]);
+    } finally {
+      fixture.db.close();
+    }
+  });
+
   it("retains no first-contact receipt when message publication rolls back", () => {
     const fixture = contactFixture();
     try {
@@ -152,12 +211,17 @@ describe("durable personal-Agent contact identity", () => {
     }
   });
 
-  it("does not replay old DM contact when rolling out or switching the sender's Human Profile", () => {
+  it.each([
+    { referenceTargets: [] },
+    { referenceTargets: [CODEX] },
+  ])("does not replay old DM contact with references $referenceTargets when switching the sender's Human Profile", ({
+    referenceTargets,
+  }) => {
     const fixture = contactFixture();
     try {
       insertSignalRecord(
         fixture.sql,
-        text("before-upgrade", { activationTargets: [] })
+        text("before-upgrade", { activationTargets: [], referenceTargets })
       );
       fixture.addMember("monica-second", "monica-account", "human");
       const signal = text("new-profile", { activationTargets: [] });

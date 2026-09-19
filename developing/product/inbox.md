@@ -534,10 +534,13 @@ reserves room for each group; full Inbox remains the complete list. It may say
 An Agent's presence alone never makes a message relevant to its owner. Personal
 owner awareness requires actual structured Agent addressing, a Human message
 in that Agent's DM, or that Agent's own published reply. Activation and Reference
-both carry mention relevance; Reference never starts work. Automatic Thread Wake
-continuation is not an explicit new contact. Center Agent and other managed
-Agents have no personal owner for Inbox purposes. Local/Remote placement changes
-none of these rules.
+both carry mention relevance; Reference never starts work. A Human message in a
+current Agent DM establishes contact even when it references the recipient Agent;
+a Reference alone in an ordinary Space does not. Retained-history scanning uses
+the same contact rule, without replaying an old reminder or altering Wake targets.
+Automatic Thread Wake continuation is not an explicit new contact. Center Agent
+and other managed Agents have no personal owner for Inbox purposes. Local/Remote
+placement changes none of these rules.
 
 Space freezes first-contact identity in the publication transaction using the
 Organization, exact main/DM or Thread-root scope, initiating Human **account**,

@@ -68,18 +68,16 @@ export function recordSpaceInboxPersonalAgentContact(
        AND author.owner_user_id_snapshot = ? AND author.profile_kind_snapshot = 'human'
        AND coalesce(json_extract(signal.payload_json, '$.data.meta.transient'), 0) != 1
        AND ((? IS NULL AND placement.signal_id IS NULL) OR thread.root_signal_id = ?)
-       AND ((? = 1 AND NOT EXISTS (
-         SELECT 1 FROM json_each(signal.payload_json, '$.data.messageEnvelope.referenceTargets') WHERE value = ?
-       )) OR (coalesce(json_extract(signal.payload_json, '$.data.meta.threadWakeContinuation'), 0) != 1 AND EXISTS (
+       AND coalesce(json_extract(signal.payload_json, '$.data.meta.threadWakeContinuation'), 0) != 1
+       AND (? = 1 OR EXISTS (
          SELECT 1 FROM json_each(signal.payload_json, '$.data.messageEnvelope.activationTargets') WHERE value = ?
-       )))
+       ))
      ORDER BY signal.ts, signal.id LIMIT 1`,
       input.signalId,
       input.initiatingUserId,
       input.threadRootSignalId,
       input.threadRootSignalId,
       input.directMessage ? 1 : 0,
-      input.agentProfileId,
       input.agentProfileId
     )
     .toArray()[0];
