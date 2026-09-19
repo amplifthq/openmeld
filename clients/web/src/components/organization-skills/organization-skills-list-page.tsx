@@ -2,25 +2,16 @@
 
 import type {
 	ListOrganizationSkillsResponse,
-	OrganizationSkillGitHubPreview,
+	OrganizationSkill,
 	OrganizationSkillSummary,
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@openmeld/ui/components/dialog";
-import {
 	DropdownMenu,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import { Input } from "@openmeld/ui/components/input";
-import { Label } from "@openmeld/ui/components/label";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	FluidDropdownMenuContent,
@@ -42,7 +33,6 @@ import {
 } from "@phosphor-icons/react";
 import {
 	type UseQueryResult,
-	useMutation,
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
@@ -50,24 +40,16 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppEmptyState } from "#/components/app/app-empty-state";
 import { AppPageHeader } from "#/components/app/app-page-header";
-import { MarkdownEditor } from "#/components/editor/markdown-editor";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSkillPath } from "#/lib/organizations/organization-routes";
-import {
-	createCurrentOrganizationSkill,
-	importCurrentOrganizationSkillFromGitHub,
-	type OrganizationSkillFailure,
-	previewCurrentOrganizationSkillFromGitHub,
-	resolveOrganizationSkillErrorMessage,
-} from "#/lib/organizations/organization-skills";
+import type { OrganizationSkillFailure } from "#/lib/organizations/organization-skills";
 import {
 	organizationSkillQueryKeys,
 	organizationSkillsQueryOptions,
 } from "#/query/organizations/organization-skills";
+import { CreateSkillDialog } from "./organization-skill-create-dialog";
+import { InstallSkillDialog } from "./organization-skill-install-dialog";
 import { useSkillCatalogView } from "./use-skill-catalog-view";
-
-const NEW_SKILL_INSTRUCTIONS_MAX_CHARS = 100_000;
-const PORTABLE_SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export function OrganizationSkillsListPage() {
 	const { currentOrganization, storageScope } = useAppOrganization();
@@ -100,10 +82,14 @@ function OrganizationSkillsCatalog() {
 	);
 	const [createOpen, setCreateOpen] = useState(false);
 	const [installOpen, setInstallOpen] = useState(false);
+	const addRef = useRef<HTMLButtonElement>(null);
+	const [completedSkill, setCompletedSkill] =
+		useState<OrganizationSkill | null>(null);
+	const [completionError, setCompletionError] = useState<string | null>(null);
 	const normalizedSearch = search.trim().toLowerCase();
 	const actions = skillsQuery.data?.canManage ? (
 		<DropdownMenu>
-			<DropdownMenuTrigger render={<Button />}>
+			<DropdownMenuTrigger ref={addRef} render={<Button />}>
 				<PlusIcon aria-hidden="true" /> Add skill
 			</DropdownMenuTrigger>
 			<FluidDropdownMenuContent align="end" className="w-52">
@@ -138,22 +124,50 @@ function OrganizationSkillsCatalog() {
 				),
 		[normalizedSearch, skillsQuery.data?.skills, status]
 	);
-	const openSkill = async (skillId: string) => {
-		await queryClient.invalidateQueries({
-			queryKey: organizationSkillQueryKeys.list(currentOrganization.id),
-		});
-		// A create/install finishing after an Organization switch belongs to
-		// its original cache, not to the newly displayed workspace or route.
-		if (!active.current) {
+	const openSkill = (skill: OrganizationSkill) => {
+		if (!active.current || skill.organizationId !== currentOrganization.id) {
 			return;
 		}
-		await navigate({
+		setCreateOpen(false);
+		setInstallOpen(false);
+		setCompletedSkill(skill);
+	};
+	useEffect(() => {
+		if (!completedSkill) {
+			return;
+		}
+		// The completed form and its guard have unmounted before navigation.
+		// A list refresh must not hold a confirmed creation/installation hostage.
+		queryClient.setQueryData(
+			organizationSkillQueryKeys.detail(
+				currentOrganization.id,
+				completedSkill.id
+			),
+			{ skill: completedSkill }
+		);
+		queryClient
+			.invalidateQueries({
+				queryKey: organizationSkillQueryKeys.list(currentOrganization.id),
+			})
+			.catch(console.error);
+		setCompletedSkill(null);
+		navigate({
 			to: buildOrganizationSkillPath({
 				orgSlug: currentOrganization.slug,
-				skillId,
+				skillId: completedSkill.id,
 			}),
+		}).catch(() => {
+			if (active.current) {
+				setCompletionError("The skill was added. Open it from the catalog.");
+			}
 		});
-	};
+	}, [
+		completedSkill,
+		currentOrganization.id,
+		currentOrganization.slug,
+		navigate,
+		queryClient,
+	]);
 
 	return (
 		<>
@@ -166,7 +180,13 @@ function OrganizationSkillsCatalog() {
 					description="Reusable instructions for agents in this workspace."
 					title="Skills"
 				/>
-				<search className="flex flex-wrap items-center gap-3">
+				{completionError && (
+					<output className="text-sm">{completionError}</output>
+				)}
+				<search
+					aria-label="Find skills"
+					className="flex flex-wrap items-center gap-3"
+				>
 					<div className="relative min-w-0 flex-1 basis-48">
 						<MagnifyingGlassIcon
 							aria-hidden="true"
@@ -249,19 +269,23 @@ function OrganizationSkillsCatalog() {
 				/>
 			</div>
 
-			<CreateSkillDialog
-				isPersonalWorkspace={isPersonalWorkspace}
-				onCreated={openSkill}
-				onOpenChange={setCreateOpen}
-				open={createOpen}
-				organizationId={currentOrganization.id}
-			/>
-			<InstallSkillDialog
-				onInstalled={openSkill}
-				onOpenChange={setInstallOpen}
-				open={installOpen}
-				organizationId={currentOrganization.id}
-			/>
+			{createOpen && (
+				<CreateSkillDialog
+					finalFocus={addRef}
+					isPersonalWorkspace={isPersonalWorkspace}
+					onClose={() => setCreateOpen(false)}
+					onCreated={openSkill}
+					organizationId={currentOrganization.id}
+				/>
+			)}
+			{installOpen && (
+				<InstallSkillDialog
+					finalFocus={addRef}
+					onClose={() => setInstallOpen(false)}
+					onInstalled={openSkill}
+					organizationId={currentOrganization.id}
+				/>
+			)}
 		</>
 	);
 }
@@ -367,298 +391,5 @@ function SkillsListContent(input: {
 				</li>
 			))}
 		</ul>
-	);
-}
-
-function CreateSkillDialog(input: {
-	onCreated: (skillId: string) => Promise<void>;
-	onOpenChange: (open: boolean) => void;
-	open: boolean;
-	organizationId: string;
-	isPersonalWorkspace: boolean;
-}) {
-	const [name, setName] = useState("");
-	const [description, setDescription] = useState("");
-	const [instructions, setInstructions] = useState("");
-	const [errorMessage, setErrorMessage] = useState<string | null>(null);
-	const createMutation = useMutation({
-		mutationFn: async () =>
-			await createCurrentOrganizationSkill({
-				description,
-				expectedOrganizationId: input.organizationId,
-				instructions,
-				name,
-			}),
-		onError: (error) =>
-			setErrorMessage(resolveOrganizationSkillErrorMessage(error)),
-		onSuccess: async (response) => {
-			input.onOpenChange(false);
-			setName("");
-			setDescription("");
-			setInstructions("");
-			await input.onCreated(response.skill.id);
-		},
-	});
-	const valid =
-		PORTABLE_SKILL_NAME_PATTERN.test(name.trim()) &&
-		description.trim().length > 0 &&
-		instructions.length <= NEW_SKILL_INSTRUCTIONS_MAX_CHARS;
-
-	return (
-		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
-			<DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl">
-				<DialogHeader>
-					<DialogTitle>Create skill</DialogTitle>
-					<DialogDescription>
-						{input.isPersonalWorkspace
-							? "Add an optional working method for this personal workspace."
-							: "Add an optional working method for this Organization."}
-					</DialogDescription>
-				</DialogHeader>
-				<div className="grid gap-4">
-					<div className="grid gap-2">
-						<Label htmlFor="new-skill-name">Name</Label>
-						<Input
-							disabled={createMutation.isPending}
-							id="new-skill-name"
-							maxLength={64}
-							onChange={(event) => setName(event.target.value)}
-							placeholder="weekly-customer-risk-review"
-							value={name}
-						/>
-						<p className="text-muted-foreground text-xs">
-							Use lowercase letters, numbers, and single hyphens.
-						</p>
-					</div>
-					<div className="grid gap-2">
-						<Label htmlFor="new-skill-description">Description</Label>
-						<Input
-							disabled={createMutation.isPending}
-							id="new-skill-description"
-							maxLength={1024}
-							onChange={(event) => setDescription(event.target.value)}
-							placeholder="Review customer signals and summarize weekly risks."
-							value={description}
-						/>
-					</div>
-					<div className="grid gap-2">
-						<Label>Instructions</Label>
-						<MarkdownEditor
-							disabled={createMutation.isPending}
-							maxChars={NEW_SKILL_INSTRUCTIONS_MAX_CHARS}
-							onChange={setInstructions}
-							value={instructions}
-						/>
-					</div>
-					{errorMessage ? (
-						<p className="text-destructive text-sm" role="alert">
-							{errorMessage}
-						</p>
-					) : null}
-				</div>
-				<DialogFooter>
-					<Button
-						disabled={createMutation.isPending}
-						onClick={() => input.onOpenChange(false)}
-						variant="outline"
-					>
-						Cancel
-					</Button>
-					<Button
-						disabled={!valid || createMutation.isPending}
-						onClick={() => {
-							setErrorMessage(null);
-							createMutation.mutate();
-						}}
-					>
-						{createMutation.isPending ? "Creating…" : "Create skill"}
-					</Button>
-				</DialogFooter>
-			</DialogContent>
-		</Dialog>
-	);
-}
-
-function InstallSkillDialog(input: {
-	onInstalled: (skillId: string) => Promise<void>;
-	onOpenChange: (open: boolean) => void;
-	open: boolean;
-	organizationId: string;
-}) {
-	const [url, setUrl] = useState("");
-	const [preview, setPreview] = useState<OrganizationSkillGitHubPreview | null>(
-		null
-	);
-	const [errorMessage, setErrorMessage] = useState<string | null>(null);
-	const previewMutation = useMutation({
-		mutationFn: async () =>
-			await previewCurrentOrganizationSkillFromGitHub({
-				expectedOrganizationId: input.organizationId,
-				url,
-			}),
-		onError: (error) =>
-			setErrorMessage(resolveOrganizationSkillErrorMessage(error)),
-		onSuccess: (response) => setPreview(response.preview),
-	});
-	const installMutation = useMutation({
-		mutationFn: async () => {
-			if (!preview) {
-				throw new Error("The GitHub Skill preview is missing its commit.");
-			}
-			return await importCurrentOrganizationSkillFromGitHub({
-				expectedCommitSha: preview.source.commitSha,
-				expectedOrganizationId: input.organizationId,
-				url,
-			});
-		},
-		onError: (error) =>
-			setErrorMessage(resolveOrganizationSkillErrorMessage(error)),
-		onSuccess: async (response) => {
-			input.onOpenChange(false);
-			setUrl("");
-			setPreview(null);
-			await input.onInstalled(response.skill.id);
-		},
-	});
-	const busy = previewMutation.isPending || installMutation.isPending;
-	const handleOpenChange = (open: boolean) => {
-		if (!(open || busy)) {
-			setErrorMessage(null);
-			setPreview(null);
-			setUrl("");
-		}
-		input.onOpenChange(open);
-	};
-
-	return (
-		<Dialog onOpenChange={handleOpenChange} open={input.open}>
-			<DialogContent>
-				<DialogHeader>
-					<DialogTitle>Install from GitHub</DialogTitle>
-					<DialogDescription>
-						Paste a public GitHub repository, Skill folder, or SKILL.md URL,
-						then review the exact commit before installing.
-					</DialogDescription>
-				</DialogHeader>
-				<div className="grid gap-4">
-					{preview ? (
-						<GitHubSkillPreview preview={preview} />
-					) : (
-						<div className="grid gap-2">
-							<Label htmlFor="skill-github-url">GitHub URL</Label>
-							<Input
-								autoCapitalize="none"
-								autoCorrect="off"
-								disabled={busy}
-								id="skill-github-url"
-								onChange={(event) => {
-									setErrorMessage(null);
-									setUrl(event.target.value);
-								}}
-								placeholder="https://github.com/org/repo/tree/main/my-skill"
-								type="url"
-								value={url}
-							/>
-						</div>
-					)}
-					{errorMessage ? (
-						<p className="text-destructive text-sm" role="alert">
-							{errorMessage}
-						</p>
-					) : null}
-				</div>
-				<DialogFooter>
-					<Button
-						disabled={busy}
-						onClick={() => handleOpenChange(false)}
-						variant="outline"
-					>
-						Cancel
-					</Button>
-					{preview ? (
-						<>
-							<Button
-								disabled={busy}
-								onClick={() => {
-									setErrorMessage(null);
-									setPreview(null);
-								}}
-								variant="outline"
-							>
-								Back
-							</Button>
-							<Button
-								disabled={busy}
-								onClick={() => {
-									setErrorMessage(null);
-									installMutation.mutate();
-								}}
-							>
-								{installMutation.isPending ? "Installing…" : "Install skill"}
-							</Button>
-						</>
-					) : (
-						<Button
-							disabled={busy || !url.trim().startsWith("https://github.com/")}
-							onClick={() => {
-								setErrorMessage(null);
-								previewMutation.mutate();
-							}}
-						>
-							{previewMutation.isPending ? "Reviewing…" : "Review skill"}
-						</Button>
-					)}
-				</DialogFooter>
-			</DialogContent>
-		</Dialog>
-	);
-}
-
-function GitHubSkillPreview(input: {
-	preview: OrganizationSkillGitHubPreview;
-}) {
-	const { preview } = input;
-	return (
-		<div className="grid gap-4 rounded-md border p-4">
-			<div>
-				<h3 className="font-medium text-base">{preview.portable.name}</h3>
-				<p className="mt-1 text-muted-foreground text-sm">
-					{preview.portable.description}
-				</p>
-			</div>
-			<dl className="grid gap-2 text-sm sm:grid-cols-2">
-				<div>
-					<dt className="text-muted-foreground text-xs">Commit</dt>
-					<dd className="mt-1 font-mono text-xs">
-						{preview.source.commitSha.slice(0, 12)}
-					</dd>
-				</div>
-				<div>
-					<dt className="text-muted-foreground text-xs">Files</dt>
-					<dd className="mt-1">{preview.files.length}</dd>
-				</div>
-				<div>
-					<dt className="text-muted-foreground text-xs">Instructions</dt>
-					<dd className="mt-1">
-						{preview.instructionsCharacters.toLocaleString("en-US")} characters
-					</dd>
-				</div>
-				<div>
-					<dt className="text-muted-foreground text-xs">License</dt>
-					<dd className="mt-1">
-						{preview.portable.license ?? "Not specified"}
-					</dd>
-				</div>
-			</dl>
-			{preview.warnings.length > 0 ? (
-				<div className="grid gap-1 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
-					{preview.warnings.map((warning) => (
-						<p className="text-sm" key={warning}>
-							{warning}
-						</p>
-					))}
-				</div>
-			) : null}
-		</div>
 	);
 }

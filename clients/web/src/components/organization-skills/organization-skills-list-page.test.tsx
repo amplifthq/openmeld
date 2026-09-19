@@ -1,4 +1,7 @@
-import type { OrganizationSkill } from "@openmeld/schemas/types";
+import type {
+	OrganizationSkill,
+	OrganizationSkillGitHubPreview,
+} from "@openmeld/schemas/types";
 import {
 	createMemoryHistory,
 	createRootRoute,
@@ -14,6 +17,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { organizationSkillQueryKeys } from "#/query/organizations/organization-skills";
@@ -136,13 +140,17 @@ describe("OrganizationSkillsListPage", () => {
 		fireEvent.click(screen.getByText("second-skill"));
 		await screen.findByRole("heading", { name: "two" });
 		viewport.scrollTop = 0;
-		await act(() => router.navigate({ to: "/o/acme/skills" }));
+		await act(() =>
+			router.navigate({ to: "/o/$orgSlug/skills", params: { orgSlug: "acme" } })
+		);
 		await screen.findByText("second-skill");
 		expect(
 			(screen.getByLabelText("Search skills") as HTMLInputElement).value
 		).toBe("second");
 		expect(viewport.scrollTop).toBe(240);
-		await act(() => router.navigate({ to: "/o/beta/skills" }));
+		await act(() =>
+			router.navigate({ to: "/o/$orgSlug/skills", params: { orgSlug: "beta" } })
+		);
 		await screen.findByText("first-skill");
 		expect(
 			(screen.getByLabelText("Search skills") as HTMLInputElement).value
@@ -269,9 +277,7 @@ describe("OrganizationSkillsListPage", () => {
 
 		await openAddAction("Create skill");
 		expect(
-			screen.getByText(
-				"Add an optional working method for this personal workspace."
-			)
+			screen.getByText("Add a working method for your agents.")
 		).toBeTruthy();
 		expect(screen.queryByText(ORGANIZATION_COPY_PATTERN)).toBeNull();
 	});
@@ -315,15 +321,10 @@ describe("OrganizationSkillsListPage", () => {
 			},
 		});
 		importCurrentOrganizationSkillFromGitHubMock.mockResolvedValue({
-			skill: {
-				...skillSummary({
-					description: "Review release evidence.",
-					id: "release-review",
-					name: "release-review",
-				}),
-				maintainerUserIds: [],
-				releases: [],
-			},
+			skill: createOrganizationSkillFixture({
+				id: "release-review",
+				name: "release-review",
+			}),
 		});
 		const { router } = renderPage();
 
@@ -337,7 +338,11 @@ describe("OrganizationSkillsListPage", () => {
 
 		expect(await screen.findByText("release-review")).toBeTruthy();
 		expect(screen.getByText(commitSha.slice(0, 12))).toBeTruthy();
-		expect(screen.getByText("1")).toBeTruthy();
+		expect(screen.getByText("1 file")).toBeTruthy();
+		expect(
+			screen.getByRole("region", { name: "Import warnings" })
+		).toBeTruthy();
+		fireEvent.click(screen.getByText("Technical details"));
 		expect(screen.getByText("42 characters")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Install skill" }));
 
@@ -398,7 +403,7 @@ describe("OrganizationSkillsListPage", () => {
 		);
 		const pending = deferred<{ skill: OrganizationSkill }>();
 		createCurrentOrganizationSkillMock.mockReturnValueOnce(pending.promise);
-		const { router } = renderPage();
+		const { unmount } = renderPage();
 		await openAddAction("Create skill");
 		fireEvent.change(screen.getByLabelText("Name"), {
 			target: { value: "acme-draft" },
@@ -410,13 +415,15 @@ describe("OrganizationSkillsListPage", () => {
 		await waitFor(() =>
 			expect(createCurrentOrganizationSkillMock).toHaveBeenCalledTimes(1)
 		);
-		await act(async () => {
-			await router.navigate({
-				to: "/o/$orgSlug/skills",
-				params: { orgSlug: "beta" },
-			});
+		// An authentication/account replacement can unmount an in-flight surface.
+		// This is distinct from ordinary router navigation, which is guarded below.
+		unmount();
+		Object.assign(currentOrganizationMock, {
+			id: "org-beta",
+			slug: "beta",
+			name: "Beta",
 		});
-		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		const { router } = renderPage();
 		await openAddAction("Create skill");
 		expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("");
 		fireEvent.change(screen.getByLabelText("Name"), {
@@ -433,6 +440,244 @@ describe("OrganizationSkillsListPage", () => {
 		);
 	});
 });
+
+describe("Skill add flow protection", () => {
+	beforeEach(() => {
+		listCurrentOrganizationSkillsMock.mockImplementation(
+			async ({ organizationId }) => ({
+				organizationId,
+				canManage: true,
+				skills: [],
+			})
+		);
+	});
+
+	it.each([
+		"cancel",
+		"escape",
+		"organization",
+	] as const)("retains creation input until explicit discard through %s", async (exit) => {
+		const { router } = renderPage();
+		await openAddAction("Create skill");
+		fireEvent.change(screen.getByLabelText("Name"), {
+			target: { value: "unsaved-skill" },
+		});
+		const leave = () => {
+			if (exit === "organization") {
+				act(() => {
+					router.navigate({
+						to: "/o/$orgSlug/skills",
+						params: { orgSlug: "beta" },
+					});
+				});
+			} else if (exit === "escape") {
+				fireEvent.keyDown(
+					screen.getByRole("dialog", { name: "Create skill" }),
+					{ key: "Escape" }
+				);
+			} else {
+				fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+			}
+		};
+		leave();
+		let confirmation = await screen.findByRole("dialog", {
+			name: "Discard this new skill?",
+		});
+		expect(within(confirmation).queryByText("Save and leave")).toBeNull();
+		fireEvent.click(
+			within(confirmation).getByRole("button", { name: "Cancel" })
+		);
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("dialog", { name: "Discard this new skill?" })
+			).toBeNull()
+		);
+		expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(
+			"unsaved-skill"
+		);
+		expect(router.state.location.pathname).toBe("/o/acme/skills");
+		leave();
+		confirmation = await screen.findByRole("dialog", {
+			name: "Discard this new skill?",
+		});
+		fireEvent.click(
+			within(confirmation).getByRole("button", { name: "Discard changes" })
+		);
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		expect(createCurrentOrganizationSkillMock).not.toHaveBeenCalled();
+		if (exit === "organization") {
+			await waitFor(() =>
+				expect(router.state.location.pathname).toBe("/o/beta/skills")
+			);
+		}
+		await openAddAction("Create skill");
+		expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("");
+	});
+
+	it("keeps a committing creation open, prevents duplicate writes and does not wait for catalog refresh", async () => {
+		const pending = deferred<{ skill: OrganizationSkill }>();
+		createCurrentOrganizationSkillMock.mockReturnValue(pending.promise);
+		const { router, queryClient } = renderPage();
+		await openAddAction("Create skill");
+		fireEvent.change(screen.getByLabelText("Name"), {
+			target: { value: "new-method" },
+		});
+		fireEvent.change(screen.getByLabelText("Description"), {
+			target: { value: "A working method." },
+		});
+		const submit = screen.getByRole("button", { name: "Create skill" });
+		fireEvent.click(submit);
+		fireEvent.click(submit);
+		await waitFor(() =>
+			expect(createCurrentOrganizationSkillMock).toHaveBeenCalledTimes(1)
+		);
+		fireEvent.keyDown(screen.getByRole("dialog", { name: "Create skill" }), {
+			key: "Escape",
+		});
+		expect(screen.getByRole("dialog", { name: "Create skill" })).toBeTruthy();
+		expect(
+			(screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement)
+				.disabled
+		).toBe(true);
+		listCurrentOrganizationSkillsMock.mockReturnValue(
+			new Promise(() => undefined)
+		);
+		const saved = createOrganizationSkillFixture({
+			id: "new-method",
+			name: "new-method",
+		});
+		await act(() => pending.resolve({ skill: saved }));
+		await waitFor(() =>
+			expect(router.state.location.pathname).toBe("/o/acme/skills/new-method")
+		);
+		expect(
+			queryClient.getQueryData(
+				organizationSkillQueryKeys.detail("org-acme", "new-method")
+			)
+		).toEqual({ skill: saved });
+	});
+
+	it("keeps only the preview for the latest URL and preserves a failed installation for retry", async () => {
+		const old = deferred<{
+			organizationId: string;
+			preview: OrganizationSkillGitHubPreview;
+		}>();
+		previewCurrentOrganizationSkillFromGitHubMock
+			.mockReturnValueOnce(old.promise)
+			.mockResolvedValueOnce({
+				organizationId: "org-acme",
+				preview: previewFixture("new-method", "b"),
+			});
+		importCurrentOrganizationSkillFromGitHubMock
+			.mockRejectedValueOnce(new Error("Network failed"))
+			.mockResolvedValueOnce({
+				skill: createOrganizationSkillFixture({ id: "new-method" }),
+			});
+		const { router } = renderPage();
+		await openAddAction("Install from GitHub");
+		fireEvent.change(screen.getByLabelText("GitHub URL"), {
+			target: { value: "https://github.com/acme/old" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Review skill" }));
+		await waitFor(() =>
+			expect(
+				previewCurrentOrganizationSkillFromGitHubMock
+			).toHaveBeenCalledTimes(1)
+		);
+		fireEvent.change(screen.getByLabelText("GitHub URL"), {
+			target: { value: "https://github.com/acme/new" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Review skill" }));
+		await screen.findByText("new-method");
+		await act(() =>
+			old.resolve({
+				organizationId: "org-acme",
+				preview: previewFixture("old-method", "a"),
+			})
+		);
+		expect(screen.queryByText("old-method")).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Install skill" }));
+		await screen.findByRole("alert");
+		expect(screen.getByText("new-method")).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Install skill" }));
+		await waitFor(() =>
+			expect(router.state.location.pathname).toBe("/o/acme/skills/new-method")
+		);
+		for (const [payload] of importCurrentOrganizationSkillFromGitHubMock.mock
+			.calls) {
+			expect(payload).toEqual({
+				expectedOrganizationId: "org-acme",
+				expectedCommitSha: "b".repeat(40),
+				url: "https://github.com/acme/new",
+			});
+		}
+	});
+
+	it("discards a pending preview on organization navigation without letting its late result replace the next form", async () => {
+		const pending = deferred<{
+			organizationId: string;
+			preview: OrganizationSkillGitHubPreview;
+		}>();
+		previewCurrentOrganizationSkillFromGitHubMock.mockReturnValue(
+			pending.promise
+		);
+		const { router } = renderPage();
+		await openAddAction("Install from GitHub");
+		fireEvent.change(screen.getByLabelText("GitHub URL"), {
+			target: { value: "https://github.com/acme/old" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Review skill" }));
+		act(() => {
+			router.navigate({
+				to: "/o/$orgSlug/skills",
+				params: { orgSlug: "beta" },
+			});
+		});
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Discard changes" })
+		);
+		await waitFor(() =>
+			expect(router.state.location.pathname).toBe("/o/beta/skills")
+		);
+		await openAddAction("Install from GitHub");
+		fireEvent.change(screen.getByLabelText("GitHub URL"), {
+			target: { value: "https://github.com/beta/new" },
+		});
+		await act(() =>
+			pending.resolve({
+				organizationId: "org-acme",
+				preview: previewFixture("old-method", "a"),
+			})
+		);
+		expect(screen.queryByText("old-method")).toBeNull();
+		expect(
+			(screen.getByLabelText("GitHub URL") as HTMLInputElement).value
+		).toBe("https://github.com/beta/new");
+		expect(importCurrentOrganizationSkillFromGitHubMock).not.toHaveBeenCalled();
+	});
+});
+
+function previewFixture(
+	name: string,
+	digest: string
+): OrganizationSkillGitHubPreview {
+	const skill = createOrganizationSkillFixture({
+		name,
+		referenceContent: "Reference.",
+	});
+	return {
+		portable: skill.bundle.portable,
+		instructionsCharacters: skill.bundle.instructions.length,
+		files: skill.bundle.files.map(({ content: _content, ...file }) => file),
+		source: {
+			kind: "github",
+			repository: "https://github.com/acme/skills",
+			path: name,
+			commitSha: digest.repeat(40),
+		},
+		warnings: [],
+	};
+}
 
 async function openAddAction(name: string) {
 	fireEvent.click(await screen.findByRole("button", { name: "Add skill" }));

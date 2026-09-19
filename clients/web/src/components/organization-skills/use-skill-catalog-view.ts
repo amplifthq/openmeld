@@ -32,6 +32,14 @@ export function useSkillCatalogView(ready: boolean) {
 		current.current = { ...current.current, ...patch };
 		queryClient.setQueryData(key, current.current);
 		setView(current.current);
+		if (patch.scrollTop !== undefined) {
+			const viewport = root.current?.closest<HTMLElement>(
+				'[data-slot="scroll-area-viewport"]'
+			);
+			if (viewport) {
+				viewport.scrollTop = patch.scrollTop;
+			}
+		}
 	};
 	useLayoutEffect(() => {
 		if (!ready || restored.current) {

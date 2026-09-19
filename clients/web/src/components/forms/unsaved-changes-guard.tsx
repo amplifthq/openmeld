@@ -28,7 +28,10 @@ export type SaveBeforeLeaveResult = boolean | "saved-with-unsaved-changes";
 export function UnsavedChangesGuard(input: {
 	description: string;
 	hasUnsavedChanges: boolean;
-	onSave: () => Promise<SaveBeforeLeaveResult>;
+	/** Omit for creation/import drafts that cannot be saved without committing. */
+	onSave?: () => Promise<SaveBeforeLeaveResult>;
+	onDiscard?: () => void;
+	title?: string;
 	saving?: boolean;
 }) {
 	useLayoutEffect(
@@ -50,17 +53,23 @@ export function UnsavedChangesGuard(input: {
 				blocker.status === "blocked" && blocker.reset();
 			}}
 			onDiscard={() => {
+				input.onDiscard?.();
 				blocker.status === "blocked" && blocker.proceed();
 			}}
-			onSaveAndLeave={async () => {
-				const saved = await input.onSave();
-				if (saved === true && blocker.status === "blocked") {
-					blocker.proceed();
-				}
-				return saved;
-			}}
+			onSaveAndLeave={
+				input.onSave
+					? async () => {
+							const saved = await input.onSave?.();
+							if (saved === true && blocker.status === "blocked") {
+								blocker.proceed();
+							}
+							return saved ?? false;
+						}
+					: undefined
+			}
 			open={open}
 			saving={input.saving}
+			title={input.title}
 		/>
 	);
 }
@@ -70,7 +79,8 @@ export function UnsavedChangesDialog(input: {
 	description: string;
 	onCancel: () => void;
 	onDiscard: () => void;
-	onSaveAndLeave: () => Promise<SaveBeforeLeaveResult>;
+	onSaveAndLeave?: () => Promise<SaveBeforeLeaveResult>;
+	title?: string;
 	open: boolean;
 	saving?: boolean;
 }) {
@@ -91,9 +101,14 @@ export function UnsavedChangesDialog(input: {
 			}}
 			open={input.open}
 		>
-			<DialogContent>
+			<DialogContent showCloseButton={!input.saving}>
 				<DialogHeader>
-					<DialogTitle>Save changes before leaving?</DialogTitle>
+					<DialogTitle>
+						{input.title ??
+							(input.onSaveAndLeave
+								? "Save changes before leaving?"
+								: "Discard unsaved changes?")}
+					</DialogTitle>
 					<DialogDescription>{input.description}</DialogDescription>
 				</DialogHeader>
 				{saveResult === false ? (
@@ -121,24 +136,26 @@ export function UnsavedChangesDialog(input: {
 					>
 						Discard changes
 					</Button>
-					<Button
-						disabled={input.saving}
-						onClick={() => {
-							setSaveResult(null);
-							input
-								.onSaveAndLeave()
-								.then((result) => setSaveResult(result))
-								.catch((error: unknown) => {
-									console.error(
-										"Failed to save before leaving the page.",
-										error
-									);
-									setSaveResult(false);
-								});
-						}}
-					>
-						{input.saving ? "Saving…" : "Save and leave"}
-					</Button>
+					{input.onSaveAndLeave && (
+						<Button
+							disabled={input.saving}
+							onClick={() => {
+								setSaveResult(null);
+								input
+									.onSaveAndLeave?.()
+									.then((result) => setSaveResult(result))
+									.catch((error: unknown) => {
+										console.error(
+											"Failed to save before leaving the page.",
+											error
+										);
+										setSaveResult(false);
+									});
+							}}
+						>
+							{input.saving ? "Saving…" : "Save and leave"}
+						</Button>
+					)}
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
