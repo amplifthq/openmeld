@@ -2115,7 +2115,9 @@ describe("accepted dispatch finalization", () => {
           space.spaceId = nextSpaceId;
         }),
       },
-      bindings: { value: {} },
+      // Final-reply delivery reads caller identity before its persisted reply.
+      // Keep the real test binding instead of failing before the intended read.
+      bindings: { value: env },
       broadcastSignal: { value: vi.fn() },
       ctx: {
         value: { storage: projectionStorage, waitUntil: vi.fn() },
