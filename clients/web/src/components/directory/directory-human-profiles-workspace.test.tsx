@@ -579,7 +579,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(
 			within(screen.getByRole("main")).getAllByText("felix@example.com")
 		).toHaveLength(1);
-		expect(screen.getByRole("main").dataset.showMainHeader).toBe("true");
+		expect(screen.getByRole("main").dataset.showMainHeader).toBe("false");
 	});
 
 	it("keeps a single clipped row structure when the resizable sidebar becomes narrow", () => {

@@ -38,6 +38,9 @@ patchedDependencies:
   '@flue/runtime@2.0.3':
     hash: 2af016a413c955dd981242765b00945562a3fe7c93d32d9b39d70eee0f7bee49
     path: patches/@flue__runtime@2.0.3.patch
+  '@tanstack/history@1.162.1':
+    hash: 576e51acd5b407f38327f77a5c1caf792bf0f33da44e94d449e905c6e33afcf8
+    path: patches/@tanstack__history@1.162.1.patch
   thinking-orbs@0.3.1:
     hash: 1d2410bd054a0bbf76633d101f3ad9e0e088bed08e1470176fc51bdb7e45d9c3
     path: patches/thinking-orbs@0.3.1.patch
@@ -18249,7 +18252,7 @@ snapshots:
       tailwindcss: 4.2.1
       vite: 7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0)
 
-  '@tanstack/history@1.162.1': {}
+  '@tanstack/history@1.162.1(patch_hash=576e51acd5b407f38327f77a5c1caf792bf0f33da44e94d449e905c6e33afcf8)': {}
 
   '@tanstack/query-async-storage-persister@5.102.8':
     dependencies:
@@ -18305,7 +18308,7 @@ snapshots:
 
   '@tanstack/react-router@1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
     dependencies:
-      '@tanstack/history': 1.162.1
+      '@tanstack/history': 1.162.1(patch_hash=576e51acd5b407f38327f77a5c1caf792bf0f33da44e94d449e905c6e33afcf8)
       '@tanstack/react-store': 0.9.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@tanstack/router-core': 1.171.27
       isbot: 5.1.37
@@ -18472,7 +18475,7 @@ snapshots:
 
   '@tanstack/router-core@1.171.27':
     dependencies:
-      '@tanstack/history': 1.162.1
+      '@tanstack/history': 1.162.1(patch_hash=576e51acd5b407f38327f77a5c1caf792bf0f33da44e94d449e905c6e33afcf8)
       cookie-es: 3.1.1
       seroval: 1.6.4
       seroval-plugins: 1.6.4(seroval@1.6.4)
@@ -18675,7 +18678,7 @@ snapshots:
 
   '@tanstack/start-server-core@1.169.31':
     dependencies:
-      '@tanstack/history': 1.162.1
+      '@tanstack/history': 1.162.1(patch_hash=576e51acd5b407f38327f77a5c1caf792bf0f33da44e94d449e905c6e33afcf8)
       '@tanstack/router-core': 1.171.27
       '@tanstack/start-client-core': 1.170.27
       '@tanstack/start-storage-context': 1.167.29

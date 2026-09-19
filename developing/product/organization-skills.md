@@ -4,7 +4,7 @@
 
 - Purpose: Define the Organization Skill product, authority, release, runtime,
   Web, Center Agent, CLI, and local-agent contract.
-- Read this when: Changing Center Agent Skills navigation, Agent Skills import
+- Read this when: Changing Team Skills navigation, Agent Skills import
   or editing, Skill permissions, release storage, Flue integration, Skill-aware
   delegation, or `openmeld skills`.
 - Update this when: Any Organization Skill surface, authority rule, portable
@@ -20,8 +20,8 @@
 ## Product Definition
 
 An **Organization Skill** is an optional, Organization-owned, reusable way of
-working that can teach the Center Agent and explicitly selected local agents
-how to complete a class of tasks.
+working that can teach the Center Agent, local agents, and personal remote
+agents how to complete a class of tasks within their existing authorization.
 
 There is one user-facing Skill kind: **Organization Skill**. OpenMeld must not
 add user-facing `internal`, `external`, `built-in`, `required`, `workgroup`, or
@@ -158,6 +158,26 @@ Concurrent editors must not overwrite each other. A stale expected release or
 version returns a conflict and leaves both the active release and the editor's
 local content intact for reload or comparison.
 
+Web pairs each local bundle with the release and version from which editing
+started. A background refresh cannot advance a dirty draft's save expectations.
+A clean editor adopts a newer snapshot and its baseline together. A successful
+Save advances the baseline, while input made during the request stays unsaved
+and cannot be overwritten by the response. Editor identity is Organization id
+plus Skill id, never a release id; refetching must not remount the editing
+workflow or its unsaved guard. When a clean snapshot or canonical Save response
+is accepted, the same draft transition advances a content-load generation for
+the Instructions and Markdown reference editors. Those Plate instances reload
+the accepted bundle through the shared Markdown editor's key-based contract,
+including changed reference content at the same path. Ordinary input, dirty
+refreshes, and Save responses retaining newer input do not advance that
+generation. Visible rich text, the local bundle, and save expectations must
+agree; changing parent props alone is not a rich-text reload.
+
+A failed background refetch with an existing snapshot leaves the editor and
+unsaved guard mounted and shows an error notice instead of deleting local work.
+Cached permissions do not authorize writes; every Save still passes Core's
+current membership, permission, and optimistic-concurrency checks.
+
 Phase 1 exposes release history for inspection but does not provide a Restore
 action. A future Restore must create another immutable release whose content is
 copied from the selected historical release; it must never move the active
@@ -241,52 +261,137 @@ removed Skill cannot appear in runtime or CLI snapshots.
 
 ## Web Product
 
-Center Agent owns no secondary sidebar. Its primary header navigation is:
+Skills management belongs to **Team**, whose tabs are **People / Agents /
+Plugins / Skills**. The list and detail share Team's header, member sidebar,
+page frame, and active rail destination, including loading and error states.
+Opening the catalog does not mount or prepare a Center Agent conversation.
+The Center Agent keeps its conversational Skill tools and consumption behavior,
+but has no second Skills management page or primary Skills tab.
 
-1. **Messages**
-2. **Graph**
-3. **Files**
-4. **Tasks**
-5. **Routines**
-6. **Skills**
-7. **Plugins**
-
-One compact header menu preserves **Channels**, **Memory**, and **Center Agent
-settings**. Skills remains one capability inside
-that product home; required system behavior remains internal. The Center Agent
-conversation is canonical Home in the primary rail.
-
-Canonical routes are:
+Canonical Web routes are:
 
 ```text
-/o/{orgSlug}
-/o/{orgSlug}/center-agent/routines
-/o/{orgSlug}/center-agent/skills
-/o/{orgSlug}/center-agent/skills/{skillId}
-/o/{orgSlug}/center-agent/channels
-/o/{orgSlug}/center-agent/plugins
-/o/{orgSlug}/center-agent/plugins/{service}
-/o/{orgSlug}/center-agent/memory
-/o/{orgSlug}/settings/center-agent
+/o/{orgSlug}/skills
+/o/{orgSlug}/skills/{skillId}
 ```
 
-The Skills list shows all Organization Skills without a type filter. It offers
-search, **Create skill**, and **Install from GitHub**. Each row shows name,
-description, enabled state, source summary, and last update.
+The old `/o/{orgSlug}/center-agent/skills` list and detail URLs are redirect-only
+compatibility leaves outside the Center Agent layout. They replace the history
+entry, preserve the exact decoded Skill identity when rebuilding the encoded
+path, accept trailing slashes, and retain the hash and validated global
+`appSettings` state. The parent does not redirect before the detail is resolved.
+Historical messages are not rewritten.
+
+The catalog search and editing state are browser-local, not Skills URL query
+parameters. Center Agent `draft`, `group`, and `session`, Plugin `scope`, and
+unknown query state are not Skills business context and are dropped on legacy
+redirects. Team tabs start at the canonical destination without carrying query
+or hash state from the previous tab.
+
+Switching Organizations from either Skills route, including a legacy route,
+opens the target Organization's canonical list. It never transfers a Skill id,
+guesses a matching name, or shares query-cache or editor identity. List search,
+create drafts, and install previews are also Organization-scoped; an old
+Organization's delayed create/install completion cannot navigate the new one.
+
+The catalog is a compact directory, not a dashboard or marketplace. One **Skills**
+heading and one short explanation precede search, an **All / Enabled / Disabled**
+status filter, and the permission-gated **Add skill** menu (**Create skill** or
+**Install from GitHub**). Rows show the actual portable name, description,
+enabled state, source and update date. They sort by latest update, then name and
+id for stable ties. Narrow layouts reflow the same rows rather than introduce a
+second card view. Empty and no-match states differ; a background read error keeps
+the cached list and an inline retry instead of blanking the catalog.
+
+Search, status and scroll position are transient account/Organization view state,
+not Skill contents or URL parameters. Returning to the same catalog restores them;
+another account or Organization gets its own view. Filtering returns the scroll
+owner to the start. Do not persist drafts or install previews as catalog state.
+
+Every member can reach the catalog; `canManage` controls management actions, not
+the Team tab. Assigned maintainers retain editing only and do not gain install,
+enable/disable, delete, or maintainer-assignment authority. All generated Web
+links, including create/install completion, **All Skills**, and deletion return,
+use the canonical Web builders. API endpoint builders remain unchanged.
+
+The page describes shared working methods for Center Agent, local agents, and
+personal remote agents in the current workspace. Enabled means available to
+authorized agents; loading or activation is a separate runtime action. It does
+not promise automatic use by every Agent or grant any tool/Plugin permission.
 
 In a personal workspace, Web uses personal-workspace copy for this same
 Organization Skill model. This is presentation only; it must not introduce a
 separate Personal Skill type, storage scope, permission model, or runtime
 catalog.
 
-The detail page is directly editable when the current member may edit. It does
-not have View/Edit modes. A read-only member sees the same content surface
-without editable controls.
+### Document-first detail
 
-Portable frontmatter fields use labeled form controls. Instructions and
-Markdown references use one shared Plate WYSIWYG editor whose persisted value
-is CommonMark + GFM. The editor does not expose raw frontmatter as editable
-Markdown.
+The detail is a readable document, directly editable with the existing authority.
+Name and description appear once, above Instructions, as document-style labeled
+inputs for editors and ordinary text for readers. There is no Overview landing
+page, View/Edit switch, raw Markdown preview mode, or second navigation sidebar.
+A sticky action row keeps **All Skills**, the exact save state, **Save**, and
+**More actions** reachable. Only Skills with supporting files show the local
+**Instructions / Files (n)** tabs; switching them neither saves nor leaves the
+Skill. The outer document owns one draft for every surface.
+
+**More actions** exposes **Copy link**, **How agents use this skill**,
+**Properties**, and **Version history**. Managers additionally see maintainers,
+enable/disable, and removal. Management mutations remain unavailable while the
+document is dirty or a write is pending, with a short explanation. Copy link uses
+the canonical route and, in Desktop, the bridge's Web origin rather than the
+local renderer origin. Clipboard failure is reported as failure, not success.
+
+Properties contains only optional portable fields: license, compatibility,
+allowed-tools and metadata. Closing Properties retains its changes in the shared
+draft; **Save skill** saves the entire bundle. Save status and any validation
+that prevents saving remain visible inside Properties. Metadata key editing preserves
+focus and rejects collisions without overwriting another entry. History lists
+real timestamps, the current-release badge, and expandable identity/digest/source
+details. It does not invent summaries, usage counts or restore actions. Existing
+`skill-details-heading`, `skill-history-heading`, `skill-files-heading` and
+`skill-instructions-heading` anchors open their relocated surfaces.
+
+Files are compact rows with at most one expanded view. Unopened references do not
+mount Plate. Once opened, a reference editor is retained hidden when collapsed,
+so queued input and Undo history are not lost during file switches. File paths
+own presentation identity; accepted content generations still control safe
+external reloads. Other text is read-only, binary assets are downloadable, and
+scripts remain explicitly non-executable. This UI does not add upload or removal
+of bundle files.
+
+Instructions and references reuse the shared Plate/CommonMark + GFM editor. Its
+opt-in page presentation supplies a quiet, accessible toolbar and document
+spacing; character limits appear near the boundary, not as permanent decoration.
+The default presentation for Documents and Space Files remains unchanged. The
+shared editor reports content changes only; focus and selection must not
+serialize untouched content into a false unsaved draft. No second editor engine,
+autosave or publish state is introduced.
+
+### Creation and installation
+
+Create uses a spacious shared dialog with a fixed header/footer and one scrolling
+body for Name, Description and Instructions. Opening it creates no server record.
+Only **Create skill** commits the existing request. Local drafts survive a canceled
+close; actual dismissal, Escape, outside interaction and route/Organization exits
+use the shared discard confirmation. It intentionally offers no Save-and-leave
+that would silently create or install a resource. Pending writes cannot be
+accidentally dismissed or submitted twice; errors keep the entered content.
+
+GitHub installation has two steps: a URL, then a compact source review showing
+name, purpose, repository/path, exact short commit and file count. Real warnings
+remain visible before **Install skill**. License, full commit and file manifest
+are available under Technical details. Back retains the URL. A preview is bound
+to its requested URL, Organization and request generation; editing the URL,
+closing the flow or changing identity invalidates old responses. Installation
+uses the exact reviewed commit through the unchanged Core endpoint.
+
+On confirmed creation/installation, the dialog and its guard close before opening
+the returned canonical detail. Returned Skill data seeds the existing detail
+cache; catalog refresh cannot delay success or turn an already confirmed write
+into a failure. The same distinction applies to document Save and management
+writes: a catalog-refresh error has its own notice and retry. Late completions
+cannot navigate a replaced account/Organization surface.
 
 The Save lifecycle uses the shared status vocabulary:
 
@@ -301,9 +406,19 @@ Internal navigation with unsaved changes opens:
 - body: **Your changes to this skill haven't been saved.**
 - actions: **Cancel**, **Discard changes**, **Save and leave**
 
-**Save and leave** awaits a successful Save before proceeding. A failure keeps
-the user on the page. Browser refresh, close, or external navigation uses the
-native browser before-unload prompt.
+**Save and leave** awaits a successful Save before proceeding. A failure, or
+additional unsaved content remaining after that Save, keeps the user on the page.
+Leave safety compares the settled draft with its accepted baseline, not the
+number of editor callbacks; unchanged or reverted input does not prevent leaving.
+A successful submission with newer unsaved changes is not a Save failure: the
+dialog confirms that the previous changes were saved and asks the user to save
+again before leaving. The next Save uses the newly accepted baseline. Actual
+failures and conflicts retain failure feedback. The shared guard preserves its
+boolean return contract for existing callers and also accepts the explicit
+`saved-with-unsaved-changes` result; only `true` permits navigation.
+The real router guard covers Team tabs, **All Skills**, browser Back/Forward,
+cached Skill changes, and Organization switching. Browser refresh, close, or
+external navigation uses the native browser before-unload prompt.
 
 The unsaved-changes guard and Markdown editor are shared Web primitives used by
 Organization Documents and Organization Skills. Do not create a second Plate

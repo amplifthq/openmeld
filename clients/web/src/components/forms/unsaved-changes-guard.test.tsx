@@ -1,4 +1,5 @@
 import {
+	createBrowserHistory,
 	createMemoryHistory,
 	createRootRoute,
 	createRoute,
@@ -85,6 +86,56 @@ describe("UnsavedChangesGuard", () => {
 		expect(save).toHaveBeenCalledTimes(2);
 	});
 
+	it.each([
+		-2, -1, 1, 2,
+	])("restores browser history after canceling traversal by %s entries", async (delta) => {
+		const previousUrl = window.location.href;
+		const scroll = vi
+			.spyOn(window, "scrollTo")
+			.mockImplementation(() => undefined);
+		window.history.replaceState(null, "", "/privacy?step=-2");
+		const history = createBrowserHistory();
+		try {
+			for (const path of [
+				"/privacy?step=-1",
+				"/editor",
+				"/privacy?step=1",
+				"/privacy?step=2",
+			]) {
+				await act(() => {
+					history.push(path);
+				});
+			}
+			await new Promise<void>((resolve) => {
+				window.addEventListener("popstate", () => resolve(), { once: true });
+				history.go(-2);
+			});
+			const save = vi.fn<() => Promise<boolean>>();
+			const router = renderGuard(save, history);
+			await screen.findByRole("link", { name: "Leave editor" });
+			act(() => history.go(delta));
+			fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+			await waitFor(() => expect(window.location.pathname).toBe("/editor"));
+			expect(router.state.location.pathname).toBe("/editor");
+			act(() => history.go(delta));
+			fireEvent.click(
+				await screen.findByRole("button", { name: "Discard changes" })
+			);
+			await waitFor(() =>
+				expect(router.state.location.href).toBe(`/privacy?step=${delta}`)
+			);
+			expect(window.location.pathname + window.location.search).toBe(
+				`/privacy?step=${delta}`
+			);
+			expect(save).not.toHaveBeenCalled();
+		} finally {
+			cleanup();
+			history.destroy();
+			window.history.replaceState(null, "", previousUrl);
+			scroll.mockRestore();
+		}
+	});
+
 	it("discards browser-local changes without calling save", async () => {
 		const save = vi.fn<() => Promise<boolean>>();
 		const router = renderGuard(save);
@@ -101,7 +152,10 @@ describe("UnsavedChangesGuard", () => {
 	});
 });
 
-function renderGuard(save: () => Promise<boolean>) {
+function renderGuard(
+	save: () => Promise<boolean>,
+	history = createMemoryHistory({ initialEntries: ["/editor"] })
+) {
 	const rootRoute = createRootRoute({ component: () => <Outlet /> });
 	const editorRoute = createRoute({
 		component: () => (
@@ -123,7 +177,7 @@ function renderGuard(save: () => Promise<boolean>) {
 		path: "/privacy",
 	});
 	const router = createRouter({
-		history: createMemoryHistory({ initialEntries: ["/editor"] }),
+		history,
 		routeTree: rootRoute.addChildren([editorRoute, nextRoute]),
 	});
 	render(<RouterProvider router={router} />);

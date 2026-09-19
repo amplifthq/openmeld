@@ -22,15 +22,15 @@ describe("SpaceHeaderNavigationMenu", () => {
 				items={[
 					{
 						icon: SparkleIcon,
-						label: "Skills",
-						to: "/o/acme/center-agent/skills",
+						label: "Memory",
+						to: "/o/acme/center-agent/memory",
 					},
 				]}
 			/>
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Center Agent menu" }));
-		const menuItem = await screen.findByRole("menuitem", { name: "Skills" });
+		const menuItem = await screen.findByRole("menuitem", { name: "Memory" });
 		const menu = screen.getByRole("menu");
 		expect(
 			menu.querySelector('[data-slot="fluid-action-list"]')
@@ -38,7 +38,7 @@ describe("SpaceHeaderNavigationMenu", () => {
 		fireEvent.click(menuItem);
 
 		expect(navigateSpy).toHaveBeenCalledWith({
-			to: "/o/acme/center-agent/skills",
+			to: "/o/acme/center-agent/memory",
 		});
 	});
 

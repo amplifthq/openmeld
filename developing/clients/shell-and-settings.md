@@ -43,7 +43,7 @@ content column and keeps **Center Agent / Inbox** together at the far-right
 edge, and
 the **Personal / current Organization name** Settings groups defined in
 `developing/clients/web.md`. Center Agent uses the shared Spaces list; **Messages /
-Graph / Files / Routines / Skills / Channels** live in its header, while
+Graph / Files / Routines / Channels** live in its header, while
 **Memory** lives in its compact header menu. Center Agent settings live in
 the global App Settings destination, grouped under the current Organization
 (or Personal in a Personal Workspace).
@@ -64,8 +64,9 @@ pieces without forcing two clients to keep an obsolete route map. Current Web:
   global toolbar;
 - uses one Settings destination with stable **Personal** and dynamically named
   current Organization groups;
-- places **Plugins** after **People** and **Agents** in Team, with separate
-  personal and named Organization configuration;
+- orders Team tabs as **People / Agents / Plugins / Skills**. Plugins retain
+  personal and named Organization configuration; Skills use one Organization
+  catalog, including in personal workspaces, without a second scope selector;
 - makes Team the people directory, with each person's Computers and Agent list
   reached through their Human Profile detail;
 - keeps Service preferences capability-gated for hosts that can own local-service
@@ -276,9 +277,17 @@ The Web shell is a stable two-layer composition built from the shared
   surface, and owned only by route families that need contextual navigation.
   Spaces, Direct Messages, and Center Agent conversations share the Spaces
   list in the middle column, with Spaces and Direct messages as groups. Team
-  uses the same member list across People, Agents, and Plugins, and Settings
+  uses the same member list across People, Agents, Plugins, and Skills, and Settings
   retains its own contextual navigation. Team tab content uses the shared page
-  inline padding, including the Plugins catalog and detail pages.
+  inline padding, including the Plugins and Skills catalog and detail pages.
+  Skills loading/error states retain Team's header and rail highlight rather
+  than mounting Center Agent context. Canonical routes and compatibility
+  redirects are owned by [web.md](web.md#organization-skills).
+  Inside that unchanged shell, Skills uses a compact catalog and a document-first
+  detail with a sticky Save/action row. Optional Files tabs and contextual
+  Properties/history/management dialogs do not add another navigation sidebar
+  or alter Team scope. Creation/import and inner dialogs reuse shared Fluid
+  focus, dismissal and scroll mechanics; the Skill draft remains Web-owned.
   The middle column can be resized or collapsed while the application rail and
   current work remain mounted. Existing outer-sidebar persistence stores its
   geometry; the shared Fluid engine retains resize, keyboard, and edge-reveal

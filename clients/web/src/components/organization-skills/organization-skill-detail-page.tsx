@@ -1,46 +1,49 @@
 "use client";
 
-import { ORGANIZATION_SKILL_INSTRUCTIONS_MAX_CHARS } from "@openmeld/schemas";
 import type {
 	GetOrganizationSkillResponse,
 	OrganizationSkill,
 	OrganizationSkillBundle,
 } from "@openmeld/schemas/types";
-import { Badge } from "@openmeld/ui/components/badge";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
 	Dialog,
-	DialogContent,
 	DialogDescription,
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
-import { Label } from "@openmeld/ui/components/label";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
-import { Switch } from "@openmeld/ui/components/switch";
-import {
-	ArrowClockwiseIcon,
-	ArrowLeftIcon,
-	TrashIcon,
-} from "@phosphor-icons/react";
+import { DialogContent } from "@openmeld/ui/fluid/dialog";
+import { ArrowClockwiseIcon, ArrowLeftIcon } from "@phosphor-icons/react";
 import {
 	type UseQueryResult,
 	useMutation,
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import {
+	type SetStateAction,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-navigation";
-import { MarkdownEditor } from "#/components/editor/markdown-editor";
-import { UnsavedChangesGuard } from "#/components/forms/unsaved-changes-guard";
-import { OrganizationSkillFiles } from "#/components/organization-skills/organization-skill-files";
+import {
+	type SaveBeforeLeaveResult,
+	UnsavedChangesGuard,
+} from "#/components/forms/unsaved-changes-guard";
 import { OrganizationSkillMaintainersDialog } from "#/components/organization-skills/organization-skill-maintainers-dialog";
-import { OrganizationSkillPortableFields } from "#/components/organization-skills/organization-skill-portable-fields";
-import { OrganizationSkillSourceHistory } from "#/components/organization-skills/organization-skill-source-history";
+import { getDesktopPlatform } from "#/desktop/platform";
+import { copyTextToClipboard } from "#/lib/clipboard";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import { buildOrganizationSkillsPath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationSkillPath,
+	buildOrganizationSkillsPath,
+} from "#/lib/organizations/organization-routes";
 import {
 	deleteCurrentOrganizationSkill,
 	type OrganizationSkillFailure,
@@ -53,11 +56,23 @@ import {
 	organizationSkillQueryKeys,
 	organizationSkillQueryOptions,
 } from "#/query/organizations/organization-skills";
+import {
+	OrganizationSkillActions,
+	type SkillAction,
+} from "./organization-skill-actions";
+import {
+	OrganizationSkillContextDialog,
+	type SkillContextView,
+} from "./organization-skill-context-dialog";
+import { OrganizationSkillDocument } from "./organization-skill-document";
 
-const PORTABLE_SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+import {
+	skillDraftValidationMessage,
+	skillSaveStatus,
+} from "./organization-skill-validation";
 
 export function OrganizationSkillDetailPage(input: { skillId: string }) {
-	const { currentOrganization } = useAppOrganization();
+	const { currentOrganization, storageScope } = useAppOrganization();
 	const skillQuery = useQuery(
 		organizationSkillQueryOptions({
 			organizationId: currentOrganization.id,
@@ -67,6 +82,11 @@ export function OrganizationSkillDetailPage(input: { skillId: string }) {
 
 	return (
 		<OrganizationSkillDetailContent
+			identityKey={JSON.stringify([
+				storageScope,
+				currentOrganization.id,
+				input.skillId,
+			])}
 			organizationId={currentOrganization.id}
 			organizationName={currentOrganization.name}
 			orgSlug={currentOrganization.slug}
@@ -77,6 +97,7 @@ export function OrganizationSkillDetailPage(input: { skillId: string }) {
 }
 
 function OrganizationSkillDetailContent(input: {
+	identityKey: string;
 	orgSlug: string;
 	organizationId: string;
 	organizationName: string;
@@ -92,16 +113,22 @@ function OrganizationSkillDetailContent(input: {
 			</div>
 		);
 	}
-	if (input.query.isError) {
+	if (input.query.isError && !input.query.data?.skill) {
 		return (
 			<div className="grid justify-items-start gap-3 rounded-md border border-destructive/50 bg-destructive/5 p-6">
 				<h1 className="font-medium text-xl">Could not load Skill</h1>
 				<p className="text-muted-foreground text-sm">
-					OpenMeld could not load this Organization Skill. Try again.
+					Try again or return to the skills catalog.
 				</p>
 				<Button onClick={() => input.query.refetch()} variant="outline">
 					<ArrowClockwiseIcon aria-hidden="true" /> Retry
 				</Button>
+				<Link
+					className={APP_INLINE_BACK_LINK_CLASS_NAME}
+					to={buildOrganizationSkillsPath(input.orgSlug)}
+				>
+					All Skills
+				</Link>
 			</div>
 		);
 	}
@@ -122,12 +149,27 @@ function OrganizationSkillDetailContent(input: {
 		);
 	}
 	return (
-		<OrganizationSkillEditor
-			organizationId={input.organizationId}
-			organizationName={input.organizationName}
-			orgSlug={input.orgSlug}
-			skill={input.query.data.skill}
-		/>
+		<>
+			{input.query.isError && (
+				<p className="text-destructive text-sm" role="alert">
+					Could not refresh this skill. Your changes are still here.{" "}
+					<Button
+						onClick={() => input.query.refetch()}
+						size="sm"
+						variant="outline"
+					>
+						Retry
+					</Button>
+				</p>
+			)}
+			<OrganizationSkillEditor
+				key={input.identityKey}
+				organizationId={input.organizationId}
+				organizationName={input.organizationName}
+				orgSlug={input.orgSlug}
+				skill={input.query.data.skill}
+			/>
+		</>
 	);
 }
 
@@ -139,36 +181,104 @@ function OrganizationSkillEditor(input: {
 }) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
-	const [bundle, setBundle] = useState(input.skill.bundle);
+	const active = useRef(false);
+	useLayoutEffect(() => {
+		active.current = true;
+		return () => {
+			active.current = false;
+		};
+	}, []);
+	const [contextView, setContextView] = useState<SkillContextView | null>(null);
+	const hash = useRouterState({ select: (state) => state.location.hash });
+	useEffect(() => {
+		if (hash === "skill-history-heading") {
+			setContextView("history");
+		} else if (hash === "skill-details-heading") {
+			setContextView("properties");
+		} else if (
+			hash === "skill-files-heading" ||
+			hash === "skill-instructions-heading"
+		) {
+			setContextView(null);
+		}
+	}, [hash]);
+	const [clipboardNotice, setClipboardNotice] = useState<string | null>(null);
+	const actionsRef = useRef<HTMLButtonElement>(null);
+	// Identity is isolated above. Content and concurrency expectations advance
+	// together, never merely because a newer query result arrived while editing.
+	const [draft, setDraft] = useState(() => ({
+		baseline: input.skill,
+		bundle: input.skill.bundle,
+		contentGeneration: 0,
+	}));
+	// Event callbacks and Save settlement must see the same draft even before
+	// React commits the next render. Keep every draft transition on this path.
+	const latestDraft = useRef(draft);
+	const updateDraft = useCallback(
+		(update: (current: typeof draft) => typeof draft) => {
+			const next = update(latestDraft.current);
+			latestDraft.current = next;
+			setDraft(next);
+		},
+		[]
+	);
+	const bundle = draft.bundle;
+	const setBundle = (update: SetStateAction<OrganizationSkillBundle>) => {
+		updateDraft((current) =>
+			current.contentGeneration !== draft.contentGeneration || !active.current
+				? current
+				: {
+						...current,
+						bundle:
+							typeof update === "function" ? update(current.bundle) : update,
+					}
+		);
+	};
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [deleteOpen, setDeleteOpen] = useState(false);
 	const [maintainersOpen, setMaintainersOpen] = useState(false);
 	const [removed, setRemoved] = useState(false);
 	const hasUnsavedChanges =
-		!removed && canonicalBundle(bundle) !== canonicalBundle(input.skill.bundle);
-	const bundleValid =
-		PORTABLE_SKILL_NAME_PATTERN.test(bundle.portable.name.trim()) &&
-		bundle.portable.description.trim().length > 0 &&
-		Object.keys(bundle.portable.metadata).every(
-			(key) => key.trim().length > 0
-		) &&
-		bundle.instructions.length <= ORGANIZATION_SKILL_INSTRUCTIONS_MAX_CHARS;
-	const refresh = async (skill: OrganizationSkill) => {
-		queryClient.setQueryData(
+		!removed &&
+		canonicalBundle(bundle) !== canonicalBundle(draft.baseline.bundle);
+	const validationMessage = skillDraftValidationMessage(bundle);
+	const bundleValid = validationMessage === null;
+	const [catalogRefreshFailed, setCatalogRefreshFailed] = useState(false);
+	const refreshCatalog = () => {
+		queryClient
+			.invalidateQueries(
+				{ queryKey: organizationSkillQueryKeys.list(input.organizationId) },
+				{ throwOnError: true }
+			)
+			.then(() => {
+				if (active.current) {
+					setCatalogRefreshFailed(false);
+				}
+			})
+			.catch(() => {
+				if (active.current) {
+					setCatalogRefreshFailed(true);
+				}
+			});
+	};
+	const refresh = (skill: OrganizationSkill) => {
+		queryClient.setQueryData<GetOrganizationSkillResponse>(
 			organizationSkillQueryKeys.detail(input.organizationId, skill.id),
-			{ skill }
+			(current) =>
+				current?.skill && current.skill.version > skill.version
+					? current
+					: { skill }
 		);
-		await queryClient.invalidateQueries({
-			queryKey: organizationSkillQueryKeys.list(input.organizationId),
-		});
+		// Catalog freshness is not the outcome of an already confirmed write.
+		refreshCatalog();
 	};
 	const saveMutation = useMutation({
-		mutationFn: async () =>
+		mutationFn: async (submitted: typeof draft) =>
 			await updateCurrentOrganizationSkill({
-				bundle,
-				expectedActiveReleaseId: input.skill.activeRelease.id,
+				bundle: submitted.bundle,
+				expectedActiveReleaseId: submitted.baseline.activeRelease.id,
 				expectedOrganizationId: input.organizationId,
-				expectedVersion: input.skill.version,
+				expectedVersion: submitted.baseline.version,
 				skillId: input.skill.id,
 			}),
 		onError: (error) => {
@@ -177,10 +287,41 @@ function OrganizationSkillEditor(input: {
 		onMutate: () => {
 			setErrorMessage(null);
 		},
-		onSuccess: async (response) => {
-			await refresh(response.skill);
+		onSuccess: (response, submitted) => {
+			updateDraft((current) => {
+				const adoptSavedContent =
+					canonicalBundle(current.bundle) === canonicalBundle(submitted.bundle);
+				return {
+					baseline: response.skill,
+					bundle: adoptSavedContent ? response.skill.bundle : current.bundle,
+					// Plate owns its document. Reload only when accepting a whole
+					// external bundle, never when typing or retaining queued input.
+					contentGeneration:
+						current.contentGeneration + (adoptSavedContent ? 1 : 0),
+				};
+			});
+			refresh(response.skill);
 		},
 	});
+	useEffect(() => {
+		if (saveMutation.isPending) {
+			return;
+		}
+		updateDraft((current) => {
+			if (
+				input.skill.version <= current.baseline.version ||
+				canonicalBundle(current.bundle) !==
+					canonicalBundle(current.baseline.bundle)
+			) {
+				return current;
+			}
+			return {
+				baseline: input.skill,
+				bundle: input.skill.bundle,
+				contentGeneration: current.contentGeneration + 1,
+			};
+		});
+	}, [input.skill, saveMutation.isPending, updateDraft]);
 	const enabledMutation = useMutation({
 		mutationFn: async (enabled: boolean) =>
 			await setCurrentOrganizationSkillEnabled({
@@ -191,7 +332,7 @@ function OrganizationSkillEditor(input: {
 			}),
 		onError: (error) =>
 			setErrorMessage(resolveOrganizationSkillErrorMessage(error)),
-		onSuccess: async (response) => await refresh(response.skill),
+		onSuccess: (response) => refresh(response.skill),
 	});
 	const maintainersMutation = useMutation({
 		mutationFn: async (maintainerUserIds: string[]) =>
@@ -203,9 +344,9 @@ function OrganizationSkillEditor(input: {
 			}),
 		onError: (error) =>
 			setErrorMessage(resolveOrganizationSkillErrorMessage(error)),
-		onSuccess: async (response) => {
+		onSuccess: (response) => {
 			setMaintainersOpen(false);
-			await refresh(response.skill);
+			refresh(response.skill);
 		},
 	});
 	const deleteMutation = useMutation({
@@ -220,162 +361,194 @@ function OrganizationSkillEditor(input: {
 		onSuccess: async () => {
 			setRemoved(true);
 			setDeleteOpen(false);
-			await queryClient.invalidateQueries({
-				queryKey: organizationSkillQueryKeys.list(input.organizationId),
-			});
+			refreshCatalog();
+			if (!active.current) {
+				return;
+			}
 			await navigate({
-				ignoreBlocker: true,
 				to: buildOrganizationSkillsPath(input.orgSlug),
 			});
 		},
 	});
-	const save = async (): Promise<boolean> => {
-		if (!(bundleValid && hasUnsavedChanges) || saveMutation.isPending) {
+	const save = async (): Promise<SaveBeforeLeaveResult> => {
+		if (
+			!(input.skill.permissions.canEdit && bundleValid && hasUnsavedChanges) ||
+			saveMutation.isPending
+		) {
 			return false;
 		}
 		try {
-			await saveMutation.mutateAsync();
-			return true;
+			await saveMutation.mutateAsync(latestDraft.current);
+			// Only remaining content blocks leaving: identical callbacks or an
+			// edit reverted during Save are not newer unsaved work.
+			const current = latestDraft.current;
+			return canonicalBundle(current.bundle) ===
+				canonicalBundle(current.baseline.bundle)
+				? true
+				: "saved-with-unsaved-changes";
 		} catch {
 			return false;
 		}
 	};
+	const busy =
+		saveMutation.isPending ||
+		enabledMutation.isPending ||
+		maintainersMutation.isPending ||
+		deleteMutation.isPending;
+	const saveStatus = skillSaveStatus({
+		dirty: hasUnsavedChanges,
+		failed: saveMutation.isError && Boolean(errorMessage),
+		saving: saveMutation.isPending,
+	});
+	const handleAction = (action: SkillAction) => {
+		if (action === "copy") {
+			const path = buildOrganizationSkillPath({
+				orgSlug: input.orgSlug,
+				skillId: input.skill.id,
+			});
+			const copy = async () => {
+				const bridge = getDesktopPlatform();
+				const origin = bridge
+					? (await bridge.platform()).webOrigin
+					: window.location.origin;
+				return await copyTextToClipboard(new URL(path, origin).href);
+			};
+			copy()
+				.then((copied) => {
+					if (active.current) {
+						setClipboardNotice(
+							copied
+								? "Link copied"
+								: "Could not copy the link. Copy the page address instead."
+						);
+					}
+				})
+				.catch(() => {
+					if (active.current) {
+						setClipboardNotice(
+							"Could not copy the link. Copy the page address instead."
+						);
+					}
+				});
+			return;
+		}
+		if (action === "properties" || action === "history" || action === "usage") {
+			setContextView(action);
+			return;
+		}
+		if (!input.skill.permissions.canManage || hasUnsavedChanges || busy) {
+			return;
+		}
+		setErrorMessage(null);
+		if (action === "maintainers") {
+			setMaintainersOpen(true);
+		}
+		if (action === "remove") {
+			setDeleteOpen(true);
+		}
+		if (action === "toggle") {
+			enabledMutation.mutate(!input.skill.enabled);
+		}
+	};
 
 	return (
-		<div className="grid gap-6">
+		<div className="mx-auto grid w-full max-w-[880px] grid-cols-[minmax(0,1fr)] gap-6 pb-8">
 			<UnsavedChangesGuard
 				description="Your changes to this skill haven't been saved."
 				hasUnsavedChanges={hasUnsavedChanges}
 				onSave={save}
-				saving={saveMutation.isPending}
+				saving={busy}
 			/>
-			<Link
-				className={APP_INLINE_BACK_LINK_CLASS_NAME}
-				to={buildOrganizationSkillsPath(input.orgSlug)}
+			<div
+				className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 border-b bg-background py-3"
+				data-slot="skill-document-actions"
 			>
-				<ArrowLeftIcon aria-hidden="true" /> All Skills
-			</Link>
-			<header className="flex flex-wrap items-start justify-between gap-4">
-				<div className="min-w-0">
-					<div className="flex flex-wrap items-center gap-2">
-						<Badge variant={input.skill.enabled ? "secondary" : "outline"}>
-							{input.skill.enabled ? "Enabled" : "Disabled"}
-						</Badge>
-						<span className="text-muted-foreground text-xs">
-							{sourceSummary(input.skill)}
-						</span>
-					</div>
-					<h1 className="mt-2 min-w-0 font-medium text-2xl max-lg:break-words lg:truncate">
-						{bundle.portable.name}
-					</h1>
-					<p className="mt-1 max-w-3xl text-muted-foreground text-sm">
-						{bundle.portable.description}
-					</p>
-				</div>
-				{input.skill.permissions.canManage ? (
-					<div className="flex flex-wrap items-center gap-3">
-						<div className="flex items-center gap-2">
-							<Label htmlFor="organization-skill-enabled">Enabled</Label>
-							<Switch
-								aria-label="Enable Organization Skill"
-								checked={input.skill.enabled}
-								disabled={
-									hasUnsavedChanges ||
-									enabledMutation.isPending ||
-									saveMutation.isPending
-								}
-								id="organization-skill-enabled"
-								onCheckedChange={(enabled) => {
-									setErrorMessage(null);
-									enabledMutation.mutate(enabled);
-								}}
-							/>
-						</div>
-						<Button
-							disabled={hasUnsavedChanges}
-							onClick={() => setMaintainersOpen(true)}
-							variant="outline"
-						>
-							Maintainers
-						</Button>
-						<Button
-							disabled={hasUnsavedChanges}
-							onClick={() => setDeleteOpen(true)}
-							variant="outline"
-						>
-							<TrashIcon aria-hidden="true" /> Remove
-						</Button>
-					</div>
-				) : null}
-			</header>
-
-			<section aria-labelledby="skill-details-heading" className="grid gap-4">
-				<div>
-					<h2 className="font-medium text-lg" id="skill-details-heading">
-						Skill details
-					</h2>
-					<p className="mt-1 text-muted-foreground text-sm">
-						These fields stay portable in SKILL.md.
-					</p>
-				</div>
-				<OrganizationSkillPortableFields
-					bundle={bundle}
-					disabled={!input.skill.permissions.canEdit || saveMutation.isPending}
-					onChange={setBundle}
-				/>
-			</section>
-
-			<section
-				aria-labelledby="skill-instructions-heading"
-				className="grid gap-3"
-			>
-				<div>
-					<h2 className="font-medium text-lg" id="skill-instructions-heading">
-						Instructions
-					</h2>
-					<p className="mt-1 text-muted-foreground text-sm">
-						The method Center Agent and local agents read when they activate
-						this Skill.
-					</p>
-				</div>
-				<MarkdownEditor
-					disabled={!input.skill.permissions.canEdit || saveMutation.isPending}
-					maxChars={ORGANIZATION_SKILL_INSTRUCTIONS_MAX_CHARS}
-					onChange={(instructions) =>
-						setBundle((current) => ({ ...current, instructions }))
-					}
-					value={bundle.instructions}
-				/>
-			</section>
-
-			<OrganizationSkillFiles
-				canEdit={input.skill.permissions.canEdit}
-				files={bundle.files}
-				onChange={(files) => setBundle((current) => ({ ...current, files }))}
-				saving={saveMutation.isPending}
-			/>
-
-			<OrganizationSkillSourceHistory skill={input.skill} />
-
-			{errorMessage ? (
-				<p className="text-destructive text-sm" role="alert">
-					{errorMessage}
-				</p>
-			) : null}
-			{input.skill.permissions.canEdit ? (
-				<div className="flex justify-end lg:sticky lg:bottom-4">
-					<Button
-						disabled={
-							!(hasUnsavedChanges && bundleValid) || saveMutation.isPending
-						}
-						onClick={save}
+				<Link
+					className={APP_INLINE_BACK_LINK_CLASS_NAME}
+					resetScroll={false}
+					to={buildOrganizationSkillsPath(input.orgSlug)}
+				>
+					<ArrowLeftIcon aria-hidden="true" /> All Skills
+				</Link>
+				<div className="flex flex-wrap items-center gap-2">
+					<output
+						aria-label="Skill save status"
+						className="text-muted-foreground text-xs"
 					>
-						{saveMutation.isPending ? "Saving…" : "Save"}
+						{input.skill.permissions.canEdit ? saveStatus : "Read only"}
+					</output>
+					{input.skill.permissions.canEdit && (
+						<Button
+							className="relative max-lg:min-h-8 max-lg:after:absolute max-lg:after:inset-x-0 max-lg:after:-inset-y-1.5 max-lg:after:content-['']"
+							disabled={!(hasUnsavedChanges && bundleValid) || busy}
+							onClick={save}
+						>
+							{saveMutation.isPending ? "Saving…" : "Save"}
+						</Button>
+					)}
+					<OrganizationSkillActions
+						canManage={input.skill.permissions.canManage}
+						enabled={input.skill.enabled}
+						managementBlocked={hasUnsavedChanges || busy}
+						onAction={handleAction}
+						triggerRef={actionsRef}
+					/>
+				</div>
+			</div>
+			{catalogRefreshFailed && (
+				<div className="flex flex-wrap items-center gap-2 text-sm" role="alert">
+					<span>Your change was saved, but the catalog could not refresh.</span>
+					<Button onClick={refreshCatalog} size="sm" variant="outline">
+						Retry refresh
 					</Button>
 				</div>
-			) : null}
+			)}
+			{clipboardNotice && (
+				<output className="text-muted-foreground text-sm">
+					{clipboardNotice}
+				</output>
+			)}
+			{errorMessage &&
+				!deleteOpen &&
+				!maintainersOpen &&
+				contextView !== "properties" && (
+					<p className="text-destructive text-sm" role="alert">
+						{errorMessage}
+					</p>
+				)}
+			{!bundleValid && hasUnsavedChanges && (
+				<p className="text-destructive text-sm" role="alert">
+					{validationMessage}
+				</p>
+			)}
+			<OrganizationSkillDocument
+				bundle={bundle}
+				contentGeneration={draft.contentGeneration}
+				onChange={setBundle}
+				saving={busy}
+				skill={input.skill}
+			/>
+			<OrganizationSkillContextDialog
+				bundle={bundle}
+				canEdit={input.skill.permissions.canEdit}
+				errorMessage={errorMessage}
+				finalFocus={actionsRef}
+				hasUnsavedChanges={hasUnsavedChanges}
+				onChange={setBundle}
+				onClose={() => setContextView(null)}
+				onSave={save}
+				organizationName={input.organizationName}
+				saveStatus={saveStatus}
+				saving={busy}
+				skill={input.skill}
+				valid={bundleValid}
+				validationMessage={validationMessage}
+				view={contextView}
+			/>
 
 			<OrganizationSkillMaintainersDialog
+				errorMessage={errorMessage}
+				finalFocus={actionsRef}
 				onOpenChange={setMaintainersOpen}
 				onSave={(maintainerUserIds) =>
 					maintainersMutation.mutate(maintainerUserIds)
@@ -385,17 +558,33 @@ function OrganizationSkillEditor(input: {
 				saving={maintainersMutation.isPending}
 				selectedUserIds={input.skill.maintainerUserIds}
 			/>
-			<Dialog onOpenChange={setDeleteOpen} open={deleteOpen}>
-				<DialogContent>
+			<Dialog
+				onOpenChange={(open) => {
+					if (!deleteMutation.isPending) {
+						setDeleteOpen(open);
+					}
+				}}
+				open={deleteOpen}
+			>
+				<DialogContent
+					finalFocus={actionsRef}
+					showCloseButton={!deleteMutation.isPending}
+					size="lg"
+				>
 					<DialogHeader>
 						<DialogTitle>
 							Remove {input.skill.name} from {input.organizationName}?
 						</DialogTitle>
 						<DialogDescription>
-							This removes the Skill from future Center Agent and local-agent
-							work. OpenMeld retains its release and audit evidence.
+							Agents will no longer be able to load this skill. Work already in
+							progress is not affected.
 						</DialogDescription>
 					</DialogHeader>
+					{errorMessage && (
+						<p className="text-destructive text-sm" role="alert">
+							{errorMessage}
+						</p>
+					)}
 					<DialogFooter>
 						<Button
 							disabled={deleteMutation.isPending}
@@ -419,12 +608,6 @@ function OrganizationSkillEditor(input: {
 			</Dialog>
 		</div>
 	);
-}
-
-function sourceSummary(skill: OrganizationSkill): string {
-	return skill.source.kind === "github"
-		? `GitHub ${skill.source.commitSha.slice(0, 7)}`
-		: "Created in OpenMeld";
 }
 
 function canonicalBundle(bundle: OrganizationSkillBundle): string {
