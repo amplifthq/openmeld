@@ -37,7 +37,7 @@ const packaged = process.env.OPENMELD_TEST_HOST_ARTIFACT === "packaged";
 const binary = process.env.OPENMELD_TEST_HOST_ARTIFACT === "binary";
 const binaryPath = fileURLToPath(
   new URL(
-    `../../../cli/dist/openmeld-cli-darwin-arm64-${(require("../package.json") as { version: string }).version}`,
+    `../dist/binary/openmeld-cli-darwin-arm64-${(require("../package.json") as { version: string }).version}`,
     import.meta.url
   )
 );

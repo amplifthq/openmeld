@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { systemDir } from "../src/config/paths";
+import { createDaemonLocalExecutionSlots } from "../src/local-service/carrier/local-execution-slots";
 import {
   acquireExecutionHostOwnership,
   readExecutionHostBootIdentity,
@@ -90,6 +91,58 @@ describe("execution Host durable process ownership", () => {
     await writeFile(receiptPath(), "{broken");
     await expect(acquire(secondBoot)).rejects.toThrow();
     expect(await readFile(receiptPath(), "utf8")).toBe("{broken");
+  });
+
+  it("persists released execution slots before replacing a drained Host", async () => {
+    const first = await acquire(firstBoot);
+    const slots = createDaemonLocalExecutionSlots({
+      limits: { globalConcurrency: 1, queueMax: 10 },
+      presenter: {
+        view: "agent",
+        event: () => undefined,
+        line: () => undefined,
+        data: () => undefined,
+      },
+      onChanged: () => {
+        first.observeLocalQuiescence(slots.isQuiescent());
+      },
+    });
+    let complete!: () => void;
+    const work = new Promise<void>((resolve) => {
+      complete = resolve;
+    });
+    first.observeLocalQuiescence(false);
+    expect(
+      slots.request({
+        adapterId: "codex",
+        attemptId: "attempt-completed",
+        controllerKey: "builtin:codex",
+        dispatchId: "dispatch-completed",
+        localExecutionLaneKey: "profile:test",
+        profileId: "test",
+        spaceId: "test-space",
+        targetLabel: "test",
+        taskId: "task-completed",
+        transportMode: "local-cli",
+        run: async () => {
+          await work;
+          return { result: "success" };
+        },
+      }).accepted
+    ).toBe(true);
+    slots.beginDrain();
+    expect(
+      JSON.parse(await readFile(receiptPath(), "utf8")).localQuiescent
+    ).toBe(false);
+    complete();
+    await slots.drain();
+    expect(slots.isQuiescent()).toBe(true);
+    expect(
+      JSON.parse(await readFile(receiptPath(), "utf8")).localQuiescent
+    ).toBe(true);
+    await first.release();
+    const replacement = await acquire(firstBoot);
+    await replacement.release();
   });
 
   it("reads stable same-boot evidence through the local operating system", async () => {

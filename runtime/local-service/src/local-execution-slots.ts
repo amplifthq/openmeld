@@ -151,6 +151,9 @@ export type LocalExecutionSlots = ReturnType<typeof createLocalExecutionSlots>;
 
 export function createLocalExecutionSlots(input: {
   limits: LocalServiceDispatchLimits;
+  // Observe ownership after mutation, including release. Completion events are
+  // emitted while the task still owns its slot and cannot prove quiescence.
+  onChanged?: () => void;
   onTaskCompleted?: (event: LocalExecutionSlotCompletionEvent) => void;
   onTaskDropped?: (event: LocalExecutionSlotDropEvent) => void;
   onTaskStarted?: (event: LocalExecutionSlotLifecycleEvent) => void;
@@ -479,6 +482,7 @@ export function createLocalExecutionSlots(input: {
               remainingActiveForLane
             );
           }
+          input.onChanged?.();
           notifyDrainWaitersIfIdle();
           pump();
         });
@@ -505,12 +509,14 @@ export function createLocalExecutionSlots(input: {
       }
       adapterOperationIds.add(adapterId);
       try {
+        input.onChanged?.();
         return {
           accepted: true,
           value: await operation(),
         };
       } finally {
         adapterOperationIds.delete(adapterId);
+        input.onChanged?.();
         notifyDrainWaitersIfIdle();
         pump();
       }
@@ -565,6 +571,7 @@ export function createLocalExecutionSlots(input: {
         task,
       };
       pendingTasks.push(pendingTask);
+      input.onChanged?.();
       const snapshot = buildSnapshot(task.localExecutionLaneKey);
       if (task.onQueued) {
         try {
@@ -581,6 +588,7 @@ export function createLocalExecutionSlots(input: {
         } catch (error) {
           pendingTasks.pop();
           releaseTaskOwnership(task);
+          input.onChanged?.();
           throw error;
         }
       }
@@ -623,6 +631,7 @@ export function createLocalExecutionSlots(input: {
           reason,
         });
       }
+      input.onChanged?.();
       notifyDrainWaitersIfIdle();
       return {
         droppedCount,

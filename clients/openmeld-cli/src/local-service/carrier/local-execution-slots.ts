@@ -13,12 +13,12 @@ export function createDaemonLocalExecutionSlots(input: {
   onChanged?: () => void;
 }): LocalExecutionSlots {
   return createLocalExecutionSlots({
+    onChanged: input.onChanged,
     limits: {
       ...input.limits,
       contextConcurrency: AGENT_PROFILE_WORK_CONCURRENCY_LIMIT,
     },
     onTaskDropped: (event) => {
-      input.onChanged?.();
       emitRunLine({
         presenter: input.presenter,
         code: "daemon.run.local_execution_slot_dropped",
@@ -47,7 +47,6 @@ export function createDaemonLocalExecutionSlots(input: {
       });
     },
     onTaskStarted: (event) => {
-      input.onChanged?.();
       emitRunLine({
         presenter: input.presenter,
         code: "daemon.run.local_execution_slot_reserved",
@@ -78,7 +77,6 @@ export function createDaemonLocalExecutionSlots(input: {
       });
     },
     onTaskCompleted: (event) => {
-      input.onChanged?.();
       let completionText = `local execution slot failed task ${event.taskId} for ${event.targetLabel}`;
       if (event.result === "success") {
         completionText = `local execution slot completed task ${event.taskId} for ${event.targetLabel}`;

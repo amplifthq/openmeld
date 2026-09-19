@@ -162,10 +162,8 @@ export function createExecutionHostRuntime(input: {
     limits: input.resources.dispatchLimits,
     presenter: input.presenter,
     onChanged: () => {
-      queueMicrotask(() => {
-        input.onWorkStateChange?.(snapshot().localQuiescent);
-        invalidate("execution");
-      });
+      input.onWorkStateChange?.(snapshot().localQuiescent);
+      invalidate("execution");
     },
   });
   const routeCatalogState = createMutableRouteCatalogState(emptyCatalog);
@@ -431,7 +429,9 @@ export function createExecutionHostRuntime(input: {
     beginDrain();
     await localExecutionSlots.drain();
     await Promise.allSettled([...activeControls]);
-    return snapshot();
+    const drained = snapshot();
+    input.onWorkStateChange?.(drained.localQuiescent);
+    return drained;
   }
 
   function trackControl<T>(run: () => Promise<T>): Promise<T> {
