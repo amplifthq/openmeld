@@ -861,6 +861,17 @@ are directly visible on their settings page, searchable, and paged in the UI.
 Invitation-link state comes from persisted server state. Anonymous readers
 never post or invoke Agents.
 
+Unsent email invitations belong to the current open dialog and its account,
+Organization, Space, and audience. Share-tab and Guest/Teammate switches retain
+separate drafts and pending operations; closing the dialog or changing identity
+starts a new invitation session. A successful create/request clears only the
+unchanged revision it submitted. Resending or revoking an existing invitation
+never edits the compose draft. Membership loading, read failure, and confirmed
+denial are different UI states: a failed read offers retry, preserves any
+existing draft, and disables invitation actions until the read recovers. Server
+membership and invitation authorization remain authoritative.
+
+
 Profile participation remains explicit. Same-account access does not silently
 turn every profile under that account into a Space member. If a specific Human
 Profile or Agent Profile needs to participate, be addressed, or be woken as a

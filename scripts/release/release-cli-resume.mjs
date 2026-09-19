@@ -107,10 +107,10 @@ export async function runResumableCliRelease(input) {
       write
     );
     printCliReleaseDecisions(initial, write);
-    return initial;
+    return { ...initial, sourceSha: target.headSha };
   }
 
-  return await executeIncompleteCliRelease({
+  const result = await executeIncompleteCliRelease({
     adapters,
     cwd,
     env,
@@ -120,6 +120,28 @@ export async function runResumableCliRelease(input) {
     withBinary,
     write,
   });
+  return { ...result, sourceSha: target.headSha };
+}
+
+// Reuse the CLI owner's immutable channel checks for receipt recovery without
+// entering any publisher, tag writer or deployment path.
+export async function readCompletedCliRelease(input = {}) {
+  const cwd = input.cwd ?? process.cwd();
+  const env = input.env ?? process.env;
+  const adapters = {
+    fetch: input.adapters?.fetch ?? fetch,
+    runCommand: input.adapters?.runCommand ?? runReadOnlyCommand,
+    readRemoteTagCommit:
+      input.adapters?.readRemoteTagCommit ?? readRemoteTagCommit,
+  };
+  const target = resolveCliReleaseTarget({ cwd });
+  const result = await probeCliReleaseStages({ cwd, env, adapters, target });
+  if (result.alignment.action !== "SKIP" || result.tag.action !== "SKIP") {
+    throw new Error(
+      "Retained CLI receipt is not fully aligned; reconcile its immutable stages before continuing."
+    );
+  }
+  return { ...result, sourceSha: target.headSha };
 }
 
 async function resumeNpmVerification(input) {

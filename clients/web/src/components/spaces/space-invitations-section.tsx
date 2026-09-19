@@ -18,7 +18,7 @@ import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { EnvelopeSimpleIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { InvitationRequestLink } from "#/components/organizations/invitation-request-link";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
@@ -85,20 +85,45 @@ export function SpaceInvitationsSection({
 	);
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: invitation permissions, request fallback, and pending-invitation management intentionally remain one form lifecycle.
-export function SpaceInvitationForm({
-	spaceId,
-	audience = "organization",
-	actionVariant = "ghost",
-	onBeforeCreate,
-	submitButtonTarget,
-}: {
+type SpaceInvitationFormProps = {
 	spaceId: string;
 	audience?: "organization" | "guest";
 	actionVariant?: "ghost" | "secondary";
+	disabled?: boolean;
 	onBeforeCreate?: (continueInvitation: () => void) => void;
 	submitButtonTarget?: HTMLElement | null;
-}) {
+};
+
+type InvitationDraft = { email: string };
+type InvitationOperation = {
+	request: SpaceInvitationRequest;
+	submittedDraft?: InvitationDraft;
+};
+
+export function SpaceInvitationForm(props: SpaceInvitationFormProps) {
+	const scope = useOptionalAppOrganization();
+	return (
+		<ScopedSpaceInvitationForm
+			{...props}
+			key={JSON.stringify([
+				scope?.currentUserId,
+				scope?.currentOrganization.id,
+				props.spaceId,
+				props.audience ?? "organization",
+			])}
+		/>
+	);
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: invitation permissions, request fallback, and pending-invitation management intentionally remain one scoped form lifecycle.
+function ScopedSpaceInvitationForm({
+	spaceId,
+	audience = "organization",
+	actionVariant = "ghost",
+	disabled = false,
+	onBeforeCreate,
+	submitButtonTarget,
+}: SpaceInvitationFormProps) {
 	const generatedFormId = useId();
 	const formId = `space-invitation-${generatedFormId.replaceAll(":", "")}`;
 	const scope = useOptionalAppOrganization();
@@ -111,8 +136,20 @@ export function SpaceInvitationForm({
 		})
 	);
 	const canInvite = canSendInvitation(audience, role.data);
-	const [email, setEmail] = useState("");
-	const [sent, setSent] = useState(false);
+	// Each edit creates a distinct revision, even when the user returns to the
+	// same text. A late completion may clear only its exact submitted revision.
+	const [draft, setDraft] = useState<InvitationDraft>({ email: "" });
+	const email = draft.email;
+	const [sent, setSent] = useState<string | null>(null);
+	const actionInFlightRef = useRef(false);
+	const availabilityRef = useRef({ mounted: true, disabled: false });
+	availabilityRef.current.disabled = disabled || role.isPending || role.isError;
+	useEffect(() => {
+		availabilityRef.current.mounted = true;
+		return () => {
+			availabilityRef.current.mounted = false;
+		};
+	}, []);
 	const client = useQueryClient();
 	const queryKey = [
 		"space-invitations",
@@ -134,29 +171,65 @@ export function SpaceInvitationForm({
 		retry: false,
 	});
 	const mutation = useMutation({
-		mutationFn: (request: SpaceInvitationRequest) =>
+		mutationFn: ({ request }: InvitationOperation) =>
 			requestSpaceInvitations(request),
-		onSuccess: (_result, request) => {
-			setSent(request.action === "create" || request.action === "resend");
-			if (request.action === "create" || request.action === "resend") {
-				setEmail("");
+		onSuccess: (_result, { request, submittedDraft }) => {
+			if (!availabilityRef.current.mounted) {
+				return;
+			}
+			if (request.action === "create") {
+				setSent(
+					`Invitation sent to ${request.email}. They’ll appear in this Space after accepting.`
+				);
+			} else if (request.action === "resend") {
+				setSent(
+					"Invitation resent. They’ll appear in this Space after accepting."
+				);
+			} else {
+				setSent(null);
+			}
+			if (request.action === "create" && submittedDraft) {
+				setDraft((current) =>
+					current === submittedDraft ? { email: "" } : current
+				);
 			}
 		},
-		onSettled: () => client.invalidateQueries({ queryKey }),
+		onSettled: () => {
+			actionInFlightRef.current = false;
+			return client.invalidateQueries({ queryKey });
+		},
 	});
 	const proposal = useMutation({
-		mutationFn: () =>
+		mutationFn: (submittedDraft: InvitationDraft) =>
 			requestOrganizationJoinRequests({
 				action: "create",
 				organizationId: organization?.id ?? "",
 				spaceId,
-				email,
+				email: submittedDraft.email,
 			}),
-		onSuccess: () => {
-			setEmail("");
+		onSuccess: (_result, submittedDraft) => {
+			if (availabilityRef.current.mounted) {
+				setDraft((current) =>
+					current === submittedDraft ? { email: "" } : current
+				);
+			}
 			return client.invalidateQueries({ queryKey: invitationRequestQueryKey });
 		},
+		onSettled: () => {
+			actionInFlightRef.current = false;
+		},
 	});
+	const runInvitation = (operation: InvitationOperation) => {
+		if (
+			actionInFlightRef.current ||
+			!availabilityRef.current.mounted ||
+			availabilityRef.current.disabled
+		) {
+			return;
+		}
+		actionInFlightRef.current = true;
+		mutation.mutate(operation);
+	};
 	if (!organization || organization.isPersonal) {
 		return null;
 	}
@@ -182,18 +255,29 @@ export function SpaceInvitationForm({
 		);
 	}
 	const createInvitation = () => {
-		mutation.mutate({
-			action: "create",
-			organizationId: organization.id,
-			spaceId,
-			email,
-			audience,
+		runInvitation({
+			request: {
+				action: "create",
+				organizationId: organization.id,
+				spaceId,
+				email,
+				audience,
+			},
+			submittedDraft: draft,
 		});
 	};
 	const submitInvitation = () => {
-		setSent(false);
+		if (
+			actionInFlightRef.current ||
+			availabilityRef.current.disabled ||
+			!email.trim()
+		) {
+			return;
+		}
+		setSent(null);
 		if (!canInvite) {
-			proposal.mutate();
+			actionInFlightRef.current = true;
+			proposal.mutate(draft);
 			return;
 		}
 		if (onBeforeCreate) {
@@ -206,6 +290,7 @@ export function SpaceInvitationForm({
 	const submitButton = (
 		<Button
 			disabled={
+				disabled ||
 				mutation.isPending ||
 				proposal.isPending ||
 				role.isPending ||
@@ -229,6 +314,7 @@ export function SpaceInvitationForm({
 				onSubmit={(event) => {
 					event.preventDefault();
 					if (
+						disabled ||
 						role.isPending ||
 						role.isError ||
 						mutation.isPending ||
@@ -247,8 +333,9 @@ export function SpaceInvitationForm({
 				</label>
 				<Input
 					className="min-w-40 flex-1"
+					disabled={disabled}
 					id={`space-invitation-email-${spaceId}-${audience}`}
-					onChange={(event) => setEmail(event.target.value)}
+					onChange={(event) => setDraft({ email: event.target.value })}
 					placeholder="name@example.com"
 					required
 					type="email"
@@ -285,11 +372,7 @@ export function SpaceInvitationForm({
 					spaceId={spaceId}
 				/>
 			) : null}
-			{sent && (
-				<output className="block text-sm">
-					Invitation sent. They’ll appear in this Space after accepting.
-				</output>
-			)}
+			{sent && <output className="block text-sm">{sent}</output>}
 			{(mutation.error || query.error) && (
 				<p className="text-destructive text-sm" role="alert">
 					{(mutation.error ?? query.error)?.message}
@@ -298,10 +381,10 @@ export function SpaceInvitationForm({
 			{mutation.error instanceof SpaceInvitationRequestError &&
 				mutation.error.code === "space.invitation.revoke_incomplete" && (
 					<Button
-						disabled={mutation.isPending}
+						disabled={disabled || mutation.isPending || proposal.isPending}
 						onClick={() => {
-							if (mutation.variables?.action === "revoke") {
-								mutation.mutate(mutation.variables);
+							if (mutation.variables?.request.action === "revoke") {
+								runInvitation(mutation.variables);
 							}
 						}}
 						variant="outline"
@@ -333,11 +416,15 @@ export function SpaceInvitationForm({
 												</p>
 											</div>
 											<Button
-												disabled={mutation.isPending}
+												disabled={
+													disabled || mutation.isPending || proposal.isPending
+												}
 												onClick={() =>
-													mutation.mutate({
-														action: "resend",
-														invitationId: invitation.id,
+													runInvitation({
+														request: {
+															action: "resend",
+															invitationId: invitation.id,
+														},
 													})
 												}
 												size="sm"
@@ -346,11 +433,15 @@ export function SpaceInvitationForm({
 												Resend
 											</Button>
 											<Button
-												disabled={mutation.isPending}
+												disabled={
+													disabled || mutation.isPending || proposal.isPending
+												}
 												onClick={() =>
-													mutation.mutate({
-														action: "revoke",
-														invitationId: invitation.id,
+													runInvitation({
+														request: {
+															action: "revoke",
+															invitationId: invitation.id,
+														},
 													})
 												}
 												size="sm"

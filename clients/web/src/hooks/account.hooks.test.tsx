@@ -1,8 +1,8 @@
 import { accountSessionSchema } from "@openmeld/schemas";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { startQueryKeys, userQueryKeys } from "#/query/query-keys";
 import { spaceQueryKeys } from "#/query/spaces/status";
@@ -15,6 +15,7 @@ const removeAccountAvatarMock = vi.hoisted(() => vi.fn());
 const updateAccountAvatarMock = vi.hoisted(() => vi.fn());
 const createObjectUrlMock = vi.fn();
 const revokeObjectUrlMock = vi.fn();
+const queryClients: QueryClient[] = [];
 
 vi.mock("#/query/auth-query", () => ({
 	changeUserPassword: vi.fn(),
@@ -32,6 +33,13 @@ vi.mock("#/query/auth-query", () => ({
 }));
 
 describe("account avatar hooks", () => {
+	afterEach(() => {
+		cleanup();
+		for (const client of queryClients.splice(0)) {
+			client.clear();
+		}
+	});
+
 	beforeEach(() => {
 		Object.defineProperties(URL, {
 			createObjectURL: {
@@ -76,6 +84,7 @@ describe("account avatar hooks", () => {
 		await act(async () => {
 			await result.current.mutateAsync();
 		});
+		await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
 		expect(
 			queryClient.getQueryData<{ user: { image: string | null } }>(
@@ -147,6 +156,7 @@ describe("account avatar hooks", () => {
 		await act(async () => {
 			await mutation;
 		});
+		await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
 		expect(readSessionAvatar(queryClient)).toBe(
 			"https://example.com/new-avatar.webp"
@@ -206,6 +216,7 @@ describe("account avatar hooks", () => {
 		await act(async () => {
 			await expect(mutation).rejects.toThrow("Avatar removal failed.");
 		});
+		await waitFor(() => expect(result.current.isError).toBe(true));
 
 		expect(readSessionAvatar(queryClient)).toBe(
 			"https://example.com/old-avatar.webp"
@@ -229,11 +240,13 @@ describe("account avatar hooks", () => {
 });
 
 function createIdentityQueryClient(): QueryClient {
-	return new QueryClient({
+	const client = new QueryClient({
 		defaultOptions: {
 			queries: { retry: false },
 		},
 	});
+	queryClients.push(client);
+	return client;
 }
 
 function createWrapper(queryClient: QueryClient) {
