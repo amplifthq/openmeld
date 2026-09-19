@@ -1,5 +1,8 @@
 "use client";
 
+import { Button } from "@openmeld/ui/components/button";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { SkeletonRegion } from "@openmeld/ui/components/skeleton-content";
 import { Switch } from "@openmeld/ui/components/switch";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { setCurrentOrganizationCenterAgentMemoryPolicy } from "#/lib/organizations/center-agent-memory";
@@ -30,14 +33,25 @@ export function OrganizationMemoryPolicySection(input: {
 			await memoryPolicyQuery.refetch();
 		},
 	});
-	const checked = memoryPolicyQuery.data?.organizationMemoryOptIn ?? false;
+	const readUnavailable =
+		memoryPolicyQuery.isError || memoryPolicyQuery.fetchStatus === "paused";
+	const checked = readUnavailable
+		? undefined
+		: memoryPolicyQuery.data?.organizationMemoryOptIn;
 	const isDisabled =
 		!input.roleState.canManage ||
 		input.roleState.isPending ||
 		Boolean(input.roleState.errorMessage) ||
 		memoryPolicyQuery.isPending ||
-		memoryPolicyQuery.isError ||
+		readUnavailable ||
 		memoryPolicyMutation.isPending;
+	const missingControl = readUnavailable ? (
+		<span className="shrink-0 text-muted-foreground text-xs">Unavailable</span>
+	) : (
+		<SkeletonRegion className="shrink-0" label="Loading memory setting">
+			<Skeleton className="h-5 w-8 rounded-full" />
+		</SkeletonRegion>
+	);
 
 	return (
 		<section className="overflow-hidden rounded-md border border-border/70 bg-card/20">
@@ -63,6 +77,7 @@ export function OrganizationMemoryPolicySection(input: {
 					<p className="mt-2 text-muted-foreground text-xs">
 						{resolveOrganizationMemorySummary({
 							checked,
+							readUnavailable,
 							isPending: memoryPolicyQuery.isPending,
 							isPersonalWorkspace: input.isPersonalWorkspace,
 							isSaving: memoryPolicyMutation.isPending,
@@ -86,10 +101,21 @@ export function OrganizationMemoryPolicySection(input: {
 							Only organization owners and admins can change this setting.
 						</p>
 					)}
-					{memoryPolicyQuery.isError ? (
-						<p className="mt-2 text-destructive text-xs">
-							{memoryPolicyQuery.error.message}
-						</p>
+					{readUnavailable ? (
+						<div className="mt-2 flex items-center gap-2" role="alert">
+							<p className="text-destructive text-xs">
+								{memoryPolicyQuery.error?.message ??
+									"Reconnect to load this memory setting."}
+							</p>
+							<Button
+								disabled={memoryPolicyQuery.isFetching}
+								onClick={() => memoryPolicyQuery.refetch().catch(console.error)}
+								size="sm"
+								variant="outline"
+							>
+								Try again
+							</Button>
+						</div>
 					) : null}
 					{memoryPolicyMutation.isError ? (
 						<p className="mt-2 text-destructive text-xs">
@@ -97,31 +123,39 @@ export function OrganizationMemoryPolicySection(input: {
 						</p>
 					) : null}
 				</div>
-				<Switch
-					aria-label={
-						input.isPersonalWorkspace
-							? "Use Workspace memory"
-							: "Use shared Center Agent organization memory"
-					}
-					checked={checked}
-					disabled={isDisabled}
-					onCheckedChange={(nextChecked) => {
-						memoryPolicyMutation.mutate(nextChecked);
-					}}
-				/>
+				{checked === undefined ? (
+					missingControl
+				) : (
+					<Switch
+						aria-label={
+							input.isPersonalWorkspace
+								? "Use Workspace memory"
+								: "Use shared Center Agent organization memory"
+						}
+						checked={checked}
+						disabled={isDisabled}
+						onCheckedChange={(nextChecked) => {
+							memoryPolicyMutation.mutate(nextChecked);
+						}}
+					/>
+				)}
 			</div>
 		</section>
 	);
 }
 
 function resolveOrganizationMemorySummary(input: {
-	checked: boolean;
+	checked: boolean | undefined;
+	readUnavailable: boolean;
 	isPending: boolean;
 	isPersonalWorkspace: boolean;
 	isSaving: boolean;
 }): string {
 	const scope = input.isPersonalWorkspace ? "Workspace" : "Organization";
-	if (input.isPending) {
+	if (input.readUnavailable) {
+		return `${scope} memory setting is unavailable.`;
+	}
+	if (input.isPending || input.checked === undefined) {
 		return `Loading ${scope.toLowerCase()} memory settings.`;
 	}
 	if (input.isSaving) {
