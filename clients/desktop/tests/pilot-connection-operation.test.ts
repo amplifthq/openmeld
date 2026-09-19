@@ -44,6 +44,7 @@ vi.mock("../src/main/desktop-environment", () => ({
 }));
 vi.mock("../src/main/pilot-assets", () => ({ resolvePilotAssets: vi.fn() }));
 vi.mock("../src/main/pilot-user-data", () => ({
+  configureDesktopCredentialStorage: vi.fn(),
   configurePilotUserData: vi.fn(),
   configureInstalledUserData: vi.fn(),
 }));
