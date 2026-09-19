@@ -24,6 +24,8 @@ type MarkdownEditorContentLimit =
 export type MarkdownEditorProps = {
 	ariaLabel?: string;
 	disabled?: boolean;
+	/** Document canvas composition; other callers retain their existing chrome. */
+	presentation?: "page";
 	scrollable?: boolean;
 	onChange: (value: string) => void;
 	placeholder?: string;
@@ -33,9 +35,10 @@ export type MarkdownEditorProps = {
 export function MarkdownEditor(input: MarkdownEditorProps) {
 	const initialValue = useRef(input.value);
 	const editor = usePlateEditor({
-		plugins: input.scrollable
-			? DocumentEditorKit.filter((plugin) => plugin.key !== "fixed-toolbar")
-			: DocumentEditorKit,
+		plugins:
+			input.scrollable || input.presentation === "page"
+				? DocumentEditorKit.filter((plugin) => plugin.key !== "fixed-toolbar")
+				: DocumentEditorKit,
 		value: (editorInstance) =>
 			editorInstance
 				.getApi(MarkdownPlugin)
@@ -47,6 +50,8 @@ export function MarkdownEditor(input: MarkdownEditorProps) {
 		: input.value.length;
 	const contentLimit = input.maxBytes ?? input.maxChars;
 	const overLimit = contentLength > contentLimit;
+	const showCount =
+		input.presentation !== "page" || contentLength >= contentLimit * 0.9;
 
 	return (
 		<div
@@ -82,9 +87,25 @@ export function MarkdownEditor(input: MarkdownEditorProps) {
 						</ScrollArea>
 					</>
 				) : (
-					<EditorContainer>
+					<EditorContainer
+						className={
+							input.presentation === "page"
+								? "h-auto overflow-visible"
+								: undefined
+						}
+					>
+						{input.presentation === "page" && (
+							<FixedToolbar className="relative z-10 rounded-none">
+								<FixedToolbarButtons />
+							</FixedToolbar>
+						)}
 						<Editor
 							aria-label={input.ariaLabel}
+							className={
+								input.presentation === "page"
+									? "min-h-64 px-0 py-4 text-base leading-relaxed"
+									: undefined
+							}
 							placeholder={
 								input.placeholder ?? "Write, or press '/' for commands…"
 							}
@@ -93,17 +114,19 @@ export function MarkdownEditor(input: MarkdownEditorProps) {
 					</EditorContainer>
 				)}
 			</Plate>
-			<p
-				className={cn(
-					"text-muted-foreground text-xs",
-					overLimit && "text-destructive"
-				)}
-			>
-				{usesByteLimit
-					? `${formatBytes(contentLength)} / ${formatBytes(contentLimit)}`
-					: `${contentLength.toLocaleString("en-US")} / ${contentLimit.toLocaleString("en-US")} characters`}
-				{overLimit ? " — too long to save" : ""}
-			</p>
+			{showCount && (
+				<p
+					className={cn(
+						"text-muted-foreground text-xs",
+						overLimit && "text-destructive"
+					)}
+				>
+					{usesByteLimit
+						? `${formatBytes(contentLength)} / ${formatBytes(contentLimit)}`
+						: `${contentLength.toLocaleString("en-US")} / ${contentLimit.toLocaleString("en-US")} characters`}
+					{overLimit ? " — too long to save" : ""}
+				</p>
+			)}
 		</div>
 	);
 }

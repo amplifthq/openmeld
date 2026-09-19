@@ -145,6 +145,26 @@ afterEach(() => {
 
 describe("Team Skills routes", () => {
 	it.each([
+		["skill-history-heading", "Version history"],
+		["skill-details-heading", "Properties"],
+		["skill-files-heading", "Files (1)"],
+	])("opens the relocated surface for the existing %s anchor", async (hash, name) => {
+		const { router } = renderRoutes(`/o/acme/skills/skill-one#${hash}`, {
+			skills: [
+				createOrganizationSkillFixture({ referenceContent: "A checklist." }),
+			],
+		});
+		if (hash === "skill-files-heading") {
+			await screen.findByRole("tab", { name, selected: true });
+			await screen.findByText("references/checklist.md");
+		} else {
+			await screen.findByRole("dialog", { name });
+		}
+		expect(router.state.location.pathname).toBe("/o/acme/skills/skill-one");
+		expect(updateSkill).not.toHaveBeenCalled();
+	});
+
+	it.each([
 		"/o/acme/skills",
 		"/o/acme/skills/skill-one",
 	])("renders %s in Team without a Center Agent session", async (url) => {
@@ -167,9 +187,13 @@ describe("Team Skills routes", () => {
 			)
 		).toBe(false);
 		if (url.endsWith("skill-one")) {
+			await screen.findByRole("heading", { name: "first-skill" });
+			expect(screen.queryByLabelText("Name")).toBeNull();
 			expect(
-				((await screen.findByLabelText("Name")) as HTMLInputElement).disabled
-			).toBe(true);
+				screen
+					.getByLabelText("Instructions", { selector: "[data-slate-editor]" })
+					.getAttribute("contenteditable")
+			).toBe("false");
 			expect(
 				screen.getByRole("link", { name: "All Skills" }).getAttribute("href")
 			).toBe("/o/acme/skills");
@@ -229,6 +253,9 @@ describe("Team Skills routes", () => {
 			).toBeTruthy();
 		} finally {
 			cleanup();
+			// Let shared UI finish its queued frame cleanup before replacing the
+			// fake clock, otherwise later real dialog transitions can stall.
+			await vi.runOnlyPendingTimersAsync();
 			vi.useRealTimers();
 		}
 	});
@@ -575,7 +602,12 @@ describe("Skill navigation with the real UnsavedChangesGuard", () => {
 		const { router } = renderRoutes("/o/acme/skills/skill-one", {
 			skills: [skill],
 		});
-		fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+		fireEvent.click(
+			await screen.findByRole("button", { name: "More actions" })
+		);
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Remove skill" })
+		);
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Remove Skill" })
 		);

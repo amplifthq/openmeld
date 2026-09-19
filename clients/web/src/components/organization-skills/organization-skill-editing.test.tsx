@@ -1,4 +1,5 @@
 import type { OrganizationSkill } from "@openmeld/schemas/types";
+import { QueryObserver } from "@tanstack/react-query";
 import {
 	createMemoryHistory,
 	createRootRoute,
@@ -90,6 +91,174 @@ beforeEach(() => {
 
 describe("Organization Skill editing", () => {
 	it.each([
+		"pending",
+		"failed",
+	] as const)("does not turn a saved document into a failed or blocked Save when catalog refresh is %s", async (outcome) => {
+		const saved = skillSnapshot({ version: 2, name: "saved-method" });
+		updateSkill.mockResolvedValueOnce({ skill: saved });
+		const { queryClient, router } = renderEditor([skillSnapshot()]);
+		const observer = new QueryObserver(queryClient, {
+			queryKey: organizationSkillQueryKeys.list("org-acme"),
+			initialData: { organizationId: "org-acme", canManage: true, skills: [] },
+			staleTime: Number.POSITIVE_INFINITY,
+			retry: false,
+			queryFn: () =>
+				outcome === "pending"
+					? new Promise<never>(() => undefined)
+					: Promise.reject(new Error("Catalog unavailable")),
+		});
+		const unsubscribe = observer.subscribe(() => undefined);
+		try {
+			fireEvent.change(await screen.findByLabelText("Name"), {
+				target: { value: "saved-method" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Save" }));
+			await waitFor(() =>
+				expect(screen.getByLabelText("Skill save status").textContent).toBe(
+					"Saved"
+				)
+			);
+			if (outcome === "failed") {
+				await screen.findByText(
+					"Your change was saved, but the catalog could not refresh."
+				);
+			}
+			expect(screen.queryByText("Couldn't save")).toBeNull();
+			fireEvent.click(screen.getByRole("link", { name: "All Skills" }));
+			await waitFor(() =>
+				expect(router.state.location.pathname).toBe("/o/acme/skills")
+			);
+			expect(updateSkill).toHaveBeenCalledTimes(1);
+		} finally {
+			unsubscribe();
+			queryClient.clear();
+		}
+	});
+
+	it("saves Instructions, two lazily opened references and Properties as one guarded draft", async () => {
+		const snapshot = richSnapshot(1);
+		snapshot.bundle.files.push({
+			...snapshot.bundle.files[0],
+			path: "references/second.md",
+			content: "Second reference.",
+			size: 17,
+		});
+		snapshot.bundle.portable.metadata = { topic: "support", team: "product" };
+		renderEditor([snapshot]);
+		await screen.findByLabelText("Name");
+		await appendRichText(richEditor("instructions"), "ONE");
+		await appendRichText(richEditor("reference"), "TWO");
+		const firstEditor = screen.getByLabelText("references/checklist.md", {
+			selector: "[data-slate-editor]",
+		});
+		fireEvent.click(screen.getByText("references/second.md"));
+		expect(document.contains(firstEditor)).toBe(true);
+		expect(firstEditor.closest("[hidden]")).not.toBeNull();
+		await appendRichText(
+			screen.getByLabelText("references/second.md"),
+			"THREE"
+		);
+		openReference();
+		expect(richEditor("reference")).toBe(firstEditor);
+		expect(richEditor("reference").textContent).toBe(
+			"reference v1 obsolete.TWO"
+		);
+		await openContext("Properties");
+		fireEvent.change(screen.getByLabelText("License"), {
+			target: { value: "MIT" },
+		});
+		const key = screen.getByLabelText("Metadata key topic");
+		key.focus();
+		fireEvent.change(key, { target: { value: "category" } });
+		expect(screen.getByLabelText("Metadata key category")).toBe(key);
+		expect(document.activeElement).toBe(key);
+		fireEvent.change(key, { target: { value: "team" } });
+		await screen.findByText("A metadata field with that name already exists.");
+		expect(
+			(screen.getByLabelText("Metadata value team") as HTMLInputElement).value
+		).toBe("product");
+		fireEvent.click(screen.getByText("Close", { selector: "button" }));
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		fireEvent.click(screen.getByRole("link", { name: "All Skills" }));
+		fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		await openContext("Properties");
+		expect((screen.getByLabelText("License") as HTMLInputElement).value).toBe(
+			"MIT"
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Save skill" }));
+		await screen.findByText("OpenMeld couldn't save this Skill. Try again.");
+		expect(updateSkill).toHaveBeenCalledTimes(1);
+		expect(updateSkill.mock.calls[0]?.[0]).toMatchObject({
+			expectedVersion: 1,
+			expectedActiveReleaseId: "skill-one-release-1",
+			bundle: {
+				instructions: "instructions v1 obsolete.ONE\n",
+				portable: {
+					license: "MIT",
+					metadata: { category: "support", team: "product" },
+				},
+				files: [
+					expect.objectContaining({
+						path: "references/checklist.md",
+						content: "reference v1 obsolete.TWO\n",
+					}),
+					expect.objectContaining({
+						path: "references/second.md",
+						content: "Second reference.THREE\n",
+					}),
+				],
+			},
+		});
+	});
+
+	it("keeps usage guidance tied to saved identity and reports actual clipboard outcomes", async () => {
+		const snapshot = richSnapshot(1);
+		snapshot.enabled = false;
+		const clipboard = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, "clipboard", {
+			configurable: true,
+			value: { writeText: clipboard },
+		});
+		try {
+			renderEditor([snapshot]);
+			fireEvent.change(await screen.findByLabelText("Name"), {
+				target: { value: "unsaved-name" },
+			});
+			await openContext("How agents use this skill");
+			expect(
+				screen.getByText("first-skill", { selector: "strong" })
+			).toBeTruthy();
+			expect(
+				screen.queryByText("unsaved-name", { selector: "strong" })
+			).toBeNull();
+			expect(
+				screen.getByText(
+					"This skill is disabled. A workspace admin must enable it before agents can load it."
+				)
+			).toBeTruthy();
+			expect(document.querySelector("code")?.textContent).not.toContain(
+				"skills load"
+			);
+			fireEvent.click(screen.getByText("Close", { selector: "button" }));
+			await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+			await openContext("Copy link", false);
+			await screen.findByText("Link copied");
+			expect(clipboard).toHaveBeenCalledWith(
+				new URL("/o/acme/skills/skill-one", window.location.origin).href
+			);
+			clipboard.mockRejectedValue(new Error("Clipboard unavailable"));
+			await openContext("Copy link", false);
+			await screen.findByText(
+				"Could not copy the link. Copy the page address instead."
+			);
+			expect(updateSkill).not.toHaveBeenCalled();
+		} finally {
+			Reflect.deleteProperty(navigator, "clipboard");
+		}
+	});
+
+	it.each([
 		"instructions",
 		"reference",
 	] as const)("loads clean v2 %s into the real editor before accepting more input", async (surface) => {
@@ -98,8 +267,11 @@ describe("Organization Skill editing", () => {
 		openReference();
 		expect(richEditor(surface).textContent).toBe(`${surface} v1 obsolete.`);
 		expect(
-			screen.getByText("references/checklist.md").closest("details")?.open
-		).toBe(true);
+			screen
+				.getByText("references/checklist.md")
+				.closest("button")
+				?.getAttribute("aria-expanded")
+		).toBe("true");
 		act(() =>
 			queryClient.setQueryData(
 				organizationSkillQueryKeys.detail("org-acme", "skill-one"),
@@ -161,7 +333,7 @@ describe("Organization Skill editing", () => {
 				{ skill: richSnapshot(2) }
 			)
 		);
-		await screen.findByText("222222222222");
+		await inspectVersionTwo();
 		expect(richEditor("instructions")).toBe(instructions);
 		expect(richEditor("reference")).toBe(reference);
 		expect(instructions.textContent).toBe(
@@ -249,7 +421,7 @@ describe("Organization Skill editing", () => {
 				{ skill: v2 }
 			)
 		);
-		await screen.findByText("222222222222");
+		await inspectVersionTwo();
 		fireEvent.click(screen.getByRole("button", { name: "Save" }));
 		await waitFor(() => expect(updateSkill).toHaveBeenCalled());
 		expect(updateSkill.mock.calls[0]?.[0]).toMatchObject({
@@ -497,23 +669,29 @@ describe("Organization Skill editing", () => {
 		const skill = skillSnapshot();
 		skill.permissions = { canEdit, canManage };
 		renderEditor([skill]);
+		await screen.findByRole("heading", { name: skill.name });
+		expect(Boolean(screen.queryByLabelText("Name"))).toBe(canEdit);
 		expect(
-			((await screen.findByLabelText("Name")) as HTMLInputElement).disabled
-		).toBe(!canEdit);
+			screen
+				.getByLabelText("Instructions", { selector: "[data-slate-editor]" })
+				.getAttribute("contenteditable")
+		).toBe(String(canEdit));
 		expect(Boolean(screen.queryByRole("button", { name: "Save" }))).toBe(
 			canEdit
 		);
+		fireEvent.click(screen.getByRole("button", { name: "More actions" }));
 		expect(
-			Boolean(
-				screen.queryByRole("switch", { name: "Enable Organization Skill" })
-			)
+			Boolean(await screen.findByRole("menuitem", { name: "Properties" }))
+		).toBe(true);
+		expect(
+			Boolean(screen.queryByRole("menuitem", { name: "Disable skill" }))
 		).toBe(canManage);
-		expect(Boolean(screen.queryByRole("button", { name: "Maintainers" }))).toBe(
-			canManage
-		);
-		expect(Boolean(screen.queryByRole("button", { name: "Remove" }))).toBe(
-			canManage
-		);
+		expect(
+			Boolean(screen.queryByRole("menuitem", { name: "Manage maintainers" }))
+		).toBe(canManage);
+		expect(
+			Boolean(screen.queryByRole("menuitem", { name: "Remove skill" }))
+		).toBe(canManage);
 	});
 });
 
@@ -561,23 +739,52 @@ function richSnapshot(version: number) {
 	});
 }
 
+const FILES_TAB_NAME = /^Files \(/;
+
 function openReference() {
-	fireEvent.click(screen.getByText("references/checklist.md"));
+	const tab = screen.getByRole("tab", { name: FILES_TAB_NAME });
+	if (tab.getAttribute("aria-selected") !== "true") {
+		fireEvent.click(tab);
+	}
+	const row = screen.getByText("references/checklist.md").closest("button");
+	if (row?.getAttribute("aria-expanded") !== "true") {
+		fireEvent.click(screen.getByText("references/checklist.md"));
+	}
 }
 
+// Drive the real local tabs before finding a visible editing surface.
 function richEditor(surface: "instructions" | "reference"): HTMLElement {
-	const region = document
-		.querySelector(
-			surface === "instructions"
-				? "#skill-instructions-heading"
-				: "#skill-files-heading"
-		)
-		?.closest("section");
-	const editor = region?.querySelector("[data-slate-editor]");
-	if (!(editor instanceof HTMLElement)) {
-		throw new Error(`Missing real ${surface} editor`);
+	if (surface === "reference") {
+		openReference();
+	} else {
+		const tab = screen.queryByRole("tab", { name: "Instructions" });
+		if (tab && tab.getAttribute("aria-selected") !== "true") {
+			fireEvent.click(tab);
+		}
 	}
-	return editor;
+	return screen.getByLabelText(
+		surface === "instructions" ? "Instructions" : "references/checklist.md",
+		{ selector: "[data-slate-editor]" }
+	);
+}
+
+async function openContext(name: string, expectDialog = true) {
+	fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+	fireEvent.click(await screen.findByRole("menuitem", { name }));
+	if (expectDialog) {
+		await screen.findByRole("dialog");
+	}
+}
+
+async function inspectVersionTwo() {
+	fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+	fireEvent.click(
+		await screen.findByRole("menuitem", { name: "Version history" })
+	);
+	fireEvent.click(await screen.findByText("Release details"));
+	await screen.findByText("2".repeat(64));
+	fireEvent.click(screen.getByText("Close", { selector: "button" }));
+	await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 }
 
 async function appendRichText(

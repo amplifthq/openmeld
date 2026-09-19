@@ -1,9 +1,39 @@
 // @vitest-environment jsdom
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MarkdownEditor } from "./markdown-editor";
 
+afterEach(cleanup);
+
 describe("MarkdownEditor", () => {
+	it("keeps page formatting reachable and only discloses the limit near its boundary", () => {
+		const { rerender } = render(
+			<MarkdownEditor
+				ariaLabel="Instructions"
+				maxChars={100}
+				onChange={vi.fn()}
+				presentation="page"
+				value="Notes"
+			/>
+		);
+		expect(screen.getAllByRole("toolbar")).toHaveLength(1);
+		expect(
+			screen.getByLabelText("Instructions").getAttribute("contenteditable")
+		).toBe("true");
+		expect(screen.queryByText("5 / 100 characters")).toBeNull();
+		rerender(
+			<MarkdownEditor
+				ariaLabel="Instructions"
+				maxChars={100}
+				onChange={vi.fn()}
+				presentation="page"
+				value={"a".repeat(101)}
+			/>
+		);
+		expect(
+			screen.getByText("101 / 100 characters — too long to save")
+		).toBeTruthy();
+	});
 	it("renders an editable document surface with its formatting toolbar", () => {
 		const { container } = render(
 			<MarkdownEditor

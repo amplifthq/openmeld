@@ -5,49 +5,43 @@ import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { DownloadSimpleIcon } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
+import { isEditableSkillReference } from "./organization-skill-validation";
 
 export function OrganizationSkillFiles(input: {
 	canEdit: boolean;
 	contentGeneration: number;
 	files: OrganizationSkillFile[];
-	onChange: (files: OrganizationSkillFile[]) => void;
+	onChange: (file: OrganizationSkillFile) => void;
 	saving: boolean;
 }) {
+	const [expandedPath, setExpandedPath] = useState<string | null>(null);
 	return (
 		<section aria-labelledby="skill-files-heading" className="grid gap-3">
-			<div>
-				<h2 className="font-medium text-lg" id="skill-files-heading">
-					Files
-				</h2>
-				<p className="mt-1 text-muted-foreground text-sm">
-					Markdown references can be edited. Scripts are stored for portability
-					but are not executable in Phase 1.
-				</p>
-			</div>
-			{input.files.length === 0 ? (
-				<div className="rounded-md border p-4 text-muted-foreground text-sm">
-					This Skill has no reference, asset, or script files.
-				</div>
-			) : (
-				<div className="grid overflow-hidden rounded-md border">
-					{input.files.map((file, index) => (
-						<SkillFile
-							canEdit={input.canEdit}
-							contentGeneration={input.contentGeneration}
-							file={file}
-							key={file.path}
-							onChange={(nextFile) => {
-								const next = [...input.files];
-								next[index] = nextFile;
-								input.onChange(next);
-							}}
-							saving={input.saving}
-						/>
-					))}
-				</div>
-			)}
+			<h2 className="sr-only" id="skill-files-heading">
+				Files
+			</h2>
+			<p className="text-muted-foreground text-sm">
+				Supporting files for this skill. Reference edits are saved with the
+				skill.
+			</p>
+			<ul className="divide-y border-y">
+				{input.files.map((file) => (
+					<SkillFile
+						canEdit={input.canEdit}
+						contentGeneration={input.contentGeneration}
+						expanded={expandedPath === file.path}
+						file={file}
+						key={file.path}
+						onChange={input.onChange}
+						onToggle={() =>
+							setExpandedPath(expandedPath === file.path ? null : file.path)
+						}
+						saving={input.saving}
+					/>
+				))}
+			</ul>
 		</section>
 	);
 }
@@ -55,65 +49,109 @@ export function OrganizationSkillFiles(input: {
 function SkillFile(input: {
 	canEdit: boolean;
 	contentGeneration: number;
+	expanded: boolean;
+	file: OrganizationSkillFile;
+	onChange: (file: OrganizationSkillFile) => void;
+	onToggle: () => void;
+	saving: boolean;
+}) {
+	const id = useId();
+	// Mount on first opening, then retain the visited editor until Skill identity
+	// changes. Switching files must not lose queued input or its Undo history.
+	const [visited, setVisited] = useState(false);
+	useEffect(() => {
+		if (input.expanded) {
+			setVisited(true);
+		}
+	}, [input.expanded]);
+	return (
+		<li>
+			<button
+				aria-controls={input.expanded ? id : undefined}
+				aria-expanded={input.expanded}
+				className="flex min-h-14 w-full flex-wrap items-center justify-between gap-2 px-1 py-3 text-left hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				onClick={input.onToggle}
+				type="button"
+			>
+				<span className="min-w-0 break-all font-medium text-sm">
+					{input.file.path}
+				</span>
+				<span className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
+					{input.file.path.startsWith("scripts/") && (
+						<Badge variant="outline">Not executable</Badge>
+					)}
+					<span>
+						{formatBytes(input.file.size)} · {input.file.mediaType}
+					</span>
+				</span>
+			</button>
+			{(input.expanded || visited) && (
+				<div className="min-w-0 pb-4" hidden={!input.expanded} id={id}>
+					<SkillFileContent
+						canEdit={input.canEdit}
+						file={input.file}
+						key={input.contentGeneration}
+						onChange={input.onChange}
+						saving={input.saving}
+					/>
+				</div>
+			)}
+		</li>
+	);
+}
+
+function SkillFileContent(input: {
+	canEdit: boolean;
 	file: OrganizationSkillFile;
 	onChange: (file: OrganizationSkillFile) => void;
 	saving: boolean;
 }) {
-	const isMarkdownReference =
-		input.file.encoding === "utf8" &&
-		input.file.path.startsWith("references/") &&
-		input.file.path.toLowerCase().endsWith(".md");
-	const isScript = input.file.path.startsWith("scripts/");
-	let fileContent: ReactNode;
-	if (isMarkdownReference) {
-		fileContent = (
+	// Removed files and superseded content generations cannot deliver stale input.
+	const mounted = useRef(false);
+	useLayoutEffect(() => {
+		mounted.current = true;
+		return () => {
+			mounted.current = false;
+		};
+	}, []);
+	if (isEditableSkillReference(input.file)) {
+		return (
 			<MarkdownEditor
+				ariaLabel={input.file.path}
 				disabled={!input.canEdit || input.saving}
-				key={input.contentGeneration}
 				maxChars={256_000}
-				onChange={(content) =>
-					input.onChange({
-						...input.file,
-						content,
-						size: new TextEncoder().encode(content).byteLength,
-					})
-				}
+				onChange={(content) => {
+					if (mounted.current) {
+						input.onChange({
+							...input.file,
+							content,
+							size: new TextEncoder().encode(content).byteLength,
+						});
+					}
+				}}
+				presentation="page"
 				value={input.file.content}
 			/>
 		);
-	} else if (input.file.encoding === "utf8") {
-		fileContent = (
+	}
+	if (input.file.encoding === "utf8") {
+		return (
 			<ScrollArea className="max-h-96" orientation="both">
-				<pre className="whitespace-pre-wrap rounded-md border bg-muted/30 p-4 text-xs">
+				<pre className="whitespace-pre-wrap bg-muted/30 p-4 text-sm">
 					{input.file.content}
 				</pre>
 			</ScrollArea>
 		);
-	} else {
-		fileContent = (
-			<div className="flex items-center justify-between gap-3 rounded-md border p-4">
-				<p className="text-muted-foreground text-sm">
-					Binary file. Download it to inspect the original bytes.
-				</p>
-				<Button onClick={() => downloadSkillFile(input.file)} variant="outline">
-					<DownloadSimpleIcon aria-hidden="true" /> Download
-				</Button>
-			</div>
-		);
 	}
 	return (
-		<details className="border-b p-4 last:border-b-0">
-			<summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3">
-				<span className="font-medium text-sm">{input.file.path}</span>
-				<span className="flex items-center gap-2">
-					{isScript ? <Badge variant="outline">Not executable</Badge> : null}
-					<span className="text-muted-foreground text-xs">
-						{formatBytes(input.file.size)} · {input.file.mediaType}
-					</span>
-				</span>
-			</summary>
-			<div className="mt-4">{fileContent}</div>
-		</details>
+		<div className="flex flex-wrap items-center justify-between gap-3 py-3">
+			<p className="text-muted-foreground text-sm">
+				Download this file to view it.
+			</p>
+			<Button onClick={() => downloadSkillFile(input.file)} variant="outline">
+				<DownloadSimpleIcon aria-hidden="true" /> Download
+			</Button>
+		</div>
 	);
 }
 
