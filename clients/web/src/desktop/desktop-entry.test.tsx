@@ -26,6 +26,7 @@ const bridge = vi.hoisted(() => ({
 	onSessionChanged: vi.fn<(callback: () => void) => () => void>(
 		() => () => undefined
 	),
+	platform: vi.fn(),
 	session: vi.fn<() => Promise<DesktopSession>>(),
 	signIn: vi.fn<() => Promise<void>>(async () => undefined),
 	signOut: vi.fn(),
@@ -51,6 +52,12 @@ vi.mock("#/lib/organizations/account-organization-context", () => ({
 beforeEach(() => {
 	window.localStorage.clear();
 	bridge.onSessionChanged.mockClear();
+	bridge.platform.mockReset().mockResolvedValue({
+		platform: "desktop",
+		lane: "dev-local",
+		webOrigin: "http://lane.localhost:3000",
+		webBuild: "a".repeat(64),
+	});
 	bridge.session.mockReset();
 	bridge.signIn.mockReset().mockResolvedValue(undefined);
 	bridge.signOut.mockReset();
@@ -69,6 +76,72 @@ afterEach(() => {
 });
 
 describe("Desktop entry session revalidation", () => {
+	it.each([
+		{
+			name: "installed macOS Desktop",
+			nativePlatform: "MacIntel",
+			installedTarget: {
+				kind: "production" as const,
+				webOrigin: "https://openmeld.ai" as const,
+				authScheme: "sh.openmeld.desktop" as const,
+				clientId: "openmeld-desktop" as const,
+				appId: "sh.openmeld.desktop" as const,
+				dataDirectory: "OpenMeld Desktop" as const,
+			},
+			visible: true,
+		},
+		{
+			name: "localhost mock-Keychain Desktop",
+			nativePlatform: "MacIntel",
+			installedTarget: undefined,
+			visible: false,
+		},
+		{
+			name: "installed Windows Desktop",
+			nativePlatform: "Win32",
+			installedTarget: {
+				kind: "production" as const,
+				webOrigin: "https://openmeld.ai" as const,
+				authScheme: "sh.openmeld.desktop" as const,
+				clientId: "openmeld-desktop" as const,
+				appId: "sh.openmeld.desktop" as const,
+				dataDirectory: "OpenMeld Desktop" as const,
+			},
+			visible: false,
+		},
+	])("shows the Keychain note only for $name", async (testCase) => {
+		vi.spyOn(window.navigator, "platform", "get").mockReturnValue(
+			testCase.nativePlatform
+		);
+		bridge.platform.mockResolvedValue({
+			platform: "desktop",
+			lane: testCase.installedTarget ? "prod" : "dev-local",
+			webOrigin:
+				testCase.installedTarget?.webOrigin ?? "http://lane.localhost:3000",
+			webBuild: "a".repeat(64),
+			...(testCase.installedTarget
+				? { installedTarget: testCase.installedTarget }
+				: {}),
+		});
+		bridge.session.mockResolvedValue({ user: null });
+		const client = new QueryClient();
+		render(
+			<QueryClientProvider client={client}>
+				<DesktopEntry />
+			</QueryClientProvider>
+		);
+		await screen.findByRole("button", { name: "Sign in with browser" });
+		const note = screen.queryByText(
+			"macOS may ask for Keychain access to securely remember your sign-in."
+		);
+		if (testCase.visible) {
+			expect(note).toBeTruthy();
+		} else {
+			expect(note).toBeNull();
+		}
+		client.clear();
+	});
+
 	it("retries temporary session failures without signing in or clearing same-account data", async () => {
 		const first = createDeferred<DesktopSession>();
 		bridge.session
