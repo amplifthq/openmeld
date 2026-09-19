@@ -42,6 +42,7 @@ export function resourcePolicy(env = process.env, memoryBytes = totalmem()) {
       stack: positiveNumber(env, "OPENMELD_LOCAL_STACK_GIB", 6) * GIB,
       web: positiveNumber(env, "OPENMELD_LOCAL_WEB_GIB", 2) * GIB,
       heavy: positiveNumber(env, "OPENMELD_LOCAL_HEAVY_GIB", 2) * GIB,
+      desktop: positiveNumber(env, "OPENMELD_LOCAL_DESKTOP_GIB", 1) * GIB,
     },
   };
 }

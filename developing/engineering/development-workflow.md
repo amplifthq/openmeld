@@ -194,6 +194,16 @@ the updated launchers to benefit; never rewrite another task's reservation.
 Waiting messages show available memory, machine headroom, new startup budget,
 and existing growth reservations separately.
 
+Desktop development uses the same resource registry, not a second scheduler.
+`pnpm desktop:dev` reserves heavy capacity only while preparing the native build,
+then releases it and reserves the `desktop` memory class (default 1 GiB) for the
+GUI. Actual process RSS is included in the machine snapshot. The existing pressure
+and headroom guards still apply; `OPENMELD_LOCAL_DESKTOP_GIB` is an explicit measured
+workload tuning option, not a way to make memory appear free. Run `desktop:doctor`,
+`desktop:status` or `desktop:stop` in the owning worktree. See
+[Desktop development lanes](../clients/desktop.md#development-lanes) for the complete
+command contract. Repeated starts do not duplicate a GUI or rebuild underneath it.
+
 `pnpm dev:status` reports process trees, summed RSS and machine memory
 separately from disk space. RSS can count shared pages more than once. macOS
 memory availability includes free, inactive and speculative pages and is
