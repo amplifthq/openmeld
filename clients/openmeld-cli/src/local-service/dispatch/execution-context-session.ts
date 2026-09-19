@@ -52,6 +52,7 @@ export function executionContextFileAccessBoundary(input: {
   workingDirectory: string;
   policy: ComputerFileAccessPolicy;
   taskWorkspace?: ExecutionContextWorkspace;
+  workingCopyId?: string;
 }): AdapterComputerFileAccessBoundary {
   const within = (child: string, parent: string) => {
     const path = relative(parent, child);
@@ -83,10 +84,17 @@ export function executionContextFileAccessBoundary(input: {
   }
   return {
     mode: "only_selected_folders",
-    folders: [input.taskWorkspace?.boundaryRoot ?? input.workingDirectory],
+    folders: [
+      input.context.access === "space_context" && input.workingCopyId
+        ? input.workingDirectory
+        : (input.taskWorkspace?.boundaryRoot ?? input.workingDirectory),
+    ],
     revision: policy.revision,
     updatedAtMs: policy.updatedAtMs,
     executionContextAccess: input.context.access,
+    ...(input.context.access === "space_context" && input.workingCopyId
+      ? { workingCopyId: input.workingCopyId }
+      : {}),
   };
 }
 

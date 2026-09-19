@@ -18,7 +18,20 @@ import { createSpaceWorkingCopies } from "./space-working-copy";
 
 /** The admitted Service prepares inputs; no login state is copied into the workspace. */
 export async function prepareDispatchWorkHandoff(input: {
-  task: ParsedDispatchTask;
+  task: Pick<
+    ParsedDispatchTask,
+    | "workHandoff"
+    | "workingCopyId"
+    | "executionContext"
+    | "agentControllerRef"
+    | "transportMode"
+    | "targetProfileId"
+    | "targetProfileName"
+    | "spaceId"
+    | "spacePassword"
+    | "taskId"
+    | "prompt"
+  >;
   ownerUserId: string;
   workingDirectory: string;
 }) {

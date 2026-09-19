@@ -80,7 +80,13 @@ export function registerSpaceFilesCommands(spaceCommand: Command): void {
       });
     });
   });
-  for (const action of ["resume", "status", "commit", "reconcile"] as const) {
+  for (const action of [
+    "resume",
+    "status",
+    "commit",
+    "reconcile",
+    "refresh",
+  ] as const) {
     withSpaceProfileOption(
       withCommonOptions(
         workingCopy
@@ -99,6 +105,33 @@ export function registerSpaceFilesCommands(spaceCommand: Command): void {
       });
     });
   }
+  withSpaceProfileOption(
+    withCommonOptions(
+      workingCopy
+        .command("resolve")
+        .argument("<space>", "Space ID")
+        .argument("<copy-id>", "Working copy ID")
+        .requiredOption(
+          "--file-id <id>",
+          "Conflicted file to resolve after merging"
+        )
+        .requiredOption(
+          "--revision <number>",
+          "Incoming revision used for the merge"
+        )
+    )
+  ).action(async (space, copyId, opts, command: Command) => {
+    await runFilesCommand(command, opts, "working-copy", async (common) => {
+      await runSpaceWorkingCopy({
+        ...common,
+        action: "resolve",
+        space: String(space),
+        copyId: String(copyId),
+        fileId: opts.fileId,
+        revision: Number(opts.revision),
+      });
+    });
+  });
   withSpaceProfileOption(
     withCommonOptions(
       workingCopy

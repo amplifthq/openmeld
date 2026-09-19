@@ -989,6 +989,23 @@ authentication files. Its Space, source Wake, and acting Profile are fixed by
 the active dispatch, and it rechecks that context after the authorized read.
 This read does not complete or publish the Wake.
 
+A selected-file handoff is the narrow writable exception: after preparation,
+the Service adds the dispatch's `workingCopyId` to the adapter boundary and
+limits its folders to the prepared handoff root, not its parent scratch root.
+Codex must confirm workspace-write access and pass the same real inside/outside
+probe. Ordinary Space-only tasks remain read-only, repair remains read-only,
+and the context still starts a separate native session. Copy receipts and
+upload snapshots remain outside the writable root. This projection changes
+neither Core authorization nor RuntimeCoordinator execution ownership.
+
+Managed-copy reads and file creation require macOS `O_NOFOLLOW_ANY`, which
+rejects symlinks in every path component during the kernel open itself. Leaf-only
+`O_NOFOLLOW` and preflight directory checks are insufficient against a concurrent
+intermediate-directory replacement. Other platforms reject managed-copy commands
+until they have an equivalent verified primitive; explicit file commands remain
+available. This is a Service file-read boundary, not evidence of a production
+Codex sandbox escape.
+
 Claude SDK Space-context invocations expose only dispatch-owned Space tools;
 built-in local tools, ambient MCP servers, and hooks are disabled. User settings
 remain available for the existing provider authentication. Codex local contexts

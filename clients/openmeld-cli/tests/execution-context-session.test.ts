@@ -152,6 +152,20 @@ describe("Execution Context local authority", () => {
       updatedAtMs: 10,
       executionContextAccess: "space_context",
     });
+    const copyId = "11111111-1111-4111-8111-111111111111";
+    expect(
+      executionContextFileAccessBoundary({
+        context: { ...context, access: "space_context" },
+        workingDirectory: `${scratch}/handoff-${copyId}`,
+        taskWorkspace: { workingDirectory: scratch, boundaryRoot: scratch },
+        policy,
+        workingCopyId: copyId,
+      })
+    ).toMatchObject({
+      folders: [`${scratch}/handoff-${copyId}`],
+      executionContextAccess: "space_context",
+      workingCopyId: copyId,
+    });
   });
 
   it("never turns a saved reply after native failure into a completed fork checkpoint", async () => {

@@ -7425,6 +7425,16 @@ working-copy manager is claimed. Rollback removes new callers before receivers;
 retain pending local copies and immutable shared revisions. No DB migration or
 resource binding is introduced.
 
+The review fixes keep the same capability-gated rollout. The Service-to-adapter
+boundary adds optional `workingCopyId` only after successful preparation; it
+does not extend public execution-context access modes. The CLI/MCP adds explicit
+refresh/resolve actions and conflict/incoming projections. These ship together
+in the local component artifact; they do not require new cloud operations or
+reinterpret ordinary setup, Wake, Space actions, status, or trace. Unreleased
+first-version handoff artifacts must be replaced before enabling this capability.
+No managed Skill or execution epoch changes are needed. The next local artifact
+remains deferred on this draft branch; release verification must use the base.
+
 This document owns shared contracts and reusable policy boundaries.
 
 Use scoped owner documents for related rules:

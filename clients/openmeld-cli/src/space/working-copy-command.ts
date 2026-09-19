@@ -28,7 +28,11 @@ export async function runSpaceWorkingCopy(
       | "status"
       | "commit"
       | "reconcile"
+      | "refresh"
+      | "resolve"
       | "incoming";
+    fileId?: string;
+    revision?: number;
     copyId?: string;
     selection?: string;
     directory?: string;
@@ -118,6 +122,12 @@ export async function runSpaceWorkingCopy(
         JSON.parse(await readFile(selection, "utf8"))
       ),
       input.directory ?? ""
+    );
+  } else if (input.action === "resolve") {
+    result = await copies.resolve(
+      input.copyId ?? "",
+      input.fileId ?? "",
+      input.revision ?? 0
     );
   } else if (input.action === "incoming") {
     result = await copies.incoming(input.copyId ?? "", input.directory ?? "");

@@ -94,6 +94,42 @@ describe("Codex CLI transport args", () => {
     assert.equal(args.includes("features.plugins=false"), true);
     assert.equal(args.includes("mcp_servers={}"), false);
     assert.equal(args[args.indexOf("-a") + 1], "never");
+    const handoff = {
+      ...boundary,
+      executionContextAccess: "space_context",
+      workingCopyId: "11111111-1111-4111-8111-111111111111",
+    };
+    assert.equal(
+      isCodexExecutionContextFileAccessConfirmed(
+        response,
+        handoff,
+        "/work/task"
+      ),
+      true
+    );
+    assert.equal(
+      isCodexExecutionContextFileAccessConfirmed(
+        { ...response, sandbox: { type: "readOnly" } },
+        handoff,
+        "/work/task"
+      ),
+      false
+    );
+    const handoffArgs = buildCodexFileAccessBoundaryGlobalArgs({
+      boundary: handoff,
+    });
+    assert.equal(handoffArgs.includes("project_root_markers=[]"), true);
+    assert.ok(
+      handoffArgs.some((arg) => arg.includes('"/work/task" = "write"'))
+    );
+    assert.equal(
+      isCodexExecutionContextFileAccessConfirmed(
+        response,
+        { ...handoff, workingCopyId: undefined },
+        "/work/task"
+      ),
+      false
+    );
     for (const access of ["space_context", "read_only", "workspace"]) {
       const scopedArgs = buildCodexFileAccessBoundaryGlobalArgs({
         boundary: { ...boundary, executionContextAccess: access },

@@ -9,7 +9,8 @@ import { readDispatchSpaceActionContextFromEnv } from "../runtime/dispatch-space
 
 const run = promisify(execFile);
 export async function runDispatchWorkingCopy(
-  action: "status" | "commit" | "reconcile"
+  action: "status" | "commit" | "reconcile" | "refresh" | "resolve",
+  resolution?: { fileId?: string; revision?: number }
 ) {
   const context = readDispatchSpaceActionContextFromEnv();
   const command = resolveDispatchSpaceActionMcpServer(process.env);
@@ -28,6 +29,14 @@ export async function runDispatchWorkingCopy(
       "--json",
       "--view",
       "agent",
+      ...(action === "resolve"
+        ? [
+            "--file-id",
+            resolution?.fileId ?? "",
+            "--revision",
+            String(resolution?.revision ?? 0),
+          ]
+        : []),
       "--",
       context.spaceId,
       context.workingCopyId,

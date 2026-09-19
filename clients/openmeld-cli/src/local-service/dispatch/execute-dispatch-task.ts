@@ -2983,6 +2983,7 @@ async function resolveDispatchComputerFileAccess(input: {
       workingDirectory,
       policy,
       taskWorkspace: input.taskWorkspace,
+      workingCopyId: input.parsedTask.workingCopyId,
     });
     const verification = await verifier({
       boundary,

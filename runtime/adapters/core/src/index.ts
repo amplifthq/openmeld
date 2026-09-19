@@ -170,7 +170,9 @@ export type AdapterDispatchExecutionMode = "normal" | "repair";
 export type AdapterComputerFileAccessBoundary = Extract<
   ComputerFileAccessPolicy,
   { mode: "block_selected_folders" | "only_selected_folders" }
-> & { executionContextAccess?: ExecutionContextTask["access"] };
+> & {
+  executionContextAccess?: ExecutionContextTask["access"];
+} & import("@openmeld/schemas").SpaceWorkingCopyAccess;
 export type AdapterComputerFileAccessVerificationRequest = {
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   boundary: AdapterComputerFileAccessBoundary;

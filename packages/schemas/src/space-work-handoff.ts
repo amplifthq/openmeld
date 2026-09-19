@@ -98,6 +98,14 @@ export const spaceWorkHandoffSchema = spaceWorkSelectionSchema.safeExtend({
 });
 export type SpaceWorkHandoff = z.infer<typeof spaceWorkHandoffSchema>;
 
+/** Service-only projection after preparing the dispatch's selected inputs. */
+export const spaceWorkingCopyAccessSchema = z.object({
+  workingCopyId: z.string().uuid().optional(),
+});
+export type SpaceWorkingCopyAccess = z.infer<
+  typeof spaceWorkingCopyAccessSchema
+>;
+
 export const spaceWorkingCopyResultSchema = z.union([
   z.strictObject({
     copyId: z.string().uuid(),
@@ -105,6 +113,8 @@ export const spaceWorkingCopyResultSchema = z.union([
     ready: z.literal(true),
   }),
   z.strictObject({ copyId: z.string().uuid(), reconciled: z.literal(true) }),
+  z.strictObject({ copyId: z.string().uuid(), refreshed: z.literal(true) }),
+  z.strictObject({ copyId: z.string().uuid(), resolved: z.literal(true) }),
   z.strictObject({
     copyId: z.string().uuid(),
     references: z
@@ -120,7 +130,10 @@ export const spaceWorkingCopyResultSchema = z.union([
     files: z
       .array(
         spaceWorkFileSelectionSchema.extend({
+          incomingRevision: z.number().int().positive().optional(),
+          incomingPath: spaceWorkRelativePathSchema.optional(),
           status: z.enum([
+            "conflict",
             "pending",
             "preparing",
             "missing",

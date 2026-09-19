@@ -56,16 +56,22 @@ export function createSpaceActionMcpServer(): McpServer {
     {
       title: "Save or inspect this handoff's files",
       description:
-        "Inspect local changes, commit them to the same Space file IDs, or reconcile an unknown save. Preserves local changes on conflict. Does not deliver or close the Wake. No Space, profile or path overrides are accepted.",
-      inputSchema: { action: z.enum(["status", "commit", "reconcile"]) },
+        "Inspect or commit this handoff's files; reconcile retries an unknown save. On conflict, refresh downloads the shared version, then status shows its path and revision. Merge it into the original working file, then resolve with fileId and incoming revision before committing again. No automatic merge or overwrite. Does not deliver or close the Wake. No Space, profile or path overrides.",
+      inputSchema: {
+        action: z.enum(["status", "commit", "reconcile", "refresh", "resolve"]),
+        fileId: z.string().optional(),
+        revision: z.number().int().positive().optional(),
+      },
     },
-    async ({ action }) => {
+    async ({ action, fileId, revision }) => {
       try {
         return {
           content: [
             {
               type: "text" as const,
-              text: JSON.stringify(await runDispatchWorkingCopy(action)),
+              text: JSON.stringify(
+                await runDispatchWorkingCopy(action, { fileId, revision })
+              ),
             },
           ],
         };
