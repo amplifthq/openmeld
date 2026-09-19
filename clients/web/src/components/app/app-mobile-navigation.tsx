@@ -21,6 +21,7 @@ export function AppMobileNavigationDrawer(input: {
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
 	returnFocusRef: RefObject<HTMLButtonElement | null>;
+	side: "left" | "right";
 	title: string;
 }) {
 	return (
@@ -29,7 +30,7 @@ export function AppMobileNavigationDrawer(input: {
 				className="w-[min(20rem,calc(100vw-1.5rem))] max-w-full gap-0 overscroll-contain bg-background p-0 text-foreground sm:max-w-none"
 				finalFocus={input.returnFocusRef}
 				showCloseButton={false}
-				side="left"
+				side={input.side}
 			>
 				<div className="flex min-h-0 w-full flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
 					<div className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-border border-b px-3">

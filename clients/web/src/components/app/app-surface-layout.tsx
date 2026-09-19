@@ -89,7 +89,7 @@ export function AppSurfaceLayout(input: {
 					data-slot="app-content-column"
 				>
 					<div
-						className="relative mb-[calc(3.5rem+env(safe-area-inset-bottom))] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background transition-[margin-bottom] duration-180 ease-out motion-reduce:transition-none lg:mt-2 lg:mr-2 lg:mb-[var(--app-toolbar-height)] lg:rounded-md lg:shadow-surface-2 lg:after:pointer-events-none lg:after:absolute lg:after:inset-0 lg:after:z-20 lg:after:rounded-[inherit] lg:after:[box-shadow:inherit]"
+						className="relative mb-[max(0.5rem,env(safe-area-inset-bottom))] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background transition-[margin-bottom] duration-180 ease-out motion-reduce:transition-none lg:mt-2 lg:mr-2 lg:mb-[var(--app-toolbar-height)] lg:rounded-md lg:shadow-surface-2 lg:after:pointer-events-none lg:after:absolute lg:after:inset-0 lg:after:z-20 lg:after:rounded-[inherit] lg:after:[box-shadow:inherit]"
 						data-slot="app-surface"
 					>
 						<header
@@ -157,6 +157,7 @@ export function AppSurfaceLayout(input: {
 					onOpenChange={setAppNavigationOpen}
 					open={appNavigationOpen}
 					returnFocusRef={appNavigationTriggerRef}
+					side="left"
 					title="OpenMeld navigation"
 				>
 					{input.outerRail}
@@ -169,6 +170,7 @@ export function AppSurfaceLayout(input: {
 						onOpenChange={setContextualNavigationOpen}
 						open={contextualNavigationOpen}
 						returnFocusRef={contextualNavigationTriggerRef}
+						side="right"
 						title={`${sidebarTitle} navigation`}
 					>
 						{sidebar}
