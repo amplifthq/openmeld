@@ -29,7 +29,8 @@ export function resolveTrustedOrigins(
   addOrigin(origins, input.appUrl);
   const desktop = desktopAuthIdentity(
     input.env === "production",
-    input.developmentTarget
+    input.developmentTarget,
+    input.appUrl
   );
   origins.add(DESKTOP_APP_ORIGIN);
   origins.add(`${desktop.authScheme}:/`);

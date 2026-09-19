@@ -31,6 +31,18 @@ const runtimeEnv = {
 		import.meta.env.VITE_BETTER_AUTH_URL ??
 		nodeProcessEnv.VITE_BETTER_AUTH_URL ??
 		nodeProcessEnv.BETTER_AUTH_URL,
+	VITE_OPENMELD_GATEWAY_URL:
+		import.meta.env.VITE_OPENMELD_GATEWAY_URL ??
+		nodeProcessEnv.VITE_OPENMELD_GATEWAY_URL,
+	VITE_OPENMELD_WEB_URL:
+		import.meta.env.VITE_OPENMELD_WEB_URL ??
+		nodeProcessEnv.VITE_OPENMELD_WEB_URL,
+	VITE_OPENMELD_DEV_LANE_ID:
+		import.meta.env.VITE_OPENMELD_DEV_LANE_ID ??
+		nodeProcessEnv.VITE_OPENMELD_DEV_LANE_ID,
+	VITE_OPENMELD_CLI_BINARY_MANIFEST_URL:
+		import.meta.env.VITE_OPENMELD_CLI_BINARY_MANIFEST_URL ??
+		nodeProcessEnv.VITE_OPENMELD_CLI_BINARY_MANIFEST_URL,
 	VITE_OPENMELD_SETUP_USER_FACING_COMMAND:
 		import.meta.env.VITE_OPENMELD_SETUP_USER_FACING_COMMAND ??
 		nodeProcessEnv.VITE_OPENMELD_SETUP_USER_FACING_COMMAND,
@@ -85,6 +97,10 @@ export const env = createEnv({
 		VITE_APP_TITLE: z.string().min(1).optional(),
 		VITE_OPENMELD_HOME: z.string().min(1).optional(),
 		VITE_BETTER_AUTH_URL: z.string().url().optional(),
+		VITE_OPENMELD_GATEWAY_URL: z.url().optional(),
+		VITE_OPENMELD_WEB_URL: z.url().optional(),
+		VITE_OPENMELD_DEV_LANE_ID: z.string().min(1).optional(),
+		VITE_OPENMELD_CLI_BINARY_MANIFEST_URL: z.url().optional(),
 		VITE_OPENMELD_SETUP_USER_FACING_COMMAND: z
 			.enum(["openmeld", "openmeld-dev", "openmeld-canary"])
 			.optional(),

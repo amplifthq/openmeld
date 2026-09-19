@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { publishGuardedLocalReleaseEvidence } from "./production-release-evidence.mjs";
+import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
 import {
   acquireProductionScopeLease,
   releaseProductionScopeLease,
@@ -353,6 +353,10 @@ export function parseProductionReleaseArgs(argv) {
       options.scope = readRequiredArgument(argv, index, arg);
       continue;
     }
+    if (arg === "--redeploy" && command === "deploy") {
+      options.redeploy = true;
+      continue;
+    }
     if (arg === "--json") {
       options.json = true;
       continue;
@@ -654,6 +658,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   assertWakeProgressOptInDeployOrder(orderedScopes, changedPaths);
   assertSpaceHistoryQueryDeployOrder(orderedScopes, changedPaths);
   for (const scope of orderedScopes) {
+    const start = steps.length;
     appendProductionDeployScopeSteps({
       deployOrderProfile,
       releaseSha: input.releaseSha,
@@ -661,14 +666,36 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
       selected,
       steps,
     });
+    annotateReleaseScope(steps, start, scope);
   }
   if (selected.has("cli")) {
     steps.push({
       internalOperation: "publish-cli",
       label: "Verify final R2/npm/Core alignment",
     });
+    annotateReleaseScope(steps, steps.length - 1, "cli");
   }
   return steps;
+}
+
+function annotateReleaseScope(steps, start, scope) {
+  for (let index = start; index < steps.length; index += 1) {
+    steps[index] = {
+      ...steps[index],
+      releaseScope: scope,
+      completesReleaseScope: index === steps.length - 1,
+      ...(scope === "cli"
+        ? {
+            receiptWorkerDeploymentArgs: [
+              "--config",
+              "services/core/wrangler.jsonc",
+              "--env",
+              "prod",
+            ],
+          }
+        : {}),
+    };
+  }
 }
 
 function appendProductionDeployScopeSteps(input) {
@@ -1752,7 +1779,8 @@ export function assertProductionReleaseSource(input) {
 function runStep(step) {
   process.stdout.write(`\n[production-release] ${step.label}\n`);
   const result = spawnSync(resolveCommandBinary(step.command), step.args, {
-    env: process.env,
+    cwd: step.cwd,
+    env: step.env ?? process.env,
     stdio: "inherit",
   });
   if (result.error) {
@@ -1774,14 +1802,16 @@ export async function executeProductionDeploySteps(input) {
   const write = input.write ?? ((value) => process.stdout.write(value));
   for (const step of input.steps) {
     if (step.internalOperation === "publish-cli") {
-      await adapters.publishCliRelease({
+      await input.beforeStep?.(step);
+      const publication = await adapters.publishCliRelease({
         cwd: input.cwd ?? process.cwd(),
         env: input.env ?? process.env,
         withBinary: true,
       });
-      input.afterStep?.(step);
+      await input.afterStep?.(step, publication);
       continue;
     }
+    let workerDeploymentState;
     if (step.workerDeploymentArgs) {
       const result = adapters.runCommand({
         args: [
@@ -1796,9 +1826,15 @@ export async function executeProductionDeploySteps(input) {
         env: input.env ?? process.env,
       });
       printCurrentWorkerVersions(step.label, result, write);
+      workerDeploymentState = result;
     }
-    adapters.runStep(step);
-    input.afterStep?.(step);
+    await input.beforeStep?.(step, workerDeploymentState);
+    const result = await adapters.runStep({
+      ...step,
+      cwd: input.cwd,
+      env: input.env ?? process.env,
+    });
+    await input.afterStep?.(step, result);
   }
 }
 
@@ -1918,10 +1954,13 @@ async function main(argv) {
     return;
   }
   await executeWithProductionScopeLeases({
-    afterSuccess: ({ scopes, sourceSha }) =>
-      publishGuardedLocalReleaseEvidence({ scopes, sourceSha }),
     execute: () =>
-      executeProductionDeploySteps({
+      executeRecordedProductionDeploySteps({
+        sourceSha: plan.sourceSha,
+        executeSteps: executeProductionDeploySteps,
+        redeploy: options.redeploy ?? false,
+        beforeStep: () => assertSourceStillMatches(plan.sourceSha),
+        runCommand: runReadOnlyCommand,
         afterStep: () => assertSourceStillMatches(plan.sourceSha),
         steps: plan.deploySteps,
       }),
@@ -2016,6 +2055,7 @@ function workerDeploymentHealthStep(input) {
     args: ["exec", "wrangler", "deployments", "list", ...input.args, "--json"],
     command: "pnpm",
     label: input.label,
+    receiptWorkerDeploymentArgs: input.args,
   };
 }
 

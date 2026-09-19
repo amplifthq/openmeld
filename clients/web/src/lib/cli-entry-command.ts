@@ -1,77 +1,41 @@
 import { env } from "#/env";
 import { copyTextToClipboard } from "#/lib/clipboard";
+import {
+	resolveWebCliTarget,
+	type WebCliTarget,
+	type WebCliTargetInput,
+	type WebSetupUserFacingCommand,
+} from "./web-cli-target";
+
+export type { WebSetupUserFacingCommand } from "./web-cli-target";
 
 const DEFAULT_GATEWAY_URL = "https://gateway.openmeld.ai";
-const DEFAULT_RELEASE_AUTH_URL = "https://auth.openmeld.ai";
-const DEFAULT_DEV_AUTH_URL = "http://localhost:8788";
-const DEV_CLI_ENTRY_COMMAND = "openmeld-dev";
-const CANARY_CLI_ENTRY_COMMAND = "openmeld-canary";
-const RELEASE_CLI_ENTRY_COMMAND = "npx -y openmeld@latest";
 const RELEASE_SETUP_BOOTSTRAP_ORIGIN = "https://openmeld.ai";
 const LOCAL_SETUP_BOOTSTRAP_ORIGIN = "http://localhost:3000";
-const DEV_START_COMMAND = `${DEV_CLI_ENTRY_COMMAND} start`;
-const RELEASE_START_COMMAND = `${RELEASE_CLI_ENTRY_COMMAND} start`;
-const DEV_SETUP_COMMAND = `${DEV_CLI_ENTRY_COMMAND} setup`;
-const RELEASE_SETUP_COMMAND = `${RELEASE_CLI_ENTRY_COMMAND} setup`;
-const DEV_SERVICE_STOP_COMMAND = `${DEV_CLI_ENTRY_COMMAND} service stop`;
-const RELEASE_SERVICE_STOP_COMMAND = `${RELEASE_CLI_ENTRY_COMMAND} service stop`;
+const HTTP_ORIGIN_RE = /^https?:/u;
 const OPENMELD_COMMAND_PREFIX_RE = /^openmeld(?=$|\s)/u;
 const SAFE_SHELL_WORD_RE = /^[A-Za-z0-9_./:@%+=,-]+$/u;
 const BASE64_ALPHABET =
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-type CommandEnvironmentInput = {
-	openMeldHome?: string;
-	authUrl?: string;
-	gatewayUrl?: string;
-};
-
 export type WebSetupCommandPlatform = "posix" | "windows";
 
 type SetupBootstrapLane = "prod" | "dev-local" | "canary";
 
-export type WebSetupUserFacingCommand =
-	| "openmeld"
-	| "openmeld-dev"
-	| "openmeld-canary";
-
-export function resolveWebCliEntryCommand(input?: {
-	runtimeLane?: string;
-	userFacingCommand?: WebSetupUserFacingCommand;
-}): string {
-	const userFacingCommand =
-		input?.userFacingCommand ??
-		resolveWebUserFacingCommandFromRuntimeLane(input?.runtimeLane);
-
-	if (userFacingCommand === "openmeld-dev") {
-		return DEV_CLI_ENTRY_COMMAND;
-	}
-	if (userFacingCommand === "openmeld-canary") {
-		return CANARY_CLI_ENTRY_COMMAND;
-	}
-	if (userFacingCommand === "openmeld") {
-		return RELEASE_CLI_ENTRY_COMMAND;
-	}
-
-	return import.meta.env.DEV
-		? DEV_CLI_ENTRY_COMMAND
-		: RELEASE_CLI_ENTRY_COMMAND;
+export function resolveWebCliEntryCommand(input?: WebCliTargetInput): string {
+	return prefixTargetEnvironment(resolveWebCliTarget(input));
 }
 
-export function resolveWebSetupFollowUpCliCommandPrefix(input?: {
-	runtimeLane?: string;
-	userFacingCommand?: WebSetupUserFacingCommand;
-}): string {
+export function resolveWebSetupFollowUpCliCommandPrefix(
+	input?: WebCliTargetInput
+): string {
 	const entryCommand = resolveWebCliEntryCommand(input);
 	return entryCommand;
 }
 
 export function formatWebCliCommand(
 	command: string,
-	input?: {
-		runtimeLane?: string;
-		userFacingCommand?: WebSetupUserFacingCommand;
-	}
+	input?: WebCliTargetInput
 ): string {
 	if (!OPENMELD_COMMAND_PREFIX_RE.test(command)) {
 		return command;
@@ -101,66 +65,31 @@ type WebSetupCommandInput = {
 	view?: "agent" | "human";
 };
 
-export function resolveWebStartCommand(input?: {
-	openMeldHome?: string;
-	authUrl?: string;
-	gatewayUrl?: string;
-}): string {
-	const isDevCommand = import.meta.env.DEV;
-	const baseCommand = isDevCommand ? DEV_START_COMMAND : RELEASE_START_COMMAND;
-
-	return prefixCommandEnvironment(baseCommand, {
-		openMeldHome: input?.openMeldHome,
-		authUrl: input?.authUrl,
-		defaultAuthUrl: resolveDefaultAuthUrl({ isDevCommand }),
-		gatewayUrl: input?.gatewayUrl,
-		includeOpenMeldHome: isDevCommand,
-		shouldPrefixEnvironment: isDevCommand,
-	});
+export function resolveWebStartCommand(input?: WebCliTargetInput): string {
+	return `${resolveWebCliEntryCommand(input)} start`;
 }
 
-export function resolveWebSetupCommand(input?: {
-	openMeldHome?: string;
-	authUrl?: string;
-	gatewayUrl?: string;
-	userFacingCommand?: WebSetupUserFacingCommand;
-}): string {
-	const commandTarget = resolveSetupCommandTarget(input?.userFacingCommand);
-
-	return prefixCommandEnvironment(commandTarget.baseCommand, {
-		openMeldHome: input?.openMeldHome,
-		authUrl: input?.authUrl,
-		defaultAuthUrl: commandTarget.defaultAuthUrl,
-		gatewayUrl: input?.gatewayUrl,
-		includeOpenMeldHome: commandTarget.includeOpenMeldHome,
-		shouldPrefixEnvironment: commandTarget.shouldPrefixEnvironment,
-	});
+export function resolveWebSetupCommand(input?: WebCliTargetInput): string {
+	return `${resolveWebCliEntryCommand(input)} setup`;
 }
 
-export function resolveWebServiceStopCommand(input?: {
-	openMeldHome?: string;
-}): string {
-	const isDevCommand = import.meta.env.DEV;
-	const baseCommand = isDevCommand
-		? DEV_SERVICE_STOP_COMMAND
-		: RELEASE_SERVICE_STOP_COMMAND;
-
-	return prefixCommandEnvironment(baseCommand, {
-		openMeldHome: input?.openMeldHome,
-		defaultAuthUrl: resolveDefaultAuthUrl({ isDevCommand }),
-		includeOpenMeldHome: isDevCommand,
-		shouldPrefixEnvironment: isDevCommand,
-	});
+export function resolveWebServiceStopCommand(
+	input?: WebCliTargetInput
+): string {
+	return `${resolveWebCliEntryCommand(input)} service stop`;
 }
 
 export function buildWebSetupCommand(input: WebSetupCommandInput = {}): string {
 	// OPENMELD_SETUP_TO_WAKE_PATH: RECOMMENDED_ENTRY generated-setup-command
 	// This is the Web-generated command handoff. It is a convenience surface;
 	// the canonical path begins when a human or agent runs the command locally.
+	const target = resolveWebCliTarget(input);
 	const setupInput: WebSetupCommandInput = {
 		...input,
-		userFacingCommand:
-			input.userFacingCommand ?? env.VITE_OPENMELD_SETUP_USER_FACING_COMMAND,
+		userFacingCommand: target.userFacingCommand,
+		openMeldHome: target.openMeldHome,
+		authUrl: target.authUrl,
+		gatewayUrl: target.gatewayUrl,
 	};
 	const modeCount = [
 		setupInput.humanProfileId ? 1 : 0,
@@ -201,7 +130,9 @@ export function buildWebSetupCommand(input: WebSetupCommandInput = {}): string {
 			gatewayUrl: setupInput.gatewayUrl,
 			userFacingCommand: setupInput.userFacingCommand,
 		}),
-		...buildSetupArguments(setupInput, oneTimeToken, deviceCode),
+		...buildSetupArguments(setupInput, oneTimeToken, deviceCode).map(
+			formatShellWord
+		),
 	]
 		.filter(Boolean)
 		.join(" ");
@@ -255,73 +186,25 @@ export async function copyCliEntryCommand(command: string): Promise<boolean> {
 	return await copyTextToClipboard(command);
 }
 
-function prefixCommandEnvironment(
-	baseCommand: string,
-	input: CommandEnvironmentInput & {
-		defaultAuthUrl: string;
-		includeOpenMeldHome: boolean;
-		shouldPrefixEnvironment: boolean;
+function prefixTargetEnvironment(target: WebCliTarget): string {
+	const assignments: [string, string][] = [];
+	if (
+		target.authUrl &&
+		target.authUrl !== target.defaultAuthUrl &&
+		!target.productionBootstrap
+	) {
+		assignments.push(["OPENMELD_AUTH_URL", target.authUrl]);
 	}
-): string {
-	const envAssignments: [string, string][] = [];
-
-	const authUrl = normalizeOptionalString(
-		input.authUrl ?? env.VITE_BETTER_AUTH_URL
-	);
-	if (authUrl && authUrl !== input.defaultAuthUrl) {
-		envAssignments.push(["OPENMELD_AUTH_URL", authUrl]);
+	if (target.gatewayUrl && target.gatewayUrl !== DEFAULT_GATEWAY_URL) {
+		assignments.push(["OPENMELD_GATEWAY_URL", target.gatewayUrl]);
 	}
-
-	const gatewayUrl = normalizeOptionalString(input.gatewayUrl);
-	if (gatewayUrl && gatewayUrl !== DEFAULT_GATEWAY_URL) {
-		envAssignments.push(["OPENMELD_GATEWAY_URL", gatewayUrl]);
+	if (target.openMeldHome) {
+		assignments.push(["OPENMELD_HOME", target.openMeldHome]);
 	}
-
-	const openMeldHome = normalizeOptionalString(
-		input.openMeldHome ?? env.VITE_OPENMELD_HOME
-	);
-	if (input.includeOpenMeldHome && openMeldHome) {
-		envAssignments.push(["OPENMELD_HOME", openMeldHome]);
+	if (target.isolatedLane && target.manifestUrl) {
+		assignments.push(["OPENMELD_CLI_BINARY_MANIFEST_URL", target.manifestUrl]);
 	}
-
-	return input.shouldPrefixEnvironment
-		? prefixShellEnvironmentAssignments(baseCommand, envAssignments)
-		: baseCommand;
-}
-
-function resolveSetupCommandTarget(
-	userFacingCommand: WebSetupUserFacingCommand | undefined
-): {
-	baseCommand: string;
-	defaultAuthUrl: string;
-	includeOpenMeldHome: boolean;
-	shouldPrefixEnvironment: boolean;
-} {
-	if (userFacingCommand) {
-		const usesLocalAuthDefault = userFacingCommand !== "openmeld";
-		return {
-			baseCommand: `${resolveWebCliEntryCommand({
-				userFacingCommand,
-			})} setup`,
-			defaultAuthUrl: usesLocalAuthDefault
-				? DEFAULT_DEV_AUTH_URL
-				: DEFAULT_RELEASE_AUTH_URL,
-			includeOpenMeldHome: false,
-			shouldPrefixEnvironment: true,
-		};
-	}
-
-	const isDevCommand = import.meta.env.DEV;
-	return {
-		baseCommand: isDevCommand ? DEV_SETUP_COMMAND : RELEASE_SETUP_COMMAND,
-		defaultAuthUrl: resolveDefaultAuthUrl({ isDevCommand }),
-		includeOpenMeldHome: isDevCommand,
-		shouldPrefixEnvironment: isDevCommand,
-	};
-}
-
-function resolveDefaultAuthUrl(input: { isDevCommand: boolean }): string {
-	return input.isDevCommand ? DEFAULT_DEV_AUTH_URL : DEFAULT_RELEASE_AUTH_URL;
+	return prefixShellEnvironmentAssignments(target.entryCommand, assignments);
 }
 
 function resolveSetupBootstrapCommand(
@@ -368,34 +251,10 @@ function resolveSetupBootstrapCommand(
 function resolveSetupBootstrapLane(
 	input: WebSetupCommandInput
 ): SetupBootstrapLane | null {
-	if (input.userFacingCommand === "openmeld-dev") {
-		return "dev-local";
-	}
-	if (input.userFacingCommand === "openmeld-canary") {
-		return "canary";
-	}
-	if (input.userFacingCommand === "openmeld") {
-		return hasDefaultProductionSetupTarget(input) ? "prod" : null;
-	}
-	if (import.meta.env.DEV) {
-		return "dev-local";
-	}
-
-	return hasDefaultProductionSetupTarget(input) ? "prod" : null;
-}
-
-function hasDefaultProductionSetupTarget(input: WebSetupCommandInput): boolean {
-	const gatewayUrl = normalizeOptionalString(input.gatewayUrl);
-	if (gatewayUrl && gatewayUrl !== DEFAULT_GATEWAY_URL) {
-		return false;
-	}
-
-	const authUrl = normalizeOptionalString(input.authUrl);
-	if (authUrl && authUrl !== DEFAULT_RELEASE_AUTH_URL) {
-		return false;
-	}
-
-	return true;
+	const target = resolveWebCliTarget(input);
+	return target.lane === "prod" && !target.productionBootstrap
+		? null
+		: target.lane;
 }
 
 function buildSetupBootstrapUrl(input: {
@@ -412,9 +271,7 @@ function buildSetupBootstrapUrl(input: {
 	}
 	if (input.lane !== "prod") {
 		url.searchParams.set("lane", input.lane);
-		const openMeldHome = normalizeOptionalString(
-			input.openMeldHome ?? env.VITE_OPENMELD_HOME
-		);
+		const openMeldHome = normalizeOptionalString(input.openMeldHome);
 		if (openMeldHome) {
 			url.searchParams.set("openMeldHome", openMeldHome);
 		}
@@ -428,26 +285,18 @@ function resolveSetupBootstrapOrigin(lane: SetupBootstrapLane): string {
 		return RELEASE_SETUP_BOOTSTRAP_ORIGIN;
 	}
 
-	if (typeof window !== "undefined" && window.location.origin) {
+	const configuredOrigin = env.VITE_OPENMELD_WEB_URL;
+	if (configuredOrigin) {
+		return new URL(configuredOrigin).origin;
+	}
+	if (
+		typeof window !== "undefined" &&
+		HTTP_ORIGIN_RE.test(window.location.origin)
+	) {
 		return window.location.origin;
 	}
 
 	return LOCAL_SETUP_BOOTSTRAP_ORIGIN;
-}
-
-function resolveWebUserFacingCommandFromRuntimeLane(
-	runtimeLane: string | undefined
-): WebSetupUserFacingCommand | undefined {
-	if (runtimeLane === "dev-local" || runtimeLane === "openmeld-dev") {
-		return "openmeld-dev";
-	}
-	if (runtimeLane === "canary" || runtimeLane === "openmeld-canary") {
-		return "openmeld-canary";
-	}
-	if (runtimeLane === "prod" || runtimeLane === "openmeld") {
-		return "openmeld";
-	}
-	return undefined;
 }
 
 function normalizeOptionalString(value: string | undefined): string | null {
