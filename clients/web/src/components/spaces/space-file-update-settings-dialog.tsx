@@ -17,6 +17,7 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { CheckboxGroup, CheckboxItem } from "@openmeld/ui/fluid/checkbox-group";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -183,7 +184,7 @@ export function SpaceFileUpdateSettingsDialog(input: {
 					</DialogDescription>
 				</DialogHeader>
 				{query.isPending || (selected === null && query.isFetching) ? (
-					<p>Loading members…</p>
+					<SkeletonRows label="Loading members" />
 				) : (
 					<>
 						<Input

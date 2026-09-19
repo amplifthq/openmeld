@@ -2,6 +2,7 @@
 
 import { Button } from "@openmeld/ui/components/button";
 import { SettingsRow } from "@openmeld/ui/components/settings-row";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
 import {
 	MESSAGE_NOTIFICATION_LABELS,
@@ -20,9 +21,7 @@ export function DefaultMessageNotificationSetting() {
 			Try again
 		</Button>
 	) : (
-		<span className="text-muted-foreground text-sm">
-			Loading notification preferences…
-		</span>
+		<SkeletonRows label="Loading notification preferences" rows={2} />
 	);
 	return (
 		<SettingsRow

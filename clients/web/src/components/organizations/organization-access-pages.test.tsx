@@ -640,6 +640,34 @@ describe("organization access management pages", () => {
 		});
 	});
 
+	it("removes cached channel details on access revocation instead of treating it as a transient refresh", async () => {
+		const queryClient = createTestQueryClient();
+		queryClient.setQueryData(
+			messageChannelQueryKeys.list("org-acme"),
+			{
+				availableLarkPlatformProviders: ["lark"],
+				connections: [],
+				organizationId: "org-acme",
+			},
+			{ updatedAt: Date.now() - 20_000 }
+		);
+		listCurrentOrganizationMessageChannelsMock.mockReset().mockRejectedValue({
+			code: "organization.membership_required",
+			status: 403,
+			message: "Channel access revoked",
+		});
+		render(
+			<TestQueryClientProvider queryClient={queryClient}>
+				<OrganizationMessageChannelsPage />
+			</TestQueryClientProvider>
+		);
+		await screen.findByRole("alert");
+		await waitFor(() =>
+			expect(screen.queryByRole("region", { name: "Channels" })).toBeNull()
+		);
+		expect(screen.queryByRole("button", { name: "Connect Lark" })).toBeNull();
+	});
+
 	it("keeps canonical Channels visible when setup progress cannot be read", async () => {
 		listCurrentOrganizationLarkPlatformRegistrationsMock
 			.mockReset()
