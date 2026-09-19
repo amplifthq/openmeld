@@ -452,7 +452,7 @@ function OrganizationSkillEditor(input: {
 	};
 
 	return (
-		<div className="mx-auto grid w-full max-w-[880px] gap-6 pb-8">
+		<div className="mx-auto grid w-full max-w-[880px] grid-cols-[minmax(0,1fr)] gap-6 pb-8">
 			<UnsavedChangesGuard
 				description="Your changes to this skill haven't been saved."
 				hasUnsavedChanges={hasUnsavedChanges}

@@ -57,7 +57,8 @@ export function MarkdownEditor(input: MarkdownEditorProps) {
 		<div
 			className={cn(
 				"gap-2",
-				input.scrollable ? "flex min-h-0 flex-1 flex-col" : "grid"
+				input.scrollable ? "flex min-h-0 flex-1 flex-col" : "grid",
+				input.presentation === "page" && "min-w-0 grid-cols-[minmax(0,1fr)]"
 			)}
 		>
 			<Plate
