@@ -156,8 +156,8 @@ type AppServerTurnStartResponse = {
   turn?: AppServerTurn;
 };
 
-type CodexAppServerApprovalPolicy = "never" | "on-request" | "untrusted";
-type CodexAppServerApprovalReviewer = "auto_review";
+type CodexAppServerApprovalPolicy = "never" | "on-request";
+type CodexAppServerApprovalReviewer = "user" | "auto_review";
 type CodexAppServerSandboxMode =
   | "danger-full-access"
   | "read-only"
@@ -1094,11 +1094,13 @@ function resolveCodexAppServerPermissionModeParams(
   if (executionMode === "repair") {
     return {
       thread: {
-        approvalPolicy: "untrusted",
+        approvalPolicy: "on-request",
+        approvalsReviewer: "user",
         ...(hasComputerFileAccessBoundary ? {} : { sandbox: "read-only" }),
       },
       turn: {
-        approvalPolicy: "untrusted",
+        approvalPolicy: "on-request",
+        approvalsReviewer: "user",
       },
     };
   }
@@ -1140,12 +1142,14 @@ function resolveCodexAppServerPermissionModeParams(
       return {
         thread: {
           approvalPolicy: "on-request",
+          approvalsReviewer: "user",
           ...(hasComputerFileAccessBoundary
             ? {}
             : { sandbox: "workspace-write" }),
         },
         turn: {
           approvalPolicy: "on-request",
+          approvalsReviewer: "user",
         },
       };
     default:

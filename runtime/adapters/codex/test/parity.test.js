@@ -1278,7 +1278,9 @@ console.log(JSON.stringify({ type: "response.completed", response: { output_text
       "-s",
       "read-only",
       "-a",
-      "untrusted",
+      "on-request",
+      "-c",
+      'approvals_reviewer="user"',
       "exec",
       "--json",
       "--skip-git-repo-check",
@@ -1301,7 +1303,9 @@ console.log(JSON.stringify({ type: "response.completed", response: { output_text
       "-s",
       "read-only",
       "-a",
-      "untrusted",
+      "on-request",
+      "-c",
+      'approvals_reviewer="user"',
       "exec",
       "resume",
       "--json",
@@ -3397,14 +3401,16 @@ test("invokeCodexAppServerTransport isolates structured-action repair from the s
     assert.equal(forkParams.threadId, "thread-existing-repair-policy");
     assert.equal(forkParams.ephemeral, true);
     assert.equal(forkParams.cwd, dispatchDir);
-    assert.equal(forkParams.approvalPolicy, "untrusted");
+    assert.equal(forkParams.approvalPolicy, "on-request");
+    assert.equal(forkParams.approvalsReviewer, "user");
     assert.equal(forkParams.sandbox, "read-only");
     assert.equal(
       messages.some((message) => message.method === "thread/resume"),
       false
     );
     assert.equal(turnParams.threadId, "thread-fork-1");
-    assert.equal(turnParams.approvalPolicy, "untrusted");
+    assert.equal(turnParams.approvalPolicy, "on-request");
+    assert.equal(turnParams.approvalsReviewer, "user");
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });
@@ -3729,7 +3735,7 @@ test("invokeCodexAppServerTransport applies bounded policy-driven approval param
     );
 
     await invokeCodexAppServerTransport({
-      agentControllerPermissionMode: "codex:approveForMe",
+      agentControllerPermissionMode: "codex:askForApproval",
       computerFileAccessBoundary: {
         folders: [boundedDispatchDir],
         mode: "only_selected_folders",
@@ -3757,6 +3763,16 @@ test("invokeCodexAppServerTransport applies bounded policy-driven approval param
       true
     );
     assert.equal(boundedThreadParams.approvalPolicy, "on-request");
+    assert.equal(boundedThreadParams.approvalsReviewer, "user");
+    assert.equal(
+      boundedMessages.find((message) => message.method === "turn/start").params
+        .approvalsReviewer,
+      "user"
+    );
+    assert.equal(
+      boundedMessages[0].argv.includes('approvals_reviewer="user"'),
+      true
+    );
     assert.equal("sandbox" in boundedThreadParams, false);
     assert.equal("sandboxPolicy" in boundedThreadParams, false);
   } finally {

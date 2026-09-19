@@ -260,7 +260,7 @@ function buildApprovalArgs(input: {
   permissionMode: CodexPermissionMode;
 }): string[] {
   if (input.executionMode === "repair") {
-    return ["-a", "untrusted"];
+    return ["-a", "on-request", "-c", 'approvals_reviewer="user"'];
   }
   if (input.permissionMode === "codex:fullAccess") {
     return ["-a", "never"];
@@ -268,7 +268,9 @@ function buildApprovalArgs(input: {
   if (input.permissionMode === "codex:approveForMe") {
     return ["-a", "on-request", "-c", 'approvals_reviewer="auto_review"'];
   }
-  return ["-a", "untrusted"];
+  // Match native App Server Ask for approval. Explicit `untrusted` is no
+  // longer a supported CLI policy; never inherit an auto-reviewer here.
+  return ["-a", "on-request", "-c", 'approvals_reviewer="user"'];
 }
 
 function resolveCodexPermissionMode(value: unknown): CodexPermissionMode {

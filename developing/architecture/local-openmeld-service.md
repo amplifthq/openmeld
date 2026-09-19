@@ -707,6 +707,16 @@ Agent receives one path-free awareness instruction so it understands that the
 run is intentionally bounded, but prompt text is guidance and never proof of
 enforcement.
 
+Codex boundary probes, CLI launches, and App Server thread/turn requests use
+`on-request` with an explicit `user` approval reviewer for Ask for approval.
+Approve for me alone selects `auto_review`. This aligns the boundary probe with
+the existing native App Server policy; it does not promise a prompt for every
+operation already allowed by the native sandbox. Explicit `untrusted` is no
+longer accepted by current Codex versions. Repair remains read-only with human
+approval, and isolated Execution Contexts retain their separate no-escalation
+`never` policy. No fallback to Full access or boundary bypass is permitted when
+an executable rejects these arguments.
+
 An active policy whose working folder is deterministically outside the boundary
 rejects before controller launch without asking the user. If the selected
 adapter cannot prove that it can enforce the exact boundary, the current Wake
