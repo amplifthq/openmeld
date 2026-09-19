@@ -112,6 +112,46 @@ export function checkDesktopWebBuild(root) {
   return webBuild;
 }
 
+export async function checkDesktopWebServer(
+  webOrigin,
+  webBuild,
+  fetchImpl = fetch
+) {
+  const url = new URL(webOrigin);
+  if (
+    url.origin !== webOrigin ||
+    url.protocol !== "http:" ||
+    !url.hostname.endsWith(".localhost") ||
+    !url.port
+  ) {
+    throw new Error(
+      "Desktop preflight requires the configured worktree loopback origin."
+    );
+  }
+  try {
+    const response = await fetchImpl(`${webOrigin}/desktop-build.json`, {
+      redirect: "manual",
+      credentials: "omit",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) {
+      throw new Error("Web build marker is unavailable.");
+    }
+    const text = await response.text();
+    if (text.length > 16_384) {
+      throw new Error("Invalid build marker.");
+    }
+    const marker = JSON.parse(text);
+    if (marker.webBuild !== webBuild || marker.installedTarget) {
+      throw new Error("Web build mismatch.");
+    }
+  } catch {
+    throw new Error(
+      "The matching compiled Web server is not reachable. Run pnpm desktop:web in this worktree; a fresh build on disk or a browser HMR server is not enough for native smoke."
+    );
+  }
+}
+
 export function inspectMacCallback(scheme) {
   const script = `ObjC.import('AppKit'); function run(argv) { var u=$.NSURL.URLWithString(argv[0]+'://auth/callback'); var a=$.NSWorkspace.sharedWorkspace.URLForApplicationToOpenURL(u); return JSON.stringify({path:a?ObjC.unwrap(a.path):null}); }`;
   return JSON.parse(

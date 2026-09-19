@@ -38,7 +38,13 @@ test("Desktop ownership fences reused PIDs, copied records, and foreign app path
       command: "/other/Electron.app/Contents/MacOS/Electron",
     };
     const rows = [owner, child, other];
-    writeDesktopRecord(root, { pid: 10, startedAt: "first", executable });
+    writeDesktopRecord(root, {
+      pid: 10,
+      startedAt: "first",
+      executable,
+      phase: "preparing",
+    });
+    assert.equal(desktopProcessSnapshot(root, rows).phase, "preparing");
     assert.deepEqual(
       desktopProcessSnapshot(root, rows).processes.map((row) => row.pid),
       [10, 11]
@@ -61,6 +67,14 @@ test("Desktop ownership fences reused PIDs, copied records, and foreign app path
       desktopProcessOwners(root, [child], record).map((row) => row.pid),
       [11]
     );
+    writeDesktopRecord(root, {
+      ...record,
+      pid: null,
+      startedAt: null,
+      phase: "stopped",
+    });
+    assert.equal(desktopProcessSnapshot(root, [child]).phase, "running");
+    assert.equal(desktopProcessSnapshot(root, []).phase, "stopped");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

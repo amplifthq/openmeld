@@ -673,7 +673,7 @@ Use repo-root commands, from the owning worktree, for both human and agent work:
 | `pnpm desktop:web` | Start the existing isolated Web launcher in matching compiled-pilot mode. |
 | `pnpm desktop:dev` | Prepare as needed, then launch this worktree's Desktop. On macOS this is a real `.app`, not generic `electron .`. |
 | `pnpm desktop:prepare` | Prepare without launching; `--force` explicitly rebuilds. |
-| `pnpm desktop:doctor --json` | Read-only lane/CLI, page-build, prepared-app and OS callback checks with actionable failures. |
+| `pnpm desktop:doctor --json` | Read-only lane/CLI, on-disk and running Web build, prepared-app and OS callback checks with actionable failures. |
 | `pnpm desktop:status --json` | Report this worktree's exact process IDs, measured RSS, app path and build identity. No build or server startup. |
 | `pnpm desktop:stop --dry-run` | Preview only this worktree's Desktop processes; omit `--dry-run` to stop them. Preserve Web, Service, credentials and drafts on disk. |
 
@@ -688,6 +688,12 @@ instructions delegate to this same owner; do not add extra wrappers. Repeating a
 launch does not start a duplicate or rebuild beneath a running app. Stop your
 Desktop explicitly before rebuilding; neither startup nor cleanup kills another
 worktree. General `dev:status` and `dev:stop` include these owned Desktop processes.
+
+`prepare` may work offline with matching compiled pages, but `dev` and `doctor`
+verify that the actual loopback Web server serves the matching build marker.
+They do not send credentials or follow redirects. A forced prepare while a GUI
+or another preparation owns the worktree fails explicitly. Status also recognizes
+an OS-launched copy of the exact generated app after its terminal owner has exited.
 
 On macOS, prepared output is under `clients/desktop/dist/development`. The normal
 electron-builder directory target uses the existing ad-hoc integrity/signature

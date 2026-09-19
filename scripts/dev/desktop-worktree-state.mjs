@@ -79,7 +79,13 @@ export function desktopProcessSnapshot(
     desktopProcessOwners(root, rows, record).map((row) => row.pid),
     [process.pid]
   );
-  return { record, processes, running: processes.length > 0 };
+  const running = processes.length > 0;
+  const ownerPresent = record && rows.some((row) => sameProcess(record, row));
+  let phase = "stopped";
+  if (running) {
+    phase = ownerPresent ? (record.phase ?? "running") : "running";
+  }
+  return { record, processes, running, phase };
 }
 
 export async function stopDesktopWorktree(root, { dryRun = false } = {}) {

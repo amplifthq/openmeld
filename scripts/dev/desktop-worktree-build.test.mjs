@@ -5,11 +5,45 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  checkDesktopWebServer,
   desktopDevelopmentPlan,
   desktopSourceIdentity,
   isDesktopBuildReusable,
 } from "./desktop-worktree-build.mjs";
 import { buildIsolatedDevEnvironment } from "./dev-isolated-lane.mjs";
+
+test("native launch requires the matching live Web marker, with no redirects or credentials", async () => {
+  const origin = "http://wt-aaaaaaaaaaaa.localhost:31000";
+  await checkDesktopWebServer(origin, "expected", (url, options) => {
+    assert.equal(url, `${origin}/desktop-build.json`);
+    assert.equal(options.redirect, "manual");
+    assert.equal(options.credentials, "omit");
+    return Promise.resolve(Response.json({ webBuild: "expected" }));
+  });
+  for (const response of [
+    Response.json({ webBuild: "old" }),
+    new Response("", { status: 302 }),
+    new Response("<html>HMR</html>"),
+    Response.json({ webBuild: "expected", installedTarget: {} }),
+  ]) {
+    await assert.rejects(
+      checkDesktopWebServer(origin, "expected", () => Promise.resolve(response))
+    );
+  }
+  await assert.rejects(
+    checkDesktopWebServer(origin, "expected", () =>
+      Promise.reject(new Error("offline"))
+    )
+  );
+  let fetched = false;
+  await assert.rejects(
+    checkDesktopWebServer("https://openmeld.ai", "expected", () => {
+      fetched = true;
+      return Promise.resolve(Response.json({ webBuild: "expected" }));
+    })
+  );
+  assert.equal(fetched, false);
+});
 
 test("build receipts invalidate on source, lane or damaged output instead of trusting a skip flag", () => {
   const root = mkdtempSync(join(tmpdir(), "desktop-build-"));

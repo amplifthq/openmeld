@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import {
   checkDesktopWebBuild,
+  checkDesktopWebServer,
   desktopDevelopmentPlan,
   desktopSourceIdentity,
   inspectMacCallback,
@@ -152,8 +153,13 @@ async function main() {
   }
   const already = desktopProcessSnapshot(repoRoot);
   if (already.running) {
+    if (action === "prepare" || values.force) {
+      throw new Error(
+        "Desktop already owns this worktree. Stop it with desktop:stop before preparing a replacement app."
+      );
+    }
     console.log(
-      `Desktop is already running for this worktree (PIDs ${already.processes.map((row) => row.pid).join(", ")}). No build or duplicate process was started. Use desktop:status or desktop:stop.`
+      `Desktop work already owns this worktree (PIDs ${already.processes.map((row) => row.pid).join(", ")}). No build or duplicate process was started. Use desktop:status or desktop:stop.`
     );
     return;
   }
@@ -171,6 +177,12 @@ async function main() {
   console.log(
     `Desktop pilot: ${lane.laneId}\nWeb: ${launch.env.WEB_APP_URL}\nOPENMELD_HOME: ${lane.openMeldHome}\nCLI: ${launch.env.OPENMELD_BIN}\nGUI data: ${launch.env.OPENMELD_DESKTOP_USER_DATA_DIR}`
   );
+  if (action === "start") {
+    await checkDesktopWebServer(
+      launch.env.WEB_APP_URL,
+      checkDesktopWebBuild(repoRoot)
+    );
+  }
   const controller = new AbortController();
   const cancel = () => controller.abort(new Error("Desktop launch cancelled."));
   process.on("SIGINT", cancel);
@@ -317,12 +329,12 @@ function registerMacDesktop(plan) {
   }
 }
 
-function printDesktopStatus(action, json) {
+async function printDesktopStatus(action, json) {
   const snapshot = desktopProcessSnapshot(repoRoot);
   const result = {
     repoRoot,
     running: snapshot.running,
-    phase: snapshot.running ? (snapshot.record?.phase ?? "running") : "stopped",
+    phase: snapshot.phase,
     pids: snapshot.processes.map((row) => row.pid),
     rssBytes: snapshot.processes.every((row) => Number.isFinite(row.rssBytes))
       ? snapshot.processes.reduce((sum, row) => sum + row.rssBytes, 0)
@@ -340,8 +352,10 @@ function printDesktopStatus(action, json) {
         ok: true,
         webOrigin: launch.env.WEB_APP_URL,
       });
-      checkDesktopWebBuild(repoRoot);
+      const webBuild = checkDesktopWebBuild(repoRoot);
       result.checks.push({ name: "compiled-web", ok: true });
+      await checkDesktopWebServer(launch.env.WEB_APP_URL, webBuild);
+      result.checks.push({ name: "running-web-build", ok: true });
       if (process.platform === "darwin") {
         const plan = desktopDevelopmentPlan(lane, launch);
         const reusable = isDesktopBuildReusable(
