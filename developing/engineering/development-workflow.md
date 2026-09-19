@@ -604,8 +604,14 @@ The pilot requires an existing Worker lane and the CLI installed through its
 normal Web setup. Its launcher reuses `readCurrentIsolatedDevLane` and
 `buildIsolatedDevEnvironment`; it does not maintain another port map or registry.
 It requires `<OPENMELD_HOME>/bin/openmeld` to be executable and resolve within
-the lane home, and isolates Electron data under `desktop/user-data` there before
-authentication storage initializes.
+the lane home. On macOS, the normal source and Private package pilot launchers
+use Chromium's mock Keychain before authentication storage initializes and keep
+its lower-protection test credentials under the stable lane-owned
+`desktop/mock-keychain-user-data` directory. The first launch after switching to
+this directory needs one test login; later builds and restarts reuse it. Do not
+store production credentials in this test profile. Installed production,
+staging, and disposable acceptance builds keep the real system Keychain. Use
+`pnpm desktop:package:acceptance` for explicit real-Keychain acceptance.
 
 Serve matching compiled Web assets with
 `OPENMELD_DESKTOP_PILOT=1 pnpm dev:web:worktree`, then launch Desktop with
