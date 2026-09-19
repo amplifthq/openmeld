@@ -85,6 +85,16 @@ when read but remain pending; priority open requests stay yellow until resolved.
 First-contact information is yellow only while unread. Ended requests are
 history, never persistent priority.
 
+Legacy owner-observer items without exact personal-Agent source facts cannot
+establish derived owner access, even if one or more owned Agents remain in the
+Space. Their rows, read/Dismiss state and receipts stay intact; current Human
+membership remains an independent access path. Only reliable source-owned repair
+may restore an exact Agent relationship, never the current roster or preview text.
+Old owner-only message/reply items also remain quiet under both message modes,
+including delayed outbox arrivals and retired urgent awareness. Genuine Human
+mentions, explicit replies to the recipient and non-observer DMs retain their
+normal notification policy.
+
 Conversation grouping shares the canonical message items and read state. It
 never joins different Organizations, main timelines, Threads or target scopes,
 and never absorbs an open request or critical execution outcome. The oldest

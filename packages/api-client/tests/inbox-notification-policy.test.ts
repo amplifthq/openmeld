@@ -39,6 +39,23 @@ describe("source-owned Inbox delivery eligibility", () => {
     "all_messages",
   ] as const)("does not repeatedly interrupt an owner observer under %s", (mode) => {
     expect(isInboxNotificationEligible(item, mode)).toBe(false);
+    // Delayed pre-upgrade outbox items lack sourceFacts, including retired
+    // urgent awareness. They must not bypass quieting through DM or all_messages.
+    expect(
+      isInboxNotificationEligible({ ...item, sourceFacts: undefined }, mode)
+    ).toBe(false);
+    expect(
+      isInboxNotificationEligible(
+        { ...item, sourceFacts: undefined, importance: "urgent" },
+        mode
+      )
+    ).toBe(false);
+    expect(
+      isInboxNotificationEligible(
+        { ...item, sourceFacts: undefined, kind: "agent_reply" },
+        mode
+      )
+    ).toBe(false);
     expect(
       isInboxNotificationEligible({ ...item, kind: "agent_reply" }, mode)
     ).toBe(false);
@@ -90,6 +107,35 @@ describe("source-owned Inbox delivery eligibility", () => {
       },
     };
     expect(isInboxNotificationEligible(reply)).toBe(true);
+    expect(
+      isInboxNotificationEligible({ ...mention, sourceFacts: undefined })
+    ).toBe(true);
+    expect(
+      isInboxNotificationEligible({ ...reply, sourceFacts: undefined })
+    ).toBe(true);
+    expect(
+      isInboxNotificationEligible({ ...reply, sourceFacts: undefined }, "muted")
+    ).toBe(false);
+    expect(
+      isInboxNotificationEligible({
+        ...item,
+        sourceFacts: undefined,
+        sourceTarget: {
+          kind: "space",
+          spaceId: "space",
+          signalId: "human-dm",
+          directMessage: true,
+        },
+      })
+    ).toBe(true);
+    expect(
+      isInboxNotificationEligible({
+        ...item,
+        kind: "wake_outcome",
+        sourceFacts: undefined,
+        importance: "urgent",
+      })
+    ).toBe(true);
     expect(isInboxNotificationEligible(reply, "muted")).toBe(false);
     expect(
       isInboxNotificationEligible(

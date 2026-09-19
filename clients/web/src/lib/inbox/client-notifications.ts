@@ -261,13 +261,9 @@ export async function showInboxNotification(input: {
 	) {
 		return { reason: "source_visible", status: "deferred" };
 	}
-	// Coalesce owner awareness alerts within each minute without changing unread counts.
-	const deliveryKey =
-		!input.item.sourceFacts &&
-		input.item.sourceTarget.kind === "space" &&
-		input.item.sourceTarget.agentOwnerActivity === true
-			? `agent-owner:${input.userId}:${input.item.sourceTarget.spaceId}:${Math.floor(Date.parse(input.item.occurredAt) / 60_000)}`
-			: input.item.id;
+	// Owner-only legacy observations are ineligible above. Remaining Human
+	// mentions/replies retain their own receipts, never a conversation cooldown.
+	const deliveryKey = input.item.id;
 	return await withInboxNotificationClaim(deliveryKey, async () => {
 		const currentReadiness = (await input.resolveCurrentReadiness?.()) ?? {
 			item: input.item,
@@ -298,12 +294,7 @@ export async function showInboxNotification(input: {
 				currentItem.importance === "urgent" ||
 				(currentItem.attention === "action_required" &&
 					currentItem.resolutionStatus === "open"),
-			tag:
-				!currentItem.sourceFacts &&
-				currentItem.sourceTarget.kind === "space" &&
-				currentItem.sourceTarget.agentOwnerActivity === true
-					? `openmeld-agent-owner:${input.userId}:${currentItem.sourceTarget.spaceId}`
-					: `openmeld-inbox:${currentItem.id}`,
+			tag: `openmeld-inbox:${currentItem.id}`,
 		});
 		notification.onclick = () => {
 			window.focus();

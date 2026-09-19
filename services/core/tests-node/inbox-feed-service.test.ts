@@ -507,6 +507,79 @@ describe("canonical Inbox attention feed", () => {
     }
   });
 
+  it("never substitutes another owned Agent for missing legacy source identity, including frozen bulk writes", async () => {
+    const f = createInboxFeedFixture();
+    try {
+      f.agent("codex");
+      f.agent("still-mine");
+      const legacy = await f.item("legacy-agent-reply", {
+        kind: "agent_reply",
+        sourceTarget: {
+          kind: "space",
+          spaceId: "space",
+          signalId: "legacy-agent-reply",
+          agentOwnerActivity: true,
+        },
+      });
+      const human = await f.item("legacy-human-mention", {
+        kind: "space_mention",
+      });
+      const feed = createInboxFeedService({ db: f.db, nowMs: () => 11_000 });
+      const inbox = createInboxService({ db: f.db });
+      const snapshot = await feed.list(f.identity);
+      const before = f.queryFirst({
+        sql: "SELECT * FROM inbox_items WHERE id = ?",
+        params: [legacy.itemId],
+      });
+      f.run({
+        sql: "UPDATE openmeld_profiles SET owner_user_id = 'other' WHERE profile_id = 'codex'",
+      });
+      f.run({
+        sql: "UPDATE space_index_memberships SET owner_user_id_snapshot = 'other' WHERE profile_id = 'codex'",
+      });
+      f.run({
+        sql: "UPDATE space_index_memberships SET status = 'removed' WHERE space_id = 'space' AND profile_kind_snapshot = 'human' AND owner_user_id_snapshot = 'owner'",
+      });
+      await expect(
+        inbox.get({ ...f.identity, itemId: legacy.itemId })
+      ).rejects.toMatchObject({ status: 404 });
+      const inaccessible = await feed.list(f.identity);
+      expect(inaccessible.rows).toEqual([]);
+      expect(inaccessible.counts.all).toBe(0);
+      expect((await inbox.summary(f.identity)).totalUnreadCount).toBe(0);
+      expect(
+        await feed.mutate(f.identity, {
+          snapshotId: snapshot.snapshotId,
+          operation: "read",
+        })
+      ).toEqual({ changedCount: 0 });
+      expect(
+        await feed.mutate(f.identity, {
+          snapshotId: snapshot.snapshotId,
+          operation: "dismiss",
+        })
+      ).toEqual({ changedCount: 0 });
+      expect(
+        f.queryFirst({
+          sql: "SELECT * FROM inbox_items WHERE id = ?",
+          params: [legacy.itemId],
+        })
+      ).toEqual(before);
+      // Current Human membership is a separate right, not a guessed Agent relationship.
+      f.run({
+        sql: "UPDATE space_index_memberships SET status = 'active' WHERE space_id = 'space' AND profile_kind_snapshot = 'human' AND owner_user_id_snapshot = 'owner'",
+      });
+      expect(
+        (await inbox.get({ ...f.identity, itemId: human.itemId })).item.id
+      ).toBe(human.itemId);
+      expect(
+        (await inbox.get({ ...f.identity, itemId: legacy.itemId })).item.id
+      ).toBe(legacy.itemId);
+    } finally {
+      f.close();
+    }
+  });
+
   it("revokes only the transferred personal-Agent relationship even when another owned Agent remains in the Space", async () => {
     const fixture = createInboxFeedFixture();
     try {

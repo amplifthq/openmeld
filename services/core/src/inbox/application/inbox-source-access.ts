@@ -7,6 +7,8 @@ import { currentInboxRecipientRelationshipSql } from "./inbox-current-source-fac
 
 type InboxItemSqlAlias = "inbox_items" | "items";
 
+// Missing legacy Agent identity cannot grant derived owner access. Current
+// Human membership is checked independently; never infer identity from the roster.
 export function buildCurrentInboxSourceAccessSql(
   itemAlias: InboxItemSqlAlias,
   canManageOrganization = false
@@ -53,7 +55,7 @@ export function buildCurrentInboxSourceAccessSql(
               AND inbox_space_membership.owner_user_id_snapshot =
                 ${itemAlias}.recipient_user_id
               AND (inbox_space_membership.profile_kind_snapshot = 'human'
-                OR (json_extract(${itemAlias}.source_target_json, '$.agentOwnerActivity') = 1 AND ${personalAgentOwnerAccessSql(`json_extract(${itemAlias}.source_target_json, '$.spaceId')`, `${itemAlias}.recipient_user_id`, `CASE WHEN ${itemAlias}.source_facts_json IS NULL THEN (SELECT json_group_array(profile_id) FROM space_index_memberships WHERE space_id = inbox_space.space_id AND status = 'active' AND profile_kind_snapshot = 'agent') ELSE json_extract(${itemAlias}.source_facts_json, '$.personalAgentProfileIds') END`)}))
+                OR (json_extract(${itemAlias}.source_target_json, '$.agentOwnerActivity') = 1 AND ${personalAgentOwnerAccessSql(`json_extract(${itemAlias}.source_target_json, '$.spaceId')`, `${itemAlias}.recipient_user_id`, `json_extract(${itemAlias}.source_facts_json, '$.personalAgentProfileIds')`)}))
               AND inbox_space_membership.status = 'active'
           )
       )
