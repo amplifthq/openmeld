@@ -1,9 +1,14 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   publishGuardedLocalReleaseEvidence,
   readGuardedLocalReleaseSources,
 } from "./production-release-evidence.mjs";
-import { readCurrentWorkerVersionIds } from "./release-stage-probes.mjs";
+import {
+  createWorkerDeploymentCapture,
+  readCliProjection,
+  resolveReceiptWorkerTarget,
+  verifyWorkerDeployment,
+} from "./worker-deployment-evidence.mjs";
 
 const EXACT_SOURCE_SHA = /^[0-9a-f]{40}$/u;
 
@@ -42,22 +47,154 @@ export async function executeRecordedProductionDeploySteps(input) {
       environment: input.env,
     }
   );
+  // Resolve every component/recovery decision before effects in any component.
+  // An unresolved late component must not restart earlier ones.
+  const prepared = [];
   for (const group of groups) {
-    for (const scope of group.scope === "cli"
-      ? ["cli", "core"]
-      : [group.scope]) {
-      const previous = retained.get(scope);
-      if (previous?.receipt && previous.receipt.status !== "verified") {
-        throw new Error(
-          `Unresolved ${scope} release attempt ${previous.receipt.attemptId} (${previous.receipt.status}); reconcile its actual deployment before retrying. No new deployment or attempt was started.`
-        );
-      }
+    const target = group.workerArguments
+      ? await (input.resolveWorkerTarget ?? resolveReceiptWorkerTarget)({
+          ...input,
+          group,
+        })
+      : null;
+    const operationKey = createHash("sha256")
+      .update(
+        JSON.stringify({
+          sourceSha: input.sourceSha,
+          scope: group.scope,
+          target,
+          steps: group.steps.map((step) => ({
+            command: step.command,
+            args: step.args,
+            internalOperation: step.internalOperation,
+          })),
+        })
+      )
+      .digest("hex");
+    const context = { ...input, group, target, operationKey };
+    const previous = selectResumableComponent(context, retained);
+    if (previous) {
+      await verifyRetainedComponent(context, previous);
     }
+    prepared.push({ ...context, previous });
   }
   const attemptId = input.attemptId ?? randomUUID();
-  for (const [componentIndex, group] of groups.entries()) {
-    await executeComponent({ ...input, group, attemptId, componentIndex });
+  for (const [componentIndex, context] of prepared.entries()) {
+    if (context.previous) {
+      await resumeComponent(context);
+    } else {
+      await executeComponent({ ...context, attemptId, componentIndex });
+    }
   }
+}
+
+function selectResumableComponent(input, retained) {
+  const scopes =
+    input.group.scope === "cli" ? ["cli", "core"] : [input.group.scope];
+  const pending = scopes
+    .map((scope) => retained.get(scope))
+    .filter(
+      (source) => source?.receipt && source.receipt.status !== "verified"
+    );
+  const previous = retained.get(input.group.scope);
+  const receipt = previous?.receipt;
+  const workerSource = retained.get(
+    input.group.scope === "cli" ? "core" : input.group.scope
+  );
+  const workerIdentity = workerSource?.receipt?.identity;
+  const sameTarget =
+    input.target &&
+    previous?.sha === input.sourceSha &&
+    receipt?.operationKey === input.operationKey &&
+    receipt.application === "applied" &&
+    workerSource?.sha === input.sourceSha &&
+    workerSource.receipt.operationKey === input.operationKey &&
+    workerSource.receipt.attemptId === receipt.attemptId &&
+    workerSource.receipt.componentIndex === receipt.componentIndex &&
+    workerSource.receipt.status === receipt.status &&
+    workerIdentity?.kind === "worker-deployment" &&
+    workerIdentity.sourceSha === input.sourceSha &&
+    workerIdentity.workerName === input.target.workerName &&
+    workerIdentity.environment === "prod" &&
+    workerIdentity.projectionTag === input.target.projectionTag;
+  const recovery = () => ({
+    ...previous,
+    workerIdentity,
+    peerReceipts: Object.fromEntries(
+      scopes.map((scope) => [scope, retained.get(scope).receipt])
+    ),
+  });
+  if (pending.length) {
+    if (
+      sameTarget &&
+      ["applied", "failed"].includes(receipt.status) &&
+      !input.redeploy
+    ) {
+      return recovery();
+    }
+    throw new Error(
+      `Unresolved ${input.group.scope} release attempt; reconcile the retained source, deployment and target before retrying. No new attempt or deployment was started.`
+    );
+  }
+  if (sameTarget && receipt.status === "verified" && !input.redeploy) {
+    return recovery();
+  }
+  return null;
+}
+
+async function verifyRetainedComponent(input, previous) {
+  if (input.group.scope === "cli") {
+    const { readCompletedCliRelease } = await import(
+      "./release-cli-resume.mjs"
+    );
+    const result = await (input.readCliCompletion ?? readCompletedCliRelease)({
+      cwd: input.cwd,
+      env: input.env,
+    });
+    const projection = readCliProjection(result, input);
+    if (
+      projection.versionId !== previous.workerIdentity.versionId ||
+      projection.deploymentId !== previous.workerIdentity.deploymentId
+    ) {
+      throw new Error(
+        "Retained CLI/Core identity changed; reconcile instead of restarting publication."
+      );
+    }
+  }
+  await verifyWorkerDeployment({ ...input, expected: previous.workerIdentity });
+}
+
+async function resumeComponent(input) {
+  const receipt = input.previous.receipt;
+  if (receipt.status === "verified") {
+    return;
+  }
+  await input.executeSteps({
+    cwd: input.cwd,
+    env: input.env,
+    steps: input.group.steps.slice(1),
+    adapters: input.executionAdapters,
+    write: input.write,
+    beforeStep: input.beforeStep,
+    afterStep: input.afterStep,
+  });
+  await verifyWorkerDeployment({
+    ...input,
+    expected: input.previous.workerIdentity,
+  });
+  await (input.publishEvidence ?? publishGuardedLocalReleaseEvidence)({
+    cwd: input.cwd,
+    environment: input.env,
+    sourceSha: input.sourceSha,
+    scopes: Object.keys(input.previous.peerReceipts),
+    receipts: Object.fromEntries(
+      Object.entries(input.previous.peerReceipts).map(([scope, prior]) => [
+        scope,
+        { ...prior, status: "verified" },
+      ])
+    ),
+    ...(input.now ? { now: input.now() } : {}),
+  });
 }
 
 function groupReleaseSteps(steps) {
@@ -96,6 +233,8 @@ async function executeComponent(input) {
   const scopes = group.scope === "cli" ? ["cli", "core"] : [group.scope];
   let application = "unknown";
   let identities = new Map();
+  const startedAt = new Date().toISOString();
+  const capture = input.target ? createWorkerDeploymentCapture(input) : null;
   const record = async (status) => {
     const receipts = Object.fromEntries(
       scopes.map((scope) => [
@@ -103,6 +242,8 @@ async function executeComponent(input) {
         {
           attemptId: input.attemptId,
           componentIndex: input.componentIndex,
+          operationKey: input.operationKey,
+          startedAt,
           status,
           application,
           ...(identities.has(scope) ? { identity: identities.get(scope) } : {}),
@@ -125,94 +266,78 @@ async function executeComponent(input) {
       );
     }
   };
-  await record("started");
-  let completed = 0;
   try {
-    await input.executeSteps({
-      cwd: input.cwd,
-      env: input.env,
-      steps: group.steps,
-      adapters: input.executionAdapters,
-      write: input.write,
-      afterStep: async (step) => {
-        await input.afterStep?.(step);
-        if (step !== group.steps[completed]) {
-          throw new Error("Unexpected component step completion.");
-        }
-        completed += 1;
-        if (completed === 1) {
-          application = "applied";
-          identities = await observeComponentIdentity(input, scopes);
-          await record("applied");
-        }
-      },
-    });
-    if (completed !== group.steps.length || application !== "applied") {
-      throw new Error("Component completion evidence is missing.");
-    }
-  } catch (error) {
-    if (error instanceof ReceiptWriteError) {
+    await executeNewComponent();
+  } finally {
+    capture?.close();
+  }
+
+  async function executeNewComponent() {
+    await record("started");
+    let completed = 0;
+    try {
+      await input.executeSteps({
+        cwd: input.cwd,
+        env: capture?.env ?? input.env,
+        steps: group.steps,
+        beforeStep: input.beforeStep,
+        adapters: input.executionAdapters,
+        write: input.write,
+        afterStep: async (step, result) => {
+          await input.afterStep?.(step);
+          if (step !== group.steps[completed]) {
+            throw new Error("Unexpected component step completion.");
+          }
+          completed += 1;
+          if (completed === 1) {
+            application = "applied";
+            identities = new Map(
+              scopes
+                .filter((scope) => !capture || scope === "cli")
+                .map((scope) => [scope, { kind: "release-source" }])
+            );
+            if (capture) {
+              const expected = capture.read(
+                group.scope === "cli" ? result : undefined
+              );
+              const identity = await verifyWorkerDeployment({
+                ...input,
+                expected,
+              });
+              identities.set(
+                group.scope === "cli" ? "core" : group.scope,
+                identity
+              );
+            }
+            await record("applied");
+          }
+        },
+      });
+      if (completed !== group.steps.length || application !== "applied") {
+        throw new Error("Component completion evidence is missing.");
+      }
+      if (input.target) {
+        await verifyWorkerDeployment({
+          ...input,
+          expected: identities.get(
+            group.scope === "cli" ? "core" : group.scope
+          ),
+        });
+      }
+    } catch (error) {
+      if (error instanceof ReceiptWriteError) {
+        throw error;
+      }
+      try {
+        await record("failed");
+      } catch (receiptError) {
+        throw new AggregateError(
+          [error, receiptError],
+          `Component ${group.scope} failed and its failure receipt could not be persisted; reconcile the retained attempt.`
+        );
+      }
       throw error;
     }
-    try {
-      await record("failed");
-    } catch (receiptError) {
-      throw new AggregateError(
-        [error, receiptError],
-        `Component ${group.scope} failed and its failure receipt could not be persisted; reconcile the retained attempt.`
-      );
-    }
-    throw error;
+    await record("verified");
   }
-  await record("verified");
-}
-
-async function observeComponentIdentity(input, scopes) {
-  const identities = new Map(
-    scopes.map((scope) => [scope, { kind: "release-source" }])
-  );
-  if (!input.group.workerArguments) {
-    return identities;
-  }
-  const result = await input.runCommand({
-    command: "pnpm",
-    args: [
-      "exec",
-      "wrangler",
-      "deployments",
-      "list",
-      ...input.group.workerArguments,
-      "--json",
-    ],
-    env: input.env ?? process.env,
-  });
-  if (result.status !== 0) {
-    throw new Error(
-      "Unable to observe the applied Worker identity; do not mark this component verified."
-    );
-  }
-  const versions = readCurrentWorkerVersionIds(JSON.parse(result.stdout));
-  if (
-    !versions.length ||
-    versions.some(
-      (version) =>
-        !Number.isFinite(version.percentage) || version.percentage <= 0
-    ) ||
-    Math.abs(
-      versions.reduce((sum, version) => sum + version.percentage, 0) - 100
-    ) > 0.001 ||
-    new Set(versions.map((version) => version.versionId)).size !==
-      versions.length
-  ) {
-    throw new Error(
-      "Applied Worker traffic identity is incomplete or malformed."
-    );
-  }
-  identities.set(input.group.scope === "cli" ? "core" : input.group.scope, {
-    kind: "worker",
-    versions: versions.toSorted((left, right) =>
-      left.versionId.localeCompare(right.versionId)
-    ),
-  });
-  return identities;
 }

@@ -93,18 +93,40 @@ only after its existing health and source checks. A later failure records
 Previously verified components remain visible even when another component fails;
 this never creates an overall successful-release record for a partial run.
 
-Schema version 2 records the attempt, component index, status, source/tree,
-time, and observed Worker version/traffic. Database and CLI receipts retain an
-explicit `release-source` identity rather than inventing a binary hash or a
-migration watermark; the guarded DB and CLI commands retain their existing
-verification responsibilities. CLI steps record CLI/Core together. Version 1
-success records remain readable. Older readers that do not understand version 2
-must fail closed; use current-main release tooling, not a manual success override.
-If receipt publication fails, stop before another component. Reconcile the
-retained started/applied record against live evidence before another attempt.
-An identical event retry is idempotent; changing an event or moving a completed
-attempt backward is rejected. A later same-SHA redeploy or explicit rollback is
-a new event, with the existing atomic compare-and-swap ref protection.
+Version 3 binds each attempt to an operation key (source, component, actual
+command and deployment target, including the Core projection). Worker identity
+comes from a fresh command-scoped Wrangler output file, then the observed active
+deployment must contain that exact version at 100% traffic. The active deployment
+ID is checked again after health checks. An arbitrary current version, stale
+output, another Worker/environment, changed projection, or missing output cannot
+be promoted to verified. The guarded Core deploy wrappers forward the already
+admitted version after activation, including atomic migrations; they do not alter
+startup admission, profiling or build policy. The CLI publisher returns its
+existing exact-source/tag/channel verification for no-op projection recovery;
+`cli-projection` evidence explicitly does not claim a new Worker upload.
+
+Before effects, the executor reads retained receipts under the existing leases.
+A matching correlated applied Worker can resume its remaining read-only checks
+and append a completion for the same attempt, without rerunning deployment. A
+failed health check can likewise be recovered only with unchanged identity.
+CLI/Core recovery additionally uses the CLI owner's read-only immutable-channel
+checks, never another publisher invocation. A verified identical operation is
+idempotent. For an intentional new same-source deployment, pass `--redeploy` to
+the guarded `deploy` command only after the prior attempt is resolved; that flag
+cannot override an unresolved attempt. A different-source release or rollback
+still follows ordinary source, channel and lease guards.
+
+Unknown application, missing output, unreadable receipts, mismatched targets and
+unresolved legacy records block before a new attempt or deployment. They require
+separate evidence-backed reconciliation, not a new UUID or a status override.
+Version 1 successes and version 2 observations remain readable at their original
+evidence strength; they are not upgraded into correlated identities. Older
+writers cannot downgrade a retained record. All events remain append-only with
+atomic compare-and-swap, and new completion writes retain the original source,
+operation key, attempt and exact applied identity. Database receipts retain
+`release-source` evidence; uncertain DB application is never replayed blindly.
+Use current-main release tooling; old control checkouts are not certified to
+interpret version 3.
 
 `release:status` pages relevant workflows and all job attempts rather than
 filtering an all-workflow 250-run window. It compares actual job completion

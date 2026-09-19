@@ -2,12 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { productionComponentReceiptSchema } from "../../packages/schemas/src/schemas/release/production-release-evidence.ts";
 import {
+  cliProjectionResult,
+  fixtureWorkerTarget,
+  workerDeploymentResponse,
+  writeDeploymentOutput,
+} from "./fixtures/worker-deployment-output.mjs";
+import {
   buildProductionDeployStepSpecs,
   executeProductionDeploySteps,
   executeWithProductionScopeLeases,
 } from "./production-release.mjs";
 import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
 
+const IDENTITY_ERROR = /output|correlat|identity|Worker|target/iu;
 const UNRESOLVED_ERROR = /unresolved|reconcil/iu;
 const SOURCE = "a".repeat(40);
 const ATTEMPT = "00000000-0000-4000-8000-000000000001";
@@ -19,16 +26,7 @@ function fixture(options = {}) {
     effects = [],
     latest = new Map(),
     released = [];
-  const workerResponse = {
-    status: 0,
-    stdout: JSON.stringify([
-      {
-        id: "fixture-deployment",
-        created_on: "2026-09-18T12:00:00Z",
-        versions: [{ version_id: WORKER_VERSION, percentage: 100 }],
-      },
-    ]),
-  };
+  const workerResponse = workerDeploymentResponse(options);
   const scopes = options.scopes ?? [
     "auth",
     "web",
@@ -55,13 +53,19 @@ function fixture(options = {}) {
         executeRecordedProductionDeploySteps({
           sourceSha: SOURCE,
           attemptId: ATTEMPT,
-          readEvidence: () =>
-            new Map(
+          resolveWorkerTarget: fixtureWorkerTarget,
+          readCliCompletion: () => cliProjectionResult(SOURCE),
+          readEvidence: () => {
+            if (options.readFailure) {
+              throw new Error("fixture receipt read failed");
+            }
+            return new Map(
               [...latest].map(([scope, receipt]) => [
                 scope,
                 { sha: SOURCE, receipt },
               ])
-            ),
+            );
+          },
           steps: options.steps ?? steps,
           executeSteps: executeProductionDeploySteps,
           runCommand: () =>
@@ -73,9 +77,11 @@ function fixture(options = {}) {
               if (step.label === options.failureAt) {
                 throw new Error("fixture failure");
               }
+              writeDeploymentOutput(step, SOURCE, options);
             },
             publishCliRelease: () => {
               effects.push("publish-cli");
+              return cliProjectionResult(SOURCE);
             },
           },
           publishEvidence: (event) => {
@@ -103,10 +109,7 @@ test("keeps verified components visible when a later component fails, with all l
   await assert.rejects(result.run, FAILURE);
   for (const scope of ["auth", "web", "gateway", "core"]) {
     assert.equal(result.latest.get(scope).status, "verified", scope);
-    assert.equal(
-      result.latest.get(scope).identity.versions[0].versionId,
-      WORKER_VERSION
-    );
+    assert.equal(result.latest.get(scope).identity.versionId, WORKER_VERSION);
   }
   assert.equal(result.latest.get("remote-agent").status, "failed");
   assert.equal(result.latest.get("remote-agent").application, "unknown");
@@ -126,10 +129,7 @@ test("records health failure after application without claiming the version was 
   await assert.rejects(result.run, FAILURE);
   assert.equal(result.latest.get("web").status, "failed");
   assert.equal(result.latest.get("web").application, "applied");
-  assert.equal(
-    result.latest.get("web").identity.versions[0].versionId,
-    WORKER_VERSION
-  );
+  assert.equal(result.latest.get("web").identity.versionId, WORKER_VERSION);
   assert.equal(result.latest.has("gateway"), false);
 });
 
@@ -164,10 +164,7 @@ test("records CLI and its Core projection together without changing guarded publ
   assert.deepEqual(result.released, ["core", "cli"]);
   assert.equal(result.latest.get("cli").status, "verified");
   assert.equal(result.latest.get("cli").identity.kind, "release-source");
-  assert.equal(
-    result.latest.get("core").identity.versions[0].versionId,
-    WORKER_VERSION
-  );
+  assert.equal(result.latest.get("core").identity.versionId, WORKER_VERSION);
   assert.equal(
     result.receipts.every((event) => event.scopes.join(",") === "cli,core"),
     true
@@ -188,6 +185,54 @@ test("a retained unresolved attempt and unreadable receipts stop all new effects
     assert.equal(result.effects.length, 0);
     assert.equal(result.receipts.length, 0);
     assert.deepEqual(result.released, ["web"]);
+  }
+});
+
+test("CLI/Core applied receipts are reconciled through read-only completion without publishing twice", async () => {
+  const options = { scopes: ["cli"], receiptFailure: "verified" };
+  const result = fixture(options);
+  await assert.rejects(result.run, FAILURE);
+  options.receiptFailure = undefined;
+  await result.run();
+  assert.deepEqual(result.effects, ["publish-cli"]);
+  assert.equal(result.latest.get("cli").status, "verified");
+  assert.equal(result.latest.get("core").status, "verified");
+});
+
+test("unreadable prior receipts fail closed before attempts or side effects", async () => {
+  const result = fixture({ scopes: ["web"], readFailure: true });
+  await assert.rejects(result.run);
+  assert.equal(result.effects.length, 0);
+  assert.equal(result.receipts.length, 0);
+  assert.deepEqual(result.released, ["web"]);
+});
+
+test("does not certify a current version without the deployment command's identity", async () => {
+  const result = fixture({ scopes: ["web"], omitOutput: true });
+  await assert.rejects(result.run, IDENTITY_ERROR);
+  assert.notEqual(result.latest.get("web")?.status, "verified");
+});
+
+test("rejects stale output, wrong Worker/environment, wrong live version and wrong Core projection", async () => {
+  for (const options of [
+    { event: { timestamp: "2025-01-01T00:00:00.000Z" } },
+    { event: { worker_name: "another-worker" } },
+    { event: { wrangler_environment: "stg" } },
+    { versionId: "unrelated-version" },
+    { scopes: ["core"], event: { source_sha: "b".repeat(40) } },
+    {
+      scopes: ["core"],
+      event: { projection_tag: "same-source-different-projection" },
+    },
+  ]) {
+    const result = fixture({ scopes: ["web"], ...options });
+    await assert.rejects(result.run, IDENTITY_ERROR);
+    assert.equal(
+      [...result.latest.values()].some(
+        (receipt) => receipt.status === "verified"
+      ),
+      false
+    );
   }
 });
 

@@ -1623,8 +1623,14 @@ started attempt, applied identity, verified completion, and failed operation,
 with immutable attempt/component identity. Unknown application must not claim an
 applied identity. Worker identities retain version IDs and complete traffic;
 CLI/database records explicitly identify the verified release source rather than
-inventing artifact or migration metadata. New readers accept both versions;
-unknown versions remain an error. This is deployment evidence, not a replacement
+inventing artifact or migration metadata. Version 3 adds an operation key,
+start time, exact Worker/deployment/version/source identity and projection tag.
+The same owner defines the guarded subprocess context and Core activation
+message. Legacy observations never acquire stronger proof by being reread.
+Recovery appends a verified event to the same correlated attempt only after
+read-only identity/health reconciliation; a different attempt cannot overwrite
+an unresolved one. New readers accept all three versions; unknown versions and
+record downgrades remain errors. This is deployment evidence, not a replacement
 for source, lease, channel, health, or release authorization checks. Publication
 and recovery remain owned by `developing/engineering/production-release.md`.
 

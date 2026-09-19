@@ -184,11 +184,15 @@ function evidenceRef(scope) {
 }
 
 function createEvidenceMetadata(context, scope, sourceSha, receipt) {
+  let schemaVersion = receipt ? 2 : 1;
+  if (receipt?.operationKey) {
+    schemaVersion = 3;
+  }
   return productionReleaseEvidenceSchema.parse({
     evidenceId: randomUUID(),
     kind: EVIDENCE_KIND,
     recordedAt: context.now.toISOString(),
-    schemaVersion: receipt ? 2 : 1,
+    schemaVersion,
     scope,
     sourceSha,
     ...(receipt ? { receipt } : {}),
@@ -196,7 +200,15 @@ function createEvidenceMetadata(context, scope, sourceSha, receipt) {
 }
 
 function isRecordedReceipt(current, next) {
-  if (!(current && next.receipt)) {
+  if (!current) {
+    return false;
+  }
+  if (next.schemaVersion < current.schemaVersion) {
+    throw new Error(
+      "An existing receipt cannot be downgraded; use current release tooling to reconcile it."
+    );
+  }
+  if (!next.receipt) {
     return false;
   }
   const previous = current.receipt;
@@ -235,12 +247,14 @@ function isRecordedReceipt(current, next) {
       "Refusing an older component receipt; reconcile the latest deployment evidence first."
     );
   }
+  const recovered = validateCorrelationTransition(current, next);
   if (previous?.attemptId === next.receipt.attemptId) {
     const order = { started: 0, applied: 1, verified: 2, failed: 2 };
     if (
       next.receipt.componentIndex < previous.componentIndex ||
       (next.receipt.componentIndex === previous.componentIndex &&
-        order[next.receipt.status] <= order[previous.status])
+        order[next.receipt.status] <= order[previous.status] &&
+        !recovered)
     ) {
       throw new Error(
         "A completed component event cannot move backward or change its terminal outcome."
@@ -248,6 +262,34 @@ function isRecordedReceipt(current, next) {
     }
   }
   return false;
+}
+
+function validateCorrelationTransition(current, next) {
+  const previous = current.receipt;
+  if (
+    current.schemaVersion !== 3 ||
+    previous?.attemptId !== next.receipt.attemptId ||
+    previous.componentIndex !== next.receipt.componentIndex
+  ) {
+    return false;
+  }
+  if (
+    previous.operationKey !== next.receipt.operationKey ||
+    previous.startedAt !== next.receipt.startedAt ||
+    (previous.identity &&
+      JSON.stringify(previous.identity) !==
+        JSON.stringify(next.receipt.identity))
+  ) {
+    throw new Error(
+      "A correlated component attempt cannot change its target or applied identity."
+    );
+  }
+  return (
+    previous.status === "failed" &&
+    previous.application === "applied" &&
+    previous.identity &&
+    next.receipt.status === "verified"
+  );
 }
 
 function createEvidenceCommit(context, current, metadata) {

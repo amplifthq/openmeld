@@ -353,6 +353,10 @@ export function parseProductionReleaseArgs(argv) {
       options.scope = readRequiredArgument(argv, index, arg);
       continue;
     }
+    if (arg === "--redeploy" && command === "deploy") {
+      options.redeploy = true;
+      continue;
+    }
     if (arg === "--json") {
       options.json = true;
       continue;
@@ -1775,7 +1779,8 @@ export function assertProductionReleaseSource(input) {
 function runStep(step) {
   process.stdout.write(`\n[production-release] ${step.label}\n`);
   const result = spawnSync(resolveCommandBinary(step.command), step.args, {
-    env: process.env,
+    cwd: step.cwd,
+    env: step.env ?? process.env,
     stdio: "inherit",
   });
   if (result.error) {
@@ -1797,12 +1802,13 @@ export async function executeProductionDeploySteps(input) {
   const write = input.write ?? ((value) => process.stdout.write(value));
   for (const step of input.steps) {
     if (step.internalOperation === "publish-cli") {
-      await adapters.publishCliRelease({
+      await input.beforeStep?.(step);
+      const publication = await adapters.publishCliRelease({
         cwd: input.cwd ?? process.cwd(),
         env: input.env ?? process.env,
         withBinary: true,
       });
-      await input.afterStep?.(step);
+      await input.afterStep?.(step, publication);
       continue;
     }
     if (step.workerDeploymentArgs) {
@@ -1820,8 +1826,13 @@ export async function executeProductionDeploySteps(input) {
       });
       printCurrentWorkerVersions(step.label, result, write);
     }
-    await adapters.runStep(step);
-    await input.afterStep?.(step);
+    await input.beforeStep?.(step);
+    const result = await adapters.runStep({
+      ...step,
+      cwd: input.cwd,
+      env: input.env ?? process.env,
+    });
+    await input.afterStep?.(step, result);
   }
 }
 
@@ -1945,6 +1956,8 @@ async function main(argv) {
       executeRecordedProductionDeploySteps({
         sourceSha: plan.sourceSha,
         executeSteps: executeProductionDeploySteps,
+        redeploy: options.redeploy ?? false,
+        beforeStep: () => assertSourceStillMatches(plan.sourceSha),
         runCommand: runReadOnlyCommand,
         afterStep: () => assertSourceStillMatches(plan.sourceSha),
         steps: plan.deploySteps,

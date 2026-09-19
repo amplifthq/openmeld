@@ -33,7 +33,7 @@ const workerIdentitySchema = z
     }
   });
 
-export const productionComponentReceiptSchema = z
+const legacyComponentReceiptSchema = z
   .strictObject({
     attemptId: z.uuid(),
     componentIndex: z.number().int().nonnegative(),
@@ -73,6 +73,70 @@ export const productionComponentReceiptSchema = z
     }
   });
 
+// Version 3 records identity obtained from this guarded command, not merely a
+// snapshot of whichever version happened to be current. Legacy records stay readable.
+export const productionWorkerDeploymentContextSchema = z.strictObject({
+  sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+  operationKey: z.string().regex(/^[0-9a-f]{64}$/u),
+  workerName: z.string().min(1).max(200),
+  projectionTag: z.string().min(1).max(200).optional(),
+});
+export const productionCoreActivationSchema = z.strictObject({
+  type: z.literal("openmeld-core-activation"),
+  version: z.literal(1),
+  timestamp: z.iso.datetime(),
+  worker_name: z.string().min(1).max(200),
+  version_id: z.string().min(1).max(200),
+  source_sha: z.string().regex(/^[0-9a-f]{40}$/u),
+  projection_tag: z.string().min(1).max(200),
+  operation_key: z.string().regex(/^[0-9a-f]{64}$/u),
+});
+
+export const productionWorkerDeploymentIdentitySchema = z.strictObject({
+  kind: z.literal("worker-deployment"),
+  workerName: z.string().min(1).max(200),
+  environment: z.literal("prod"),
+  deploymentId: z.string().min(1).max(200),
+  versionId: z.string().min(1).max(200),
+  sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+  projectionTag: z.string().min(1).max(200).optional(),
+  proof: z.enum(["command-output", "cli-projection"]),
+});
+
+export const correlatedComponentReceiptSchema = z
+  .strictObject({
+    attemptId: z.uuid(),
+    componentIndex: z.number().int().nonnegative(),
+    operationKey: z.string().regex(/^[0-9a-f]{64}$/u),
+    startedAt: z.iso.datetime(),
+    status: z.enum(["started", "applied", "verified", "failed"]),
+    application: z.enum(["unknown", "applied"]),
+    identity: z
+      .union([
+        productionWorkerDeploymentIdentitySchema,
+        z.strictObject({ kind: z.literal("release-source") }),
+      ])
+      .optional(),
+  })
+  .superRefine((receipt, context) => {
+    if (
+      ((receipt.status === "applied" || receipt.status === "verified") &&
+        (receipt.application !== "applied" || !receipt.identity)) ||
+      (receipt.application === "unknown" && receipt.identity) ||
+      (receipt.status === "started" && receipt.application !== "unknown")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Receipt state does not prove its claimed application/identity.",
+      });
+    }
+  });
+export const productionComponentReceiptSchema = z.union([
+  correlatedComponentReceiptSchema,
+  legacyComponentReceiptSchema,
+]);
+
 const commonEvidenceFields = {
   evidenceId: z.string().min(1).max(200),
   kind: z.literal("openmeld-guarded-local-release-evidence"),
@@ -81,17 +145,32 @@ const commonEvidenceFields = {
   sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
 };
 
-export const productionReleaseEvidenceSchema = z.discriminatedUnion(
-  "schemaVersion",
-  [
+export const productionReleaseEvidenceSchema = z
+  .discriminatedUnion("schemaVersion", [
     z.strictObject({ ...commonEvidenceFields, schemaVersion: z.literal(1) }),
     z.strictObject({
       ...commonEvidenceFields,
       schemaVersion: z.literal(2),
-      receipt: productionComponentReceiptSchema,
+      receipt: legacyComponentReceiptSchema,
     }),
-  ]
-);
+    z.strictObject({
+      ...commonEvidenceFields,
+      schemaVersion: z.literal(3),
+      receipt: correlatedComponentReceiptSchema,
+    }),
+  ])
+  .superRefine((evidence, context) => {
+    if (
+      evidence.schemaVersion === 3 &&
+      evidence.receipt.identity?.kind === "worker-deployment" &&
+      evidence.receipt.identity.sourceSha !== evidence.sourceSha
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Worker identity must belong to the receipt source SHA.",
+      });
+    }
+  });
 
 export type ProductionComponentReceipt = z.infer<
   typeof productionComponentReceiptSchema

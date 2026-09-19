@@ -8,6 +8,7 @@ import {
   resolveCurrentCliProjectionReleaseManifest,
   resolveCurrentCliProjectionTarget,
 } from "./deploy-core-current-cli-projection.mjs";
+import { createWorkerDeploymentCapture } from "./worker-deployment-evidence.mjs";
 
 const CURRENT_MANIFEST = JSON.parse(
   readFileSync(new URL("../../release/local-components.json", import.meta.url))
@@ -249,6 +250,49 @@ test("reads channel truth before running the guarded Core receiver deploy", asyn
     "Verify Core deployment is visible",
     `verify-alignment:${EXPECTED_CORE_TAG}`,
   ]);
+});
+
+test("the receiver bridge binds candidate source separately from the retained CLI projection", async () => {
+  const capture = createWorkerDeploymentCapture({
+    sourceSha: CORE_RELEASE_SHA,
+    operationKey: "f".repeat(64),
+    env: {},
+    target: {
+      workerName: "openmeld-core-prod",
+      projectionTag: EXPECTED_CORE_TAG,
+      outputEnvironment: "prod",
+    },
+  });
+  try {
+    await deployCoreWithCurrentCliProjection({
+      releaseSha: CORE_RELEASE_SHA,
+      env: capture.env,
+      write: () => undefined,
+      adapters: {
+        fetchChannelManifest: () => ({
+          channels: { stable: { version: PUBLISHED_VERSION } },
+        }),
+        readTagFile: () => PUBLISHED_MANIFEST_SOURCE,
+        readTagCommit: () => TAG_COMMIT_SHA,
+        readHeadSha: () => CORE_RELEASE_SHA,
+        readCoreWranglerConfig: () => "{}",
+        runStep: () => undefined,
+        verifyAlignment: () => undefined,
+        runStartupAdmission: (input) => ({
+          releaseSha: input.releaseSha,
+          workerName: "openmeld-core-prod",
+          versionId: "fb18a6dd-5ee3-43fd-aa64-087346c6bfd3",
+          trafficPercent: 100,
+        }),
+      },
+    });
+    assert.equal(
+      capture.read().versionId,
+      "fb18a6dd-5ee3-43fd-aa64-087346c6bfd3"
+    );
+  } finally {
+    capture.close();
+  }
 });
 
 function incrementPatch(version) {

@@ -318,6 +318,9 @@ export function decideCoreProjectionStage(input) {
       action: "SKIP",
       criterion: "active-worker-version-tag",
       currentVersionIds,
+      versionId: matchingTraffic.version_id,
+      deploymentId: currentDeployment.id,
+      targetTag: input.targetTag,
       reason: `Core production version ${matchingTraffic.version_id} already carries ${input.targetTag}`,
     };
   }
