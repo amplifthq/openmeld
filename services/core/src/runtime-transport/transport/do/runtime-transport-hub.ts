@@ -34,6 +34,7 @@ import {
   localProjectControlRemoveConnectionResultSchema,
   localProjectControlRemoveMissingConnectionsResultSchema,
   localProjectControlSetDefaultConnectionResultSchema,
+  OPENMELD_COMPUTER_CARE_HEADER,
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
@@ -3497,7 +3498,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
     this.sendFrame(webSocket, {
       code: "daemon.session.register",
-      payload: response,
+      payload: {
+        ...response,
+        ...(readRuntimeTransportSocketAttachment(webSocket).computerCare
+          ? { computerCare: true }
+          : {}),
+      },
     });
     if (response.ok) {
       this.sendReasoningPreference(webSocket);
@@ -10391,6 +10397,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.ctx.acceptWebSocket(server);
     this.state.sessionIdBySocket.set(server, null);
     writeRuntimeTransportSocketAttachment(server, {
+      computerCare: request.headers.get(OPENMELD_COMPUTER_CARE_HEADER) === "1",
       connectionDiagnosticId: serviceConnectionDiagnosticIdSchema.safeParse(
         new URL(request.url).searchParams.get(
           SERVICE_CONNECTION_ID_QUERY_PARAMETER

@@ -2,6 +2,7 @@ import * as z from "../../lazy-zod";
 import { computerSetupModeSchema } from "../../navigation-action";
 import { DISPATCH_ERROR_SUMMARY_MAX_LENGTH } from "../../public-agent-failure-reason";
 import { agentControllerRefSchema } from "../daemon/agent-controller-ref";
+import { computerCareObservationSchema } from "../daemon/computer-care";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { MAX_TEXT_LENGTH } from "../protocol/constants";
 import {
@@ -61,6 +62,7 @@ import { organizationComputersResponseSchema } from "./organization-computers";
 import {
   computerFileAccessSummarySchema,
   ownerComputerDiagnosticsSchema,
+  ownerComputerLocalRuntimesSchema,
 } from "./owner-computer-diagnostics";
 import {
   peopleComputersResponseSchema,
@@ -1170,6 +1172,8 @@ export const centerAgentReadPeopleComputersResponseSchema = z.lazySchema(() =>
         target: peopleComputerTargetSchema,
         readiness: currentLocalRuntimeReplyReadinessResponseSchema,
         fileAccess: computerFileAccessSummarySchema,
+        care: computerCareObservationSchema.optional(),
+        localRuntimes: ownerComputerLocalRuntimesSchema.optional(),
       })
       .nullable(),
   })

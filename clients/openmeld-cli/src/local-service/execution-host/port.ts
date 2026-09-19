@@ -1,4 +1,5 @@
 import type {
+  RuntimeTransportBaseCapabilities,
   ServiceExecutionHostInput,
   ServiceExecutionHostMessage,
   ServiceExecutionHostMethod,
@@ -14,6 +15,9 @@ export type ExecutionHostEvent = Exclude<
 // This is the supervisor's observation/command port, not another execution
 // registry. Only an acknowledged Host snapshot can establish local quiescence.
 export type ExecutionHostPort = {
+  observation?(): NonNullable<
+    RuntimeTransportBaseCapabilities["executionHost"]
+  >;
   call<M extends ServiceExecutionHostMethod>(
     method: M,
     payload: ServiceExecutionHostInput<M>,

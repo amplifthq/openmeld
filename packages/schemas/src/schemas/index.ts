@@ -190,6 +190,11 @@ export {
   parseAgentControllerRef,
 } from "./daemon/agent-controller-ref";
 export {
+  computerCareObservationSchema,
+  executionHostObservationSchema,
+  OPENMELD_COMPUTER_CARE_HEADER,
+} from "./daemon/computer-care";
+export {
   COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   computerFileAccessAbsolutePathSchema,

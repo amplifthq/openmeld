@@ -42,6 +42,7 @@ import { workingLanguageGuidanceSchema } from "../runtime/working-language";
 import { spaceContractSchema } from "../space-mesh/space-contract";
 import { spaceThreadContextSchema } from "../space-mesh/space-thread";
 import { agentControllerRefSchema } from "./agent-controller-ref";
+import { executionHostObservationSchema } from "./computer-care";
 import {
   openMeldDaemonCancelPayloadSchema,
   openMeldDaemonCancelRequestPayloadSchema,
@@ -405,6 +406,7 @@ export const runtimeTransportLeaseSchema = z.strictObject({
 });
 
 export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
+  executionHost: executionHostObservationSchema.optional(),
   agentReplyContextReview: z.literal(true).optional(),
   informationProtectionPrompt: z.literal(true).optional(),
   workingLanguagePrompt: z.literal(true).optional(),
@@ -594,6 +596,7 @@ export const runtimeTransportRegisterSessionRequestSchema = z.strictObject({
 });
 
 export const runtimeTransportRegisterSessionResponseSchema = z.strictObject({
+  computerCare: z.literal(true).optional(),
   ok: z.boolean(),
   connectionGeneration: z.number().int().positive(),
   acceptedLeases: z.array(runtimeTransportLeaseSchema),

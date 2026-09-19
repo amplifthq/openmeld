@@ -819,12 +819,19 @@ export async function runDaemonSocketSession(input: {
           runtimeContract: {
             epoch: DAEMON_RUNTIME_CONTRACT_EPOCH,
           },
-          capabilities: resolveDaemonCapabilitiesFromAdapterIds({
-            adapterIds: input.executionHost.snapshot()?.adapterIds ?? [],
-            localComponentsStatus,
-            profileConfigurationRevision:
-              hasCompleteProfileConfigurationRevisions(input.routeCatalogState),
-          }),
+          capabilities: {
+            ...resolveDaemonCapabilitiesFromAdapterIds({
+              adapterIds: input.executionHost.snapshot()?.adapterIds ?? [],
+              localComponentsStatus,
+              profileConfigurationRevision:
+                hasCompleteProfileConfigurationRevisions(
+                  input.routeCatalogState
+                ),
+            }),
+            ...(computerCareSupported && input.executionHost.observation
+              ? { executionHost: input.executionHost.observation() }
+              : {}),
+          },
           sentAtMs: Date.now(),
         }
       );
@@ -1060,6 +1067,7 @@ export async function runDaemonSocketSession(input: {
     (input.isRouteCatalogResolved?.() ?? true) &&
     input.routeCatalogState.profileIds.length === 0;
   const serviceVersion = OPENMELD_VERSION;
+  let computerCareSupported = false;
 
   const readSessionLocalComponentsStatus = (): LocalComponentsStatus | null =>
     input.localComponentsObservation.read(() => {
@@ -1114,10 +1122,12 @@ export async function runDaemonSocketSession(input: {
       payload: registerPayload.data,
     });
 
-    return await waitForRegisterResponse({
+    const response = await waitForRegisterResponse({
       timeoutMs: REGISTER_RESPONSE_TIMEOUT_MS,
       waiters,
     });
+    computerCareSupported = response.computerCare === true;
+    return response;
   };
 
   const resolveCatalogSyncForcePayload = (

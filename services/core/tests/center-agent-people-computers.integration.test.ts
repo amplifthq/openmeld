@@ -69,6 +69,11 @@ describe("Center Agent PeopleComputers authorization", () => {
         service: { connected: false },
       },
       fileAccess: { status: "unavailable" },
+      care: {
+        connection: "unavailable",
+        supervisor: "unknown",
+        executionHost: null,
+      },
     });
     await expect(
       rpcCenterAgentReadPeopleComputers(fixture.coreEnv, {
@@ -126,6 +131,38 @@ describe("Center Agent PeopleComputers authorization", () => {
         runtimeLane: "canary" as const,
       },
     };
+    const host = {
+      hostInstanceId: "c8229897-5b9c-4e8f-afc9-ed79f93d45ca",
+      observedAtMs: Date.now(),
+      responsive: false,
+      admission: "open" as const,
+      activeCount: 1,
+      pendingCount: 2,
+      unacknowledgedResultCount: 1,
+      startupReplayPending: false,
+    };
+    const memberSession = ownerService.sessions[0];
+    if (!memberSession) {
+      throw new Error("Missing member session fixture");
+    }
+    memberSession.capabilities.executionHost = host;
+    const diagnostics = await rpcCenterAgentReadPeopleComputers(
+      fixture.coreEnv,
+      request
+    );
+    expect(diagnostics.selectedComputer?.care).toMatchObject({
+      connection: "connected",
+      supervisor: "responding",
+      executionHost: host,
+    });
+    const wrongLane = await rpcCenterAgentReadPeopleComputers(fixture.coreEnv, {
+      ...request,
+      target: { ...request.target, runtimeLane: "prod" },
+    });
+    expect(wrongLane.selectedComputer?.care).toMatchObject({
+      connection: "unavailable",
+      executionHost: null,
+    });
     await expect(
       rpcCenterAgentRequestOpenMeldToolsUpdate(fixture.coreEnv, {
         ...request,

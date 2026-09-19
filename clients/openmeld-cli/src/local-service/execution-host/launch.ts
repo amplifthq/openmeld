@@ -79,6 +79,7 @@ export function launchExecutionHost(input: {
   });
   exited.catch(() => undefined);
   let lastSnapshot: ServiceExecutionHostSnapshot | null = null;
+  let observedAtMs: number | null = null;
   let responsive = false;
   let failed = false;
   let closing = false;
@@ -132,6 +133,7 @@ export function launchExecutionHost(input: {
           );
         }
         lastSnapshot = observation.data;
+        observedAtMs = Date.now();
         if (!failed) {
           setResponsive(true);
         }
@@ -157,6 +159,17 @@ export function launchExecutionHost(input: {
     call,
     available: () => responsive && !failed,
     snapshot: () => lastSnapshot,
+    observation: () => ({
+      hostInstanceId,
+      observedAtMs,
+      responsive: responsive && !failed,
+      admission: lastSnapshot?.admission ?? null,
+      activeCount: lastSnapshot?.activeCount ?? null,
+      pendingCount: lastSnapshot?.pendingCount ?? null,
+      unacknowledgedResultCount:
+        lastSnapshot?.unacknowledgedResultCount ?? null,
+      startupReplayPending: lastSnapshot?.startupReplayPending ?? null,
+    }),
     onEvent: (listener) => {
       eventListeners.add(listener);
       return () => {

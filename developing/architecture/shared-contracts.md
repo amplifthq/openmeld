@@ -330,6 +330,28 @@ processes quiescent because older binaries cannot enforce the new private
 recovery fence. Signed/platform/cutover acceptance remains required before
 release. No AHP, new browser capability, or second lifecycle writer is introduced.
 
+### Center Agent Computer care observations
+
+The optional `executionHost` runtime capability carries a bounded, path-free
+supervisor observation. It is diagnostics only, never a scheduling grant or
+proof of cancellation. Existing ServiceRuntime records retain it; there is no
+new database, polling loop, or recovery owner.
+
+Contract Impact Audit: the CLI requests Computer-care negotiation in the
+`x-openmeld-computer-care: 1` stream header. Gateway forwards that recognized
+header; Core acknowledges `computerCare: true` only to opted-in clients.
+The CLI sends the optional observation only in subsequent heartbeats after
+that acknowledgement. Old Gateway/Core omit the acknowledgement, so the new
+CLI keeps sending the old strict payload. Old CLI registration responses stay
+unchanged. New Core accepts missing observations as unknown. CLI command,
+execution epoch, Skills, and Service file contracts do not change.
+
+The owner-private Center Agent response adds optional `care` and filtered
+`localRuntimes` fields. Deploy the new Remote Agent receiver before enabling
+the new Core response; an older strict Remote Agent receiver cannot consume
+the added response fields. Existing Web/CLI payloads and team-safe Computer
+projections are unchanged. No production release is implied by local testing.
+
 ### Explicit Computer file-access refusal
 
 The Service emits `computer.file_access.owner_declined` only when its pending
