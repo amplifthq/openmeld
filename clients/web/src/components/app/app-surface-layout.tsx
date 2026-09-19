@@ -157,7 +157,7 @@ export function AppSurfaceLayout(input: {
 					onOpenChange={setAppNavigationOpen}
 					open={appNavigationOpen}
 					returnFocusRef={appNavigationTriggerRef}
-					title="Plugin navigation"
+					title="OpenMeld navigation"
 				>
 					{input.outerRail}
 				</AppMobileNavigationDrawer>

@@ -479,6 +479,7 @@ function OrganizationSkillEditor(input: {
 					</output>
 					{input.skill.permissions.canEdit && (
 						<Button
+							className="relative max-lg:min-h-8 max-lg:after:absolute max-lg:after:inset-x-0 max-lg:after:-inset-y-1.5 max-lg:after:content-['']"
 							disabled={!(hasUnsavedChanges && bundleValid) || busy}
 							onClick={save}
 						>

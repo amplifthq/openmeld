@@ -108,7 +108,7 @@ describe("AppSurfaceLayout", () => {
 			screen.getByRole("button", { name: "Open app navigation" })
 		);
 		const primaryDrawer = screen.getByRole("dialog", {
-			name: "Plugin navigation",
+			name: "OpenMeld navigation",
 		});
 		expect(
 			within(primaryDrawer).getByRole("navigation", {
@@ -158,7 +158,7 @@ describe("AppSurfaceLayout", () => {
 		trigger.focus();
 		fireEvent.click(trigger);
 		expect(
-			screen.getByRole("dialog", { name: "Plugin navigation" })
+			screen.getByRole("dialog", { name: "OpenMeld navigation" })
 		).toBeTruthy();
 
 		fireEvent.keyDown(document, { key: "Escape" });

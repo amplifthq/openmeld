@@ -50,10 +50,30 @@ export function TeamHeader(input: {
 					selectedIndex={TEAM_VIEWS.indexOf(input.active)}
 					variant="underline"
 				>
-					<TabsSubtleItem index={0} label="People" labelClassName="text-sm" />
-					<TabsSubtleItem index={1} label="Agents" labelClassName="text-sm" />
-					<TabsSubtleItem index={2} label="Plugins" labelClassName="text-sm" />
-					<TabsSubtleItem index={3} label="Skills" labelClassName="text-sm" />
+					<TabsSubtleItem
+						className="max-lg:min-h-0"
+						index={0}
+						label="People"
+						labelClassName="text-sm"
+					/>
+					<TabsSubtleItem
+						className="max-lg:min-h-0"
+						index={1}
+						label="Agents"
+						labelClassName="text-sm"
+					/>
+					<TabsSubtleItem
+						className="max-lg:min-h-0"
+						index={2}
+						label="Plugins"
+						labelClassName="text-sm"
+					/>
+					<TabsSubtleItem
+						className="max-lg:min-h-0"
+						index={3}
+						label="Skills"
+						labelClassName="text-sm"
+					/>
 				</TabsSubtle>
 			}
 			renderFrame={false}

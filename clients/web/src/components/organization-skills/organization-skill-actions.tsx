@@ -32,7 +32,13 @@ export function OrganizationSkillActions(input: {
 			<DropdownMenuTrigger
 				aria-label="More actions"
 				ref={input.triggerRef}
-				render={<Button size="icon" variant="ghost" />}
+				render={
+					<Button
+						className="relative max-lg:min-h-8 max-lg:min-w-8 max-lg:after:absolute max-lg:after:-inset-1.5 max-lg:after:content-['']"
+						size="icon"
+						variant="ghost"
+					/>
+				}
 			>
 				<DotsThreeIcon aria-hidden="true" className="size-5" />
 			</DropdownMenuTrigger>
