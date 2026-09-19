@@ -167,7 +167,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 				)
 			}
 			mainSidebarContent={sidebar}
-			showMainHeader
+			showMainHeader={!input.selectedProfileId}
 		>
 			{input.researchErrorMessage ? (
 				<p className="m-4 rounded-md border border-destructive/50 px-4 py-3 text-destructive text-sm">
