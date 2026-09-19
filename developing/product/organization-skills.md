@@ -294,9 +294,19 @@ guesses a matching name, or shares query-cache or editor identity. List search,
 create drafts, and install previews are also Organization-scoped; an old
 Organization's delayed create/install completion cannot navigate the new one.
 
-The Skills list shows all Organization Skills without a type filter. It offers
-search, **Create skill**, and **Install from GitHub**. Each row shows name,
-description, enabled state, source summary, and last update.
+The catalog is a compact directory, not a dashboard or marketplace. One **Skills**
+heading and one short explanation precede search, an **All / Enabled / Disabled**
+status filter, and the permission-gated **Add skill** menu (**Create skill** or
+**Install from GitHub**). Rows show the actual portable name, description,
+enabled state, source and update date. They sort by latest update, then name and
+id for stable ties. Narrow layouts reflow the same rows rather than introduce a
+second card view. Empty and no-match states differ; a background read error keeps
+the cached list and an inline retry instead of blanking the catalog.
+
+Search, status and scroll position are transient account/Organization view state,
+not Skill contents or URL parameters. Returning to the same catalog restores them;
+another account or Organization gets its own view. Filtering returns the scroll
+owner to the start. Do not persist drafts or install previews as catalog state.
 
 Every member can reach the catalog; `canManage` controls management actions, not
 the Team tab. Assigned maintainers retain editing only and do not gain install,
@@ -314,14 +324,74 @@ Organization Skill model. This is presentation only; it must not introduce a
 separate Personal Skill type, storage scope, permission model, or runtime
 catalog.
 
-The detail page is directly editable when the current member may edit. It does
-not have View/Edit modes. A read-only member sees the same content surface
-without editable controls.
+### Document-first detail
 
-Portable frontmatter fields use labeled form controls. Instructions and
-Markdown references use one shared Plate WYSIWYG editor whose persisted value
-is CommonMark + GFM. The editor does not expose raw frontmatter as editable
-Markdown.
+The detail is a readable document, directly editable with the existing authority.
+Name and description appear once, above Instructions, as document-style labeled
+inputs for editors and ordinary text for readers. There is no Overview landing
+page, View/Edit switch, raw Markdown preview mode, or second navigation sidebar.
+A sticky action row keeps **All Skills**, the exact save state, **Save**, and
+**More actions** reachable. Only Skills with supporting files show the local
+**Instructions / Files (n)** tabs; switching them neither saves nor leaves the
+Skill. The outer document owns one draft for every surface.
+
+**More actions** exposes **Copy link**, **How agents use this skill**,
+**Properties**, and **Version history**. Managers additionally see maintainers,
+enable/disable, and removal. Management mutations remain unavailable while the
+document is dirty or a write is pending, with a short explanation. Copy link uses
+the canonical route and, in Desktop, the bridge's Web origin rather than the
+local renderer origin. Clipboard failure is reported as failure, not success.
+
+Properties contains only optional portable fields: license, compatibility,
+allowed-tools and metadata. Closing Properties retains its changes in the shared
+draft; **Save skill** saves the entire bundle. Save status and any validation
+that prevents saving remain visible inside Properties. Metadata key editing preserves
+focus and rejects collisions without overwriting another entry. History lists
+real timestamps, the current-release badge, and expandable identity/digest/source
+details. It does not invent summaries, usage counts or restore actions. Existing
+`skill-details-heading`, `skill-history-heading`, `skill-files-heading` and
+`skill-instructions-heading` anchors open their relocated surfaces.
+
+Files are compact rows with at most one expanded view. Unopened references do not
+mount Plate. Once opened, a reference editor is retained hidden when collapsed,
+so queued input and Undo history are not lost during file switches. File paths
+own presentation identity; accepted content generations still control safe
+external reloads. Other text is read-only, binary assets are downloadable, and
+scripts remain explicitly non-executable. This UI does not add upload or removal
+of bundle files.
+
+Instructions and references reuse the shared Plate/CommonMark + GFM editor. Its
+opt-in page presentation supplies a quiet, accessible toolbar and document
+spacing; character limits appear near the boundary, not as permanent decoration.
+The default presentation for Documents and Space Files remains unchanged. The
+shared editor reports content changes only; focus and selection must not
+serialize untouched content into a false unsaved draft. No second editor engine,
+autosave or publish state is introduced.
+
+### Creation and installation
+
+Create uses a spacious shared dialog with a fixed header/footer and one scrolling
+body for Name, Description and Instructions. Opening it creates no server record.
+Only **Create skill** commits the existing request. Local drafts survive a canceled
+close; actual dismissal, Escape, outside interaction and route/Organization exits
+use the shared discard confirmation. It intentionally offers no Save-and-leave
+that would silently create or install a resource. Pending writes cannot be
+accidentally dismissed or submitted twice; errors keep the entered content.
+
+GitHub installation has two steps: a URL, then a compact source review showing
+name, purpose, repository/path, exact short commit and file count. Real warnings
+remain visible before **Install skill**. License, full commit and file manifest
+are available under Technical details. Back retains the URL. A preview is bound
+to its requested URL, Organization and request generation; editing the URL,
+closing the flow or changing identity invalidates old responses. Installation
+uses the exact reviewed commit through the unchanged Core endpoint.
+
+On confirmed creation/installation, the dialog and its guard close before opening
+the returned canonical detail. Returned Skill data seeds the existing detail
+cache; catalog refresh cannot delay success or turn an already confirmed write
+into a failure. The same distinction applies to document Save and management
+writes: a catalog-refresh error has its own notice and retry. Late completions
+cannot navigate a replaced account/Organization surface.
 
 The Save lifecycle uses the shared status vocabulary:
 

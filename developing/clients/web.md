@@ -296,6 +296,30 @@ Organization switching remain guarded. The version-bound
 blocked history traversal so cancellation restores the address bar as well as
 the page; retain its regressions when upgrading the dependency.
 
+The catalog uses compact rows, one Add skill menu, search and an enabled-state
+filter. Account/Organization-scoped, nonpersistent view state remembers filters
+and the owning viewport's scroll position; it never stores Skill content.
+Detail opens directly into the title, description and Instructions. Optional
+Files tabs share the document draft; Properties, history and management use
+contextual Fluid menus/dialogs rather than another sidebar or settings page.
+
+`MarkdownEditor`'s optional `presentation="page"` changes toolbar placement,
+spacing and near-limit disclosure only. It retains the shared Plate kit and
+key-based accepted-content reload contract; default caller presentation stays
+unchanged. All presentations report only Plate content changes, not selection
+or focus events, so reading cannot normalize Markdown into a false dirty draft.
+References mount on first opening and retain visited editors while
+hidden to protect queued input and Undo. Legacy section hashes select the
+relocated tab or contextual dialog.
+
+Creation and import reuse a shared flow-dialog composition and the real
+`UnsavedChangesGuard`/`UnsavedChangesDialog`. Omitting the optional save callback
+provides discard-only protection while preserving boolean callers and the
+`saved-with-unsaved-changes` result. Mutations keep their original APIs; a URL-bound import
+preview cannot be replaced by an obsolete request. Successful writes do not wait
+for list refreshes. No route, authority, global Skill installation, autosave or
+runtime semantics are added. Desktop Copy link resolves the bridge's Web origin.
+
 The enduring product and authorization contract is
 [Organization Skills](../product/organization-skills.md).
 

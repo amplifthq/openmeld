@@ -283,6 +283,11 @@ The Web shell is a stable two-layer composition built from the shared
   Skills loading/error states retain Team's header and rail highlight rather
   than mounting Center Agent context. Canonical routes and compatibility
   redirects are owned by [web.md](web.md#organization-skills).
+  Inside that unchanged shell, Skills uses a compact catalog and a document-first
+  detail with a sticky Save/action row. Optional Files tabs and contextual
+  Properties/history/management dialogs do not add another navigation sidebar
+  or alter Team scope. Creation/import and inner dialogs reuse shared Fluid
+  focus, dismissal and scroll mechanics; the Skill draft remains Web-owned.
   The middle column can be resized or collapsed while the application rail and
   current work remain mounted. Existing outer-sidebar persistence stores its
   geometry; the shared Fluid engine retains resize, keyboard, and edge-reveal
