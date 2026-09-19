@@ -11,6 +11,8 @@ import {
   runCoreStartupAdmission,
 } from "../cloudflare/core-startup-admission.mjs";
 import { buildCoreVersionReleaseStepSpecs } from "../cloudflare/core-version-deployment.mjs";
+import { resolveCoreProjectionTag } from "./release-cli-resume.mjs";
+import { recordCoreDeploymentOutput } from "./worker-deployment-evidence.mjs";
 
 const FULL_COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 
@@ -63,11 +65,16 @@ export function deployCoreWorker(input = {}) {
     label: "Build Core receiver dependencies",
   });
   adapters.runStep(buildCoreBundleEvidenceStepSpec());
+  const projectionTag =
+    input.tag ??
+    (env.OPENMELD_RELEASE_RECEIPT_CONTEXT
+      ? resolveCoreProjectionTag({ cwd })
+      : undefined);
   const evidence = adapters.runStartupAdmission({
     cwd,
     env,
     releaseSha,
-    tag: input.tag,
+    tag: projectionTag,
   });
   const releaseSteps = buildCoreVersionReleaseStepSpecs({
     trafficPercent: evidence.trafficPercent,
@@ -77,6 +84,12 @@ export function deployCoreWorker(input = {}) {
   for (const step of releaseSteps) {
     adapters.runStep(step);
   }
+  recordCoreDeploymentOutput({
+    env,
+    sourceSha: releaseSha,
+    evidence,
+    projectionTag,
+  });
 }
 
 function runStep(input) {

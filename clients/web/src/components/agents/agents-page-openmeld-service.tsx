@@ -75,7 +75,10 @@ import {
 	getDesktopPlatform,
 	openDesktopWeb,
 } from "#/desktop/platform";
-import { copyCliEntryCommand } from "#/lib/cli-entry-command";
+import {
+	copyCliEntryCommand,
+	formatWebCliCommand,
+} from "#/lib/cli-entry-command";
 import {
 	type ComputerSummaryStatus,
 	resolveCurrentLocalRuntimeComputerSummaryStatus,
@@ -108,7 +111,6 @@ import { ComputerConnectionHistory } from "./computer-connection-history";
 type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 
 const COMPUTER_CONNECTION_CARD_TITLE = "Computer Connection";
-const OPENMELD_SKILLS_MANAGEMENT_COMMAND = "npx -y openmeld@latest skills";
 const RECONNECT_MANUALLY_LABEL = "Reconnect Computer";
 const UPDATE_MANUALLY_LABEL = "Update manually";
 const UPDATE_STATUS_REFRESH_INTERVAL_MS = 2000;
@@ -2324,11 +2326,11 @@ function OpenMeldSkillHelpTooltipContent() {
 	return (
 		<>
 			<span>
-				The OpenMeld skill helps local agents use OpenMeld. To manage it without
-				installing OpenMeld CLI globally, run:
+				The OpenMeld skill helps local agents use OpenMeld. To manage it in this
+				environment, run:
 			</span>
 			<code className="mt-1 block break-all bg-background/15 px-1.5 py-1 font-mono text-[11px] text-background">
-				{OPENMELD_SKILLS_MANAGEMENT_COMMAND}
+				{formatWebCliCommand("openmeld skills")}
 			</code>
 		</>
 	);

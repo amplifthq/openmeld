@@ -604,8 +604,14 @@ The pilot requires an existing Worker lane and the CLI installed through its
 normal Web setup. Its launcher reuses `readCurrentIsolatedDevLane` and
 `buildIsolatedDevEnvironment`; it does not maintain another port map or registry.
 It requires `<OPENMELD_HOME>/bin/openmeld` to be executable and resolve within
-the lane home, and isolates Electron data under `desktop/user-data` there before
-authentication storage initializes.
+the lane home. On macOS, the normal source and Private package pilot launchers
+use Chromium's mock Keychain before authentication storage initializes and keep
+its lower-protection test credentials under the stable lane-owned
+`desktop/mock-keychain-user-data` directory. The first launch after switching to
+this directory needs one test login; later builds and restarts reuse it. Do not
+store production credentials in this test profile. Installed production,
+staging, and disposable acceptance builds keep the real system Keychain. Use
+`pnpm desktop:package:acceptance` for explicit real-Keychain acceptance.
 
 Serve matching compiled Web assets with
 `OPENMELD_DESKTOP_PILOT=1 pnpm dev:web:worktree`, then launch Desktop with
@@ -620,6 +626,22 @@ the pilot flag on a package-local build. The client requires the lane's compiled
 `VITE_BETTER_AUTH_URL`; pilot builds reject missing or invalid values after Vite
 loads its environment. The native launch environment cannot supply that value
 retroactively to an already built renderer.
+
+The same worktree producer declares `VITE_OPENMELD_SETUP_USER_FACING_COMMAND`,
+`VITE_OPENMELD_DEV_LANE_ID`, the public Auth/Gateway/Web endpoints, isolated Home,
+and the client/server CLI manifest. The compiled renderer and installer must
+agree on that target. Missing or conflicting isolation fields fail closed;
+production-mode compilation is never permission to select the published lane.
+The unnamed Wrangler environment declares local development, `stg` declares
+Canary, and `prod` (including an installed production Desktop target) declares
+the published lane. Build-time public command endpoints are projected from the
+selected existing Web Wrangler vars, not a second environment registry.
+
+All dynamic Web setup, repair, login, start/stop, Space join, Skill guidance and
+Agent-prompt command prefixes use `resolveWebCliTarget`. Follow-up commands keep
+the isolated Home and endpoints. After installation, `setup.complete` remains
+the authority for the installed command; this build target does not invent an
+installed binary path or certify clean-install acceptance.
 
 ## `OPENMELD_HOME` And Production-State Safety
 

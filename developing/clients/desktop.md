@@ -767,10 +767,11 @@ The local pilot Web build leaves client JavaScript unminified so DevTools can
 set exact line breakpoints in hydration and application error callbacks. Normal
 Web builds retain their default minification.
 
-GUI data lives under `<OPENMELD_HOME>/desktop/user-data`. Main sets and verifies
-Electron's `userData` path before Better Auth constructs storage. The launcher
-also passes that directory explicitly to Electron, keeping GUI preferences and
-credentials separate from other worktrees.
+GUI data lives under `<OPENMELD_HOME>/desktop/mock-keychain-user-data` as a
+stable, isolated local test profile. Main sets and verifies Electron's
+`userData` path before Better Auth constructs storage. The launcher also passes
+that directory explicitly to Electron, keeping GUI preferences and credentials
+separate from other worktrees.
 
 Electron 44.3.0 is paired with electron-vite 5.0.0 and Vite 7.3.2. Hydrate the
 native binary with `pnpm --filter @openmeld/desktop exec electron --version`.
