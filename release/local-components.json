@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-18T12:17:09.549Z",
+  "updatedAt": "2026-09-19T17:13:18.536Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.213",
+      "packageVersion": "0.3.214",
       "updatePolicy": "available",
-      "reason": "Advisory connection recovery and split update targets preserve existing setup and update contracts; publish only after cloud receivers are deployed."
+      "reason": "Existing user commands remain compatible; execution admission is negotiated by the Service."
     },
     "service": {
-      "bundleHash": "448d205e5f151ed60aef4deee63adbbd105a43f8d21bc864ff31ba2646f0d5da",
-      "bundleVersion": "0.3.213",
+      "bundleHash": "4ae1c8fc27ecc065da73951bf2c054a8a016bb6adcf3a38326d79c24c907dd4c",
+      "bundleVersion": "0.3.214",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
-      "updatePolicy": "available",
-      "reason": "Advisory keepalive and controlled-stop fixes preserve accepted work and existing update recovery; new runtime receivers deploy before this Service."
+      "updatePolicy": "required",
+      "reason": "Execution Host requires Coordinator-confirmed admission before provider startup; older Services do not enforce the expired-delivery fence."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",

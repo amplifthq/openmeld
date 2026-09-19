@@ -156,6 +156,7 @@ const reportResult = z.strictObject({
 
 const executionFrameCodes = new Set([
   "daemon.dispatch.deliver",
+  "daemon.dispatch.lifecycle_acknowledged",
   "daemon.dispatch.accepted",
   "daemon.dispatch.interaction_response",
   "daemon.reasoning.preferences",
@@ -195,6 +196,7 @@ export const serviceExecutionHostMethods = {
   },
   configureConnection: {
     input: z.strictObject({
+      executionAdmissionConfirmation: z.boolean().optional(),
       connectionGeneration: z.number().int().positive(),
       catalogRevision: count,
       leases: z.array(runtimeTransportLeaseSchema).max(10_000),

@@ -75,6 +75,17 @@ its current-generation response confirms it is ready, and closes when that
 observation fails. A shared Host failure may affect all its Agents, not the
 independent connector. Last-known Host observations are not fresh health.
 
+Before local preparation and again immediately before each native provider turn,
+the Host waits for a correlated acknowledgment of its existing lifecycle report
+from RuntimeCoordinator. Core validates the execution token and records lifecycle
+progress before acknowledging. A terminal refusal prevents provider invocation;
+missing acknowledgment does not authorize execution or imply an execution failure.
+Reconnect resends only the outstanding confirmation, never a provider invocation,
+and acknowledgments from a retired connection cannot release the waiter.
+The Service negotiates this capability before enabling Host admission. Older
+servers leave new execution unavailable while connection and local control remain
+usable; older clients do not receive unsolicited acknowledgment frames.
+
 Only one Host may own an installation's execution resources. Before provider
 work starts, a private process-incarnation receipt records non-quiescence. A clean
 local drain clears that fence. After an unconfirmed owner loss, PID disappearance
@@ -188,6 +199,13 @@ or target Agent Profile is known, the service contract should carry that
 evidence so setup, repair, reconnect, and current-device checks can reject stale
 or cross-account service reuse. Existing device or connected-computer evidence
 must not be reused unless the owner account and profile evidence are trusted.
+
+First enrollment may attach the Core-owned connected Computer ID to an already
+owned runtime without advancing its Service generation, only when every other
+contract field is unchanged. This records the existing account/device/lane
+association rather than replacing the carrier. Replacing an existing enrollment
+or changing any other contract field still advances the generation. Stop continues
+to require the running lease and current contract generations to match.
 
 Agent Controller availability reporting depends on a valid service contract. If
 required owner account, Agent Profile, device, or lane evidence is missing or

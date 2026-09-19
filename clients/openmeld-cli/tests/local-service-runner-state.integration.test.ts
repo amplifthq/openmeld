@@ -345,6 +345,7 @@ vi.mock("../src/local-service/carrier/run-socket-session", async () => {
         },
       });
       await link.configure({
+        executionAdmissionConfirmation: true,
         connectionGeneration,
         catalogRevision: 0,
         leases: [],

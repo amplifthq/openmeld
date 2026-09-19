@@ -111,6 +111,7 @@ export function createExecutionHostSocketLink(input: {
     canAccept,
     snapshot: () => observed,
     async configure(request: {
+      executionAdmissionConfirmation?: boolean;
       connectionGeneration: number;
       catalogRevision: number;
       leases: RuntimeTransportLease[];

@@ -13,6 +13,7 @@ import {
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
   OPENMELD_COMPUTER_CARE_HEADER,
   OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+  OPENMELD_EXECUTION_ADMISSION_HEADER,
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   projectTargetWakeLifecycleIdentity,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
@@ -72,6 +73,7 @@ async function openDaemonStream(
     computerFileAccess?: boolean;
     localFolderPicker?: boolean;
     computerCare?: boolean;
+    executionAdmissionConfirmation?: boolean;
   }
 ): Promise<WebSocket> {
   touchedOwnerUserIds.add(ownerUserId);
@@ -81,6 +83,9 @@ async function openDaemonStream(
     init: {
       headers: {
         Upgrade: "websocket",
+        ...(options?.executionAdmissionConfirmation
+          ? { [OPENMELD_EXECUTION_ADMISSION_HEADER]: "1" }
+          : {}),
         ...(options?.computerCare
           ? { [OPENMELD_COMPUTER_CARE_HEADER]: "1" }
           : {}),
@@ -131,6 +136,7 @@ async function registerSession(input: {
   socket: WebSocket;
 }): Promise<{
   computerCare?: true;
+  executionAdmissionConfirmation?: true;
   acceptedLeases: Array<{ leaseEpoch: number; profileId: string }>;
   connectionGeneration: number | undefined;
   rejectedProfiles: Array<{ profileId: string; reasonCode: string }>;
@@ -182,6 +188,7 @@ async function registerSession(input: {
   }
   const payload = frame.payload as {
     computerCare?: true;
+    executionAdmissionConfirmation?: true;
     acceptedLeases?: Array<{ leaseEpoch: number; profileId: string }>;
     connectionGeneration?: number;
     rejectedProfiles?: Array<{ profileId: string; reasonCode: string }>;
@@ -189,6 +196,7 @@ async function registerSession(input: {
 
   return {
     computerCare: payload.computerCare,
+    executionAdmissionConfirmation: payload.executionAdmissionConfirmation,
     acceptedLeases: payload.acceptedLeases ?? [],
     connectionGeneration: payload.connectionGeneration,
     rejectedProfiles: payload.rejectedProfiles ?? [],
@@ -807,6 +815,7 @@ describe("runtime transport lease reconciliation", () => {
       computerFileAccess: true,
       localFolderPicker: true,
       computerCare: true,
+      executionAdmissionConfirmation: true,
     });
 
     try {
@@ -818,6 +827,7 @@ describe("runtime transport lease reconciliation", () => {
         socket,
       });
       expect(registered.computerCare).toBe(true);
+      expect(registered.executionAdmissionConfirmation).toBe(true);
       expect(
         await sendHeartbeat({
           daemonSessionId,
@@ -871,6 +881,7 @@ describe("runtime transport lease reconciliation", () => {
         socket,
       });
       expect(registered.computerCare).toBeUndefined();
+      expect(registered.executionAdmissionConfirmation).toBeUndefined();
       expect(
         await sendHeartbeat({
           daemonSessionId,

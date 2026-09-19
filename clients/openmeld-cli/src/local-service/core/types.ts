@@ -116,6 +116,9 @@ export type DaemonFrameSink = {
 };
 
 export type CurrentDaemonSocketRef = {
+  confirmExecutionAdmission?: (
+    request: RuntimeTransportDeliverDispatchRequest
+  ) => Promise<void>;
   reasoningStreamEnabled?: boolean;
   reasoningPreferenceListeners?: Set<() => void>;
   connectionGeneration: number | null;
@@ -343,6 +346,7 @@ export type ParsedDaemonFrame = {
     | "daemon.dispatch.interaction_request"
     | "daemon.dispatch.interaction_response"
     | "daemon.dispatch.lifecycle"
+    | "daemon.dispatch.lifecycle_acknowledged"
     | "daemon.dispatch.preview"
     | "daemon.dispatch.preview_end"
     | "daemon.dispatch.result"

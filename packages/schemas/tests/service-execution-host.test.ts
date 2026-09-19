@@ -85,6 +85,7 @@ describe("execution host process boundary", () => {
     for (const code of [
       "daemon.session.register",
       "daemon.session.heartbeat",
+      "daemon.dispatch.lifecycle_acknowledged",
     ]) {
       expect(
         serviceExecutionHostMessageSchema.safeParse({

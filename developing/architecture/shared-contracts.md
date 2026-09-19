@@ -288,6 +288,35 @@ existing paths; the pilot cannot target production or a Vite dev registry.
 
 ## Service Execution Host IPC
 
+Provider admission uses an optional correlated acknowledgment on the existing
+RuntimeCoordinator lifecycle report. The shared lifecycle acknowledgment schema
+binds request ID, dispatch, attempt and connection generation; only Core emits it.
+The `x-openmeld-execution-admission: 1` handshake negotiates the corresponding
+registration response field. New Hosts fail closed with older servers that do
+not acknowledge this capability. Old clients receive the previous response shape.
+This adds no execution authority, task-state owner, or automatic provider retry.
+Positive acknowledgments include `validForMs`, bounded by the Coordinator's
+existing next watchdog observation and token expiry. The Host measures the
+entire request round trip with its monotonic clock, beginning before send, so
+network or IPC delay cannot extend that bound and wall-clock skew is irrelevant.
+Each confirmation retry has a new correlation ID; a delayed old reply cannot
+borrow the new request's freshness. An expired positive reply leaves the same
+execution waiting for fresh confirmation, not failed or restarted.
+
+This admission check does not promise transactional exactly-once effects in an
+external provider or atomic revocation of an already-started OS process. Unknown
+outcomes retain the existing recovery fence; they do not authorize replay.
+
+Reference boundaries: [Ray actor fault tolerance](https://docs.ray.io/en/latest/ray-core/fault_tolerance/actors.html)
+distinguishes at-most-once invocation from a known outcome and quarantines
+unavailable actors. [Temporal Activity execution](https://docs.temporal.io/activity-execution)
+uses task-scoped tokens and cooperative cancellation; a server timeout is not
+proof that the worker stopped. These principles support the existing Coordinator
+and Host owners; neither framework is an additional runtime dependency here.
+Unlike a [resource-enforced fencing token](https://docs.hazelcast.com/hazelcast/5.0/data-structures/fencedlock),
+our admission acknowledgment cannot fence arbitrary external filesystem/API
+effects after provider start. Do not describe it as that stronger guarantee.
+
 `service-execution-host.ts` owns the strict, versioned supervisor/Host protocol,
 method-specific inputs and outputs, bounded frames, Host-incarnation identity,
 health observations, and private process-recovery receipt. Both processes ship

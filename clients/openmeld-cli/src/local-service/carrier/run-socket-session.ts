@@ -572,7 +572,16 @@ export async function runDaemonSocketSession(input: {
     onError: reportHostFailure,
   });
   const configureHostConnection = async () => {
+    if (!executionAdmissionSupported) {
+      reportHostFailure(
+        new Error(
+          "The server does not support execution admission confirmation. New tasks remain unavailable."
+        )
+      );
+      return;
+    }
     await hostLink.configure({
+      executionAdmissionConfirmation: executionAdmissionSupported,
       connectionGeneration: activeConnectionGeneration,
       catalogRevision:
         input.routeCatalogState.executionHostCatalogRevision ?? 0,
@@ -1068,6 +1077,7 @@ export async function runDaemonSocketSession(input: {
     input.routeCatalogState.profileIds.length === 0;
   const serviceVersion = OPENMELD_VERSION;
   let computerCareSupported = false;
+  let executionAdmissionSupported = false;
 
   const readSessionLocalComponentsStatus = (): LocalComponentsStatus | null =>
     input.localComponentsObservation.read(() => {
@@ -1127,6 +1137,8 @@ export async function runDaemonSocketSession(input: {
       waiters,
     });
     computerCareSupported = response.computerCare === true;
+    executionAdmissionSupported =
+      response.executionAdmissionConfirmation === true;
     return response;
   };
 

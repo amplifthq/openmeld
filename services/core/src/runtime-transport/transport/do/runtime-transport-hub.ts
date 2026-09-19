@@ -35,6 +35,7 @@ import {
   localProjectControlRemoveMissingConnectionsResultSchema,
   localProjectControlSetDefaultConnectionResultSchema,
   OPENMELD_COMPUTER_CARE_HEADER,
+  OPENMELD_EXECUTION_ADMISSION_HEADER,
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
@@ -84,6 +85,7 @@ import {
   runtimeTransportDispatchInteractionDeliveredRequestSchema,
   runtimeTransportDispatchInteractionRequestSchema,
   runtimeTransportDispatchInteractionResponseFramePayloadSchema,
+  runtimeTransportDispatchLifecycleAcknowledgementSchema,
   runtimeTransportDispatchLifecycleRequestSchema,
   runtimeTransportDispatchPreviewEndRequestSchema,
   runtimeTransportDispatchPreviewRequestSchema,
@@ -526,6 +528,7 @@ import {
   resolveNextRuntimeCoordinatorPreExecutionHandoffAlarmAtMsFromRecords,
   resolveRuntimeCoordinatorDecisionRun,
   resolveRuntimeCoordinatorDecisionScopeMismatchReason,
+  resolveRuntimeCoordinatorExecutionAdmissionValidityMs,
   resolveRuntimeCoordinatorFinalizationCommandIdFromClosureDiagnosticInput,
   resolveRuntimeCoordinatorHeadDuplicateReasonCode,
   resolveRuntimeCoordinatorHeadTargetDisplay,
@@ -3500,6 +3503,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       code: "daemon.session.register",
       payload: {
         ...response,
+        ...(readRuntimeTransportSocketAttachment(webSocket)
+          .executionAdmissionConfirmation
+          ? { executionAdmissionConfirmation: true }
+          : {}),
         ...(readRuntimeTransportSocketAttachment(webSocket).computerCare
           ? { computerCare: true }
           : {}),
@@ -8430,6 +8437,57 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
+    const acknowledge = async (
+      initiallyAccepted: boolean,
+      initialReasonCode: string | null
+    ) => {
+      if (!parsed.data.acknowledgementId) {
+        return;
+      }
+      let accepted = initiallyAccepted;
+      let reasonCode = initialReasonCode;
+      let validForMs = 0;
+      if (accepted) {
+        // Re-read after projection I/O. Neither a prior validation nor a
+        // delayed reply is an indefinitely valid permission to start work.
+        const latest = await this.readRuntimeCoordinatorRunCommandState(
+          parsed.data.runtimeCoordinatorExecutionId ?? ""
+        );
+        const validation =
+          await this.validateLateRuntimeCoordinatorProgressToken({
+            executionTokenEcho: parsed.data.executionTokenEcho ?? null,
+            frameKind: "lifecycle",
+            ignoredEventSummary: `admission:${parsed.data.dispatchId}:${parsed.data.attemptId}`,
+            runtimeCoordinatorExecutionId:
+              parsed.data.runtimeCoordinatorExecutionId ?? null,
+          });
+        if (validation?.ok && latest) {
+          validForMs = resolveRuntimeCoordinatorExecutionAdmissionValidityMs({
+            commandState: latest,
+            tokenExpiresAtMs: validation.run.expiresAtMs,
+            nowMs: Date.now(),
+          });
+        } else {
+          accepted = false;
+          reasonCode =
+            validation && !validation.ok
+              ? validation.reasonCode
+              : "runtime_coordinator.execution_token_authority_unavailable";
+        }
+      }
+      this.sendFrame(webSocket, {
+        code: "daemon.dispatch.lifecycle_acknowledged",
+        payload: runtimeTransportDispatchLifecycleAcknowledgementSchema.parse({
+          acknowledgementId: parsed.data.acknowledgementId,
+          dispatchId: parsed.data.dispatchId,
+          attemptId: parsed.data.attemptId,
+          connectionGeneration: parsed.data.connectionGeneration,
+          accepted,
+          validForMs,
+          reasonCode,
+        }),
+      });
+    };
     const pending = this.state.pendingDispatches.get(
       buildDispatchAttemptKey(parsed.data.dispatchId, parsed.data.attemptId)
     );
@@ -8443,6 +8501,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         parsed.data.runtimeCoordinatorExecutionId ?? null,
     });
     if (!coordinatorContract.ok) {
+      await acknowledge(false, coordinatorContract.reasonCode);
       this.sendErrorFrame(webSocket, {
         code: coordinatorContract.reasonCode,
         message: "dispatch lifecycle rejected",
@@ -8460,10 +8519,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         pending,
       });
     if (!tokenValidationContext) {
-      await this.rejectDispatchLifecycleWithoutTokenContext(
+      const reasonCode = await this.rejectDispatchLifecycleWithoutTokenContext(
         webSocket,
         parsed.data
       );
+      await acknowledge(false, reasonCode);
       return;
     }
     const tokenValidation = await this.validateRuntimeCoordinatorProgressToken({
@@ -8473,6 +8533,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ignoredEventSummary: `lifecycle:${parsed.data.dispatchId}:${parsed.data.attemptId}:${parsed.data.phase}`,
     });
     if (!tokenValidation.ok) {
+      await acknowledge(false, tokenValidation.reasonCode);
       this.sendErrorFrame(webSocket, {
         code: tokenValidation.reasonCode,
         message: "dispatch lifecycle rejected",
@@ -8501,10 +8562,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         tokenValidationContext,
       });
       this.queueHousekeepingAlarmSync();
+      await acknowledge(true, null);
       return;
     }
     const response = handleDispatchLifecycle(this.state, parsed.data);
     if (!response.ok) {
+      await acknowledge(
+        false,
+        response.reasonCode ?? "daemon.session.not_found"
+      );
       this.recordRuntimeCoordinatorDiagnosticEvent({
         attemptId: parsed.data.attemptId,
         eventType: "coordinator_pending_state_missing",
@@ -8533,6 +8599,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       tokenValidationContext,
     });
     this.queueHousekeepingAlarmSync();
+    await acknowledge(true, null);
   }
 
   private async clearReadinessImpactFromRunningLifecycle(input: {
@@ -8706,7 +8773,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private async rejectDispatchLifecycleWithoutTokenContext(
     webSocket: WebSocket,
     request: RuntimeTransportDispatchLifecycleRequest
-  ): Promise<void> {
+  ): Promise<string> {
     const lateTokenValidation =
       await this.validateLateRuntimeCoordinatorProgressToken({
         executionTokenEcho: request.executionTokenEcho ?? null,
@@ -8720,7 +8787,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         code: lateTokenValidation.reasonCode,
         message: "dispatch lifecycle rejected",
       });
-      return;
+      return lateTokenValidation.reasonCode;
     }
     this.recordRuntimeCoordinatorDiagnosticEvent({
       attemptId: request.attemptId,
@@ -8733,6 +8800,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       code: "daemon.session.not_found",
       message: "dispatch lifecycle rejected",
     });
+    return "daemon.session.not_found";
   }
 
   private async handleDispatchRuntimeEvidenceFrame(
@@ -10397,6 +10465,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.ctx.acceptWebSocket(server);
     this.state.sessionIdBySocket.set(server, null);
     writeRuntimeTransportSocketAttachment(server, {
+      executionAdmissionConfirmation:
+        request.headers.get(OPENMELD_EXECUTION_ADMISSION_HEADER) === "1",
       computerCare: request.headers.get(OPENMELD_COMPUTER_CARE_HEADER) === "1",
       connectionDiagnosticId: serviceConnectionDiagnosticIdSchema.safeParse(
         new URL(request.url).searchParams.get(

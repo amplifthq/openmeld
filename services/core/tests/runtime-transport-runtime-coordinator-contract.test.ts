@@ -15345,7 +15345,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
 
-  it("advances lifecycle only after validating the echoed execution token", async () => {
+  it.each([
+    false,
+    true,
+  ])("advances lifecycle only after validating the echoed execution token (acknowledgement: %s)", async (acknowledged) => {
     const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
       createHarness();
     const publishAgentReadinessInvalidated = vi.fn();
@@ -15383,6 +15386,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).handleDispatchLifecycleFrame(
       socket,
       buildLifecycleRequest({
+        ...(acknowledged
+          ? { acknowledgementId: "09ea9be9-3a69-4c95-81ed-0236f56efddd" }
+          : {}),
         executionTokenEcho: buildExecutionTokenEcho(executionToken),
         runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
       })
@@ -15392,7 +15398,25 @@ describe("runtime transport runtime coordinator transport contract", () => {
       buildDispatchAttemptKey("dispatch-1", "attempt-1")
     );
     expect(pending?.phase).toBe("running");
-    expect(sentFrames).toEqual([]);
+    expect(sentFrames).toEqual(
+      acknowledged
+        ? [
+            {
+              code: "daemon.dispatch.lifecycle_acknowledged",
+              payload: {
+                acknowledgementId: "09ea9be9-3a69-4c95-81ed-0236f56efddd",
+                dispatchId: "dispatch-1",
+                attemptId: "attempt-1",
+                connectionGeneration: 1,
+                accepted: true,
+                validForMs: expect.any(Number),
+                reasonCode: null,
+              },
+              v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+            },
+          ]
+        : []
+    );
     expect(
       getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
         (call) => call.params[2] === "lifecycle_running"
@@ -26656,7 +26680,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
   });
 
-  it("classifies late lifecycle after accepted result as terminal token progress", async () => {
+  it("refuses execution admission after the Coordinator has terminalized the execution", async () => {
     const { hub, recordingD1, sentFrames, socket, state } = createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
@@ -26692,11 +26716,22 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).handleDispatchLifecycleFrame(
       socket,
       buildLifecycleRequest({
+        acknowledgementId: "c0a68f0f-d591-4d8d-9000-f2f7f036363d",
         executionTokenEcho: buildExecutionTokenEcho(executionToken),
         runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
       })
     );
 
+    expect(sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.dispatch.lifecycle_acknowledged",
+        payload: expect.objectContaining({
+          acknowledgementId: "c0a68f0f-d591-4d8d-9000-f2f7f036363d",
+          accepted: false,
+          reasonCode: "execution_token_terminal_late",
+        }),
+      })
+    );
     expect(sentFrames).toContainEqual(
       expect.objectContaining({
         code: "daemon.error",
@@ -26719,7 +26754,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
 
-  it("rejects an expired token result before result inbox acceptance", async () => {
+  it("rejects expired execution admission and result before result inbox acceptance", async () => {
     const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
       createHarness();
     const executionToken = await issueDeliveryToken({
@@ -26751,6 +26786,32 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
     recordingD1.calls.length = 0;
     sentFrames.length = 0;
+
+    await (
+      hub as unknown as {
+        handleDispatchLifecycleFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchLifecycleFrame(
+      socket,
+      buildLifecycleRequest({
+        acknowledgementId: "13610bed-8453-4d6d-bbef-8f0b2545a3a0",
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      })
+    );
+    expect(sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.dispatch.lifecycle_acknowledged",
+        payload: expect.objectContaining({
+          acknowledgementId: "13610bed-8453-4d6d-bbef-8f0b2545a3a0",
+          accepted: false,
+          reasonCode: "execution_token_expired",
+        }),
+      })
+    );
 
     await (
       hub as unknown as {

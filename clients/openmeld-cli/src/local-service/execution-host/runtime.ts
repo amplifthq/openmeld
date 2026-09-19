@@ -62,6 +62,7 @@ import {
   createExecutionHostControls,
   isExecutionHostControlFrame,
 } from "./controls";
+import { createExecutionAdmissionConfirmation } from "./execution-admission";
 
 type HostEvent = Exclude<ServiceExecutionHostMessage, { type: "reply" }>;
 
@@ -171,6 +172,9 @@ export function createExecutionHostRuntime(input: {
     socket: null,
     connectionGeneration: null,
   };
+  const executionAdmission =
+    createExecutionAdmissionConfirmation(currentSocketRef);
+  currentSocketRef.confirmExecutionAdmission = executionAdmission.confirm;
   const leasesByProfileId = new Map<string, number>();
   const catalogs = new Map<number, RouteCatalog>([[0, emptyCatalog]]);
   let catalogRevision = 0;
@@ -487,6 +491,12 @@ export function createExecutionHostRuntime(input: {
       return await catalogLoad;
     },
     configureConnection: async (request) => {
+      if (request.executionAdmissionConfirmation !== true) {
+        throw new ExecutionHostError(
+          "host.execution_admission_unsupported",
+          "The connected server must support execution admission confirmation before this Host can run tasks."
+        );
+      }
       if (request.connectionGeneration < generation || disposed) {
         throw new ExecutionHostError(
           "host.connection_replaced",
@@ -537,6 +547,7 @@ export function createExecutionHostRuntime(input: {
       };
       currentSocketRef.socket = sink;
       currentSocketRef.connectionGeneration = generation;
+      executionAdmission.resend();
       const outcomes = await syncActiveTaskPermissionModes({
         catalogState: routeCatalogState,
         inflightTaskControlRegistry,
@@ -568,6 +579,7 @@ export function createExecutionHostRuntime(input: {
     },
     heartbeat: ({ connectionGeneration, staleProfileIds }) => {
       assertConnection(connectionGeneration);
+      executionAdmission.resend();
       for (const profileId of staleProfileIds) {
         leasesByProfileId.delete(profileId);
       }
@@ -581,6 +593,10 @@ export function createExecutionHostRuntime(input: {
     },
     handleFrame: async ({ connectionGeneration, frame }) => {
       const socket = assertConnection(connectionGeneration);
+      if (frame.code === "daemon.dispatch.lifecycle_acknowledged") {
+        executionAdmission.receive(frame.payload);
+        return {};
+      }
       if (isExecutionHostControlFrame(frame)) {
         await trackControl(() => controls.handleFrame(frame, socket));
         return {};

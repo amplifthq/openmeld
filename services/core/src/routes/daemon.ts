@@ -3,6 +3,7 @@ import {
   daemonRouteObservationResponseSchema,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
   OPENMELD_COMPUTER_CARE_HEADER,
+  OPENMELD_EXECUTION_ADMISSION_HEADER,
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
@@ -119,12 +120,15 @@ export function registerDaemonRoutes(app: Hono<HonoBindings>): void {
       method: "GET",
       headers: {
         Upgrade: "websocket",
-        ...(c.req.header(OPENMELD_REASONING_STREAM_HEADER) === "1"
-          ? { [OPENMELD_REASONING_STREAM_HEADER]: "1" }
-          : {}),
-        ...(c.req.header(OPENMELD_COMPUTER_CARE_HEADER) === "1"
-          ? { [OPENMELD_COMPUTER_CARE_HEADER]: "1" }
-          : {}),
+        ...Object.fromEntries(
+          [
+            OPENMELD_REASONING_STREAM_HEADER,
+            OPENMELD_COMPUTER_CARE_HEADER,
+            OPENMELD_EXECUTION_ADMISSION_HEADER,
+          ]
+            .filter((header) => c.req.header(header) === "1")
+            .map((header) => [header, "1"])
+        ),
         [RUNTIME_TRANSPORT_VERIFIED_OWNER_HEADER]: ownerUserId,
         ...(computerFileAccessCapability
           ? {

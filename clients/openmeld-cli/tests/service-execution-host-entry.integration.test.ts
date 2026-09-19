@@ -198,6 +198,7 @@ describe("real execution Host entry", () => {
         pendingCount: 0,
       });
       await client.call("configureConnection", {
+        executionAdmissionConfirmation: true,
         connectionGeneration: 1,
         catalogRevision: 0,
         leases: [],

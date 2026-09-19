@@ -1124,6 +1124,7 @@ export async function handleDispatchDeliverFrame(input: {
   );
 
   try {
+    await currentSocketRef.confirmExecutionAdmission?.(input.deliverRequest);
     dispatchRuntimeContext = await resolveDispatchWorkingFolderRuntimeContext({
       controllerSnapshot: input.deliverRequest.payload.controllerSnapshot,
       defaultProjectId: parsedTask.defaultProjectId,
@@ -1630,7 +1631,8 @@ export async function handleDispatchDeliverFrame(input: {
         result: "accepted",
       });
     };
-    const onNativeTurnStarted = () => {
+    const onNativeTurnStarted = async () => {
+      await currentSocketRef.confirmExecutionAdmission?.(input.deliverRequest);
       completedTurnId = null;
       completedTurnConversationId = null;
       executionContextCompletion = undefined;
@@ -3712,7 +3714,7 @@ async function resolveRuntimeResultStructuredSpaceAction(input: {
   onInteractionRequest?: Parameters<
     typeof runRuntimeTask
   >[0]["onInteractionRequest"];
-  onNativeTurnStarted: () => void;
+  onNativeTurnStarted: () => Promise<void>;
   onNativeTurnCompleted: (result: RuntimeTaskResult) => void;
   onRuntimeEvent?: Parameters<typeof runRuntimeTask>[0]["onRuntimeEvent"];
   agentReplyObservationCursor?: string | null;
@@ -3955,7 +3957,7 @@ async function coordinateConcurrentAgentReply(input: {
   onInteractionRequest?: Parameters<
     typeof runRuntimeTask
   >[0]["onInteractionRequest"];
-  onNativeTurnStarted: () => void;
+  onNativeTurnStarted: () => Promise<void>;
   onNativeTurnCompleted: (result: RuntimeTaskResult) => void;
   onRuntimeEvent?: Parameters<typeof runRuntimeTask>[0]["onRuntimeEvent"];
   agentReplyObservationCursor?: string | null;
@@ -4773,7 +4775,7 @@ type DispatchRuntimeRoute = NonNullable<
 type DispatchRuntimeTask = Parameters<typeof runRuntimeTask>[0]["task"];
 
 async function runDispatchRuntimeExecution(input: {
-  onNativeTurnStarted: () => void;
+  onNativeTurnStarted: () => Promise<void>;
   onNativeTurnCompleted: (result: RuntimeTaskResult) => void;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary | null;
   contextId: string | null;
@@ -4795,7 +4797,7 @@ async function runDispatchRuntimeExecution(input: {
   streamingModeOverride?: DispatchRuntimeRoute["streamingMode"];
   agentControllerConversationOverride?: AgentControllerConversationRef | null;
 }): Promise<Awaited<ReturnType<typeof runRuntimeTask>>> {
-  input.onNativeTurnStarted();
+  await input.onNativeTurnStarted();
   const result = await runRuntimeTask({
     ...(input.parsedTask.executionContext ||
     input.agentControllerConversationOverride
