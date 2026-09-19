@@ -17,11 +17,13 @@ import {
   agentTaskObservationRedriveQueueMessageSchema,
   buildRuntimeCoordinatorExecutionId,
   buildRuntimeCoordinatorFinalizationCommandId,
+  COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   computerFileAccessDaemonFrameSchema,
   computerFileAccessPolicyResultSchema,
   daemonStreamFrameSchema,
+  isComputerFileAccessOwnerCancellation,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
   localAgentReasoningPreferencesSchema,
   localFolderPickerDaemonFrameSchema,
@@ -5518,7 +5520,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         input.command.runtimeCoordinatorExecutionId
       ),
       publishedSignalId: claim.data.publishedSignalId,
-      reasonCode: RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+      reasonCode: isComputerFileAccessOwnerCancellation(
+        input.command.acceptedResult.taskResult.payload
+      )
+        ? COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE
+        : RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
       runtimeCoordinatorExecutionId:
         input.command.runtimeCoordinatorExecutionId,
       spaceId: input.command.spaceId,
@@ -5572,25 +5578,86 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
   }
 
-  private async suppressRuntimeCoordinatorFinalizationAfterWakeStop(input: {
+  private async verifyComputerFileAccessOwnerCancellation(input: {
+    command: RuntimeCoordinatorFinalizationCommand;
+    commandState: RuntimeCoordinatorRunCommandState | null;
+    db: D1Database;
+    projection: RuntimeCoordinatorExecutionRecord | null;
+  }): Promise<boolean> {
+    if (
+      !isComputerFileAccessOwnerCancellation(
+        input.command.acceptedResult.taskResult.payload
+      )
+    ) {
+      return false;
+    }
+    // The accepted receipt is durable before the lagging result_received
+    // progress update. A cancelled waiter or stale result grants no consent.
+    const result = await readDispatchResultInboxRecord(input.db, {
+      attemptId: input.command.acceptedResult.attemptId,
+      dispatchId: input.command.dispatchId,
+    });
+    const authority = await this.readRuntimeCoordinatorTokenAuthority(
+      input.command.runtimeCoordinatorExecutionId
+    );
+    const run = authority?.runsById[input.command.executionTokenRunId];
+    const state = input.commandState;
+    if (
+      !(
+        input.projection &&
+        state &&
+        result &&
+        run &&
+        state.activeRunId === input.command.executionTokenRunId &&
+        state.dispatchId === input.command.dispatchId &&
+        state.attemptId === result.attemptId &&
+        state.targetProfileId === input.command.targetProfileId &&
+        state.sanitizedDeliveryRequest.payload.spaceId ===
+          input.command.spaceId &&
+        result.runtimeCoordinatorExecutionId ===
+          input.command.runtimeCoordinatorExecutionId &&
+        result.executionTokenRunId === run.runId &&
+        result.executionTokenFingerprint === run.tokenFingerprint &&
+        result.executionTokenFingerprint ===
+          input.command.acceptedResult.executionTokenFingerprint &&
+        result.targetProfileId === input.command.targetProfileId &&
+        isComputerFileAccessOwnerCancellation(result.taskResult.payload)
+      )
+    ) {
+      throw new Error("runtime_coordinator.owner_cancellation_unverified");
+    }
+    return true;
+  }
+
+  private async readRuntimeCoordinatorFinalizationStopContext(input: {
     command: RuntimeCoordinatorFinalizationCommand;
     db: D1Database;
-  }): Promise<boolean> {
+  }) {
     const projection = await readRuntimeCoordinatorExecutionProjectionById({
       db: input.db,
       runtimeCoordinatorExecutionId:
         input.command.runtimeCoordinatorExecutionId,
     }).catch(() => null);
-    if (!projection) {
-      return false;
-    }
-    if (hasNonCancelledFinalOutcome(projection)) {
-      return false;
+    if (projection && hasNonCancelledFinalOutcome(projection)) {
+      return null;
     }
     const commandState = await this.readRuntimeCoordinatorRunCommandState(
       input.command.runtimeCoordinatorExecutionId
     );
+    const ownerCancellation =
+      await this.verifyComputerFileAccessOwnerCancellation({
+        ...input,
+        commandState,
+        projection,
+      });
+    if (!projection) {
+      return null;
+    }
+    const stopReasonCode = ownerCancellation
+      ? COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE
+      : RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE;
     const wakeStopRequested =
+      ownerCancellation ||
       commandState?.lastCommandReasonCode ===
         RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE ||
       projection.status === "cancellation_requested" ||
@@ -5602,12 +5669,27 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           input.command.runtimeCoordinatorExecutionId,
       }).catch(() => false));
     if (!wakeStopRequested) {
+      return null;
+    }
+    return { projection, commandState, ownerCancellation, stopReasonCode };
+  }
+
+  private async suppressRuntimeCoordinatorFinalizationAfterWakeStop(input: {
+    command: RuntimeCoordinatorFinalizationCommand;
+    db: D1Database;
+  }): Promise<boolean> {
+    const context =
+      await this.readRuntimeCoordinatorFinalizationStopContext(input);
+    if (!context) {
       return false;
     }
-
+    const { projection, commandState, ownerCancellation, stopReasonCode } =
+      context;
     const nowMs = Date.now();
     if (
-      commandState?.localProgress.phase === "result_received" &&
+      commandState &&
+      (ownerCancellation ||
+        commandState.localProgress.phase === "result_received") &&
       !(await this.claimAcceptedRuntimeCoordinatorWakeStop({
         ...input,
         commandState,
@@ -5627,7 +5709,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           settleRuntimeCoordinatorAuthorityForCancellationAccepted({
             authority,
             nowMs,
-            reasonCode: RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+            reasonCode: stopReasonCode,
           })
         );
       }
@@ -5635,7 +5717,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         db: input.db,
         record: buildRuntimeCoordinatorCancelledExecutionRecord({
           nowMs,
-          reasonCode: RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+          reasonCode: stopReasonCode,
           record: projection,
         }),
       });
@@ -5645,7 +5727,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         await this.publishRuntimeCoordinatorWakeStoppedNotice({
           commandState,
           nowMs,
-          reasonCode: RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+          reasonCode: stopReasonCode,
           stopReason: commandState.stopReason ?? null,
         });
       if (!stoppedNoticePublication.ok) {
@@ -5697,7 +5779,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     await updateDispatchResultInboxPublishState(input.db, {
       attemptId: input.command.acceptedResult.attemptId,
       dispatchId: input.command.dispatchId,
-      publicationErrorCode: RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+      publicationErrorCode: stopReasonCode,
       publishedSignalId: stoppedNoticePublication?.ok
         ? stoppedNoticePublication.publishedSignalId
         : null,
@@ -5754,7 +5836,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         }),
         stoppedNoticePublication: stoppedNoticePublicationPayload,
       },
-      reasonCode: RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+      reasonCode: stopReasonCode,
       runtimeCoordinatorExecutionId:
         input.command.runtimeCoordinatorExecutionId,
       statusAfter: "cancelled",
@@ -5776,9 +5858,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       runtimeCoordinatorExecutionId:
         input.command.runtimeCoordinatorExecutionId,
       spaceId: input.command.spaceId,
-      terminal: buildStoppedLocalAgentStreamTerminal(
-        RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE
-      ),
+      terminal: buildStoppedLocalAgentStreamTerminal(stopReasonCode),
     });
     if (stoppedNoticePublication?.ok) {
       await this.removeRuntimeCoordinatorFinalizationRetry(

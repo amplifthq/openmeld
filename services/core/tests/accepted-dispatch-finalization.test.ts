@@ -149,9 +149,11 @@ const baseFinalizationCommand = {
 
 describe("accepted dispatch finalization", () => {
   it.each([
-    false,
-    true,
-  ])("elects one actual Space final claim when Stop races a reply (reply first: %s)", async (replyFirst) => {
+    [false, false],
+    [true, false],
+    [false, true],
+    [true, true],
+  ])("elects one actual Space final claim (reply first: %s, owner refused: %s)", async (replyFirst, ownerRefused) => {
     const spaces = (
       env as unknown as { OPENMELD_SPACES: DurableObjectNamespace<Space> }
     ).OPENMELD_SPACES;
@@ -167,11 +169,30 @@ describe("accepted dispatch finalization", () => {
       organizationId: "org-1",
       visibility: "private",
     });
-    const command = {
+    const command: RuntimeCoordinatorFinalizationCommand = {
       ...baseFinalizationCommand,
       spaceId,
       dispatchFact: { ...baseFact, spaceId },
     };
+    if (ownerRefused) {
+      command.acceptedResult = {
+        ...command.acceptedResult,
+        taskResult: {
+          ...baseInboxRecord.taskResult,
+          payload: {
+            agentId: baseFact.targetProfileId,
+            attemptId: baseFact.attemptId,
+            deduped: false,
+            taskId: baseFact.taskId,
+            sourceEventId: baseFact.sourceEventId,
+            status: "failed",
+            errorType: "policy",
+            errorCode: "computer.file_access.owner_declined",
+            errorMessage: "Private path must not become public copy",
+          },
+        },
+      };
+    }
     const reply: SignalEnvelope = {
       ...sourceSignal,
       spaceId,
@@ -214,6 +235,13 @@ describe("accepted dispatch finalization", () => {
         )
         .toArray();
       expect(rows).toHaveLength(1);
+      if (!replyFirst && ownerRefused) {
+        expect(JSON.parse(rows[0]?.payload_json ?? "null").data).toMatchObject({
+          noticeType: "wake_stopped",
+          reasonCode: "computer.file_access.owner_declined",
+          text: "Stopped before the Agent started because the Computer owner declined the file access request.",
+        });
+      }
       expect(JSON.parse(rows[0]?.payload_json ?? "null")).toMatchObject(
         replyFirst
           ? { id: reply.id }

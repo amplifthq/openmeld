@@ -6,6 +6,7 @@ import type {
   AdapterTransportMode,
   AgentControllerPermissionMode,
 } from "@openmeld/adapter-core";
+import { COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE } from "@openmeld/schemas";
 import type { ComputerFileAccessPolicy } from "@openmeld/schemas/types";
 import { DaemonServiceRunError } from "../core/types";
 
@@ -69,10 +70,22 @@ export async function resolveComputerFileAccessAdmission(input: {
     return { boundary: null, bypassedForThisRun: true };
   }
 
+  if (
+    response.kind !== "permission" ||
+    response.optionId !== CANCEL_OPTION_ID
+  ) {
+    const code =
+      response.kind === "cancel"
+        ? "computer.file_access.interaction_cancelled"
+        : "computer.file_access.response_invalid";
+    throw new DaemonServiceRunError({
+      code,
+      message: `${code}: the file access decision did not authorize this run`,
+    });
+  }
   throw new DaemonServiceRunError({
-    code: "computer.file_access.owner_cancelled",
-    message:
-      "computer.file_access.owner_cancelled: the Computer owner cancelled this Wake instead of running without the configured file access boundary",
+    code: COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
+    message: `${COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE}: the Computer owner declined running this Wake without the configured file access boundary`,
   });
 }
 

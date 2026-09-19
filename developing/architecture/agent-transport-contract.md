@@ -771,6 +771,13 @@ profile override, or a reason to interrupt default-policy runs. A working
 folder that is provably outside the active boundary is a deterministic denied
 outcome and does not ask the owner to reconsider the policy on every Wake.
 
+An explicit decline of that exact permission request becomes a stopped outcome
+through RuntimeCoordinator's existing accepted-result Stop path. The Service
+reports `computer.file_access.owner_declined`; Core verifies its durable receipt
+and execution identity before Space elects the final claim. Retries reuse the
+same stopped publication and acknowledgement. An expired/interrupted waiter or
+legacy ambiguous `owner_cancelled` result is not evidence of explicit refusal.
+
 ### Runtime Transport And RuntimeCoordinator Boundary
 
 Current production topology has these Core Durable Objects:

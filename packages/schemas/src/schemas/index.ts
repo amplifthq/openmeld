@@ -190,6 +190,7 @@ export {
   parseAgentControllerRef,
 } from "./daemon/agent-controller-ref";
 export {
+  COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   computerFileAccessAbsolutePathSchema,
   computerFileAccessDaemonFrameSchema,
@@ -208,6 +209,7 @@ export {
   computerFileAccessUpdateRequestSchema,
   computerFileAccessUpdateResultFrameSchema,
   computerFileAccessUpdateRpcInputSchema,
+  isComputerFileAccessOwnerCancellation,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
   runtimeTransportComputerFileAccessReadRequestSchema,
   runtimeTransportComputerFileAccessUpdateRequestSchema,

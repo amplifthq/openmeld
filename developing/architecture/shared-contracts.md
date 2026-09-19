@@ -330,6 +330,30 @@ processes quiescent because older binaries cannot enforce the new private
 recovery fence. Signed/platform/cutover acceptance remains required before
 release. No AHP, new browser capability, or second lifecycle writer is introduced.
 
+### Explicit Computer file-access refusal
+
+The Service emits `computer.file_access.owner_declined` only when its pending
+permission request receives the exact Cancel run option. Expired or interrupted
+waiters and invalid responses retain distinct failure reasons. The older
+`owner_cancelled` reason included ambiguous cancellations; Core never upgrades
+those retained results into evidence of an explicit user decision.
+
+After normal token-fenced durable result acceptance, RuntimeCoordinator routes
+an explicit refusal through its existing accepted-result Stop publication. It
+verifies the receipt, attempt, run, token, Space and target before Space elects
+the existing atomic final claim. The existing stopped notice, cancellation
+projection, task outcome, result acknowledgement and replay owners are reused.
+No additional task-result variant, Stop RPC, outcome enum or D1 migration is
+introduced; a failed publication stays retryable, not falsely completed.
+
+Contract impact: deploy the matching Core behavior before distributing the new
+Service to obtain stopped semantics. Old Core can still read the new string
+reason and fails closed using its legacy failure presentation; new Core does
+not reinterpret ambiguous old-Service records. Core's own Space/Hub versions
+use the unchanged Stop RPC, so mixed-version rollout can temporarily show the
+older stopped wording without changing authority. Gateway, Web, Desktop,
+Skills, Prepare, public control contracts and version floors are unchanged.
+
 ## Local Service account admission
 
 `computer-connection.ts` owns the opt-in CLI review/intent and fixed Desktop

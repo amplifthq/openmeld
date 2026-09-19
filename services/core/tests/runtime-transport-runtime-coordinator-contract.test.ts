@@ -14799,6 +14799,125 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it.each([
+    false,
+    true,
+  ])("settles an accepted file-access refusal through existing Stop publication (first publication unavailable: %s)", async (unavailable) => {
+    const harness = createHarness();
+    const {
+      hub,
+      recordingD1,
+      socket,
+      spaceStub,
+      storageRecords,
+      waitUntilTasks,
+    } = harness;
+    const token = await issueDeliveryToken(harness);
+    if (unavailable) {
+      spaceStub.rpcApplyRuntimeCoordinatorWakeStopCommand.mockRejectedValueOnce(
+        new Error("Space unavailable")
+      );
+    }
+    const successful = buildSuccessfulPostMessageTaskResult();
+    const request = buildResultRequest({
+      executionTokenEcho: buildExecutionTokenEcho(token),
+      runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      taskResult: {
+        code: "service.task_result",
+        v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+        payload: {
+          agentId: successful.payload.agentId,
+          attemptId: "attempt-1",
+          taskId: successful.payload.taskId,
+          sourceEventId: successful.payload.sourceEventId,
+          deduped: false,
+          status: "failed",
+          errorType: "policy",
+          errorCode: "computer.file_access.owner_declined",
+          errorMessage: "Computer owner declined the boundary bypass",
+        },
+      },
+    });
+    const submit = () =>
+      (
+        hub as unknown as {
+          handleDispatchResultFrame(
+            socket: WebSocket,
+            payload: unknown
+          ): Promise<void>;
+        }
+      ).handleDispatchResultFrame(socket, request);
+    await submit();
+    await Promise.all(waitUntilTasks.splice(0));
+    if (unavailable) {
+      expect(
+        findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
+          ?.terminalOutcome
+      ).toBeNull();
+      expect(
+        findRuntimeCoordinatorWakeStoppedNoticePublicationRecord(storageRecords)
+      ).toBeUndefined();
+      const inbox = recordingD1.inboxRows.get("dispatch-1::attempt-1");
+      if (!inbox) {
+        throw new Error("Expected the accepted result receipt");
+      }
+      const originalFingerprint = inbox.execution_token_fingerprint;
+      inbox.execution_token_fingerprint =
+        "etfp_v1_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+      const retryAt = Date.now() + 10_000;
+      const nowSpy = vi.spyOn(Date, "now").mockReturnValue(retryAt);
+      try {
+        await (hub as unknown as { alarm(): Promise<void> }).alarm();
+        await Promise.all(waitUntilTasks.splice(0));
+        expect(
+          findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
+            ?.terminalOutcome
+        ).toBeNull();
+        expect(
+          findRuntimeCoordinatorWakeStoppedNoticePublicationRecord(
+            storageRecords
+          )
+        ).toBeUndefined();
+        inbox.execution_token_fingerprint = originalFingerprint;
+        nowSpy.mockReturnValue(retryAt + 30_000);
+        await (hub as unknown as { alarm(): Promise<void> }).alarm();
+        await Promise.all(waitUntilTasks.splice(0));
+      } finally {
+        nowSpy.mockRestore();
+      }
+    }
+    expect(
+      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+    ).toMatchObject({ status: "cancelled" });
+    expect(
+      recordingD1.inboxRows.get("dispatch-1::attempt-1")?.publish_state
+    ).toBe("reply_suppressed_stopped");
+    expect(
+      findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
+        ?.terminalOutcome
+    ).toMatchObject({
+      status: "cancelled",
+      reasonCode: "computer.file_access.owner_declined",
+    });
+    expect(
+      findRuntimeCoordinatorWakeStoppedNoticePublicationRecord(storageRecords)
+    ).toMatchObject({
+      status: "published",
+      reasonCode: "computer.file_access.owner_declined",
+    });
+    expect(
+      spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand
+    ).not.toHaveBeenCalled();
+    await submit();
+    await Promise.all(waitUntilTasks.splice(0));
+    expect(
+      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+    ).toMatchObject({ status: "cancelled" });
+    expect(
+      spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand
+    ).not.toHaveBeenCalled();
+  });
+
+  it.each([
     [false, "none"],
     [true, "none"],
     [true, "unavailable"],
