@@ -1,4 +1,8 @@
 import * as z from "zod/v4";
+import {
+  DESKTOP_INSTALLED_AUTH_SCHEME,
+  DESKTOP_TEST_AUTH_SCHEME,
+} from "./desktop-auth-identity";
 import { peopleComputerTargetSchema } from "./schemas/http/people-computers";
 
 export const desktopLocalComputerSchema = z.discriminatedUnion("status", [
@@ -15,9 +19,6 @@ export const desktopLocalComputerSchema = z.discriminatedUnion("status", [
 export type DesktopLocalComputer = z.infer<typeof desktopLocalComputerSchema>;
 
 export const DESKTOP_APP_ORIGIN = "openmeld-desktop://app";
-export const DESKTOP_AUTH_SCHEME = "sh.openmeld.desktop.dev";
-export const DESKTOP_INSTALLED_AUTH_SCHEME = "sh.openmeld.desktop";
-export const DESKTOP_TEST_AUTH_SCHEME = "sh.openmeld.desktop.test";
 export const DESKTOP_CONTRACT_HEADER = "x-openmeld-desktop-contract";
 export const DESKTOP_CONTRACT_VERSION = "1";
 export const DESKTOP_COMPATIBILITY_PATH = "/v1/desktop/compatibility";
@@ -60,34 +61,6 @@ export const desktopProductionSourceSchema = z.strictObject({
   ),
 });
 
-/** Fixed client identities select protocols, never a caller-provided URL. */
-export function desktopAuthIdentity(
-  production: boolean,
-  developmentTarget?: string
-) {
-  const target = developmentTarget?.trim() || undefined;
-  if (production) {
-    if (target) {
-      throw new Error(
-        "Desktop development Auth targets are not allowed in production."
-      );
-    }
-    return {
-      clientId: "openmeld-desktop",
-      authScheme: DESKTOP_INSTALLED_AUTH_SCHEME,
-    };
-  }
-  if (!target || target === "private") {
-    return { clientId: "electron", authScheme: DESKTOP_AUTH_SCHEME };
-  }
-  if (target === "disposable") {
-    return {
-      clientId: "openmeld-desktop-test",
-      authScheme: DESKTOP_TEST_AUTH_SCHEME,
-    };
-  }
-  throw new Error("Unknown Desktop development Auth target.");
-}
 export const DESKTOP_WEB_BUILD_HEADER = "x-openmeld-desktop-web-build";
 
 export const desktopSessionSchema = z.strictObject({
