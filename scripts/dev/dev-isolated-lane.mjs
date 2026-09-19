@@ -202,6 +202,8 @@ export function buildIsolatedDevEnvironment(lane) {
     AUTH_WORKER_NODE_ENV: "development",
     BETTER_AUTH_URL: authUrl,
     VITE_BETTER_AUTH_URL: authUrl,
+    // A compiled Desktop Web build is production-mode JavaScript, not a
+    // production endpoint. Keep its visible setup command in this local lane.
     VITE_OPENMELD_SETUP_USER_FACING_COMMAND: "openmeld-dev",
     VITE_OPENMELD_DEV_LANE_ID: lane.laneId,
     VITE_OPENMELD_GATEWAY_URL: gatewayUrl,

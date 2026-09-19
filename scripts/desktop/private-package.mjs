@@ -2,6 +2,10 @@ import { cpSync, lstatSync, rmSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validatePilotAssets } from "../../clients/desktop/src/main/pilot-assets.ts";
+import {
+  buildIsolatedDevEnvironment,
+  readCurrentIsolatedDevLane,
+} from "../dev/dev-isolated-lane.mjs";
 import { runOwnedCommand } from "../dev/owned-command.mjs";
 import { desktopWebBuildIdentity } from "./web-build-identity.mjs";
 
@@ -45,10 +49,12 @@ async function main() {
     throw new Error("Run pnpm desktop:package:private on macOS Apple Silicon.");
   }
   const staged = stageDesktopRenderer();
+  const lane = readCurrentIsolatedDevLane(repoRoot);
   const options = {
     cwd: repoRoot,
     env: {
       ...process.env,
+      ...buildIsolatedDevEnvironment(lane),
       OPENMELD_DESKTOP_PRIVATE_PACKAGE: "1",
       CSC_IDENTITY_AUTO_DISCOVERY: "false",
     },

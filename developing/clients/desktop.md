@@ -666,15 +666,57 @@ different preferences with different writers.
 
 ## Development lanes
 
-Use repo-root Desktop scripts when interacting with CLI, Service, or Web:
+Use repo-root commands, from the owning worktree, for both human and agent work:
 
-- `pnpm desktop:dev` and `pnpm desktop:start:dev` build and launch Desktop
-  using this worktree's registered isolated lane and its installed
-  `<OPENMELD_HOME>/bin/openmeld`; they do not install a global CLI.
-- `pnpm desktop:canary` and `pnpm desktop:start:canary` use the same guarded
-  lane resolution with the explicit canary preset.
-- Production reproduction requires explicit authorization for
-  `pnpm desktop:start:prod`; it is not a pilot command.
+| Command | Behavior |
+| --- | --- |
+| `pnpm desktop:web` | Start the existing isolated Web launcher in matching compiled-pilot mode. |
+| `pnpm desktop:dev` | Prepare as needed, then launch this worktree's Desktop. On macOS this is a real `.app`, not generic `electron .`. |
+| `pnpm desktop:prepare` | Prepare without launching; `--force` explicitly rebuilds. |
+| `pnpm desktop:doctor --json` | Read-only lane/CLI, on-disk and running Web build, prepared-app and OS callback checks with actionable failures. |
+| `pnpm desktop:status --json` | Report this worktree's exact process IDs, measured RSS, app path and build identity. No build or server startup. |
+| `pnpm desktop:stop --dry-run` | Preview only this worktree's Desktop processes; omit `--dry-run` to stop them. Preserve Web, Service, credentials and drafts on disk. |
+
+`desktop:start:dev` remains an alias. `desktop:canary` / `desktop:start:canary`
+use the same entry with an explicit canary preset. Production reproduction with
+`desktop:start:prod` still requires separate authorization.
+
+Desktop owns its resource reservations: one short heavy-build reservation,
+released before GUI launch, followed by a lightweight Desktop memory reservation.
+An idle GUI does not occupy the heavy-work slot. Older `dev:run -- pnpm desktop:dev`
+instructions delegate to this same owner; do not add extra wrappers. Repeating a
+launch does not start a duplicate or rebuild beneath a running app. Stop your
+Desktop explicitly before rebuilding; neither startup nor cleanup kills another
+worktree. General `dev:status` and `dev:stop` include these owned Desktop processes.
+
+`prepare` may work offline with matching compiled pages, but `dev` and `doctor`
+verify that the actual loopback Web server serves the matching build marker.
+They do not send credentials or follow redirects. A forced prepare while a GUI
+or another preparation owns the worktree fails explicitly. Status also recognizes
+an OS-launched copy of the exact generated app after its terminal owner has exited.
+
+On macOS, prepared output is under `clients/desktop/dist/development`. The normal
+electron-builder directory target uses the existing ad-hoc integrity/signature
+policy; there is no DMG, Developer ID signing, notarization, upload or installer.
+The warm path checks source/lane fingerprints and actual signed bundle integrity
+before reuse. Failed or source-drifted builds never publish a reusable receipt.
+This is a local convenience cache, not release certification.
+
+Each registered `http://wt-<12hex>.localhost:<port>` origin has its own app ID and
+callback scheme, derived once by the shared `desktopAuthIdentity` contract from
+trusted configuration. Web, Auth, native protocol and bundle metadata agree; no
+request parameter can choose the callback. The vendor client ID remains `electron`.
+Distinct ports alone did not isolate the old shared `com.github.Electron` identity.
+The launcher checks the actual macOS receiver, and native checks it again before
+creating PKCE state. A mismatch fails with a diagnostic, not an endless browser wait.
+
+The development app embeds only schema-validated non-secret lane coordinates,
+so an OS URL launch cannot fall back to global/production state when terminal
+environment variables are absent. It still requires the original worktree's CLI
+and matching backend; it is not a distributable or relocatable application. PKCE
+state remains process-local. If the initiating app exited, start a fresh login;
+never replay a callback or share verifiers between processes. Only one Desktop
+app at a time uses a given worktree. Other worktrees have independent schemes.
 
 These commands align CLI, home, auth, Gateway, and Web. An isolated worktree must
 use its actual aligned URLs and OS Service identity, not production state with
@@ -683,22 +725,35 @@ Do not reset or re-register the user's production Service for tests.
 
 Start the Worker lane with `pnpm dev:worktree` and complete its normal Web setup.
 For the shared Desktop pilot, start Web in another terminal with
-`OPENMELD_DESKTOP_PILOT=1 pnpm dev:web:worktree`. This reuses the existing Web
+`pnpm desktop:web` (equivalent to `OPENMELD_DESKTOP_PILOT=1 pnpm dev:web:worktree`). This reuses the existing Web
 lane reservation and Doppler owner but builds and serves compiled Web output.
 Stop only that worktree's old Web process first if it is already running.
 The preview listener binds `127.0.0.1` so TanStack can prerender its shell;
 the configured Web/Auth/Gateway URLs still use the worktree hostname and ports.
-Then run `pnpm desktop:start:dev`. Missing/stale lane ownership or a missing
+Then run `pnpm desktop:dev`. Missing/stale lane ownership or a missing
 lane-local executable stops startup without falling back to production/global
-state. Rebuild Web after source changes before relaunching Desktop.
+state. Rebuild Web after shared-source changes before relaunching Desktop.
+An installed CLI is a launcher prerequisite, not proof that its Service is
+connected or that an Agent can reply. Service readiness is checked by its own UI.
+
+For inexpensive visual iteration, use the existing browser Web HMR entry
+`pnpm dev:web:worktree`; use the compiled pair for native integration and smoke.
+The two modes must not run on the same reserved Web port concurrently. Native
+main/preload hot reload is not enabled automatically: restarting main destroys
+process-local authentication state, and serving Vite modules as packaged pages
+would bypass the pilot's source/build compatibility boundary. Windows retains
+its supported executable-plus-script callback registration. Linux source-mode
+system-browser authentication still requires platform packaging and is not
+certified by this macOS worktree-bundle workflow.
 
 For a blank pilot window, use
 `OPENMELD_DESKTOP_DIAGNOSTICS=1 pnpm desktop:start:dev`. This opens local Electron
 DevTools and reports load milestones, preload failure, renderer exit, and fixed
 console error categories. Terminal output excludes console text, URLs, request
 bodies, and credentials. Inspect the full error locally in DevTools. This entry
-requires the validated local pilot and an unpackaged app; it does not expose a
-remote debugging listener or enable diagnostics in packaged builds.
+requires the validated local pilot and either an unpackaged app or this explicitly
+compiled worktree-development app; it does not expose a remote debugging listener
+or enable diagnostics in installed/private distribution builds.
 Use **Developer > Reopen Developer Tools** to recreate a closed or minimized
 inspector without reloading the application; only inspector history is reset.
 The local pilot Web build leaves client JavaScript unminified so DevTools can
@@ -773,8 +828,10 @@ identity. The production target never consumes that endpoint override.
 
 An isolated disposable Web/Auth backend must explicitly configure
 `AUTH_DESKTOP_DEVELOPMENT_TARGET=disposable` on both services. Empty or `private`
-development configuration preserves the existing `electron` client and
-`sh.openmeld.desktop.dev` callback. Production rejects a nonempty development
+development configuration preserves the existing `electron` client. Registered
+worktree origins use `sh.openmeld.desktop.dev.wt-<12hex>.p<port>`; other private
+loopback setups retain `sh.openmeld.desktop.dev`. After adopting this tooling,
+rebuild the private/native app and restart matching Web/Auth together. Production rejects a nonempty development
 target. Better Auth supports one Electron client identity per Auth instance;
 do not combine test and private identities by registering duplicate plugins.
 Browser sign-in validates that configured identity, displays the intended

@@ -2,12 +2,12 @@ import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import {
   DESKTOP_APP_ORIGIN,
-  DESKTOP_AUTH_SCHEME,
   type DesktopComputerConnectionProgress,
   type DesktopComputerDisconnectResult,
   type DesktopComputerOperation,
   type DesktopInboxAttention,
   type DesktopInstalledTarget,
+  desktopAuthIdentity,
   desktopComputerConnectionRequestSchema,
   desktopComputerDisconnectRequestSchema,
   desktopInstalledTargetSchema,
@@ -34,6 +34,7 @@ import {
   resolveDesktopEnvPreset,
   resolveDesktopWebUrl,
 } from "./desktop-environment";
+import { applyDesktopDevelopmentContext } from "./development-context";
 import { installedCommandEnvironment } from "./installed-environment";
 import { createLocalComputerReader } from "./local-computer";
 import { resolvePilotAssets } from "./pilot-assets";
@@ -49,8 +50,13 @@ import {
 } from "./pilot-user-data";
 
 declare const __OPENMELD_DESKTOP_WEB_BUILD__: string;
+declare const __OPENMELD_DESKTOP_DEVELOPMENT_CONTEXT__: unknown;
 declare const __OPENMELD_DESKTOP_PRIVATE_PACKAGE__: boolean;
 declare const __OPENMELD_DESKTOP_INSTALLED_TARGET__: DesktopInstalledTarget | null;
+const developmentContext =
+  typeof __OPENMELD_DESKTOP_DEVELOPMENT_CONTEXT__ === "undefined"
+    ? null
+    : __OPENMELD_DESKTOP_DEVELOPMENT_CONTEXT__;
 
 export function initializeDesktopPilot(
   getWindow: () => BrowserWindow | null,
@@ -68,6 +74,9 @@ export function initializeDesktopPilot(
   const installedTarget = __OPENMELD_DESKTOP_INSTALLED_TARGET__
     ? desktopInstalledTargetSchema.parse(__OPENMELD_DESKTOP_INSTALLED_TARGET__)
     : undefined;
+  if (!installedTarget) {
+    applyDesktopDevelopmentContext(developmentContext, process.env);
+  }
   const sharedAssets = resolvePilotAssets({
     privatePackage: __OPENMELD_DESKTOP_PRIVATE_PACKAGE__,
     resourcesPath: process.resourcesPath,
@@ -119,7 +128,9 @@ export function initializeDesktopPilot(
   };
   protocol.registerSchemesAsPrivileged([
     {
-      scheme: installedTarget?.authScheme ?? DESKTOP_AUTH_SCHEME,
+      scheme:
+        installedTarget?.authScheme ??
+        desktopAuthIdentity(false, undefined, webOrigin).authScheme,
       privileges: { standard: false, secure: true },
     },
     {
@@ -185,7 +196,9 @@ export function initializeDesktopPilot(
   let disposeTransport: (() => void) | undefined;
   let notificationPoll: ReturnType<typeof setInterval> | undefined;
   const diagnosticsEnabled =
-    !app.isPackaged && process.env.OPENMELD_DESKTOP_DIAGNOSTICS === "1";
+    (!app.isPackaged || Boolean(developmentContext)) &&
+    !installedTarget &&
+    process.env.OPENMELD_DESKTOP_DIAGNOSTICS === "1";
   return {
     activateNotification: notifications.activate,
     auth,
