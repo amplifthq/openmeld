@@ -137,6 +137,8 @@ test("records an intentional rollback as the latest guarded local release", () =
   }
 });
 
+const PERSIST_ERROR = /persist/u;
+const UNRESOLVED_ERROR = /unresolved|reconcil/iu;
 const RECEIPT_ATTEMPT = "00000000-0000-4000-8000-000000000001";
 const RECEIPT_ERROR = /cannot|older|requires|invalid|Completed|cover exactly/u;
 const DEPLOY_ERROR = /fixture deploy failed/u;
@@ -253,6 +255,11 @@ test("a partial release remains reconstructable from real isolated Git receipts"
         executeRecordedProductionDeploySteps({
           sourceSha: fixture.sourceSha,
           steps: buildProductionDeployStepSpecs(["auth", "web"]),
+          readEvidence: () =>
+            readGuardedLocalReleaseSources({
+              cwd: fixture.repository,
+              remote: fixture.remote,
+            }),
           executeSteps: executeProductionDeploySteps,
           runCommand: () => ({
             status: 0,
@@ -296,6 +303,77 @@ test("a partial release remains reconstructable from real isolated Git receipts"
     assert.equal(state.get("web").receipt.application, "unknown");
     assert.equal(state.get("auth").sha, fixture.sourceSha);
     assert.equal(state.get("web").sha, fixture.sourceSha);
+  } finally {
+    rmSync(fixture.root, { force: true, recursive: true });
+  }
+});
+
+test("fresh invocations cannot replace an unresolved durable attempt or repeat deployment", async () => {
+  const fixture = createGitFixture();
+  const common = {
+    cwd: fixture.repository,
+    remote: fixture.remote,
+    scopes: ["web"],
+    sourceSha: fixture.sourceSha,
+  };
+  const effects = [];
+  let failVerified = true;
+  const run = () =>
+    executeRecordedProductionDeploySteps({
+      sourceSha: fixture.sourceSha,
+      steps: buildProductionDeployStepSpecs(["web"]),
+      executeSteps: executeProductionDeploySteps,
+      readEvidence: () => readGuardedLocalReleaseSources(common),
+      runCommand: () => ({
+        status: 0,
+        stdout: JSON.stringify([
+          {
+            id: "deployment-1",
+            created_on: "2026-09-18T12:00:00Z",
+            versions: [{ version_id: "version-1", percentage: 100 }],
+          },
+        ]),
+      }),
+      executionAdapters: {
+        runCommand: () => ({ status: 0, stdout: "[]" }),
+        runStep: (step) => {
+          effects.push(step.label);
+        },
+      },
+      publishEvidence: (event) => {
+        if (event.receipts.web.status === "verified" && failVerified) {
+          failVerified = false;
+          throw new Error("fixture receipt unavailable");
+        }
+        return publishGuardedLocalReleaseEvidence({ ...event, ...common });
+      },
+      write: () => undefined,
+    });
+  try {
+    await assert.rejects(run, PERSIST_ERROR);
+    const retained = readGuardedLocalReleaseSources(common).get("web");
+    assert.equal(retained.receipt.status, "applied");
+    await assert.rejects(run, UNRESOLVED_ERROR);
+    assert.deepEqual(effects, ["Deploy Web", "Verify Web health"]);
+    assert.equal(
+      readGuardedLocalReleaseSources(common).get("web").evidenceSha,
+      retained.evidenceSha
+    );
+    assert.throws(
+      () =>
+        publishGuardedLocalReleaseEvidence({
+          ...common,
+          receipts: {
+            web: {
+              attemptId: "00000000-0000-4000-8000-000000000099",
+              componentIndex: 0,
+              status: "started",
+              application: "unknown",
+            },
+          },
+        }),
+      UNRESOLVED_ERROR
+    );
   } finally {
     rmSync(fixture.root, { force: true, recursive: true });
   }

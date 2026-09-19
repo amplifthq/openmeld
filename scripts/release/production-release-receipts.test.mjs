@@ -8,6 +8,7 @@ import {
 } from "./production-release.mjs";
 import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
 
+const UNRESOLVED_ERROR = /unresolved|reconcil/iu;
 const SOURCE = "a".repeat(40);
 const ATTEMPT = "00000000-0000-4000-8000-000000000001";
 const WORKER_VERSION = "23863082-db0f-4cfe-a91b-69c570ee1578";
@@ -54,6 +55,13 @@ function fixture(options = {}) {
         executeRecordedProductionDeploySteps({
           sourceSha: SOURCE,
           attemptId: ATTEMPT,
+          readEvidence: () =>
+            new Map(
+              [...latest].map(([scope, receipt]) => [
+                scope,
+                { sha: SOURCE, receipt },
+              ])
+            ),
           steps: options.steps ?? steps,
           executeSteps: executeProductionDeploySteps,
           runCommand: () =>
@@ -165,6 +173,22 @@ test("records CLI and its Core projection together without changing guarded publ
     true
   );
   assert.equal(result.latest.get("core").componentIndex, 1);
+});
+
+test("a retained unresolved attempt and unreadable receipts stop all new effects", async () => {
+  for (const status of ["started", "applied", "failed"]) {
+    const result = fixture({ scopes: ["web"] });
+    result.latest.set("web", {
+      attemptId: ATTEMPT,
+      componentIndex: 0,
+      status,
+      application: "unknown",
+    });
+    await assert.rejects(result.run, UNRESOLVED_ERROR);
+    assert.equal(result.effects.length, 0);
+    assert.equal(result.receipts.length, 0);
+    assert.deepEqual(result.released, ["web"]);
+  }
 });
 
 test("rejects an incomplete component boundary before receipts or deployment", async () => {

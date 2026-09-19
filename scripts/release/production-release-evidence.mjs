@@ -201,6 +201,21 @@ function isRecordedReceipt(current, next) {
   }
   const previous = current.receipt;
   if (
+    previous &&
+    previous.status !== "verified" &&
+    previous.attemptId !== next.receipt.attemptId
+  ) {
+    throw new Error(
+      "An unresolved component attempt cannot be replaced; reconcile its deployment first."
+    );
+  }
+  if (
+    previous?.attemptId === next.receipt.attemptId &&
+    current.sourceSha !== next.sourceSha
+  ) {
+    throw new Error("A retained release attempt cannot change its source SHA.");
+  }
+  if (
     previous?.attemptId === next.receipt.attemptId &&
     previous.componentIndex === next.receipt.componentIndex &&
     previous.status === next.receipt.status

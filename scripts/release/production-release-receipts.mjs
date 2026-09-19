@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { publishGuardedLocalReleaseEvidence } from "./production-release-evidence.mjs";
+import {
+  publishGuardedLocalReleaseEvidence,
+  readGuardedLocalReleaseSources,
+} from "./production-release-evidence.mjs";
 import { readCurrentWorkerVersionIds } from "./release-stage-probes.mjs";
 
 const EXACT_SOURCE_SHA = /^[0-9a-f]{40}$/u;
@@ -25,6 +28,31 @@ export async function executeRecordedProductionDeploySteps(input) {
     throw new Error(
       "Component release evidence requires a Worker identity reader."
     );
+  }
+  // Read retained cross-machine state under the caller's existing scope leases,
+  // before replacing an attempt or executing any deployment.
+  if (input.publishEvidence && !input.readEvidence) {
+    throw new Error(
+      "A custom receipt publisher requires its matching evidence reader."
+    );
+  }
+  const retained = await (input.readEvidence ?? readGuardedLocalReleaseSources)(
+    {
+      cwd: input.cwd,
+      environment: input.env,
+    }
+  );
+  for (const group of groups) {
+    for (const scope of group.scope === "cli"
+      ? ["cli", "core"]
+      : [group.scope]) {
+      const previous = retained.get(scope);
+      if (previous?.receipt && previous.receipt.status !== "verified") {
+        throw new Error(
+          `Unresolved ${scope} release attempt ${previous.receipt.attemptId} (${previous.receipt.status}); reconcile its actual deployment before retrying. No new deployment or attempt was started.`
+        );
+      }
+    }
   }
   const attemptId = input.attemptId ?? randomUUID();
   for (const [componentIndex, group] of groups.entries()) {
