@@ -1,8 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	createStartShellPrepareReadinessDisplay,
 	type StartShellPrepareProjectionForDisplay,
 } from "./prepare-readiness-display";
+
+// Formatting only: no repair or trace command is executed by this fixture.
+vi.mock("#/env", () => ({
+	env: {
+		VITE_OPENMELD_SETUP_USER_FACING_COMMAND: "openmeld-dev",
+		VITE_OPENMELD_HOME: "/tmp/openmeld-readiness-fixture",
+	},
+}));
 
 function createPrepareProjection(
 	overrides: Partial<StartShellPrepareProjectionForDisplay> = {}
@@ -196,7 +204,8 @@ describe("start shell prepare readiness display", () => {
 			state: "needs_repair",
 			statusLabel: "Repair needed",
 			commandDisplay: {
-				command: "openmeld-dev doctor --repair",
+				command:
+					"OPENMELD_HOME=/tmp/openmeld-readiness-fixture openmeld-dev doctor --repair",
 				copyable: true,
 			},
 		});
@@ -255,7 +264,7 @@ describe("start shell prepare readiness display", () => {
 		expect(display.diagnosticPointer).toMatchObject({
 			correlationId: "correlation-1",
 			traceCommandDisplay:
-				"openmeld-dev service trace --runtime runtime-1 --view human",
+				"OPENMELD_HOME=/tmp/openmeld-readiness-fixture openmeld-dev service trace --runtime runtime-1 --view human",
 		});
 	});
 });

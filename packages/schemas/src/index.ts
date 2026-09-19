@@ -123,13 +123,16 @@ export {
   computerConnectionProgressPhaseSchema,
 } from "./computer-connection-progress";
 export {
-  DESKTOP_APP_ORIGIN,
   DESKTOP_AUTH_SCHEME,
+  DESKTOP_INSTALLED_AUTH_SCHEME,
+  DESKTOP_TEST_AUTH_SCHEME,
+  desktopAuthIdentity,
+} from "./desktop-auth-identity";
+export {
+  DESKTOP_APP_ORIGIN,
   DESKTOP_COMPATIBILITY_PATH,
   DESKTOP_CONTRACT_HEADER,
   DESKTOP_CONTRACT_VERSION,
-  DESKTOP_INSTALLED_AUTH_SCHEME,
-  DESKTOP_TEST_AUTH_SCHEME,
   DESKTOP_WEB_BUILD_HEADER,
   type DesktopInstalledTarget,
   type DesktopLocalComputer,
@@ -138,7 +141,6 @@ export {
   type DesktopSpaceStreamBridge,
   type DesktopSpaceStreamEvent,
   type DesktopSpaceStreamInput,
-  desktopAuthIdentity,
   desktopCompatibilitySchema,
   desktopInstalledTargetSchema,
   desktopLocalComputerSchema,
@@ -150,6 +152,7 @@ export {
   desktopSpaceStreamInputSchema,
   desktopWebBuildSchema,
 } from "./desktop-client";
+export * from "./desktop-development";
 export * from "./desktop-notifications";
 export {
   DESKTOP_PROMOTED_RELEASE_KEY,
