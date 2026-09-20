@@ -114,7 +114,7 @@ export function CommandCenterList(input: {
 
 	return (
 		<Command
-			className="flex min-h-0 flex-col text-popover-foreground"
+			className="flex min-h-0 min-w-0 flex-col text-popover-foreground"
 			label="Search or run a command"
 			onKeyDownCapture={() => {
 				pointer.current = false;
