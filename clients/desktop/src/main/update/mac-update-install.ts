@@ -24,6 +24,7 @@ receipt=$8
 stage=""
 target_backup="${target}.openmeld-update-backup.$$"
 target_placed=0
+target_mutation_started=0
 had_target=0
 step="waiting_for_exit"
 
@@ -37,7 +38,7 @@ write_receipt() {
 }
 
 restore_target() {
-  if [[ "$target_placed" -eq 1 && -e "$target" ]]; then
+  if [[ "$target_mutation_started" -eq 1 && -e "$target" ]]; then
     /bin/rm -rf "$target" || true
   fi
   if [[ "$had_target" -eq 1 && -e "$target_backup" && ! -e "$target" ]]; then
@@ -90,6 +91,7 @@ if [[ -e "$target" ]]; then
   /bin/mv "$target" "$target_backup"
   had_target=1
 fi
+target_mutation_started=1
 /bin/mv "$new" "$target"
 target_placed=1
 write_receipt "target_placed"
