@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import {
   type DesktopReleasePlatform,
   type DesktopUpdaterAction,
@@ -16,16 +17,42 @@ export function assertDesktopUpdateFiles(
   desktopUpdaterFeedSchemaForPlatform(platform).parse(info);
 }
 
-function readDownloadedUpdateFile(event: unknown): string | null {
-  if (
-    event &&
-    typeof event === "object" &&
-    "downloadedFile" in event &&
-    typeof event.downloadedFile === "string"
-  ) {
-    return event.downloadedFile;
+type DownloadedUpdateIdentity = {
+  downloadedFile: string;
+  version: string;
+  sha512Hex: string;
+};
+
+function readDownloadedUpdateIdentity(
+  event: unknown
+): DownloadedUpdateIdentity | null {
+  if (!(event && typeof event === "object")) {
+    return null;
   }
-  return null;
+  const downloadedFile =
+    "downloadedFile" in event && typeof event.downloadedFile === "string"
+      ? event.downloadedFile
+      : null;
+  const version =
+    "version" in event && typeof event.version === "string"
+      ? event.version
+      : null;
+  const sha512 =
+    "sha512" in event && typeof event.sha512 === "string"
+      ? event.sha512
+      : null;
+  if (!(downloadedFile && version && sha512)) {
+    return null;
+  }
+  const digest = Buffer.from(sha512, "base64");
+  if (digest.length !== 64) {
+    return null;
+  }
+  return {
+    downloadedFile,
+    version,
+    sha512Hex: digest.toString("hex"),
+  };
 }
 
 /** Application policy around electron-updater; no Service or account dependency. */
@@ -37,12 +64,12 @@ export function createAppUpdater(input: {
   installRenamedMacBundle?: (install: MacBundleRenameInstall) => void;
   quitApp?: () => void;
   processId?: number;
+  installReceiptPath?: string;
   publish: (state: DesktopUpdaterState) => void;
   prepareRestart: () => Promise<boolean>;
   setInstalling: (value: boolean) => void;
 }) {
   const updater = input.updater;
-  // MacUpdater must not stage in Squirrel until the explicit restart action.
   updater.autoDownload = false;
   updater.autoInstallOnAppQuit = false;
   updater.allowDowngrade = false;
@@ -61,7 +88,7 @@ export function createAppUpdater(input: {
   };
   let operation: Promise<void> | null = null;
   let verifiedDownload = false;
-  let downloadedFile: string | null = null;
+  let downloadedUpdate: DownloadedUpdateIdentity | null = null;
   const publish = (patch: Partial<DesktopUpdaterState>) => {
     state = { ...state, ...patch };
     input.publish(state);
@@ -71,8 +98,6 @@ export function createAppUpdater(input: {
     error: unknown
   ) => {
     console.error("[openmeld.desktop.update_failed]", { stage, error });
-    // MacUpdater has no public cancellation for its pending native install.
-    // Once accepted, keep the saved renderer frozen and normal quit enabled.
     publish({ status: "error", errorStage: stage, percent: null });
   };
   updater.on("error", (error) => {
@@ -98,7 +123,7 @@ export function createAppUpdater(input: {
       return;
     }
     verifiedDownload = true;
-    downloadedFile = readDownloadedUpdateFile(event);
+    downloadedUpdate = readDownloadedUpdateIdentity(event);
     publish({ status: "downloaded", percent: 100, errorStage: null });
   });
   const check = async () => {
@@ -111,7 +136,6 @@ export function createAppUpdater(input: {
     if (!result) {
       throw new Error("Desktop updater is unavailable.");
     }
-    // A newer version is exposed only after its complete feed is trusted.
     if (result.isUpdateAvailable) {
       assertDesktopUpdateFiles(result.updateInfo, platform);
     }
@@ -151,21 +175,31 @@ export function createAppUpdater(input: {
       if (plan.kind === "rename") {
         if (
           !(
-            downloadedFile &&
+            downloadedUpdate &&
             input.installRenamedMacBundle &&
             input.quitApp &&
-            input.processId
+            input.processId &&
+            input.installReceiptPath
           )
         ) {
           throw new Error(
             "Desktop cannot hand a renamed application folder to Squirrel."
           );
         }
+        if (downloadedUpdate.version !== state.version) {
+          throw new Error(
+            "Desktop downloaded update identity changed before installation."
+          );
+        }
         input.installRenamedMacBundle({
-          zipPath: downloadedFile,
+          zipPath: downloadedUpdate.downloadedFile,
           currentBundle: plan.currentBundle,
           targetBundle: plan.targetBundle,
           pid: input.processId,
+          sourceVersion: input.currentVersion,
+          expectedVersion: downloadedUpdate.version,
+          expectedSha512Hex: downloadedUpdate.sha512Hex,
+          receiptPath: input.installReceiptPath,
         });
         input.quitApp();
         return;

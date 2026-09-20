@@ -13,6 +13,7 @@ function fixture(
     currentAppBundle?: string | null;
     downloadedFile?: string;
     processId?: number;
+    installReceiptPath?: string;
   } = {}
 ) {
   const events = new EventEmitter();
@@ -55,8 +56,12 @@ function fixture(
     updater: driver as unknown as MacUpdater,
     platform,
     currentVersion: "0.1.1",
-    currentAppBundle: extras.currentAppBundle,
+    currentAppBundle:
+      extras.currentAppBundle === undefined && platform === "macos-arm64"
+        ? "/Applications/OpenMeld.app"
+        : extras.currentAppBundle,
     installRenamedMacBundle,
+    installReceiptPath: extras.installReceiptPath,
     quitApp,
     processId: extras.processId,
     publish: vi.fn(),
@@ -171,6 +176,7 @@ describe("Desktop update consent", () => {
     const controller = createAppUpdater({
       updater,
       currentVersion: "0.1.1",
+      currentAppBundle: "/Applications/OpenMeld.app",
       publish: vi.fn(),
       setInstalling,
       prepareRestart,
@@ -273,6 +279,7 @@ describe("Desktop update consent", () => {
         currentAppBundle: "/Applications/OpenMeld Desktop.app",
         downloadedFile: "/tmp/cache/desktop.zip",
         processId: 42,
+        installReceiptPath: "/tmp/openmeld-update-receipt.txt",
       }
     );
     await controller.act("check");
@@ -284,6 +291,12 @@ describe("Desktop update consent", () => {
       currentBundle: "/Applications/OpenMeld Desktop.app",
       targetBundle: "/Applications/OpenMeld.app",
       pid: 42,
+      sourceVersion: "0.1.1",
+      expectedVersion: "0.1.2",
+      expectedSha512Hex: Buffer.from(`${"A".repeat(86)}==`, "base64").toString(
+        "hex"
+      ),
+      receiptPath: "/tmp/openmeld-update-receipt.txt",
     });
     expect(quitApp).toHaveBeenCalledOnce();
     expect(controller.snapshot().status).toBe("installing");
@@ -292,7 +305,11 @@ describe("Desktop update consent", () => {
     const { controller, driver, installRenamedMacBundle } = fixture(
       undefined,
       "macos-arm64",
-      { currentAppBundle: "/Applications/OpenMeld Desktop.app", processId: 42 }
+      {
+        currentAppBundle: "/Applications/OpenMeld Desktop.app",
+        processId: 42,
+        installReceiptPath: "/tmp/openmeld-update-receipt.txt",
+      }
     );
     await controller.act("check");
     await controller.act("download");

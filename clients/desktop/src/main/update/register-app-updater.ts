@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import {
   type DesktopUpdaterState,
   desktopUpdaterActionSchema,
@@ -76,6 +77,10 @@ export function registerAppUpdater(input: {
         currentVersion: app.getVersion(),
         currentAppBundle: readMacAppBundlePath(app.getPath("exe")),
         installRenamedMacBundle,
+        installReceiptPath: join(
+          app.getPath("userData"),
+          "desktop-update-install-receipt.txt"
+        ),
         quitApp: () => {
           app.quit();
         },

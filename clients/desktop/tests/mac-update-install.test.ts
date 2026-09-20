@@ -11,6 +11,21 @@ import {
   MAC_BUNDLE_RENAME_INSTALL_SCRIPT,
 } from "../src/main/update/mac-update-install";
 
+const VERIFIED_SHA512 = "a".repeat(128);
+
+function validInstall() {
+  return {
+    zipPath: "/tmp/cache/desktop.zip",
+    currentBundle: "/Applications/OpenMeld Desktop.app",
+    targetBundle: `/Applications/${MAC_PRODUCTION_APP_BUNDLE_NAME}`,
+    pid: 12,
+    sourceVersion: "0.1.3",
+    expectedVersion: "0.1.4",
+    expectedSha512Hex: VERIFIED_SHA512,
+    receiptPath: "/tmp/openmeld-update-receipt.txt",
+  };
+}
+
 describe("macOS Desktop bundle rename", () => {
   it("reads the application folder from the packaged executable", () => {
     expect(
@@ -75,34 +90,21 @@ describe("macOS Desktop bundle rename", () => {
         productName: "OpenMeld Desktop",
       })
     ).toThrow("identity changed");
-    expect(() =>
-      assertMacProductionBundleIdentity({
-        appId: "sh.openmeld.desktop.preview",
-        productName: "OpenMeld",
-      })
-    ).toThrow("identity changed");
   });
 
-  it("refuses a ZIP or destination that Squirrel would have to guess", () => {
-    const valid = {
-      zipPath: "/tmp/cache/desktop.zip",
-      currentBundle: "/Applications/OpenMeld Desktop.app",
-      targetBundle: `/Applications/${MAC_PRODUCTION_APP_BUNDLE_NAME}`,
-      pid: 12,
-    };
+  it("refuses an archive, destination, receipt, or digest that the installer would have to guess", () => {
+    const valid = validInstall();
     expect(assertMacBundleRenameInstall(valid)).toEqual(valid);
-    expect(() =>
-      assertMacBundleRenameInstall({
-        ...valid,
-        zipPath: "/tmp/cache/../desktop.zip",
-      })
-    ).toThrow("not trusted");
-    expect(() =>
-      assertMacBundleRenameInstall({
-        ...valid,
-        targetBundle: "/Applications/Other.app",
-      })
-    ).toThrow("OpenMeld.app");
+    for (const override of [
+      { zipPath: "/tmp/cache/../desktop.zip" },
+      { targetBundle: "/Applications/Other.app" },
+      { receiptPath: "relative/receipt.txt" },
+      { expectedSha512Hex: "invalid" },
+    ]) {
+      expect(() =>
+        assertMacBundleRenameInstall({ ...valid, ...override })
+      ).toThrow();
+    }
     expect(() =>
       assertMacBundleRenameInstall({
         ...valid,
@@ -111,23 +113,67 @@ describe("macOS Desktop bundle rename", () => {
     ).toThrow("does not need");
   });
 
-  it("starts the fixed installer with positional paths and leaves Squirrel unused", () => {
+  it("verifies the exact signed candidate before touching the legacy app", () => {
+    const verifyIndex = MAC_BUNDLE_RENAME_INSTALL_SCRIPT.indexOf(
+      "codesign --verify --deep --strict"
+    );
+    const teamIndex = MAC_BUNDLE_RENAME_INSTALL_SCRIPT.indexOf(
+      "TeamIdentifier=38FFHDPA3B"
+    );
+    const versionIndex = MAC_BUNDLE_RENAME_INSTALL_SCRIPT.indexOf(
+      "CFBundleShortVersionString"
+    );
+    const moveTargetIndex = MAC_BUNDLE_RENAME_INSTALL_SCRIPT.indexOf(
+      '/bin/mv "$new" "$target"'
+    );
+    const removeLegacyIndex = MAC_BUNDLE_RENAME_INSTALL_SCRIPT.indexOf(
+      '/bin/rm -rf "$current"'
+    );
+
+    expect(MAC_BUNDLE_RENAME_INSTALL_SCRIPT).toContain(
+      '/usr/bin/shasum -a 512 "$zip"'
+    );
+    expect(MAC_BUNDLE_RENAME_INSTALL_SCRIPT).toContain(
+      "Identifier=sh.openmeld.desktop"
+    );
+    expect(MAC_BUNDLE_RENAME_INSTALL_SCRIPT).toContain(
+      "/usr/sbin/spctl --assess --type execute"
+    );
+    expect(verifyIndex).toBeGreaterThan(0);
+    expect(teamIndex).toBeGreaterThan(verifyIndex);
+    expect(versionIndex).toBeGreaterThan(verifyIndex);
+    expect(moveTargetIndex).toBeGreaterThan(versionIndex);
+    expect(removeLegacyIndex).toBeGreaterThan(moveTargetIndex);
+  });
+
+  it("keeps the legacy app until the new app has actually launched", () => {
+    const launchIndex = MAC_BUNDLE_RENAME_INSTALL_SCRIPT.indexOf(
+      '/usr/bin/open "$target"'
+    );
+    const confirmIndex = MAC_BUNDLE_RENAME_INSTALL_SCRIPT.indexOf(
+      'write_receipt "launch_confirmed"'
+    );
+    const removeLegacyIndex = MAC_BUNDLE_RENAME_INSTALL_SCRIPT.indexOf(
+      '/bin/rm -rf "$current"'
+    );
+
+    expect(launchIndex).toBeGreaterThan(0);
+    expect(confirmIndex).toBeGreaterThan(launchIndex);
+    expect(removeLegacyIndex).toBeGreaterThan(confirmIndex);
+    expect(MAC_BUNDLE_RENAME_INSTALL_SCRIPT).toContain("restore_target");
+    expect(MAC_BUNDLE_RENAME_INSTALL_SCRIPT).toContain('write_receipt "failed:');
+  });
+
+  it("starts the fixed installer with bounded evidence and leaves Squirrel unused", () => {
     const spawn = vi.fn(() => ({ unref: vi.fn() }));
     const writeFile = vi.fn();
-    installRenamedMacBundle(
-      {
-        zipPath: "/tmp/cache/desktop.zip",
-        currentBundle: "/Applications/OpenMeld Desktop.app",
-        targetBundle: "/Applications/OpenMeld.app",
-        pid: 99,
-      },
-      {
-        spawn: spawn as never,
-        writeFile: writeFile as never,
-        scriptPath: "/tmp/openmeld-mac-update.sh",
-        platform: "darwin",
-      }
-    );
+    const install = { ...validInstall(), pid: 99 };
+    installRenamedMacBundle(install, {
+      spawn: spawn as never,
+      writeFile: writeFile as never,
+      scriptPath: "/tmp/openmeld-mac-update.sh",
+      platform: "darwin",
+    });
     expect(writeFile).toHaveBeenCalledWith(
       "/tmp/openmeld-mac-update.sh",
       MAC_BUNDLE_RENAME_INSTALL_SCRIPT,
@@ -141,9 +187,13 @@ describe("macOS Desktop bundle rename", () => {
       [
         "/tmp/openmeld-mac-update.sh",
         "99",
-        "/tmp/cache/desktop.zip",
-        "/Applications/OpenMeld Desktop.app",
-        "/Applications/OpenMeld.app",
+        install.zipPath,
+        install.currentBundle,
+        install.targetBundle,
+        install.sourceVersion,
+        install.expectedVersion,
+        install.expectedSha512Hex,
+        install.receiptPath,
       ],
       { detached: true, stdio: "ignore" }
     );
