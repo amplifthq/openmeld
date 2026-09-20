@@ -4,7 +4,9 @@ title: A calmer Inbox for conversations, requests and device updates
 kind: improved
 areas: ["inbox", "agents", "computers", "desktop"]
 audiences: ["members"]
-evidence: ["pr:1157", "issue:1038"]
+publishedAt: 2026-09-20
+release: v0.3.214
+evidence: ["pr:1157", "issue:1038", "commit:99bd94a254457683a4922452b05bc80e175d50ac", "workflow:35486026282", "commit:7fd7cd5faca0f24826471a336374235a9507734d", "artifact:desktop-d266d57edbd064073263c2226c8d436bb1b577c42416430ab8af08c8c0adf77f"]
 ---
 
 Inbox separates mentions, actions and reviews. Combine People or Agents with

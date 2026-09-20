@@ -4,6 +4,9 @@ title: Clearer page loading and Agent usage at a glance
 kind: improved
 areas: ["web", "desktop", "agents", "computers"]
 audiences: ["users"]
+publishedAt: 2026-09-20
+release: v0.3.214
+evidence: ["pr:1161", "commit:99bd94a254457683a4922452b05bc80e175d50ac", "workflow:35486026282", "commit:7fd7cd5faca0f24826471a336374235a9507734d", "artifact:desktop-d266d57edbd064073263c2226c8d436bb1b577c42416430ab8af08c8c0adf77f"]
 ---
 
 Agent pages retain navigation while their content loads, with placeholders

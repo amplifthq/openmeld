@@ -4,7 +4,9 @@ title: Find shared Skills in Team
 kind: improved
 areas: ["web", "skills", "team"]
 audiences: ["members", "admins", "agent-users"]
-evidence: ["pr:1101"]
+publishedAt: 2026-09-20
+release: v0.3.214
+evidence: ["pr:1101", "commit:99bd94a254457683a4922452b05bc80e175d50ac", "workflow:35486026282"]
 ---
 
 Skills now live beside People, Agents, and Plugins in Team. Members can browse
