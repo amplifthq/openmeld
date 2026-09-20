@@ -483,7 +483,9 @@ keeps **Add to Slack** as the user's explicit installation confirmation.
 It is discoverable from the public landing footer and does not enter the
 authenticated app shell or Organization navigation. It shows newest-first
 publication dates, optional release names, public outcome Markdown, change kind,
-and product areas, then loads older entries only through an explicit action.
+and product areas. Every title links to a stable entry anchor. Opening an anchor
+loads older pages only until the referenced entry is available; ordinary visits
+load older entries only through an explicit action.
 
 The page calls the shared anonymous `GET /v1/changelog` contract through a Web
 server function. Core remains the validated GitHub reader; Web never imports a

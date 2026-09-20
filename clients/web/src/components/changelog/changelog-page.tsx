@@ -8,7 +8,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowClockwiseIcon, ArrowRightIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MessageResponse } from "#/components/ai/message-response";
 import { PublicPageHeader } from "#/components/app/public-page-header";
 import {
@@ -18,6 +18,7 @@ import {
 import { readPublishedChangelog } from "#/lib/changelog/read-changelog";
 
 const PAGE_SIZE = 10;
+const ENTRY_ANCHOR_PREFIX = "update-";
 const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	day: "numeric",
 	month: "long",
@@ -49,10 +50,82 @@ type ChangelogPageProps = {
 
 export function ChangelogPage({ initialPage }: ChangelogPageProps) {
 	const readPage = useServerFn(readPublishedChangelog);
+	const readPageRef = useRef(readPage);
+	readPageRef.current = readPage;
 	const [entries, setEntries] = useState(initialPage?.entries ?? []);
 	const [hasMore, setHasMore] = useState(initialPage?.hasMore ?? false);
 	const [isLoading, setIsLoading] = useState(false);
 	const [loadError, setLoadError] = useState(false);
+	const [pendingAnchorId, setPendingAnchorId] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (!initialPage) {
+			return;
+		}
+
+		const anchorId = window.location.hash.slice(1);
+		if (!anchorId.startsWith(ENTRY_ANCHOR_PREFIX)) {
+			return;
+		}
+		if (document.getElementById(anchorId)) {
+			setPendingAnchorId(anchorId);
+			return;
+		}
+
+		let cancelled = false;
+		setIsLoading(true);
+		setLoadError(false);
+		const request = loadEntriesThroughAnchor({
+			anchorId,
+			hasMore: initialPage.hasMore,
+			isCancelled: () => cancelled,
+			offset: initialPage.entries.length,
+			readPage: async (offset) =>
+				await readPageRef.current({
+					data: { limit: PAGE_SIZE, offset },
+				}),
+		});
+		request.then(
+			(result) => {
+				if (!result || cancelled) {
+					return;
+				}
+				setEntries((current) => {
+					const currentIds = new Set(current.map((entry) => entry.id));
+					return [
+						...current,
+						...result.entries.filter((entry) => !currentIds.has(entry.id)),
+					];
+				});
+				setHasMore(result.hasMore);
+				if (result.found) {
+					setPendingAnchorId(anchorId);
+				}
+				setIsLoading(false);
+			},
+			() => {
+				if (!cancelled) {
+					setLoadError(true);
+					setIsLoading(false);
+				}
+			}
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, [initialPage]);
+
+	useEffect(() => {
+		if (!pendingAnchorId) {
+			return;
+		}
+		const target = document.getElementById(pendingAnchorId);
+		if (!target) {
+			return;
+		}
+		target.scrollIntoView({ block: "start" });
+		setPendingAnchorId(null);
+	}, [pendingAnchorId]);
 
 	async function loadOlderUpdates() {
 		setIsLoading(true);
@@ -177,8 +250,12 @@ function ChangelogEntries({ entries }: { entries: ChangelogEntry[] }) {
 }
 
 function ChangelogEntryView({ entry }: { entry: ChangelogEntry }) {
+	const anchorId = entryAnchorId(entry.id);
 	return (
-		<article className="grid gap-5 md:grid-cols-[9rem_minmax(0,1fr)] md:gap-8">
+		<article
+			className="grid scroll-mt-6 gap-5 md:grid-cols-[9rem_minmax(0,1fr)] md:gap-8"
+			id={anchorId}
+		>
 			<div>
 				<time
 					className="text-muted-foreground text-sm"
@@ -204,7 +281,12 @@ function ChangelogEntryView({ entry }: { entry: ChangelogEntry }) {
 					) : null}
 				</div>
 				<h2 className="mt-4 text-balance font-semibold text-2xl tracking-normal sm:text-3xl">
-					{entry.title}
+					<a
+						className="rounded-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+						href={`#${anchorId}`}
+					>
+						{entry.title}
+					</a>
 				</h2>
 				<MessageResponse
 					className="mt-4 text-muted-foreground"
@@ -264,4 +346,42 @@ function formatArea(area: string): string {
 			index === 0 ? `${word.charAt(0).toUpperCase()}${word.slice(1)}` : word
 		)
 		.join(" ");
+}
+
+function entryAnchorId(entryId: string): string {
+	return `${ENTRY_ANCHOR_PREFIX}${entryId}`;
+}
+
+async function loadEntriesThroughAnchor(input: {
+	anchorId: string;
+	hasMore: boolean;
+	isCancelled: () => boolean;
+	offset: number;
+	readPage: (offset: number) => Promise<ChangelogQueryResponse>;
+}): Promise<{
+	entries: ChangelogEntry[];
+	found: boolean;
+	hasMore: boolean;
+} | null> {
+	let hasMore = input.hasMore;
+	let offset = input.offset;
+	const entries: ChangelogEntry[] = [];
+
+	while (hasMore) {
+		const page = await input.readPage(offset);
+		if (input.isCancelled()) {
+			return null;
+		}
+		entries.push(...page.entries);
+		offset += page.entries.length;
+		hasMore = page.hasMore;
+		const found = page.entries.some(
+			(entry) => entryAnchorId(entry.id) === input.anchorId
+		);
+		if (found || page.entries.length === 0) {
+			return { entries, found, hasMore };
+		}
+	}
+
+	return { entries, found: false, hasMore };
 }
