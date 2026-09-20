@@ -7,4 +7,6 @@ audiences: ["desktop-users"]
 ---
 
 When a Desktop update is available, the menu bar now shows a badged update
-action. Select it to download the update or restart when it is ready.
+action. Select it to download the update or restart when it is ready. While
+OpenMeld is running, it also checks for new versions hourly instead of every six
+hours.

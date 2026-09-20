@@ -527,7 +527,7 @@ The isolated component fixture and repeatable visual checks live in
 never contacts a feed or installs anything. Component screenshots and native
 controller tests are not signed-package A-to-B acceptance.
 
-Launch and six-hour checks run automatically. Both `autoDownload` and `autoInstallOnAppQuit` are
+Launch and hourly checks run automatically. Both `autoDownload` and `autoInstallOnAppQuit` are
 explicitly false. Download requires consent; after checksum verification the
 user chooses Restart to update or Later. On macOS the downloaded ZIP is not
 handed to Squirrel until Restart to update. Later therefore neither installs on

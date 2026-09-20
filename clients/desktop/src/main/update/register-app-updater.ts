@@ -17,6 +17,8 @@ import type { DesktopUpdateView } from "../../shared/view-types";
 import { createAppUpdater } from "./app-updater";
 import { createNativeDesktopUpdater } from "./native-updater";
 
+const AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+
 function readNativeUpdater(enabled: boolean) {
   if (!enabled) {
     return null;
@@ -122,12 +124,9 @@ export function registerAppUpdater(input: {
   let menuOpen = false;
   if (controller) {
     observe(controller.snapshot());
-    setInterval(
-      () => {
-        controller.act("check").catch(console.error);
-      },
-      6 * 60 * 60 * 1000
-    ).unref();
+    setInterval(() => {
+      controller.act("check").catch(console.error);
+    }, AUTOMATIC_UPDATE_CHECK_INTERVAL_MS).unref();
   }
   input.onStateChanged(withIdentity(controller?.snapshot() ?? unavailable));
   return {
