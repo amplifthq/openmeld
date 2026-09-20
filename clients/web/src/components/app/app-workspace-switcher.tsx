@@ -270,7 +270,7 @@ function OrganizationSwitcherPopover(input: {
 										aria-checked={selected}
 										aria-current={selected ? "true" : undefined}
 										className={cn(
-											"flex min-h-11 w-full min-w-0 items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm disabled:cursor-wait disabled:opacity-70",
+											"flex min-h-11 w-full min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm disabled:cursor-wait disabled:opacity-70",
 											selected
 												? "bg-interaction-active text-foreground"
 												: "text-muted-foreground"
@@ -327,7 +327,7 @@ function OrganizationSwitcherActions(input: {
 			hoverIndicatorClassName="bg-interaction-hover"
 		>
 			<FluidActionListItem
-				className="flex min-h-12 w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-muted-foreground text-sm disabled:cursor-wait disabled:opacity-70"
+				className="flex min-h-12 w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-muted-foreground text-sm disabled:cursor-wait disabled:opacity-70"
 				disabled={input.disabled}
 				index={0}
 				onClick={input.onCreateOrganization}
@@ -345,7 +345,7 @@ function OrganizationSwitcherActions(input: {
 				</span>
 			</FluidActionListItem>
 			<FluidActionListItem
-				className="flex min-h-12 w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-muted-foreground text-sm disabled:cursor-wait disabled:opacity-70"
+				className="flex min-h-12 w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-muted-foreground text-sm disabled:cursor-wait disabled:opacity-70"
 				disabled={input.disabled}
 				index={1}
 				onClick={input.onManageOrganizations}

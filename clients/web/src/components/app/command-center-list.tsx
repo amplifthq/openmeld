@@ -25,6 +25,8 @@ export function CommandCenterList(input: {
 	entries: readonly CommandEntry[];
 	query: string;
 	onQueryChange: (value: string) => void;
+	onCompositionChange?: (value: boolean) => void;
+	searchStatus?: string;
 	loading?: boolean;
 	error?: boolean;
 }) {
@@ -56,6 +58,9 @@ export function CommandCenterList(input: {
 				Number(a.label.toLocaleLowerCase() === query)
 		);
 	const groups = [...new Set(entries.map((item) => item.group))];
+	if (input.searchStatus && !groups.includes("Search")) {
+		groups.unshift("Search");
+	}
 	const selected = entries.find((item) => item.id === value);
 
 	useLayoutEffect(() => {
@@ -109,7 +114,7 @@ export function CommandCenterList(input: {
 
 	return (
 		<Command
-			className="flex min-h-0 flex-col text-popover-foreground"
+			className="flex min-h-0 min-w-0 flex-col text-popover-foreground"
 			label="Search or run a command"
 			onKeyDownCapture={() => {
 				pointer.current = false;
@@ -126,6 +131,11 @@ export function CommandCenterList(input: {
 					aria-label="Search or run a command"
 					autoFocus
 					className="h-11 w-full rounded-lg border border-input bg-muted/50 px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+					onCompositionEnd={(event) => {
+						input.onQueryChange(event.currentTarget.value);
+						input.onCompositionChange?.(false);
+					}}
+					onCompositionStart={() => input.onCompositionChange?.(true)}
 					onValueChange={(text) => {
 						pointer.current = false;
 						input.onQueryChange(text);
@@ -163,6 +173,14 @@ export function CommandCenterList(input: {
 						heading={group}
 						key={group}
 					>
+						{group === "Search" && input.searchStatus && (
+							<output
+								aria-live="polite"
+								className="block px-3 py-2 text-muted-foreground text-sm"
+							>
+								{input.searchStatus}
+							</output>
+						)}
 						{entries
 							.filter((entry) => entry.group === group)
 							.map((entry) => (
@@ -202,7 +220,7 @@ export function CommandCenterList(input: {
 							))}
 					</Command.Group>
 				))}
-				{!(entries.length || input.loading) && (
+				{!(entries.length || input.loading || input.searchStatus) && (
 					<Command.Empty className="px-3 py-6 text-muted-foreground text-sm">
 						No results. Try another search.
 					</Command.Empty>

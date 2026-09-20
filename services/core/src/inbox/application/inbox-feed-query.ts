@@ -2,6 +2,7 @@ import type {
   InboxFeedCategory,
   InboxFeedQuery,
 } from "@openmeld/schemas/types";
+import { inboxMentionSql } from "./inbox-attention-predicates";
 import { currentInboxSourceFactsSql } from "./inbox-current-source-facts";
 import { INBOX_ATTENTION_PRESENTATION_FILTER } from "./inbox-service";
 import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
@@ -39,7 +40,7 @@ export function inboxFeedCte(
         AND ${INBOX_ATTENTION_PRESENTATION_FILTER}
     ), classified AS (
       SELECT *,
-        (kind IN ('space_mention', 'space_reference') OR coalesce(json_array_length(current_source_facts, '$.mentionedAgentProfileIds'), 0) > 0) AS is_mention,
+        ${inboxMentionSql("current_source_facts")} AS is_mention,
         (coalesce(json_array_length(current_source_facts, '$.agentProfileIds'), 0) > 0
           OR kind IN ('agent_reply', 'agent_interaction', 'center_agent_update', 'center_agent_task', 'wake_outcome')
           OR json_extract(source_target_json, '$.kind') IN ('agent_profile', 'agent_interaction', 'center_agent', 'center_agent_task')) AS is_agent,

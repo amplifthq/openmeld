@@ -1540,6 +1540,21 @@ describe("http schemas", () => {
   });
 
   describe("listSignalsQuerySchema", () => {
+    it("accepts literal message search and rejects incompatible timeline filters and unsafe cursors", () => {
+      const read = (query: string) =>
+        listSignalsQuerySchema.safeParse(
+          readListSignalsQueryRawValues(new URLSearchParams(query))
+        );
+      expect(read("q=invoice&limit=30").success).toBe(true);
+      for (const query of [
+        "q=invoice&recent=true",
+        "q=invoice&aroundSignalId=message",
+        "q=invoice&cursor=9007199254740992",
+        "q=&limit=30",
+      ]) {
+        expect(read(query).success).toBe(false);
+      }
+    });
     it("reads raw query values from URLSearchParams", () => {
       const params = new URLSearchParams(
         "afterTs=1&cursor=cursor-1&limit=&recent=true&afterSignalId=sig-after&aroundSignalId=sig-around&beforeCount=2&afterCount=3&fromProfileId=human-1&fromProfileId=agent-1&signalType=signal.text&signalType=signal.status"

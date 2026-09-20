@@ -3,6 +3,7 @@
 import type {
 	InboxFeedCategory,
 	InboxFeedQuery,
+	InboxFeedRow,
 	InboxItem,
 	MutateInboxFeedBody,
 } from "@openmeld/schemas/types";
@@ -27,6 +28,7 @@ import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { MessageSearchButton } from "#/components/search/message-search";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { inboxItemQueryOptions } from "#/query/organizations/inbox";
 import {
@@ -49,7 +51,9 @@ import {
 	InboxRefreshWarning,
 } from "./inbox-page-presentation";
 import { INBOX_TABS } from "./inbox-page-tabs";
+import { useInboxRemoval } from "./inbox-removal-dialog";
 import { InvitationReview } from "./invitation-review";
+import { useInboxExpansion } from "./use-inbox-expansion";
 import { useInboxItemDismissMutation } from "./use-inbox-item-dismiss-mutation";
 import { useInboxItemReadMutation } from "./use-inbox-item-read-mutation";
 
@@ -83,6 +87,29 @@ function InboxSelectionActions(input: {
 	);
 }
 
+function InboxExpansionAction({
+	rows,
+	expansion,
+}: {
+	rows: readonly InboxFeedRow[];
+	expansion: ReturnType<typeof useInboxExpansion>;
+}) {
+	const groups = rows.filter((row) => row.itemCount > 1);
+	const allExpanded = groups.every((row) => expansion.isExpanded(row.groupKey));
+	if (!groups.length) {
+		return null;
+	}
+	return (
+		<Button
+			onClick={() => expansion.setAll(!allExpanded)}
+			size="sm"
+			variant="secondary"
+		>
+			{allExpanded ? "Collapse all activities" : "Expand all activities"}
+		</Button>
+	);
+}
+
 export function InboxPage(input: {
 	itemId?: string;
 	requestId?: string;
@@ -101,6 +128,7 @@ export function InboxPage(input: {
 	view: InboxFeedCategory;
 }) {
 	const { currentOrganization, currentUserId } = useAppOrganization();
+	const expansion = useInboxExpansion(currentUserId, currentOrganization.id);
 	const filters = {
 		category: input.view,
 		unreadOnly: input.unreadOnly ?? false,
@@ -125,6 +153,7 @@ export function InboxPage(input: {
 		})
 	);
 	const [announcement, setAnnouncement] = useState("");
+	const scope = `${currentUserId}:${currentOrganization.id}`;
 	const [confirmation, setConfirmation] = useState<{
 		snapshotId: string;
 		unreadCount: number;
@@ -133,7 +162,7 @@ export function InboxPage(input: {
 		organizationId: currentOrganization.id,
 		onAnnouncement: setAnnouncement,
 	});
-	const { dismiss } = useInboxItemDismissMutation({
+	const { dismiss, isPending: isRemoving } = useInboxItemDismissMutation({
 		organizationId: currentOrganization.id,
 		onAnnouncement: setAnnouncement,
 		onDismissed: input.onItemDismissed,
@@ -143,13 +172,24 @@ export function InboxPage(input: {
 		selection.mutate(body, {
 			onSuccess: (response) =>
 				setAnnouncement(
-					`${response.changedCount} updates ${body.operation === "read" ? "marked as read" : "dismissed"}. Pending requests remain open.`
+					`${response.changedCount} ${response.changedCount === 1 ? "activity" : "activities"} ${body.operation === "read" ? "marked as read" : "removed from Inbox"}. Pending requests remain open.`
 				),
 			onError: () =>
 				toast.error(
 					"This selection could not be updated. Refresh your Inbox and try again."
 				),
 		});
+	const {
+		requestRemoval,
+		requestSelection,
+		dialog: removalDialog,
+	} = useInboxRemoval({
+		scope,
+		removalPending: isRemoving,
+		selectionPending: selection.isPending,
+		onDismiss: dismiss,
+		onSelection: mutateSelection,
+	});
 	const sourceItem = deepLink.data?.item;
 	const itemElement = useRef<HTMLAnchorElement | null>(null);
 	const appliedItem = useRef<string | null>(null);
@@ -199,6 +239,20 @@ export function InboxPage(input: {
 	}, [feed.data, sourceItem?.id, input.requestId]);
 	const firstPage = feed.data?.pages[0];
 	const selectionUnreadCount = firstPage?.selectionUnreadCount ?? null;
+	const selectionAction = (
+		<InboxSelectionActions
+			onMarkRead={() => {
+				if (firstPage?.selectionUnreadCount !== undefined) {
+					setConfirmation({
+						snapshotId: firstPage.snapshotId,
+						unreadCount: firstPage.selectionUnreadCount,
+					});
+				}
+			}}
+			pending={selection.isPending}
+			unreadCount={selectionUnreadCount}
+		/>
+	);
 	const selectedIndex = Math.max(
 		0,
 		INBOX_TABS.findIndex((tab) => tab.view === input.view)
@@ -254,22 +308,14 @@ export function InboxPage(input: {
 						</label>
 					</div>
 					<div className="flex min-h-8 flex-wrap items-center justify-between gap-3">
-						<InboxFilterMenu
-							filters={filters}
-							onChange={input.onFiltersChange}
-						/>
-						<InboxSelectionActions
-							onMarkRead={() => {
-								if (firstPage?.selectionUnreadCount !== undefined) {
-									setConfirmation({
-										snapshotId: firstPage.snapshotId,
-										unreadCount: firstPage.selectionUnreadCount,
-									});
-								}
-							}}
-							pending={selection.isPending}
-							unreadCount={selectionUnreadCount}
-						/>
+						<div className="flex flex-wrap items-center gap-2">
+							<InboxFilterMenu
+								filters={filters}
+								onChange={input.onFiltersChange}
+							/>
+							<MessageSearchButton scope="inbox" />
+						</div>
+						<InboxExpansionAction expansion={expansion} rows={rows} />
 					</div>
 				</div>
 				{input.requestId ? (
@@ -296,7 +342,7 @@ export function InboxPage(input: {
 						<InboxItemsList
 							focusedItemId={sourceItem.id}
 							items={[sourceItem]}
-							onDismiss={dismiss}
+							onDismiss={requestRemoval}
 							onOpenItem={openItem}
 							onSetRead={setRead}
 							organizationSlug={currentOrganization.slug}
@@ -336,15 +382,17 @@ export function InboxPage(input: {
 								{firstPage && rows.length > 0 ? (
 									<InboxFeedView
 										accountId={currentUserId}
+										expansion={expansion}
 										filters={filters}
 										isMutating={selection.isPending}
-										onDismiss={dismiss}
+										onDismiss={requestRemoval}
 										onOpenItem={openItem}
-										onSelection={mutateSelection}
+										onSelection={requestSelection}
 										onSetRead={setRead}
 										organizationId={currentOrganization.id}
 										organizationSlug={currentOrganization.slug}
 										rows={rows}
+										sectionAction={selectionAction}
 										snapshotId={firstPage.snapshotId}
 									/>
 								) : null}
@@ -369,6 +417,7 @@ export function InboxPage(input: {
 					</TabsSubtlePanel>
 				))}
 			</div>
+			{removalDialog}
 			<AlertDialog
 				onOpenChange={(open) => {
 					if (!open) {

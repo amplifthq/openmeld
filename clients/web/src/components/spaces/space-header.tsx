@@ -23,13 +23,11 @@ import {
 	AppModuleSidebarToggle,
 	useHasModuleSidebar,
 } from "#/components/app/app-module-sidebar";
+import { MessageSearchButton } from "#/components/search/message-search";
 import type { SpaceLiveState } from "#/lib/spaces/timeline";
 import { ChatArchiveButton } from "./chat-archive-button";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
-import {
-	SpaceHeaderNavigationMenu,
-	type SpaceHeaderNavigationMenuItem,
-} from "./space-header-navigation-menu";
+import { SpaceHeaderNavigationMenu } from "./space-header-navigation-menu";
 import { SpacePinsRecallAction } from "./space-pins";
 import { useSpaceReadingHeader } from "./space-reading-header";
 import { SpaceSettingsDialog } from "./space-settings-dialog";
@@ -185,8 +183,7 @@ export function SpaceHeader(input: {
 	liveState?: SpaceLiveState;
 	isLoadingMessages?: boolean;
 	managementControl?: ReactNode;
-	menuItems?: readonly SpaceHeaderNavigationMenuItem[];
-	menuLabel?: string;
+	showChatSettingsMenu?: boolean;
 	// Forces an immediate live-stream reconnect; wired to the manual retry control
 	// on the degraded status indicator.
 	onReconnectLiveUpdates?: () => void;
@@ -270,6 +267,10 @@ export function SpaceHeader(input: {
 							</div>
 						) : null}
 						<SpacePinsRecallAction onRecall={input.onRecallPinnedItems} />
+						<MessageSearchButton
+							profileId={input.currentProfileId}
+							spaceId={input.status.spaceId}
+						/>
 						{isDirectMessage && input.currentProfileId ? (
 							<ChatArchiveButton
 								profileId={input.currentProfileId}
@@ -305,10 +306,10 @@ export function SpaceHeader(input: {
 								visibility={input.status.organizationVisibility}
 							/>
 						)}
-						{input.menuItems ? (
+						{input.showChatSettingsMenu ? (
 							<SpaceHeaderNavigationMenu
-								ariaLabel={input.menuLabel ?? "More options"}
-								items={input.menuItems}
+								ariaLabel="Center Agent menu"
+								items={[]}
 								onOpenConversationInformation={() => {
 									setSettingsInitialSection("general");
 									setActiveDialog("settings");
@@ -363,7 +364,7 @@ export function SpaceHeader(input: {
 							}}
 							open={activeDialog === "settings"}
 							openMeldProfileId={input.currentProfileId}
-							showTrigger={!input.menuItems}
+							showTrigger={!input.showChatSettingsMenu}
 							spaceId={input.status.spaceId}
 							visibility={input.status.organizationVisibility}
 						/>

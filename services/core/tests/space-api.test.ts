@@ -52,6 +52,7 @@ import {
   rpcPostStatusSignal,
   rpcPostSystemNoticeSignal,
 } from "../src/rpc/methods";
+import { rpcSearchMessages } from "../src/search/message-search";
 import { upsertJoinedSpaceMember } from "../src/space/application/space-members-service";
 import {
   createDispatchOutboxRecord,
@@ -6167,6 +6168,134 @@ describe("OpenMeld Core", () => {
         socket.close(1000, "done");
       }
     }
+  });
+
+  it("searches retained message text through the authorized Space endpoint", async () => {
+    const spaceId = await createSpace({ accessMode: "members_only" });
+    await postTextSignal(spaceId, "Searchable invoice older");
+    await postTextSignal(spaceId, "Unrelated latest message");
+    const response = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals?q=invoice&limit=30`
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      signals: [{ data: { text: "Searchable invoice older" } }],
+      searchIndexing: false,
+      nextCursor: null,
+    });
+    const denied = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals?q=invoice&limit=30`,
+      undefined,
+      {
+        profileId: SECOND_HUMAN_PROFILE_ID,
+        openMeldProfileId: SECOND_HUMAN_PROFILE_ID,
+        ownerUserId: "search-other-owner",
+        profileName: "Other reader",
+      }
+    );
+    expect(denied.status).toBe(403);
+    await denied.text();
+    const context = createRpcContext({
+      requestId: "search-member",
+      profileId: DEFAULT_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      ownerUserId: "owner-test-default",
+    });
+    const search = await rpcSearchMessages(env as unknown as CoreBindings, {
+      q: "invoice",
+      spaceId,
+      scope: "messages",
+      context,
+    });
+    expect(search.matches.map((match) => match.signal.data.text)).toEqual([
+      "Searchable invoice older",
+    ]);
+    const excluded = await rpcSearchMessages(env as unknown as CoreBindings, {
+      q: "invoice",
+      spaceId,
+      scope: "messages",
+      context: createRpcContext({
+        requestId: "search-other",
+        profileId: SECOND_HUMAN_PROFILE_ID,
+        profileKind: "human",
+        ownerUserId: "search-other-owner",
+      }),
+    });
+    expect(excluded.matches).toEqual([]);
+    const publicSpaceId = await createSpace({ accessMode: "public" });
+    await postTextSignal(publicSpaceId, "Public searchable invoice");
+    const publicSearch = await rpcSearchMessages(
+      env as unknown as CoreBindings,
+      {
+        q: "invoice",
+        spaceId: publicSpaceId,
+        scope: "messages",
+        context: createRpcContext({
+          requestId: "search-public-reader",
+          profileId: SECOND_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          ownerUserId: "search-other-owner",
+        }),
+      }
+    );
+    expect(publicSearch.matches.map((match) => match.signal.data.text)).toEqual(
+      ["Public searchable invoice"]
+    );
+    const inbox = await rpcSearchMessages(env as unknown as CoreBindings, {
+      q: "invoice",
+      spaceId,
+      scope: "inbox",
+      context,
+    });
+    expect(inbox.activities).toEqual([]);
+    expect(inbox.nextCursor).not.toBeNull();
+    const inboxMessages = await rpcSearchMessages(
+      env as unknown as CoreBindings,
+      {
+        q: "invoice",
+        spaceId,
+        scope: "inbox",
+        context,
+        cursor: inbox.nextCursor ?? undefined,
+      }
+    );
+    // Posting a message does not make it an Inbox item for its author.
+    expect(inboxMessages.matches).toEqual([]);
+    expect(inboxMessages.nextCursor).toBeNull();
+    await expect(
+      rpcSearchMessages(env as unknown as CoreBindings, {
+        q: "invoice",
+        scope: "messages",
+        context,
+        cursor: "invalid-json",
+      })
+    ).rejects.toThrow("Invalid message search cursor");
+
+    for (let index = 0; index < 31; index += 1) {
+      await postTextSignal(spaceId, `Paging receipt ${index}`);
+    }
+    const first = await rpcSearchMessages(env as unknown as CoreBindings, {
+      q: "Paging receipt",
+      spaceId,
+      scope: "messages",
+      context,
+    });
+    expect(first.matches).toHaveLength(30);
+    expect(first.nextCursor).not.toBeNull();
+    const second = await rpcSearchMessages(env as unknown as CoreBindings, {
+      q: "Paging receipt",
+      spaceId,
+      scope: "messages",
+      context,
+      cursor: first.nextCursor ?? undefined,
+    });
+    expect(second.matches).toHaveLength(1);
+    expect(second.nextCursor).toBeNull();
+    expect(
+      new Set(
+        [...first.matches, ...second.matches].map((match) => match.signal.id)
+      ).size
+    ).toBe(31);
   });
 
   it("returns an empty anchored page when after-signal uses limit=0", async () => {
