@@ -2314,6 +2314,28 @@ describe("http schemas", () => {
       expect(parsed.success).toBe(false);
     });
 
+    it("preserves the UTF-16 password length contract for emoji", () => {
+      for (const password of ["😀😀😀", "abc😀😀"]) {
+        expect(
+          createSpacePasswordBodySchema.safeParse({ password }).success
+        ).toBe(true);
+        expect(
+          upsertSpacePasswordBodySchema.safeParse({ password }).success
+        ).toBe(true);
+      }
+
+      const tooShort = spacePasswordSchema.safeParse("  😀😀  ");
+      expect(tooShort.success).toBe(false);
+      if (!tooShort.success) {
+        expect(tooShort.error.issues[0]).toMatchObject({
+          code: "too_small",
+          origin: "string",
+          minimum: SPACE_PASSWORD_MIN_LENGTH,
+          inclusive: true,
+        });
+      }
+    });
+
     it("rejects non-string password", () => {
       const parsed = upsertSpacePasswordBodySchema.safeParse({
         password: 123_456,
