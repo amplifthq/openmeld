@@ -4,7 +4,9 @@ title: Hand off selected Space files to another Agent
 kind: new
 areas: ["spaces", "files", "agents", "cli"]
 audiences: ["members", "developers"]
-evidence: ["pr:1164"]
+publishedAt: 2026-09-20
+release: v0.3.214
+evidence: ["pr:1164", "commit:99bd94a254457683a4922452b05bc80e175d50ac", "workflow:35486026282", "workflow:35487151259", "workflow:35487310373"]
 ---
 
 Hand off specific file and Skill versions with a goal and next steps. Agents

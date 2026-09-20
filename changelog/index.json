@@ -2,6 +2,124 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "inbox-attention-and-device-events",
+      "title": "A calmer Inbox for conversations, requests and device updates",
+      "kind": "improved",
+      "areas": [
+        "inbox",
+        "agents",
+        "computers",
+        "desktop"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-20",
+      "release": "v0.3.214",
+      "evidence": [
+        "pr:1157",
+        "issue:1038",
+        "commit:99bd94a254457683a4922452b05bc80e175d50ac",
+        "workflow:35486026282",
+        "commit:7fd7cd5faca0f24826471a336374235a9507734d",
+        "artifact:desktop-d266d57edbd064073263c2226c8d436bb1b577c42416430ab8af08c8c0adf77f"
+      ],
+      "body": "Inbox separates mentions, actions and reviews. Combine People or Agents with\nDirect messages or Spaces in one filter menu, and keep Unread only beside the\ntabs. Conversation groups keep routine activity compact while important open\nrequests remain easy to find. Blue and yellow indicators distinguish unread\nupdates from priority attention without turning every approval into an alarm.\n\nThe first outside contact with your personal Agent gets one awareness reminder;\nroutine follow-ups do not keep interrupting you. Unexpected Computer connection\nloss and native Desktop updates use the same Inbox, with device-specific recovery\nor update guidance and no duplicate copies when you switch organizations.\n\nDesktop's menu bar keeps the logo and unread indicator close together, with\nnative macOS contrast instead of a fixed badge color.\nMentions and priority attention retain distinct @ and ! counts, while ordinary\nunread stays a quiet dot without a number."
+    },
+    {
+      "id": "desktop-update-attention-and-status",
+      "title": "Clearer Desktop update status and reminders",
+      "kind": "fixed",
+      "areas": [
+        "desktop",
+        "settings"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-20",
+      "release": "v0.3.214",
+      "evidence": [
+        "pr:1160",
+        "commit:99bd94a254457683a4922452b05bc80e175d50ac",
+        "commit:7fd7cd5faca0f24826471a336374235a9507734d",
+        "artifact:desktop-d266d57edbd064073263c2226c8d436bb1b577c42416430ab8af08c8c0adf77f"
+      ],
+      "body": "Desktop update reminders now point from Settings to Updates with matching blue\nindicators. The Updates page puts the current result and next action first, and\nthe compact reminder offers a full-width action with Later at the top right.\n\nDownloads show their actual progress, repeated checks do not revive dismissed\nreminders, and errors explain the appropriate recovery step. Download and restart\nremain separate choices, with existing draft and installation protections intact."
+    },
+    {
+      "id": "progressive-loading-agent-dashboard",
+      "title": "Clearer page loading and Agent usage at a glance",
+      "kind": "improved",
+      "areas": [
+        "web",
+        "desktop",
+        "agents",
+        "computers"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-20",
+      "release": "v0.3.214",
+      "evidence": [
+        "pr:1161",
+        "commit:99bd94a254457683a4922452b05bc80e175d50ac",
+        "workflow:35486026282",
+        "commit:7fd7cd5faca0f24826471a336374235a9507734d",
+        "artifact:desktop-d266d57edbd064073263c2226c8d436bb1b577c42416430ab8af08c8c0adf77f"
+      ],
+      "body": "Agent pages retain navigation while their content loads, with placeholders\nmatching the sections being fetched. Provider usage appears beside Agent\nconfiguration cards, using the familiar quota ring and clear reset information.\n\nComputer inventory no longer waits for a duplicate routing-preference request.\nOther independent sections, including channel connections and personal Computer\nlists, can appear without waiting for unrelated data. Settings, histories, and\nlazy Space panels use local placeholders rather than bare loading text. Unknown\npreferences no longer appear as saved defaults while their values are loading."
+    },
+    {
+      "id": "team-organization-skills",
+      "title": "Find shared Skills in Team",
+      "kind": "improved",
+      "areas": [
+        "web",
+        "skills",
+        "team"
+      ],
+      "audiences": [
+        "members",
+        "admins",
+        "agent-users"
+      ],
+      "publishedAt": "2026-09-20",
+      "release": "v0.3.214",
+      "evidence": [
+        "pr:1101",
+        "commit:99bd94a254457683a4922452b05bc80e175d50ac",
+        "workflow:35486026282"
+      ],
+      "body": "Skills now live beside People, Agents, and Plugins in Team. Members can browse\nthe workspace's shared working methods without opening a Center Agent\nconversation, and existing Skill links still reach the right page.\n\nFind skills in a compact, searchable list with a status filter. Open a skill to\nread or edit its instructions immediately; supporting files, optional properties\nand version history stay close without crowding the document. Save remains\nexplicit and easy to reach. Creation and GitHub installation guide you through\nthe existing actions, protect unfinished input, and open the result directly.\n\nSwitching workspaces opens that workspace's catalog rather than carrying a\nSkill from the previous one. Editing retains unsaved-change protection and the\nrelease version on which a draft was based, including during background updates\nand browser history navigation. Existing editing and management permissions\nremain unchanged.\n\nInstructions and Markdown references now refresh together with accepted saved\nversions without replacing unsaved work. When a save succeeds while more edits\narrive, the leave dialog explains that the previous changes were saved and the\nnewer changes still need saving, rather than reporting a save failure."
+    },
+    {
+      "id": "selected-space-work-handoffs",
+      "title": "Hand off selected Space files to another Agent",
+      "kind": "new",
+      "areas": [
+        "spaces",
+        "files",
+        "agents",
+        "cli"
+      ],
+      "audiences": [
+        "members",
+        "developers"
+      ],
+      "publishedAt": "2026-09-20",
+      "release": "v0.3.214",
+      "evidence": [
+        "pr:1164",
+        "commit:99bd94a254457683a4922452b05bc80e175d50ac",
+        "workflow:35486026282",
+        "workflow:35487151259",
+        "workflow:35487310373"
+      ],
+      "body": "Hand off specific file and Skill versions with a goal and next steps. Agents\nsave changes as revisions of the original Space files and choose which results\nto include in their reply. Managed local working copies preserve edits when\nuploads fail or another collaborator changes the same file.\nConflicts can be resolved by comparing the shared version, merging local edits,\nand saving again without replacing another collaborator's work silently.\n\nThe first version uses existing hosted Computers and macOS Codex App Server\nfor local continuation. It does not create a private user-owned Computer or\nautomatically synchronize folders."
+    },
+    {
       "id": "more-opencode-and-cursor-model-choices",
       "title": "Choose more OpenCode and Cursor models",
       "kind": "new",
