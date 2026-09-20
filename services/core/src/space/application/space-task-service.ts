@@ -120,6 +120,7 @@ export class SpaceTaskService {
       review: null,
       automaticReworkRounds: 0,
       needsHumanDecision: false,
+      externalWorkItems: body.externalWorkItems ?? [],
       revision: 1,
       createdAt: now,
       updatedAt: now,
