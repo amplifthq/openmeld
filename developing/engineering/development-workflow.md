@@ -437,6 +437,22 @@ server. Restart the binary server after changing CLI source; `dev:stop` includes
 that server. `cli:binary:serve` without the worktree suffix remains the fixed-port
 development entry only.
 
+### Local macOS CLI/Service sign-in
+
+New sign-ins automatically use the existing private-file token store when
+`dev-local` has an explicit isolated `OPENMELD_HOME` and both Auth and Gateway
+use loopback URLs. No extra setup flag is needed. Credentials are unencrypted,
+protected by directory `0700` / file `0600` permissions; use test accounts only.
+CLI rebuilds and Service restarts reuse the same login. Existing Keychain
+sessions are not migrated: sign in normally once with the current build.
+
+For real-Keychain acceptance, set `OPENMELD_DEV_CREDENTIAL_STORE=system` on the
+setup/login command and use a separate fresh Home. Check that the saved
+`tokenRef.provider` is `macos-keychain`; disabling the development mode does not
+convert an existing file credential. Production, canary, remote endpoints,
+default user-state directories and other operating systems retain their normal
+storage behavior. This mode does not change provider credentials or permissions.
+
 For a localhost Routine smoke, start the Worker stack with
 `pnpm dev:worktree -- --test-scheduled`, create an enabled Routine through Web,
 then run the printed command to trigger one Core minute-scheduler tick:
