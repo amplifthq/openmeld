@@ -263,6 +263,27 @@ describe("Desktop update consent", () => {
     expect(driver.quitAndInstall).toHaveBeenCalledOnce();
   });
 
+  it("keeps the native install available when bounded receipt evidence cannot be written", async () => {
+    const { controller, driver, recordMacInstallRequested } = fixture();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    recordMacInstallRequested.mockImplementationOnce(() => {
+      throw new Error("Receipt unavailable");
+    });
+    try {
+      await controller.act("check");
+      await controller.act("download");
+      await controller.act("restart");
+      expect(driver.quitAndInstall).toHaveBeenCalledOnce();
+      expect(controller.snapshot().status).toBe("installing");
+      expect(warn).toHaveBeenCalledWith(
+        "[openmeld.desktop.update_install_receipt_write_failed]",
+        { errorName: "Error" }
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it.each([
     null,
     "/Applications/OpenMeld Desktop.app",

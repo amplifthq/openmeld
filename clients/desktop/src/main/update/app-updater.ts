@@ -131,14 +131,18 @@ export function createAppUpdater(input: {
     if (platform === "macos-arm64") {
       assertMacUpdateBundlePath(input.currentAppBundle ?? null);
       const targetVersion = state.version ?? downloadedVersion;
-      if (!(targetVersion && input.recordMacInstallRequested)) {
-        throw new Error(
-          "Desktop cannot preserve the macOS update installation receipt."
-        );
+      if (targetVersion && input.recordMacInstallRequested) {
+        try {
+          input.recordMacInstallRequested(targetVersion);
+        } catch (error) {
+          // The receipt is bounded diagnostic evidence, not installation
+          // authority. Never turn an observability write into a new updater
+          // outage after the signed bundle path itself was verified.
+          console.warn("[openmeld.desktop.update_install_receipt_write_failed]", {
+            errorName: error instanceof Error ? error.name : "UnknownError",
+          });
+        }
       }
-      // Keep compatibility/receipt failures recoverable. Only freeze editing
-      // once every precondition for the irreversible native handoff is satisfied.
-      input.recordMacInstallRequested(targetVersion);
     }
     publish({ status: "installing" });
     input.setInstalling(true);
