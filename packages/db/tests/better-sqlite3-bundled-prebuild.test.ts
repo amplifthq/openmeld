@@ -25,11 +25,18 @@ const repoRoot = path.resolve(
 );
 const patchPath = path.join(repoRoot, "patches/better-sqlite3@13.0.3.patch");
 const workspacePath = path.join(repoRoot, "pnpm-workspace.yaml");
+const rootManifestPath = path.join(repoRoot, "package.json");
 
 describe("better-sqlite3 13 Windows install", () => {
   it("uses the bundled prebuild and refuses to compile from source", () => {
     expect(readFileSync(workspacePath, "utf8")).toMatch(
       SQLITE_13_PATCH_MAPPING_PATTERN
+    );
+    const rootManifest = JSON.parse(readFileSync(rootManifestPath, "utf8")) as {
+      sherif?: { ignoreDependency?: string[] };
+    };
+    expect(rootManifest.sherif?.ignoreDependency ?? []).toContain(
+      "better-sqlite3"
     );
 
     const installLine = readFileSync(patchPath, "utf8")
