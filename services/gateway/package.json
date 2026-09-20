@@ -35,7 +35,7 @@
     "@openmeld/space": "workspace:*",
     "@openmeld/utils": "workspace:*",
     "hono": "^4.11.7",
-    "zod": "^4.3.6"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.12.14",

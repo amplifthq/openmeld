@@ -620,7 +620,9 @@ requires Core and Gateway before Web; no local component upgrade is required.
 ## Space Task contracts
 
 `@openmeld/schemas` owns the strict Space Task, actor, result, review, event,
-create, mutation, list, detail, and receipt contracts. Gateway authenticates
+create, mutation, list, detail, receipt, and GitHub `externalWorkItems`
+contracts. `externalWorkItems` defaults to `[]`, so stored Task JSON written
+before this field still parses. Gateway authenticates
 `GET/POST /v1/spaces/:spaceId/tasks` and
 `GET/PATCH /v1/spaces/:spaceId/tasks/:taskId`; Core RPC delegates to the owning
 Space Durable Object. Reads and writes require an active human or Agent member
@@ -628,12 +630,35 @@ whose profile ownership matches the authenticated actor. Current Direct
 Messages reject the capability.
 
 Create and mutation requests carry an operation id. Mutations also carry an
-expected revision. Replaying the same operation returns `applied: false`; reuse
-for different input conflicts. List responses are bounded to 500 Tasks and
-report `truncated` rather than silently claiming complete history. The additive
+expected revision. The Space Durable Object compares `expectedRevision` in the
+workflow before writing; a stale revision is typed `space_task.revision_conflict`
+HTTP 409. The SQL `UPDATE` is not a second concurrency authority. Replaying
+the same operation returns `applied: false`; reuse for different input is
+`space_task.operation_conflict` HTTP 409. Attaching too many GitHub issues is
+`space_task.external_work_item_limit`; detaching or observing a missing link is
+`space_task.external_work_item_not_found`. Those four codes belong to
+`gatewayErrorCodeSchema` so mixed-version Gateways pass them through instead of
+wrapping them as `upstream_error`. Other Space Task codes such as
+`space_task.not_found`, `space_task.forbidden`, and `space_task.invalid_action`
+stay wrapped until a caller needs to distinguish them from generic upstream
+failures. Callers refresh the Task and retry once with a new operation id for
+revision conflicts; the writer does not last-write-wins over a stale brief.
+List responses are bounded to 500 Tasks and report `truncated` rather than
+silently claiming complete history. GitHub issue association refuses to treat a
+truncated miss as "not found": it does not create another card and does not skip
+close-sync. The additive
 `space.tasks.changed` WebSocket
 frame is only a refresh signal. Web rereads the Task projection and never
 derives Task state from the frame.
+
+GitHub issue association is additive Remote Agent plus Space Task contract.
+Creating an issue from a shared Space records a linked Task through the
+existing create/mutate RPCs when the Task list can confirm whether that issue
+is already linked; the GitHub issue remains GitHub-owned. Closing
+the issue through `github_update_issue` cancels still-active linked Tasks
+through the Space writer. Completing or canceling a Task does not PATCH
+GitHub from Core. Old Remote Agent builds simply omit the association. Deploy
+schema consumers in Web, Gateway, and Core before the Remote Agent producer.
 
 The local Space Action MCP adds non-final Task tools alongside its one required
 final Space action. This is an additive CLI/OpenMeld Service/adapter contract

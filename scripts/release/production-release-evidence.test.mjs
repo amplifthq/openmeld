@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import {
   FIXTURE_VERSION,
   fixtureWorkerTarget,
@@ -19,6 +20,12 @@ import {
   readGuardedLocalReleaseSources,
 } from "./production-release-evidence.mjs";
 import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
+
+const PARTIAL_RECOVERY_ERROR = /failed partial|original|attempt/iu;
+const INVALID_RECOVERY_RECEIPT = /receipt|verified|identity/iu;
+const TERMINAL_RECOVERY_ERROR = /backward|terminal|completed/iu;
+const FAILED_UNKNOWN_EVENT = /"status":"failed","application":"unknown"/u;
+const VERIFIED_APPLIED_EVENT = /"status":"verified","application":"applied"/u;
 
 test("publishes exact guarded local release sources for later status checks", () => {
   const fixture = createGitFixture();
@@ -434,6 +441,271 @@ for (const failureStage of ["receipt", "health"]) {
     }
   });
 }
+
+test("keeps the canonical receipt v3 while linking an immutable recovery proof", () => {
+  const fixture = createGitFixture();
+  const attemptId = "70bdb4d1-c057-4868-89ec-1f9c5ed9a1b2";
+  const base = {
+    attemptId,
+    componentIndex: 4,
+    operationKey: "a".repeat(64),
+    startedAt: "2026-09-20T15:20:26.361Z",
+    application: "unknown",
+  };
+  const publish = (receipt, recordedAt, recoveryProof) =>
+    publishGuardedLocalReleaseEvidence({
+      cwd: fixture.repository,
+      remote: fixture.remote,
+      sourceSha: fixture.sourceSha,
+      scopes: ["remote-agent"],
+      receipts: { "remote-agent": receipt },
+      ...(recoveryProof
+        ? { recoveryProof: { "remote-agent": recoveryProof } }
+        : {}),
+      now: recordedAt,
+    });
+  const read = () =>
+    readGuardedLocalReleaseSources({
+      cwd: fixture.repository,
+      remote: fixture.remote,
+    }).get("remote-agent");
+  try {
+    publish({ ...base, status: "started" }, "2026-09-20T15:20:33.062Z");
+    publish({ ...base, status: "failed" }, "2026-09-20T15:22:12.913Z");
+    const failed = read();
+    const recovery = {
+      id: "00000000-0000-4000-8000-000000000002",
+      originalEvidenceSha: failed.evidenceSha,
+      startedAt: "2026-09-20T16:00:00.000Z",
+      baseline: {
+        workerDeploymentId: "old-deployment",
+        workerVersionId: "old-version",
+        containerId: "container-id",
+        containerVersion: 99,
+        containerImage: "registry.cloudflare.com/example@sha256:old",
+      },
+    };
+    assert.throws(
+      () =>
+        publish({ ...base, status: "verified" }, "2026-09-20T16:00:01.000Z"),
+      INVALID_RECOVERY_RECEIPT
+    );
+    const identity = {
+      kind: "worker-deployment",
+      workerName: "openmeld-remote-agent-prod",
+      environment: "prod",
+      deploymentId: "new-deployment",
+      versionId: "new-version",
+      sourceSha: fixture.sourceSha,
+      proof: "command-output",
+    };
+    const complete = {
+      ...recovery,
+      completed: {
+        containerVersion: 100,
+        containerImage: "registry.cloudflare.com/example@sha256:new",
+        observedAt: "2026-09-20T16:01:00.000Z",
+        activeRolloutId: null,
+        healthyInstances: 7,
+        activeInstances: 0,
+      },
+    };
+    const verifiedReceipt = {
+      ...base,
+      status: "verified",
+      application: "applied",
+      identity,
+    };
+    assert.throws(
+      () => publish(verifiedReceipt, "2026-09-20T16:00:02.000Z"),
+      TERMINAL_RECOVERY_ERROR
+    );
+    assert.throws(
+      () =>
+        publish(verifiedReceipt, "2026-09-20T16:00:03.000Z", {
+          ...verifiedReceipt,
+          recovery: { ...complete, originalEvidenceSha: "b".repeat(40) },
+        }),
+      PARTIAL_RECOVERY_ERROR
+    );
+    publish(verifiedReceipt, "2026-09-20T16:01:01.000Z", {
+      ...verifiedReceipt,
+      recovery: complete,
+    });
+    const verified = read();
+    assert.equal(verified.receipt.status, "verified");
+    assert.equal(verified.receipt.attemptId, attemptId);
+    assert.equal(verified.receipt.recovery, undefined);
+    const parentLine = execFileSync(
+      "git",
+      ["rev-list", "--parents", "-n", "1", verified.evidenceSha],
+      { cwd: fixture.repository, encoding: "utf8" }
+    )
+      .trim()
+      .split(" ");
+    assert.equal(parentLine[1], failed.evidenceSha);
+    assert.equal(parentLine.length, 3);
+    const proof = JSON.parse(
+      execFileSync("git", ["show", "-s", "--format=%B", parentLine[2]], {
+        cwd: fixture.repository,
+        encoding: "utf8",
+      })
+    );
+    assert.equal(proof.schemaVersion, 4);
+    assert.equal(
+      proof.receipt.recovery.originalEvidenceSha,
+      failed.evidenceSha
+    );
+    assert.deepEqual(proof.receipt.identity, identity);
+    const parentChain = execFileSync(
+      "git",
+      ["log", "-4", "--format=%s", verified.evidenceSha],
+      { cwd: fixture.repository, encoding: "utf8" }
+    );
+    assert.match(parentChain, FAILED_UNKNOWN_EVENT);
+    assert.match(parentChain, VERIFIED_APPLIED_EVENT);
+    publishGuardedLocalReleaseEvidence({
+      cwd: fixture.repository,
+      remote: fixture.remote,
+      sourceSha: fixture.sourceSha,
+      scopes: ["web"],
+      now: "2026-09-20T16:01:02.000Z",
+    });
+    if (process.env.OPENMELD_LEGACY_READER_CHECKOUT) {
+      const legacyModule = pathToFileURL(
+        path.join(
+          process.env.OPENMELD_LEGACY_READER_CHECKOUT,
+          "scripts/release/production-release-evidence.mjs"
+        )
+      ).href;
+      const legacyOutput = execFileSync(
+        "node",
+        [
+          "--experimental-strip-types",
+          "--input-type=module",
+          "-e",
+          "process.argv[1] = 'legacy-reader-check'; const reader = await import(process.env.LEGACY_READER_MODULE); const scopes = reader.readGuardedLocalReleaseSources({ cwd: process.env.FIXTURE_REPO, remote: process.env.FIXTURE_REMOTE }); console.log(JSON.stringify({ remoteAgent: scopes.get('remote-agent')?.receipt?.status, web: scopes.get('web')?.sha }));",
+        ],
+        {
+          cwd: fixture.repository,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            LEGACY_READER_MODULE: legacyModule,
+            FIXTURE_REPO: fixture.repository,
+            FIXTURE_REMOTE: fixture.remote,
+          },
+        }
+      );
+      assert.deepEqual(JSON.parse(legacyOutput), {
+        remoteAgent: "verified",
+        web: fixture.sourceSha,
+      });
+    }
+    const nextAttempt = {
+      attemptId: "00000000-0000-4000-8000-000000000003",
+      componentIndex: 0,
+      operationKey: "c".repeat(64),
+      startedAt: "2026-09-20T16:02:00.000Z",
+      status: "started",
+      application: "unknown",
+    };
+    publish(nextAttempt, "2026-09-20T16:02:01.000Z");
+    assert.deepEqual(read().receipt, nextAttempt);
+  } finally {
+    rmSync(fixture.root, { force: true, recursive: true });
+  }
+});
+
+test("a failed recovery keeps the original attempt unresolved for old release tooling", () => {
+  const fixture = createGitFixture();
+  const receipt = {
+    attemptId: "70bdb4d1-c057-4868-89ec-1f9c5ed9a1b2",
+    componentIndex: 4,
+    operationKey: "a".repeat(64),
+    startedAt: "2026-09-20T15:20:26.361Z",
+    status: "failed",
+    application: "unknown",
+  };
+  const publish = (nextReceipt, proof, now) =>
+    publishGuardedLocalReleaseEvidence({
+      cwd: fixture.repository,
+      remote: fixture.remote,
+      sourceSha: fixture.sourceSha,
+      scopes: ["remote-agent"],
+      receipts: { "remote-agent": nextReceipt },
+      ...(proof ? { recoveryProof: { "remote-agent": proof } } : {}),
+      now,
+    });
+  const read = () =>
+    readGuardedLocalReleaseSources({
+      cwd: fixture.repository,
+      remote: fixture.remote,
+    }).get("remote-agent");
+  try {
+    publish(
+      { ...receipt, status: "started" },
+      undefined,
+      "2026-09-20T15:20:33.062Z"
+    );
+    publish(receipt, undefined, "2026-09-20T15:22:12.913Z");
+    const originalSha = read().evidenceSha;
+    publish(
+      receipt,
+      {
+        ...receipt,
+        recovery: {
+          id: "00000000-0000-4000-8000-000000000002",
+          originalEvidenceSha: originalSha,
+          startedAt: "2026-09-20T16:00:00.000Z",
+          baseline: {
+            workerDeploymentId: "old-deployment",
+            workerVersionId: "old-version",
+            containerId: "container-id",
+            containerVersion: 99,
+            containerImage: "registry.cloudflare.com/example@sha256:old",
+          },
+          observedAfterFailure: {
+            workerDeploymentId: "new-deployment",
+            workerVersionId: "new-worker-version",
+            containerVersion: 99,
+            containerImage: "registry.cloudflare.com/example@sha256:old",
+            observedAt: "2026-09-20T16:02:00.000Z",
+          },
+        },
+      },
+      "2026-09-20T16:02:01.000Z"
+    );
+    const failedAgain = read();
+    assert.equal(failedAgain.receipt.status, "failed");
+    assert.equal(failedAgain.receipt.application, "unknown");
+    assert.notEqual(failedAgain.evidenceSha, originalSha);
+    const parents = execFileSync(
+      "git",
+      ["rev-list", "--parents", "-n", "1", failedAgain.evidenceSha],
+      { cwd: fixture.repository, encoding: "utf8" }
+    )
+      .trim()
+      .split(" ");
+    assert.equal(parents[1], originalSha);
+    assert.equal(parents.length, 3);
+    assert.throws(
+      () =>
+        publish(
+          {
+            ...receipt,
+            attemptId: "00000000-0000-4000-8000-000000000003",
+            status: "started",
+          },
+          undefined,
+          "2026-09-20T16:03:00.000Z"
+        ),
+      UNRESOLVED_ERROR
+    );
+  } finally {
+    rmSync(fixture.root, { force: true, recursive: true });
+  }
+});
 
 function createGitFixture() {
   const root = mkdtempSync(

@@ -11,6 +11,9 @@ export type SpaceTaskEventType = z.infer<
   SchemaModule["spaceTaskEventTypeSchema"]
 >;
 export type SpaceTaskEvent = z.infer<SchemaModule["spaceTaskEventSchema"]>;
+export type SpaceTaskExternalWorkItem = z.infer<
+  SchemaModule["spaceTaskExternalWorkItemSchema"]
+>;
 export type SpaceTask = z.infer<SchemaModule["spaceTaskSchema"]>;
 export type CreateSpaceTaskBody = z.infer<
   SchemaModule["createSpaceTaskBodySchema"]
@@ -29,4 +32,7 @@ export type ListSpaceTasksResponse = z.infer<
 >;
 export type SpaceTaskMutationReceipt = z.infer<
   SchemaModule["spaceTaskMutationReceiptSchema"]
+>;
+export type SpaceTaskErrorCode = z.infer<
+  SchemaModule["spaceTaskErrorCodeSchema"]
 >;

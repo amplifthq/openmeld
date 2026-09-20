@@ -109,6 +109,7 @@ import {
   createSpaceTaskBodySchema,
   daemonServiceLaneSchema,
   deleteCenterAgentRoutineResponseSchema,
+  describeLinkedGitHubIssueClosePrompt,
   executeExecutionRecoveryBodySchema,
   executeExecutionRecoveryResponseSchema,
   FEEDBACK_ISSUE_CATEGORIES,
@@ -267,6 +268,10 @@ import {
   extractSlackSearchThreadPublicationTargetKeys,
   parseSlackThreadPublicationTargetKey,
 } from "./slack-thread-publication-evidence";
+import {
+  mutateSpaceTaskRefreshingOnRevisionConflict,
+  readSpaceTaskRevision,
+} from "./space-task-revision-retry";
 import {
   buildRemoteAgentToolContext,
   resolveOrganizationMemberTurnEnvelopeSpeaker,
@@ -1608,6 +1613,9 @@ const manageSpaceTasksToolInputSchema = strictObject({
     "cancel",
     "reopen",
     "continue_rework",
+    "attach_external_work_item",
+    "detach_external_work_item",
+    "observe_external_work_item",
   ] as const),
   assigneeProfileId: optional(nullable(nonEmptyStringSchema)),
   completionConditions: optional(
@@ -1645,7 +1653,11 @@ const manageSpaceTasksToolInputSchema = strictObject({
       )
     )
   ),
+  lastObservedState: optional(picklist(["open", "closed"] as const)),
+  number: optional(pipe(number(), integer(), minValue(1))),
+  owner: optional(pipe(string(), trim(), minLength(1), maxLength(100))),
   reason: optional(pipe(string(), trim(), minLength(1), maxLength(1000))),
+  repo: optional(pipe(string(), trim(), minLength(1), maxLength(100))),
   reviewerProfileId: optional(nullable(nonEmptyStringSchema)),
   summary: optional(
     pipe(
@@ -1659,6 +1671,7 @@ const manageSpaceTasksToolInputSchema = strictObject({
   title: optional(
     pipe(string(), trim(), minLength(1), maxLength(SPACE_TASK_TITLE_MAX_CHARS))
   ),
+  url: optional(pipe(string(), trim(), minLength(1), maxLength(2048))),
 });
 
 type ManageSpaceTasksToolInput = InferOutput<
@@ -1723,12 +1736,187 @@ function buildSpaceTaskMutationFromTool(input: ManageSpaceTasksToolInput) {
         action: input.action,
         reason: input.reason,
       });
+    case "attach_external_work_item":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: input.action,
+        item: {
+          lastObservedAt: null,
+          lastObservedState: input.lastObservedState ?? "open",
+          number: input.number,
+          owner: input.owner,
+          provider: "github",
+          repo: input.repo,
+          url: input.url,
+        },
+      });
+    case "detach_external_work_item":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: input.action,
+        number: input.number,
+        owner: input.owner,
+        provider: "github",
+        repo: input.repo,
+      });
+    case "observe_external_work_item":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: input.action,
+        lastObservedState: input.lastObservedState,
+        number: input.number,
+        owner: input.owner,
+        provider: "github",
+        repo: input.repo,
+      });
     case "list":
     case "create":
       throw new TypeError(`${input.action} is not a Task mutation.`);
     default:
       throw new TypeError("Unsupported Space Task action.");
   }
+}
+
+function withSpaceTaskGitHubClosePrompt(receipt: {
+  applied: boolean;
+  event: unknown;
+  task: Parameters<typeof describeLinkedGitHubIssueClosePrompt>[0];
+}) {
+  const githubClosePrompt = describeLinkedGitHubIssueClosePrompt(receipt.task);
+  return githubClosePrompt ? { ...receipt, githubClosePrompt } : receipt;
+}
+
+async function executeManageSpaceTasksTool(input: {
+  coreWorker: RemoteAgentCoreWorkerBinding;
+  payload: unknown;
+  storage: RemoteAgentStorage;
+  submissionId: string;
+}) {
+  const request = parseValibot(manageSpaceTasksToolInputSchema, input.payload);
+  const toolContext = await buildOpenMeldToolContext({
+    storage: input.storage,
+    submissionId: input.submissionId,
+    toolName: "openmeld_manage_space_tasks",
+  });
+  const space = toolContext.turnEnvelope?.space;
+  if (!space || space.kind !== "space") {
+    throw new Error(
+      "Space Tasks are available only in the current shared OpenMeld Space."
+    );
+  }
+  if (request.action === "list") {
+    const rpc = requireCoreRpc(
+      input.coreWorker.listSpaceTasks,
+      "listSpaceTasks"
+    );
+    return listSpaceTasksResponseSchema.parse(
+      await rpc({ context: toolContext.context, spaceId: space.id })
+    );
+  }
+  if (request.action === "create") {
+    return await createSpaceTaskFromTool({
+      coreWorker: input.coreWorker,
+      request,
+      spaceId: space.id,
+      toolContext,
+    });
+  }
+  return await mutateSpaceTaskFromTool({
+    coreWorker: input.coreWorker,
+    request,
+    spaceId: space.id,
+    toolContext,
+  });
+}
+
+async function createSpaceTaskFromTool(input: {
+  coreWorker: RemoteAgentCoreWorkerBinding;
+  request: ManageSpaceTasksToolInput;
+  spaceId: string;
+  toolContext: Awaited<ReturnType<typeof buildOpenMeldToolContext>>;
+}) {
+  const body = createSpaceTaskBodySchema.parse({
+    operationId: crypto.randomUUID(),
+    title: input.request.title,
+    ...(input.request.description === undefined
+      ? {}
+      : { description: input.request.description }),
+    ...(input.request.completionConditions === undefined
+      ? {}
+      : { completionConditions: input.request.completionConditions }),
+    assigneeProfileId:
+      input.request.assigneeProfileId === undefined
+        ? input.toolContext.context.actorContext.openMeldProfileId
+        : input.request.assigneeProfileId,
+    ...(input.request.reviewerProfileId === undefined
+      ? {}
+      : { reviewerProfileId: input.request.reviewerProfileId }),
+    ...(input.request.owner &&
+    input.request.repo &&
+    input.request.number &&
+    input.request.url
+      ? {
+          externalWorkItems: [
+            {
+              lastObservedAt: null,
+              lastObservedState: input.request.lastObservedState ?? "open",
+              number: input.request.number,
+              owner: input.request.owner,
+              provider: "github",
+              repo: input.request.repo,
+              url: input.request.url,
+            },
+          ],
+        }
+      : {}),
+  });
+  const rpc = requireCoreRpc(
+    input.coreWorker.createSpaceTask,
+    "createSpaceTask"
+  );
+  return withSpaceTaskGitHubClosePrompt(
+    spaceTaskMutationReceiptSchema.parse(
+      await rpc({
+        body,
+        context: input.toolContext.context,
+        spaceId: input.spaceId,
+      })
+    )
+  );
+}
+
+async function mutateSpaceTaskFromTool(input: {
+  coreWorker: RemoteAgentCoreWorkerBinding;
+  request: ManageSpaceTasksToolInput;
+  spaceId: string;
+  toolContext: Awaited<ReturnType<typeof buildOpenMeldToolContext>>;
+}) {
+  const mutate = requireCoreRpc(
+    input.coreWorker.mutateSpaceTask,
+    "mutateSpaceTask"
+  );
+  const read = requireCoreRpc(input.coreWorker.getSpaceTask, "getSpaceTask");
+  const body = buildSpaceTaskMutationFromTool(input.request);
+  return withSpaceTaskGitHubClosePrompt(
+    await mutateSpaceTaskRefreshingOnRevisionConflict({
+      mutate: (mutation) =>
+        mutate({
+          body: mutation,
+          context: input.toolContext.context,
+          spaceId: input.spaceId,
+          taskId: input.request.taskId,
+        }),
+      readCurrentRevision: async () =>
+        readSpaceTaskRevision(
+          await read({
+            context: input.toolContext.context,
+            spaceId: input.spaceId,
+            taskId: input.request.taskId,
+          })
+        ),
+      request: body,
+    })
+  );
 }
 
 type RemoteAgentOpenMeldToolDefinitionsInput = {
@@ -3346,73 +3534,15 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_manage_space_tasks",
       description:
-        "Manage durable commitments in the current shared OpenMeld Space. Create a Task when the current message asks for a clear, discrete deliverable that will outlive an immediate conversational answer or needs ownership, progress, review, or later closure. Do not create Tasks for questions, tiny same-turn actions, exploratory discussion, acknowledgements, or every Agent tool call. A created Task is assigned to you by default but remains To do; call mark_in_progress when work actually begins, then submit_result with the concrete result and verification. Assignment alone never starts execution. Use list before changing an existing Task so expectedRevision is current. When an Agent reviewer must act, wake that reviewer after submitting the result. When an Agent reviewer requests changes and the Task returns to In progress, wake the assignee with the review feedback. Do not wake more work when needsHumanDecision is true. Two automatic Agent rework rounds are allowed before a human must decide. This tool is limited to this conversation's shared Space and does not control Agent execution truth.",
+        "Manage durable commitments in the current shared OpenMeld Space. Create a Task when the current message asks for a clear, discrete deliverable that will outlive an immediate conversational answer or needs ownership, progress, review, or later closure. Creating a GitHub issue in this Space records a linked Task only when that GitHub tool result's spaceTask.created is true; use attach_external_work_item or detach_external_work_item to associate an existing issue. When a Task linked to an open GitHub issue is completed or canceled, close that issue with github_update_issue unless the result says it is already closed. Do not create Tasks for questions, tiny same-turn actions, exploratory discussion, acknowledgements, or every Agent tool call. A created Task is assigned to you by default but remains To do; call mark_in_progress when work actually begins, then submit_result with the concrete result and verification. Assignment alone never starts execution. Use list before changing an existing Task so expectedRevision is current. When an Agent reviewer must act, wake that reviewer after submitting the result. When an Agent reviewer requests changes and the Task returns to In progress, wake the assignee with the review feedback. Do not wake more work when needsHumanDecision is true. Two automatic Agent rework rounds are allowed before a human must decide. This tool is limited to this conversation's shared Space and does not control Agent execution truth.",
       input: manageSpaceTasksToolInputSchema,
-      execute: async (payload) => {
-        const request = parseValibot(manageSpaceTasksToolInputSchema, payload);
-        const toolContext = await buildOpenMeldToolContext({
+      execute: async (payload) =>
+        await executeManageSpaceTasksTool({
+          coreWorker: input.coreWorker,
+          payload,
           storage: input.storage,
           submissionId: input.submissionId,
-          toolName: "openmeld_manage_space_tasks",
-        });
-        const space = toolContext.turnEnvelope?.space;
-        if (!space || space.kind !== "space") {
-          throw new Error(
-            "Space Tasks are available only in the current shared OpenMeld Space."
-          );
-        }
-        if (request.action === "list") {
-          const rpc = requireCoreRpc(
-            input.coreWorker.listSpaceTasks,
-            "listSpaceTasks"
-          );
-          return listSpaceTasksResponseSchema.parse(
-            await rpc({ context: toolContext.context, spaceId: space.id })
-          );
-        }
-        if (request.action === "create") {
-          const body = createSpaceTaskBodySchema.parse({
-            operationId: crypto.randomUUID(),
-            title: request.title,
-            ...(request.description === undefined
-              ? {}
-              : { description: request.description }),
-            ...(request.completionConditions === undefined
-              ? {}
-              : { completionConditions: request.completionConditions }),
-            assigneeProfileId:
-              request.assigneeProfileId === undefined
-                ? toolContext.context.actorContext.openMeldProfileId
-                : request.assigneeProfileId,
-            ...(request.reviewerProfileId === undefined
-              ? {}
-              : { reviewerProfileId: request.reviewerProfileId }),
-          });
-          const rpc = requireCoreRpc(
-            input.coreWorker.createSpaceTask,
-            "createSpaceTask"
-          );
-          return spaceTaskMutationReceiptSchema.parse(
-            await rpc({
-              body,
-              context: toolContext.context,
-              spaceId: space.id,
-            })
-          );
-        }
-        const rpc = requireCoreRpc(
-          input.coreWorker.mutateSpaceTask,
-          "mutateSpaceTask"
-        );
-        return spaceTaskMutationReceiptSchema.parse(
-          await rpc({
-            body: buildSpaceTaskMutationFromTool(request),
-            context: toolContext.context,
-            spaceId: space.id,
-            taskId: request.taskId,
-          })
-        );
-      },
+        }),
     }),
     toolDefinition({
       name: "openmeld_list_space_files",

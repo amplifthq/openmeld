@@ -6,6 +6,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { CaretRightIcon, RobotIcon, UserIcon } from "@phosphor-icons/react";
 import {
 	describeSpaceTaskAttention,
+	formatSpaceTaskGitHubIssueRefs,
 	formatSpaceTaskPhase,
 } from "./space-task-presentation";
 
@@ -22,6 +23,7 @@ export function SpaceTaskCard(input: SpaceTaskCardProps) {
 		selfProfileId: input.selfProfileId,
 		task,
 	});
+	const githubIssueRefs = formatSpaceTaskGitHubIssueRefs(task);
 	const assigneeName = task.assignee?.profileName ?? "Unassigned";
 	const AssigneeIcon =
 		task.assignee?.profileKind === "agent" ? RobotIcon : UserIcon;
@@ -63,6 +65,11 @@ export function SpaceTaskCard(input: SpaceTaskCardProps) {
 						<p className="mt-1 truncate text-foreground/80 text-xs">
 							{attention}
 						</p>
+						{githubIssueRefs.length > 0 ? (
+							<p className="mt-1 truncate text-muted-foreground text-xs">
+								{githubIssueRefs.join(" · ")}
+							</p>
+						) : null}
 					</div>
 					<CaretRightIcon
 						aria-hidden="true"
