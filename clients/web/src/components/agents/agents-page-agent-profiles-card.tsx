@@ -226,6 +226,7 @@ import {
 	formatListForSentence,
 	formatMutationError,
 	isAgentProfileAlreadyRemovedError,
+	isAgentProfileWorkAwaitingOriginalStopError,
 } from "./agents-page-formatters";
 import { useAgentWakeAvailabilityDisplayDebounce } from "./use-agent-wake-availability-display-debounce";
 
@@ -1378,6 +1379,12 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				)
 			);
 		} catch (error) {
+			if (isAgentProfileWorkAwaitingOriginalStopError(error)) {
+				toast.info(
+					`OpenMeld kept your choice for ${profile.profileName} and is checking whether the original request stopped on your computer. Nothing new has started yet.`
+				);
+				return;
+			}
 			console.error("Failed to recover Agent Profile work.", error);
 			toast.error(
 				formatMutationError(
