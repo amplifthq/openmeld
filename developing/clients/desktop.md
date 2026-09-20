@@ -576,11 +576,17 @@ does not call, update, stop, or reconfigure CLI or OpenMeld Service.
 
 ### Installed A-to-B release acceptance
 
-Run this acceptance once for every macOS Desktop **production release
-candidate** after its implementation and signed candidate are reviewed. It is a
-Desktop release gate, not a per-PR/per-commit test, and it is not required for
-Web-, Worker-, or CLI-only releases. Do not promote a release merely to create
-test material; use the reviewed candidate and the authorized release sequence.
+Run this acceptance once for every macOS Desktop **production release** after
+its implementation and signed candidate are reviewed. It is a Desktop release
+acceptance gate, not a per-PR/per-commit test, and it is not required for Web-,
+Worker-, or CLI-only releases.
+
+The current production app reads only the promoted updater feed, so the exact
+production-A -> production-B exercise happens immediately after the separately
+authorized promotion. Do not describe it as a pre-promotion gate until the
+repository has an explicit candidate-feed acceptance mechanism. A Desktop
+release is not considered accepted until this smoke passes; retain the exact
+promotion and installed-version evidence for rollback/incident decisions.
 
 The normal same-name `OpenMeld.app -> OpenMeld.app` case is the recurring
 release acceptance. While legacy `OpenMeld Desktop.app` installations still
