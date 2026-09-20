@@ -1,6 +1,6 @@
 import { cn } from "@openmeld/ui/lib/utils";
 import { GearSixIcon } from "@phosphor-icons/react";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import {
 	DESKTOP_UPDATE_ATTENTION_LABEL,
 	DesktopUpdateIndicator,
@@ -9,10 +9,12 @@ import {
 
 /** The shell entry and its accessible update attention stay together. */
 export function AppSettingsButton({
+	children,
 	className,
 	isActive,
 	...props
 }: Omit<ComponentProps<"button">, "children" | "aria-label"> & {
+	children?: ReactNode;
 	isActive: boolean;
 }) {
 	const attention = useDesktopUpdateAttention();
@@ -26,7 +28,7 @@ export function AppSettingsButton({
 			className={cn(className, "relative")}
 			type="button"
 		>
-			<GearSixIcon className="size-4" />
+			{children ?? <GearSixIcon className="size-4" />}
 			{attention ? (
 				<DesktopUpdateIndicator className="absolute top-1 right-1" />
 			) : null}

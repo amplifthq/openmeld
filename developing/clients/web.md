@@ -97,10 +97,12 @@ switching remains at the top; the global Create entry is temporarily hidden.
 Creation remains available in the Spaces and Team contextual headers. Global search sits
 above Settings in the footer, using the same compact utility styling. Inbox
 retains the shared attention badge and active-route treatment. The Organization
-avatar fills its circular trigger. Account, theme, and Settings
-remain reachable from the rail. Spaces and its contextual sidebar heading always
-open `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages,
-and Discover, in that order (Discover is absent in personal workspaces).
+avatar fills its circular trigger. Account, theme, and Settings remain reachable
+from the rail. Search, Settings, theme, and account controls share one footer
+hover scope, so the same background moves across all four without nested or
+competing highlights. Spaces and its contextual sidebar heading always open
+`/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages, and
+Discover, in that order (Discover is absent in personal workspaces).
 
 The Team contextual header has an Add menu with Invite members and New Agent.
 It reuses the existing Organization invitation flow (absent in personal

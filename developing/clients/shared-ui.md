@@ -143,7 +143,9 @@ stable `activeLayoutId` across route remounts, scoped to the sidebar presentatio
 so selection also travels between groups. Composite rows retain their existing
 links, actions, dimensions, and color overrides. Reduced motion removes travel.
 `fluid/sidebar-user-footer` adapts the official horizontal user dropdown block;
-clients provide identity, menu actions, and adjacent settings/theme buttons.
+clients provide identity and menu actions. `SidebarUserMenuItem` lets clients
+compose Search, Settings, theme, and account controls inside one `SidebarMenu`,
+so one reduced-motion-aware background travels across the complete footer.
 The existing `components/sidebar` family remains the inner resize-only surface;
 clients must not nest both engines for one Main Sidebar.
 Its unused menu primitives have been removed; menu consumers use the Fluid family.
