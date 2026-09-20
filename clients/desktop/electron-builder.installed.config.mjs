@@ -12,7 +12,9 @@ import {
   DEFAULT_APPLE_TEAM_ID,
   DEFAULT_NOTARY_KEYCHAIN_PROFILE,
 } from "../../scripts/release/macos-cli-signing.mjs";
-import { assertMacProductionBundleIdentity } from "./src/main/update/mac-bundle-path.ts";
+import {
+  assertMacProductionBundleIdentity,
+} from "./src/main/update/mac-bundle-path.ts";
 
 const target = readInstalledDesktopTarget(process.env);
 const signedMode = readDesktopSignedPackageMode(process.env);
@@ -54,7 +56,7 @@ if (!target) {
 const { build } = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8")
 );
-if (target.kind === "production") {
+if (target.kind === "production" && plan.platform === "macos-arm64") {
   assertMacProductionBundleIdentity({
     appId: target.appId,
     productName: build.productName,
