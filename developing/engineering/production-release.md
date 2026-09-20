@@ -122,6 +122,20 @@ still follows ordinary source, channel and lease guards.
 Unknown application, missing output, unreadable receipts, mismatched targets and
 unresolved legacy records block before a new attempt or deployment. They require
 separate evidence-backed reconciliation, not a new UUID or a status override.
+For the specific Remote Agent Worker-first/container-image failure, current-main
+tooling provides `release:recover:remote-agent-partial`. It requires the clean
+original release source, the retained failed attempt and its start event, the
+original operation key, and exact Cloudflare Worker/container selectors. Under
+the existing Remote Agent lease, it checks that one Worker deployment appeared
+inside the failed command window while the old container image remained active.
+That observation does not prove the first Worker's source. The command appends a
+linked version 4 recovery event, runs the normal Remote Agent deploy from the
+original source, and records a new command-correlated Worker identity only after
+the image tag, container version/digest, healthy rollout and active Worker are
+verified. A failure appends another failed event with the observed Worker and
+container state when Cloudflare can be read; further recovery remains blocked
+for manual reconciliation. The original failed record stays in the evidence
+history. This technical verification does not replace product Smoke.
 Version 1 successes and version 2 observations remain readable at their original
 evidence strength; they are not upgraded into correlated identities. Older
 writers cannot downgrade a retained record. All events remain append-only with

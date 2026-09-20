@@ -132,8 +132,68 @@ export const correlatedComponentReceiptSchema = z
       });
     }
   });
+const remoteAgentRecoverySchema = z.strictObject({
+  id: z.uuid(),
+  originalEvidenceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+  startedAt: z.iso.datetime(),
+  baseline: z.strictObject({
+    workerDeploymentId: z.string().min(1).max(200),
+    workerVersionId: z.string().min(1).max(200),
+    containerId: z.string().min(1).max(200),
+    containerVersion: z.number().int().nonnegative(),
+    containerImage: z.string().min(1).max(500),
+  }),
+  completed: z
+    .strictObject({
+      containerVersion: z.number().int().nonnegative(),
+      containerImage: z.string().min(1).max(500),
+    })
+    .optional(),
+  observedAfterFailure: z
+    .strictObject({
+      workerDeploymentId: z.string().min(1).max(200),
+      workerVersionId: z.string().min(1).max(200),
+      containerVersion: z.number().int().nonnegative(),
+      containerImage: z.string().min(1).max(500),
+      observedAt: z.iso.datetime(),
+    })
+    .optional(),
+});
+
+// A recovery remains linked to the original attempt and preserves its failed
+// event in the evidence ref's parent history. Its baseline is an observation,
+// never proof that the partial Worker belongs to the failed command.
+export const recoveredComponentReceiptSchema = z
+  .strictObject({
+    attemptId: z.uuid(),
+    componentIndex: z.number().int().nonnegative(),
+    operationKey: z.string().regex(/^[0-9a-f]{64}$/u),
+    startedAt: z.iso.datetime(),
+    status: z.enum(["started", "applied", "verified", "failed"]),
+    application: z.enum(["unknown", "applied"]),
+    identity: productionWorkerDeploymentIdentitySchema.optional(),
+    recovery: remoteAgentRecoverySchema,
+  })
+  .superRefine((receipt, context) => {
+    if (
+      ((receipt.status === "applied" || receipt.status === "verified") &&
+        (receipt.application !== "applied" ||
+          !receipt.identity ||
+          !receipt.recovery.completed)) ||
+      (receipt.application === "unknown" &&
+        (receipt.identity || receipt.recovery.completed)) ||
+      (receipt.status === "started" && receipt.application !== "unknown")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Recovery receipt requires a verified Worker and container target.",
+      });
+    }
+  });
 export const productionComponentReceiptSchema = z.union([
   correlatedComponentReceiptSchema,
+  recoveredComponentReceiptSchema,
   legacyComponentReceiptSchema,
 ]);
 
@@ -158,10 +218,25 @@ export const productionReleaseEvidenceSchema = z
       schemaVersion: z.literal(3),
       receipt: correlatedComponentReceiptSchema,
     }),
+    z.strictObject({
+      ...commonEvidenceFields,
+      schemaVersion: z.literal(4),
+      receipt: z.union([
+        recoveredComponentReceiptSchema,
+        correlatedComponentReceiptSchema,
+      ]),
+    }),
   ])
   .superRefine((evidence, context) => {
+    if (evidence.schemaVersion === 4 && evidence.scope !== "remote-agent") {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Partial recovery is limited to the Remote Agent release scope.",
+      });
+    }
     if (
-      evidence.schemaVersion === 3 &&
+      (evidence.schemaVersion === 3 || evidence.schemaVersion === 4) &&
       evidence.receipt.identity?.kind === "worker-deployment" &&
       evidence.receipt.identity.sourceSha !== evidence.sourceSha
     ) {

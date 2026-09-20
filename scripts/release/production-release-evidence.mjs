@@ -46,9 +46,10 @@ export function publishGuardedLocalReleaseEvidence(input) {
       context,
       scope,
       sourceSha,
-      input.receipts?.[scope]
+      input.receipts?.[scope],
+      current?.metadata.schemaVersion
     );
-    if (isRecordedReceipt(current?.metadata, metadata)) {
+    if (isRecordedReceipt(current?.metadata, metadata, current?.evidenceSha)) {
       continue;
     }
     pending.push({
@@ -183,10 +184,22 @@ function evidenceRef(scope) {
   return `${EVIDENCE_REF_PREFIX}/${scope}`;
 }
 
-function createEvidenceMetadata(context, scope, sourceSha, receipt) {
+function createEvidenceMetadata(
+  context,
+  scope,
+  sourceSha,
+  receipt,
+  previousVersion
+) {
   let schemaVersion = receipt ? 2 : 1;
   if (receipt?.operationKey) {
     schemaVersion = 3;
+  }
+  if (
+    receipt?.recovery ||
+    (scope === "remote-agent" && previousVersion === 4)
+  ) {
+    schemaVersion = 4;
   }
   return productionReleaseEvidenceSchema.parse({
     evidenceId: randomUUID(),
@@ -199,7 +212,7 @@ function createEvidenceMetadata(context, scope, sourceSha, receipt) {
   });
 }
 
-function isRecordedReceipt(current, next) {
+function isRecordedReceipt(current, next, currentEvidenceSha) {
   if (!current) {
     return false;
   }
@@ -247,7 +260,11 @@ function isRecordedReceipt(current, next) {
       "Refusing an older component receipt; reconcile the latest deployment evidence first."
     );
   }
-  const recovered = validateCorrelationTransition(current, next);
+  const recovered = validateCorrelationTransition(
+    current,
+    next,
+    currentEvidenceSha
+  );
   if (previous?.attemptId === next.receipt.attemptId) {
     const order = { started: 0, applied: 1, verified: 2, failed: 2 };
     if (
@@ -264,10 +281,10 @@ function isRecordedReceipt(current, next) {
   return false;
 }
 
-function validateCorrelationTransition(current, next) {
+function validateCorrelationTransition(current, next, currentEvidenceSha) {
   const previous = current.receipt;
   if (
-    current.schemaVersion !== 3 ||
+    ![3, 4].includes(current.schemaVersion) ||
     previous?.attemptId !== next.receipt.attemptId ||
     previous.componentIndex !== next.receipt.componentIndex
   ) {
@@ -284,12 +301,56 @@ function validateCorrelationTransition(current, next) {
       "A correlated component attempt cannot change its target or applied identity."
     );
   }
+  if (next.receipt.recovery || previous.recovery) {
+    return validateRecoveryTransition(current, next, currentEvidenceSha);
+  }
   return (
     previous.status === "failed" &&
     previous.application === "applied" &&
     previous.identity &&
     next.receipt.status === "verified"
   );
+}
+
+function validateRecoveryTransition(current, next, currentEvidenceSha) {
+  const previous = current.receipt;
+  const recovery = next.receipt.recovery;
+  if (!recovery) {
+    throw new Error("A recovery cannot lose its original evidence link.");
+  }
+  if (current.schemaVersion === 3) {
+    if (
+      previous.status !== "failed" ||
+      previous.application !== "unknown" ||
+      recovery.originalEvidenceSha !== currentEvidenceSha ||
+      next.receipt.status !== "started" ||
+      next.receipt.application !== "unknown"
+    ) {
+      throw new Error(
+        "Only an exact failed partial attempt can start recovery."
+      );
+    }
+    return true;
+  }
+  if (
+    !previous.recovery ||
+    previous.recovery.id !== recovery.id ||
+    previous.recovery.originalEvidenceSha !== recovery.originalEvidenceSha ||
+    previous.recovery.startedAt !== recovery.startedAt ||
+    JSON.stringify(previous.recovery.baseline) !==
+      JSON.stringify(recovery.baseline) ||
+    (previous.recovery.completed &&
+      JSON.stringify(previous.recovery.completed) !==
+        JSON.stringify(recovery.completed)) ||
+    (previous.recovery.observedAfterFailure &&
+      JSON.stringify(previous.recovery.observedAfterFailure) !==
+        JSON.stringify(recovery.observedAfterFailure))
+  ) {
+    throw new Error(
+      "A recovery cannot change its original attempt or baseline."
+    );
+  }
+  return false;
 }
 
 function createEvidenceCommit(context, current, metadata) {
