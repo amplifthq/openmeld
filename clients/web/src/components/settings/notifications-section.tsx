@@ -9,7 +9,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
-import { BrowserNotificationExample } from "#/components/inbox/browser-notification-example";
+import {
+	BrowserNotificationExample,
+	type BrowserNotificationExampleStatus,
+} from "#/components/inbox/browser-notification-example";
 import { ClientNotificationControl } from "#/components/inbox/client-notification-control";
 import { DefaultMessageNotificationSetting } from "#/components/inbox/default-message-notification-setting";
 import { useInboxNotificationSettings } from "#/components/inbox/use-inbox-notification-settings";
@@ -25,6 +28,10 @@ import {
 
 export function NotificationsSection() {
 	const [testStatus, setTestStatus] = useState<string | null>(null);
+	const [browserExample, setBrowserExample] = useState<{
+		userId: string;
+		status: BrowserNotificationExampleStatus;
+	} | null>(null);
 	const queryClient = useQueryClient();
 	const account = useAppShellAccount();
 	const { currentOrganization, currentUserId } = useAppOrganization();
@@ -85,10 +92,16 @@ export function NotificationsSection() {
 	const notificationDescription = resolveClientNotificationDescription(
 		settings.permission
 	);
+	const exampleStatus =
+		browserExample?.userId === currentUserId &&
+		settings.enabled &&
+		settings.permission === "granted"
+			? browserExample.status
+			: null;
 
 	const emailDescription = account.email?.trim()
-		? `Send urgent Inbox items to ${account.email.trim()}. You can turn this off at any time.`
-		: "Send urgent Inbox items to your verified account email. You can turn this off at any time.";
+		? `Send urgent Inbox items to ${account.email.trim()}.`
+		: "Send urgent Inbox items to your verified email.";
 	const emailStatus = resolveSettingsRowStatus({
 		hasError: emailMutation.isError || preferencesQuery.isError,
 		isPending: emailMutation.isPending,
@@ -111,35 +124,70 @@ export function NotificationsSection() {
 	return (
 		<>
 			<AppPageHeader
-				description="Choose how OpenMeld alerts you when something needs your attention."
+				description="Choose when and how to be notified."
 				eyebrow="Personal"
 				id="notifications-heading"
 				title="Notifications"
 			/>
 			<SettingsSection
-				description="Your Inbox always stays available. These controls only change how new items reach you."
+				description="These settings don’t change what appears in your Inbox."
 				id="notification-delivery"
 				title="Delivery"
 			>
 				<DefaultMessageNotificationSetting key={currentUserId} />
 				<SettingsRow
 					control={
-						<div className="flex max-w-sm flex-col items-end gap-3">
-							<ClientNotificationControl
-								disabled={notificationPending}
-								onChange={updateNotifications}
-								settings={settings}
-							/>
+						<div className="flex items-center gap-3">
 							{settings.permission !== "unknown" && (
 								<BrowserNotificationExample
 									enabled={settings.enabled}
 									key={currentUserId}
+									onStatusChange={(status) =>
+										setBrowserExample({ userId: currentUserId, status })
+									}
+									status={exampleStatus}
 									userId={currentUserId}
 								/>
 							)}
+							<ClientNotificationControl
+								disabled={notificationPending}
+								onChange={(enabled) => {
+									setBrowserExample(null);
+									updateNotifications(enabled);
+								}}
+								settings={settings}
+							/>
 						</div>
 					}
-					description={notificationDescription}
+					description={
+						<span className="grid">
+							<span
+								aria-hidden="true"
+								className="invisible col-start-1 row-start-1"
+							>
+								{notificationDescription}
+							</span>
+							{settings.permission !== "unknown" ? (
+								<span
+									aria-hidden="true"
+									className="invisible col-start-1 row-start-1"
+								>
+									Nothing appeared? Check notification permissions and Do Not
+									Disturb.
+								</span>
+							) : null}
+							<span
+								className={
+									exampleStatus?.error
+										? "col-start-1 row-start-1 text-destructive"
+										: "col-start-1 row-start-1"
+								}
+								role={exampleStatus?.error ? "alert" : "status"}
+							>
+								{exampleStatus?.message ?? notificationDescription}
+							</span>
+						</span>
+					}
 					error={notificationError ?? undefined}
 					label={
 						settings.permission === "unknown"
@@ -158,8 +206,8 @@ export function NotificationsSection() {
 					}
 					description={
 						settings.permission === "unknown"
-							? "Play a sound with Desktop notifications. Your Mac’s sound and Focus settings still apply."
-							: "Play an OpenMeld sound when a browser notification appears on this device. Browser and system notification sounds are controlled separately."
+							? "Play a sound with Desktop notifications."
+							: "Play a sound with browser notifications. System sounds are separate."
 					}
 					error={soundError ?? undefined}
 					label="Play OpenMeld sounds"

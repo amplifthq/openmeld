@@ -31,6 +31,7 @@ import {
   INBOX_OPEN_REVIEW,
   INBOX_PRIORITY,
   INBOX_UNREAD_PRIORITY_UPDATE,
+  inboxMentionSql,
 } from "./inbox-attention-predicates";
 import { currentInboxSourceFactsSql } from "./inbox-current-source-facts";
 import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
@@ -1263,7 +1264,8 @@ export function mapInboxItemRow(row: InboxItemRow): InboxItem {
 // Disjoint from open actions: an urgent action is counted once, as an action.
 const UNREAD_URGENT_UPDATE_FILTER =
   "importance = 'urgent' AND attention = 'update' AND resolution_status != 'resolved' AND read_at_ms IS NULL";
-const UNREAD_MENTION_UPDATE_FILTER =
+const UNREAD_MENTION_UPDATE_FILTER = `(${inboxMentionSql()}) AND importance = 'normal' AND attention = 'update' AND read_at_ms IS NULL`;
+const LEGACY_UNREAD_MENTION_UPDATE_FILTER =
   "kind IN ('space_mention', 'space_reference') AND importance = 'normal' AND attention = 'update' AND read_at_ms IS NULL";
 const ORDINARY_UNREAD_ATTENTION_FILTER = `
   read_at_ms IS NULL
@@ -1292,7 +1294,11 @@ function appendViewFilter(
       "kind IN ('document_review', 'organization_request')"
     );
   } else if (view === "mentions") {
-    filters.push(UNREAD_MENTION_UPDATE_FILTER);
+    filters.push(
+      presentation === "attention"
+        ? UNREAD_MENTION_UPDATE_FILTER
+        : LEGACY_UNREAD_MENTION_UPDATE_FILTER
+    );
   } else if (view === "urgent_updates") {
     filters.push(UNREAD_URGENT_UPDATE_FILTER);
   } else if (view === "recent_updates") {

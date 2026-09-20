@@ -284,6 +284,18 @@ export {
   spaceMessageMutationBodySchema,
   spaceMessageMutationResponseSchema,
 } from "./schemas/http/space-message-mutation";
+export type {
+  MessageSearchResponse,
+  MessageSearchRpcInput,
+} from "./schemas/http/space-message-search";
+export {
+  messageSearchCursorSchema,
+  messageSearchQuerySchema,
+  messageSearchResponseSchema,
+  messageSearchRpcInputSchema,
+  spaceMessageSearchQuerySchema,
+  spaceMessageSearchResponseSchema,
+} from "./schemas/http/space-message-search";
 export * from "./schemas/index";
 export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
 export {

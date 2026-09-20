@@ -881,6 +881,7 @@ describe("Inbox service", () => {
         service.summary({ ...identity, presentation: "attention" })
       ).resolves.toMatchObject({
         ordinaryUnreadCount: 1,
+        unreadMentionCount: 0,
         totalUnreadCount: 1,
       });
     } finally {

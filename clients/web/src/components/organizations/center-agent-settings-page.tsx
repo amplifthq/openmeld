@@ -63,6 +63,7 @@ import {
 	resolveDesignatedCenterAgentProfile,
 } from "./center-agent-profile-presentation";
 import { CenterAgentUsageSection } from "./center-agent-usage-section";
+import { OrganizationMemoryPolicySection } from "./organization-memory-policy-section";
 
 const CENTER_AGENT_STATUS_BADGE_CLASS_NAMES = {
 	Available: resolveStatusToneProminentBadgeClassName("ready"),
@@ -87,11 +88,20 @@ export function CenterAgentSettingsPage() {
 		})
 	);
 	const isPersonalOrganization = currentOrganization.isPersonal === true;
-	const canManage =
+	const canManageCenterAgent =
 		isPersonalOrganization ||
 		canManageOrganizationArea(roleQuery.data, {
 			centerAgent: ["update"],
 		});
+	const canManageMemory =
+		isPersonalOrganization ||
+		canManageOrganizationArea(roleQuery.data, {
+			memory: ["manage"],
+		});
+	const roleErrorMessage =
+		isPersonalOrganization || !roleQuery.isError
+			? null
+			: roleQuery.error.message;
 
 	return (
 		<CenterAgentSettingsContent
@@ -99,12 +109,17 @@ export function CenterAgentSettingsPage() {
 			isDirectoryPending={directoryQuery.isPending}
 			isPersonalWorkspace={isPersonalOrganization}
 			members={directoryQuery.data?.members ?? []}
+			memoryRoleState={{
+				canManage: canManageMemory,
+				errorMessage: roleErrorMessage,
+				isPending: isPersonalOrganization ? false : roleQuery.isPending,
+			}}
 			organizationId={currentOrganization.id}
 			organizationName={currentOrganization.name}
 			orgSlug={currentOrganization.slug}
 			roleState={{
-				canManage,
-				isError: isPersonalOrganization ? false : roleQuery.isError,
+				canManage: canManageCenterAgent,
+				errorMessage: roleErrorMessage,
 				isPending: isPersonalOrganization ? false : roleQuery.isPending,
 			}}
 		/>
@@ -113,9 +128,27 @@ export function CenterAgentSettingsPage() {
 
 export type CenterAgentSettingsRoleState = {
 	canManage: boolean;
-	isError: boolean;
+	errorMessage: string | null;
 	isPending: boolean;
 };
+
+function CenterAgentOrganizationMemorySection(input: {
+	isPersonalWorkspace: boolean;
+	organizationId: string;
+	roleState: CenterAgentSettingsRoleState;
+}) {
+	if (input.isPersonalWorkspace) {
+		return null;
+	}
+
+	return (
+		<OrganizationMemoryPolicySection
+			isPersonalWorkspace={false}
+			organizationId={input.organizationId}
+			roleState={input.roleState}
+		/>
+	);
+}
 
 function isCenterAgentIdentityPending(input: {
 	designationPending: boolean;
@@ -133,6 +166,7 @@ export function CenterAgentSettingsContent(input: {
 	agentProfiles: readonly DirectoryAgentProfile[];
 	isDirectoryPending: boolean;
 	isPersonalWorkspace: boolean;
+	memoryRoleState: CenterAgentSettingsRoleState;
 	members: readonly OrganizationDirectoryResponse["members"][number][];
 	organizationId: string;
 	organizationName: string;
@@ -345,6 +379,11 @@ export function CenterAgentSettingsContent(input: {
 					title="Could not load Documents."
 				/>
 			) : null}
+			<CenterAgentOrganizationMemorySection
+				isPersonalWorkspace={input.isPersonalWorkspace}
+				organizationId={input.organizationId}
+				roleState={input.memoryRoleState}
+			/>
 			<CenterAgentUsageSection
 				isPersonalWorkspace={input.isPersonalWorkspace}
 				organizationId={input.organizationId}
@@ -556,7 +595,7 @@ function CenterAgentDisconnectedSection(input: {
 						disabled={
 							!input.roleState.canManage ||
 							input.connectState.isPending ||
-							input.roleState.isError ||
+							Boolean(input.roleState.errorMessage) ||
 							input.roleState.isPending
 						}
 						onClick={input.onConnectRemote}
@@ -576,7 +615,7 @@ function CenterAgentDisconnectedSection(input: {
 					{resolveRemoteConnectionDescription({
 						canManage: input.roleState.canManage,
 						isMutationPending: input.connectState.isPending,
-						isRoleError: input.roleState.isError,
+						isRoleError: Boolean(input.roleState.errorMessage),
 						isRolePending: input.roleState.isPending,
 					})}
 				</p>

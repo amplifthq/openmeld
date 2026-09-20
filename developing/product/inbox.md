@@ -14,6 +14,24 @@
 - Source of truth: This file owns the Inbox product model. Source owner documents
   remain authoritative for the work or event represented by an Inbox item.
 
+## Search
+
+Inbox search covers the current recipient's uncleared message items and other
+activities, independent of the currently loaded feed pages. Message matches use
+the canonical Space text search; non-message activities search their Inbox title
+and preview. Every result rechecks current source access and opens its canonical
+item. Search does not mark items read, dismiss them, or resolve their sources.
+Removed Inbox items remain excluded even if their original messages are still
+searchable from a conversation or workspace search.
+
+Conversation and Inbox dialogs share the command menu's search reader. Searches
+run after 300 ms without typing and wait for IME composition to finish. The
+command menu displays message results inline rather than opening another dialog.
+Changing or clearing the query cancels obsolete requests. Search accepts literal text of 3–200 characters,
+including unsegmented Chinese text. Historical indexing and incomplete pages
+remain visible; an unfinished or failed search must not claim there are no
+matches. Results are transient, not part of persisted browser read caches.
+
 ## Attention feed and frozen selections
 
 Permission and plan-review requests are ordinary Needs review items; questions
@@ -78,8 +96,11 @@ can be combined and persist in the URL; Unread only stays beside the tabs.
 The existing `agentsOnly` query remains supported; `peopleOnly` and
 `conversationType` are additive. Every filter is applied before grouping,
 counts, pagination and frozen bulk operations.
-Mentions includes structured Human mentions and current personal-Agent mentions
-through history, not unmentioned DMs. This does not change the older unread-only
+Mentions includes structured Human mentions, current personal-Agent mentions,
+and incoming Direct Messages addressed to the Human recipient, including Center
+Agent messages. A DM observed only through Agent ownership is not a direct
+message to that Human. These messages use the shared Web/native delivery policy
+and still honor conversation mute. This does not change the older unread-only
 `view=mentions` API. Agents filters actual interaction/author/recipient facts, not
 the presence of an Agent somewhere in a Space.
 
@@ -108,6 +129,26 @@ never joins different Organizations, main timelines, Threads or target scopes,
 and never absorbs an open request or critical execution outcome. The oldest
 priority signal can remain a group's visible anchor while newer chat arrives.
 Expanding a group performs no read mutation.
+
+Expanded updates use a bounded, keyboard-scrollable area with the shared edge
+fades. Expand/collapse all and individual group overrides are browser preferences,
+scoped to the account and Organization. They persist only presentation state
+(at most 100 individual overrides), never message contents, access, or read state.
+Unavailable browser storage does not prevent using the controls for that visit.
+
+Expand/collapse all sits beside the filters; the frozen-selection mark-as-read
+action sits beside the first list section heading. Conversation avatars reuse
+the authorized Space index, Profile directory, and Center Agent session identity
+used by the sidebar. Missing source identity retains the Inbox kind icon;
+clients must not guess an avatar from message text or another Organization.
+
+The Web action is labeled **Remove from Inbox**, not Delete. Single-item and
+group removal require confirmation. Removing an item excludes it from the
+personal Inbox and its unread count; it does not mark the source conversation
+read, delete source messages/documents, or resolve a pending request. The removed
+Inbox projection cannot currently be restored through the product. Confirmation
+retains the selected item or frozen group snapshot, rather than reselecting
+whatever happens to be visible after a live refresh.
 
 A feed snapshot records a short-lived, account-and-Organization-bound set of
 eligible canonical item ids, not message contents or a second read ledger.

@@ -67,10 +67,8 @@ const APP_MIN_HEIGHT = 640;
 const APP_NAME = "OpenMeld";
 // These UTF-16 text budgets keep native auto-layout compact without claiming a
 // pixel width. Truncation always retreats to a complete grapheme boundary.
-const TRAY_PREVIEW_SOURCE_TEXT_BUDGET = 30;
+const TRAY_PREVIEW_SOURCE_TEXT_BUDGET = 22;
 const TRAY_PREVIEW_BODY_TEXT_BUDGET = 32;
-const TRAY_PREVIEW_FALLBACK_SOURCE_TEXT_BUDGET = 22;
-const TRAY_PREVIEW_FALLBACK_BODY_TEXT_BUDGET = 18;
 const NATIVE_MENU_GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, {
   granularity: "grapheme",
 });
@@ -594,20 +592,13 @@ function trayPreviewMenuItems(
       item.preview,
       TRAY_PREVIEW_BODY_TEXT_BUDGET
     );
-    const supportsSublabel = resolveNativeMenuCapabilities().sublabel;
     return [
       { label: "Latest unread", enabled: false },
       {
-        label: supportsSublabel
-          ? headline
-          : `${truncateNativeMenuText(
-              source,
-              TRAY_PREVIEW_FALLBACK_SOURCE_TEXT_BUDGET
-            )} · ${relativeTime} — ${truncateNativeMenuText(
-              item.preview,
-              TRAY_PREVIEW_FALLBACK_BODY_TEXT_BUDGET
-            )}`,
-        ...(supportsSublabel ? { sublabel: preview } : {}),
+        // Native labels size the menu to their content. macOS sublabels can
+        // wrap independently, so keep the preview in the single-line label.
+        label: preview ? `${headline} — ${preview}` : headline,
+        accessibilityLabel: `${source} · ${relativeTime} — ${item.preview}`,
         toolTip: item.preview,
         click: () => {
           showDesktopWindow();
@@ -771,21 +762,19 @@ function formatTrayAttentionTooltip(
 
 function resolveNativeMenuCapabilities(): {
   badge: boolean;
-  sublabel: boolean;
 } {
   if (
     process.platform !== "darwin" ||
     typeof process.getSystemVersion !== "function"
   ) {
-    return { badge: false, sublabel: false };
+    return { badge: false };
   }
-  const [major = 0, minor = 0] = process
+  const [major = 0] = process
     .getSystemVersion()
     .split(".")
     .map((part) => Number.parseInt(part, 10));
   return {
     badge: major >= 14,
-    sublabel: major > 14 || (major === 14 && minor >= 4),
   };
 }
 

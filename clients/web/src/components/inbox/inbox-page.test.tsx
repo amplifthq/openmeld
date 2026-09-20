@@ -39,9 +39,14 @@ const EXACT_MESSAGE_LABEL = /Open exact message/u;
 const SLACK_REPLY_LABEL = /Slack reply/u;
 const OLD_REQUEST_LABEL = /Old request/u;
 const UNAVAILABLE_LABEL = /This Inbox item isn’t available/u;
+const SOURCE_PRESERVED = /Original messages and documents won’t be deleted/u;
 const FROZEN_SELECTION_DESCRIPTION =
 	/New messages and items outside this selection stay unread/u;
 vi.mock("#/lib/organizations/organization-context", () => ({
+	useOptionalAppOrganization: () => ({
+		currentOrganization: testOrganization,
+		currentUserId: "user-123",
+	}),
 	useAppOrganization: () => ({
 		currentOrganization: testOrganization,
 		currentUserId: "user-123",
@@ -103,6 +108,7 @@ class TestIntersectionObserver implements IntersectionObserver {
 }
 
 beforeEach(() => {
+	localStorage.clear();
 	vi.clearAllMocks();
 	intersectionCallback = null;
 	vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
@@ -147,9 +153,7 @@ describe("canonical Inbox attention page", () => {
 			peopleOnly: false,
 			conversationType: "all",
 		});
-		expect(
-			screen.getByRole("button", { name: "All read" }).hasAttribute("disabled")
-		).toBe(true);
+		expect(screen.queryByRole("button", { name: "All read" })).toBeNull();
 	});
 
 	it("keeps the page shell, categories and controls visible while only the feed is pending", () => {
@@ -392,7 +396,7 @@ describe("canonical Inbox attention page", () => {
 			],
 			expandedRows: [row(first), row(second)],
 		});
-		fireEvent.click(screen.getByRole("button", { name: "View 12 updates" }));
+		fireEvent.click(screen.getByRole("button", { name: "View 12 activities" }));
 		expect(await screen.findByText("Codex replied")).toBeTruthy();
 		expect(mocks.read).not.toHaveBeenCalled();
 		expect(mocks.selection).not.toHaveBeenCalled();
@@ -491,7 +495,9 @@ describe("canonical Inbox attention page", () => {
 			name: OLD_REQUEST_LABEL,
 		});
 		await waitFor(() => expect(document.activeElement).toBe(link));
-		expect(screen.getByRole("button", { name: "View 3 updates" })).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "View 3 activities" })
+		).toBeTruthy();
 		expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
 			behavior: "auto",
 			block: "nearest",
@@ -586,7 +592,15 @@ describe("canonical Inbox attention page", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Actions for Pending request" })
 		);
-		fireEvent.click(await screen.findByRole("menuitem", { name: "Dismiss" }));
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Remove from Inbox" })
+		);
+		expect(mocks.dismiss).not.toHaveBeenCalled();
+		const dialog = screen.getByRole("alertdialog");
+		expect(within(dialog).getByText(SOURCE_PRESERVED)).toBeTruthy();
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Remove from Inbox" })
+		);
 		await waitFor(() =>
 			expect(mocks.dismiss).toHaveBeenCalledWith({
 				organizationId: "organization-123",
@@ -596,6 +610,80 @@ describe("canonical Inbox attention page", () => {
 		expect(onItemDismissed).toHaveBeenCalledWith(pending.id);
 		expect(pending.resolutionStatus).toBe("open");
 		expect(screen.queryByText("Ended")).toBeNull();
+	});
+
+	it("allows cancelling group removal and freezes the confirmed group before live refresh", async () => {
+		const first = item({ id: "first", title: "Conversation" });
+		const original = row(first, {
+			itemCount: 12,
+			unreadCount: 12,
+			groupKey: "frozen-group",
+		});
+		const { queryClient, queryKey } = renderPage({ rows: [original] });
+		fireEvent.click(screen.getByRole("button", { name: "Remove from Inbox" }));
+		fireEvent.click(
+			within(screen.getByRole("alertdialog")).getByRole("button", {
+				name: "Cancel",
+			})
+		);
+		expect(mocks.selection).not.toHaveBeenCalled();
+		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+		fireEvent.click(screen.getByRole("button", { name: "Remove from Inbox" }));
+		act(() =>
+			queryClient.setQueryData(queryKey, {
+				pageParams: [undefined],
+				pages: [{ ...page([original]), snapshotId: "newer-snapshot" }],
+			})
+		);
+		fireEvent.click(
+			within(screen.getByRole("alertdialog")).getByRole("button", {
+				name: "Remove from Inbox",
+			})
+		);
+		await waitFor(() =>
+			expect(mocks.selection).toHaveBeenCalledExactlyOnceWith({
+				organizationId: "organization-123",
+				snapshotId: "snapshot",
+				groupKey: "frozen-group",
+				operation: "dismiss",
+			})
+		);
+		expect(mocks.read).not.toHaveBeenCalled();
+	});
+
+	it("remembers expand-all and individual overrides without marking anything as read", async () => {
+		const first = item({ id: "first", title: "Conversation" });
+		const grouped = row(first, {
+			itemCount: 12,
+			unreadCount: 12,
+			groupKey: "group",
+		});
+		renderPage({ rows: [grouped], expandedRows: [row(first)] });
+		fireEvent.click(
+			screen.getByRole("button", { name: "Expand all activities" })
+		);
+		expect(
+			screen
+				.getByRole("button", { name: "Collapse activities" })
+				.getAttribute("aria-expanded")
+		).toBe("true");
+		cleanup();
+		renderPage({ rows: [grouped], expandedRows: [row(first)] });
+		expect(
+			await screen.findByRole("button", { name: "Collapse activities" })
+		).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Collapse activities" })
+		);
+		cleanup();
+		renderPage({ rows: [grouped], expandedRows: [row(first)] });
+		expect(
+			screen
+				.getByRole("button", { name: "View 12 activities" })
+				.getAttribute("aria-expanded")
+		).toBe("false");
+		expect(mocks.read).not.toHaveBeenCalled();
+		expect(mocks.selection).not.toHaveBeenCalled();
 	});
 });
 
