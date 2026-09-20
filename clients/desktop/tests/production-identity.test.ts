@@ -1,4 +1,4 @@
-import packageJson from "../package.json";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   assertMacProductionBundleIdentity,
@@ -6,6 +6,13 @@ import {
   MAC_PRODUCTION_APP_ID,
   MAC_PRODUCTION_PRODUCT_NAME,
 } from "../src/main/update/mac-bundle-path";
+
+const packageJson = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8")
+) as {
+  productName: string;
+  build: { appId: string; productName: string };
+};
 
 describe("production Desktop update identity", () => {
   it("keeps the installed filesystem name and app identity stable", () => {

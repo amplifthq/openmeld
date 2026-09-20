@@ -161,7 +161,7 @@ describe("macOS Desktop bundle rename", () => {
     expect(confirmIndex).toBeGreaterThan(launchIndex);
     expect(removeLegacyIndex).toBeGreaterThan(confirmIndex);
     expect(MAC_BUNDLE_RENAME_INSTALL_SCRIPT).toContain("restore_target");
-    expect(MAC_BUNDLE_RENAME_INSTALL_SCRIPT).toContain('write_receipt "failed:');
+    expect(MAC_BUNDLE_RENAME_INSTALL_SCRIPT).toContain('write_receipt "failed:$step"');
   });
 
   it("starts the fixed installer with bounded evidence and leaves Squirrel unused", () => {
