@@ -1,10 +1,5 @@
 import { Buffer } from "node:buffer";
-import {
-  readFileSync,
-  renameSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { MAC_PRODUCTION_APP_BUNDLE_NAME } from "./mac-bundle-path";
 
@@ -26,6 +21,8 @@ export type MacUpdateInstallReceipt = {
   targetBundle: string;
 };
 
+type ReceiptKey = (typeof RECEIPT_KEYS)[number];
+
 type ReceiptDeps = {
   readFile: typeof readFileSync;
   rename: typeof renameSync;
@@ -39,6 +36,17 @@ const DEFAULT_DEPS: ReceiptDeps = {
   stat: statSync,
   writeFile: writeFileSync,
 };
+
+function readRequiredReceiptValue(
+  values: ReadonlyMap<string, string>,
+  key: ReceiptKey
+): string {
+  const value = values.get(key);
+  if (value === undefined) {
+    throw new Error("Desktop update install receipt is incomplete.");
+  }
+  return value;
+}
 
 function serializeReceipt(receipt: MacUpdateInstallReceipt): string {
   return [
@@ -96,11 +104,11 @@ export function parseMacUpdateInstallReceipt(
     }
   }
   return {
-    state: values.get("state")!,
-    sourceVersion: values.get("sourceVersion")!,
-    targetVersion: values.get("targetVersion")!,
-    sourceBundle: values.get("sourceBundle")!,
-    targetBundle: values.get("targetBundle")!,
+    state: readRequiredReceiptValue(values, "state"),
+    sourceVersion: readRequiredReceiptValue(values, "sourceVersion"),
+    targetVersion: readRequiredReceiptValue(values, "targetVersion"),
+    sourceBundle: readRequiredReceiptValue(values, "sourceBundle"),
+    targetBundle: readRequiredReceiptValue(values, "targetBundle"),
   };
 }
 

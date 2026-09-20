@@ -289,7 +289,7 @@ describe("Desktop update consent", () => {
     "/Applications/OpenMeld Desktop.app",
     "/Applications/OpenMeld Preview.app",
   ])("fails closed before Squirrel from an unsafe macOS bundle path: %s", async (currentAppBundle) => {
-    const { controller, driver } = fixture();
+    const { driver } = fixture();
     const setInstalling = vi.fn();
     const guarded = createAppUpdater({
       updater: driver as unknown as MacUpdater,

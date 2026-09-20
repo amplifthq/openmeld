@@ -16,11 +16,11 @@ import {
   assertProductionSignatureDetails,
   assertReceiptMatchesTarget,
   compareStableVersions,
+  PRODUCTION_EXECUTABLE,
   parseInstallReceipt,
   parseSmokeArgs,
   processListHasProductionApp,
   productionProcessPids,
-  PRODUCTION_EXECUTABLE,
 } from "../e2e/desktop-macos-production-update-smoke.mjs";
 
 import {
@@ -49,6 +49,14 @@ const SPACE_TASK_PATHS = [
 ];
 const SPACE_TASK_SCOPE_ERROR = /Space Task .*require/u;
 const SPACE_TASK_CONFLICT_ERROR = /Space Task receivers.*conflict/u;
+const DESKTOP_SMOKE_NEWER_ERROR_RE = DESKTOP_SMOKE_NEWER_ERROR_RE;
+const DESKTOP_SMOKE_STABLE_ERROR_RE = DESKTOP_SMOKE_STABLE_ERROR_RE;
+const DESKTOP_SMOKE_TEAM_ID_ERROR_RE = DESKTOP_SMOKE_TEAM_ID_ERROR_RE;
+const DESKTOP_SMOKE_STILL_RUNNING_ERROR_RE = DESKTOP_SMOKE_STILL_RUNNING_ERROR_RE;
+const DESKTOP_SMOKE_NOT_RUNNING_ERROR_RE = DESKTOP_SMOKE_NOT_RUNNING_ERROR_RE;
+const DESKTOP_SMOKE_APPLICATION_STARTED_ERROR_RE = DESKTOP_SMOKE_APPLICATION_STARTED_ERROR_RE;
+const DESKTOP_SMOKE_VERSION_MISMATCH_ERROR_RE = /not 0\.1\.6/u;
+const DESKTOP_SMOKE_MALFORMED_ERROR_RE = DESKTOP_SMOKE_MALFORMED_ERROR_RE;
 
 test("deploys Space Task RPC and HTTP receivers before their real callers", () => {
   const plan = buildProductionReleasePlan({
@@ -2294,7 +2302,6 @@ test("installs device-wait receivers before browser callers and Service publicat
   );
 });
 
-
 test("Desktop macOS A-to-B smoke parses thin before/after phases", () => {
   assert.deepEqual(parseSmokeArgs(["before", "0.1.4", "0.1.5"]), {
     phase: "before",
@@ -2375,7 +2382,7 @@ test("Desktop macOS A-to-B smoke validates bounded updater receipt evidence", ()
   );
   assert.throws(
     () => assertReceiptMatchesTarget(receipt, "0.1.6"),
-    /not 0.1.6/u
+    DESKTOP_SMOKE_VERSION_MISMATCH_ERROR_RE
   );
   assert.throws(
     () =>
