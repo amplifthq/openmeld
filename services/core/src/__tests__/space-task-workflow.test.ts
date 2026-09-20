@@ -78,6 +78,7 @@ const task = (overrides: Partial<SpaceTask> = {}): SpaceTask => ({
   review: null,
   automaticReworkRounds: 0,
   needsHumanDecision: false,
+  externalWorkItems: [],
   revision: 1,
   createdAt: "2026-09-15T00:00:00.000Z",
   updatedAt: "2026-09-15T00:00:00.000Z",
@@ -394,5 +395,82 @@ describe("Space Task workflow", () => {
         code: "space_task.operation_conflict",
       })
     );
+  });
+});
+
+const githubIssue = {
+  lastObservedAt: "2026-09-20T00:00:00.000Z",
+  lastObservedState: "open" as const,
+  number: 1143,
+  owner: "amplifthq",
+  provider: "github" as const,
+  repo: "openmeld",
+  url: "https://github.com/amplifthq/openmeld/issues/1143",
+};
+
+describe("Space Task GitHub issue links", () => {
+  it("attaches a GitHub issue, rejects a second distinct copy, and observes close after cancel", () => {
+    const linked = apply(
+      task(),
+      {
+        action: "attach_external_work_item",
+        expectedRevision: 1,
+        item: githubIssue,
+        operationId: "attach-1",
+      },
+      requester
+    );
+    expect(linked.externalWorkItems).toEqual([githubIssue]);
+
+    const refreshed = apply(
+      linked,
+      {
+        action: "attach_external_work_item",
+        expectedRevision: 2,
+        item: {
+          ...githubIssue,
+          lastObservedAt: "2026-09-20T01:00:00.000Z",
+          owner: "AmpliftHQ",
+        },
+        operationId: "attach-2",
+      },
+      requester
+    );
+    expect(refreshed.externalWorkItems).toHaveLength(1);
+    expect(refreshed.externalWorkItems[0]?.lastObservedAt).toBe(
+      "2026-09-20T01:00:00.000Z"
+    );
+
+    const canceled = apply(
+      refreshed,
+      {
+        action: "cancel",
+        expectedRevision: 3,
+        operationId: "cancel-1",
+        reason: "GitHub issue amplifthq/openmeld#1143 was closed.",
+      },
+      requester
+    );
+    expect(canceled.phase).toBe("canceled");
+
+    const observed = apply(
+      canceled,
+      {
+        action: "observe_external_work_item",
+        expectedRevision: 4,
+        lastObservedState: "closed",
+        number: 1143,
+        operationId: "observe-1",
+        owner: "amplifthq",
+        provider: "github",
+        repo: "openmeld",
+      },
+      requester,
+      "2026-09-20T02:00:00.000Z"
+    );
+    expect(observed.externalWorkItems[0]).toMatchObject({
+      lastObservedAt: "2026-09-20T02:00:00.000Z",
+      lastObservedState: "closed",
+    });
   });
 });

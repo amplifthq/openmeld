@@ -158,6 +158,30 @@ function SpaceTaskDetailBody(input: {
 				</div>
 			) : null}
 
+			{task.externalWorkItems.length > 0 ? (
+				<div className="mt-4">
+					<p className="font-medium text-muted-foreground text-xs">
+						Linked GitHub issues
+					</p>
+					<ul className="mt-1 space-y-1 text-sm">
+						{task.externalWorkItems.map((item) => (
+							<li
+								key={`${item.provider}:${item.owner}/${item.repo}#${item.number}`}
+							>
+								<a
+									className="text-foreground underline-offset-2 hover:underline"
+									href={item.url}
+									rel="noreferrer"
+									target="_blank"
+								>
+									{item.owner}/{item.repo}#{item.number}
+								</a>
+							</li>
+						))}
+					</ul>
+				</div>
+			) : null}
+
 			<div className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
 				<TaskRole label="Assignee" value={task.assignee} />
 				<TaskRole

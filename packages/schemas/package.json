@@ -40,7 +40,7 @@
     "fix": "biome check --write --no-errors-on-unmatched ./"
   },
   "dependencies": {
-    "zod": "^4.3.6"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
