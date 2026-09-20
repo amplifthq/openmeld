@@ -50,7 +50,7 @@
     "string-width": "^8.1.0",
     "wrap-ansi": "10.0.0",
     "ws": "^8.18.3",
-    "zod": "^4.3.6"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@openmeld/adapter-claude-code": "workspace:*",

@@ -9,6 +9,9 @@ catalogs:
     '@cloudflare/workers-types':
       specifier: 5.20260908.1
       version: 5.20260908.1
+    zod:
+      specifier: 4.6.5
+      version: 4.6.5
 
 overrides:
   '@aws-sdk/core': 3.974.28
@@ -142,8 +145,8 @@ importers:
         specifier: 2.8.2
         version: 2.8.2
       zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+        specifier: 'catalog:'
+        version: 4.6.5
     devDependencies:
       '@openmeld/adapter-core':
         specifier: workspace:*
@@ -248,8 +251,8 @@ importers:
         specifier: ^8.18.3
         version: 8.19.0
       zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+        specifier: 'catalog:'
+        version: 4.6.5
     devDependencies:
       '@openmeld/adapter-claude-code':
         specifier: workspace:*
@@ -606,8 +609,8 @@ importers:
         specifier: ^1.1.2
         version: 1.1.2(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+        specifier: 'catalog:'
+        version: 4.6.5
     devDependencies:
       '@biomejs/biome':
         specifier: 2.3.13
@@ -957,8 +960,8 @@ importers:
   packages/schemas:
     dependencies:
       zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+        specifier: 'catalog:'
+        version: 4.6.5
     devDependencies:
       '@types/node':
         specifier: ^24.3.0
@@ -1142,8 +1145,8 @@ importers:
         specifier: workspace:*
         version: link:../core
       zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+        specifier: 'catalog:'
+        version: 4.6.5
     devDependencies:
       '@types/node':
         specifier: ^24.3.0
@@ -1429,8 +1432,8 @@ importers:
         specifier: ^4.11.7
         version: 4.11.9
       zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+        specifier: 'catalog:'
+        version: 4.6.5
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: 0.12.14
@@ -1499,8 +1502,8 @@ importers:
         specifier: 1.4.0
         version: 1.4.0(typescript@5.9.3)
       zod:
-        specifier: ^4.3.6
-        version: 4.4.3
+        specifier: 'catalog:'
+        version: 4.6.5
     devDependencies:
       '@babel/core':
         specifier: 8.0.1
@@ -13307,6 +13310,9 @@ packages:
 
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+
+  zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
 
   zustand-x@6.2.1:
     resolution: {integrity: sha512-y3nQMQNx3BORY95vpuodJvh/8AqQu++S3q6mJYBSo1J0Q168Sy+FatqER658YESDqv2bwviXcIT3bgl/Ip6M5g==}
@@ -26565,6 +26571,8 @@ snapshots:
   zod@4.3.6: {}
 
   zod@4.4.3: {}
+
+  zod@4.6.5: {}
 
   zustand-x@6.2.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(scheduler@0.27.0)(zustand@5.0.14(@types/react@19.2.14)(immer@11.1.4)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))):
     dependencies:
