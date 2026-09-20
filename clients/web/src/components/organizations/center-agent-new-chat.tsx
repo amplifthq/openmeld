@@ -37,10 +37,7 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
-import {
-	CenterAgentHeaderMenu,
-	CenterAgentHeaderTabs,
-} from "./center-agent-header-navigation";
+import { CenterAgentHeaderTabs } from "./center-agent-header-navigation";
 import { CenterAgentOptimisticConversation } from "./center-agent-optimistic-conversation";
 import { ChatTitleEditor } from "./chat-title-editor";
 
@@ -277,9 +274,6 @@ export function CenterAgentNewChat({
 				}
 				header={
 					<SpaceWindowHeader
-						actions={
-							<CenterAgentHeaderMenu organizationSlug={organization.slug} />
-						}
 						leadingControl={<SpaceHeaderIdentityIcon isDirectMessage />}
 						navigation={
 							<CenterAgentHeaderTabs

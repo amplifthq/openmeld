@@ -784,7 +784,7 @@ concept. Its surviving destinations use the stable header or its compact menu:
 | Overview   | **Center Agent → Center Agent settings**             | Identity, status, and configuration live in one low-frequency management surface.                                                                                           |
 | Channels   | **Center Agent → Channels**                          | The single Channel destination in every workspace; Organizations manage connections, while Personal Workspaces show read-only discovery and an Organization-creation guide. |
 | Plugins       | **Plugins**                                             | The single member and shared App catalog in every workspace.                                                                                                                |
-| Memory     | **Center Agent → Memory**                            | Organization policy and the current member's erase action share one clearly separated memory home.                                                                          |
+| Memory     | **Center Agent → Memory** for member memory; **Settings → Center Agent settings** for Organization memory | Personal recall stays with the member-facing Memory surface. Organization policy stays with the other Organization-owned Center Agent settings. |
 | Routines   | **Center Agent → Routines**                          | Routine use and creation remain daily product work inside the product that executes them.                                                                                   |
 | Activity   | **Center Agent → Center Agent settings → Audit Log** | Retire the misleading label; this journal records Center Agent tool calls.                                                                                                  |
 | Settings   | **Center Agent → Center Agent settings**             | One configuration home, with mutations role-gated.                                                                                                                          |
@@ -2255,12 +2255,15 @@ than by the model provider:
 Core owns scope, authorization, enabled state, subject identity, and deletion
 lifecycle. `developing/architecture/data-and-observability.md` owns storage and
 provider boundaries; `developing/product/remote-agent-runtime.md` owns recall
-and turn-envelope behavior. **Center Agent → Memory** owns both the current
-member-memory wipe entry and ongoing Organization policy management as clearly
-separated sections. **Settings → Personal → Privacy** links there instead of
-owning a second mutation surface. Setup Studio presents the Core-owned default
-as enabled without manufacturing a user choice. It does not own another policy
-or ongoing management surface.
+and turn-envelope behavior. In a multi-member Organization, **Center Agent →
+Memory** owns the current member-memory wipe entry, while **Settings → Center
+Agent settings** owns ongoing Organization policy management. A Personal
+Workspace keeps both Workspace memory and member memory on **Center Agent →
+Memory** because there is no separate Organization administration boundary.
+**Settings → Personal → Privacy** links to the member-facing Memory page instead
+of owning a second mutation surface. Setup Studio presents the Core-owned
+default as enabled without manufacturing a user choice. It does not own another
+policy or ongoing management surface.
 
 ### Organization Documents
 

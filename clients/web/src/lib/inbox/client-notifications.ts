@@ -38,7 +38,7 @@ export function resolveClientNotificationDescription(
 	if (permission === "denied") {
 		return "Notifications are blocked. Allow them in your browser’s site settings, then return here.";
 	}
-	return "Show notifications in this browser while OpenMeld is open. Messages follow your default and conversation settings. Your browser and operating system must also allow notifications.";
+	return "Show notifications while OpenMeld is open in this browser.";
 }
 
 export type InboxNotificationDeliveryResult =

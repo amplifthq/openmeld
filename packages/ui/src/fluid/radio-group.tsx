@@ -124,7 +124,7 @@ const RadioGroup = forwardRef<HTMLDivElement, RadioGroupProps>(
           aria-orientation={orientation}
           className={cn(
             "relative flex w-72 max-w-full select-none",
-            orientation === "horizontal" ? "flex-row" : "flex-col",
+            orientation === "horizontal" ? "flex-row gap-1" : "flex-col",
             className
           )}
           onBlur={(event) => {

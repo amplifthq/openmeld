@@ -65,24 +65,21 @@ export function OrganizationMemoryPolicySection(input: {
 			<div className="flex items-start justify-between gap-4 px-5 py-4">
 				<div className="min-w-0">
 					<p className="font-medium text-foreground text-sm">
-						{input.isPersonalWorkspace
-							? "Remember context across this workspace"
-							: "Use shared memory for this organization"}
+						Remember shared conversations
 					</p>
 					<p className="mt-1 text-muted-foreground text-xs leading-5">
 						{input.isPersonalWorkspace
-							? "When this is on, completed Center Agent conversations in Spaces and connected channels become workspace memory for future replies. Private chats use your Center Agent memory instead and are never added here automatically. OpenMeld stores workspace memory in Zep, a third-party memory service. You can turn this off at any time."
-							: "When this is on, conversations with the Center Agent in shared Spaces and Slack are summarized into organization memory, stored in Zep, a third-party memory service, and used in future Center Agent replies. Private Center Agent DMs are never saved to organization memory automatically. Owners and admins can turn this off at any time; when it is off, OpenMeld stops writing and retrieving organization memory."}
+							? "Center Agent can use useful details from Spaces and connected channels in future replies. Private chats use your personal memory instead."
+							: "Center Agent can use useful details from shared Spaces and connected channels in future replies. Private chats are not included."}
 					</p>
-					<p className="mt-2 text-muted-foreground text-xs">
-						{resolveOrganizationMemorySummary({
-							checked,
-							readUnavailable,
-							isPending: memoryPolicyQuery.isPending,
-							isPersonalWorkspace: input.isPersonalWorkspace,
-							isSaving: memoryPolicyMutation.isPending,
-						})}
-					</p>
+					{memoryPolicyMutation.isPending ? (
+						<p
+							aria-live="polite"
+							className="mt-2 text-muted-foreground text-xs"
+						>
+							Saving memory setting…
+						</p>
+					) : null}
 					{input.roleState.isPending ? (
 						<p className="mt-2 text-muted-foreground text-xs">
 							Checking who can manage organization memory.
@@ -98,7 +95,7 @@ export function OrganizationMemoryPolicySection(input: {
 					input.roleState.errorMessage ||
 					input.roleState.canManage ? null : (
 						<p className="mt-2 text-muted-foreground text-xs">
-							Only organization owners and admins can change this setting.
+							Only owners and admins can change organization memory.
 						</p>
 					)}
 					{readUnavailable ? (
@@ -142,24 +139,4 @@ export function OrganizationMemoryPolicySection(input: {
 			</div>
 		</section>
 	);
-}
-
-function resolveOrganizationMemorySummary(input: {
-	checked: boolean | undefined;
-	readUnavailable: boolean;
-	isPending: boolean;
-	isPersonalWorkspace: boolean;
-	isSaving: boolean;
-}): string {
-	const scope = input.isPersonalWorkspace ? "Workspace" : "Organization";
-	if (input.readUnavailable) {
-		return `${scope} memory setting is unavailable.`;
-	}
-	if (input.isPending || input.checked === undefined) {
-		return `Loading ${scope.toLowerCase()} memory settings.`;
-	}
-	if (input.isSaving) {
-		return `Saving ${scope.toLowerCase()} memory settings.`;
-	}
-	return `${scope} memory is ${input.checked ? "on" : "off"}.`;
 }
