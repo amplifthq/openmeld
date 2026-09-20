@@ -190,6 +190,12 @@ export {
   parseAgentControllerRef,
 } from "./daemon/agent-controller-ref";
 export {
+  computerCareObservationSchema,
+  executionHostObservationSchema,
+  OPENMELD_COMPUTER_CARE_HEADER,
+} from "./daemon/computer-care";
+export {
+  COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   computerFileAccessAbsolutePathSchema,
   computerFileAccessDaemonFrameSchema,
@@ -208,6 +214,7 @@ export {
   computerFileAccessUpdateRequestSchema,
   computerFileAccessUpdateResultFrameSchema,
   computerFileAccessUpdateRpcInputSchema,
+  isComputerFileAccessOwnerCancellation,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
   runtimeTransportComputerFileAccessReadRequestSchema,
   runtimeTransportComputerFileAccessUpdateRequestSchema,
@@ -560,6 +567,7 @@ export {
   localWakeRouteWorkingFolderObservationSchema,
   localWakeRouteWorkingFolderReasonCodeSchema,
   MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS,
+  OPENMELD_EXECUTION_ADMISSION_HEADER,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportAgentControllerConversationOccupancySchema,
   runtimeTransportAgentProfileExecutionStateRequestSchema,
@@ -598,6 +606,7 @@ export {
   runtimeTransportDispatchInteractionDeliveredRequestSchema,
   runtimeTransportDispatchInteractionRequestSchema,
   runtimeTransportDispatchInteractionResponseFramePayloadSchema,
+  runtimeTransportDispatchLifecycleAcknowledgementSchema,
   runtimeTransportDispatchLifecyclePhaseSchema,
   runtimeTransportDispatchLifecycleRequestSchema,
   runtimeTransportDispatchLifecycleSnapshotSchema,

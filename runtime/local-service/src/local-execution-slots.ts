@@ -151,6 +151,9 @@ export type LocalExecutionSlots = ReturnType<typeof createLocalExecutionSlots>;
 
 export function createLocalExecutionSlots(input: {
   limits: LocalServiceDispatchLimits;
+  // Observe ownership after mutation, including release. Completion events are
+  // emitted while the task still owns its slot and cannot prove quiescence.
+  onChanged?: () => void;
   onTaskCompleted?: (event: LocalExecutionSlotCompletionEvent) => void;
   onTaskDropped?: (event: LocalExecutionSlotDropEvent) => void;
   onTaskStarted?: (event: LocalExecutionSlotLifecycleEvent) => void;
@@ -354,12 +357,13 @@ export function createLocalExecutionSlots(input: {
     }
   };
 
+  const isQuiescent = (): boolean =>
+    pendingTasks.length === 0 &&
+    activeGlobal === 0 &&
+    adapterOperationIds.size === 0;
+
   const notifyDrainWaitersIfIdle = (): void => {
-    if (
-      pendingTasks.length > 0 ||
-      activeGlobal > 0 ||
-      adapterOperationIds.size > 0
-    ) {
+    if (!isQuiescent()) {
       return;
     }
     while (drainWaiters.length > 0) {
@@ -478,6 +482,7 @@ export function createLocalExecutionSlots(input: {
               remainingActiveForLane
             );
           }
+          input.onChanged?.();
           notifyDrainWaitersIfIdle();
           pump();
         });
@@ -485,6 +490,7 @@ export function createLocalExecutionSlots(input: {
   };
 
   return {
+    isQuiescent,
     getAdapterOperationStatus(
       adapterId: string
     ): LocalExecutionSlotAdapterOperationStatus {
@@ -503,12 +509,14 @@ export function createLocalExecutionSlots(input: {
       }
       adapterOperationIds.add(adapterId);
       try {
+        input.onChanged?.();
         return {
           accepted: true,
           value: await operation(),
         };
       } finally {
         adapterOperationIds.delete(adapterId);
+        input.onChanged?.();
         notifyDrainWaitersIfIdle();
         pump();
       }
@@ -563,6 +571,7 @@ export function createLocalExecutionSlots(input: {
         task,
       };
       pendingTasks.push(pendingTask);
+      input.onChanged?.();
       const snapshot = buildSnapshot(task.localExecutionLaneKey);
       if (task.onQueued) {
         try {
@@ -579,6 +588,7 @@ export function createLocalExecutionSlots(input: {
         } catch (error) {
           pendingTasks.pop();
           releaseTaskOwnership(task);
+          input.onChanged?.();
           throw error;
         }
       }
@@ -621,17 +631,14 @@ export function createLocalExecutionSlots(input: {
           reason,
         });
       }
+      input.onChanged?.();
       notifyDrainWaitersIfIdle();
       return {
         droppedCount,
       };
     },
     drain(): Promise<void> {
-      if (
-        pendingTasks.length === 0 &&
-        activeGlobal === 0 &&
-        adapterOperationIds.size === 0
-      ) {
+      if (isQuiescent()) {
         return Promise.resolve();
       }
       return new Promise<void>((resolve) => {

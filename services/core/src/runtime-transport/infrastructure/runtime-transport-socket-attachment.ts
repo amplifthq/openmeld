@@ -15,6 +15,8 @@ export const RUNTIME_TRANSPORT_VERIFIED_OWNER_HEADER =
 // previously blew the platform's 2KiB attachment limit and silently broke
 // hibernation recovery.
 export type RuntimeTransportSocketAttachment = {
+  executionAdmissionConfirmation?: boolean;
+  computerCare?: boolean;
   spaceWorkHandoff?: boolean;
   connectionDiagnosticId?: string;
   reasoningStream?: boolean;
@@ -33,6 +35,8 @@ export const readRuntimeTransportSocketAttachment = (
   webSocket: WebSocket
 ): RuntimeTransportSocketAttachment => {
   let attachment: {
+    executionAdmissionConfirmation?: unknown;
+    computerCare?: unknown;
     spaceWorkHandoff?: unknown;
     connectionDiagnosticId?: unknown;
     reasoningStream?: unknown;
@@ -44,6 +48,8 @@ export const readRuntimeTransportSocketAttachment = (
   };
   try {
     attachment = (webSocket.deserializeAttachment() ?? {}) as {
+      executionAdmissionConfirmation?: unknown;
+      computerCare?: unknown;
       spaceWorkHandoff?: unknown;
       connectionDiagnosticId?: unknown;
       reasoningStream?: unknown;
@@ -67,6 +73,9 @@ export const readRuntimeTransportSocketAttachment = (
   }
 
   return {
+    executionAdmissionConfirmation:
+      attachment.executionAdmissionConfirmation === true,
+    computerCare: attachment.computerCare === true,
     ...(serviceConnectionDiagnosticIdSchema.safeParse(
       attachment.connectionDiagnosticId
     ).success
@@ -93,6 +102,8 @@ export const readRuntimeTransportSocketAttachment = (
 export const writeRuntimeTransportSocketAttachment = (
   webSocket: WebSocket,
   input: {
+    executionAdmissionConfirmation?: boolean;
+    computerCare?: boolean;
     connectionDiagnosticId?: string;
     reasoningStream?: boolean;
     spaceWorkHandoff?: boolean;
@@ -110,6 +121,11 @@ export const writeRuntimeTransportSocketAttachment = (
   try {
     const current = readRuntimeTransportSocketAttachment(webSocket);
     webSocket.serializeAttachment({
+      executionAdmissionConfirmation:
+        input.executionAdmissionConfirmation ??
+        current.executionAdmissionConfirmation ??
+        false,
+      computerCare: input.computerCare ?? current.computerCare ?? false,
       ...((input.connectionDiagnosticId ?? current.connectionDiagnosticId)
         ? {
             connectionDiagnosticId:

@@ -252,6 +252,39 @@ describe("local service contract store", () => {
     });
   });
 
+  it("keeps the running generation for first enrollment of the same owned runtime, but fences replacement identity", async () => {
+    await withTempHome(async () => {
+      const running = await upsertDaemonServiceContract({
+        daemonVersion: "0.2.6",
+        bundleId: "service-bundle-1",
+        desiredState: "background",
+        serviceController: "launchd",
+        autoStart: true,
+        gatewayUrl: "http://localhost:8080",
+        ownerUserId: "owner-current",
+        deviceId: "device-current",
+        heartbeatMs: 5000,
+      });
+      const enrolled = await upsertDaemonServiceContract({
+        ...running,
+        connectedComputerId: "computer-current",
+      });
+      expect(enrolled.generation).toBe(running.generation);
+      expect(enrolled.connectedComputerId).toBe("computer-current");
+      const replaced = await upsertDaemonServiceContract({
+        ...enrolled,
+        connectedComputerId: "computer-replacement",
+      });
+      expect(replaced.generation).toBe(enrolled.generation + 1);
+      const accountSwitch = await upsertDaemonServiceContract({
+        ...replaced,
+        ownerUserId: "owner-other",
+        connectedComputerId: "computer-other",
+      });
+      expect(accountSwitch.generation).toBe(replaced.generation + 1);
+    });
+  });
+
   it("preserves connected computer evidence across ordinary service contract rewrites", async () => {
     await withTempHome(async () => {
       await upsertDaemonServiceContract({

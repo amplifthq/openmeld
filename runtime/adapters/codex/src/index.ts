@@ -424,7 +424,12 @@ export const createCodexAdapter = (
           verification.ok
             ? { supported: true }
             : {
-                reasonCode: "computer.file_access.capability_unverified",
+                // Preserve a useful failure class without exposing stderr or
+                // the private paths in the requested permission profile.
+                reasonCode:
+                  verification.failureKind === "completed_negative"
+                    ? "computer.file_access.launch_rejected"
+                    : "computer.file_access.capability_unverified",
                 supported: false,
               }
         )

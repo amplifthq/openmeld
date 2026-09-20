@@ -950,6 +950,10 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "  }",
       "  if (message.method === 'thread/start') {",
       "    const hangingThreadStartAttempts = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_HANG_THREAD_START_ATTEMPTS ?? '0');",
+      "    if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_DIAGNOSTICS === '1') {",
+      "      process.stderr.write('DEBUG session_init.mcp_manager_init: new secret=private-test-secret /private/customer-repo\\n');",
+      "      write({ method: 'mcpServer/startupStatus/updated', params: { threadId: 'thread-private', name: 'private-server', status: 'starting', error: null } });",
+      "    }",
       "    if (startupAttempt <= hangingThreadStartAttempts) return;",
       "    const model = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_OMIT_THREAD_MODEL === '1' ? {} : { model: 'gpt-5' };",
       "    write({ jsonrpc: '2.0', id: message.id, result: { thread: buildThread('thread-new-1', message.params.threadSource), ...model, modelProvider: 'openai', serviceTier: null, cwd: message.params.cwd, instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'client', sandbox: { mode: 'read-only' }, reasoningEffort: null } });",
@@ -1278,7 +1282,9 @@ console.log(JSON.stringify({ type: "response.completed", response: { output_text
       "-s",
       "read-only",
       "-a",
-      "untrusted",
+      "on-request",
+      "-c",
+      'approvals_reviewer="user"',
       "exec",
       "--json",
       "--skip-git-repo-check",
@@ -1301,7 +1307,9 @@ console.log(JSON.stringify({ type: "response.completed", response: { output_text
       "-s",
       "read-only",
       "-a",
-      "untrusted",
+      "on-request",
+      "-c",
+      'approvals_reviewer="user"',
       "exec",
       "resume",
       "--json",
@@ -3016,6 +3024,7 @@ test("invokeCodexAppServer stops after one automatic startup retry", async () =>
       (error) =>
         error.code === "runtime.startup_timeout" &&
         error.errorType === "timeout" &&
+        error.originalError.includes("did not initialize") &&
         STARTUP_RETRY_FAILURE_RE.test(error.message)
     );
     const methods = await readFakeAppServerMethods(logPath);
@@ -3067,6 +3076,83 @@ test("codex app-server admission budgets allow cold start and resume", async () 
     50
   );
 });
+
+for (const handshakeFailures of [0, 1]) {
+  test(`invokeCodexAppServer does not retry an unacknowledged thread creation after ${handshakeFailures} handshake failures`, async () => {
+    const { invokeCodexAppServer } = await import("../dist/index.js");
+    const fixtureDir = await mkdtemp(
+      join(tmpdir(), "codex-thread-create-timeout-")
+    );
+    const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+    const logPath = join(fixtureDir, "rpc-log.jsonl");
+    const processEvents = [];
+    await writeFakeCodexAppServerFixture(fixturePath);
+    await chmod(fixturePath, 0o755);
+    try {
+      await assert.rejects(
+        invokeCodexAppServer({
+          launchContract: createNodeScriptLaunchContract(fixturePath),
+          codexTimeoutMs: null,
+          codexWorkdir: fixtureDir,
+          controlRequestTimeoutMs: 100,
+          env: {
+            OPENMELD_FAKE_CODEX_APP_SERVER_HANG_STARTUP_ATTEMPTS:
+              String(handshakeFailures),
+            OPENMELD_FAKE_CODEX_APP_SERVER_HANG_THREAD_START_ATTEMPTS: String(
+              handshakeFailures + 1
+            ),
+            OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_ATTEMPT_PATH: join(
+              fixtureDir,
+              "attempt.txt"
+            ),
+            OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+            OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_DIAGNOSTICS: "1",
+          },
+          onProcessControlEvent: (event) => processEvents.push(event),
+          prompt:
+            "never allocate a second thread after an unknown create outcome",
+          startupTimeoutMs: 500,
+          taskId: "task-thread-create-timeout",
+          threadId: null,
+        }),
+        (error) => {
+          assert.equal(error.code, "runtime.thread_start_timeout");
+          assert.ok(error.message.includes("thread/start"));
+          assert.ok(error.message.includes("mcp_manager_init"));
+          assert.ok(error.message.includes("mcpStartupStatus=starting"));
+          assert.equal(
+            error.originalError?.includes("did not initialize") ?? false,
+            handshakeFailures === 1
+          );
+          for (const secret of [
+            "private-test-secret",
+            "customer-repo",
+            "private-server",
+            "thread-private",
+          ]) {
+            assert.equal(error.message.includes(secret), false);
+          }
+          return true;
+        }
+      );
+      assert.deepEqual(await readFakeAppServerMethods(logPath), [
+        ...new Array(handshakeFailures).fill("initialize"),
+        "initialize",
+        "initialized",
+        "thread/start",
+      ]);
+      assert.deepEqual(
+        processEvents.map((event) => event.phase),
+        Array.from({ length: handshakeFailures + 1 }, () => [
+          "process_spawned",
+          "process_exit",
+        ]).flat()
+      );
+    } finally {
+      await rm(fixtureDir, { force: true, recursive: true });
+    }
+  });
+}
 
 test("invokeCodexAppServer fails closed after an ambiguous resume timeout", async () => {
   const { invokeCodexAppServer } = await import("../dist/index.js");
@@ -3397,14 +3483,16 @@ test("invokeCodexAppServerTransport isolates structured-action repair from the s
     assert.equal(forkParams.threadId, "thread-existing-repair-policy");
     assert.equal(forkParams.ephemeral, true);
     assert.equal(forkParams.cwd, dispatchDir);
-    assert.equal(forkParams.approvalPolicy, "untrusted");
+    assert.equal(forkParams.approvalPolicy, "on-request");
+    assert.equal(forkParams.approvalsReviewer, "user");
     assert.equal(forkParams.sandbox, "read-only");
     assert.equal(
       messages.some((message) => message.method === "thread/resume"),
       false
     );
     assert.equal(turnParams.threadId, "thread-fork-1");
-    assert.equal(turnParams.approvalPolicy, "untrusted");
+    assert.equal(turnParams.approvalPolicy, "on-request");
+    assert.equal(turnParams.approvalsReviewer, "user");
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });
@@ -3729,7 +3817,7 @@ test("invokeCodexAppServerTransport applies bounded policy-driven approval param
     );
 
     await invokeCodexAppServerTransport({
-      agentControllerPermissionMode: "codex:approveForMe",
+      agentControllerPermissionMode: "codex:askForApproval",
       computerFileAccessBoundary: {
         folders: [boundedDispatchDir],
         mode: "only_selected_folders",
@@ -3757,6 +3845,16 @@ test("invokeCodexAppServerTransport applies bounded policy-driven approval param
       true
     );
     assert.equal(boundedThreadParams.approvalPolicy, "on-request");
+    assert.equal(boundedThreadParams.approvalsReviewer, "user");
+    assert.equal(
+      boundedMessages.find((message) => message.method === "turn/start").params
+        .approvalsReviewer,
+      "user"
+    );
+    assert.equal(
+      boundedMessages[0].argv.includes('approvals_reviewer="user"'),
+      true
+    );
     assert.equal("sandbox" in boundedThreadParams, false);
     assert.equal("sandboxPolicy" in boundedThreadParams, false);
   } finally {
@@ -4208,53 +4306,64 @@ test("adapter-codex default wait delays force escalation", async () => {
   assert.deepEqual(observedWaits, [expectedEscalationDelayMs]);
 });
 
-test("adapter-codex reuses one exact file access capability attestation", async () => {
-  const { createCodexAdapter } = await import("../dist/index.js");
-  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-boundary-probe-"));
-  const fixturePath = join(fixtureDir, "codex-boundary-probe.mjs");
-  const probeLogPath = join(fixtureDir, "probe-log.txt");
-  await writeFile(
-    fixturePath,
-    [
-      "#!/usr/bin/env node",
-      "import { appendFileSync } from 'node:fs';",
-      `appendFileSync(${JSON.stringify(probeLogPath)}, "probe\\n", "utf8");`,
-      "process.exit(0);",
-    ].join("\n"),
-    "utf8"
-  );
-  await chmod(fixturePath, 0o755);
+for (const probeExit of [0, 2]) {
+  test(`adapter-codex caches path-free file access attestation (probe exit ${probeExit})`, async () => {
+    const { createCodexAdapter } = await import("../dist/index.js");
+    const fixtureDir = await mkdtemp(join(tmpdir(), "codex-boundary-probe-"));
+    const fixturePath = join(fixtureDir, "codex-boundary-probe.mjs");
+    const probeLogPath = join(fixtureDir, "probe-log.txt");
+    await writeFile(
+      fixturePath,
+      [
+        "#!/usr/bin/env node",
+        "import { appendFileSync } from 'node:fs';",
+        `appendFileSync(${JSON.stringify(probeLogPath)}, "probe\\n", "utf8");`,
+        `if (process.argv.includes('--strict-config')) { console.error(${JSON.stringify(`Rejected private configuration at ${fixtureDir}`)}); process.exit(${probeExit}); }`,
+        "process.exit(0);",
+      ].join("\n"),
+      "utf8"
+    );
+    await chmod(fixturePath, 0o755);
 
-  try {
-    const adapter = createCodexAdapter({
-      launchContract: createNodeScriptLaunchContract(fixturePath),
-    });
-    const request = {
-      agentControllerPermissionMode: "codex:askForApproval",
-      boundary: {
-        folders: [fixtureDir],
-        mode: "only_selected_folders",
-        revision: 2,
-        updatedAtMs: 100,
-      },
-      executionMode: "normal",
-      launchContract: createNodeScriptLaunchContract(fixturePath),
-      transportMode: "local-cli",
-      workingDirectory: fixtureDir,
-    };
+    try {
+      const adapter = createCodexAdapter({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+      });
+      const request = {
+        agentControllerPermissionMode: "codex:askForApproval",
+        boundary: {
+          folders: [fixtureDir],
+          mode: "only_selected_folders",
+          revision: 2,
+          updatedAtMs: 100,
+        },
+        executionMode: "normal",
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        transportMode: "local-cli",
+        workingDirectory: fixtureDir,
+      };
 
-    assert.deepEqual(await adapter.verifyComputerFileAccessBoundary(request), {
-      supported: true,
-    });
-    const firstAttestationLog = await readFile(probeLogPath, "utf8");
-    assert.deepEqual(await adapter.verifyComputerFileAccessBoundary(request), {
-      supported: true,
-    });
-    assert.equal(await readFile(probeLogPath, "utf8"), firstAttestationLog);
-  } finally {
-    await rm(fixtureDir, { force: true, recursive: true });
-  }
-});
+      const expected =
+        probeExit === 0
+          ? { supported: true }
+          : {
+              supported: false,
+              reasonCode: "computer.file_access.launch_rejected",
+            };
+      const result = await adapter.verifyComputerFileAccessBoundary(request);
+      assert.deepEqual(result, expected);
+      assert.equal(JSON.stringify(result).includes(fixtureDir), false);
+      const firstAttestationLog = await readFile(probeLogPath, "utf8");
+      assert.deepEqual(
+        await adapter.verifyComputerFileAccessBoundary(request),
+        expected
+      );
+      assert.equal(await readFile(probeLogPath, "utf8"), firstAttestationLog);
+    } finally {
+      await rm(fixtureDir, { force: true, recursive: true });
+    }
+  });
+}
 
 test("codex cli transport maps auth failures from stdout events", async () => {
   const { invokeCodexCliTransport } = await import("../dist/index.js");

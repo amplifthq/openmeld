@@ -1,4 +1,7 @@
 import * as z from "../../lazy-zod";
+export const OPENMELD_EXECUTION_ADMISSION_HEADER =
+  "x-openmeld-execution-admission";
+
 import { agentProfileWorkRecoveryActionKindSchema } from "../agent-profile-work-recovery";
 import {
   executionRecoveryDestinationSchema,
@@ -42,6 +45,7 @@ import { workingLanguageGuidanceSchema } from "../runtime/working-language";
 import { spaceContractSchema } from "../space-mesh/space-contract";
 import { spaceThreadContextSchema } from "../space-mesh/space-thread";
 import { agentControllerRefSchema } from "./agent-controller-ref";
+import { executionHostObservationSchema } from "./computer-care";
 import {
   openMeldDaemonCancelPayloadSchema,
   openMeldDaemonCancelRequestPayloadSchema,
@@ -433,6 +437,7 @@ export const runtimeTransportLeaseSchema = z.strictObject({
 });
 
 export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
+  executionHost: executionHostObservationSchema.optional(),
   agentReplyContextReview: z.literal(true).optional(),
   informationProtectionPrompt: z.literal(true).optional(),
   workingLanguagePrompt: z.literal(true).optional(),
@@ -623,6 +628,8 @@ export const runtimeTransportRegisterSessionRequestSchema = z.strictObject({
 });
 
 export const runtimeTransportRegisterSessionResponseSchema = z.strictObject({
+  executionAdmissionConfirmation: z.literal(true).optional(),
+  computerCare: z.literal(true).optional(),
   ok: z.boolean(),
   connectionGeneration: z.number().int().positive(),
   acceptedLeases: z.array(runtimeTransportLeaseSchema),
@@ -2011,6 +2018,7 @@ export const runtimeTransportDispatchLocalQueueDiagnosticsSchema =
   });
 
 export const runtimeTransportDispatchLifecycleRequestSchema = z.strictObject({
+  acknowledgementId: z.string().uuid().optional(),
   v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
   runtimeCoordinatorExecutionId:
     runtimeCoordinatorExecutionRecordSchema.shape.runtimeCoordinatorExecutionId.optional(),
@@ -2026,6 +2034,17 @@ export const runtimeTransportDispatchLifecycleRequestSchema = z.strictObject({
     runtimeTransportAgentControllerConversationOccupancySchema.optional(),
   localQueue: runtimeTransportDispatchLocalQueueDiagnosticsSchema.optional(),
 });
+
+export const runtimeTransportDispatchLifecycleAcknowledgementSchema =
+  z.strictObject({
+    acknowledgementId: z.string().uuid(),
+    dispatchId: z.string().min(1),
+    attemptId: z.string().min(1),
+    connectionGeneration: z.number().int().positive(),
+    accepted: z.boolean(),
+    validForMs: z.number().int().nonnegative(),
+    reasonCode: z.string().min(1).nullable(),
+  });
 
 export const runtimeTransportDispatchRuntimeEvidencePhaseSchema = z.enum([
   "received",
@@ -2308,6 +2327,7 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.session.heartbeat",
   "daemon.dispatch.deliver",
   "daemon.dispatch.lifecycle",
+  "daemon.dispatch.lifecycle_acknowledged",
   "daemon.dispatch.runtime_evidence",
   "daemon.dispatch.tool_activity",
   "daemon.dispatch.reasoning",

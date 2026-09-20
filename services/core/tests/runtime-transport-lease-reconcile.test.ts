@@ -11,7 +11,9 @@ import {
   buildRuntimeCoordinatorExecutionId,
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
+  OPENMELD_COMPUTER_CARE_HEADER,
   OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+  OPENMELD_EXECUTION_ADMISSION_HEADER,
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   projectTargetWakeLifecycleIdentity,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
@@ -67,7 +69,12 @@ async function fetchWithOpenMeldAuth(input: {
 
 async function openDaemonStream(
   ownerUserId: string,
-  options?: { computerFileAccess?: boolean; localFolderPicker?: boolean }
+  options?: {
+    computerFileAccess?: boolean;
+    localFolderPicker?: boolean;
+    computerCare?: boolean;
+    executionAdmissionConfirmation?: boolean;
+  }
 ): Promise<WebSocket> {
   touchedOwnerUserIds.add(ownerUserId);
   const response = await fetchWithOpenMeldAuth({
@@ -76,6 +83,12 @@ async function openDaemonStream(
     init: {
       headers: {
         Upgrade: "websocket",
+        ...(options?.executionAdmissionConfirmation
+          ? { [OPENMELD_EXECUTION_ADMISSION_HEADER]: "1" }
+          : {}),
+        ...(options?.computerCare
+          ? { [OPENMELD_COMPUTER_CARE_HEADER]: "1" }
+          : {}),
         ...(options?.computerFileAccess
           ? {
               "x-openmeld-runtime-capabilities": "computer-file-access-v1",
@@ -122,6 +135,8 @@ async function registerSession(input: {
   serviceVersion?: string;
   socket: WebSocket;
 }): Promise<{
+  computerCare?: true;
+  executionAdmissionConfirmation?: true;
   acceptedLeases: Array<{ leaseEpoch: number; profileId: string }>;
   connectionGeneration: number | undefined;
   rejectedProfiles: Array<{ profileId: string; reasonCode: string }>;
@@ -172,12 +187,16 @@ async function registerSession(input: {
     throw new Error(`Daemon registration failed: ${JSON.stringify(frame)}`);
   }
   const payload = frame.payload as {
+    computerCare?: true;
+    executionAdmissionConfirmation?: true;
     acceptedLeases?: Array<{ leaseEpoch: number; profileId: string }>;
     connectionGeneration?: number;
     rejectedProfiles?: Array<{ profileId: string; reasonCode: string }>;
   };
 
   return {
+    computerCare: payload.computerCare,
+    executionAdmissionConfirmation: payload.executionAdmissionConfirmation,
     acceptedLeases: payload.acceptedLeases ?? [],
     connectionGeneration: payload.connectionGeneration,
     rejectedProfiles: payload.rejectedProfiles ?? [],
@@ -795,16 +814,20 @@ describe("runtime transport lease reconciliation", () => {
     const socket = await openDaemonStream(ownerUserId, {
       computerFileAccess: true,
       localFolderPicker: true,
+      computerCare: true,
+      executionAdmissionConfirmation: true,
     });
 
     try {
-      await registerSession({
+      const registered = await registerSession({
         daemonSessionId,
         deviceId,
         ownerUserId,
         profileIds: [],
         socket,
       });
+      expect(registered.computerCare).toBe(true);
+      expect(registered.executionAdmissionConfirmation).toBe(true);
       expect(
         await sendHeartbeat({
           daemonSessionId,
@@ -850,13 +873,15 @@ describe("runtime transport lease reconciliation", () => {
     const socket = await openDaemonStream(ownerUserId);
 
     try {
-      await registerSession({
+      const registered = await registerSession({
         daemonSessionId,
         deviceId,
         ownerUserId,
         profileIds: [],
         socket,
       });
+      expect(registered.computerCare).toBeUndefined();
+      expect(registered.executionAdmissionConfirmation).toBeUndefined();
       expect(
         await sendHeartbeat({
           daemonSessionId,
