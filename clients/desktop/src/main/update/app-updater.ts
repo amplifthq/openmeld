@@ -34,12 +34,9 @@ function recordMacInstallEvidence(input: {
     // The receipt is bounded diagnostic evidence, not installation authority.
     // Never turn an observability write into a new updater outage after the
     // signed bundle path itself was verified.
-    console.warn(
-      "[openmeld.desktop.update_install_receipt_write_failed]",
-      {
-        errorName: error instanceof Error ? error.name : "UnknownError",
-      }
-    );
+    console.warn("[openmeld.desktop.update_install_receipt_write_failed]", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
   }
 }
 
