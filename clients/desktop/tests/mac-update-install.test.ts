@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  assertMacProductionBundleIdentity,
   MAC_PRODUCTION_APP_BUNDLE_NAME,
   readMacAppBundlePath,
   resolveMacUpdateInstallPlan,
@@ -25,10 +26,6 @@ describe("macOS Desktop bundle rename", () => {
       kind: "squirrel",
     },
     {
-      currentBundle: null,
-      kind: "squirrel",
-    },
-    {
       currentBundle: "/Applications/OpenMeld Desktop.app",
       kind: "rename",
       targetBundle: "/Applications/OpenMeld.app",
@@ -49,12 +46,41 @@ describe("macOS Desktop bundle rename", () => {
     );
   });
 
+  it("fails closed when the current macOS application folder cannot be identified", () => {
+    expect(() =>
+      resolveMacUpdateInstallPlan({
+        currentBundle: null,
+      })
+    ).toThrow("cannot determine");
+  });
+
   it("refuses an unknown application folder instead of renaming it", () => {
     expect(() =>
       resolveMacUpdateInstallPlan({
         currentBundle: "/Applications/OpenMeld Preview.app",
       })
     ).toThrow("application folder name");
+  });
+
+  it("pins the production package identity that existing update clients depend on", () => {
+    expect(() =>
+      assertMacProductionBundleIdentity({
+        appId: "sh.openmeld.desktop",
+        productName: "OpenMeld",
+      })
+    ).not.toThrow();
+    expect(() =>
+      assertMacProductionBundleIdentity({
+        appId: "sh.openmeld.desktop",
+        productName: "OpenMeld Desktop",
+      })
+    ).toThrow("identity changed");
+    expect(() =>
+      assertMacProductionBundleIdentity({
+        appId: "sh.openmeld.desktop.preview",
+        productName: "OpenMeld",
+      })
+    ).toThrow("identity changed");
   });
 
   it("refuses a ZIP or destination that Squirrel would have to guess", () => {

@@ -1,10 +1,26 @@
 import { basename, dirname, join } from "node:path";
 
-/** Production installed folder after the 0.1.2 product-name change. */
+export const MAC_PRODUCTION_PRODUCT_NAME = "OpenMeld";
 export const MAC_PRODUCTION_APP_BUNDLE_NAME = "OpenMeld.app";
+export const MAC_PRODUCTION_APP_ID = "sh.openmeld.desktop";
+export const MAC_PRODUCTION_TEAM_ID = "38FFHDPA3B";
 
 /** Earlier signed installs used this folder. Squirrel.Mac cannot relaunch after renaming it. */
 export const MAC_LEGACY_APP_BUNDLE_NAMES = ["OpenMeld Desktop.app"] as const;
+
+export function assertMacProductionBundleIdentity(input: {
+  appId: string;
+  productName: string;
+}): void {
+  if (
+    input.appId !== MAC_PRODUCTION_APP_ID ||
+    input.productName !== MAC_PRODUCTION_PRODUCT_NAME
+  ) {
+    throw new Error(
+      "Production Desktop app identity changed. A macOS bundle-name change requires an explicit update migration."
+    );
+  }
+}
 
 export function readMacAppBundlePath(executablePath: string): string | null {
   let current = executablePath;
@@ -28,7 +44,12 @@ export function resolveMacUpdateInstallPlan(input: {
   | { kind: "squirrel" }
   | { kind: "rename"; currentBundle: string; targetBundle: string } {
   const targetName = input.targetBundleName ?? MAC_PRODUCTION_APP_BUNDLE_NAME;
-  if (!input.currentBundle || basename(input.currentBundle) === targetName) {
+  if (!input.currentBundle) {
+    throw new Error(
+      "Desktop cannot determine the current macOS application folder."
+    );
+  }
+  if (basename(input.currentBundle) === targetName) {
     return { kind: "squirrel" };
   }
   if (
