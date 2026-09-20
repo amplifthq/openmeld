@@ -28,6 +28,7 @@ import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { MessageSearchButton } from "#/components/search/message-search";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { inboxItemQueryOptions } from "#/query/organizations/inbox";
 import {
@@ -307,6 +308,7 @@ export function InboxPage(input: {
 						</label>
 					</div>
 					<div className="flex min-h-8 flex-wrap items-center justify-between gap-3">
+						<MessageSearchButton scope="inbox" />
 						<InboxFilterMenu
 							filters={filters}
 							onChange={input.onFiltersChange}

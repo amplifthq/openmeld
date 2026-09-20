@@ -27,6 +27,7 @@ import { useMatches, useNavigate } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { MessageSearchDialog } from "#/components/search/message-search";
 import { useAppSettings } from "#/components/settings/use-app-settings";
 import {
 	isDirectMessageItem,
@@ -76,6 +77,7 @@ export function AppCommandCenter() {
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const [newMessage, setNewMessage] = useState(false);
+	const [messageSearch, setMessageSearch] = useState(false);
 	const toggleCommandCenter = useCallback(() => {
 		setQuery("");
 		setOpen((value) => !value);
@@ -151,16 +153,26 @@ export function AppCommandCenter() {
 							profileId={profileId}
 							query={query}
 							recent={recent}
+							searchMessages={() => {
+								setOpen(false);
+								setMessageSearch(true);
+							}}
 						/>
 					)}
 				</DialogContent>
 			</Dialog>
 			<NewChatDialog onOpenChange={setNewMessage} open={newMessage} />
+			<MessageSearchDialog
+				initialQuery={query}
+				onOpenChange={setMessageSearch}
+				open={messageSearch}
+			/>
 		</>
 	);
 }
 
 function CommandCenterContents(input: {
+	searchMessages: () => void;
 	profileId: string;
 	currentSpaceId: string;
 	recent: string[];
@@ -388,7 +400,16 @@ function CommandCenterContents(input: {
 	}
 	return (
 		<CommandCenterList
-			entries={entries}
+			entries={[
+				{
+					id: "search-message-text",
+					label: "Search messages",
+					group: "Search",
+					keywords: input.query,
+					run: input.searchMessages,
+				},
+				...entries,
+			]}
 			error={
 				spaces.isError ||
 				directory.isError ||

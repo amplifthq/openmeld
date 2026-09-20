@@ -14,6 +14,22 @@
 - Source of truth: This file owns the Inbox product model. Source owner documents
   remain authoritative for the work or event represented by an Inbox item.
 
+## Search
+
+Inbox search covers the current recipient's uncleared message items and other
+activities, independent of the currently loaded feed pages. Message matches use
+the canonical Space text search; non-message activities search their Inbox title
+and preview. Every result rechecks current source access and opens its canonical
+item. Search does not mark items read, dismiss them, or resolve their sources.
+Removed Inbox items remain excluded even if their original messages are still
+searchable from a conversation or workspace search.
+
+The same search dialog serves a single conversation and workspace-wide message
+search from the command menu. It accepts literal text of 3–200 characters,
+including unsegmented Chinese text. Historical indexing and incomplete pages
+remain visible; an unfinished or failed search must not claim there are no
+matches. Results are transient, not part of persisted browser read caches.
+
 ## Attention feed and frozen selections
 
 Permission and plan-review requests are ordinary Needs review items; questions

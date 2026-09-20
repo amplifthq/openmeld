@@ -23,6 +23,7 @@ import {
 	AppModuleSidebarToggle,
 	useHasModuleSidebar,
 } from "#/components/app/app-module-sidebar";
+import { MessageSearchButton } from "#/components/search/message-search";
 import type { SpaceLiveState } from "#/lib/spaces/timeline";
 import { ChatArchiveButton } from "./chat-archive-button";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
@@ -266,6 +267,10 @@ export function SpaceHeader(input: {
 							</div>
 						) : null}
 						<SpacePinsRecallAction onRecall={input.onRecallPinnedItems} />
+						<MessageSearchButton
+							profileId={input.currentProfileId}
+							spaceId={input.status.spaceId}
+						/>
 						{isDirectMessage && input.currentProfileId ? (
 							<ChatArchiveButton
 								profileId={input.currentProfileId}
