@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { isBinaryDistribution } from "../runtime/distribution";
+import { shouldUseDevelopmentCredentialFile } from "./development-credential-store";
 import {
   deleteMacOsNativeKeychainToken,
   getMacOsKeychainRetryAfterMs,
@@ -89,6 +90,17 @@ export async function storeAccessToken(
       provider: "insecure-file",
       key: storageKey,
     };
+  }
+
+  if (await shouldUseDevelopmentCredentialFile(input.authBaseUrl)) {
+    await setInsecureFileToken({
+      key: storageKey,
+      accessToken: input.accessToken,
+    });
+    console.warn(
+      "[openmeld auth] Local development sign-in uses an unencrypted file restricted to your OS user in OPENMELD_HOME. Use test accounts only. Rebuilds keep this sign-in; use OPENMELD_DEV_CREDENTIAL_STORE=system and a separate home for system Keychain acceptance."
+    );
+    return { provider: "insecure-file", key: storageKey };
   }
 
   if (process.platform === "darwin") {
