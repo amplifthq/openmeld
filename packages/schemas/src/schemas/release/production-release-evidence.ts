@@ -132,8 +132,71 @@ export const correlatedComponentReceiptSchema = z
       });
     }
   });
+const remoteAgentRecoverySchema = z.strictObject({
+  id: z.uuid(),
+  originalEvidenceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+  startedAt: z.iso.datetime(),
+  baseline: z.strictObject({
+    workerDeploymentId: z.string().min(1).max(200),
+    workerVersionId: z.string().min(1).max(200),
+    containerId: z.string().min(1).max(200),
+    containerVersion: z.number().int().nonnegative(),
+    containerImage: z.string().min(1).max(500),
+  }),
+  completed: z
+    .strictObject({
+      containerVersion: z.number().int().nonnegative(),
+      containerImage: z.string().min(1).max(500),
+      observedAt: z.iso.datetime(),
+      activeRolloutId: z.null(),
+      healthyInstances: z.number().int().positive(),
+      activeInstances: z.number().int().nonnegative(),
+    })
+    .optional(),
+  observedAfterFailure: z
+    .strictObject({
+      workerDeploymentId: z.string().min(1).max(200),
+      workerVersionId: z.string().min(1).max(200),
+      containerVersion: z.number().int().nonnegative(),
+      containerImage: z.string().min(1).max(500),
+      observedAt: z.iso.datetime(),
+    })
+    .optional(),
+});
+
+// The canonical receipt stays v3 for older release readers. This v4 proof is
+// its second Git parent; the first parent preserves the original failed event.
+// The baseline never attributes the partial Worker to the failed command.
+export const recoveredComponentReceiptSchema = z
+  .strictObject({
+    attemptId: z.uuid(),
+    componentIndex: z.number().int().nonnegative(),
+    operationKey: z.string().regex(/^[0-9a-f]{64}$/u),
+    startedAt: z.iso.datetime(),
+    status: z.enum(["verified", "failed"]),
+    application: z.enum(["unknown", "applied"]),
+    identity: productionWorkerDeploymentIdentitySchema.optional(),
+    recovery: remoteAgentRecoverySchema,
+  })
+  .superRefine((receipt, context) => {
+    if (
+      (receipt.status === "verified" &&
+        (receipt.application !== "applied" ||
+          !receipt.identity ||
+          !receipt.recovery.completed)) ||
+      (receipt.status === "failed" &&
+        (receipt.application !== "unknown" || receipt.identity))
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Recovery receipt requires a verified Worker and container target.",
+      });
+    }
+  });
 export const productionComponentReceiptSchema = z.union([
   correlatedComponentReceiptSchema,
+  recoveredComponentReceiptSchema,
   legacyComponentReceiptSchema,
 ]);
 
@@ -158,10 +221,22 @@ export const productionReleaseEvidenceSchema = z
       schemaVersion: z.literal(3),
       receipt: correlatedComponentReceiptSchema,
     }),
+    z.strictObject({
+      ...commonEvidenceFields,
+      schemaVersion: z.literal(4),
+      receipt: recoveredComponentReceiptSchema,
+    }),
   ])
   .superRefine((evidence, context) => {
+    if (evidence.schemaVersion === 4 && evidence.scope !== "remote-agent") {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Partial recovery is limited to the Remote Agent release scope.",
+      });
+    }
     if (
-      evidence.schemaVersion === 3 &&
+      (evidence.schemaVersion === 3 || evidence.schemaVersion === 4) &&
       evidence.receipt.identity?.kind === "worker-deployment" &&
       evidence.receipt.identity.sourceSha !== evidence.sourceSha
     ) {

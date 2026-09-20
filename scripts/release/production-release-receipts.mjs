@@ -57,20 +57,11 @@ export async function executeRecordedProductionDeploySteps(input) {
           group,
         })
       : null;
-    const operationKey = createHash("sha256")
-      .update(
-        JSON.stringify({
-          sourceSha: input.sourceSha,
-          scope: group.scope,
-          target,
-          steps: group.steps.map((step) => ({
-            command: step.command,
-            args: step.args,
-            internalOperation: step.internalOperation,
-          })),
-        })
-      )
-      .digest("hex");
+    const operationKey = releaseComponentOperationKey({
+      sourceSha: input.sourceSha,
+      group,
+      target,
+    });
     const context = { ...input, group, target, operationKey };
     const previous = selectResumableComponent(context, retained);
     if (previous) {
@@ -86,6 +77,23 @@ export async function executeRecordedProductionDeploySteps(input) {
       await executeComponent({ ...context, attemptId, componentIndex });
     }
   }
+}
+
+export function releaseComponentOperationKey(input) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        sourceSha: input.sourceSha,
+        scope: input.group.scope,
+        target: input.target,
+        steps: input.group.steps.map((step) => ({
+          command: step.command,
+          args: step.args,
+          internalOperation: step.internalOperation,
+        })),
+      })
+    )
+    .digest("hex");
 }
 
 function selectResumableComponent(input, retained) {
@@ -197,7 +205,7 @@ async function resumeComponent(input) {
   });
 }
 
-function groupReleaseSteps(steps) {
+export function groupReleaseSteps(steps) {
   const groups = [];
   let group;
   for (const step of steps) {
