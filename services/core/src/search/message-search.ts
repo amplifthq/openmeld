@@ -56,6 +56,7 @@ export async function rpcSearchMessages(
     );
   }
   const ids = cursor.pending.map((item) => item.spaceId);
+  const selectedSpaceId = input.spaceId ?? null;
   const rows = await db
     .prepare(`SELECT s.space_id, s.space_name,
     (s.direct_message_pair_key IS NOT NULL AND s.direct_message_converted_at_ms IS NULL) AS direct_message,
@@ -64,15 +65,16 @@ export async function rpcSearchMessages(
       WHERE cad.organization_id = s.organization_id AND cm.status = 'active'
         AND s.direct_message_pair_key IS NOT NULL AND s.direct_message_converted_at_ms IS NULL) AS center_agent
     FROM space_index_spaces s WHERE s.organization_id = ? AND s.status = 'active'
-      AND EXISTS (SELECT 1 FROM space_index_memberships m WHERE m.space_id = s.space_id AND m.status = 'active' AND m.owner_user_id_snapshot = ?)
+      AND (? IS NOT NULL OR EXISTS (SELECT 1 FROM space_index_memberships m WHERE m.space_id = s.space_id AND m.status = 'active' AND m.owner_user_id_snapshot = ?))
       AND (? IS NULL OR s.space_id = ?)
       AND ${ids.length ? `s.space_id IN (${ids.map(() => "?").join(",")})` : "s.space_id > ?"}
     ORDER BY s.space_id LIMIT 4`)
     .bind(
       membership.organizationId,
+      selectedSpaceId,
       membership.userId,
-      input.spaceId ?? null,
-      input.spaceId ?? null,
+      selectedSpaceId,
+      selectedSpaceId,
       ...(ids.length ? ids : [cursor.afterSpaceId])
     )
     .all<Candidate>();

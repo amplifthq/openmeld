@@ -308,11 +308,13 @@ export function InboxPage(input: {
 						</label>
 					</div>
 					<div className="flex min-h-8 flex-wrap items-center justify-between gap-3">
-						<MessageSearchButton scope="inbox" />
-						<InboxFilterMenu
-							filters={filters}
-							onChange={input.onFiltersChange}
-						/>
+						<div className="flex flex-wrap items-center gap-2">
+							<InboxFilterMenu
+								filters={filters}
+								onChange={input.onFiltersChange}
+							/>
+							<MessageSearchButton scope="inbox" />
+						</div>
 						<InboxExpansionAction expansion={expansion} rows={rows} />
 					</div>
 				</div>

@@ -6222,6 +6222,25 @@ describe("OpenMeld Core", () => {
       }),
     });
     expect(excluded.matches).toEqual([]);
+    const publicSpaceId = await createSpace({ accessMode: "public" });
+    await postTextSignal(publicSpaceId, "Public searchable invoice");
+    const publicSearch = await rpcSearchMessages(
+      env as unknown as CoreBindings,
+      {
+        q: "invoice",
+        spaceId: publicSpaceId,
+        scope: "messages",
+        context: createRpcContext({
+          requestId: "search-public-reader",
+          profileId: SECOND_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          ownerUserId: "search-other-owner",
+        }),
+      }
+    );
+    expect(publicSearch.matches.map((match) => match.signal.data.text)).toEqual(
+      ["Public searchable invoice"]
+    );
     const inbox = await rpcSearchMessages(env as unknown as CoreBindings, {
       q: "invoice",
       spaceId,
