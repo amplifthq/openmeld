@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  assertProcessRestarted,
   assertProductionSignatureDetails,
   assertReceiptMatchesTarget,
   compareStableVersions,
-  assertProcessRestarted,
   parseInstallReceipt,
   parseSmokeArgs,
   processListHasProductionApp,
@@ -96,5 +96,19 @@ test("validates bounded updater receipt evidence when it exists", () => {
   assert.throws(
     () => assertReceiptMatchesTarget(receipt, "0.1.6"),
     /not 0.1.6/u
+  );
+  assert.throws(
+    () =>
+      parseInstallReceipt(
+        [
+          "state=application_started",
+          "sourceVersion=0.1.4",
+          "targetVersion=0.1.5",
+          "sourceBundle=OpenMeld.app",
+          "targetBundle=OpenMeld.app",
+          "unexpected=user-content",
+        ].join("\n")
+      ),
+    /malformed/u
   );
 });

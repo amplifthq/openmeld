@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -35,6 +36,15 @@ export const SMOKE_STATE_PATH = path.join(
 
 const STABLE_VERSION = /^\d+\.\d+\.\d+$/u;
 const LINE_SPLIT = /\r?\n/u;
+const RECEIPT_KEYS = new Set([
+  "state",
+  "sourceVersion",
+  "targetVersion",
+  "sourceBundle",
+  "targetBundle",
+]);
+const MAX_RECEIPT_BYTES = 2048;
+const MAX_RECEIPT_VALUE_LENGTH = 200;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -96,7 +106,11 @@ export function assertProductionSignatureDetails(details) {
   if (!lines.includes(`TeamIdentifier=${PRODUCTION_TEAM_ID}`)) {
     throw new Error("OpenMeld.app has the wrong Apple Team ID.");
   }
-  if (!lines.some((line) => line.startsWith("Authority=Developer ID Application:"))) {
+  if (
+    !lines.some((line) =>
+      line.startsWith("Authority=Developer ID Application:")
+    )
+  ) {
     throw new Error("OpenMeld.app is not signed by a Developer ID Application.");
   }
 }
@@ -141,6 +155,9 @@ export function assertProcessRestarted(beforePids, afterPids) {
 }
 
 export function parseInstallReceipt(content) {
+  if (Buffer.byteLength(content, "utf8") > MAX_RECEIPT_BYTES) {
+    throw new Error("Desktop update install receipt is too large.");
+  }
   const result = {};
   for (const line of content.split(LINE_SPLIT)) {
     if (!line) {
@@ -152,7 +169,12 @@ export function parseInstallReceipt(content) {
     }
     const key = line.slice(0, separator);
     const value = line.slice(separator + 1);
-    if (!value || Object.hasOwn(result, key)) {
+    if (
+      !RECEIPT_KEYS.has(key) ||
+      !value ||
+      value.length > MAX_RECEIPT_VALUE_LENGTH ||
+      Object.hasOwn(result, key)
+    ) {
       throw new Error("Desktop update install receipt is malformed.");
     }
     result[key] = value;
@@ -237,9 +259,15 @@ function readSmokeState() {
   const state = JSON.parse(readFileSync(SMOKE_STATE_PATH, "utf8"));
   if (
     state?.schemaVersion !== 1 ||
+    state.appPath !== PRODUCTION_APP_PATH ||
     !Array.isArray(state.beforePids) ||
+    state.beforePids.length === 0 ||
+    !state.beforePids.every(
+      (pid) => Number.isInteger(pid) && pid > 0
+    ) ||
     typeof state.currentVersion !== "string" ||
-    typeof state.targetVersion !== "string"
+    typeof state.targetVersion !== "string" ||
+    compareStableVersions(state.currentVersion, state.targetVersion) >= 0
   ) {
     throw new Error("The local Desktop A-to-B smoke state is malformed.");
   }
