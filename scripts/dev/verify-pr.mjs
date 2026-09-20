@@ -102,15 +102,10 @@ function planFocusedChecks(paths, options) {
         .filter((file) => existingFiles.has(file))
     ),
   ].toSorted();
-  if (nodeTests.length > 0) {
-    commands.push([
-      "exec",
-      "node",
-      "--test",
-      "--test-concurrency=1",
-      ...nodeTests,
-    ]);
-  }
+  const nodeTestCommand =
+    nodeTests.length > 0
+      ? ["exec", "node", "--test", "--test-concurrency=1", ...nodeTests]
+      : null;
   const workspaceCommands = [];
   const buildFilters = [];
   for (const workspace of options.workspaces ?? []) {
@@ -152,6 +147,9 @@ function planFocusedChecks(paths, options) {
       ...buildFilters,
       "--concurrency=1",
     ]);
+  }
+  if (nodeTestCommand) {
+    commands.push(nodeTestCommand);
   }
   return [...commands, ...workspaceCommands];
 }

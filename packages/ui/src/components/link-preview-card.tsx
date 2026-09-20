@@ -1,5 +1,5 @@
 import { GlobeIcon } from "@phosphor-icons/react";
-import { useState } from "react";
+import { type MouseEvent, useState } from "react";
 import { cn } from "#lib/utils";
 
 const WWW_PREFIX = /^www\./;
@@ -13,6 +13,7 @@ export type LinkPreviewCardProps = {
   icon?: string | null;
   compact?: boolean;
   className?: string;
+  onOpen?: (event: MouseEvent<HTMLAnchorElement>, url: string) => void;
 };
 
 /** Presentation only. The caller supplies authorized metadata and mediated media. */
@@ -30,7 +31,10 @@ export function LinkPreviewCard(props: LinkPreviewCardProps) {
         )}
         data-slot="link-preview-card"
         href={props.url}
-        onClick={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          props.onOpen?.(event, props.url);
+        }}
         rel="noopener noreferrer"
         target="_blank"
       >
@@ -76,7 +80,10 @@ export function LinkPreviewCard(props: LinkPreviewCardProps) {
         aria-label={label}
         className="block rounded-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         href={props.url}
-        onClick={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          props.onOpen?.(event, props.url);
+        }}
         rel="noopener noreferrer"
         target="_blank"
       >
@@ -92,7 +99,10 @@ export function LinkPreviewCard(props: LinkPreviewCardProps) {
           aria-label={label}
           className="mt-2 block w-fit max-w-full overflow-hidden rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           href={props.url}
-          onClick={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            props.onOpen?.(event, props.url);
+          }}
           rel="noopener noreferrer"
           tabIndex={-1}
           target="_blank"

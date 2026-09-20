@@ -17,9 +17,11 @@ import {
 	isSpaceComposerFileFailed,
 	type SpaceComposerFile,
 } from "#/lib/spaces/composer-attachment";
+import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
 import { isQuotaWakeFailure } from "#/lib/spaces/wake-failure-display";
 import {
 	SpaceComposerAddMenu,
+	SpaceComposerAttachmentRecovery,
 	SpaceComposerFileTray,
 	useSpaceComposerFileInput,
 } from "./space-composer-attachments";
@@ -63,6 +65,9 @@ export type SpaceComposerProps = {
 		onEditorChange: (change: SpaceComposerEditorChange) => void;
 		onMentionButtonClick?: () => void;
 		onRemoveFile?: (localId: string) => void;
+		onRetryFile?: (localId: string) => void;
+		onRetryFileCleanup?: (localId: string) => void;
+		onRetryFileRestoration?: () => void;
 		onSubmit: (options?: SpaceComposerSendOptions) => void;
 		onBlur?: () => void;
 		onFocus?: () => void;
@@ -79,6 +84,8 @@ export type SpaceComposerProps = {
 		addressingTargets: readonly SpaceComposerAddressingTarget[];
 		authoredMentions: readonly ComposerDraftAuthoredMention[];
 		files: readonly SpaceComposerFile[];
+		fileCleanup?: readonly ComposerFileDraftCleanup[];
+		fileRestorationError?: unknown | null;
 		hasAuthoredMentions?: boolean;
 		mentionPickerItems: readonly SpaceMentionPickerItem[];
 		mentionEmptyMessage?: string;
@@ -114,6 +121,32 @@ export type SpaceComposerProps = {
 const ignoreFiles = (_files: readonly File[]): Promise<void> =>
 	Promise.resolve();
 const ignoreFileRemoval = (_localId: string): void => undefined;
+const ignoreFileRestoration = (): void => undefined;
+
+function SpaceComposerAttachmentState({
+	input,
+}: {
+	input: SpaceComposerProps;
+}) {
+	return (
+		<>
+			<SpaceComposerFileTray
+				disabled={input.availability.isSendingMessage}
+				files={input.content.files}
+				onRemove={input.actions.onRemoveFile ?? ignoreFileRemoval}
+				onRetry={input.actions.onRetryFile}
+			/>
+			<SpaceComposerAttachmentRecovery
+				cleanup={input.content.fileCleanup ?? []}
+				onRetryCleanup={input.actions.onRetryFileCleanup ?? ignoreFileRemoval}
+				onRetryRestoration={
+					input.actions.onRetryFileRestoration ?? ignoreFileRestoration
+				}
+				restorationError={input.content.fileRestorationError ?? null}
+			/>
+		</>
+	);
+}
 
 function useComposerWakeSuggestion(input: SpaceComposerProps) {
 	const recommendations = useSpaceWakeRecommendation();
@@ -302,11 +335,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 					value={input.content.text}
 				>
 					{input.slots?.beforeInput}
-					<SpaceComposerFileTray
-						disabled={input.availability.isSendingMessage}
-						files={input.content.files}
-						onRemove={input.actions.onRemoveFile ?? ignoreFileRemoval}
-					/>
+					<SpaceComposerAttachmentState input={input} />
 					<SpaceComposerEditor
 						addressingTargets={input.content.addressingTargets}
 						ariaLabel={policy.accessibleName}
@@ -649,9 +678,17 @@ export function resolveSpaceComposerFileHint(input: {
 }): string | null {
 	const failedCount = input.files.filter(isSpaceComposerFileFailed).length;
 	if (failedCount > 0) {
+		const retryableCount = input.files.filter(
+			(file) => file.status === "failed" && file.failurePhase !== "validation"
+		).length;
+		if (retryableCount > 0) {
+			return failedCount === 1
+				? "Retry or remove the failed attachment to continue."
+				: "Retry or remove the failed attachments to continue.";
+		}
 		return failedCount === 1
-			? "Remove the failed file to continue."
-			: "Remove the failed files to continue.";
+			? "Remove the failed attachment to continue."
+			: "Remove the failed attachments to continue.";
 	}
 	if (input.fileLimitReached) {
 		return "You can add up to 10 files.";

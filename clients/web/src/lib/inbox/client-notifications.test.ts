@@ -77,8 +77,7 @@ describe("Inbox browser notifications", () => {
 			await showInboxNotification({
 				item,
 				userId: USER_ID,
-				sourcePath:
-					"/o/amplift/spaces/space-123?threadRootSignalId=root&focusSignalId=human-reply",
+				onActivate: vi.fn(),
 				viewingSourceSession: false,
 			})
 		).toMatchObject({ status: "delivered" });
@@ -100,7 +99,7 @@ describe("Inbox browser notifications", () => {
 		const input = {
 			item,
 			userId: USER_ID,
-			sourcePath: "/o/amplift/spaces/space-123",
+			onActivate: vi.fn(),
 			viewingSourceSession: false,
 		};
 		expect(
@@ -110,12 +109,16 @@ describe("Inbox browser notifications", () => {
 			})
 		).toEqual({ status: "ineligible" });
 		expect(notificationConstructorMock).not.toHaveBeenCalled();
-		expect(
-			await showInboxNotification({
-				...input,
-				resolveCurrentReadiness: () => ({ status: "eligible", item }),
-			})
-		).toMatchObject({ status: "delivered" });
+		const delivered = await showInboxNotification({
+			...input,
+			resolveCurrentReadiness: () => ({ status: "eligible", item }),
+		});
+		expect(delivered).toMatchObject({ status: "delivered" });
+		vi.spyOn(window, "focus").mockImplementation(() => undefined);
+		if (delivered.status === "delivered") {
+			delivered.notification?.onclick?.(new MouseEvent("click"));
+		}
+		expect(input.onActivate).toHaveBeenCalledExactlyOnceWith(item);
 		expect(notificationConstructorMock).toHaveBeenCalledOnce();
 	});
 	it.each([
@@ -226,7 +229,7 @@ describe("Inbox browser notifications", () => {
 				item: createInboxItem(),
 				userId: USER_ID,
 				organizationSlug: "workspace",
-				sourcePath: "/unused",
+				onActivate: vi.fn(),
 				viewingSourceSession: false,
 			});
 		expect((await send()).status).toBe("deferred");
@@ -248,13 +251,13 @@ describe("Inbox browser notifications", () => {
 			item: createInboxItem(),
 			userId: USER_ID,
 			organizationSlug: "workspace",
-			sourcePath: "/unused",
+			onActivate: vi.fn(),
 			viewingSourceSession: true,
 		});
 		expect(result.status).toBe(focused ? "deferred" : "delivered");
 		expect(showNotification).toHaveBeenCalledTimes(focused ? 0 : 1);
 	});
-	it("coalesces personal Agent owner alerts without suppressing another conversation", async () => {
+	it("keeps delayed legacy owner observations quiet without coalescing independent Human mentions", async () => {
 		await enableInboxNotifications({ userId: USER_ID });
 		const item = createInboxItem({
 			kind: "space_message",
@@ -271,28 +274,35 @@ describe("Inbox browser notifications", () => {
 		const send = (value: InboxItem) =>
 			showInboxNotification({
 				item: value,
-				sourcePath: "/chats/owner-chat",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			});
-		expect((await send(item)).status).toBe("delivered");
-		expect((await send({ ...item, id: "second-message" })).status).toBe(
-			"already_delivered"
-		);
+		expect((await send(item)).status).toBe("ineligible");
 		expect(
 			(
 				await send({
 					...item,
-					id: "another-chat",
-					sourceTarget: {
-						kind: "space",
-						agentOwnerActivity: true,
-						spaceId: "other-chat",
-						signalId: "two",
-					},
+					id: "later-owner-message",
+					occurredAt: new Date(
+						Date.parse(item.occurredAt) + 120_000
+					).toISOString(),
 				})
 			).status
-		).toBe("delivered");
+		).toBe("ineligible");
+		expect(notificationConstructorMock).not.toHaveBeenCalled();
+		expect(queueSoundMock).not.toHaveBeenCalled();
+		const mention = {
+			...item,
+			id: "human-mention-one",
+			kind: "space_mention" as const,
+			importance: "normal" as const,
+		};
+		expect((await send(mention)).status).toBe("delivered");
+		expect((await send({ ...mention, id: "human-mention-two" })).status).toBe(
+			"delivered"
+		);
+		expect((await send(mention)).status).toBe("already_delivered");
 		expect(notificationConstructorMock).toHaveBeenCalledTimes(2);
 		expect(queueSoundMock).toHaveBeenCalledTimes(2);
 	});
@@ -496,13 +506,13 @@ describe("Inbox browser notifications", () => {
 		const [first, second] = await Promise.all([
 			showInboxNotification({
 				item,
-				sourcePath: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			}),
 			showInboxNotification({
 				item,
-				sourcePath: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			}),
@@ -540,7 +550,7 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item,
-				sourcePath: "/o/amplift/inbox?item=retry-item",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
@@ -548,7 +558,7 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item,
-				sourcePath: "/o/amplift/inbox?item=retry-item",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
@@ -571,7 +581,7 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item: createInboxItem({ id: "constructor-crash-item" }),
-				sourcePath: "/o/amplift/inbox?item=constructor-crash-item",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
@@ -597,7 +607,7 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item: createInboxItem({ id: "sound-queue-failure-item" }),
-				sourcePath: "/o/amplift/inbox?item=sound-queue-failure-item",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
@@ -645,7 +655,7 @@ describe("Inbox browser notifications", () => {
 				contextChanged
 					? { status: "context_changed" as const }
 					: { item, status: "eligible" as const },
-			sourcePath: "/o/amplift/inbox?item=queued-context-item",
+			onActivate: vi.fn(),
 			userId: USER_ID,
 			viewingSourceSession: false,
 		});
@@ -673,7 +683,7 @@ describe("Inbox browser notifications", () => {
 				resolveCurrentReadiness: async () => ({
 					status: "ineligible" as const,
 				}),
-				sourcePath: "/o/amplift/inbox?item=resolved-while-queued",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
@@ -704,7 +714,7 @@ describe("Inbox browser notifications", () => {
 					item: freshItem,
 					status: "eligible" as const,
 				}),
-				sourcePath: "/o/amplift/inbox?item=fresh-item",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
@@ -820,7 +830,7 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item,
-				sourcePath: "/o/amplift/inbox?item=claim-retry-item",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
@@ -831,7 +841,7 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item,
-				sourcePath: "/o/amplift/inbox?item=claim-retry-item",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
@@ -854,7 +864,7 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item,
-				sourcePath: "/o/amplift/inbox",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: true,
 			})
@@ -864,7 +874,7 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item,
-				sourcePath: "/o/amplift/inbox",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: false,
 			})
@@ -878,7 +888,7 @@ describe("Inbox browser notifications", () => {
 		await expect(
 			showInboxNotification({
 				item: createInboxItem({ id: "hidden-tab-item" }),
-				sourcePath: "/o/amplift/inbox",
+				onActivate: vi.fn(),
 				userId: USER_ID,
 				viewingSourceSession: true,
 			})

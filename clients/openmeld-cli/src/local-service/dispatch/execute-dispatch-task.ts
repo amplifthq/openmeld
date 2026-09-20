@@ -99,7 +99,6 @@ import {
 } from "../../runtime/dispatch-space-action-context";
 import type { Presenter } from "../../runtime/presenter/types";
 import { fetchSpaceMeta } from "../../space/meta-api";
-import type { WsClient } from "../../transport/ws";
 import { resolveProviderRuntimeDispatchContinuation } from "../continuation/provider-runtime-continuation";
 import {
   emitRunLine,
@@ -108,6 +107,7 @@ import {
 } from "../core/logger";
 import type {
   CurrentDaemonSocketRef,
+  DaemonFrameSink,
   DaemonProfileRouteConfig,
   InflightDispatchMeta,
   LedgerPaths,
@@ -116,6 +116,7 @@ import { DaemonServiceRunError } from "../core/types";
 import { resolveComputerFileAccessAdmission } from "../file-access/computer-file-access-admission";
 import { applyComputerFileAccessAwareness } from "../file-access/computer-file-access-prompt";
 import { readComputerFileAccessPolicy } from "../file-access/computer-file-access-store";
+import { prepareDispatchWorkHandoff } from "../file-access/dispatch-work-handoff";
 import { probeAgentControllerUsageObservationAuth } from "../inventory/agent-controller-interface";
 import { recordRuntimeProviderUsageLimits } from "../inventory/runtime-provider-usage-limits";
 import {
@@ -280,7 +281,7 @@ export function enqueueDispatchDeliverFrame(input: {
   requestCurrentWorkingFolderFactRefresh?: () => void;
   presenter: Presenter;
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): void {
   // OPENMELD_SERVICE_THIN_CORE: RuntimeCoordinator task intake.
   // The daemon may accept, queue, and execute a token-backed local task, then
@@ -866,7 +867,7 @@ export async function handleDispatchDeliverFrame(input: {
   requestCurrentWorkingFolderFactRefresh?: () => void;
   presenter: Presenter;
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): Promise<LocalExecutionSlotTaskResult> {
   const { currentSocketRef } = input;
   emitDispatchLocalPhaseJournalEvent({
@@ -1124,6 +1125,7 @@ export async function handleDispatchDeliverFrame(input: {
   );
 
   try {
+    await currentSocketRef.confirmExecutionAdmission?.(input.deliverRequest);
     dispatchRuntimeContext = await resolveDispatchWorkingFolderRuntimeContext({
       controllerSnapshot: input.deliverRequest.payload.controllerSnapshot,
       defaultProjectId: parsedTask.defaultProjectId,
@@ -1171,8 +1173,13 @@ export async function handleDispatchDeliverFrame(input: {
       currentWorkingDirectory: originalWorkingDirectory,
       computerFileAccessStorePath: input.computerFileAccessStorePath,
     });
+    const handoffWorkingDirectory = await prepareDispatchWorkHandoff({
+      task: parsedTask,
+      ownerUserId: input.profileOwnerUserId,
+      workingDirectory: taskWorkspace.workingDirectory,
+    });
     effectiveRuntimeContext = {
-      providerRuntimeWorkingDirectory: taskWorkspace.workingDirectory,
+      providerRuntimeWorkingDirectory: handoffWorkingDirectory,
     };
     runtimePreparation.effectiveRuntimeContext = effectiveRuntimeContext;
     computerFileAccessBoundary = await resolveDispatchComputerFileAccess({
@@ -1630,7 +1637,8 @@ export async function handleDispatchDeliverFrame(input: {
         result: "accepted",
       });
     };
-    const onNativeTurnStarted = () => {
+    const onNativeTurnStarted = async () => {
+      await currentSocketRef.confirmExecutionAdmission?.(input.deliverRequest);
       completedTurnId = null;
       completedTurnConversationId = null;
       executionContextCompletion = undefined;
@@ -2977,6 +2985,7 @@ async function resolveDispatchComputerFileAccess(input: {
       workingDirectory,
       policy,
       taskWorkspace: input.taskWorkspace,
+      workingCopyId: input.parsedTask.workingCopyId,
     });
     const verification = await verifier({
       boundary,
@@ -3016,7 +3025,7 @@ async function resolveDispatchComputerFileAccess(input: {
                 input.runtimePreparation.effectiveRuntimeContext
                   .providerRuntimeWorkingDirectory,
             });
-            return verification.supported;
+            return verification;
           },
         }
       : {}),
@@ -3047,6 +3056,7 @@ function createDispatchSpaceActionRuntimeContext(input: {
   runtimeEnvOverrides: Record<string, string | undefined> | undefined;
 } {
   const contextResult = createDispatchSpaceActionContext({
+    workingCopyId: input.parsedTask.workingCopyId,
     attemptId: input.parsedTask.attemptId,
     dispatchId: input.parsedTask.dispatchId,
     env: process.env,
@@ -3712,7 +3722,7 @@ async function resolveRuntimeResultStructuredSpaceAction(input: {
   onInteractionRequest?: Parameters<
     typeof runRuntimeTask
   >[0]["onInteractionRequest"];
-  onNativeTurnStarted: () => void;
+  onNativeTurnStarted: () => Promise<void>;
   onNativeTurnCompleted: (result: RuntimeTaskResult) => void;
   onRuntimeEvent?: Parameters<typeof runRuntimeTask>[0]["onRuntimeEvent"];
   agentReplyObservationCursor?: string | null;
@@ -3955,7 +3965,7 @@ async function coordinateConcurrentAgentReply(input: {
   onInteractionRequest?: Parameters<
     typeof runRuntimeTask
   >[0]["onInteractionRequest"];
-  onNativeTurnStarted: () => void;
+  onNativeTurnStarted: () => Promise<void>;
   onNativeTurnCompleted: (result: RuntimeTaskResult) => void;
   onRuntimeEvent?: Parameters<typeof runRuntimeTask>[0]["onRuntimeEvent"];
   agentReplyObservationCursor?: string | null;
@@ -4650,7 +4660,7 @@ function maybeRejectDispatchPreflight(input: {
   parsedTask: ReturnType<typeof parseDispatchTask>;
   ledgerPaths: LedgerPaths;
   presenter: Presenter;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): LocalExecutionSlotTaskResult | null {
   const staleLeaseResult = maybeRejectStaleLease({
     activeLeaseEpoch: input.activeLeaseEpoch,
@@ -4773,7 +4783,7 @@ type DispatchRuntimeRoute = NonNullable<
 type DispatchRuntimeTask = Parameters<typeof runRuntimeTask>[0]["task"];
 
 async function runDispatchRuntimeExecution(input: {
-  onNativeTurnStarted: () => void;
+  onNativeTurnStarted: () => Promise<void>;
   onNativeTurnCompleted: (result: RuntimeTaskResult) => void;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary | null;
   contextId: string | null;
@@ -4795,7 +4805,7 @@ async function runDispatchRuntimeExecution(input: {
   streamingModeOverride?: DispatchRuntimeRoute["streamingMode"];
   agentControllerConversationOverride?: AgentControllerConversationRef | null;
 }): Promise<Awaited<ReturnType<typeof runRuntimeTask>>> {
-  input.onNativeTurnStarted();
+  await input.onNativeTurnStarted();
   const result = await runRuntimeTask({
     ...(input.parsedTask.executionContext ||
     input.agentControllerConversationOverride
@@ -4936,7 +4946,7 @@ function maybeRejectStaleLease(input: {
   ledgerPaths: LedgerPaths;
   parsedTask: ReturnType<typeof parseDispatchTask>;
   presenter: Presenter;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): LocalExecutionSlotTaskResult | null {
   if (
     input.activeLeaseEpoch === undefined ||
@@ -4974,7 +4984,7 @@ function maybeRejectInvalidDispatchTask(input: {
   ledgerPaths: LedgerPaths;
   parsedTask: ReturnType<typeof parseDispatchTask>;
   presenter: Presenter;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): LocalExecutionSlotTaskResult | null {
   if (input.parsedTask) {
     return null;
@@ -5010,7 +5020,7 @@ function resolveValidatedDispatchDeliveryInput(input: {
   localAdapterContainer: LocalDaemonAdapterContainer;
   presenter: Presenter;
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }):
   | {
       result: LocalExecutionSlotTaskResult;
@@ -5099,7 +5109,7 @@ function maybeRejectUnsupportedController(input: {
   runtimeControllerSupport: ReturnType<
     typeof resolveLocalRuntimeControllerSupport
   >;
-  socket: WsClient;
+  socket: DaemonFrameSink;
 }): LocalExecutionSlotTaskResult | null {
   if (input.runtimeControllerSupport.supported) {
     return null;

@@ -30,6 +30,7 @@ import {
 } from "./release-cli.mjs";
 import {
   probeCliReleaseStages,
+  readCompletedCliRelease,
   resolveCoreProjectionTag,
   waitForNpmPropagation,
 } from "./release-cli-resume.mjs";
@@ -259,6 +260,32 @@ test("requires the selected release version to match package and manifest truth"
     );
 
     assert.doesNotThrow(() =>
+      assertCliReleaseVersionTarget({
+        cwd: repoRoot,
+        targetVersion: "0.7.96",
+      })
+    );
+    const releaseManifestPath = join(repoRoot, "release/local-components.json");
+    const retainedServiceManifest = JSON.parse(
+      readFileSync(releaseManifestPath, "utf8")
+    );
+    retainedServiceManifest.components.service.bundleVersion = "0.7.95";
+    await writeFile(
+      releaseManifestPath,
+      `${JSON.stringify(retainedServiceManifest, null, 2)}\n`
+    );
+    assert.doesNotThrow(() =>
+      assertCliReleaseVersionTarget({
+        cwd: repoRoot,
+        targetVersion: "0.7.96",
+      })
+    );
+    retainedServiceManifest.components.service.bundleVersion = "0.7.97";
+    await writeFile(
+      releaseManifestPath,
+      `${JSON.stringify(retainedServiceManifest, null, 2)}\n`
+    );
+    assert.throws(() =>
       assertCliReleaseVersionTarget({
         cwd: repoRoot,
         targetVersion: "0.7.96",
@@ -891,7 +918,7 @@ test("a fully completed CLI release rerun skips every stage without side effects
   const sideEffects = [];
   const output = [];
   try {
-    const result = await runCliRelease({
+    const input = {
       adapters: {
         fetch: (url, options) => {
           const manifest = buildTestCliManifest("0.7.96");
@@ -953,7 +980,15 @@ test("a fully completed CLI release rerun skips every stage without side effects
       env: {},
       withBinary: true,
       write: (value) => output.push(value),
-    });
+    };
+    const completion = await readCompletedCliRelease(input);
+    assert.equal(completion.sourceSha, head);
+    assert.equal(completion.core.targetTag, coreTag);
+    assert.equal(
+      completion.core.deploymentId,
+      WRANGLER_RELEASE_STATE.deployments[0].id
+    );
+    const result = await runCliRelease(input);
 
     assert.equal(result.alignment.action, "SKIP");
     assert.deepEqual(sideEffects, []);
@@ -1306,7 +1341,9 @@ test("stops before every release mutation when the stable CLI channel is ahead",
   }
 });
 
-test("resumes a newer CLI target without probing artifacts from an older manifest", async () => {
+// biome-ignore lint/style/noDoneCallback: Node's test context restores timers; this is not a completion callback.
+test("resumes a newer CLI target after slow command probes without reading old artifacts", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
   const artifactRequests = [];
   const target = {
     coreTag: "openmeld-release-target",
@@ -1316,7 +1353,10 @@ test("resumes a newer CLI target without probing artifacts from an older manifes
 
   const result = await probeCliReleaseStages({
     adapters: {
-      fetch: (url, options) => {
+      fetch: async (url, options) => {
+        // HTTP progress resumes only after synchronous subprocesses yield.
+        await Promise.resolve();
+        options?.signal?.throwIfAborted();
         if (options?.method) {
           artifactRequests.push({ method: options.method, url: String(url) });
           return Promise.reject(
@@ -1330,6 +1370,7 @@ test("resumes a newer CLI target without probing artifacts from an older manifes
         );
       },
       runCommand: ({ args, command }) => {
+        context.mock.timers.tick(11_000);
         const key = [command, ...args].join(" ");
         if (key.startsWith("npm view")) {
           return { status: 1, stderr: "npm error code E404", stdout: "" };

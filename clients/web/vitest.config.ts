@@ -95,6 +95,8 @@ export default defineConfig({
 		},
 	},
 	test: {
+		// Vite declares the local lane explicitly; the test runner must too.
+		env: { VITE_OPENMELD_SETUP_USER_FACING_COMMAND: "openmeld-dev" },
 		environment: "jsdom",
 		include: ["src/**/*.test.{ts,tsx}", "tests/**/*.test.{ts,tsx}"],
 		exclude: ["src/**/*.integration.test.{ts,tsx}"],

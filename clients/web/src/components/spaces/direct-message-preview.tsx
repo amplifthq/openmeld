@@ -50,6 +50,7 @@ export function spaceMessagePreviewQueryOptions(input: {
 			);
 			return message?.type === "signal.text"
 				? {
+						signalId: message.id,
 						timestamp: message.ts,
 						text: sanitizeSignalTextPreview(message.data.text) ?? "Message",
 					}

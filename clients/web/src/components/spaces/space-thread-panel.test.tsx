@@ -1008,7 +1008,7 @@ describe("SpaceThreadPanel", () => {
 		});
 
 		expect(
-			screen.getByText("Remove the failed file to continue.")
+			screen.getByText("Retry or remove the failed attachment to continue.")
 		).toBeTruthy();
 		const sendButton = screen.getByRole("button", { name: "Send reply" });
 		expect(sendButton).toHaveProperty("disabled", true);
@@ -1333,6 +1333,7 @@ function createReadyComposerFile() {
 		},
 		errorMessage: null,
 		errorRequestId: null,
+		failurePhase: null,
 		fileName: "launch-brief.pdf",
 		localId: "local-file-1",
 		mimeType: "application/pdf",
@@ -1348,6 +1349,7 @@ function createFailedComposerFile() {
 		upload: null,
 		errorMessage: "OpenMeld couldn't add this file. Try again.",
 		errorRequestId: "request-file-failed",
+		failurePhase: "stage" as const,
 		fileName: "broken.pdf",
 		localId: "local-file-failed",
 		mimeType: "application/pdf",

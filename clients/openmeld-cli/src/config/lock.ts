@@ -18,6 +18,7 @@ import {
 } from "../system/local-machine-recovery";
 import {
   CURRENT_PROCESS_START_IDENTITY,
+  isPreciseProcessStartIdentity,
   isProcessIdentityAlive,
   readProcessStartIdentity,
 } from "../system/process-identity";
@@ -207,7 +208,7 @@ export async function attachLockProcess(
   pid: number
 ): Promise<OpenMeldLock> {
   const ownerProcessStartedAt = readProcessStartIdentity(pid);
-  if (!ownerProcessStartedAt?.startsWith("ps:")) {
+  if (!isPreciseProcessStartIdentity(ownerProcessStartedAt)) {
     throw new Error("Cannot establish native command process identity.");
   }
   const parent = await open(
@@ -626,8 +627,7 @@ async function readDirectoryLockSnapshot(
         typeof snapshot.meta?.ownerId === "string" &&
         snapshot.ownerEntryName ===
           `${encodeURIComponent(snapshot.meta.ownerId)}.owner.json` &&
-        typeof snapshot.meta.ownerProcessStartedAt === "string" &&
-        snapshot.meta.ownerProcessStartedAt.startsWith("ps:") &&
+        isPreciseProcessStartIdentity(snapshot.meta.ownerProcessStartedAt) &&
         snapshot.pid !== null
     );
     return {

@@ -17,6 +17,7 @@ import {
 } from "../src/config/daemon-state";
 import {
   requestLocalConversationExecutionStatus,
+  requestLocalDaemonShutdown,
   requestLocalSyncRouteCatalog,
   sendLocalDaemonControlPlaneRequest,
 } from "../src/local-service/control-plane/client";
@@ -345,6 +346,221 @@ describe("local service control-plane", () => {
         });
       } finally {
         await server.close();
+      }
+    });
+  });
+
+  it("keeps an admitted shutdown request alive until completion evidence is available", async () => {
+    await withTempHome(async () => {
+      await installDaemon({
+        daemonVersion: "0.4.0",
+        source: "daemon.command.install",
+      });
+      const token = await readDaemonControlPlaneToken();
+      const admitted = Promise.withResolvers<void>();
+      const completion = Promise.withResolvers<void>();
+      const phases: string[] = [];
+      const server = await startLocalDaemonControlPlaneServer({
+        expectedToken: token ?? "missing",
+        onRequestPhase: (event) => phases.push(event.phase),
+        getContext: async () => ({
+          ...BASE_CONTEXT,
+          shutdownHandler: async (payload, lifecycle) => {
+            lifecycle?.onAdmitted();
+            admitted.resolve();
+            await completion.promise;
+            return {
+              accepted: true,
+              gracePeriodMs: payload.gracePeriodMs,
+              mode: payload.mode,
+            };
+          },
+        }),
+      });
+
+      try {
+        const shutdown = requestLocalDaemonShutdown({
+          endpoint: server.endpoint,
+          payload: {
+            gracePeriodMs: 5000,
+            mode: "graceful",
+          },
+          timeoutMs: 1100,
+        });
+        let settled = false;
+        const observedShutdown = shutdown.then(
+          (value) => {
+            settled = true;
+            return value;
+          },
+          (error: unknown) => {
+            settled = true;
+            throw error;
+          }
+        );
+        await admitted.promise;
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        expect(settled).toBe(false);
+        completion.resolve();
+
+        await expect(observedShutdown).resolves.toEqual({
+          accepted: true,
+          gracePeriodMs: 5000,
+          mode: "graceful",
+        });
+        expect(phases).toEqual([
+          "received",
+          "authenticated",
+          "shutdown_admitted",
+        ]);
+      } finally {
+        completion.resolve();
+        await server.close();
+      }
+    });
+  });
+
+  it("times out when shutdown stalls before admission", async () => {
+    await withTempHome(async () => {
+      await installDaemon({
+        daemonVersion: "0.4.0",
+        source: "daemon.command.install",
+      });
+      const token = await readDaemonControlPlaneToken();
+      const releaseToken = Promise.withResolvers<string>();
+      const getContext = vi.fn(() => BASE_CONTEXT);
+      const server = await startLocalDaemonControlPlaneServer({
+        resolveExpectedToken: async () => await releaseToken.promise,
+        getContext,
+      });
+
+      try {
+        const shutdown = requestLocalDaemonShutdown({
+          endpoint: server.endpoint,
+          payload: { gracePeriodMs: 5000, mode: "graceful" },
+          timeoutMs: 1500,
+        });
+        const observedShutdown = shutdown.then(
+          () => ({ status: "resolved" as const }),
+          (error: unknown) => ({ error, status: "rejected" as const })
+        );
+        const outcome = await Promise.race([
+          observedShutdown,
+          new Promise<{ status: "pending" }>((resolve) => {
+            setTimeout(() => resolve({ status: "pending" }), 2200);
+          }),
+        ]);
+        expect(outcome).toMatchObject({
+          error: { code: "daemon.control.timeout" },
+          status: "rejected",
+        });
+        expect(getContext).not.toHaveBeenCalled();
+      } finally {
+        releaseToken.resolve(token ?? "missing");
+        await server.close();
+      }
+    });
+  });
+
+  it("preserves an admitted shutdown error after the timeout boundary", async () => {
+    await withTempHome(async () => {
+      await installDaemon({
+        daemonVersion: "0.4.0",
+        source: "daemon.command.install",
+      });
+      const token = await readDaemonControlPlaneToken();
+      const admitted = Promise.withResolvers<void>();
+      const completion = Promise.withResolvers<void>();
+      const server = await startLocalDaemonControlPlaneServer({
+        expectedToken: token ?? "missing",
+        getContext: () => ({
+          ...BASE_CONTEXT,
+          shutdownHandler: async (_payload, lifecycle) => {
+            lifecycle?.onAdmitted();
+            admitted.resolve();
+            await completion.promise;
+            throw new Error("controlled drain failed");
+          },
+        }),
+      });
+
+      try {
+        const shutdown = requestLocalDaemonShutdown({
+          endpoint: server.endpoint,
+          payload: { gracePeriodMs: 5000, mode: "graceful" },
+          timeoutMs: 1100,
+        });
+        await admitted.promise;
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        completion.resolve();
+        await expect(shutdown).rejects.toMatchObject({
+          code: "service.internal",
+          message: "controlled drain failed",
+        });
+      } finally {
+        completion.resolve();
+        await server.close();
+      }
+    });
+  });
+
+  it("cleans up admitted-shutdown response progress when the client disconnects", async () => {
+    await withTempHome(async () => {
+      await installDaemon({
+        daemonVersion: "0.4.0",
+        source: "daemon.command.install",
+      });
+      const token = await readDaemonControlPlaneToken();
+      const admitted = Promise.withResolvers<void>();
+      const completion = Promise.withResolvers<void>();
+      const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+      const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
+      const server = await startLocalDaemonControlPlaneServer({
+        expectedToken: token ?? "missing",
+        getContext: () => ({
+          ...BASE_CONTEXT,
+          shutdownHandler: async (_payload, lifecycle) => {
+            lifecycle?.onAdmitted();
+            admitted.resolve();
+            await completion.promise;
+            return { accepted: true, gracePeriodMs: 5000, mode: "graceful" };
+          },
+        }),
+      });
+      const socket = createConnection(server.endpoint);
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          socket.once("connect", resolve);
+          socket.once("error", reject);
+        });
+        socket.write(
+          `${JSON.stringify({
+            authToken: token,
+            command: "shutdown",
+            payload: { gracePeriodMs: 5000, mode: "graceful" },
+            v: OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,
+          })}\n`
+        );
+        await admitted.promise;
+        const progressTimer = setIntervalSpy.mock.results.at(-1)?.value;
+        expect(progressTimer).toBeDefined();
+
+        const closed = new Promise<void>((resolve) =>
+          socket.once("close", resolve)
+        );
+        socket.destroy();
+        await closed;
+
+        await vi.waitFor(() => {
+          expect(clearIntervalSpy).toHaveBeenCalledWith(progressTimer);
+        });
+      } finally {
+        completion.resolve();
+        socket.destroy();
+        await server.close();
+        setIntervalSpy.mockRestore();
+        clearIntervalSpy.mockRestore();
       }
     });
   });

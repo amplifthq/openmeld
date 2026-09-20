@@ -97,3 +97,55 @@ describe("browser Computer selection", () => {
 		).toBeNull();
 	});
 });
+
+it("does not substitute the single-session fallback for an unresolved preference, but preserves explicit and completed setup evidence", () => {
+	const selected = { deviceId: "new", runtimeLane: "prod" } as const;
+	const session: PeopleComputersResponse["computers"][number]["connection"]["sessions"][number] =
+		{
+			...selected,
+			lastHeartbeatMs: 1,
+			serviceVersion: null,
+			executionCompatibility: {
+				status: "compatible",
+				expectedEpoch: "test-epoch",
+				observedEpoch: "test-epoch",
+				reasonCode: "daemon.runtime_contract.compatible",
+			},
+			serviceUpdate: { wakeBlocked: false, reasonCodes: [] },
+		};
+	const live = {
+		...inventory,
+		computers: inventory.computers.map((computer) => ({
+			...computer,
+			connection: {
+				...computer.connection,
+				sessions: computer.deviceId === "new" ? [session] : [],
+			},
+		})),
+	};
+	const pending = {
+		inventory: live,
+		completedSetup: null,
+		routingPreferenceUnavailable: true,
+	};
+	// This narrow projection is typed by the actual selector contract, not a new
+	// source of connection/Wake truth.
+	expect(selectPeopleComputerTarget(pending)).toBeNull();
+	expect(
+		selectPeopleComputerTarget({ ...pending, explicitTarget: selected })
+	).toEqual(selected);
+	expect(
+		selectPeopleComputerTarget({
+			...pending,
+			selection: "setup",
+			selectedHumanProfileId: "human",
+			completedSetup: { ...selected, humanProfileId: "human" },
+		})
+	).toEqual(selected);
+	expect(
+		selectPeopleComputerTarget({
+			...pending,
+			routingPreferenceUnavailable: false,
+		})
+	).toEqual(selected);
+});

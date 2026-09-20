@@ -19,6 +19,7 @@ type ShapeClasses = {
   bg: string;
   focusRing: string;
   mergedBg: string;
+  controlGroup: string;
   container: string;
   button: string;
   input: string;
@@ -31,6 +32,7 @@ const semanticShapeClasses = {
   bg: "rounded-md",
   focusRing: "rounded-lg",
   mergedBg: "rounded-md",
+  controlGroup: "rounded-lg",
   container: "rounded-xl",
   button: "rounded-md",
   input: "rounded-md",

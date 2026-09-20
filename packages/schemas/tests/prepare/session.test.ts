@@ -666,6 +666,10 @@ describe("prepare session schemas", () => {
         snapshot: BASE_SNAPSHOT,
       },
     });
+    const capabilityFrame = prepareSessionStreamServerFrameSchema.safeParse({
+      type: "server.capabilities",
+      payload: { connectionProgress: 1 },
+    });
     const catalogFrame = prepareSessionStreamClientFrameSchema.safeParse({
       type: "terminal.local_agent_catalog.write",
       payload: {
@@ -703,12 +707,36 @@ describe("prepare session schemas", () => {
           localAgentIds: ["codex"],
         },
       });
+    const progressPayload = {
+      schemaVersion: 1,
+      operationId: "operation-1",
+      attemptId: "attempt-1",
+      prepareSessionId: "prepare-session-1",
+      sequence: 3,
+      startedAt: "2026-05-08T00:00:00.000Z",
+      observedAt: "2026-05-08T00:00:06.000Z",
+      phase: "connecting_service",
+      state: "active",
+      code: "prepare.session.progress.refresh_service",
+    } as const;
+    const progressWriteFrame = prepareSessionStreamClientFrameSchema.safeParse({
+      type: "terminal.connection_progress.write",
+      payload: { ...progressPayload, connectionEpoch: 1 },
+    });
+    const progressObservationFrame =
+      prepareSessionStreamServerFrameSchema.safeParse({
+        type: "connection_progress",
+        payload: { ...progressPayload, connectionEpoch: 1 },
+      });
 
     expect(helloFrame.success).toBe(true);
     expect(clientFrame.success).toBe(true);
     expect(serverFrame.success).toBe(true);
+    expect(capabilityFrame.success).toBe(true);
     expect(catalogFrame.success).toBe(true);
     expect(terminalSelectionFrame.success).toBe(true);
+    expect(progressWriteFrame.success).toBe(true);
+    expect(progressObservationFrame.success).toBe(true);
   });
 
   it("rejects Terminal agent selection writes without connection epoch", () => {

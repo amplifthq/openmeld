@@ -1,5 +1,6 @@
 "use client";
 
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { AppMainContent } from "#/components/app/app-main-content";
@@ -108,11 +109,10 @@ function DirectMessagesEntryShell(input: {
 
 function DirectMessagesLoadingState() {
 	return (
-		<output
-			aria-label="Loading chats"
-			className="flex h-full items-center justify-center text-muted-foreground text-sm"
-		>
-			Loading chats…
-		</output>
+		<SkeletonRows
+			className="w-full self-start"
+			label="Loading chats"
+			rows={4}
+		/>
 	);
 }

@@ -259,12 +259,19 @@ export function buildOrganizationCenterAgentChatPath(
 		group?: string;
 		session?: string;
 		focusSignalId?: string;
+		focusThreadRootSignalId?: string;
 		view?: "files" | "graph" | "messages";
 	}
 ): string {
 	const path = `${buildOrganizationRootPath(orgSlug)}/chats/center-agent`;
 	if (
-		!(search?.focusSignalId || search?.view || search?.session || search?.draft)
+		!(
+			search?.focusSignalId ||
+			search?.focusThreadRootSignalId ||
+			search?.view ||
+			search?.session ||
+			search?.draft
+		)
 	) {
 		return path;
 	}
@@ -281,6 +288,9 @@ export function buildOrganizationCenterAgentChatPath(
 	if (search.focusSignalId) {
 		params.set("focusSignalId", search.focusSignalId);
 	}
+	if (search.focusThreadRootSignalId) {
+		params.set("focusThreadRootSignalId", search.focusThreadRootSignalId);
+	}
 	if (search.view) {
 		params.set("view", search.view);
 	}
@@ -288,7 +298,7 @@ export function buildOrganizationCenterAgentChatPath(
 }
 
 export function buildOrganizationSkillsPath(orgSlug: string): string {
-	return `${buildOrganizationCenterAgentRootPath(orgSlug)}/skills`;
+	return `${buildOrganizationRootPath(orgSlug)}/skills`;
 }
 
 export function buildOrganizationSkillPath(input: {
@@ -503,6 +513,8 @@ function resolveProductHomeSwitchPath(input: {
 }): string | null {
 	const [section, subsection] = input.pathSegments;
 	switch (section) {
+		case "skills":
+			return buildOrganizationSkillsPath(input.nextOrgSlug);
 		case "plugins":
 			return subsection
 				? buildOrganizationPluginPath({

@@ -2,6 +2,7 @@ import type {
 	CenterAgentInboxSummaryResponse,
 	GetInboxItemResponse,
 	InboxNotificationPreferencesResponse,
+	InboxPresentation,
 	InboxSummaryResponse,
 	InboxView,
 	ListInboxItemsResponse,
@@ -36,14 +37,22 @@ export const inboxQueryKeys = {
 		[...inboxQueryKeys.all, organizationId] as const,
 	lists: (organizationId: string) =>
 		[...inboxQueryKeys.organization(organizationId), "list"] as const,
-	list: (organizationId: string, view: InboxView) =>
-		[...inboxQueryKeys.lists(organizationId), view] as const,
+	feeds: (organizationId: string) =>
+		[...inboxQueryKeys.organization(organizationId), "feed"] as const,
+	list: (
+		organizationId: string,
+		presentation: InboxPresentation | "raw",
+		view: InboxView
+	) => [...inboxQueryKeys.lists(organizationId), presentation, view] as const,
 	items: (organizationId: string) =>
 		[...inboxQueryKeys.organization(organizationId), "item"] as const,
 	item: (organizationId: string, itemId: string) =>
 		[...inboxQueryKeys.items(organizationId), itemId] as const,
 	summary: (organizationId: string) =>
-		[...inboxQueryKeys.organization(organizationId), "summary"] as const,
+		[
+			...inboxQueryKeys.organization(organizationId),
+			"attention-summary",
+		] as const,
 	centerAgentSummary: (organizationId: string) =>
 		[
 			...inboxQueryKeys.organization(organizationId),
@@ -98,8 +107,10 @@ export function inboxBrowserNotificationRecoveryItemQueryOptions(input: {
 export function inboxItemsInfiniteQueryOptions(input: {
 	enabled?: boolean;
 	organizationId: string;
+	presentation?: InboxPresentation | "raw";
 	view: InboxView;
 }) {
+	const presentation = input.presentation ?? "attention";
 	return infiniteQueryOptions<
 		ListInboxItemsResponse,
 		InboxFailure,
@@ -116,10 +127,15 @@ export function inboxItemsInfiniteQueryOptions(input: {
 				cursor: pageParam,
 				limit: INBOX_PAGE_LIMIT,
 				organizationId: input.organizationId,
+				...(presentation === "raw" ? {} : { presentation }),
 				signal,
 				view: input.view,
 			}),
-		queryKey: inboxQueryKeys.list(input.organizationId, input.view),
+		queryKey: inboxQueryKeys.list(
+			input.organizationId,
+			presentation,
+			input.view
+		),
 		refetchInterval: INBOX_LIST_POLL_INTERVAL_MS,
 		refetchIntervalInBackground: false,
 		refetchOnWindowFocus: true,
@@ -138,6 +154,7 @@ export function inboxSummaryQueryOptions(input: {
 		queryFn: async ({ signal }) =>
 			await getCurrentInboxSummary({
 				organizationId: input.organizationId,
+				presentation: "attention",
 				signal,
 			}),
 		queryKey: inboxQueryKeys.summary(input.organizationId),
@@ -242,6 +259,9 @@ export async function invalidateInboxFacts(input: {
 	queryClient: QueryClient;
 }): Promise<void> {
 	await Promise.all([
+		input.queryClient.invalidateQueries({
+			queryKey: inboxQueryKeys.feeds(input.organizationId),
+		}),
 		input.queryClient.invalidateQueries({
 			queryKey: inboxQueryKeys.lists(input.organizationId),
 		}),

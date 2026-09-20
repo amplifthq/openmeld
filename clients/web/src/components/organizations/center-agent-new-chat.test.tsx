@@ -7,15 +7,52 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { ComposerFileDraft } from "#/lib/spaces/composer-file-drafts";
 import { CenterAgentNewChat } from "./center-agent-new-chat";
 
 const SHOW_AROUND = /Show me around/;
 const CONNECT_COMPUTER = /Connect my computer/;
 
-const { createSession, navigate, saveAsync } = vi.hoisted(() => ({
+// jsdom File is not preserved by Node structuredClone; use the storage boundary
+// here. The IndexedDB adapter has its own tests and browser smoke covers bytes.
+const fileDrafts = vi.hoisted(() => new Map<string, ComposerFileDraft>());
+const draftStoreFailure = vi.hoisted(() => ({ read: null as Error | null }));
+vi.mock("#/lib/spaces/composer-file-drafts", () => ({
+	isComposerFileDraftRetired: () => false,
+	readComposerFileDraftCleanup: () => [],
+	retryComposerFileDraftCleanup: async () => undefined,
+	subscribeComposerFileDrafts: () => () => undefined,
+	saveComposerFileDraft: (draft: ComposerFileDraft) => {
+		fileDrafts.set(draft.id, draft);
+		return Promise.resolve();
+	},
+	readComposerFileDrafts: (scope: string) => {
+		if (draftStoreFailure.read) {
+			return Promise.reject(draftStoreFailure.read);
+		}
+		return Promise.resolve(
+			[...fileDrafts.values()].filter((draft) => draft.scope === scope)
+		);
+	},
+	readComposerFileDraftsByIds: (ids: string[]) => {
+		if (draftStoreFailure.read) {
+			return Promise.reject(draftStoreFailure.read);
+		}
+		return Promise.resolve(
+			[...fileDrafts.values()].filter((draft) => ids.includes(draft.id))
+		);
+	},
+	removeComposerFileDraft: (id: string) => {
+		fileDrafts.delete(id);
+		return Promise.resolve();
+	},
+	saveComposerFileDraftUpload: async () => undefined,
+}));
+
+const { createSession, navigate, save } = vi.hoisted(() => ({
 	createSession: vi.fn(),
 	navigate: vi.fn(),
-	saveAsync: vi.fn(),
+	save: vi.fn(),
 }));
 vi.mock("@tanstack/react-router", async (original) => ({
 	...(await original<typeof import("@tanstack/react-router")>()),
@@ -46,22 +83,37 @@ vi.mock("#/components/app/start-flow-state", () => ({
 }));
 vi.mock("#/lib/profiles/use-default-human-profile", () => ({
 	useDefaultHumanProfile: () => ({
-		defaultHumanProfile: { openMeldProfileId: "human-1" },
+		defaultHumanProfile: {
+			openMeldProfileId: "human-1",
+			profileName: "Jordan Rivera",
+		},
 	}),
 }));
 vi.mock("#/components/app/use-sidebar-preferences", () => ({
 	useSidebarPreferences: () => ({
-		preferences: {
-			pinned: { sort: "manual", spaceIds: [] },
-			spaces: { sort: "recent", spaceIds: [] },
-			groups: [],
-		},
-		disabled: false,
-		saveAsync,
+		preferences: undefined,
+		disabled: true,
+		updateAsync: (update: (value: unknown) => unknown) =>
+			save(
+				update({
+					pinned: { sort: "manual", spaceIds: [] },
+					spaces: { sort: "recent", spaceIds: [] },
+					groups: [],
+				})
+			),
 	}),
 }));
 
 beforeEach(() => {
+	fileDrafts.clear();
+	draftStoreFailure.read = null;
+	vi.stubGlobal(
+		"URL",
+		Object.assign(URL, {
+			createObjectURL: vi.fn(() => "blob:test"),
+			revokeObjectURL: vi.fn(),
+		})
+	);
 	localStorage.clear();
 	sessionStorage.clear();
 	vi.clearAllMocks();
@@ -72,7 +124,7 @@ beforeEach(() => {
 		spaceId: "chat-1",
 		created: true,
 	});
-	saveAsync.mockResolvedValue(undefined);
+	save.mockResolvedValue(undefined);
 	navigate.mockResolvedValue(undefined);
 });
 afterEach(cleanup);
@@ -136,6 +188,41 @@ it("reuses the creation identity after an uncertain failure and submits only on 
 	expect(createSession.mock.calls[1]).toEqual(createSession.mock.calls[0]);
 });
 
+it("returns a failed local attachment handoff to an editable new chat", async () => {
+	mount();
+	fireEvent.change(
+		screen.getByRole("textbox", { name: "Message Center Agent" }),
+		{ target: { value: "Keep this draft" } }
+	);
+	const file = new File(["image"], "screen.png", { type: "image/png" });
+	fireEvent.paste(
+		screen.getByRole("textbox", { name: "Message Center Agent" }),
+		{ clipboardData: { items: [{ kind: "file", getAsFile: () => file }] } }
+	);
+	await screen.findByRole("button", { name: "Remove screen.png" });
+	draftStoreFailure.read = new Error("Database connection is closing");
+	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+	await waitFor(() =>
+		expect(screen.getByRole("alert").textContent).toContain(
+			"Couldn't restore your attachment drafts. Retry to continue."
+		)
+	);
+	expect(createSession).not.toHaveBeenCalled();
+	expect(
+		(
+			screen.getByRole("textbox", {
+				name: "Message Center Agent",
+			}) as HTMLTextAreaElement
+		).value
+	).toBe("Keep this draft");
+	expect(
+		screen.getByRole("button", { name: "Send message" })
+	).not.toHaveProperty("disabled", true);
+	draftStoreFailure.read = null;
+	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+	await waitFor(() => expect(createSession).toHaveBeenCalledOnce());
+});
+
 it("clears the sent draft even when navigation unmounts the composer", async () => {
 	const view = mount();
 	navigate.mockImplementationOnce(() => {
@@ -171,9 +258,46 @@ it("starts a conversation from the shared starter card", async () => {
 		})
 	);
 	expect(createSession).toHaveBeenCalledTimes(1);
-	expect(saveAsync.mock.calls[0][0].chats.titles["chat-1"]).toContain(
+	expect(save.mock.calls[0][0].chats.titles["chat-1"]).toContain(
 		"I'm new to OpenMeld."
 	);
+});
+
+it("does not clear a newer draft when an earlier navigation finishes", async () => {
+	const view = mount();
+	let finishNavigation: () => void = () => undefined;
+	navigate.mockImplementationOnce(() => {
+		view.unmount();
+		return new Promise<void>((resolve) => {
+			finishNavigation = resolve;
+		});
+	});
+	fireEvent.change(
+		screen.getByRole("textbox", { name: "Message Center Agent" }),
+		{
+			target: { value: "First message" },
+		}
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+	await waitFor(() => expect(navigate).toHaveBeenCalled());
+	mount();
+	fireEvent.change(
+		screen.getByRole("textbox", { name: "Message Center Agent" }),
+		{
+			target: { value: "Keep my next draft" },
+		}
+	);
+	finishNavigation();
+	await waitFor(() => expect(sessionStorage.length).toBe(0));
+	cleanup();
+	mount();
+	expect(
+		(
+			screen.getByRole("textbox", {
+				name: "Message Center Agent",
+			}) as HTMLTextAreaElement
+		).value
+	).toBe("Keep my next draft");
 });
 
 it("opens computer setup without creating an empty chat", () => {
@@ -183,6 +307,75 @@ it("opens computer setup without creating an empty chat", () => {
 	expect(navigate).toHaveBeenCalledWith({
 		to: "/o/acme/connect?profileId=human-1",
 	});
+});
+
+it.each([
+	"pending",
+	"failed",
+])("sends with unavailable sidebar preferences and %s naming", async (naming) => {
+	let finishCreation!: (value: unknown) => void;
+	createSession.mockImplementationOnce(
+		() =>
+			new Promise((resolve) => {
+				finishCreation = resolve;
+			})
+	);
+	if (naming === "failed") {
+		save.mockRejectedValue(new Error("Sidebar unavailable"));
+	} else {
+		save.mockReturnValue(
+			new Promise(() => {
+				/* Sidebar persistence stays pending. */
+			})
+		);
+	}
+	mount();
+	fireEvent.change(
+		screen.getByRole("textbox", { name: "Message Center Agent" }),
+		{ target: { value: "Slow connection draft" } }
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+	await screen.findByText("Slow connection draft");
+	expect(navigate).not.toHaveBeenCalled();
+	finishCreation({
+		organizationId: "org-1",
+		centerAgentProfileId: "agent-1",
+		memberProfileId: "human-1",
+		spaceId: "chat-slow",
+		created: true,
+	});
+	await waitFor(() => expect(navigate).toHaveBeenCalled());
+	expect(createSession).toHaveBeenCalledTimes(1);
+	expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("does not navigate back after the user leaves during creation", async () => {
+	let finishCreation!: (value: unknown) => void;
+	createSession.mockImplementationOnce(
+		() =>
+			new Promise((resolve) => {
+				finishCreation = resolve;
+			})
+	);
+	const view = mount();
+	fireEvent.change(
+		screen.getByRole("textbox", { name: "Message Center Agent" }),
+		{ target: { value: "Keep this draft" } }
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+	await waitFor(() => expect(createSession).toHaveBeenCalled());
+	view.unmount();
+	finishCreation({ spaceId: "late-chat" });
+	await Promise.resolve();
+	expect(navigate).not.toHaveBeenCalled();
+	mount();
+	expect(
+		(
+			screen.getByRole("textbox", {
+				name: "Message Center Agent",
+			}) as HTMLTextAreaElement
+		).value
+	).toBe("Keep this draft");
 });
 
 it("preserves a manually named draft across reopening and first-message naming", async () => {
@@ -202,8 +395,33 @@ it("preserves a manually named draft across reopening and first-message naming",
 		{ target: { value: "A different automatic title" } }
 	);
 	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-	await waitFor(() => expect(saveAsync).toHaveBeenCalled());
-	expect(saveAsync.mock.calls[0][0].chats.titles["chat-1"]).toBe(
-		"My launch plan"
+	await waitFor(() => expect(save).toHaveBeenCalled());
+	expect(save.mock.calls[0][0].chats.titles["chat-1"]).toBe("My launch plan");
+});
+
+it("restores pasted attachments after leaving and uses the shared preview and removal tray", async () => {
+	const view = mount();
+	const file = new File(["image"], "screen.png", { type: "image/png" });
+	fireEvent.paste(
+		screen.getByRole("textbox", { name: "Message Center Agent" }),
+		{ clipboardData: { items: [{ kind: "file", getAsFile: () => file }] } }
+	);
+	await screen.findByRole("button", { name: "Remove screen.png" });
+	await waitFor(() =>
+		expect(
+			screen.getByRole("img", { name: "screen.png" }).getAttribute("src")
+		).toBe("blob:test")
+	);
+	view.unmount();
+	mount();
+	const remove = await screen.findByRole("button", {
+		name: "Remove screen.png",
+	});
+	expect(createSession).not.toHaveBeenCalled();
+	fireEvent.click(remove);
+	await waitFor(() =>
+		expect(
+			screen.queryByRole("button", { name: "Remove screen.png" })
+		).toBeNull()
 	);
 });

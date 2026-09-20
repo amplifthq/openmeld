@@ -1,4 +1,7 @@
-import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
+import type {
+  InboxSourceFacts,
+  OpenMeldRequestContext,
+} from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { ensureInboxItem } from "../src/inbox/application/inbox-item-service";
 import {
@@ -8,9 +11,11 @@ import {
   rpcGetInboxSummary,
   rpcGetSpaceInboxSummary,
   rpcGetSpaceInboxUnreadTargets,
+  rpcListInboxFeed,
   rpcListInboxItems,
   rpcMarkInboxItemRead,
   rpcMarkSpaceInboxReadThrough,
+  rpcMutateInboxFeed,
   rpcUpdateInboxMessageNotificationPreferences,
 } from "../src/inbox/transport/rpc/inbox-rpc";
 import type { CoreBindings } from "../src/lib/bindings";
@@ -20,6 +25,91 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox Core RPC", () => {
+  it("binds the attention feed and its frozen mutations to verified membership, not client-selected recipients", async () => {
+    const harness = createInboxHarness();
+    try {
+      applyDrizzleMigrationsForTables(harness, [
+        "inbox_feed_snapshots",
+        "inbox_feed_snapshot_members",
+        "inbox_conversation_notification_preferences",
+      ]);
+      const saved = await seedItem(harness.db, "user-1", true, {
+        version: 1,
+        recipientReasons: ["thread_reply"],
+        agentProfileIds: ["codex"],
+      });
+      const env = { OPENMELD_DB: harness.db } as unknown as CoreBindings;
+      const feed = await rpcListInboxFeed(env, {
+        context: contextFor("user-1"),
+        agentsOnly: "true",
+      });
+      expect(feed.rows[0]?.item.id).toBe(saved.itemId);
+      await expect(
+        rpcMutateInboxFeed(env, {
+          context: contextFor("user-2"),
+          snapshotId: feed.snapshotId,
+          operation: "read",
+        })
+      ).rejects.toMatchObject({ status: 409 });
+      await expect(
+        rpcListInboxFeed(env, { context: contextFor("outsider") })
+      ).rejects.toMatchObject({ status: 403 });
+      await expect(
+        rpcListInboxFeed(env, {
+          context: contextFor("user-1"),
+          // @ts-expect-error A recipient is derived from authentication, never from a feed query.
+          recipientUserId: "user-2",
+        })
+      ).rejects.toMatchObject({ status: 400 });
+      expect(
+        await rpcMutateInboxFeed(env, {
+          context: contextFor("user-1"),
+          snapshotId: feed.snapshotId,
+          operation: "read",
+        })
+      ).toEqual({ changedCount: 1 });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("returns durable relevance facts only to receivers that explicitly support them", async () => {
+    const harness = createInboxHarness();
+    try {
+      const sourceFacts: InboxSourceFacts = {
+        version: 1,
+        recipientReasons: ["thread_reply"],
+        agentProfileIds: ["codex"],
+      };
+      const saved = await seedItem(harness.db, "user-1", true, sourceFacts);
+      const env = { OPENMELD_DB: harness.db } as unknown as CoreBindings;
+      for (const includeSourceFacts of [undefined, true]) {
+        const request = {
+          context: contextFor("user-1"),
+          includeReplyToRecipient: true,
+          includeSourceFacts,
+        };
+        const list = await rpcListInboxItems(env, request);
+        const get = await rpcGetInboxItem(env, {
+          ...request,
+          itemId: saved.itemId,
+        });
+        const read = await rpcMarkInboxItemRead(env, {
+          ...request,
+          itemId: saved.itemId,
+          read: false,
+        });
+        for (const item of [list.items[0], get.item, read.item]) {
+          expect(item?.sourceFacts).toEqual(
+            includeSourceFacts ? sourceFacts : undefined
+          );
+          expect(item?.sourceTarget).toHaveProperty("replyToRecipient", true);
+        }
+      }
+    } finally {
+      harness.close();
+    }
+  });
   it("persists Human reply facts but returns them only to an opted-in RPC receiver", async () => {
     const harness = createInboxHarness();
     try {
@@ -203,7 +293,8 @@ function contextFor(userId: string): OpenMeldRequestContext {
 async function seedItem(
   db: D1Database,
   recipientUserId: string,
-  replyToRecipient?: boolean
+  replyToRecipient?: boolean,
+  sourceFacts?: InboxSourceFacts
 ) {
   return await ensureInboxItem({
     candidate: {
@@ -217,6 +308,7 @@ async function seedItem(
       recipientUserId,
       sourceKey: "signal-1",
       sourceKind: "space_signal",
+      sourceFacts,
       sourceTarget: {
         replyToRecipient,
         kind: "space",

@@ -22,6 +22,7 @@ import {
 	ArrowBendUpLeftIcon,
 	ArrowUUpLeftIcon,
 	ChatCircleIcon,
+	CheckSquareOffsetIcon,
 	CopyIcon,
 	DotsThreeIcon,
 	PencilSimpleIcon,
@@ -125,6 +126,7 @@ type SpaceMessageFooterProps = {
 	onCopy: () => void;
 	copyDisabled?: boolean;
 	reply?: SpaceMessageFooterAction;
+	task?: SpaceMessageFooterAction;
 	thread?: SpaceMessageFooterAction;
 	timestamp: string;
 };
@@ -303,7 +305,7 @@ function MessageFooterOverflowActions({
 	const [menuOpen, setMenuOpen] = useState(false);
 	const pin = useSpaceMessagePinAction(input.signalId);
 	const hasOverflowActions =
-		hasReactions || Boolean(input.onEdit || pin) || persistent;
+		hasReactions || Boolean(input.onEdit || pin || input.task) || persistent;
 
 	return hasOverflowActions ? (
 		<MessageFooterMoreMenu
@@ -319,6 +321,7 @@ function MessageFooterOverflowActions({
 			pin={pin}
 			recall={input.onRecall}
 			reply={persistent ? input.reply : undefined}
+			task={input.task}
 			thread={persistent ? input.thread : undefined}
 		/>
 	) : null;
@@ -454,6 +457,7 @@ function MessageFooterMoreMenu(input: {
 	onCopy?: () => void;
 	reply?: SpaceMessageFooterAction;
 	thread?: SpaceMessageFooterAction;
+	task?: SpaceMessageFooterAction;
 }) {
 	const actionIds = [
 		input.edit && "edit",
@@ -462,6 +466,7 @@ function MessageFooterMoreMenu(input: {
 		input.onCopy && "copy",
 		input.reply && "reply",
 		input.thread && "thread",
+		input.task && "task",
 		input.recall && "recall",
 	].filter(Boolean);
 	return (
@@ -536,6 +541,16 @@ function MessageFooterMoreMenu(input: {
 						>
 							<ChatCircleIcon aria-hidden="true" />
 							{input.thread.label}
+						</FluidDropdownMenuItem>
+					) : null}
+					{input.task ? (
+						<FluidDropdownMenuItem
+							disabled={input.task.disabled}
+							index={actionIds.indexOf("task")}
+							onClick={input.task.onSelect}
+						>
+							<CheckSquareOffsetIcon aria-hidden="true" />
+							{input.task.label}
 						</FluidDropdownMenuItem>
 					) : null}
 					{input.addressingTargets.length > 0 ? (

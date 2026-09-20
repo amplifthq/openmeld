@@ -4,8 +4,20 @@ import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
+import {
+	buildOrganizationAgentsPath,
+	buildOrganizationPeoplePath,
+	buildOrganizationPluginsPath,
+	buildOrganizationSkillsPath,
+} from "#/lib/organizations/organization-routes";
 
-const TEAM_VIEWS = ["people", "agents", "plugins"] as const;
+const TEAM_VIEWS = ["people", "agents", "plugins", "skills"] as const;
+const TEAM_DESTINATIONS = [
+	buildOrganizationPeoplePath,
+	buildOrganizationAgentsPath,
+	buildOrganizationPluginsPath,
+	buildOrganizationSkillsPath,
+] as const;
 
 export function TeamHeader(input: {
 	active: (typeof TEAM_VIEWS)[number];
@@ -25,8 +37,14 @@ export function TeamHeader(input: {
 					className="h-full shrink-0 gap-5"
 					idPrefix="team-directory"
 					onSelect={(index) => {
+						const destination = TEAM_DESTINATIONS[index];
+						if (!destination) {
+							return;
+						}
 						navigate({
-							to: `/o/${currentOrganization.slug}/${TEAM_VIEWS[index]}`,
+							to: destination(currentOrganization.slug),
+							search: {},
+							hash: "",
 						}).catch(console.error);
 					}}
 					selectedIndex={TEAM_VIEWS.indexOf(input.active)}
@@ -35,6 +53,7 @@ export function TeamHeader(input: {
 					<TabsSubtleItem index={0} label="People" labelClassName="text-sm" />
 					<TabsSubtleItem index={1} label="Agents" labelClassName="text-sm" />
 					<TabsSubtleItem index={2} label="Plugins" labelClassName="text-sm" />
+					<TabsSubtleItem index={3} label="Skills" labelClassName="text-sm" />
 				</TabsSubtle>
 			}
 			renderFrame={false}

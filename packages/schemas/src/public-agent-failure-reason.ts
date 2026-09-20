@@ -44,6 +44,10 @@ export const CENTER_AGENT_TURN_TIMEOUT_PUBLIC_COPY =
   "Center Agent took too long to finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld.";
 export const REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE =
   "remote_agent.tool_result_too_large";
+export const REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE =
+  "remote_agent.tool_call_budget_exceeded";
+export const REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY =
+  "This request reached the execution safety limit before it was finished. Completed actions have not been undone. Review the results and diagnostics before starting more work.";
 export const REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY =
   "Center Agent tried to process too much data at once. Try again; it will read large files in smaller sections. If this keeps happening, open diagnostics.";
 export const REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE =
@@ -107,6 +111,8 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
       return REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY;
     case REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE:
       return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY;
+    case REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE:
+      return REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY;
     case REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE:
       return REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY;
     case "remote_agent.turn_not_completed":
@@ -546,6 +552,12 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       body: REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY,
       kind: "system_retry",
       patterns: [`=${REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE}`],
+      recoveryTarget: null,
+    },
+    {
+      body: REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY,
+      kind: "system_retry",
+      patterns: [`=${REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE}`],
       recoveryTarget: null,
     },
     {

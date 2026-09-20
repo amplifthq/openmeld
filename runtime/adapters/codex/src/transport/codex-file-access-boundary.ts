@@ -137,10 +137,14 @@ export function resolveCodexExecutionContextAccess(
   boundary: AdapterComputerFileAccessBoundary,
   executionMode?: AdapterDispatchExecutionMode
 ): AdapterComputerFileAccessBoundary["executionContextAccess"] {
-  return executionMode === "repair" &&
-    boundary.executionContextAccess === "workspace"
+  const access =
+    boundary.executionContextAccess === "space_context" &&
+    boundary.workingCopyId
+      ? "workspace"
+      : boundary.executionContextAccess;
+  return executionMode === "repair" && access === "workspace"
     ? "read_only"
-    : boundary.executionContextAccess;
+    : access;
 }
 
 function recordValue(value: unknown): Record<string, unknown> | null {
@@ -260,7 +264,7 @@ function buildApprovalArgs(input: {
   permissionMode: CodexPermissionMode;
 }): string[] {
   if (input.executionMode === "repair") {
-    return ["-a", "untrusted"];
+    return ["-a", "on-request", "-c", 'approvals_reviewer="user"'];
   }
   if (input.permissionMode === "codex:fullAccess") {
     return ["-a", "never"];
@@ -268,7 +272,9 @@ function buildApprovalArgs(input: {
   if (input.permissionMode === "codex:approveForMe") {
     return ["-a", "on-request", "-c", 'approvals_reviewer="auto_review"'];
   }
-  return ["-a", "untrusted"];
+  // Match native App Server Ask for approval. Explicit `untrusted` is no
+  // longer a supported CLI policy; never inherit an auto-reviewer here.
+  return ["-a", "on-request", "-c", 'approvals_reviewer="user"'];
 }
 
 function resolveCodexPermissionMode(value: unknown): CodexPermissionMode {

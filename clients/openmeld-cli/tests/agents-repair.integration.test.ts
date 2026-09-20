@@ -135,6 +135,86 @@ describe("openmeld agents repair", () => {
     });
   });
 
+  it("keeps the saved install and enabled state when a replacement install fails verification", async () => {
+    await withTempHome(async () => {
+      const savedLaunchContract = {
+        kind: "executable" as const,
+        commandPath: "/Users/demo/.local/bin/codex",
+      };
+      await setConfiguredDeviceRuntimeState({
+        controllers: [
+          {
+            agentId: "codex",
+            displayName: "Codex",
+            enabled: true,
+            launchContract: savedLaunchContract,
+            registeredAt: "2026-02-23T00:00:00.000Z",
+            updatedAt: "2026-02-23T00:00:00.000Z",
+          },
+        ],
+      });
+      repairBuiltinControllerInstallMock.mockResolvedValue({
+        errorCode: "controller.launch.needs_repair",
+        errorMessage: "Codex exited before reporting its version.",
+        installChoices: [
+          {
+            commandPath: "/opt/homebrew/bin/codex",
+            detail: "/opt/homebrew/bin/codex",
+            installId: "install_homebrew",
+            label: "Homebrew install",
+            launchContract: {
+              kind: "executable",
+              commandPath: "/opt/homebrew/bin/codex",
+            },
+          },
+        ],
+        ok: false,
+      });
+
+      const { stdout } = await withCapturedStdio(async () => {
+        await runAgentsRepair({
+          agent: ["codex"],
+          install: "install_homebrew",
+          view: "agent",
+        });
+      });
+
+      const envelope = parseAgentResultEnvelope(stdout, "agents.repair.result");
+      const payload = envelope.payload as
+        | {
+            errors?: Array<{ code?: string; reason?: string }>;
+            repaired?: string[];
+          }
+        | undefined;
+      expect(payload?.repaired).toEqual([]);
+      expect(payload?.errors).toEqual([
+        expect.objectContaining({
+          agentId: "codex",
+          code: "controller.launch.needs_repair",
+          reason: "Codex exited before reporting its version.",
+        }),
+      ]);
+      expect(repairBuiltinControllerInstallMock).toHaveBeenCalledWith({
+        agentId: "codex",
+        detected: true,
+        displayName: "Codex",
+        installId: "install_homebrew",
+        runtimeSupported: true,
+      });
+
+      const controllers =
+        (await getConfiguredDeviceRuntimeState())?.controllers ?? [];
+      expect(controllers).toHaveLength(1);
+      expect(controllers[0]).toEqual(
+        expect.objectContaining({
+          agentId: "codex",
+          enabled: true,
+          launchContract: savedLaunchContract,
+        })
+      );
+    });
+  });
+
   it("repairs every registered builtin agent that needs repair when --all is used", async () => {
     await withTempHome(async () => {
       await setConfiguredDeviceRuntimeState({

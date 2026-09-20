@@ -3,6 +3,10 @@ import {
 	SPACE_STREAM_KEEPALIVE_PONG,
 } from "@openmeld/protocol";
 import type {
+	DesktopSpaceStreamBridge,
+	DesktopSpaceStreamEvent,
+} from "@openmeld/schemas";
+import type {
 	SignalEnvelope,
 	SpaceAgentStreamSnapshot,
 } from "@openmeld/schemas/types";
@@ -330,6 +334,55 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 	});
 
+	it("refreshes authority from the Desktop native close metadata", () => {
+		let deliver: ((event: DesktopSpaceStreamEvent) => void) | undefined;
+		const open = vi.fn().mockResolvedValue(undefined);
+		const bridge: DesktopSpaceStreamBridge = {
+			spaceStreamOpen: open,
+			spaceStreamPing: vi.fn().mockResolvedValue(undefined),
+			spaceStreamClose: vi.fn().mockResolvedValue(undefined),
+			onSpaceStream: (listener) => {
+				deliver = listener;
+				return vi.fn();
+			},
+		};
+		Object.defineProperty(window, "openmeldDesktop", {
+			configurable: true,
+			value: bridge,
+		});
+		try {
+			const { statusRefetch } = renderFeed();
+			const subscription = open.mock.calls[0]?.[0];
+			if (!(subscription && deliver)) {
+				throw new Error("Expected a native subscription");
+			}
+			act(() => {
+				deliver?.({ id: subscription.id, type: "open" });
+				deliver?.({
+					id: subscription.id,
+					type: "message",
+					data: JSON.stringify({
+						type: "system.hello.ack",
+						profile: {
+							kind: "human",
+							profileId: "11111111-1111-1111-1111-111111111111",
+						},
+					}),
+				});
+				deliver?.({
+					id: subscription.id,
+					type: "close",
+					code: 1008,
+					reason: "space_access_changed",
+				});
+			});
+
+			expect(statusRefetch).toHaveBeenCalledTimes(1);
+		} finally {
+			Reflect.deleteProperty(window, "openmeldDesktop");
+		}
+	});
+
 	it("does not report the Space live before Core accepts the subscription", async () => {
 		const { view } = renderFeed();
 		await openLatestTransport();
@@ -529,7 +582,9 @@ describe("useSpaceLandingFeed transport freshness", () => {
 			onAgentReadinessInvalidated,
 			{ organizationId: "org-1", storageScope: "account-1" }
 		);
-		const { membersRefetch, statusRefetch } = renderFeed();
+		const { membersRefetch, queryClient, statusRefetch } = renderFeed();
+		const entryKey = ["spaces", "entry-resolution", "space-123", "human-1"];
+		queryClient.setQueryData(entryKey, { view: { state: "allowed" } });
 		await openLatestSocket();
 
 		await act(async () => {
@@ -556,6 +611,7 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		});
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 		expect(membersRefetch).toHaveBeenCalledTimes(1);
+		expect(queryClient.getQueryState(entryKey)?.isInvalidated).toBe(false);
 	});
 
 	it("bounds member event bursts and follows a slow read with one fresh read", async () => {
@@ -602,7 +658,9 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		// SPACE_BOOTSTRAP_GC_TIME_MS): convergence inside the stale window is
 		// owned by this imperative frame -> refetch path, which must never be
 		// gated on react-query staleness.
-		const { membersRefetch, statusRefetch } = renderFeed();
+		const { membersRefetch, queryClient, statusRefetch } = renderFeed();
+		const entryKey = ["spaces", "entry-resolution", "space-123", "human-1"];
+		queryClient.setQueryData(entryKey, { view: { state: "allowed" } });
 		await openLatestSocket();
 
 		await act(async () => {
@@ -621,6 +679,7 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		});
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 		expect(membersRefetch).toHaveBeenCalledTimes(1);
+		expect(queryClient.getQueryState(entryKey)?.isInvalidated).toBe(true);
 	});
 
 	it("refreshes Space identity without refetching members after metadata changes", async () => {

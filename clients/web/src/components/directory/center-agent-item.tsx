@@ -1,4 +1,6 @@
 import { Badge } from "@openmeld/ui/components/badge";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { SkeletonRegion } from "@openmeld/ui/components/skeleton-content";
 import { FluidCardGroup } from "@openmeld/ui/fluid/card";
 import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { SidebarMenuButton } from "@openmeld/ui/fluid/sidebar-menu";
@@ -36,9 +38,26 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 	});
 	if (designation.isPending || directory.isPending) {
 		return (
-			<p className="px-2 text-muted-foreground text-xs">
-				Loading Center Agent…
-			</p>
+			<SkeletonRegion
+				className={
+					input.presentation === "card" ? "rounded-md bg-card p-4" : "px-2 py-1"
+				}
+				label="Loading Center Agent"
+			>
+				<div className="flex items-center gap-2">
+					<Skeleton
+						className={
+							input.presentation === "card"
+								? "size-12 shrink-0 rounded-full"
+								: "size-6 shrink-0 rounded-full"
+						}
+					/>
+					<Skeleton className="h-3 w-28 max-w-full" />
+				</div>
+				{input.presentation === "card" ? (
+					<Skeleton className="mt-4 h-3 w-2/3" />
+				) : null}
+			</SkeletonRegion>
 		);
 	}
 	if (!profile) {

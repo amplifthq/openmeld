@@ -5,6 +5,10 @@ import { afterEach, expect, it, vi } from "vitest";
 import { AppCommandCenter } from "./app-command-center";
 
 const navigate = vi.fn();
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(
+	HTMLElement.prototype,
+	"scrollIntoView"
+);
 vi.mock("#/components/spaces/use-conversations", async () => ({
 	useConversations: (
 		await import("#/test-support/conversation-sidebar-fixture")
@@ -42,10 +46,24 @@ vi.mock("../organizations/center-agent-chat-avatar", () => ({
 
 afterEach(() => {
 	cleanup();
+	if (originalScrollIntoView) {
+		Object.defineProperty(
+			HTMLElement.prototype,
+			"scrollIntoView",
+			originalScrollIntoView
+		);
+	} else {
+		Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+	}
 	localStorage.clear();
 	vi.clearAllMocks();
 });
 it("finds Spaces and direct-message sessions by their sidebar titles and opens the exact conversation", async () => {
+	// jsdom does not implement the browser scrolling API used by cmdk.
+	Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+		configurable: true,
+		value: vi.fn(),
+	});
 	navigate.mockResolvedValue(undefined);
 	render(
 		<QueryClientProvider client={new QueryClient()}>

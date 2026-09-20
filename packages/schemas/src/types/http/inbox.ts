@@ -22,8 +22,15 @@ export type UpdateInboxMessageNotificationPreferencesRpcInput = z.infer<
 >;
 
 export type InboxView = z.infer<InboxSchemas["inboxViewSchema"]>;
+export type InboxPresentation = z.infer<
+  InboxSchemas["inboxPresentationSchema"]
+>;
 export type InboxAttention = z.infer<InboxSchemas["inboxAttentionSchema"]>;
 export type InboxImportance = z.infer<InboxSchemas["inboxImportanceSchema"]>;
+export type InboxRecipientReason = z.infer<
+  InboxSchemas["inboxRecipientReasonSchema"]
+>;
+export type InboxSourceFacts = z.infer<InboxSchemas["inboxSourceFactsSchema"]>;
 export type InboxResolutionStatus = z.infer<
   InboxSchemas["inboxResolutionStatusSchema"]
 >;
@@ -50,6 +57,9 @@ export type ListInboxItemsResponse = z.infer<
 >;
 export type InboxSummaryResponse = z.infer<
   InboxSchemas["inboxSummaryResponseSchema"]
+>;
+export type InboxSummaryQuery = z.infer<
+  InboxSchemas["inboxSummaryQuerySchema"]
 >;
 export type CenterAgentInboxSummaryResponse = z.infer<
   InboxSchemas["centerAgentInboxSummaryResponseSchema"]

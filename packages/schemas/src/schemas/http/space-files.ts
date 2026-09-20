@@ -44,7 +44,7 @@ export const spaceFileClientMutationIdSchema = z
   .max(128);
 export const spaceFileRevisionNumberSchema = eagerZod.number().int().min(1);
 export const spaceFileBaseRevisionSchema = z.number().int().min(1).nullable();
-export const spaceFileSizeBytesSchema = z
+export const spaceFileSizeBytesSchema = eagerZod
   .number()
   .int()
   .min(0)
@@ -161,30 +161,26 @@ async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
     byte.toString(16).padStart(2, "0")
   ).join("");
 }
-export const spaceFileMimeTypeSchema = z
+export const spaceFileMimeTypeSchema = eagerZod
   .string()
   .trim()
   .toLowerCase()
   .max(255)
   .regex(MEDIA_TYPE_PATTERN, "File type must be a valid media type.");
-export const spaceFileNameSchema = z
+export const spaceFileNameSchema = eagerZod
   .string()
-  .transform((value) => value.trim())
-  .pipe(
-    z
-      .string()
-      .min(1)
-      .max(SPACE_FILE_MAX_NAME_LENGTH)
-      .refine((value) => !PATH_SEPARATOR_PATTERN.test(value), {
-        message: "File names cannot contain path separators.",
-      })
-      .refine((value) => !hasControlCharacter(value), {
-        message: "File names cannot contain control characters.",
-      })
-      .refine((value) => value !== "." && value !== "..", {
-        message: "File names cannot be dot path segments.",
-      })
-  );
+  .trim()
+  .min(1)
+  .max(SPACE_FILE_MAX_NAME_LENGTH)
+  .refine((value) => !PATH_SEPARATOR_PATTERN.test(value), {
+    message: "File names cannot contain path separators.",
+  })
+  .refine((value) => !hasControlCharacter(value), {
+    message: "File names cannot contain control characters.",
+  })
+  .refine((value) => value !== "." && value !== "..", {
+    message: "File names cannot be dot path segments.",
+  });
 
 export const spaceFileActorSchema = z.strictObject({
   profileId: scopeIdSchema,
@@ -267,7 +263,7 @@ export const spaceFileRevisionSchema = z.strictObject({
  * `revision` identify the immutable bytes; the remaining fields are the
  * server-resolved send-time presentation snapshot.
  */
-export const spaceMessageFileReferenceSchema = z.strictObject({
+export const spaceMessageFileReferenceSchema = eagerZod.strictObject({
   fileId: spaceFileEntryIdSchema,
   revision: spaceFileRevisionNumberSchema,
   name: spaceFileNameSchema,

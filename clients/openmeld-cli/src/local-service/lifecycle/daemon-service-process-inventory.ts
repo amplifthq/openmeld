@@ -1,7 +1,12 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import process from "node:process";
+import { promisify } from "node:util";
+import {
+  powerShellEncodedArguments,
+  resolveWindowsPowerShellPath,
+} from "@openmeld/adapter-core/windows-system";
 import { daemonRuntimeRootPath } from "../../config/daemon-state";
 import {
   OPENMELD_HOME_ENV_KEY,
@@ -421,14 +426,25 @@ function collapseLauncherWrapperProcesses(
   return collapsedProcesses;
 }
 
-async function listWindowsProcesses(): Promise<ListedProcess[]> {
+export async function listWindowsProcesses(): Promise<ListedProcess[]> {
   const script =
-    "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress";
-  const output = await runCommand("powershell", [
-    "-NoProfile",
-    "-Command",
-    script,
-  ]);
+    "$ErrorActionPreference='Stop'; [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); @(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine) | ConvertTo-Json -Compress";
+  // execFile owns incremental UTF-8 decoding and bounded output. A timeout or
+  // unreadable process table rejects; it never proves that the Service is absent.
+  const { stdout: output } = await promisify(execFile)(
+    resolveWindowsPowerShellPath(),
+    powerShellEncodedArguments(script),
+    {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 10_000,
+      maxBuffer: 8 * 1024 * 1024,
+    }
+  );
+  return parseWindowsProcessInventory(output);
+}
+
+export function parseWindowsProcessInventory(output: string): ListedProcess[] {
   const parsed = JSON.parse(output) as
     | Array<{
         ProcessId?: number;
@@ -440,10 +456,14 @@ async function listWindowsProcesses(): Promise<ListedProcess[]> {
         ParentProcessId?: number;
         CommandLine?: string | null;
       };
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Windows returned an invalid process inventory.");
+  }
   const rows = Array.isArray(parsed) ? parsed : [parsed];
   const processes: ListedProcess[] = [];
   for (const row of rows) {
     if (
+      !row ||
       typeof row.ProcessId !== "number" ||
       typeof row.ParentProcessId !== "number" ||
       typeof row.CommandLine !== "string" ||

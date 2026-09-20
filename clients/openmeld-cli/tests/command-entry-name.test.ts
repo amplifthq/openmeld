@@ -98,6 +98,8 @@ describe("command entry name", () => {
       "space.leave"
     );
     for (const command of [
+      "handoff",
+      "working-copy",
       "list",
       "read",
       "upload",

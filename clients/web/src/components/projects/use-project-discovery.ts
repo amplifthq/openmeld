@@ -12,10 +12,12 @@ import type {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import type { PeopleComputerInventory } from "#/lib/connect/local-runtimes";
+import { projectComputerInventory } from "#/lib/connect/local-runtimes";
 import {
 	LOCAL_PROJECT_CONTROL_UNREACHABLE_MESSAGE,
 	resolveLocalProjectControlFailureCode,
 } from "#/lib/organizations/local-project-control";
+import { currentDeviceTargetQueryOptions } from "#/query/connect/current-device-target";
 import { localRuntimesQueryOptions } from "#/query/connect/local-runtimes";
 import {
 	applyProjectDiscoveryConnectionSnapshot,
@@ -89,12 +91,26 @@ export function useProjectDiscovery(input: {
 	const localRuntimesQuery = useQuery(
 		localRuntimesQueryOptions({ enabled, storageScope })
 	);
+	const routingPreference = useQuery(
+		currentDeviceTargetQueryOptions({
+			enabled: enabled && !input.target,
+			storageScope,
+		})
+	);
+	const inventory = localRuntimesQuery.data;
+	const selectedInventory =
+		inventory && routingPreference.isSuccess
+			? projectComputerInventory(
+					inventory.peopleComputers,
+					routingPreference.data
+				)
+			: undefined;
 	const selection = input.target
 		? resolveExplicitProjectControlSelection(
 				localRuntimesQuery.data,
 				input.target
 			)
-		: resolveProjectControlSelection(localRuntimesQuery.data);
+		: resolveProjectControlSelection(selectedInventory);
 	const computer = selection?.computer ?? null;
 	const target = selection?.target ?? null;
 	const selectedSession = localRuntimesQuery.data?.peopleComputers.computers
@@ -113,8 +129,8 @@ export function useProjectDiscovery(input: {
 			})
 		: resolveProjectControlServiceState({
 				computer,
-				isError: localRuntimesQuery.isError,
-				isPending: localRuntimesQuery.isPending,
+				isError: localRuntimesQuery.isError || routingPreference.isError,
+				isPending: localRuntimesQuery.isPending || routingPreference.isPending,
 				target,
 			});
 	const discoveryTarget = input.target ?? {
@@ -202,6 +218,9 @@ export function useProjectDiscovery(input: {
 		localRuntimesQuery.refetch().catch((error: unknown) => {
 			console.error("Failed to refresh current-computer status.", error);
 		});
+		if (!input.target) {
+			routingPreference.refetch().catch(console.error);
+		}
 		if (serviceState === "connected" && input.projects.length > 0) {
 			discoveryQuery
 				.refetch({ cancelRefetch: true })
@@ -233,7 +252,9 @@ export function useProjectDiscovery(input: {
 		claimMutationGeneration,
 		computer,
 		isRefreshing:
-			localRuntimesQuery.isRefetching || discoveryQuery.isRefetching,
+			localRuntimesQuery.isRefetching ||
+			discoveryQuery.isRefetching ||
+			(!input.target && routingPreference.isRefetching),
 		projectView,
 		refresh,
 		refreshErrorMessage:

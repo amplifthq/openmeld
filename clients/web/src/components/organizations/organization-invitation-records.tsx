@@ -1,5 +1,6 @@
 import type { OrganizationJoinRequest } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
+import { SkeletonTable } from "@openmeld/ui/components/skeleton-content";
 import {
 	Table,
 	TableBody,
@@ -71,10 +72,8 @@ export function OrganizationInvitationRecords({
 					</Link>
 				) : null}
 			</div>
-			{loading ? (
-				<p aria-busy="true" className="text-muted-foreground text-sm">
-					Loading invitation records…
-				</p>
+			{loading && groups.length === 0 ? (
+				<SkeletonTable columns={4} label="Loading invitation records" />
 			) : null}
 			{error ? (
 				<div className="text-destructive text-sm" role="alert">

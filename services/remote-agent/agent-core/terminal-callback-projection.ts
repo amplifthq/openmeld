@@ -9,6 +9,7 @@ import {
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
   readRemoteAgentCallbackContext,
+  updateRemoteAgentCallbackContext,
 } from "./callback-context";
 import type { RemoteAgentTerminalExecutionOutcome } from "./execution-state";
 import type { RemoteAgentTurnUsage } from "./usage";
@@ -35,6 +36,16 @@ export function buildRemoteAgentTerminalCallbackResult(input: {
   requestId: string;
   usage?: RemoteAgentTurnUsage | null;
 }): RemoteAgentAssistantCompletionResult {
+  if (input.outcome.status === "checkpoint") {
+    return {
+      continuation: true,
+      message: { parts: [] },
+      requestId: input.requestId,
+      status: "completed",
+      modelId: input.modelId,
+      usage: input.usage,
+    };
+  }
   if (input.outcome.status === "completed") {
     return {
       continuation: false,
@@ -81,6 +92,35 @@ export async function projectRemoteAgentTerminalOutcomeToCallback(input: {
     );
   }
   const result = input.result;
+  if (input.outcome.status === "checkpoint") {
+    if (
+      existing.callbackStatus === "completed" ||
+      existing.callbackStatus === "rejected"
+    ) {
+      return { context: existing, result };
+    }
+    const checkpoint = input.outcome.checkpoint;
+    const context = await updateRemoteAgentCallbackContext({
+      storage: input.storage,
+      submissionId: input.submissionId,
+      update: (current) => ({
+        ...current,
+        workLoopCheckpoint: checkpoint,
+        lastUsage: result.usage ?? current.lastUsage,
+        modelId: result.modelId ?? current.modelId ?? null,
+      }),
+    });
+    await persistProjectedUsage({ ...input, context });
+    return {
+      context: await attemptRemoteAgentCallbackDelivery({
+        context,
+        storage: input.storage,
+        coreWorker: input.coreWorker,
+        nowMs: input.nowMs,
+      }),
+      result,
+    };
+  }
   if (input.outcome.status === "completed") {
     const projected = await projectRemoteAgentCompletedAnswer({
       modelId: result.modelId,
@@ -95,17 +135,7 @@ export async function projectRemoteAgentTerminalOutcomeToCallback(input: {
     ) {
       return { context: projected, result };
     }
-    if (projected.lastUsage) {
-      await putRemoteAgentUsageRecord(
-        input.storage,
-        buildRemoteAgentUsageRecord({
-          context: projected,
-          modelId: projected.modelId ?? null,
-          nowMs: input.nowMs,
-          usage: projected.lastUsage,
-        })
-      );
-    }
+    await persistProjectedUsage({ ...input, context: projected });
     console.info("[remote_agent.execution.answer_projected]", {
       dispatchId: projected.dispatchId,
       idempotencyKey: projected.idempotencyKey,
@@ -130,4 +160,22 @@ export async function projectRemoteAgentTerminalOutcomeToCallback(input: {
     storage: input.storage,
   });
   return { context: projected ?? existing, result };
+}
+
+async function persistProjectedUsage(input: {
+  context: RemoteAgentCallbackContext;
+  storage: RemoteAgentStorage;
+  nowMs: number;
+}): Promise<void> {
+  if (input.context.lastUsage) {
+    await putRemoteAgentUsageRecord(
+      input.storage,
+      buildRemoteAgentUsageRecord({
+        context: input.context,
+        modelId: input.context.modelId ?? null,
+        nowMs: input.nowMs,
+        usage: input.context.lastUsage,
+      })
+    );
+  }
 }

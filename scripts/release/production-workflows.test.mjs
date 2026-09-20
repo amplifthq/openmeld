@@ -99,6 +99,7 @@ test("keeps the manual production dispatcher deploy-only and scoped by default",
     "gateway",
     "auth",
     "core",
+    "core-current-cli-projection",
     "remote-agent",
     "cloud",
     "full",
@@ -117,6 +118,20 @@ test("keeps the manual production dispatcher deploy-only and scoped by default",
     (source.match(/github\.ref == 'refs\/heads\/main'/gu)?.length ?? 0) >= 6
   );
   assert.ok(source.includes(`if [ "\${GITHUB_REF}" != "refs/heads/main" ]`));
+});
+
+test("exposes a hosted Core receiver stage with the current stable CLI projection", () => {
+  const source = readRepoFile(".github/workflows/release-on-main.yml");
+  const coreJob = source.split("\n  core:")[1]?.split(YAML_JOB_BOUNDARY)[0];
+
+  assert.ok(source.includes("          - core-current-cli-projection"));
+  assert.ok(coreJob?.includes("inputs.scope == 'core-current-cli-projection'"));
+  assert.ok(
+    coreJob?.includes(
+      "deployment_mode: $" +
+        "{{ inputs.scope == 'core-current-cli-projection' && 'current-stable-cli-projection' || 'standard' }}"
+    )
+  );
 });
 
 test("admits hosted fleet order before any Production deployment can start", () => {

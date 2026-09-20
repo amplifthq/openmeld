@@ -36,7 +36,7 @@ export function validatePilotAssets(
   } catch (cause) {
     throw new Error(
       installedTarget
-        ? "Desktop app files are missing, incomplete, or stale. Reinstall OpenMeld Desktop."
+        ? "Desktop app files are missing, incomplete, or stale. Reinstall OpenMeld."
         : "Desktop shared page files are missing, incomplete, or stale. Rebuild Web with OPENMELD_DESKTOP_PILOT=1, then rebuild Desktop from the same source.",
       { cause }
     );

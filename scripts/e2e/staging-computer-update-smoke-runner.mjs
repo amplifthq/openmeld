@@ -1,14 +1,14 @@
-import { chmod, mkdir, rename, rm } from "node:fs/promises";
+import { access, chmod, cp, mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
 import {
-  assertCoalescedStagingUpdate,
   parseStagingWebSetupCommand,
   readStagingSetupSensitiveValues,
 } from "./staging-computer-update-smoke-contract.mjs";
 import {
   assertCanaryLaunchdLabelsFree,
+  assertCanaryServiceIdentityUnchanged,
   assertCliVersion,
   assertGitWorktreeClean,
   assertLiveSmokeHost,
@@ -17,15 +17,15 @@ import {
   pass,
   preserveCanaryHome,
   REPO_ROOT,
+  readCanaryServiceIdentity,
   readProtectedSetupCommand,
   readStagingManifest,
-  restartCanaryService,
+  runCanaryMaintenanceTick,
   runCommand,
   runFocusedUpdateContracts,
   runStagingApiHelper,
   runStagingSetup,
   waitForCoreServiceConnected,
-  waitForCoreToReportCurrentVersion,
   waitForNewStagingManifest,
   waitForServiceRunning,
   waitForUpdateOperation,
@@ -72,6 +72,7 @@ export async function runLiveStagingComputerSmoke(options) {
       runRoot,
       sensitiveValues,
     });
+    await waitForExternalAcceptanceCheckpoint();
     process.stdout.write("[staging-computer-smoke] PASS\n");
   } catch (error) {
     runFailure = error;
@@ -92,6 +93,32 @@ export async function runLiveStagingComputerSmoke(options) {
   }
 }
 
+async function waitForExternalAcceptanceCheckpoint() {
+  const marker = process.env.OPENMELD_STAGING_SMOKE_ACCEPTANCE_MARKER?.trim();
+  if (!marker) {
+    return;
+  }
+  if (!path.isAbsolute(marker)) {
+    throw new Error("The Staging smoke acceptance marker must be absolute.");
+  }
+  process.stdout.write(
+    `[staging-computer-smoke] READY Browser and Wake acceptance; create ${marker} to clean up\n`
+  );
+  const deadline = Date.now() + 10 * 60 * 1000;
+  while (Date.now() < deadline) {
+    if (
+      await access(marker)
+        .then(() => true)
+        .catch(() => false)
+    ) {
+      await rm(marker, { force: true });
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new Error("Timed out waiting for Browser and Wake acceptance.");
+}
+
 async function executeStagingComputerUpdateSmoke(input) {
   runFocusedUpdateContracts({ sensitiveValues: input.sensitiveValues });
   pass("Update safety contracts");
@@ -109,6 +136,7 @@ async function executeStagingComputerUpdateSmoke(input) {
     sensitiveValues: input.sensitiveValues,
   });
   await waitForServiceRunning({
+    expectedServiceVersion: baselineManifest.serviceVersion,
     expectedVersion: baselineManifest.version,
     sensitiveValues: input.sensitiveValues,
   });
@@ -121,26 +149,77 @@ async function executeStagingComputerUpdateSmoke(input) {
   runCommand({
     args: ["staging:cli:publish"],
     command: "pnpm",
-    label: "publish a newer Staging CLI",
+    label: "publish the accepted Service baseline",
     sensitiveValues: input.sensitiveValues,
     timeoutMs: 30 * 60 * 1000,
   });
-  const targetManifest = await waitForNewStagingManifest(
+  const serviceManifest = await waitForNewStagingManifest(
     baselineManifest.version
   );
-  pass("New Staging CLI published", targetManifest.version);
+  pass("Service baseline published", serviceManifest.version);
+
+  runCommand({
+    args: ["staging:cli:publish", "--", "--retain-service"],
+    command: "pnpm",
+    label: "publish the first split Staging CLI",
+    sensitiveValues: input.sensitiveValues,
+    timeoutMs: 30 * 60 * 1000,
+  });
+  const firstCliManifest = await waitForNewStagingManifest(
+    serviceManifest.version
+  );
+  pass("First split Staging CLI published", firstCliManifest.version);
 
   enableAutomaticUpdates(input.sensitiveValues);
-  restartCanaryService({ sensitiveValues: input.sensitiveValues });
-  const operationId = await verifyAutomaticAndManualUpdate({
+  runCanaryMaintenanceTick({ sensitiveValues: input.sensitiveValues });
+  const firstOperationId = await waitForAutomaticUpdate({
     sensitiveValues: input.sensitiveValues,
-    targetVersion: targetManifest.version,
+    targetVersion: firstCliManifest.version,
   });
   await verifyCompletedUpdate({
-    operationId,
+    operationId: firstOperationId,
     sensitiveValues: input.sensitiveValues,
-    targetVersion: targetManifest.version,
+    targetCliVersion: firstCliManifest.version,
+    targetServiceVersion: serviceManifest.version,
   });
+
+  const retainedServiceIdentity = readCanaryServiceIdentity({
+    sensitiveValues: input.sensitiveValues,
+  });
+  runCommand({
+    args: ["staging:cli:publish", "--", "--retain-service"],
+    command: "pnpm",
+    label: "publish the second split Staging CLI",
+    sensitiveValues: input.sensitiveValues,
+    timeoutMs: 30 * 60 * 1000,
+  });
+  const secondCliManifest = await waitForNewStagingManifest(
+    firstCliManifest.version
+  );
+  pass("Second split Staging CLI published", secondCliManifest.version);
+
+  runCanaryMaintenanceTick({ sensitiveValues: input.sensitiveValues });
+  const secondOperationId = await waitForAutomaticUpdate({
+    sensitiveValues: input.sensitiveValues,
+    targetVersion: secondCliManifest.version,
+  });
+  await verifyCompletedUpdate({
+    operationId: secondOperationId,
+    sensitiveValues: input.sensitiveValues,
+    targetCliVersion: secondCliManifest.version,
+    targetServiceVersion: serviceManifest.version,
+  });
+  const finalServiceIdentity = readCanaryServiceIdentity({
+    sensitiveValues: input.sensitiveValues,
+  });
+  assertCanaryServiceIdentityUnchanged(
+    retainedServiceIdentity,
+    finalServiceIdentity
+  );
+  pass(
+    "Healthy Service retained across second CLI-only update",
+    `pid ${String(finalServiceIdentity.pid)}`
+  );
 }
 
 function enableAutomaticUpdates(sensitiveValues) {
@@ -153,7 +232,7 @@ function enableAutomaticUpdates(sensitiveValues) {
   }
 }
 
-async function verifyAutomaticAndManualUpdate(input) {
+async function waitForAutomaticUpdate(input) {
   const automaticOperation = await waitForUpdateOperation({
     predicate: (operation) =>
       operation.requestSource === "automatic" &&
@@ -162,17 +241,7 @@ async function verifyAutomaticAndManualUpdate(input) {
     timeoutMs: LIVE_UPDATE_START_TIMEOUT_MS,
   });
   pass("Automatic update started", automaticOperation.operationId);
-
-  const manualResult = runStagingApiHelper({
-    command: "request-update",
-    sensitiveValues: input.sensitiveValues,
-  });
-  const operationId = assertCoalescedStagingUpdate({
-    automaticOperation,
-    manualResult,
-  });
-  pass("Manual Update reused the same operation", operationId);
-  return operationId;
+  return automaticOperation.operationId;
 }
 
 async function verifyCompletedUpdate(input) {
@@ -188,18 +257,21 @@ async function verifyCompletedUpdate(input) {
     );
   }
   assertCliVersion({
-    expectedVersion: input.targetVersion,
+    expectedVersion: input.targetCliVersion,
     sensitiveValues: input.sensitiveValues,
   });
   await waitForServiceRunning({
-    expectedVersion: input.targetVersion,
+    expectedServiceVersion: input.targetServiceVersion,
+    expectedVersion: input.targetCliVersion,
     sensitiveValues: input.sensitiveValues,
   });
-  await waitForCoreToReportCurrentVersion({
-    expectedVersion: input.targetVersion,
+  await waitForCoreServiceConnected({
     sensitiveValues: input.sensitiveValues,
   });
-  pass("Service recovered on one final version", input.targetVersion);
+  pass(
+    "Split update reached its declared targets",
+    `${input.targetCliVersion} / ${input.targetServiceVersion}`
+  );
 }
 
 async function cleanupStagingComputerUpdateSmoke(input) {
@@ -215,6 +287,15 @@ async function cleanupStagingComputerUpdateSmoke(input) {
     }
   }
   if (input.lifecycle.smokeHomeCreated) {
+    if (input.runFailure) {
+      try {
+        await cp(CANARY_HOME, path.join(input.runRoot, "failed-canary-home"), {
+          recursive: true,
+        });
+      } catch (error) {
+        cleanupFailures.push(error);
+      }
+    }
     cleanupCanaryServices({
       cleanupFailures,
       sensitiveValues: input.sensitiveValues,
@@ -233,7 +314,9 @@ async function cleanupStagingComputerUpdateSmoke(input) {
     }
   }
   if (cleanupFailures.length === 0) {
-    await rm(input.runRoot, { force: true, recursive: true });
+    if (!input.runFailure) {
+      await rm(input.runRoot, { force: true, recursive: true });
+    }
     pass("Previous Canary state restored");
     return null;
   }

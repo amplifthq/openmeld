@@ -54,6 +54,12 @@ import { removeSpaceMembers } from "./remove-members";
 import { listSpaceSignalEnvelopes, listSpaceSignals } from "./signals";
 import { getSpaceStatus } from "./status";
 import {
+  createSpaceTask,
+  getSpaceTask,
+  listSpaceTasks,
+  mutateSpaceTask,
+} from "./tasks";
+import {
   createSpaceThread,
   getSpaceThread,
   listSpaceThreadEvents,
@@ -162,5 +168,9 @@ export const createSpaceApi: CreateSpaceApi = (
       await listSpaceThreadSignals(client, input),
     postThreadSignal: async (input) =>
       await postSpaceThreadSignal(client, input),
+    listTasks: async (input) => await listSpaceTasks(client, input),
+    getTask: async (input) => await getSpaceTask(client, input),
+    createTask: async (input) => await createSpaceTask(client, input),
+    mutateTask: async (input) => await mutateSpaceTask(client, input),
   };
 };

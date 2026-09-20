@@ -153,8 +153,9 @@ function ConversationNotificationMenu(input: {
 				) : null}
 				<DropdownMenuSeparator />
 				<p className="px-2 py-2 text-muted-foreground text-xs">
-					Only changes your message notifications for this conversation. Urgent
-					email alerts are controlled in Settings.
+					Muting keeps messages unread here but hides ordinary updates from
+					Inbox and menu bar reminders. Mentions, urgent updates, and pending
+					requests stay visible. Urgent email is controlled in Settings.
 				</p>
 				{settings && !settings.enabled ? (
 					<p className="px-2 py-2 text-muted-foreground text-xs">

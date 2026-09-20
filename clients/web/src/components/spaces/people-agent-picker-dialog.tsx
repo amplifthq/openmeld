@@ -7,6 +7,7 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import type { ReactNode, RefObject } from "react";
 import { SpaceAddMembersCandidates } from "./people-agent-picker-candidates";
@@ -94,9 +95,7 @@ export function PeopleAgentPickerDialog(input: {
 							{input.notice}
 						</div>
 						{input.isLoading ? (
-							<p className="text-muted-foreground text-sm">
-								Loading people and agents…
-							</p>
+							<SkeletonRows label="Loading people and agents" />
 						) : (
 							<SpaceAddMembersCandidates
 								candidateGroups={input.candidateGroups}

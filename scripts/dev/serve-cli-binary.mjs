@@ -62,6 +62,10 @@ async function main() {
     execFileSync("codesign", ["--verify", "--strict", built.outFile], {
       stdio: "inherit",
     });
+  } else {
+    console.warn(
+      "[cli:binary:serve] Ad-hoc macOS build: a rebuilt binary may not read a previous build's Keychain sign-in. If access is denied, sign in again through this build in the isolated lane. Retries do not grant access."
+    );
   }
   const artifact = await readFile(built.outFile);
   const actualSha256 = createHash("sha256").update(artifact).digest("hex");

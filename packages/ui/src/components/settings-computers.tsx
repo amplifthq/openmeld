@@ -25,6 +25,7 @@ import {
 } from "#components/dialog";
 import { LocalAgentLogo } from "#components/local-agent-logo";
 import { hasLocalAgentLogo } from "#components/local-agent-logo-utils";
+import { SkeletonRows } from "#components/skeleton-content";
 import {
   Tooltip,
   TooltipContent,
@@ -168,6 +169,7 @@ export function SettingsAddComputerCardContent({
   description = "Set up OpenMeld Service and local agents.",
   descriptionClassName,
   iconContainerClassName,
+  icon,
   title = "Add a Computer",
   titleAriaHidden,
   titleClassName,
@@ -175,6 +177,7 @@ export function SettingsAddComputerCardContent({
   description?: ReactNode;
   descriptionClassName?: string;
   iconContainerClassName?: string;
+  icon?: ReactNode;
   title?: string;
   titleAriaHidden?: boolean;
   titleClassName?: string;
@@ -187,7 +190,7 @@ export function SettingsAddComputerCardContent({
           iconContainerClassName
         )}
       >
-        <PlusIcon aria-hidden="true" className="size-5" />
+        {icon ?? <PlusIcon aria-hidden="true" className="size-5" />}
       </span>
       <span className="flex flex-col items-center gap-1">
         <span
@@ -369,6 +372,7 @@ type UsageLimitPresentation = {
 
 type UsageLimitSummary = {
   accessibleDetails: string;
+  limit: AgentControllerUsageLimits[number];
   presentation: UsageLimitPresentation;
   remainingPercent: number;
 };
@@ -908,12 +912,93 @@ function SettingsLocalAgentUnreportedProviders({
   );
 }
 
+/** Body-only dashboard content, sharing the existing quota policy and donut. */
+export function SettingsLocalAgentUsageReadout({
+  agentName,
+  limits,
+  nowMs = Date.now(),
+}: {
+  agentName: string;
+  limits: AgentControllerUsageLimits;
+  nowMs?: number;
+}) {
+  const ordered = orderUsageLimitsForDisplay({ agentName, limits }) ?? [];
+  const quantified = ordered.filter((limit) => limit.usedPercent !== null);
+  const summary = resolveUsageLimitSummary(quantified);
+  const collapsed = quantified.length > 2 && summary !== null;
+  const visible = collapsed ? [summary.limit] : quantified;
+  const remaining = collapsed
+    ? quantified.filter((limit) => limit !== summary.limit)
+    : [];
+  const unreported = ordered.filter((limit) => limit.usedPercent === null);
+  if (ordered.length === 0) {
+    return (
+      <p className="text-muted-foreground text-xs leading-5">
+        Usage not reported yet.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      {visible.map((limit) => (
+        <SettingsLocalAgentUsageLimitGauge
+          agentName={agentName}
+          key={`${limit.provider?.id ?? "default"}/${limit.key}`}
+          layout="card"
+          limit={limit}
+          nowMs={nowMs}
+        />
+      ))}
+      {remaining.some((limit) => limit.status === "stale") ? (
+        <p className="text-muted-foreground text-xs">Includes stale reports</p>
+      ) : null}
+      {remaining.length > 0 ? (
+        <details className="group/usage-details">
+          <summary className="cursor-pointer rounded-sm text-muted-foreground text-xs outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+            View all {quantified.length} usage windows
+          </summary>
+          <div className="mt-3 space-y-3">
+            {remaining.map((limit) => (
+              <SettingsLocalAgentUsageLimitGauge
+                agentName={agentName}
+                key={`${limit.provider?.id ?? "default"}/${limit.key}`}
+                layout="card"
+                limit={limit}
+                nowMs={nowMs}
+              />
+            ))}
+          </div>
+        </details>
+      ) : null}
+      {unreported.map((limit) => (
+        <div
+          className="space-y-1 text-xs leading-5"
+          key={`${limit.provider?.id ?? "default"}/${limit.key}`}
+        >
+          <p className="font-medium">
+            {[limit.provider?.displayName, limit.label]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+          <p className="text-muted-foreground">
+            {resolveMissingUsageStatusLabel(
+              resolveUsageLimitPresentation(limit).label
+            )}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SettingsLocalAgentUsageLimitGauge({
   agentName,
+  layout = "gauge",
   limit,
   nowMs,
 }: {
   agentName: string;
+  layout?: "gauge" | "card";
   limit: AgentControllerUsageLimits[number];
   nowMs: number;
 }) {
@@ -926,7 +1011,13 @@ function SettingsLocalAgentUsageLimitGauge({
     stale: limit.status === "stale",
   });
   const accessibleLabel = [
-    `${agentName} ${limit.label}`,
+    [
+      agentName,
+      layout === "card" ? limit.provider?.displayName : null,
+      limit.label,
+    ]
+      .filter(Boolean)
+      .join(" "),
     remainingPercent === null
       ? null
       : `${formatRemainingPercent(remainingPercent)} left`,
@@ -942,16 +1033,30 @@ function SettingsLocalAgentUsageLimitGauge({
   }
 
   return (
-    <div className="grid min-w-0 justify-items-center gap-2 text-center">
-      <p className="font-medium text-sm leading-5">{limit.label}</p>
-      <div
-        aria-label={accessibleLabel}
-        aria-valuemax={100}
-        aria-valuemin={0}
-        aria-valuenow={remainingPercent}
-        aria-valuetext={`${formatRemainingPercent(remainingPercent)} left`}
-        className="relative grid size-18 place-items-center"
-        role="progressbar"
+    <div
+      className={
+        layout === "card"
+          ? "grid min-w-0 grid-cols-[4rem_minmax(0,1fr)] items-center gap-x-3 gap-y-1"
+          : "grid min-w-0 justify-items-center gap-2 text-center"
+      }
+    >
+      <p
+        className={cn(
+          "font-medium text-sm leading-5",
+          layout === "card" && "col-start-2 row-start-1 break-words"
+        )}
+      >
+        {layout === "card" && limit.provider ? (
+          <span className="block text-muted-foreground text-xs">
+            {limit.provider.displayName}
+          </span>
+        ) : null}
+        {limit.label}
+      </p>
+      <UsageLimitGaugeFrame
+        label={accessibleLabel}
+        layout={layout}
+        remainingPercent={remainingPercent}
       >
         <UsageLimitRing
           className="absolute inset-0 size-full"
@@ -970,20 +1075,72 @@ function SettingsLocalAgentUsageLimitGauge({
             left
           </span>
         </span>
-      </div>
-      <span
+      </UsageLimitGaugeFrame>
+      {layout !== "card" || presentation.label !== "Available" ? (
+        <span
+          className={cn(
+            "font-medium text-xs",
+            layout === "card" && "col-start-2",
+            resolveStatusToneSoftTextClassName(presentation.tone)
+          )}
+        >
+          {presentation.label}
+        </span>
+      ) : null}
+      <p
         className={cn(
-          "font-medium text-xs",
-          resolveStatusToneSoftTextClassName(presentation.tone)
+          "flex text-muted-foreground text-xs leading-5",
+          layout === "card"
+            ? "col-start-2 flex-col"
+            : "flex-wrap justify-center gap-x-1"
         )}
       >
-        {presentation.label}
-      </span>
-      <p className="flex flex-wrap justify-center gap-x-1 text-muted-foreground text-xs leading-5">
         <UsageLimitTime dateTime={limit.resetsAt} label={resetLabel} />
-        <span aria-hidden="true">·</span>
+        {layout === "card" ? null : <span aria-hidden="true">·</span>}
         <UsageLimitTime dateTime={limit.observedAt} label={observedLabel} />
       </p>
+    </div>
+  );
+}
+
+function UsageLimitGaugeFrame({
+  label,
+  layout,
+  remainingPercent,
+  children,
+}: {
+  label: string;
+  layout: "gauge" | "card";
+  remainingPercent: number;
+  children: ReactNode;
+}) {
+  const attributes = {
+    "aria-label": label,
+    "aria-valuemin": 0,
+    "aria-valuemax": 100,
+    "aria-valuenow": remainingPercent,
+    "aria-valuetext": `${formatRemainingPercent(remainingPercent)} left`,
+  };
+  return layout === "card" ? (
+    <div className="relative col-start-1 row-span-3 row-start-1 grid size-16 place-items-center">
+      <meter
+        {...attributes}
+        className="sr-only"
+        max={100}
+        min={0}
+        value={remainingPercent}
+      />
+      <div aria-hidden="true" className="contents">
+        {children}
+      </div>
+    </div>
+  ) : (
+    <div
+      {...attributes}
+      className="relative grid size-18 place-items-center"
+      role="progressbar"
+    >
+      {children}
     </div>
   );
 }
@@ -1133,6 +1290,7 @@ function resolveUsageLimitSummary(
 
   return {
     accessibleDetails: `${formatRemainingPercent(remainingPercent)} left, ${selectedPresentation.label}`,
+    limit: selectedLimit,
     presentation: selectedPresentation,
     remainingPercent,
   };
@@ -1172,6 +1330,12 @@ function resolveMissingUsageCopy(
 function resolveMissingUsageStatusLabel(
   label: UsageLimitPresentation["label"]
 ): string {
+  if (label === "Stale") {
+    return "Stale usage report";
+  }
+  if (label === "Exhausted") {
+    return "Usage exhausted";
+  }
   if (label === "Unsupported") {
     return "Usage not supported";
   }
@@ -1307,6 +1471,7 @@ export function SettingsLocalAgentAdvisoryBadge({
 }
 
 export type SettingsLocalAgentsCardProps = {
+  loading?: boolean;
   action?: ReactNode;
   className?: string;
   description: string;
@@ -1324,6 +1489,7 @@ export function SettingsLocalAgentsCard({
   error,
   rows,
   title = "Local agents",
+  loading = false,
 }: SettingsLocalAgentsCardProps) {
   return (
     <Card className={className} data-testid="settings-local-agents-card">
@@ -1341,11 +1507,13 @@ export function SettingsLocalAgentsCard({
             {error}
           </p>
         ) : null}
-        {rows.length === 0 ? (
+        {rows.length === 0 && loading && !error ? (
+          <SkeletonRows label="Loading local agents" />
+        ) : null}
+        {rows.length === 0 && !loading && !error ? (
           <p className="text-muted-foreground text-sm">{emptyMessage}</p>
-        ) : (
-          <SettingsLocalAgentRows rows={rows} />
-        )}
+        ) : null}
+        {rows.length > 0 ? <SettingsLocalAgentRows rows={rows} /> : null}
       </CardContent>
     </Card>
   );

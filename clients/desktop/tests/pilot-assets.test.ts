@@ -60,9 +60,7 @@ describe("private packaged renderer", () => {
       join(assets, "desktop-build.json"),
       JSON.stringify({ webBuild })
     );
-    expect(() => resolvePilotAssets(input)).toThrow(
-      "Reinstall OpenMeld Desktop"
-    );
+    expect(() => resolvePilotAssets(input)).toThrow("Reinstall OpenMeld");
   });
   it("serves its own shared shell and chunks even when an external renderer override is set", async () => {
     const resourcesPath = mkdtempSync(

@@ -27,7 +27,13 @@ const openCurrentCenterAgentDirectMessageSpaceMock = vi.hoisted(() => vi.fn());
 const readCurrentCenterAgentDesignationMock = vi.hoisted(() => vi.fn());
 const readCurrentCenterAgentModelMock = vi.hoisted(() => vi.fn());
 const readCurrentCenterAgentOperatingStateMock = vi.hoisted(() => vi.fn());
+const readCurrentOrganizationCenterAgentMemoryPolicyMock = vi.hoisted(() =>
+	vi.fn()
+);
 const readCurrentOrganizationUsageOverviewMock = vi.hoisted(() => vi.fn());
+const setCurrentOrganizationCenterAgentMemoryPolicyMock = vi.hoisted(() =>
+	vi.fn()
+);
 const updateCurrentCenterAgentOperatingStateMock = vi.hoisted(() => vi.fn());
 const updateCurrentCenterAgentModelMock = vi.hoisted(() => vi.fn());
 const updateCurrentCenterAgentProfileMock = vi.hoisted(() => vi.fn());
@@ -67,6 +73,13 @@ vi.mock("#/lib/organizations/organization-usage", () => ({
 		readCurrentOrganizationUsageOverviewMock,
 }));
 
+vi.mock("#/lib/organizations/center-agent-memory", () => ({
+	readCurrentOrganizationCenterAgentMemoryPolicy:
+		readCurrentOrganizationCenterAgentMemoryPolicyMock,
+	setCurrentOrganizationCenterAgentMemoryPolicy:
+		setCurrentOrganizationCenterAgentMemoryPolicyMock,
+}));
+
 const ORGANIZATION_ID = "org-1";
 const CENTER_AGENT_ID = "agt_11111111-1111-4111-8111-111111111111";
 
@@ -103,6 +116,14 @@ describe("CenterAgentSettingsContent", () => {
 		readCurrentCenterAgentModelMock
 			.mockReset()
 			.mockResolvedValue(buildModelConfiguration());
+		readCurrentOrganizationCenterAgentMemoryPolicyMock
+			.mockReset()
+			.mockResolvedValue({
+				organizationId: ORGANIZATION_ID,
+				organizationMemoryOptIn: true,
+				provider: "zep_cloud",
+				updatedByUserId: "member-1",
+			});
 		readCurrentOrganizationUsageOverviewMock.mockReset().mockResolvedValue({
 			centerAgentWakes: {
 				dailyLimit: 200,
@@ -149,6 +170,14 @@ describe("CenterAgentSettingsContent", () => {
 				openMeldProfileId: CENTER_AGENT_ID,
 			},
 		});
+		setCurrentOrganizationCenterAgentMemoryPolicyMock
+			.mockReset()
+			.mockResolvedValue({
+				organizationId: ORGANIZATION_ID,
+				organizationMemoryOptIn: false,
+				provider: "zep_cloud",
+				updatedByUserId: "member-1",
+			});
 		toastSuccessMock.mockReset();
 	});
 
@@ -167,6 +196,22 @@ describe("CenterAgentSettingsContent", () => {
 		).toBe("circle");
 		expect(screen.getByRole("heading", { name: "Identity" })).toBeTruthy();
 		expect(screen.getByRole("heading", { name: "Usage" })).toBeTruthy();
+		expect(
+			screen.getByRole("heading", { name: "Organization memory" })
+		).toBeTruthy();
+		expect(screen.getByText("Remember shared conversations")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Center Agent can use useful details from shared Spaces and connected channels in future replies. Private chats are not included."
+			)
+		).toBeTruthy();
+		expect(
+			(
+				await screen.findByRole("switch", {
+					name: "Use shared Center Agent organization memory",
+				})
+			).hasAttribute("data-disabled")
+		).toBe(true);
 		expect(screen.getByRole("heading", { name: "Model" })).toBeTruthy();
 		expect(
 			screen.queryByText(
@@ -224,6 +269,25 @@ describe("CenterAgentSettingsContent", () => {
 		).toBeTruthy();
 		await waitFor(() => {
 			expect(listCurrentCenterAgentAuditJournalMock).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	it("lets an owner change organization memory from Center Agent settings", async () => {
+		renderSettings({ canManage: true });
+
+		fireEvent.click(
+			await screen.findByRole("switch", {
+				name: "Use shared Center Agent organization memory",
+			})
+		);
+
+		await waitFor(() => {
+			expect(
+				setCurrentOrganizationCenterAgentMemoryPolicyMock
+			).toHaveBeenCalledWith({
+				organizationId: ORGANIZATION_ID,
+				organizationMemoryOptIn: false,
+			});
 		});
 	});
 
@@ -613,6 +677,12 @@ describe("CenterAgentSettingsContent", () => {
 				"See today's organization-wide Center Agent usage and current Routine limits."
 			)
 		).toBeNull();
+		expect(
+			screen.queryByRole("heading", { name: "Organization memory" })
+		).toBeNull();
+		expect(
+			readCurrentOrganizationCenterAgentMemoryPolicyMock
+		).not.toHaveBeenCalled();
 	});
 
 	it("offers the Remote Agent connection when no designation exists", async () => {
@@ -731,12 +801,17 @@ function renderSettings(input: {
 				isDirectoryPending={false}
 				isPersonalWorkspace={input.isPersonalWorkspace === true}
 				members={buildDirectoryResponse().members}
+				memoryRoleState={{
+					canManage: input.canManage,
+					errorMessage: null,
+					isPending: false,
+				}}
 				organizationId={ORGANIZATION_ID}
 				organizationName="Acme"
 				orgSlug="acme"
 				roleState={{
 					canManage: input.canManage,
-					isError: false,
+					errorMessage: null,
 					isPending: false,
 				}}
 			/>

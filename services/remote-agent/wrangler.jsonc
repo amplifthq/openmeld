@@ -70,6 +70,7 @@
     }
   ],
   "vars": {
+    "REMOTE_AGENT_TOOL_CALL_LIMIT": "4096",
     "OPENMELD_WORKER_ENVIRONMENT": "local",
     "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
     "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID": "e74a33891b4c7a16b1fe853c41011f52",
@@ -171,6 +172,7 @@
         }
       ],
       "vars": {
+        "REMOTE_AGENT_TOOL_CALL_LIMIT": "4096",
         "OPENMELD_WORKER_ENVIRONMENT": "dev",
         "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
         "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID": "e74a33891b4c7a16b1fe853c41011f52",
@@ -256,6 +258,7 @@
         }
       ],
       "vars": {
+        "REMOTE_AGENT_TOOL_CALL_LIMIT": "4096",
         "OPENMELD_WORKER_ENVIRONMENT": "stg",
         "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.staging.openmeld.ai",
         "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID": "e74a33891b4c7a16b1fe853c41011f52",
@@ -338,6 +341,7 @@
         }
       ],
       "vars": {
+        "REMOTE_AGENT_TOOL_CALL_LIMIT": "4096",
         "OPENMELD_WORKER_ENVIRONMENT": "prod",
         "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
         "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID": "e74a33891b4c7a16b1fe853c41011f52",

@@ -6,17 +6,16 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-
 import { localComponentsReleaseManifestSchema } from "../../packages/schemas/src/schemas/local-components.ts";
 import {
   buildCoreBundleEvidenceStepSpec,
   runCoreStartupAdmission,
 } from "../cloudflare/core-startup-admission.mjs";
 import { buildCoreVersionReleaseStepSpecs } from "../cloudflare/core-version-deployment.mjs";
-
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
 import { deriveCoreProjectionTag } from "./core-projection-tag.mjs";
 import { probeCliReleaseStages } from "./release-cli-resume.mjs";
+import { recordCoreDeploymentOutput } from "./worker-deployment-evidence.mjs";
 
 const RELEASE_MANIFEST_PATH = "release/local-components.json";
 const RELEASE_MANIFEST_DEFINE =
@@ -154,6 +153,32 @@ export function buildCoreCurrentCliProjectionDryRunStepSpec(input) {
   };
 }
 
+export async function readCurrentCliProjectionTarget(input = {}) {
+  const cwd = input.cwd ?? process.cwd();
+  const adapters = input.adapters ?? {};
+  return resolveCurrentCliProjectionTarget({
+    channelManifest: await (
+      adapters.fetchChannelManifest ?? fetchCliChannelManifest
+    )(),
+    readTagCommit:
+      adapters.readTagCommit ??
+      ((target) =>
+        execFileSync(
+          resolveCommandBinary("git"),
+          ["rev-parse", "--verify", `refs/tags/${target.tagName}^{commit}`],
+          { cwd, encoding: "utf8" }
+        )),
+    readTagFile:
+      adapters.readTagFile ??
+      ((target) =>
+        execFileSync(
+          resolveCommandBinary("git"),
+          ["show", `${target.tagName}:${target.path}`],
+          { cwd }
+        )),
+  });
+}
+
 export async function deployCoreWithCurrentCliProjection(input = {}) {
   const cwd = input.cwd ?? process.cwd();
   const env = input.env ?? process.env;
@@ -198,12 +223,7 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
     verifyAlignment: input.adapters?.verifyAlignment,
   };
 
-  const channelManifest = await adapters.fetchChannelManifest();
-  const target = resolveCurrentCliProjectionTarget({
-    channelManifest,
-    readTagCommit: adapters.readTagCommit,
-    readTagFile: adapters.readTagFile,
-  });
+  const target = await readCurrentCliProjectionTarget({ cwd, adapters });
   write(
     [
       "\n[production-release] Resolved immutable stable CLI projection",
@@ -276,6 +296,12 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
     cwd,
     env,
     ...target,
+  });
+  recordCoreDeploymentOutput({
+    env,
+    sourceSha: input.releaseSha,
+    evidence: admissionEvidence,
+    projectionTag: target.expectedCoreTag,
   });
   return target;
 }

@@ -27,6 +27,8 @@ export type AppContextualNavItem<ItemId extends string = string> = {
 	icon: Icon;
 	label: string;
 	accessory?: ReactNode;
+	/** Include accessory meaning when the visible label alone is insufficient. */
+	ariaLabel?: string;
 	preserveSearch?: boolean;
 	statusTone?: ComputerAttentionTone;
 	to?: string;
@@ -203,7 +205,7 @@ function AppContextualSidebarNavItem<ItemId extends string>(input: {
 				<Link
 					activeOptions={{ exact: true }}
 					aria-current={input.isActive ? "page" : undefined}
-					aria-label={input.item.label}
+					aria-label={input.item.ariaLabel ?? input.item.label}
 					className="block min-w-0 outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
 					onClick={(event) => {
 						if (isModifiedActivation(event)) {
@@ -228,7 +230,7 @@ function AppContextualSidebarNavItem<ItemId extends string>(input: {
 			) : (
 				<button
 					aria-current={input.isActive ? "page" : undefined}
-					aria-label={input.item.label}
+					aria-label={input.item.ariaLabel ?? input.item.label}
 					className="block w-full min-w-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
 					onClick={() => {
 						input.onActivate?.(input.item.id);

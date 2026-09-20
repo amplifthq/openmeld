@@ -11,11 +11,21 @@ export function resolveDaemonCapabilities(input: {
   localComponentsStatus?: LocalComponentsStatus | null;
   profileConfigurationRevision?: boolean;
 }): RuntimeTransportBaseCapabilities {
-  const runtimeAdapters = input.localAdapterContainer
-    .listAdapters()
-    .map((entry) =>
-      resolveRegistryRuntimeAdapterCapabilitySnapshot(entry.adapterId)
-    )
+  return resolveDaemonCapabilitiesFromAdapterIds({
+    ...input,
+    adapterIds: input.localAdapterContainer
+      .listAdapters()
+      .map((entry) => entry.adapterId),
+  });
+}
+
+export function resolveDaemonCapabilitiesFromAdapterIds(input: {
+  adapterIds: readonly string[];
+  localComponentsStatus?: LocalComponentsStatus | null;
+  profileConfigurationRevision?: boolean;
+}): RuntimeTransportBaseCapabilities {
+  const runtimeAdapters = input.adapterIds
+    .map(resolveRegistryRuntimeAdapterCapabilitySnapshot)
     .filter(
       (entry): entry is DaemonRuntimeAdapterCapabilitySnapshot => entry !== null
     )

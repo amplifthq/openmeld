@@ -7,6 +7,14 @@ import { CenterAgentPrivacyPage } from "./center-agent-privacy-page";
 
 const readLocalRuntimesMock = vi.hoisted(() => vi.fn());
 
+vi.mock("#/lib/connect/current-device-target", () => ({
+	resolveCurrentDeviceTarget: vi.fn(async () => ({
+		availability: "resolved",
+		deviceId: "device-office",
+		runtimeLane: "prod",
+	})),
+}));
+
 vi.mock("#/lib/connect/local-runtimes", () => ({
 	readCurrentLocalRuntimeReplyReadiness: vi.fn(),
 	readLocalRuntimes: readLocalRuntimesMock,

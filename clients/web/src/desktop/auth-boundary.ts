@@ -1,3 +1,4 @@
+import type { DesktopSession } from "@openmeld/schemas";
 import type { QueryClient } from "@tanstack/react-query";
 import { redirect } from "@tanstack/react-router";
 import { resetAccountScopedQueriesAfterAuthChange } from "#/query/auth-boundary";
@@ -29,7 +30,18 @@ export async function beforeDesktopLoad(
 	if (!bridge || pathname === "/desktop-shell") {
 		return;
 	}
-	const session = await bridge.session();
+	let session: DesktopSession;
+	try {
+		session = await bridge.session();
+	} catch {
+		// Unknown is not signed out: retry through the loader-free entry without
+		// clearing this account's data or initiating browser authentication.
+		throw redirect({
+			to: "/desktop-shell",
+			search: { redirect: desktopReturnPath(href) },
+			replace: true,
+		});
+	}
 	if (!session.user) {
 		if (queryClient) {
 			await resetAccountScopedQueriesAfterAuthChange(queryClient);
@@ -41,9 +53,7 @@ export async function beforeDesktopLoad(
 		});
 	}
 	if (pathname === "/logout") {
-		throw new Error(
-			"To sign out, choose Sign out of Desktop in the account menu."
-		);
+		throw new Error("To sign out, choose Sign out in the account menu.");
 	}
 	if (pathname === "/" || pathname === "/login") {
 		throw redirect({ to: "/desktop-shell", replace: true });
