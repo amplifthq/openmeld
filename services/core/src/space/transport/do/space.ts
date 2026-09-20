@@ -32,6 +32,7 @@ import {
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdFromDigest,
+  COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   clearSpaceReasoningReplaySchema,
   commitSpaceFileWriteInputSchema,
@@ -54,6 +55,7 @@ import {
   getSpaceUpdatesInputSchema,
   getSpaceWakeProgressInputSchema,
   getSpaceWakeTraceWaterfallInputSchema,
+  isComputerFileAccessOwnerCancellation,
   isHostedAgentRuntimeKind,
   listSignalsQuerySchema,
   listSpaceThreadSignalsQuerySchema,
@@ -214,6 +216,7 @@ import type {
   SpaceHistoryNavigation,
   SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
+  SpaceLinkJoinPolicy,
   SpaceLiveInvalidationFrame,
   SpaceLiveSignalFrame,
   SpaceMemberDirectory,
@@ -502,6 +505,7 @@ import { buildSpaceFileAuditEvent } from "../../application/space-file-audit";
 import { hashSpaceFileStream } from "../../application/space-file-stream";
 import { SpaceFileUploads } from "../../application/space-file-uploads";
 import { prepareSpaceInboxCandidateForCenterAgent } from "../../application/space-inbox-center-agent-candidate";
+import { recordSpaceInboxFirstContacts } from "../../application/space-inbox-first-contact";
 import {
   buildSpaceInboxProjectionOutboxRecord,
   buildSpaceReactionInboxProjectionOutboxRecord,
@@ -568,6 +572,10 @@ import {
   readSpaceUpdatesUseCase,
   SpaceUpdatesAnchorNotFoundError,
 } from "../../application/space-updates-service";
+import {
+  assertSameSpaceWorkHandoff,
+  validateSpaceWorkHandoff,
+} from "../../application/space-work-handoff";
 import type {
   PasswordAuthorizationResult,
   SignalPublishContext,
@@ -674,8 +682,14 @@ import {
   mutateSpaceMessagePin,
 } from "../../infrastructure/sql/space-message-pin-repo";
 import {
+  backfillSpaceMessageSearch,
+  initializeSpaceMessageSearch,
+  searchSpaceMessages,
+} from "../../infrastructure/sql/space-message-search-repo";
+import {
   initializeSpaceMetaRecordIfAbsent,
   readSpaceMetaRecordFromSql,
+  resolveSpaceMetaLinkJoinPolicy,
   type SpaceMetaRecord,
   upsertSpaceMetaRecord,
 } from "../../infrastructure/sql/space-meta-repo";
@@ -827,6 +841,7 @@ type SpaceHistorySignalFilters = {
 const buildRpcListSignalsBaseQuery = (
   input: ListSignalsInput
 ): Record<string, string> => ({
+  ...(input.q ? { q: input.q } : {}),
   ...(typeof input.afterTs === "number" && Number.isFinite(input.afterTs)
     ? { afterTs: String(Math.max(0, Math.trunc(input.afterTs))) }
     : {}),
@@ -1350,6 +1365,10 @@ function buildDispatchSourceSignalSnapshot(input: {
       : undefined;
   const files =
     input.signal.type === "signal.text" ? input.signal.data.files : undefined;
+  const workHandoff =
+    input.signal.type === "signal.text"
+      ? input.signal.data.meta?.workHandoff
+      : undefined;
   const centerAgentInteractionSource =
     input.signal.type === "signal.text"
       ? input.signal.data.meta?.centerAgentInteractionSource
@@ -1375,6 +1394,7 @@ function buildDispatchSourceSignalSnapshot(input: {
         : null,
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
     ...(files && files.length > 0 ? { files } : {}),
+    ...(workHandoff ? { workHandoff } : {}),
   };
 }
 
@@ -2308,6 +2328,7 @@ type PatchSpaceMetaInput = {
   creator?: SpaceCreator;
   guide?: string;
   accessMode?: SpaceAccessMode;
+  linkJoinPolicy?: SpaceLinkJoinPolicy;
   organizationId?: string;
   visibility?: "public" | "private";
   password?: string;
@@ -4042,6 +4063,29 @@ export class Space extends DurableObject<CoreBindings> {
     const threadContext = this.resolveThreadContextForSignal(
       command.dispatchFact.sourceEventId
     );
+    const ownerCancellation =
+      noticeType === "wake_stopped" &&
+      isComputerFileAccessOwnerCancellation(
+        command.acceptedResult.taskResult.payload
+      );
+    let reasonCode: string;
+    let text: string;
+    if (ownerCancellation) {
+      reasonCode = COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE;
+      text =
+        "Stopped before the Agent started because the Computer owner declined the file access request.";
+    } else if (noticeType === "wake_stopped") {
+      reasonCode = "runtime_coordinator.wake_stop_requested";
+      text = buildSystemNoticeText({
+        ...resolveRuntimeCoordinatorPublicationExhaustionActorName({ command }),
+        noticeType: "wake_stopped",
+      });
+    } else {
+      reasonCode = RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE;
+      text = buildRuntimeCoordinatorPublicationExhaustionNoticeText({
+        command,
+      });
+    }
     const signalContext = {
       finalOutcomeAuthority:
         noticeType === "wake_stopped"
@@ -4064,26 +4108,10 @@ export class Space extends DurableObject<CoreBindings> {
           : {}),
         generatedBy: "openmeld",
         noticeType,
-        reason:
-          noticeType === "wake_stopped"
-            ? "runtime_coordinator.wake_stop_requested"
-            : RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE,
-        reasonCode:
-          noticeType === "wake_stopped"
-            ? "runtime_coordinator.wake_stop_requested"
-            : RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE,
+        reason: reasonCode,
+        reasonCode,
         ...(replyTo ? { replyTo } : {}),
-        text:
-          noticeType === "wake_stopped"
-            ? buildSystemNoticeText({
-                ...resolveRuntimeCoordinatorPublicationExhaustionActorName({
-                  command,
-                }),
-                noticeType: "wake_stopped",
-              })
-            : buildRuntimeCoordinatorPublicationExhaustionNoticeText({
-                command,
-              }),
+        text,
       }
     );
     await armSpaceInboxProjectionRecoveryAlarm({
@@ -4875,6 +4903,13 @@ export class Space extends DurableObject<CoreBindings> {
         const existingSignal =
           this.readSourceTextSignalByClientMessageId(clientMessageId);
         if (existingSignal) {
+          assertSameSpaceWorkHandoff({
+            existing: existingSignal,
+            authorProfileId: input.profile.profileId,
+            handoff: input.meta?.workHandoff,
+            text: input.text,
+            targetProfileIds: input.messageEnvelope?.activationTargets ?? [],
+          });
           return { signal: existingSignal, status: "accepted" };
         }
         if (
@@ -5471,6 +5506,9 @@ export class Space extends DurableObject<CoreBindings> {
         authoringPolicy: "user_authored",
         clientMessageId: continuationClientMessageId,
         context: continuationContext,
+        ...(input.contextSelection
+          ? { contextSelection: input.contextSelection }
+          : {}),
         messageEnvelope: {
           activationTargets: [input.targetProfileId],
           referenceTargets:
@@ -10135,7 +10173,16 @@ export class Space extends DurableObject<CoreBindings> {
         context: input.context,
         body: {
           accessMode: input.accessMode,
+          ...(input.allowGuests === undefined
+            ? {}
+            : { allowGuests: input.allowGuests }),
+          ...(input.linkJoinPolicy === undefined
+            ? {}
+            : { linkJoinPolicy: input.linkJoinPolicy }),
           ...(input.password === undefined ? {} : { password: input.password }),
+          ...(input.visibility === undefined
+            ? {}
+            : { visibility: input.visibility }),
         },
       })
     );
@@ -11119,6 +11166,14 @@ export class Space extends DurableObject<CoreBindings> {
         );
       }
       if (existingRetry.status === "replay") {
+        assertSameSpaceWorkHandoff({
+          existing: existingRetry.signal,
+          authorProfileId: input.context.actorContext.openMeldProfileId,
+          handoff: parsed.data.workHandoff,
+          text: parsed.data.text,
+          targetProfileIds:
+            parsed.data.messageEnvelope?.activationTargets ?? [],
+        });
         return spaceAddressingJsonResponse(input.request, {
           signal: existingRetry.signal,
           placement: existingRetry.placement,
@@ -11145,6 +11200,7 @@ export class Space extends DurableObject<CoreBindings> {
             clientMessageId: parsed.data.clientMessageId,
             threadWakeContinuation: parsed.data.threadWakeContinuation,
             restoredFromSignalId: parsed.data.restoredFromSignalId,
+            workHandoff: parsed.data.workHandoff,
             ...(parsed.data.authorHasRead
               ? { authorHasRead: true as const }
               : {}),
@@ -13276,6 +13332,17 @@ export class Space extends DurableObject<CoreBindings> {
       signalTypes: resolveVisibleTimelineSignalTypes(signalTypes),
     };
 
+    if (parsedQuery.data.q) {
+      return this.handleMessageSearch({
+        query: parsedQuery.data.q,
+        cursor,
+        limit,
+        viewerOwnerUserId: input.viewerOwnerUserId,
+        viewerProfileId: input.viewerProfileId,
+        creatorProfileIdByProfileId: viewerCreatorProfileIdsByProfileId,
+      });
+    }
+
     if (afterSignalId) {
       try {
         const signals = this.measureBootstrapBranchTimingSync(
@@ -13572,6 +13639,37 @@ export class Space extends DurableObject<CoreBindings> {
     return Response.json({
       nextCursor: null,
       signals: this.redactSignalsForReadViewer(signals, viewer),
+    });
+  }
+
+  private handleMessageSearch(input: {
+    query: string;
+    cursor: string | null;
+    limit: number;
+    viewerOwnerUserId?: string;
+    viewerProfileId?: string;
+    creatorProfileIdByProfileId?: Record<string, string | null>;
+  }): Response {
+    initializeSpaceMessageSearch(this.ctx.storage.sql);
+    if (!backfillSpaceMessageSearch(this.ctx.storage.sql)) {
+      return Response.json({
+        signals: [],
+        nextCursor: null,
+        searchIndexing: true,
+        threadRoots: {},
+      });
+    }
+    const page = searchSpaceMessages(this.ctx.storage.sql, {
+      query: input.query,
+      before: input.cursor ? Number(input.cursor) : null,
+      limit: Math.min(input.limit, 50),
+    });
+    return Response.json({
+      ...page,
+      searchIndexing: false,
+      signals: page.signals.map((signal) =>
+        redactSignalForViewer({ ...input, signal })
+      ),
     });
   }
 
@@ -15722,6 +15820,10 @@ export class Space extends DurableObject<CoreBindings> {
               .filter(
                 (member) =>
                   member.profileKindSnapshot === "agent" &&
+                  (!candidate.sourceFacts ||
+                    candidate.sourceFacts.personalAgentProfileIds?.includes(
+                      member.profileId
+                    )) &&
                   (candidate.kind !== "agent_reply" ||
                     (reply?.type === "signal.text" &&
                       reply.profile.kind === "agent" &&
@@ -17097,6 +17199,25 @@ export class Space extends DurableObject<CoreBindings> {
     });
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords,
+      firstContactAgentProfileIds: recordSpaceInboxFirstContacts({
+        activeMemberRecords,
+        archiveCursorTs:
+          this.ctx.storage.sql
+            .exec<{ archive_cursor_ts: number | null }>(
+              "SELECT archive_cursor_ts FROM space_meta WHERE space_id = ?",
+              this.spaceId
+            )
+            .toArray()[0]?.archive_cursor_ts ?? null,
+        directMessage: isDirectMessageSpace({
+          purpose: metaRecord.purpose,
+          directMessageConvertedAt: metaRecord.directMessage?.convertedAt,
+          activeMemberCount: activeMemberRecords.length,
+        }),
+        organizationId: metaRecord.organizationId,
+        signal: input.signal,
+        signalContext: input.signalContext,
+        sql: this.ctx.storage.sql,
+      }),
       directMessage: isDirectMessageSpace({
         purpose: metaRecord.purpose,
         directMessageConvertedAt: metaRecord.directMessage?.convertedAt,
@@ -18622,6 +18743,9 @@ export class Space extends DurableObject<CoreBindings> {
 
     return {
       text,
+      ...(signal.data.meta?.workHandoff
+        ? { workHandoff: signal.data.meta.workHandoff }
+        : {}),
       profileId: String(signal.profile?.profileId ?? "").trim() || null,
       profileKind:
         signal.profile.kind === "agent" ||
@@ -20628,6 +20752,14 @@ export class Space extends DurableObject<CoreBindings> {
     signal: SignalEnvelope,
     signalContext?: SignalPublishContext
   ): Promise<void> {
+    if (signal.type === "signal.text" && signal.data.meta?.workHandoff) {
+      await validateSpaceWorkHandoff({
+        env: this.env,
+        organizationId: this.readSpaceMetaRecord()?.organizationId ?? null,
+        signal,
+        resolveFiles: (files) => this.resolveSpaceMessageFileReferences(files),
+      });
+    }
     if (
       signal.type === "signal.text" &&
       signal.data.meta?.centerAgentExecutionInput
@@ -23589,6 +23721,7 @@ function toPublicSpaceMeta(
     ...(meta.creator ? { creator: meta.creator } : {}),
     ...(meta.guide ? { guide: meta.guide } : {}),
     accessMode: meta.accessMode,
+    linkJoinPolicy: resolveSpaceMetaLinkJoinPolicy(meta),
     passwordProtected: meta.accessMode === "protected",
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt,

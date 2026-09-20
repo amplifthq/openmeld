@@ -293,6 +293,9 @@ async function writeControlPlaneRequest(input: {
       socket.write(`${JSON.stringify(input.request)}\n`);
     };
     const handleData = (chunk: string) => {
+      if (!responseBuffer && chunk.trim().length === 0) {
+        return;
+      }
       responseBuffer += chunk;
     };
     const handleEnd = () => {

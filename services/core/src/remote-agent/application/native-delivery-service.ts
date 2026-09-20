@@ -634,6 +634,7 @@ function buildRemoteAgentSourceText(
   const rawText = normalizeOptionalText(message.sourceSignalSnapshot?.text);
   const text = rawText
     ? renderDispatchSourceText({
+        workHandoff: message.sourceSignalSnapshot?.workHandoff,
         text: rawText,
         quotedMessage: message.sourceSignalSnapshot?.quotedMessage,
         contextMessages: message.sourceSignalSnapshot?.contextMessages,
@@ -825,6 +826,8 @@ export async function submitRemoteAgentNativeDelivery(
           readEnabledOrganizationSkillReleaseSelection({
             db: input.db,
             organizationId: input.binding.organizationId,
+            selectedReleases:
+              input.message.sourceSignalSnapshot?.workHandoff?.skills,
           })
       ),
     resolveTurnContext: async () => {
@@ -1022,6 +1025,7 @@ export async function submitRemoteAgentNativeDelivery(
       author,
       onBehalfOf: author,
       organizationSkillReleases,
+      workHandoff: input.message.sourceSignalSnapshot?.workHandoff,
       modelRoute: input.binding.modelRoute,
       turnEnvelope,
     }

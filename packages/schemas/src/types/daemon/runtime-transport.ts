@@ -115,6 +115,16 @@ export type RuntimeTransportAgentProfileWorkContinuationNeedsAttentionResponse =
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseSchema"]
   >;
 
+export type RuntimeTransportAgentProfileWorkHandoffRequest =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkHandoffRequestSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileWorkHandoffResponse =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkHandoffResponseSchema"]
+  >;
+
 export type RuntimeTransportAgentProfileWorkQueueApproveRequest =
   import("zod/v4").infer<
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkQueueApproveRequestSchema"]
@@ -133,6 +143,16 @@ export type RuntimeTransportAgentProfileWorkSkipRequest =
 export type RuntimeTransportAgentProfileWorkSkipResponse =
   import("zod/v4").infer<
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkSkipResponseSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalRequest =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkLocalAttemptWithdrawalRequestSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalResponse =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema"]
   >;
 
 export type RuntimeTransportAgentProfileExecutionTargetMutationRequest =

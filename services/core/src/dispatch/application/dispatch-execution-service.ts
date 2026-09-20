@@ -1253,6 +1253,18 @@ function assertDaemonRouteExecutionContextCapable(input: {
   route: OnlineRuntimeTransportRoute;
   executionContext: DispatchExecutionContext;
 }): void {
+  if (
+    input.message.sourceSignalSnapshot?.workHandoff &&
+    input.route.capabilities.spaceWorkHandoff !== true
+  ) {
+    throw buildDispatchExecutionValidationError({
+      code: "service.update_required",
+      message:
+        "Update this Computer's OpenMeld Service before handing off selected files.",
+      executionContext: input.executionContext,
+      waitReasonCode: "space_work_handoff_unsupported",
+    });
+  }
   if (!input.message.executionContext) {
     return;
   }

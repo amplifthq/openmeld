@@ -2,14 +2,16 @@
 
 import type { SpaceTask, SpaceTaskPhase } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	CheckCircleIcon,
 	CircleIcon,
 	ClockCountdownIcon,
 	FlowArrowIcon,
 } from "@phosphor-icons/react";
+import { useState } from "react";
+import { SpaceTasksSkeleton } from "./space-panel-skeletons";
 import { SpaceTaskCard } from "./space-task-card";
+import { SpaceTaskDetailDrawer } from "./space-task-detail-drawer";
 import {
 	type SpaceTasksPanelProps,
 	useSpaceTasksPanelController,
@@ -44,6 +46,7 @@ const ACTIVE_COLUMNS = [
 export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 	const { members, mutateTask, pendingTaskId, tasksQuery } =
 		useSpaceTasksPanelController(input);
+	const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
 	if (tasksQuery.isPending) {
 		return <SpaceTasksSkeleton />;
@@ -75,6 +78,8 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 	).length;
 	const doneTasks = tasks.filter((task) => task.phase === "done");
 	const canceledTasks = tasks.filter((task) => task.phase === "canceled");
+	const selectedTask =
+		tasks.find((task) => task.taskId === selectedTaskId) ?? null;
 
 	return (
 		<div className="min-h-0 flex-1 overflow-y-auto">
@@ -116,12 +121,10 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 						<div className="grid items-start gap-4 md:grid-cols-3">
 							{ACTIVE_COLUMNS.map((column) => (
 								<TaskColumn
-									busyTaskId={pendingTaskId}
 									column={column}
 									key={column.phase}
-									members={members}
-									onMutate={mutateTask}
-									onOpenThread={input.onOpenThread}
+									onOpenTask={setSelectedTaskId}
+									selectedTaskId={selectedTaskId}
 									selfProfileId={input.openMeldProfileId}
 									tasks={tasks.filter((task) => task.phase === column.phase)}
 								/>
@@ -134,20 +137,16 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 								</p>
 								<div className="space-y-2">
 									<TaskHistory
-										busyTaskId={pendingTaskId}
 										label="Done"
-										members={members}
-										onMutate={mutateTask}
-										onOpenThread={input.onOpenThread}
+										onOpenTask={setSelectedTaskId}
+										selectedTaskId={selectedTaskId}
 										selfProfileId={input.openMeldProfileId}
 										tasks={doneTasks}
 									/>
 									<TaskHistory
-										busyTaskId={pendingTaskId}
 										label="Canceled"
-										members={members}
-										onMutate={mutateTask}
-										onOpenThread={input.onOpenThread}
+										onOpenTask={setSelectedTaskId}
+										selectedTaskId={selectedTaskId}
 										selfProfileId={input.openMeldProfileId}
 										tasks={canceledTasks}
 									/>
@@ -157,23 +156,34 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 					</>
 				)}
 			</div>
+			<SpaceTaskDetailDrawer
+				busy={selectedTask !== null && pendingTaskId === selectedTask.taskId}
+				key={selectedTask?.taskId ?? "closed"}
+				members={members}
+				onMutate={async (body) => {
+					if (!selectedTask) {
+						return false;
+					}
+					return await mutateTask(selectedTask.taskId, body);
+				}}
+				onOpenChange={(open) => {
+					if (!open) {
+						setSelectedTaskId(null);
+					}
+				}}
+				onOpenThread={input.onOpenThread}
+				open={selectedTask !== null}
+				selfProfileId={input.openMeldProfileId}
+				task={selectedTask}
+			/>
 		</div>
 	);
 }
 
 function TaskColumn(input: {
-	busyTaskId: string | null;
 	column: (typeof ACTIVE_COLUMNS)[number];
-	members: Parameters<typeof SpaceTaskCard>[0]["members"];
-	onMutate: (
-		taskId: string,
-		body: Parameters<typeof SpaceTaskCard>[0]["onMutate"] extends (
-			body: infer B
-		) => Promise<boolean>
-			? B
-			: never
-	) => Promise<boolean>;
-	onOpenThread?: (threadId: string) => void;
+	onOpenTask: (taskId: string) => void;
+	selectedTaskId: string | null;
 	selfProfileId?: string;
 	tasks: readonly SpaceTask[];
 }) {
@@ -202,11 +212,9 @@ function TaskColumn(input: {
 				) : null}
 				{input.tasks.map((task) => (
 					<SpaceTaskCard
-						busy={input.busyTaskId === task.taskId}
 						key={task.taskId}
-						members={input.members}
-						onMutate={(body) => input.onMutate(task.taskId, body)}
-						onOpenThread={input.onOpenThread}
+						onOpen={() => input.onOpenTask(task.taskId)}
+						selected={input.selectedTaskId === task.taskId}
 						selfProfileId={input.selfProfileId}
 						task={task}
 					/>
@@ -230,31 +238,14 @@ function TaskHistory(
 			<div className="grid gap-3 border-border border-t p-3 md:grid-cols-2 xl:grid-cols-3">
 				{input.tasks.map((task) => (
 					<SpaceTaskCard
-						busy={input.busyTaskId === task.taskId}
 						key={task.taskId}
-						members={input.members}
-						onMutate={(body) => input.onMutate(task.taskId, body)}
-						onOpenThread={input.onOpenThread}
+						onOpen={() => input.onOpenTask(task.taskId)}
+						selected={input.selectedTaskId === task.taskId}
 						selfProfileId={input.selfProfileId}
 						task={task}
 					/>
 				))}
 			</div>
 		</details>
-	);
-}
-
-function SpaceTasksSkeleton() {
-	return (
-		<output aria-label="Loading Tasks" className="block p-4 sm:p-6">
-			<div className="grid gap-4 md:grid-cols-3">
-				{ACTIVE_COLUMNS.map((column) => (
-					<div key={column.phase}>
-						<Skeleton className="mb-3 h-8 w-32" />
-						<Skeleton className="h-48 w-full rounded-lg" />
-					</div>
-				))}
-			</div>
-		</output>
 	);
 }

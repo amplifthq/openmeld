@@ -8,10 +8,11 @@
 - Do not use this for: Current production behavior, release authorization, a new memory system, or Remote Agent scheduling.
 - Source of truth: This is a design proposal. Existing scoped owner documents remain authoritative until implementation updates them together.
 
-Status: IMPLEMENTATION IN DRAFT PR #956 — accepted context, admission, isolation,
-and compatibility rules are now recorded in the scoped owner documents. Local
-acceptance has verified concurrent Codex project tasks and Claude Space-context
-tasks on macOS; this document does not claim production availability.
+Status: IMPLEMENTED AND MERGED — PR #956 merged on 2026-09-15, so independent
+execution contexts and the five-reservation concurrency ceiling are on `main`,
+not awaiting a draft. Accepted context, admission, isolation, and compatibility
+rules are recorded in the scoped owner documents. Local acceptance verified
+concurrent Codex project tasks and Claude Space-context tasks on macOS.
 
 Remove when this feature ships and its accepted rules, compatibility requirements,
 and validation evidence have been incorporated into the scoped owner documents.
@@ -343,9 +344,13 @@ defines `thread/fork` as copying stored history into a new thread and supports
 `lastTurnId` for an inclusive cutoff. An in-progress cutoff is rejected; omitting
 it while the source is mid-turn adds an interruption marker. OpenMeld's proposed
 completed-prefix contract must therefore pass a proven completed cutoff. The
-current ordinary wrapper does not yet do so. Other Controllers need their own
-verified equivalent; generic native fork support is insufficient evidence for
-this stronger contract. Do not simulate native Fork by injecting a summary.
+Codex wrapper enforces this at the fork call rather than per caller: a fork with
+no `lastTurnId` is refused unless the caller sets `forkFullHistory`, so the
+whole-history copy is a decision someone wrote down, never the shape a missing
+checkpoint happens to produce. `excludeTurns` is not that decision — it trims the
+response, not the inherited context. Other Controllers need their own verified
+equivalent; generic native fork support is insufficient evidence for this
+stronger contract. Do not simulate native Fork by injecting a summary.
 The official `developers.openai.com/codex/app-server` entry was checked on
 2026-09-11 and redirects to `learn.chatgpt.com/docs/app-server`. The latter is
 the fetched official destination; the link here uses the recognizable original
@@ -504,6 +509,87 @@ Controller limit or allocate five idle instances in advance.
 An executing forked child consumes one of the same five reservations. Its parent
 consumes another only while the parent's work holds a reservation. Fork depth or
 history inheritance cannot create additional concurrency outside this limit.
+
+### Occupied-reservation handoff
+
+When an external process holds the native conversation's writer lock, the
+blocked work keeps its reservation and its `waitReason` records
+`controller_conversation_occupied`. Recovering that one request must not push a
+replacement to the back of the queue: it would then wait for the same blocked
+queue it was meant to escape. Core therefore transfers the reservation in place
+rather than releasing and re-admitting it.
+
+`handOffOccupiedAgentProfileWork` in the
+[Work Coordinator](../../services/core/src/runtime-transport/application/agent-profile-work-coordinator.ts)
+puts the successor Wake into the source's slot and consumes the successor's own
+waiting entry, so exactly one entry represents the work and the reserved count
+never changes. The five-reservation ceiling, `serial`, and `draining` keep
+holding without a special case, and no unprotected gap opens for a following
+legacy item. It refuses anything that would not hold that slot, would run a
+second execution in an already reserved context, or names a source that is not
+both reserved and occupied — a turn that has already started is not a blocked
+wait and must not be handed off.
+
+`handOffRuntimeCoordinatorOccupiedAgentProfileWork` in
+[execution admission](../../services/core/src/runtime-transport/application/agent-profile-execution-admission.ts)
+is the storage entry point, reachable as `rpcHandOffOccupiedAgentProfileWork`.
+Head lifecycle records are its authorization boundary: both source and
+successor must exist under the same owner, dispatch, and Profile, so the RPC
+cannot mint a reservation for foreign work. Idempotency keys on the successor's
+`targetWakeLifecycleId` already holding the slot, matching how acceptance keys
+on the same identity. The handoff never writes `activeHeadLifecycleIds`, which
+follows head lifecycle status transitions rather than queue membership.
+
+A Stop that lands while the blocked dispatch is retrying is reported by what
+the retry actually did. `runtime.turn.cancelled` is the adapter's "stopped
+before starting a turn" code, so the Codex adapter returns it only when the
+transport cancelled ahead of `turn/start` or the `thread/resume` was refused; a
+retry that already won the writer lock returns its own turn result, output
+included. Reporting a cancellation for a turn that had started would hand Core
+the false premise that nothing ran, which is exactly what invites the same work
+being executed twice.
+
+`handOffOccupiedAgentProfileWork` has no caller yet. The owner-facing recovery
+below reaches the same outcome through the continuation path that Usage recovery
+already uses, so the handoff RPC stays reachable but unused; see
+[Codex session coexistence](review/2026-09-14-codex-session-coexistence.md).
+
+### The owner's decision at the progress-stale bound
+
+A blocked wait is not endless, and it must not end in a dishonest failure. The
+existing five-minute progress-stale threshold is the bound: no new wall-clock
+deadline is introduced. At that point the run closes as
+`runtime.controller_conversation_occupied`, with copy naming the other app rather
+than the computer, and the retired head opens a recovery gate whose status is
+`awaiting_occupancy_decision`.
+
+The gate is what keeps the queue from cascading. Without it the next waiting Wake
+promotes into the same still-occupied conversation and dies the same way five
+minutes later. It is opened fail-closed: only when no gate exists, so an
+occupancy terminal never displaces a Usage or attention decision the owner is
+already holding. A second occupied Wake settles plainly rather than queueing
+behind the open gate, because a resumed follow-up would re-enter the same
+occupied conversation.
+
+The gate projects the `fork_interrupted_work` recovery action and a
+`resolve_occupied_conversation` Inbox item, which offers exactly two answers:
+
+- **Continue on a new branch.** The continuation re-posts the original message
+  with `contextSelection = { mode: "fork", sourceWakeId }`, so the successor is
+  minted from a verified history boundary of the occupied conversation. Because
+  the gate moves to `continuation_authorized`, the successor jumps the held queue
+  and reserves immediately, which is the same "must not wait for the queue it was
+  meant to escape" rule the handoff was written for. `thread/fork` creates a new
+  thread: the other app keeps the original and the two never rejoin, so the copy
+  says *another branch*, never *restored*.
+- **Skip.** The gate clears and the held queue promotes.
+
+Either answer closes the Inbox item. If the execution target moved while the
+decision was open, the branch cannot be taken off a conversation the current
+target does not own, so the gate becomes `continuation_needs_attention` and the
+review item replaces the occupancy item. Only one projection intent exists per
+Profile, so the item that opens carries the stage it supersedes; two intents
+would overwrite each other and leave the owner two open items for one Wake.
 
 ### Limits and how to change them
 

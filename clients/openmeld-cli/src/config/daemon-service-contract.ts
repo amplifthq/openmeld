@@ -71,7 +71,10 @@ export async function upsertDaemonServiceContract(
 
   const next: DaemonServiceContract = {
     ...candidate,
-    generation: current ? current.generation + 1 : 1,
+    generation: current
+      ? current.generation +
+        (isFirstEnrollmentOfCurrentRuntime(current, candidate) ? 0 : 1)
+      : 1,
     updatedAt: new Date().toISOString(),
   };
   await writeDaemonLocalStateFile({
@@ -81,6 +84,25 @@ export async function upsertDaemonServiceContract(
     mode: 0o600,
   });
   return next;
+}
+
+function isFirstEnrollmentOfCurrentRuntime(
+  current: DaemonServiceContract,
+  candidate: Omit<DaemonServiceContract, "generation" | "updatedAt">
+): boolean {
+  // Core is attaching its Computer record to the already established owner,
+  // device and lane. It is not replacing the running carrier. Every other
+  // contract change, including replacing an existing enrollment, still fences
+  // the previous generation.
+  return Boolean(
+    current.ownerUserId &&
+      !current.connectedComputerId &&
+      candidate.connectedComputerId &&
+      isSameContractState(current, {
+        ...candidate,
+        connectedComputerId: undefined,
+      })
+  );
 }
 
 export async function clearDaemonServiceContract(

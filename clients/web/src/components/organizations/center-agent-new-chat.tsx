@@ -15,7 +15,10 @@ import {
 	SpaceWindowHeader,
 } from "#/components/spaces/space-header";
 import type { SpaceView } from "#/components/spaces/space-view";
-import { useSpaceComposerFiles } from "#/components/spaces/use-space-composer-attachments";
+import {
+	ComposerFileDiscoveryError,
+	useSpaceComposerFiles,
+} from "#/components/spaces/use-space-composer-attachments";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import {
 	type ComposerDraftScope,
@@ -34,10 +37,7 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
-import {
-	CenterAgentHeaderMenu,
-	CenterAgentHeaderTabs,
-} from "./center-agent-header-navigation";
+import { CenterAgentHeaderTabs } from "./center-agent-header-navigation";
 import { CenterAgentOptimisticConversation } from "./center-agent-optimistic-conversation";
 import { ChatTitleEditor } from "./chat-title-editor";
 
@@ -104,7 +104,6 @@ export function CenterAgentNewChat({
 			}
 			const intent = readOrCreateChatIntent(sessionStorage, intentKey, text);
 			const intentValue = sessionStorage.getItem(intentKey);
-			setMessage({ ...intent.message, files: attachments.getSourceFiles() });
 			const fileDrafts = await attachments.readFileDrafts();
 			const pendingMessage = {
 				...intent.message,
@@ -207,7 +206,14 @@ export function CenterAgentNewChat({
 				sessionStorage.removeItem(intentKey);
 			}
 		},
-		onError: (cause) => setError(toStructuredApiClientFailure(cause).message),
+		onError: (cause) => {
+			setMessage(null);
+			setError(
+				cause instanceof ComposerFileDiscoveryError
+					? cause.message
+					: toStructuredApiClientFailure(cause).message
+			);
+		},
 	});
 	const startSend = async (prompt?: string) => {
 		if (sending.current) {
@@ -268,9 +274,6 @@ export function CenterAgentNewChat({
 				}
 				header={
 					<SpaceWindowHeader
-						actions={
-							<CenterAgentHeaderMenu organizationSlug={organization.slug} />
-						}
 						leadingControl={<SpaceHeaderIdentityIcon isDirectMessage />}
 						navigation={
 							<CenterAgentHeaderTabs

@@ -218,7 +218,7 @@ export function DesktopLocalAgentsCard({
   return (
     <SettingsLocalAgentsCard
       description="Local agent programs detected on this Mac."
-      emptyMessage="Loading agents..."
+      loading
       rows={[]}
     />
   );

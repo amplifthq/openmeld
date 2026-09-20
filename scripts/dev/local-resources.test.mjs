@@ -153,6 +153,18 @@ test(
 );
 
 test("reserves pending startup memory and distinguishes unknown memory", () => {
+  const macPolicy = resourcePolicy({}, 48 * 1024 ** 3, "darwin");
+  const linuxPolicy = resourcePolicy({}, 48 * 1024 ** 3, "linux");
+  assert.ok(Math.abs(macPolicy.headroomBytes - 4.8 * 1024 ** 3) < 1);
+  assert.ok(Math.abs(linuxPolicy.headroomBytes - 7.2 * 1024 ** 3) < 1);
+  assert.equal(
+    resourcePolicy(
+      { OPENMELD_LOCAL_MEMORY_HEADROOM_GIB: "3" },
+      48 * 1024 ** 3,
+      "darwin"
+    ).headroomBytes,
+    3 * 1024 ** 3
+  );
   const policy = resourcePolicy(
     { OPENMELD_LOCAL_MEMORY_HEADROOM_GIB: "1" },
     16 * 1024 ** 3

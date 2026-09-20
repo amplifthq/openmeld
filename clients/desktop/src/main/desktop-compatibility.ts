@@ -27,7 +27,7 @@ export async function checkDesktopCompatibility(
   });
   if (response.status === 409 || response.status === 404) {
     throw new Error(
-      "This version of OpenMeld Desktop is not supported by the server. Check for an app update."
+      "This version of OpenMeld is not supported by the server. Check for an app update."
     );
   }
   if (!response.ok) {

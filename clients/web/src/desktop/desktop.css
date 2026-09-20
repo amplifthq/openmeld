@@ -19,6 +19,16 @@
 	-webkit-app-region: no-drag;
 }
 
+/* Electron exposes the actual native controls' safe area, including RTL/DPI. */
+.desktop-window[data-window-controls="overlay"] .desktop-titlebar {
+	margin-left: env(titlebar-area-x, 0px);
+	width: env(titlebar-area-width, calc(100% - 138px));
+}
+
+.desktop-window[data-window-controls="overlay"] .desktop-titlebar-controls {
+	margin-left: 8px;
+}
+
 .desktop-titlebar-button {
 	display: inline-flex;
 	align-items: center;

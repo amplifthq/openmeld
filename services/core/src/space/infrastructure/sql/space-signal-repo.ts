@@ -736,6 +736,14 @@ export const deleteOldestSignalRows = (
   sql: SqlStorage,
   limit: number
 ): number => {
+  // Preserve the source's history boundary so first-contact projection cannot
+  // mistake a pruned long-lived conversation for a newly initiated one.
+  sql.exec(
+    `UPDATE space_meta SET archive_cursor_ts = max(coalesce(archive_cursor_ts, 0), coalesce((
+    SELECT max(ts) FROM (SELECT ts FROM space_signals ORDER BY ts ASC, id ASC LIMIT ?)
+  ), 0))`,
+    limit
+  );
   sql.exec(
     `DELETE FROM space_recalled_message_drafts WHERE signal_id IN (
     SELECT id FROM space_signals ORDER BY ts ASC, id ASC LIMIT ?
@@ -767,6 +775,9 @@ export const deleteOldestSignalRows = (
         WHERE space_signals.id = space_inbox_projection_outbox.signal_id
       )
   `);
+  sql.exec(`DELETE FROM space_inbox_projection_selections
+    WHERE NOT EXISTS (SELECT 1 FROM space_inbox_projection_outbox AS outbox
+      WHERE outbox.projection_id = space_inbox_projection_selections.projection_id)`);
 
   return result.rowsWritten;
 };
@@ -784,6 +795,8 @@ export const deleteAllSqlSpaceData = (sql: SqlStorage): void => {
   sql.exec("DELETE FROM openMeldDaemon_outbox");
   sql.exec("DELETE FROM space_index_projection_outbox");
   sql.exec("DELETE FROM space_inbox_projection_outbox");
+  sql.exec("DELETE FROM space_inbox_personal_agent_contacts");
+  sql.exec("DELETE FROM space_inbox_projection_selections");
   sql.exec("DELETE FROM space_dispatch_rules");
 };
 

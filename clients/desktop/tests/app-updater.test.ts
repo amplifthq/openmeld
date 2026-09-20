@@ -1,11 +1,15 @@
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
+import type { DesktopReleasePlatform } from "@openmeld/schemas";
 import type { AutoUpdater } from "electron";
 import type { MacUpdater, UpdateCheckResult } from "electron-updater";
 import { describe, expect, it, vi } from "vitest";
 import { createAppUpdater } from "../src/main/update/app-updater";
 
-function fixture(url = `/desktop/updates/${"a".repeat(64)}/desktop.zip`) {
+function fixture(
+  url = `/desktop/updates/${"a".repeat(64)}/desktop.zip`,
+  platform: DesktopReleasePlatform = "macos-arm64"
+) {
   const events = new EventEmitter();
   const info = {
     version: "0.1.2",
@@ -35,16 +39,66 @@ function fixture(url = `/desktop/updates/${"a".repeat(64)}/desktop.zip`) {
   });
   const prepareRestart = vi.fn(async () => true);
   const setInstalling = vi.fn();
+  const recordMacInstallRequested = vi.fn();
   const controller = createAppUpdater({
     updater: driver as unknown as MacUpdater,
+    platform,
     currentVersion: "0.1.1",
+    currentAppBundle:
+      platform === "macos-arm64" ? "/Applications/OpenMeld.app" : null,
+    recordMacInstallRequested,
     publish: vi.fn(),
     prepareRestart,
     setInstalling,
   });
-  return { controller, driver, prepareRestart, setInstalling };
+  return {
+    controller,
+    driver,
+    prepareRestart,
+    setInstalling,
+    recordMacInstallRequested,
+  };
 }
 describe("Desktop update consent", () => {
+  it.each([
+    "windows-x64",
+    "windows-arm64",
+  ] as const)("uses the %s feed and preserves manual consent and draft protection", async (platform) => {
+    const { controller, driver, prepareRestart } = fixture(
+      `/desktop/updates/${"a".repeat(64)}/${platform}.exe`,
+      platform
+    );
+    expect(driver.setFeedURL).toHaveBeenCalledWith({
+      provider: "generic",
+      url: `https://openmeld.ai/desktop/updates/${platform}`,
+    });
+    await controller.act("check");
+    expect(controller.snapshot().status).toBe("available");
+    expect(driver.downloadUpdate).not.toHaveBeenCalled();
+    await controller.act("download");
+    prepareRestart.mockResolvedValueOnce(false);
+    await controller.act("restart");
+    expect(driver.quitAndInstall).not.toHaveBeenCalled();
+    await controller.act("restart");
+    expect(driver.quitAndInstall).toHaveBeenCalledOnce();
+  });
+  it.each([
+    "desktop.zip",
+    "windows-arm64.exe",
+  ])("never downloads the wrong Windows architecture/platform: %s", async (filename) => {
+    const { controller, driver } = fixture(
+      `/desktop/updates/${"a".repeat(64)}/${filename}`,
+      "windows-x64"
+    );
+    await controller.act("check");
+    await controller.act("download");
+    expect(controller.snapshot()).toMatchObject({
+      status: "error",
+      errorStage: "check",
+    });
+    expect(driver.downloadUpdate).not.toHaveBeenCalled();
+  });
+
   it("keeps the accepted install terminal if installation handoff throws", async () => {
     const { controller, driver, setInstalling } = fixture();
     await controller.act("check");
@@ -104,6 +158,8 @@ describe("Desktop update consent", () => {
     const controller = createAppUpdater({
       updater,
       currentVersion: "0.1.1",
+      currentAppBundle: "/Applications/OpenMeld.app",
+      recordMacInstallRequested: vi.fn(),
       publish: vi.fn(),
       setInstalling,
       prepareRestart,
@@ -148,7 +204,18 @@ describe("Desktop update consent", () => {
     expect(driver.checkForUpdates).toHaveBeenCalledTimes(1);
     expect(controller.snapshot().status).toBe("available");
     expect(driver.downloadUpdate).not.toHaveBeenCalled();
+    driver.downloadUpdate.mockImplementationOnce(() => {
+      driver.emit("download-progress", { percent: 100 });
+      return Promise.resolve([]);
+    });
     await Promise.all([controller.act("download"), controller.act("download")]);
+    expect(controller.snapshot()).toMatchObject({
+      status: "downloading",
+      percent: 100,
+    });
+    await controller.act("restart");
+    expect(driver.quitAndInstall).not.toHaveBeenCalled();
+    driver.emit("update-downloaded");
     expect(controller.snapshot().status).toBe("downloaded");
     expect(driver.downloadUpdate).toHaveBeenCalledTimes(1);
     expect(driver.quitAndInstall).not.toHaveBeenCalled();
@@ -186,5 +253,62 @@ describe("Desktop update consent", () => {
       errorStage: "check",
     });
     expect(driver.downloadUpdate).not.toHaveBeenCalled();
+  });
+  it("records the same-name macOS install before handing it to Squirrel", async () => {
+    const { controller, driver, recordMacInstallRequested } = fixture();
+    await controller.act("check");
+    await controller.act("download");
+    await controller.act("restart");
+    expect(recordMacInstallRequested).toHaveBeenCalledWith("0.1.2");
+    expect(driver.quitAndInstall).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the native install available when bounded receipt evidence cannot be written", async () => {
+    const { controller, driver, recordMacInstallRequested } = fixture();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    recordMacInstallRequested.mockImplementationOnce(() => {
+      throw new Error("Receipt unavailable");
+    });
+    try {
+      await controller.act("check");
+      await controller.act("download");
+      await controller.act("restart");
+      expect(driver.quitAndInstall).toHaveBeenCalledOnce();
+      expect(controller.snapshot().status).toBe("installing");
+      expect(warn).toHaveBeenCalledWith(
+        "[openmeld.desktop.update_install_receipt_write_failed]",
+        { errorName: "Error" }
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it.each([
+    null,
+    "/Applications/OpenMeld Desktop.app",
+    "/Applications/OpenMeld Preview.app",
+  ])("fails closed before Squirrel from an unsafe macOS bundle path: %s", async (currentAppBundle) => {
+    const { driver } = fixture();
+    const setInstalling = vi.fn();
+    const guarded = createAppUpdater({
+      updater: driver as unknown as MacUpdater,
+      platform: "macos-arm64",
+      currentVersion: "0.1.1",
+      currentAppBundle,
+      recordMacInstallRequested: vi.fn(),
+      publish: vi.fn(),
+      prepareRestart: vi.fn(async () => true),
+      setInstalling,
+    });
+    await guarded.act("check");
+    await guarded.act("download");
+    await guarded.act("restart");
+    expect(guarded.snapshot()).toMatchObject({
+      status: "error",
+      errorStage: "restart",
+    });
+    expect(driver.quitAndInstall).not.toHaveBeenCalled();
+    expect(setInstalling).not.toHaveBeenCalledWith(true);
   });
 });

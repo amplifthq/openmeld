@@ -1,6 +1,9 @@
 import {
   type DesktopNotificationActivation,
+  desktopComputerConnectionOperationSchema,
   desktopComputerConnectionProgressSchema,
+  desktopComputerDisconnectResultSchema,
+  desktopComputerOperationSchema,
   desktopNotificationActivationSchema,
   desktopSpaceStreamEventSchema,
   desktopUpdaterRestartRequestSchema,
@@ -41,6 +44,20 @@ ipcRenderer.on(PILOT_IPC.sessionChanged, () => {
 const destinationHandlers = new Set<
   (destination: DesktopWindowDestination) => void
 >();
+let pendingNavigationHref: string | undefined;
+const navigationHandlers = new Set<(href: string) => void>();
+ipcRenderer.on(WINDOW_IPC.navigateHref, (_event, href: unknown) => {
+  if (typeof href !== "string" || !href.startsWith("/")) {
+    return;
+  }
+  if (navigationHandlers.size === 0) {
+    pendingNavigationHref = href;
+    return;
+  }
+  for (const handler of navigationHandlers) {
+    handler(href);
+  }
+});
 ipcRenderer.on(
   WINDOW_IPC.navigateDestination,
   (_event, destination: unknown) => {
@@ -77,6 +94,7 @@ const openMeldBridge: OpenMeldBridge = {
   setAgentEnabled: (agentId, enabled) =>
     ipcRenderer.invoke(OPENMELD_IPC.setAgentEnabled, agentId, enabled),
   openWeb: (path) => ipcRenderer.invoke(OPENMELD_IPC.openWeb, path),
+  openExternal: (url) => ipcRenderer.invoke(OPENMELD_IPC.openExternal, url),
   getDesktopSettings: () => ipcRenderer.invoke(OPENMELD_IPC.getDesktopSettings),
   setOpenAtLogin: (enabled) =>
     ipcRenderer.invoke(OPENMELD_IPC.setOpenAtLogin, enabled),
@@ -98,6 +116,15 @@ const openMeldBridge: OpenMeldBridge = {
     return () => {
       destinationHandlers.delete(handler);
     };
+  },
+  onNavigationRequest: (handler) => {
+    navigationHandlers.add(handler);
+    if (pendingNavigationHref) {
+      const href = pendingNavigationHref;
+      pendingNavigationHref = undefined;
+      handler(href);
+    }
+    return () => navigationHandlers.delete(handler);
   },
 };
 
@@ -132,6 +159,8 @@ contextBridge.exposeInMainWorld("openmeldDesktop", {
     return () => ipcRenderer.removeListener(PILOT_IPC.updaterPrepare, listener);
   },
   onWindowDestinationChange: openMeldBridge.onWindowDestinationChange,
+  onNavigationRequest: openMeldBridge.onNavigationRequest,
+  openExternal: openMeldBridge.openExternal,
   setNotificationContext: (input) =>
     ipcRenderer.invoke(PILOT_IPC.notificationContext, input),
   showNotification: (input) =>
@@ -165,6 +194,43 @@ contextBridge.exposeInMainWorld("openmeldDesktop", {
     ipcRenderer.invoke(PILOT_IPC.connectComputer, input),
   disconnectComputer: (input) =>
     ipcRenderer.invoke(PILOT_IPC.disconnectComputer, input),
+  disconnectComputerWithFeedback: async (input) =>
+    desktopComputerDisconnectResultSchema.parse(
+      await ipcRenderer.invoke(PILOT_IPC.disconnectComputerWithFeedback, input)
+    ),
+  computerOperationCurrent: async () => {
+    const parsed = desktopComputerOperationSchema
+      .nullable()
+      .safeParse(
+        await ipcRenderer.invoke(PILOT_IPC.connectionOperationCurrent)
+      );
+    return parsed.success ? parsed.data : null;
+  },
+  onComputerOperation: (handler) => {
+    const listener = (_event: IpcRendererEvent, value: unknown) => {
+      const parsed = desktopComputerOperationSchema.safeParse(value);
+      if (parsed.success) {
+        handler(parsed.data);
+      }
+    };
+    ipcRenderer.on(PILOT_IPC.connectionOperation, listener);
+    return () =>
+      ipcRenderer.removeListener(PILOT_IPC.connectionOperation, listener);
+  },
+  connectionProgressCurrent: async () => {
+    const parsed = desktopComputerConnectionProgressSchema
+      .nullable()
+      .safeParse(await ipcRenderer.invoke(PILOT_IPC.connectionProgressCurrent));
+    return parsed.success ? parsed.data : null;
+  },
+  connectionOperationCurrent: async () => {
+    const parsed = desktopComputerConnectionOperationSchema
+      .nullable()
+      .safeParse(
+        await ipcRenderer.invoke(PILOT_IPC.connectionOperationCurrent)
+      );
+    return parsed.success ? parsed.data : null;
+  },
   onConnectionProgress: (handler) => {
     const listener = (_event: IpcRendererEvent, value: unknown) => {
       const parsed = desktopComputerConnectionProgressSchema.safeParse(value);
@@ -175,6 +241,17 @@ contextBridge.exposeInMainWorld("openmeldDesktop", {
     ipcRenderer.on(PILOT_IPC.connectionProgress, listener);
     return () =>
       ipcRenderer.removeListener(PILOT_IPC.connectionProgress, listener);
+  },
+  onConnectionOperation: (handler) => {
+    const listener = (_event: IpcRendererEvent, value: unknown) => {
+      const parsed = desktopComputerConnectionOperationSchema.safeParse(value);
+      if (parsed.success) {
+        handler(parsed.data);
+      }
+    };
+    ipcRenderer.on(PILOT_IPC.connectionOperation, listener);
+    return () =>
+      ipcRenderer.removeListener(PILOT_IPC.connectionOperation, listener);
   },
   onSessionChanged: (handler) => {
     const listener = () => handler();
@@ -201,5 +278,11 @@ contextBridge.exposeInMainWorld("openmeldDesktop", {
 function isDesktopWindowDestination(
   value: unknown
 ): value is DesktopWindowDestination {
-  return value === "home" || value === "profiles" || value === "settings";
+  return (
+    value === "computer" ||
+    value === "home" ||
+    value === "inbox" ||
+    value === "profiles" ||
+    value === "settings"
+  );
 }

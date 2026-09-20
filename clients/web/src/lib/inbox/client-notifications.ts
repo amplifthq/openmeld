@@ -38,7 +38,7 @@ export function resolveClientNotificationDescription(
 	if (permission === "denied") {
 		return "Notifications are blocked. Allow them in your browser’s site settings, then return here.";
 	}
-	return "Show notifications in this browser while OpenMeld is open. Messages follow your default and conversation settings. Your browser and operating system must also allow notifications.";
+	return "Show notifications while OpenMeld is open in this browser.";
 }
 
 export type InboxNotificationDeliveryResult =
@@ -232,6 +232,7 @@ export async function showInboxNotification(input: {
 		| Promise<InboxNotificationDeliveryReadiness>;
 	onActivate: (item: InboxItem) => void;
 	organizationSlug?: string;
+	organizationId?: string;
 	userId: string;
 	viewingSourceSession: boolean;
 }): Promise<InboxNotificationDeliveryResult> {
@@ -260,12 +261,9 @@ export async function showInboxNotification(input: {
 	) {
 		return { reason: "source_visible", status: "deferred" };
 	}
-	// Coalesce owner awareness alerts within each minute without changing unread counts.
-	const deliveryKey =
-		input.item.sourceTarget.kind === "space" &&
-		input.item.sourceTarget.agentOwnerActivity === true
-			? `agent-owner:${input.userId}:${input.item.sourceTarget.spaceId}:${Math.floor(Date.parse(input.item.occurredAt) / 60_000)}`
-			: input.item.id;
+	// Owner-only legacy observations are ineligible above. Remaining Human
+	// mentions/replies retain their own receipts, never a conversation cooldown.
+	const deliveryKey = input.item.id;
 	return await withInboxNotificationClaim(deliveryKey, async () => {
 		const currentReadiness = (await input.resolveCurrentReadiness?.()) ?? {
 			item: input.item,
@@ -296,11 +294,7 @@ export async function showInboxNotification(input: {
 				currentItem.importance === "urgent" ||
 				(currentItem.attention === "action_required" &&
 					currentItem.resolutionStatus === "open"),
-			tag:
-				currentItem.sourceTarget.kind === "space" &&
-				currentItem.sourceTarget.agentOwnerActivity === true
-					? `openmeld-agent-owner:${input.userId}:${currentItem.sourceTarget.spaceId}`
-					: `openmeld-inbox:${currentItem.id}`,
+			tag: `openmeld-inbox:${currentItem.id}`,
 		});
 		notification.onclick = () => {
 			window.focus();
@@ -672,12 +666,13 @@ async function deliverDesktopInboxNotification(
 	currentItem: InboxItem,
 	deliveryKey: string
 ): Promise<InboxNotificationDeliveryResult> {
-	if (!input.organizationSlug) {
+	const organizationId = currentItem.organizationId ?? input.organizationId;
+	if (!(input.organizationSlug && organizationId)) {
 		return { reason: "context_changed", status: "deferred" };
 	}
 	const result = await getDesktopPlatform()?.showNotification({
 		userId: input.userId,
-		organizationId: currentItem.organizationId,
+		organizationId,
 		organizationSlug: input.organizationSlug,
 		itemId: currentItem.id,
 		soundEnabled: readDesktopNotificationPreference(input.userId, "sound"),

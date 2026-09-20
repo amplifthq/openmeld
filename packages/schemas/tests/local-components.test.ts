@@ -13,6 +13,7 @@ import {
   openMeldToolsUpdateAttemptSchema,
   openMeldToolsUpdateOperationSchema,
   openMeldToolsUpdateProcessFailureFrameSchema,
+  resolveOpenMeldToolsUpdateTargetVersions,
 } from "../src/schemas";
 
 const baseUpdateOperation = {
@@ -55,6 +56,29 @@ describe("local components schema", () => {
         failureCode: "cli.update.download_failed",
       }).success
     ).toBe(false);
+    expect(
+      openMeldToolsUpdateOperationSchema.parse({
+        ...baseUpdateOperation,
+        targetCliVersion: "0.7.0",
+        targetServiceVersion: "0.6.9",
+      })
+    ).toMatchObject({
+      targetCliVersion: "0.7.0",
+      targetServiceVersion: "0.6.9",
+    });
+    expect(
+      resolveOpenMeldToolsUpdateTargetVersions(baseUpdateOperation)
+    ).toEqual({
+      cliVersion: "0.6.9",
+      serviceVersion: "0.6.9",
+    });
+    expect(
+      resolveOpenMeldToolsUpdateTargetVersions({
+        ...baseUpdateOperation,
+        targetCliVersion: "0.7.0",
+        targetServiceVersion: "0.6.9",
+      })
+    ).toEqual({ cliVersion: "0.7.0", serviceVersion: "0.6.9" });
   });
 
   it("keeps the persisted attempt v1 rollback-compatible", () => {

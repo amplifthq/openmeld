@@ -563,6 +563,20 @@ async function resolveContextSource(
   return { context, completion: wake.completion };
 }
 
+/**
+ * Whether the harness can confirm a fork boundary from the source's own
+ * retained history, so a fork may be assigned before one is frozen.
+ *
+ * Codex exposes a thread's settled turns through a read that takes no writer
+ * lock, so read-only preparation can name the newest completed turn even while
+ * another App Server holds that thread. Claude Code's fork needs the exact
+ * boundary message identified up front, so a source with no frozen checkpoint
+ * has no point a fork could be cut at and keeps the stricter rule.
+ */
+function confirmsOwnForkBoundary(agentControllerRef: string): boolean {
+  return agentControllerRef === "builtin:codex";
+}
+
 function forkCheckpoint(
   request: ContextRequest,
   source: ContextSource | null
@@ -574,9 +588,36 @@ function forkCheckpoint(
     source?.completion
   );
   if (
-    !(source && checkpoint.success) ||
-    checkpoint.data.contextId !== source.context.assignment.id ||
-    !checkpoint.data.completedHistoryId
+    !source ||
+    (checkpoint.success &&
+      checkpoint.data.contextId !== source.context.assignment.id)
+  ) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.fork_checkpoint_unavailable"
+    );
+  }
+  // A frozen checkpoint stays authoritative. Without one, the source's own
+  // retained association is the identity to inherit: an interrupted or occupied
+  // dispatch records the native conversation as a candidate without ever
+  // freezing a completed prefix, which is exactly the case a handoff forks from.
+  const nativeConversationId = checkpoint.success
+    ? checkpoint.data.nativeConversationId
+    : source.context.nativeConversationId;
+  const runtimeWorkspaceFingerprint = checkpoint.success
+    ? checkpoint.data.runtimeWorkspaceFingerprint
+    : source.context.runtimeWorkspaceFingerprint;
+  const completedHistoryId = checkpoint.success
+    ? checkpoint.data.completedHistoryId
+    : undefined;
+  const boundaryIsConfirmable =
+    Boolean(completedHistoryId) ||
+    confirmsOwnForkBoundary(source.context.agentControllerRef);
+  if (
+    !(
+      nativeConversationId &&
+      runtimeWorkspaceFingerprint &&
+      boundaryIsConfirmable
+    )
   ) {
     throw new ExecutionContextSelectionError(
       "execution_context.fork_checkpoint_unavailable"
@@ -585,10 +626,10 @@ function forkCheckpoint(
   return {
     contextId: source.context.assignment.id,
     sourceWakeId: request.selection.sourceWakeId,
-    nativeConversationId: checkpoint.data.nativeConversationId,
-    completedHistoryId: checkpoint.data.completedHistoryId,
+    nativeConversationId,
+    ...(completedHistoryId ? { completedHistoryId } : {}),
     workspace: source.context.assignment.workspace,
-    runtimeWorkspaceFingerprint: checkpoint.data.runtimeWorkspaceFingerprint,
+    runtimeWorkspaceFingerprint,
   };
 }
 

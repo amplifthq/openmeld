@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { desktopProductionSourceSchema } from "../../packages/schemas/dist/desktop-client.js";
-import { DESKTOP_UPDATE_FEED_URL } from "../../packages/schemas/dist/desktop-release.js";
+import { buildInstalledPlatformPlan } from "../../scripts/desktop/installed-platform.ts";
 import { readInstalledDesktopTarget } from "../../scripts/desktop/installed-target.ts";
 import {
   desktopProductionSource,
@@ -12,9 +12,18 @@ import {
   DEFAULT_APPLE_TEAM_ID,
   DEFAULT_NOTARY_KEYCHAIN_PROFILE,
 } from "../../scripts/release/macos-cli-signing.mjs";
+import { assertMacProductionBundleIdentity } from "./src/main/update/mac-bundle-path.ts";
 
 const target = readInstalledDesktopTarget(process.env);
 const signedMode = readDesktopSignedPackageMode(process.env);
+if (!target) {
+  throw new Error("Select a fixed installed Desktop build target.");
+}
+const plan = buildInstalledPlatformPlan({
+  env: process.env,
+  target,
+  signedMode,
+});
 if (signedMode === "production-preview") {
   const source = desktopProductionSource(process.env);
   const receipt = desktopProductionSourceSchema.parse(
@@ -31,7 +40,8 @@ if (signedMode === "production-preview") {
   if (
     receipt.releaseSha !== source.releaseSha ||
     receipt.webBuild !== webBuild ||
-    JSON.stringify(receipt.target) !== JSON.stringify(target)
+    JSON.stringify(receipt.target) !== JSON.stringify(target) ||
+    JSON.stringify(receipt.windows ?? null) !== JSON.stringify(plan.windows)
   ) {
     throw new Error(
       "Rebuild the production Desktop package through its root entrypoint."
@@ -44,16 +54,29 @@ if (!target) {
 const { build } = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8")
 );
+if (target.kind === "production" && plan.platform === "macos-arm64") {
+  assertMacProductionBundleIdentity({
+    appId: target.appId,
+    productName: build.productName,
+  });
+}
 
-if (signedMode) {
+if (signedMode && plan.generateMacIcons) {
   process.env.APPLE_KEYCHAIN_PROFILE = DEFAULT_NOTARY_KEYCHAIN_PROFILE;
 }
 
 // Both modes use the same installed pages and build pipeline; neither publishes.
 export default {
   ...build,
+  ...(plan.win
+    ? {
+        win: plan.win,
+        nsis: plan.nsis,
+        forceCodeSigning: plan.forceCodeSigning,
+      }
+    : {}),
   appId: target.appId,
-  productName: target.dataDirectory,
+  productName: build.productName,
   directories: { output: signedMode ? `dist/${signedMode}` : "dist/installed" },
   files: build.files
     .filter((file) => file !== "out/**/*")
@@ -94,8 +117,5 @@ export default {
     : build.dmg,
   // Metadata generation is required by electron-updater's download cache.
   // The root packaging command still passes --publish never.
-  publish:
-    signedMode === "production-preview"
-      ? { provider: "generic", url: DESKTOP_UPDATE_FEED_URL }
-      : null,
+  publish: plan.publish,
 };

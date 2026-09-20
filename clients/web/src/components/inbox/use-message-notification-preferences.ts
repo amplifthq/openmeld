@@ -7,6 +7,7 @@ import {
 	updateCurrentInboxMessageNotificationPreferences,
 } from "#/lib/organizations/inbox";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { inboxQueryKeys } from "#/query/organizations/inbox";
 
 export const MESSAGE_NOTIFICATION_LABELS = {
 	all_messages: "All new messages",
@@ -41,7 +42,15 @@ export function useMessageNotificationPreferences(spaceId?: string) {
 		onSuccess: async () => {
 			// An account default affects inherited conversations in every Organization.
 			// Refetch the owning server projection instead of deriving saved state.
-			await queryClient.invalidateQueries({ queryKey: rootKey });
+			await Promise.all([
+				queryClient.invalidateQueries({ queryKey: rootKey }),
+				queryClient.invalidateQueries({
+					queryKey: [...inboxQueryKeys.lists(organizationId), "attention"],
+				}),
+				queryClient.invalidateQueries({
+					queryKey: inboxQueryKeys.summary(organizationId),
+				}),
+			]);
 		},
 	});
 	return { query, mutation };

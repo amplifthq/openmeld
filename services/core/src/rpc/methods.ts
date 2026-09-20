@@ -273,6 +273,7 @@ import {
   resolveSpaceComposerUploadScopeResponseSchema,
   respondToSpaceAgentInteractionInputSchema,
   runtimeReportingRouteParamsSchema,
+  runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
   SPACE_FILE_MAX_SIZE_BYTES,
@@ -676,6 +677,7 @@ import type {
   SpaceHistoryNavigation,
   SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
+  SpaceLinkJoinPolicy,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceMessageAttachment,
@@ -2271,6 +2273,7 @@ export type CreateSpaceResult = {
 };
 
 export type ListSignalsInput = {
+  q?: string;
   spaceId: string;
   afterTs?: number;
   cursor?: string;
@@ -2292,6 +2295,7 @@ export type ListSignalsInput = {
 };
 
 export type ListSignalsResult = {
+  searchIndexing?: boolean;
   signals: SignalEnvelope[];
   nextCursor: string | null;
 };
@@ -2408,6 +2412,12 @@ export type ExecuteExecutionRecoveryInput = {
 
 export type StartUsageExhaustedContinuationInput = {
   continuationClientMessageId: string;
+  /**
+   * Set only when the continuation cannot reuse the interrupted conversation.
+   * An occupied native conversation is the case: the re-post has to name the
+   * branch explicitly, because `auto` would resolve back to the same context.
+   */
+  contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
   interruptedClientMessageId: string;
   interruptedDispatchId: string;
   interruptedSourceSignalId: string;
@@ -2772,7 +2782,10 @@ export type ClearSpacePasswordInput = {
 export type SetSpaceAccessModeInput = {
   spaceId: string;
   accessMode: SpaceAccessMode;
+  allowGuests?: boolean;
+  linkJoinPolicy?: SpaceLinkJoinPolicy;
   password?: string;
+  visibility?: "public" | "private";
   context?: CoreRpcContextInput;
 };
 
@@ -3891,6 +3904,44 @@ async function getCurrentLocalRuntimeReplyReadinessForOwnerUser(input: {
   }
 
   return validated.data;
+}
+
+async function readOwnerComputerCareObservation(input: {
+  env: CoreBindings;
+  target: PeopleComputerTarget;
+  userId: string;
+}) {
+  const observedAtMs = Date.now();
+  try {
+    const ownerService = await lookupRuntimeTransportOwnerService({
+      blockForgottenDevices: true,
+      env: input.env,
+      ownerUserId: input.userId,
+    });
+    const session = ownerService.online
+      ? selectCurrentOwnerServiceSessionsByDeviceLane(ownerService).find(
+          (entry) =>
+            entry.deviceId === input.target.deviceId &&
+            entry.lane === input.target.runtimeLane
+        )
+      : undefined;
+    return {
+      observedAtMs,
+      connection: session ? ("connected" as const) : ("unavailable" as const),
+      supervisor: session ? ("responding" as const) : ("unknown" as const),
+      lastHeartbeatAtMs: session?.lastHeartbeatMs ?? null,
+      executionHost: session?.capabilities.executionHost ?? null,
+    };
+  } catch {
+    // A failed read is unknown, not proof that the Computer is offline.
+    return {
+      observedAtMs,
+      connection: "unknown" as const,
+      supervisor: "unknown" as const,
+      lastHeartbeatAtMs: null,
+      executionHost: null,
+    };
+  }
 }
 
 async function buildOwnerComputerDiagnostics(input: {
@@ -5522,10 +5573,17 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       status: 503,
     });
   }
-  if (
-    recovery.status !== "available" ||
-    recovery.action !== parsedBody.data.action
-  ) {
+  const isAllowedAction =
+    recovery.status === "available" &&
+    (recovery.action === parsedBody.data.action ||
+      (recovery.action === "fork_interrupted_work" &&
+        (parsedBody.data.action === "skip_interrupted_work" ||
+          parsedBody.data.action === "continue_interrupted_work")) ||
+      (recovery.action === "continue_interrupted_work" &&
+        Boolean(recovery.forkInterruptedConversation) &&
+        parsedBody.data.action === "fork_interrupted_work"));
+
+  if (!isAllowedAction) {
     throw createCoreRpcHttpError({
       code: "agent_profile_work_recovery.not_pending",
       reason: "This recovery action is no longer needed.",
@@ -5539,6 +5597,19 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       ownerUserId: request.owner.id,
       targetProfileId: request.agentProfileId,
     });
+  } else if (parsedBody.data.action === "fork_interrupted_work") {
+    const continuation = await executeAgentProfileWorkContinuation({
+      context: request.context,
+      env,
+      expectedInterruptedTargetWakeLifecycleId:
+        parsedBody.data.expectedInterruptedTargetWakeLifecycleId,
+      forkInterruptedConversation: true,
+      ownerShard,
+      ownerUserId: request.owner.id,
+      recovery,
+      targetProfileId: request.agentProfileId,
+    });
+    throwUnstartedAgentProfileWorkContinuationError(continuation);
   } else if (parsedBody.data.action === "skip_interrupted_work") {
     await executeAgentProfileInterruptedWorkSkip({
       expectedInterruptedTargetWakeLifecycleId:
@@ -5556,16 +5627,10 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       recovery,
       targetProfileId: request.agentProfileId,
     });
-    if (continuation === "deferred") {
-      throw createCoreRpcHttpError({
-        code: "agent_profile_work_recovery.temporarily_unavailable",
-        reason: "OpenMeld is checking this Agent’s paused work. Try again.",
-        status: 503,
-      });
-    }
+    throwUnstartedAgentProfileWorkContinuationError(continuation);
   }
   return executeAgentProfileWorkRecoveryResponseSchema.parse({
-    action: recovery.action,
+    action: parsedBody.data.action,
     status: "accepted",
   });
 }
@@ -5602,6 +5667,24 @@ async function executeAgentProfileInterruptedWorkSkip(input: {
   ownerUserId: string;
   targetProfileId: string;
 }): Promise<void> {
+  // Skip promises that OpenMeld will not continue this work, which is Core's
+  // own decision and cannot fail here. Asking the computer to withdraw the
+  // original attempt is the part OpenMeld cannot guarantee, so it is requested
+  // while the gate still names the work and does not hold up the decision.
+  await input.ownerShard
+    .rpcRequestAgentProfileWorkLocalAttemptWithdrawal({
+      expectedInterruptedTargetWakeLifecycleId:
+        input.expectedInterruptedTargetWakeLifecycleId,
+      ownerUserId: input.ownerUserId,
+      targetProfileId: input.targetProfileId,
+    })
+    .catch((error: unknown) => {
+      console.warn("[core.agent_profile_work.skip_withdrawal_request_failed]", {
+        error,
+        targetProfileId: input.targetProfileId,
+      });
+      return null;
+    });
   const skipped = await input.ownerShard.rpcSkipAgentProfileInterruptedWork({
     expectedInterruptedTargetWakeLifecycleId:
       input.expectedInterruptedTargetWakeLifecycleId,
@@ -5748,6 +5831,8 @@ function shouldMarkUsageContinuationNeedsAttention(error: unknown): boolean {
 async function executeAgentProfileWorkContinuation(input: {
   context: CoreRpcContextInput;
   env: CoreBindings;
+  expectedInterruptedTargetWakeLifecycleId?: string;
+  forkInterruptedConversation?: boolean;
   ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
   ownerUserId: string;
   recovery: Extract<
@@ -5755,7 +5840,7 @@ async function executeAgentProfileWorkContinuation(input: {
     { status: "available" }
   >;
   targetProfileId: string;
-}): Promise<"deferred" | "started"> {
+}): Promise<"awaiting_original_stop" | "deferred" | "started"> {
   if (
     !(
       input.recovery.interruptedSourceSignalId &&
@@ -5763,6 +5848,17 @@ async function executeAgentProfileWorkContinuation(input: {
     )
   ) {
     return "deferred";
+  }
+  if (
+    input.expectedInterruptedTargetWakeLifecycleId !== undefined &&
+    input.expectedInterruptedTargetWakeLifecycleId !==
+      input.recovery.interruptedTargetWakeLifecycleId
+  ) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.not_pending",
+      reason: "This recovery action is no longer needed.",
+      status: 409,
+    });
   }
   const deterministicIdentity = await buildAgentProfileWorkContinuationIdentity(
     {
@@ -5784,6 +5880,10 @@ async function executeAgentProfileWorkContinuation(input: {
     spaceId,
     targetProfileId: input.targetProfileId,
   });
+  const forkInterruptedConversation = Boolean(
+    input.forkInterruptedConversation ||
+      input.recovery.forkInterruptedConversation
+  );
   if (input.recovery.authorizedContinuationClientMessageId === null) {
     const currentTarget =
       await requireCurrentAgentProfileWorkContinuationTarget({
@@ -5800,6 +5900,9 @@ async function executeAgentProfileWorkContinuation(input: {
         currentDefaultProjectId: currentTarget.defaultProjectId,
         expectedInterruptedTargetWakeLifecycleId:
           input.recovery.interruptedTargetWakeLifecycleId,
+        ...(forkInterruptedConversation
+          ? { forkInterruptedConversation: true }
+          : {}),
         ownerUserId: input.ownerUserId,
         requireAcceptedExecutionTargetRevision: true,
         targetProfileId: input.targetProfileId,
@@ -5808,9 +5911,40 @@ async function executeAgentProfileWorkContinuation(input: {
       throwAgentProfileWorkContinuationAuthorizationError(authorized.status);
     }
   }
+  // Saving the owner's decision and having a safe permit to start replacement
+  // work are different facts. This is asked on every attempt, including a retry
+  // that reuses a stored authorization, because the cancellation sent with the
+  // first one may never have reached the computer.
+  const withdrawal = await resolveAgentProfileWorkLocalAttemptWithdrawal({
+    expectedInterruptedTargetWakeLifecycleId:
+      input.recovery.interruptedTargetWakeLifecycleId,
+    ownerShard: input.ownerShard,
+    ownerUserId: input.ownerUserId,
+    targetProfileId: input.targetProfileId,
+  });
+  if (withdrawal.status === "requested") {
+    return "awaiting_original_stop";
+  }
+  if (
+    withdrawal.status !== "not_started" &&
+    withdrawal.status !== "withdrawn"
+  ) {
+    return "deferred";
+  }
   await stub.rpcStartUsageExhaustedContinuation({
     continuationClientMessageId,
     context: input.context,
+    // The interrupted Wake is the fork source: §4C resolves and verifies the
+    // boundary from the source's own history, so the branch never inherits a
+    // turn the provider had not settled.
+    ...(forkInterruptedConversation
+      ? {
+          contextSelection: {
+            mode: "fork" as const,
+            sourceWakeId: input.recovery.interruptedTargetWakeLifecycleId,
+          },
+        }
+      : {}),
     interruptedClientMessageId: input.recovery.interruptedClientMessageId,
     interruptedDispatchId: input.recovery.interruptedDispatchId,
     interruptedSourceSignalId: input.recovery.interruptedSourceSignalId,
@@ -5820,6 +5954,67 @@ async function executeAgentProfileWorkContinuation(input: {
     targetProfileId: input.targetProfileId,
   });
   return "started";
+}
+
+/**
+ * Asks the owner shard whether the original attempt is out of the way.
+ *
+ * Durable Object code propagates after a Worker deploy, so a shard that predates
+ * this prerequisite cannot answer it. That is treated as "not yet known", which
+ * withholds the replacement and stays retryable, rather than as permission to
+ * start a second attempt at the same instruction.
+ */
+async function resolveAgentProfileWorkLocalAttemptWithdrawal(input: {
+  expectedInterruptedTargetWakeLifecycleId: string;
+  ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
+  ownerUserId: string;
+  targetProfileId: string;
+}): Promise<
+  import("@openmeld/schemas/types").RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalResponse
+> {
+  try {
+    return runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema.parse(
+      await input.ownerShard.rpcRequestAgentProfileWorkLocalAttemptWithdrawal({
+        expectedInterruptedTargetWakeLifecycleId:
+          input.expectedInterruptedTargetWakeLifecycleId,
+        ownerUserId: input.ownerUserId,
+        targetProfileId: input.targetProfileId,
+      })
+    );
+  } catch (error) {
+    console.warn(
+      "[core.agent_profile_work.local_attempt_withdrawal_unanswered]",
+      { error, targetProfileId: input.targetProfileId }
+    );
+    return { status: "unavailable" };
+  }
+}
+
+/**
+ * Reports the stage a continuation actually reached.
+ *
+ * The owner's decision is kept either way, so an unstarted attempt is a
+ * retryable stage rather than a lost choice. Waiting on the original request is
+ * named separately from ordinary unavailability, because "nothing new has
+ * started" is the fact the owner needs in order to trust the next click.
+ */
+function throwUnstartedAgentProfileWorkContinuationError(
+  continuation: "awaiting_original_stop" | "deferred" | "started"
+): void {
+  if (continuation === "started") {
+    return;
+  }
+  throw createCoreRpcHttpError({
+    code:
+      continuation === "awaiting_original_stop"
+        ? "agent_profile_work_recovery.awaiting_original_stop"
+        : "agent_profile_work_recovery.temporarily_unavailable",
+    reason:
+      continuation === "awaiting_original_stop"
+        ? "OpenMeld is checking whether the original request stopped on your computer. Nothing new has started yet. Try again in a moment."
+        : "OpenMeld is checking this Agent’s paused work. Try again.",
+    status: 503,
+  });
 }
 
 function throwAgentProfileWorkContinuationAuthorizationError(
@@ -11656,6 +11851,12 @@ export async function rpcCenterAgentReadPeopleComputers(
       target,
       readiness: diagnostics.currentLocalRuntimeReplyReadiness,
       fileAccess: diagnostics.currentComputerFileAccess,
+      localRuntimes: diagnostics.localRuntimes,
+      care: await readOwnerComputerCareObservation({
+        env,
+        target,
+        userId: representedHuman.userId,
+      }),
     };
   }
   return centerAgentReadPeopleComputersResponseSchema.parse({
@@ -14076,6 +14277,9 @@ export async function rpcCenterAgentReadSpaceWakeProgress(
   const prepared = await prepareCenterAgentOrganizationMemberRead(env, input);
   const { authorization } = prepared;
   const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
+    includeDeviceWait: true,
+    includePageInfo: true,
+    includeWakeStopEligibility: true,
     includeSourceContext: true,
     includeTiming: true,
     includeWaitReason: true,
@@ -14103,6 +14307,9 @@ export async function rpcCenterAgentReadSpaceWakeProgress(
   });
   const response = await rpcGetActiveSpaceWakeProgress(env, {
     context: authorization.context,
+    includeDeviceWait: true,
+    includePageInfo: true,
+    includeWakeStopEligibility: true,
     includeSourceContext: true,
     includeTiming: true,
     includeWaitReason: true,
@@ -18251,6 +18458,7 @@ export async function rpcListSignals(
   return unwrapSpaceRpcJsonResult(
     await stub.rpcListSignalsResult({
       spaceId,
+      ...(input.q ? { q: input.q } : {}),
       ...buildListSignalsNumberFilters(input),
       ...(cursor ? { cursor } : {}),
       ...(input.recent === true ? { recent: true } : {}),
@@ -18894,6 +19102,7 @@ async function resolveSpaceEntryAccess(input: {
       name: meta.name,
       accessMode: meta.accessMode,
       allowGuests: meta.allowGuests === true,
+      linkJoinPolicy: meta.linkJoinPolicy,
     },
   };
 }
@@ -21353,7 +21562,14 @@ export async function rpcSetSpaceAccessMode(
   return await stub.rpcSetAccessMode({
     spaceId,
     accessMode: input.accessMode,
+    ...(input.allowGuests === undefined
+      ? {}
+      : { allowGuests: input.allowGuests }),
+    ...(input.linkJoinPolicy === undefined
+      ? {}
+      : { linkJoinPolicy: input.linkJoinPolicy }),
     ...(input.password === undefined ? {} : { password: input.password }),
+    ...(input.visibility === undefined ? {} : { visibility: input.visibility }),
     context,
   });
 }

@@ -17,6 +17,7 @@ import {
 } from "#/components/spaces/primitives/message";
 import {
 	SpaceComposerAddMenu,
+	SpaceComposerAttachmentRecovery,
 	SpaceComposerFileTray,
 	useSpaceComposerFileInput,
 } from "#/components/spaces/space-composer-attachments";
@@ -37,10 +38,44 @@ import type { PendingCenterAgentMessage } from "#/lib/organizations/center-agent
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
-import {
-	CenterAgentHeaderMenu,
-	CenterAgentHeaderTabs,
-} from "./center-agent-header-navigation";
+import { CenterAgentHeaderTabs } from "./center-agent-header-navigation";
+
+type CenterAgentComposerAttachments = {
+	files: readonly SpaceComposerFile[];
+	isAtLimit: boolean;
+	addFiles: (files: readonly File[]) => Promise<void>;
+	removeFile: (localId: string) => void;
+	retryFile: (localId: string) => Promise<void>;
+	cleanup: readonly import("#/lib/spaces/composer-file-drafts").ComposerFileDraftCleanup[];
+	restorationError: unknown | null;
+	retryCleanup: (localId: string) => Promise<void>;
+	retryRestoration: () => void;
+};
+
+function CenterAgentAttachmentState(input: {
+	attachments: CenterAgentComposerAttachments | undefined;
+	isSending: boolean;
+}) {
+	if (!input.attachments) {
+		return null;
+	}
+	return (
+		<>
+			<SpaceComposerFileTray
+				disabled={input.isSending}
+				files={input.attachments.files}
+				onRemove={input.attachments.removeFile}
+				onRetry={input.attachments.retryFile}
+			/>
+			<SpaceComposerAttachmentRecovery
+				cleanup={input.attachments.cleanup}
+				onRetryCleanup={input.attachments.retryCleanup}
+				onRetryRestoration={input.attachments.retryRestoration}
+				restorationError={input.attachments.restorationError}
+			/>
+		</>
+	);
+}
 
 export function CenterAgentOptimisticConversation(input: {
 	organizationSlug?: string;
@@ -50,16 +85,12 @@ export function CenterAgentOptimisticConversation(input: {
 		profileName: string;
 		avatarUrl?: string;
 	} | null;
-	attachments?: {
-		files: readonly SpaceComposerFile[];
-		isAtLimit: boolean;
-		addFiles: (files: readonly File[]) => Promise<void>;
-		removeFile: (localId: string) => void;
-	};
+	attachments?: CenterAgentComposerAttachments;
 	empty?: boolean;
 	emptyContent?: ReactNode;
 	header?: ReactNode;
 	composerText: string;
+	composerErrorMessage?: string | null;
 	onComposerChange: (value: string) => void;
 	onSend: () => void;
 	pendingMessage: PendingCenterAgentMessage | null;
@@ -89,11 +120,6 @@ export function CenterAgentOptimisticConversation(input: {
 		>
 			{input.header ?? (
 				<SpaceWindowHeader
-					actions={
-						organizationSlug ? (
-							<CenterAgentHeaderMenu organizationSlug={organizationSlug} />
-						) : undefined
-					}
 					leadingControl={<SpaceHeaderIdentityIcon isDirectMessage />}
 					navigation={
 						organizationSlug ? (
@@ -167,10 +193,10 @@ export function CenterAgentOptimisticConversation(input: {
 												<div className="leading-[26px]">
 													{input.pendingMessage.text}
 												</div>
-												{input.pendingMessage.files?.map((file, index) => (
+												{input.pendingMessage.files?.map((file) => (
 													<PendingAttachment
 														file={file}
-														key={`${file.name}:${index}`}
+														key={`${file.name}:${file.size}:${file.lastModified}`}
 													/>
 												))}
 											</BubbleContent>
@@ -188,6 +214,11 @@ export function CenterAgentOptimisticConversation(input: {
 				</div>
 				<footer className="shrink-0 bg-background">
 					<div className="w-full py-4" data-space-conversation-content-width="">
+						{input.composerErrorMessage ? (
+							<p className="pb-2 text-destructive text-sm" role="alert">
+								{input.composerErrorMessage}
+							</p>
+						) : null}
 						<PromptInput
 							className="relative w-full"
 							disabled={isSending}
@@ -195,13 +226,10 @@ export function CenterAgentOptimisticConversation(input: {
 							onSubmit={input.onSend}
 							value={input.composerText}
 						>
-							{input.attachments && (
-								<SpaceComposerFileTray
-									disabled={isSending}
-									files={input.attachments.files}
-									onRemove={input.attachments.removeFile}
-								/>
-							)}
+							<CenterAgentAttachmentState
+								attachments={input.attachments}
+								isSending={isSending}
+							/>
 							{fileInput.isDraggingFiles && (
 								<div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border border-primary border-dashed bg-background/90 text-sm">
 									Drop files to attach

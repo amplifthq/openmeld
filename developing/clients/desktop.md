@@ -34,6 +34,13 @@ Pages that supply their own inner sidebar, such as standalone Settings and
 Agent Activity, retain their existing narrow-window drawer opener. The titlebar
 does not take ownership of those sidebars.
 
+Windows uses Electron's native titlebar overlay for minimize, maximize and close;
+shared navigation stays inside the overlay's CSS safe area rather than using
+macOS traffic-light insets. Sidebar, Back and Forward use Ctrl on Windows and
+Command on macOS, with matching hints. IME composition, repeated keydown, input
+editors, modal dialogs and the other platform modifier do not trigger these
+shortcuts. Platform hints are presentation only and confer no local capability.
+
 Back and Forward use the shared router history. Desktop retains only the
 observed history-index bounds for the current account, not another entry stack.
 Native session invalidation, account changes, and leaving workspace routes
@@ -74,6 +81,20 @@ do not move business rules into that package.
 ## Local pilot foundation
 
 ### Native Inbox notifications
+
+Native updater observations use the account-scoped Inbox source contract. Main
+keeps its installation identity under its existing userData directory, reports
+only trusted updater/app-version facts, and fences each report to the observed
+account. This source is independent of the currently selected Organization.
+The renderer cannot submit an update observation or installation result. Its
+credential proxy rejects the observation endpoint before attaching the Main
+session, including encoded paths; Main reports directly through its private
+cloud transport. Origin and session checks alone do not establish native source
+authority. Failed Inbox writes retry independently; native updater execution
+remains available.
+Only current production updater-supported installations produce live observations;
+isolated tests use the same observer with captured native state inputs and must
+not be reported as actual production update/install evidence.
 
 Account message-notification defaults and conversation overrides apply to
 Desktop as well as Web. The shared API-client notification policy evaluates
@@ -117,16 +138,46 @@ notification confirms only native acknowledgement, not that a person saw it.
 Notifications continue when the window is hidden and end when the GUI quits;
 the independent Service has no notification responsibility.
 
-On macOS, the menu bar icon also shows the current Organization's canonical
-Inbox unread count from `totalUnreadCount`, capped visually at `99+`. Ordinary
-unread items contribute; read but unresolved actions do not. Zero or unknown
-counts show no number. This uses the shared summary query and existing native
-refresh cadence, independently of notification delivery permission. The trusted
-renderer supplies only a schema-validated count and account scope; Main verifies
-the native account before displaying it. Logout, account or Organization changes,
-and stale asynchronous results clear or reject the previous count. No separate
-Inbox store, Service polling, Dock badge, or Windows behavior is introduced.
-Tray creation applies the latest observed title even if the count arrived first.
+On macOS, the menu bar icon shows the current Organization's Core-owned Inbox
+attention presentation. Ordinary unread uses a compact monochrome dot within the icon,
+without a numeric title. Priority attention shows `!N`, and unread Human mentions
+show `@N`; both counts remain visible when both exist, capped visually at `99+`.
+Modern summaries use Core's exact `priorityCount`, not every pending request.
+Normal pending work remains a quiet dot when there is no numbered attention.
+The logo and dot share one macOS template image with 1x and 2x representations;
+AppKit owns contrast and selected-state rendering, not hardcoded white, custom
+shadows or an application-theme approximation of the menu bar background.
+The Inbox menu row and tooltip retain exact category counts. The tooltip breaks
+out actions/reviews, urgent updates, mentions, and other
+unread updates. Muted ordinary conversation updates are absent without becoming
+read, while protected attention remains visible. Zero or unknown attention shows
+no mark. This uses the shared summary query and existing native refresh cadence,
+independently of notification delivery permission. The trusted renderer supplies
+only a schema-validated categorized object and account scope; Main verifies the
+native account before displaying it. Logout, account or Organization changes,
+and stale asynchronous results clear or reject the previous attention. No
+separate Inbox store, Service polling, Dock badge, or Windows behavior is
+introduced. Tray creation applies the latest observed indicator even if attention
+arrived first.
+
+The macOS menu bar menu is the compact native entry to the current Desktop
+workspace. It shows the newest eligible unread message as one preview, then
+Open inbox, Open app, Computer, Settings…, and Quit OpenMeld. When Main's native
+updater reports an actionable newer version, a system-badged update row appears
+beside Settings and opens the existing native download/restart flow. Current,
+idle, and unavailable builds keep that row absent. Opening the menu
+does not mark anything read. Activating the preview re-reads that exact Inbox
+item under the current account, restores the existing window, and navigates to
+the exact message or Thread reply without acknowledging unrelated unread work.
+Open app restores the renderer's existing route rather than choosing a new
+home. The menu does not expose the version, a separate Web app row, or Service
+lifecycle controls. Quitting the GUI retains the independent Service lifecycle.
+The unread preview uses one bounded, whitespace-normalized native label rather
+than a wrapping macOS sublabel. AppKit owns content-sized menu width; no custom
+minimum/maximum-width window is introduced. The full preview remains available
+in the tooltip and accessible label. Truncation preserves grapheme boundaries.
+The native menu keeps its current snapshot while open, so a refresh cannot
+retarget a row under the pointer.
 
 The A1 foundation is opt-in with `OPENMELD_DESKTOP_PILOT=1`. It requires a
 dev-local or canary lane and a configured loopback Web endpoint. Production
@@ -156,6 +207,14 @@ packaged inline scripts for CSP. It never enables arbitrary inline scripts.
   Invalidation removes stale private query and persistence state but retains
   account-scoped Composer drafts until the authoritative reread confirms no
   session or a different account. Explicit sign-out still clears those drafts.
+  Entry distinguishes an unknown/failed session read from confirmed sign-out.
+  Manual Retry and focus reuse the same serialized, revision-fenced revalidation;
+  native session changes supersede older reads. Temporary workspace failures do
+  not initiate browser sign-in or repeat an already handled account invalidation.
+  Failed protected-route session reads return to this entry with the existing
+  validated workspace path, query, and hash, without clearing account data.
+  Confirmed missing Organization membership retains the shared explicit error
+  rather than selecting an Organization or automatically retrying.
   Its Space stream methods open a subscription by ID/Space/Profile, send only
   the existing keepalive ping, close it, and deliver transport events. No URL,
   credentials, or business-write frames are accepted.
@@ -176,6 +235,15 @@ The authorized shared App Settings dialog consumes that intent through
 context. No separate Settings page or account bypass is introduced: before an
 authorized workspace mounts, the existing sign-in entry remains in control.
 Settings intents respect the updater's document interaction freeze.
+
+Visible product copy calls the application OpenMeld. The production installed
+folder is `OpenMeld.app`. App ID, callback scheme, user-data directory, and
+update channels keep `sh.openmeld.desktop` / `OpenMeld Desktop`. Do not change
+the installed folder name again: Squirrel.Mac relaunches from the previous
+folder and cannot install across that rename.
+Earlier signed installs used `OpenMeld Desktop.app`. Desktop's account menu
+includes Open web app; it opens the equivalent authorized Web route in the
+system browser.
 
 The cloud response allowlist includes `x-openmeld-request-id` and `Server-Timing`
 for shared diagnostics. It still strips cookies, credentials and unlisted headers.
@@ -200,8 +268,10 @@ renderer bridge. Storage is scoped to the configured Web origin.
 Desktop sign-out revokes the Desktop session; it does not run CLI logout.
 The pilot exposes the independently read CLI account ID for comparison with its
 cloud session. This comparison is display evidence, not the mutation fence.
-The existing Computer surface offers Service Start/Stop only when the installed CLI and
-actual macOS binary carrier positively advertise account-checked control.
+The existing Computer surface offers Service Start/Stop only when the installed
+CLI and actual platform carrier positively advertise account-checked control.
+macOS requires its binary carrier; Windows requires the exact Node executable
+and verified active JS entry.
 The renderer sends the displayed account as immutable intent. Main verifies the
 current native session, then passes that same account to the CLI admission owner.
 An account change never retargets an operation. Stop has no GUI execution timeout;
@@ -212,6 +282,17 @@ native operation below; it does not reopen the old npm installer or unscoped
 five-minute Setup wrapper.
 
 ### Computer connection
+
+Owner Computer cards offer browser update/reconnect handoff through the existing
+`openDesktopWeb` capability and shared Connect route builder. They carry the
+Organization, stable Computer ID, fresh-session intent and supported update
+action, never credentials or a new local lifecycle command. Unselected or
+unresolved targets stay in the existing selection flow. Instructions name the
+viewed Computer: opening a browser on this Mac does not select this Mac as the
+machine to repair. Browser authorization is independent of Desktop's session.
+Team cards stay read-only; ordinary Web controls remain in place. Pending opens
+are bounded to the displayed account scope, Organization and target; they do not
+apply feedback to a replacement card.
 
 The shared Connect flow, including New Agent's embedded recovery, offers a
 fixed `connectComputer` operation in Desktop. Its strict request contains the
@@ -237,12 +318,36 @@ Desktop offers the original route, or the original Space for a source action,
 without reporting native completion. Once Prepare exists, later authorization,
 account, execution, or snapshot failures retain its diagnostic correlation ID.
 
-When the managed CLI is absent or lacks the connection contract, main downloads
-the fixed Web origin's managed binary manifest and Apple silicon artifact.
+On macOS, when the managed CLI is absent or lacks the connection contract, main
+downloads the fixed Web origin's managed binary manifest and Apple silicon artifact.
 The shared `@openmeld/local-service/cli-binary-update-artifact` implementation
 verifies transport and executable hashes and the production signing identity.
 The verified binary's `install-self` owns installation. No Node/npm prerequisite,
 arbitrary renderer executable, URL, path, or shell command is accepted.
+
+Windows uses the supported npm distribution and an independent Node.js runtime;
+Electron is never the background Service runtime. Explicit Connect checks npm's
+published engine range, resolves its global prefix, pins the exact stable version
+and prefix, and verifies the resulting package and CLI version. It never
+reinstalls/downgrades an equal or newer existing CLI. A custom npm prefix outside
+PATH is supported: the verified JS entry is returned to both the post-install
+connection review and setup rather than retrying the previously missing command.
+Subsequent reads use PATH or the lane's active Service bundle, not a separate
+Desktop installation registry. Missing Node/npm has an actionable prerequisite;
+no shell text, package name, registry URL or executable is accepted from renderer
+input. npm owns acquisition/integrity and CLI setup owns credentials and Service
+registration. Disposable acceptance must preinstall the fixed candidate CLI;
+production bootstrap intentionally resolves only the published stable npm channel.
+
+The read-only local Computer projection recognizes only the same bootstrap
+conditions: a missing executable (`ENOENT`) or an exit-1 unknown `computer` /
+`connection-review` command. With the native account unchanged across the read,
+it returns the existing `unavailable` shape and explains that explicit Connect
+will install or update OpenMeld Tools. It neither installs during a query nor
+claims a connected identity. Other review failures, invalid output, permission
+errors and authentication-read failures still fail closed. Connect retains its
+own native account check, verified installer and post-install connection review;
+the renderer's unknown-state guard is not relaxed. No IPC/schema change is needed.
 
 Main creates the existing Core Prepare Session and uses the shared API client's
 Device Authorization sequence with its authenticated native SDK transport. The
@@ -256,6 +361,19 @@ file-backed output. GUI exit does not stop it or the OS-managed Service. The
 existing Prepare continuation journal and maintenance worker retain recovery
 ownership. Completion requires CLI `setup.complete` and a completed Core Prepare
 snapshot; errors retain a shared local-machine action and diagnostic correlation.
+Main also retains the current native connection operation and its eventual
+result in memory for the signed-in account. A connection page opened after the
+operation started adopts that operation through bounded IPC observation; it
+never starts a second `connectComputer` call. Pending and settled events share
+the operation identity, while account changes, sign-out, and retired operation
+IDs reject late progress. The main-generated operation ID remains stable across
+initial pending, CLI progress, and settlement; the CLI progress ID stays nested
+inside the operation. A confirmed native result can be presented immediately;
+the page refreshes the authoritative Computer projection before completing its
+continuation. Independent cloud-directory refresh does not hold that continuation.
+Refresh failure is a separate display warning, not a failed native operation.
+Restoration of the previous account does not replace the original account-switch
+failure.
 
 The standalone connection page reads the same native account-aligned Computer
 projection as Working folder selection. A positive connection shows Connected
@@ -274,56 +392,183 @@ stopped by stale reviewed intent. Retry can finish credential cleanup only after
 the matching Service owner's stopped intent and verified runtime absence.
 Connect can enroll this Mac again; Forget is never required for account switching.
 
-Setup progress comes from actual CLI agent-output stages, without percentages
-or a GUI deadline. Failed setup retains its original subprocess error and any
+The optional `disconnectComputerWithFeedback` bridge capability returns a strict
+shared result: `cancelled`, `disconnected`, `connection_changed`, `failed`, or
+`unconfirmed`. New callers include the displayed device/lane as
+`expectedConnection`; main compares it with the account-aligned CLI review before
+confirmation. Independent account and connection reads run together, but the
+native account/session revision is checked again after confirmation and the CLI
+still admits the exact reviewed session under its existing lifecycle lock.
+`checking`, `waiting_for_confirmation`, and `disconnecting` are emitted at those
+real code boundaries; they do not infer which Agent is draining.
+
+Connect and Disconnect share the existing main-process operation record and
+exclusion boundary. Disconnect replaces retained connect success at dispatch.
+`computerOperationCurrent` and `onComputerOperation` expose a strict union on the
+existing operation IPC channels; no new Service owner or operation registry is
+introduced. Sign-out clears presentation, not accepted work's exclusion; late
+settlement cannot repopulate the new account's record. The original connect-only
+observers ignore Disconnect records. The original `disconnectComputer` method
+still returns a boolean for cancellation/success and throws for all non-success
+failures; an older renderer never receives a truthy error object. A renderer on
+an older bridge uses that original method and honest generic waiting copy rather
+than inventing stages. Rich feedback and resumption require the new bundled
+main/preload; the normal Desktop renderer fingerprint gate remains unchanged.
+
+Only a successful CLI exit plus `computer.disconnected` completion evidence
+confirms disconnection. Explicit Stop refusal is a known failure; a timeout,
+missing terminal event, failed transport, or post-admission ownership change is
+not proof of success or proof that nothing stopped. Such unconfirmed results
+require an explicit status check before another mutation, never automatic
+restart, repeated Disconnect, or force kill. User-visible diagnostics contain
+only a bounded code, correlation ID, and the existing redacted generated file
+path. No raw CLI output or arbitrary file/URL execution channel is exposed.
+
+
+Setup progress comes from actual CLI agent-output stages. Percentages are shown
+only for a measured byte transfer, never for overall setup or a GUI deadline.
+Download byte observations are coalesced to a bounded UI cadence while stage
+changes and the final byte count remain immediate. Optional progress callbacks
+are isolated from download, verification, installation, and setup control.
+Failed setup retains its original subprocess error and any
 blocked Prepare step even if the final snapshot read fails. A private temporary
 diagnostic file retains the last 100 parsed events, with bounded, redacted
 messages; raw output is removed on completion. The UI exposes its path alongside
 the Prepare correlation ID. These diagnostics do not establish an incident's
 root cause without the failed operation's evidence.
 
-Signed production previews use `desktop:package:production-preview`, the same
-installed build pipeline and existing Developer ID/Keychain notarization as local
-acceptance. Production preview requires the exact clean merged release SHA and
-rejects disposable settings. Its signed source record binds the release SHA,
-production identity, and renderer fingerprint; publication uses the immutable
+Signed production previews use `desktop:package:production-preview` and the same
+installed build pipeline as local acceptance. macOS retains the existing
+Developer ID/Keychain notarization. Windows uses native per-user NSIS with an
+explicitly configured Authenticode identity. Production preview requires the
+exact clean merged release SHA and rejects disposable settings. Its signed source
+record binds the release SHA, production identity, and renderer fingerprint;
+publication uses the immutable
 candidate workflow in [Development Workflow](../engineering/development-workflow.md#desktop-preview-release-workflow).
 Building and uploading do not select a default update. Web offers an account-free
 page at `/desktop`, with an immutable `/desktop?candidate=<hash>` override.
 An explicit promotion selects the default download and update feed together.
 
+### Windows package and release boundary
+
+Windows x64 and ARM64 are separate installer and update targets. NSIS installs
+for the current user without requesting elevation and preserves application data
+on uninstall. Desktop installation/uninstallation does not install, stop or remove
+the independent OpenMeld Service. Connecting this Computer remains an explicit
+CLI-owned action; Node.js with npm is a prerequisite for Windows.
+
+Root packaging commands use portable JavaScript, not POSIX inline environment
+assignments. Windows packaging skips Mac icon/notarization tools. Unsigned
+packages are limited to disposable acceptance and cannot use production updates.
+Production requires the exact clean, approved, merged source and
+`OPENMELD_DESKTOP_WINDOWS_PUBLISHER` matching the actual certificate. A missing
+signer is not replaced with the Apple team identity.
+
+Before publication/promotion, native Windows inspection verifies Authenticode
+on both the NSIS installer and its extracted application. Full 7-Zip with NSIS
+support is a release-workstation prerequisite, not shipped runtime machinery.
+Inspection never executes installation. It checks the signed payload's PE
+architecture, package version, production target, source/renderer records and
+updater publisher/feed, then confirms the installer hash has not changed. A
+neighboring unpacked directory or sidecar file is not signed-source evidence.
+Commands live in the existing Desktop release workflow. These code guards are
+not proof that a signed OpenMeld Windows artifact has been built or accepted.
+
 ### In-app updates
 
-Production macOS builds use electron-updater 6.8.9. Main owns the update snapshot;
+Production builds use electron-updater 6.8.9: MacUpdater for macOS and NsisUpdater
+for Windows. Main owns the update snapshot;
 the shared renderer's Updates section, Settings indicator, notice, and native
 Check for Updates menu consume it. The native entry is independent of cloud
 admission and sign-in. Development and disposable packages cannot update from
 the production feed. Renderer IPC accepts only check, download, and restart
 actions, never an origin, file path, or installer arguments.
 
-Desktop Settings places Updates after Privacy & Safety in the Personal group.
-The page always identifies the installed Desktop version from Main's existing
-`currentVersion`, then presents the changing check, target version, download
-progress, restart, or failure state separately. A downloaded version remains an
-available version until restart completes; the renderer never claims that a
-download is installed. The compact update notice reuses the same status and
-action without inheriting the full Settings page heading or version rows.
+Windows activation validates the installed source receipt and `app-update.yml`
+against the actual architecture, fixed platform feed and exactly one configured
+publisher. Missing or mismatched metadata makes updates unavailable. The public
+NSIS verifier hook requires successful Authenticode evidence and an exact
+publisher match; missing PowerShell, errors, unsigned executables and unexpected
+output all reject. External metadata URLs, another platform's payload, multiple
+files and web installer packages are rejected before download. Manual download,
+draft-safe restart and independent Service lifetime remain unchanged. Actual
+signed A-to-B updates, normal-user installation/uninstallation and native DPI/IME
+behavior require separate Windows acceptance.
 
-Launch and six-hour checks run automatically. Both `autoDownload` and `autoInstallOnAppQuit` are
-explicitly false. Download requires consent; after checksum verification the
-user chooses Restart to update or Later. On macOS the downloaded ZIP is not
-handed to Squirrel until Restart to update. Later therefore neither installs on
-ordinary Quit nor silently installs on the next launch. A subsequent launch
-checks again; a requested download can reuse the verified cache.
+Desktop Settings places Updates after Privacy & Safety in the Personal group.
+The outer Settings control and inner Updates item consume the same native-derived
+attention policy and existing unread-blue indicator. Opening Settings, viewing
+Updates, or choosing Later does not acknowledge installation or clear attention.
+Checking and check errors retain attention only when Main still reports a target
+version. Idle, current, unavailable, preparation, installation, and terminal
+installation errors do not show an ordinary pending-update dot. These indicators
+are independent of Inbox counts and do not appear without a Desktop bridge.
+
+Updates is status-first: the result and explanation are on the left, one existing
+primary Button (`variant="default"`) is on the right, and `currentVersion` remains
+secondary information. A container query stacks the action below the result in a
+narrow pane. The corner Surface uses an unread-blue Updates heading, a muted
+keyboard-accessible Later action at top right, and a full-content-width primary
+button. It never takes focus from ongoing work. Both layouts consume
+`desktopUpdaterPresentation`; product policy stays outside `packages/ui`.
+
+An unknown snapshot is not an up-to-date result. An initial bridge read failure
+keeps the existing safety freeze and explains native Quit/reopen recovery; a
+newer native event supersedes a late initial answer or failure. Progress is
+indeterminate when Main has no percentage, and 100% while downloading does not
+authorize restart. Only native downloaded state offers Restart to update.
+Check, download, and restart errors offer their corresponding native action;
+terminal installation errors never offer a renderer action. Rejected IPC calls
+show a transport failure without manufacturing native success.
+
+Later dismisses only a meaningful version/phase/error-stage identity for the
+mounted renderer session. Progress ticks, repeated checks, and retries through
+an already dismissed identity do not create a notice loop. A different version,
+verified completion, or a new error stage can surface again. While the actual
+Updates section is mounted, ordinary corner notices are hidden without being
+dismissed. Required preparation, installation, terminal-error, and initial-read
+failure guidance is never suppressed by that visibility rule. No new polling,
+automatic checking on Settings mount, or persisted update authority is added.
+
+The isolated component fixture and repeatable visual checks live in
+`clients/web/tests/desktop-updater-visual/`. Its updater bridge is synthetic and
+never contacts a feed or installs anything. Component screenshots and native
+controller tests are not signed-package A-to-B acceptance.
+
+Launch and hourly checks run automatically. Both `autoDownload` and
+`autoInstallOnAppQuit` are explicitly false. Download requires consent; after
+checksum verification the user chooses Restart to update or Later. On macOS the
+downloaded ZIP is not handed to Squirrel until Restart to update, and only when
+the running production bundle is the stable `OpenMeld.app`. Missing, legacy
+`OpenMeld Desktop.app`, or unknown bundle paths fail closed before
+`quitAndInstall`; the app does not attempt a second custom installer. Later
+therefore neither installs on ordinary Quit nor silently installs on the next
+launch. A subsequent launch checks again; a requested download can reuse the
+verified cache.
+
+The legacy rename cannot be repaired transparently by code shipped only inside a
+new `OpenMeld.app`: an already-installed `OpenMeld Desktop.app` executes its
+old updater before it could receive this fix. Those machines require a one-time
+recovery by opening an already-installed valid `OpenMeld.app` or installing the
+current signed DMG. After recovery, ordinary same-name updates remain on Squirrel.
+
+Before a same-name macOS install is requested, Main writes a bounded local receipt
+at `<Desktop userData>/desktop-update-install-receipt.txt` containing only
+source/target versions, source/target bundle names, and phase. The newly launched
+version changes `install_requested` to `application_started` only when its own
+Main process starts from the expected `OpenMeld.app` and target version. This
+evidence diagnoses future post-exit updater failures without collecting user
+content and without replacing Squirrel's signing/install authority.
 
 Restart freezes document editing, flushes active text through the existing
 composer draft owner, and refuses while navigation guards, pending sends,
 attachment writes, failed attachment persistence, or unfinished uploads block
 leaving. Normal messages, Threads, and Center Agent text use `useComposerDraft`;
-file blobs and upload references retain their existing IndexedDB owner. New
-Center Agent chat file selections are still memory-only and block restart until
-sent or removed. Center Agent handoffs read their existing pending-message
-owner and also block restart. Pending
+file blobs and upload references retain their existing shared Web IndexedDB
+owner, including scoped recovery after a renderer remount. New Center Agent chat
+file selections use that same account-scoped owner and block restart until sent
+or removed. Center Agent handoffs read their existing pending-message owner and
+also block restart. Pending
 send acknowledgements remain with existing reconciliation: updating never
 resends a message. The current workspace URL is retained for the normal router
 to authorize after relaunch. Native credentials, account data, and app identity
@@ -339,31 +584,87 @@ offer Later/retry, or claim installation succeeded. Native menu and Cmd+Q remain
 available. Installation affects the GUI only and
 does not call, update, stop, or reconfigure CLI or OpenMeld Service.
 
-### Manual installed A-to-B acceptance
+### Installed A-to-B release acceptance
 
-Felix performs this acceptance after the implementation and release candidates
-are reviewed. Do not promote a release merely to run an automated smoke.
+Every macOS Desktop production release gets one **thin real A-to-B smoke** on
+the local release Mac. The release owner runs it; it is not a per-PR/per-commit
+test and it does not belong in GitHub Actions. The point is to exercise the same
+installed app, Launch Services, native updater, signature trust, and relaunch
+boundary that a real user receives.
 
-1. Install signed A containing this updater. Record its version and existing
-   account, conversation, Service identity and an independently running Wake.
-2. Build a newer signed B from its exact merged SHA. Verify DMG and ZIP identity,
-   upload the immutable candidate, then explicitly promote B after review.
-3. Confirm `/desktop`, legacy `/desktop/update.json`, and `latest-mac.yml` select
-   B. Invalid and missing candidate overrides must never offer B as a fallback.
+The current production app reads only the promoted updater feed, so the real
+production-A -> production-B transition happens immediately after the separately
+authorized promotion. Until a candidate-feed updater path exists, this is a
+post-promotion release-acceptance gate, not a pre-promotion gate.
+
+Use the lightweight helper around the real in-app update:
+
+```sh
+node scripts/e2e/desktop-macos-production-update-smoke.mjs before <A-version> <B-version>
+# separately authorize/promote B
+# in the already-running A: Settings -> Updates -> Check -> Download -> Restart
+node scripts/e2e/desktop-macos-production-update-smoke.mjs after <B-version>
+```
+
+The `before` phase opens A only when it is not already running and verifies the
+fixed production path, version, bundle ID, Apple Team ID, strict code signature,
+stapled notarization ticket, Gatekeeper assessment, Apple-silicon host, and the
+exact production executable. It also refuses a stale
+`/Applications/OpenMeld Desktop.app` so the release Mac has one unambiguous
+production app.
+
+The `before` phase also records A's exact production-process PID(s) in a
+user-local macOS temporary smoke-state file. The `after` phase **never opens B**: it requires the
+production PID(s) to be replaced, then verifies B's version and the same native
+trust facts. This prevents a surviving A process from being mistaken for a
+successful B relaunch merely because the on-disk bundle changed. If the bounded
+updater receipt exists, it must confirm the expected target version and
+`application_started`; absence is tolerated for a production A that predates
+receipt instrumentation. This keeps the recurring release smoke short while
+still proving the failure boundary that this incident exposed.
+
+Record the exact A and B versions, release SHA/candidate, promotion evidence, and
+the helper's before/after result. A release is not considered accepted until the
+thin smoke passes. Failure preserves the promoted/source evidence for the normal
+release recovery or rollback decision; do not hide it by manually reopening B.
+
+Run the **expanded updater acceptance** instead of only the thin smoke when the
+release changes any high-risk update boundary, including:
+
+- Desktop updater policy or native updater integration;
+- Electron, `electron-updater`, or `electron-builder`;
+- signing, notarization, Gatekeeper, or release packaging;
+- `productName`, app bundle name/path, app ID, or callback identity;
+- Restart-to-update preparation, draft/save/freeze behavior, or quit lifecycle;
+- updater feed/promotion semantics that change which B the installed A consumes.
+
+Expanded acceptance keeps the existing product matrix:
+
+1. Install signed A and record its version plus the existing account,
+   conversation, Service identity, and an independently running Wake.
+2. Build signed B from its exact merged SHA, verify DMG/ZIP identity, upload the
+   immutable candidate, and promote only through the separately authorized
+   release path.
+3. Confirm `/desktop`, legacy `/desktop/update.json`, and
+   `latest-mac.yml` select B. Invalid/missing candidate overrides must not offer
+   B as a fallback.
 4. In A, check while signed in, signed out, with an expired session, and with
-   cloud admission blocked. Confirm no download starts until requested; Settings
-   and the native menu show the same result. Interrupt the network and retry.
-5. Download B, choose Later, close the window, switch Organizations, and reopen
-   Settings. Quit and relaunch A normally: A must remain installed.
-6. Prepare unsent text in a Space, a Thread, and a Center Agent conversation,
-   plus a persisted attachment. Try restart during upload, pending send, and
-   storage failure: it must refuse without resending or losing content.
-7. Once work is durable, choose Restart to update. Confirm B, the same account
-   and conversation, preserved text and attachments, and unchanged Service/Wake.
-   Also exercise an installation error: editing must stay frozen (including
-   after reload), retries stay unavailable, and native menu Quit must exit.
-   Record the installed version after reopening, without assuming which version
-   won. Record actual observations separately from unit/build evidence.
+   cloud admission blocked. Confirm download still requires consent; interrupt
+   the network and retry.
+5. Download B, choose Later, close/reopen the window, switch Organizations, and
+   verify an ordinary Quit/relaunch leaves A installed.
+6. Exercise unsent Space/Thread/Center Agent text plus a persisted attachment.
+   Restart during upload, pending send, or storage failure must refuse without
+   resending or losing content.
+7. Once work is durable, choose Restart to update. Confirm B, preserved account
+   and conversation state, preserved text/attachments, unchanged Service/Wake,
+   and the documented installation-error behavior.
+
+The historical `OpenMeld Desktop.app -> OpenMeld.app` incident remains a
+separate regression/recovery scenario. New code cannot be delivered backward
+into an already-installed legacy updater before that updater crosses the rename,
+so the recurring production smoke uses the stable
+`OpenMeld.app -> OpenMeld.app` path.
 
 Production resolves the existing `~/.openmeld` managed installation. An installed
 disposable build must compile its already aligned test lane using
@@ -418,13 +719,17 @@ It rejects a different observed process owner; missing or failed drain evidence
 does not enter this completion path.
 
 The CLI prerequisite accepts `service start|stop --json --expected-account <id>`
-for an already connected POSIX Service. Its owning admission contract is in
+for an already connected macOS binary or Windows npm Service. Its owning
+admission contract is in
 [Local OpenMeld Service](../architecture/local-openmeld-service.md#account-checked-service-start-and-stop).
 This authorizes only existing-Service Start/Stop. Main rejects missing, changed,
 unsupported or concurrent intent and preserves explicit CLI refusal or uncertainty.
 `service control-capabilities --json` is a separate read-only query; it does not
 extend the established strict status response. Version strings are not capability
-evidence. Old, npm, non-macOS and unverifiable pairs omit usable controls.
+evidence. Old or unverifiable pairs omit usable controls. Windows capability
+requires the exact Node executable and verified active JS entry, plus explicit
+support from an already running carrier; it never infers support from an npm
+version or a successful unguarded Service command.
 
 ## Cloud transport and compatibility
 
@@ -564,15 +869,57 @@ different preferences with different writers.
 
 ## Development lanes
 
-Use repo-root Desktop scripts when interacting with CLI, Service, or Web:
+Use repo-root commands, from the owning worktree, for both human and agent work:
 
-- `pnpm desktop:dev` and `pnpm desktop:start:dev` build and launch Desktop
-  using this worktree's registered isolated lane and its installed
-  `<OPENMELD_HOME>/bin/openmeld`; they do not install a global CLI.
-- `pnpm desktop:canary` and `pnpm desktop:start:canary` use the same guarded
-  lane resolution with the explicit canary preset.
-- Production reproduction requires explicit authorization for
-  `pnpm desktop:start:prod`; it is not a pilot command.
+| Command | Behavior |
+| --- | --- |
+| `pnpm desktop:web` | Start the existing isolated Web launcher in matching compiled-pilot mode. |
+| `pnpm desktop:dev` | Prepare as needed, then launch this worktree's Desktop. On macOS this is a real `.app`, not generic `electron .`. |
+| `pnpm desktop:prepare` | Prepare without launching; `--force` explicitly rebuilds. |
+| `pnpm desktop:doctor --json` | Read-only lane/CLI, on-disk and running Web build, prepared-app and OS callback checks with actionable failures. |
+| `pnpm desktop:status --json` | Report this worktree's exact process IDs, measured RSS, app path and build identity. No build or server startup. |
+| `pnpm desktop:stop --dry-run` | Preview only this worktree's Desktop processes; omit `--dry-run` to stop them. Preserve Web, Service, credentials and drafts on disk. |
+
+`desktop:start:dev` remains an alias. `desktop:canary` / `desktop:start:canary`
+use the same entry with an explicit canary preset. Production reproduction with
+`desktop:start:prod` still requires separate authorization.
+
+Desktop owns its resource reservations: one short heavy-build reservation,
+released before GUI launch, followed by a lightweight Desktop memory reservation.
+An idle GUI does not occupy the heavy-work slot. Older `dev:run -- pnpm desktop:dev`
+instructions delegate to this same owner; do not add extra wrappers. Repeating a
+launch does not start a duplicate or rebuild beneath a running app. Stop your
+Desktop explicitly before rebuilding; neither startup nor cleanup kills another
+worktree. General `dev:status` and `dev:stop` include these owned Desktop processes.
+
+`prepare` may work offline with matching compiled pages, but `dev` and `doctor`
+verify that the actual loopback Web server serves the matching build marker.
+They do not send credentials or follow redirects. A forced prepare while a GUI
+or another preparation owns the worktree fails explicitly. Status also recognizes
+an OS-launched copy of the exact generated app after its terminal owner has exited.
+
+On macOS, prepared output is under `clients/desktop/dist/development`. The normal
+electron-builder directory target uses the existing ad-hoc integrity/signature
+policy; there is no DMG, Developer ID signing, notarization, upload or installer.
+The warm path checks source/lane fingerprints and actual signed bundle integrity
+before reuse. Failed or source-drifted builds never publish a reusable receipt.
+This is a local convenience cache, not release certification.
+
+Each registered `http://wt-<12hex>.localhost:<port>` origin has its own app ID and
+callback scheme, derived once by the shared `desktopAuthIdentity` contract from
+trusted configuration. Web, Auth, native protocol and bundle metadata agree; no
+request parameter can choose the callback. The vendor client ID remains `electron`.
+Distinct ports alone did not isolate the old shared `com.github.Electron` identity.
+The launcher checks the actual macOS receiver, and native checks it again before
+creating PKCE state. A mismatch fails with a diagnostic, not an endless browser wait.
+
+The development app embeds only schema-validated non-secret lane coordinates,
+so an OS URL launch cannot fall back to global/production state when terminal
+environment variables are absent. It still requires the original worktree's CLI
+and matching backend; it is not a distributable or relocatable application. PKCE
+state remains process-local. If the initiating app exited, start a fresh login;
+never replay a callback or share verifiers between processes. Only one Desktop
+app at a time uses a given worktree. Other worktrees have independent schemes.
 
 These commands align CLI, home, auth, Gateway, and Web. An isolated worktree must
 use its actual aligned URLs and OS Service identity, not production state with
@@ -581,32 +928,46 @@ Do not reset or re-register the user's production Service for tests.
 
 Start the Worker lane with `pnpm dev:worktree` and complete its normal Web setup.
 For the shared Desktop pilot, start Web in another terminal with
-`OPENMELD_DESKTOP_PILOT=1 pnpm dev:web:worktree`. This reuses the existing Web
+`pnpm desktop:web` (equivalent to `OPENMELD_DESKTOP_PILOT=1 pnpm dev:web:worktree`). This reuses the existing Web
 lane reservation and Doppler owner but builds and serves compiled Web output.
 Stop only that worktree's old Web process first if it is already running.
 The preview listener binds `127.0.0.1` so TanStack can prerender its shell;
 the configured Web/Auth/Gateway URLs still use the worktree hostname and ports.
-Then run `pnpm desktop:start:dev`. Missing/stale lane ownership or a missing
+Then run `pnpm desktop:dev`. Missing/stale lane ownership or a missing
 lane-local executable stops startup without falling back to production/global
-state. Rebuild Web after source changes before relaunching Desktop.
+state. Rebuild Web after shared-source changes before relaunching Desktop.
+An installed CLI is a launcher prerequisite, not proof that its Service is
+connected or that an Agent can reply. Service readiness is checked by its own UI.
+
+For inexpensive visual iteration, use the existing browser Web HMR entry
+`pnpm dev:web:worktree`; use the compiled pair for native integration and smoke.
+The two modes must not run on the same reserved Web port concurrently. Native
+main/preload hot reload is not enabled automatically: restarting main destroys
+process-local authentication state, and serving Vite modules as packaged pages
+would bypass the pilot's source/build compatibility boundary. Windows retains
+its supported executable-plus-script callback registration. Linux source-mode
+system-browser authentication still requires platform packaging and is not
+certified by this macOS worktree-bundle workflow.
 
 For a blank pilot window, use
 `OPENMELD_DESKTOP_DIAGNOSTICS=1 pnpm desktop:start:dev`. This opens local Electron
 DevTools and reports load milestones, preload failure, renderer exit, and fixed
 console error categories. Terminal output excludes console text, URLs, request
 bodies, and credentials. Inspect the full error locally in DevTools. This entry
-requires the validated local pilot and an unpackaged app; it does not expose a
-remote debugging listener or enable diagnostics in packaged builds.
+requires the validated local pilot and either an unpackaged app or this explicitly
+compiled worktree-development app; it does not expose a remote debugging listener
+or enable diagnostics in installed/private distribution builds.
 Use **Developer > Reopen Developer Tools** to recreate a closed or minimized
 inspector without reloading the application; only inspector history is reset.
 The local pilot Web build leaves client JavaScript unminified so DevTools can
 set exact line breakpoints in hydration and application error callbacks. Normal
 Web builds retain their default minification.
 
-GUI data lives under `<OPENMELD_HOME>/desktop/user-data`. Main sets and verifies
-Electron's `userData` path before Better Auth constructs storage. The launcher
-also passes that directory explicitly to Electron, keeping GUI preferences and
-credentials separate from other worktrees.
+GUI data lives under `<OPENMELD_HOME>/desktop/mock-keychain-user-data` as a
+stable, isolated local test profile. Main sets and verifies Electron's
+`userData` path before Better Auth constructs storage. The launcher also passes
+that directory explicitly to Electron, keeping GUI preferences and credentials
+separate from other worktrees.
 
 Electron 44.3.0 is paired with electron-vite 5.0.0 and Vite 7.3.2. Hydrate the
 native binary with `pnpm --filter @openmeld/desktop exec electron --version`.
@@ -670,8 +1031,10 @@ identity. The production target never consumes that endpoint override.
 
 An isolated disposable Web/Auth backend must explicitly configure
 `AUTH_DESKTOP_DEVELOPMENT_TARGET=disposable` on both services. Empty or `private`
-development configuration preserves the existing `electron` client and
-`sh.openmeld.desktop.dev` callback. Production rejects a nonempty development
+development configuration preserves the existing `electron` client. Registered
+worktree origins use `sh.openmeld.desktop.dev.wt-<12hex>.p<port>`; other private
+loopback setups retain `sh.openmeld.desktop.dev`. After adopting this tooling,
+rebuild the private/native app and restart matching Web/Auth together. Production rejects a nonempty development
 target. Better Auth supports one Electron client identity per Auth instance;
 do not combine test and private identities by registering duplicate plugins.
 Browser sign-in validates that configured identity, displays the intended

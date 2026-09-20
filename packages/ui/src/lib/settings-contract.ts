@@ -115,7 +115,9 @@ export type SettingsSectionProps = {
 
 export type SettingsRowProps = {
   label: string;
-  description?: string;
+  /** Inline descriptive content; callers may include an accessible live status. */
+  description?: ReactNode;
+  className?: string;
   status?: SettingsFieldStatus;
   /** Places the control beside the label or on its own full-width row. */
   layout?: "inline" | "stacked";

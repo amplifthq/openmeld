@@ -13,6 +13,18 @@ const api = vi.hoisted(() => ({
 	disconnect: vi.fn(),
 	pollRegistration: vi.fn(),
 }));
+const authorization = vi.hoisted(() => ({
+	browser: { kind: "desktop" as const },
+	close: vi.fn(),
+	open: vi.fn(() => Promise.resolve()),
+	prepare: vi.fn(),
+}));
+
+vi.mock("#/desktop/authorization-browser", () => ({
+	closeAuthorizationBrowser: authorization.close,
+	openAuthorizationBrowser: authorization.open,
+	prepareAuthorizationBrowser: authorization.prepare,
+}));
 
 vi.mock("#/lib/organizations/message-channels", async (importOriginal) => ({
 	...(await importOriginal<
@@ -29,6 +41,43 @@ afterEach(() => {
 });
 
 describe("useLarkPlatformChannelManagement", () => {
+	it("does not open or apply an authorization result after the Organization changes", async () => {
+		let resolveRegistration:
+			| ((registration: ReturnType<typeof registrationFixture>) => void)
+			| undefined;
+		api.beginRegistration.mockReturnValue(
+			new Promise((resolve) => {
+				resolveRegistration = resolve;
+			})
+		);
+		authorization.prepare.mockReturnValue(authorization.browser);
+		const { result, rerender } = renderHook(
+			({ organizationId }) =>
+				useLarkPlatformChannelManagement({
+					connections: [repairConnection("repair_required")],
+					organizationId,
+				}),
+			{
+				initialProps: { organizationId: "org_1" },
+				wrapper: TestQueryClientProvider,
+			}
+		);
+		act(() => result.current.manage("lark"));
+		let pending: Promise<void> | undefined;
+		act(() => {
+			pending = result.current.reauthorize();
+		});
+		await waitFor(() => expect(api.beginRegistration).toHaveBeenCalledOnce());
+
+		rerender({ organizationId: "org_2" });
+		resolveRegistration?.(registrationFixture("org_1"));
+		await act(async () => await pending);
+
+		expect(authorization.open).not.toHaveBeenCalled();
+		expect(authorization.close).toHaveBeenCalledWith(authorization.browser);
+		expect(result.current.registration).toBeNull();
+	});
+
 	it("explicitly restarts the same provider after resume fails without starting automatically", async () => {
 		const registration = {
 			organizationId: "org_1",
@@ -195,6 +244,23 @@ describe("useLarkPlatformChannelManagement", () => {
 		);
 	});
 });
+
+function registrationFixture(organizationId: string) {
+	return {
+		organizationId,
+		connection: null,
+		attempt: {
+			id: "attempt_authorization",
+			provider: "lark" as const,
+			status: "pending_registration" as const,
+			reasonCode: null,
+			registrationUrl:
+				"https://open.larksuite.com/page/launcher?user_code=test-code",
+			expiresAt: new Date(Date.now() + 60_000).toISOString(),
+			nextPollAt: new Date(Date.now() + 5000).toISOString(),
+		},
+	};
+}
 
 function repairConnection(status: "configuring" | "repair_required") {
 	return {

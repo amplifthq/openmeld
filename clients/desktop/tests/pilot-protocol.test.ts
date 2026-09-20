@@ -210,6 +210,66 @@ it("admits installed API requests before credentials and preserves SDK errors wi
   expect(call[1].headers.has("authorization")).toBe(false);
 });
 
+it.each([
+  false,
+  true,
+])("refuses renderer update observations before credentials in installed=%s", async (installed) => {
+  const cookie = vi.fn(() => "session=main-only");
+  const ensureCompatible = vi.fn(async () => undefined);
+  const cloudRequest = vi.fn(async () => Response.json({ accepted: true }));
+  const fetchCloud = vi.fn<typeof fetch>(async () =>
+    Response.json({ accepted: true })
+  );
+  const handle = createPilotProtocol({
+    assets: "/unused",
+    webOrigin: "https://in-memory.invalid",
+    webBuild: "a".repeat(64),
+    installed,
+    ensureCompatible,
+    cookie,
+    fetch: fetchCloud,
+    ...(installed ? { cloudRequest } : {}),
+  });
+  for (const path of [
+    "/v1/account/desktop-update-observations",
+    "/v1/account/desktop-update-observations?retry=1",
+    "/v1/account/desktop-update-observations/",
+    "/v1/%61ccount/desktop-update-observations",
+    "/v1/account/%64esktop-update-observations",
+  ]) {
+    const response = await handle(
+      new Request(`${DESKTOP_APP_ORIGIN}${path}`, {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          origin: DESKTOP_APP_ORIGIN,
+        },
+        body: JSON.stringify({
+          schemaVersion: 1,
+          expectedUserId: "owner",
+          installationId: "11111111-2222-4333-8444-555555555555",
+          sequence: 1,
+          lane: "prod",
+          platform: "darwin",
+          deviceName: "Forged device",
+          installedVersion: "99.0.0",
+          availableVersion: null,
+        }),
+      })
+    );
+    expect(response.status).toBe(403);
+  }
+  expect(cookie).not.toHaveBeenCalled();
+  expect(ensureCompatible).not.toHaveBeenCalled();
+  expect(cloudRequest).not.toHaveBeenCalled();
+  expect(fetchCloud).not.toHaveBeenCalled();
+  expect(
+    (await handle(new Request(`${DESKTOP_APP_ORIGIN}/v1/inbox/summary`))).status
+  ).toBe(200);
+  expect(cookie).toHaveBeenCalledTimes(1);
+  expect(installed ? cloudRequest : fetchCloud).toHaveBeenCalledTimes(1);
+});
+
 it("serves local page files and confines credentials to the configured cloud origin", async () => {
   const assets = await mkdtemp(join(tmpdir(), "openmeld-desktop-assets-"));
   try {

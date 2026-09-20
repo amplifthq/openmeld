@@ -2,8 +2,12 @@
 
 import type { PeopleComputerTarget } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { readCompletedPrepareSessionPointer } from "#/components/connect/prepare-session-pointer";
+import {
+	type PeopleComputerInventory,
+	projectComputerInventory,
+} from "#/lib/connect/local-runtimes";
 import { selectPeopleComputerTarget } from "#/lib/connect/people-computer-selection";
 import { currentDeviceTargetQueryOptions } from "#/query/connect/current-device-target";
 import {
@@ -31,17 +35,30 @@ export function useLocalRuntimeQueries(input: {
 			storageScope: input.storageScope,
 		})
 	);
-	const localRuntimesQuery = useQuery(
-		localRuntimesQueryOptions({
+	const localRuntimesQuery = useQuery({
+		...localRuntimesQueryOptions({
 			enabled: true,
 			storageScope: input.storageScope,
-		})
-	);
+		}),
+		select: useCallback(
+			(inventory: PeopleComputerInventory) =>
+				projectComputerInventory(
+					inventory.peopleComputers,
+					currentDeviceTargetQuery.isError
+						? undefined
+						: currentDeviceTargetQuery.data
+				),
+			[currentDeviceTargetQuery.data, currentDeviceTargetQuery.isError]
+		),
+	});
 	// A completed handoff selects a computer for this browser/account. It does
 	// not prove the terminal ran on the same physical machine as the browser.
 	const selectedTarget = selectPeopleComputerTarget({
+		routingPreferenceUnavailable: !currentDeviceTargetQuery.isSuccess,
 		inventory: localRuntimesQuery.data?.peopleComputers,
-		routingPreference: currentDeviceTargetQuery.data,
+		routingPreference: currentDeviceTargetQuery.isError
+			? undefined
+			: currentDeviceTargetQuery.data,
 		completedSetup: readCompletedPrepareSessionPointer(),
 		selectedHumanProfileId: input.selectedHumanProfileId,
 		selection: input.selection,

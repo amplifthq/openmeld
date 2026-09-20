@@ -3,6 +3,7 @@ import {
 	findOpenMeldToolsUpdateFailureCode,
 	formatLocalSetupActionLabel,
 	formatOpenMeldToolsUpdateFailureMessage,
+	resolveOpenMeldToolsUpdateTargetVersions,
 } from "@openmeld/schemas";
 import type {
 	CurrentLocalRuntimeReplyReadinessResponse,
@@ -69,8 +70,15 @@ import {
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
-import { canConfigureLocalComputer } from "#/desktop/platform";
-import { copyCliEntryCommand } from "#/lib/cli-entry-command";
+import {
+	canConfigureLocalComputer,
+	getDesktopPlatform,
+	openDesktopWeb,
+} from "#/desktop/platform";
+import {
+	copyCliEntryCommand,
+	formatWebCliCommand,
+} from "#/lib/cli-entry-command";
 import {
 	type ComputerSummaryStatus,
 	resolveCurrentLocalRuntimeComputerSummaryStatus,
@@ -103,7 +111,6 @@ import { ComputerConnectionHistory } from "./computer-connection-history";
 type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 
 const COMPUTER_CONNECTION_CARD_TITLE = "Computer Connection";
-const OPENMELD_SKILLS_MANAGEMENT_COMMAND = "npx -y openmeld@latest skills";
 const RECONNECT_MANUALLY_LABEL = "Reconnect Computer";
 const UPDATE_MANUALLY_LABEL = "Update manually";
 const UPDATE_STATUS_REFRESH_INTERVAL_MS = 2000;
@@ -121,6 +128,7 @@ type PendingManagedUpdate =
 
 export type OpenMeldServiceCardOwnerProps = {
 	computer: LocalRuntimeComputer;
+	connectionAction?: ReactNode;
 	currentExpectedServiceVersion: string | null;
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 	focusService: boolean;
@@ -157,7 +165,18 @@ export function OpenMeldServiceCard(
 	if (input.view === "team") {
 		return <TeamOpenMeldServiceCard computer={input.computer} />;
 	}
-	return <OwnedOpenMeldServiceCard {...input} />;
+	return (
+		<OwnedOpenMeldServiceCard
+			{...input}
+			key={[
+				input.recovery.storageScope,
+				input.organizationId,
+				input.computer.connectedComputerId,
+				input.computer.deviceId,
+				input.recovery.selectedExecutionTarget?.runtimeLane,
+			].join(":")}
+		/>
+	);
 }
 
 function TeamOpenMeldServiceCard(input: {
@@ -351,6 +370,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 	});
 	const updateTargetObserved = hasObservedOpenMeldToolsUpdateTarget({
 		localComponents: observedLocalComponents,
+		operation: visibleUpdateOperation,
 		targetVersion: updateTargetVersion,
 	});
 	const updateVerificationKey = resolveOpenMeldToolsUpdateVerificationKey({
@@ -525,6 +545,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 						showCheckStatus={false}
 					/>
 				}
+				connectionAction={input.connectionAction}
 				description="Connects this computer to OpenMeld and manages local tools."
 			>
 				<p className="text-muted-foreground text-sm">
@@ -586,6 +607,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 	} else {
 		serviceContent = (
 			<CurrentLocalRuntimeServiceFacts
+				computer={input.computer}
 				currentLocalRuntimeReplyReadiness={
 					input.currentLocalRuntimeReplyReadiness
 				}
@@ -626,6 +648,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 			className={cn(
 				resolveAgentsPageFocusedSurfaceClassName(isServiceHighlighted)
 			)}
+			connectionAction={input.connectionAction}
 			description="Connects this computer to OpenMeld and manages local tools."
 		>
 			{serviceContent}
@@ -640,6 +663,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 
 function OpenMeldToolsCardFrame(input: {
 	action?: ReactNode;
+	connectionAction?: ReactNode;
 	cardRef?: Ref<HTMLDivElement>;
 	children: ReactNode;
 	className?: string;
@@ -657,12 +681,106 @@ function OpenMeldToolsCardFrame(input: {
 					{COMPUTER_CONNECTION_CARD_TITLE}
 				</CardTitle>
 				<CardDescription>{input.description}</CardDescription>
-				{input.action ? <CardAction>{input.action}</CardAction> : null}
+				{input.action || input.connectionAction ? (
+					<CardAction className="flex flex-wrap items-center justify-end gap-2">
+						{input.connectionAction}
+						{input.action}
+					</CardAction>
+				) : null}
 			</CardHeader>
 			<CardContent className="flex flex-col gap-3">
 				{input.children}
 			</CardContent>
 		</Card>
+	);
+}
+
+function DesktopComputerRecovery(input: {
+	action: OpenMeldToolsAction | null;
+	computer: LocalRuntimeComputer;
+	readiness: CurrentLocalRuntimeReplyReadinessResponse | null;
+}) {
+	const [state, setState] = useState<"idle" | "opening" | "opened" | "failed">(
+		"idle"
+	);
+	const opening = useRef(false);
+	const active = useRef(true);
+	useEffect(() => {
+		active.current = true;
+		return () => {
+			active.current = false;
+		};
+	}, []);
+	const target = input.readiness?.currentTarget;
+	const targetKnown =
+		target?.availability === "resolved" &&
+		input.computer.executionTargets.some(
+			(candidate) =>
+				candidate.deviceId === target.deviceId &&
+				candidate.runtimeLane === target.runtimeLane
+		);
+	if (!getDesktopPlatform()) {
+		return null;
+	}
+	if (
+		!(
+			targetKnown &&
+			input.computer.connectedComputerId &&
+			input.action?.kind === "link"
+		)
+	) {
+		return null;
+	}
+	const path = input.action.path;
+	const open = async () => {
+		if (opening.current) {
+			return;
+		}
+		opening.current = true;
+		setState("opening");
+		try {
+			await openDesktopWeb(path);
+			if (active.current) {
+				setState("opened");
+			}
+		} catch {
+			if (active.current) {
+				setState("failed");
+			}
+		} finally {
+			opening.current = false;
+		}
+	};
+	const label =
+		input.action.label === UPDATE_MANUALLY_LABEL
+			? "Update in browser"
+			: "Reconnect in browser";
+	return (
+		<div className="space-y-2 border-t pt-3">
+			<Button
+				disabled={state === "opening"}
+				onClick={open}
+				size="sm"
+				variant="outline"
+			>
+				{state === "opening" ? "Opening browser…" : label}
+			</Button>
+			<p className="text-muted-foreground text-xs">
+				Run any setup command on {input.computer.deviceDisplayName}, the
+				computer shown on this card. Sign in to its owner's account in the
+				browser.
+			</p>
+			{state === "opened" ? (
+				<output className="text-muted-foreground text-xs">
+					Continue in your browser.
+				</output>
+			) : null}
+			{state === "failed" ? (
+				<p className="text-destructive text-xs" role="alert">
+					Could not open the browser. Try again.
+				</p>
+			) : null}
+		</div>
 	);
 }
 
@@ -824,6 +942,7 @@ function ComputerReportDetails(input: { computer: LocalRuntimeComputer }) {
 }
 
 function CurrentLocalRuntimeServiceFacts(input: {
+	computer: LocalRuntimeComputer;
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 	executionTarget: LocalRuntimeExecutionTarget | null;
 	expectedServiceVersion: string | null;
@@ -860,6 +979,7 @@ function CurrentLocalRuntimeServiceFacts(input: {
 	});
 	const updateTargetObserved = hasObservedOpenMeldToolsUpdateTarget({
 		localComponents,
+		operation: updateOperation,
 		targetVersion: updateTargetVersion,
 	});
 	const updateIsActive =
@@ -919,11 +1039,12 @@ function CurrentLocalRuntimeServiceFacts(input: {
 		serviceVersionValue,
 		skillsUpdate,
 	});
+	const displayAction = resolveCoreActionableOpenMeldToolsDisplayAction({
+		action: display.primaryAction,
+		localComponents,
+	});
 	const primaryAction = resolveCurrentOpenMeldToolsPrimaryAction({
-		displayAction: resolveCoreActionableOpenMeldToolsDisplayAction({
-			action: display.primaryAction,
-			localComponents,
-		}),
+		displayAction,
 		maintenanceAvailable: maintenance !== null,
 		onUpdateOpenMeldTools: input.onUpdateOpenMeldTools,
 		updateIsActive,
@@ -981,19 +1102,26 @@ function CurrentLocalRuntimeServiceFacts(input: {
 					</div>
 				) : null}
 			</div>
-			{maintenance ? (
-				<OpenMeldToolsUpdateFeedback
-					confirmationPending={
-						input.pendingManagedUpdate?.kind === "confirmation"
-					}
-					failureCode={updateFailureCode}
-					operation={updateOperation}
-					requestFailed={input.updateRequestFailed && updateOperation === null}
-					requesting={input.isUpdatingTools}
-					targetObserved={updateTargetObserved}
-					verificationExhausted={input.updateVerificationExhausted}
-				/>
-			) : null}
+			<DesktopComputerRecovery
+				action={displayAction}
+				computer={input.computer}
+				key={JSON.stringify(
+					input.currentLocalRuntimeReplyReadiness?.currentTarget
+				)}
+				readiness={input.currentLocalRuntimeReplyReadiness}
+			/>
+			<OpenMeldToolsUpdateFeedback
+				confirmationPending={
+					input.pendingManagedUpdate?.kind === "confirmation"
+				}
+				failureCode={updateFailureCode}
+				operation={updateOperation}
+				readiness={input.currentLocalRuntimeReplyReadiness}
+				requestFailed={input.updateRequestFailed && updateOperation === null}
+				requesting={input.isUpdatingTools}
+				targetObserved={updateTargetObserved}
+				verificationExhausted={input.updateVerificationExhausted}
+			/>
 
 			{display.hideVersionDetails ? null : (
 				<details className="border-t pt-3">
@@ -1255,13 +1383,24 @@ function resolveOpenMeldToolsUpdateTargetVersion(input: {
 
 function hasObservedOpenMeldToolsUpdateTarget(input: {
 	localComponents: OpenMeldToolsProjection | null;
+	operation: OpenMeldToolsUpdateOperation | null;
 	targetVersion: string | null;
 }): boolean {
+	let target: { cliVersion: string; serviceVersion: string } | null = null;
+	if (input.operation) {
+		target = resolveOpenMeldToolsUpdateTargetVersions(input.operation);
+	} else if (input.targetVersion) {
+		target = {
+			cliVersion: input.targetVersion,
+			serviceVersion: input.targetVersion,
+		};
+	}
 	return Boolean(
 		input.localComponents &&
-			input.targetVersion &&
-			input.localComponents.service.installedVersion === input.targetVersion &&
-			input.localComponents.cli.installedPackageVersion === input.targetVersion
+			target &&
+			input.localComponents.service.installedVersion ===
+				target.serviceVersion &&
+			input.localComponents.cli.installedPackageVersion === target.cliVersion
 	);
 }
 
@@ -1320,9 +1459,12 @@ function hasObservedPendingManagedUpdateSettled(input: {
 		input.pending.kind === "confirmation"
 			? input.pending.currentVersion
 			: input.pending.operation.targetVersion;
-	const exactTargetObserved =
-		input.localComponents.service.installedVersion === expectedVersion &&
-		input.localComponents.cli.installedPackageVersion === expectedVersion;
+	const exactTargetObserved = hasObservedOpenMeldToolsUpdateTarget({
+		localComponents: input.localComponents,
+		operation:
+			input.pending.kind === "operation" ? input.pending.operation : null,
+		targetVersion: expectedVersion,
+	});
 	if (input.pending.kind === "confirmation") {
 		return exactTargetObserved;
 	}
@@ -1650,6 +1792,7 @@ type OpenMeldToolsAction =
 	  };
 
 function OpenMeldToolsUpdateFeedback(input: {
+	readiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 	confirmationPending: boolean;
 	failureCode: OpenMeldToolsUpdateFailureCode | null;
 	operation:
@@ -1664,9 +1807,38 @@ function OpenMeldToolsUpdateFeedback(input: {
 	if (!updateStatus) {
 		return null;
 	}
+	const failed =
+		input.operation?.phase === "needs_help" ||
+		input.operation?.phase === "restored";
+	const target = input.readiness?.currentTarget;
+	const service = input.readiness?.service;
+	const runtime = input.readiness?.runtime;
+	// Core owns connection freshness and account alignment. A later matching
+	// report proves reconnection only, never installed/running bundle integrity.
+	const reconnected =
+		failed &&
+		target?.availability === "resolved" &&
+		service?.connected &&
+		service.matchingCurrentRuntime &&
+		service.sessionDeviceId === target.deviceId &&
+		service.sessionLane === target.runtimeLane &&
+		runtime?.deviceId === target.deviceId &&
+		runtime.runtimeLane === target.runtimeLane &&
+		(runtime.lastObservedAtMs ?? 0) >
+			Date.parse(input.operation?.updatedAt ?? "");
+	const targets = input.operation
+		? resolveOpenMeldToolsUpdateTargetVersions(input.operation)
+		: null;
 	return (
 		<div className="flex flex-col gap-3 border-border/60 border-t py-4 sm:flex-row sm:items-center sm:justify-between">
 			<div className="min-w-0">
+				{failed ? (
+					<p className="text-muted-foreground text-xs">
+						{reconnected
+							? "Service has connected since that attempt. This does not confirm that the update target was installed."
+							: "Waiting for a current connection report after that attempt."}
+					</p>
+				) : null}
 				{updateStatus ? (
 					<p
 						aria-atomic="true"
@@ -1675,6 +1847,28 @@ function OpenMeldToolsUpdateFeedback(input: {
 					>
 						{updateStatus}
 					</p>
+				) : null}
+				{failed && input.operation ? (
+					<details className="mt-2 text-muted-foreground text-xs">
+						<summary className="cursor-pointer">Last update details</summary>
+						<p>Operation: {input.operation.operationId}</p>
+						<p>Recorded: {input.operation.updatedAt}</p>
+						<p>
+							Requested CLI: {targets?.cliVersion}; Service:{" "}
+							{targets?.serviceVersion}
+						</p>
+						{input.operation.phase === "restored" ? (
+							<p>
+								The previous installation was restored; the requested update did
+								not complete.
+							</p>
+						) : null}
+						<p>
+							{input.failureCode
+								? formatOpenMeldToolsUpdateFailureMessage(input.failureCode)
+								: "The update did not finish successfully."}
+						</p>
+					</details>
 				) : null}
 			</div>
 		</div>
@@ -1735,9 +1929,7 @@ function formatOpenMeldToolsUpdatePhase(input: {
 			return input.targetObserved ? null : "Verifying…";
 		case "restored":
 		case "needs_help":
-			return input.failureCode
-				? formatOpenMeldToolsUpdateFailureMessage(input.failureCode)
-				: "Update failed. Try again.";
+			return "Last update failed.";
 		default: {
 			const exhaustive: never = input.phase;
 			return exhaustive;
@@ -2134,11 +2326,11 @@ function OpenMeldSkillHelpTooltipContent() {
 	return (
 		<>
 			<span>
-				The OpenMeld skill helps local agents use OpenMeld. To manage it without
-				installing OpenMeld CLI globally, run:
+				The OpenMeld skill helps local agents use OpenMeld. To manage it in this
+				environment, run:
 			</span>
 			<code className="mt-1 block break-all bg-background/15 px-1.5 py-1 font-mono text-[11px] text-background">
-				{OPENMELD_SKILLS_MANAGEMENT_COMMAND}
+				{formatWebCliCommand("openmeld skills")}
 			</code>
 		</>
 	);

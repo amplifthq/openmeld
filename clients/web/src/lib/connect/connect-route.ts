@@ -15,6 +15,7 @@ export type ConnectSession = "fresh";
 export type ConnectRouteSearch = {
 	agentProfileIds?: string;
 	connectedComputerId?: string;
+	observePrepareSessionId?: string;
 	profileId?: string;
 	reset?: "this-computer";
 	returnTo?: "space" | "agent_creation";
@@ -120,6 +121,12 @@ export function normalizeConnectRouteSearch(
 		search.connectedComputerId.trim()
 			? { connectedComputerId: search.connectedComputerId.trim() }
 			: {}),
+		observePrepareSessionId:
+			typeof search.observePrepareSessionId === "string" &&
+			search.observePrepareSessionId.trim() &&
+			search.observePrepareSessionId.trim().length <= 256
+				? search.observePrepareSessionId.trim()
+				: undefined,
 		profileId:
 			typeof search.profileId === "string" && search.profileId.trim()
 				? search.profileId.trim()

@@ -579,7 +579,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(
 			within(screen.getByRole("main")).getAllByText("felix@example.com")
 		).toHaveLength(1);
-		expect(screen.getByRole("main").dataset.showMainHeader).toBe("true");
+		expect(screen.getByRole("main").dataset.showMainHeader).toBe("false");
 	});
 
 	it("keeps a single clipped row structure when the resizable sidebar becomes narrow", () => {
@@ -801,8 +801,34 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			selectedProfileId: "profile-grace",
 		});
 
-		expect(screen.getByText("Loading computers…")).toBeTruthy();
+		expect(
+			screen.getByRole("status", { name: "Loading computers" })
+		).toBeTruthy();
 		expect(screen.queryByText("No computers connected.")).toBeNull();
+	});
+
+	it.each([
+		{ directoryIsPending: true },
+		{ directoryError: "Team inventory unavailable" },
+	])("does not block the owner's verified Computers on team inventory: %j", (query) => {
+		renderWorkspace(query);
+		expect(screen.getByTestId("profile-computers-picker")).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Add a Computer" })).toBeTruthy();
+		expect(
+			screen.queryByRole("status", { name: "Loading computers" })
+		).toBeNull();
+		expect(screen.queryByText("Team inventory unavailable")).toBeNull();
+	});
+
+	it("shows an owner inventory failure with a retry instead of a false empty or Add flow", () => {
+		const onRetryComputers = vi.fn();
+		renderWorkspace({ inventoryError: true, onRetryComputers });
+		expect(screen.getByRole("alert").textContent).toBe(
+			"Your computers could not be loaded."
+		);
+		expect(screen.queryByTestId("profile-computers-picker")).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+		expect(onRetryComputers).toHaveBeenCalledOnce();
 	});
 
 	it("explains a missing personal Human Profile identity in detail", () => {
@@ -823,6 +849,8 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 
 function renderWorkspace(
 	input: {
+		inventoryError?: boolean;
+		onRetryComputers?: () => void;
 		computerGroups?: readonly OrganizationComputerGroup[];
 		currentNotice?: string;
 		directoryError?: string | null;
@@ -865,7 +893,7 @@ function renderWorkspace(
 			pendingResearch={undefined}
 			profileReportsAreRetrying={false}
 			profileReportsErrorMessage={input.profileReportsErrorMessage ?? null}
-			recovery={buildRecovery()}
+			recovery={buildRecovery(input)}
 			researchErrorMessage={null}
 			selectedProfileId={
 				input.selectedProfileId === undefined
@@ -1046,15 +1074,19 @@ function formatTestLocalAgentName(agentId: string): string {
 	}
 }
 
-function buildRecovery(): Parameters<
-	typeof DirectoryHumanProfilesWorkspace
->[0]["recovery"] {
+function buildRecovery(
+	input: { inventoryError?: boolean; onRetryComputers?: () => void } = {}
+): Parameters<typeof DirectoryHumanProfilesWorkspace>[0]["recovery"] {
 	return {
 		currentLocalRuntimeReplyReadinessQuery: {
 			isFetchedAfterMount: true,
 			isFetching: false,
 		},
-		localRuntimesQuery: { isPending: false },
+		localRuntimesQuery: {
+			isPending: false,
+			isError: input.inventoryError ?? false,
+			refetch: input.onRetryComputers,
+		},
 	} as unknown as Parameters<
 		typeof DirectoryHumanProfilesWorkspace
 	>[0]["recovery"];

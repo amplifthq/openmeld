@@ -115,6 +115,15 @@ type ToolPayloadScenario = {
 
 describe("remote agent OpenMeld tool catalog", () => {
   it("pages a large authorized directory without losing member or Agent fields", async () => {
+    // Captured Core team-safe contract: null is redacted/unknown, while the
+    // binding source remains not_checked. Pagination must retain that evidence.
+    const teamReadiness = readinessResponse(AGENT_PROFILE_ID);
+    teamReadiness.agentExecutionReadiness.facts.binding = {
+      reasonCodes: [],
+      routable: false,
+      source: "not_checked",
+    };
+    teamReadiness.primaryBinding = null;
     const directory = organizationDirectoryResponseSchema.parse({
       ...organizationDirectoryResponse(),
       members: Array.from({ length: 19 }, (_, index) => ({
@@ -145,7 +154,7 @@ describe("remote agent OpenMeld tool catalog", () => {
           lastUsedAt: null,
           createdAt: ISO_NOW,
           updatedAt: ISO_NOW,
-          readiness: readinessResponse(AGENT_PROFILE_ID),
+          readiness: teamReadiness,
         },
       ],
     });

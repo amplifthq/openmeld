@@ -10,7 +10,10 @@ export type SpaceEntryAccessResult =
   | {
       kind: "allowed";
       activeMember: boolean;
-      meta: Pick<GetSpaceStatusResponse, "name" | "accessMode" | "allowGuests">;
+      meta: Pick<
+        GetSpaceStatusResponse,
+        "name" | "accessMode" | "allowGuests" | "linkJoinPolicy"
+      >;
     }
   | {
       kind: "denied";
@@ -144,6 +147,9 @@ function resolveAllowedParticipation(
 ): GetSpaceEntryResolutionResponse["participation"] {
   if (access.activeMember) {
     return { state: "active_member" };
+  }
+  if (access.meta.linkJoinPolicy === "invite_only") {
+    return { state: "owner_add_required" };
   }
   if (access.meta.accessMode === "public_view_join_password") {
     return { state: "password_required" };

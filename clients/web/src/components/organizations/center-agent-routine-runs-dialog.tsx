@@ -12,6 +12,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { formatRoutineTimestamp } from "#/lib/organizations/center-agent-routine-presentation";
 import { resolveCenterAgentRoutineErrorMessage } from "#/lib/organizations/center-agent-routines";
@@ -45,11 +46,7 @@ export function CenterAgentRoutineRunsDialog(input: {
 						until they finish.
 					</DialogDescription>
 				</DialogHeader>
-				{runsQuery.isPending ? (
-					<p aria-live="polite" className="text-muted-foreground text-sm">
-						Loading runs.
-					</p>
-				) : null}
+				{runsQuery.isPending ? <SkeletonRows label="Loading runs" /> : null}
 				{runsQuery.isError ? (
 					<div className="rounded-md border border-destructive/50 bg-destructive/5 p-4">
 						<p className="break-words text-destructive text-sm" role="alert">

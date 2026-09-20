@@ -107,10 +107,10 @@ export async function runResumableCliRelease(input) {
       write
     );
     printCliReleaseDecisions(initial, write);
-    return initial;
+    return { ...initial, sourceSha: target.headSha };
   }
 
-  return await executeIncompleteCliRelease({
+  const result = await executeIncompleteCliRelease({
     adapters,
     cwd,
     env,
@@ -120,6 +120,28 @@ export async function runResumableCliRelease(input) {
     withBinary,
     write,
   });
+  return { ...result, sourceSha: target.headSha };
+}
+
+// Reuse the CLI owner's immutable channel checks for receipt recovery without
+// entering any publisher, tag writer or deployment path.
+export async function readCompletedCliRelease(input = {}) {
+  const cwd = input.cwd ?? process.cwd();
+  const env = input.env ?? process.env;
+  const adapters = {
+    fetch: input.adapters?.fetch ?? fetch,
+    runCommand: input.adapters?.runCommand ?? runReadOnlyCommand,
+    readRemoteTagCommit:
+      input.adapters?.readRemoteTagCommit ?? readRemoteTagCommit,
+  };
+  const target = resolveCliReleaseTarget({ cwd });
+  const result = await probeCliReleaseStages({ cwd, env, adapters, target });
+  if (result.alignment.action !== "SKIP" || result.tag.action !== "SKIP") {
+    throw new Error(
+      "Retained CLI receipt is not fully aligned; reconcile its immutable stages before continuing."
+    );
+  }
+  return { ...result, sourceSha: target.headSha };
 }
 
 async function resumeNpmVerification(input) {
@@ -422,6 +444,9 @@ function resolveCliReleaseTarget(input) {
   const packageJson = JSON.parse(
     readFileSync(join(input.cwd, "clients/openmeld-cli/package.json"), "utf8")
   );
+  const releaseManifest = JSON.parse(
+    readFileSync(join(input.cwd, "release/local-components.json"), "utf8")
+  );
   const headSha = execFileSync(gitBinary(), ["rev-parse", "HEAD"], {
     cwd: input.cwd,
     encoding: "utf8",
@@ -430,6 +455,9 @@ function resolveCliReleaseTarget(input) {
     coreTag: resolveCoreProjectionTag(input),
     headSha,
     minRequiredCliVersion: packageJson.openmeld?.minRequiredCliVersion ?? null,
+    serviceVersion:
+      releaseManifest?.components?.service?.bundleVersion ??
+      packageJson.version,
     tagName: `v${packageJson.version}`,
     version: packageJson.version,
   };
@@ -449,12 +477,18 @@ async function probeCliBinaryStage(input) {
         manifest,
         platform: CLI_BINARY_PLATFORM,
         targetMinRequiredCliVersion: input.target.minRequiredCliVersion,
+        targetServiceVersion: input.target.serviceVersion,
         targetVersion: input.target.version,
       });
     }
     const artifact =
       manifest?.channels?.stable?.platforms?.[CLI_BINARY_PLATFORM];
-    const probeArtifact = async ({ archive, url }) => {
+    const selectedService = manifest.channels.stable.service ?? {
+      platforms: manifest.channels.stable.platforms,
+      version: manifest.channels.stable.version,
+    };
+    const serviceArtifact = selectedService.platforms?.[CLI_BINARY_PLATFORM];
+    const probeArtifact = async ({ archive, expectedSizeBytes, url }) => {
       if (typeof url !== "string" || url.length === 0) {
         return null;
       }
@@ -478,7 +512,7 @@ async function probeCliBinaryStage(input) {
           }
           const compressed = Buffer.from(await response.arrayBuffer());
           const reconstructed = gunzipSync(compressed, {
-            maxOutputLength: artifact.sizeBytes,
+            maxOutputLength: expectedSizeBytes,
           });
           return {
             contentLength: compressed.byteLength,
@@ -506,16 +540,46 @@ async function probeCliBinaryStage(input) {
         clearTimeout(timeout);
       }
     };
-    const [artifactProbe, archiveProbe] = await Promise.all([
-      probeArtifact({ archive: false, url: artifact?.url }),
-      probeArtifact({ archive: true, url: artifact?.archiveUrl }),
+    const [
+      artifactProbe,
+      archiveProbe,
+      serviceArtifactProbe,
+      serviceArchiveProbe,
+    ] = await Promise.all([
+      probeArtifact({
+        archive: false,
+        expectedSizeBytes: artifact?.sizeBytes,
+        url: artifact?.url,
+      }),
+      probeArtifact({
+        archive: true,
+        expectedSizeBytes: artifact?.sizeBytes,
+        url: artifact?.archiveUrl,
+      }),
+      input.target.serviceVersion === input.target.version
+        ? Promise.resolve(null)
+        : probeArtifact({
+            archive: false,
+            expectedSizeBytes: serviceArtifact?.sizeBytes,
+            url: serviceArtifact?.url,
+          }),
+      input.target.serviceVersion === input.target.version
+        ? Promise.resolve(null)
+        : probeArtifact({
+            archive: true,
+            expectedSizeBytes: serviceArtifact?.sizeBytes,
+            url: serviceArtifact?.archiveUrl,
+          }),
     ]);
     return decideCliBinaryStage({
       archiveProbe,
       artifactProbe,
       manifest,
       platform: CLI_BINARY_PLATFORM,
+      serviceArchiveProbe,
+      serviceArtifactProbe,
       targetMinRequiredCliVersion: input.target.minRequiredCliVersion,
+      targetServiceVersion: input.target.serviceVersion,
       targetVersion: input.target.version,
     });
   } catch (error) {
@@ -523,6 +587,7 @@ async function probeCliBinaryStage(input) {
       platform: CLI_BINARY_PLATFORM,
       probeError: error instanceof Error ? error.message : String(error),
       targetMinRequiredCliVersion: input.target.minRequiredCliVersion,
+      targetServiceVersion: input.target.serviceVersion,
       targetVersion: input.target.version,
     });
   }

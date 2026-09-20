@@ -182,6 +182,7 @@ export function buildNextSpaceMetaRecord(input: {
       ? { directMessage: input.existing.directMessage }
       : {}),
     accessMode: resolveSpaceMetaAccessMode(input, visibility),
+    linkJoinPolicy: input.existing?.linkJoinPolicy ?? "invite_only",
     ...(input.existing?.passwordProof
       ? { passwordProof: input.existing.passwordProof }
       : {}),

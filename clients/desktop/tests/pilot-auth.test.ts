@@ -9,6 +9,10 @@ const platform = vi.hoisted(() => ({
   registerSchemes: vi.fn(),
 }));
 const usableSessionToken = /session_token=[^;]+/u;
+// OS receiver behavior is covered with real temporary app paths separately.
+vi.mock("../src/main/pilot-auth-callback", () => ({
+  assertPilotAuthCallback: vi.fn(),
+}));
 vi.mock("electron", () => ({
   app: {
     on: platform.on,

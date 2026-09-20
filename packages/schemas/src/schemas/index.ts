@@ -190,6 +190,12 @@ export {
   parseAgentControllerRef,
 } from "./daemon/agent-controller-ref";
 export {
+  computerCareObservationSchema,
+  executionHostObservationSchema,
+  OPENMELD_COMPUTER_CARE_HEADER,
+} from "./daemon/computer-care";
+export {
+  COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   computerFileAccessAbsolutePathSchema,
   computerFileAccessDaemonFrameSchema,
@@ -208,6 +214,7 @@ export {
   computerFileAccessUpdateRequestSchema,
   computerFileAccessUpdateResultFrameSchema,
   computerFileAccessUpdateRpcInputSchema,
+  isComputerFileAccessOwnerCancellation,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
   runtimeTransportComputerFileAccessReadRequestSchema,
   runtimeTransportComputerFileAccessUpdateRequestSchema,
@@ -216,6 +223,8 @@ export {
   DAEMON_PROFILE_SKIP_REASON_VALUES,
   daemonProfileSkipReasonSchema,
   localAgentInstallationOptionSchema,
+  OPENMELD_DAEMON_CANCEL_STOP_REQUESTED_AFTER_START_REASON_CODE,
+  OPENMELD_DAEMON_CANCEL_WITHDRAWN_BEFORE_START_REASON_CODE,
   OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,
   openMeldDaemonCancelPayloadSchema,
   openMeldDaemonCancelRequestPayloadSchema,
@@ -558,6 +567,7 @@ export {
   localWakeRouteWorkingFolderObservationSchema,
   localWakeRouteWorkingFolderReasonCodeSchema,
   MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS,
+  OPENMELD_EXECUTION_ADMISSION_HEADER,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportAgentControllerConversationOccupancySchema,
   runtimeTransportAgentProfileExecutionStateRequestSchema,
@@ -572,6 +582,10 @@ export {
   runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema,
   runtimeTransportAgentProfileWorkContinuationNeedsAttentionRequestSchema,
   runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseSchema,
+  runtimeTransportAgentProfileWorkHandoffRequestSchema,
+  runtimeTransportAgentProfileWorkHandoffResponseSchema,
+  runtimeTransportAgentProfileWorkLocalAttemptWithdrawalRequestSchema,
+  runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema,
   runtimeTransportAgentProfileWorkQueueApproveRequestSchema,
   runtimeTransportAgentProfileWorkQueueApproveResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryActionSchema,
@@ -592,6 +606,7 @@ export {
   runtimeTransportDispatchInteractionDeliveredRequestSchema,
   runtimeTransportDispatchInteractionRequestSchema,
   runtimeTransportDispatchInteractionResponseFramePayloadSchema,
+  runtimeTransportDispatchLifecycleAcknowledgementSchema,
   runtimeTransportDispatchLifecyclePhaseSchema,
   runtimeTransportDispatchLifecycleRequestSchema,
   runtimeTransportDispatchLifecycleSnapshotSchema,
@@ -729,6 +744,7 @@ export {
   openMeldDaemonTaskResultStatusSchema,
   openMeldDaemonTaskResultTelemetrySchema,
 } from "./daemon/task-result";
+export { windowsProcessJobRequestSchema } from "./daemon/windows-process-job";
 export {
   type WindowsUserTaskRequest,
   windowsUserTaskActionSchema,
@@ -1489,6 +1505,8 @@ export {
   identityImageMimeTypeSchema,
 } from "./http/identity-image";
 export * from "./http/inbox";
+export * from "./http/inbox-desktop-updates";
+export * from "./http/inbox-feed";
 export {
   listSignalsQuerySchema,
   normalizeListSignalsReadQuerySemantics,
@@ -2024,10 +2042,12 @@ export {
 } from "./http/slack-workspace-directory";
 export {
   SPACE_ACCESS_MODES,
+  SPACE_LINK_JOIN_POLICIES,
   setSpaceAccessModeBodySchema,
   spaceAccessModeSchema,
   spaceAccessModeStateSchema,
   spaceAccessModeUsesPassword,
+  spaceLinkJoinPolicySchema,
 } from "./http/space-access-mode";
 export {
   respondToSpaceAgentInteractionBodySchema,
@@ -2477,6 +2497,7 @@ export {
   openMeldToolsUpdateProcessFailureFrameSchema,
   openMeldToolsUpdateRequestResultSchema,
   openMeldToolsUpdateRequestSourceSchema,
+  resolveOpenMeldToolsUpdateTargetVersions,
 } from "./local-components";
 export {
   MAC_OS_KEYCHAIN_AUTHENTICATION_INTERACTION,
@@ -2516,6 +2537,7 @@ export {
   prepareBlockerRetryActionSchema,
   prepareBlockerSchema,
   prepareBlockerSeveritySchema,
+  prepareConnectionProgressWriteSchema,
   prepareDiagnosticResponseSchema,
   prepareLocalAgentCatalogSchema,
   prepareLocalAgentIdsSchema,

@@ -87,7 +87,10 @@ export type OpenMeldDaemonControlPlaneContext = {
     | OpenMeldDaemonSetLocalAgentEnabledResponsePayload
     | Promise<OpenMeldDaemonSetLocalAgentEnabledResponsePayload>;
   shutdownHandler?: (
-    payload: OpenMeldDaemonShutdownRequestPayload
+    payload: OpenMeldDaemonShutdownRequestPayload,
+    lifecycle?: {
+      onAdmitted: () => void;
+    }
   ) =>
     | OpenMeldDaemonShutdownResponsePayload
     | Promise<OpenMeldDaemonShutdownResponsePayload>;
@@ -109,6 +112,10 @@ export function parseControlPlaneRequest(
 
 export async function buildControlPlaneResponse(input: {
   context: OpenMeldDaemonControlPlaneContext;
+  lifecycle?: {
+    onAuthenticated?: () => void;
+    onShutdownAdmitted?: () => void;
+  };
   request: unknown;
 }): Promise<OpenMeldDaemonControlPlaneResponse> {
   const request = parseControlPlaneRequest(input.request);
@@ -174,6 +181,7 @@ export async function buildControlPlaneResponse(input: {
     case "shutdown":
       return await buildShutdownControlPlaneResponse({
         context: input.context,
+        lifecycle: input.lifecycle,
         payload: request.payload,
         requestMeta,
       });
@@ -351,6 +359,9 @@ async function buildConversationExecutionStatusControlPlaneResponse(input: {
 
 async function buildShutdownControlPlaneResponse(input: {
   context: OpenMeldDaemonControlPlaneContext;
+  lifecycle?: {
+    onShutdownAdmitted?: () => void;
+  };
   payload: OpenMeldDaemonShutdownRequestPayload | undefined;
   requestMeta: {
     requestId?: string;
@@ -362,7 +373,12 @@ async function buildShutdownControlPlaneResponse(input: {
     gracePeriodMs: 5000,
   };
   const payload = input.context.shutdownHandler
-    ? await input.context.shutdownHandler(resolvedShutdownPayload)
+    ? await input.context.shutdownHandler(
+        resolvedShutdownPayload,
+        input.lifecycle?.onShutdownAdmitted
+          ? { onAdmitted: input.lifecycle.onShutdownAdmitted }
+          : undefined
+      )
     : {
         accepted: false,
         mode: resolvedShutdownPayload.mode,

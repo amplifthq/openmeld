@@ -46,10 +46,7 @@ import {
 	UnsavedChangesGuard,
 } from "#/components/forms/unsaved-changes-guard";
 import { usePublishInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
-import {
-	buildCenterAgentHeaderMenuItems,
-	CenterAgentHeaderTabs,
-} from "#/components/organizations/center-agent-header-navigation";
+import { CenterAgentHeaderTabs } from "#/components/organizations/center-agent-header-navigation";
 import { useAccountAvatar } from "#/hooks/account.hooks";
 import {
 	planAgentProfileReplyRecoveryFromWebEvidence,
@@ -124,7 +121,6 @@ import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recover
 import { SpaceComposer } from "./space-composer";
 import type { SpaceAgentDirectConversationComposerHintKind } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
-
 import { SpaceHeader } from "./space-header";
 import {
 	isSameOwnerUserId,
@@ -149,6 +145,10 @@ import {
 	SpaceConversationRecoveryBanner,
 	type SpaceSetupVisibility,
 } from "./space-onboarding-banner";
+import {
+	SpaceFilesSkeleton,
+	SpaceTasksSkeleton,
+} from "./space-panel-skeletons";
 import {
 	partitionSpacePendingAgentActions,
 	resolveSpacePendingAgentActionIdentity,
@@ -222,13 +222,7 @@ function SpaceTasksPanelSlot(input: {
 		return null;
 	}
 	return (
-		<Suspense
-			fallback={
-				<output className="p-6 text-muted-foreground text-sm">
-					Loading Tasks…
-				</output>
-			}
-		>
+		<Suspense fallback={<SpaceTasksSkeleton />}>
 			<SpaceTasksPanel
 				key={input.spaceId}
 				membersSnapshot={input.membersSnapshot}
@@ -523,6 +517,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 			isDirectMessageConversation: input.isDirectMessageConversation === true,
 		}),
 		organizationId,
+		profileId: input.profileId,
 		spaceId: input.spaceId,
 	});
 	const recovery = useLocalAgentRecoveryController({
@@ -562,6 +557,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 				: (throughOccurredAtMs) =>
 						spaceInboxReadPosition.markReadThrough(throughOccurredAtMs),
 		unreadStateReady: spaceInboxReadPosition.isReady,
+		unreadTotalCount: spaceInboxReadPosition.totalUnreadCount,
 		unreadTargets: spaceInboxReadPosition.targets,
 		onInitialPendingMessageConsumed: input.onInitialPendingMessageConsumed,
 		onWakeFinalOutcomeFactsRefresh: refreshWakeFinalOutcomeFacts,
@@ -1753,12 +1749,6 @@ function SpaceLandingReady({
 								</>
 							}
 							membersControl={input.isGuest ? undefined : membersControl}
-							menuItems={
-								currentSpaceIsCenterAgentDirectMessage && input.orgSlug
-									? buildCenterAgentHeaderMenuItems(input.orgSlug)
-									: undefined
-							}
-							menuLabel="Center Agent menu"
 							notificationControl={
 								<SpaceNotificationMenu
 									isGuest={input.isGuest}
@@ -1772,10 +1762,10 @@ function SpaceLandingReady({
 							}
 							onReconnectLiveUpdates={controller.onReconnectLiveUpdates}
 							onSetAccessMode={controller.onSetAccessMode}
-							onSetVisibility={controller.onSetVisibility}
 							onUpdateSpaceName={controller.onUpdateSpaceName}
 							renderFrame={false}
 							setupRecallAction={setupRecallAction}
+							showChatSettingsMenu={currentSpaceIsCenterAgentDirectMessage}
 							showDeleteSpaceAction={
 								controller.isCurrentAccessConfirmed &&
 								controller.showDeleteSpaceAction
@@ -2188,6 +2178,8 @@ function SpaceLandingConversation({
 			composerAuthoredMentions={controller.composerAuthoredMentions}
 			composerBlockedWakeProfileId={controller.composerBlockedWakeProfileId}
 			composerErrorMessage={controller.composerErrorMessage}
+			composerFileCleanup={controller.composerFileCleanup}
+			composerFileRestorationError={controller.composerFileRestorationError}
 			composerFiles={controller.composerFiles}
 			composerMembers={
 				controller.membersSnapshot
@@ -2212,13 +2204,7 @@ function SpaceLandingConversation({
 			emptyStateTitle={isDirectMessage ? undefined : EMPTY_SPACE_TITLE}
 			ephemeralActivityItems={controller.ephemeralActivityItems}
 			files={
-				<Suspense
-					fallback={
-						<output className="p-6 text-muted-foreground text-sm">
-							Loading files…
-						</output>
-					}
-				>
+				<Suspense fallback={<SpaceFilesSkeleton className="p-6" showToolbar />}>
 					<SpaceFilesPanel
 						fileToOpen={spaceFileToOpen}
 						key={controller.spaceId}
@@ -2260,10 +2246,23 @@ function SpaceLandingConversation({
 			onOpenSpaceFile={openSpaceFile}
 			onOpenThread={controller.onOpenThread}
 			onOpenUnreadThread={controller.onOpenUnreadThread}
+			onPrepareCatchUpUnread={
+				input.readingEnabled !== false &&
+				currentProfileIsActiveSpaceMember &&
+				spaceInboxReadPosition.isReady &&
+				spaceInboxReadPosition.targets.some(
+					(target) => target.threadRootSignalId === null
+				)
+					? spaceInboxReadPosition.prepareCatchUpMain
+					: undefined
+			}
 			onRecoverExecution={controller.onRecoverExecution}
 			onRemoveComposerFile={controller.onRemoveComposerFile}
 			onReplyToMessage={controller.onReplyToMessage}
 			onReportMessage={controller.onReportMessage}
+			onRetryComposerFile={controller.onRetryComposerFile}
+			onRetryComposerFileCleanup={controller.onRetryComposerFileCleanup}
+			onRetryComposerFileRestoration={controller.onRetryComposerFileRestoration}
 			onSend={controller.onSend}
 			onSendStarterPrompt={controller.onSendText}
 			onSpaceViewChange={spaceFileNavigation.changeSpaceView}
@@ -2346,6 +2345,7 @@ function SpaceLandingConversation({
 			threads={controller.threads}
 			threadsErrorMessage={controller.threadsErrorMessage}
 			timelineItems={controller.timelineItems}
+			unreadBatchOccurredAtMs={spaceInboxReadPosition.latestUnreadOccurredAtMs}
 			unreadCount={controller.unreadCount}
 			unreadTargets={spaceInboxReadPosition.targets}
 			viewState={{
@@ -2810,7 +2810,11 @@ function SpaceLandingSecondaryPanels({
 					controller.threadComposerBlockedWakeProfileId
 				}
 				composerErrorMessage={controller.threadComposerErrorMessage}
+				composerFileCleanup={controller.threadComposerFileCleanup}
 				composerFileLimitReached={controller.threadComposerFileLimitReached}
+				composerFileRestorationError={
+					controller.threadComposerFileRestorationError
+				}
 				composerFiles={controller.threadComposerFiles}
 				composerHasAuthoredMentions={
 					controller.threadComposerHasAuthoredMentions
@@ -2866,6 +2870,11 @@ function SpaceLandingSecondaryPanels({
 				onRecoverExecution={controller.onRecoverExecution}
 				onRemoveComposerFile={controller.onRemoveThreadComposerFile}
 				onReportMessage={controller.onReportMessage}
+				onRetryComposerFile={controller.onRetryThreadComposerFile}
+				onRetryComposerFileCleanup={controller.onRetryThreadComposerFileCleanup}
+				onRetryComposerFileRestoration={
+					controller.onRetryThreadComposerFileRestoration
+				}
 				onSend={controller.onThreadSend}
 				onSendText={controller.onThreadSendText}
 				onViewedThroughTs={
@@ -2896,6 +2905,7 @@ function SpaceLandingSecondaryPanels({
 				spaceReferencesById={spaceReferencesById}
 				spaceTimelineItems={controller.timelineItems}
 				textareaRef={controller.threadTextareaRef}
+				unreadStateReady={spaceInboxReadPosition.isReady}
 				unreadTargets={spaceInboxReadPosition.targets}
 				wakeFailureTargetContextsByProfileId={
 					wakeFailureTargetContextsByProfileId

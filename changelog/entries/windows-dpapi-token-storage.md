@@ -4,7 +4,9 @@ title: Restore secure Windows CLI sign-in
 kind: fixed
 areas: ["cli", "authentication"]
 audiences: ["users"]
-evidence: ["pr:1125"]
+publishedAt: 2026-09-16
+release: v0.3.212
+evidence: ["pr:1125", "pr:1133", "commit:b8dcd2b62dab99a9f852783550a913afe718abd4", "workflow:35136910148"]
 ---
 
 The Windows CLI now loads the system encryption component before saving or

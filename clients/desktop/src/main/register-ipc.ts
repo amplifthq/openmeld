@@ -1,6 +1,9 @@
 import { type IpcMainInvokeEvent, ipcMain } from "electron";
 import { OPENMELD_IPC } from "../shared/ipc-contract";
-import { isAbsoluteWebPath } from "./desktop-environment";
+import {
+  isAbsoluteWebPath,
+  normalizeExternalBrowserUrl,
+} from "./desktop-environment";
 import type { DesktopHandlers } from "./ipc-handlers";
 
 export function registerOpenMeldIpcHandlers(
@@ -36,6 +39,12 @@ export function registerOpenMeldIpcHandlers(
   handle(OPENMELD_IPC.openWeb, (_event, path) => {
     const input = validateOpenWebInput(path);
     return handlers.openWeb(input.path);
+  });
+  handle(OPENMELD_IPC.openExternal, (_event, url) => {
+    if (!handlers.openExternal) {
+      throw new Error("Opening an external link is unavailable.");
+    }
+    return handlers.openExternal(normalizeExternalBrowserUrl(url));
   });
   handle(OPENMELD_IPC.getDesktopSettings, () => handlers.getDesktopSettings());
   handle(OPENMELD_IPC.setOpenAtLogin, (_event, enabled) => {

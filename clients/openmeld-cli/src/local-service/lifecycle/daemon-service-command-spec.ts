@@ -1,6 +1,10 @@
 import { userInfo } from "node:os";
 import process from "node:process";
 import {
+  normalizeCommandEnvironment,
+  WINDOWS_RUNTIME_ENV_KEYS,
+} from "@openmeld/adapter-core/process-environment";
+import {
   DAEMON_SERVICE_RUNTIME_AUTO_START_ENV,
   DAEMON_SERVICE_RUNTIME_CONTROLLER_ENV,
   DAEMON_SERVICE_RUNTIME_DETACHED_ENV,
@@ -157,7 +161,9 @@ export async function ensureDaemonSystemServiceCommandFiles(input: {
 function buildSystemServiceEnvironment(): Record<string, string> {
   const env: Record<string, string> = {};
   const runtimeUser = userInfo().username;
-  for (const [key, value] of Object.entries(process.env)) {
+  for (const [key, value] of Object.entries(
+    normalizeCommandEnvironment(process.env)
+  )) {
     if (
       typeof value !== "string" ||
       value.length === 0 ||
@@ -177,7 +183,11 @@ function buildSystemServiceEnvironment(): Record<string, string> {
 }
 
 function isDaemonServiceEnvironmentKey(key: string): boolean {
-  return DAEMON_SERVICE_ENV_KEY_WHITELIST.has(key);
+  return (
+    DAEMON_SERVICE_ENV_KEY_WHITELIST.has(key) ||
+    (process.platform === "win32" &&
+      WINDOWS_RUNTIME_ENV_KEYS.some((candidate) => candidate === key))
+  );
 }
 
 function sanitizeDaemonServiceEnvironmentValue(value: string): string {

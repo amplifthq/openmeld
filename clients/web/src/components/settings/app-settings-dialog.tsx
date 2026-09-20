@@ -1,7 +1,14 @@
 import { Dialog } from "@openmeld/ui/components/dialog";
-import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
+import {
+	useLocation,
+	useNavigate,
+	useParams,
+	useSearch,
+} from "@tanstack/react-router";
 import { useEffect } from "react";
+import { useCurrentComputer } from "#/components/app/current-computer";
 import { getDesktopPlatform } from "#/desktop/platform";
+import { buildOrganizationInboxPath } from "#/lib/organizations/organization-routes";
 import { SettingsPage } from "./settings-page";
 import { type AppSettingsSection, useAppSettings } from "./use-app-settings";
 
@@ -9,7 +16,9 @@ export default function AppSettingsDialog() {
 	const { appSettings } = useSearch({ strict: false });
 	const navigate = useNavigate({ from: "/o/$orgSlug" });
 	const pathname = useLocation({ select: (location) => location.pathname });
+	const { orgSlug } = useParams({ strict: false });
 	const openSettings = useAppSettings();
+	const computer = useCurrentComputer();
 	useEffect(() => {
 		const bridge = getDesktopPlatform();
 		if (!bridge) {
@@ -23,8 +32,17 @@ export default function AppSettingsDialog() {
 			observer.disconnect();
 			unsubscribe = bridge.onWindowDestinationChange((destination) => {
 				// Native menu intents must respect the updater's interaction freeze too.
-				if (destination === "settings" && !document.body.inert) {
+				if (document.body.inert) {
+					return;
+				}
+				if (destination === "settings") {
 					openSettings().catch(console.error);
+				} else if (destination === "inbox" && orgSlug) {
+					navigate({
+						to: buildOrganizationInboxPath(orgSlug),
+					}).catch(console.error);
+				} else if (destination === "computer" && computer?.destination) {
+					navigate({ to: computer.destination }).catch(console.error);
 				}
 			});
 		};
@@ -40,7 +58,7 @@ export default function AppSettingsDialog() {
 			observer.disconnect();
 			unsubscribe?.();
 		};
-	}, [openSettings]);
+	}, [computer?.destination, navigate, openSettings, orgSlug]);
 	return (
 		<Dialog
 			onOpenChange={(open) => {

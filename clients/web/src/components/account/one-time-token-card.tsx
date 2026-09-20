@@ -9,13 +9,11 @@ import {
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { env } from "#/env";
 import { useGenerateOneTimeToken } from "#/hooks/account.hooks";
 import { getAuthErrorMessage } from "#/lib/auth-errors";
-import { isLocalWebOrigin } from "#/lib/local-web-origin";
+import { formatWebCliCommand } from "#/lib/cli-entry-command";
 import { DEFAULT_ONE_TIME_TOKEN_EXPIRES_IN_SECONDS } from "#/lib/one-time-token-expiry";
-
-const DEFAULT_DEV_AUTH_URL = "http://localhost:8788";
+import type { WebCliTargetInput } from "#/lib/web-cli-target";
 
 type StatusMessage = {
 	text: string;
@@ -49,44 +47,18 @@ function tokenStatusText(remainingSeconds: number | null): string {
 
 export function buildOneTimeTokenCommandDisplay(
 	oneTimeToken: string | null,
-	input: {
-		authUrl?: string;
-		origin?: string;
-	} = {}
+	input: WebCliTargetInput = {}
 ): OneTimeTokenCommandDisplay {
 	const tokenValue = oneTimeToken ?? "<token>";
-	const currentOrigin =
-		input.origin ??
-		(typeof window === "undefined" ? "" : window.location.origin);
-	const authUrl = normalizeOptionalString(
-		input.authUrl ?? env.VITE_BETTER_AUTH_URL
-	);
-
-	if (isLocalWebOrigin(currentOrigin)) {
-		const baseCommand =
-			authUrl && authUrl !== DEFAULT_DEV_AUTH_URL
-				? `OPENMELD_AUTH_URL=${authUrl} openmeld-dev login`
-				: "openmeld-dev login";
-
-		return {
-			primaryCommand: `${baseCommand} --ott ${tokenValue}`,
-			alternateCommand: null,
-			helperText:
-				"Use openmeld-dev for the local-development lane. One-time tokens expire quickly and can only be used once, so generate a fresh token and use it immediately.",
-		};
-	}
-
 	return {
-		primaryCommand: `npx -y openmeld@latest login --ott ${tokenValue}`,
+		primaryCommand: formatWebCliCommand(
+			`openmeld login --ott ${tokenValue}`,
+			input
+		),
 		alternateCommand: null,
 		helperText:
-			"Use the published OpenMeld CLI package. One-time tokens expire quickly and can only be used once, so generate a fresh token and use it immediately.",
+			"Use this command for the current OpenMeld environment. One-time tokens expire quickly and can only be used once, so generate a fresh token and use it immediately.",
 	};
-}
-
-function normalizeOptionalString(value: string | undefined): string | null {
-	const normalized = String(value ?? "").trim();
-	return normalized.length > 0 ? normalized : null;
 }
 
 export function OneTimeTokenCard() {

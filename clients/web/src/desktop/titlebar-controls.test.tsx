@@ -19,6 +19,7 @@ import { DesktopTitlebarContext } from "./titlebar-context";
 afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
 });
 
 it.each([
@@ -61,9 +62,19 @@ it.each([
 });
 
 it.each([
-	true,
-	false,
-])("moves the live sidebar control into the titlebar and handles each shortcut once (wide: %s)", (wide) => {
+	{ platform: "MacIntel", wide: true },
+	{ platform: "MacIntel", wide: false },
+	{ platform: "Win32", wide: true },
+	{ platform: "Win32", wide: false },
+])("handles $platform shortcuts once without stealing draft input (wide: $wide)", ({
+	platform,
+	wide,
+}) => {
+	vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
+	const modifier =
+		platform === "MacIntel" ? { metaKey: true } : { ctrlKey: true };
+	const wrongModifier =
+		platform === "MacIntel" ? { ctrlKey: true } : { metaKey: true };
 	vi.stubGlobal("matchMedia", (media: string) => ({
 		matches: media === "(min-width: 64rem)" ? wide : false,
 		media,
@@ -114,7 +125,12 @@ it.each([
 	expect(screen.queryByRole("button", { name: "Hide sidebar" })).toBeNull();
 	const toggle = controls.getByRole("button", { name: "Toggle sidebar" });
 	const draft = screen.getByRole("textbox", { name: "Draft" });
-	fireEvent.keyDown(window, { key: "b", metaKey: true });
+	const initialExpanded = toggle.getAttribute("aria-expanded");
+	fireEvent.keyDown(window, { key: "b", ...wrongModifier });
+	fireEvent.keyDown(window, { key: "b", ...modifier, isComposing: true });
+	fireEvent.keyDown(window, { key: "b", ...modifier, altKey: true });
+	expect(toggle.getAttribute("aria-expanded")).toBe(initialExpanded);
+	fireEvent.keyDown(window, { key: "b", ...modifier });
 	expect(toggle.getAttribute("aria-expanded")).toBe(wide ? "false" : "true");
 	if (!wide) {
 		expect(screen.getByRole("dialog")).toBeTruthy();
@@ -130,8 +146,8 @@ it.each([
 		return;
 	}
 	const expanded = toggle.getAttribute("aria-expanded");
-	fireEvent.keyDown(draft, { key: "b", metaKey: true });
-	fireEvent.keyDown(window, { key: "b", metaKey: true, repeat: true });
+	fireEvent.keyDown(draft, { key: "b", ...modifier });
+	fireEvent.keyDown(window, { key: "b", ...modifier, repeat: true });
 	expect(toggle.getAttribute("aria-expanded")).toBe(expanded);
 	expect(screen.getByRole("textbox", { name: "Draft" })).toBe(draft);
 	expect(draft).toHaveProperty("value", "Unsent work");
@@ -139,22 +155,22 @@ it.each([
 		history.push("/o/team/people");
 		history.push("/o/team/inbox");
 	});
-	fireEvent.keyDown(window, { key: "[", metaKey: true });
+	fireEvent.keyDown(window, { key: "[", ...modifier });
 	expect(history.location.href).toBe("/o/team/people");
 	expect(controls.getByRole("button", { name: "Forward" })).toHaveProperty(
 		"disabled",
 		false
 	);
-	fireEvent.keyDown(draft, { key: "]", metaKey: true });
+	fireEvent.keyDown(draft, { key: "]", ...modifier });
 	expect(history.location.href).toBe("/o/team/people");
-	fireEvent.keyDown(window, { key: "]", metaKey: true });
+	fireEvent.keyDown(window, { key: "]", ...modifier });
 	expect(history.location.href).toBe("/o/team/inbox");
 	expect(controls.getByRole("button", { name: "Forward" })).toHaveProperty(
 		"disabled",
 		true
 	);
 	act(() => navigation.reset());
-	fireEvent.keyDown(window, { key: "[", metaKey: true });
+	fireEvent.keyDown(window, { key: "[", ...modifier });
 	expect(history.location.href).toBe("/o/team/inbox");
 	expect(controls.getByRole("button", { name: "Back" })).toHaveProperty(
 		"disabled",

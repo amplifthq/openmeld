@@ -1,20 +1,27 @@
 import type { SignalEnvelope } from "@openmeld/schemas/types";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readSpaceConversationPosition } from "#/lib/space-conversation-position";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { mergeSpaceTimelineEnvelopes } from "#/lib/spaces/timeline";
-import { SPACE_HISTORY_SIGNAL_KINDS } from "#/query/spaces/history";
+import {
+	SPACE_HISTORY_SIGNAL_KINDS,
+	writeSpaceHistoryEnvelopesToCache,
+} from "#/query/spaces/history";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 
 export function useSpaceHistoryNavigation(input: {
 	spaceId: string;
 	profileId: string;
 	anonymous?: boolean;
+	hrefForSignalId?: (signalId: string) => string;
+	initialWindowAnchorSignalId?: string;
+	latestHref?: string;
 	enabled: boolean;
 	accessRejected: boolean;
 	liveEnvelopes: readonly SignalEnvelope[];
 }) {
+	const queryClient = useQueryClient();
 	const identity = `${input.spaceId}:${input.profileId}`;
 	const [window, setWindow] = useState<HistoryWindow | null>(null);
 	const [liveBoundary, setLiveBoundary] = useState<{
@@ -96,18 +103,31 @@ export function useSpaceHistoryNavigation(input: {
 	// Live edits and recalls also replace messages in an already-open old window.
 	// Keep its boundaries: a new live message must not pull the reader to latest.
 	const activeWindow = useMemo(() => {
-		if (window?.identity !== identity) {
+		const selectedWindow =
+			window?.identity === identity
+				? window
+				: initialHistoryWindow({
+						anchorSignalId: input.initialWindowAnchorSignalId,
+						envelopes: input.liveEnvelopes,
+						identity,
+					});
+		if (!selectedWindow) {
 			return null;
 		}
-		const ids = new Set(window.envelopes.map((item) => item.id));
+		const ids = new Set(selectedWindow.envelopes.map((item) => item.id));
 		return {
-			...window,
+			...selectedWindow,
 			envelopes: mergeSpaceTimelineEnvelopes({
-				current: window.envelopes,
+				current: selectedWindow.envelopes,
 				incoming: input.liveEnvelopes.filter((item) => ids.has(item.id)),
 			}),
 		};
-	}, [identity, window, input.liveEnvelopes]);
+	}, [
+		identity,
+		window,
+		input.initialWindowAnchorSignalId,
+		input.liveEnvelopes,
+	]);
 	const readWindow = async (
 		signalId: string,
 		direction?: "before" | "after",
@@ -142,20 +162,28 @@ export function useSpaceHistoryNavigation(input: {
 			if (!result.envelopes.some((item) => item.id === signalId)) {
 				throw new Error("This message is no longer available.");
 			}
+			writeSpaceHistoryEnvelopesToCache({
+				envelopes: result.envelopes,
+				queryClient,
+				spaceId: input.spaceId,
+				openMeldProfileId: input.profileId,
+			});
 			// The around SQL applies signal-kind and main-timeline filters before
 			// LIMIT. A full side may have more; a short side is an actual boundary.
 			const anchorIndex = result.envelopes.findIndex(
 				(item) => item.id === signalId
 			);
-			setWindow((current) =>
-				mergeHistoryWindow(
-					current,
+			setWindow((current) => {
+				const currentWindow =
+					current?.identity === identity ? current : activeWindow;
+				return mergeHistoryWindow(
+					currentWindow,
 					identity,
 					result.envelopes,
 					anchorIndex,
 					direction
-				)
-			);
+				);
+			});
 			return true;
 		} catch (failure) {
 			if (isCurrentRequest()) {
@@ -179,7 +207,24 @@ export function useSpaceHistoryNavigation(input: {
 		setPending(false);
 		setError(null);
 	};
+	const { earlierSignal, newerSignal } = continuationSignals({
+		activeWindow,
+		directoryTotal: directory.data?.total ?? 0,
+		fetchedCount: input.liveEnvelopes.length,
+		liveStartIndex,
+		visibleLiveEnvelopes,
+	});
 	return {
+		hrefForSignalId: input.hrefForSignalId,
+		earlierHref:
+			input.hrefForSignalId && earlierSignal
+				? input.hrefForSignalId(earlierSignal.id)
+				: undefined,
+		latestHref: input.latestHref,
+		newerHref:
+			input.hrefForSignalId && newerSignal
+				? input.hrefForSignalId(newerSignal.id)
+				: undefined,
 		visibleLiveEnvelopes,
 		hasHiddenLiveHistory: liveStartIndex > 0,
 		revealCachedBefore: (envelopes = input.liveEnvelopes) => {
@@ -247,6 +292,54 @@ type HistoryWindow = {
 	hasBefore: boolean;
 	hasAfter: boolean;
 };
+
+function continuationSignals(input: {
+	activeWindow: HistoryWindow | null;
+	directoryTotal: number;
+	fetchedCount: number;
+	liveStartIndex: number;
+	visibleLiveEnvelopes: readonly SignalEnvelope[];
+}) {
+	if (input.activeWindow) {
+		return {
+			earlierSignal: input.activeWindow.hasBefore
+				? input.activeWindow.envelopes[0]
+				: undefined,
+			newerSignal: input.activeWindow.hasAfter
+				? input.activeWindow.envelopes.at(-1)
+				: undefined,
+		};
+	}
+	return {
+		earlierSignal:
+			input.liveStartIndex > 0 || input.directoryTotal > input.fetchedCount
+				? input.visibleLiveEnvelopes[0]
+				: undefined,
+		newerSignal: undefined,
+	};
+}
+
+function initialHistoryWindow(input: {
+	anchorSignalId?: string;
+	envelopes: readonly SignalEnvelope[];
+	identity: string;
+}): HistoryWindow | null {
+	if (!input.anchorSignalId) {
+		return null;
+	}
+	const anchorIndex = input.envelopes.findIndex(
+		(item) => item.id === input.anchorSignalId
+	);
+	if (anchorIndex < 0) {
+		return null;
+	}
+	return {
+		identity: input.identity,
+		envelopes: input.envelopes,
+		hasBefore: anchorIndex >= 30,
+		hasAfter: input.envelopes.length - anchorIndex - 1 >= 30,
+	};
+}
 
 function navigationErrorMessage(failure: unknown) {
 	return failure instanceof Error

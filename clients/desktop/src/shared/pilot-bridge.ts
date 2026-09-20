@@ -1,8 +1,11 @@
 import type {
+  DesktopComputerConnectionOperation,
   DesktopComputerConnectionProgress,
   DesktopComputerConnectionRequest,
   DesktopComputerConnectionResult,
   DesktopComputerDisconnectRequest,
+  DesktopComputerDisconnectResult,
+  DesktopComputerOperation,
   DesktopLocalComputer,
   DesktopNotificationActivation,
   DesktopNotificationContext,
@@ -45,7 +48,11 @@ export const PILOT_IPC = {
   signOut: "desktop:sign-out",
   connectComputer: "desktop:connect-computer",
   disconnectComputer: "desktop:disconnect-computer",
+  disconnectComputerWithFeedback: "desktop:disconnect-computer-with-feedback",
   connectionProgress: "desktop:connection-progress",
+  connectionProgressCurrent: "desktop:connection-progress-current",
+  connectionOperation: "desktop:connection-operation",
+  connectionOperationCurrent: "desktop:connection-operation-current",
   sessionChanged: "desktop:session-changed",
   spaceStreamOpen: "desktop:space-stream-open",
   spaceStreamClose: "desktop:space-stream-close",
@@ -61,6 +68,8 @@ export type DesktopPilotBridge = DesktopSpaceStreamBridge & {
     handler: (request: DesktopUpdaterRestartRequest) => void
   ): () => void;
   onWindowDestinationChange: OpenMeldBridge["onWindowDestinationChange"];
+  onNavigationRequest: OpenMeldBridge["onNavigationRequest"];
+  openExternal: OpenMeldBridge["openExternal"];
   setNotificationContext(input: DesktopNotificationContext): Promise<void>;
   showNotification(
     input: DesktopNotificationRequest
@@ -82,8 +91,20 @@ export type DesktopPilotBridge = DesktopSpaceStreamBridge & {
     input: DesktopComputerConnectionRequest
   ): Promise<DesktopComputerConnectionResult>;
   disconnectComputer(input: DesktopComputerDisconnectRequest): Promise<boolean>;
+  disconnectComputerWithFeedback?(
+    input: DesktopComputerDisconnectRequest
+  ): Promise<DesktopComputerDisconnectResult>;
+  computerOperationCurrent?(): Promise<DesktopComputerOperation | null>;
+  onComputerOperation?(
+    handler: (operation: DesktopComputerOperation) => void
+  ): () => void;
+  connectionProgressCurrent(): Promise<DesktopComputerConnectionProgress | null>;
+  connectionOperationCurrent(): Promise<DesktopComputerConnectionOperation | null>;
   onConnectionProgress(
     handler: (progress: DesktopComputerConnectionProgress) => void
+  ): () => void;
+  onConnectionOperation(
+    handler: (operation: DesktopComputerConnectionOperation) => void
   ): () => void;
   onSessionChanged(handler: () => void): () => void;
 };

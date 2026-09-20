@@ -585,8 +585,10 @@ The Center Agent has one Web product home with complementary destinations:
 
 - **Center Agent** is the product home for the workspace's managed agent and
   owns no secondary sidebar. Its stable header navigation is **Messages,
-  Graph, Files, Routines, Skills, Channels**. The first three preserve the selected
-  conversation surface; Routines owns scheduled work. One compact header menu preserves
+  Graph, Files, Routines, Channels**. The first three preserve the selected
+  conversation surface; Routines owns scheduled work. Skills management belongs
+  to Team at `/o/{orgSlug}/skills`, while Center Agent retains its conversational
+  Skill tools and authorized consumption. One compact header menu preserves
   **Memory, Center Agent settings** and, on the
   conversation, **Conversation information**. There is no separate About
   surface or Slack shortcut. Identity and configuration live in Center Agent
@@ -654,6 +656,25 @@ source ledger. A direct Web, CLI, Slack, or Channel action without that exact
 Local Agent request remains unlabelled rather than being guessed.
 
 ### Computer setup assistance
+
+Computer care reuses these reads and controls. A targeted
+`openmeld_list_computers` read includes path-free Local Agent diagnostics and
+`care`: current connection lookup, last heartbeat, supervisor response
+evidence, and the last acknowledged Execution Host observation when supported.
+Host observations carry their own time and incarnation, not process IDs or
+paths. A missing observation is unknown; an unresponsive Host does not imply
+that accepted work stopped. Local counts do not identify affected cloud tasks.
+
+For a specific task, Center Agent reads the existing Wake progress and execution
+recovery projections, including device wait, pending interaction, stop
+eligibility and pagination. It must not infer the occupying application's
+identity from a conversation writer conflict or attribute all queued work to
+one blocker. It may combine authorized observations to investigate, but does
+not create a second scheduler or maintenance state machine. Existing owner
+controls retain their authorization and confirmation rules; after a mutation,
+Center Agent re-reads its operation or owning projection before claiming repair.
+No arbitrary local shell, process termination, lock deletion, or boundary
+bypass is introduced. Team-safe reads remain separate from private diagnosis.
 
 The Center Agent may help the represented member connect a new computer,
 reconnect an existing computer, or install a required OpenMeld Service update.
@@ -782,7 +803,7 @@ concept. Its surviving destinations use the stable header or its compact menu:
 | Overview   | **Center Agent → Center Agent settings**             | Identity, status, and configuration live in one low-frequency management surface.                                                                                           |
 | Channels   | **Center Agent → Channels**                          | The single Channel destination in every workspace; Organizations manage connections, while Personal Workspaces show read-only discovery and an Organization-creation guide. |
 | Plugins       | **Plugins**                                             | The single member and shared App catalog in every workspace.                                                                                                                |
-| Memory     | **Center Agent → Memory**                            | Organization policy and the current member's erase action share one clearly separated memory home.                                                                          |
+| Memory     | **Center Agent → Memory** for member memory; **Settings → Center Agent settings** for Organization memory | Personal recall stays with the member-facing Memory surface. Organization policy stays with the other Organization-owned Center Agent settings. |
 | Routines   | **Center Agent → Routines**                          | Routine use and creation remain daily product work inside the product that executes them.                                                                                   |
 | Activity   | **Center Agent → Center Agent settings → Audit Log** | Retire the misleading label; this journal records Center Agent tool calls.                                                                                                  |
 | Settings   | **Center Agent → Center Agent settings**             | One configuration home, with mutations role-gated.                                                                                                                          |
@@ -2253,12 +2274,15 @@ than by the model provider:
 Core owns scope, authorization, enabled state, subject identity, and deletion
 lifecycle. `developing/architecture/data-and-observability.md` owns storage and
 provider boundaries; `developing/product/remote-agent-runtime.md` owns recall
-and turn-envelope behavior. **Center Agent → Memory** owns both the current
-member-memory wipe entry and ongoing Organization policy management as clearly
-separated sections. **Settings → Personal → Privacy** links there instead of
-owning a second mutation surface. Setup Studio presents the Core-owned default
-as enabled without manufacturing a user choice. It does not own another policy
-or ongoing management surface.
+and turn-envelope behavior. In a multi-member Organization, **Center Agent →
+Memory** owns the current member-memory wipe entry, while **Settings → Center
+Agent settings** owns ongoing Organization policy management. A Personal
+Workspace keeps both Workspace memory and member memory on **Center Agent →
+Memory** because there is no separate Organization administration boundary.
+**Settings → Personal → Privacy** links to the member-facing Memory page instead
+of owning a second mutation surface. Setup Studio presents the Core-owned
+default as enabled without manufacturing a user choice. It does not own another
+policy or ongoing management surface.
 
 ### Organization Documents
 

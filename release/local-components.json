@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-16T17:59:16.039Z",
+  "updatedAt": "2026-09-20T03:05:17.690Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.212",
+      "packageVersion": "0.3.214",
       "updatePolicy": "available",
-      "reason": "This batch preserves the existing cloud/CLI contracts; new Desktop controls require the new optional CLI capability."
+      "reason": "The rollout installs cloud receivers before publication; existing CLI commands remain compatible and older CLIs simply lack the new handoff and Windows controls."
     },
     "service": {
-      "bundleHash": "0c4513d865a5e9cd66437333667d9d58cee0760aefb9ed307e26d4fcc99c3420",
-      "bundleVersion": "0.3.212",
+      "bundleHash": "15b4595bff28e3b4e0ec9c3f24d70e5035cc5e08d9ea63f10d5648c78acf68ad",
+      "bundleVersion": "0.3.214",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services remain compatible; this batch improves local download, update and installation safety without a new runtime epoch."
+      "reason": "Existing Services remain compatible with the additive cloud contracts; older Services continue supported work and simply lack the new handoff and Windows supervision capabilities."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",

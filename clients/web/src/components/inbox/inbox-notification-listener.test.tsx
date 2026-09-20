@@ -6,6 +6,7 @@ import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import { InboxNotificationListener } from "./inbox-notification-listener";
 
 const useInfiniteQueryMock = vi.hoisted(() => vi.fn());
+const itemsRefetch = vi.hoisted(() => vi.fn(async () => undefined));
 const summaryRefetch = vi.hoisted(() => vi.fn(async () => undefined));
 const summaryQueryMock = vi.hoisted(() => vi.fn());
 const desktopPlatformMock = vi.hoisted(() => vi.fn());
@@ -127,6 +128,7 @@ vi.mock("#/query/organizations/inbox", () => ({
 
 describe("InboxNotificationListener", () => {
 	let currentItems: InboxItem[];
+	let itemsDataUpdatedAt: number;
 	let queryDataItems: InboxItem[] | null;
 	let queryData:
 		| {
@@ -153,6 +155,7 @@ describe("InboxNotificationListener", () => {
 			.mockReset()
 			.mockResolvedValue({ effectiveMode: "mentions_and_replies" });
 		currentItems = [];
+		itemsDataUpdatedAt = 1;
 		queryDataItems = null;
 		queryData = undefined;
 		pendingItemIds.clear();
@@ -164,6 +167,7 @@ describe("InboxNotificationListener", () => {
 		invalidateInboxFactsMock.mockReset().mockResolvedValue(undefined);
 		queryClientMock.fetchQuery.mockReset();
 		getCurrentInboxItemMock.mockReset();
+		itemsRefetch.mockClear();
 		usePathnameMock.mockReset().mockReturnValue("/o/amplift/home");
 		useInfiniteQueryMock.mockReset().mockImplementation(() => {
 			if (queryDataItems !== currentItems) {
@@ -179,7 +183,11 @@ describe("InboxNotificationListener", () => {
 					],
 				};
 			}
-			return { data: queryData };
+			return {
+				data: queryData,
+				dataUpdatedAt: itemsDataUpdatedAt,
+				refetch: itemsRefetch,
+			};
 		});
 	});
 
@@ -234,16 +242,29 @@ describe("InboxNotificationListener", () => {
 	});
 
 	it.each([
-		{ total: 7, error: false, expected: 7 },
-		{ total: 0, error: false, expected: 0 },
-		{ total: 7, error: true, expected: null },
-		{ total: undefined, error: false, expected: null },
+		{ total: 7, error: false, expected: 7, expectedStatus: "ready" },
+		{ total: 0, error: false, expected: 0, expectedStatus: "ready" },
+		{
+			total: 7,
+			error: true,
+			expected: null,
+			expectedStatus: "unavailable",
+		},
+		{
+			total: undefined,
+			error: false,
+			expected: null,
+			expectedStatus: "loading",
+		},
 	])("projects unread $total (error=$error) and refreshes with notifications off", ({
 		total,
 		error,
 		expected,
+		expectedStatus,
 	}) => {
-		const setNotificationContext = vi.fn(async () => undefined);
+		const setNotificationContext = vi.fn(
+			async (_context: unknown) => undefined
+		);
 		let poll: (() => void) | undefined;
 		desktopPlatformMock.mockReturnValue({
 			setNotificationContext,
@@ -260,6 +281,8 @@ describe("InboxNotificationListener", () => {
 					? undefined
 					: {
 							totalUnreadCount: total,
+							ordinaryUnreadCount: total,
+							unreadMentionCount: 1,
 							unreadUrgentUpdateCount: 0,
 							unresolvedActionCount: 2,
 						},
@@ -268,14 +291,20 @@ describe("InboxNotificationListener", () => {
 			refetch: summaryRefetch,
 		});
 		const view = renderListener();
-		expect(setNotificationContext).toHaveBeenLastCalledWith(
+		const context = setNotificationContext.mock.lastCall?.[0] as
+			| { attention?: unknown }
+			| null
+			| undefined;
+		expect(context).toEqual(
 			expect.objectContaining({
 				userId: "user-123",
 				organizationId: "organization-123",
 				enabled: false,
 				unreadCount: expected,
+				unreadCountStatus: expectedStatus,
 			})
 		);
+		expect(context?.attention !== null).toBe(expected !== null);
 		act(() => poll?.());
 		expect(summaryRefetch).toHaveBeenCalledOnce();
 		expect(showInboxNotificationMock).not.toHaveBeenCalled();
@@ -283,7 +312,42 @@ describe("InboxNotificationListener", () => {
 		expect(setNotificationContext).toHaveBeenLastCalledWith(null);
 	});
 
-	it("primes existing items without notifying, then delivers a newly arrived urgent item", () => {
+	it("refreshes the native preview when Inbox content changes without changing the unread count", () => {
+		const setNotificationContext = vi.fn(async () => undefined);
+		desktopPlatformMock.mockReturnValue({
+			setNotificationContext,
+			onNotificationClick: () => () => undefined,
+			onNotificationPoll: () => () => undefined,
+		});
+		summaryQueryMock.mockReturnValue({
+			data: {
+				totalUnreadCount: 5,
+				unreadUrgentUpdateCount: 0,
+				unresolvedActionCount: 0,
+			},
+			isError: false,
+			isPending: false,
+			refetch: summaryRefetch,
+		});
+		const view = renderListener();
+		const initialCalls = setNotificationContext.mock.calls.length;
+
+		itemsDataUpdatedAt = 2;
+		view.rerender(
+			<InboxNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+
+		expect(setNotificationContext).toHaveBeenCalledTimes(initialCalls + 1);
+		expect(setNotificationContext).toHaveBeenLastCalledWith(
+			expect.objectContaining({ unreadCount: 5 })
+		);
+	});
+
+	it("primes existing items, ignores delayed legacy owner observations and delivers a new urgent item", () => {
 		const existingItem = createInboxItem({ id: "existing-item" });
 		const newItem = createInboxItem({
 			id: "new-item",
@@ -293,8 +357,30 @@ describe("InboxNotificationListener", () => {
 		const view = renderListener();
 
 		expect(showInboxNotificationMock).not.toHaveBeenCalled();
-
-		currentItems = [newItem, existingItem];
+		const legacyOwner = createInboxItem({
+			id: "delayed-owner-outbox",
+			kind: "space_message",
+			attention: "update",
+			importance: "normal",
+			resolutionStatus: "not_applicable",
+			sourceTarget: {
+				kind: "space",
+				spaceId: "space-123",
+				signalId: "legacy",
+				directMessage: true,
+				agentOwnerActivity: true,
+			},
+		});
+		currentItems = [legacyOwner, existingItem];
+		view.rerender(
+			<InboxNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+		expect(showInboxNotificationMock).not.toHaveBeenCalled();
+		currentItems = [newItem, legacyOwner, existingItem];
 		view.rerender(
 			<InboxNotificationListener
 				organizationId="organization-123"

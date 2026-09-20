@@ -1831,8 +1831,12 @@ skillsCmd
   .command("load")
   .description("Load one enabled Skill into the private OpenMeld cache.")
   .argument("<skill>", "Organization Skill name or id")
+  .option(
+    "--release <release-id>",
+    "Load this exact release instead of the active release"
+  )
   .option("--json", "Print one machine-readable JSON envelope.", false)
-  .action(async (skill: string, opts: { json?: boolean }) => {
+  .action(async (skill: string, opts: { json?: boolean; release?: string }) => {
     const view = getGlobalViewOption();
     await runCommandWithEntryChecks({
       routeTokens: ["skills", "load"],
@@ -1840,6 +1844,7 @@ skillsCmd
       run: async () => {
         await runOrganizationSkillsLoad({
           json: opts.json === true,
+          releaseId: opts.release,
           skill,
           view,
         });
@@ -5658,12 +5663,10 @@ async function main() {
   // carrier probe must describe this executable, not a newer delegated CLI.
   if (argv.length === 5 && argv[2] === "service" && argv[4] === "--json") {
     if (argv[3] === "control-carrier-capability") {
-      outLine(
-        JSON.stringify({
-          protocol: "account-checked-service-control-v1",
-          executable: process.execPath,
-        })
+      const { readServiceControlCarrierCapability } = await import(
+        "./commands/service-control-carrier-capability"
       );
+      outLine(JSON.stringify(readServiceControlCarrierCapability()));
       return;
     }
     if (argv[3] === "control-capabilities") {

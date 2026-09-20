@@ -101,6 +101,25 @@ describe("Space entry resolution service", () => {
     });
   });
 
+  it("does not offer self-join when public reading is invite-only", () => {
+    expect(
+      buildSpaceEntryResolution({
+        access: {
+          kind: "allowed",
+          activeMember: false,
+          meta: { ...baseMeta, linkJoinPolicy: "invite_only" },
+        },
+        authenticated: true,
+        indexed,
+        organizationMember: false,
+        target: { spaceId: "space-1" },
+      })
+    ).toMatchObject({
+      view: { state: "allowed", experience: "public" },
+      participation: { state: "owner_add_required" },
+    });
+  });
+
   it("keeps public viewing separate from password-gated joining", () => {
     expect(
       buildSpaceEntryResolution({

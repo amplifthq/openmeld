@@ -2,6 +2,7 @@
 import {
   type AdapterAgentControllerConversationOccupancy,
   type AdapterCancelRequest,
+  type AdapterCancelResult,
   type AdapterComputerFileAccessVerificationResult,
   type AdapterDispatchContextDelta,
   type AdapterDispatchFailure,
@@ -122,6 +123,7 @@ export {
   forkCodexAppServerThread,
   invokeCodexAppServerTransport,
   probeCodexAppServerAccount,
+  resolveCodexAppServerCompletedTurn,
   verifyCodexAppServerThread,
 } from "./transport/codex-app-server-transport.js";
 export {
@@ -136,6 +138,21 @@ const CODEX_CONVERSATION_BRIDGE_SPEC =
 const TEST_DISABLE_DEFAULT_INVOKE = Symbol.for(
   "openmeld.test.disableDefaultInvoke"
 );
+
+/**
+ * Reader for {@link CodexDispatchStopEvidence}, keyed off the adapter object the
+ * way {@link TEST_DISABLE_DEFAULT_INVOKE} keys off runtime options.
+ *
+ * {@link RuntimeAdapter} is the adapter's whole surface, and the stop evidence
+ * has to travel out of a `cancel` or `interrupt` call into the Core path that
+ * decides whether a successor may take an occupied reservation. Widening that
+ * shared type for one adapter's control-plane bookkeeping would put a Codex-only
+ * field on every adapter, so the reader rides along as a symbol-keyed property
+ * that only a caller holding this symbol can find.
+ */
+export const READ_CODEX_DISPATCH_STOP_EVIDENCE = Symbol.for(
+  "openmeld.codex.readDispatchStopEvidence"
+);
 const COMPUTER_FILE_ACCESS_ATTESTATION_TTL_MS = 5 * 60 * 1000;
 const MAX_COMPUTER_FILE_ACCESS_ATTESTATIONS = 32;
 
@@ -148,6 +165,33 @@ type OccupiedCodexDispatch = {
   abortController: AbortController;
   taskId: string;
 };
+
+/**
+ * Whether the adapter has stopped a task, and whether Codex must still be asked
+ * to stop a turn that is in flight. A handoff may only take the reservation on a
+ * record with `turnWasRunning: false`: with no turn to interrupt, nothing else in
+ * this process can resume the thread, so the successor is the only remaining
+ * claimant.
+ */
+export type CodexDispatchStopEvidence = {
+  stoppedAtMs: number;
+  taskId: string;
+  turnWasRunning: boolean;
+};
+
+/**
+ * What a Stop proved about a dispatch, held past the end of the dispatch call it
+ * landed in.
+ *
+ * An occupied dispatch waits for the provider thread writer without holding it,
+ * so a Stop that lands there aborts the wait loop before it can resume the
+ * thread again: the attempt ends `runtime.turn.cancelled` and Codex never saw a
+ * turn. That is the evidence a handoff needs before a successor may take the
+ * reservation. A Stop that lands on a running turn is recorded the same way, so
+ * that a later attempt for the same task cannot read it as proof that nothing
+ * ran.
+ */
+type StoppedCodexDispatch = CodexDispatchStopEvidence;
 
 type OccupiedCodexDispatchState = {
   occupancy: AdapterAgentControllerConversationOccupancy | null;
@@ -163,6 +207,12 @@ export const createCodexAdapter = (
     ComputerFileAccessAttestation
   >();
   const occupiedDispatches = new Map<string, OccupiedCodexDispatch>();
+  // A Stop that ends an occupied wait must outlive the dispatch call it landed
+  // in, because the wait loop resumes `thread/resume` on its own timer. A retry
+  // that starts after the Stop would race a successor for the thread writer and
+  // could win it, handing the same work to two executions. These entries are the
+  // gate the loop consults before it resumes a thread.
+  const stoppedDispatches = new Map<string, StoppedCodexDispatch>();
   const registerAppServerTurn = (
     registration: CodexAppServerActiveTurnRegistration
   ) => {
@@ -210,23 +260,48 @@ export const createCodexAdapter = (
       request,
     });
     if (occupiedDispatchAborted && !activeAppServerTurns.has(request.taskId)) {
+      recordStoppedCodexDispatch({
+        request,
+        stoppedDispatches,
+        turnWasRunning: false,
+      });
       return {
         accepted: true,
         deliveryPath: "cancel",
+        // The wait was aborted with no turn running, so nothing can start for
+        // this task any more. That is the one answer here strong enough for
+        // work that replaces this attempt.
+        localAttemptOutcome: "withdrawn_before_start",
         reasonCode: "accepted",
         signalDelivery: "sent",
         taskId: request.taskId,
       };
     }
-    if (!fallbackCancel) {
-      return {
-        accepted: false,
-        reasonCode: "adapter.unsupported",
-        signalDelivery: "not_sent",
-        taskId: request.taskId,
-      };
+    const turnWasRunning = activeAppServerTurns.has(request.taskId);
+    const result = fallbackCancel
+      ? await fallbackCancel(request)
+      : ({
+          accepted: false,
+          reasonCode: "adapter.unsupported",
+          signalDelivery: "not_sent",
+          taskId: request.taskId,
+        } satisfies AdapterCancelResult);
+    if (occupiedDispatchAborted || turnWasRunning) {
+      recordStoppedCodexDispatch({
+        request,
+        stoppedDispatches,
+        turnWasRunning,
+      });
     }
-    return await fallbackCancel(request);
+    // A turn that had already started keeps its own result and effects. The
+    // interrupt is a request, not a completion barrier, so this says what was
+    // asked for rather than claiming the attempt is gone.
+    return turnWasRunning && result.accepted
+      ? {
+          ...result,
+          localAttemptOutcome: "stop_requested_after_start" as const,
+        }
+      : result;
   };
   const interrupt: RuntimeAdapter["interrupt"] = async (request) => {
     const occupiedDispatchAborted = abortOccupiedCodexDispatch({
@@ -234,6 +309,11 @@ export const createCodexAdapter = (
       request,
     });
     if (occupiedDispatchAborted && !activeAppServerTurns.has(request.taskId)) {
+      recordStoppedCodexDispatch({
+        request,
+        stoppedDispatches,
+        turnWasRunning: false,
+      });
       return {
         accepted: true,
         plan: buildInterruptPlan(request),
@@ -242,11 +322,20 @@ export const createCodexAdapter = (
         taskId: request.taskId,
       };
     }
-    return await interruptCodexActiveAppServerTurn({
+    const turnWasRunning = activeAppServerTurns.has(request.taskId);
+    const result = await interruptCodexActiveAppServerTurn({
       activeAppServerTurns,
       request,
       fallbackInterrupt: controlShell.interrupt,
     });
+    if (occupiedDispatchAborted || turnWasRunning) {
+      recordStoppedCodexDispatch({
+        request,
+        stoppedDispatches,
+        turnWasRunning,
+      });
+    }
+    return result;
   };
   const sharedDispatch = createSharedDispatchShell({
     adapterId: "codex",
@@ -265,103 +354,125 @@ export const createCodexAdapter = (
       occupiedDispatches,
       request,
       sharedDispatch,
+      stoppedDispatches,
       waitForThreadWriterAvailability:
         options.waitForThreadWriterAvailability ??
         waitForCodexThreadWriterAvailability,
     });
 
-  return {
-    adapterId: "codex",
-    cancel,
-    dispatch,
-    interrupt,
-    verifyComputerFileAccessBoundary: async (request) => {
-      if (
-        request.agentControllerPermissionMode === "codex:customConfig" ||
-        (request.transportMode !== "codex-app-server" &&
-          request.transportMode !== "local-cli")
-      ) {
-        return {
-          reasonCode: "computer.file_access.controller_unsupported",
-          supported: false,
-        };
-      }
-      try {
-        const configuredLaunchContract = resolveConfiguredCodexLaunchContract({
-          codexBin: options.codexBin,
-          inputLaunchContract: request.launchContract,
-          optionLaunchContract: options.launchContract,
-        });
-        if (!configuredLaunchContract) {
-          return {
-            reasonCode: "computer.file_access.capability_unverified",
-            supported: false,
-          };
-        }
-        const probeArgs = [
-          ...buildCodexFileAccessBoundaryGlobalArgs({
-            boundary: request.boundary,
-            executionMode: request.executionMode,
-            permissionMode: request.agentControllerPermissionMode,
-          }),
-          "--version",
-        ];
-        const cacheKey = JSON.stringify({
-          launchContract: configuredLaunchContract,
-          probeArgs,
-          workingDirectory: request.workingDirectory,
-        });
-        const nowMs = Date.now();
-        const cached = computerFileAccessAttestations.get(cacheKey);
-        if (cached && cached.expiresAtMs > nowMs) {
-          return await cached.result;
-        }
-        if (cached) {
-          computerFileAccessAttestations.delete(cacheKey);
-        }
-        const result = resolveCodexDispatchLaunchContract({
-          codexBin: options.codexBin,
-          inputLaunchContract: request.launchContract,
-          optionLaunchContract: options.launchContract,
-        })
-          .then((launchContract) =>
-            verifyCliLaunchContract({
-              cwd: request.workingDirectory,
-              displayName: "Codex file access boundary",
-              launchContract,
-              probeArgs,
-              timeoutMs: 5000,
-            })
-          )
-          .then<AdapterComputerFileAccessVerificationResult>((verification) =>
-            verification.ok
-              ? { supported: true }
-              : {
-                  reasonCode: "computer.file_access.capability_unverified",
-                  supported: false,
-                }
-          )
-          .catch<AdapterComputerFileAccessVerificationResult>(() => ({
-            reasonCode: "computer.file_access.capability_unverified",
-            supported: false,
-          }));
-        rememberComputerFileAccessAttestation({
-          attestations: computerFileAccessAttestations,
-          cacheKey,
-          value: {
-            expiresAtMs: nowMs + COMPUTER_FILE_ACCESS_ATTESTATION_TTL_MS,
-            result,
-          },
-        });
-        return await result;
-      } catch {
+  const verifyComputerFileAccessBoundary: NonNullable<
+    RuntimeAdapter["verifyComputerFileAccessBoundary"]
+  > = async (request) => {
+    if (
+      request.agentControllerPermissionMode === "codex:customConfig" ||
+      (request.transportMode !== "codex-app-server" &&
+        request.transportMode !== "local-cli")
+    ) {
+      return {
+        reasonCode: "computer.file_access.controller_unsupported",
+        supported: false,
+      };
+    }
+    try {
+      const configuredLaunchContract = resolveConfiguredCodexLaunchContract({
+        codexBin: options.codexBin,
+        inputLaunchContract: request.launchContract,
+        optionLaunchContract: options.launchContract,
+      });
+      if (!configuredLaunchContract) {
         return {
           reasonCode: "computer.file_access.capability_unverified",
           supported: false,
         };
       }
-    },
+      const probeArgs = [
+        ...buildCodexFileAccessBoundaryGlobalArgs({
+          boundary: request.boundary,
+          executionMode: request.executionMode,
+          permissionMode: request.agentControllerPermissionMode,
+        }),
+        "--version",
+      ];
+      const cacheKey = JSON.stringify({
+        launchContract: configuredLaunchContract,
+        probeArgs,
+        workingDirectory: request.workingDirectory,
+      });
+      const nowMs = Date.now();
+      const cached = computerFileAccessAttestations.get(cacheKey);
+      if (cached && cached.expiresAtMs > nowMs) {
+        return await cached.result;
+      }
+      if (cached) {
+        computerFileAccessAttestations.delete(cacheKey);
+      }
+      const result = resolveCodexDispatchLaunchContract({
+        codexBin: options.codexBin,
+        inputLaunchContract: request.launchContract,
+        optionLaunchContract: options.launchContract,
+      })
+        .then((launchContract) =>
+          verifyCliLaunchContract({
+            cwd: request.workingDirectory,
+            displayName: "Codex file access boundary",
+            launchContract,
+            probeArgs,
+            timeoutMs: 5000,
+          })
+        )
+        .then<AdapterComputerFileAccessVerificationResult>((verification) =>
+          verification.ok
+            ? { supported: true }
+            : {
+                // Preserve a useful failure class without exposing stderr or
+                // the private paths in the requested permission profile.
+                reasonCode:
+                  verification.failureKind === "completed_negative"
+                    ? "computer.file_access.launch_rejected"
+                    : "computer.file_access.capability_unverified",
+                supported: false,
+              }
+        )
+        .catch<AdapterComputerFileAccessVerificationResult>(() => ({
+          reasonCode: "computer.file_access.capability_unverified",
+          supported: false,
+        }));
+      rememberComputerFileAccessAttestation({
+        attestations: computerFileAccessAttestations,
+        cacheKey,
+        value: {
+          expiresAtMs: nowMs + COMPUTER_FILE_ACCESS_ATTESTATION_TTL_MS,
+          result,
+        },
+      });
+      return await result;
+    } catch {
+      return {
+        reasonCode: "computer.file_access.capability_unverified",
+        supported: false,
+      };
+    }
   };
+
+  // The stop-evidence reader is not part of `RuntimeAdapter`, so it is attached
+  // after the literal rather than declared inside it: one Codex-only
+  // control-plane field is not worth widening an interface every adapter
+  // implements.
+  return Object.assign(
+    {
+      adapterId: "codex",
+      cancel,
+      dispatch,
+      interrupt,
+      verifyComputerFileAccessBoundary,
+    } satisfies RuntimeAdapter,
+    {
+      [READ_CODEX_DISPATCH_STOP_EVIDENCE]: (
+        taskId: string
+      ): CodexDispatchStopEvidence | null =>
+        stoppedDispatches.get(taskId) ?? null,
+    }
+  );
 };
 
 function readCodexConversationOccupancy(
@@ -390,6 +501,32 @@ function abortOccupiedCodexDispatch(input: {
   return true;
 }
 
+/**
+ * Records that a Stop ended a task, so no later attempt for it resumes the
+ * thread.
+ *
+ * `turnWasRunning` is the part a caller must not drop: a Stop the adapter answers
+ * without interrupting a native turn is evidence that nothing else in this
+ * process holds the writer, while a Stop that lands on a running turn is only a
+ * request. Both are recorded, because a record that hid the second kind would let
+ * a later attempt read a running turn as a stopped one.
+ */
+function recordStoppedCodexDispatch(input: {
+  request: { taskId: string };
+  stoppedDispatches: Map<string, StoppedCodexDispatch>;
+  turnWasRunning: boolean;
+}): void {
+  const existing = input.stoppedDispatches.get(input.request.taskId);
+  const turnWasRunning = existing
+    ? existing.turnWasRunning || input.turnWasRunning
+    : input.turnWasRunning;
+  input.stoppedDispatches.set(input.request.taskId, {
+    stoppedAtMs: existing?.stoppedAtMs ?? Date.now(),
+    taskId: input.request.taskId,
+    turnWasRunning,
+  });
+}
+
 function buildCodexDispatchCancelledResult(): AdapterDispatchFailure {
   return {
     errorCode: "runtime.turn.cancelled",
@@ -397,6 +534,27 @@ function buildCodexDispatchCancelledResult(): AdapterDispatchFailure {
     errorType: "adapter",
     status: "failed",
   };
+}
+
+/**
+ * Whether a dispatch result proves the attempt never reached a native turn.
+ *
+ * A Stop that lands while a dispatch is in flight must not be reported as
+ * `runtime.turn.cancelled`: the transport uses that code for "Codex was stopped
+ * before starting a turn", so claiming it for an attempt that may have won the
+ * thread writer lock would tell Core nothing ran while a turn is running, and
+ * invite a second execution of the same work. Only the transport's own pre-turn
+ * cancellation and a refused `thread/resume` prove nothing started; every other
+ * result is reported exactly as it came back, output included.
+ */
+function codexDispatchStoppedBeforeTurn(
+  result: AdapterDispatchResult
+): boolean {
+  return (
+    result.status === "failed" &&
+    (result.errorCode === "runtime.turn.cancelled" ||
+      result.agentControllerConversationOccupancy !== undefined)
+  );
 }
 
 async function emitCodexConversationAvailable(input: {
@@ -451,6 +609,7 @@ async function dispatchCodexWithConversationOccupancy(input: {
   sharedDispatch: (
     request: CodexDispatchRequest
   ) => Promise<AdapterDispatchResult>;
+  stoppedDispatches: ReadonlyMap<string, StoppedCodexDispatch>;
   waitForThreadWriterAvailability: WaitForCodexThreadWriterAvailability;
 }): Promise<AdapterDispatchResult> {
   const state: OccupiedCodexDispatchState = {
@@ -459,6 +618,13 @@ async function dispatchCodexWithConversationOccupancy(input: {
   };
   try {
     while (true) {
+      // A Stop that already landed outranks everything below it: the loop
+      // resumes `thread/resume` on its own timer, so without this gate a retry
+      // could win the thread writer back from the successor that took the
+      // reservation.
+      if (input.stoppedDispatches.has(input.request.taskId)) {
+        return buildCodexDispatchCancelledResult();
+      }
       const cancellationSignal =
         state.registration?.abortController.signal ?? undefined;
       if (cancellationSignal?.aborted) {
@@ -468,7 +634,10 @@ async function dispatchCodexWithConversationOccupancy(input: {
         ...input.request,
         ...(cancellationSignal ? { cancellationSignal } : {}),
       });
-      if (state.registration?.abortController.signal.aborted) {
+      if (
+        state.registration?.abortController.signal.aborted &&
+        codexDispatchStoppedBeforeTurn(result)
+      ) {
         return buildCodexDispatchCancelledResult();
       }
       const occupancy = readCodexConversationOccupancy(result, input.request);

@@ -1,6 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "fake-indexeddb/auto";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readCenterAgentPendingMessage } from "#/lib/organizations/center-agent-pending-message";
@@ -36,7 +42,10 @@ describe("CenterAgentRoutePendingPage", () => {
 		window.localStorage.clear();
 	});
 
-	afterEach(cleanup);
+	afterEach(() => {
+		cleanup();
+		vi.restoreAllMocks();
+	});
 
 	it("restores an unsent Center Agent draft after the pending composer remounts", () => {
 		const queryClient = new QueryClient();
@@ -150,7 +159,7 @@ describe("CenterAgentRoutePendingPage", () => {
 		).toBe("");
 	});
 
-	it("renders an interactive composer before organization data is available", () => {
+	it("renders an interactive composer before organization data is available", async () => {
 		const queryClient = new QueryClient();
 
 		render(
@@ -171,11 +180,14 @@ describe("CenterAgentRoutePendingPage", () => {
 		expect(screen.getByTestId("center-agent-pending-outer-rail")).toBeTruthy();
 		expect(screen.queryByRole("navigation", { name: "Spaces" })).toBeNull();
 		fireEvent.change(composer, { target: { value: "Hello from first paint" } });
+		await act(async () => undefined);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		expect(screen.getByText("Hello from first paint")).toBeTruthy();
 		expect(screen.queryByText("Sending…")).toBeNull();
-		expect(screen.getByRole("button", { name: "Sending…" })).toBeTruthy();
+		expect(
+			await screen.findByRole("button", { name: "Sending…" })
+		).toBeTruthy();
 		expect(
 			readCenterAgentPendingMessage(queryClient, {
 				organizationSlug: "acme",

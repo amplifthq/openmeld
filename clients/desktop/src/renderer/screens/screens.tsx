@@ -128,7 +128,7 @@ export function SignInScreen({
   return (
     <div className="space-y-6">
       <HomeIntro
-        description="Sign in once, then OpenMeld Desktop can connect this Mac."
+        description="Sign in once, then OpenMeld can connect this Mac."
         email={null}
         status="Signed out"
         tone="muted"
@@ -228,7 +228,7 @@ export function SetUpScreen({
               <HomeServicePrimaryAction
                 busy={busy}
                 busyLabel="Starting setup..."
-                description="OpenMeld Desktop will install or update OpenMeld CLI, prepare OpenMeld Service, and connect local agents from this app."
+                description="OpenMeld will install or update OpenMeld CLI, prepare OpenMeld Service, and connect local agents from this app."
                 label="Start Setup"
                 onAction={beginSetup}
                 title="Set up this Mac"
@@ -423,8 +423,8 @@ export function NeedsAttentionScreen({
     cliIssue?.description ??
     serviceIssue?.description ??
     (cliMissing
-      ? "OpenMeld Desktop could not open OpenMeld CLI on this Mac."
-      : "OpenMeld Desktop could not read the service status. The service may still be running.");
+      ? "OpenMeld could not open OpenMeld CLI on this Mac."
+      : "OpenMeld could not read the service status. The service may still be running.");
   const rawProblem =
     service.problem &&
     !(cliSetupIssue || cliIssue || serviceIssue || cliMissing)
@@ -434,7 +434,7 @@ export function NeedsAttentionScreen({
   return (
     <div className="space-y-6">
       <HomeIntro
-        description="OpenMeld Desktop needs one thing fixed before this Mac can report a clean state."
+        description="OpenMeld needs one thing fixed before this Mac can report a clean state."
         email={null}
         status="Needs attention"
         tone="warning"
@@ -777,7 +777,7 @@ function resolveCliSetupIssue(
       action: "open_node_download",
       actionLabel: "Install Node.js LTS",
       description:
-        "Install Node.js LTS, return to OpenMeld Desktop, then choose Try again. After Node.js and npm are available, OpenMeld Desktop will continue CLI and Service setup from this app.",
+        "Install Node.js LTS, return to OpenMeld, then choose Try again. After Node.js and npm are available, OpenMeld will continue CLI and Service setup from this app.",
       title: "Node.js is required.",
     };
   }
@@ -786,7 +786,7 @@ function resolveCliSetupIssue(
       action: "open_node_download",
       actionLabel: "Install Node.js LTS",
       description:
-        "npm is required for OpenMeld Desktop to install OpenMeld CLI. The current Node.js LTS installer includes npm; install it, return here, then choose Try again.",
+        "npm is required for OpenMeld to install OpenMeld CLI. The current Node.js LTS installer includes npm; install it, return here, then choose Try again.",
       title: "npm is required.",
     };
   }
@@ -795,7 +795,7 @@ function resolveCliSetupIssue(
       action: "install_cli",
       actionLabel: "Install OpenMeld CLI",
       description:
-        "OpenMeld Desktop will install the official OpenMeld CLI for you with npm. You do not need to run Terminal commands; after the install finishes, continue setup from this app.",
+        "OpenMeld will install the official OpenMeld CLI for you with npm. You do not need to run Terminal commands; after the install finishes, continue setup from this app.",
       title: "OpenMeld CLI is not installed.",
     };
   }

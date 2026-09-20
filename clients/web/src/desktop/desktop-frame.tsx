@@ -7,6 +7,8 @@ import {
 	readKnownAccountIdBeforeSessionRevalidation,
 	resetAccountScopedQueriesAfterAuthChange,
 } from "#/query/auth-boundary";
+import { isDesktopAppHref } from "../../../desktop/src/shared/navigation";
+import { desktopUsesMacControls } from "./chrome-platform";
 import { createDesktopNavigation } from "./navigation";
 import { getDesktopPlatform } from "./platform";
 import { DesktopTitlebarContext } from "./titlebar-context";
@@ -27,6 +29,17 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 		[target, navigation]
 	);
 	useEffect(() => navigation?.connect(), [navigation]);
+	useEffect(() => {
+		if (!bridge) {
+			return;
+		}
+		return bridge.onNavigationRequest((href) => {
+			if (document.body.inert || !isDesktopAppHref(href)) {
+				return;
+			}
+			router.history.push(href);
+		});
+	}, [bridge, router]);
 	const queryClient = useQueryClient();
 	const confirmedAccountIdRef = useRef<string | null | undefined>(undefined);
 	const pathname = useLocation({ select: (location) => location.pathname });
@@ -157,7 +170,10 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 	return (
 		<DesktopTitlebarContext.Provider value={titlebar}>
 			<DesktopUpdater />
-			<div className="desktop-window">
+			<div
+				className="desktop-window"
+				data-window-controls={desktopUsesMacControls() ? "mac" : "overlay"}
+			>
 				<div className="desktop-titlebar" ref={setTarget} />
 				<div className="desktop-content">{children}</div>
 			</div>

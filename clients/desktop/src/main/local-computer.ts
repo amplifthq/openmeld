@@ -1,7 +1,10 @@
 import type { DesktopLocalComputer } from "@openmeld/schemas";
 import type { CommandDeps } from "./cli/commands";
 import { resolveOpenMeldBin } from "./cli/resolve-openmeld";
-import { readComputerConnection } from "./computer-connection";
+import {
+  isComputerConnectionBootstrapError,
+  readComputerConnection,
+} from "./computer-connection";
 import type { PilotAuth } from "./pilot-auth";
 
 // Read the CLI's public identity projection. This never installs or starts a Service.
@@ -35,12 +38,27 @@ export function createLocalComputerReader(
       const review = await readComputerConnection(
         resolveOpenMeldBin({ env: deps.env, override: deps.openMeldBin }),
         deps
-      );
+      ).catch((error: unknown) => {
+        if (!isComputerConnectionBootstrapError(error)) {
+          throw error;
+        }
+        return null;
+      });
       const after = await auth.session();
-      if (
-        after.user?.id !== before.user.id ||
-        review.account?.id !== before.user.id
-      ) {
+      if (after.user?.id !== before.user.id) {
+        throw new Error("Desktop sign-in changed during the connection check.");
+      }
+      if (!review) {
+        // A bootstrap entry, not a confirmed Computer identity. Reading never
+        // installs; explicit Connect rechecks the account, verifies installation
+        // and rereads the CLI-owned connection review.
+        return {
+          status: "unavailable",
+          message:
+            "OpenMeld Tools are missing or need an update. Connect this Mac to install them and continue.",
+        };
+      }
+      if (review.account?.id !== before.user.id) {
         return {
           status: "unavailable",
           message:

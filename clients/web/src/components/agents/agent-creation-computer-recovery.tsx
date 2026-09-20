@@ -15,6 +15,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
+import { DesktopAwareLink } from "#/desktop/desktop-aware-link";
 import { buildOrganizationComputersPath } from "#/lib/organizations/organization-routes";
 import { formatAgentCreationFailure } from "#/lib/profiles/agent-creation-failure";
 import {
@@ -177,14 +178,12 @@ export function AgentCreationComputerRecovery(input: {
 						Refresh computers
 					</Button>
 					{input.orgSlug ? (
-						<a
+						<DesktopAwareLink
 							className="text-sm underline underline-offset-4"
 							href={buildOrganizationComputersPath(input.orgSlug)}
-							rel="noreferrer"
-							target="_blank"
 						>
 							Manage computers
-						</a>
+						</DesktopAwareLink>
 					) : null}
 				</div>
 				<p className="text-muted-foreground text-xs">

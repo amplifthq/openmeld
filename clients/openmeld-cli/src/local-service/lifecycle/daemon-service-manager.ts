@@ -145,6 +145,8 @@ const LAUNCHD_STRING_PATTERN = /<string>([^<]+)<\/string>/g;
 const LAUNCHD_SERVICE_PROCESS_TYPE = "Interactive";
 const LAUNCHD_PROCESS_TYPE_PATTERN =
   /<key>ProcessType<\/key>\s*<string>([^<]+)<\/string>/;
+const LAUNCHD_RESTART_ON_FAILURE_PATTERN =
+  /<key>KeepAlive<\/key>\s*<dict>\s*<key>SuccessfulExit<\/key>\s*<false\s*\/>\s*<\/dict>/;
 const LAUNCHD_ENVIRONMENT_BLOCK_PATTERN =
   /<key>EnvironmentVariables<\/key>\s*<dict>([\s\S]*?)<\/dict>/;
 const WINDOWS_LINE_SEPARATOR_PATTERN = /\r?\n/;
@@ -472,7 +474,8 @@ export function matchesLaunchdServiceStartupPolicy(
 ): boolean {
   return (
     LAUNCHD_PROCESS_TYPE_PATTERN.exec(definition)?.[1] ===
-    LAUNCHD_SERVICE_PROCESS_TYPE
+      LAUNCHD_SERVICE_PROCESS_TYPE &&
+    LAUNCHD_RESTART_ON_FAILURE_PATTERN.test(definition)
   );
 }
 
@@ -540,7 +543,10 @@ ${args}
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
-  <true/>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
   <key>ProcessType</key>
   <string>${LAUNCHD_SERVICE_PROCESS_TYPE}</string>
   <key>ThrottleInterval</key>

@@ -3,11 +3,12 @@
 import type { LocalRuntimeComputer } from "@openmeld/schemas/types";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { type ReactNode, useEffect } from "react";
 import { formatComputerTabPlatform } from "#/components/agents/agents-page-computer";
 import {
 	SelectedComputerPanel,
@@ -16,6 +17,7 @@ import {
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-navigation";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { useDesktopServiceControlStatus } from "#/desktop/desktop-service-controls";
 import { getDesktopPlatform } from "#/desktop/platform";
 import { useDesktopComputerConnection } from "#/desktop/use-computer-connection";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
@@ -40,38 +42,54 @@ import {
 
 const COMPUTERS_SERVICE_STATUS_REFETCH_INTERVAL_MS = 10_000;
 
-function desktopConnectionAction(orgSlug: string, profileId: string | null) {
-	return getDesktopPlatform() ? (
-		<DesktopConnectComputerAction orgSlug={orgSlug} profileId={profileId} />
+function desktopConnectionAction(
+	orgSlug: string,
+	profileId: string | null,
+	deviceId: string | undefined
+) {
+	return getDesktopPlatform() && deviceId ? (
+		<DesktopConnectComputerAction
+			deviceId={deviceId}
+			orgSlug={orgSlug}
+			profileId={profileId}
+		/>
 	) : null;
 }
 
 function DesktopConnectComputerAction({
+	deviceId,
 	orgSlug,
 	profileId,
 }: {
+	deviceId: string;
 	orgSlug: string;
 	profileId?: string | null;
 }) {
 	const connection = useDesktopComputerConnection();
-	const label =
-		connection.data?.status === "available"
-			? "Disconnect this Mac"
-			: "Connect this Mac";
-	let status = connection.data?.status === "available" ? "Connected" : null;
-	if (connection.isError) {
-		status = "Connection unconfirmed";
-	}
-	if (!getDesktopPlatform()) {
+	const localStatus = useDesktopServiceControlStatus();
+	const connected = connection.data?.status === "available";
+	const label = connected ? "Disconnect" : "Connect";
+	// Connection availability and local identity are separate: a disconnected
+	// Mac still has device evidence, while a selected remote Computer is not local.
+	if (
+		localStatus.isPending ||
+		localStatus.isError ||
+		localStatus.data?.service.controlCapabilities?.deviceId !== deviceId
+	) {
 		return null;
 	}
 	return (
 		<div className="flex items-center gap-2">
-			{status ? (
-				<span className="text-muted-foreground text-sm">{status}</span>
+			{connection.isError ? (
+				<span className="text-muted-foreground text-sm">
+					Connection unconfirmed
+				</span>
 			) : null}
 			<Link
-				className={buttonVariants({ size: "sm", variant: "outline" })}
+				className={buttonVariants({
+					size: "sm",
+					variant: connected ? "outline" : "default",
+				})}
 				to={buildConnectComputerPath({
 					orgSlug,
 					profileId: profileId ?? undefined,
@@ -125,6 +143,7 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 		agentExecutionReadinessScope: "bound_runtime",
 		currentLocalRuntimeReplyReadinessRefetchIntervalMs:
 			COMPUTERS_SERVICE_STATUS_REFETCH_INTERVAL_MS,
+		loadAgentExecutionReadiness: false,
 		loadSetupState: false,
 	});
 	const setupCompleteRefreshStatus = useRefreshComputersAfterSetupComplete({
@@ -154,6 +173,9 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 		);
 	const computerResolutionError = resolveComputerResolutionError([
 		recovery.localRuntimesQuery.error,
+		...(routeState.computersSelectedDeviceId === null
+			? [recovery.currentDeviceTargetQuery.error]
+			: []),
 		...(isOrganizationContext
 			? [organizationDirectoryQuery.error, organizationComputersQuery.error]
 			: []),
@@ -164,9 +186,6 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 		organizationComputers: organizationComputersQuery.data ?? null,
 		ownedComputers: devices,
 	});
-	const isReconcilingCurrentToolsStatus =
-		recovery.currentLocalRuntimeReplyReadinessQuery.isFetching &&
-		!recovery.currentLocalRuntimeReplyReadinessQuery.isFetchedAfterMount;
 	const selectedDeviceId = routeState.computersSelectedDeviceId;
 	const preferredDeviceId =
 		resolveConnectedLocalRuntime(recovery)?.deviceId ??
@@ -204,7 +223,9 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 		setupCompleteRefreshStatus !== "pending" &&
 		setupCompleteRefreshStatus !== "error";
 	const inventoryAbsenceIsSettled =
-		inventoryIsSettled && !recovery.localRuntimesQuery.isFetching;
+		inventoryIsSettled &&
+		!recovery.localRuntimesQuery.isFetching &&
+		recovery.currentDeviceTargetQuery.isSuccess;
 
 	useResolvePreferredComputerRoute({
 		canResolvePreferredDeviceRoute,
@@ -244,7 +265,6 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	return (
 		<>
 			<AppPageHeader
-				action={desktopConnectionAction(orgSlug, ownerProfileId)}
 				description={sectionDescription}
 				eyebrow="Run agents locally"
 				id="computers-heading"
@@ -284,7 +304,11 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 				<ComputersPageBody
 					computerGroups={computerGroups}
 					computerResolutionIsPending={computerResolutionIsPending}
-					isReconcilingCurrentToolsStatus={isReconcilingCurrentToolsStatus}
+					connectionAction={desktopConnectionAction(
+						orgSlug,
+						ownerProfileId,
+						selectedComputer?.deviceId
+					)}
 					onRetry={() => {
 						Promise.all([
 							recovery.refreshAll(),
@@ -333,9 +357,9 @@ function needsFreshOrganizationProjection(
 }
 
 function ComputersPageBody(input: {
+	connectionAction: ReactNode;
 	computerGroups: readonly OrganizationComputerGroup[];
 	computerResolutionIsPending: boolean;
-	isReconcilingCurrentToolsStatus: boolean;
 	onRetry: () => void;
 	orgSlug: string;
 	organizationId: string;
@@ -355,9 +379,9 @@ function ComputersPageBody(input: {
 		return (
 			<SelectedComputerPanel
 				computer={input.selectedComputer}
+				connectionAction={input.connectionAction}
 				focusFileAccess={input.routeState.computersFocusFileAccess}
 				focusService={input.routeState.computersFocusService}
-				isReconcilingStatus={input.isReconcilingCurrentToolsStatus}
 				onFocusConsumed={input.routeState.onFocusConsumed}
 				organizationId={input.organizationId}
 				queryClient={input.queryClient}
@@ -572,8 +596,18 @@ function resolveComputerResolutionError(
 function SelectedComputerLoading() {
 	return (
 		<div className="flex flex-col gap-4" data-testid="computer-detail-loading">
-			<Skeleton className="h-56 w-full" />
-			<Skeleton className="h-72 w-full" />
+			<section className="space-y-5 rounded-md bg-card p-5">
+				<h2 className="font-medium text-sm">OpenMeld Tools</h2>
+				<SkeletonRows label="Loading Computer connection" rows={1} />
+				<div aria-hidden="true" className="flex gap-2">
+					<Skeleton className="h-8 w-28" />
+					<Skeleton className="h-8 w-24" />
+				</div>
+			</section>
+			<section className="space-y-5 rounded-md bg-card p-5">
+				<h2 className="font-medium text-sm">Local agents</h2>
+				<SkeletonRows label="Loading local agents" />
+			</section>
 		</div>
 	);
 }
