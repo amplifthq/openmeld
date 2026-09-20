@@ -48,11 +48,20 @@ export function publishGuardedLocalReleaseEvidence(input) {
       sourceSha,
       input.receipts?.[scope]
     );
-    if (isRecordedReceipt(current?.metadata, metadata)) {
+    const recoveryProof = input.recoveryProof?.[scope];
+    const proofMetadata = recoveryProof
+      ? createRecoveryProofMetadata(context, current, metadata, recoveryProof)
+      : undefined;
+    if (
+      isRecordedReceipt(current?.metadata, metadata, Boolean(proofMetadata))
+    ) {
       continue;
     }
+    const proofSha = proofMetadata
+      ? createEvidenceCommit(context, current, proofMetadata)
+      : undefined;
     pending.push({
-      evidenceSha: createEvidenceCommit(context, current, metadata),
+      evidenceSha: createEvidenceCommit(context, current, metadata, proofSha),
       expectedSha: current?.evidenceSha ?? "",
       metadata,
       ref: evidenceRef(scope),
@@ -199,7 +208,46 @@ function createEvidenceMetadata(context, scope, sourceSha, receipt) {
   });
 }
 
-function isRecordedReceipt(current, next) {
+function createRecoveryProofMetadata(context, current, next, receipt) {
+  if (
+    next.scope !== "remote-agent" ||
+    current?.metadata.schemaVersion !== 3 ||
+    current.metadata.receipt?.status !== "failed" ||
+    current.metadata.receipt.application !== "unknown" ||
+    next.schemaVersion !== 3 ||
+    !["verified", "failed"].includes(next.receipt?.status) ||
+    receipt.recovery?.originalEvidenceSha !== current.evidenceSha ||
+    receipt.attemptId !== next.receipt.attemptId ||
+    receipt.operationKey !== next.receipt.operationKey ||
+    receipt.startedAt !== next.receipt.startedAt ||
+    receipt.componentIndex !== next.receipt.componentIndex ||
+    receipt.status !== next.receipt.status ||
+    receipt.application !== next.receipt.application ||
+    JSON.stringify(receipt.identity) !==
+      JSON.stringify(next.receipt.identity) ||
+    (next.receipt.status === "failed" &&
+      (next.receipt.application !== "unknown" || next.receipt.identity)) ||
+    (next.receipt.status === "verified" &&
+      (next.receipt.application !== "applied" ||
+        receipt.identity?.kind !== "worker-deployment" ||
+        receipt.identity.workerName !== "openmeld-remote-agent-prod"))
+  ) {
+    throw new Error(
+      "Recovery proof must match the exact retained failed Remote Agent attempt and completion."
+    );
+  }
+  return productionReleaseEvidenceSchema.parse({
+    evidenceId: randomUUID(),
+    kind: EVIDENCE_KIND,
+    recordedAt: context.now.toISOString(),
+    schemaVersion: 4,
+    scope: next.scope,
+    sourceSha: next.sourceSha,
+    receipt,
+  });
+}
+
+function isRecordedReceipt(current, next, recoveryProved = false) {
   if (!current) {
     return false;
   }
@@ -240,14 +288,18 @@ function isRecordedReceipt(current, next) {
         "An existing component event cannot be rewritten with different evidence."
       );
     }
-    return true;
+    return !recoveryProved;
   }
   if (Date.parse(next.recordedAt) < Date.parse(current.recordedAt)) {
     throw new Error(
       "Refusing an older component receipt; reconcile the latest deployment evidence first."
     );
   }
-  const recovered = validateCorrelationTransition(current, next);
+  const recovered = validateCorrelationTransition(
+    current,
+    next,
+    recoveryProved
+  );
   if (previous?.attemptId === next.receipt.attemptId) {
     const order = { started: 0, applied: 1, verified: 2, failed: 2 };
     if (
@@ -264,7 +316,7 @@ function isRecordedReceipt(current, next) {
   return false;
 }
 
-function validateCorrelationTransition(current, next) {
+function validateCorrelationTransition(current, next, recoveryProved) {
   const previous = current.receipt;
   if (
     current.schemaVersion !== 3 ||
@@ -284,6 +336,9 @@ function validateCorrelationTransition(current, next) {
       "A correlated component attempt cannot change its target or applied identity."
     );
   }
+  if (recoveryProved) {
+    return previous.status === "failed" && previous.application === "unknown";
+  }
   return (
     previous.status === "failed" &&
     previous.application === "applied" &&
@@ -292,11 +347,17 @@ function validateCorrelationTransition(current, next) {
   );
 }
 
-function createEvidenceCommit(context, current, metadata) {
+function createEvidenceCommit(context, current, metadata, proofSha) {
   const parentSha = current?.evidenceSha ?? metadata.sourceSha;
   const result = spawnSync(
     "git",
-    ["commit-tree", `${metadata.sourceSha}^{tree}`, "-p", parentSha],
+    [
+      "commit-tree",
+      `${metadata.sourceSha}^{tree}`,
+      "-p",
+      parentSha,
+      ...(proofSha ? ["-p", proofSha] : []),
+    ],
     {
       cwd: context.cwd,
       encoding: "utf8",

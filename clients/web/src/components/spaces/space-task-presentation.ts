@@ -1,3 +1,4 @@
+import { formatSpaceTaskGitHubIssueLabel } from "@openmeld/schemas/schemas";
 import type { SpaceMembersSnapshot, SpaceTask } from "@openmeld/schemas/types";
 
 export type SpaceTaskMember =
@@ -64,4 +65,10 @@ export function describeSpaceTaskAttention(input: {
 		default:
 			return "Open for details";
 	}
+}
+
+export function formatSpaceTaskGitHubIssueRefs(task: SpaceTask): string[] {
+	return task.externalWorkItems
+		.filter((item) => item.provider === "github")
+		.map((item) => formatSpaceTaskGitHubIssueLabel(item));
 }

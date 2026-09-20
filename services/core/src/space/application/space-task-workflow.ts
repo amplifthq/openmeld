@@ -1,8 +1,14 @@
+import {
+  formatSpaceTaskGitHubIssueLabel,
+  SPACE_TASK_EXTERNAL_WORK_ITEM_MAX_ITEMS,
+  spaceTaskExternalWorkItemIdentityKey,
+} from "@openmeld/schemas";
 import type {
   MutateSpaceTaskBody,
   SpaceTask,
   SpaceTaskActor,
   SpaceTaskEventType,
+  SpaceTaskExternalWorkItem,
 } from "@openmeld/schemas/types";
 
 export class SpaceTaskWorkflowError extends Error {
@@ -449,6 +455,143 @@ function reopenTask({
   });
 }
 
+function matchingExternalWorkItemIndex(
+  items: readonly SpaceTaskExternalWorkItem[],
+  identity: {
+    number: number;
+    owner: string;
+    provider: string;
+    repo: string;
+  }
+): number {
+  const key = spaceTaskExternalWorkItemIdentityKey(identity);
+  return items.findIndex(
+    (item) => spaceTaskExternalWorkItemIdentityKey(item) === key
+  );
+}
+
+function attachExternalWorkItem({
+  command,
+  context,
+  now,
+  task,
+}: CommandHandlerInput<"attach_external_work_item">): SpaceTaskMutationResult {
+  requireManager(task, context);
+  requireActiveTask(task);
+  const existingIndex = matchingExternalWorkItemIndex(
+    task.externalWorkItems,
+    command.item
+  );
+  if (existingIndex >= 0) {
+    const nextItems = task.externalWorkItems.map((item, index) =>
+      index === existingIndex ? command.item : item
+    );
+    return finishMutation({
+      current: task,
+      next: { ...task, externalWorkItems: nextItems },
+      eventType: "external_work_item_observed",
+      detail: formatSpaceTaskGitHubIssueLabel(command.item),
+      now,
+    });
+  }
+  if (
+    task.externalWorkItems.length >= SPACE_TASK_EXTERNAL_WORK_ITEM_MAX_ITEMS
+  ) {
+    fail(
+      "space_task.external_work_item_limit",
+      `A Task can link at most ${SPACE_TASK_EXTERNAL_WORK_ITEM_MAX_ITEMS} GitHub issues.`,
+      400
+    );
+  }
+  return finishMutation({
+    current: task,
+    next: {
+      ...task,
+      externalWorkItems: [...task.externalWorkItems, command.item],
+    },
+    eventType: "external_work_item_attached",
+    detail: formatSpaceTaskGitHubIssueLabel(command.item),
+    now,
+  });
+}
+
+function detachExternalWorkItem({
+  command,
+  context,
+  now,
+  task,
+}: CommandHandlerInput<"detach_external_work_item">): SpaceTaskMutationResult {
+  requireManager(task, context);
+  const existingIndex = matchingExternalWorkItemIndex(
+    task.externalWorkItems,
+    command
+  );
+  if (existingIndex < 0) {
+    fail(
+      "space_task.external_work_item_not_found",
+      "This Task is not linked to that GitHub issue.",
+      404
+    );
+  }
+  return finishMutation({
+    current: task,
+    next: {
+      ...task,
+      externalWorkItems: task.externalWorkItems.filter(
+        (_item, index) => index !== existingIndex
+      ),
+    },
+    eventType: "external_work_item_detached",
+    detail: formatSpaceTaskGitHubIssueLabel(command),
+    now,
+  });
+}
+
+function observeExternalWorkItem({
+  command,
+  context,
+  now,
+  task,
+}: CommandHandlerInput<"observe_external_work_item">): SpaceTaskMutationResult {
+  requireManager(task, context);
+  const existingIndex = matchingExternalWorkItemIndex(
+    task.externalWorkItems,
+    command
+  );
+  if (existingIndex < 0) {
+    fail(
+      "space_task.external_work_item_not_found",
+      "This Task is not linked to that GitHub issue.",
+      404
+    );
+  }
+  const current = task.externalWorkItems[existingIndex];
+  if (!current) {
+    fail(
+      "space_task.external_work_item_not_found",
+      "This Task is not linked to that GitHub issue.",
+      404
+    );
+  }
+  const nextItem: SpaceTaskExternalWorkItem = {
+    ...current,
+    lastObservedAt: command.lastObservedAt ?? now,
+    lastObservedState: command.lastObservedState,
+  };
+  return finishMutation({
+    current: task,
+    next: {
+      ...task,
+      externalWorkItems: task.externalWorkItems.map((item, index) =>
+        index === existingIndex ? nextItem : item
+      ),
+    },
+    eventType: "external_work_item_observed",
+    detail: formatSpaceTaskGitHubIssueLabel(command),
+    now,
+  });
+}
+
 function continueTaskRework({
   command,
   context,
@@ -511,6 +654,12 @@ export function mutateSpaceTask(input: {
       return reopenTask({ command, context, now, task });
     case "continue_rework":
       return continueTaskRework({ command, context, now, task });
+    case "attach_external_work_item":
+      return attachExternalWorkItem({ command, context, now, task });
+    case "detach_external_work_item":
+      return detachExternalWorkItem({ command, context, now, task });
+    case "observe_external_work_item":
+      return observeExternalWorkItem({ command, context, now, task });
     default:
       return fail("space_task.invalid_action", "Unsupported Task action.", 400);
   }

@@ -148,7 +148,10 @@ export class SpaceTaskRepository {
   }
 
   updateTask(task: SpaceTask, expectedRevision: number): void {
-    const result = this.sql.exec(
+    // Workflow already compared expectedRevision in this same transaction.
+    // Do not inspect rowsWritten: it is not SQLite changes(), and a miss
+    // cannot happen with one writer inside transactionSync.
+    this.sql.exec(
       `UPDATE space_tasks
        SET phase = ?, revision = ?, task_json = ?, updated_at_ms = ?
        WHERE task_id = ? AND revision = ?`,
@@ -159,9 +162,6 @@ export class SpaceTaskRepository {
       task.taskId,
       expectedRevision
     );
-    if (result.rowsWritten !== 1) {
-      throw new Error("space_task.concurrent_update");
-    }
   }
 
   appendEvent(event: SpaceTaskEvent): void {

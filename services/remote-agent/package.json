@@ -44,7 +44,7 @@
     "ai": "6.0.219",
     "hono": "^4.11.7",
     "valibot": "1.4.0",
-    "zod": "^4.3.6"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@babel/core": "8.0.1",
