@@ -41,6 +41,9 @@ patchedDependencies:
   '@tanstack/history@1.162.1':
     hash: 576e51acd5b407f38327f77a5c1caf792bf0f33da44e94d449e905c6e33afcf8
     path: patches/@tanstack__history@1.162.1.patch
+  better-sqlite3@13.0.3:
+    hash: 74420479c01f8102174bc66a4f86231957cbee7c327adfd18a7bbd8f6d0a27bc
+    path: patches/better-sqlite3@13.0.3.patch
   thinking-orbs@0.3.1:
     hash: 1d2410bd054a0bbf76633d101f3ad9e0e088bed08e1470176fc51bdb7e45d9c3
     path: patches/thinking-orbs@0.3.1.patch
@@ -828,10 +831,10 @@ importers:
         version: link:../schemas
       better-sqlite3:
         specifier: ^13.0.3
-        version: 13.0.3
+        version: 13.0.3(patch_hash=74420479c01f8102174bc66a4f86231957cbee7c327adfd18a7bbd8f6d0a27bc)
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@cloudflare/workers-types@5.20260908.1)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@13.0.3)(kysely@0.29.2)(sql.js@1.14.1)
+        version: 0.45.2(@cloudflare/workers-types@5.20260908.1)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@13.0.3(patch_hash=74420479c01f8102174bc66a4f86231957cbee7c327adfd18a7bbd8f6d0a27bc))(kysely@0.29.2)(sql.js@1.14.1)
     devDependencies:
       '@types/better-sqlite3':
         specifier: ^7.6.13
@@ -19973,7 +19976,7 @@ snapshots:
       bindings: 1.5.0
       prebuild-install: 7.1.3
 
-  better-sqlite3@13.0.3:
+  better-sqlite3@13.0.3(patch_hash=74420479c01f8102174bc66a4f86231957cbee7c327adfd18a7bbd8f6d0a27bc):
     dependencies:
       node-addon-api: 8.9.0
 
@@ -20803,12 +20806,12 @@ snapshots:
       kysely: 0.29.2
       sql.js: 1.14.1
 
-  drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260908.1)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@13.0.3)(kysely@0.29.2)(sql.js@1.14.1):
+  drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260908.1)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@13.0.3(patch_hash=74420479c01f8102174bc66a4f86231957cbee7c327adfd18a7bbd8f6d0a27bc))(kysely@0.29.2)(sql.js@1.14.1):
     optionalDependencies:
       '@cloudflare/workers-types': 5.20260908.1
       '@opentelemetry/api': 1.9.1
       '@types/better-sqlite3': 7.6.13
-      better-sqlite3: 13.0.3
+      better-sqlite3: 13.0.3(patch_hash=74420479c01f8102174bc66a4f86231957cbee7c327adfd18a7bbd8f6d0a27bc)
       kysely: 0.29.2
       sql.js: 1.14.1
 
