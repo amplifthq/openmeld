@@ -586,6 +586,7 @@ const createRecordingD1 = (input?: {
                 sourceKind,
                 sourceKey,
                 sourceTargetJson,
+                sourceFactsJson,
                 resolutionStatus,
                 occurredAtMs,
                 createdAtMs,
@@ -613,6 +614,7 @@ const createRecordingD1 = (input?: {
                 recipient_user_id: recipientUserId,
                 resolution_status:
                   existing?.resolution_status ?? resolutionStatus,
+                source_facts_json: sourceFactsJson,
                 source_key: sourceKey,
                 source_kind: sourceKind,
                 source_target_json: sourceTargetJson,
