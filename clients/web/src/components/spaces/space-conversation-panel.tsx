@@ -211,6 +211,7 @@ import {
 	SpaceOutcomeRow,
 } from "./space-outcome-row";
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
+import { SpaceGraphSkeleton } from "./space-panel-skeletons";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
 import { SpacePinnedItemsBar } from "./space-pins";
 import { useSpaceReadingHeader } from "./space-reading-header";
@@ -770,13 +771,7 @@ function SpaceConversationPanelContent(
 				files={input.files}
 				graph={
 					spaceGraph ? (
-						<Suspense
-							fallback={
-								<output className="p-6 text-muted-foreground text-sm">
-									Loading graph…
-								</output>
-							}
-						>
+						<Suspense fallback={<SpaceGraphSkeleton />}>
 							<SpaceGraph
 								focusRequest={spaceGraphFocusRequest}
 								graph={spaceGraph}

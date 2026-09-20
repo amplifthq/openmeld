@@ -4,8 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Route as CenterAgentChannelsRoute } from "./_center-agent/center-agent.channels";
 import { Route as CenterAgentMemoryRoute } from "./_center-agent/center-agent.memory";
 import { Route as CenterAgentRoutinesRoute } from "./_center-agent/center-agent.routines";
-import { Route as CenterAgentSkillDetailRoute } from "./_center-agent/center-agent.skills.$skillId";
-import { Route as CenterAgentSkillsRoute } from "./_center-agent/center-agent.skills.index";
 import { Route as AgentActivityRoute } from "./agent-activity";
 import { Route as AgentsRoute } from "./agents";
 import { Route as NewOrganizationRoute } from "./new-organization";
@@ -17,6 +15,8 @@ import { Route as ProjectDetailRoute } from "./projects.$projectId";
 import { Route as ProjectsIndexRoute } from "./projects.index";
 import { Route as SettingsAppearanceRoute } from "./settings/appearance";
 import { Route as SettingsGeneralRoute } from "./settings/general";
+import { Route as SkillDetailRoute } from "./skills.$skillId";
+import { Route as SkillsIndexRoute } from "./skills.index";
 
 const ORGANIZATION_HEADING_NAME = /organization/i;
 const getAppSidebarStatesForRouteMock = vi.hoisted(() => vi.fn());
@@ -379,10 +379,6 @@ describe("primary organization routes", () => {
 			expectedSectionId: "routines",
 			route: CenterAgentRoutinesRoute,
 		},
-		{
-			expectedSectionId: "skills",
-			route: CenterAgentSkillsRoute,
-		},
 	])("mounts the $expectedSectionId page in Center Agent", ({
 		expectedSectionId,
 		route,
@@ -402,19 +398,28 @@ describe("primary organization routes", () => {
 		).toBeTruthy();
 	});
 
-	it("mounts Skill details in the same Center Agent section frame", () => {
-		vi.spyOn(CenterAgentSkillDetailRoute, "useParams").mockReturnValue({
+	it("renders the canonical Skills list without a Center Agent section frame", () => {
+		const Component = SkillsIndexRoute.options.component as ComponentType;
+		render(<Component />);
+		expect(
+			screen
+				.getByRole("heading", { name: "Skills" })
+				.closest('[data-slot="center-agent-section-frame"]')
+		).toBeNull();
+	});
+
+	it("renders canonical Skill details without a Center Agent section frame", () => {
+		vi.spyOn(SkillDetailRoute, "useParams").mockReturnValue({
 			orgSlug: "acme",
 			skillId: "release-review",
 		});
-		const Component = CenterAgentSkillDetailRoute.options
-			.component as ComponentType;
+		const Component = SkillDetailRoute.options.component as ComponentType;
 		render(<Component />);
 
 		const heading = screen.getByRole("heading", { name: "Skill detail" });
 		expect(heading.getAttribute("data-skill-id")).toBe("release-review");
 		expect(
 			heading.closest('[data-slot="center-agent-section-frame"]')
-		).toBeTruthy();
+		).toBeNull();
 	});
 });

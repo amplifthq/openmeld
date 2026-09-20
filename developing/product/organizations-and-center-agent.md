@@ -585,8 +585,10 @@ The Center Agent has one Web product home with complementary destinations:
 
 - **Center Agent** is the product home for the workspace's managed agent and
   owns no secondary sidebar. Its stable header navigation is **Messages,
-  Graph, Files, Routines, Skills, Channels**. The first three preserve the selected
-  conversation surface; Routines owns scheduled work. One compact header menu preserves
+  Graph, Files, Routines, Channels**. The first three preserve the selected
+  conversation surface; Routines owns scheduled work. Skills management belongs
+  to Team at `/o/{orgSlug}/skills`, while Center Agent retains its conversational
+  Skill tools and authorized consumption. One compact header menu preserves
   **Memory, Center Agent settings** and, on the
   conversation, **Conversation information**. There is no separate About
   surface or Slack shortcut. Identity and configuration live in Center Agent

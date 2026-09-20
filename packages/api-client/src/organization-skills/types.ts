@@ -34,7 +34,8 @@ export type OrganizationSkillsApi = {
     input?: OrganizationSkillRequestInput
   ) => Promise<ListOrganizationSkillsResponse>;
   get: (
-    input: OrganizationSkillRequestInput & OrganizationSkillMutationTarget
+    input: OrganizationSkillRequestInput &
+      OrganizationSkillMutationTarget & { releaseId?: string }
   ) => Promise<GetOrganizationSkillResponse>;
   create: (
     input: OrganizationSkillRequestInput & CreateOrganizationSkillBody

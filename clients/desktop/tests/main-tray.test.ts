@@ -5,6 +5,13 @@ import type { IpcMainInvokeEvent } from "electron";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WINDOW_IPC } from "../src/shared/ipc-contract";
 
+vi.mock("../src/main/tray-image", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/main/tray-image")>()),
+  createTrayTemplateImage: (_logo: unknown, unread: boolean) => ({
+    mark: unread ? "unread" : "logo",
+  }),
+}));
+
 const inboxTitle = vi.hoisted(() => ({
   activate: vi.fn(),
   setContext: null as ((context: unknown) => void) | null,
@@ -77,6 +84,7 @@ const electronMock = vi.hoisted(() => {
     closeContextMenu: ReturnType<typeof vi.fn>;
     setContextMenu: ReturnType<typeof vi.fn>;
     setTitle: ReturnType<typeof vi.fn>;
+    setImage: ReturnType<typeof vi.fn>;
     setToolTip: ReturnType<typeof vi.fn>;
   }> = [];
   const windowInstances: Array<{
@@ -144,6 +152,7 @@ const electronMock = vi.hoisted(() => {
     closeContextMenu = vi.fn();
     setContextMenu = vi.fn();
     setTitle = vi.fn();
+    setImage = vi.fn();
     setToolTip = vi.fn();
     image: unknown;
 
@@ -407,7 +416,30 @@ beforeEach(() => {
 });
 
 describe("main tray behavior", () => {
-  it("applies categorized attention received before tray creation and updates the native title", async () => {
+  it.each([
+    "darwin",
+    "win32",
+    "linux",
+  ] as const)("preserves native window controls on %s", async (platform) => {
+    setTestPlatform(platform);
+    await importMain();
+    const options = electronMock.windowInstances.at(0)?.options;
+    expect(options?.titleBarStyle).toBe(
+      platform === "darwin" ? "hiddenInset" : "hidden"
+    );
+    if (platform === "darwin") {
+      expect(options?.titleBarOverlay).toBeUndefined();
+    } else {
+      expect(options?.titleBarOverlay).toMatchObject({ height: 38 });
+    }
+    expect(options?.webPreferences).toMatchObject({
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    });
+  });
+
+  it("keeps the menu bar compact while distinguishing mentions, pending work and ordinary unread", async () => {
     setTestPlatform("darwin");
     inboxTitle.initial = {
       ordinaryUnreadCount: 150,
@@ -417,7 +449,12 @@ describe("main tray behavior", () => {
     };
     await importMain();
     const tray = electronMock.trayInstances[0];
-    expect(tray?.setTitle).toHaveBeenLastCalledWith("•");
+    expect(tray?.setImage).toHaveBeenLastCalledWith({
+      mark: "unread",
+    });
+    expect(tray?.setTitle).toHaveBeenLastCalledWith("", {
+      fontType: "monospacedDigit",
+    });
     for (const [nextAttention, title] of [
       [
         {
@@ -439,6 +476,35 @@ describe("main tray behavior", () => {
       ],
       [
         {
+          ordinaryUnreadCount: 150,
+          unreadMentionCount: 0,
+          unreadUrgentUpdateCount: 1,
+          unresolvedActionCount: 2,
+        },
+        "!3",
+      ],
+      [
+        {
+          priorityCount: 2,
+          ordinaryUnreadCount: 150,
+          unreadMentionCount: 3,
+          unreadUrgentUpdateCount: 1,
+          unresolvedActionCount: 5,
+        },
+        "!2 @3",
+      ],
+      [
+        {
+          priorityCount: 120,
+          ordinaryUnreadCount: 163,
+          unreadMentionCount: 180,
+          unreadUrgentUpdateCount: 120,
+          unresolvedActionCount: 0,
+        },
+        "!99+ @99+",
+      ],
+      [
+        {
           ordinaryUnreadCount: 0,
           unreadMentionCount: 0,
           unreadUrgentUpdateCount: 0,
@@ -449,8 +515,22 @@ describe("main tray behavior", () => {
       [null, ""],
     ] as const) {
       inboxTitle.update?.(nextAttention);
-      expect(tray?.setTitle).toHaveBeenLastCalledWith(title);
+      expect(tray?.setTitle).toHaveBeenLastCalledWith(title, {
+        fontType: "monospacedDigit",
+      });
+      expect(tray?.setImage).toHaveBeenLastCalledWith({ mark: "logo" });
     }
+    inboxTitle.update?.({
+      priorityCount: 0,
+      ordinaryUnreadCount: 0,
+      unreadMentionCount: 0,
+      unreadUrgentUpdateCount: 0,
+      unresolvedActionCount: 5,
+    });
+    expect(tray?.setTitle).toHaveBeenLastCalledWith("", {
+      fontType: "monospacedDigit",
+    });
+    expect(tray?.setImage).toHaveBeenLastCalledWith({ mark: "unread" });
   });
 
   it("quits duplicate desktop instances before creating another tray", async () => {
@@ -556,12 +636,10 @@ describe("main tray behavior", () => {
     expect(electronMock.nativeImage.createFromPath).toHaveBeenCalledWith(
       expect.stringContaining("resources/tray-icon.png")
     );
-    expect(electronMock.trayIcon.resize).toHaveBeenCalledWith({ height: 18 });
-    expect(electronMock.resizedTrayIcon.setTemplateImage).toHaveBeenCalledWith(
-      true
-    );
-    expect(tray?.image).toBe(electronMock.resizedTrayIcon);
-    expect(tray?.setTitle).toHaveBeenLastCalledWith("");
+    expect(tray?.image).toEqual({ mark: "logo" });
+    expect(tray?.setTitle).toHaveBeenLastCalledWith("", {
+      fontType: "monospacedDigit",
+    });
   });
 
   it("restores the window and delivers Settings after its document loads", async () => {
@@ -846,6 +924,10 @@ describe("main tray behavior", () => {
       "Settings…",
       "Quit OpenMeld",
     ]);
+    inboxTitle.setContext?.({ unreadCount: 163 });
+    inboxTitle.setPresentation?.({ status: "no_unread_messages" });
+    expect(trayMenuLabels()).toContain("No message preview available");
+    expect(trayMenuLabels()).not.toContain("No unread messages");
   });
 
   it("keeps the Computer status on the same native menu row", async () => {

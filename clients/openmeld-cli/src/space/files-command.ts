@@ -26,7 +26,7 @@ import {
   runSpaceWriteWithPasswordRetry,
 } from "./password-flow";
 
-type SpaceFilesCommandInput = {
+export type SpaceFilesCommandInput = {
   baseUrl?: string;
   entryChecksHandled?: boolean;
   json: boolean;
@@ -552,7 +552,7 @@ async function runSpaceFilesEntryUpdate(
   });
 }
 
-async function prepareSpaceFilesContext(
+export async function prepareSpaceFilesContext(
   input: SpaceFilesCommandInput,
   action: string
 ): Promise<PreparedSpaceFilesContext | null> {
@@ -621,7 +621,7 @@ function emitListOutput(input: {
   }
 }
 
-function emitMutationOutput(input: {
+export function emitMutationOutput(input: {
   code: string;
   json: boolean;
   payload: unknown;

@@ -3,6 +3,7 @@
 import type { LocalRuntimeComputer } from "@openmeld/schemas/types";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -142,6 +143,7 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 		agentExecutionReadinessScope: "bound_runtime",
 		currentLocalRuntimeReplyReadinessRefetchIntervalMs:
 			COMPUTERS_SERVICE_STATUS_REFETCH_INTERVAL_MS,
+		loadAgentExecutionReadiness: false,
 		loadSetupState: false,
 	});
 	const setupCompleteRefreshStatus = useRefreshComputersAfterSetupComplete({
@@ -171,6 +173,9 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 		);
 	const computerResolutionError = resolveComputerResolutionError([
 		recovery.localRuntimesQuery.error,
+		...(routeState.computersSelectedDeviceId === null
+			? [recovery.currentDeviceTargetQuery.error]
+			: []),
 		...(isOrganizationContext
 			? [organizationDirectoryQuery.error, organizationComputersQuery.error]
 			: []),
@@ -181,9 +186,6 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 		organizationComputers: organizationComputersQuery.data ?? null,
 		ownedComputers: devices,
 	});
-	const isReconcilingCurrentToolsStatus =
-		recovery.currentLocalRuntimeReplyReadinessQuery.isFetching &&
-		!recovery.currentLocalRuntimeReplyReadinessQuery.isFetchedAfterMount;
 	const selectedDeviceId = routeState.computersSelectedDeviceId;
 	const preferredDeviceId =
 		resolveConnectedLocalRuntime(recovery)?.deviceId ??
@@ -221,7 +223,9 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 		setupCompleteRefreshStatus !== "pending" &&
 		setupCompleteRefreshStatus !== "error";
 	const inventoryAbsenceIsSettled =
-		inventoryIsSettled && !recovery.localRuntimesQuery.isFetching;
+		inventoryIsSettled &&
+		!recovery.localRuntimesQuery.isFetching &&
+		recovery.currentDeviceTargetQuery.isSuccess;
 
 	useResolvePreferredComputerRoute({
 		canResolvePreferredDeviceRoute,
@@ -305,7 +309,6 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 						ownerProfileId,
 						selectedComputer?.deviceId
 					)}
-					isReconcilingCurrentToolsStatus={isReconcilingCurrentToolsStatus}
 					onRetry={() => {
 						Promise.all([
 							recovery.refreshAll(),
@@ -357,7 +360,6 @@ function ComputersPageBody(input: {
 	connectionAction: ReactNode;
 	computerGroups: readonly OrganizationComputerGroup[];
 	computerResolutionIsPending: boolean;
-	isReconcilingCurrentToolsStatus: boolean;
 	onRetry: () => void;
 	orgSlug: string;
 	organizationId: string;
@@ -380,7 +382,6 @@ function ComputersPageBody(input: {
 				connectionAction={input.connectionAction}
 				focusFileAccess={input.routeState.computersFocusFileAccess}
 				focusService={input.routeState.computersFocusService}
-				isReconcilingStatus={input.isReconcilingCurrentToolsStatus}
 				onFocusConsumed={input.routeState.onFocusConsumed}
 				organizationId={input.organizationId}
 				queryClient={input.queryClient}
@@ -595,8 +596,18 @@ function resolveComputerResolutionError(
 function SelectedComputerLoading() {
 	return (
 		<div className="flex flex-col gap-4" data-testid="computer-detail-loading">
-			<Skeleton className="h-56 w-full" />
-			<Skeleton className="h-72 w-full" />
+			<section className="space-y-5 rounded-md bg-card p-5">
+				<h2 className="font-medium text-sm">OpenMeld Tools</h2>
+				<SkeletonRows label="Loading Computer connection" rows={1} />
+				<div aria-hidden="true" className="flex gap-2">
+					<Skeleton className="h-8 w-28" />
+					<Skeleton className="h-8 w-24" />
+				</div>
+			</section>
+			<section className="space-y-5 rounded-md bg-card p-5">
+				<h2 className="font-medium text-sm">Local agents</h2>
+				<SkeletonRows label="Loading local agents" />
+			</section>
 		</div>
 	);
 }

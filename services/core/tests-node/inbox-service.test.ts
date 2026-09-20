@@ -470,15 +470,15 @@ describe("Inbox service", () => {
   it.each([
     {
       kind: "space_message" as const,
-      importance: "urgent" as const,
-      urgentCount: 1,
+      importance: "normal" as const,
+      urgentCount: 0,
     },
     {
       kind: "agent_reply" as const,
       importance: "normal" as const,
       urgentCount: 0,
     },
-  ])("keeps absent personal Agent owner $kind unread and revokes stale ownership", async ({
+  ])("keeps an exact personal Agent owner $kind unread and revokes stale ownership", async ({
     kind,
     importance,
     urgentCount,
@@ -510,6 +510,12 @@ describe("Inbox service", () => {
           title: "Someone messaged your agent",
           sourceKind: "space_signal",
           sourceKey: "owner-message",
+          sourceFacts: {
+            version: 1,
+            recipientReasons: ["agent_owner"],
+            agentProfileIds: ["profile_one"],
+            personalAgentProfileIds: ["profile_one"],
+          },
           sourceTarget: {
             kind: "space",
             agentOwnerActivity: true,

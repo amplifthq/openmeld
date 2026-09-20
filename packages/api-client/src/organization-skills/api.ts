@@ -50,7 +50,7 @@ export const createOrganizationSkillsApi: CreateOrganizationSkillsApi = (
       method: "GET",
       operation: "organization_skill.get",
       schema: getOrganizationSkillResponseSchema,
-      url: buildOrganizationSkillPath(requireSkillId(input.skillId)),
+      url: `${buildOrganizationSkillPath(requireSkillId(input.skillId))}${input.releaseId === undefined ? "" : `?releaseId=${encodeURIComponent(input.releaseId)}`}`,
     }),
   create: async (input) => {
     const body = requireValidInput(

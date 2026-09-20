@@ -15,16 +15,33 @@ describe("Inbox index route", () => {
 			unread: true,
 		});
 		expect(validate({ unread: "false" }).unread).toBeUndefined();
-		expect(validate({ item: "item-1", unread: true }).unread).toBeUndefined();
+		expect(validate({ item: "item-1", unread: true }).unread).toBe(true);
 	});
-	it("opens a valid item deep link in the canonical All view", () => {
+	it("retains the selected category and independent filters around an exact item deep link", () => {
 		const validateSearch = Route.options.validateSearch as (
 			search: Record<string, unknown>
 		) => { item?: string; view?: string };
 
 		expect(
 			validateSearch({ item: "  inbox-item-123  ", view: "needs-action" })
-		).toEqual({ item: "inbox-item-123", view: undefined });
+		).toMatchObject({ item: "inbox-item-123", view: "needs-action" });
+		expect(
+			validateSearch({
+				item: "item-1",
+				view: "mentions",
+				unread: "true",
+				agents: "true",
+			})
+		).toMatchObject({
+			item: "item-1",
+			view: "mentions",
+			unread: true,
+			agents: true,
+		});
+		expect(validateSearch({ agents: "false" })).toHaveProperty(
+			"agents",
+			undefined
+		);
 	});
 
 	it("drops invalid item and view search values", () => {

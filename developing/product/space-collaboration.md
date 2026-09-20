@@ -413,6 +413,36 @@ fallback is `An agent is working`, not a guessed participant.
 
 ## Space Files
 
+### Selected work handoffs
+
+A selected work handoff is an ordinary Space Message or Thread reply with one
+Wake target, exact file revisions, optional immutable Organization Skill
+releases, a goal, completed work, next steps, and requirements. The containing
+message owns its origin and result placement. The manifest cannot choose a
+different author, source Space, account, or reply destination. Reusing a message
+identity with different work fails; posting successfully does not mean the Wake
+started or succeeded.
+
+The first slice supports up to ten files, each at most 10 MiB, with safe unique
+relative paths. The recipient prepares the complete selected set before starting
+execution. Missing files or Skills fail explicitly; neither current revisions
+nor latest Skill releases silently replace the selection. Files remain owned by
+the Space, and ordinary Space membership and Wake admission still apply.
+
+Hosted Agents use their existing Computer identity. Workstation continuation
+requires the macOS Codex App Server Space-only execution boundary. Other
+controllers/platforms are not advertised as supporting this handoff. This is
+not a user-owned private Computer, cross-device process migration, background
+file synchronization, or generic Git repository transfer.
+
+Saving an existing file creates a revision through its existing writer and
+expected base, retaining its file ID. Saving and selecting final reply
+attachments are separate actions. Conflicts preserve local work. The final
+reply references explicitly selected acknowledged revisions in the originating
+conversation, using the existing execution/finalization owner.
+
+### Shared file ownership
+
 Space Files are the shared working files of one Space. Humans, the hosted Center
 Agent, and authorized workstation Agents use the same Space-owned file contract;
 none receives a private or privileged copy of the file tree.
@@ -860,6 +890,17 @@ draft; closing either surface requires one explicit discard decision. Members
 are directly visible on their settings page, searchable, and paged in the UI.
 Invitation-link state comes from persisted server state. Anonymous readers
 never post or invoke Agents.
+
+Unsent email invitations belong to the current open dialog and its account,
+Organization, Space, and audience. Share-tab and Guest/Teammate switches retain
+separate drafts and pending operations; closing the dialog or changing identity
+starts a new invitation session. A successful create/request clears only the
+unchanged revision it submitted. Resending or revoking an existing invitation
+never edits the compose draft. Membership loading, read failure, and confirmed
+denial are different UI states: a failed read offers retry, preserves any
+existing draft, and disables invitation actions until the read recovers. Server
+membership and invitation authorization remain authoritative.
+
 
 Profile participation remains explicit. Same-account access does not silently
 turn every profile under that account into a Space member. If a specific Human

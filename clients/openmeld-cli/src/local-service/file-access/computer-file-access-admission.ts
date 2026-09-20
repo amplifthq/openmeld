@@ -1,5 +1,4 @@
 import { realpath } from "node:fs/promises";
-import { isAbsolute, relative } from "node:path";
 import type {
   AdapterComputerFileAccessBoundary,
   AdapterComputerFileAccessVerificationResult,
@@ -9,6 +8,7 @@ import type {
 } from "@openmeld/adapter-core";
 import { COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE } from "@openmeld/schemas";
 import type { ComputerFileAccessPolicy } from "@openmeld/schemas/types";
+import { isSameOrDescendantPath } from "../../lib/path-containment";
 import { DaemonServiceRunError } from "../core/types";
 
 const RUN_ONCE_OPTION_ID = "run_once_without_computer_file_access_boundary";
@@ -102,7 +102,7 @@ export async function assertComputerFileAccessWorkingDirectoryAllowed(input: {
     input.providerRuntimeWorkingDirectory
   );
   const matchesConfiguredFolder = input.boundary.folders.some((folder) =>
-    isSameOrDescendant(workingDirectory, folder)
+    isSameOrDescendantPath(workingDirectory, folder)
   );
   const allowed =
     input.boundary.mode === "only_selected_folders"
@@ -117,12 +117,4 @@ export async function assertComputerFileAccessWorkingDirectoryAllowed(input: {
     message:
       "computer.file_access.working_directory_denied: this Wake’s working folder is outside the Computer file access boundary",
   });
-}
-
-function isSameOrDescendant(candidate: string, parent: string): boolean {
-  const relativePath = relative(parent, candidate);
-  return (
-    relativePath === "" ||
-    !(relativePath.startsWith("..") || isAbsolute(relativePath))
-  );
 }

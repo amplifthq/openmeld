@@ -34,7 +34,7 @@ export function SelectedComputerPanel(input: {
 	connectionAction?: ReactNode;
 	focusFileAccess: boolean;
 	focusService: boolean;
-	isReconcilingStatus: boolean;
+	isReconcilingStatus?: boolean;
 	onFocusConsumed?: () => void;
 	organizationId: string;
 	queryClient: QueryClient;
@@ -93,7 +93,12 @@ export function SelectedComputerPanel(input: {
 		}),
 		input.queryClient
 	);
+	const isReconcilingStatus =
+		input.isReconcilingStatus === true ||
+		(selectedReadinessQuery.isFetching &&
+			!selectedReadinessQuery.isFetchedAfterMount);
 	const effectiveReplyReadiness =
+		// This query belongs to the viewed Computer, not the account's other target.
 		mapCurrentLocalRuntimeReplyReadinessQueryState({
 			isPending: target !== null && selectedReadinessQuery.isPending,
 			readiness: selectedReadinessQuery.isError
@@ -155,7 +160,7 @@ export function SelectedComputerPanel(input: {
 				currentLocalRuntimeReplyReadiness={currentLocalRuntimeReplyReadiness}
 				focusService={input.focusService}
 				hasSelectedEnvironment={target !== null}
-				isReconcilingStatus={input.isReconcilingStatus}
+				isReconcilingStatus={isReconcilingStatus}
 				key={`service/${target ? computerEnvironmentKey(target) : input.computer.deviceId}`}
 				onCheckingStatusChange={(checking) => {
 					const deviceId = input.computer.deviceId;
@@ -185,7 +190,7 @@ export function SelectedComputerPanel(input: {
 				controlTarget={target}
 				hasSelectedEnvironment={target !== null}
 				isReconcilingStatus={
-					input.isReconcilingStatus ||
+					isReconcilingStatus ||
 					input.setupCompleteRefreshPending ||
 					checkingComputerId === input.computer.deviceId
 				}

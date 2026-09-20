@@ -1,5 +1,5 @@
 import { lstat, mkdir, realpath } from "node:fs/promises";
-import { isAbsolute, join, relative } from "node:path";
+import { join } from "node:path";
 import {
   forkSession,
   getSessionInfo,
@@ -20,6 +20,7 @@ import type {
   ExecutionContextCompletion,
   ExecutionContextTask,
 } from "@openmeld/schemas/types";
+import { isSameOrDescendantPath } from "../../lib/path-containment";
 import { runAgentSessionForkOperation } from "../session-control/session-fork-operation-store";
 import {
   type ExecutionContextWorkspace,
@@ -52,14 +53,9 @@ export function executionContextFileAccessBoundary(input: {
   workingDirectory: string;
   policy: ComputerFileAccessPolicy;
   taskWorkspace?: ExecutionContextWorkspace;
+  workingCopyId?: string;
 }): AdapterComputerFileAccessBoundary {
-  const within = (child: string, parent: string) => {
-    const path = relative(parent, child);
-    return (
-      path === "" ||
-      (path !== ".." && !path.startsWith("../") && !isAbsolute(path))
-    );
-  };
+  const within = isSameOrDescendantPath;
   const policy = input.policy;
   // Space-only work has no user-folder source. The native boundary still names
   // only its Service-owned scratch root, regardless of the user's folder policy.
@@ -83,10 +79,17 @@ export function executionContextFileAccessBoundary(input: {
   }
   return {
     mode: "only_selected_folders",
-    folders: [input.taskWorkspace?.boundaryRoot ?? input.workingDirectory],
+    folders: [
+      input.context.access === "space_context" && input.workingCopyId
+        ? input.workingDirectory
+        : (input.taskWorkspace?.boundaryRoot ?? input.workingDirectory),
+    ],
     revision: policy.revision,
     updatedAtMs: policy.updatedAtMs,
     executionContextAccess: input.context.access,
+    ...(input.context.access === "space_context" && input.workingCopyId
+      ? { workingCopyId: input.workingCopyId }
+      : {}),
   };
 }
 

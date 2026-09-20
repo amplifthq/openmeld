@@ -257,7 +257,7 @@ describe("Inbox browser notifications", () => {
 		expect(result.status).toBe(focused ? "deferred" : "delivered");
 		expect(showNotification).toHaveBeenCalledTimes(focused ? 0 : 1);
 	});
-	it("coalesces personal Agent owner alerts without suppressing another conversation", async () => {
+	it("keeps delayed legacy owner observations quiet without coalescing independent Human mentions", async () => {
 		await enableInboxNotifications({ userId: USER_ID });
 		const item = createInboxItem({
 			kind: "space_message",
@@ -278,24 +278,31 @@ describe("Inbox browser notifications", () => {
 				userId: USER_ID,
 				viewingSourceSession: false,
 			});
-		expect((await send(item)).status).toBe("delivered");
-		expect((await send({ ...item, id: "second-message" })).status).toBe(
-			"already_delivered"
-		);
+		expect((await send(item)).status).toBe("ineligible");
 		expect(
 			(
 				await send({
 					...item,
-					id: "another-chat",
-					sourceTarget: {
-						kind: "space",
-						agentOwnerActivity: true,
-						spaceId: "other-chat",
-						signalId: "two",
-					},
+					id: "later-owner-message",
+					occurredAt: new Date(
+						Date.parse(item.occurredAt) + 120_000
+					).toISOString(),
 				})
 			).status
-		).toBe("delivered");
+		).toBe("ineligible");
+		expect(notificationConstructorMock).not.toHaveBeenCalled();
+		expect(queueSoundMock).not.toHaveBeenCalled();
+		const mention = {
+			...item,
+			id: "human-mention-one",
+			kind: "space_mention" as const,
+			importance: "normal" as const,
+		};
+		expect((await send(mention)).status).toBe("delivered");
+		expect((await send({ ...mention, id: "human-mention-two" })).status).toBe(
+			"delivered"
+		);
+		expect((await send(mention)).status).toBe("already_delivered");
 		expect(notificationConstructorMock).toHaveBeenCalledTimes(2);
 		expect(queueSoundMock).toHaveBeenCalledTimes(2);
 	});

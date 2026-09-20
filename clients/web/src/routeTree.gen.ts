@@ -76,6 +76,7 @@ import { Route as OOrgSlugPeopleRouteImport } from './routes/o/$orgSlug/people'
 import { Route as OOrgSlugPluginsRouteImport } from './routes/o/$orgSlug/plugins'
 import { Route as OOrgSlugProjectsRouteImport } from './routes/o/$orgSlug/projects'
 import { Route as OOrgSlugSettingsRouteImport } from './routes/o/$orgSlug/settings'
+import { Route as OOrgSlugSkillsRouteImport } from './routes/o/$orgSlug/skills'
 import { Route as SlackIdentityStartRouteImport } from './routes/slack/identity/start'
 import { Route as SlackOauthResultRouteImport } from './routes/slack/oauth/result'
 import { Route as SlackOauthStartRouteImport } from './routes/slack/oauth/start'
@@ -107,6 +108,10 @@ import { Route as V1ProfilesAgentsRouteImport } from './routes/v1/profiles/agent
 import { Route as V1ProfilesCapabilitiesRouteImport } from './routes/v1/profiles/capabilities'
 import { Route as V1ProfilesHumansRouteImport } from './routes/v1/profiles/humans'
 import { Route as DesktopUpdatesCandidateDesktopDotzipRouteImport } from './routes/desktop/updates/$candidate/desktop[.zip]'
+import { Route as DesktopUpdatesCandidateWindowsArm64DotexeRouteImport } from './routes/desktop/updates/$candidate/windows-arm64[.exe]'
+import { Route as DesktopUpdatesCandidateWindowsX64DotexeRouteImport } from './routes/desktop/updates/$candidate/windows-x64[.exe]'
+import { Route as DesktopUpdatesWindowsArm64LatestDotymlRouteImport } from './routes/desktop/updates/windows-arm64/latest[.yml]'
+import { Route as DesktopUpdatesWindowsX64LatestDotymlRouteImport } from './routes/desktop/updates/windows-x64/latest[.yml]'
 import { Route as OOrgSlugCenterAgentIndexRouteImport } from './routes/o/$orgSlug/_center-agent/index'
 import { Route as OOrgSlugCenterAgentCenterAgentRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent'
 import { Route as OOrgSlugCenterAgentDeskRouteImport } from './routes/o/$orgSlug/_center-agent/desk'
@@ -114,6 +119,7 @@ import { Route as OOrgSlugAgentActivityIndexRouteImport } from './routes/o/$orgS
 import { Route as OOrgSlugAgentActivityChangesRouteImport } from './routes/o/$orgSlug/agent-activity/changes'
 import { Route as OOrgSlugAgentActivitySessionsRouteImport } from './routes/o/$orgSlug/agent-activity/sessions'
 import { Route as OOrgSlugAgentsNewRouteImport } from './routes/o/$orgSlug/agents_.new'
+import { Route as OOrgSlugCenterAgentSkillsRouteImport } from './routes/o/$orgSlug/center-agent.skills'
 import { Route as OOrgSlugChatsIndexRouteImport } from './routes/o/$orgSlug/chats/index'
 import { Route as OOrgSlugChatsSpaceIdRouteImport } from './routes/o/$orgSlug/chats/$spaceId'
 import { Route as OOrgSlugComputersDeviceIdRouteImport } from './routes/o/$orgSlug/computers.$deviceId'
@@ -147,6 +153,8 @@ import { Route as OOrgSlugSettingsPrivacyRouteImport } from './routes/o/$orgSlug
 import { Route as OOrgSlugSettingsSecurityRouteImport } from './routes/o/$orgSlug/settings/security'
 import { Route as OOrgSlugSettingsServiceRouteImport } from './routes/o/$orgSlug/settings/service'
 import { Route as OOrgSlugSettingsUpdatesRouteImport } from './routes/o/$orgSlug/settings/updates'
+import { Route as OOrgSlugSkillsIndexRouteImport } from './routes/o/$orgSlug/skills.index'
+import { Route as OOrgSlugSkillsSkillIdRouteImport } from './routes/o/$orgSlug/skills.$skillId'
 import { Route as OOrgSlugSpacesIndexRouteImport } from './routes/o/$orgSlug/spaces/index'
 import { Route as OOrgSlugSpacesSpaceIdRouteImport } from './routes/o/$orgSlug/spaces/$spaceId'
 import { Route as V1ProfilesAgentsProfileIdRouteImport } from './routes/v1/profiles/agents/$profileId'
@@ -159,15 +167,14 @@ import { Route as OOrgSlugCenterAgentCenterAgentMemoryRouteImport } from './rout
 import { Route as OOrgSlugCenterAgentCenterAgentPluginsRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.plugins'
 import { Route as OOrgSlugCenterAgentCenterAgentRoutinesRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.routines'
 import { Route as OOrgSlugCenterAgentCenterAgentSettingsRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.settings'
-import { Route as OOrgSlugCenterAgentCenterAgentSkillsRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.skills'
 import { Route as OOrgSlugCenterAgentChatsCenterAgentRouteImport } from './routes/o/$orgSlug/_center-agent/chats.center-agent'
+import { Route as OOrgSlugCenterAgentSkillsIndexRouteImport } from './routes/o/$orgSlug/center-agent.skills.index'
+import { Route as OOrgSlugCenterAgentSkillsSkillIdRouteImport } from './routes/o/$orgSlug/center-agent.skills.$skillId'
 import { Route as OOrgSlugPeoplePersonIdAgentsRouteImport } from './routes/o/$orgSlug/people_.$personId_.agents'
 import { Route as OOrgSlugSettingsComputersDeviceIdRouteImport } from './routes/o/$orgSlug/settings/computers.$deviceId'
 import { Route as V1PrepareSessionsPrepareSessionIdStreamRouteImport } from './routes/v1/prepare/sessions/$prepareSessionId/stream'
 import { Route as OOrgSlugCenterAgentCenterAgentAppsServiceRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.apps.$service'
 import { Route as OOrgSlugCenterAgentCenterAgentPluginsServiceRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.plugins.$service'
-import { Route as OOrgSlugCenterAgentCenterAgentSkillsIndexRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.skills.index'
-import { Route as OOrgSlugCenterAgentCenterAgentSkillsSkillIdRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.skills.$skillId'
 import { Route as OOrgSlugPeoplePersonIdAgentsAgentIdRouteImport } from './routes/o/$orgSlug/people_.$personId_.agents_.$agentId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -508,6 +515,11 @@ const OOrgSlugSettingsRoute = OOrgSlugSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => OOrgSlugRoute,
 } as any)
+const OOrgSlugSkillsRoute = OOrgSlugSkillsRouteImport.update({
+  id: '/skills',
+  path: '/skills',
+  getParentRoute: () => OOrgSlugRoute,
+} as any)
 const SlackIdentityStartRoute = SlackIdentityStartRouteImport.update({
   id: '/slack/identity/start',
   path: '/slack/identity/start',
@@ -680,6 +692,30 @@ const DesktopUpdatesCandidateDesktopDotzipRoute =
     path: '/updates/$candidate/desktop.zip',
     getParentRoute: () => DesktopRoute,
   } as any)
+const DesktopUpdatesCandidateWindowsArm64DotexeRoute =
+  DesktopUpdatesCandidateWindowsArm64DotexeRouteImport.update({
+    id: '/updates/$candidate/windows-arm64.exe',
+    path: '/updates/$candidate/windows-arm64.exe',
+    getParentRoute: () => DesktopRoute,
+  } as any)
+const DesktopUpdatesCandidateWindowsX64DotexeRoute =
+  DesktopUpdatesCandidateWindowsX64DotexeRouteImport.update({
+    id: '/updates/$candidate/windows-x64.exe',
+    path: '/updates/$candidate/windows-x64.exe',
+    getParentRoute: () => DesktopRoute,
+  } as any)
+const DesktopUpdatesWindowsArm64LatestDotymlRoute =
+  DesktopUpdatesWindowsArm64LatestDotymlRouteImport.update({
+    id: '/updates/windows-arm64/latest.yml',
+    path: '/updates/windows-arm64/latest.yml',
+    getParentRoute: () => DesktopRoute,
+  } as any)
+const DesktopUpdatesWindowsX64LatestDotymlRoute =
+  DesktopUpdatesWindowsX64LatestDotymlRouteImport.update({
+    id: '/updates/windows-x64/latest.yml',
+    path: '/updates/windows-x64/latest.yml',
+    getParentRoute: () => DesktopRoute,
+  } as any)
 const OOrgSlugCenterAgentIndexRoute =
   OOrgSlugCenterAgentIndexRouteImport.update({
     id: '/',
@@ -720,6 +756,12 @@ const OOrgSlugAgentsNewRoute = OOrgSlugAgentsNewRouteImport.update({
   path: '/agents/new',
   getParentRoute: () => OOrgSlugRoute,
 } as any)
+const OOrgSlugCenterAgentSkillsRoute =
+  OOrgSlugCenterAgentSkillsRouteImport.update({
+    id: '/center-agent/skills',
+    path: '/center-agent/skills',
+    getParentRoute: () => OOrgSlugRoute,
+  } as any)
 const OOrgSlugChatsIndexRoute = OOrgSlugChatsIndexRouteImport.update({
   id: '/chats/',
   path: '/chats/',
@@ -899,6 +941,16 @@ const OOrgSlugSettingsUpdatesRoute = OOrgSlugSettingsUpdatesRouteImport.update({
   path: '/updates',
   getParentRoute: () => OOrgSlugSettingsRoute,
 } as any)
+const OOrgSlugSkillsIndexRoute = OOrgSlugSkillsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => OOrgSlugSkillsRoute,
+} as any)
+const OOrgSlugSkillsSkillIdRoute = OOrgSlugSkillsSkillIdRouteImport.update({
+  id: '/$skillId',
+  path: '/$skillId',
+  getParentRoute: () => OOrgSlugSkillsRoute,
+} as any)
 const OOrgSlugSpacesIndexRoute = OOrgSlugSpacesIndexRouteImport.update({
   id: '/spaces/',
   path: '/spaces/',
@@ -968,17 +1020,23 @@ const OOrgSlugCenterAgentCenterAgentSettingsRoute =
     path: '/settings',
     getParentRoute: () => OOrgSlugCenterAgentCenterAgentRoute,
   } as any)
-const OOrgSlugCenterAgentCenterAgentSkillsRoute =
-  OOrgSlugCenterAgentCenterAgentSkillsRouteImport.update({
-    id: '/skills',
-    path: '/skills',
-    getParentRoute: () => OOrgSlugCenterAgentCenterAgentRoute,
-  } as any)
 const OOrgSlugCenterAgentChatsCenterAgentRoute =
   OOrgSlugCenterAgentChatsCenterAgentRouteImport.update({
     id: '/chats/center-agent',
     path: '/chats/center-agent',
     getParentRoute: () => OOrgSlugCenterAgentRoute,
+  } as any)
+const OOrgSlugCenterAgentSkillsIndexRoute =
+  OOrgSlugCenterAgentSkillsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => OOrgSlugCenterAgentSkillsRoute,
+  } as any)
+const OOrgSlugCenterAgentSkillsSkillIdRoute =
+  OOrgSlugCenterAgentSkillsSkillIdRouteImport.update({
+    id: '/$skillId',
+    path: '/$skillId',
+    getParentRoute: () => OOrgSlugCenterAgentSkillsRoute,
   } as any)
 const OOrgSlugPeoplePersonIdAgentsRoute =
   OOrgSlugPeoplePersonIdAgentsRouteImport.update({
@@ -1009,18 +1067,6 @@ const OOrgSlugCenterAgentCenterAgentPluginsServiceRoute =
     id: '/$service',
     path: '/$service',
     getParentRoute: () => OOrgSlugCenterAgentCenterAgentPluginsRoute,
-  } as any)
-const OOrgSlugCenterAgentCenterAgentSkillsIndexRoute =
-  OOrgSlugCenterAgentCenterAgentSkillsIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => OOrgSlugCenterAgentCenterAgentSkillsRoute,
-  } as any)
-const OOrgSlugCenterAgentCenterAgentSkillsSkillIdRoute =
-  OOrgSlugCenterAgentCenterAgentSkillsSkillIdRouteImport.update({
-    id: '/$skillId',
-    path: '/$skillId',
-    getParentRoute: () => OOrgSlugCenterAgentCenterAgentSkillsRoute,
   } as any)
 const OOrgSlugPeoplePersonIdAgentsAgentIdRoute =
   OOrgSlugPeoplePersonIdAgentsAgentIdRouteImport.update({
@@ -1096,6 +1142,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/plugins': typeof OOrgSlugPluginsRouteWithChildren
   '/o/$orgSlug/projects': typeof OOrgSlugProjectsRouteWithChildren
   '/o/$orgSlug/settings': typeof OOrgSlugSettingsRouteWithChildren
+  '/o/$orgSlug/skills': typeof OOrgSlugSkillsRouteWithChildren
   '/slack/identity/start': typeof SlackIdentityStartRoute
   '/slack/oauth/result': typeof SlackOauthResultRoute
   '/slack/oauth/start': typeof SlackOauthStartRoute
@@ -1127,11 +1174,16 @@ export interface FileRoutesByFullPath {
   '/v1/profiles/capabilities': typeof V1ProfilesCapabilitiesRoute
   '/v1/profiles/humans': typeof V1ProfilesHumansRoute
   '/desktop/updates/$candidate/desktop.zip': typeof DesktopUpdatesCandidateDesktopDotzipRoute
+  '/desktop/updates/$candidate/windows-arm64.exe': typeof DesktopUpdatesCandidateWindowsArm64DotexeRoute
+  '/desktop/updates/$candidate/windows-x64.exe': typeof DesktopUpdatesCandidateWindowsX64DotexeRoute
+  '/desktop/updates/windows-arm64/latest.yml': typeof DesktopUpdatesWindowsArm64LatestDotymlRoute
+  '/desktop/updates/windows-x64/latest.yml': typeof DesktopUpdatesWindowsX64LatestDotymlRoute
   '/o/$orgSlug/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
   '/o/$orgSlug/agents/new': typeof OOrgSlugAgentsNewRoute
+  '/o/$orgSlug/center-agent/skills': typeof OOrgSlugCenterAgentSkillsRouteWithChildren
   '/o/$orgSlug/chats/$spaceId': typeof OOrgSlugChatsSpaceIdRoute
   '/o/$orgSlug/computers/$deviceId': typeof OOrgSlugComputersDeviceIdRoute
   '/o/$orgSlug/direct-messages/$spaceId': typeof OOrgSlugDirectMessagesSpaceIdRoute
@@ -1157,6 +1209,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
   '/o/$orgSlug/settings/updates': typeof OOrgSlugSettingsUpdatesRoute
+  '/o/$orgSlug/skills/$skillId': typeof OOrgSlugSkillsSkillIdRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
   '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRoute
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
@@ -1170,6 +1223,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/plugins/': typeof OOrgSlugPluginsIndexRoute
   '/o/$orgSlug/projects/': typeof OOrgSlugProjectsIndexRoute
   '/o/$orgSlug/settings/': typeof OOrgSlugSettingsIndexRoute
+  '/o/$orgSlug/skills/': typeof OOrgSlugSkillsIndexRoute
   '/o/$orgSlug/spaces/': typeof OOrgSlugSpacesIndexRoute
   '/o/$orgSlug/center-agent/apps': typeof OOrgSlugCenterAgentCenterAgentAppsRouteWithChildren
   '/o/$orgSlug/center-agent/channels': typeof OOrgSlugCenterAgentCenterAgentChannelsRoute
@@ -1178,17 +1232,16 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/center-agent/plugins': typeof OOrgSlugCenterAgentCenterAgentPluginsRouteWithChildren
   '/o/$orgSlug/center-agent/routines': typeof OOrgSlugCenterAgentCenterAgentRoutinesRoute
   '/o/$orgSlug/center-agent/settings': typeof OOrgSlugCenterAgentCenterAgentSettingsRoute
-  '/o/$orgSlug/center-agent/skills': typeof OOrgSlugCenterAgentCenterAgentSkillsRouteWithChildren
   '/o/$orgSlug/chats/center-agent': typeof OOrgSlugCenterAgentChatsCenterAgentRoute
+  '/o/$orgSlug/center-agent/skills/$skillId': typeof OOrgSlugCenterAgentSkillsSkillIdRoute
   '/o/$orgSlug/people/$personId/agents': typeof OOrgSlugPeoplePersonIdAgentsRoute
   '/o/$orgSlug/settings/computers/$deviceId': typeof OOrgSlugSettingsComputersDeviceIdRoute
   '/v1/prepare/sessions/$prepareSessionId/stream': typeof V1PrepareSessionsPrepareSessionIdStreamRoute
   '/o/$orgSlug/center-agent/': typeof OOrgSlugCenterAgentCenterAgentIndexRoute
+  '/o/$orgSlug/center-agent/skills/': typeof OOrgSlugCenterAgentSkillsIndexRoute
   '/o/$orgSlug/center-agent/apps/$service': typeof OOrgSlugCenterAgentCenterAgentAppsServiceRoute
   '/o/$orgSlug/center-agent/plugins/$service': typeof OOrgSlugCenterAgentCenterAgentPluginsServiceRoute
-  '/o/$orgSlug/center-agent/skills/$skillId': typeof OOrgSlugCenterAgentCenterAgentSkillsSkillIdRoute
   '/o/$orgSlug/people/$personId/agents/$agentId': typeof OOrgSlugPeoplePersonIdAgentsAgentIdRoute
-  '/o/$orgSlug/center-agent/skills/': typeof OOrgSlugCenterAgentCenterAgentSkillsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -1281,6 +1334,10 @@ export interface FileRoutesByTo {
   '/v1/profiles/capabilities': typeof V1ProfilesCapabilitiesRoute
   '/v1/profiles/humans': typeof V1ProfilesHumansRoute
   '/desktop/updates/$candidate/desktop.zip': typeof DesktopUpdatesCandidateDesktopDotzipRoute
+  '/desktop/updates/$candidate/windows-arm64.exe': typeof DesktopUpdatesCandidateWindowsArm64DotexeRoute
+  '/desktop/updates/$candidate/windows-x64.exe': typeof DesktopUpdatesCandidateWindowsX64DotexeRoute
+  '/desktop/updates/windows-arm64/latest.yml': typeof DesktopUpdatesWindowsArm64LatestDotymlRoute
+  '/desktop/updates/windows-x64/latest.yml': typeof DesktopUpdatesWindowsX64LatestDotymlRoute
   '/o/$orgSlug/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
@@ -1310,6 +1367,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
   '/o/$orgSlug/settings/updates': typeof OOrgSlugSettingsUpdatesRoute
+  '/o/$orgSlug/skills/$skillId': typeof OOrgSlugSkillsSkillIdRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
   '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRoute
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
@@ -1322,6 +1380,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/plugins': typeof OOrgSlugPluginsIndexRoute
   '/o/$orgSlug/projects': typeof OOrgSlugProjectsIndexRoute
   '/o/$orgSlug/settings': typeof OOrgSlugSettingsIndexRoute
+  '/o/$orgSlug/skills': typeof OOrgSlugSkillsIndexRoute
   '/o/$orgSlug/spaces': typeof OOrgSlugSpacesIndexRoute
   '/o/$orgSlug/center-agent/apps': typeof OOrgSlugCenterAgentCenterAgentAppsRouteWithChildren
   '/o/$orgSlug/center-agent/channels': typeof OOrgSlugCenterAgentCenterAgentChannelsRoute
@@ -1331,15 +1390,15 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/center-agent/routines': typeof OOrgSlugCenterAgentCenterAgentRoutinesRoute
   '/o/$orgSlug/center-agent/settings': typeof OOrgSlugCenterAgentCenterAgentSettingsRoute
   '/o/$orgSlug/chats/center-agent': typeof OOrgSlugCenterAgentChatsCenterAgentRoute
+  '/o/$orgSlug/center-agent/skills/$skillId': typeof OOrgSlugCenterAgentSkillsSkillIdRoute
   '/o/$orgSlug/people/$personId/agents': typeof OOrgSlugPeoplePersonIdAgentsRoute
   '/o/$orgSlug/settings/computers/$deviceId': typeof OOrgSlugSettingsComputersDeviceIdRoute
   '/v1/prepare/sessions/$prepareSessionId/stream': typeof V1PrepareSessionsPrepareSessionIdStreamRoute
   '/o/$orgSlug/center-agent': typeof OOrgSlugCenterAgentCenterAgentIndexRoute
+  '/o/$orgSlug/center-agent/skills': typeof OOrgSlugCenterAgentSkillsIndexRoute
   '/o/$orgSlug/center-agent/apps/$service': typeof OOrgSlugCenterAgentCenterAgentAppsServiceRoute
   '/o/$orgSlug/center-agent/plugins/$service': typeof OOrgSlugCenterAgentCenterAgentPluginsServiceRoute
-  '/o/$orgSlug/center-agent/skills/$skillId': typeof OOrgSlugCenterAgentCenterAgentSkillsSkillIdRoute
   '/o/$orgSlug/people/$personId/agents/$agentId': typeof OOrgSlugPeoplePersonIdAgentsAgentIdRoute
-  '/o/$orgSlug/center-agent/skills': typeof OOrgSlugCenterAgentCenterAgentSkillsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -1410,6 +1469,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/plugins': typeof OOrgSlugPluginsRouteWithChildren
   '/o/$orgSlug/projects': typeof OOrgSlugProjectsRouteWithChildren
   '/o/$orgSlug/settings': typeof OOrgSlugSettingsRouteWithChildren
+  '/o/$orgSlug/skills': typeof OOrgSlugSkillsRouteWithChildren
   '/slack/identity/start': typeof SlackIdentityStartRoute
   '/slack/oauth/result': typeof SlackOauthResultRoute
   '/slack/oauth/start': typeof SlackOauthStartRoute
@@ -1441,11 +1501,16 @@ export interface FileRoutesById {
   '/v1/profiles/capabilities': typeof V1ProfilesCapabilitiesRoute
   '/v1/profiles/humans': typeof V1ProfilesHumansRoute
   '/desktop/updates/$candidate/desktop.zip': typeof DesktopUpdatesCandidateDesktopDotzipRoute
+  '/desktop/updates/$candidate/windows-arm64.exe': typeof DesktopUpdatesCandidateWindowsArm64DotexeRoute
+  '/desktop/updates/$candidate/windows-x64.exe': typeof DesktopUpdatesCandidateWindowsX64DotexeRoute
+  '/desktop/updates/windows-arm64/latest.yml': typeof DesktopUpdatesWindowsArm64LatestDotymlRoute
+  '/desktop/updates/windows-x64/latest.yml': typeof DesktopUpdatesWindowsX64LatestDotymlRoute
   '/o/$orgSlug/_center-agent/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/_center-agent/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
   '/o/$orgSlug/agents_/new': typeof OOrgSlugAgentsNewRoute
+  '/o/$orgSlug/center-agent/skills': typeof OOrgSlugCenterAgentSkillsRouteWithChildren
   '/o/$orgSlug/chats/$spaceId': typeof OOrgSlugChatsSpaceIdRoute
   '/o/$orgSlug/computers/$deviceId': typeof OOrgSlugComputersDeviceIdRoute
   '/o/$orgSlug/direct-messages/$spaceId': typeof OOrgSlugDirectMessagesSpaceIdRoute
@@ -1471,6 +1536,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
   '/o/$orgSlug/settings/updates': typeof OOrgSlugSettingsUpdatesRoute
+  '/o/$orgSlug/skills/$skillId': typeof OOrgSlugSkillsSkillIdRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
   '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRoute
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
@@ -1484,6 +1550,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/plugins/': typeof OOrgSlugPluginsIndexRoute
   '/o/$orgSlug/projects/': typeof OOrgSlugProjectsIndexRoute
   '/o/$orgSlug/settings/': typeof OOrgSlugSettingsIndexRoute
+  '/o/$orgSlug/skills/': typeof OOrgSlugSkillsIndexRoute
   '/o/$orgSlug/spaces/': typeof OOrgSlugSpacesIndexRoute
   '/o/$orgSlug/_center-agent/center-agent/apps': typeof OOrgSlugCenterAgentCenterAgentAppsRouteWithChildren
   '/o/$orgSlug/_center-agent/center-agent/channels': typeof OOrgSlugCenterAgentCenterAgentChannelsRoute
@@ -1492,17 +1559,16 @@ export interface FileRoutesById {
   '/o/$orgSlug/_center-agent/center-agent/plugins': typeof OOrgSlugCenterAgentCenterAgentPluginsRouteWithChildren
   '/o/$orgSlug/_center-agent/center-agent/routines': typeof OOrgSlugCenterAgentCenterAgentRoutinesRoute
   '/o/$orgSlug/_center-agent/center-agent/settings': typeof OOrgSlugCenterAgentCenterAgentSettingsRoute
-  '/o/$orgSlug/_center-agent/center-agent/skills': typeof OOrgSlugCenterAgentCenterAgentSkillsRouteWithChildren
   '/o/$orgSlug/_center-agent/chats/center-agent': typeof OOrgSlugCenterAgentChatsCenterAgentRoute
+  '/o/$orgSlug/center-agent/skills/$skillId': typeof OOrgSlugCenterAgentSkillsSkillIdRoute
   '/o/$orgSlug/people_/$personId_/agents': typeof OOrgSlugPeoplePersonIdAgentsRoute
   '/o/$orgSlug/settings/computers/$deviceId': typeof OOrgSlugSettingsComputersDeviceIdRoute
   '/v1/prepare/sessions/$prepareSessionId/stream': typeof V1PrepareSessionsPrepareSessionIdStreamRoute
   '/o/$orgSlug/_center-agent/center-agent/': typeof OOrgSlugCenterAgentCenterAgentIndexRoute
+  '/o/$orgSlug/center-agent/skills/': typeof OOrgSlugCenterAgentSkillsIndexRoute
   '/o/$orgSlug/_center-agent/center-agent/apps/$service': typeof OOrgSlugCenterAgentCenterAgentAppsServiceRoute
   '/o/$orgSlug/_center-agent/center-agent/plugins/$service': typeof OOrgSlugCenterAgentCenterAgentPluginsServiceRoute
-  '/o/$orgSlug/_center-agent/center-agent/skills/$skillId': typeof OOrgSlugCenterAgentCenterAgentSkillsSkillIdRoute
   '/o/$orgSlug/people_/$personId_/agents_/$agentId': typeof OOrgSlugPeoplePersonIdAgentsAgentIdRoute
-  '/o/$orgSlug/_center-agent/center-agent/skills/': typeof OOrgSlugCenterAgentCenterAgentSkillsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -1573,6 +1639,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/plugins'
     | '/o/$orgSlug/projects'
     | '/o/$orgSlug/settings'
+    | '/o/$orgSlug/skills'
     | '/slack/identity/start'
     | '/slack/oauth/result'
     | '/slack/oauth/start'
@@ -1604,11 +1671,16 @@ export interface FileRouteTypes {
     | '/v1/profiles/capabilities'
     | '/v1/profiles/humans'
     | '/desktop/updates/$candidate/desktop.zip'
+    | '/desktop/updates/$candidate/windows-arm64.exe'
+    | '/desktop/updates/$candidate/windows-x64.exe'
+    | '/desktop/updates/windows-arm64/latest.yml'
+    | '/desktop/updates/windows-x64/latest.yml'
     | '/o/$orgSlug/center-agent'
     | '/o/$orgSlug/desk'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
     | '/o/$orgSlug/agents/new'
+    | '/o/$orgSlug/center-agent/skills'
     | '/o/$orgSlug/chats/$spaceId'
     | '/o/$orgSlug/computers/$deviceId'
     | '/o/$orgSlug/direct-messages/$spaceId'
@@ -1634,6 +1706,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
     | '/o/$orgSlug/settings/updates'
+    | '/o/$orgSlug/skills/$skillId'
     | '/o/$orgSlug/spaces/$spaceId'
     | '/v1/profiles/agents/$profileId'
     | '/v1/spaces/$spaceId/stream'
@@ -1647,6 +1720,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/plugins/'
     | '/o/$orgSlug/projects/'
     | '/o/$orgSlug/settings/'
+    | '/o/$orgSlug/skills/'
     | '/o/$orgSlug/spaces/'
     | '/o/$orgSlug/center-agent/apps'
     | '/o/$orgSlug/center-agent/channels'
@@ -1655,17 +1729,16 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/center-agent/plugins'
     | '/o/$orgSlug/center-agent/routines'
     | '/o/$orgSlug/center-agent/settings'
-    | '/o/$orgSlug/center-agent/skills'
     | '/o/$orgSlug/chats/center-agent'
+    | '/o/$orgSlug/center-agent/skills/$skillId'
     | '/o/$orgSlug/people/$personId/agents'
     | '/o/$orgSlug/settings/computers/$deviceId'
     | '/v1/prepare/sessions/$prepareSessionId/stream'
     | '/o/$orgSlug/center-agent/'
+    | '/o/$orgSlug/center-agent/skills/'
     | '/o/$orgSlug/center-agent/apps/$service'
     | '/o/$orgSlug/center-agent/plugins/$service'
-    | '/o/$orgSlug/center-agent/skills/$skillId'
     | '/o/$orgSlug/people/$personId/agents/$agentId'
-    | '/o/$orgSlug/center-agent/skills/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -1758,6 +1831,10 @@ export interface FileRouteTypes {
     | '/v1/profiles/capabilities'
     | '/v1/profiles/humans'
     | '/desktop/updates/$candidate/desktop.zip'
+    | '/desktop/updates/$candidate/windows-arm64.exe'
+    | '/desktop/updates/$candidate/windows-x64.exe'
+    | '/desktop/updates/windows-arm64/latest.yml'
+    | '/desktop/updates/windows-x64/latest.yml'
     | '/o/$orgSlug/desk'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
@@ -1787,6 +1864,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
     | '/o/$orgSlug/settings/updates'
+    | '/o/$orgSlug/skills/$skillId'
     | '/o/$orgSlug/spaces/$spaceId'
     | '/v1/profiles/agents/$profileId'
     | '/v1/spaces/$spaceId/stream'
@@ -1799,6 +1877,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/plugins'
     | '/o/$orgSlug/projects'
     | '/o/$orgSlug/settings'
+    | '/o/$orgSlug/skills'
     | '/o/$orgSlug/spaces'
     | '/o/$orgSlug/center-agent/apps'
     | '/o/$orgSlug/center-agent/channels'
@@ -1808,15 +1887,15 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/center-agent/routines'
     | '/o/$orgSlug/center-agent/settings'
     | '/o/$orgSlug/chats/center-agent'
+    | '/o/$orgSlug/center-agent/skills/$skillId'
     | '/o/$orgSlug/people/$personId/agents'
     | '/o/$orgSlug/settings/computers/$deviceId'
     | '/v1/prepare/sessions/$prepareSessionId/stream'
     | '/o/$orgSlug/center-agent'
+    | '/o/$orgSlug/center-agent/skills'
     | '/o/$orgSlug/center-agent/apps/$service'
     | '/o/$orgSlug/center-agent/plugins/$service'
-    | '/o/$orgSlug/center-agent/skills/$skillId'
     | '/o/$orgSlug/people/$personId/agents/$agentId'
-    | '/o/$orgSlug/center-agent/skills'
   id:
     | '__root__'
     | '/'
@@ -1886,6 +1965,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/plugins'
     | '/o/$orgSlug/projects'
     | '/o/$orgSlug/settings'
+    | '/o/$orgSlug/skills'
     | '/slack/identity/start'
     | '/slack/oauth/result'
     | '/slack/oauth/start'
@@ -1917,11 +1997,16 @@ export interface FileRouteTypes {
     | '/v1/profiles/capabilities'
     | '/v1/profiles/humans'
     | '/desktop/updates/$candidate/desktop.zip'
+    | '/desktop/updates/$candidate/windows-arm64.exe'
+    | '/desktop/updates/$candidate/windows-x64.exe'
+    | '/desktop/updates/windows-arm64/latest.yml'
+    | '/desktop/updates/windows-x64/latest.yml'
     | '/o/$orgSlug/_center-agent/center-agent'
     | '/o/$orgSlug/_center-agent/desk'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
     | '/o/$orgSlug/agents_/new'
+    | '/o/$orgSlug/center-agent/skills'
     | '/o/$orgSlug/chats/$spaceId'
     | '/o/$orgSlug/computers/$deviceId'
     | '/o/$orgSlug/direct-messages/$spaceId'
@@ -1947,6 +2032,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
     | '/o/$orgSlug/settings/updates'
+    | '/o/$orgSlug/skills/$skillId'
     | '/o/$orgSlug/spaces/$spaceId'
     | '/v1/profiles/agents/$profileId'
     | '/v1/spaces/$spaceId/stream'
@@ -1960,6 +2046,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/plugins/'
     | '/o/$orgSlug/projects/'
     | '/o/$orgSlug/settings/'
+    | '/o/$orgSlug/skills/'
     | '/o/$orgSlug/spaces/'
     | '/o/$orgSlug/_center-agent/center-agent/apps'
     | '/o/$orgSlug/_center-agent/center-agent/channels'
@@ -1968,17 +2055,16 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/_center-agent/center-agent/plugins'
     | '/o/$orgSlug/_center-agent/center-agent/routines'
     | '/o/$orgSlug/_center-agent/center-agent/settings'
-    | '/o/$orgSlug/_center-agent/center-agent/skills'
     | '/o/$orgSlug/_center-agent/chats/center-agent'
+    | '/o/$orgSlug/center-agent/skills/$skillId'
     | '/o/$orgSlug/people_/$personId_/agents'
     | '/o/$orgSlug/settings/computers/$deviceId'
     | '/v1/prepare/sessions/$prepareSessionId/stream'
     | '/o/$orgSlug/_center-agent/center-agent/'
+    | '/o/$orgSlug/center-agent/skills/'
     | '/o/$orgSlug/_center-agent/center-agent/apps/$service'
     | '/o/$orgSlug/_center-agent/center-agent/plugins/$service'
-    | '/o/$orgSlug/_center-agent/center-agent/skills/$skillId'
     | '/o/$orgSlug/people_/$personId_/agents_/$agentId'
-    | '/o/$orgSlug/_center-agent/center-agent/skills/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -2513,6 +2599,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OOrgSlugSettingsRouteImport
       parentRoute: typeof OOrgSlugRoute
     }
+    '/o/$orgSlug/skills': {
+      id: '/o/$orgSlug/skills'
+      path: '/skills'
+      fullPath: '/o/$orgSlug/skills'
+      preLoaderRoute: typeof OOrgSlugSkillsRouteImport
+      parentRoute: typeof OOrgSlugRoute
+    }
     '/slack/identity/start': {
       id: '/slack/identity/start'
       path: '/slack/identity/start'
@@ -2730,6 +2823,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DesktopUpdatesCandidateDesktopDotzipRouteImport
       parentRoute: typeof DesktopRoute
     }
+    '/desktop/updates/$candidate/windows-arm64.exe': {
+      id: '/desktop/updates/$candidate/windows-arm64.exe'
+      path: '/updates/$candidate/windows-arm64.exe'
+      fullPath: '/desktop/updates/$candidate/windows-arm64.exe'
+      preLoaderRoute: typeof DesktopUpdatesCandidateWindowsArm64DotexeRouteImport
+      parentRoute: typeof DesktopRoute
+    }
+    '/desktop/updates/$candidate/windows-x64.exe': {
+      id: '/desktop/updates/$candidate/windows-x64.exe'
+      path: '/updates/$candidate/windows-x64.exe'
+      fullPath: '/desktop/updates/$candidate/windows-x64.exe'
+      preLoaderRoute: typeof DesktopUpdatesCandidateWindowsX64DotexeRouteImport
+      parentRoute: typeof DesktopRoute
+    }
+    '/desktop/updates/windows-arm64/latest.yml': {
+      id: '/desktop/updates/windows-arm64/latest.yml'
+      path: '/updates/windows-arm64/latest.yml'
+      fullPath: '/desktop/updates/windows-arm64/latest.yml'
+      preLoaderRoute: typeof DesktopUpdatesWindowsArm64LatestDotymlRouteImport
+      parentRoute: typeof DesktopRoute
+    }
+    '/desktop/updates/windows-x64/latest.yml': {
+      id: '/desktop/updates/windows-x64/latest.yml'
+      path: '/updates/windows-x64/latest.yml'
+      fullPath: '/desktop/updates/windows-x64/latest.yml'
+      preLoaderRoute: typeof DesktopUpdatesWindowsX64LatestDotymlRouteImport
+      parentRoute: typeof DesktopRoute
+    }
     '/o/$orgSlug/_center-agent/': {
       id: '/o/$orgSlug/_center-agent/'
       path: '/'
@@ -2777,6 +2898,13 @@ declare module '@tanstack/react-router' {
       path: '/agents/new'
       fullPath: '/o/$orgSlug/agents/new'
       preLoaderRoute: typeof OOrgSlugAgentsNewRouteImport
+      parentRoute: typeof OOrgSlugRoute
+    }
+    '/o/$orgSlug/center-agent/skills': {
+      id: '/o/$orgSlug/center-agent/skills'
+      path: '/center-agent/skills'
+      fullPath: '/o/$orgSlug/center-agent/skills'
+      preLoaderRoute: typeof OOrgSlugCenterAgentSkillsRouteImport
       parentRoute: typeof OOrgSlugRoute
     }
     '/o/$orgSlug/chats/': {
@@ -3010,6 +3138,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OOrgSlugSettingsUpdatesRouteImport
       parentRoute: typeof OOrgSlugSettingsRoute
     }
+    '/o/$orgSlug/skills/': {
+      id: '/o/$orgSlug/skills/'
+      path: '/'
+      fullPath: '/o/$orgSlug/skills/'
+      preLoaderRoute: typeof OOrgSlugSkillsIndexRouteImport
+      parentRoute: typeof OOrgSlugSkillsRoute
+    }
+    '/o/$orgSlug/skills/$skillId': {
+      id: '/o/$orgSlug/skills/$skillId'
+      path: '/$skillId'
+      fullPath: '/o/$orgSlug/skills/$skillId'
+      preLoaderRoute: typeof OOrgSlugSkillsSkillIdRouteImport
+      parentRoute: typeof OOrgSlugSkillsRoute
+    }
     '/o/$orgSlug/spaces/': {
       id: '/o/$orgSlug/spaces/'
       path: '/spaces'
@@ -3094,19 +3236,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OOrgSlugCenterAgentCenterAgentSettingsRouteImport
       parentRoute: typeof OOrgSlugCenterAgentCenterAgentRoute
     }
-    '/o/$orgSlug/_center-agent/center-agent/skills': {
-      id: '/o/$orgSlug/_center-agent/center-agent/skills'
-      path: '/skills'
-      fullPath: '/o/$orgSlug/center-agent/skills'
-      preLoaderRoute: typeof OOrgSlugCenterAgentCenterAgentSkillsRouteImport
-      parentRoute: typeof OOrgSlugCenterAgentCenterAgentRoute
-    }
     '/o/$orgSlug/_center-agent/chats/center-agent': {
       id: '/o/$orgSlug/_center-agent/chats/center-agent'
       path: '/chats/center-agent'
       fullPath: '/o/$orgSlug/chats/center-agent'
       preLoaderRoute: typeof OOrgSlugCenterAgentChatsCenterAgentRouteImport
       parentRoute: typeof OOrgSlugCenterAgentRoute
+    }
+    '/o/$orgSlug/center-agent/skills/': {
+      id: '/o/$orgSlug/center-agent/skills/'
+      path: '/'
+      fullPath: '/o/$orgSlug/center-agent/skills/'
+      preLoaderRoute: typeof OOrgSlugCenterAgentSkillsIndexRouteImport
+      parentRoute: typeof OOrgSlugCenterAgentSkillsRoute
+    }
+    '/o/$orgSlug/center-agent/skills/$skillId': {
+      id: '/o/$orgSlug/center-agent/skills/$skillId'
+      path: '/$skillId'
+      fullPath: '/o/$orgSlug/center-agent/skills/$skillId'
+      preLoaderRoute: typeof OOrgSlugCenterAgentSkillsSkillIdRouteImport
+      parentRoute: typeof OOrgSlugCenterAgentSkillsRoute
     }
     '/o/$orgSlug/people_/$personId_/agents': {
       id: '/o/$orgSlug/people_/$personId_/agents'
@@ -3143,20 +3292,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OOrgSlugCenterAgentCenterAgentPluginsServiceRouteImport
       parentRoute: typeof OOrgSlugCenterAgentCenterAgentPluginsRoute
     }
-    '/o/$orgSlug/_center-agent/center-agent/skills/': {
-      id: '/o/$orgSlug/_center-agent/center-agent/skills/'
-      path: '/'
-      fullPath: '/o/$orgSlug/center-agent/skills/'
-      preLoaderRoute: typeof OOrgSlugCenterAgentCenterAgentSkillsIndexRouteImport
-      parentRoute: typeof OOrgSlugCenterAgentCenterAgentSkillsRoute
-    }
-    '/o/$orgSlug/_center-agent/center-agent/skills/$skillId': {
-      id: '/o/$orgSlug/_center-agent/center-agent/skills/$skillId'
-      path: '/$skillId'
-      fullPath: '/o/$orgSlug/center-agent/skills/$skillId'
-      preLoaderRoute: typeof OOrgSlugCenterAgentCenterAgentSkillsSkillIdRouteImport
-      parentRoute: typeof OOrgSlugCenterAgentCenterAgentSkillsRoute
-    }
     '/o/$orgSlug/people_/$personId_/agents_/$agentId': {
       id: '/o/$orgSlug/people_/$personId_/agents_/$agentId'
       path: '/people/$personId/agents/$agentId'
@@ -3184,6 +3319,10 @@ interface DesktopRouteChildren {
   DesktopUpdateDotjsonRoute: typeof DesktopUpdateDotjsonRoute
   DesktopUpdatesLatestMacDotymlRoute: typeof DesktopUpdatesLatestMacDotymlRoute
   DesktopUpdatesCandidateDesktopDotzipRoute: typeof DesktopUpdatesCandidateDesktopDotzipRoute
+  DesktopUpdatesCandidateWindowsArm64DotexeRoute: typeof DesktopUpdatesCandidateWindowsArm64DotexeRoute
+  DesktopUpdatesCandidateWindowsX64DotexeRoute: typeof DesktopUpdatesCandidateWindowsX64DotexeRoute
+  DesktopUpdatesWindowsArm64LatestDotymlRoute: typeof DesktopUpdatesWindowsArm64LatestDotymlRoute
+  DesktopUpdatesWindowsX64LatestDotymlRoute: typeof DesktopUpdatesWindowsX64LatestDotymlRoute
 }
 
 const DesktopRouteChildren: DesktopRouteChildren = {
@@ -3192,6 +3331,14 @@ const DesktopRouteChildren: DesktopRouteChildren = {
   DesktopUpdatesLatestMacDotymlRoute: DesktopUpdatesLatestMacDotymlRoute,
   DesktopUpdatesCandidateDesktopDotzipRoute:
     DesktopUpdatesCandidateDesktopDotzipRoute,
+  DesktopUpdatesCandidateWindowsArm64DotexeRoute:
+    DesktopUpdatesCandidateWindowsArm64DotexeRoute,
+  DesktopUpdatesCandidateWindowsX64DotexeRoute:
+    DesktopUpdatesCandidateWindowsX64DotexeRoute,
+  DesktopUpdatesWindowsArm64LatestDotymlRoute:
+    DesktopUpdatesWindowsArm64LatestDotymlRoute,
+  DesktopUpdatesWindowsX64LatestDotymlRoute:
+    DesktopUpdatesWindowsX64LatestDotymlRoute,
 }
 
 const DesktopRouteWithChildren =
@@ -3249,24 +3396,6 @@ const OOrgSlugCenterAgentCenterAgentPluginsRouteWithChildren =
     OOrgSlugCenterAgentCenterAgentPluginsRouteChildren,
   )
 
-interface OOrgSlugCenterAgentCenterAgentSkillsRouteChildren {
-  OOrgSlugCenterAgentCenterAgentSkillsSkillIdRoute: typeof OOrgSlugCenterAgentCenterAgentSkillsSkillIdRoute
-  OOrgSlugCenterAgentCenterAgentSkillsIndexRoute: typeof OOrgSlugCenterAgentCenterAgentSkillsIndexRoute
-}
-
-const OOrgSlugCenterAgentCenterAgentSkillsRouteChildren: OOrgSlugCenterAgentCenterAgentSkillsRouteChildren =
-  {
-    OOrgSlugCenterAgentCenterAgentSkillsSkillIdRoute:
-      OOrgSlugCenterAgentCenterAgentSkillsSkillIdRoute,
-    OOrgSlugCenterAgentCenterAgentSkillsIndexRoute:
-      OOrgSlugCenterAgentCenterAgentSkillsIndexRoute,
-  }
-
-const OOrgSlugCenterAgentCenterAgentSkillsRouteWithChildren =
-  OOrgSlugCenterAgentCenterAgentSkillsRoute._addFileChildren(
-    OOrgSlugCenterAgentCenterAgentSkillsRouteChildren,
-  )
-
 interface OOrgSlugCenterAgentCenterAgentRouteChildren {
   OOrgSlugCenterAgentCenterAgentAppsRoute: typeof OOrgSlugCenterAgentCenterAgentAppsRouteWithChildren
   OOrgSlugCenterAgentCenterAgentChannelsRoute: typeof OOrgSlugCenterAgentCenterAgentChannelsRoute
@@ -3275,7 +3404,6 @@ interface OOrgSlugCenterAgentCenterAgentRouteChildren {
   OOrgSlugCenterAgentCenterAgentPluginsRoute: typeof OOrgSlugCenterAgentCenterAgentPluginsRouteWithChildren
   OOrgSlugCenterAgentCenterAgentRoutinesRoute: typeof OOrgSlugCenterAgentCenterAgentRoutinesRoute
   OOrgSlugCenterAgentCenterAgentSettingsRoute: typeof OOrgSlugCenterAgentCenterAgentSettingsRoute
-  OOrgSlugCenterAgentCenterAgentSkillsRoute: typeof OOrgSlugCenterAgentCenterAgentSkillsRouteWithChildren
   OOrgSlugCenterAgentCenterAgentIndexRoute: typeof OOrgSlugCenterAgentCenterAgentIndexRoute
 }
 
@@ -3295,8 +3423,6 @@ const OOrgSlugCenterAgentCenterAgentRouteChildren: OOrgSlugCenterAgentCenterAgen
       OOrgSlugCenterAgentCenterAgentRoutinesRoute,
     OOrgSlugCenterAgentCenterAgentSettingsRoute:
       OOrgSlugCenterAgentCenterAgentSettingsRoute,
-    OOrgSlugCenterAgentCenterAgentSkillsRoute:
-      OOrgSlugCenterAgentCenterAgentSkillsRouteWithChildren,
     OOrgSlugCenterAgentCenterAgentIndexRoute:
       OOrgSlugCenterAgentCenterAgentIndexRoute,
   }
@@ -3476,6 +3602,37 @@ const OOrgSlugSettingsRouteChildren: OOrgSlugSettingsRouteChildren = {
 const OOrgSlugSettingsRouteWithChildren =
   OOrgSlugSettingsRoute._addFileChildren(OOrgSlugSettingsRouteChildren)
 
+interface OOrgSlugSkillsRouteChildren {
+  OOrgSlugSkillsSkillIdRoute: typeof OOrgSlugSkillsSkillIdRoute
+  OOrgSlugSkillsIndexRoute: typeof OOrgSlugSkillsIndexRoute
+}
+
+const OOrgSlugSkillsRouteChildren: OOrgSlugSkillsRouteChildren = {
+  OOrgSlugSkillsSkillIdRoute: OOrgSlugSkillsSkillIdRoute,
+  OOrgSlugSkillsIndexRoute: OOrgSlugSkillsIndexRoute,
+}
+
+const OOrgSlugSkillsRouteWithChildren = OOrgSlugSkillsRoute._addFileChildren(
+  OOrgSlugSkillsRouteChildren,
+)
+
+interface OOrgSlugCenterAgentSkillsRouteChildren {
+  OOrgSlugCenterAgentSkillsSkillIdRoute: typeof OOrgSlugCenterAgentSkillsSkillIdRoute
+  OOrgSlugCenterAgentSkillsIndexRoute: typeof OOrgSlugCenterAgentSkillsIndexRoute
+}
+
+const OOrgSlugCenterAgentSkillsRouteChildren: OOrgSlugCenterAgentSkillsRouteChildren =
+  {
+    OOrgSlugCenterAgentSkillsSkillIdRoute:
+      OOrgSlugCenterAgentSkillsSkillIdRoute,
+    OOrgSlugCenterAgentSkillsIndexRoute: OOrgSlugCenterAgentSkillsIndexRoute,
+  }
+
+const OOrgSlugCenterAgentSkillsRouteWithChildren =
+  OOrgSlugCenterAgentSkillsRoute._addFileChildren(
+    OOrgSlugCenterAgentSkillsRouteChildren,
+  )
+
 interface OOrgSlugRouteChildren {
   OOrgSlugCenterAgentRoute: typeof OOrgSlugCenterAgentRouteWithChildren
   OOrgSlugAgentActivityRoute: typeof OOrgSlugAgentActivityRouteWithChildren
@@ -3494,7 +3651,9 @@ interface OOrgSlugRouteChildren {
   OOrgSlugPluginsRoute: typeof OOrgSlugPluginsRouteWithChildren
   OOrgSlugProjectsRoute: typeof OOrgSlugProjectsRouteWithChildren
   OOrgSlugSettingsRoute: typeof OOrgSlugSettingsRouteWithChildren
+  OOrgSlugSkillsRoute: typeof OOrgSlugSkillsRouteWithChildren
   OOrgSlugAgentsNewRoute: typeof OOrgSlugAgentsNewRoute
+  OOrgSlugCenterAgentSkillsRoute: typeof OOrgSlugCenterAgentSkillsRouteWithChildren
   OOrgSlugChatsSpaceIdRoute: typeof OOrgSlugChatsSpaceIdRoute
   OOrgSlugDirectMessagesSpaceIdRoute: typeof OOrgSlugDirectMessagesSpaceIdRoute
   OOrgSlugPeoplePersonIdRoute: typeof OOrgSlugPeoplePersonIdRoute
@@ -3525,7 +3684,9 @@ const OOrgSlugRouteChildren: OOrgSlugRouteChildren = {
   OOrgSlugPluginsRoute: OOrgSlugPluginsRouteWithChildren,
   OOrgSlugProjectsRoute: OOrgSlugProjectsRouteWithChildren,
   OOrgSlugSettingsRoute: OOrgSlugSettingsRouteWithChildren,
+  OOrgSlugSkillsRoute: OOrgSlugSkillsRouteWithChildren,
   OOrgSlugAgentsNewRoute: OOrgSlugAgentsNewRoute,
+  OOrgSlugCenterAgentSkillsRoute: OOrgSlugCenterAgentSkillsRouteWithChildren,
   OOrgSlugChatsSpaceIdRoute: OOrgSlugChatsSpaceIdRoute,
   OOrgSlugDirectMessagesSpaceIdRoute: OOrgSlugDirectMessagesSpaceIdRoute,
   OOrgSlugPeoplePersonIdRoute: OOrgSlugPeoplePersonIdRoute,

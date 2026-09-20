@@ -1,6 +1,7 @@
 import * as z from "../../lazy-zod";
 import { openMeldNavigationTargetSchema } from "../../navigation-action";
 import { DISPATCH_ERROR_SUMMARY_MAX_LENGTH } from "../../public-agent-failure-reason";
+import { spaceWorkHandoffSchema } from "../../space-work-handoff";
 import {
   ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
   organizationSkillRuntimeReleaseSelectionSchema,
@@ -390,6 +391,7 @@ const remoteAgentWorkerSubmitTurnRequestShape = {
   messages: z.array(remoteAgentWorkerTurnMessageSchema).min(1),
   author: remoteAgentWorkerAuthorContextSchema,
   onBehalfOf: remoteAgentWorkerAuthorContextSchema.nullable(),
+  workHandoff: spaceWorkHandoffSchema.optional(),
   organizationSkillReleases: z
     .array(organizationSkillRuntimeReleaseSelectionSchema)
     .max(ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT)

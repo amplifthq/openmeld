@@ -1,5 +1,6 @@
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
+import { SkeletonForm } from "@openmeld/ui/components/skeleton-content";
 import { cn } from "@openmeld/ui/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -70,9 +71,11 @@ export function InvitationRequestLink(input: {
 	const busy = mutation.isPending || revoke.isPending || query.isFetching;
 	if (query.isPending) {
 		return (
-			<output className="block text-muted-foreground text-sm">
-				Loading invite link…
-			</output>
+			<SkeletonForm
+				className="border-t pt-3"
+				fields={1}
+				label="Loading invite link"
+			/>
 		);
 	}
 	if (query.isError) {

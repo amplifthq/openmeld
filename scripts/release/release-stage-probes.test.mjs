@@ -447,6 +447,9 @@ test("skips the Core projection only when the tagged target owns all production 
       action: "SKIP",
       criterion: "active-worker-version-tag",
       currentVersionIds: [CURRENT_VERSION_ID],
+      versionId: CURRENT_VERSION_ID,
+      deploymentId: "22222222-2222-2222-2222-222222222222",
+      targetTag: TARGET_CORE_TAG,
       reason: `Core production version ${CURRENT_VERSION_ID} already carries ${TARGET_CORE_TAG}`,
     }
   );

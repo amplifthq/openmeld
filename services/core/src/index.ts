@@ -207,6 +207,7 @@ import type {
   GitHubAppInstallationVerificationResponse,
   ImportOrganizationSkillFromGitHubResponse,
   ImportOrganizationSkillFromGitHubRpcInput,
+  InboxFeedResponse,
   InboxNotificationPreferencesResponse,
   InboxSummaryResponse,
   InspectExecutionRecoveryResponse,
@@ -220,6 +221,7 @@ import type {
   ListCenterAgentRoutinesResponse,
   ListFeedbackIssuesForOrganizationRequest,
   ListFeedbackIssuesForOrganizationResponse,
+  ListInboxFeedRpcInput,
   ListInboxItemsResponse,
   ListInboxItemsRpcInput,
   ListOrganizationDocumentsResponse,
@@ -247,6 +249,8 @@ import type {
   MessageChannelIdentityLinkConsumeResponse,
   MessageChannelIdentityLinkPreviewResponse,
   MessageChannelSetupRequestResponse,
+  MutateInboxFeedResponse,
+  MutateInboxFeedRpcInput,
   NotifyAgentProfileRouteCatalogChangedResponse,
   OpenCenterAgentDirectMessageSpaceResponse,
   OpenDirectMessageSpaceResponse,
@@ -396,6 +400,7 @@ import {
   clearCoreCenterAgentOrganizationNativeDeliveryData,
   createCoreCenterAgentMemoryService,
 } from "./center-agent-memory/core-memory-service";
+import { rpcReportDesktopUpdateObservation } from "./computers/desktop-update-inbox";
 import { readModelCatalog } from "./config/model-catalog";
 import {
   rpcListPluginAccess,
@@ -420,11 +425,13 @@ import {
   rpcGetInboxSummary,
   rpcGetSpaceInboxSummary,
   rpcGetSpaceInboxUnreadTargets,
+  rpcListInboxFeed,
   rpcListInboxItems,
   rpcMarkAllInboxItemsRead,
   rpcMarkCenterAgentInboxReadThrough,
   rpcMarkInboxItemRead,
   rpcMarkSpaceInboxReadThrough,
+  rpcMutateInboxFeed,
   rpcUpdateInboxMessageNotificationPreferences,
   rpcUpdateInboxNotificationPreferences,
 } from "./inbox/transport/rpc/inbox-rpc";
@@ -1458,6 +1465,16 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   listRoutineRuns(input: ListRoutineRunsInput) {
     return rpcListRoutineRuns(this.env, input);
+  }
+
+  listInboxFeed(input: ListInboxFeedRpcInput): Promise<InboxFeedResponse> {
+    return rpcListInboxFeed(this.env, input);
+  }
+
+  mutateInboxFeed(
+    input: MutateInboxFeedRpcInput
+  ): Promise<MutateInboxFeedResponse> {
+    return rpcMutateInboxFeed(this.env, input);
   }
 
   listInboxItems(
@@ -3815,6 +3832,22 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 
   listRoutineRuns(input: ListRoutineRunsInput) {
     return super.listRoutineRuns(input);
+  }
+
+  reportDesktopUpdateObservation(
+    input: import("@openmeld/schemas/types").DesktopUpdateObservationRpcInput
+  ) {
+    return rpcReportDesktopUpdateObservation(this.env, input);
+  }
+
+  listInboxFeed(input: ListInboxFeedRpcInput): Promise<InboxFeedResponse> {
+    return super.listInboxFeed(input);
+  }
+
+  mutateInboxFeed(
+    input: MutateInboxFeedRpcInput
+  ): Promise<MutateInboxFeedResponse> {
+    return super.mutateInboxFeed(input);
   }
 
   listInboxItems(

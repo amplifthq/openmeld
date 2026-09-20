@@ -138,6 +138,7 @@ export type {
   SubmitFeedbackIssueInput,
 } from "./feedback/types";
 export { createInboxApi } from "./inbox/api";
+export { isInboxItemInOrganizationScope } from "./inbox/item-scope";
 export {
   inboxMessageNotificationSpaceId,
   isInboxItemVisibleConversation,
@@ -362,6 +363,7 @@ export {
   getSpaceFile,
   listSpaceFileRevisions,
   listSpaceFiles,
+  postSpaceWorkHandoff,
   setSpaceAccessMode,
   trashSpaceFileEntry,
   updateSpaceFileContent,

@@ -123,13 +123,16 @@ export {
   computerConnectionProgressPhaseSchema,
 } from "./computer-connection-progress";
 export {
-  DESKTOP_APP_ORIGIN,
   DESKTOP_AUTH_SCHEME,
+  DESKTOP_INSTALLED_AUTH_SCHEME,
+  DESKTOP_TEST_AUTH_SCHEME,
+  desktopAuthIdentity,
+} from "./desktop-auth-identity";
+export {
+  DESKTOP_APP_ORIGIN,
   DESKTOP_COMPATIBILITY_PATH,
   DESKTOP_CONTRACT_HEADER,
   DESKTOP_CONTRACT_VERSION,
-  DESKTOP_INSTALLED_AUTH_SCHEME,
-  DESKTOP_TEST_AUTH_SCHEME,
   DESKTOP_WEB_BUILD_HEADER,
   type DesktopInstalledTarget,
   type DesktopLocalComputer,
@@ -138,7 +141,6 @@ export {
   type DesktopSpaceStreamBridge,
   type DesktopSpaceStreamEvent,
   type DesktopSpaceStreamInput,
-  desktopAuthIdentity,
   desktopCompatibilitySchema,
   desktopInstalledTargetSchema,
   desktopLocalComputerSchema,
@@ -150,17 +152,26 @@ export {
   desktopSpaceStreamInputSchema,
   desktopWebBuildSchema,
 } from "./desktop-client";
+export * from "./desktop-development";
 export * from "./desktop-notifications";
 export {
   DESKTOP_PROMOTED_RELEASE_KEY,
   DESKTOP_UPDATE_FEED_URL,
   type DesktopCandidateManifest,
+  type DesktopReleasePlatform,
   desktopCandidateIdSchema,
   desktopCandidateLocation,
   desktopCandidateManifestKey,
   desktopCandidateManifestSchema,
+  desktopCandidateUpdateArtifact,
+  desktopPlatformUpdateFeedUrl,
+  desktopPromotedReleaseKey,
   desktopPromotedReleaseSchema,
+  desktopReleasePlatformSchema,
   desktopUpdaterFeedSchema,
+  desktopUpdaterFeedSchemaForPlatform,
+  desktopWindowsBuildSchema,
+  resolveDesktopReleasePlatform,
 } from "./desktop-release";
 export * from "./desktop-updater";
 export {
@@ -345,6 +356,18 @@ export {
   spaceOwnerDepartureResultSchema,
   spaceOwnerDepartureSpaceInputSchema,
 } from "./space-owner-departure";
+export {
+  SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
+  SPACE_WORK_MAX_BYTES,
+  type SpaceWorkHandoff,
+  type SpaceWorkingCopyAccess,
+  type SpaceWorkSelection,
+  spaceWorkHandoffSchema,
+  spaceWorkingCopyAccessSchema,
+  spaceWorkingCopyResultSchema,
+  spaceWorkRelativePathSchema,
+  spaceWorkSelectionSchema,
+} from "./space-work-handoff";
 export type * from "./types/index";
 export {
   WEB_APPLICATION_ERROR_MAX_BYTES,

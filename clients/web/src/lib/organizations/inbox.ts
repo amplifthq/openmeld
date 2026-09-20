@@ -1,5 +1,6 @@
 import {
 	createInboxApi,
+	isInboxItemInOrganizationScope,
 	type StructuredApiClientFailure,
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
@@ -7,6 +8,8 @@ import type {
 	CenterAgentInboxSummaryResponse,
 	DismissInboxItemResponse,
 	GetInboxItemResponse,
+	InboxFeedQuery,
+	InboxFeedResponse,
 	InboxMessageNotificationPreferencesResponse,
 	InboxNotificationPreferencesResponse,
 	InboxPresentation,
@@ -17,6 +20,8 @@ import type {
 	MarkCenterAgentInboxReadThroughResponse,
 	MarkInboxItemReadResponse,
 	MarkSpaceInboxReadThroughResponse,
+	MutateInboxFeedBody,
+	MutateInboxFeedResponse,
 	SpaceInboxSummaryResponse,
 	SpaceInboxUnreadTargetsResponse,
 	UpdateInboxMessageNotificationPreferencesBody,
@@ -44,6 +49,26 @@ export async function dismissCurrentInboxItem(input: {
 			throw new Error("Inbox dismiss response item mismatch.");
 		}
 		return response;
+	});
+}
+
+export async function listCurrentInboxFeed(
+	input: InboxFeedQuery & { organizationId: string; signal?: AbortSignal }
+): Promise<InboxFeedResponse> {
+	return await runInboxOperation(async () => {
+		const { organizationId, ...query } = input;
+		const response = await createWebInboxApi(organizationId).feed(query);
+		assertOrganizationMatch(response.organizationId, organizationId);
+		return response;
+	});
+}
+
+export async function mutateCurrentInboxFeed(
+	input: MutateInboxFeedBody & { organizationId: string }
+): Promise<MutateInboxFeedResponse> {
+	return await runInboxOperation(async () => {
+		const { organizationId, ...body } = input;
+		return await createWebInboxApi(organizationId).mutateFeed(body);
 	});
 }
 
@@ -78,7 +103,9 @@ export async function getCurrentInboxItem(input: {
 			itemId: input.itemId,
 			signal: input.signal,
 		});
-		assertOrganizationMatch(response.item.organizationId, input.organizationId);
+		if (!isInboxItemInOrganizationScope(response.item, input.organizationId)) {
+			throw new Error("Inbox response organization mismatch.");
+		}
 		return response;
 	});
 }
@@ -183,7 +210,9 @@ export async function markCurrentInboxItemRead(input: {
 			itemId: input.itemId,
 			read: input.read,
 		});
-		assertOrganizationMatch(response.item.organizationId, input.organizationId);
+		if (!isInboxItemInOrganizationScope(response.item, input.organizationId)) {
+			throw new Error("Inbox response organization mismatch.");
+		}
 		return response;
 	});
 }

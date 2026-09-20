@@ -5,6 +5,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import { SkeletonForm } from "@openmeld/ui/components/skeleton-content";
 import { useQuery } from "@tanstack/react-query";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
@@ -32,7 +33,7 @@ export function OrganizationInviteDialog(input: {
 		/>
 	);
 	if (role.isPending) {
-		content = <p>Loading invitation options…</p>;
+		content = <SkeletonForm fields={2} label="Loading invitation options" />;
 	} else if (role.error) {
 		content = <p role="alert">{role.error.message}</p>;
 	}

@@ -9,6 +9,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
+import { SkeletonTable } from "@openmeld/ui/components/skeleton-content";
 import {
 	Table,
 	TableBody,
@@ -266,9 +267,7 @@ export function AgentProfileCreationRequestsPanel(input: {
 			) : null}
 
 			{requestsQuery.isPending ? (
-				<p className="rounded-md border border-border/70 px-4 py-6 text-muted-foreground text-sm">
-					Loading Agent creation history…
-				</p>
+				<SkeletonTable columns={4} label="Loading Agent creation history" />
 			) : null}
 			{requestsQuery.isError ? (
 				<div className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 px-4 py-3">

@@ -48,6 +48,58 @@ const RECORD_COLUMNS = `
   updated_at_ms
 `;
 
+export function ensureSpaceInboxProjectionSelectionsTable(
+  sql: SqlStorage
+): void {
+  sql.exec(`CREATE TABLE IF NOT EXISTS space_inbox_projection_selections (
+    projection_id TEXT NOT NULL,
+    recipient_user_id TEXT NOT NULL,
+    candidate_json TEXT NOT NULL,
+    PRIMARY KEY (projection_id, recipient_user_id)
+  )`);
+}
+
+/** Freeze projection semantics before a D1 response can be lost after commit. */
+export function freezeSpaceInboxProjectionSelection(
+  sql: SqlStorage,
+  input: {
+    projectionId: string;
+    candidate: InboxSourceCandidate;
+  }
+): InboxSourceCandidate {
+  const candidate = inboxSourceCandidateSchema.parse(input.candidate);
+  sql.exec(
+    `INSERT OR IGNORE INTO space_inbox_projection_selections
+    (projection_id, recipient_user_id, candidate_json) VALUES (?, ?, ?)`,
+    input.projectionId,
+    candidate.recipientUserId,
+    JSON.stringify(candidate)
+  );
+  const stored = sql
+    .exec<{ candidate_json: string }>(
+      `SELECT candidate_json FROM space_inbox_projection_selections
+    WHERE projection_id = ? AND recipient_user_id = ?`,
+      input.projectionId,
+      candidate.recipientUserId
+    )
+    .toArray()[0];
+  if (!stored) {
+    throw new Error("Inbox projection selection was not persisted");
+  }
+  const selected = inboxSourceCandidateSchema.parse(
+    JSON.parse(stored.candidate_json)
+  );
+  if (
+    selected.sourceKind !== candidate.sourceKind ||
+    selected.sourceKey !== candidate.sourceKey ||
+    selected.organizationId !== candidate.organizationId ||
+    selected.occurredAtMs !== candidate.occurredAtMs
+  ) {
+    throw new Error("Inbox projection selection source identity changed");
+  }
+  return selected;
+}
+
 export function insertSpaceInboxProjectionOutboxRecord(
   sql: SqlStorage,
   record: SpaceInboxProjectionOutboxRecord

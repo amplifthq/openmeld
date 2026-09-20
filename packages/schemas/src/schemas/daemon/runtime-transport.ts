@@ -161,6 +161,15 @@ export const runtimeTransportAgentProfileWorkRecoveryReadResponseSchema =
         .max(512)
         .optional(),
       interruptedSourceSignalId: z.string().trim().min(1).max(512).optional(),
+      // Whether the attempt this work would replace is safely out of the way.
+      // `not_started` means no execution was ever created for it, `withdrawn`
+      // means the computer acknowledged that its attempt is gone, and
+      // `awaiting_withdrawal` means Core cannot yet prove either. Older owner
+      // shards omit it during a rolling Core deployment, so callers must defer
+      // replacement work rather than assume the attempt was retired.
+      interruptedLocalAttempt: z
+        .enum(["awaiting_withdrawal", "not_started", "withdrawn"])
+        .optional(),
       spaceId: z.string().trim().min(1).max(512),
       status: z.literal("available"),
     }),
@@ -333,6 +342,25 @@ export const runtimeTransportAgentProfileWorkSkipResponseSchema =
     status: z.enum(["skipped", "not_pending", "unavailable"]),
   });
 
+export const runtimeTransportAgentProfileWorkLocalAttemptWithdrawalRequestSchema =
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
+    expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+  });
+
+// `requested` means the withdrawal was asked for again and is still
+// unconfirmed; it is not a claim that the attempt stopped. `not_started` and
+// `withdrawn` are the two answers that leave nothing outstanding.
+export const runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema =
+  z.strictObject({
+    status: z.enum([
+      "not_pending",
+      "not_started",
+      "requested",
+      "unavailable",
+      "withdrawn",
+    ]),
+  });
+
 export const runtimeTransportAgentProfileExecutionTargetMutationRequestSchema =
   z.strictObject({
     operationId: z.string().trim().min(1).max(256),
@@ -450,6 +478,7 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
 
 export const runtimeTransportCapabilitiesSchema =
   runtimeTransportBaseCapabilitiesSchema.extend({
+    spaceWorkHandoff: z.literal(true).optional(),
     computerFileAccess: z
       .strictObject({
         readPolicy: z.literal(true).optional(),

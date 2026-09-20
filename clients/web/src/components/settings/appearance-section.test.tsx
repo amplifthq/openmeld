@@ -63,6 +63,11 @@ describe("AppearanceSection", () => {
 
 	it("restores individually hidden toolbar shortcuts from Appearance after a reload", () => {
 		renderAppearance();
+		const toolbarSettingsRow = screen
+			.getByText("Toolbar shortcuts")
+			.closest('[data-slot="settings-row"]');
+		expect(toolbarSettingsRow?.className).toContain("hidden");
+		expect(toolbarSettingsRow?.className).toContain("lg:flex");
 		for (const label of ["Computer", "Center Agent", "Inbox"]) {
 			fireEvent.click(
 				screen.getByRole("switch", { name: `Show ${label} in toolbar` })

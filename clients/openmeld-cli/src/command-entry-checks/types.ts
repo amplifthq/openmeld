@@ -137,6 +137,8 @@ export type CommandEntryName =
   | "space.add-members"
   | "space.remove-members"
   | "space.leave"
+  | "space.files.handoff"
+  | "space.files.working-copy"
   | "space.files.list"
   | "space.files.read"
   | "space.files.upload"

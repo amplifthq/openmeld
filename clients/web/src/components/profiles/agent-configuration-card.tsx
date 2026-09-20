@@ -208,6 +208,27 @@ export function AgentConfigurationCard(input: {
 	);
 }
 
+/** A measured/read-only fact shares the dashboard surface, not its edit affordance. */
+export function AgentConfigurationReadoutCard(input: {
+	itemId: string;
+	label: string;
+	children: ReactNode;
+}) {
+	return (
+		<AgentConfigurationSurface itemId={input.itemId}>
+			<section
+				aria-label={input.label}
+				className="h-full min-h-28 min-w-0 rounded-md p-4"
+			>
+				<h3 className="font-medium text-muted-foreground text-xs">
+					{input.label}
+				</h3>
+				<div className="mt-3 min-w-0">{input.children}</div>
+			</section>
+		</AgentConfigurationSurface>
+	);
+}
+
 function AgentConfigurationSurface(input: {
 	itemId: string;
 	children: ReactNode;

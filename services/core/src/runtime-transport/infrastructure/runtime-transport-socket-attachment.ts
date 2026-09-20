@@ -17,6 +17,7 @@ export const RUNTIME_TRANSPORT_VERIFIED_OWNER_HEADER =
 export type RuntimeTransportSocketAttachment = {
   executionAdmissionConfirmation?: boolean;
   computerCare?: boolean;
+  spaceWorkHandoff?: boolean;
   connectionDiagnosticId?: string;
   reasoningStream?: boolean;
   computerFileAccessCapability:
@@ -36,6 +37,7 @@ export const readRuntimeTransportSocketAttachment = (
   let attachment: {
     executionAdmissionConfirmation?: unknown;
     computerCare?: unknown;
+    spaceWorkHandoff?: unknown;
     connectionDiagnosticId?: unknown;
     reasoningStream?: unknown;
     verifiedOwnerUserId?: unknown;
@@ -48,6 +50,7 @@ export const readRuntimeTransportSocketAttachment = (
     attachment = (webSocket.deserializeAttachment() ?? {}) as {
       executionAdmissionConfirmation?: unknown;
       computerCare?: unknown;
+      spaceWorkHandoff?: unknown;
       connectionDiagnosticId?: unknown;
       reasoningStream?: unknown;
       verifiedOwnerUserId?: unknown;
@@ -79,6 +82,7 @@ export const readRuntimeTransportSocketAttachment = (
       ? { connectionDiagnosticId: String(attachment.connectionDiagnosticId) }
       : {}),
     reasoningStream: attachment.reasoningStream === true,
+    spaceWorkHandoff: attachment.spaceWorkHandoff === true,
     computerFileAccessCapability:
       attachment.computerFileAccessCapability ===
       COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY
@@ -102,6 +106,7 @@ export const writeRuntimeTransportSocketAttachment = (
     computerCare?: boolean;
     connectionDiagnosticId?: string;
     reasoningStream?: boolean;
+    spaceWorkHandoff?: boolean;
     verifiedOwnerUserId: string;
     computerFileAccessCapability?:
       | typeof COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY
@@ -129,6 +134,8 @@ export const writeRuntimeTransportSocketAttachment = (
         : {}),
       reasoningStream:
         input.reasoningStream ?? current.reasoningStream ?? false,
+      spaceWorkHandoff:
+        input.spaceWorkHandoff ?? current.spaceWorkHandoff ?? false,
       verifiedOwnerUserId: input.verifiedOwnerUserId,
       computerFileAccessCapability:
         input.computerFileAccessCapability === undefined
@@ -167,11 +174,20 @@ export function applyRuntimeTransportNegotiatedCapabilities(input: {
   const hasLocalFolderPicker =
     input.attachment.localFolderPickerCapability ===
     LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY;
-  if (!(hasComputerFileAccess || hasLocalFolderPicker)) {
+  if (
+    !(
+      hasComputerFileAccess ||
+      hasLocalFolderPicker ||
+      input.attachment.spaceWorkHandoff
+    )
+  ) {
     return input.capabilities;
   }
   return {
     ...(input.capabilities ?? {}),
+    ...(input.attachment.spaceWorkHandoff
+      ? { spaceWorkHandoff: true as const }
+      : {}),
     ...(hasComputerFileAccess
       ? {
           computerFileAccess: {

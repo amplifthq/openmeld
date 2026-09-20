@@ -5,6 +5,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@openmeld/ui/components/card";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -45,7 +46,11 @@ function SpaceInvitationPage() {
 		);
 	}
 	if (session.isPending) {
-		return <InvitationShell>Loading your account…</InvitationShell>;
+		return (
+			<InvitationShell>
+				<SkeletonRows label="Loading your account" rows={1} />
+			</InvitationShell>
+		);
 	}
 	if (!session.data) {
 		const redirect = `/accept-space-invitation?${new URLSearchParams({ invitationId })}`;
@@ -125,7 +130,7 @@ function AccountInvitation({
 						Verify with a magic link
 					</Link>
 				)}
-			{query.isPending && <p className="text-sm">Loading invitation…</p>}
+			{query.isPending && <SkeletonRows label="Loading invitation" rows={1} />}
 			{invitation && (
 				<InvitationDecision
 					invitation={invitation}

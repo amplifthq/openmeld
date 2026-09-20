@@ -23,6 +23,22 @@
 - Source of truth: This file owns the durable product boundary for the OpenMeld Web
   client as a browser client.
 
+## Selected Space work
+
+The writable Space Files browser offers **Hand off** for files in the current
+folder. The dialog freezes their displayed revisions, selects one authorized
+Wake target, and collects a goal, completed work, next steps, and optional exact
+Skill releases/requirements. It uses the shared API handoff operation and the
+existing Message/Wake flow. It does not invent a separate handoff history,
+execution status, or file copy in the cloud. An unchanged in-dialog retry keeps
+its message identity; editing the selection creates a new attempt.
+
+The confirmation means the message was posted. Messages and its existing details
+surface show the actual queued/running/failure outcome and exact file attachments.
+The Web entry creates a new Space message; CLI callers can continue inside an
+existing Thread. Desktop rendering reuses this Web surface; a native Desktop
+working-copy manager and private Computer browsing are outside this first slice.
+
 ## Boundary
 
 The account avatar's top-level **Download Desktop** item appears only on Web and
@@ -268,6 +284,60 @@ controls and keep account connection controls beside their scoped permissions.
 Loading connection status must not block opening the catalog or a Plugin's
 settings. Route loaders do not await connection snapshots; the mounted page
 owns loading, cached status, and retry feedback after organization authorization.
+
+### Organization Skills
+
+Team tabs are **People / Agents / Plugins / Skills**. The Organization Skill
+catalog at `/o/{orgSlug}/skills` and detail at `/o/{orgSlug}/skills/{skillId}`
+share Team's header, member sidebar, page padding, and rail highlight. Pending
+and error states retain that ownership; neither route mounts Center Agent state.
+All members can discover and browse Skills, while Core-projected permissions
+control editing and management. Personal workspaces use this same model with
+appropriate copy, not a second scope selector or catalog.
+
+Legacy `/center-agent/skills` list and detail leaves redirect with replacement,
+preserving encoded identity, hash, and validated global `appSettings` state.
+They do not propagate Center Agent conversation selectors or Plugin scope.
+Team tab selection starts without inherited search/hash context. Switching
+Organizations from a canonical or legacy Skills list/detail opens the target
+Organization's list without an old Skill identity. New links use Web route
+builders; API paths and Agent consumption contracts are unchanged.
+
+Editing uses the shared unsaved-changes guard and an Organization/Skill-scoped
+draft paired with its original release/version. Background refresh cannot give
+old content new save expectations or discard a dirty draft. Save completion
+preserves newer input. Team navigation, All Skills, browser history, and
+Organization switching remain guarded. The version-bound
+[`@tanstack/history` patch](../../patches/tanstack-history.md) reverses the actual
+blocked history traversal so cancellation restores the address bar as well as
+the page; retain its regressions when upgrading the dependency.
+
+The catalog uses compact rows, one Add skill menu, search and an enabled-state
+filter. Account/Organization-scoped, nonpersistent view state remembers filters
+and the owning viewport's scroll position; it never stores Skill content.
+Detail opens directly into the title, description and Instructions. Optional
+Files tabs share the document draft; Properties, history and management use
+contextual Fluid menus/dialogs rather than another sidebar or settings page.
+
+`MarkdownEditor`'s optional `presentation="page"` changes toolbar placement,
+spacing and near-limit disclosure only. It retains the shared Plate kit and
+key-based accepted-content reload contract; default caller presentation stays
+unchanged. All presentations report only Plate content changes, not selection
+or focus events, so reading cannot normalize Markdown into a false dirty draft.
+References mount on first opening and retain visited editors while
+hidden to protect queued input and Undo. Legacy section hashes select the
+relocated tab or contextual dialog.
+
+Creation and import reuse a shared flow-dialog composition and the real
+`UnsavedChangesGuard`/`UnsavedChangesDialog`. Omitting the optional save callback
+provides discard-only protection while preserving boolean callers and the
+`saved-with-unsaved-changes` result. Mutations keep their original APIs; a URL-bound import
+preview cannot be replaced by an obsolete request. Successful writes do not wait
+for list refreshes. No route, authority, global Skill installation, autosave or
+runtime semantics are added. Desktop Copy link resolves the bridge's Web origin.
+
+The enduring product and authorization contract is
+[Organization Skills](../product/organization-skills.md).
 
 ### Collaboration presentation
 
@@ -720,7 +790,7 @@ current Computer exists, it opens the normal setup flow.
 
 The global Center Agent surface has no secondary sidebar. Its persistent header
 navigation is exactly **Messages**, **Graph**, **Files**, **Routines**,
-**Skills**, and **Channels**, in that order. Messages, Graph, and Files preserve the
+and **Channels**, in that order. Skills management belongs to Team. Messages, Graph, and Files preserve the
 selected Center Agent conversation surface. One compact header menu
 preserves **Memory**. The
 conversation variant of that menu also preserves **Conversation information**.
@@ -986,9 +1056,11 @@ archive filter, title editing, previews, and drag ordering remain available.
 
 The full Center Agent page, header, starter cards, composer, and all capability
 surfaces reuse their existing components. Messages, Graph, Files,
-Routines, Skills, Channels, Memory, settings, and conversation
-information remain available. Capability routes stay under `/center-agent/*`
-and highlight Direct messages. The starter cards continue scrolling with the conversation.
+Routines, Channels, Memory, settings, and conversation
+information remain available. Center Agent work routes stay under
+`/center-agent/*` and highlight Direct messages; Skills management instead lives
+under `/skills` and highlights Team, and settings remain in global App Settings.
+The starter cards continue scrolling with the conversation.
 No second conversation controller or message store is introduced.
 
 ### Inbox
@@ -1661,6 +1733,9 @@ this order:
    sidebar; keep Routines, Skills, and Channels in the conversation header;
    keep Memory and Center Agent settings in the header menu; and
    retire the redundant About surface and Slack shortcut.
+
+Team Skills supersedes W-NAV6's Skills placement: the catalog and detail now
+belong to Team, with legacy Center Agent Skills URLs retained only as redirects.
 
 The temporary Organization rail destination was removed in W-NAV4. The
 2026-07-27 consolidation also removes root Routines and the former

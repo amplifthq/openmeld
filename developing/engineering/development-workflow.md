@@ -194,6 +194,16 @@ the updated launchers to benefit; never rewrite another task's reservation.
 Waiting messages show available memory, machine headroom, new startup budget,
 and existing growth reservations separately.
 
+Desktop development uses the same resource registry, not a second scheduler.
+`pnpm desktop:dev` reserves heavy capacity only while preparing the native build,
+then releases it and reserves the `desktop` memory class (default 1 GiB) for the
+GUI. Actual process RSS is included in the machine snapshot. The existing pressure
+and headroom guards still apply; `OPENMELD_LOCAL_DESKTOP_GIB` is an explicit measured
+workload tuning option, not a way to make memory appear free. Run `desktop:doctor`,
+`desktop:status` or `desktop:stop` in the owning worktree. See
+[Desktop development lanes](../clients/desktop.md#development-lanes) for the complete
+command contract. Repeated starts do not duplicate a GUI or rebuild underneath it.
+
 `pnpm dev:status` reports process trees, summed RSS and machine memory
 separately from disk space. RSS can count shared pages more than once. macOS
 memory availability includes free, inactive and speculative pages and is
@@ -638,6 +648,22 @@ the pilot flag on a package-local build. The client requires the lane's compiled
 `VITE_BETTER_AUTH_URL`; pilot builds reject missing or invalid values after Vite
 loads its environment. The native launch environment cannot supply that value
 retroactively to an already built renderer.
+
+The same worktree producer declares `VITE_OPENMELD_SETUP_USER_FACING_COMMAND`,
+`VITE_OPENMELD_DEV_LANE_ID`, the public Auth/Gateway/Web endpoints, isolated Home,
+and the client/server CLI manifest. The compiled renderer and installer must
+agree on that target. Missing or conflicting isolation fields fail closed;
+production-mode compilation is never permission to select the published lane.
+The unnamed Wrangler environment declares local development, `stg` declares
+Canary, and `prod` (including an installed production Desktop target) declares
+the published lane. Build-time public command endpoints are projected from the
+selected existing Web Wrangler vars, not a second environment registry.
+
+All dynamic Web setup, repair, login, start/stop, Space join, Skill guidance and
+Agent-prompt command prefixes use `resolveWebCliTarget`. Follow-up commands keep
+the isolated Home and endpoints. After installation, `setup.complete` remains
+the authority for the installed command; this build target does not invent an
+installed binary path or certify clean-install acceptance.
 
 ## `OPENMELD_HOME` And Production-State Safety
 
@@ -1815,6 +1841,55 @@ candidate URLs remain valid but cannot be promoted into the updater channel.
 Production deployment and ordering still follow
 [Production Release](production-release.md); this workflow grants no independent
 permission to deploy or publish.
+
+### Native Windows Desktop candidates
+
+The approval, clean merged source, scoped Web build, immutable upload, public
+verification, explicit promotion and production-scope lease rules above also
+apply to Windows. Mac pointers/projections remain unchanged. Windows uses one
+reviewed pointer per `windows-x64` or `windows-arm64`, never a Mac fallback.
+
+Use `pnpm desktop:package:production-preview` on native Windows with
+`OPENMELD_DESKTOP_RELEASE_SHA` set to the full approved merged SHA and
+`OPENMELD_DESKTOP_WINDOWS_PUBLISHER` set to the actual certificate's publisher
+name or full subject DN. Supply operator-owned credentials through supported
+electron-builder Windows signing mechanisms. Optional
+`OPENMELD_DESKTOP_WINDOWS_CERTIFICATE_SHA1` selects an exact installed certificate;
+`OPENMELD_DESKTOP_ARCH` selects `x64` or `arm64`. The script does not create a
+certificate, guess identity or bypass signature checks. The signed source record
+additionally binds platform and publisher.
+
+The package is `clients/desktop/dist/production-preview/OpenMeld-Desktop-<version>-windows-<arch>.exe`.
+Inspection requires full 7-Zip (`7z.exe`, including NSIS support), discovered
+under Program Files or selected with the absolute `OPENMELD_DESKTOP_7ZIP` path.
+The release owner verifies the installer and its embedded signed application
+without executing installation; sidecars are not proof of signed source.
+Unsigned disposable acceptance uses the existing disposable target and
+`pnpm desktop:package:installed`. It cannot exercise production auto-update or
+be published. Preinstall the fixed candidate CLI for pre-release Computer smoke;
+production bootstrap intentionally targets the published npm stable channel.
+
+After separate publication authorization, use the existing root
+`pnpm release:desktop-preview:upload-candidate`. After review, installed Windows
+acceptance, additive Web deployment and separate promotion authorization, use
+`pnpm release:desktop-preview:promote -- <candidate-sha256> <expected-current-version-or-none>`.
+Windows root pnpm invocations preserve the exact pnpm JS entry; a direct release
+script call without that entry fails instead of executing shell text. The shared
+Git-backed `web` production lease and monotonic version check remain mandatory.
+
+Windows metadata and installer share `desktop/candidates/<installer-sha256>/`.
+The sole platform pointer is `desktop/promoted-windows-<arch>.json`. The page and
+default download take `?platform=windows-<arch>`; immutable candidate links remain
+hash-selected. The feed is `/desktop/updates/windows-<arch>/latest.yml` and its
+payload is `/desktop/updates/<installer-sha256>/windows-<arch>.exe`.
+
+Deploy platform-aware Web readers before these manifests. Verify page, GET,
+HEAD, complete digest/size, platform feed and installed A-to-B behavior separately.
+Real signed NSIS extraction, normal-user installation, ARM64 execution and the
+actual OpenMeld signature/SmartScreen outcome remain native release acceptance,
+not facts established by plan/PE tests or process-contract CI. GUI update/uninstall
+must leave independently running Service and Wake work untouched. No feature PR
+validation grants release authorization.
 
 ## Local Components Release Tool
 

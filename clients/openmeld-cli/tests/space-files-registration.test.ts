@@ -4,6 +4,8 @@ import { resolveMimeType } from "../src/space/files-command";
 import { registerSpaceFilesCommands } from "../src/space/files-registration";
 
 const FILE_COMMANDS = [
+  "handoff",
+  "working-copy",
   "list",
   "read",
   "history",
@@ -35,6 +37,8 @@ describe("Space Files CLI", () => {
     expect(commandHelp(files, "write")).toContain("--stdin");
     expect(commandHelp(files, "download")).toContain("--force");
     expect(commandHelp(files, "list")).toContain("--trash");
+    expect(commandHelp(files, "handoff")).toContain("--client-message-id");
+    expect(commandHelp(files, "handoff")).toContain("--thread");
     expect(commandHelp(files, "restore-version")).toContain(
       "--base-revision <number>"
     );

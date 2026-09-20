@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execPlatformFile as execFile } from "@openmeld/adapter-core/process-launch";
 import type { CliCommandFailure, CliCommandResult } from "../../shared/types";
 import type { CliProblem } from "../../shared/view-types";
 import type { ExecFileError, ExecFileFn } from "./driver";

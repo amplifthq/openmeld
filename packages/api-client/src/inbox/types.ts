@@ -2,6 +2,8 @@ import type {
   CenterAgentInboxSummaryResponse,
   DismissInboxItemResponse,
   GetInboxItemResponse,
+  InboxFeedQuery,
+  InboxFeedResponse,
   InboxMessageNotificationPreferencesResponse,
   InboxNotificationPreferencesResponse,
   InboxPresentation,
@@ -12,6 +14,8 @@ import type {
   MarkCenterAgentInboxReadThroughResponse,
   MarkInboxItemReadResponse,
   MarkSpaceInboxReadThroughResponse,
+  MutateInboxFeedBody,
+  MutateInboxFeedResponse,
   OpenMeldRequestContext,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
@@ -26,6 +30,12 @@ export type InboxRequestInput = {
 };
 
 export type InboxApi = {
+  feed: (
+    input?: InboxRequestInput & InboxFeedQuery
+  ) => Promise<InboxFeedResponse>;
+  mutateFeed: (
+    input: InboxRequestInput & MutateInboxFeedBody
+  ) => Promise<MutateInboxFeedResponse>;
   getMessageNotificationPreferences: (
     input?: InboxRequestInput & { spaceId?: string }
   ) => Promise<InboxMessageNotificationPreferencesResponse>;

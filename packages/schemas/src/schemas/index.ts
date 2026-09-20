@@ -223,6 +223,8 @@ export {
   DAEMON_PROFILE_SKIP_REASON_VALUES,
   daemonProfileSkipReasonSchema,
   localAgentInstallationOptionSchema,
+  OPENMELD_DAEMON_CANCEL_STOP_REQUESTED_AFTER_START_REASON_CODE,
+  OPENMELD_DAEMON_CANCEL_WITHDRAWN_BEFORE_START_REASON_CODE,
   OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,
   openMeldDaemonCancelPayloadSchema,
   openMeldDaemonCancelRequestPayloadSchema,
@@ -582,6 +584,8 @@ export {
   runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseSchema,
   runtimeTransportAgentProfileWorkHandoffRequestSchema,
   runtimeTransportAgentProfileWorkHandoffResponseSchema,
+  runtimeTransportAgentProfileWorkLocalAttemptWithdrawalRequestSchema,
+  runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema,
   runtimeTransportAgentProfileWorkQueueApproveRequestSchema,
   runtimeTransportAgentProfileWorkQueueApproveResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryActionSchema,
@@ -740,6 +744,7 @@ export {
   openMeldDaemonTaskResultStatusSchema,
   openMeldDaemonTaskResultTelemetrySchema,
 } from "./daemon/task-result";
+export { windowsProcessJobRequestSchema } from "./daemon/windows-process-job";
 export {
   type WindowsUserTaskRequest,
   windowsUserTaskActionSchema,
@@ -1500,6 +1505,8 @@ export {
   identityImageMimeTypeSchema,
 } from "./http/identity-image";
 export * from "./http/inbox";
+export * from "./http/inbox-desktop-updates";
+export * from "./http/inbox-feed";
 export {
   listSignalsQuerySchema,
   normalizeListSignalsReadQuerySemantics,

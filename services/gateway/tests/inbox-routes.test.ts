@@ -76,6 +76,133 @@ const HUMAN_MENTION_ITEM = {
 };
 
 describe("Inbox routes", () => {
+  it("accepts native update observations only through a session-bound native transport and validates the complete account-source body", async () => {
+    const { coreRpc, env } = makeEnv();
+    const body = {
+      schemaVersion: 1,
+      expectedUserId: "owner-1",
+      installationId: "11111111-2222-4333-8444-555555555555",
+      sequence: 1,
+      lane: "dev-local",
+      deviceName: "Test Mac",
+      platform: "darwin",
+      installedVersion: "0.1.3",
+      availableVersion: "0.1.4",
+    };
+    const url = "http://local/v1/account/desktop-update-observations";
+    const browser = await app.fetch(
+      jsonRequest(url, "PUT", body, { origin: "http://local" }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(browser.status).toBe(400);
+    expect(coreRpc.reportDesktopUpdateObservation).not.toHaveBeenCalled();
+    const native = await app.fetch(
+      jsonRequest(url, "PUT", body, { origin: "openmeld-desktop://app" }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(native.status).toBe(200);
+    expect(coreRpc.reportDesktopUpdateObservation).toHaveBeenCalledWith(
+      expect.objectContaining({ observation: body })
+    );
+    const injected = await app.fetch(
+      jsonRequest(
+        url,
+        "PUT",
+        { ...body, organizationId: "org-2" },
+        { origin: "openmeld-desktop://app" }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(injected.status).toBe(400);
+    expect(coreRpc.reportDesktopUpdateObservation).toHaveBeenCalledOnce();
+  });
+  it.each([
+    "7",
+    "8",
+    "9",
+  ])("opts version %s into account items only when all its readers support device scope", async (version) => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      new Request("http://local/v1/inbox", {
+        headers: { "x-openmeld-inbox-source-target-version": version },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(coreRpc.listInboxItems).toHaveBeenCalledWith(
+      expect.objectContaining({ includeAccountItems: version === "9" })
+    );
+  });
+  it("forwards server feed filters and frozen scopes without accepting client-selected recipients", async () => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/inbox/feed?category=mentions&agentsOnly=false&peopleOnly=true&conversationType=direct_messages&includeSelectionUnreadCount=true&unreadOnly=false&limit=20"
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(coreRpc.listInboxFeed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: "mentions",
+        agentsOnly: "false",
+        peopleOnly: "true",
+        conversationType: "direct_messages",
+        includeSelectionUnreadCount: "true",
+        unreadOnly: "false",
+        limit: 20,
+      })
+    );
+    const saved = await app.fetch(
+      jsonRequest("http://local/v1/inbox/feed/state", "POST", {
+        snapshotId: "snapshot",
+        operation: "read",
+        groupKey: "Z3JvdXA",
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(saved.status).toBe(200);
+    expect(coreRpc.mutateInboxFeed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        snapshotId: "snapshot",
+        operation: "read",
+        groupKey: "Z3JvdXA",
+      })
+    );
+    expect(
+      (
+        await app.fetch(
+          new Request("http://local/v1/inbox/feed?recipientUserId=other"),
+          env,
+          TEST_EXECUTION_CONTEXT
+        )
+      ).status
+    ).toBe(400);
+    expect(
+      (
+        await app.fetch(
+          jsonRequest("http://local/v1/inbox/feed/state", "POST", {
+            snapshotId: "snapshot",
+            operation: "read",
+            recipientUserId: "other",
+          }),
+          env,
+          TEST_EXECUTION_CONTEXT
+        )
+      ).status
+    ).toBe(400);
+    expect(coreRpc.listInboxFeed).toHaveBeenCalledOnce();
+    expect(coreRpc.mutateInboxFeed).toHaveBeenCalledOnce();
+    expect(coreRpc.listInboxItems).not.toHaveBeenCalled();
+    expect(coreRpc.markAllInboxItemsRead).not.toHaveBeenCalled();
+  });
+
   it("routes message preferences separately from email and validates conversation writes", async () => {
     const { coreRpc, env } = makeEnv();
     const response = await app.fetch(
@@ -155,7 +282,7 @@ describe("Inbox routes", () => {
     }
   });
 
-  it("preserves older routing while exposing recipient reply facts only to version 7", async () => {
+  it("preserves older routing and gates new source facts independently of version 7 reply facts", async () => {
     const { coreRpc, env } = makeEnv();
     const sourceTarget = {
       kind: "space" as const,
@@ -167,17 +294,31 @@ describe("Inbox routes", () => {
       replyToRecipient: true,
     };
     coreRpc.listInboxItems.mockResolvedValue({
-      items: [{ ...HUMAN_MENTION_ITEM, sourceTarget }],
+      items: [
+        {
+          ...HUMAN_MENTION_ITEM,
+          sourceTarget,
+          sourceFacts: { version: 1, recipientReasons: ["human_mention"] },
+        },
+      ],
       nextCursor: null,
       organizationId: "org-1",
     });
     coreRpc.getInboxItem.mockResolvedValue({
-      item: { ...HUMAN_MENTION_ITEM, sourceTarget },
+      item: {
+        ...HUMAN_MENTION_ITEM,
+        sourceTarget,
+        sourceFacts: { version: 1, recipientReasons: ["human_mention"] },
+      },
     });
     coreRpc.markInboxItemRead.mockResolvedValue({
-      item: { ...HUMAN_MENTION_ITEM, sourceTarget },
+      item: {
+        ...HUMAN_MENTION_ITEM,
+        sourceTarget,
+        sourceFacts: { version: 1, recipientReasons: ["human_mention"] },
+      },
     });
-    for (const version of ["4", "5", "6", "7"]) {
+    for (const version of ["4", "5", "6", "7", "8"]) {
       const headers = { "x-openmeld-inbox-source-target-version": version };
       const expectedTarget = {
         kind: "space",
@@ -185,8 +326,10 @@ describe("Inbox routes", () => {
         signalId: "reply",
         threadRootSignalId: "root",
         ...(version !== "4" ? { directMessage: true } : {}),
-        ...(["6", "7"].includes(version) ? { agentOwnerActivity: true } : {}),
-        ...(version === "7" ? { replyToRecipient: true } : {}),
+        ...(["6", "7", "8"].includes(version)
+          ? { agentOwnerActivity: true }
+          : {}),
+        ...(["7", "8"].includes(version) ? { replyToRecipient: true } : {}),
       };
       for (const request of [
         new Request("http://local/v1/inbox", { headers }),
@@ -209,6 +352,16 @@ describe("Inbox routes", () => {
         expect((body.item ?? body.items?.[0])?.sourceTarget).toEqual(
           expectedTarget
         );
+        if (version === "8") {
+          expect(body.item ?? body.items?.[0]).toHaveProperty("sourceFacts", {
+            version: 1,
+            recipientReasons: ["human_mention"],
+          });
+        } else {
+          expect(body.item ?? body.items?.[0]).not.toHaveProperty(
+            "sourceFacts"
+          );
+        }
       }
     }
     expect(coreRpc.listInboxItems).toHaveBeenLastCalledWith(
@@ -658,6 +811,37 @@ describe("Inbox routes", () => {
 
 function makeEnv() {
   const coreRpc = {
+    reportDesktopUpdateObservation: vi.fn(async () => ({
+      accepted: true,
+      sequence: 1,
+    })),
+    listInboxFeed: vi.fn(async () => ({
+      organizationId: "org-1",
+      snapshotId: "snapshot",
+      snapshotExpiresAt: "2026-09-19T00:15:00Z",
+      nextCursor: null,
+      counts: {
+        all: 1,
+        mentions: 1,
+        needsAction: 0,
+        needsReview: 0,
+        unread: 1,
+        priority: 0,
+      },
+      rows: [
+        {
+          groupKey: "Z3JvdXA",
+          item: HUMAN_MENTION_ITEM,
+          itemCount: 1,
+          unreadCount: 1,
+          latestOccurredAt: HUMAN_MENTION_ITEM.occurredAt,
+          section: "activity",
+          requestCategory: null,
+          dot: "blue",
+        },
+      ],
+    })),
+    mutateInboxFeed: vi.fn(async () => ({ changedCount: 1 })),
     getInboxMessageNotificationPreferences: vi.fn(async () => ({
       organizationId: "org-1",
       spaceId: "space-1",

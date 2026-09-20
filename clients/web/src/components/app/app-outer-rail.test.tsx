@@ -625,10 +625,12 @@ describe("AppOuterRail", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Open app navigation" })
 		);
-		const drawer = screen.getByRole("dialog", { name: "Plugin navigation" });
+		const drawer = screen.getByRole("dialog", { name: "OpenMeld navigation" });
 		fireEvent.click(within(drawer).getByRole("link", { name: "Spaces" }));
 		await waitFor(() =>
-			expect(drawer.getAttribute("data-state")).toBe("closed")
+			expect(
+				screen.queryByRole("dialog", { name: "OpenMeld navigation" })
+			).toBeNull()
 		);
 		fireEvent.click(
 			screen.getByRole("button", {

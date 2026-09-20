@@ -8,6 +8,7 @@ import {
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
   serviceConnectionDiagnosticIdSchema,
 } from "@openmeld/schemas";
 import type {
@@ -125,6 +126,7 @@ export function registerDaemonRoutes(app: Hono<HonoBindings>): void {
             OPENMELD_REASONING_STREAM_HEADER,
             OPENMELD_COMPUTER_CARE_HEADER,
             OPENMELD_EXECUTION_ADMISSION_HEADER,
+            SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
           ]
             .filter((header) => c.req.header(header) === "1")
             .map((header) => [header, "1"])

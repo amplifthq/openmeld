@@ -27,6 +27,10 @@ export type InboxPresentation = z.infer<
 >;
 export type InboxAttention = z.infer<InboxSchemas["inboxAttentionSchema"]>;
 export type InboxImportance = z.infer<InboxSchemas["inboxImportanceSchema"]>;
+export type InboxRecipientReason = z.infer<
+  InboxSchemas["inboxRecipientReasonSchema"]
+>;
+export type InboxSourceFacts = z.infer<InboxSchemas["inboxSourceFactsSchema"]>;
 export type InboxResolutionStatus = z.infer<
   InboxSchemas["inboxResolutionStatusSchema"]
 >;

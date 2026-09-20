@@ -1,3 +1,4 @@
+import { SkeletonTable } from "@openmeld/ui/components/skeleton-content";
 import { readPendingAgentProfileCreationLocalSetup } from "#/lib/profiles/agent-profile-creation-local-setup";
 
 ("use client");
@@ -27,9 +28,9 @@ import {
 	AgentProfilesWorkspace,
 	type AgentProfilesWorkspaceProps,
 } from "#/components/agents/agent-profiles-workspace";
+import { AgentResolutionPage } from "#/components/agents/agent-resolution-page";
 import { AgentProfilesCard } from "#/components/agents/agents-page-agent-profiles-card";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
-import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { DirectoryMembersOverview } from "#/components/directory/directory-members-overview";
 import { CreateProfileDialog } from "#/components/profiles/create-profile-dialog";
@@ -208,9 +209,26 @@ export function PeopleAndAgentsPage(input: {
 	}
 	if (input.personId && !person) {
 		return (
-			<MissingPersonPage
+			<AgentResolutionPage
+				detail={Boolean(input.focusProfileId)}
+				error={organizationProfileDirectoryQuery.isError}
 				initialSidebarStates={input.initialSidebarStates}
-				query={organizationProfileDirectoryQuery}
+				isPending={organizationProfileDirectoryQuery.isPending}
+				isRetrying={organizationProfileDirectoryQuery.isFetching}
+				message={
+					organizationProfileDirectoryQuery.isError
+						? "Couldn’t load this member."
+						: "Member not found in this workspace."
+				}
+				onRetry={
+					organizationProfileDirectoryQuery.isError
+						? () => {
+								organizationProfileDirectoryQuery
+									.refetch()
+									.catch(console.error);
+							}
+						: undefined
+				}
 			/>
 		);
 	}
@@ -233,11 +251,22 @@ export function PeopleAndAgentsPage(input: {
 					);
 				}}
 				onSelectProfile={(profileId) => {
+					const directory = organizationProfileDirectoryQuery.data;
+					const ownerUserId = directory?.agentProfiles.find(
+						(profile) => profile.profileId === profileId
+					)?.ownerUserId;
+					const owner = directory?.members.find(
+						(member) => member.userId === ownerUserId
+					);
+					const resolvedPersonId = owner
+						? (owner.humanProfile?.profileId ?? `member:${owner.memberId}`)
+						: null;
+					const personId = input.personId ?? resolvedPersonId;
 					navigate({
-						to: input.personId
+						to: personId
 							? buildOrganizationPersonAgentPath({
 									orgSlug,
-									personId: input.personId,
+									personId,
 									agentId: profileId,
 								})
 							: `${profileHomeRoutes.agents}?profileId=${encodeURIComponent(profileId)}`,
@@ -277,24 +306,6 @@ export function PeopleAndAgentsPage(input: {
 	);
 }
 
-function MissingPersonPage(input: {
-	query: OrganizationProfileDirectoryQueryState;
-	initialSidebarStates?: AppSidebarPersistedStates;
-}) {
-	let message = "Member not found in this workspace.";
-	if (input.query.isPending) {
-		message = "Loading member…";
-	} else if (input.query.isError) {
-		message = "Couldn’t load this member. Try again.";
-	}
-	return (
-		<AppFullWidthLayout
-			initialOuterSidebarState={input.initialSidebarStates?.outer}
-		>
-			<p role={input.query.isError ? "alert" : "status"}>{message}</p>
-		</AppFullWidthLayout>
-	);
-}
 function resolveActiveAgentView(input: {
 	activeAgentView: AgentWorkspaceView | undefined;
 	activeSectionId: ProfileHomeId;
@@ -634,9 +645,7 @@ function AgentsWorkspaceHome(input: {
 		);
 	} else if (input.isOrganizationContext) {
 		requestPanel = (
-			<p className="rounded-md border border-border/70 px-4 py-6 text-muted-foreground text-sm">
-				Loading Agent creation history…
-			</p>
+			<SkeletonTable columns={4} label="Loading Agent creation history" />
 		);
 	}
 

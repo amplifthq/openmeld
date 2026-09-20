@@ -64,6 +64,7 @@ export type DispatchSpaceActionSendTargetReference =
     };
 
 export type DispatchSpaceActionContext = {
+  workingCopyId?: string;
   version: typeof DISPATCH_SPACE_ACTION_CONTEXT_VERSION;
   actionRecordPath: string;
   attemptId: string;
@@ -106,6 +107,7 @@ export type DispatchSpaceActionRecordReadResult =
     };
 
 export function createDispatchSpaceActionContext(input: {
+  workingCopyId?: string;
   attemptId: string;
   dispatchId: string;
   env?: Record<string, string | undefined>;
@@ -138,6 +140,7 @@ export function createDispatchSpaceActionContext(input: {
   const contextPath = join(contextDir, "context.json");
   const actionRecordPath = join(contextDir, "action.json");
   const context: DispatchSpaceActionContext = {
+    ...(input.workingCopyId ? { workingCopyId: input.workingCopyId } : {}),
     version: DISPATCH_SPACE_ACTION_CONTEXT_VERSION,
     actionRecordPath,
     attemptId: input.attemptId,
@@ -341,6 +344,9 @@ function parseDispatchSpaceActionContext(
     spaceId: requiredString(record.spaceId, "spaceId"),
     targetProfileId: requiredString(record.targetProfileId, "targetProfileId"),
     taskId: requiredString(record.taskId, "taskId"),
+    ...(record.workingCopyId
+      ? { workingCopyId: requiredString(record.workingCopyId, "workingCopyId") }
+      : {}),
   };
 }
 
