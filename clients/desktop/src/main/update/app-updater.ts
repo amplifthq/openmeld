@@ -6,6 +6,8 @@ import {
   desktopUpdaterFeedSchemaForPlatform,
 } from "@openmeld/schemas";
 import type { MacUpdater, NsisUpdater, UpdateInfo } from "electron-updater";
+import { resolveMacUpdateInstallPlan } from "./mac-bundle-path";
+import type { MacBundleRenameInstall } from "./mac-update-install";
 
 export function assertDesktopUpdateFiles(
   info: UpdateInfo,
@@ -14,11 +16,27 @@ export function assertDesktopUpdateFiles(
   desktopUpdaterFeedSchemaForPlatform(platform).parse(info);
 }
 
+function readDownloadedUpdateFile(event: unknown): string | null {
+  if (
+    event &&
+    typeof event === "object" &&
+    "downloadedFile" in event &&
+    typeof event.downloadedFile === "string"
+  ) {
+    return event.downloadedFile;
+  }
+  return null;
+}
+
 /** Application policy around electron-updater; no Service or account dependency. */
 export function createAppUpdater(input: {
   updater: MacUpdater | NsisUpdater;
   platform?: DesktopReleasePlatform;
   currentVersion: string;
+  currentAppBundle?: string | null;
+  installRenamedMacBundle?: (install: MacBundleRenameInstall) => void;
+  quitApp?: () => void;
+  processId?: number;
   publish: (state: DesktopUpdaterState) => void;
   prepareRestart: () => Promise<boolean>;
   setInstalling: (value: boolean) => void;
@@ -43,6 +61,7 @@ export function createAppUpdater(input: {
   };
   let operation: Promise<void> | null = null;
   let verifiedDownload = false;
+  let downloadedFile: string | null = null;
   const publish = (patch: Partial<DesktopUpdaterState>) => {
     state = { ...state, ...patch };
     input.publish(state);
@@ -74,11 +93,12 @@ export function createAppUpdater(input: {
       publish({ percent: Math.min(100, Math.max(0, percent)) });
     }
   });
-  updater.on("update-downloaded", () => {
+  updater.on("update-downloaded", (event) => {
     if (state.status === "installing" || state.errorStage === "install") {
       return;
     }
     verifiedDownload = true;
+    downloadedFile = readDownloadedUpdateFile(event);
     publish({ status: "downloaded", percent: 100, errorStage: null });
   });
   const check = async () => {
@@ -124,6 +144,33 @@ export function createAppUpdater(input: {
     }
     publish({ status: "installing" });
     input.setInstalling(true);
+    if (platform === "macos-arm64") {
+      const plan = resolveMacUpdateInstallPlan({
+        currentBundle: input.currentAppBundle ?? null,
+      });
+      if (plan.kind === "rename") {
+        if (
+          !(
+            downloadedFile &&
+            input.installRenamedMacBundle &&
+            input.quitApp &&
+            input.processId
+          )
+        ) {
+          throw new Error(
+            "Desktop cannot hand a renamed application folder to Squirrel."
+          );
+        }
+        input.installRenamedMacBundle({
+          zipPath: downloadedFile,
+          currentBundle: plan.currentBundle,
+          targetBundle: plan.targetBundle,
+          pid: input.processId,
+        });
+        input.quitApp();
+        return;
+      }
+    }
     updater.quitAndInstall();
   };
   return {

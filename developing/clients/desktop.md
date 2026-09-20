@@ -229,10 +229,14 @@ context. No separate Settings page or account bypass is introduced: before an
 authorized workspace mounts, the existing sign-in entry remains in control.
 Settings intents respect the updater's document interaction freeze.
 
-Visible product copy calls the application OpenMeld. The installed bundle,
-authentication client identity, data directories, and update channels retain
-their existing stable identifiers. Desktop's account menu includes Open web app;
-it opens the equivalent authorized Web route in the system browser.
+Visible product copy calls the application OpenMeld. The production installed
+folder is `OpenMeld.app`. App ID, callback scheme, user-data directory, and
+update channels keep `sh.openmeld.desktop` / `OpenMeld Desktop`. Do not change
+the installed folder name again: Squirrel.Mac relaunches from the previous
+folder and cannot install across that rename.
+Earlier signed installs used `OpenMeld Desktop.app`. Desktop's account menu
+includes Open web app; it opens the equivalent authorized Web route in the
+system browser.
 
 The cloud response allowlist includes `x-openmeld-request-id` and `Server-Timing`
 for shared diagnostics. It still strips cookies, credentials and unlisted headers.
@@ -527,9 +531,18 @@ controller tests are not signed-package A-to-B acceptance.
 Launch and six-hour checks run automatically. Both `autoDownload` and `autoInstallOnAppQuit` are
 explicitly false. Download requires consent; after checksum verification the
 user chooses Restart to update or Later. On macOS the downloaded ZIP is not
-handed to Squirrel until Restart to update. Later therefore neither installs on
-ordinary Quit nor silently installs on the next launch. A subsequent launch
-checks again; a requested download can reuse the verified cache.
+handed to Squirrel until Restart to update, and only when the running folder is
+already `OpenMeld.app`. Later therefore neither installs on ordinary Quit nor
+silently installs on the next launch. A subsequent launch checks again; a
+requested download can reuse the verified cache.
+If the running folder is still the previous `OpenMeld Desktop.app`, Restart
+must not call MacUpdater/`ShipIt`. Main extracts the verified ZIP with
+`ditto`, replaces it as `OpenMeld.app` beside the old folder, removes the
+previous folder, and opens the new path. Squirrel.Mac's installer first
+renames `OpenMeld Desktop.app` to `OpenMeld.app`, then relaunches
+`OpenMeld Desktop.app/Contents/Frameworks/Squirrel.framework/Resources/ShipIt`,
+which is gone (`posix_spawn: No such file or directory`). That leaves Finder
+unable to open the app even when the new bundle later verifies.
 
 Restart freezes document editing, flushes active text through the existing
 composer draft owner, and refuses while navigation guards, pending sends,
@@ -562,6 +575,9 @@ are reviewed. Do not promote a release merely to run an automated smoke.
 
 1. Install signed A containing this updater. Record its version and existing
    account, conversation, Service identity and an independently running Wake.
+   Include one A still named `OpenMeld Desktop.app`: B must become
+   `OpenMeld.app`, the previous folder must be gone, and relaunch must open B
+   without ShipIt.
 2. Build a newer signed B from its exact merged SHA. Verify DMG and ZIP identity,
    upload the immutable candidate, then explicitly promote B after review.
 3. Confirm `/desktop`, legacy `/desktop/update.json`, and `latest-mac.yml` select

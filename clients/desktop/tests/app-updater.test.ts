@@ -8,7 +8,12 @@ import { createAppUpdater } from "../src/main/update/app-updater";
 
 function fixture(
   url = `/desktop/updates/${"a".repeat(64)}/desktop.zip`,
-  platform: DesktopReleasePlatform = "macos-arm64"
+  platform: DesktopReleasePlatform = "macos-arm64",
+  extras: {
+    currentAppBundle?: string | null;
+    downloadedFile?: string;
+    processId?: number;
+  } = {}
 ) {
   const events = new EventEmitter();
   const info = {
@@ -32,22 +37,40 @@ function fixture(
     checkForUpdates: vi.fn<MacUpdater["checkForUpdates"]>(async () => result),
     downloadUpdate: vi.fn<MacUpdater["downloadUpdate"]>(() => {
       events.emit("download-progress", { percent: 37 });
-      events.emit("update-downloaded", info);
+      events.emit("update-downloaded", {
+        ...info,
+        ...(extras.downloadedFile
+          ? { downloadedFile: extras.downloadedFile }
+          : {}),
+      });
       return Promise.resolve([]);
     }),
     quitAndInstall: vi.fn<MacUpdater["quitAndInstall"]>(),
   });
   const prepareRestart = vi.fn(async () => true);
   const setInstalling = vi.fn();
+  const installRenamedMacBundle = vi.fn();
+  const quitApp = vi.fn();
   const controller = createAppUpdater({
     updater: driver as unknown as MacUpdater,
     platform,
     currentVersion: "0.1.1",
+    currentAppBundle: extras.currentAppBundle,
+    installRenamedMacBundle,
+    quitApp,
+    processId: extras.processId,
     publish: vi.fn(),
     prepareRestart,
     setInstalling,
   });
-  return { controller, driver, prepareRestart, setInstalling };
+  return {
+    controller,
+    driver,
+    prepareRestart,
+    setInstalling,
+    installRenamedMacBundle,
+    quitApp,
+  };
 }
 describe("Desktop update consent", () => {
   it.each([
@@ -241,5 +264,44 @@ describe("Desktop update consent", () => {
       errorStage: "check",
     });
     expect(driver.downloadUpdate).not.toHaveBeenCalled();
+  });
+  it("installs a renamed OpenMeld Desktop.app without handing the ZIP to Squirrel", async () => {
+    const { controller, driver, installRenamedMacBundle, quitApp } = fixture(
+      undefined,
+      "macos-arm64",
+      {
+        currentAppBundle: "/Applications/OpenMeld Desktop.app",
+        downloadedFile: "/tmp/cache/desktop.zip",
+        processId: 42,
+      }
+    );
+    await controller.act("check");
+    await controller.act("download");
+    await controller.act("restart");
+    expect(driver.quitAndInstall).not.toHaveBeenCalled();
+    expect(installRenamedMacBundle).toHaveBeenCalledWith({
+      zipPath: "/tmp/cache/desktop.zip",
+      currentBundle: "/Applications/OpenMeld Desktop.app",
+      targetBundle: "/Applications/OpenMeld.app",
+      pid: 42,
+    });
+    expect(quitApp).toHaveBeenCalledOnce();
+    expect(controller.snapshot().status).toBe("installing");
+  });
+  it("fails closed when a renamed folder has no verified ZIP instead of calling Squirrel", async () => {
+    const { controller, driver, installRenamedMacBundle } = fixture(
+      undefined,
+      "macos-arm64",
+      { currentAppBundle: "/Applications/OpenMeld Desktop.app", processId: 42 }
+    );
+    await controller.act("check");
+    await controller.act("download");
+    await controller.act("restart");
+    expect(driver.quitAndInstall).not.toHaveBeenCalled();
+    expect(installRenamedMacBundle).not.toHaveBeenCalled();
+    expect(controller.snapshot()).toMatchObject({
+      status: "error",
+      errorStage: "install",
+    });
   });
 });

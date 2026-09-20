@@ -15,6 +15,8 @@ import { PILOT_IPC } from "../../shared/pilot-bridge";
 import { desktopUpdaterPresentation } from "../../shared/updater-presentation";
 import type { DesktopUpdateView } from "../../shared/view-types";
 import { createAppUpdater } from "./app-updater";
+import { readMacAppBundlePath } from "./mac-bundle-path";
+import { installRenamedMacBundle } from "./mac-update-install";
 import { createNativeDesktopUpdater } from "./native-updater";
 
 function readNativeUpdater(enabled: boolean) {
@@ -72,6 +74,12 @@ export function registerAppUpdater(input: {
     ? createAppUpdater({
         ...native,
         currentVersion: app.getVersion(),
+        currentAppBundle: readMacAppBundlePath(app.getPath("exe")),
+        installRenamedMacBundle,
+        quitApp: () => {
+          app.quit();
+        },
+        processId: process.pid,
         setInstalling: input.setInstalling,
         publish: (state) => {
           input
