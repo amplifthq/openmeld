@@ -1,12 +1,7 @@
 "use client";
 
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
-import { BrainIcon } from "@phosphor-icons/react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import {
-	SpaceHeaderNavigationMenu,
-	type SpaceHeaderNavigationMenuItem,
-} from "#/components/spaces/space-header-navigation-menu";
 import {
 	getSpaceViewIndex,
 	resolveSpaceView,
@@ -25,6 +20,7 @@ import {
 
 const ROUTINES_TAB_INDEX = 3;
 const CHANNELS_TAB_INDEX = 4;
+const MEMORY_TAB_INDEX = 5;
 
 export function CenterAgentHeaderTabs(input: {
 	activeSectionId: CenterAgentSectionId;
@@ -99,34 +95,9 @@ export function CenterAgentHeaderTabs(input: {
 
 			<TabsSubtleItem index={3} label="Routines" labelClassName="text-sm" />
 			<TabsSubtleItem index={4} label="Channels" labelClassName="text-sm" />
+			<TabsSubtleItem index={5} label="Memory" labelClassName="text-sm" />
 		</TabsSubtle>
 	);
-}
-
-export function CenterAgentHeaderMenu(input: { organizationSlug: string }) {
-	return (
-		<SpaceHeaderNavigationMenu
-			ariaLabel="Center Agent menu"
-			items={buildCenterAgentHeaderMenuItems(input.organizationSlug)}
-		/>
-	);
-}
-
-/**
- * Center Agent settings are no longer listed here. They live in the global App
- * Settings destination, grouped under the current Organization (or Personal in
- * a Personal Workspace), so this menu keeps only Center Agent work surfaces.
- */
-export function buildCenterAgentHeaderMenuItems(
-	organizationSlug: string
-): readonly SpaceHeaderNavigationMenuItem[] {
-	return [
-		{
-			icon: BrainIcon,
-			label: "Memory",
-			to: buildOrganizationMemoryPath(organizationSlug),
-		},
-	];
 }
 
 function resolveCenterAgentHeaderTabIndex(input: {
@@ -139,6 +110,9 @@ function resolveCenterAgentHeaderTabIndex(input: {
 	if (input.activeSectionId === "channels") {
 		return CHANNELS_TAB_INDEX;
 	}
+	if (input.activeSectionId === "memory") {
+		return MEMORY_TAB_INDEX;
+	}
 	if (input.activeSectionId === "chat") {
 		return getSpaceViewIndex(input.activeSpaceView ?? "messages");
 	}
@@ -150,6 +124,8 @@ function resolveCenterAgentHeaderDestination(input: {
 	organizationSlug: string;
 }): string {
 	switch (input.index) {
+		case MEMORY_TAB_INDEX:
+			return buildOrganizationMemoryPath(input.organizationSlug);
 		case CHANNELS_TAB_INDEX:
 			return buildOrganizationChannelsPath(input.organizationSlug);
 		case ROUTINES_TAB_INDEX:

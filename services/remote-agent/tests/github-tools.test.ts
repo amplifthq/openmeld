@@ -2314,6 +2314,98 @@ describe("Remote Agent GitHub tools", () => {
 
   it.each([
     {
+      createError: "Task store unavailable.",
+      expectedCreateCalls: 1,
+      expectedSpaceTask: {
+        created: false,
+        reason: "Task store unavailable.",
+        task: null,
+      },
+      list: { tasks: [], truncated: false },
+      name: "Task create fails",
+    },
+    {
+      createError: null,
+      expectedCreateCalls: 0,
+      expectedSpaceTask: {
+        code: "space_task.external_work_item_limit",
+        created: false,
+        task: null,
+      },
+      list: { tasks: [], truncated: true },
+      name: "Task list is truncated",
+    },
+  ])("returns a failed Space Task association when $name", async ({
+    createError,
+    expectedCreateCalls,
+    expectedSpaceTask,
+    list,
+  }) => {
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...createSubmitTurnRequest().turnEnvelope,
+        space: {
+          id: "space_shared",
+          isCenterAgentDm: false,
+          kind: "space",
+          name: "Delivery",
+        },
+      },
+    });
+    const storage = await createStorage(request);
+    const createSpaceTask = vi.fn(() => {
+      if (createError) {
+        throw new Error(createError);
+      }
+      throw new Error("createSpaceTask should not run.");
+    });
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      testOpenConnectorSuccessResponse({
+        actionId: "github.create_issue",
+        data: {
+          html_url: "https://github.com/openmeld/app/issues/7",
+          number: 7,
+          title: "Track connector bug",
+        },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
+    );
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
+      coreWorker: {
+        createSpaceTask,
+        getSpaceTask: vi.fn(),
+        listSpaceTasks: vi.fn(async () => list),
+        mutateSpaceTask: vi.fn(),
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({
+            ownerDisplayName: "Mira",
+            userId: "user_mira",
+          })
+        ),
+      },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "github_create_issue", {
+        owner: "openmeld",
+        repo: "app",
+        title: "Track connector bug",
+      })
+    ).resolves.toMatchObject({
+      spaceTask: expectedSpaceTask,
+      status: "completed",
+    });
+    expect(createSpaceTask).toHaveBeenCalledTimes(expectedCreateCalls);
+  });
+
+  it.each([
+    {
       actionId: "github.create_issue_comment",
       input: {
         body: "I reproduced this on main.",

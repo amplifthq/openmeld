@@ -158,7 +158,7 @@ describe("canonical Inbox attention feed", () => {
     }
   });
 
-  it("reads genuine Human and personal-Agent mention history without reinterpreting old mentions callers or plain DMs", async () => {
+  it("includes direct messages in mention attention while preserving strict legacy mentions", async () => {
     const fixture = createInboxFeedFixture();
     try {
       fixture.agent("codex");
@@ -194,9 +194,9 @@ describe("canonical Inbox attention feed", () => {
       const mentions = await feed.list(fixture.identity, {
         category: "mentions",
       });
-      expect(mentions.counts.mentions).toBe(2);
+      expect(mentions.counts.mentions).toBe(3);
       expect(mentions.rows).toHaveLength(1);
-      expect(mentions.rows[0]).toMatchObject({ itemCount: 2, unreadCount: 1 });
+      expect(mentions.rows[0]).toMatchObject({ itemCount: 3, unreadCount: 2 });
       expect(
         (
           await feed.list(fixture.identity, {
@@ -204,7 +204,13 @@ describe("canonical Inbox attention feed", () => {
             unreadOnly: "true",
           })
         ).counts.mentions
-      ).toBe(1);
+      ).toBe(2);
+      expect(
+        await createInboxService({ db: fixture.db }).summary({
+          ...fixture.identity,
+          presentation: "attention",
+        })
+      ).toMatchObject({ unreadMentionCount: 2, ordinaryUnreadCount: 0 });
       expect(
         (
           await createInboxService({ db: fixture.db }).list({

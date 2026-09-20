@@ -1929,7 +1929,8 @@ surface adopts official features where they are free**:
   Space activation targets. Space Task creation is reserved for clear delivery
   obligations; assignment, start, submission, review, and cancellation remain
   distinct. GitHub issues created from that shared Space record a linked Task
-  with mutual references; closing the issue through GitHub tools closes
+  with mutual references when the Task list can confirm the association;
+  closing the issue through GitHub tools closes
   still-active linked Tasks, while completing a Task prompts the Agent to close
   still-open linked issues instead of silently writing GitHub. Task review
   handoffs use the existing Space Wake path and stop after

@@ -1091,6 +1091,7 @@ import {
   ROUTINE_TICK_CRON,
   runCoreScheduledTasks,
 } from "./scheduled/core-scheduled-tasks";
+import { rpcSearchMessages } from "./search/message-search";
 import { emitCoreCloudflareRuntimeEvidence } from "./shared/observability/cloudflare-runtime-evidence";
 import { handleCoreQueueBatch } from "./shared/queue/core-queue-router";
 import { verifyGitHubAppWebhook } from "./space/application/github-app-webhook-service";
@@ -1472,6 +1473,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   listInboxFeed(input: ListInboxFeedRpcInput): Promise<InboxFeedResponse> {
     return rpcListInboxFeed(this.env, input);
+  }
+
+  searchMessages(input: import("@openmeld/schemas").MessageSearchRpcInput) {
+    return rpcSearchMessages(this.env, input);
   }
 
   mutateInboxFeed(
@@ -3854,6 +3859,10 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 
   listInboxFeed(input: ListInboxFeedRpcInput): Promise<InboxFeedResponse> {
     return super.listInboxFeed(input);
+  }
+
+  searchMessages(input: import("@openmeld/schemas").MessageSearchRpcInput) {
+    return super.searchMessages(input);
   }
 
   mutateInboxFeed(

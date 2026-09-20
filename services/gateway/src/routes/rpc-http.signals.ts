@@ -132,6 +132,7 @@ export const buildListSignalsRpcInput = (input: {
   spaceId: input.spaceId,
   ...(input.query.afterTs === null ? {} : { afterTs: input.query.afterTs }),
   ...(input.hasLimit ? { limit: input.query.limit } : {}),
+  ...(input.query.q ? { q: input.query.q } : {}),
   ...(input.query.cursor === null ? {} : { cursor: input.query.cursor }),
   ...(input.query.recentOnly ? { recent: true } : {}),
   ...(input.query.afterSignalId

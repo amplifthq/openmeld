@@ -46,10 +46,7 @@ import {
 	UnsavedChangesGuard,
 } from "#/components/forms/unsaved-changes-guard";
 import { usePublishInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
-import {
-	buildCenterAgentHeaderMenuItems,
-	CenterAgentHeaderTabs,
-} from "#/components/organizations/center-agent-header-navigation";
+import { CenterAgentHeaderTabs } from "#/components/organizations/center-agent-header-navigation";
 import { useAccountAvatar } from "#/hooks/account.hooks";
 import {
 	planAgentProfileReplyRecoveryFromWebEvidence,
@@ -1752,12 +1749,6 @@ function SpaceLandingReady({
 								</>
 							}
 							membersControl={input.isGuest ? undefined : membersControl}
-							menuItems={
-								currentSpaceIsCenterAgentDirectMessage && input.orgSlug
-									? buildCenterAgentHeaderMenuItems(input.orgSlug)
-									: undefined
-							}
-							menuLabel="Center Agent menu"
 							notificationControl={
 								<SpaceNotificationMenu
 									isGuest={input.isGuest}
@@ -1774,6 +1765,7 @@ function SpaceLandingReady({
 							onUpdateSpaceName={controller.onUpdateSpaceName}
 							renderFrame={false}
 							setupRecallAction={setupRecallAction}
+							showChatSettingsMenu={currentSpaceIsCenterAgentDirectMessage}
 							showDeleteSpaceAction={
 								controller.isCurrentAccessConfirmed &&
 								controller.showDeleteSpaceAction

@@ -8,8 +8,13 @@ import {
 import { DropdownMenuSeparator } from "@openmeld/ui/components/dropdown-menu";
 import { FluidDropdownMenuItem } from "@openmeld/ui/fluid/dropdown-menu";
 import { SidebarFooter } from "@openmeld/ui/fluid/sidebar";
+import {
+	SidebarMenu,
+	SidebarMenuButton,
+	SidebarMenuItem,
+} from "@openmeld/ui/fluid/sidebar-menu";
 import type { SidebarMode } from "@openmeld/ui/fluid/sidebar-state";
-import { SidebarUserFooter } from "@openmeld/ui/fluid/sidebar-user-footer";
+import { SidebarUserMenuItem } from "@openmeld/ui/fluid/sidebar-user-footer";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	CaretRightIcon,
@@ -123,176 +128,185 @@ export function AppSidebarFooter({
 		</Avatar>
 	);
 	const actionClass =
-		"flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/60 outline-none hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:ring-1 focus-visible:ring-ring";
+		"size-7 shrink-0 justify-center p-0 text-sidebar-foreground/60 hover:text-sidebar-foreground focus-visible:text-sidebar-foreground";
 	return (
 		<SidebarFooter
 			className={cn(
-				"app-sidebar-footer gap-1 p-2",
+				"app-sidebar-footer p-2",
 				presentation === "drawer" &&
-					"[&_a]:min-h-11 [&_a]:min-w-11 [&_button]:min-h-11 [&_button]:min-w-11",
-				iconOnly ? "items-center" : "flex-row items-center"
+					"[&_a]:min-h-11 [&_a]:min-w-11 [&_button]:min-h-11 [&_button]:min-w-11"
 			)}
 		>
-			<div
+			<SidebarMenu
+				aria-label="App utilities"
 				className={cn(
-					"app-sidebar-footer-actions flex shrink-0 gap-1",
-					iconOnly && "flex-col"
+					"app-sidebar-footer-actions gap-1",
+					iconOnly ? "w-9" : "min-w-0 flex-1 flex-row items-center"
 				)}
 			>
-				<CollapsedRailTooltip
-					label="Search or run a command"
-					side={iconOnly ? "right" : "top"}
-				>
-					<button
-						aria-label="Search or run a command"
-						className={actionClass}
-						onClick={() => {
-							dismiss();
-							window.dispatchEvent(new Event("openmeld:command-center"));
-						}}
-						type="button"
+				<SidebarMenuItem className="shrink-0">
+					<CollapsedRailTooltip
+						label="Search or run a command"
+						side={iconOnly ? "right" : "top"}
 					>
-						<MagnifyingGlassIcon className="size-4" />
-					</button>
-				</CollapsedRailTooltip>
-				<CollapsedRailTooltip
-					label={settingsLabel}
-					side={iconOnly ? "right" : "top"}
-				>
-					<AppSettingsButton
-						className={actionClass}
-						isActive={isSettingsActive}
-						onClick={openAccount}
-					/>
-				</CollapsedRailTooltip>
-				<CollapsedRailTooltip
-					label={dark ? "Switch to light mode" : "Switch to dark mode"}
-					side={iconOnly ? "right" : "top"}
-				>
-					<button
-						aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-						className={actionClass}
-						onClick={() => setTheme(dark ? "light" : "dark")}
-						type="button"
-					>
-						{dark ? (
-							<SunIcon className="size-4" />
-						) : (
-							<MoonIcon className="size-4" />
-						)}
-					</button>
-				</CollapsedRailTooltip>
-			</div>
-			<SidebarUserFooter
-				avatar={
-					<AccountAvatarWithComputerAttention>
-						{avatar}
-					</AccountAvatarWithComputerAttention>
-				}
-				className={iconOnly ? "w-9" : "min-w-0 flex-1"}
-				iconOnly={iconOnly}
-				menu={
-					showAccounts && !desktop ? (
-						<AccountsSwitcherView
-							{...accounts}
-							account={account}
-							humanProfileAvatar={humanProfileAvatar}
-							onAddAccount={() =>
-								window.location.assign("/login?intent=add-account&redirect=%2F")
-							}
-							onBack={() => {
-								accounts.setErrorMessage(null);
-								setShowAccounts(false);
+						<SidebarMenuButton
+							aria-label="Search or run a command"
+							className={actionClass}
+							icon={MagnifyingGlassIcon}
+							onClick={() => {
+								dismiss();
+								window.dispatchEvent(new Event("openmeld:command-center"));
 							}}
-							onLogOutCurrent={() => window.location.assign("/logout")}
-							onOpenAccountSettings={openAccount}
+							tabIndex={0}
 						/>
-					) : (
-						<>
-							<FluidDropdownMenuItem
-								className="gap-2 py-2"
-								closeOnClick={false}
-								index={0}
-								onClick={() =>
-									desktop ? openAccount() : setShowAccounts(true)
-								}
-							>
-								{avatar}
-								<span className="min-w-0 flex-1 text-left">
-									<span className="block truncate font-medium">{name}</span>
-									<span className="block truncate text-muted-foreground text-xs">
-										{account.email}
-									</span>
-								</span>
-								<CaretRightIcon className="size-3.5 shrink-0" />
-							</FluidDropdownMenuItem>
-							<DropdownMenuSeparator className="my-1" />
-							{invitationEntry.menuItem}
-							<ComputerMenuItem
-								index={invitationEntry.nextMenuIndex}
-								onNavigate={(destination) => {
-									setMenuOpen(false);
-									dismiss();
-									navigate({ to: destination }).catch((error: Error) =>
-										toast.error(error.message)
-									);
-								}}
-							/>
-							<FluidDropdownMenuItem
-								index={invitationEntry.nextMenuIndex + 1}
-								onClick={openAccount}
-							>
-								<GearSixIcon />
-								Settings
-							</FluidDropdownMenuItem>
-							<PlatformAppMenuItem
-								index={invitationEntry.nextMenuIndex + 2}
-								webPath={currentWebPath}
-							/>
-							<DropdownMenuSeparator className="my-1" />
-							{desktop ? (
-								<DesktopSignOutMenuItem
-									index={invitationEntry.nextMenuIndex + 3}
+					</CollapsedRailTooltip>
+				</SidebarMenuItem>
+				<SidebarMenuItem className="shrink-0">
+					<CollapsedRailTooltip
+						label={settingsLabel}
+						side={iconOnly ? "right" : "top"}
+					>
+						<SidebarMenuButton
+							className={actionClass}
+							icon={GearSixIcon}
+							isActive={isSettingsActive && !menuOpen}
+							render={
+								<AppSettingsButton
+									isActive={isSettingsActive}
+									onClick={openAccount}
 								/>
-							) : (
+							}
+							tabIndex={0}
+						/>
+					</CollapsedRailTooltip>
+				</SidebarMenuItem>
+				<SidebarMenuItem className="shrink-0">
+					<CollapsedRailTooltip
+						label={dark ? "Switch to light mode" : "Switch to dark mode"}
+						side={iconOnly ? "right" : "top"}
+					>
+						<SidebarMenuButton
+							aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+							className={actionClass}
+							icon={dark ? SunIcon : MoonIcon}
+							onClick={() => setTheme(dark ? "light" : "dark")}
+							tabIndex={0}
+						/>
+					</CollapsedRailTooltip>
+				</SidebarMenuItem>
+				<SidebarUserMenuItem
+					avatar={
+						<AccountAvatarWithComputerAttention>
+							{avatar}
+						</AccountAvatarWithComputerAttention>
+					}
+					className={iconOnly ? "w-9" : "min-w-0 flex-1"}
+					iconOnly={iconOnly}
+					menu={
+						showAccounts && !desktop ? (
+							<AccountsSwitcherView
+								{...accounts}
+								account={account}
+								humanProfileAvatar={humanProfileAvatar}
+								onAddAccount={() =>
+									window.location.assign(
+										"/login?intent=add-account&redirect=%2F"
+									)
+								}
+								onBack={() => {
+									accounts.setErrorMessage(null);
+									setShowAccounts(false);
+								}}
+								onLogOutCurrent={() => window.location.assign("/logout")}
+								onOpenAccountSettings={openAccount}
+							/>
+						) : (
+							<>
 								<FluidDropdownMenuItem
-									disabled={logout.isPending}
-									index={invitationEntry.nextMenuIndex + 3}
-									onClick={() => {
-										logout.mutate(undefined, {
-											onSuccess: () => window.location.assign("/"),
-											onError: (error) =>
-												toast.error(
-													error.message || "Unable to log out. Try again."
-												),
-										});
-									}}
+									className="gap-2 py-2"
+									closeOnClick={false}
+									index={0}
+									onClick={() =>
+										desktop ? openAccount() : setShowAccounts(true)
+									}
 								>
-									<SignOutIcon />
-									Log out
+									{avatar}
+									<span className="min-w-0 flex-1 text-left">
+										<span className="block truncate font-medium">{name}</span>
+										<span className="block truncate text-muted-foreground text-xs">
+											{account.email}
+										</span>
+									</span>
+									<CaretRightIcon className="size-3.5 shrink-0" />
 								</FluidDropdownMenuItem>
-							)}
-						</>
-					)
-				}
-				name={name}
-				onOpenChange={(open) => {
-					if (!open && (accounts.isPending || logout.isPending)) {
-						return;
+								<DropdownMenuSeparator className="my-1" />
+								{invitationEntry.menuItem}
+								<ComputerMenuItem
+									index={invitationEntry.nextMenuIndex}
+									onNavigate={(destination) => {
+										setMenuOpen(false);
+										dismiss();
+										navigate({ to: destination }).catch((error: Error) =>
+											toast.error(error.message)
+										);
+									}}
+								/>
+								<FluidDropdownMenuItem
+									index={invitationEntry.nextMenuIndex + 1}
+									onClick={openAccount}
+								>
+									<GearSixIcon />
+									Settings
+								</FluidDropdownMenuItem>
+								<PlatformAppMenuItem
+									index={invitationEntry.nextMenuIndex + 2}
+									webPath={currentWebPath}
+								/>
+								<DropdownMenuSeparator className="my-1" />
+								{desktop ? (
+									<DesktopSignOutMenuItem
+										index={invitationEntry.nextMenuIndex + 3}
+									/>
+								) : (
+									<FluidDropdownMenuItem
+										disabled={logout.isPending}
+										index={invitationEntry.nextMenuIndex + 3}
+										onClick={() => {
+											logout.mutate(undefined, {
+												onSuccess: () => window.location.assign("/"),
+												onError: (error) =>
+													toast.error(
+														error.message || "Unable to log out. Try again."
+													),
+											});
+										}}
+									>
+										<SignOutIcon />
+										Log out
+									</FluidDropdownMenuItem>
+								)}
+							</>
+						)
 					}
-					setMenuOpen(open);
-					if (!open) {
-						setShowAccounts(false);
-						accounts.setErrorMessage(null);
+					name={name}
+					onOpenChange={(open) => {
+						if (!open && (accounts.isPending || logout.isPending)) {
+							return;
+						}
+						setMenuOpen(open);
+						if (!open) {
+							setShowAccounts(false);
+							accounts.setErrorMessage(null);
+						}
+					}}
+					open={menuOpen}
+					triggerLabel={
+						computerAttentionLabel
+							? `Open user menu for ${name}, ${computerAttentionLabel}`
+							: undefined
 					}
-				}}
-				open={menuOpen}
-				triggerLabel={
-					computerAttentionLabel
-						? `Open user menu for ${name}, ${computerAttentionLabel}`
-						: undefined
-				}
-			/>
+				/>
+			</SidebarMenu>
 			{invitationEntry.dialog}
 		</SidebarFooter>
 	);

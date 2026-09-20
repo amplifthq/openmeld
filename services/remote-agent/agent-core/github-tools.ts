@@ -51,6 +51,8 @@ import {
   appendOpenMeldTaskReferenceToIssueBody,
   applyGitHubIssueSpaceTaskBinding,
   readGitHubIssueIdentityFromWrite,
+  toFailedSpaceTaskGitHubBindingToolResult,
+  toSpaceTaskGitHubBindingToolResult,
 } from "./space-task-github-binding";
 import {
   buildRemoteAgentToolContext,
@@ -719,7 +721,7 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
     githubToolDefinition({
       actionId: "github.create_issue",
       description: githubWriteToolDescription(
-        "Create an issue in a GitHub repository. In a shared OpenMeld Space, OpenMeld also records a linked Space Task, writes the Task id onto the issue, and stores the issue number on the Task."
+        "Create an issue in a GitHub repository. In a shared OpenMeld Space, OpenMeld also records a linked Space Task when that association succeeds. The result's spaceTask field says whether the Task was created; do not tell the user a Task exists unless spaceTask.created is true."
       ),
       input: object({
         assignees: optional(array(string())),
@@ -966,7 +968,7 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
     githubToolDefinition({
       actionId: "github.update_issue",
       description: githubWriteToolDescription(
-        "Update an issue's title, body, state, assignees, labels, or milestone. Closing an issue in a shared OpenMeld Space also closes still-active Space Tasks linked to that issue."
+        "Update an issue's title, body, state, assignees, labels, or milestone. Closing an issue in a shared OpenMeld Space also closes still-active Space Tasks linked to that issue when the association lookup succeeds. Read spaceTask in the result before claiming Tasks were closed."
       ),
       input: object({
         assignees: optional(array(string())),
@@ -1442,7 +1444,10 @@ async function bindGitHubIssueBatchItemToSpaceTask(input: {
     if (!binding) {
       return;
     }
-    input.manifest.items[input.index] = { ...item, spaceTask: binding };
+    input.manifest.items[input.index] = {
+      ...item,
+      spaceTask: toSpaceTaskGitHubBindingToolResult(binding),
+    };
     await input.storage.put(input.manifestKey, input.manifest);
     const identity = readGitHubIssueIdentityFromWrite({
       actionInput: {
@@ -1483,6 +1488,11 @@ async function bindGitHubIssueBatchItemToSpaceTask(input: {
       error: error instanceof Error ? error.message : String(error),
       operationId: input.manifest.operationId,
     });
+    input.manifest.items[input.index] = {
+      ...item,
+      spaceTask: toFailedSpaceTaskGitHubBindingToolResult(error),
+    };
+    await input.storage.put(input.manifestKey, input.manifest);
   }
 }
 
@@ -2085,6 +2095,10 @@ async function withGitHubIssueSpaceTaskBinding(input: {
       error: error instanceof Error ? error.message : String(error),
       operationId: input.operationId,
     });
+    return {
+      ...input.result,
+      spaceTask: toFailedSpaceTaskGitHubBindingToolResult(error),
+    };
   }
   if (binding?.issueBodyAppendix) {
     const identity = readGitHubIssueIdentityFromWrite({
@@ -2132,13 +2146,7 @@ async function withGitHubIssueSpaceTaskBinding(input: {
   }
   return {
     ...input.result,
-    spaceTask: {
-      closedTaskIds: binding.closedTaskIds,
-      created: binding.created,
-      githubClosePrompt: binding.githubClosePrompt,
-      issueBodyAppendix: binding.issueBodyAppendix,
-      task: binding.task,
-    },
+    spaceTask: toSpaceTaskGitHubBindingToolResult(binding),
   };
 }
 

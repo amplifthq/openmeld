@@ -273,11 +273,13 @@ beforeEach(() => {
 });
 
 it.each([
-  ["all_messages", false, true],
-  ["mentions_and_replies", false, false],
-  ["mentions_and_replies", true, true],
-  ["muted", true, false],
-] as const)("uses fresh native message preferences: %s, Human reply %s", async (mode, replyToRecipient, eligible) => {
+  ["all_messages", false, true, false],
+  ["mentions_and_replies", false, false, false],
+  ["mentions_and_replies", true, true, false],
+  ["muted", true, false, false],
+  ["mentions_and_replies", false, true, true],
+  ["muted", false, false, true],
+] as const)("uses fresh native message preferences: %s, Human reply %s, eligible %s, Center DM %s", async (mode, replyToRecipient, eligible, centerDm) => {
   const { notifications, cloudRequest } = setup();
   cloudRequest.mockImplementation(async (path) =>
     path.startsWith("/v1/inbox/message-notification-preferences")
@@ -291,12 +293,26 @@ it.each([
       : Response.json({
           item: {
             ...item,
-            sourceTarget: {
-              kind: "space",
-              spaceId: "space-a",
-              signalId: "signal-a",
-              replyToRecipient,
-            },
+            sourceFacts: centerDm
+              ? {
+                  version: 1,
+                  recipientReasons: ["direct_message"],
+                  agentProfileIds: [],
+                  personalAgentProfileIds: [],
+                }
+              : undefined,
+            sourceTarget: centerDm
+              ? {
+                  kind: "center_agent",
+                  spaceId: "space-a",
+                  signalId: "signal-a",
+                }
+              : {
+                  kind: "space",
+                  spaceId: "space-a",
+                  signalId: "signal-a",
+                  replyToRecipient,
+                },
           },
         })
   );

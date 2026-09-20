@@ -3,6 +3,8 @@ import {
   describeLinkedGitHubIssueClosePrompt,
   formatSpaceTaskGitHubIssueLabel,
   listSpaceTasksResponseSchema,
+  SPACE_TASK_EXTERNAL_WORK_ITEM_LIMIT_ERROR_CODE,
+  SPACE_TASK_LIST_MAX_ITEMS,
   spaceTaskExternalWorkItemIdentityKey,
   spaceTaskGitHubIssueOperationId,
   spaceTaskMutationReceiptSchema,
@@ -40,6 +42,26 @@ export type SpaceTaskGitHubBindingSummary = {
   closedTaskIds: string[];
   task: SpaceTask | null;
 };
+
+export type SpaceTaskGitHubBindingToolResult = {
+  closedTaskIds: string[];
+  created: boolean;
+  githubClosePrompt: string | null;
+  issueBodyAppendix: string | null;
+  reason?: string;
+  code?: string;
+  task: SpaceTask | null;
+};
+
+export class SpaceTaskGitHubBindingError extends Error {
+  readonly code: string;
+
+  constructor(input: { code: string; message: string }) {
+    super(input.message);
+    this.name = "SpaceTaskGitHubBindingError";
+    this.code = input.code;
+  }
+}
 
 const OPENMELD_TASK_BODY_MARKER = "OpenMeld Task:";
 const OPENMELD_TASK_BODY_REFERENCE_PATTERN = /OpenMeld Task:\s*tsk_/u;
@@ -96,6 +118,34 @@ export function findSpaceTaskForGitHubIssue(
       )
     ) ?? null
   );
+}
+
+export function toSpaceTaskGitHubBindingToolResult(
+  binding: SpaceTaskGitHubBindingSummary
+): SpaceTaskGitHubBindingToolResult {
+  return {
+    closedTaskIds: binding.closedTaskIds,
+    created: binding.created,
+    githubClosePrompt: binding.githubClosePrompt,
+    issueBodyAppendix: binding.issueBodyAppendix,
+    task: binding.task,
+  };
+}
+
+export function toFailedSpaceTaskGitHubBindingToolResult(
+  error: unknown
+): SpaceTaskGitHubBindingToolResult {
+  return {
+    closedTaskIds: [],
+    created: false,
+    githubClosePrompt: null,
+    issueBodyAppendix: null,
+    reason: error instanceof Error ? error.message : String(error),
+    task: null,
+    ...(error instanceof SpaceTaskGitHubBindingError
+      ? { code: error.code }
+      : {}),
+  };
 }
 
 export function buildOpenMeldTaskIssueBodyAppendix(input: {
@@ -201,13 +251,14 @@ async function associateCreatedGitHubIssue(input: {
     turnEnvelope: RemoteAgentTurnEnvelope | null | undefined;
   };
 }): Promise<SpaceTaskGitHubBindingSummary> {
-  const listed = listSpaceTasksResponseSchema.parse(
-    await input.ports.listSpaceTasks({
+  const existing = (
+    await listLinkedSpaceTasksForGitHubIssue({
       context: input.toolContext.context,
+      identity: input.identity,
+      listSpaceTasks: input.ports.listSpaceTasks,
       spaceId: input.space.id,
     })
-  );
-  const existing = findSpaceTaskForGitHubIssue(listed.tasks, input.identity);
+  )[0];
   const item = buildGitHubWorkItem(input.identity, input.now);
   const task = existing
     ? await ensureGitHubIssueAttached({
@@ -314,15 +365,12 @@ async function closeSpaceTasksForGitHubIssue(input: {
     context: OpenMeldRequestContext;
   };
 }): Promise<SpaceTaskGitHubBindingSummary> {
-  const listed = listSpaceTasksResponseSchema.parse(
-    await input.ports.listSpaceTasks({
-      context: input.toolContext.context,
-      spaceId: input.spaceId,
-    })
-  );
-  const matching = listed.tasks.filter(
-    (task) => findSpaceTaskForGitHubIssue([task], input.identity) !== null
-  );
+  const matching = await listLinkedSpaceTasksForGitHubIssue({
+    context: input.toolContext.context,
+    identity: input.identity,
+    listSpaceTasks: input.ports.listSpaceTasks,
+    spaceId: input.spaceId,
+  });
   const closedTaskIds: string[] = [];
   let latest: SpaceTask | null = matching[0] ?? null;
   for (const task of matching) {
@@ -413,6 +461,33 @@ async function mutateLinkedTask(input: {
       ).revision,
     request: input.body,
   });
+}
+
+async function listLinkedSpaceTasksForGitHubIssue(input: {
+  context: OpenMeldRequestContext;
+  identity: GitHubIssueSpaceTaskIdentity;
+  listSpaceTasks: NonNullable<SpaceTaskGitHubBindingPorts["listSpaceTasks"]>;
+  spaceId: string;
+}): Promise<SpaceTask[]> {
+  const listed = listSpaceTasksResponseSchema.parse(
+    await input.listSpaceTasks({
+      context: input.context,
+      spaceId: input.spaceId,
+    })
+  );
+  const matching = listed.tasks.filter(
+    (task) => findSpaceTaskForGitHubIssue([task], input.identity) !== null
+  );
+  if (matching.length > 0) {
+    return matching;
+  }
+  if (listed.truncated) {
+    throw new SpaceTaskGitHubBindingError({
+      code: SPACE_TASK_EXTERNAL_WORK_ITEM_LIMIT_ERROR_CODE,
+      message: `This Space has more than ${SPACE_TASK_LIST_MAX_ITEMS} Tasks, so OpenMeld cannot confirm whether GitHub issue ${formatSpaceTaskGitHubIssueLabel(input.identity)} already has a linked Task.`,
+    });
+  }
+  return [];
 }
 
 function buildGitHubWorkItem(

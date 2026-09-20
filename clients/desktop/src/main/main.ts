@@ -1,8 +1,12 @@
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { DesktopInboxAttention } from "@openmeld/schemas";
+import type {
+  DesktopInboxAttention,
+  DesktopUpdaterState,
+} from "@openmeld/schemas";
 import {
+  ArrowClockwiseIcon,
   BellIcon,
   DesktopIcon,
   DesktopTowerIcon,
@@ -29,6 +33,7 @@ import {
   WINDOW_IPC,
 } from "../shared/ipc-contract";
 import { isDesktopAppHref } from "../shared/navigation";
+import { desktopUpdaterPresentation } from "../shared/updater-presentation";
 import type { CliProblem, ServiceView } from "../shared/view-types";
 import {
   normalizeExternalBrowserUrl,
@@ -62,10 +67,8 @@ const APP_MIN_HEIGHT = 640;
 const APP_NAME = "OpenMeld";
 // These UTF-16 text budgets keep native auto-layout compact without claiming a
 // pixel width. Truncation always retreats to a complete grapheme boundary.
-const TRAY_PREVIEW_SOURCE_TEXT_BUDGET = 30;
+const TRAY_PREVIEW_SOURCE_TEXT_BUDGET = 22;
 const TRAY_PREVIEW_BODY_TEXT_BUDGET = 32;
-const TRAY_PREVIEW_FALLBACK_SOURCE_TEXT_BUDGET = 22;
-const TRAY_PREVIEW_FALLBACK_BODY_TEXT_BUDGET = 18;
 const NATIVE_MENU_GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, {
   granularity: "grapheme",
 });
@@ -93,6 +96,7 @@ let trayContext: DesktopTrayContext | null = null;
 let trayMenuOpen = false;
 let trayMenuRefreshPending = false;
 let trayPresentation: DesktopTrayPresentation = { status: "loading" };
+let trayUpdaterState: DesktopUpdaterState | null = null;
 const pilot = initializeDesktopPilot(
   () => mainWindow,
   (attention) => {
@@ -472,6 +476,7 @@ function invalidateOpenTrayMenu(): void {
 
 function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
   const preview = trayPreviewMenuItems(trayPresentation);
+  const updater = trayUpdaterMenuItems(trayUpdaterState);
   const unreadCount = trayContext?.unreadCount;
   const computer = trayContext?.computer;
   const computerStatus = computer?.statusLabel ?? "Checking…";
@@ -526,11 +531,45 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
       label: "Settings…",
       click: showSettingsWindow,
     }),
+    ...updater,
     { type: "separator" },
     trayActionItem({
       icon: "quit",
       label: "Quit OpenMeld",
       click: quitDesktop,
+    }),
+  ];
+}
+
+function trayUpdaterMenuItems(
+  state: DesktopUpdaterState | null
+): MenuItemConstructorOptions[] {
+  const presentation = desktopUpdaterPresentation(state);
+  if (!presentation.attention) {
+    return [];
+  }
+  const label = (() => {
+    if (state?.status === "downloading") {
+      return "Downloading Update…";
+    }
+    if (state?.status === "downloaded") {
+      return "Restart to Update…";
+    }
+    if (state?.status === "error") {
+      return "Update Needs Attention…";
+    }
+    return "Update Available…";
+  })();
+  const nativeMenuCapabilities = resolveNativeMenuCapabilities();
+  return [
+    trayActionItem({
+      icon: "updates",
+      label,
+      accessibilityLabel: `${presentation.headline}. ${presentation.description}`,
+      ...(nativeMenuCapabilities.badge
+        ? { badge: { type: "updates" as const, count: 1 } }
+        : {}),
+      click: () => appUpdater?.showNative().catch(console.error),
     }),
   ];
 }
@@ -553,20 +592,13 @@ function trayPreviewMenuItems(
       item.preview,
       TRAY_PREVIEW_BODY_TEXT_BUDGET
     );
-    const supportsSublabel = resolveNativeMenuCapabilities().sublabel;
     return [
       { label: "Latest unread", enabled: false },
       {
-        label: supportsSublabel
-          ? headline
-          : `${truncateNativeMenuText(
-              source,
-              TRAY_PREVIEW_FALLBACK_SOURCE_TEXT_BUDGET
-            )} · ${relativeTime} — ${truncateNativeMenuText(
-              item.preview,
-              TRAY_PREVIEW_FALLBACK_BODY_TEXT_BUDGET
-            )}`,
-        ...(supportsSublabel ? { sublabel: preview } : {}),
+        // Native labels size the menu to their content. macOS sublabels can
+        // wrap independently, so keep the preview in the single-line label.
+        label: preview ? `${headline} — ${preview}` : headline,
+        accessibilityLabel: `${source} · ${relativeTime} — ${item.preview}`,
         toolTip: item.preview,
         click: () => {
           showDesktopWindow();
@@ -596,7 +628,13 @@ function trayActionItem(
   return icon ? { ...item, icon } : { ...item, icon: undefined };
 }
 
-type TrayMenuIconName = "computer" | "desktop" | "inbox" | "quit" | "settings";
+type TrayMenuIconName =
+  | "computer"
+  | "desktop"
+  | "inbox"
+  | "quit"
+  | "settings"
+  | "updates";
 
 type TrayMenuIconComponent = ComponentType<{
   color?: string;
@@ -610,6 +648,7 @@ const TRAY_MENU_ICONS = {
   inbox: BellIcon,
   quit: PowerIcon,
   settings: GearSixIcon,
+  updates: ArrowClockwiseIcon,
 } satisfies Record<TrayMenuIconName, TrayMenuIconComponent>;
 
 function createTrayMenuIcon(name: TrayMenuIconName) {
@@ -723,21 +762,19 @@ function formatTrayAttentionTooltip(
 
 function resolveNativeMenuCapabilities(): {
   badge: boolean;
-  sublabel: boolean;
 } {
   if (
     process.platform !== "darwin" ||
     typeof process.getSystemVersion !== "function"
   ) {
-    return { badge: false, sublabel: false };
+    return { badge: false };
   }
-  const [major = 0, minor = 0] = process
+  const [major = 0] = process
     .getSystemVersion()
     .split(".")
     .map((part) => Number.parseInt(part, 10));
   return {
     badge: major >= 14,
-    sublabel: major > 14 || (major === 14 && minor >= 4),
   };
 }
 
@@ -872,6 +909,10 @@ function bootstrapApp(): void {
         inboxSource: inboxUpdateReporter,
         authorize: authorizeRenderer,
         getWindow: () => mainWindow,
+        onStateChanged: (state) => {
+          trayUpdaterState = state;
+          updateTrayMenu();
+        },
         setInstalling: (value) => {
           quitIntent = value ? "updater-install" : "none";
         },

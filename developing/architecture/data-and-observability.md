@@ -20,6 +20,33 @@
 - Source of truth: This file owns the durable architecture boundary for data
   ownership and observability.
 
+## Message search ownership
+
+Each Space owns an FTS5 trigram index over its retained `signal.text` payloads.
+The index stores no attachment content, reasoning, or execution diagnostics.
+SQLite triggers update the index atomically with canonical message inserts,
+edits, recalls, and retention deletes. Historical indexing advances in batches
+of 500 rows on demand and exposes incompleteness instead of empty success.
+
+Core's shared search reader enumerates active member-owned Space candidates in
+the Organization directory, then calls the normal authorized Space reader for
+each candidate. Directory snapshots never grant access. A request visits at
+most four Spaces, with 30 matches per Space and an explicit continuation cursor;
+it does not use the sidebar's limited loaded list or build a second global
+message store. Results are newest-first within each Space, not globally ranked.
+Inbox search intersects message hits with current recipient/source permissions
+and uncleared canonical Inbox IDs. Non-message activities use a recipient-scoped
+literal title/preview query, paginated at 30 rows. This bounded response contract
+does not imply a measured latency guarantee for large activity histories.
+
+`GET /v1/messages/search` and optional `q` on signal reads are additive shared
+HTTP/RPC contracts. Existing signal reads keep their shape. Rollout must provide
+the Core receiver, then Gateway route, before exposing Web callers; an older
+backend fails visibly rather than silently searching loaded previews. Rollback
+removes callers first; persistent additive SQLite triggers remain compatible
+with older message writers. CLI, Service, setup, Wake, and diagnostics contracts
+are unchanged, so no local-component floor or forced update is required.
+
 ## Human Presence
 
 Core owns Organization-scoped Human presence independently of Computer connection,

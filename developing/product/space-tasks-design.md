@@ -293,7 +293,10 @@ Task content uses existing Space visibility. Private source material and externa
 External work items are explicit references attached to Tasks. GitHub issues
 filed from a shared Space through OpenMeld's GitHub tools create or reuse one
 linked Task: the Task stores the repository and issue number, and the issue
-body receives an OpenMeld Task reference. Closing that issue through
+body receives an OpenMeld Task reference. If the Space Task list is truncated
+and the linked Task is not on the returned page, GitHub tools refuse to treat
+that as a miss: they do not create another card and do not skip close-sync.
+Closing that issue through
 `github_update_issue`, or through a verified GitHub App webhook after the
 issue is already linked, cancels still-active linked Tasks. Completing or
 canceling a Task does not silently write GitHub; clients prompt the Agent or

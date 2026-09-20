@@ -39,15 +39,25 @@ function fixture(
   });
   const prepareRestart = vi.fn(async () => true);
   const setInstalling = vi.fn();
+  const recordMacInstallRequested = vi.fn();
   const controller = createAppUpdater({
     updater: driver as unknown as MacUpdater,
     platform,
     currentVersion: "0.1.1",
+    currentAppBundle:
+      platform === "macos-arm64" ? "/Applications/OpenMeld.app" : null,
+    recordMacInstallRequested,
     publish: vi.fn(),
     prepareRestart,
     setInstalling,
   });
-  return { controller, driver, prepareRestart, setInstalling };
+  return {
+    controller,
+    driver,
+    prepareRestart,
+    setInstalling,
+    recordMacInstallRequested,
+  };
 }
 describe("Desktop update consent", () => {
   it.each([
@@ -148,6 +158,8 @@ describe("Desktop update consent", () => {
     const controller = createAppUpdater({
       updater,
       currentVersion: "0.1.1",
+      currentAppBundle: "/Applications/OpenMeld.app",
+      recordMacInstallRequested: vi.fn(),
       publish: vi.fn(),
       setInstalling,
       prepareRestart,
@@ -241,5 +253,62 @@ describe("Desktop update consent", () => {
       errorStage: "check",
     });
     expect(driver.downloadUpdate).not.toHaveBeenCalled();
+  });
+  it("records the same-name macOS install before handing it to Squirrel", async () => {
+    const { controller, driver, recordMacInstallRequested } = fixture();
+    await controller.act("check");
+    await controller.act("download");
+    await controller.act("restart");
+    expect(recordMacInstallRequested).toHaveBeenCalledWith("0.1.2");
+    expect(driver.quitAndInstall).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the native install available when bounded receipt evidence cannot be written", async () => {
+    const { controller, driver, recordMacInstallRequested } = fixture();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    recordMacInstallRequested.mockImplementationOnce(() => {
+      throw new Error("Receipt unavailable");
+    });
+    try {
+      await controller.act("check");
+      await controller.act("download");
+      await controller.act("restart");
+      expect(driver.quitAndInstall).toHaveBeenCalledOnce();
+      expect(controller.snapshot().status).toBe("installing");
+      expect(warn).toHaveBeenCalledWith(
+        "[openmeld.desktop.update_install_receipt_write_failed]",
+        { errorName: "Error" }
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it.each([
+    null,
+    "/Applications/OpenMeld Desktop.app",
+    "/Applications/OpenMeld Preview.app",
+  ])("fails closed before Squirrel from an unsafe macOS bundle path: %s", async (currentAppBundle) => {
+    const { driver } = fixture();
+    const setInstalling = vi.fn();
+    const guarded = createAppUpdater({
+      updater: driver as unknown as MacUpdater,
+      platform: "macos-arm64",
+      currentVersion: "0.1.1",
+      currentAppBundle,
+      recordMacInstallRequested: vi.fn(),
+      publish: vi.fn(),
+      prepareRestart: vi.fn(async () => true),
+      setInstalling,
+    });
+    await guarded.act("check");
+    await guarded.act("download");
+    await guarded.act("restart");
+    expect(guarded.snapshot()).toMatchObject({
+      status: "error",
+      errorStage: "restart",
+    });
+    expect(driver.quitAndInstall).not.toHaveBeenCalled();
+    expect(setInstalling).not.toHaveBeenCalledWith(true);
   });
 });

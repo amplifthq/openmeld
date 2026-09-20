@@ -3,6 +3,7 @@ import type {
 	InboxFeedQuery,
 } from "@openmeld/schemas/types";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { InboxAvatarProvider } from "#/components/inbox/inbox-avatars";
 import { InboxPage } from "#/components/inbox/inbox-page";
 
 type InboxRouteView = "all" | "mentions" | "needs-action" | "needs-review";
@@ -51,68 +52,70 @@ function InboxIndexRoute() {
 	const navigate = useNavigate({ from: Route.fullPath });
 	const search = Route.useSearch();
 	return (
-		<InboxPage
-			agentsOnly={search.agents === true}
-			conversationType={search.conversation}
-			itemId={search.item}
-			onFiltersChange={({ agentsOnly, peopleOnly, conversationType }) => {
-				navigate({
-					replace: true,
-					search: {
-						...search,
-						item: undefined,
-						requestId: undefined,
-						agents: agentsOnly || undefined,
-						people: peopleOnly || undefined,
-						conversation:
-							conversationType === "all" ? undefined : conversationType,
-					},
-				}).catch((error: unknown) => {
-					console.error("Failed to change Inbox filters.", error);
-				});
-			}}
-			onItemDismissed={(itemId) => {
-				if (search.item !== itemId) {
-					return;
-				}
-				navigate({
-					replace: true,
-					search: { ...search, item: undefined, requestId: undefined },
-				}).catch((error: unknown) => {
-					console.error("Failed to close the dismissed Inbox item.", error);
-				});
-			}}
-			onUnreadOnlyChange={(unreadOnly) => {
-				navigate({
-					replace: true,
-					search: {
-						...search,
-						item: undefined,
-						requestId: undefined,
-						unread: unreadOnly || undefined,
-					},
-				}).catch((error: unknown) => {
-					console.error("Failed to change the Inbox unread filter.", error);
-				});
-			}}
-			onViewChange={(view) => {
-				navigate({
-					replace: true,
-					search: {
-						...search,
-						item: undefined,
-						requestId: undefined,
-						view: buildInboxRouteView(view),
-					},
-				}).catch((error: unknown) => {
-					console.error("Failed to change the Inbox view.", error);
-				});
-			}}
-			peopleOnly={search.people === true}
-			requestId={search.requestId}
-			unreadOnly={search.unread === true}
-			view={parseInboxRouteView(search.view)}
-		/>
+		<InboxAvatarProvider>
+			<InboxPage
+				agentsOnly={search.agents === true}
+				conversationType={search.conversation}
+				itemId={search.item}
+				onFiltersChange={({ agentsOnly, peopleOnly, conversationType }) => {
+					navigate({
+						replace: true,
+						search: {
+							...search,
+							item: undefined,
+							requestId: undefined,
+							agents: agentsOnly || undefined,
+							people: peopleOnly || undefined,
+							conversation:
+								conversationType === "all" ? undefined : conversationType,
+						},
+					}).catch((error: unknown) => {
+						console.error("Failed to change Inbox filters.", error);
+					});
+				}}
+				onItemDismissed={(itemId) => {
+					if (search.item !== itemId) {
+						return;
+					}
+					navigate({
+						replace: true,
+						search: { ...search, item: undefined, requestId: undefined },
+					}).catch((error: unknown) => {
+						console.error("Failed to close the dismissed Inbox item.", error);
+					});
+				}}
+				onUnreadOnlyChange={(unreadOnly) => {
+					navigate({
+						replace: true,
+						search: {
+							...search,
+							item: undefined,
+							requestId: undefined,
+							unread: unreadOnly || undefined,
+						},
+					}).catch((error: unknown) => {
+						console.error("Failed to change the Inbox unread filter.", error);
+					});
+				}}
+				onViewChange={(view) => {
+					navigate({
+						replace: true,
+						search: {
+							...search,
+							item: undefined,
+							requestId: undefined,
+							view: buildInboxRouteView(view),
+						},
+					}).catch((error: unknown) => {
+						console.error("Failed to change the Inbox view.", error);
+					});
+				}}
+				peopleOnly={search.people === true}
+				requestId={search.requestId}
+				unreadOnly={search.unread === true}
+				view={parseInboxRouteView(search.view)}
+			/>
+		</InboxAvatarProvider>
 	);
 }
 

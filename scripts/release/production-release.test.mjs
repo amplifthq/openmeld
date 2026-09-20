@@ -12,6 +12,18 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  assertProcessRestarted,
+  assertProductionSignatureDetails,
+  assertReceiptMatchesTarget,
+  compareStableVersions,
+  PRODUCTION_EXECUTABLE,
+  parseInstallReceipt,
+  parseSmokeArgs,
+  processListHasProductionApp,
+  productionProcessPids,
+} from "../e2e/desktop-macos-production-update-smoke.mjs";
+
+import {
   assertProductionReleaseSource,
   buildCoreCurrentCliProjectionPreflightStepSpecs,
   buildProductionDeployStepSpecs,
@@ -37,6 +49,14 @@ const SPACE_TASK_PATHS = [
 ];
 const SPACE_TASK_SCOPE_ERROR = /Space Task .*require/u;
 const SPACE_TASK_CONFLICT_ERROR = /Space Task receivers.*conflict/u;
+const DESKTOP_SMOKE_NEWER_ERROR_RE = /must be newer/u;
+const DESKTOP_SMOKE_STABLE_ERROR_RE = /stable/u;
+const DESKTOP_SMOKE_TEAM_ID_ERROR_RE = /Team ID/u;
+const DESKTOP_SMOKE_STILL_RUNNING_ERROR_RE = /still running/u;
+const DESKTOP_SMOKE_NOT_RUNNING_ERROR_RE = /not running/u;
+const DESKTOP_SMOKE_APPLICATION_STARTED_ERROR_RE = /application_started/u;
+const DESKTOP_SMOKE_VERSION_MISMATCH_ERROR_RE = /not 0\.1\.6/u;
+const DESKTOP_SMOKE_MALFORMED_ERROR_RE = /malformed/u;
 
 test("deploys Space Task RPC and HTTP receivers before their real callers", () => {
   const plan = buildProductionReleasePlan({
@@ -2279,5 +2299,112 @@ test("installs device-wait receivers before browser callers and Service publicat
         ],
       }),
     DEVICE_WAIT_ORDER_ERROR
+  );
+});
+
+test("Desktop macOS A-to-B smoke parses thin before/after phases", () => {
+  assert.deepEqual(parseSmokeArgs(["before", "0.1.4", "0.1.5"]), {
+    phase: "before",
+    currentVersion: "0.1.4",
+    targetVersion: "0.1.5",
+  });
+  assert.deepEqual(parseSmokeArgs(["after", "0.1.5"]), {
+    phase: "after",
+    targetVersion: "0.1.5",
+  });
+  assert.throws(
+    () => parseSmokeArgs(["before", "0.1.5", "0.1.5"]),
+    DESKTOP_SMOKE_NEWER_ERROR_RE
+  );
+  assert.throws(
+    () => parseSmokeArgs(["before", "0.1", "0.1.5"]),
+    DESKTOP_SMOKE_STABLE_ERROR_RE
+  );
+});
+
+test("Desktop macOS A-to-B smoke compares stable versions numerically", () => {
+  assert.equal(compareStableVersions("0.1.9", "0.1.10"), -1);
+  assert.equal(compareStableVersions("0.2.0", "0.1.99"), 1);
+  assert.equal(compareStableVersions("1.0.0", "1.0.0"), 0);
+});
+
+test("Desktop macOS A-to-B smoke requires the production Apple signing identity", () => {
+  const valid = [
+    "Identifier=sh.openmeld.desktop",
+    "Authority=Developer ID Application: SOPHIAPRO PTE. LTD. (38FFHDPA3B)",
+    "TeamIdentifier=38FFHDPA3B",
+  ].join("\n");
+  assert.doesNotThrow(() => assertProductionSignatureDetails(valid));
+  assert.throws(
+    () =>
+      assertProductionSignatureDetails(
+        valid.replace("TeamIdentifier=38FFHDPA3B", "TeamIdentifier=OTHER")
+      ),
+    DESKTOP_SMOKE_TEAM_ID_ERROR_RE
+  );
+});
+
+test("Desktop macOS A-to-B smoke matches the production executable and requires restart", () => {
+  const output = [
+    "101 /bin/zsh",
+    `202 ${PRODUCTION_EXECUTABLE}`,
+    "303 /usr/bin/open /tmp/Other.app",
+  ].join("\n");
+  assert.deepEqual(productionProcessPids(output), [202]);
+  assert.equal(processListHasProductionApp(output), true);
+  assert.equal(
+    processListHasProductionApp(
+      "404 /Applications/OpenMeld Desktop.app/Contents/MacOS/OpenMeld\n"
+    ),
+    false
+  );
+  assert.doesNotThrow(() => assertProcessRestarted([101], [202]));
+  assert.throws(
+    () => assertProcessRestarted([101], [101]),
+    DESKTOP_SMOKE_STILL_RUNNING_ERROR_RE
+  );
+  assert.throws(
+    () => assertProcessRestarted([101], []),
+    DESKTOP_SMOKE_NOT_RUNNING_ERROR_RE
+  );
+});
+
+test("Desktop macOS A-to-B smoke validates bounded updater receipt evidence", () => {
+  const receipt = parseInstallReceipt(
+    [
+      "state=application_started",
+      "sourceVersion=0.1.4",
+      "targetVersion=0.1.5",
+      "sourceBundle=OpenMeld.app",
+      "targetBundle=OpenMeld.app",
+      "",
+    ].join("\n")
+  );
+  assert.doesNotThrow(() => assertReceiptMatchesTarget(receipt, "0.1.5"));
+  assert.throws(
+    () =>
+      assertReceiptMatchesTarget(
+        { ...receipt, state: "install_requested" },
+        "0.1.5"
+      ),
+    DESKTOP_SMOKE_APPLICATION_STARTED_ERROR_RE
+  );
+  assert.throws(
+    () => assertReceiptMatchesTarget(receipt, "0.1.6"),
+    DESKTOP_SMOKE_VERSION_MISMATCH_ERROR_RE
+  );
+  assert.throws(
+    () =>
+      parseInstallReceipt(
+        [
+          "state=application_started",
+          "sourceVersion=0.1.4",
+          "targetVersion=0.1.5",
+          "sourceBundle=OpenMeld.app",
+          "targetBundle=OpenMeld.app",
+          "unexpected=user-content",
+        ].join("\n")
+      ),
+    DESKTOP_SMOKE_MALFORMED_ERROR_RE
   );
 });

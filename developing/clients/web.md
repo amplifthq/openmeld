@@ -97,10 +97,12 @@ switching remains at the top; the global Create entry is temporarily hidden.
 Creation remains available in the Spaces and Team contextual headers. Global search sits
 above Settings in the footer, using the same compact utility styling. Inbox
 retains the shared attention badge and active-route treatment. The Organization
-avatar fills its circular trigger. Account, theme, and Settings
-remain reachable from the rail. Spaces and its contextual sidebar heading always
-open `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages,
-and Discover, in that order (Discover is absent in personal workspaces).
+avatar fills its circular trigger. Account, theme, and Settings remain reachable
+from the rail. Search, Settings, theme, and account controls share one footer
+hover scope, so the same background moves across all four without nested or
+competing highlights. Spaces and its contextual sidebar heading always open
+`/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages, and
+Discover, in that order (Discover is absent in personal workspaces).
 
 The Team contextual header has an Add menu with Invite members and New Agent.
 It reuses the existing Organization invitation flow (absent in personal
@@ -481,7 +483,9 @@ keeps **Add to Slack** as the user's explicit installation confirmation.
 It is discoverable from the public landing footer and does not enter the
 authenticated app shell or Organization navigation. It shows newest-first
 publication dates, optional release names, public outcome Markdown, change kind,
-and product areas, then loads older entries only through an explicit action.
+and product areas. Every title links to a stable entry anchor. Opening an anchor
+loads older pages only until the referenced entry is available; ordinary visits
+load older entries only through an explicit action.
 
 The page calls the shared anonymous `GET /v1/changelog` contract through a Web
 server function. Core remains the validated GitHub reader; Web never imports a
@@ -790,10 +794,10 @@ current Computer exists, it opens the normal setup flow.
 
 The global Center Agent surface has no secondary sidebar. Its persistent header
 navigation is exactly **Messages**, **Graph**, **Files**, **Routines**,
-and **Channels**, in that order. Skills management belongs to Team. Messages, Graph, and Files preserve the
-selected Center Agent conversation surface. One compact header menu
-preserves **Memory**. The
-conversation variant of that menu also preserves **Conversation information**.
+**Channels**, and **Memory**, in that order. Skills management belongs to Team.
+Messages, Graph, and Files preserve the selected Center Agent conversation
+surface. Their compact header menu preserves **Chat settings**. Routines,
+Channels, and Memory omit that menu because they have no additional actions.
 There is no separate About surface or Slack shortcut; Center Agent identity,
 model, status, and Slack management remain available through Center Agent
 settings and Channels.
@@ -1736,6 +1740,8 @@ this order:
 
 Team Skills supersedes W-NAV6's Skills placement: the catalog and detail now
 belong to Team, with legacy Center Agent Skills URLs retained only as redirects.
+The current header also supersedes W-NAV6's compact Memory placement by making
+Memory a first-class tab after Channels.
 
 The temporary Organization rail destination was removed in W-NAV4. The
 2026-07-27 consolidation also removes root Routines and the former
@@ -2167,27 +2173,28 @@ renders the legacy `github:default` connection.
 
 ### Center Agent memory controls
 
-**Center Agent → Memory** owns two explicitly separated scopes: the current
-member's action to erase the Center Agent's memory of them, and ongoing shared
-organization-memory policy management. **Settings → Personal → Privacy &
-Safety** links to this canonical page instead of owning a second mutation
-surface.
+In a multi-member Organization, **Center Agent → Memory** owns the current
+member's action to erase the Center Agent's memory of them. Ongoing shared
+Organization-memory policy management lives with the other Organization-owned
+controls under **Settings → Center Agent**. **Settings → Personal → Privacy &
+Safety** links to the member-facing Memory page instead of owning a second
+mutation surface.
 
 Setup Studio presents the Core-owned default as enabled without writing a
 synthetic user choice. It does not become a second management surface. An owner
-or admin may turn Organization memory on or off on the **Center Agent → Memory**
-page; other members see the policy read-only. Web submits intent through
+or admin may turn Organization memory on or off under **Settings → Center
+Agent**; other members see the policy read-only. Web submits intent through
 the shared HTTP contracts and then refetches Core-owned policy; a browser toggle
 or cached value is never memory policy truth.
 
 Copy must keep the two scopes explicit. Wiping member memory does not delete
 messages, Spaces, or Organization memory. Organization memory is on by default,
-and its control must explain that shared Space and connected Channel
-conversations may be used while private Center Agent DMs are not automatically
-written into Organization memory. Personal Workspaces keep the page because
-Workspace memory remains useful across Spaces and connected Channels, and the
-person still needs transparent controls to turn it off or erase their separate
-member memory.
+and its concise control explains that useful details from shared Spaces and
+connected Channels may be used while private Center Agent DMs are not included.
+Personal Workspaces keep both controls on the Memory page because Workspace
+memory remains useful across Spaces and connected Channels, and the person
+still needs transparent controls to turn it off or erase their separate member
+memory.
 
 ### Documents
 
