@@ -421,6 +421,18 @@ The binary server signs with the normal release entitlements, verifies the
 signature, then computes the served checksum. Without this option it retains
 the normal ad-hoc development build. This is local test packaging, not a release
 or notarization; never replace production binaries or credentials to run it.
+Ad-hoc signatures identify the exact build by its code hash. Copying identical
+bytes into the Service carrier preserves that identity; rebuilding the binary
+does not. A rebuilt ad-hoc CLI can therefore receive Keychain access denied
+(`OSStatus -25293`) for a previous build's saved sign-in while that previous
+build still works. This is not evidence that the account expired, nor a reason
+to keep retrying. Use normal setup or login through the current packaged build
+in the isolated lane to issue a new credential. Do not copy tokens, edit Keychain
+ACLs, force private-file storage, or use release signing credentials to bypass
+this boundary. If the lane's normal login entry is unavailable, retain the
+existing login and report authentication smoke as blocked. Cross-version
+credential continuity for a signed release requires a separate test with an
+authorized stable signing identity; ad-hoc rebuilds cannot certify it.
 The isolated Web launcher uses this worktree's reserved binary-server port.
 It must never download another worktree's build from the shared fixed-port
 server. Restart the binary server after changing CLI source; `dev:stop` includes
