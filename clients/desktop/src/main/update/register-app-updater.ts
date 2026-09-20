@@ -23,6 +23,8 @@ import {
 } from "./mac-update-receipt";
 import { createNativeDesktopUpdater } from "./native-updater";
 
+const AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+
 function readNativeUpdater(enabled: boolean) {
   if (!enabled) {
     return null;
@@ -45,6 +47,7 @@ export function registerAppUpdater(input: {
   };
   authorize: (event: IpcMainInvokeEvent) => void;
   getWindow: () => BrowserWindow | null;
+  onStateChanged: (state: DesktopUpdaterState) => void;
   setInstalling: (value: boolean) => void;
 }) {
   const unavailable: DesktopUpdaterState = {
@@ -118,9 +121,9 @@ export function registerAppUpdater(input: {
         },
         setInstalling: input.setInstalling,
         publish: (state) => {
-          input
-            .getWindow()
-            ?.webContents.send(PILOT_IPC.updaterChanged, withIdentity(state));
+          const next = withIdentity(state);
+          input.getWindow()?.webContents.send(PILOT_IPC.updaterChanged, next);
+          input.onStateChanged(next);
           observe(state);
         },
         prepareRestart: () =>
@@ -165,13 +168,11 @@ export function registerAppUpdater(input: {
   let menuOpen = false;
   if (controller) {
     observe(controller.snapshot());
-    setInterval(
-      () => {
-        controller.act("check").catch(console.error);
-      },
-      6 * 60 * 60 * 1000
-    ).unref();
+    setInterval(() => {
+      controller.act("check").catch(console.error);
+    }, AUTOMATIC_UPDATE_CHECK_INTERVAL_MS).unref();
   }
+  input.onStateChanged(withIdentity(controller?.snapshot() ?? unavailable));
   return {
     async legacyStatus(): Promise<DesktopUpdateView> {
       await controller?.act("check");

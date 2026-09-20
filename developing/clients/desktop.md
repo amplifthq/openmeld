@@ -162,7 +162,10 @@ arrived first.
 
 The macOS menu bar menu is the compact native entry to the current Desktop
 workspace. It shows the newest eligible unread message as one preview, then
-Open inbox, Open app, Computer, Settings…, and Quit OpenMeld. Opening the menu
+Open inbox, Open app, Computer, Settings…, and Quit OpenMeld. When Main's native
+updater reports an actionable newer version, a system-badged update row appears
+beside Settings and opens the existing native download/restart flow. Current,
+idle, and unavailable builds keep that row absent. Opening the menu
 does not mark anything read. Activating the preview re-reads that exact Inbox
 item under the current account, restores the existing window, and navigates to
 the exact message or Thread reply without acknowledging unrelated unread work.
@@ -170,7 +173,7 @@ Open app restores the renderer's existing route rather than choosing a new
 home. The menu does not expose the version, a separate Web app row, or Service
 lifecycle controls. Quitting the GUI retains the independent Service lifecycle.
 The native menu keeps its current snapshot while open, so a refresh cannot
-retarget the row under the pointer.
+retarget a row under the pointer.
 
 The A1 foundation is opt-in with `OPENMELD_DESKTOP_PILOT=1`. It requires a
 dev-local or canary lane and a configured loopback Web endpoint. Production
@@ -528,13 +531,16 @@ The isolated component fixture and repeatable visual checks live in
 never contacts a feed or installs anything. Component screenshots and native
 controller tests are not signed-package A-to-B acceptance.
 
-Launch and six-hour checks run automatically. Both `autoDownload` and
+Launch and hourly checks run automatically. Both `autoDownload` and
 `autoInstallOnAppQuit` are explicitly false. Download requires consent; after
 checksum verification the user chooses Restart to update or Later. On macOS the
-native install is handed to Squirrel only when the running production bundle is
-the stable `OpenMeld.app`. Missing, legacy `OpenMeld Desktop.app`, or unknown
-bundle paths fail closed before `quitAndInstall`; the app does not attempt a
-second custom installer.
+downloaded ZIP is not handed to Squirrel until Restart to update, and only when
+the running production bundle is the stable `OpenMeld.app`. Missing, legacy
+`OpenMeld Desktop.app`, or unknown bundle paths fail closed before
+`quitAndInstall`; the app does not attempt a second custom installer. Later
+therefore neither installs on ordinary Quit nor silently installs on the next
+launch. A subsequent launch checks again; a requested download can reuse the
+verified cache.
 
 The legacy rename cannot be repaired transparently by code shipped only inside a
 new `OpenMeld.app`: an already-installed `OpenMeld Desktop.app` executes its

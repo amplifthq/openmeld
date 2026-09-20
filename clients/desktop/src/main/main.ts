@@ -1,8 +1,12 @@
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { DesktopInboxAttention } from "@openmeld/schemas";
+import type {
+  DesktopInboxAttention,
+  DesktopUpdaterState,
+} from "@openmeld/schemas";
 import {
+  ArrowClockwiseIcon,
   BellIcon,
   DesktopIcon,
   DesktopTowerIcon,
@@ -29,6 +33,7 @@ import {
   WINDOW_IPC,
 } from "../shared/ipc-contract";
 import { isDesktopAppHref } from "../shared/navigation";
+import { desktopUpdaterPresentation } from "../shared/updater-presentation";
 import type { CliProblem, ServiceView } from "../shared/view-types";
 import {
   normalizeExternalBrowserUrl,
@@ -93,6 +98,7 @@ let trayContext: DesktopTrayContext | null = null;
 let trayMenuOpen = false;
 let trayMenuRefreshPending = false;
 let trayPresentation: DesktopTrayPresentation = { status: "loading" };
+let trayUpdaterState: DesktopUpdaterState | null = null;
 const pilot = initializeDesktopPilot(
   () => mainWindow,
   (attention) => {
@@ -472,6 +478,7 @@ function invalidateOpenTrayMenu(): void {
 
 function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
   const preview = trayPreviewMenuItems(trayPresentation);
+  const updater = trayUpdaterMenuItems(trayUpdaterState);
   const unreadCount = trayContext?.unreadCount;
   const computer = trayContext?.computer;
   const computerStatus = computer?.statusLabel ?? "Checking…";
@@ -526,11 +533,45 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
       label: "Settings…",
       click: showSettingsWindow,
     }),
+    ...updater,
     { type: "separator" },
     trayActionItem({
       icon: "quit",
       label: "Quit OpenMeld",
       click: quitDesktop,
+    }),
+  ];
+}
+
+function trayUpdaterMenuItems(
+  state: DesktopUpdaterState | null
+): MenuItemConstructorOptions[] {
+  const presentation = desktopUpdaterPresentation(state);
+  if (!presentation.attention) {
+    return [];
+  }
+  const label = (() => {
+    if (state?.status === "downloading") {
+      return "Downloading Update…";
+    }
+    if (state?.status === "downloaded") {
+      return "Restart to Update…";
+    }
+    if (state?.status === "error") {
+      return "Update Needs Attention…";
+    }
+    return "Update Available…";
+  })();
+  const nativeMenuCapabilities = resolveNativeMenuCapabilities();
+  return [
+    trayActionItem({
+      icon: "updates",
+      label,
+      accessibilityLabel: `${presentation.headline}. ${presentation.description}`,
+      ...(nativeMenuCapabilities.badge
+        ? { badge: { type: "updates" as const, count: 1 } }
+        : {}),
+      click: () => appUpdater?.showNative().catch(console.error),
     }),
   ];
 }
@@ -596,7 +637,13 @@ function trayActionItem(
   return icon ? { ...item, icon } : { ...item, icon: undefined };
 }
 
-type TrayMenuIconName = "computer" | "desktop" | "inbox" | "quit" | "settings";
+type TrayMenuIconName =
+  | "computer"
+  | "desktop"
+  | "inbox"
+  | "quit"
+  | "settings"
+  | "updates";
 
 type TrayMenuIconComponent = ComponentType<{
   color?: string;
@@ -610,6 +657,7 @@ const TRAY_MENU_ICONS = {
   inbox: BellIcon,
   quit: PowerIcon,
   settings: GearSixIcon,
+  updates: ArrowClockwiseIcon,
 } satisfies Record<TrayMenuIconName, TrayMenuIconComponent>;
 
 function createTrayMenuIcon(name: TrayMenuIconName) {
@@ -872,6 +920,10 @@ function bootstrapApp(): void {
         inboxSource: inboxUpdateReporter,
         authorize: authorizeRenderer,
         getWindow: () => mainWindow,
+        onStateChanged: (state) => {
+          trayUpdaterState = state;
+          updateTrayMenu();
+        },
         setInstalling: (value) => {
           quitIntent = value ? "updater-install" : "none";
         },
