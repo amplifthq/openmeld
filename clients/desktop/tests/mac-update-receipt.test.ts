@@ -2,7 +2,6 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +10,7 @@ import {
   confirmMacUpdateInstallReceipt,
   parseMacUpdateInstallReceipt,
   readMacUpdateInstallReceipt,
+  recordMacUpdateInstallRequested,
 } from "../src/main/update/mac-update-receipt";
 
 const roots: string[] = [];
@@ -28,32 +28,63 @@ afterEach(() => {
 });
 
 describe("macOS Desktop update install receipt", () => {
-  it("parses only the bounded install lifecycle fields", () => {
+  it("records only bounded same-name install facts before native installation", () => {
+    const receiptPath = join(createRoot(), "receipt.txt");
     expect(
-      parseMacUpdateInstallReceipt(
-        [
-          "state=launch_attempted",
-          "sourceVersion=0.1.3",
-          "targetVersion=0.1.4",
-          "sourceBundle=OpenMeld Desktop.app",
-          "targetBundle=OpenMeld.app",
-          "",
-        ].join("\n")
-      )
+      recordMacUpdateInstallRequested({
+        receiptPath,
+        currentVersion: "0.1.4",
+        targetVersion: "0.1.5",
+        currentBundle: "/Applications/OpenMeld.app",
+      })
     ).toEqual({
-      state: "launch_attempted",
-      sourceVersion: "0.1.3",
-      targetVersion: "0.1.4",
-      sourceBundle: "OpenMeld Desktop.app",
+      state: "install_requested",
+      sourceVersion: "0.1.4",
+      targetVersion: "0.1.5",
+      sourceBundle: "OpenMeld.app",
       targetBundle: "OpenMeld.app",
     });
+    expect(readFileSync(receiptPath, "utf8")).not.toContain("/Applications/");
+  });
+
+  it("returns null when no previous install request exists", () => {
+    expect(
+      readMacUpdateInstallReceipt(join(createRoot(), "missing.txt"))
+    ).toBeNull();
+  });
+
+  it("marks the install complete only when the expected new Main actually starts", () => {
+    const receiptPath = join(createRoot(), "receipt.txt");
+    recordMacUpdateInstallRequested({
+      receiptPath,
+      currentVersion: "0.1.4",
+      targetVersion: "0.1.5",
+      currentBundle: "/Applications/OpenMeld.app",
+    });
+    expect(
+      confirmMacUpdateInstallReceipt({
+        receiptPath,
+        currentVersion: "0.1.4",
+        currentBundle: "/Applications/OpenMeld.app",
+      })
+    ).toMatchObject({ state: "install_requested" });
+    expect(
+      confirmMacUpdateInstallReceipt({
+        receiptPath,
+        currentVersion: "0.1.5",
+        currentBundle: "/Applications/OpenMeld.app",
+      })
+    ).toMatchObject({ state: "application_started" });
+  });
+
+  it("rejects receipt fields outside the bounded local contract", () => {
     expect(() =>
       parseMacUpdateInstallReceipt(
         [
-          "state=launch_attempted",
-          "sourceVersion=0.1.3",
-          "targetVersion=0.1.4",
-          "sourceBundle=OpenMeld Desktop.app",
+          "state=install_requested",
+          "sourceVersion=0.1.4",
+          "targetVersion=0.1.5",
+          "sourceBundle=OpenMeld.app",
           "targetBundle=OpenMeld.app",
           "unexpected=user-content",
         ].join("\n")
@@ -61,59 +92,14 @@ describe("macOS Desktop update install receipt", () => {
     ).toThrow("malformed");
   });
 
-  it("returns null when no previous rename install exists", () => {
-    expect(
-      readMacUpdateInstallReceipt(join(createRoot(), "missing.txt"))
-    ).toBeNull();
-  });
-
-  it("records application_started only from the expected relaunched bundle and version", () => {
-    const receiptPath = join(createRoot(), "receipt.txt");
-    writeFileSync(
-      receiptPath,
-      [
-        "state=launch_attempted",
-        "sourceVersion=0.1.3",
-        "targetVersion=0.1.4",
-        "sourceBundle=OpenMeld Desktop.app",
-        "targetBundle=OpenMeld.app",
-        "",
-      ].join("\n")
-    );
-    expect(
-      confirmMacUpdateInstallReceipt({
-        receiptPath,
-        currentVersion: "0.1.4",
-        currentBundle: "/Applications/OpenMeld.app",
-      })
-    ).toMatchObject({ state: "application_started" });
-    expect(readFileSync(receiptPath, "utf8")).toContain(
-      "state=application_started"
-    );
-  });
-
-  it("does not manufacture success for the wrong version or folder", () => {
-    const receiptPath = join(createRoot(), "receipt.txt");
-    writeFileSync(
-      receiptPath,
-      [
-        "state=launch_attempted",
-        "sourceVersion=0.1.3",
-        "targetVersion=0.1.4",
-        "sourceBundle=OpenMeld Desktop.app",
-        "targetBundle=OpenMeld.app",
-        "",
-      ].join("\n")
-    );
-    expect(
-      confirmMacUpdateInstallReceipt({
-        receiptPath,
+  it("refuses to create install evidence from a legacy folder", () => {
+    expect(() =>
+      recordMacUpdateInstallRequested({
+        receiptPath: join(createRoot(), "receipt.txt"),
         currentVersion: "0.1.3",
+        targetVersion: "0.1.5",
         currentBundle: "/Applications/OpenMeld Desktop.app",
       })
-    ).toMatchObject({ state: "launch_attempted" });
-    expect(readFileSync(receiptPath, "utf8")).toContain(
-      "state=launch_attempted"
-    );
+    ).toThrow("unexpected app folder");
   });
 });

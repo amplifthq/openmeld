@@ -1,11 +1,11 @@
-import { basename, dirname, join } from "node:path";
+import { basename, dirname } from "node:path";
 
 export const MAC_PRODUCTION_PRODUCT_NAME = "OpenMeld";
 export const MAC_PRODUCTION_APP_BUNDLE_NAME = "OpenMeld.app";
 export const MAC_PRODUCTION_APP_ID = "sh.openmeld.desktop";
 export const MAC_PRODUCTION_TEAM_ID = "38FFHDPA3B";
 
-/** Earlier signed installs used this folder. Squirrel.Mac cannot relaunch after renaming it. */
+/** Earlier signed installs used this folder and cannot cross the rename through Squirrel.Mac. */
 export const MAC_LEGACY_APP_BUNDLE_NAMES = ["OpenMeld Desktop.app"] as const;
 
 export function assertMacProductionBundleIdentity(input: {
@@ -37,31 +37,24 @@ export function readMacAppBundlePath(executablePath: string): string | null {
   return null;
 }
 
-export function resolveMacUpdateInstallPlan(input: {
-  currentBundle: string | null;
-  targetBundleName?: string;
-}):
-  | { kind: "squirrel" }
-  | { kind: "rename"; currentBundle: string; targetBundle: string } {
-  const targetName = input.targetBundleName ?? MAC_PRODUCTION_APP_BUNDLE_NAME;
-  if (!input.currentBundle) {
+export function assertMacUpdateBundlePath(
+  currentBundle: string | null
+): string {
+  if (!currentBundle) {
     throw new Error(
       "Desktop cannot determine the current macOS application folder."
     );
   }
-  if (basename(input.currentBundle) === targetName) {
-    return { kind: "squirrel" };
+  const name = basename(currentBundle);
+  if (name === MAC_PRODUCTION_APP_BUNDLE_NAME) {
+    return currentBundle;
   }
   if (
-    !(MAC_LEGACY_APP_BUNDLE_NAMES as readonly string[]).includes(
-      basename(input.currentBundle)
-    )
+    (MAC_LEGACY_APP_BUNDLE_NAMES as readonly string[]).includes(name)
   ) {
-    throw new Error("Desktop cannot update from this application folder name.");
+    throw new Error(
+      "This legacy OpenMeld Desktop.app installation cannot update safely in place. Install or open the current signed OpenMeld.app first."
+    );
   }
-  return {
-    kind: "rename",
-    currentBundle: input.currentBundle,
-    targetBundle: join(dirname(input.currentBundle), targetName),
-  };
+  throw new Error("Desktop cannot update from this application folder name.");
 }

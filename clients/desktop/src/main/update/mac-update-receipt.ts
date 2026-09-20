@@ -6,6 +6,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename } from "node:path";
+import { MAC_PRODUCTION_APP_BUNDLE_NAME } from "./mac-bundle-path";
 
 const MAX_RECEIPT_BYTES = 2048;
 const RECEIPT_VALUE = /^[^\r\n]{1,200}$/u;
@@ -38,6 +39,30 @@ const DEFAULT_DEPS: ReceiptDeps = {
   stat: statSync,
   writeFile: writeFileSync,
 };
+
+function serializeReceipt(receipt: MacUpdateInstallReceipt): string {
+  return [
+    `state=${receipt.state}`,
+    `sourceVersion=${receipt.sourceVersion}`,
+    `targetVersion=${receipt.targetVersion}`,
+    `sourceBundle=${receipt.sourceBundle}`,
+    `targetBundle=${receipt.targetBundle}`,
+    "",
+  ].join("\n");
+}
+
+function writeReceipt(
+  receiptPath: string,
+  receipt: MacUpdateInstallReceipt,
+  deps: ReceiptDeps
+): void {
+  const tempPath = `${receiptPath}.tmp-${process.pid}`;
+  deps.writeFile(tempPath, serializeReceipt(receipt), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  deps.rename(tempPath, receiptPath);
+}
 
 export function parseMacUpdateInstallReceipt(
   content: string
@@ -101,6 +126,32 @@ export function readMacUpdateInstallReceipt(
   }
 }
 
+export function recordMacUpdateInstallRequested(
+  input: {
+    receiptPath: string;
+    currentVersion: string;
+    targetVersion: string;
+    currentBundle: string;
+  },
+  deps: ReceiptDeps = DEFAULT_DEPS
+): MacUpdateInstallReceipt {
+  const sourceBundle = basename(input.currentBundle);
+  if (sourceBundle !== MAC_PRODUCTION_APP_BUNDLE_NAME) {
+    throw new Error(
+      "Desktop cannot record a macOS update from an unexpected app folder."
+    );
+  }
+  const receipt: MacUpdateInstallReceipt = {
+    state: "install_requested",
+    sourceVersion: input.currentVersion,
+    targetVersion: input.targetVersion,
+    sourceBundle,
+    targetBundle: MAC_PRODUCTION_APP_BUNDLE_NAME,
+  };
+  writeReceipt(input.receiptPath, receipt, deps);
+  return receipt;
+}
+
 export function confirmMacUpdateInstallReceipt(
   input: {
     receiptPath: string;
@@ -114,9 +165,7 @@ export function confirmMacUpdateInstallReceipt(
     return null;
   }
   if (
-    !["target_placed", "launch_attempted", "launch_confirmed"].includes(
-      receipt.state
-    ) ||
+    receipt.state !== "install_requested" ||
     receipt.targetVersion !== input.currentVersion ||
     !input.currentBundle ||
     receipt.targetBundle !== basename(input.currentBundle)
@@ -124,19 +173,6 @@ export function confirmMacUpdateInstallReceipt(
     return receipt;
   }
   const confirmed = { ...receipt, state: "application_started" };
-  const tempPath = `${input.receiptPath}.tmp-${process.pid}`;
-  deps.writeFile(
-    tempPath,
-    [
-      `state=${confirmed.state}`,
-      `sourceVersion=${confirmed.sourceVersion}`,
-      `targetVersion=${confirmed.targetVersion}`,
-      `sourceBundle=${confirmed.sourceBundle}`,
-      `targetBundle=${confirmed.targetBundle}`,
-      "",
-    ].join("\n"),
-    { encoding: "utf8", mode: 0o600 }
-  );
-  deps.rename(tempPath, input.receiptPath);
+  writeReceipt(input.receiptPath, confirmed, deps);
   return confirmed;
 }

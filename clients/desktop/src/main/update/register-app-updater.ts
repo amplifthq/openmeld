@@ -17,8 +17,10 @@ import { desktopUpdaterPresentation } from "../../shared/updater-presentation";
 import type { DesktopUpdateView } from "../../shared/view-types";
 import { createAppUpdater } from "./app-updater";
 import { readMacAppBundlePath } from "./mac-bundle-path";
-import { installRenamedMacBundle } from "./mac-update-install";
-import { confirmMacUpdateInstallReceipt } from "./mac-update-receipt";
+import {
+  confirmMacUpdateInstallReceipt,
+  recordMacUpdateInstallRequested,
+} from "./mac-update-receipt";
 import { createNativeDesktopUpdater } from "./native-updater";
 
 function readNativeUpdater(enabled: boolean) {
@@ -101,12 +103,19 @@ export function registerAppUpdater(input: {
         ...native,
         currentVersion: app.getVersion(),
         currentAppBundle,
-        installRenamedMacBundle,
-        installReceiptPath,
-        quitApp: () => {
-          app.quit();
+        recordMacInstallRequested: (targetVersion) => {
+          if (!currentAppBundle) {
+            throw new Error(
+              "Desktop cannot determine the current macOS application folder."
+            );
+          }
+          recordMacUpdateInstallRequested({
+            receiptPath: installReceiptPath,
+            currentVersion: app.getVersion(),
+            targetVersion,
+            currentBundle: currentAppBundle,
+          });
         },
-        processId: process.pid,
         setInstalling: input.setInstalling,
         publish: (state) => {
           input

@@ -1,12 +1,13 @@
 ---
 id: desktop-app-folder-rename-update
-title: Keep Desktop updates working after the app folder rename
+title: Keep the Desktop app path stable across updates
 kind: fixed
 areas: ["desktop"]
 audiences: ["users"]
 ---
 
-Updating an older Desktop install named OpenMeld Desktop no longer hands the
-download to macOS ShipIt, which tried to relaunch the old folder after moving
-it to OpenMeld. Restart now installs the verified update as OpenMeld and opens
-that app.
+Desktop now treats the installed `OpenMeld.app` folder name as part of its
+production update identity. Same-name macOS updates continue through the native
+Squirrel updater, while missing, legacy, or unexpected app-folder paths stop
+instead of attempting another unsafe rename. A small local receipt also records
+whether the requested new Desktop version actually started after installation.

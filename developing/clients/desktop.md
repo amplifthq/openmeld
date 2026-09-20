@@ -528,33 +528,27 @@ The isolated component fixture and repeatable visual checks live in
 never contacts a feed or installs anything. Component screenshots and native
 controller tests are not signed-package A-to-B acceptance.
 
-Launch and six-hour checks run automatically. Both `autoDownload` and `autoInstallOnAppQuit` are
-explicitly false. Download requires consent; after checksum verification the
-user chooses Restart to update or Later. On macOS the downloaded ZIP is not
-handed to Squirrel until Restart to update, and only when the running folder is
-already `OpenMeld.app`. Later therefore neither installs on ordinary Quit nor
-silently installs on the next launch. A subsequent launch checks again; a
-requested download can reuse the verified cache.
-If the running folder is still the previous `OpenMeld Desktop.app`, Restart
-must not call MacUpdater/`ShipIt`. Main preserves the legacy app while a
-detached installer rechecks the ZIP SHA-512, extracts the candidate with
-`ditto`, verifies its production signature, Team ID, bundle ID, version and
-Gatekeeper assessment, and then places it as `OpenMeld.app`. The legacy app is
-removed only after the new executable is observed running. An interrupted
-migration therefore keeps a known-good legacy app available instead of moving
-the only launchable bundle first. Squirrel.Mac's installer first
-renames `OpenMeld Desktop.app` to `OpenMeld.app`, then relaunches
-`OpenMeld Desktop.app/Contents/Frameworks/Squirrel.framework/Resources/ShipIt`,
-which is gone (`posix_spawn: No such file or directory`). That leaves Finder
-unable to open the app even when the new bundle later verifies. The rename
-installer keeps a bounded local receipt at
-`<Desktop userData>/desktop-update-install-receipt.txt`; it contains only
-source/target versions, source/target bundle names, and the install phase. The
-new app promotes `target_placed` / `launch_attempted` to
-`application_started` only after its own Main process starts from the expected
-bundle/version. The detached installer waits for that application-owned receipt
-before removing the legacy bundle; process-list observation alone is not treated
-as successful relaunch.
+Launch and six-hour checks run automatically. Both `autoDownload` and
+`autoInstallOnAppQuit` are explicitly false. Download requires consent; after
+checksum verification the user chooses Restart to update or Later. On macOS the
+native install is handed to Squirrel only when the running production bundle is
+the stable `OpenMeld.app`. Missing, legacy `OpenMeld Desktop.app`, or unknown
+bundle paths fail closed before `quitAndInstall`; the app does not attempt a
+second custom installer.
+
+The legacy rename cannot be repaired transparently by code shipped only inside a
+new `OpenMeld.app`: an already-installed `OpenMeld Desktop.app` executes its
+old updater before it could receive this fix. Those machines require a one-time
+recovery by opening an already-installed valid `OpenMeld.app` or installing the
+current signed DMG. After recovery, ordinary same-name updates remain on Squirrel.
+
+Before a same-name macOS install is requested, Main writes a bounded local receipt
+at `<Desktop userData>/desktop-update-install-receipt.txt` containing only
+source/target versions, source/target bundle names, and phase. The newly launched
+version changes `install_requested` to `application_started` only when its own
+Main process starts from the expected `OpenMeld.app` and target version. This
+evidence diagnoses future post-exit updater failures without collecting user
+content and without replacing Squirrel's signing/install authority.
 
 Restart freezes document editing, flushes active text through the existing
 composer draft owner, and refuses while navigation guards, pending sends,
@@ -595,9 +589,11 @@ the rename case below.
 
 1. Install signed A containing this updater. Record its version and existing
    account, conversation, Service identity and an independently running Wake.
-   Include one A still named `OpenMeld Desktop.app`: B must become
-   `OpenMeld.app`, the previous folder must be gone, and relaunch must open B
-   without ShipIt.
+   For the historical rename incident, reproduce the old
+   `OpenMeld Desktop.app -> OpenMeld.app` failure separately as regression
+   evidence; production rollout for already-installed legacy bundles remains a
+   manual recovery boundary because the old updater cannot receive this fix
+   before crossing the rename.
 2. Build a newer signed B from its exact merged SHA. Verify DMG and ZIP identity,
    upload the immutable candidate, then explicitly promote B after review.
 3. Confirm `/desktop`, legacy `/desktop/update.json`, and `latest-mac.yml` select
