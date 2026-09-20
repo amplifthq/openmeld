@@ -162,15 +162,22 @@ arrived first.
 
 The macOS menu bar menu is the compact native entry to the current Desktop
 workspace. It shows the newest eligible unread message as one preview, then
-Open inbox, Open app, Computer, Settings…, and Quit OpenMeld. Opening the menu
+Open inbox, Open app, Computer, Settings…, and Quit OpenMeld. When Main's native
+updater reports an actionable newer version, a system-badged update row appears
+beside Settings and opens the existing native download/restart flow. Current,
+idle, and unavailable builds keep that row absent. Opening the menu
 does not mark anything read. Activating the preview re-reads that exact Inbox
 item under the current account, restores the existing window, and navigates to
 the exact message or Thread reply without acknowledging unrelated unread work.
 Open app restores the renderer's existing route rather than choosing a new
 home. The menu does not expose the version, a separate Web app row, or Service
 lifecycle controls. Quitting the GUI retains the independent Service lifecycle.
+The unread preview uses one bounded, whitespace-normalized native label rather
+than a wrapping macOS sublabel. AppKit owns content-sized menu width; no custom
+minimum/maximum-width window is introduced. The full preview remains available
+in the tooltip and accessible label. Truncation preserves grapheme boundaries.
 The native menu keeps its current snapshot while open, so a refresh cannot
-retarget the row under the pointer.
+retarget a row under the pointer.
 
 The A1 foundation is opt-in with `OPENMELD_DESKTOP_PILOT=1`. It requires a
 dev-local or canary lane and a configured loopback Web endpoint. Production
@@ -229,10 +236,14 @@ context. No separate Settings page or account bypass is introduced: before an
 authorized workspace mounts, the existing sign-in entry remains in control.
 Settings intents respect the updater's document interaction freeze.
 
-Visible product copy calls the application OpenMeld. The installed bundle,
-authentication client identity, data directories, and update channels retain
-their existing stable identifiers. Desktop's account menu includes Open web app;
-it opens the equivalent authorized Web route in the system browser.
+Visible product copy calls the application OpenMeld. The production installed
+folder is `OpenMeld.app`. App ID, callback scheme, user-data directory, and
+update channels keep `sh.openmeld.desktop` / `OpenMeld Desktop`. Do not change
+the installed folder name again: Squirrel.Mac relaunches from the previous
+folder and cannot install across that rename.
+Earlier signed installs used `OpenMeld Desktop.app`. Desktop's account menu
+includes Open web app; it opens the equivalent authorized Web route in the
+system browser.
 
 The cloud response allowlist includes `x-openmeld-request-id` and `Server-Timing`
 for shared diagnostics. It still strips cookies, credentials and unlisted headers.
@@ -524,12 +535,30 @@ The isolated component fixture and repeatable visual checks live in
 never contacts a feed or installs anything. Component screenshots and native
 controller tests are not signed-package A-to-B acceptance.
 
-Launch and six-hour checks run automatically. Both `autoDownload` and `autoInstallOnAppQuit` are
-explicitly false. Download requires consent; after checksum verification the
-user chooses Restart to update or Later. On macOS the downloaded ZIP is not
-handed to Squirrel until Restart to update. Later therefore neither installs on
-ordinary Quit nor silently installs on the next launch. A subsequent launch
-checks again; a requested download can reuse the verified cache.
+Launch and hourly checks run automatically. Both `autoDownload` and
+`autoInstallOnAppQuit` are explicitly false. Download requires consent; after
+checksum verification the user chooses Restart to update or Later. On macOS the
+downloaded ZIP is not handed to Squirrel until Restart to update, and only when
+the running production bundle is the stable `OpenMeld.app`. Missing, legacy
+`OpenMeld Desktop.app`, or unknown bundle paths fail closed before
+`quitAndInstall`; the app does not attempt a second custom installer. Later
+therefore neither installs on ordinary Quit nor silently installs on the next
+launch. A subsequent launch checks again; a requested download can reuse the
+verified cache.
+
+The legacy rename cannot be repaired transparently by code shipped only inside a
+new `OpenMeld.app`: an already-installed `OpenMeld Desktop.app` executes its
+old updater before it could receive this fix. Those machines require a one-time
+recovery by opening an already-installed valid `OpenMeld.app` or installing the
+current signed DMG. After recovery, ordinary same-name updates remain on Squirrel.
+
+Before a same-name macOS install is requested, Main writes a bounded local receipt
+at `<Desktop userData>/desktop-update-install-receipt.txt` containing only
+source/target versions, source/target bundle names, and phase. The newly launched
+version changes `install_requested` to `application_started` only when its own
+Main process starts from the expected `OpenMeld.app` and target version. This
+evidence diagnoses future post-exit updater failures without collecting user
+content and without replacing Squirrel's signing/install authority.
 
 Restart freezes document editing, flushes active text through the existing
 composer draft owner, and refuses while navigation guards, pending sends,
@@ -555,31 +584,87 @@ offer Later/retry, or claim installation succeeded. Native menu and Cmd+Q remain
 available. Installation affects the GUI only and
 does not call, update, stop, or reconfigure CLI or OpenMeld Service.
 
-### Manual installed A-to-B acceptance
+### Installed A-to-B release acceptance
 
-Felix performs this acceptance after the implementation and release candidates
-are reviewed. Do not promote a release merely to run an automated smoke.
+Every macOS Desktop production release gets one **thin real A-to-B smoke** on
+the local release Mac. The release owner runs it; it is not a per-PR/per-commit
+test and it does not belong in GitHub Actions. The point is to exercise the same
+installed app, Launch Services, native updater, signature trust, and relaunch
+boundary that a real user receives.
 
-1. Install signed A containing this updater. Record its version and existing
-   account, conversation, Service identity and an independently running Wake.
-2. Build a newer signed B from its exact merged SHA. Verify DMG and ZIP identity,
-   upload the immutable candidate, then explicitly promote B after review.
-3. Confirm `/desktop`, legacy `/desktop/update.json`, and `latest-mac.yml` select
-   B. Invalid and missing candidate overrides must never offer B as a fallback.
+The current production app reads only the promoted updater feed, so the real
+production-A -> production-B transition happens immediately after the separately
+authorized promotion. Until a candidate-feed updater path exists, this is a
+post-promotion release-acceptance gate, not a pre-promotion gate.
+
+Use the lightweight helper around the real in-app update:
+
+```sh
+node scripts/e2e/desktop-macos-production-update-smoke.mjs before <A-version> <B-version>
+# separately authorize/promote B
+# in the already-running A: Settings -> Updates -> Check -> Download -> Restart
+node scripts/e2e/desktop-macos-production-update-smoke.mjs after <B-version>
+```
+
+The `before` phase opens A only when it is not already running and verifies the
+fixed production path, version, bundle ID, Apple Team ID, strict code signature,
+stapled notarization ticket, Gatekeeper assessment, Apple-silicon host, and the
+exact production executable. It also refuses a stale
+`/Applications/OpenMeld Desktop.app` so the release Mac has one unambiguous
+production app.
+
+The `before` phase also records A's exact production-process PID(s) in a
+user-local macOS temporary smoke-state file. The `after` phase **never opens B**: it requires the
+production PID(s) to be replaced, then verifies B's version and the same native
+trust facts. This prevents a surviving A process from being mistaken for a
+successful B relaunch merely because the on-disk bundle changed. If the bounded
+updater receipt exists, it must confirm the expected target version and
+`application_started`; absence is tolerated for a production A that predates
+receipt instrumentation. This keeps the recurring release smoke short while
+still proving the failure boundary that this incident exposed.
+
+Record the exact A and B versions, release SHA/candidate, promotion evidence, and
+the helper's before/after result. A release is not considered accepted until the
+thin smoke passes. Failure preserves the promoted/source evidence for the normal
+release recovery or rollback decision; do not hide it by manually reopening B.
+
+Run the **expanded updater acceptance** instead of only the thin smoke when the
+release changes any high-risk update boundary, including:
+
+- Desktop updater policy or native updater integration;
+- Electron, `electron-updater`, or `electron-builder`;
+- signing, notarization, Gatekeeper, or release packaging;
+- `productName`, app bundle name/path, app ID, or callback identity;
+- Restart-to-update preparation, draft/save/freeze behavior, or quit lifecycle;
+- updater feed/promotion semantics that change which B the installed A consumes.
+
+Expanded acceptance keeps the existing product matrix:
+
+1. Install signed A and record its version plus the existing account,
+   conversation, Service identity, and an independently running Wake.
+2. Build signed B from its exact merged SHA, verify DMG/ZIP identity, upload the
+   immutable candidate, and promote only through the separately authorized
+   release path.
+3. Confirm `/desktop`, legacy `/desktop/update.json`, and
+   `latest-mac.yml` select B. Invalid/missing candidate overrides must not offer
+   B as a fallback.
 4. In A, check while signed in, signed out, with an expired session, and with
-   cloud admission blocked. Confirm no download starts until requested; Settings
-   and the native menu show the same result. Interrupt the network and retry.
-5. Download B, choose Later, close the window, switch Organizations, and reopen
-   Settings. Quit and relaunch A normally: A must remain installed.
-6. Prepare unsent text in a Space, a Thread, and a Center Agent conversation,
-   plus a persisted attachment. Try restart during upload, pending send, and
-   storage failure: it must refuse without resending or losing content.
-7. Once work is durable, choose Restart to update. Confirm B, the same account
-   and conversation, preserved text and attachments, and unchanged Service/Wake.
-   Also exercise an installation error: editing must stay frozen (including
-   after reload), retries stay unavailable, and native menu Quit must exit.
-   Record the installed version after reopening, without assuming which version
-   won. Record actual observations separately from unit/build evidence.
+   cloud admission blocked. Confirm download still requires consent; interrupt
+   the network and retry.
+5. Download B, choose Later, close/reopen the window, switch Organizations, and
+   verify an ordinary Quit/relaunch leaves A installed.
+6. Exercise unsent Space/Thread/Center Agent text plus a persisted attachment.
+   Restart during upload, pending send, or storage failure must refuse without
+   resending or losing content.
+7. Once work is durable, choose Restart to update. Confirm B, preserved account
+   and conversation state, preserved text/attachments, unchanged Service/Wake,
+   and the documented installation-error behavior.
+
+The historical `OpenMeld Desktop.app -> OpenMeld.app` incident remains a
+separate regression/recovery scenario. New code cannot be delivered backward
+into an already-installed legacy updater before that updater crosses the rename,
+so the recurring production smoke uses the stable
+`OpenMeld.app -> OpenMeld.app` path.
 
 Production resolves the existing `~/.openmeld` managed installation. An installed
 disposable build must compile its already aligned test lane using

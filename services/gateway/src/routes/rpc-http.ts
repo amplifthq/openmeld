@@ -28,6 +28,7 @@ import { registerMessageChannelRoutes } from "./rpc-http.message-channels";
 import { registerMessageDetailsRoutes } from "./rpc-http.message-details";
 import { registerMessagePinRoutes } from "./rpc-http.message-pins";
 import { registerMessageReactionRoutes } from "./rpc-http.message-reactions";
+import { registerMessageSearchRoutes } from "./rpc-http.message-search";
 import { registerMetaRoutes } from "./rpc-http.meta";
 import { registerOrganizationDocumentRoutes } from "./rpc-http.organization-documents";
 import { registerOrganizationLogoRoutes } from "./rpc-http.organization-logo";
@@ -70,6 +71,7 @@ export function registerRpcHttpRoutes(app: Hono<HonoBindings>): void {
   registerAgentInteractionRoutes(app);
   registerExecutionRecoveryRoutes(app);
   registerInboxRoutes(app);
+  registerMessageSearchRoutes(app);
   registerDesktopUpdateObservationRoutes(app);
   registerReasoningRoutes(app);
   registerProjectRoutes(app);

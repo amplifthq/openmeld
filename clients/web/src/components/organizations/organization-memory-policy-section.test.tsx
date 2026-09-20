@@ -61,9 +61,7 @@ describe("Organization memory policy loading", () => {
 			.mockReturnValueOnce(initial.promise)
 			.mockReturnValueOnce(refresh.promise);
 		const client = renderSection();
-		expect(
-			screen.getByText("Use shared memory for this organization")
-		).toBeTruthy();
+		expect(screen.getByText("Remember shared conversations")).toBeTruthy();
 		expect(screen.queryByRole("switch")).toBeNull();
 		expect(
 			screen.getByRole("status", { name: "Loading memory setting" })
@@ -99,7 +97,6 @@ describe("Organization memory policy loading", () => {
 		const client = renderSection();
 		await screen.findByRole("alert");
 		expect(screen.queryByRole("switch")).toBeNull();
-		expect(screen.queryByText("Organization memory is off.")).toBeNull();
 		expect(screen.queryByRole("status")).toBeNull();
 		api.read.mockResolvedValue(policy(true));
 		fireEvent.click(screen.getByRole("button", { name: "Try again" }));

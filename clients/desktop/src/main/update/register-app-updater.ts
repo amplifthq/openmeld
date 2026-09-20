@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import {
   type DesktopUpdaterState,
   desktopUpdaterActionSchema,
@@ -15,7 +16,14 @@ import { PILOT_IPC } from "../../shared/pilot-bridge";
 import { desktopUpdaterPresentation } from "../../shared/updater-presentation";
 import type { DesktopUpdateView } from "../../shared/view-types";
 import { createAppUpdater } from "./app-updater";
+import { readMacAppBundlePath } from "./mac-bundle-path";
+import {
+  confirmMacUpdateInstallReceipt,
+  recordMacUpdateInstallRequested,
+} from "./mac-update-receipt";
 import { createNativeDesktopUpdater } from "./native-updater";
+
+const AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
 function readNativeUpdater(enabled: boolean) {
   if (!enabled) {
@@ -39,6 +47,7 @@ export function registerAppUpdater(input: {
   };
   authorize: (event: IpcMainInvokeEvent) => void;
   getWindow: () => BrowserWindow | null;
+  onStateChanged: (state: DesktopUpdaterState) => void;
   setInstalling: (value: boolean) => void;
 }) {
   const unavailable: DesktopUpdaterState = {
@@ -67,16 +76,54 @@ export function registerAppUpdater(input: {
       console.warn("[openmeld.desktop.inbox_observer_failed]", { error });
     }
   };
+  const currentAppBundle =
+    process.platform === "darwin"
+      ? readMacAppBundlePath(app.getPath("exe"))
+      : null;
+  const installReceiptPath = join(
+    app.getPath("userData"),
+    "desktop-update-install-receipt.txt"
+  );
+  if (process.platform === "darwin") {
+    try {
+      const receipt = confirmMacUpdateInstallReceipt({
+        receiptPath: installReceiptPath,
+        currentVersion: app.getVersion(),
+        currentBundle: currentAppBundle,
+      });
+      if (receipt) {
+        console.info("[openmeld.desktop.update_install_receipt]", receipt);
+      }
+    } catch (error) {
+      console.warn("[openmeld.desktop.update_install_receipt_invalid]", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+    }
+  }
   const native = readNativeUpdater(input.enabled);
   const controller = native
     ? createAppUpdater({
         ...native,
         currentVersion: app.getVersion(),
+        currentAppBundle,
+        recordMacInstallRequested: (targetVersion) => {
+          if (!currentAppBundle) {
+            throw new Error(
+              "Desktop cannot determine the current macOS application folder."
+            );
+          }
+          recordMacUpdateInstallRequested({
+            receiptPath: installReceiptPath,
+            currentVersion: app.getVersion(),
+            targetVersion,
+            currentBundle: currentAppBundle,
+          });
+        },
         setInstalling: input.setInstalling,
         publish: (state) => {
-          input
-            .getWindow()
-            ?.webContents.send(PILOT_IPC.updaterChanged, withIdentity(state));
+          const next = withIdentity(state);
+          input.getWindow()?.webContents.send(PILOT_IPC.updaterChanged, next);
+          input.onStateChanged(next);
           observe(state);
         },
         prepareRestart: () =>
@@ -121,13 +168,11 @@ export function registerAppUpdater(input: {
   let menuOpen = false;
   if (controller) {
     observe(controller.snapshot());
-    setInterval(
-      () => {
-        controller.act("check").catch(console.error);
-      },
-      6 * 60 * 60 * 1000
-    ).unref();
+    setInterval(() => {
+      controller.act("check").catch(console.error);
+    }, AUTOMATIC_UPDATE_CHECK_INTERVAL_MS).unref();
   }
+  input.onStateChanged(withIdentity(controller?.snapshot() ?? unavailable));
   return {
     async legacyStatus(): Promise<DesktopUpdateView> {
       await controller?.act("check");

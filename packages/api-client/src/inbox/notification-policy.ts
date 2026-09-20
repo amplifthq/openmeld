@@ -62,6 +62,23 @@ export function inboxMessageNotificationSpaceId(
   return item.sourceTarget.spaceId;
 }
 
+function isDirectMessageRecipient(item: InboxItem): boolean {
+  return item.sourceFacts
+    ? item.sourceFacts.recipientReasons.includes("direct_message")
+    : item.sourceTarget.kind === "center_agent";
+}
+
+function isLegacyOwnerObservation(item: InboxItem): boolean {
+  return (
+    !item.sourceFacts &&
+    item.attention === "update" &&
+    item.sourceTarget.kind === "space" &&
+    item.sourceTarget.agentOwnerActivity === true &&
+    item.sourceTarget.replyToRecipient !== true &&
+    (item.kind === "space_message" || item.kind === "agent_reply")
+  );
+}
+
 export function isInboxNotificationEligible(
   item: InboxItem,
   mode: InboxConversationNotificationMode = "mentions_and_replies"
@@ -74,14 +91,7 @@ export function isInboxNotificationEligible(
   }
   // Pre-facts owner observations may arrive from a delayed old outbox. The
   // retired urgent flag and directMessage marker do not make them direct alerts.
-  if (
-    !item.sourceFacts &&
-    item.attention === "update" &&
-    item.sourceTarget.kind === "space" &&
-    item.sourceTarget.agentOwnerActivity === true &&
-    item.sourceTarget.replyToRecipient !== true &&
-    (item.kind === "space_message" || item.kind === "agent_reply")
-  ) {
+  if (isLegacyOwnerObservation(item)) {
     return false;
   }
   const ownerOnly =
@@ -103,6 +113,9 @@ export function isInboxNotificationEligible(
       return false;
     }
     if (mode === "all_messages") {
+      return true;
+    }
+    if (isDirectMessageRecipient(item)) {
       return true;
     }
   }

@@ -1,9 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-	buildCenterAgentHeaderMenuItems,
-	CenterAgentHeaderTabs,
-} from "./center-agent-header-navigation";
+import { CenterAgentHeaderTabs } from "./center-agent-header-navigation";
 
 const navigateSpy = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 const route = vi.hoisted(() => ({ searchStr: "" }));
@@ -45,10 +42,8 @@ describe("CenterAgentHeaderTabs", () => {
 	it("keeps primary work in the requested header order", () => {
 		render(
 			<CenterAgentHeaderTabs
-				activeSectionId="chat"
-				activeSpaceView="messages"
+				activeSectionId="memory"
 				idPrefix="center-agent-test"
-				onSpaceViewChange={() => undefined}
 				organizationSlug="acme"
 			/>
 		);
@@ -59,11 +54,15 @@ describe("CenterAgentHeaderTabs", () => {
 			screen.getByRole("tab", { name: "Files" }),
 			screen.getByRole("tab", { name: "Routines" }),
 			screen.getByRole("tab", { name: "Channels" }),
+			screen.getByRole("tab", { name: "Memory" }),
 		]);
+		expect(
+			screen.getByRole("tab", { name: "Memory" }).getAttribute("aria-selected")
+		).toBe("true");
 		expect(screen.queryByRole("tab", { name: "Skills" })).toBeNull();
 	});
 
-	it("opens Routines and Channels from their remaining header indices", () => {
+	it("opens each Center Agent management tab", () => {
 		render(
 			<CenterAgentHeaderTabs
 				activeSectionId="chat"
@@ -74,12 +73,16 @@ describe("CenterAgentHeaderTabs", () => {
 
 		fireEvent.click(screen.getByRole("tab", { name: "Routines" }));
 		fireEvent.click(screen.getByRole("tab", { name: "Channels" }));
+		fireEvent.click(screen.getByRole("tab", { name: "Memory" }));
 
 		expect(navigateSpy).toHaveBeenNthCalledWith(1, {
 			to: "/o/acme/center-agent/routines",
 		});
 		expect(navigateSpy).toHaveBeenNthCalledWith(2, {
 			to: "/o/acme/center-agent/channels",
+		});
+		expect(navigateSpy).toHaveBeenNthCalledWith(3, {
+			to: "/o/acme/center-agent/memory",
 		});
 	});
 
@@ -103,24 +106,5 @@ describe("CenterAgentHeaderTabs", () => {
 		expect(navigateSpy).toHaveBeenLastCalledWith({
 			to: "/o/acme/chats/center-agent",
 		});
-	});
-});
-
-describe("buildCenterAgentHeaderMenuItems", () => {
-	it("keeps lower-frequency destinations in the compact menu", () => {
-		expect(
-			buildCenterAgentHeaderMenuItems("acme").map((item) => [
-				item.label,
-				item.to,
-			])
-		).toEqual([["Memory", "/o/acme/center-agent/memory"]]);
-	});
-
-	it("does not offer a second Center Agent settings entry point", () => {
-		// Center Agent settings live in global App Settings at
-		// /o/:orgSlug/settings/center-agent, so this menu must not duplicate it.
-		expect(
-			buildCenterAgentHeaderMenuItems("acme").map((item) => item.label)
-		).not.toContain("Center Agent settings");
 	});
 });

@@ -38,10 +38,7 @@ import type { PendingCenterAgentMessage } from "#/lib/organizations/center-agent
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
-import {
-	CenterAgentHeaderMenu,
-	CenterAgentHeaderTabs,
-} from "./center-agent-header-navigation";
+import { CenterAgentHeaderTabs } from "./center-agent-header-navigation";
 
 type CenterAgentComposerAttachments = {
 	files: readonly SpaceComposerFile[];
@@ -123,11 +120,6 @@ export function CenterAgentOptimisticConversation(input: {
 		>
 			{input.header ?? (
 				<SpaceWindowHeader
-					actions={
-						organizationSlug ? (
-							<CenterAgentHeaderMenu organizationSlug={organizationSlug} />
-						) : undefined
-					}
 					leadingControl={<SpaceHeaderIdentityIcon isDirectMessage />}
 					navigation={
 						organizationSlug ? (

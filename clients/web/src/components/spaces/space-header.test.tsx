@@ -8,7 +8,6 @@ import {
 	OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
 } from "@openmeld/space";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
-import { SparkleIcon } from "@phosphor-icons/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	cleanup,
@@ -441,26 +440,20 @@ describe("SpaceHeader", () => {
 		).toBeTruthy();
 	});
 
-	it("consolidates Center Agent destinations and conversation information into one menu", async () => {
+	it("keeps chat settings in the Center Agent conversation menu", async () => {
 		render(
 			createSpaceHeader({
 				isCenterAgentDirectMessage: true,
-				menuItems: [
-					{
-						icon: SparkleIcon,
-						label: "Memory",
-						to: "/o/acme/center-agent/memory",
-					},
-				],
+				showChatSettingsMenu: true,
 			})
 		);
 
 		expect(screen.queryByRole("button", { name: "Space settings" })).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Center Agent menu" }));
-		expect(
-			await screen.findByRole("menuitem", { name: "Memory" })
-		).toBeTruthy();
-		fireEvent.click(screen.getByRole("menuitem", { name: "Chat settings" }));
+		expect(screen.queryByRole("menuitem", { name: "Memory" })).toBeNull();
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Chat settings" })
+		);
 
 		expect(await screen.findByRole("dialog")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
@@ -1171,7 +1164,7 @@ function createSpaceHeader(
 		onLeaveSpace?: () => void;
 		isCenterAgentDirectMessage?: boolean;
 		memberCount?: number;
-		menuItems?: ComponentProps<typeof SpaceHeader>["menuItems"];
+		showChatSettingsMenu?: boolean;
 		membersControl?: ReactNode;
 		passwordProtected?: boolean;
 		linkJoinPolicy?: SpaceLinkJoinPolicy;
@@ -1212,8 +1205,6 @@ function createSpaceHeader(
 							input.membersControl
 						)
 					}
-					menuItems={input.menuItems}
-					menuLabel="Center Agent menu"
 					notificationControl={<button type="button">Notifications</button>}
 					onDeleteSpace={input.onDeleteSpace ?? vi.fn()}
 					onLeaveSpace={input.onLeaveSpace ?? vi.fn()}
@@ -1226,6 +1217,7 @@ function createSpaceHeader(
 					}
 					renderFrame={input.renderFrame}
 					setupRecallAction={input.setupRecallAction}
+					showChatSettingsMenu={input.showChatSettingsMenu}
 					showDeleteSpaceAction={input.showDeleteSpaceAction ?? true}
 					spaceNameErrorMessage={null}
 					status={createSpaceStatus({

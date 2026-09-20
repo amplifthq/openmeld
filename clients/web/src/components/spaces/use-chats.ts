@@ -1,20 +1,16 @@
-import { createCenterAgentApi } from "@openmeld/api-client";
-import type {
-	AccountSidebarPreferences,
-	ListCenterAgentSessionsResponse,
-} from "@openmeld/schemas";
+import type { AccountSidebarPreferences } from "@openmeld/schemas";
 import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { moveSidebarItemIds } from "#/components/app/sidebar-order";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
-import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationDirectMessagePath,
 } from "#/lib/organizations/organization-routes";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
+import { centerAgentSessionsQueryOptions } from "#/query/organizations/center-agent-sessions";
 import { spaceInboxSummaryQueryOptions } from "#/query/organizations/inbox";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
@@ -71,22 +67,9 @@ export function useChats(input: {
 			input.currentSpaceId ??
 			new URLSearchParams(state.location.searchStr).get("session"),
 	});
-	const sessions = useInfiniteQuery({
-		queryKey: ["center-agent", org.id, profileId, "sessions", "sidebar"],
-		enabled: !!profileId,
-		initialPageParam: undefined as string | undefined,
-		getNextPageParam: (page: ListCenterAgentSessionsResponse) =>
-			page.nextCursor ?? undefined,
-		queryFn: ({ signal, pageParam }) => {
-			const api = createCenterAgentApi(
-				createOrganizationScopedWebOpenMeldApiFoundation({
-					organizationId: org.id,
-				})
-			);
-			return api.listSessions({ limit: 100, cursor: pageParam, signal });
-		},
-		staleTime: 30_000,
-	});
+	const sessions = useInfiniteQuery(
+		centerAgentSessionsQueryOptions(org.id, profileId)
+	);
 	const chatsById = new Map<string, Chat>(
 		accountItems.map((item) => {
 			const viewerProfileId = resolveAccountSpaceViewerProfileId({
