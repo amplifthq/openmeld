@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { stat } from "node:fs/promises";
+import { mkdir, stat, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { inspect } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -110,6 +110,119 @@ function createMockExecFileChild(
 }
 
 describe("token-store command execution options", () => {
+  it("keeps a localhost development credential across fresh reads, isolates homes, and deletes it normally", async () => {
+    setProcessPlatform("darwin");
+    await withTempHome(async (home) => {
+      const lane = join(home, "lane-a");
+      process.env.OPENMELD_HOME = lane;
+      process.env.OPENMELD_ENV_PRESET = "dev-local";
+      process.env.OPENMELD_GATEWAY_URL = "http://wt-a.localhost:8080";
+      Reflect.deleteProperty(
+        process.env,
+        "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN"
+      );
+      Reflect.deleteProperty(process.env, "OPENMELD_DEV_CREDENTIAL_STORE");
+      const ref = await storeAccessToken({
+        accessToken: "local-test-token",
+        authBaseUrl: "http://wt-a.localhost:8788",
+        clientId: "openmeld-cli",
+      });
+      expect(ref.provider).toBe("insecure-file");
+      expect(macOsNativeTokens.size).toBe(0);
+      expect((await stat(join(lane, "auth", "tokens"))).mode % 0o1000).toBe(
+        0o700
+      );
+      if (ref.provider !== "insecure-file") {
+        throw new Error("expected a development file");
+      }
+      expect(
+        (await stat(join(lane, "auth", "tokens", `${ref.key}.token`))).mode %
+          0o1000
+      ).toBe(0o600);
+      // Service reads the stored reference, not the launcher's storage selector.
+      process.env.OPENMELD_DEV_CREDENTIAL_STORE = "system";
+      expect(await readAccessToken(ref)).toEqual({
+        status: "found",
+        accessToken: "local-test-token",
+      });
+      process.env.OPENMELD_HOME = join(home, "lane-b");
+      expect(await readAccessToken(ref)).toEqual({ status: "missing" });
+      process.env.OPENMELD_HOME = lane;
+      await deleteAccessToken(ref);
+      expect(await readAccessToken(ref)).toEqual({ status: "missing" });
+    });
+  });
+
+  it.each([
+    "prod",
+    "canary",
+    "remote-auth",
+    "remote-gateway",
+    "system",
+    "default-home",
+    "production-home",
+    "production-symlink",
+    "linux",
+    "windows",
+  ] as const)("does not select development file storage for %s", async (scenario) => {
+    const platforms = { linux: "linux", windows: "win32" } as const;
+    setProcessPlatform(
+      scenario in platforms
+        ? platforms[scenario as keyof typeof platforms]
+        : "darwin"
+    );
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_HOME = join(home, "lane");
+      process.env.OPENMELD_ENV_PRESET = "dev-local";
+      process.env.OPENMELD_GATEWAY_URL = "http://localhost:8080";
+      Reflect.deleteProperty(
+        process.env,
+        "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN"
+      );
+      Reflect.deleteProperty(process.env, "OPENMELD_DEV_CREDENTIAL_STORE");
+      if (scenario === "prod" || scenario === "canary") {
+        process.env.OPENMELD_ENV_PRESET = scenario;
+      }
+      if (scenario === "system") {
+        process.env.OPENMELD_DEV_CREDENTIAL_STORE = "system";
+      }
+      if (scenario === "remote-gateway") {
+        process.env.OPENMELD_GATEWAY_URL = "https://gateway.openmeld.ai";
+      }
+      if (scenario === "default-home") {
+        Reflect.deleteProperty(process.env, "OPENMELD_HOME");
+      }
+      if (scenario === "production-home") {
+        process.env.OPENMELD_HOME = join(home, ".openmeld", "nested");
+      }
+      if (scenario === "production-symlink") {
+        await mkdir(join(home, ".openmeld"));
+        await symlink(join(home, ".openmeld"), join(home, "lane"));
+      }
+      const { shouldUseDevelopmentCredentialFile } = await import(
+        "../src/config/development-credential-store"
+      );
+      expect(
+        await shouldUseDevelopmentCredentialFile(
+          scenario === "remote-auth"
+            ? "https://auth.openmeld.ai"
+            : "http://localhost:8788"
+        )
+      ).toBe(false);
+      if (process.platform === "darwin") {
+        const ref = await storeAccessToken({
+          accessToken: "boundary-test-token",
+          authBaseUrl:
+            scenario === "remote-auth"
+              ? "https://auth.openmeld.ai"
+              : "http://localhost:8788",
+          clientId: "openmeld-cli",
+        });
+        expect(ref.provider).toBe("macos-keychain");
+      }
+    });
+  });
+
   beforeEach(() => {
     execFileMock.mockReset();
     macOsNativeTokens.clear();
