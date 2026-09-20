@@ -536,13 +536,22 @@ already `OpenMeld.app`. Later therefore neither installs on ordinary Quit nor
 silently installs on the next launch. A subsequent launch checks again; a
 requested download can reuse the verified cache.
 If the running folder is still the previous `OpenMeld Desktop.app`, Restart
-must not call MacUpdater/`ShipIt`. Main extracts the verified ZIP with
-`ditto`, replaces it as `OpenMeld.app` beside the old folder, removes the
-previous folder, and opens the new path. Squirrel.Mac's installer first
+must not call MacUpdater/`ShipIt`. Main preserves the legacy app while a
+detached installer rechecks the ZIP SHA-512, extracts the candidate with
+`ditto`, verifies its production signature, Team ID, bundle ID, version and
+Gatekeeper assessment, and then places it as `OpenMeld.app`. The legacy app is
+removed only after the new executable is observed running. An interrupted
+migration therefore keeps a known-good legacy app available instead of moving
+the only launchable bundle first. Squirrel.Mac's installer first
 renames `OpenMeld Desktop.app` to `OpenMeld.app`, then relaunches
 `OpenMeld Desktop.app/Contents/Frameworks/Squirrel.framework/Resources/ShipIt`,
 which is gone (`posix_spawn: No such file or directory`). That leaves Finder
-unable to open the app even when the new bundle later verifies.
+unable to open the app even when the new bundle later verifies. The rename
+installer keeps a bounded local receipt at
+`<Desktop userData>/desktop-update-install-receipt.txt`; it contains only
+source/target versions, source/target bundle names, and the install phase. The
+new app promotes `launch_confirmed` to `application_started` only after its
+own Main process starts from the expected bundle/version.
 
 Restart freezes document editing, flushes active text through the existing
 composer draft owner, and refuses while navigation guards, pending sends,
@@ -568,10 +577,18 @@ offer Later/retry, or claim installation succeeded. Native menu and Cmd+Q remain
 available. Installation affects the GUI only and
 does not call, update, stop, or reconfigure CLI or OpenMeld Service.
 
-### Manual installed A-to-B acceptance
+### Installed A-to-B release acceptance
 
-Felix performs this acceptance after the implementation and release candidates
-are reviewed. Do not promote a release merely to run an automated smoke.
+Run this acceptance once for every macOS Desktop **production release
+candidate** after its implementation and signed candidate are reviewed. It is a
+Desktop release gate, not a per-PR/per-commit test, and it is not required for
+Web-, Worker-, or CLI-only releases. Do not promote a release merely to create
+test material; use the reviewed candidate and the authorized release sequence.
+
+The normal same-name `OpenMeld.app -> OpenMeld.app` case is the recurring
+release acceptance. While legacy `OpenMeld Desktop.app` installations still
+exist, release work that claims migration support must additionally exercise
+the rename case below.
 
 1. Install signed A containing this updater. Record its version and existing
    account, conversation, Service identity and an independently running Wake.
