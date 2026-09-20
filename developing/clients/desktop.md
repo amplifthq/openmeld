@@ -603,8 +603,8 @@ exact production executable. It also refuses a stale
 `/Applications/OpenMeld Desktop.app` so the release Mac has one unambiguous
 production app.
 
-The `before` phase also records A's exact production-process PID(s) in ignored
-`dev-tmp` smoke state. The `after` phase **never opens B**: it requires the
+The `before` phase also records A's exact production-process PID(s) in a
+user-local macOS temporary smoke-state file. The `after` phase **never opens B**: it requires the
 production PID(s) to be replaced, then verifies B's version and the same native
 trust facts. This prevents a surviving A process from being mistaken for a
 successful B relaunch merely because the on-disk bundle changed. If the bounded

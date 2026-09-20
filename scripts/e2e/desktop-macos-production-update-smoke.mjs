@@ -7,7 +7,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -32,8 +32,8 @@ export const INSTALL_RECEIPT_PATH = path.join(
   "Library/Application Support/OpenMeld Desktop/desktop-update-install-receipt.txt"
 );
 export const SMOKE_STATE_PATH = path.join(
-  REPO_ROOT,
-  "dev-tmp/desktop-macos-update-smoke-state.json"
+  tmpdir(),
+  "openmeld-desktop-macos-update-smoke-state.json"
 );
 
 const STABLE_VERSION = /^\d+\.\d+\.\d+$/u;
