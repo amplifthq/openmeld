@@ -680,6 +680,11 @@ import {
   mutateSpaceMessagePin,
 } from "../../infrastructure/sql/space-message-pin-repo";
 import {
+  backfillSpaceMessageSearch,
+  initializeSpaceMessageSearch,
+  searchSpaceMessages,
+} from "../../infrastructure/sql/space-message-search-repo";
+import {
   initializeSpaceMetaRecordIfAbsent,
   readSpaceMetaRecordFromSql,
   resolveSpaceMetaLinkJoinPolicy,
@@ -834,6 +839,7 @@ type SpaceHistorySignalFilters = {
 const buildRpcListSignalsBaseQuery = (
   input: ListSignalsInput
 ): Record<string, string> => ({
+  ...(input.q ? { q: input.q } : {}),
   ...(typeof input.afterTs === "number" && Number.isFinite(input.afterTs)
     ? { afterTs: String(Math.max(0, Math.trunc(input.afterTs))) }
     : {}),
@@ -13317,6 +13323,17 @@ export class Space extends DurableObject<CoreBindings> {
       signalTypes: resolveVisibleTimelineSignalTypes(signalTypes),
     };
 
+    if (parsedQuery.data.q) {
+      return this.handleMessageSearch({
+        query: parsedQuery.data.q,
+        cursor,
+        limit,
+        viewerOwnerUserId: input.viewerOwnerUserId,
+        viewerProfileId: input.viewerProfileId,
+        creatorProfileIdByProfileId: viewerCreatorProfileIdsByProfileId,
+      });
+    }
+
     if (afterSignalId) {
       try {
         const signals = this.measureBootstrapBranchTimingSync(
@@ -13613,6 +13630,37 @@ export class Space extends DurableObject<CoreBindings> {
     return Response.json({
       nextCursor: null,
       signals: this.redactSignalsForReadViewer(signals, viewer),
+    });
+  }
+
+  private handleMessageSearch(input: {
+    query: string;
+    cursor: string | null;
+    limit: number;
+    viewerOwnerUserId?: string;
+    viewerProfileId?: string;
+    creatorProfileIdByProfileId?: Record<string, string | null>;
+  }): Response {
+    initializeSpaceMessageSearch(this.ctx.storage.sql);
+    if (!backfillSpaceMessageSearch(this.ctx.storage.sql)) {
+      return Response.json({
+        signals: [],
+        nextCursor: null,
+        searchIndexing: true,
+        threadRoots: {},
+      });
+    }
+    const page = searchSpaceMessages(this.ctx.storage.sql, {
+      query: input.query,
+      before: input.cursor ? Number(input.cursor) : null,
+      limit: Math.min(input.limit, 50),
+    });
+    return Response.json({
+      ...page,
+      searchIndexing: false,
+      signals: page.signals.map((signal) =>
+        redactSignalForViewer({ ...input, signal })
+      ),
     });
   }
 

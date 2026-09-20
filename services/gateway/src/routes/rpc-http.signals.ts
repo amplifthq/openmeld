@@ -74,6 +74,7 @@ const buildPostSignalCoreRpcInput = (input: {
   spaceId: string;
 }) => ({
   spaceId: input.spaceId,
+  ...(input.query.q ? { q: input.query.q } : {}),
   profile: input.profile,
   text: input.parsed.text,
   ...(input.parsed.deviceWait ? { deviceWait: input.parsed.deviceWait } : {}),

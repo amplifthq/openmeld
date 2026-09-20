@@ -2272,6 +2272,7 @@ export type CreateSpaceResult = {
 };
 
 export type ListSignalsInput = {
+  q?: string;
   spaceId: string;
   afterTs?: number;
   cursor?: string;
@@ -2293,6 +2294,7 @@ export type ListSignalsInput = {
 };
 
 export type ListSignalsResult = {
+  searchIndexing?: boolean;
   signals: SignalEnvelope[];
   nextCursor: string | null;
 };
@@ -18318,6 +18320,7 @@ export async function rpcListSignals(
   return unwrapSpaceRpcJsonResult(
     await stub.rpcListSignalsResult({
       spaceId,
+      ...(input.q ? { q: input.q } : {}),
       ...buildListSignalsNumberFilters(input),
       ...(cursor ? { cursor } : {}),
       ...(input.recent === true ? { recent: true } : {}),

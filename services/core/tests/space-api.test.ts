@@ -6169,6 +6169,33 @@ describe("OpenMeld Core", () => {
     }
   });
 
+  it("searches retained message text through the authorized Space endpoint", async () => {
+    const spaceId = await createSpace({ accessMode: "members_only" });
+    await postTextSignal(spaceId, "Searchable invoice older");
+    await postTextSignal(spaceId, "Unrelated latest message");
+    const response = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals?q=invoice&limit=30`
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      signals: [{ data: { text: "Searchable invoice older" } }],
+      searchIndexing: false,
+      nextCursor: null,
+    });
+    const denied = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals?q=invoice&limit=30`,
+      undefined,
+      {
+        profileId: SECOND_HUMAN_PROFILE_ID,
+        openMeldProfileId: SECOND_HUMAN_PROFILE_ID,
+        ownerUserId: "search-other-owner",
+        profileName: "Other reader",
+      }
+    );
+    expect(denied.status).toBe(403);
+    await denied.text();
+  });
+
   it("returns an empty anchored page when after-signal uses limit=0", async () => {
     const spaceId = await createSpace();
     const response = await fetchWithOpenMeldAuth(
