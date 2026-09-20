@@ -448,6 +448,7 @@ describe("api-client space api", () => {
       review: null,
       automaticReworkRounds: 0,
       needsHumanDecision: false,
+      externalWorkItems: [],
       revision: 1,
       createdAt: "2026-09-15T00:00:00.000Z",
       updatedAt: "2026-09-15T00:00:00.000Z",
