@@ -461,6 +461,11 @@ export const openMeldDaemonHistoryPayloadSchema = z.strictObject({
 export const openMeldDaemonInterruptPayloadSchema = z.strictObject({
   accepted: z.boolean(),
   target: openMeldDaemonControlTargetSelectorSchema,
+  // See the cancel payload: interrupting a started turn is a request, not a
+  // completion barrier, so this states what the adapter actually established.
+  localAttemptOutcome: z
+    .enum(["stop_requested_after_start", "withdrawn_before_start"])
+    .optional(),
   resolvedDispatchId: z.string().min(1).optional(),
   resolvedRuntimeCoordinatorExecutionId: z.string().min(1).optional(),
   resolvedTaskId: z.string().min(1).optional(),
@@ -471,6 +476,15 @@ export const openMeldDaemonInterruptPayloadSchema = z.strictObject({
 export const openMeldDaemonCancelPayloadSchema = z.strictObject({
   accepted: z.boolean(),
   target: openMeldDaemonControlTargetSelectorSchema,
+  // What accepting the cancellation established, when the adapter can tell.
+  // `accepted` alone only means the control request was taken: a signal can be
+  // registered before the provider turn is acknowledged, and interrupting is
+  // not the same barrier as the turn completing. Work that replaces this
+  // attempt needs `withdrawn_before_start`; anything else, including an absent
+  // field from a Service that predates this, is not proof.
+  localAttemptOutcome: z
+    .enum(["stop_requested_after_start", "withdrawn_before_start"])
+    .optional(),
   resolvedDispatchId: z.string().min(1).optional(),
   resolvedRuntimeCoordinatorExecutionId: z.string().min(1).optional(),
   resolvedTaskId: z.string().min(1).optional(),

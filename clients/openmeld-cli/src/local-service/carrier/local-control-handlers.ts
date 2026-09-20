@@ -32,7 +32,9 @@ export async function handleLocalControlPlaneCancel(input: {
 }): Promise<LocalControlCancelPayload> {
   const resolution = input.registry.resolveTarget(input.payload.target);
   if (!resolution) {
-    return rejectMissingInflightTarget(input);
+    return (
+      replayRecordedWithdrawal(input) ?? rejectMissingInflightTarget(input)
+    );
   }
 
   if (
@@ -71,6 +73,12 @@ export async function handleLocalControlPlaneCancel(input: {
       currentRecord.runtimeCoordinatorExecutionId ===
         resolution.record.runtimeCoordinatorExecutionId
     ) {
+      if (result.localAttemptOutcome) {
+        input.registry.settleWithdrawnTask({
+          localAttemptOutcome: result.localAttemptOutcome,
+          record: currentRecord,
+        });
+      }
       input.registry.removeTask(resolution.record.taskId);
     }
   }
@@ -94,6 +102,9 @@ export async function handleLocalControlPlaneCancel(input: {
   });
   return {
     accepted: result.accepted,
+    ...(result.localAttemptOutcome
+      ? { localAttemptOutcome: result.localAttemptOutcome }
+      : {}),
     note: resolveAdapterCancelNote({ reasonCode, result }),
     reasonCode,
     resolvedDispatchId: resolution.record.dispatchId,
@@ -104,6 +115,44 @@ export async function handleLocalControlPlaneCancel(input: {
         }
       : {}),
     resolvedTaskId: resolution.record.taskId,
+    target: input.payload.target,
+  };
+}
+
+/**
+ * Answers a repeat request from what the withdrawal already established.
+ *
+ * Accepting a withdrawal removes the inflight record, so without this a repeat
+ * could only answer "no such task". That is a weaker statement than what was
+ * actually established and cannot be turned back into proof, which would leave
+ * work that replaces this attempt blocked on evidence merely lost in transit.
+ */
+function replayRecordedWithdrawal(input: {
+  payload: OpenMeldDaemonCancelRequestPayload;
+  registry: InflightTaskControlRegistry;
+}): LocalControlCancelPayload | null {
+  const receipt = input.registry.readWithdrawnTaskReceipt(input.payload.target);
+  if (
+    !receipt ||
+    (input.payload.runtimeCoordinatorExecutionId &&
+      receipt.record.runtimeCoordinatorExecutionId !==
+        input.payload.runtimeCoordinatorExecutionId)
+  ) {
+    return null;
+  }
+  return {
+    accepted: true,
+    localAttemptOutcome: receipt.localAttemptOutcome,
+    note: "Replayed the recorded withdrawal for this attempt.",
+    reasonCode: "adapter.cancel.already_withdrawn",
+    resolvedDispatchId: receipt.record.dispatchId,
+    ...(receipt.record.runtimeCoordinatorExecutionId
+      ? {
+          resolvedRuntimeCoordinatorExecutionId:
+            receipt.record.runtimeCoordinatorExecutionId,
+        }
+      : {}),
+    resolvedTaskId: receipt.record.taskId,
     target: input.payload.target,
   };
 }

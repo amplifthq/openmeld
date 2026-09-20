@@ -2841,6 +2841,7 @@ const submitWakeStopLocalControlResult = async (input: {
   awaitCompletion?: boolean;
   hub: RuntimeTransportHub;
   includeResolvedIdentity?: boolean;
+  localAttemptOutcome?: "stop_requested_after_start" | "withdrawn_before_start";
   note?: string | null;
   reasonCode?: string | null;
   resolvedDispatchId?: string;
@@ -2862,6 +2863,9 @@ const submitWakeStopLocalControlResult = async (input: {
     requestId: `wake-stop:${RUNTIME_COORDINATOR_EXECUTION_ID}`,
     payload: {
       accepted: input.accepted ?? true,
+      ...(input.localAttemptOutcome
+        ? { localAttemptOutcome: input.localAttemptOutcome }
+        : {}),
       ...(input.note === null
         ? {}
         : { note: input.note ?? "adapter.cancel.accepted" }),
@@ -19764,11 +19768,30 @@ describe("runtime transport runtime coordinator transport contract", () => {
         interruptedLocalAttempt: "awaiting_withdrawal",
       });
 
-      // The Service answers the withdrawal it was asked for. The Wake Stop
-      // lifecycle cannot advance a terminal execution, but that answer is the
-      // only proof replacement work has, so it must be kept.
+      // Accepting the request is not the same fact as the attempt being gone,
+      // so an older Service that can only say `accepted` proves nothing.
       await submitWakeStopLocalControlResult({
         hub,
+        socket,
+        state,
+        waitUntilTasks,
+      });
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorRunCommandStateStorageKey(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )
+      ).toMatchObject({
+        localAttemptWithdrawal: { status: "requested" },
+      });
+
+      // The Service states it withdrew the attempt before any turn began. The
+      // Wake Stop lifecycle cannot advance a terminal execution, but that is
+      // the only proof replacement work has, so it must be kept.
+      await submitWakeStopLocalControlResult({
+        hub,
+        localAttemptOutcome: "withdrawn_before_start",
         socket,
         state,
         waitUntilTasks,
@@ -19860,6 +19883,41 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
+  it("refuses a stop requested after the turn started as proof the attempt is gone", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const { hub, sentFrames, socket, state, storageRecords, waitUntilTasks } =
+        createHarness({
+          agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+        });
+      await issueDeliveryToken({ hub, sentFrames, socket, state });
+      enableWakeStopControl(state);
+      await requestRuntimeCoordinatorWakeStop(hub);
+
+      await submitWakeStopLocalControlResult({
+        hub,
+        localAttemptOutcome: "stop_requested_after_start",
+        socket,
+        state,
+        waitUntilTasks,
+      });
+
+      // The turn had already started, so its result and effects still stand.
+      // Interrupting asks for a stop; it does not prove one happened.
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorRunCommandStateStorageKey(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )
+      ).not.toMatchObject({
+        localAttemptWithdrawal: { status: "withdrawn" },
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("refuses a withdrawal acknowledgement that names a different task", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
@@ -19873,6 +19931,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
       await submitWakeStopLocalControlResult({
         hub,
+        localAttemptOutcome: "withdrawn_before_start",
         resolvedTaskId: "task-from-another-run",
         socket,
         state,

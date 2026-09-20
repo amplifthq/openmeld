@@ -493,8 +493,27 @@ export type AdapterCancelRequest = {
   taskId: string;
 };
 
+/**
+ * What accepting a cancellation actually established about the attempt.
+ *
+ * `accepted` only says the control request was taken, which is a weaker fact
+ * than the caller usually wants: a signal can be registered before the provider
+ * turn has even been acknowledged, and sending an interrupt is not the same
+ * barrier as the turn completing. Work that replaces this attempt needs the
+ * distinction, so an adapter that knows it states it.
+ *
+ * `withdrawn_before_start` means no provider turn was running and none can now
+ * begin for this task. `stop_requested_after_start` means a turn had already
+ * started, so its result and any effects it produced still stand. An adapter
+ * that cannot tell leaves this unset, and callers must treat that as unproven.
+ */
+export type AdapterLocalAttemptOutcome =
+  | "stop_requested_after_start"
+  | "withdrawn_before_start";
+
 export type AdapterCancelResult = AdapterControlResultBase & {
   deliveryPath?: "cancel" | "force_interrupt_fallback";
+  localAttemptOutcome?: AdapterLocalAttemptOutcome;
   signalDelivery: "not_sent" | "sent";
 };
 

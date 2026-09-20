@@ -19246,6 +19246,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) {
       return;
     }
+    // Accepting a cancellation is not the same fact as the attempt being gone.
+    // A signal can be registered before the provider turn is acknowledged, and
+    // interrupting a started turn leaves its result and effects standing. Only
+    // an adapter that states it withdrew the attempt before any turn began has
+    // supplied what replacement work needs; a Service that predates this says
+    // nothing, which stays unproven rather than becoming permission.
+    if (input.payload.localAttemptOutcome !== "withdrawn_before_start") {
+      return;
+    }
     const withdrawn =
       await recordRuntimeCoordinatorLocalAttemptWithdrawnInStorage({
         daemonSessionId: input.daemonSessionId,
