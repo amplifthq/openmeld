@@ -178,11 +178,12 @@ this admission policy. Keep those focused and inspect machine facts first.
 Hosted GitHub jobs retain their independent runner limits.
 
 Startup budgets are estimates: 6 GiB for a Worker stack, 2 GiB for Web and
-2 GiB for broad verification. Admission keeps 15% of effective machine memory
-(at least 1 GiB) as headroom and accounts for reservations that have not yet
-materialized as resident memory. macOS also blocks new work while the OS
-reports memory pressure. These checks reduce overlapping peaks; they are not
-OS-enforced memory caps and cannot prevent another application from growing.
+2 GiB for broad verification. Admission keeps 10% of effective memory on macOS,
+where the operating system also blocks new work when it reports memory
+pressure. Other platforms keep 15%; all platforms keep at least 1 GiB and
+account for reservations that have not yet materialized as resident memory.
+These checks reduce overlapping peaks; they are not OS-enforced memory caps and
+cannot prevent another application from growing.
 
 After the Worker stack's existing readiness probes pass, its reservation keeps
 growth room of 25% of current process-tree RSS (at least 1 GiB), instead of

@@ -25,18 +25,25 @@ function positiveNumber(env, key, fallback) {
   return value;
 }
 
-export function resourcePolicy(env = process.env, memoryBytes = totalmem()) {
+export function resourcePolicy(
+  env = process.env,
+  memoryBytes = totalmem(),
+  platform = process.platform
+) {
   const heavySlots = positiveNumber(env, "OPENMELD_LOCAL_HEAVY_SLOTS", 1);
   if (!Number.isInteger(heavySlots)) {
     throw new Error("OPENMELD_LOCAL_HEAVY_SLOTS must be an integer.");
   }
+  // macOS supplies a separate live pressure signal below, so it needs less
+  // static headroom than platforms where only available memory is observable.
+  const headroomShare = platform === "darwin" ? 0.1 : 0.15;
   return {
     heavySlots,
     headroomBytes:
       positiveNumber(
         env,
         "OPENMELD_LOCAL_MEMORY_HEADROOM_GIB",
-        Math.max(1, (memoryBytes / GIB) * 0.15)
+        Math.max(1, (memoryBytes / GIB) * headroomShare)
       ) * GIB,
     costs: {
       stack: positiveNumber(env, "OPENMELD_LOCAL_STACK_GIB", 6) * GIB,
