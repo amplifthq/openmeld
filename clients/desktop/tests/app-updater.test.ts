@@ -269,6 +269,7 @@ describe("Desktop update consent", () => {
     "/Applications/OpenMeld Preview.app",
   ])("fails closed before Squirrel from an unsafe macOS bundle path: %s", async (currentAppBundle) => {
     const { controller, driver } = fixture();
+    const setInstalling = vi.fn();
     const guarded = createAppUpdater({
       updater: driver as unknown as MacUpdater,
       platform: "macos-arm64",
@@ -277,7 +278,7 @@ describe("Desktop update consent", () => {
       recordMacInstallRequested: vi.fn(),
       publish: vi.fn(),
       prepareRestart: vi.fn(async () => true),
-      setInstalling: vi.fn(),
+      setInstalling,
     });
     await guarded.act("check");
     await guarded.act("download");
@@ -287,5 +288,6 @@ describe("Desktop update consent", () => {
       errorStage: "restart",
     });
     expect(driver.quitAndInstall).not.toHaveBeenCalled();
+    expect(setInstalling).not.toHaveBeenCalledWith(true);
   });
 });

@@ -3,7 +3,6 @@ import { basename, dirname } from "node:path";
 export const MAC_PRODUCTION_PRODUCT_NAME = "OpenMeld";
 export const MAC_PRODUCTION_APP_BUNDLE_NAME = "OpenMeld.app";
 export const MAC_PRODUCTION_APP_ID = "sh.openmeld.desktop";
-export const MAC_PRODUCTION_TEAM_ID = "38FFHDPA3B";
 
 /** Earlier signed installs used this folder and cannot cross the rename through Squirrel.Mac. */
 export const MAC_LEGACY_APP_BUNDLE_NAMES = ["OpenMeld Desktop.app"] as const;
