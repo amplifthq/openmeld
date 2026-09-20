@@ -2065,7 +2065,16 @@ registration is removed, so migration cannot create two execution owners. Task
 Scheduler's registered action is the source for command and environment diagnostics;
 new installs do not maintain a parallel batch-file configuration.
 
-On macOS, the managed LaunchAgent uses `RunAtLoad=true` and `KeepAlive=true`.
+On macOS, the managed LaunchAgent uses `RunAtLoad=true` and
+`KeepAlive.SuccessfulExit=false`: an abnormal exit is restarted, but a successful
+controlled drain must not spawn a replacement before the authorized Stop caller
+unloads the job. `launchctl disable` changes future loading eligibility; it does
+not cancel an already loaded job's unconditional keepalive. Account/PID checks
+remain mandatory, and Stop still requires actual Host exit and manager teardown.
+Normal update and explicit Start paths load/start the registered job themselves;
+they do not depend on respawn after a successful drain. Existing unconditional
+keepalive definitions are detected as startup-policy drift and reconciled through
+the existing guarded lifecycle path, never rewritten underneath a live process.
 It declares `ProcessType=Interactive` because people are waiting for its Wake
 execution and replies. Omitting that classification allows macOS to throttle
 the carrier's CPU and I/O as background work; child controller processes can
