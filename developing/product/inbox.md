@@ -24,8 +24,10 @@ item. Search does not mark items read, dismiss them, or resolve their sources.
 Removed Inbox items remain excluded even if their original messages are still
 searchable from a conversation or workspace search.
 
-The same search dialog serves a single conversation and workspace-wide message
-search from the command menu. It accepts literal text of 3–200 characters,
+Conversation and Inbox dialogs share the command menu's search reader. Searches
+run after 300 ms without typing and wait for IME composition to finish. The
+command menu displays message results inline rather than opening another dialog.
+Changing or clearing the query cancels obsolete requests. Search accepts literal text of 3–200 characters,
 including unsegmented Chinese text. Historical indexing and incomplete pages
 remain visible; an unfinished or failed search must not claim there are no
 matches. Results are transient, not part of persisted browser read caches.

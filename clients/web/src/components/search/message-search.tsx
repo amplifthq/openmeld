@@ -87,9 +87,9 @@ export function MessageSearchDialog(input: {
 	);
 }
 
-function MessageSearchContents(input: {
-	initialQuery?: string;
-	onOpenChange: (value: boolean) => void;
+export function useMessageSearch(input: {
+	draft: string;
+	isComposing: boolean;
 	spaceId?: string;
 	profileId?: string;
 	scope?: "inbox" | "messages";
@@ -97,12 +97,18 @@ function MessageSearchContents(input: {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
 	const profileId = input.profileId ?? defaultHumanProfile?.openMeldProfileId;
-	const [draft, setDraft] = useState(input.initialQuery ?? "");
-	const initialQuery = input.initialQuery?.trim() ?? "";
-	const [query, setQuery] = useState(
-		[...initialQuery].length >= 3 ? initialQuery : ""
-	);
-	const [attempt, setAttempt] = useState(0);
+	const { isComposing } = input;
+	const searchText = input.draft.trim();
+	const [settledQuery, setSettledQuery] = useState("");
+	const query = !isComposing && settledQuery === searchText ? settledQuery : "";
+	useEffect(() => {
+		setSettledQuery("");
+		if (isComposing || [...searchText].length < 3) {
+			return;
+		}
+		const timer = setTimeout(() => setSettledQuery(searchText), 300);
+		return () => clearTimeout(timer);
+	}, [searchText, isComposing]);
 	const results = useInfiniteQuery({
 		queryKey: [
 			"message-search",
@@ -112,7 +118,6 @@ function MessageSearchContents(input: {
 			input.spaceId,
 			input.scope,
 			query,
-			attempt,
 		],
 		enabled: Boolean([...query].length >= 3 && profileId),
 		initialPageParam: undefined as string | undefined,
@@ -168,41 +173,69 @@ function MessageSearchContents(input: {
 	);
 	// One search spans several requests; gaps between pages are not completion.
 	const searching = Boolean(
-		query &&
+		!isComposing &&
+			[...searchText].length >= 3 &&
 			!isError &&
-			(results.isPending || isFetching || continueAutomatically)
+			(!query || results.isPending || isFetching || continueAutomatically)
 	);
 	useEffect(() => {
 		if (continueAutomatically && !isFetching && !isError) {
 			fetchNextPage();
 		}
 	}, [continueAutomatically, isFetching, isError, fetchNextPage]);
+	return {
+		results,
+		matches,
+		activities,
+		searching,
+		continueAutomatically,
+		query,
+		searchText,
+		resultCount,
+		profileId,
+		currentOrganization,
+	};
+}
+
+function MessageSearchContents(input: {
+	initialQuery?: string;
+	onOpenChange: (value: boolean) => void;
+	spaceId?: string;
+	profileId?: string;
+	scope?: "inbox" | "messages";
+}) {
+	const [draft, setDraft] = useState(input.initialQuery ?? "");
+	const [isComposing, setIsComposing] = useState(false);
+	const {
+		results,
+		matches,
+		activities,
+		searching,
+		continueAutomatically,
+		query,
+		searchText,
+		resultCount,
+		profileId,
+		currentOrganization,
+	} = useMessageSearch({ ...input, draft, isComposing });
 	return (
 		<>
-			<form
-				className="flex gap-2"
-				onSubmit={(event) => {
-					event.preventDefault();
-					setQuery(draft.trim());
-					setAttempt((value) => value + 1);
+			<Input
+				aria-label="Search message text"
+				maxLength={200}
+				onChange={(event) => {
+					setDraft(event.target.value);
 				}}
-			>
-				<Input
-					aria-label="Search message text"
-					maxLength={200}
-					minLength={3}
-					onChange={(event) => setDraft(event.target.value)}
-					placeholder="Search text…"
-					value={draft}
-				/>
-				<Button
-					disabled={[...draft.trim()].length < 3}
-					type="submit"
-					variant="secondary"
-				>
-					Search
-				</Button>
-			</form>
+				onCompositionEnd={(event) => {
+					setDraft(event.currentTarget.value);
+					setIsComposing(false);
+				}}
+				onCompositionStart={() => {
+					setIsComposing(true);
+				}}
+				placeholder="Search text…"
+				value={draft}
+			/>
 			<ScrollArea
 				className="min-h-32 flex-1"
 				viewportProps={{ "aria-label": "Message search results" }}
@@ -244,7 +277,9 @@ function MessageSearchContents(input: {
 						aria-live="polite"
 						className="min-h-5 text-muted-foreground text-sm"
 					>
-						{!query && "Use at least 3 characters."}
+						{!isComposing &&
+							[...searchText].length < 3 &&
+							"Use at least 3 characters."}
 						{searching && "Searching…"}
 						{query &&
 							!searching &&
@@ -287,7 +322,7 @@ function inboxSearchHref(orgSlug: string, itemId: string): string {
 	return `${buildOrganizationInboxPath(orgSlug)}?item=${encodeURIComponent(itemId)}`;
 }
 
-function messageSearchHref(
+export function messageSearchHref(
 	match: MessageSearchResponse["matches"][number],
 	orgSlug: string,
 	profileId?: string
