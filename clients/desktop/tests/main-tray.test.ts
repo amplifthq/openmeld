@@ -1,6 +1,9 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { DesktopInboxAttention } from "@openmeld/schemas";
+import type {
+  DesktopInboxAttention,
+  DesktopUpdaterState,
+} from "@openmeld/schemas";
 import type { IpcMainInvokeEvent } from "electron";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WINDOW_IPC } from "../src/shared/ipc-contract";
@@ -50,6 +53,7 @@ vi.mock("../src/main/pilot", () => ({
 
 const updaterMock = vi.hoisted(() => ({
   setInstalling: undefined as ((value: boolean) => void) | undefined,
+  setState: undefined as ((state: DesktopUpdaterState) => void) | undefined,
   controller: {
     check: vi.fn<() => Promise<void> | undefined>(() => undefined),
     legacyStatus: vi.fn(async () => ({
@@ -69,8 +73,12 @@ const updaterMock = vi.hoisted(() => ({
 
 vi.mock("../src/main/update/register-app-updater", () => ({
   registerAppUpdater: vi.fn(
-    (input: { setInstalling: (value: boolean) => void }) => {
+    (input: {
+      onStateChanged: (state: DesktopUpdaterState) => void;
+      setInstalling: (value: boolean) => void;
+    }) => {
       updaterMock.setInstalling = input.setInstalling;
+      updaterMock.setState = input.onStateChanged;
       return updaterMock.controller;
     }
   ),
@@ -395,6 +403,7 @@ beforeEach(() => {
   electronMock.app.setName.mockClear();
   electronMock.app.whenReady.mockClear();
   updaterMock.setInstalling = undefined;
+  updaterMock.setState = undefined;
   updaterMock.controller.check.mockClear();
   updaterMock.controller.legacyStatus.mockClear();
   updaterMock.controller.showNative.mockClear();
@@ -885,6 +894,52 @@ describe("main tray behavior", () => {
         "Stop OpenMeld Service",
       ])
     );
+  });
+
+  it("shows only actionable Desktop updates in the menu and opens the native update flow", async () => {
+    setTestPlatform("darwin");
+    setTestSystemVersion("14.4");
+    await importMain();
+
+    updaterMock.setState?.({
+      status: "available",
+      currentVersion: "0.1.4",
+      version: "0.1.5",
+      percent: null,
+      errorStage: null,
+    });
+
+    const available = trayMenuTemplate()?.find(
+      (item) => item.label === "Update Available…"
+    );
+    expect(available).toEqual(
+      expect.objectContaining({
+        accessibilityLabel:
+          "Update available. Version 0.1.5 is available to download.",
+        badge: { type: "updates", count: 1 },
+      })
+    );
+    available?.click?.();
+    expect(updaterMock.controller.showNative).toHaveBeenCalledOnce();
+
+    updaterMock.setState?.({
+      status: "downloaded",
+      currentVersion: "0.1.4",
+      version: "0.1.5",
+      percent: 100,
+      errorStage: null,
+    });
+    expect(trayMenuItem("Restart to Update…")).toBeTruthy();
+
+    updaterMock.setState?.({
+      status: "current",
+      currentVersion: "0.1.4",
+      version: null,
+      percent: null,
+      errorStage: null,
+    });
+    expect(trayMenuItem("Restart to Update…")).toBeUndefined();
+    expect(trayMenuItem("Update Available…")).toBeUndefined();
   });
 
   it("adds native icons to every clickable tray action", async () => {

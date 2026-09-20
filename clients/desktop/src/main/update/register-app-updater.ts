@@ -39,6 +39,7 @@ export function registerAppUpdater(input: {
   };
   authorize: (event: IpcMainInvokeEvent) => void;
   getWindow: () => BrowserWindow | null;
+  onStateChanged: (state: DesktopUpdaterState) => void;
   setInstalling: (value: boolean) => void;
 }) {
   const unavailable: DesktopUpdaterState = {
@@ -74,9 +75,9 @@ export function registerAppUpdater(input: {
         currentVersion: app.getVersion(),
         setInstalling: input.setInstalling,
         publish: (state) => {
-          input
-            .getWindow()
-            ?.webContents.send(PILOT_IPC.updaterChanged, withIdentity(state));
+          const next = withIdentity(state);
+          input.getWindow()?.webContents.send(PILOT_IPC.updaterChanged, next);
+          input.onStateChanged(next);
           observe(state);
         },
         prepareRestart: () =>
@@ -128,6 +129,7 @@ export function registerAppUpdater(input: {
       6 * 60 * 60 * 1000
     ).unref();
   }
+  input.onStateChanged(withIdentity(controller?.snapshot() ?? unavailable));
   return {
     async legacyStatus(): Promise<DesktopUpdateView> {
       await controller?.act("check");

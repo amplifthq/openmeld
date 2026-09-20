@@ -162,7 +162,10 @@ arrived first.
 
 The macOS menu bar menu is the compact native entry to the current Desktop
 workspace. It shows the newest eligible unread message as one preview, then
-Open inbox, Open app, Computer, Settings…, and Quit OpenMeld. Opening the menu
+Open inbox, Open app, Computer, Settings…, and Quit OpenMeld. When Main's native
+updater reports an actionable newer version, a system-badged update row appears
+beside Settings and opens the existing native download/restart flow. Current,
+idle, and unavailable builds keep that row absent. Opening the menu
 does not mark anything read. Activating the preview re-reads that exact Inbox
 item under the current account, restores the existing window, and navigates to
 the exact message or Thread reply without acknowledging unrelated unread work.
@@ -170,7 +173,7 @@ Open app restores the renderer's existing route rather than choosing a new
 home. The menu does not expose the version, a separate Web app row, or Service
 lifecycle controls. Quitting the GUI retains the independent Service lifecycle.
 The native menu keeps its current snapshot while open, so a refresh cannot
-retarget the row under the pointer.
+retarget a row under the pointer.
 
 The A1 foundation is opt-in with `OPENMELD_DESKTOP_PILOT=1`. It requires a
 dev-local or canary lane and a configured loopback Web endpoint. Production
