@@ -22,6 +22,118 @@ const TARGET_PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
 const OTHER_TARGET_PROFILE_ID = "agt_44444444-4444-4444-8444-444444444444";
 
 describe("Wake progress projection", () => {
+  it("keeps distinct executions on one source separate through merging and final cleanup", () => {
+    const a = createWakeProgressItem({
+      clientMessageId: "request",
+      dispatchId: "A",
+      sourceSignalId: "source",
+      targetProfileId: TARGET_PROFILE_ID,
+      targetLabel: "Agent",
+      phase: "running",
+      updatedAtMs: 100,
+    });
+    const b = { ...a, dispatchId: "B", updatedAtMs: 200 };
+    const merged = mergeWakeProgressItems({
+      currentItems: [a],
+      incomingItems: [b],
+    });
+    expect(merged.map((item) => item.dispatchId)).toEqual(["A", "B"]);
+    expect(
+      mergeWakeProgressItems({
+        currentItems: merged,
+        incomingItems: [
+          { ...a, phase: "replied", terminal: true, updatedAtMs: 300 },
+        ],
+      })
+    ).toEqual([b]);
+    const final = createTextSignal({
+      id: "final-A",
+      text: "Done",
+      ts: 300,
+      meta: {
+        purpose: AGENT_REPLY_FINAL_PURPOSE,
+        dispatchId: "A",
+        targetProfileId: TARGET_PROFILE_ID,
+      },
+      replyTo: {
+        signalId: "source",
+        profileId: "viewer",
+        profileKind: "human",
+        profileName: "Viewer",
+        previewText: "Request",
+      },
+    });
+    expect(
+      applyWakeProgressSignals({ currentItems: merged, signals: [final] })
+    ).toEqual([b]);
+    const pending = { ...a, dispatchId: null, phase: "sending" as const };
+    const upgraded = mergeWakeProgressItems({
+      currentItems: [pending],
+      incomingItems: [a],
+    });
+    expect(upgraded).toEqual([a]);
+    expect(
+      mergeWakeProgressItems({
+        currentItems: upgraded,
+        incomingItems: [{ ...a, dispatchId: null, updatedAtMs: 400 }],
+      })[0]?.dispatchId
+    ).toBe("A");
+  });
+  it.each([
+    AGENT_REPLYING_PURPOSE,
+    AGENT_REPLY_PREVIEW_PURPOSE,
+  ])("keeps Core Stop eligibility while applying %s presentation updates", (purpose) => {
+    const current = createWakeProgressItem({
+      clientMessageId: "client-message-1",
+      dispatchId: "dispatch-1",
+      phase: "running",
+      sourceSignalId: "sig-source-1",
+      targetLabel: "Center Agent",
+      targetProfileId: TARGET_PROFILE_ID,
+      updatedAtMs: 10,
+      wakeStopEligibility: {
+        controlMode: "cancel",
+        reasonCode: null,
+        reliability: "native_cancel",
+        status: "eligible",
+      },
+    });
+    const signal = createTextSignal({
+      id: "progress-1",
+      ts: 20,
+      text: "Working",
+      meta: {
+        dispatchId: "dispatch-1",
+        purpose,
+        sourceClientMessageId: "client-message-1",
+        sourceEventId: "sig-source-1",
+        targetProfileId: TARGET_PROFILE_ID,
+        transient: true,
+      },
+    });
+    const items = applyWakeProgressSignals({
+      currentItems: [current],
+      signals: [signal],
+    });
+    expect(items[0]?.wakeStopEligibility).toEqual(current.wakeStopEligibility);
+    expect(
+      applyWakeProgressSignals({ currentItems: [], signals: [signal] })[0]
+        ?.wakeStopEligibility
+    ).toBeUndefined();
+    const revoked = mergeWakeProgressItems({
+      currentItems: items,
+      incomingItems: [
+        { ...current, updatedAtMs: 30, wakeStopEligibility: null },
+      ],
+    });
+    expect(
+      applyWakeProgressSignals({
+        currentItems: revoked,
+        signals: [{ ...signal, ts: 40 }],
+      })[0]?.wakeStopEligibility
+    ).toBeNull();
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(1000);
@@ -866,7 +978,7 @@ describe("Wake progress projection", () => {
     expect(items[0]).toMatchObject({
       phase: "failed",
       message:
-        "This agent is connected to an older computer setup. Update setup on this computer, then try again.",
+        "This agent's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.",
       terminal: true,
     });
   });
@@ -1005,7 +1117,7 @@ describe("Wake progress projection", () => {
     ],
     [
       "claim_eligibility.openmeld_service_runtime_id_mismatch",
-      "This agent is connected to an older computer setup. Update setup on this computer, then try again.",
+      "This agent's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.",
     ],
     [
       "claim_eligibility.runtime_conflict",

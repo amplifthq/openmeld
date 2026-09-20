@@ -1,10 +1,46 @@
 import { createSpaceMemberAgentExecutionReadiness } from "@openmeld/schemas/testing";
 import { describe, expect, it, vi } from "vitest";
-import { createAgentProfileBindingApi, createOpenMeldApiClient } from "../src";
+import {
+  createAgentProfileBindingApi,
+  createAgentProfileExecutionModeApi,
+  createOpenMeldApiClient,
+} from "../src";
 
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 
 describe("api-client agent profile binding api", () => {
+  it.each([
+    undefined,
+    "serial",
+    "parallel",
+  ] as const)("uses the owner execution-mode route for %s", async (mode) => {
+    const response = {
+      agentProfileId: AGENT_PROFILE_ID,
+      mode: mode ?? "parallel",
+      migration: "draining",
+      revision: 7,
+    };
+    const transport = vi.fn(() => Promise.resolve(jsonResponse(response)));
+    const api = createAgentProfileExecutionModeApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    await expect(
+      api.readOrUpdate({ agentProfileId: AGENT_PROFILE_ID, mode })
+    ).resolves.toEqual(response);
+    expect(transport).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        url: `https://gateway.openmeld.invalid/v1/agent-profiles/${AGENT_PROFILE_ID}/execution-mode`,
+        init: expect.objectContaining({
+          method: mode ? "PATCH" : "GET",
+          ...(mode ? { body: JSON.stringify({ mode }) } : {}),
+        }),
+      })
+    );
+  });
+
   it("looks up one exact Agent session without listing profiles", async () => {
     const transport = vi.fn(() =>
       Promise.resolve(
@@ -212,8 +248,10 @@ describe("api-client agent profile binding api", () => {
       })
     );
 
+    const controller = new AbortController();
     const result = await api.getExecutionReadinessBatch({
       agentProfileIds: [AGENT_PROFILE_ID],
+      signal: controller.signal,
     });
 
     expect(result.items).toHaveLength(1);
@@ -230,6 +268,8 @@ describe("api-client agent profile binding api", () => {
         url: "https://gateway.openmeld.invalid/v1/agent-profiles/execution-readiness/batch",
       })
     );
+    controller.abort();
+    expect(transport.mock.calls[0]?.[0].init?.signal?.aborted).toBe(true);
   });
 
   it("ensures primary Binding without caller-provided owner identity", async () => {

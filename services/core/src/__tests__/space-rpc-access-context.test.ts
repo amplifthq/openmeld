@@ -319,10 +319,12 @@ describe("Space RPC access context propagation", () => {
     });
     await rpcGetSpaceWakeProgress(env, {
       clientMessageId: CLIENT_MESSAGE_ID,
+      includeDeviceWait: true,
       spaceAccess,
       spaceId: SPACE_ID,
     });
     await rpcGetActiveSpaceWakeProgress(env, {
+      includeDeviceWait: true,
       spaceAccess,
       spaceId: SPACE_ID,
     });
@@ -396,6 +398,14 @@ describe("Space RPC access context propagation", () => {
       includeRemoteAgentRuntimeDiagnostics: true,
       responseContractVersion: 2,
     });
+    for (const methodName of [
+      "rpcGetWakeProgress",
+      "rpcGetActiveWakeProgress",
+    ]) {
+      expect(captured.get(methodName)).toMatchObject({
+        includeDeviceWait: true,
+      });
+    }
   });
 
   it("passes structured Space access through Space DO direct RPC handler options", async () => {

@@ -6,6 +6,97 @@ import { describe, expect, it } from "vitest";
 import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
 
 describe("local component update projection", () => {
+  it.each([
+    "restored",
+    "needs_help",
+  ] as const)("projects only the first allowlisted Service CLI update failure reason for %s", (phase) => {
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-09-14T00:00:00.000Z",
+      localComponentsStatus: createLocalComponentsStatus({
+        cliPackageVersion: "0.7.27",
+        cliReasonCodes: [
+          "OpenMeld update process exited with status 1 at /private/path",
+          "cli.update.download_stalled",
+          "cli.update.failed",
+          "cli.update.download_stalled",
+        ],
+        includeUpdateOperation: true,
+        updateOperationPhase: phase,
+      }),
+      releaseManifest: createReleaseManifest({}),
+      serviceConnected: true,
+      serviceVersion: "0.7.28",
+    });
+
+    expect(projection.cli.reasonCodes).toEqual([
+      "cli.package_update_available",
+      "cli.update.download_stalled",
+    ]);
+  });
+
+  it("keeps a healthy Service Wake-ready after a historical update failure", () => {
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-09-14T00:00:00.000Z",
+      localComponentsStatus: createLocalComponentsStatus({
+        cliReasonCodes: ["cli.update.download_stalled"],
+        includeUpdateOperation: true,
+        updateOperationPhase: "needs_help",
+      }),
+      releaseManifest: createReleaseManifest({}),
+      serviceConnected: true,
+      serviceVersion: "0.7.28",
+    });
+
+    expect(projection).toMatchObject({
+      setupAction: "none",
+      service: {
+        status: "current",
+        wakeBlocked: false,
+      },
+      updateOperation: {
+        phase: "needs_help",
+      },
+    });
+    expect(projection.cli.reasonCodes).toEqual(["cli.update.download_stalled"]);
+  });
+
+  it("drops Service CLI update failure reasons without an update operation", () => {
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-09-14T00:00:00.000Z",
+      localComponentsStatus: createLocalComponentsStatus({
+        cliPackageVersion: "0.7.27",
+        cliReasonCodes: ["cli.update.download_stalled"],
+      }),
+      releaseManifest: createReleaseManifest({}),
+      serviceConnected: true,
+      serviceVersion: "0.7.28",
+    });
+
+    expect(projection.cli.reasonCodes).toEqual([
+      "cli.package_update_available",
+    ]);
+  });
+
+  it.each([
+    "waiting_for_work",
+    "updating",
+    "updated",
+  ] as const)("drops Service CLI update failure reasons while the operation is %s", (phase) => {
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-09-14T00:00:00.000Z",
+      localComponentsStatus: createLocalComponentsStatus({
+        cliReasonCodes: ["cli.update.download_stalled"],
+        includeUpdateOperation: true,
+        updateOperationPhase: phase,
+      }),
+      releaseManifest: createReleaseManifest({}),
+      serviceConnected: true,
+      serviceVersion: "0.7.28",
+    });
+
+    expect(projection.cli.reasonCodes).toEqual([]);
+  });
+
   it("does not describe unknown installed versions as up to date and preserves the command lane", () => {
     const result = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-09-07T00:00:00.000Z",
@@ -105,15 +196,15 @@ describe("local component update projection", () => {
       generatedAt: "2026-06-04T00:00:00.000Z",
       localComponentsStatus: createLocalComponentsStatus({
         includeUpdateOperation: true,
-        updateTargetVersion: "0.3.168",
+        updateTargetVersion: "0.3.198",
         updateUrgency: "required",
       }),
       releaseManifest: createReleaseManifest({
-        serviceBundleVersion: "0.3.168",
+        serviceBundleVersion: "0.3.198",
         serviceUpdatePolicy: "required",
       }),
       serviceConnected: true,
-      serviceVersion: "0.3.167",
+      serviceVersion: "0.3.197",
     });
 
     expect(projection.updateOperation).toEqual({
@@ -121,15 +212,15 @@ describe("local component update projection", () => {
       phase: "waiting_for_work",
       requestSource: "automatic",
       requestedAt: "2026-06-04T00:00:00.000Z",
-      targetVersion: "0.3.168",
+      targetVersion: "0.3.198",
       updatedAt: "2026-06-04T00:01:00.000Z",
       urgency: "required",
     });
     expect(projection).toMatchObject({
       setupAction: "update_service",
       service: {
-        installedVersion: "0.3.167",
-        requiredVersion: "0.3.168",
+        installedVersion: "0.3.197",
+        requiredVersion: "0.3.198",
         status: "update_required",
         updatePolicy: "required",
         wakeBlocked: true,
@@ -174,31 +265,31 @@ describe("local component update projection", () => {
     });
   });
 
-  it("requires Service 0.3.168 before admitting new Wake work", () => {
+  it("requires Service 0.3.214 before admitting new Wake work", () => {
     const releaseManifest = createReleaseManifest({
-      serviceBundleVersion: "0.3.168",
+      serviceBundleVersion: "0.3.214",
       serviceUpdatePolicy: "available",
     });
     const unsupported = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest,
       serviceConnected: true,
-      serviceVersion: "0.3.167",
+      serviceVersion: "0.3.213",
     });
     const supported = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest,
       serviceConnected: true,
-      serviceVersion: "0.3.168",
+      serviceVersion: "0.3.214",
     });
 
     expect(unsupported).toMatchObject({
       setupAction: "update_service",
       service: {
-        installedVersion: "0.3.167",
-        latestVersion: "0.3.168",
+        installedVersion: "0.3.213",
+        latestVersion: "0.3.214",
         reasonCodes: ["service.version_outdated"],
-        requiredVersion: "0.3.168",
+        requiredVersion: "0.3.214",
         status: "update_required",
         updatePolicy: "required",
         wakeBlocked: true,
@@ -207,8 +298,8 @@ describe("local component update projection", () => {
     expect(supported).toMatchObject({
       setupAction: "none",
       service: {
-        installedVersion: "0.3.168",
-        latestVersion: "0.3.168",
+        installedVersion: "0.3.214",
+        latestVersion: "0.3.214",
         reasonCodes: ["service.bundle_hash_not_reported"],
         requiredVersion: null,
         status: "current",
@@ -289,18 +380,18 @@ describe("local component update projection", () => {
     const projection = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
-        serviceBundleVersion: "0.3.167",
+        serviceBundleVersion: "0.3.213",
         serviceUpdatePolicy: "available",
       }),
       serviceConnected: true,
-      serviceVersion: "0.3.167",
+      serviceVersion: "0.3.213",
     });
 
     expect(projection).toMatchObject({
       setupAction: "none",
       service: {
-        installedVersion: "0.3.167",
-        latestVersion: "0.3.167",
+        installedVersion: "0.3.213",
+        latestVersion: "0.3.213",
         reasonCodes: ["service.bundle_hash_not_reported"],
         requiredVersion: null,
         status: "current",
@@ -314,20 +405,20 @@ describe("local component update projection", () => {
     const projection = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
-        serviceBundleVersion: "0.3.168",
+        serviceBundleVersion: "0.3.214",
         serviceUpdatePolicy: "available",
       }),
       serviceConnected: true,
-      serviceVersion: "0.3.167",
+      serviceVersion: "0.3.213",
     });
 
     expect(projection).toMatchObject({
       setupAction: "update_service",
       service: {
-        installedVersion: "0.3.167",
-        latestVersion: "0.3.168",
+        installedVersion: "0.3.213",
+        latestVersion: "0.3.214",
         reasonCodes: ["service.version_outdated"],
-        requiredVersion: "0.3.168",
+        requiredVersion: "0.3.214",
         status: "update_required",
         updatePolicy: "required",
         wakeBlocked: true,
@@ -642,11 +733,15 @@ function createReleaseManifest(input: {
 function createLocalComponentsStatus(input: {
   automaticUpdatesEnabled?: boolean;
   cliPackageVersion?: string;
+  cliReasonCodes?: string[];
   includeCompletedUpdateOperation?: boolean;
   includeUpdateOperation?: boolean;
   serviceBundleHash?: string | null;
   skillsBundleHash?: string | null;
   updateTargetVersion?: string;
+  updateOperationPhase?: NonNullable<
+    LocalComponentsStatus["updateOperation"]
+  >["phase"];
   updateUrgency?: "available" | "required";
 }): LocalComponentsStatus {
   return {
@@ -672,7 +767,7 @@ function createLocalComponentsStatus(input: {
       ? {
           updateOperation: {
             operationId: "update-1",
-            phase: "waiting_for_work" as const,
+            phase: input.updateOperationPhase ?? "waiting_for_work",
             requestSource: "automatic" as const,
             requestedAt: "2026-06-04T00:00:00.000Z",
             targetVersion: input.updateTargetVersion ?? "0.7.28",
@@ -698,7 +793,7 @@ function createLocalComponentsStatus(input: {
       commandContractVersion: "cli-contract-v1",
       latestPackageVersion: "0.7.28",
       packageVersion: input.cliPackageVersion ?? "0.7.28",
-      reasonCodes: [],
+      reasonCodes: input.cliReasonCodes ?? [],
       requiredCommandContractVersion: null,
       status: "ok",
     },

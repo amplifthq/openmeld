@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-08T07:13:04.696Z",
+  "updatedAt": "2026-09-20T17:50:17.776Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-09-people-computers-v2",
-      "packageVersion": "0.3.171",
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
+      "packageVersion": "0.3.215",
       "updatePolicy": "available",
-      "reason": "Commands and external payloads remain compatible with both cloud versions; this release changes internal reply review context only."
+      "reason": "The new Host remains behind Service and Core capability checks; older cloud receivers parse existing frames, older CLIs continue supported work, and Zod preserves public CLI inputs."
     },
     "service": {
-      "bundleHash": "c8a1534a7a03118eea5daef414d770e9ccd14de0a08cd76c3482e707ec5fb5d7",
-      "bundleVersion": "0.3.171",
-      "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
-      "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
+      "bundleHash": "f7ce053a8c51ed4ca2b7da579a8ea2155993e70ce7deeb6b9d8b0db8ed47f308",
+      "bundleVersion": "0.3.215",
+      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
+      "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Shared Lark registration schemas change the packaged Service fingerprint, but setup, Wake, Space actions, status, trace, and recovery protocols are unchanged. Old and new cloud and local components remain compatible; existing users do not need to upgrade."
+      "reason": "Service and Host ship together; older Services continue supported Wake work after receiver rollout, missing withdrawal proof withholds unsafe replacement work, and Zod preserves accepted transport and password validation."
     },
     "skills": {
-      "bundleHash": "ae455fbc38fb90675b28c5953935a889176439f009c1cceae85aca4f6fde14ec",
-      "skillContractVersion": "openmeld-skills-contract-2026-08-tool-owned-actions-v2",
+      "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
+      "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Signed compatible guide revisions update independently, retain the offline baseline, and do not require retiring existing Skills."
+      "reason": "The plugin guide adds optional commands without changing existing Wake or reply instructions; publish after the compatible cloud receivers."
     }
   }
 }

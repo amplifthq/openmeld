@@ -40,6 +40,7 @@ export type RuntimeTransportApiPath =
   | "/runtime-coordinator/interaction/respond"
   | "/runtime-coordinator/pre-execution-handoff"
   | "/runtime-coordinator/wake-stop"
+  | "/runtime-coordinator/wake-stop/publication-eligibility"
   | "/route-catalog-changed"
   | "/wait-dispatch-result";
 

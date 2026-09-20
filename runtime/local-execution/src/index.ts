@@ -18,6 +18,7 @@ export {
   type AgentContextLookupKeyInput,
   type AgentContextResolutionResult,
   type AgentContextScopeInput,
+  assertLegacyAgentContextAssociation,
   buildAgentContextLookupKey,
   isAgentContextCompatibleWithLookupKeyInput,
   isAgentContextCompatibleWithScopeInput,
@@ -72,7 +73,7 @@ export {
   type OpenMeldDaemonAgentContextState,
   type OpenMeldDaemonHistoryEntry,
   type OpenMeldDaemonInflightTaskState,
-  type OpenMeldDaemonLedgerStateV1,
+  type OpenMeldDaemonLedgerState,
   parseLedgerState,
   persistLedgerState,
   recordDedupeFirstSeenAt,
@@ -92,10 +93,8 @@ export {
   buildMentionDispatchResultEnvelope,
   MENTION_DISPATCH_ERROR_CODES,
   type MentionDispatchDecision,
-  type MentionDispatchDecisionInput,
   type MentionTargetBindingState,
   type MentionTargetResolution,
-  planMentionDispatchDecisions,
 } from "./mention-decision-chain.js";
 export {
   dispatchMentionOnlyTask,

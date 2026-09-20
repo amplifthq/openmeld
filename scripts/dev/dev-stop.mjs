@@ -3,7 +3,10 @@
 import { existsSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { desktopProcessOwners } from "./desktop-worktree-state.mjs";
+import { readIsolatedDevOwners } from "./dev-isolated-lane.mjs";
 import { findActiveDevLockHolder, readDevLockPayload } from "./dev-lock.mjs";
+import { manageWorktreeDevService } from "./dev-service.mjs";
 import {
   buildProcessMatcherContext,
   isDevGuardCommand,
@@ -15,6 +18,7 @@ import {
   normalizeProcessMatchText,
 } from "./process-matchers.mjs";
 import { readProcessRows } from "./process-rows.mjs";
+import { collectDescendants, stopProcessTree } from "./process-tree.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = resolve(fileURLToPath(new URL("../../", import.meta.url)));
@@ -38,8 +42,14 @@ if (isDirectExecution()) {
 }
 
 async function run() {
-  const rows = readProcessRows({ repoRoot });
-  const targets = collectTargetProcesses(rows);
+  manageWorktreeDevService(repoRoot, { dryRun });
+  const rows = readProcessRows({ repoRoot, includeMetrics: true });
+  const targets = collectTargetProcesses(rows, {
+    roots: [
+      ...readIsolatedDevOwners(repoRoot, rows),
+      ...desktopProcessOwners(repoRoot, rows),
+    ],
+  });
 
   if (targets.length === 0) {
     if (dryRun) {
@@ -66,32 +76,7 @@ async function run() {
     return;
   }
 
-  const coordinatorPids = targets
-    .filter((row) => row.kind === "coordinator")
-    .map((row) => row.pid);
-  const workerPids = targets
-    .filter((row) => row.kind === "worker")
-    .map((row) => row.pid);
-
-  for (const pid of coordinatorPids) {
-    safeKill(pid, "SIGTERM");
-  }
-  for (const pid of workerPids) {
-    safeKill(pid, "SIGTERM");
-  }
-
-  const allPids = [...coordinatorPids, ...workerPids];
-  await waitForExit(allPids, 4200);
-
-  const aliveAfterTerm = allPids.filter((pid) => isPidAlive(pid));
-  if (aliveAfterTerm.length > 0) {
-    console.log(
-      `[dev-stop] force stopping remaining process(es): ${aliveAfterTerm.join(", ")}`
-    );
-    for (const pid of aliveAfterTerm) {
-      safeKill(pid, "SIGKILL");
-    }
-  }
+  await stopProcessTree(targets, { repoRoot });
 
   clearLockFile();
   console.log("[dev-stop] done.");
@@ -100,7 +85,10 @@ async function run() {
 export function collectTargetProcesses(rows, options = {}) {
   const { currentPid = process.pid, matcherContext = processMatcherContext } =
     options;
-  const result = [];
+  const result = (options.roots ?? []).map((row) => ({
+    ...row,
+    kind: "coordinator",
+  }));
 
   for (const row of rows) {
     if (row.pid === currentPid) {
@@ -125,17 +113,28 @@ export function collectTargetProcesses(rows, options = {}) {
       matcherContext
     );
     const isWebViteDev = isWebViteDevCommand(normalizedCommand, matcherContext);
+    const isCliBinaryServer = normalizedCommand.includes(
+      "scripts/dev/serve-cli-binary.mjs"
+    );
 
     if (isGuard || isTurboDev) {
       result.push({ ...row, kind: "coordinator" });
       continue;
     }
-    if (isWranglerDev || isWranglerWorkerd || isWebViteDev) {
+    if (
+      isWranglerDev ||
+      isWranglerWorkerd ||
+      isWebViteDev ||
+      isCliBinaryServer
+    ) {
       result.push({ ...row, kind: "worker" });
     }
   }
 
-  return dedupeByPid(result);
+  const attributed = new Map(dedupeByPid(result).map((row) => [row.pid, row]));
+  return collectDescendants(rows, [...attributed.keys()], [currentPid]).map(
+    (row) => attributed.get(row.pid) ?? { ...row, kind: "worker" }
+  );
 }
 
 function isLocalWranglerWorkerd(normalizedCommand, matcherContext) {
@@ -162,36 +161,16 @@ function summarizeCommand(command) {
   return `${command.slice(0, 117)}...`;
 }
 
-function safeKill(pid, signal) {
-  try {
-    process.kill(pid, signal);
-  } catch {
-    // Ignore already-dead / permission errors in shutdown flow.
-  }
-}
-
 function isPidAlive(pid) {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
-  }
-}
-
-async function waitForExit(pids, timeoutMs) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const alive = pids.some((pid) => isPidAlive(pid));
-    if (!alive) {
-      return;
+  } catch (error) {
+    if (error?.code === "ESRCH") {
+      return false;
     }
-    await sleep(180);
+    throw error;
   }
-}
-
-function sleep(ms) {
-  return new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 }
 
 function clearLockFile() {
@@ -207,7 +186,9 @@ function clearLockFile() {
     isPidAlive,
   });
   if (activeLockHolder) {
-    safeKill(lockPayload.pid, "SIGTERM");
+    throw new Error(
+      `Dev stack owner ${lockPayload.pid} is still active. Its lock was preserved.`
+    );
   }
 
   rmSync(lockFile, { force: true });

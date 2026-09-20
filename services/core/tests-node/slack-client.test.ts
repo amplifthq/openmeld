@@ -14,6 +14,7 @@ import {
   readSlackChannelHistory,
   readSlackConversationInfo,
   readSlackFile,
+  readSlackMessageByTimestamp,
   readSlackThreadMessages,
   resolveSlackConversationMessageTargetById,
   setSlackThreadStatus,
@@ -501,6 +502,94 @@ describe("Slack channel members", () => {
 });
 
 describe("Slack channel history", () => {
+  it("reads one exact message and returns content-free response diagnostics", async () => {
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const url = new URL(String(request));
+      expect(url.pathname).toBe("/api/conversations.history");
+      expect(url.searchParams.get("channel")).toBe("C_OK8");
+      expect(url.searchParams.get("oldest")).toBe("1710000004.000400");
+      expect(url.searchParams.get("latest")).toBe("1710000004.000400");
+      expect(url.searchParams.get("inclusive")).toBe("true");
+      expect(url.searchParams.get("limit")).toBe("1");
+      return Promise.resolve(
+        Response.json({
+          messages: [
+            {
+              blocks: [{ type: "rich_text" }],
+              files: [
+                {
+                  id: "F_FORWARD",
+                  mimetype: "image/png",
+                  name: "forwarded.png",
+                  permalink:
+                    "https://openmeld-dev.slack.com/files/U_AVA/F_FORWARD/forwarded",
+                  size: 2048,
+                  url_private_download:
+                    "https://files.slack.com/files-pri/T_OPENMELD-F_FORWARD/download/forwarded.png",
+                },
+              ],
+              text: "Forwarded details",
+              ts: "1710000004.000400",
+              user: "U_AVA",
+            },
+          ],
+          ok: true,
+        })
+      );
+    });
+
+    await expect(
+      readSlackMessageByTimestamp({
+        botToken: "xoxb-test",
+        channelId: "C_OK8",
+        fetchImpl: fetchMock,
+        messageTs: "1710000004.000400",
+      })
+    ).resolves.toEqual({
+      message: {
+        botId: null,
+        displayName: null,
+        files: [
+          {
+            fileId: "F_FORWARD",
+            mimeType: "image/png",
+            name: "forwarded.png",
+            permalink:
+              "https://openmeld-dev.slack.com/files/U_AVA/F_FORWARD/forwarded",
+            sizeBytes: 2048,
+          },
+        ],
+        subtype: null,
+        text: "Forwarded details",
+        ts: "1710000004.000400",
+        userId: "U_AVA",
+      },
+      observation: {
+        matchingMessageCount: 1,
+        messageCount: 1,
+        messages: [
+          {
+            blocksCount: 1,
+            fieldNames: ["blocks", "files", "text", "ts", "user"],
+            filesCount: 1,
+            fileFieldNames: [
+              [
+                "id",
+                "mimetype",
+                "name",
+                "permalink",
+                "size",
+                "url_private_download",
+              ],
+            ],
+            textLen: 17,
+            tsMatches: true,
+          },
+        ],
+      },
+    });
+  });
+
   it("returns one cursor-paginated page of messages without joining the channel", async () => {
     const fetchMock = vi.fn<typeof fetch>((request) => {
       const url = new URL(String(request));

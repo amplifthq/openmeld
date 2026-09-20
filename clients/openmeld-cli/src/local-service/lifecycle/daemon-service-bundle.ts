@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmod,
@@ -17,6 +18,13 @@ import { createRequire } from "node:module";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import {
+  DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
+  downloadCliBinaryUpdateArtifact,
+  resolveCliBinaryUpdatePlan,
+  verifyCliBinaryCodeSignature,
+} from "@openmeld/local-service/cli-binary-update-artifact";
 import { readDaemonRuntimeLease } from "../../config/daemon-runtime-lease";
 import { readDaemonServiceContract } from "../../config/daemon-service-contract";
 import { readDaemonServiceUpdateWorkerProtectedBundleIds } from "../../config/daemon-service-update-worker-registration";
@@ -40,12 +48,21 @@ import {
   type OpenMeldPathResolutionInput,
   resolveOpenMeldEnvPreset,
 } from "../../config/paths";
-import { performManagedInstall } from "../../local-components/managed-install";
+import { resolveBundledServiceRelease } from "../../config/service-release";
+import type { CliBinaryReleaseInfo } from "../../config/version-state";
+import {
+  performManagedInstall,
+  resolveCliSelfVersion,
+} from "../../local-components/managed-install";
 import {
   isBinaryDistribution,
   type OpenMeldDistribution,
   resolveOpenMeldDistribution,
 } from "../../runtime/distribution";
+import {
+  classifyDiagnosticPath,
+  collectLocalOperationFailure,
+} from "../../system/local-operation-diagnostics";
 import { emitDaemonLifecycleEvent } from "./daemon-lifecycle-journal";
 import { resolveDaemonServiceArtifact } from "./daemon-service-artifact";
 import { readPendingDaemonServiceUpdate } from "./daemon-service-update-state";
@@ -284,10 +301,11 @@ export async function resolveAlignedDaemonActiveBundleEntryPath(
     serviceContract?.daemonVersion !== input.expectedVersion
       ? null
       : serviceContract;
-  const currentSourceDistFingerprint =
-    await resolveCurrentDaemonFingerprintForState(state).catch(() => null);
   const activeBundleEntryPath =
     await resolveDaemonBundleEntryPathFromState(state);
+  const installedBundleFingerprint = activeBundleEntryPath
+    ? await resolveInstalledDaemonBundleFingerprint(state)
+    : null;
   const activeBundleSourceAvailable =
     state && state.bundleFormat === "legacy_linked_v1"
       ? await pathExists(state.sourcePackageRootPath).catch(() => null)
@@ -299,19 +317,42 @@ export async function resolveAlignedDaemonActiveBundleEntryPath(
     activeBundle: state,
     activeBundleSourceAvailable,
     activeBundleEntryPath,
-    currentSourceDistFingerprint,
+    installedBundleFingerprint,
   });
   return artifact.resolvedEntryPath;
 }
 
-async function resolveCurrentDaemonFingerprintForState(
-  state: DaemonActiveBundleState | null
+export async function resolveInstalledDaemonBundleFingerprint(
+  state: DaemonActiveBundleState | null,
+  pathInput: OpenMeldPathResolutionInput = {}
 ): Promise<string | null> {
   if (state?.bundleFormat === "binary_v1") {
-    const entryPath = await resolveDaemonBundleEntryPathFromState(state);
+    const entryPath = await resolveDaemonBundleEntryPathFromState(
+      state,
+      pathInput
+    );
     return entryPath ? await hashDaemonBinaryFile(entryPath) : null;
   }
-  return await resolveCurrentDaemonSourceDistFingerprint();
+  if (state?.bundleFormat === "self_contained_v1") {
+    const bundleRootPath = resolveDaemonBundleRootPath(
+      state.bundleId,
+      pathInput
+    );
+    const distRootPath = join(
+      bundleRootPath,
+      dirname(state.entryScriptRelativePath)
+    );
+    const relativeDistRootPath = relative(bundleRootPath, distRootPath);
+    if (
+      relativeDistRootPath === ".." ||
+      relativeDistRootPath.startsWith(`..${sep}`) ||
+      isAbsolute(relativeDistRootPath)
+    ) {
+      return null;
+    }
+    return await computeDaemonSourceDistFingerprint(distRootPath);
+  }
+  return null;
 }
 
 export async function resolveDaemonBundleEntryPathFromState(
@@ -341,9 +382,10 @@ export async function prepareDaemonServiceBundle(input: {
   activate?: boolean;
   daemonVersion: string;
   cliScriptPath?: string;
+  binaryRelease?: CliBinaryReleaseInfo;
 }): Promise<DaemonActiveBundleState> {
   const preparedBundle = isBinaryDistribution()
-    ? await prepareBinaryDaemonServiceBundle()
+    ? await prepareBinaryDaemonServiceBundle(input)
     : await prepareNodeDaemonServiceBundle(input);
   if (input.activate !== false) {
     await activateDaemonServiceBundle(preparedBundle);
@@ -369,6 +411,16 @@ async function prepareNodeDaemonServiceBundle(input: {
   }
   const { sourceEntryScriptPath, sourceDistRootPath, sourcePackageRootPath } =
     sourceProvenance;
+  if (sourceProvenance.sourceKind !== DAEMON_BUNDLE_SOURCE_KIND_WORKSPACE) {
+    const sourcePackageVersion = await readDaemonSourcePackageVersion(
+      sourcePackageRootPath
+    );
+    if (sourcePackageVersion !== input.daemonVersion) {
+      throw new Error(
+        `Cannot prepare OpenMeld Service ${input.daemonVersion} from CLI source ${sourcePackageVersion} at ${sourcePackageRootPath}. Install openmeld@${input.daemonVersion} and rerun \`openmeld setup\`, or use a verified Service artifact for that version.`
+      );
+    }
+  }
   const sourceDistFingerprint =
     await computeDaemonSourceDistFingerprint(sourceDistRootPath);
   const entryScriptRelativePath = basename(sourceEntryScriptPath);
@@ -432,7 +484,41 @@ async function prepareNodeDaemonServiceBundle(input: {
 // to the managed install (versions/<version>/openmeld) and record a binary_v1
 // active-bundle state (path fields kept non-empty for the read whitelist). No
 // launcher/wrapper is generated; command-spec points straight at the binary.
-async function prepareBinaryDaemonServiceBundle(): Promise<DaemonActiveBundleState> {
+async function prepareBinaryDaemonServiceBundle(input: {
+  daemonVersion: string;
+  binaryRelease?: CliBinaryReleaseInfo;
+}): Promise<DaemonActiveBundleState> {
+  const { daemonVersion } = input;
+  const bundledRelease = resolveBundledServiceRelease();
+  const binaryRelease =
+    input.binaryRelease ??
+    (bundledRelease?.version === daemonVersion ? bundledRelease : undefined);
+  if (daemonVersion !== resolveCliSelfVersion()) {
+    const active = await readDaemonActiveBundleState();
+    if (
+      active?.bundleFormat === "binary_v1" &&
+      active.daemonVersion === daemonVersion &&
+      active.sourceDistFingerprint &&
+      (!binaryRelease ||
+        binaryRelease.sha256 === active.sourceDistFingerprint) &&
+      (await pathExists(active.sourceEntryScriptPath)) &&
+      (await hashDaemonBinaryFile(active.sourceEntryScriptPath)) ===
+        active.sourceDistFingerprint
+    ) {
+      return active;
+    }
+  }
+  if (binaryRelease) {
+    return await prepareSelectedBinaryDaemonServiceBundle({
+      daemonVersion,
+      release: binaryRelease,
+    });
+  }
+  if (daemonVersion !== resolveCliSelfVersion()) {
+    throw new Error(
+      `Cannot prepare OpenMeld Service ${daemonVersion} from CLI ${resolveCliSelfVersion()}. Acquire the selected Service release before preparing the update.`
+    );
+  }
   const outcome = await performManagedInstall();
   const managedBinaryPath = outcome.managedBinaryPath;
   if (!(await pathExists(managedBinaryPath))) {
@@ -459,15 +545,76 @@ async function prepareBinaryDaemonServiceBundle(): Promise<DaemonActiveBundleSta
     sourceEntryScriptPath: managedBinaryPath,
     sourcePackageRootPath: managedVersionDir,
     sourceDistRootPath: managedVersionDir,
-    sourceDistFingerprint: await hashDaemonBinaryFile(managedBinaryPath).catch(
-      () => null
-    ),
+    sourceDistFingerprint: await hashDaemonBinaryFile(managedBinaryPath),
     sourceKind: DAEMON_BUNDLE_SOURCE_KIND_PACKAGE_INSTALL,
     createdAt: now,
     updatedAt: now,
   };
 
   return nextState;
+}
+
+async function prepareSelectedBinaryDaemonServiceBundle(input: {
+  daemonVersion: string;
+  release: CliBinaryReleaseInfo;
+}): Promise<DaemonActiveBundleState> {
+  if (input.release.version !== input.daemonVersion) {
+    throw new Error(
+      "The selected Service artifact does not match the update target."
+    );
+  }
+  const bundleId = createBundleId(input.daemonVersion);
+  const bundleRootPath = resolveDaemonBundleRootPath(bundleId);
+  const executablePath = join(bundleRootPath, "openmeld");
+  const onDeltaFallback = (error: Error): void => {
+    console.warn("[openmeld.service.artifact_delta_fallback]", error.message);
+  };
+  const plan = await resolveCliBinaryUpdatePlan({
+    baseBinaryPath: process.execPath,
+    currentVersion: resolveCliSelfVersion(),
+    onDeltaFallback,
+    release: input.release,
+  });
+  const bytes = await downloadCliBinaryUpdateArtifact({
+    downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
+    fetchImpl: fetch,
+    onDeltaFallback,
+    plan,
+    release: input.release,
+  });
+  await mkdir(bundleRootPath, { recursive: true });
+  try {
+    await writeFile(executablePath, bytes, { mode: 0o755 });
+    await verifyCliBinaryCodeSignature({
+      artifactPath: executablePath,
+      release: input.release,
+      runCommand: async (command, args) => {
+        const result = await promisify(execFile)(command, args, {
+          encoding: "utf8",
+        });
+        return { code: 0, stdout: result.stdout, stderr: result.stderr };
+      },
+    });
+  } catch (error) {
+    await rm(bundleRootPath, { recursive: true, force: true });
+    throw error;
+  }
+  const now = new Date().toISOString();
+  return {
+    v: 2,
+    schema: DAEMON_ACTIVE_BUNDLE_SCHEMA,
+    bundleId,
+    daemonVersion: input.daemonVersion,
+    entryScriptRelativePath: "openmeld",
+    bundleFormat: "binary_v1",
+    sourceEntryScriptPath: executablePath,
+    sourcePackageRootPath: bundleRootPath,
+    sourceDistRootPath: bundleRootPath,
+    sourceDistFingerprint: input.release.sha256.toLowerCase(),
+    sourceKind: DAEMON_BUNDLE_SOURCE_KIND_PACKAGE_INSTALL,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 export async function activateDaemonServiceBundle(
@@ -487,7 +634,7 @@ export async function activateDaemonServiceBundle(
 export async function discardPreparedDaemonServiceBundle(
   preparedBundle: DaemonActiveBundleState
 ): Promise<void> {
-  if (preparedBundle.bundleFormat !== "self_contained_v1") {
+  if (preparedBundle.bundleFormat === "legacy_linked_v1") {
     return;
   }
   const activeBundle = await readDaemonActiveBundleState();
@@ -520,6 +667,9 @@ export async function runAuditedServiceManagerCarrierMutation<T>(input: {
     operation: input.operation,
     preset: resolveOpenMeldEnvPreset(pathInput),
     targetPath: input.targetPath,
+    targetCategory: classifyDiagnosticPath(input.targetPath),
+    actorPid: process.pid,
+    parentPid: process.ppid,
   };
   await emitDaemonLifecycleEvent({
     command: "openmeld service carrier mutation",
@@ -547,6 +697,7 @@ export async function runAuditedServiceManagerCarrierMutation<T>(input: {
       metadata: {
         ...metadata,
         errorMessage: error instanceof Error ? error.message : String(error),
+        operationFailure: collectLocalOperationFailure(error),
       },
       pathInput,
       result: "failed",
@@ -688,33 +839,12 @@ export async function verifyDaemonActiveBundleIntegrity(
   ) {
     return false;
   }
-  if (activeBundle.bundleFormat === "binary_v1") {
-    const entryPath = await resolveDaemonBundleEntryPathFromState(activeBundle);
-    if (!entryPath) {
-      return false;
-    }
-    return (await hashDaemonBinaryFile(entryPath)) === expectedFingerprint;
-  }
-
-  const bundleRootPath = resolveDaemonBundleRootPath(activeBundle.bundleId);
-  const activeDistRootPath = join(
-    bundleRootPath,
-    dirname(activeBundle.entryScriptRelativePath)
-  );
-  const relativeDistRootPath = relative(bundleRootPath, activeDistRootPath);
-  if (
-    relativeDistRootPath === ".." ||
-    relativeDistRootPath.startsWith(`..${sep}`) ||
-    isAbsolute(relativeDistRootPath)
-  ) {
-    return false;
-  }
   const entryPath = await resolveDaemonBundleEntryPathFromState(activeBundle);
   if (!entryPath) {
     return false;
   }
   return (
-    (await computeDaemonSourceDistFingerprint(activeDistRootPath)) ===
+    (await resolveInstalledDaemonBundleFingerprint(activeBundle)) ===
     expectedFingerprint
   );
 }
@@ -951,18 +1081,42 @@ async function resolveDaemonBundleSourceProvenance(
   };
 }
 
-export async function resolveCurrentDaemonSourceDistFingerprint(
-  input: { cliScriptPath?: string } = {}
-): Promise<string | null> {
-  const sourceProvenance = await resolveDaemonBundleSourceProvenance(
-    input.cliScriptPath
-  ).catch(() => null);
-  if (!sourceProvenance) {
-    return null;
+async function readDaemonSourcePackageVersion(
+  sourcePackageRootPath: string
+): Promise<string> {
+  const packageManifestPath = join(sourcePackageRootPath, "package.json");
+  const packageManifestRaw = await readFile(packageManifestPath, "utf8").catch(
+    (error: unknown) => {
+      if (getErrorCode(error) === "ENOENT") {
+        throw new Error(
+          `OpenMeld could not verify the CLI source version because ${packageManifestPath} is missing.`
+        );
+      }
+      throw error;
+    }
+  );
+  let packageManifest: { name?: unknown; version?: unknown };
+  try {
+    packageManifest = JSON.parse(packageManifestRaw) as {
+      name?: unknown;
+      version?: unknown;
+    };
+  } catch {
+    throw new Error(
+      `OpenMeld could not verify the CLI source version because ${packageManifestPath} is not valid JSON.`
+    );
   }
-  return await computeDaemonSourceDistFingerprint(
-    sourceProvenance.sourceDistRootPath
-  ).catch(() => null);
+  const version =
+    packageManifest.name === "openmeld" &&
+    typeof packageManifest.version === "string"
+      ? packageManifest.version.trim()
+      : "";
+  if (!version) {
+    throw new Error(
+      `OpenMeld could not verify the CLI source version from ${packageManifestPath}.`
+    );
+  }
+  return version;
 }
 
 async function resolveCliScriptPath(explicitPath?: string): Promise<string> {

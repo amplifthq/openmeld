@@ -83,7 +83,7 @@ describe("resolveAgentProfileUsageWakeability", () => {
   it.each([
     ["stale", createUsageLimit("stale")],
     ["unavailable", createUsageLimit("unavailable")],
-  ] as const)("keeps supported %s Usage in Checking until it can confirm capacity", (_label, usageLimit) => {
+  ] as const)("does not turn supported %s Usage into an execution prerequisite", (_label, usageLimit) => {
     expect(
       resolveAgentProfileUsageWakeability({
         agentControllerRef: "builtin:codex",
@@ -97,13 +97,13 @@ describe("resolveAgentProfileUsageWakeability", () => {
         },
       })
     ).toEqual({
-      blocksNewWork: true,
-      reasonCode: "usage_checking",
-      status: "checking",
+      blocksNewWork: false,
+      reasonCode: null,
+      status: "available",
     });
   });
 
-  it("stops using an expired report while keeping a current inconclusive report bounded by its expiry", () => {
+  it("does not block from expired reports or exhausted observations past their freshness or reset", () => {
     const cases = [
       {
         expiresAtMs: NOW_MS - 1,
@@ -140,14 +140,14 @@ describe("resolveAgentProfileUsageWakeability", () => {
           },
         })
       ).toEqual({
-        blocksNewWork: true,
-        reasonCode: "usage_checking",
-        status: "checking",
+        blocksNewWork: false,
+        reasonCode: null,
+        status: "available",
       });
     }
   });
 
-  it("keeps a native Usage controller in bounded Checking until a current report arrives", () => {
+  it("does not add a Usage block when no report exists", () => {
     expect(
       resolveAgentProfileUsageWakeability({
         agentControllerRef: "builtin:codex",
@@ -155,16 +155,16 @@ describe("resolveAgentProfileUsageWakeability", () => {
         report: null,
       })
     ).toEqual({
-      blocksNewWork: true,
-      reasonCode: "usage_checking",
-      status: "checking",
+      blocksNewWork: false,
+      reasonCode: null,
+      status: "available",
     });
   });
 
   it.each([
     "builtin:codex",
     "builtin:grok-build",
-  ])("parses a legacy %s report but keeps admission closed without the current Usage matrix", (agentControllerRef) => {
+  ])("does not infer a Usage block from a legacy %s report", (agentControllerRef) => {
     expect(
       resolveAgentProfileUsageWakeability({
         agentControllerRef,
@@ -175,9 +175,9 @@ describe("resolveAgentProfileUsageWakeability", () => {
         },
       })
     ).toEqual({
-      blocksNewWork: true,
-      reasonCode: "usage_checking",
-      status: "checking",
+      blocksNewWork: false,
+      reasonCode: null,
+      status: "available",
     });
   });
 
@@ -186,7 +186,7 @@ describe("resolveAgentProfileUsageWakeability", () => {
     ["exhausted", createUsageLimit("exhausted")],
     ["stale", createUsageLimit("stale")],
     ["unavailable", createUsageLimit("unavailable")],
-  ] as const)("does not authorize from legacy %s Usage evidence without the current matrix", (_label, usageLimit) => {
+  ] as const)("does not infer current exhaustion from legacy %s Usage evidence", (_label, usageLimit) => {
     expect(
       resolveAgentProfileUsageWakeability({
         agentControllerRef: "builtin:codex",
@@ -198,13 +198,13 @@ describe("resolveAgentProfileUsageWakeability", () => {
         },
       })
     ).toEqual({
-      blocksNewWork: true,
-      reasonCode: "usage_checking",
-      status: "checking",
+      blocksNewWork: false,
+      reasonCode: null,
+      status: "available",
     });
   });
 
-  it("keeps a current native Usage contract in Checking until it reports a limit", () => {
+  it("does not add a Usage block when the current report has no limit", () => {
     expect(
       resolveAgentProfileUsageWakeability({
         agentControllerRef: "builtin:codex",
@@ -217,9 +217,9 @@ describe("resolveAgentProfileUsageWakeability", () => {
         },
       })
     ).toEqual({
-      blocksNewWork: true,
-      reasonCode: "usage_checking",
-      status: "checking",
+      blocksNewWork: false,
+      reasonCode: null,
+      status: "available",
     });
   });
 
@@ -325,7 +325,7 @@ describe("resolveAgentProfileUsageWakeability", () => {
     });
   });
 
-  it("keeps OpenCode Go checking when only another provider reported usage", () => {
+  it("does not block OpenCode Go when only another provider reported usage", () => {
     expect(
       resolveAgentProfileUsageWakeability({
         agentControllerRef: "builtin:opencode",
@@ -346,9 +346,9 @@ describe("resolveAgentProfileUsageWakeability", () => {
         },
       })
     ).toEqual({
-      blocksNewWork: true,
-      reasonCode: "usage_checking",
-      status: "checking",
+      blocksNewWork: false,
+      reasonCode: null,
+      status: "available",
     });
   });
 
@@ -377,7 +377,7 @@ describe("resolveAgentProfileUsageWakeability", () => {
     ).toBe("opencode-go");
   });
 
-  it("keeps known supported Usage in Checking while its controller report is non-ready", () => {
+  it("leaves a non-ready controller to the separate readiness authority", () => {
     expect(
       resolveAgentProfileUsageWakeability({
         agentControllerRef: "builtin:codex",
@@ -391,9 +391,9 @@ describe("resolveAgentProfileUsageWakeability", () => {
         },
       })
     ).toEqual({
-      blocksNewWork: true,
-      reasonCode: "usage_checking",
-      status: "checking",
+      blocksNewWork: false,
+      reasonCode: null,
+      status: "available",
     });
   });
 });

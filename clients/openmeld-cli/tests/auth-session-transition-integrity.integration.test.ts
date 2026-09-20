@@ -24,6 +24,118 @@ import { withTempHome } from "./helpers/fs";
 const BEARER_PREFIX_PATTERN = /^Bearer /u;
 
 describe("auth session transition integrity", () => {
+  it.each([
+    "completed",
+    "not_completed",
+    "abandoned",
+    "legacy_rollback",
+  ] as const)("preserves an interrupted setup and settles %s with one worker", async (outcome) => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "previous-owner" },
+      });
+      const { authSessionModuleUrl, tsxLoaderPath } =
+        resolveAuthSessionFixture();
+      const creator = spawnAuthSessionFixture({
+        tsxLoaderPath,
+        script: `
+        const { beginAuthSessionTransition } = await import(${JSON.stringify(authSessionModuleUrl)});
+        await beginAuthSessionTransition({ accessToken: "candidate-token", authBaseUrl: "https://auth.openmeld.invalid", clientId: "openmeld-cli", user: { id: "candidate-owner" } }, {
+          computerHandoff: { gatewayUrl: "https://gateway.openmeld.invalid", prepareContinuation: { prepareSessionId: "same-prepare-session" } }
+        });
+        process.stdout.write(JSON.stringify({ status: "success", userId: "candidate-owner" }));
+      `,
+      });
+      expect((await creator.result).status).toBe("success");
+      // An ordinary reader must preserve the committed account and the pending
+      // intent; it must neither adopt the candidate nor roll the setup back.
+      expect((await spawnOrdinaryAuthSessionRead().result).userId).toBe(
+        "previous-owner"
+      );
+      if (outcome === "abandoned") {
+        const recovery = spawnAuthSessionFixture({
+          tsxLoaderPath,
+          script: `
+            const { getInterruptedComputerAuthSessionRecovery } = await import(${JSON.stringify(authSessionModuleUrl)});
+            const recovery = await getInterruptedComputerAuthSessionRecovery();
+            process.stdout.write(JSON.stringify({ status: "success", userId: recovery?.previousSession?.user?.id }));
+          `,
+        });
+        expect((await recovery.result).userId).toBe("previous-owner");
+        expect((await spawnOrdinaryAuthSessionRead().result).userId).toBe(
+          "previous-owner"
+        );
+        return;
+      }
+      if (outcome === "legacy_rollback") {
+        // Captured legacy behavior: the old auth reader preserves unknown
+        // fields but marks a dead Terminal recovery_required (Piper .5 smoke).
+        const journalPath = join(
+          home,
+          ".openmeld",
+          "auth",
+          "session-transition.json"
+        );
+        const journal = JSON.parse(await readFile(journalPath, "utf8"));
+        await writeFile(
+          journalPath,
+          JSON.stringify({
+            ...journal,
+            state: "recovery_required",
+          })
+        );
+      }
+      const finalOutcome =
+        outcome === "legacy_rollback" ? "completed" : outcome;
+      const executionsPath = join(home, "setup-executions");
+      // A worker can also disappear after taking ownership. The next process
+      // must adopt the same journal instead of leaving setup stuck forever.
+      const interruptedWorker = spawnAuthSessionFixture({
+        tsxLoaderPath,
+        script: `
+          const { resumeInterruptedComputerSetup } = await import(${JSON.stringify(authSessionModuleUrl)});
+          await resumeInterruptedComputerSetup(async () => {
+            process.stdout.write(JSON.stringify({ status: "success", userId: "interrupted-worker" }));
+            process.exit(0);
+          });
+        `,
+      });
+      expect((await interruptedWorker.result).userId).toBe(
+        "interrupted-worker"
+      );
+      const workerScript = `
+        import { appendFile } from "node:fs/promises";
+        const { resumeInterruptedComputerSetup, getAuthSessionState } = await import(${JSON.stringify(authSessionModuleUrl)});
+        const resumed = await resumeInterruptedComputerSetup(async intent => {
+          if (intent.prepareSessionId !== "same-prepare-session") throw new Error("wrong session");
+          const auth = await getAuthSessionState({ validateRemote: false });
+          if (auth.session?.user?.id !== "candidate-owner") throw new Error("wrong account");
+          await appendFile(${JSON.stringify(executionsPath)}, "completed\\n");
+          return ${JSON.stringify(finalOutcome)};
+        });
+        process.stdout.write(JSON.stringify({ status: "success", userId: resumed ? "resumed" : "idle" }));
+      `;
+      const results = await Promise.all([
+        spawnAuthSessionFixture({ script: workerScript, tsxLoaderPath }).result,
+        spawnAuthSessionFixture({ script: workerScript, tsxLoaderPath }).result,
+      ]);
+      expect(results.map((result) => result.userId).sort()).toEqual([
+        "idle",
+        "resumed",
+      ]);
+      expect(await readFile(executionsPath, "utf8")).toBe("completed\n");
+      expect((await spawnOrdinaryAuthSessionRead().result).userId).toBe(
+        finalOutcome === "completed" ? "candidate-owner" : "previous-owner"
+      );
+      expect(await authSessionTransitionJournalExists(home)).toBe(
+        finalOutcome !== "completed"
+      );
+    });
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     Reflect.deleteProperty(
@@ -1357,26 +1469,27 @@ function spawnPausedCandidateServiceAuthSessionRead(input: {
     import { setTimeout as sleep } from "node:timers/promises";
 
     const originalReadFile = fs.promises.readFile.bind(fs.promises);
-    let transitionJournalReadCount = 0;
-    fs.promises.readFile = async (...args) => {
+    const originalRmdir = fs.promises.rmdir.bind(fs.promises);
+    let paused = false;
+    fs.promises.rmdir = async (...args) => {
+      const result = await originalRmdir(...args);
       const target = String(args[0]);
-      if (target.endsWith("/auth/session-transition.json")) {
-        transitionJournalReadCount += 1;
-        if (transitionJournalReadCount === 4) {
-          await fs.promises.writeFile(${JSON.stringify(readyPath)}, "ready\\n", "utf8");
-          while (true) {
-            const released = await originalReadFile(${JSON.stringify(releasePath)}, "utf8").then(
-              () => true,
-              (error) => error?.code === "ENOENT" ? false : Promise.reject(error)
-            );
-            if (released) {
-              break;
-            }
-            await sleep(10);
+      if (!paused && target.endsWith("/auth-session/session-transition-mutation.lock")) {
+        // Pause after registration releases ownership, not at a numbered read.
+        paused = true;
+        await fs.promises.writeFile(${JSON.stringify(readyPath)}, "ready\\n", "utf8");
+        while (true) {
+          const released = await originalReadFile(${JSON.stringify(releasePath)}, "utf8").then(
+            () => true,
+            (error) => error?.code === "ENOENT" ? false : Promise.reject(error)
+          );
+          if (released) {
+            break;
           }
+          await sleep(10);
         }
       }
-      return await originalReadFile(...args);
+      return result;
     };
     syncBuiltinESMExports();
 

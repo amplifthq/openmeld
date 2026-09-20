@@ -189,6 +189,20 @@ export function createD1AgentProfileCreationRequestRepository(
       return result.results.map(toInboxProjectionRecord);
     },
 
+    listUnclaimedProfileCreations: async (input) => {
+      const result = await db
+        .prepare(`
+        SELECT ${REQUEST_COLUMNS}
+        FROM agent_profile_creation_requests
+        WHERE status = 'approved' AND profile_creation_started_at IS NULL
+        ORDER BY updated_at ASC, id ASC
+        LIMIT ?
+      `)
+        .bind(Math.max(1, input.limit))
+        .all<RequestRow>();
+      return result.results.map(toRequestRecord);
+    },
+
     listStaleProfileCreations: async (input) => {
       const result = await db
         .prepare(

@@ -22,6 +22,7 @@ export async function getSpaceWakeProgress(
     includeSourceContext?: boolean;
     includeTiming?: boolean;
     includeWaitReason?: boolean;
+    includeDeviceWait?: boolean;
     includeWakeStopEligibility?: boolean;
     targetProfileId?: string;
   }
@@ -39,6 +40,9 @@ export async function getSpaceWakeProgress(
   }
   if (input.includeWaitReason === true) {
     searchParams.set("includeWaitReason", "true");
+  }
+  if (input.includeDeviceWait === true) {
+    searchParams.set("includeDeviceWait", "true");
   }
   if (input.includeWakeStopEligibility === true) {
     searchParams.set("includeWakeStopEligibility", "true");
@@ -71,6 +75,7 @@ export async function getActiveSpaceWakeProgress(
     includeSourceContext?: boolean;
     includeTiming?: boolean;
     includeWaitReason?: boolean;
+    includeDeviceWait?: boolean;
     includeWakeStopEligibility?: boolean;
     targetProfileId?: string;
     sourceProfileId?: string;
@@ -91,6 +96,9 @@ export async function getActiveSpaceWakeProgress(
   }
   if (input.includeWaitReason === true) {
     searchParams.set("includeWaitReason", "true");
+  }
+  if (input.includeDeviceWait === true) {
+    searchParams.set("includeDeviceWait", "true");
   }
   if (input.includeWakeStopEligibility === true) {
     searchParams.set("includeWakeStopEligibility", "true");

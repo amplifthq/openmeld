@@ -19,6 +19,7 @@ function makeEnv(input?: {
   coreRpc: {
     getSpaceConversationState: ReturnType<typeof vi.fn>;
     getSpaceEntryResolution: ReturnType<typeof vi.fn>;
+    getSpaceHistoryNavigation: ReturnType<typeof vi.fn>;
     getSpaceStatus: ReturnType<typeof vi.fn>;
     getSpaceMembers: ReturnType<typeof vi.fn>;
     getSpaceMemberDirectory: ReturnType<typeof vi.fn>;
@@ -54,6 +55,10 @@ function makeEnv(input?: {
       participation: { state: "self_join_available" as const },
       safeContext: { spaceName: "Demo" },
       recovery: null,
+    })),
+    getSpaceHistoryNavigation: vi.fn(async () => ({
+      entries: [],
+      total: 0,
     })),
     getSpaceStatus: vi.fn(async () => ({
       spaceId: "demo",
@@ -211,6 +216,58 @@ async function readJsonBody(response: Response): Promise<unknown> {
 }
 
 describe("public space boundary", () => {
+  it("serves the complete anonymous first-render read set without bootstrap", async () => {
+    const spaceId = "a".repeat(64);
+    const { env, coreRpc } = makeEnv({
+      authOverrides: {
+        resolveRequestAuth: vi.fn(async () => ({
+          ok: true,
+          claims: {
+            authenticated: false,
+            requestId: "req-first-render",
+            ownerIds: [],
+            authMethod: "none",
+          },
+        })),
+      },
+    });
+    const paths = [
+      "entry-resolution",
+      "status",
+      "signals?limit=80&recent=1",
+      "threads",
+      "history-navigation",
+    ];
+    const responses = await Promise.all(
+      paths.map((path) =>
+        app.fetch(
+          new Request(`http://local/v1/spaces/${spaceId}/${path}`),
+          env,
+          TEST_EXECUTION_CONTEXT
+        )
+      )
+    );
+
+    expect(responses.map((response) => response.status)).toEqual([
+      200, 200, 200, 200, 200,
+    ]);
+    for (const response of responses) {
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+    }
+    expect(coreRpc.getSpaceEntryResolution).toHaveBeenCalledOnce();
+    expect(coreRpc.getSpaceStatus).toHaveBeenCalledOnce();
+    expect(coreRpc.listSignals).toHaveBeenCalledOnce();
+    expect(coreRpc.listSpaceThreads).toHaveBeenCalledOnce();
+    expect(coreRpc.getSpaceHistoryNavigation).toHaveBeenCalledOnce();
+
+    const bootstrap = await app.fetch(
+      new Request(`http://local/v1/spaces/${spaceId}/bootstrap`),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(bootstrap.status).toBe(401);
+  });
+
   it("forwards the complete Space entry target through one resolver", async () => {
     const spaceId =
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -302,10 +359,66 @@ describe("public space boundary", () => {
     expect(listSpaceThreadSignals).not.toHaveBeenCalled();
   });
 
+  it("forwards message preview reads through Space authorization", async () => {
+    const spaceId = "a".repeat(64);
+    const getSpaceLinkPreviews = vi.fn(async () => ({
+      signalId: "message-1",
+      revision: 0,
+      previews: [],
+    }));
+    const { env } = makeEnv({
+      coreOverrides: { getSpaceLinkPreviews },
+      authOverrides: {
+        resolveRequestAuth: vi.fn(async () => ({
+          ok: true,
+          claims: {
+            authenticated: false,
+            requestId: "req-preview",
+            ownerIds: [],
+            authMethod: "none",
+          },
+        })),
+      },
+    });
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${spaceId}/link-previews?signalId=message-1`,
+        {
+          headers: { "x-openmeld-space-password": "  preview-password  " },
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(getSpaceLinkPreviews).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spaceId,
+        signalId: "message-1",
+        spaceAccess: expect.objectContaining({
+          actor: expect.objectContaining({ kind: "anonymous_viewer" }),
+          proof: { kind: "space_password", password: "preview-password" },
+        }),
+      })
+    );
+  });
+
   it("keeps the anonymous read allowlist separate and read-only", () => {
     const spaceId =
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const allowed = [
+      `/v1/spaces/${spaceId}/context`,
+      `/v1/spaces/${spaceId}/history-navigation`,
+      `/v1/spaces/${spaceId}/board`,
+      `/v1/spaces/${spaceId}/tasks`,
+      `/v1/spaces/${spaceId}/tasks/task-1`,
+      `/v1/spaces/${spaceId}/message-pins`,
+      `/v1/spaces/${spaceId}/file-pins`,
+      `/v1/spaces/${spaceId}/files`,
+      `/v1/spaces/${spaceId}/files/file-1/content`,
+      `/v1/spaces/${spaceId}/files/file-1/revisions`,
+      `/v1/spaces/${spaceId}/link-previews?signalId=message-1`,
       `/v1/spaces/${spaceId}/conversation-state`,
       `/v1/spaces/${spaceId}/entry-resolution`,
       `/v1/spaces/${spaceId}/status`,
@@ -320,6 +433,13 @@ describe("public space boundary", () => {
       expect(
         parseAnonymousSpaceReadRoute(new Request(`http://local${path}`))
       ).toEqual({ spaceId });
+      for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
+        expect(
+          parseAnonymousSpaceReadRoute(
+            new Request(`http://local${path}`, { method })
+          )
+        ).toBeNull();
+      }
     }
 
     const denied = [
@@ -368,6 +488,12 @@ describe("public space boundary", () => {
       TEST_EXECUTION_CONTEXT
     );
     expect(statusResponse.status).toBe(200);
+    expect(statusResponse.headers.get("cache-control")).toBe(
+      "private, no-store"
+    );
+    expect(statusResponse.headers.get("x-robots-tag")).toBe(
+      "noindex, nofollow"
+    );
     expect(coreRpc.getSpaceStatus).toHaveBeenCalledWith(
       expect.objectContaining({
         spaceId,
@@ -492,6 +618,42 @@ describe("public space boundary", () => {
         }),
       })
     );
+  });
+
+  it("serves shared context reads without inventing a signed-in request context", async () => {
+    const spaceId = "a".repeat(64);
+    const { env } = makeEnv({
+      authOverrides: {
+        resolveRequestAuth: vi.fn(async () => ({
+          ok: true,
+          claims: {
+            authenticated: false,
+            requestId: "req-reader",
+            ownerIds: [],
+            authMethod: "none",
+          },
+        })),
+      },
+      coreOverrides: {
+        listSpaceTasks: vi.fn(async () => ({ tasks: [] })),
+        spaceMessagePins: vi.fn(async () => ({ pins: [] })),
+        spaceFilePins: vi.fn(async () => ({ pins: [] })),
+      },
+    });
+    for (const [path, body] of [
+      ["tasks", { tasks: [] }],
+      ["message-pins", { pins: [] }],
+      ["file-pins", { pins: [] }],
+    ] as const) {
+      const response = await app.fetch(
+        new Request(`http://local/v1/spaces/${spaceId}/${path}`),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(await response.json()).toEqual(body);
+    }
   });
 
   it("uses authenticated actors on anonymous read routes when a session is present", async () => {
@@ -651,6 +813,7 @@ describe("public space boundary", () => {
 
   it("exposes the approved public space boundary route set", () => {
     expect(PUBLIC_SPACE_BOUNDARY_ROUTES).toEqual([
+      { method: "GET", path: "/v1/spaces/:spaceId/link-previews" },
       { method: "GET", path: "/v1/spaces/:spaceId/conversation-state" },
       { method: "GET", path: "/v1/spaces/:spaceId/status" },
       { method: "GET", path: "/v1/spaces/:spaceId/entry-resolution" },

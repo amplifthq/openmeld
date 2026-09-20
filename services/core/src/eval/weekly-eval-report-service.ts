@@ -28,8 +28,6 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 type EvalReportPublisher = {
   organizationId: string;
-  ownerName: string;
-  ownerUserId: string;
   profileId: string;
   profileName: string;
 };
@@ -227,18 +225,15 @@ async function readOfficialOrganizationEvalPublisher(
         SELECT
           designation.organization_id,
           profile.profile_id,
-          profile.profile_name,
-          profile.owner_user_id,
-          owner.name AS owner_name
+          profile.profile_name
         FROM center_agent_designations AS designation
         INNER JOIN openmeld_profiles AS profile
           ON profile.profile_id = designation.agent_profile_id
-        INNER JOIN users AS owner
-          ON owner.id = profile.owner_user_id
         WHERE designation.organization_id = ?
           AND profile.organization_id = designation.organization_id
           AND profile.profile_kind = 'agent'
           AND profile.managed_role = 'center_agent'
+          AND profile.owner_user_id IS NULL
           AND profile.status = 'active'
         LIMIT 1
       `
@@ -246,8 +241,6 @@ async function readOfficialOrganizationEvalPublisher(
     .bind(organization.id)
     .first<{
       organization_id: string;
-      owner_name: string;
-      owner_user_id: string;
       profile_id: string;
       profile_name: string;
     }>();
@@ -258,8 +251,6 @@ async function readOfficialOrganizationEvalPublisher(
   }
   return {
     organizationId: publisher.organization_id,
-    ownerName: publisher.owner_name,
-    ownerUserId: publisher.owner_user_id,
     profileId: publisher.profile_id,
     profileName: publisher.profile_name,
   };
@@ -282,7 +273,7 @@ async function ensureQualitySpace(input: {
     activeOrganizationId: input.publisher.organizationId,
     actorContext: {
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      ownerUserId: input.publisher.ownerUserId,
+      callerPrincipalId: input.publisher.profileId,
       profileKind: "agent",
       profileName: input.publisher.profileName,
       requestId: `eval-weekly-quality-space:${input.publisher.organizationId}`,
@@ -291,8 +282,6 @@ async function ensureQualitySpace(input: {
   };
   const profile: Profile = {
     kind: "agent",
-    owner: input.publisher.ownerUserId,
-    ownerName: input.publisher.ownerName,
     profileId: input.publisher.profileId,
     profileName: input.publisher.profileName,
   };
@@ -301,8 +290,6 @@ async function ensureQualitySpace(input: {
     context,
     creator: {
       kind: "agent",
-      ownerName: input.publisher.ownerName,
-      ownerUserId: input.publisher.ownerUserId,
       profileId: input.publisher.profileId,
       profileName: input.publisher.profileName,
     },

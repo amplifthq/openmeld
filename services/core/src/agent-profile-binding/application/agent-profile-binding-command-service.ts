@@ -13,6 +13,7 @@ import {
 import {
   agentControllerCollaborationModeSchema,
   agentControllerPermissionModeSchema,
+  isHostedAgentControllerRef,
   openCodePermissionConfigSchema,
 } from "@openmeld/schemas";
 import type {
@@ -80,11 +81,14 @@ export type AgentProfileBindingCommandRecordInput = {
   updatedAtMs: number;
 };
 
-export type AgentProfileBindingCommandRecord =
-  AgentProfileBindingCommandRecordInput & {
-    bindingState: "enabled_primary" | "disabled_historical";
-    disabledAtMs: number | null;
-  };
+export type AgentProfileBindingCommandRecord = Omit<
+  AgentProfileBindingCommandRecordInput,
+  "owner"
+> & {
+  owner: { id: string; kind: "owner_account" | "organization" };
+  bindingState: "enabled_primary" | "disabled_historical";
+  disabledAtMs: number | null;
+};
 
 export type AgentProfileBindingWriteMode = "ensure" | "reconnect";
 export type AgentProfileBindingModelSelectionPatch = {
@@ -338,6 +342,9 @@ export async function ensurePrimaryAgentProfileBinding(input: {
     agentProfileId: input.agentProfileId,
     owner: localEvidence.owner,
   });
+  if (isHostedAgentControllerRef(currentBinding?.agentControllerRef)) {
+    return rejectWith(["agent_profile_binding.primary_conflict"]);
+  }
   const agentControllerConversationId =
     resolveCommandAgentControllerConversationId({
       agentControllerRef: localEvidence.agentControllerRef,

@@ -16,6 +16,8 @@ export async function postSpaceNormalMessage(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput & {
     text: PostNormalMessageBody["text"];
+    deviceWait?: PostNormalMessageBody["deviceWait"];
+    contextSelection?: PostNormalMessageBody["contextSelection"];
     attachments?: PostNormalMessageBody["attachments"];
     files?: PostNormalMessageBody["files"];
     messageEnvelope?: PostNormalMessageBody["messageEnvelope"];
@@ -54,6 +56,8 @@ export async function postSpaceNormalMessage(
 
 function buildPostNormalMessageBody(input: {
   text: PostNormalMessageBody["text"];
+  deviceWait?: PostNormalMessageBody["deviceWait"];
+  contextSelection?: PostNormalMessageBody["contextSelection"];
   attachments?: PostNormalMessageBody["attachments"];
   files?: PostNormalMessageBody["files"];
   messageEnvelope?: PostNormalMessageBody["messageEnvelope"];
@@ -62,6 +66,11 @@ function buildPostNormalMessageBody(input: {
 }): PostNormalMessageBody {
   return {
     text: input.text,
+    ...(input.meta?.workHandoff ? { workHandoffVersion: 1 as const } : {}),
+    ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
+    ...(input.contextSelection
+      ? { contextSelection: input.contextSelection }
+      : {}),
     ...(input.attachments ? { attachments: input.attachments } : {}),
     ...(input.files ? { files: input.files } : {}),
     ...(input.messageEnvelope

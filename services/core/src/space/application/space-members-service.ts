@@ -1,10 +1,10 @@
 import {
-  HOSTED_CENTER_AGENT_CONTROLLER_REF,
   resolveAgentWakeAvailability,
   resolveHostedAgentWakeAvailability,
 } from "@openmeld/agent-runtime";
 import type { Profile, SignalEnvelope, SpaceCreator } from "@openmeld/protocol";
 import {
+  isHostedAgentControllerRef,
   normalizeOptionalWorkingDirectory,
   SPACE_MEMBER_JOIN_NOTICE_PURPOSE,
   spaceMemberWebActivityWriteSchema,
@@ -24,7 +24,15 @@ import type {
   SpaceStatusMembersSummary,
 } from "@openmeld/schemas/types";
 import { buildSpaceMemberDirectoryFromIdentityDirectory } from "@openmeld/space";
+import {
+  type AgentExecutionReadinessReads,
+  createAgentExecutionReadinessReads,
+} from "../../agent-execution/application/agent-execution-readiness-reads";
 import { resolveCoreAgentExecutionReadiness } from "../../agent-execution/application/agent-execution-readiness-service";
+import {
+  type AuthProfileFacts,
+  readAuthProfileFacts,
+} from "../../auth/application/profile-facts-reader";
 import {
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoutesBatch,
@@ -183,6 +191,9 @@ export const upsertSpaceCreatorMember = (input: {
 
   const nowIso = input.nowIso ?? new Date().toISOString();
   const existing = readSpaceMemberRecord(input.sql, creator.profileId);
+  if (existing?.status === "removed") {
+    return existing;
+  }
   const next = buildNextSpaceMemberRecord({
     existing,
     existingProfileSnapshot: existing,
@@ -347,7 +358,7 @@ function buildSpaceMemberMutationItems(input: {
         generatedAt: input.nowIso,
       });
     }
-    return buildAgentMutationSnapshot({
+    return buildAgentIdentitySnapshot({
       record,
       liveProfileById,
       cursorSnapshots,
@@ -374,9 +385,6 @@ export const removeSpaceMembersUseCase = (input: {
   const alreadyAbsentMemberIds: string[] = [];
   const uniqueMemberProfileIds: string[] = [];
   const seenProfileIds = new Set<string>();
-  const creatorProfileId = normalizeSpaceCreator(
-    input.metaRecord?.creator
-  )?.profileId;
 
   for (const memberProfileId of input.memberProfileIds) {
     if (seenProfileIds.has(memberProfileId)) {
@@ -397,13 +405,15 @@ export const removeSpaceMembersUseCase = (input: {
     const existing = readSpaceMemberRecord(input.sql, memberProfileId);
     if (
       existing?.status === "active" &&
-      (memberProfileId === creatorProfileId ||
-        existing.memberSource === "space_creator")
+      existing.profileKindSnapshot === "human" &&
+      existing.ownerUserIdSnapshot &&
+      input.metaRecord?.ownerUserIds?.includes(existing.ownerUserIdSnapshot)
     ) {
       throw new SpaceMembersUseCaseError({
         status: 400,
-        code: "space.members.creator_forbidden",
-        message: "space creator cannot be removed from this space",
+        code: "space.members.owner_forbidden",
+        message:
+          "Change this person's role to Member before removing them. Keep at least one Space owner.",
       });
     }
   }
@@ -443,16 +453,15 @@ export const leaveSpaceUseCase = (input: {
   nowIso?: string;
 }): LeaveSpaceResponse => {
   const nowIso = input.nowIso ?? new Date().toISOString();
-  const creatorProfileId = normalizeSpaceCreator(
-    input.metaRecord?.creator
-  )?.profileId;
-
-  if (input.actorProfileId === creatorProfileId) {
+  if (
+    input.actorOwnerUserId &&
+    input.metaRecord?.ownerUserIds?.includes(input.actorOwnerUserId)
+  ) {
     throw new SpaceMembersUseCaseError({
       status: 400,
-      code: "space.leave_space.creator_forbidden",
+      code: "space.leave_space.owner_forbidden",
       message:
-        "The space creator cannot leave this space. Delete the space instead when only you remain.",
+        "Change your role to Member before leaving. Add another owner first if you are the last owner.",
     });
   }
 
@@ -482,6 +491,8 @@ export const leaveSpaceUseCase = (input: {
 };
 
 export const listSpaceMembersSnapshotUseCase = async (input: {
+  includeAgentReadiness?: boolean;
+  profileFacts?: AuthProfileFacts | null;
   sql: SqlStorage;
   env: CoreBindings;
   spaceId: string;
@@ -534,12 +545,15 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
     "derive latest signal activity",
     () => listLatestSignalActivityFromSql(input.sql)
   );
-  const latestAgentOriginFactsByProfileId = measureSpaceMembersSnapshotTiming(
-    input.timing,
-    "origin_facts",
-    "derive latest agent origin facts",
-    () => listLatestAgentOriginFactsFromSql(input.sql)
-  );
+  const latestAgentOriginFactsByProfileId =
+    input.includeAgentReadiness === false
+      ? new Map()
+      : measureSpaceMembersSnapshotTiming(
+          input.timing,
+          "origin_facts",
+          "derive latest agent origin facts",
+          () => listLatestAgentOriginFactsFromSql(input.sql)
+        );
   const liveProfileById = buildLiveProfileById(liveSessions);
   const [
     preloadedHumanAvatarByOwnerUserId,
@@ -562,33 +576,43 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
       "route_batch",
       "preload agent member route evidence",
       () =>
-        preloadAgentMemberDaemonRoutes({
-          env: input.env,
-          records,
-        })
+        input.includeAgentReadiness === false
+          ? Promise.resolve(new Map())
+          : preloadAgentMemberDaemonRoutes({
+              env: input.env,
+              records,
+            })
     ),
     measureSpaceMembersSnapshotTimingAsync(
       input.timing,
       "owner_service_batch",
       "preload agent member owner service evidence",
       () =>
-        preloadAgentMemberOwnerServices({
-          env: input.env,
-          records,
-        })
+        input.includeAgentReadiness === false
+          ? Promise.resolve(new Map())
+          : preloadAgentMemberOwnerServices({
+              env: input.env,
+              records,
+            })
     ),
     measureSpaceMembersSnapshotTimingAsync(
       input.timing,
       "auth_lineage",
       "resolve viewer creator profile ids",
-      () =>
-        input.lineageLoader && input.viewerOwnerUserId && input.viewerProfileId
+      () => {
+        if (input.includeAgentReadiness === false) {
+          return Promise.resolve(undefined);
+        }
+        return input.lineageLoader &&
+          input.viewerOwnerUserId &&
+          input.viewerProfileId
           ? input.lineageLoader(input.viewerOwnerUserId)
           : resolveViewerCreatorProfileIdsByProfileId({
               authRpc: input.env.OPENMELD_AUTH_WORKER,
               viewerOwnerUserId: input.viewerOwnerUserId,
               viewerProfileId: input.viewerProfileId,
-            })
+            });
+      }
     ),
   ]);
   const generatedAt = input.nowIso ?? new Date().toISOString();
@@ -596,6 +620,10 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
   const humans: SpaceMemberHumanSnapshot[] = [];
   const agentSnapshotPromises: Promise<SpaceMemberAgentSnapshot>[] = [];
   const activeOrganizationId = input.metaRecord?.organizationId ?? null;
+  const readinessReads = createAgentExecutionReadinessReads({
+    batchProfileReads: true,
+    profileFacts: input.profileFacts,
+  });
 
   for (const record of records) {
     if (record.profileKindSnapshot === "human") {
@@ -620,21 +648,32 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
     }
 
     agentSnapshotPromises.push(
-      buildAgentSnapshot({
-        activeOrganizationId,
-        env: input.env,
-        record,
-        viewerOwnerUserId: input.viewerOwnerUserId,
-        viewerProfileId: input.viewerProfileId,
-        viewerCreatorProfileIdsByProfileId,
-        liveProfileById,
-        cursorSnapshots,
-        latestSignalActivity,
-        latestAgentOriginFactsByProfileId,
-        preloadedDaemonRouteByProfileId,
-        preloadedOwnerServiceByOwnerUserId,
-        generatedAt,
-      })
+      input.includeAgentReadiness === false
+        ? Promise.resolve(
+            buildAgentIdentitySnapshot({
+              record,
+              liveProfileById,
+              cursorSnapshots,
+              latestSignalActivity,
+              generatedAt,
+            })
+          )
+        : buildAgentSnapshot({
+            activeOrganizationId,
+            env: input.env,
+            record,
+            viewerOwnerUserId: input.viewerOwnerUserId,
+            viewerProfileId: input.viewerProfileId,
+            viewerCreatorProfileIdsByProfileId,
+            liveProfileById,
+            cursorSnapshots,
+            latestSignalActivity,
+            latestAgentOriginFactsByProfileId,
+            preloadedDaemonRouteByProfileId,
+            preloadedOwnerServiceByOwnerUserId,
+            readinessReads,
+            generatedAt,
+          })
     );
   }
 
@@ -656,7 +695,10 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
     "liveness",
     "record member liveness observations",
     () => {
-      if (Number.isFinite(livenessObservedAtMs)) {
+      if (
+        input.includeAgentReadiness !== false &&
+        Number.isFinite(livenessObservedAtMs)
+      ) {
         for (const agent of agents) {
           if (
             agent.agentWakeAvailability?.reasonCode ===
@@ -716,10 +758,14 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
       humanCount: memberSummary.sortedHumans.length,
       agentCount: memberSummary.sortedAgents.length,
       liveNowCount: memberSummary.liveNowCount,
-      wakeableAgentCount: memberSummary.wakeableAgentCount,
-      checkingAgentCount: memberSummary.checkingAgentCount,
-      offlineAgentCount: memberSummary.offlineAgentCount,
-      unavailableAgentCount: memberSummary.unavailableAgentCount,
+      ...(input.includeAgentReadiness === false
+        ? {}
+        : {
+            wakeableAgentCount: memberSummary.wakeableAgentCount,
+            checkingAgentCount: memberSummary.checkingAgentCount,
+            offlineAgentCount: memberSummary.offlineAgentCount,
+            unavailableAgentCount: memberSummary.unavailableAgentCount,
+          }),
     },
     humans: memberSummary.sortedHumans,
     agents: memberSummary.sortedAgents,
@@ -795,6 +841,7 @@ export const listSpaceMemberDirectoryUseCase = (input: {
 };
 
 export const readSpaceStatusMembersSummaryUseCase = async (input: {
+  profileFacts?: AuthProfileFacts | null;
   sql: SqlStorage;
   env: CoreBindings;
   spaceId: string;
@@ -806,6 +853,8 @@ export const readSpaceStatusMembersSummaryUseCase = async (input: {
   timing?: SpaceMembersSnapshotTiming;
 }): Promise<SpaceStatusMembersSummary> => {
   const snapshot = await listSpaceMembersSnapshotUseCase({
+    includeAgentReadiness: false,
+    profileFacts: input.profileFacts,
     sql: input.sql,
     spaceId: input.spaceId,
     env: input.env,
@@ -1050,7 +1099,7 @@ async function preloadHumanMemberAvatars(input: {
   return avatarByOwnerUserId;
 }
 
-function buildAgentMutationSnapshot(input: {
+function buildAgentIdentitySnapshot(input: {
   record: SpaceMemberRecord;
   liveProfileById: Map<string, Profile>;
   cursorSnapshots: Map<string, CursorMemberSnapshot>;
@@ -1206,6 +1255,7 @@ async function buildAgentSnapshot(input: {
     RuntimeTransportLookupOwnerServiceResponse
   >;
   generatedAt: string;
+  readinessReads: AgentExecutionReadinessReads;
 }): Promise<SpaceMemberAgentSnapshot> {
   const snapshotBase = buildSnapshotBase({
     record: input.record,
@@ -1223,6 +1273,7 @@ async function buildAgentSnapshot(input: {
       )
     : undefined;
   const executionReadiness = await resolveCoreAgentExecutionReadiness({
+    reads: input.readinessReads,
     activeOrganizationId: input.activeOrganizationId ?? null,
     agent: {
       controllerRefSnapshot: input.record.controllerRefSnapshot,
@@ -1269,18 +1320,17 @@ async function buildAgentSnapshot(input: {
     viewerProfileId: input.viewerProfileId,
     creatorProfileIdByProfileId: input.viewerCreatorProfileIdsByProfileId,
   });
-  const agentWakeAvailability =
-    agentControllerRef === HOSTED_CENTER_AGENT_CONTROLLER_REF
-      ? resolveHostedAgentWakeAvailability({
-          readiness: executionReadiness.spaceMemberAgentExecutionReadiness,
-        })
-      : resolveAgentWakeAvailability({
-          agentControllerRef,
-          agentWakeRouteRegistration:
-            executionReadiness.agentWakeRouteRegistration,
-          wakeRouteStatus: executionReadiness.wakeRouteStatus,
-          readiness: executionReadiness.spaceMemberAgentExecutionReadiness,
-        });
+  const agentWakeAvailability = isHostedAgentControllerRef(agentControllerRef)
+    ? resolveHostedAgentWakeAvailability({
+        readiness: executionReadiness.spaceMemberAgentExecutionReadiness,
+      })
+    : resolveAgentWakeAvailability({
+        agentControllerRef,
+        agentWakeRouteRegistration:
+          executionReadiness.agentWakeRouteRegistration,
+        wakeRouteStatus: executionReadiness.wakeRouteStatus,
+        readiness: executionReadiness.spaceMemberAgentExecutionReadiness,
+      });
   const canManageAgentProfile = isSameOwnerUserId({
     leftOwnerUserId: input.viewerOwnerUserId,
     rightOwnerUserId: ownerUserId,
@@ -1344,6 +1394,29 @@ async function buildAgentSnapshot(input: {
     ...redactedOriginFields,
     agentWakeAvailability,
     ownerWakeDiagnostics,
+    deviceWaitTarget: projectDeviceWaitTarget(
+      executionReadiness,
+      agentControllerRef
+    ),
+  };
+}
+
+function projectDeviceWaitTarget(
+  readiness: Awaited<ReturnType<typeof resolveCoreAgentExecutionReadiness>>,
+  agentControllerRef: string | null
+): SpaceMemberAgentSnapshot["deviceWaitTarget"] {
+  const binding = readiness.primaryBinding;
+  if (
+    isHostedAgentControllerRef(agentControllerRef) ||
+    binding?.bindingState !== "enabled_primary" ||
+    !binding.bindingId ||
+    !binding.executionTarget
+  ) {
+    return undefined;
+  }
+  return {
+    bindingId: binding.bindingId,
+    openMeldServiceRuntimeId: binding.executionTarget.openMeldServiceRuntimeId,
   };
 }
 
@@ -1648,51 +1721,69 @@ export const SPACE_MEMBER_NAME_READ_BUDGET_MS = 500;
 export async function refreshSpaceMemberNamesFromAuth(input: {
   sql: SqlStorage;
   env: CoreBindings;
-}): Promise<boolean> {
+}): Promise<{
+  changed: boolean;
+  profileFacts: AuthProfileFacts | null | undefined;
+}> {
   const auth = input.env.OPENMELD_AUTH_WORKER;
-  if (!auth?.resolveProfileById) {
-    return false;
+  if (!auth?.resolveProfilesByIds) {
+    // No batch was attempted. Older Auth receivers still use scalar reads.
+    return { changed: false, profileFacts: undefined };
   }
   const members = listSpaceMemberRecords(input.sql, {
     status: "active",
   });
-  let changed = false;
   const deadlineAtMs = Date.now() + SPACE_MEMBER_NAME_READ_BUDGET_MS;
-  // A nonempty snapshot can still predate an Auth rename.
-  for (let offset = 0; offset < members.length; offset += 8) {
-    if (Date.now() >= deadlineAtMs) {
-      break;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const profiles = await Promise.race([
+      readAuthProfileFacts({
+        authWorker: auth,
+        profileIds: members.map((member) => member.profileId),
+        deadlineAtMs,
+      }),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(
+          () => resolve(null),
+          SPACE_MEMBER_NAME_READ_BUDGET_MS
+        );
+      }),
+    ]);
+    if (profiles === null) {
+      console.warn("[core.space.member_names_unavailable]", {
+        memberCount: members.length,
+      });
+      return { changed: false, profileFacts: null };
     }
-    const refreshed = await Promise.all(
-      members.slice(offset, offset + 8).map(async (member) => {
-        const name = await readSpaceMemberNameFromAuth({
-          env: input.env,
-          profileId: member.profileId,
-          profileKind: member.profileKindSnapshot,
-          deadlineAtMs,
-        });
-        if (!name) {
-          return false;
-        }
-        // Re-read after the Auth RPC: a concurrent rename or removal wins.
-        const current = readSpaceMemberRecord(input.sql, member.profileId);
-        if (
-          !current ||
-          current.status !== "active" ||
-          current.profileNameSnapshot !== member.profileNameSnapshot
-        ) {
-          return false;
-        }
-        return refreshSpaceMemberNameSnapshot({
+    let changed = false;
+    // A nonempty snapshot can still predate an Auth rename.
+    for (const member of members) {
+      const profile = profiles.get(member.profileId);
+      if (!profile || profile.profileKind !== member.profileKindSnapshot) {
+        continue;
+      }
+      // Re-read after the Auth RPC: a concurrent rename or removal wins.
+      const current = readSpaceMemberRecord(input.sql, member.profileId);
+      if (
+        !current ||
+        current.status !== "active" ||
+        current.profileNameSnapshot !== member.profileNameSnapshot
+      ) {
+        continue;
+      }
+      changed =
+        refreshSpaceMemberNameSnapshot({
           sql: input.sql,
           profileId: member.profileId,
-          profileName: name,
-        });
-      })
-    );
-    changed = refreshed.some(Boolean) || changed;
+          profileName: profile.profileName,
+        }) || changed;
+    }
+    return { changed, profileFacts: profiles };
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
   }
-  return changed;
 }
 
 export async function readSpaceMemberNameFromAuth(input: {

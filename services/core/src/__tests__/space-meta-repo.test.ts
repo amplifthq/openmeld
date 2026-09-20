@@ -22,10 +22,13 @@ type SpaceMetaRow = {
   purpose: string | null;
   direct_message_json: string | null;
   creator_json: string | null;
+  owner_user_ids_json: string;
+  allow_guests: number;
   organization_id: string | null;
   organization_visibility: string | null;
   guide: string | null;
   access_mode: string | null;
+  link_join_policy: string | null;
   password_proof_json: string | null;
   created_at: number;
   updated_at: number;
@@ -33,6 +36,7 @@ type SpaceMetaRow = {
 
 function createMetaRow(input: {
   accessMode: string | null;
+  linkJoinPolicy?: string | null;
   passwordProof?: SpacePasswordProof;
 }): SpaceMetaRow {
   return {
@@ -41,10 +45,13 @@ function createMetaRow(input: {
     purpose: null,
     direct_message_json: null,
     creator_json: null,
+    owner_user_ids_json: "[]",
+    allow_guests: 0,
     organization_id: "org-1",
     organization_visibility: "private",
     guide: null,
     access_mode: input.accessMode,
+    link_join_policy: input.linkJoinPolicy ?? null,
     password_proof_json: input.passwordProof
       ? JSON.stringify(input.passwordProof)
       : null,
@@ -105,6 +112,21 @@ describe("space-meta-repo", () => {
 
     expect(readSpaceMetaRecordFromSql(sql, "space-1")).toMatchObject({
       accessMode: "public",
+      linkJoinPolicy: "access_mode",
+    });
+  });
+
+  it("reads an explicit invite-only link join restriction", () => {
+    const sql = createReadSql(
+      createMetaRow({
+        accessMode: "public",
+        linkJoinPolicy: "invite_only",
+      })
+    );
+
+    expect(readSpaceMetaRecordFromSql(sql, "space-1")).toMatchObject({
+      accessMode: "public",
+      linkJoinPolicy: "invite_only",
     });
   });
 

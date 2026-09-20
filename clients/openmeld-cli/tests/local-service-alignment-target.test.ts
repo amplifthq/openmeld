@@ -3,9 +3,39 @@ import {
   buildDaemonServiceTargetSpec,
   resolveDaemonServiceAlignmentDecision,
 } from "../src/local-service/lifecycle/daemon-service-alignment-target";
+import {
+  classifyDaemonServiceRunStartability,
+  classifyDaemonServiceWakeability,
+} from "../src/local-service/lifecycle/daemon-service-anomaly-groups";
 import type { DaemonServiceInventory } from "../src/local-service/lifecycle/daemon-service-inventory";
 
 describe("local service alignment target", () => {
+  it("repairs old scheduling at the same version without rejecting user work", () => {
+    const inventory = createInventory({
+      anomalies: [
+        {
+          code: "service_manager_startup_policy_drift",
+          message:
+            "The installed macOS Service still uses an outdated scheduling policy.",
+        },
+      ],
+    });
+    expect(
+      resolveDaemonServiceAlignmentDecision({
+        inventory,
+        target: buildDaemonServiceTargetSpec({ daemonVersion: "0.2.0" }),
+      })
+    ).toMatchObject({
+      status: "needs_full_alignment",
+      reasonCodes: ["service_manager_startup_policy_drift"],
+    });
+    expect(classifyDaemonServiceWakeability({ inventory }).blocksWake).toBe(
+      false
+    );
+    expect(
+      classifyDaemonServiceRunStartability({ inventory }).blocksStart
+    ).toBe(false);
+  });
   it("uses the binary bundle format for binary distribution targets", () => {
     expect(
       buildDaemonServiceTargetSpec({

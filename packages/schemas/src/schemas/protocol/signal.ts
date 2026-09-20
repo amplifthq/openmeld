@@ -1,5 +1,6 @@
 import * as z from "zod/v4";
 import { isLegacyAgentActivityWorkCompatible } from "../../agent-work-activity";
+import { spaceWorkHandoffSchema } from "../../space-work-handoff";
 import { spaceMessageFileReferencesSchema } from "../http/space-files";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { signalStatusDataSchema as signalStatusPayloadSchema } from "../space-mesh/signal-status";
@@ -10,6 +11,7 @@ import { clientMessageIdSchema } from "./client-message-id";
 import { MAX_PROFILE_NAME_LENGTH, MAX_TEXT_LENGTH } from "./constants";
 import { conversationCompactionMarkerSchema } from "./conversation-compaction";
 import { coreReadinessFactsChangedSchema } from "./core-readiness-facts-changed";
+import { executionContextSelectionSchema } from "./execution-context";
 import { messageEnvelopeSchema } from "./message-envelope";
 import { openMeldRuntimeProfileIdSchema } from "./profile";
 import { trimmedStringFromUnknown } from "./shared";
@@ -18,6 +20,7 @@ import {
   signalReplyToSchema,
 } from "./signal-reply-to";
 import { spaceMessageAttachmentsSchema } from "./space-attachment";
+import { wakeDeviceWaitSchema } from "./wake-device-wait";
 
 // biome-ignore lint/performance/noBarrelFile: This shared protocol constant must remain re-exported from the canonical signal module.
 export { MAX_SIGNAL_REPLY_TO_PREVIEW_LENGTH } from "./signal-reply-to";
@@ -76,12 +79,6 @@ export const sanitizeSignalTextPreview = (
 
 export const signalTextReplyToSchema = signalReplyToSchema;
 
-export const centerAgentTaskReferenceSchema = z.strictObject({
-  taskId: z.string().trim().min(1).max(256),
-});
-
-export const CENTER_AGENT_TASK_REFERENCE_MAX_COUNT = 20 as const;
-
 const signalTextContentSchema = z.preprocess(
   trimmedStringFromUnknown,
   z.string().max(MAX_TEXT_LENGTH)
@@ -107,13 +104,20 @@ const legacySpaceAgentActivitySchema = spaceAgentActivitySchema.superRefine(
 );
 
 const signalTextMetaSchema = z.object({
+  workHandoff: spaceWorkHandoffSchema.optional(),
+  // The human accepted a suggested thread recipient, rather than selecting a new one.
+  threadWakeContinuation: z.literal(true).optional(),
+  // Read-only history compatibility mirror. Only data.deviceWait is authority.
+  deviceWait: wakeDeviceWaitSchema.optional(),
+  restoredFromSignalId: z.string().min(1).optional(),
+  repostedAt: z.number().int().nonnegative().optional(),
+  messageRevision: z.number().int().nonnegative().optional(),
+  editedAt: z.number().int().nonnegative().optional(),
+  recalledAt: z.number().int().nonnegative().optional(),
+  changedMessageId: z.string().min(1).optional(),
   transient: z.literal(true).optional(),
   agentActivity: legacySpaceAgentActivitySchema.optional(),
   agentWorkSummary: spaceAgentActivitySchema.optional(),
-  centerAgentTaskReferences: z
-    .array(centerAgentTaskReferenceSchema)
-    .max(CENTER_AGENT_TASK_REFERENCE_MAX_COUNT)
-    .optional(),
   clientMessageId: clientMessageIdSchema.optional(),
   centerAgentExecutionInput: z
     .strictObject({
@@ -239,10 +243,21 @@ const validateAuthoredSignalTextMeta = (
 
 const postedSignalTextMetaSchema = signalTextMetaSchema
   .omit({
+    repostedAt: true,
+    messageRevision: true,
+    editedAt: true,
+    recalledAt: true,
+    changedMessageId: true,
     agentActivity: true,
     agentWorkSummary: true,
-    centerAgentTaskReferences: true,
     conversationCompaction: true,
+  })
+  .extend({
+    deviceWait: z
+      .never({
+        error: "Set deviceWait only at the top level of the message request.",
+      })
+      .optional(),
   })
   .superRefine(validateAuthoredSignalTextMeta);
 
@@ -291,12 +306,17 @@ const addSignalTextMessageEnvelopeIssues = (
 
 const addSignalTextContentIssues = (
   input: {
+    attachments?: readonly unknown[];
     files?: readonly unknown[];
     text: string;
   },
   context: z.RefinementCtx
 ) => {
-  if (input.text.length > 0 || (input.files?.length ?? 0) > 0) {
+  if (
+    input.text.length > 0 ||
+    (input.files?.length ?? 0) > 0 ||
+    (input.attachments?.length ?? 0) > 0
+  ) {
     return;
   }
   context.addIssue({
@@ -312,6 +332,10 @@ const buildSignalTextDataSchema = <TMetaSchema extends z.ZodTypeAny>(
   z
     .strictObject({
       text: signalTextContentSchema,
+      // Canonical authoring/storage field. Public reads omit it and generate
+      // meta.deviceWait only as a read-only compatibility mirror.
+      deviceWait: wakeDeviceWaitSchema.optional(),
+      contextSelection: executionContextSelectionSchema.optional(),
       attachments: spaceMessageAttachmentsSchema.optional(),
       files: spaceMessageFileReferencesSchema.optional(),
       messageEnvelope: messageEnvelopeSchema.optional(),

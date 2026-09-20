@@ -6,10 +6,12 @@ import {
   DISPATCH_ACTIVITY_DISPATCHING_PURPOSE,
   DISPATCH_ACTIVITY_FAILED_PURPOSE,
   DISPATCH_ACTIVITY_RETRYING_PURPOSE,
+  isHostedAgentRuntimeKind,
   OPENMELD_DAEMON_DISPATCH_CONTRACT_VERSION,
   parseOpenMeldDaemonDispatchQueueIngress,
   projectTargetWakeLifecycleIdentity,
   RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
+  RUNTIME_COORDINATOR_DEVICE_WAITING_REASON_CODE,
   RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
 } from "@openmeld/schemas";
@@ -35,6 +37,7 @@ import {
 } from "../../remote-agent/application/native-delivery-service";
 import { resolveSpaceStub } from "../../rpc/space-ref";
 import { emitSpaceSystemNoticeSignal } from "../../rpc/space-signal-emitter";
+import { DELETED_AGENT_PROFILE_WAKE_STOP_REASON } from "../../runtime-transport/application/deleted-agent-profile-wake-cancellation";
 import {
   RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
   resolveRuntimeCoordinatorHeadWaitingDecision,
@@ -78,7 +81,9 @@ import {
   decideRuntimeTransportRuntimeCoordinatorExecution,
   readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace,
   recordRuntimeTransportRuntimeCoordinatorHeadNoExecution,
+  recordRuntimeTransportRuntimeCoordinatorHeadPreAgentStop,
   recordRuntimeTransportRuntimeCoordinatorHeadWaiting,
+  requestRuntimeTransportRuntimeCoordinatorWakeStop,
 } from "../infrastructure/runtime-transport/runtime-coordinator-client";
 import { lookupRuntimeTransportRoute } from "../infrastructure/runtime-transport/runtime-transport-client";
 import { resolveRuntimeTransportOwnerShard } from "../infrastructure/runtime-transport/runtime-transport-shard";
@@ -135,6 +140,7 @@ import {
   buildDispatchSystemRequestContext,
   buildDispatchSystemSpaceAccess,
 } from "./dispatch-space-access";
+import { checkDeviceWaitingWakeAccess } from "./wake-device-wait";
 
 type QueueBatchMessage = MessageBatch<unknown>["messages"][number];
 export type DispatchQueueWaitContext = {
@@ -153,26 +159,6 @@ export type DispatchQueueBatchOutcome =
     };
 
 export type DispatchOutboxDirectDeliveryOutcome =
-  | {
-      retryDelaySeconds: null;
-      status: "submitted";
-    }
-  | {
-      reasonCode:
-        | "dispatch_direct_preflight_unavailable"
-        | "dispatch_direct_target_not_hosted";
-      retryDelaySeconds: null;
-      status: "queue_required";
-    }
-  | {
-      reasonCode:
-        | "dispatch_direct_retry_requested"
-        | "missing_dispatch_runtime_binding";
-      retryDelaySeconds: number | null;
-      status: "retry_scheduled";
-    };
-
-export type DispatchOutboxProductionDeliveryOutcome =
   | {
       retryDelaySeconds: null;
       status: "submitted";
@@ -822,86 +808,13 @@ const processDispatchQueueMessage = async (input: {
   };
 };
 
+// The Space outbox uses this entry point in every environment. Runtime
+// classification and recovery ownership stay together with the preflight.
 export const dispatchOutboxMessageDirectly = async (input: {
   ctx: DispatchQueueWaitContext;
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
 }): Promise<DispatchOutboxDirectDeliveryOutcome> => {
-  return await dispatchOutboxMessageDirectlyWithPreflight(input);
-};
-
-export const dispatchHostedOutboxMessageDirectly = async (input: {
-  ctx: DispatchQueueWaitContext;
-  env: CoreBindings;
-  message: OpenMeldDaemonDispatchQueueMessage;
-}): Promise<DispatchOutboxDirectDeliveryOutcome> => {
-  const db = wakeEvidenceDb(input.env);
-  const recoveryDb = dispatchRecoveryDb(input.env);
-  if (!(db && recoveryDb && input.env.OPENMELD_SPACES)) {
-    return {
-      reasonCode: "missing_dispatch_runtime_binding",
-      retryDelaySeconds: null,
-      status: "retry_scheduled",
-    };
-  }
-
-  const timing = createSpaceBootstrapTimingCollector();
-  const preflightCheck = await timing.measure(
-    {
-      description:
-        "Confirm the authoritative target Binding is hosted before direct delivery",
-      name: "openmeld_dispatch_direct_eligibility",
-    },
-    () =>
-      runDispatchExecutionPreflightGate({
-        env: input.env,
-        message: input.message,
-        timing,
-      })
-  );
-  if (!preflightCheck.ok) {
-    logDispatchQueueServerTiming({
-      deliveryPath: "direct",
-      dispatchMessage: input.message,
-      env: input.env,
-      metrics: timing.metrics(),
-    });
-    return {
-      reasonCode: "dispatch_direct_preflight_unavailable",
-      retryDelaySeconds: null,
-      status: "queue_required",
-    };
-  }
-  const snapshot = preflightCheck.effectiveTargetBindingSnapshot;
-  if (
-    snapshot.runtimeKind !== "hosted_center_agent" ||
-    !snapshot.hostedRuntimeIdentity
-  ) {
-    logDispatchQueueServerTiming({
-      deliveryPath: "direct",
-      dispatchMessage: input.message,
-      env: input.env,
-      metrics: timing.metrics(),
-    });
-    return {
-      reasonCode: "dispatch_direct_target_not_hosted",
-      retryDelaySeconds: null,
-      status: "queue_required",
-    };
-  }
-
-  return await dispatchOutboxMessageDirectlyWithPreflight({
-    ...input,
-    preflightCheck,
-    timing,
-  });
-};
-
-export const dispatchProductionOutboxMessageDirectly = async (input: {
-  ctx: DispatchQueueWaitContext;
-  env: CoreBindings;
-  message: OpenMeldDaemonDispatchQueueMessage;
-}): Promise<DispatchOutboxProductionDeliveryOutcome> => {
   const db = wakeEvidenceDb(input.env);
   const recoveryDb = dispatchRecoveryDb(input.env);
   if (!(db && recoveryDb && input.env.OPENMELD_SPACES)) {
@@ -917,7 +830,7 @@ export const dispatchProductionOutboxMessageDirectly = async (input: {
   const preflightCheck = await timing.measure(
     {
       description:
-        "Resolve the authoritative target runtime before production direct delivery",
+        "Resolve the authoritative target runtime before direct delivery",
       name: "openmeld_dispatch_direct_eligibility",
     },
     () =>
@@ -927,50 +840,6 @@ export const dispatchProductionOutboxMessageDirectly = async (input: {
         timing,
       })
   );
-  const outcome = await dispatchOutboxMessageDirectlyWithPreflight({
-    ...input,
-    preflightCheck,
-    timing,
-  });
-  if (outcome.status === "submitted") {
-    return outcome;
-  }
-  if (outcome.status === "queue_required") {
-    throw new Error(
-      `production direct dispatch returned an invalid queue-only outcome: ${input.message.dispatchId}`
-    );
-  }
-
-  const recoveryTransport =
-    preflightCheck.ok &&
-    preflightCheck.effectiveTargetBindingSnapshot.runtimeKind ===
-      "hosted_center_agent" &&
-    preflightCheck.effectiveTargetBindingSnapshot.hostedRuntimeIdentity
-      ? "queue"
-      : "outbox";
-  return {
-    ...outcome,
-    recoveryTransport,
-  };
-};
-
-const dispatchOutboxMessageDirectlyWithPreflight = async (input: {
-  ctx: DispatchQueueWaitContext;
-  env: CoreBindings;
-  message: OpenMeldDaemonDispatchQueueMessage;
-  preflightCheck?: DispatchExecutionPreflightResult;
-  timing?: SpaceBootstrapTimingCollector;
-}): Promise<DispatchOutboxDirectDeliveryOutcome> => {
-  const db = wakeEvidenceDb(input.env);
-  const recoveryDb = dispatchRecoveryDb(input.env);
-  if (!(db && recoveryDb && input.env.OPENMELD_SPACES)) {
-    return {
-      reasonCode: "missing_dispatch_runtime_binding",
-      retryDelaySeconds: null,
-      status: "retry_scheduled",
-    };
-  }
-
   const directMessage = createDirectDispatchQueueMessage(input.message);
   const preparedMessage = prepareQueueBatchMessage({
     fallbackKey: `direct:${input.message.dispatchId}`,
@@ -981,14 +850,24 @@ const dispatchOutboxMessageDirectlyWithPreflight = async (input: {
     ctx: input.ctx,
     deliveryPath: "direct",
     env: input.env,
-    preflightCheck: input.preflightCheck,
+    preflightCheck,
     preparedMessage,
-    timing: input.timing,
+    timing,
   });
 
   if (directMessage.retryRequested || !outcome.shouldAck) {
     return {
       reasonCode: "dispatch_direct_retry_requested",
+      // Workstation recovery stays with the Space outbox. Only an
+      // authoritatively identified hosted target can hand recovery to Queue.
+      recoveryTransport:
+        preflightCheck.ok &&
+        isHostedAgentRuntimeKind(
+          preflightCheck.effectiveTargetBindingSnapshot.runtimeKind
+        ) &&
+        preflightCheck.effectiveTargetBindingSnapshot.hostedRuntimeIdentity
+          ? "queue"
+          : "outbox",
       retryDelaySeconds: directMessage.retryDelaySeconds,
       status: "retry_scheduled",
     };
@@ -1288,23 +1167,10 @@ const processDispatchQueueMessageExecution = async (input: {
   const targetOwnerUserId = normalizeOptionalText(
     preflightCheck.effectiveTargetBindingSnapshot.ownerUserId
   );
-  if (!targetOwnerUserId) {
-    throw new DispatchExecutionValidationError({
-      code: "agent_profile_binding.lookup_failed",
-      executionContext: {
-        attemptId: executionAttemptId,
-        connectionGeneration: null,
-        daemonSessionId: AUDIT_UNKNOWN_DAEMON_SESSION_ID,
-        leaseEpoch: AUDIT_UNKNOWN_LEASE_EPOCH,
-        replyingHintActive: false,
-      },
-      message: "target owner user id is missing",
-    });
-  }
-
   if (
-    preflightCheck.effectiveTargetBindingSnapshot.runtimeKind ===
-    "hosted_center_agent"
+    isHostedAgentRuntimeKind(
+      preflightCheck.effectiveTargetBindingSnapshot.runtimeKind
+    )
   ) {
     const result = await handleHostedCenterAgentNativeDelivery({
       ctx: input.ctx,
@@ -1323,6 +1189,19 @@ const processDispatchQueueMessageExecution = async (input: {
     return result;
   }
 
+  if (!targetOwnerUserId) {
+    throw new DispatchExecutionValidationError({
+      code: "agent_profile_binding.lookup_failed",
+      executionContext: {
+        attemptId: executionAttemptId,
+        connectionGeneration: null,
+        daemonSessionId: AUDIT_UNKNOWN_DAEMON_SESSION_ID,
+        leaseEpoch: AUDIT_UNKNOWN_LEASE_EPOCH,
+        replyingHintActive: false,
+      },
+      message: "target owner user id is missing",
+    });
+  }
   effectiveDispatchMessage = removeHostedRecoveryReasonFromWorkstationDispatch(
     effectiveDispatchMessage
   );
@@ -1375,29 +1254,124 @@ const processDispatchQueueMessageExecution = async (input: {
     logServerTiming();
     return settledHeadAdmission;
   }
-  effectiveDispatchMessage = applyRuntimeCoordinatorAcceptedDispatchSnapshot({
+  const acceptedDispatch = resolveRuntimeCoordinatorAcceptedDispatch({
     headAcceptance,
     message: effectiveDispatchMessage,
   });
+  effectiveDispatchMessage = acceptedDispatch.message;
 
-  const result = await beginFreshDispatchDeliveryPhase({
-    acceptedDispatchSnapshot:
-      headAcceptance.status === "proceed"
-        ? headAcceptance.acceptedDispatchSnapshot
-        : undefined,
-    controllerKey: input.controllerKey,
-    ctx: input.ctx,
+  const deviceWaiting = await settleDeviceWaitingWakeBeforeExecution({
     db: input.db,
     dispatchMessage: effectiveDispatchMessage,
     env: input.env,
     executionAttemptId,
     executionAttemptNo,
+    message: input.message,
     nowMs: input.nowMs,
+    preflightCheck,
     targetOwnerUserId,
-    timing,
   });
+  const result =
+    deviceWaiting ??
+    (await beginFreshDispatchDeliveryPhase({
+      acceptedDispatchSnapshot: acceptedDispatch.snapshot,
+      controllerKey: input.controllerKey,
+      ctx: input.ctx,
+      db: input.db,
+      dispatchMessage: effectiveDispatchMessage,
+      env: input.env,
+      executionAttemptId,
+      executionAttemptNo,
+      nowMs: input.nowMs,
+      targetOwnerUserId,
+      timing,
+    }));
   logServerTiming();
   return result;
+};
+
+const settleDeviceWaitingWakeBeforeExecution = async (input: {
+  db: D1Database;
+  dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
+  env: CoreBindings;
+  executionAttemptId: string;
+  executionAttemptNo: number;
+  message: QueueBatchMessage;
+  nowMs: number;
+  preflightCheck: Extract<DispatchExecutionPreflightResult, { ok: true }>;
+  targetOwnerUserId: string;
+}): Promise<DispatchQueueMessageExecutionResult | null> => {
+  const effectiveDispatchMessage = input.dispatchMessage;
+  const {
+    executionAttemptId,
+    executionAttemptNo,
+    preflightCheck,
+    targetOwnerUserId,
+  } = input;
+  const deviceWaitAccess = effectiveDispatchMessage.deviceWait
+    ? await checkDeviceWaitingWakeAccess({
+        env: input.env,
+        message: effectiveDispatchMessage,
+      }).catch((error) => {
+        console.warn("[core.device_wait.access_unavailable]", {
+          dispatchId: effectiveDispatchMessage.dispatchId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      })
+    : true;
+  if (deviceWaitAccess === false) {
+    const outcome =
+      await handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded({
+        db: input.db,
+        dispatchMessage: effectiveDispatchMessage,
+        env: input.env,
+        executionAttemptId,
+        message: input.message,
+        nowMs: input.nowMs,
+        preflightCheck: {
+          ok: false,
+          canonicalAdmissionBlock: true,
+          errorCode: "wake.device_wait.access_revoked",
+          errorMessage:
+            "The requester or Agent no longer has permission to execute this waiting Wake in this Space.",
+          finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+          targetOwnerUserId,
+        },
+        queueAttempt: executionAttemptNo,
+      });
+    return { controllerWaitPromise: null, shouldAck: outcome.shouldAck };
+  }
+
+  const waitingReason =
+    deviceWaitAccess === null
+      ? "wake.device_wait.access_check_unavailable"
+      : preflightCheck.deviceWaitReason;
+  if (waitingReason) {
+    let errorMessage =
+      waitingReason === "daemon.profile.offline"
+        ? "Waiting for the specified computer to come online. No work has started."
+        : "Waiting for the Agent's current readiness checks. No work has started.";
+    if (deviceWaitAccess === null) {
+      errorMessage =
+        "Waiting to verify the Wake's current Space access. No work has started.";
+    }
+    const waiting = await recordPreExecutionHeadWaiting({
+      db: input.db,
+      dispatchMessage: effectiveDispatchMessage,
+      env: input.env,
+      errorCode: waitingReason,
+      errorMessage,
+      executionAttemptId,
+      failureAtMs: input.nowMs,
+      message: input.message,
+      ownerUserId: targetOwnerUserId,
+      queueAttempt: executionAttemptNo,
+    });
+    return { controllerWaitPromise: null, shouldAck: waiting.shouldAck };
+  }
+
+  return null;
 };
 
 const isFreshRuntimeCoordinatorHeadSettledWithoutExecution = (
@@ -1432,7 +1406,8 @@ const settleFreshHeadAdmissionWithoutDelivery = async (input: {
   }
   if (
     input.headAcceptance.status === "queue_full" ||
-    input.headAcceptance.status === "recovery_needs_attention"
+    input.headAcceptance.status === "recovery_needs_attention" ||
+    input.headAcceptance.status === "context_rejected"
   ) {
     return {
       controllerWaitPromise: null,
@@ -1638,8 +1613,10 @@ const handlePreAgentStoppedBeforeDeliveryIfNeeded = async (input: {
 };
 
 type RuntimeCoordinatorHeadAcceptanceOutcome =
+  | { status: "context_rejected"; reasonCode: string; errorMessage: string }
   | {
       acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
+      executionContext?: OpenMeldDaemonDispatchQueueMessage["executionContext"];
       status: "proceed";
     }
   | { status: "profile_queue_waiting" }
@@ -1668,17 +1645,40 @@ const isAcceptedPayloadConflictSettlementReady = (
     outcome.reasonCode ===
       RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE);
 
-const applyRuntimeCoordinatorAcceptedDispatchSnapshot = (input: {
+const resolveRuntimeCoordinatorAcceptedDispatch = (input: {
   headAcceptance: RuntimeCoordinatorHeadAcceptanceOutcome;
   message: OpenMeldDaemonDispatchQueueMessage;
-}): OpenMeldDaemonDispatchQueueMessage =>
-  input.headAcceptance.status === "proceed" &&
-  input.headAcceptance.acceptedDispatchSnapshot
-    ? applyAcceptedDispatchSnapshotToMessage({
-        message: input.message,
-        snapshot: input.headAcceptance.acceptedDispatchSnapshot,
-      })
-    : input.message;
+}): {
+  message: OpenMeldDaemonDispatchQueueMessage;
+  snapshot: OpenMeldDaemonAcceptedDispatchSnapshot | undefined;
+} => {
+  const snapshot =
+    input.headAcceptance.status === "proceed"
+      ? input.headAcceptance.acceptedDispatchSnapshot
+      : undefined;
+  return {
+    message: snapshot
+      ? applyAcceptedDispatchSnapshotToMessage({
+          message: input.message,
+          snapshot,
+          ...(input.headAcceptance.status === "proceed"
+            ? { executionContext: input.headAcceptance.executionContext }
+            : {}),
+        })
+      : input.message,
+    snapshot,
+  };
+};
+
+function requiresExecutionContext(
+  message: OpenMeldDaemonDispatchQueueMessage,
+  runtimeKind: string | null | undefined
+): boolean {
+  return Boolean(
+    message.contextSelection ||
+      (runtimeKind === "openmeld_service" && message.threadContext)
+  );
+}
 
 const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
   db: D1Database;
@@ -1691,6 +1691,18 @@ const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
   targetWakeLifecycleId: string;
 }): Promise<RuntimeCoordinatorHeadAcceptanceOutcome | null> => {
   const { response } = input;
+  if (
+    !response.ok &&
+    response.status === "conflict" &&
+    response.reasonCode.startsWith("execution_context.")
+  ) {
+    return {
+      status: "context_rejected",
+      reasonCode: response.reasonCode,
+      errorMessage:
+        "This task's background could not be verified. Choose a task from this conversation to continue or fork, or start a new task.",
+    };
+  }
   if (!response.ok && response.status === "retry_later") {
     await markDispatchStatus({
       attemptId: input.executionAttemptId,
@@ -1933,7 +1945,11 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
   executionAttemptId: string;
   nowMs: number;
   openMeldServiceRuntimeId?: string | null;
-  runtimeKind?: "hosted_center_agent" | "openmeld_service" | null;
+  runtimeKind?:
+    | "hosted_center_agent"
+    | "hosted_remote_agent"
+    | "openmeld_service"
+    | null;
   targetOwnerUserId: string;
 }): Promise<RuntimeCoordinatorHeadAcceptanceOutcome> => {
   const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
@@ -1960,6 +1976,17 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     openMeldServiceRuntimeId: input.openMeldServiceRuntimeId,
     runtimeKind: input.runtimeKind,
   });
+  if (
+    requiresExecutionContext(input.dispatchMessage, input.runtimeKind) &&
+    !acceptedDispatchSnapshot?.contextRequest
+  ) {
+    return {
+      status: "context_rejected",
+      reasonCode: "execution_context.scope_unavailable",
+      errorMessage:
+        "This Agent cannot start an independent task with the current connection and conversation. Reconnect the local Agent and try again.",
+    };
+  }
   const response = await acceptRuntimeTransportRuntimeCoordinatorHead({
     env: input.env,
     ownerUserId: input.targetOwnerUserId,
@@ -2167,6 +2194,9 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     ...(response.acceptedDispatchSnapshot
       ? { acceptedDispatchSnapshot: response.acceptedDispatchSnapshot }
       : {}),
+    ...("executionContext" in response && response.executionContext
+      ? { executionContext: response.executionContext }
+      : {}),
     status: "proceed",
   };
 };
@@ -2258,7 +2288,8 @@ const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
       }
       if (
         headAcceptance.status === "queue_full" ||
-        headAcceptance.status === "recovery_needs_attention"
+        headAcceptance.status === "recovery_needs_attention" ||
+        headAcceptance.status === "context_rejected"
       ) {
         return {
           handled: true,
@@ -2588,15 +2619,18 @@ const handleHostedCenterAgentNativeDelivery = async (input: {
   nowMs: number;
   queueAttempt: number;
   snapshot: EffectiveTargetBindingSnapshot;
-  targetOwnerUserId: string;
+  targetOwnerUserId: string | null;
   timing: SpaceBootstrapTimingCollector;
 }): Promise<DispatchQueueMessageExecutionResult> => {
   const { bindingId, modelRoute, organizationId } = input.snapshot;
   if (
-    !(bindingId && organizationId) ||
-    input.snapshot.runtimeKind !== "hosted_center_agent" ||
-    !input.snapshot.hostedRuntimeIdentity ||
-    !modelRoute
+    !(
+      bindingId &&
+      organizationId &&
+      isHostedAgentRuntimeKind(input.snapshot.runtimeKind) &&
+      input.snapshot.hostedRuntimeIdentity &&
+      modelRoute
+    )
   ) {
     throw new DispatchExecutionValidationError({
       code: "remote_agent.hosted_binding_invalid",
@@ -2647,6 +2681,7 @@ const handleHostedCenterAgentNativeDelivery = async (input: {
         submitRemoteAgentNativeDelivery({
           binding: {
             bindingId,
+            personalAgent: input.snapshot.runtimeKind === "hosted_remote_agent",
             controllerNormalization: input.snapshot.controllerNormalization,
             modelRoute,
             organizationId,
@@ -2851,6 +2886,75 @@ const handleDedupedDispatchClaim = async (input: {
   };
 };
 
+// Deletion cannot resolve a live binding owner. Use the Core-recorded owner
+// only to address the existing cancellation authority, never to run work.
+const stopDeletedProfileRedelivery = async (input: {
+  dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
+  env: CoreBindings;
+  message: QueueBatchMessage;
+  ownerUserId: string;
+  queueAttempt: number;
+}): Promise<{ shouldAck: boolean }> => {
+  const dispatch = input.dispatchMessage;
+  const stopped =
+    await recordRuntimeTransportRuntimeCoordinatorHeadPreAgentStop({
+      env: input.env,
+      ownerUserId: input.ownerUserId,
+      preAgentStop: {
+        v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        ownerUserId: input.ownerUserId,
+        dispatchId: dispatch.dispatchId,
+        idempotencyKey: dispatch.idempotencyKey,
+        reason: DELETED_AGENT_PROFILE_WAKE_STOP_REASON,
+        targetProfileName: dispatch.targetProfileNameSnapshot ?? undefined,
+        targetProfileMentionLabel: dispatch.targetProfileMentionLabel,
+        targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+          clientMessageId: dispatch.sourceClientMessageId ?? null,
+          dispatchId: dispatch.dispatchId,
+          sourceSignalId: dispatch.sourceEventId,
+          spaceId: dispatch.spaceId,
+          targetProfileId: dispatch.targetProfileId,
+        }),
+      },
+    });
+  if (
+    stopped.ok ||
+    stopped.reasonCode ===
+      "runtime_coordinator.pre_agent_stop_after_publication_intent"
+  ) {
+    return { shouldAck: true };
+  }
+  if (
+    stopped.status === "execution_linked" &&
+    stopped.runtimeCoordinatorExecutionId
+  ) {
+    const cancellation =
+      await requestRuntimeTransportRuntimeCoordinatorWakeStop({
+        env: input.env,
+        ownerUserId: input.ownerUserId,
+        wakeStop: {
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          ownerUserId: input.ownerUserId,
+          runtimeCoordinatorExecutionId: stopped.runtimeCoordinatorExecutionId,
+          dispatchId: stopped.primaryDispatchId ?? dispatch.dispatchId,
+          spaceId: dispatch.spaceId,
+          sourceClientMessageId: dispatch.sourceClientMessageId ?? null,
+          targetProfileId: dispatch.targetProfileId,
+          reason: DELETED_AGENT_PROFILE_WAKE_STOP_REASON,
+        },
+      });
+    if (cancellation.ok || cancellation.status === "not_stoppable") {
+      return { shouldAck: true };
+    }
+  }
+  retryQueueMessageWithBackoff(
+    input.message,
+    input.queueAttempt,
+    stopped.reasonCode
+  );
+  return { shouldAck: false };
+};
+
 const triggerRuntimeCoordinatorQueueDecision = async (input: {
   claimState: Extract<
     Awaited<ReturnType<typeof claimDispatchAttempt>>,
@@ -2871,6 +2975,16 @@ const triggerRuntimeCoordinatorQueueDecision = async (input: {
     env: input.env,
     message: input.dispatchMessage,
   }).catch(() => null);
+  if (
+    preflightCheck?.ok === false &&
+    preflightCheck.targetProfileIdentityVerdict === "not_found" &&
+    decisionRequest.ownerUserId
+  ) {
+    return await stopDeletedProfileRedelivery({
+      ...input,
+      ownerUserId: decisionRequest.ownerUserId,
+    });
+  }
   const ownerUserId = normalizeOptionalText(
     preflightCheck?.ok
       ? preflightCheck.effectiveTargetBindingSnapshot.ownerUserId
@@ -3785,12 +3899,21 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
   failureAtMs: number;
   message: QueueBatchMessage;
   queueAttempt: number;
+  runtimeExecutionDelivered: boolean;
 }): Promise<{ handled: boolean; shouldAck: boolean }> => {
   if (
     input.errorCode !== "daemon.profile.offline" &&
     input.errorCode !== "daemon.profile.pending_first_report" &&
+    input.errorCode !== "wake.device_wait.readiness_checking" &&
+    input.errorCode !== "daemon.service.draining" &&
     input.errorCode !== "service.update_required" &&
     input.errorCode !== "local_service.identity_mismatch"
+  ) {
+    return { handled: false, shouldAck: true };
+  }
+  if (
+    input.errorCode === "daemon.service.draining" &&
+    (!input.dispatchMessage.deviceWait || input.runtimeExecutionDelivered)
   ) {
     return { handled: false, shouldAck: true };
   }
@@ -3851,7 +3974,8 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
   }
   if (
     headAcceptance.status === "queue_full" ||
-    headAcceptance.status === "recovery_needs_attention"
+    headAcceptance.status === "recovery_needs_attention" ||
+    headAcceptance.status === "context_rejected"
   ) {
     return {
       handled: true,
@@ -3900,7 +4024,7 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
     });
   }
 
-  return await recordUnavailableRouteHeadWaiting({
+  return await recordPreExecutionHeadWaiting({
     db: input.db,
     dispatchMessage: input.dispatchMessage,
     env: input.env,
@@ -4004,11 +4128,16 @@ const resolvePreExecutionVisibleFailureTargetLabel = (
     : "the agent";
 };
 
-const recordUnavailableRouteHeadWaiting = async (input: {
+const recordPreExecutionHeadWaiting = async (input: {
   db: D1Database;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
-  errorCode: "daemon.profile.offline" | "daemon.profile.pending_first_report";
+  errorCode:
+    | "daemon.profile.offline"
+    | "daemon.profile.pending_first_report"
+    | "daemon.service.draining"
+    | "wake.device_wait.access_check_unavailable"
+    | "wake.device_wait.readiness_checking";
   errorMessage: string;
   executionAttemptId: string;
   failureAtMs: number;
@@ -4109,7 +4238,12 @@ const recordUnavailableRouteHeadWaiting = async (input: {
     db: input.db,
     idempotencyKey: input.dispatchMessage.idempotencyKey,
     status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
-    errorCode: input.errorCode,
+    // Routing/ownership marker for outbox redrive, not the observed cause.
+    // The exact cause remains in the Coordinator boundary and correlated
+    // head_waiting_boundary_recorded decision below; errorMessage is unchanged.
+    errorCode: input.dispatchMessage.deviceWait
+      ? RUNTIME_COORDINATOR_DEVICE_WAITING_REASON_CODE
+      : input.errorCode,
     errorMessage: input.errorMessage,
     nowMs: input.failureAtMs,
   });
@@ -4134,6 +4268,9 @@ const recordUnavailableRouteHeadWaiting = async (input: {
     source: "dispatch_queue",
     correlationId: input.dispatchMessage.dispatchId,
   });
+  if (input.dispatchMessage.deviceWait) {
+    return { handled: true, shouldAck: true };
+  }
   await emitRetryingActivitySignal({
     env: input.env,
     errorCode: input.errorCode,
@@ -5102,6 +5239,7 @@ const handleDispatchQueueProcessingFailure = async (input: {
 
   const preExecutionHeadLifecycleFailureHandled =
     await handlePreExecutionHeadLifecycleFailureIfNeeded({
+      runtimeExecutionDelivered: input.runtimeExecutionDelivered,
       db: input.db,
       dispatchMessage: input.dispatchMessage,
       env: input.env,

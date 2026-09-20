@@ -105,6 +105,55 @@ export async function readRemoteAgentLarkPlatformChannelConnection(input: {
   return row ? mapConnectionRow(row) : null;
 }
 
+export type LarkPlatformWebhookCredentials = Pick<
+  RemoteAgentLarkPlatformChannelCredentialsRecord,
+  | "credentialFormatVersion"
+  | "encryptedEventEncryptKey"
+  | "encryptedVerificationToken"
+>;
+
+/** Read the current connection and its verification material in one D1 round trip. */
+export async function readRemoteAgentLarkPlatformWebhookContext(input: {
+  connectionId: string;
+  db: D1Database;
+}): Promise<{
+  connection: RemoteAgentLarkPlatformChannelConnectionRecord;
+  credentials: LarkPlatformWebhookCredentials | null;
+} | null> {
+  const row = await input.db
+    .prepare(`
+    SELECT connection.*, credentials.credential_format_version,
+      credentials.encrypted_event_encrypt_key,
+      credentials.encrypted_verification_token
+    FROM openMeldRemoteAgent_lark_platform_channel_connections connection
+    LEFT JOIN openMeldRemoteAgent_lark_platform_channel_credentials credentials
+      ON credentials.connection_id = connection.connection_id
+    WHERE connection.connection_id = ? LIMIT 1
+  `)
+    .bind(input.connectionId)
+    .first<
+      RemoteAgentLarkPlatformChannelConnectionRow & {
+        credential_format_version: number | null;
+        encrypted_event_encrypt_key: string | null;
+        encrypted_verification_token: string | null;
+      }
+    >();
+  if (!row) {
+    return null;
+  }
+  return {
+    connection: mapConnectionRow(row),
+    credentials:
+      row.credential_format_version === null
+        ? null
+        : {
+            credentialFormatVersion: row.credential_format_version,
+            encryptedEventEncryptKey: row.encrypted_event_encrypt_key,
+            encryptedVerificationToken: row.encrypted_verification_token,
+          },
+  };
+}
+
 export async function bindRemoteAgentLarkPlatformConnectionTenant(input: {
   appId: string;
   connectionId: string;

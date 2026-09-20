@@ -23,7 +23,7 @@ export const CODEX_UPGRADE_REQUIRED_REASON =
 export const CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY =
   "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.";
 export const CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY =
-  "Center Agent didn't return a reply. Try again. If it keeps happening, open diagnostics in OpenMeld.";
+  "Center Agent couldn't generate a reply. Your message is saved.";
 export const CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY =
   "Center Agent couldn't start this request. Try again. If it keeps happening, open diagnostics in OpenMeld.";
 export const CENTER_AGENT_SOURCE_MESSAGE_MISSING_PUBLIC_COPY =
@@ -44,6 +44,10 @@ export const CENTER_AGENT_TURN_TIMEOUT_PUBLIC_COPY =
   "Center Agent took too long to finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld.";
 export const REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE =
   "remote_agent.tool_result_too_large";
+export const REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE =
+  "remote_agent.tool_call_budget_exceeded";
+export const REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY =
+  "This request reached the execution safety limit before it was finished. Completed actions have not been undone. Review the results and diagnostics before starting more work.";
 export const REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY =
   "Center Agent tried to process too much data at once. Try again; it will read large files in smaller sections. If this keeps happening, open diagnostics.";
 export const REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE =
@@ -107,6 +111,8 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
       return REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY;
     case REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE:
       return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY;
+    case REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE:
+      return REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY;
     case REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE:
       return REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY;
     case "remote_agent.turn_not_completed":
@@ -261,6 +267,7 @@ export type PublicAgentFailureRecoveryKind =
   | "local_agent_prepare"
   | "local_service"
   | "system_retry"
+  | "request_ended"
   | "unknown";
 
 export type PublicAgentFailureRecoveryTarget =
@@ -285,14 +292,17 @@ export type PublicAgentAvailabilityCopy = {
 export type PublicAgentFailureRecovery =
   | {
       body: string;
-      kind: Exclude<PublicAgentFailureRecoveryKind, "system_retry">;
+      kind: Exclude<
+        PublicAgentFailureRecoveryKind,
+        "system_retry" | "request_ended"
+      >;
       primaryActionId: AgentRecoveryActionId;
       primaryActionLabel: string;
       recoveryTarget: PublicAgentFailureRecoveryTarget;
     }
   | {
       body: string;
-      kind: "system_retry" | "unknown";
+      kind: "system_retry" | "request_ended" | "unknown";
       recoveryTarget: null;
     };
 
@@ -374,12 +384,15 @@ const DEFAULT_CONTROLLER_SIGN_IN_AVAILABILITY_COPY = {
 
 type PublicAgentFailureRecoveryMapping =
   | (PublicAgentFailureRecoveryMappingBase & {
-      kind: Exclude<PublicAgentFailureRecoveryKind, "system_retry">;
+      kind: Exclude<
+        PublicAgentFailureRecoveryKind,
+        "system_retry" | "request_ended"
+      >;
       primaryActionId: AgentRecoveryActionId;
       recoveryTarget: PublicAgentFailureRecoveryTarget;
     })
   | (PublicAgentFailureRecoveryMappingBase & {
-      kind: "system_retry";
+      kind: "system_retry" | "request_ended";
       recoveryTarget: null;
     });
 
@@ -411,8 +424,8 @@ const PUBLIC_AGENT_AVAILABILITY_ONLY_COPY_BY_CODE: readonly PublicAgentAvailabil
     },
     {
       availabilityBadgeLabel: "Available",
-      availabilitySummary: "Center Agent can answer now.",
-      availabilityTooltip: "Center Agent available",
+      availabilitySummary: "This Agent can answer now.",
+      availabilityTooltip: "Agent available",
       patterns: ["=remote_agent.available"],
     },
     {
@@ -475,9 +488,8 @@ const PUBLIC_AGENT_AVAILABILITY_ONLY_COPY_BY_CODE: readonly PublicAgentAvailabil
     },
     {
       availabilityBadgeLabel: "Unavailable",
-      availabilitySummary:
-        "This Agent's computer connection is unavailable right now.",
-      availabilityTooltip: "Computer connection unavailable",
+      availabilitySummary: "OpenMeld couldn't check this agent's connection.",
+      availabilityTooltip: "Connection check unavailable",
       patterns: ["=wake_route.registration_unavailable"],
     },
     {
@@ -540,6 +552,12 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       body: REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY,
       kind: "system_retry",
       patterns: [`=${REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE}`],
+      recoveryTarget: null,
+    },
+    {
+      body: REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY,
+      kind: "system_retry",
+      patterns: [`=${REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE}`],
       recoveryTarget: null,
     },
     {
@@ -810,13 +828,27 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: null,
     },
     {
+      availabilityBadgeLabel: "Connection mismatch",
+      availabilitySummary:
+        "This Agent's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.",
+      availabilityTooltip: "Agent connection does not match this setup",
+      body: (targetName) =>
+        `${targetName}'s saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.`,
+      kind: "system_retry",
+      patterns: [
+        "claim_eligibility.binding_runtime_mismatch",
+        "claim_eligibility.openmeld_service_runtime_id_mismatch",
+        "claim_eligibility.binding_capability_mismatch",
+        "=local_service.identity_mismatch",
+      ],
+      recoveryTarget: null,
+    },
+    {
       body: (targetName) =>
         `${targetName} is connected to an older computer setup. Update setup on this computer, then try again.`,
       kind: "local_agent_prepare",
       patterns: [
-        "claim_eligibility.binding_runtime_mismatch",
         "claim_eligibility.openmeld_service_runtime_id_missing",
-        "claim_eligibility.openmeld_service_runtime_id_mismatch",
         "claim_eligibility.openmeld_service_runtime_id_not_opaque",
         "claim_eligibility.openmeld_service_runtime_identity_invalid",
         "claim_eligibility.runtime_missing",
@@ -827,14 +859,6 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
         "claim_eligibility.agent_controller_report_disabled",
         "claim_eligibility.agent_controller_report_unavailable",
       ],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
-    },
-    {
-      body: (targetName) =>
-        `${targetName} is connected to a different local agent setup. Update setup on this computer, then try again.`,
-      kind: "local_agent_prepare",
-      patterns: ["claim_eligibility.binding_capability_mismatch"],
       primaryActionId: "connect_local_agent",
       recoveryTarget: "prepare_setup",
     },
@@ -1057,16 +1081,16 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "prepare_setup",
     },
     {
-      availabilityBadgeLabel: "Update",
+      availabilityBadgeLabel: "Needs attention",
       availabilitySummary:
-        "Update OpenMeld on your computer before this Agent can reply.",
-      availabilityTooltip: "Update OpenMeld on Computer",
+        "OpenMeld found a service problem on this computer. Open Computer details to check it.",
+      availabilityTooltip: "Check OpenMeld on Computer",
       body: (targetName) =>
-        `OpenMeld on ${formatPossessiveTargetName(targetName)} computer needs an update before it can receive local Wake work.`,
+        `OpenMeld found a service problem on ${formatPossessiveTargetName(targetName)} computer. Open Computer details to see what needs attention.`,
       kind: "local_service",
       patterns: ["=service.drifted"],
-      primaryActionId: "update_openmeld_service",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "check_status",
+      recoveryTarget: "computer",
     },
     {
       availabilityBadgeLabel: "Offline",
@@ -1076,17 +1100,6 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
         `${targetName}'s computer is not connected to the current OpenMeld account. Reconnect the computer.`,
       kind: "local_service",
       patterns: ["=local_service.not_connected_for_account"],
-      primaryActionId: "reconnect_openmeld_service",
-      recoveryTarget: "prepare_setup",
-    },
-    {
-      availabilityBadgeLabel: "Offline",
-      availabilitySummary: "Connect your computer before this Agent can reply.",
-      availabilityTooltip: "Computer not connected",
-      body: (targetName) =>
-        `${targetName}'s computer connection does not match this Agent. Reconnect the computer.`,
-      kind: "local_service",
-      patterns: ["=local_service.identity_mismatch"],
       primaryActionId: "reconnect_openmeld_service",
       recoveryTarget: "prepare_setup",
     },
@@ -1136,11 +1149,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       availabilityBadgeLabel: "Unavailable",
-      availabilitySummary:
-        "This Agent's computer connection is unavailable right now.",
-      availabilityTooltip: "Computer connection unavailable",
+      availabilitySummary: "OpenMeld couldn't check this agent's connection.",
+      availabilityTooltip: "Connection check unavailable",
       body: (targetName) =>
-        `${targetName} is connected, but OpenMeld cannot see an active local Wake route from this computer yet. OpenMeld is checking the route from this computer.`,
+        `OpenMeld couldn't check ${targetName}'s connection. Try again.`,
       kind: "local_service",
       patterns: ["=agent_execution.route_unavailable", "=route.unavailable"],
       primaryActionId: "check_status",
@@ -1173,6 +1185,19 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
         `The computer is connected, but ${formatObjectTargetName(targetName)} did not become ready in time for this Wake. Try waking the Agent again in a moment.`,
       kind: "system_retry",
       patterns: ["=daemon.profile.pending_first_report"],
+      recoveryTarget: null,
+    },
+    {
+      body: (targetName) =>
+        `${formatObjectTargetName(targetName)} did not start before the deadline. This Wake has expired and will not run when the computer reconnects. Send a new Wake if the work is still needed.`,
+      kind: "request_ended",
+      patterns: ["=wake.device_wait.expired"],
+      recoveryTarget: null,
+    },
+    {
+      body: "This waiting Wake could not start because its requester or Agent no longer has access to this Space. Review access before sending a new Wake.",
+      kind: "request_ended",
+      patterns: ["=wake.device_wait.access_revoked"],
       recoveryTarget: null,
     },
     {
@@ -1228,6 +1253,42 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       patterns: ["controller.launch.choice_required", "launch choice"],
       primaryActionId: "connect_local_agent",
       recoveryTarget: "prepare_setup",
+    },
+    {
+      body: "This independent project task needs a connected Git repository with at least one commit. Choose that repository's root as the Agent's working folder, then start a new task.",
+      kind: "local_agent_prepare",
+      patterns: [
+        "execution_context.project_repository_required",
+        "execution_context.project_repository_root_required",
+        "execution_context.project_commit_required",
+      ],
+      primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "OpenMeld couldn't verify this task's project file boundary. Check this computer's file-access settings and use a task workspace outside system temporary folders, then start a new task.",
+      kind: "local_agent_prepare",
+      patterns: [
+        "execution_context.workspace_access_unverified",
+        "execution_context.workspace_probe_unsupported",
+        "execution_context.workspace_probe_timeout",
+      ],
+      primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "This local Agent couldn't start with only the tools authorized for this task. Check the Agent's MCP configuration, then start a new task.",
+      kind: "local_agent_prepare",
+      patterns: [
+        "execution_context.mcp_server_namespace_conflict",
+        "execution_context.mcp_inventory_timeout",
+        "context.mcp_isolation_unverified",
+      ],
+      primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
     },
     {
       body: "This agent is missing its local workspace on this device. Run `openmeld doctor --repair`, then `openmeld setup --profile <agent-profile-id>`, and try again.",
@@ -1421,7 +1482,7 @@ export function resolvePublicAgentFailureRecovery(input: {
   if (mapping.recoveryTarget === null) {
     return {
       body,
-      kind: "system_retry",
+      kind: mapping.kind,
       recoveryTarget: null,
     };
   }

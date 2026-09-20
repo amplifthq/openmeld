@@ -4,6 +4,7 @@ import type {
   GetLocalRuntimeExpectedRoutesQuery,
   GetLocalRuntimeExpectedRoutesResponse,
 } from "@openmeld/schemas/types";
+import { readAuthProfileFacts } from "../../auth/application/profile-facts-reader";
 import type { CoreBindings } from "../../lib/bindings";
 import { lookupRuntime } from "../../runtime-registry/application/runtime-lookup-service";
 import { readRuntimeRegistryRecord } from "../../runtime-registry/infrastructure/d1/runtime-registry-repo";
@@ -13,11 +14,6 @@ import {
   buildUnresolvedExpectedRoutesResponse,
   type ExpectedRouteProfileFact,
 } from "./expected-routes-projection";
-
-type ExpectedRouteProfileFactResult =
-  | { status: "invalid" }
-  | { status: "resolved"; profile: ExpectedRouteProfileFact }
-  | { status: "unavailable" };
 
 export type ReadLocalRuntimeExpectedRoutesResult =
   | {
@@ -78,36 +74,34 @@ export async function readLocalRuntimeExpectedRoutes(input: {
   const runtimeBindings = bindings.filter(
     (binding) => binding.openMeldServiceRuntimeId === openMeldServiceRuntimeId
   );
-  const profileFactEntries = await Promise.all(
-    runtimeBindings.map(
-      async (binding) =>
-        [
-          binding.agentProfileId,
-          await resolveExpectedRouteProfileFact({
-            agentProfileId: binding.agentProfileId,
-            authWorker: input.authWorker,
-            ownerUserId: input.ownerUserId,
-          }),
-        ] as const
-    )
-  );
+  const profiles = await readAuthProfileFacts({
+    authWorker: input.authWorker,
+    profileIds: runtimeBindings.map((binding) => binding.agentProfileId),
+  });
   // A transient profile-facts outage must fail the whole read instead of
   // shrinking the expected set: consumers keep their current catalog on a
   // failed load, while an "inactive" answer would deregister live routes.
-  const unavailableEntry = profileFactEntries.find(
-    ([, fact]) => fact.status === "unavailable"
-  );
-  if (unavailableEntry) {
+  if (profiles === null) {
     return { status: "profile_facts_unavailable" };
   }
   const profileFactByProfileId = new Map<
     string,
     ExpectedRouteProfileFact | null
   >(
-    profileFactEntries.map(([agentProfileId, fact]) => [
-      agentProfileId,
-      fact.status === "resolved" ? fact.profile : null,
-    ])
+    runtimeBindings.map(({ agentProfileId }) => {
+      const profile = profiles.get(agentProfileId);
+      return [
+        agentProfileId,
+        profile && profile.ownerUserId?.trim() === input.ownerUserId
+          ? {
+              defaultProjectId: normalizeOptionalText(profile.defaultProjectId),
+              profileKind: profile.profileKind,
+              profileName: profile.profileName.trim() || null,
+              status: profile.status,
+            }
+          : null,
+      ];
+    })
   );
   const projection = buildExpectedRoutesProjection({
     openMeldServiceRuntimeId,
@@ -131,50 +125,6 @@ export async function readLocalRuntimeExpectedRoutes(input: {
       runtimeResolution: "resolved",
     },
     status: "ok",
-  };
-}
-
-async function resolveExpectedRouteProfileFact(input: {
-  agentProfileId: string;
-  authWorker: CoreBindings["OPENMELD_AUTH_WORKER"] | undefined;
-  ownerUserId: string;
-}): Promise<ExpectedRouteProfileFactResult> {
-  if (!input.authWorker?.resolveProfileById) {
-    return { status: "unavailable" };
-  }
-  let result: Awaited<
-    ReturnType<
-      NonNullable<
-        NonNullable<CoreBindings["OPENMELD_AUTH_WORKER"]>["resolveProfileById"]
-      >
-    >
-  >;
-  try {
-    result = await input.authWorker.resolveProfileById({
-      openMeldProfileId: input.agentProfileId,
-    });
-  } catch {
-    return { status: "unavailable" };
-  }
-  if (!result.ok) {
-    return result.code === "profile.not_found"
-      ? { status: "invalid" }
-      : { status: "unavailable" };
-  }
-  if (result.profile.profileId !== input.agentProfileId) {
-    return { status: "invalid" };
-  }
-  if (String(result.profile.ownerUserId ?? "").trim() !== input.ownerUserId) {
-    return { status: "invalid" };
-  }
-  return {
-    profile: {
-      defaultProjectId: normalizeOptionalText(result.profile.defaultProjectId),
-      profileKind: result.profile.profileKind,
-      profileName: result.profile.profileName?.trim() || null,
-      status: result.profile.status,
-    },
-    status: "resolved",
   };
 }
 

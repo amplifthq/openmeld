@@ -268,6 +268,8 @@ function createInboxHarness() {
     `,
   });
   applyDrizzleMigrationsForTables(harness, [
+    "openmeld_profiles",
+    "center_agent_designations",
     "center_agent_tasks",
     "center_agent_task_authorized_readers",
     "inbox_items",

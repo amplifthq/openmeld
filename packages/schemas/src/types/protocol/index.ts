@@ -13,6 +13,7 @@ export type {
 export type {
   AgentStreamToolPart,
   AgentWorkActivity,
+  ClearSpaceReasoningReplay,
   SpaceAgentActivity,
   SpaceAgentStreamDeltaFrame,
   SpaceAgentStreamPartFrame,
@@ -35,6 +36,7 @@ export type {
   SpaceLiveInvalidationFrame,
   SpaceLiveSignalFrame,
 } from "./envelope";
+export type * from "./execution-context";
 export type { Hello, HelloAck } from "./hello";
 export type {
   CanonicalMentionLiteral,
@@ -48,7 +50,6 @@ export type {
 } from "./message-envelope";
 export type { Profile, ProfileKind, ProfileWorkspaceMode } from "./profile";
 export type {
-  CenterAgentTaskReference,
   SignalText,
   SignalTextData,
   SignalTextReplyTo,

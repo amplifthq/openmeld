@@ -429,6 +429,17 @@ describe("tail view mode", () => {
             },
             data: {
               text: "brief hello",
+              // Shape captured from public Space history after a real CSV upload.
+              files: [
+                {
+                  fileId:
+                    "file-23688c8c48e5e20128766626b7dbb30d3c0990db4be97b09719df4bcdddd6ff8",
+                  revision: 1,
+                  name: "orders.csv",
+                  mimeType: "text/csv",
+                  sizeBytes: 253,
+                },
+              ],
               messageEnvelope: {
                 text: "brief hello",
                 activationTargets: [],
@@ -468,6 +479,16 @@ describe("tail view mode", () => {
         expect.objectContaining({
           signalId: "signal-brief-1",
           text: "brief hello",
+          files: [
+            {
+              fileId:
+                "file-23688c8c48e5e20128766626b7dbb30d3c0990db4be97b09719df4bcdddd6ff8",
+              revision: 1,
+              name: "orders.csv",
+              mimeType: "text/csv",
+              sizeBytes: 253,
+            },
+          ],
           referenceTargets: [
             expect.objectContaining({
               profileId: HUMAN_PROFILE_ID,

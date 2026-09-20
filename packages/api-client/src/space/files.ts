@@ -8,7 +8,10 @@ import {
   restoreSpaceFileEntryResponseSchema,
   restoreSpaceFileRevisionResponseSchema,
   SPACE_FILE_MAX_SIZE_BYTES,
+  SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
+  SPACE_FILE_UPLOAD_PART_BYTES,
   spaceFileMimeTypeSchema,
+  spaceFileUploadResponseSchema,
   stageSpaceComposerUploadResponseSchema,
   trashSpaceFileEntryResponseSchema,
   updateSpaceFileEntryResponseSchema,
@@ -47,12 +50,142 @@ import {
 import type { SpaceRequestInput } from "./types";
 
 export type SpaceFileContentBytes = ArrayBuffer | Blob | Uint8Array;
+type UploadProgress = {
+  onProgress?: (uploadedBytes: number, totalBytes: number) => void;
+};
 
 export type SpaceFileContent = {
   bytes: ArrayBuffer;
   mimeType: string;
   revision: number;
 };
+
+function bodySize(body: ArrayBuffer | Blob): number {
+  return body instanceof Blob ? body.size : body.byteLength;
+}
+
+async function mutationUploadId(mutation: string): Promise<string> {
+  const hash = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(mutation)
+  );
+  const hex = Array.from(new Uint8Array(hash), (b) =>
+    b.toString(16).padStart(2, "0")
+  ).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+async function uploadMultipart(
+  client: OpenMeldApiClientFoundation,
+  input: SpaceRequestInput &
+    UploadProgress & { bytes: SpaceFileContentBytes; mimeType: string },
+  target: import("@openmeld/schemas/types").SpaceFileUploadMetadata["target"],
+  uploadId: string
+) {
+  const body = toRequestBody(input.bytes);
+  const blob = body instanceof Blob ? body : new Blob([body]);
+  const url = `/v1/spaces/${encodeURIComponent(input.spaceId)}/file-uploads/${uploadId}`;
+  const request = async (
+    command: import("@openmeld/schemas/types").SpaceFileUploadCommand,
+    part?: Blob
+  ) => {
+    return await retryUploadRequest(input.signal, () =>
+      client.requestJson({
+        ...requestFields(input),
+        url:
+          command.action === "part" ? `${url}?part=${command.partNumber}` : url,
+        method: "POST",
+        operation: "space.files.upload",
+        headers: {
+          "content-type": part
+            ? "application/octet-stream"
+            : "application/json",
+        },
+        body: part ?? JSON.stringify(command),
+        schema: spaceFileUploadResponseSchema,
+        invalidMessage: "Invalid file upload response.",
+      })
+    );
+  };
+  const partDigests: string[] = [];
+  for (
+    let offset = 0;
+    offset < blob.size;
+    offset += SPACE_FILE_UPLOAD_PART_BYTES
+  ) {
+    input.signal?.throwIfAborted();
+    const hash = await crypto.subtle.digest(
+      "SHA-256",
+      await blob
+        .slice(offset, offset + SPACE_FILE_UPLOAD_PART_BYTES)
+        .arrayBuffer()
+    );
+    partDigests.push(
+      Array.from(new Uint8Array(hash), (b) =>
+        b.toString(16).padStart(2, "0")
+      ).join("")
+    );
+  }
+  let session = await request({
+    action: "start",
+    metadata: {
+      target,
+      mimeType: input.mimeType,
+      sizeBytes: blob.size,
+      partDigests,
+    },
+  });
+  if (session.file || session.upload) {
+    return session;
+  }
+  input.onProgress?.(
+    session.parts.reduce((n, p) => n + p.sizeBytes, 0),
+    blob.size
+  );
+  for (
+    let start = 0, number = 1;
+    start < blob.size;
+    start += session.partSizeBytes, number++
+  ) {
+    if (session.parts.some((p) => p.partNumber === number)) {
+      continue;
+    }
+    session = await request(
+      { action: "part", partNumber: number },
+      blob.slice(start, start + session.partSizeBytes)
+    );
+    input.onProgress?.(
+      session.parts.reduce((n, p) => n + p.sizeBytes, 0),
+      blob.size
+    );
+  }
+  return await request({ action: "complete" });
+}
+
+async function retryUploadRequest<T>(
+  signal: AbortSignal | undefined,
+  request: () => Promise<T>
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      signal?.throwIfAborted();
+      return await request();
+    } catch (error) {
+      const status =
+        error && typeof error === "object" && "status" in error
+          ? error.status
+          : undefined;
+      if (
+        signal?.aborted ||
+        attempt >= 2 ||
+        (typeof status === "number" && status < 500 && status !== 429)
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+    }
+  }
+}
 
 export async function listSpaceFiles(
   client: OpenMeldApiClientFoundation,
@@ -219,11 +352,29 @@ export async function uploadSpaceFile(
     mimeType: string;
     name: string;
     parentId?: string | null;
+    onProgress?: (uploadedBytes: number, totalBytes: number) => void;
   }
 ): Promise<SpaceFileDescriptor> {
   const body = toRequestBody(input.bytes);
   validateSize(body);
   const mimeType = parseMimeType(input.mimeType);
+  if (bodySize(body) > SPACE_FILE_RAW_UPLOAD_MAX_BYTES) {
+    const response = await uploadMultipart(
+      client,
+      input,
+      {
+        kind: "file",
+        clientMutationId: input.clientMutationId,
+        name: input.name,
+        parentId: input.parentId ?? null,
+      },
+      await mutationUploadId(input.clientMutationId)
+    );
+    if (!response.file) {
+      throw new Error("The upload did not return a file.");
+    }
+    return response.file;
+  }
   const response = await client.requestJson({
     ...requestFields(input),
     url: buildSpaceFileUploadPath(input),
@@ -244,11 +395,24 @@ export async function stageSpaceComposerUpload(
     mimeType: string;
     name: string;
     uploadId: string;
+    onProgress?: (uploadedBytes: number, totalBytes: number) => void;
   }
 ): Promise<SpaceComposerUploadDescriptor> {
   const body = toRequestBody(input.bytes);
   validateSize(body);
   const mimeType = parseMimeType(input.mimeType);
+  if (bodySize(body) > SPACE_FILE_RAW_UPLOAD_MAX_BYTES) {
+    const response = await uploadMultipart(
+      client,
+      input,
+      { kind: "composer", name: input.name },
+      input.uploadId
+    );
+    if (!response.upload) {
+      throw new Error("The upload did not return a staged file.");
+    }
+    return response.upload;
+  }
   const response = await client.requestJson({
     ...requestFields(input),
     body,
@@ -309,6 +473,23 @@ export async function updateSpaceFileContent(
   const body = toRequestBody(input.bytes);
   validateSize(body);
   const mimeType = parseMimeType(input.mimeType);
+  if (bodySize(body) > SPACE_FILE_RAW_UPLOAD_MAX_BYTES) {
+    const response = await uploadMultipart(
+      client,
+      input,
+      {
+        kind: "revision",
+        clientMutationId: input.clientMutationId,
+        fileId: input.fileId,
+        baseRevision: input.baseRevision,
+      },
+      await mutationUploadId(input.clientMutationId)
+    );
+    if (!response.file) {
+      throw new Error("The upload did not return a file.");
+    }
+    return response.file;
+  }
   const response = await client.requestJson({
     ...requestFields(input),
     url: buildSpaceFileContentPath(input.spaceId, input.fileId, {
@@ -329,6 +510,16 @@ export async function downloadSpaceFileContent(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput & { fileId: string; revision?: number }
 ): Promise<SpaceFileContent> {
+  const content = await streamSpaceFileContent(client, input);
+  return { ...content, bytes: await new Response(content.bytes).arrayBuffer() };
+}
+
+export async function streamSpaceFileContent(
+  client: OpenMeldApiClientFoundation,
+  input: SpaceRequestInput & { fileId: string; revision?: number }
+): Promise<
+  Omit<SpaceFileContent, "bytes"> & { bytes: ReadableStream<Uint8Array> }
+> {
   const response = await client.requestResponse({
     ...requestFields(input),
     url: buildSpaceFileContentPath(input.spaceId, input.fileId, {
@@ -347,8 +538,11 @@ export async function downloadSpaceFileContent(
   if (!(Number.isInteger(revision) && revision > 0)) {
     throw new Error("invalid Space file revision response header");
   }
+  if (!response.body) {
+    throw new Error("Space file download has no body.");
+  }
   return {
-    bytes: await response.arrayBuffer(),
+    bytes: response.body,
     mimeType,
     revision,
   };
@@ -385,6 +579,6 @@ function toRequestBody(bytes: SpaceFileContentBytes): ArrayBuffer | Blob {
 function validateSize(body: ArrayBuffer | Blob): void {
   const size = body instanceof Blob ? body.size : body.byteLength;
   if (size > SPACE_FILE_MAX_SIZE_BYTES) {
-    throw new Error("Space files must be 10 MiB or smaller");
+    throw new Error("Space files must be 250 MiB or smaller");
   }
 }

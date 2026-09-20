@@ -7,6 +7,7 @@ import type {
   ReconcileDeletedAgentProfileResponse,
   ReconcileDeletedAgentProfileSpaceOutcome,
 } from "@openmeld/schemas/types";
+import { pauseActiveCenterAgentNativeDeliveries } from "../../center-agent/center-agent-operating-state-service";
 import {
   cancelRuntimeTransportDeletedAgentProfileWakes,
   notifyRuntimeTransportRouteCatalogChanged,
@@ -34,12 +35,16 @@ export async function reconcileDeletedAgentProfile(
       `invalid deleted agent profile reconcile request: ${parsed.error.message}`
     );
   }
-  const { ownerUserId, profileId } = parsed.data;
+  const { ownerUserId, profileId, organizationId } = parsed.data;
+  if (!(ownerUserId || organizationId)) {
+    throw new Error("Deleted Profile ownership is required");
+  }
   const profileKind = parsed.data.profileKind ?? "agent";
   const wakeCancellationConfirmed = await resolveDeletedProfileWakeCancellation(
     {
       env,
       ownerUserId,
+      organizationId,
       profileId,
       profileKind,
     }
@@ -49,6 +54,7 @@ export async function reconcileDeletedAgentProfile(
       ? await disableDeletedAgentProfileBinding({
           env,
           ownerUserId,
+          organizationId,
           profileId,
         })
       : { bindingDisabled: false, bindingReconciled: true };
@@ -81,11 +87,26 @@ export async function reconcileDeletedAgentProfile(
 
 async function resolveDeletedProfileWakeCancellation(input: {
   env: CoreBindings;
-  ownerUserId: string;
+  ownerUserId: string | null;
+  organizationId?: string | null;
   profileId: string;
   profileKind: "agent" | "human";
 }): Promise<boolean> {
   if (input.profileKind !== "agent") {
+    return true;
+  }
+  if (!input.ownerUserId) {
+    const db = localStateDb(input.env);
+    if (!(db && input.organizationId)) {
+      return false;
+    }
+    await pauseActiveCenterAgentNativeDeliveries({
+      db,
+      env: input.env,
+      organizationId: input.organizationId,
+      profileId: input.profileId,
+      reason: "Center Agent's Organization was deleted.",
+    });
     return true;
   }
   const wakeCancellation = await cancelRuntimeTransportDeletedAgentProfileWakes(
@@ -174,7 +195,7 @@ async function resolveDeletedProfileSpaceIds(input: {
 
 async function reconcileDeletedProfileSpaces(input: {
   env: CoreBindings;
-  ownerUserId: string;
+  ownerUserId: string | null;
   profileId: string;
   spaceIds: string[];
   wakeCancellationConfirmed: boolean;
@@ -188,7 +209,7 @@ async function reconcileDeletedProfileSpaces(input: {
         continue;
       }
       const outcome = await shard.rpcReconcileDeletedAgentProfileMember({
-        ownerUserId: input.ownerUserId,
+        ownerUserId: input.ownerUserId ?? undefined,
         profileId: input.profileId,
         spaceId,
         wakeCancellationConfirmed: input.wakeCancellationConfirmed,
@@ -212,7 +233,8 @@ async function reconcileDeletedProfileSpaces(input: {
 
 async function disableDeletedAgentProfileBinding(input: {
   env: CoreBindings;
-  ownerUserId: string;
+  ownerUserId: string | null;
+  organizationId?: string | null;
   profileId: string;
 }): Promise<{ bindingDisabled: boolean; bindingReconciled: boolean }> {
   try {
@@ -227,10 +249,12 @@ async function disableDeletedAgentProfileBinding(input: {
       agentProfileId: input.profileId,
       db,
       disabledAtMs: Date.now(),
-      owner: { id: input.ownerUserId, kind: "owner_account" },
+      owner: input.ownerUserId
+        ? { id: input.ownerUserId, kind: "owner_account" }
+        : { id: input.organizationId ?? "", kind: "organization" },
       reasonCode: "agent_profile_binding.profile_deleted",
     });
-    if (disabledBinding) {
+    if (disabledBinding && input.ownerUserId) {
       await notifyRuntimeTransportRouteCatalogChanged({
         affectedProfileIds: [input.profileId],
         env: input.env,

@@ -22,7 +22,6 @@ import type {
 import {
   buildRemoteAgentName,
   parseRemoteAgentSubmitTurnRequest,
-  resolveRemoteAgentConversationIdentityAdmissionRejection,
   resolveRemoteAgentTurnEnvelopeAdmissionRejection,
 } from "../agent-core/submission";
 
@@ -88,12 +87,10 @@ export async function submitConversationTurnToCenterAgent(input: {
     organizationId: request.organizationId,
     spaceId: request.spaceId,
   });
-  const rejection =
-    resolveRemoteAgentConversationIdentityAdmissionRejection(request) ??
-    resolveRemoteAgentTurnEnvelopeAdmissionRejection({
-      agentName: buildRemoteAgentName(request),
-      requestContext: request,
-    });
+  const rejection = resolveRemoteAgentTurnEnvelopeAdmissionRejection({
+    agentName: buildRemoteAgentName(request),
+    requestContext: request,
+  });
   if (rejection) {
     console.warn("[remote_agent.admission.rejected]", {
       dispatchId: request.dispatchId,

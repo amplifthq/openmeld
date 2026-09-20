@@ -268,6 +268,10 @@ describe("rpc-http parsers", () => {
   });
 
   it("parses patch meta body", () => {
+    expect(parsePatchSpaceMetaBody({ visibility: "public" })).toEqual({
+      ok: true,
+      value: { visibility: "public" },
+    });
     const parsed = parsePatchSpaceMetaBody({
       purpose: "coordinate launch sequencing",
       guide: "keep it short",
@@ -350,9 +354,21 @@ describe("rpc-http parsers", () => {
   });
 
   it("returns stable errors for patch meta when supported fields are missing or invalid", () => {
+    expect(
+      parsePatchSpaceMetaBody({
+        ownership: { userId: "successor", role: "owner" },
+      })
+    ).toEqual({
+      ok: true,
+      value: { ownership: { userId: "successor", role: "owner" } },
+    });
+    expect(parsePatchSpaceMetaBody({ allowGuests: true })).toEqual({
+      ok: true,
+      value: { allowGuests: true },
+    });
     expect(parsePatchSpaceMetaBody({})).toEqual({
       ok: false,
-      message: "Expected name, purpose or guide",
+      message: "Expected name, purpose, guide or visibility",
     });
     expect(
       parsePatchSpaceMetaBody({
@@ -464,6 +480,31 @@ describe("rpc-http parsers", () => {
   });
 
   it("parses post-signal body via shared normal message schema", () => {
+    const deviceWait = {
+      bindingId: "binding-wait",
+      openMeldServiceRuntimeId: "runtime-wait",
+      targetProfileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      deadlineAtMs: Date.now() + 60_000,
+    };
+    expect(
+      parsePostSignalBody({
+        text: "Check the report",
+        deviceWait,
+        meta: { clientMessageId: "device-wait-message" },
+      })
+    ).toMatchObject({ ok: true, value: { deviceWait } });
+    for (const topLevel of [undefined, deviceWait]) {
+      expect(
+        parsePostSignalBody({
+          text: "Check the report",
+          ...(topLevel ? { deviceWait: topLevel } : {}),
+          meta: { clientMessageId: "device-wait-message", deviceWait },
+        })
+      ).toMatchObject({
+        ok: false,
+        message: "Set deviceWait only at the top level of the message request.",
+      });
+    }
     const parsed = parsePostSignalBody({
       text: "hello",
       messageEnvelope: {

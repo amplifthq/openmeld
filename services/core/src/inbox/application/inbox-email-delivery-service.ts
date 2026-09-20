@@ -31,6 +31,7 @@ type ClaimedDeliveryRow = {
   invitation_request_id: string | null;
   title: string;
   urgent_email_enabled: number;
+  requires_organization_manager?: number;
 };
 
 export type SendInboxUrgentEmail = (
@@ -40,6 +41,7 @@ export type SendInboxUrgentEmail = (
 export type ResolveInboxOrganizationAccess = (input: {
   organizationId: string;
   recipientUserId: string;
+  requireOrganizationManager?: boolean;
 }) => Promise<"allowed" | "denied" | "unavailable">;
 
 export type InboxEmailDeliveryTickResult = {
@@ -231,7 +233,8 @@ async function claimDelivery(input: {
           items.preview,
           items.resolution_status,
           items.cleared_at_ms,
-          CASE WHEN ${buildCurrentInboxSourceAccessSql("items")}
+          CASE WHEN items.source_kind = 'system_attention_event' AND items.source_key LIKE 'authorization-update:%' THEN 1 ELSE 0 END AS requires_organization_manager,
+          CASE WHEN ${buildCurrentInboxSourceAccessSql("items", true)}
             THEN 1 ELSE 0 END AS source_accessible,
           coalesce(preferences.urgent_email_enabled, 1) AS urgent_email_enabled
         FROM inbox_email_deliveries AS deliveries
@@ -261,6 +264,9 @@ async function resolveOrganizationAccess(input: {
     return await input.resolve({
       organizationId: input.claimed.organization_id,
       recipientUserId: input.claimed.recipient_user_id,
+      ...(input.claimed.requires_organization_manager === 1
+        ? { requireOrganizationManager: true }
+        : {}),
     });
   } catch (error) {
     console.error("[core.inbox.email.organization_access_failed]", {

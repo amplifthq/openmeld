@@ -2,6 +2,7 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AdapterInteractionRequest } from "@openmeld/adapter-core";
+import { isComputerFileAccessOwnerCancellation } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveComputerFileAccessAdmission } from "../src/local-service/file-access/computer-file-access-admission";
 import {
@@ -26,6 +27,18 @@ afterEach(async () => {
 });
 
 describe("Computer file access admission", () => {
+  it.each([
+    ["failed", "computer.file_access.owner_declined", true],
+    ["failed", "computer.file_access.owner_cancelled", false],
+    ["failed", "computer.file_access.interaction_cancelled", false],
+    ["failed", "computer.file_access.response_invalid", false],
+    ["success", "computer.file_access.owner_declined", false],
+  ])("classifies only an explicit declined result (%s, %s)", (status, errorCode, expected) => {
+    expect(isComputerFileAccessOwnerCancellation({ status, errorCode })).toBe(
+      expected
+    );
+  });
+
   it("adds path-free agent awareness only when the Computer boundary is active", () => {
     const promptPlan = {
       developerInstructions: "Developer contract",
@@ -146,9 +159,52 @@ describe("Computer file access admission", () => {
         policy,
         providerRuntimeWorkingDirectory: workingFolder,
         transportMode: "codex-app-server",
-        verifyBoundary: () => Promise.resolve(true),
+        verifyBoundary: () => Promise.resolve({ supported: true }),
       })
     ).resolves.toEqual({ boundary: policy, bypassedForThisRun: false });
+  });
+
+  it.each([
+    ["computer.file_access.launch_rejected", true],
+    ["private diagnostic /Users/example/Secrets", false],
+  ] as const)("keeps an unsuccessful boundary check closed and presents only safe guidance (%s)", async (reasonCode, launchRejected) => {
+    const workingFolder = await makeTempDir();
+    const requests: AdapterInteractionRequest[] = [];
+    await expect(
+      resolveComputerFileAccessAdmission({
+        agentControllerRef: "builtin:codex",
+        transportMode: "codex-app-server",
+        policy: {
+          mode: "only_selected_folders",
+          folders: [workingFolder],
+          revision: 1,
+          updatedAtMs: 0,
+        },
+        providerRuntimeWorkingDirectory: workingFolder,
+        verifyBoundary: async () => ({ supported: false as const, reasonCode }),
+        onInteractionRequest: (request) => {
+          requests.push(request);
+          return Promise.resolve({
+            kind: "permission" as const,
+            optionId: "cancel_computer_file_access_run",
+          });
+        },
+      })
+    ).rejects.toMatchObject({ code: "computer.file_access.owner_declined" });
+    expect(requests).toHaveLength(1);
+    expect(
+      requests[0]?.description?.includes("version and configuration")
+    ).toBe(launchRejected);
+    expect(JSON.stringify(requests)).not.toContain("/Users/example/Secrets");
+    const request = requests[0];
+    expect(request?.kind).toBe("permission");
+    if (request?.kind !== "permission") {
+      throw new Error("Expected a file-access decision");
+    }
+    expect(request.options.map((option) => option.optionId)).toEqual([
+      "run_once_without_computer_file_access_boundary",
+      "cancel_computer_file_access_run",
+    ]);
   });
 
   it("asks once when enforcement cannot be verified and accepts an exact-run bypass", async () => {
@@ -201,17 +257,24 @@ describe("Computer file access admission", () => {
     ]);
   });
 
-  it("cancels the Wake when the owner declines the exact-run bypass", async () => {
+  it.each([
+    [
+      { kind: "permission", optionId: "cancel_computer_file_access_run" },
+      "computer.file_access.owner_declined",
+    ],
+    [{ kind: "cancel" }, "computer.file_access.interaction_cancelled"],
+    [
+      { kind: "permission", optionId: "unknown_option" },
+      "computer.file_access.response_invalid",
+    ],
+  ] as const)("fails closed and preserves the exact reason for %j", async (response, reasonCode) => {
     const workingFolder = await makeTempDir();
     const blockedFolder = await makeTempDir();
 
     await expect(
       resolveComputerFileAccessAdmission({
         agentControllerRef: "builtin:claude-code",
-        onInteractionRequest: async () => ({
-          kind: "permission",
-          optionId: "cancel_computer_file_access_run",
-        }),
+        onInteractionRequest: async () => response,
         policy: {
           folders: [blockedFolder],
           mode: "block_selected_folders",
@@ -221,6 +284,6 @@ describe("Computer file access admission", () => {
         providerRuntimeWorkingDirectory: workingFolder,
         transportMode: "acp",
       })
-    ).rejects.toMatchObject({ code: "computer.file_access.owner_cancelled" });
+    ).rejects.toMatchObject({ code: reasonCode });
   });
 });

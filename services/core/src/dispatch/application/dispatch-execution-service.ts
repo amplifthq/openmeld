@@ -14,6 +14,7 @@ import {
   builtinAgentControllerAllowsDistinctConversationId,
   CONVERSATION_CONTINUITY_WARNING_PURPOSE,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
+  HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY,
   hostedCenterAgentRuntimeIdentitySchema,
   LEGACY_RUNTIME_DISPATCH_POLICY,
   normalizeKnownBuiltinAgentControllerId,
@@ -30,6 +31,7 @@ import type {
   CenterAgentModelRoute,
   DispatchExecution,
   DispatchResult,
+  HostedAgentRuntimeIdentity,
   HostedCenterAgentRuntimeIdentity,
   MessageEnvelope,
   OpenMeldDaemonAcceptedDispatchSnapshot,
@@ -70,6 +72,7 @@ import {
   readOrganizationWorkingLanguagePreferenceForSpace,
   toWorkingLanguageGuidance,
 } from "../../organizations/organization-working-language-repository";
+import { isPersonalRemoteAgentBinding } from "../../remote-agent/application/personal-remote-agent-binding";
 import {
   emitSpaceStatusSignal,
   emitSpaceSystemNoticeSignal,
@@ -126,8 +129,10 @@ import {
   waitRuntimeTransportDispatchResult,
 } from "../infrastructure/runtime-transport/runtime-coordinator-client";
 import {
+  acquireRuntimeTransportAgentProfileLegacyConversationMutation,
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoute,
+  releaseRuntimeTransportAgentProfileExecutionTargetMutation,
 } from "../infrastructure/runtime-transport/runtime-transport-client";
 import { RUNTIME_TASK_DEDUPED_ERROR_CODE } from "../rules/dispatch-error-policy";
 import {
@@ -177,6 +182,10 @@ import {
   DISPATCH_STREAMING_TELEMETRY_DECISION_CODE,
   DISPATCH_STRUCTURED_ACTION_FAILURE_DECISION_CODE,
 } from "./dispatch-trace-decision-codes";
+import {
+  deviceWaitTargetMatches,
+  resolveDeviceWaitReason,
+} from "./wake-device-wait";
 
 type RuntimeTransportLookupRouteResult = Awaited<
   ReturnType<typeof lookupRuntimeTransportRoute>
@@ -244,8 +253,12 @@ export type EffectiveTargetBindingSnapshot = {
   } | null;
   ownerUserId: string | null;
   organizationId: string | null;
-  runtimeKind: "openmeld_service" | "hosted_center_agent" | null;
-  hostedRuntimeIdentity: HostedCenterAgentRuntimeIdentity | null;
+  runtimeKind:
+    | "openmeld_service"
+    | "hosted_center_agent"
+    | "hosted_remote_agent"
+    | null;
+  hostedRuntimeIdentity: HostedAgentRuntimeIdentity | null;
   modelRoute?: CenterAgentModelRoute | null;
   openMeldServiceRuntimeId: string | null;
 };
@@ -253,6 +266,7 @@ export type EffectiveTargetBindingSnapshot = {
 export type TargetBindingSource = "core_primary_binding";
 
 type RuntimeDispatchSuccessResult = {
+  executionContextId?: string;
   agentControllerConversationId: string | null;
   bootstrapTemplateFacts?: BootstrapTemplateFacts;
   dispatchExecution?: DispatchExecution;
@@ -350,6 +364,10 @@ export type DispatchExecutionPreflightResult =
       ok: true;
       effectiveTargetBindingSnapshot: EffectiveTargetBindingSnapshot;
       bindingSource: TargetBindingSource;
+      deviceWaitReason?:
+        | "daemon.profile.offline"
+        | "daemon.profile.pending_first_report"
+        | "wake.device_wait.readiness_checking";
     }
   | {
       ok: false;
@@ -678,6 +696,11 @@ export const deliverDispatchMessageToDaemon = async (input: {
           executionContext: routeExecutionContext,
           executionLogBase,
           route,
+        });
+        assertDaemonRouteExecutionContextCapable({
+          message: input.message,
+          route,
+          executionContext: routeExecutionContext,
         });
       },
       timing: input.timing,
@@ -1224,6 +1247,47 @@ const assertDaemonRouteHasLiveBindingCapability = (input: {
     executionContext: input.executionContext,
   });
 };
+
+function assertDaemonRouteExecutionContextCapable(input: {
+  message: OpenMeldDaemonDispatchQueueMessage;
+  route: OnlineRuntimeTransportRoute;
+  executionContext: DispatchExecutionContext;
+}): void {
+  if (
+    input.message.sourceSignalSnapshot?.workHandoff &&
+    input.route.capabilities.spaceWorkHandoff !== true
+  ) {
+    throw buildDispatchExecutionValidationError({
+      code: "service.update_required",
+      message:
+        "Update this Computer's OpenMeld Service before handing off selected files.",
+      executionContext: input.executionContext,
+      waitReasonCode: "space_work_handoff_unsupported",
+    });
+  }
+  if (!input.message.executionContext) {
+    return;
+  }
+  const adapterId = parseAgentControllerRef(
+    input.message.controllerSnapshot.agentControllerRef
+  )?.id;
+  if (
+    input.route.capabilities.runtimeAdapters?.some(
+      (adapter) =>
+        adapter.adapterId === adapterId &&
+        (adapter.capabilityDeclaration.executionContextVersion ?? 0) >=
+          (input.message.executionContext?.legacyAssociation ? 2 : 1)
+    )
+  ) {
+    return;
+  }
+  throw buildDispatchExecutionValidationError({
+    code: "service.update_required",
+    message: "Update OpenMeld Service to run independent tasks.",
+    executionContext: input.executionContext,
+    waitReasonCode: "execution_context.service_update_required",
+  });
+}
 
 const assertDaemonRouteExecutionCompatible = (input: {
   executionContext: DispatchExecutionContext;
@@ -3199,6 +3263,29 @@ export const runDispatchExecutionPreflightGate = async (input: {
     };
   }
   const targetBindingSnapshot = targetBindingResolution.snapshot;
+  const targetOwnerUserId = targetBindingSnapshot.ownerUserId ?? undefined;
+
+  if (
+    message.deviceWait &&
+    !deviceWaitTargetMatches({
+      wait: message.deviceWait,
+      targetProfileId: message.targetProfileId,
+      bindingId: targetBindingSnapshot.bindingId,
+      openMeldServiceRuntimeId: targetBindingSnapshot.openMeldServiceRuntimeId,
+      runtimeKind: targetBindingSnapshot.runtimeKind,
+    })
+  ) {
+    return {
+      ok: false,
+      canonicalAdmissionBlock: true,
+      errorCode: "local_service.identity_mismatch",
+      errorMessage:
+        "The Agent's current Binding no longer matches the computer selected for this Wake.",
+      finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      targetOwnerUserId: targetBindingSnapshot.ownerUserId ?? undefined,
+      bindingSource: targetBindingResolution.source,
+    };
+  }
 
   if (targetBindingSnapshot.bindingState === "missing") {
     return {
@@ -3207,7 +3294,7 @@ export const runDispatchExecutionPreflightGate = async (input: {
       errorMessage: `target profile has no Core primary binding (bindingSource=${targetBindingResolution.source})`,
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
       bindingSource: targetBindingResolution.source,
-      targetOwnerUserId: targetBindingSnapshot.ownerUserId ?? undefined,
+      targetOwnerUserId,
     };
   }
 
@@ -3218,11 +3305,14 @@ export const runDispatchExecutionPreflightGate = async (input: {
       errorMessage: `target profile Core primary binding is not enabled (bindingSource=${targetBindingResolution.source})`,
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
       bindingSource: targetBindingResolution.source,
-      targetOwnerUserId: targetBindingSnapshot.ownerUserId ?? undefined,
+      targetOwnerUserId,
     };
   }
 
-  if (!targetBindingSnapshot.ownerUserId) {
+  if (
+    !targetBindingSnapshot.ownerUserId &&
+    targetBindingSnapshot.runtimeKind !== "hosted_center_agent"
+  ) {
     return {
       ok: false,
       errorCode: "agent_profile_binding.lookup_failed",
@@ -3266,7 +3356,7 @@ export const runDispatchExecutionPreflightGate = async (input: {
       errorMessage: organizationScope.errorMessage,
       finalStatus: organizationScope.finalStatus,
       bindingSource: targetBindingResolution.source,
-      targetOwnerUserId: targetBindingSnapshot.ownerUserId,
+      targetOwnerUserId,
     };
   }
   if (canonicalReadinessResult && !canonicalReadinessResult.ok) {
@@ -3276,30 +3366,19 @@ export const runDispatchExecutionPreflightGate = async (input: {
       errorMessage: `The Agent Profile's current Wake availability could not be checked: ${toErrorMessage(canonicalReadinessResult.error)}`,
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
       bindingSource: targetBindingResolution.source,
-      targetOwnerUserId: targetBindingSnapshot.ownerUserId,
+      targetOwnerUserId,
     };
   }
   if (canonicalReadinessResult) {
-    const blockReasonCode = resolveAgentWakeAdmissionBlockReasonCode(
-      canonicalReadinessResult.readiness.agentExecutionReadiness
-    );
-    if (blockReasonCode) {
-      const preparationPending =
-        isAgentWakeAdmissionPreparationPendingReason(blockReasonCode);
-      return {
-        ok: false,
-        canonicalAdmissionBlock: !preparationPending,
-        errorCode: blockReasonCode,
-        errorMessage:
-          resolvePublicAgentAvailabilityCopy(blockReasonCode)
-            ?.availabilitySummary ??
-          "This Agent Profile is unavailable for a new Wake right now.",
-        finalStatus: preparationPending
-          ? OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable
-          : OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
-        bindingSource: targetBindingResolution.source,
-        targetOwnerUserId: targetBindingSnapshot.ownerUserId,
-      };
+    const readinessDecision = resolveCanonicalDispatchPreflight({
+      bindingSource: targetBindingResolution.source,
+      message,
+      organizationId: organizationScope.organizationId,
+      readiness: canonicalReadinessResult.readiness,
+      targetBindingSnapshot,
+    });
+    if (readinessDecision) {
+      return readinessDecision;
     }
   }
 
@@ -3326,6 +3405,54 @@ export const runDispatchExecutionPreflightGate = async (input: {
     bindingSource: targetBindingResolution.source,
   };
 };
+
+function resolveCanonicalDispatchPreflight(input: {
+  bindingSource: TargetBindingSource;
+  message: OpenMeldDaemonDispatchQueueMessage;
+  organizationId: string;
+  readiness: Awaited<
+    ReturnType<typeof resolveCoreAgentExecutionReadinessForProfile>
+  >;
+  targetBindingSnapshot: EffectiveTargetBindingSnapshot;
+}): DispatchExecutionPreflightResult | null {
+  const { message, targetBindingSnapshot } = input;
+  const deviceWaitReason = message.deviceWait
+    ? resolveDeviceWaitReason(input.readiness)
+    : null;
+  if (deviceWaitReason) {
+    return {
+      ok: true,
+      deviceWaitReason,
+      effectiveTargetBindingSnapshot: {
+        ...targetBindingSnapshot,
+        organizationId: input.organizationId,
+      },
+      bindingSource: input.bindingSource,
+    };
+  }
+  const blockReasonCode = resolveAgentWakeAdmissionBlockReasonCode(
+    input.readiness.agentExecutionReadiness
+  );
+  if (blockReasonCode) {
+    const preparationPending =
+      isAgentWakeAdmissionPreparationPendingReason(blockReasonCode);
+    return {
+      ok: false,
+      canonicalAdmissionBlock: !preparationPending,
+      errorCode: blockReasonCode,
+      errorMessage:
+        resolvePublicAgentAvailabilityCopy(blockReasonCode)
+          ?.availabilitySummary ??
+        "This Agent Profile is unavailable for a new Wake right now.",
+      finalStatus: preparationPending
+        ? OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable
+        : OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      bindingSource: input.bindingSource,
+      targetOwnerUserId: targetBindingSnapshot.ownerUserId ?? undefined,
+    };
+  }
+  return null;
+}
 
 export const applyEffectiveTargetBindingSnapshotToMessage = (input: {
   message: OpenMeldDaemonDispatchQueueMessage;
@@ -3485,6 +3612,7 @@ const prepareSuccessfulDispatchReply = async (input: {
     runtimeResult,
   });
   const persistedConversationId = await persistAgentControllerConversationId({
+    env: input.env,
     agentControllerConversationId: resolvedAgentControllerConversationId,
     agentControllerRef: resolvedAgentControllerRef,
     db: input.localStateDb,
@@ -3728,6 +3856,9 @@ const parseSuccessfulRuntimeTransportTaskResult = (
   });
 
   return {
+    ...("executionContextId" in payload && payload.executionContextId
+      ? { executionContextId: payload.executionContextId }
+      : {}),
     agentControllerConversationId,
     agentControllerRef,
     output,
@@ -4534,6 +4665,7 @@ const buildConversationContinuityWarningText = (input: {
 };
 
 const persistAgentControllerConversationId = async (input: {
+  env: CoreBindings;
   agentControllerConversationId: string | null;
   agentControllerRef: string;
   db: D1Database;
@@ -4543,6 +4675,9 @@ const persistAgentControllerConversationId = async (input: {
   runtimeResult: RuntimeDispatchSuccessResult;
   targetOwnerUserId: string;
 }): Promise<PersistAgentControllerConversationIdResult> => {
+  if (input.runtimeResult.executionContextId) {
+    return { bindingSource: null, updateApplied: false };
+  }
   const nextConversationId = normalizeOptionalText(
     input.runtimeResult.agentControllerConversation
       ?.agentControllerConversationId ?? input.agentControllerConversationId
@@ -4568,6 +4703,21 @@ const persistAgentControllerConversationId = async (input: {
     };
   }
 
+  const operationId = `legacy-conversation:${crypto.randomUUID()}`;
+  const mutation =
+    await acquireRuntimeTransportAgentProfileLegacyConversationMutation({
+      env: input.env,
+      operationId,
+      ownerUserId: input.targetOwnerUserId,
+      targetProfileId: input.dispatchMessage.targetProfileId,
+    });
+  if (mutation.status !== "acquired") {
+    console.warn("[core.legacy_conversation.write_fenced]", {
+      reasonCode: mutation.reasonCode,
+      targetProfileId: input.dispatchMessage.targetProfileId,
+    });
+    return { bindingSource: null, updateApplied: false };
+  }
   try {
     const currentBinding = await readPrimaryAgentProfileBindingRecord({
       agentProfileId: input.dispatchMessage.targetProfileId,
@@ -4686,6 +4836,13 @@ const persistAgentControllerConversationId = async (input: {
       bindingSource: null,
       updateApplied: false,
     };
+  } finally {
+    await releaseRuntimeTransportAgentProfileExecutionTargetMutation({
+      env: input.env,
+      operationId,
+      ownerUserId: input.targetOwnerUserId,
+      targetProfileId: input.dispatchMessage.targetProfileId,
+    });
   }
 };
 
@@ -5434,6 +5591,7 @@ const resolveEffectiveTargetBindingSnapshot = async (input: {
             db: localStateDbHandle,
             message: input.message,
             ownerUserId: dispatchOwnerUserId,
+            owner: { id: dispatchOwnerUserId, kind: "owner_account" },
           }),
         timing: input.timing,
       }).then(
@@ -5477,6 +5635,7 @@ const resolveEffectiveTargetBindingSnapshot = async (input: {
             db: localStateDbHandle,
             message: input.message,
             ownerUserId: ownerResolution.ownerUserId,
+            owner: ownerResolution.owner,
           }),
         timing: input.timing,
       });
@@ -5529,7 +5688,8 @@ const resolveHostedStoredAgentControllerRefStatus = (
 const readTargetBindingSnapshotFromCorePrimaryBinding = async (input: {
   db?: D1Database;
   message: OpenMeldDaemonDispatchQueueMessage;
-  ownerUserId: string;
+  ownerUserId: string | null;
+  owner: AgentProfileBindingRecord["owner"];
 }): Promise<EffectiveTargetBindingSnapshot | undefined> => {
   if (!input.db) {
     return undefined;
@@ -5538,10 +5698,7 @@ const readTargetBindingSnapshotFromCorePrimaryBinding = async (input: {
   const binding = await readPrimaryAgentProfileBindingRecord({
     agentProfileId: input.message.targetProfileId,
     db: input.db,
-    owner: {
-      id: input.ownerUserId,
-      kind: "owner_account",
-    },
+    owner: input.owner,
   });
   if (!binding) {
     return {
@@ -5561,6 +5718,31 @@ const readTargetBindingSnapshotFromCorePrimaryBinding = async (input: {
   }
 
   const runtimeKind = binding.runtimeKind ?? "openmeld_service";
+  if (runtimeKind === "hosted_remote_agent") {
+    if (!isPersonalRemoteAgentBinding(binding)) {
+      throw new Error("remote_agent.personal_binding_invalid");
+    }
+    const bindingEnabled = binding.bindingState === "enabled_primary";
+    return {
+      bindingState: "bound",
+      bindingEnabled,
+      bindingId: binding.bindingId,
+      configurationRevision: binding.configurationRevision,
+      agentControllerRef: binding.agentControllerRef,
+      controllerNormalization: null,
+      hostedRuntimeIdentity: HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY,
+      modelRoute: bindingEnabled
+        ? resolveCenterAgentModelRouteForBinding({
+            binding,
+            catalog: readModelCatalog(),
+          })
+        : null,
+      openMeldServiceRuntimeId: binding.openMeldServiceRuntimeId,
+      organizationId: null,
+      ownerUserId: input.ownerUserId,
+      runtimeKind,
+    };
+  }
   const agentControllerRef =
     runtimeKind === "hosted_center_agent"
       ? null
@@ -5873,7 +6055,8 @@ const resolveTargetProfileIsCurrentCenterAgent = async (input: {
 type TargetProfileOwnerResolution =
   | {
       ok: true;
-      ownerUserId: string;
+      ownerUserId: string | null;
+      owner: AgentProfileBindingRecord["owner"];
     }
   | {
       ok: false;
@@ -5951,6 +6134,17 @@ const resolveCurrentTargetProfileOwner = async (input: {
   }
 
   const ownerUserId = normalizeOptionalText(result.profile.ownerUserId);
+  if (
+    result.profile.managedRole === "center_agent" &&
+    result.profile.organizationId &&
+    !ownerUserId
+  ) {
+    return {
+      ok: true,
+      ownerUserId: null,
+      owner: { id: result.profile.organizationId, kind: "organization" },
+    };
+  }
   if (!ownerUserId) {
     return {
       ok: false,
@@ -5977,6 +6171,7 @@ const resolveCurrentTargetProfileOwner = async (input: {
   return {
     ok: true,
     ownerUserId,
+    owner: { id: ownerUserId, kind: "owner_account" },
   };
 };
 

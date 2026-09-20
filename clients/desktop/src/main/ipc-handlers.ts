@@ -76,14 +76,15 @@ export type DesktopHandlers = {
   installService(): Promise<ServiceView>;
   installCli(): Promise<ServiceView>;
   updateService(): Promise<ServiceView>;
-  startService(): Promise<ServiceView>;
-  stopService(): Promise<ServiceView>;
+  startService(expectedAccount?: string): Promise<ServiceView>;
+  stopService(expectedAccount?: string): Promise<ServiceView>;
   upgradeCli(): Promise<ServiceView>;
   setServiceAutoStart(enabled: boolean): Promise<ServiceAutoStartUpdateView>;
   setupComputer(): Promise<ServiceView>;
   getAgents(): Promise<AgentsView>;
   setAgentEnabled(agentId: string, enabled: boolean): Promise<AgentsView>;
   openWeb(path?: string): Promise<void>;
+  openExternal?(url: string): Promise<void>;
   openNodeDownloadPage(): Promise<void>;
   getDesktopSettings(): Promise<DesktopSettingsView>;
   setOpenAtLogin(enabled: boolean): Promise<DesktopSettingsView>;
@@ -378,6 +379,12 @@ export function createDesktopHandlers(
       await deps.openExternal?.(
         resolveDesktopWebUrl({ env: commandDeps?.env, path })
       );
+    },
+    async openExternal(url) {
+      if (!deps.openExternal) {
+        throw new Error("Opening an external link is unavailable.");
+      }
+      await deps.openExternal(url);
     },
     async openNodeDownloadPage() {
       await deps.openExternal?.(

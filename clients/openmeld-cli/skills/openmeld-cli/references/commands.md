@@ -481,12 +481,12 @@ openmeld space send <space-id> --profile <profile-id> "<message>"
 openmeld space send <space-id> --profile <profile-id> --stdin
 openmeld space send <space-id> --profile <profile-id> --text-file <utf8-file-path>
 openmeld space send <space-id> --profile <profile-id> --file <path> "<message>"
-openmeld space send <space-id> --profile <profile-id> --plain "literal @Agent(wake) text"
+openmeld space send <space-id> --profile <profile-id> --wake <agent-profile-id> "Please review."
 <DISPATCH_ACTION_CLI> space action reply "message"
-<DISPATCH_ACTION_CLI> space action wake "@Agent Name" "summary and request"
-<DISPATCH_ACTION_CLI> space action reply --wake "@Agent Name" "message"
-<DISPATCH_ACTION_CLI> space action reply --reference "@Agent Name" "message"
-<DISPATCH_ACTION_CLI> space action reply --mention "@Person Name" "message"
+<DISPATCH_ACTION_CLI> space action wake <agent-profile-id> "summary and request"
+<DISPATCH_ACTION_CLI> space action reply --wake <agent-profile-id> "message"
+<DISPATCH_ACTION_CLI> space action reply --reference <agent-profile-id> "message"
+<DISPATCH_ACTION_CLI> space action reply --mention <human-profile-id> "message"
 <DISPATCH_ACTION_CLI> space action status done "short completion update"
 <DISPATCH_ACTION_CLI> space action silent --reason "No public reply is needed."
 <DISPATCH_ACTION_CLI> space action targets
@@ -564,14 +564,7 @@ Common options: `--profile`, `--password`, `--history-limit`, `--guide`,
 `--join`, `--no-join`, `--member`, `--agent-profile`, `--human-profile`,
 `--all`, `--plain`.
 
-Use `--plain` only when `@Name(wake)`, `@Name(reference)`, or
-`@Name(mention)` should be sent as literal text. Without `--plain`, canonical
-mention syntax is resolved as Space addressing and must fail closed if OpenMeld
-cannot load the current Space members. An exact current mention label or stable
-Profile ID may be used as the private target. The CLI consumes the relation
-suffix and publishes the member's current `@primaryMentionLabel`, while the
-structured message envelope preserves the exact Profile ID and relation for
-agents.
+Message text is literal. Use `--wake <agent-profile-id>`, `--reference <agent-profile-id>`, or `--mention <human-profile-id>` for recipients. `--plain` asserts that no recipients were supplied.
 
 ### `openmeld space wake-progress`
 
@@ -675,31 +668,22 @@ Bindings. Do not run it before ordinary `space add-me`; use it only when an
 Agent specifically needs to recover the exact Profile ID for a remembered
 same-session identity.
 
-Create your own Agent Profile or request one for a teammate through the same
-entry, then manage requests separately:
+Create your own Agent Profile. Creating for another member is not available.
+The retained `requests` commands below inspect or recover your own creation:
 
 ```bash
 openmeld profiles create <profile-name> --kind agent --owner self --agent-controller builtin:codex --session new --source local-agent --request-key <stable-key> --view agent
-openmeld profiles create <profile-name> --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session new --source local-agent --request-key <stable-key> --view agent
-openmeld profiles create <profile-name> --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session resume --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
-openmeld profiles create <profile-name> --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session fork --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
 openmeld profiles requests list --view agent
-openmeld profiles requests approve <request-id> --view agent
-openmeld profiles requests decline <request-id> --view agent
 openmeld profiles requests cancel <request-id> --view agent
 openmeld profiles requests retry <request-id> --view agent
-openmeld profiles requests preferences get --view agent
-openmeld profiles requests preferences set --new-session automatically-allow --existing-session ask-every-time --view agent
 ```
 
 For `--owner self`, omit `--computer` to use this computer when the selected
 Local Agent is ready here. Pass an exact `--computer` when the user selected a
-different computer. Teammate-owned requests always require `--computer`; never
-guess which of the teammate's computers to use.
+different computer. Do not substitute another member's Computer or identity.
 
 Resume and Fork accept the exact provider-native Session ID. They fail clearly
-until OpenMeld Agent Activity can verify the selected Project Session. Approval
-policy values are `never-allow`, `ask-every-time`, and `automatically-allow`.
+until OpenMeld Agent Activity can verify your selected Project Session.
 Read `conversationCapabilities` from `openmeld org computers` before choosing
 Fork; never substitute a generated summary for a controller-native Fork.
 

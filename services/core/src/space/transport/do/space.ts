@@ -27,16 +27,24 @@ import {
 } from "@openmeld/protocol";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
+  agentStreamForReplyPlacementReader,
+  buildSpaceComposerUploadObjectKey,
+  buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
+  buildSpaceFileRevisionIdFromDigest,
+  COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
+  clearSpaceReasoningReplaySchema,
   commitSpaceFileWriteInputSchema,
   createSpaceDiagnosticReportBodySchema,
   createSpaceDiagnosticReportResponseSchema,
   createSpaceFolderBodySchema,
   createSpaceThreadBodySchema,
+  createSpaceThreadResponseSchema,
   deriveCenterAgentDirectMessageSpaceProjection,
   evalSpaceSignalMetricsInputSchema,
   evalSpaceSignalMetricsSchema,
+  formatCanonicalMentionLiteral,
   getActiveSpaceWakeProgressInputSchema,
   getSpaceConversationStateResponseSchema,
   getSpaceDispatchLookupInputSchema,
@@ -47,13 +55,18 @@ import {
   getSpaceUpdatesInputSchema,
   getSpaceWakeProgressInputSchema,
   getSpaceWakeTraceWaterfallInputSchema,
+  isComputerFileAccessOwnerCancellation,
+  isHostedAgentRuntimeKind,
   listSignalsQuerySchema,
   listSpaceThreadSignalsQuerySchema,
   MENTION_DISPATCH_ERROR_CODES,
+  nativeReplyPlacementSchema,
+  normalizeMessageEnvelope,
   normalizeSpaceCursorPatch,
   openMeldDaemonTaskResultEnvelopeSchema,
   parseOptionalClientMessageId,
   patchSpaceContractBodySchema,
+  patchSpaceMetaBodySchema,
   postResolvedSpaceMembersBodySchema,
   postSpaceDispatchOutboxRedriveBodySchema,
   postSpaceDispatchOutboxRedriveResponseSchema,
@@ -71,6 +84,7 @@ import {
   remoteAgentWorkerExecutionInputResponseSchema,
   removeSpaceMembersBodySchema,
   resolveMappedPublicAgentFailureReason,
+  resolveNativeReplyPlacementInputSchema,
   resolveSingleSpaceMentionLabels,
   resolveSpaceComposerUploadScopeResponseSchema,
   resolveSpaceFileContentInputSchema,
@@ -81,11 +95,15 @@ import {
   runtimeCoordinatorFinalizationCommandSchema,
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE,
+  SPACE_COMPOSER_UPLOAD_TTL_MS,
+  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
+  SPACE_MESSAGE_CHANGED_PURPOSE,
   SPACE_PASSWORD_MIN_LENGTH,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_MESSAGE,
   type SpaceInvitationAccessInput,
   type SpaceInvitationGrantInput,
   type SpaceInvitationRevokeInput,
+  type SpaceOwnerDepartureSpaceInput,
   sanitizeSignalTextPreview,
   signalStatusDataSchema,
   signalSystemNoticeDataSchema,
@@ -99,19 +117,31 @@ import {
   spaceFileAuditEventSchema,
   spaceFileClientMutationIdSchema,
   spaceFileEntryIdSchema,
+  spaceFilePinMutationSchema,
+  spaceFilePinsResponseSchema,
+  spaceFileUpdateSettingsCommandSchema,
+  spaceHistoryNavigationQuerySchema,
   spaceInvitationAccessInputSchema,
   spaceInvitationGrantInputSchema,
   spaceInvitationRevokeInputSchema,
+  spaceMessageMutationBodySchema,
+  spaceMessagePinMutationSchema,
+  spaceMessagePinsResponseSchema,
+  spaceOwnerDepartureSpaceInputSchema,
   spaceThreadContextSchema,
   spaceViewerMembershipResponseSchema,
   toLegacySpaceAddressingWireValue,
+  toSpaceSignalReadWireValue,
   updateSpaceFileEntryBodySchema,
   validateSpaceSignalClientMessageIdPolicy,
+  wakeDeviceWaitAccessRequestSchema,
 } from "@openmeld/schemas";
 import type {
+  ClearSpaceReasoningReplay,
   ConvertDirectMessageToSpaceResponse,
   CreateSpaceDiagnosticReportResponse,
   CreateSpaceFolderResponse,
+  CreateSpaceTaskBody,
   DispatchResult,
   EvalSpaceSignalMetrics,
   EvalSpaceSignalMetricsInput,
@@ -122,6 +152,7 @@ import type {
   GetSpaceConversationStateResponse,
   GetSpaceDispatchLookupResponse,
   GetSpaceMessageDetailsResponse,
+  GetSpaceMessageReactionsResponse,
   GetSpaceStatusResponse,
   GetSpaceThreadResponse,
   GetSpaceUpdatesResponse,
@@ -132,6 +163,7 @@ import type {
   ListSpaceFileRevisionsResponse,
   ListSpaceFilesQuery,
   ListSpaceFilesResponse,
+  ListSpaceTasksResponse,
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsResponse,
   ListSpaceThreadsResponse,
@@ -178,12 +210,23 @@ import type {
   SpaceFileAuditEvent,
   SpaceFileDescriptor,
   SpaceFileMutationErrorCode,
+  SpaceFilePinsResponse,
+  SpaceFileUploadCommand,
+  SpaceFileUploadMetadata,
+  SpaceHistoryNavigation,
+  SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
+  SpaceLinkJoinPolicy,
   SpaceLiveInvalidationFrame,
   SpaceLiveSignalFrame,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
+  SpaceMessagePinsResponse,
   SpaceSignalAuthoringPolicy,
+  SpaceTask,
+  SpaceTaskActor,
+  SpaceTaskMutationReceipt,
+  SpaceTaskResponse,
   SpaceThread,
   SpaceThreadContext,
   SpaceThreadPreview,
@@ -196,20 +239,29 @@ import type {
   WakeTraceWaterfallItem,
 } from "@openmeld/schemas/types";
 import {
+  applyAutomaticThreadWake,
+  buildBareMentionContext,
+  buildDispatchQuotedMessage,
   buildWakeProgressMessage,
+  changeSpaceOwners,
   clearWakeProgressItemsForSignal,
   createAuthenticatedSpaceAccessContext,
   createDispatchContinuationSpaceAccessContext,
   createWakeProgressItem,
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
+  isDirectMessageSpace,
+  resolveThreadAutomaticWakeTarget,
+  resolveThreadWakeContinuation,
   type SpaceAccessContext,
 } from "@openmeld/space";
+import { buildSystemNoticeText } from "@openmeld/space-mesh";
 import { readPrimaryAgentProfileBindingRecord } from "../../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
 import {
   recordRuntimeCoordinatorFailureTaskOutcome,
   recordRuntimeCoordinatorFinalizationTaskOutcome,
 } from "../../../agent-task-coordination/application/runtime-coordinator-task-outcome";
+import type { AuthProfileFacts } from "../../../auth/application/profile-facts-reader";
 import { readAgentProfileOrganizationContext } from "../../../center-agent/center-agent-organization-scope";
 import {
   readCenterAgentDesignationRecord,
@@ -229,10 +281,7 @@ import {
   buildDispatchTargetSummaryLabel,
   type DispatchHumanLogContext,
 } from "../../../dispatch/application/dispatch-log-context";
-import {
-  dispatchOutboxMessageDirectly,
-  dispatchProductionOutboxMessageDirectly,
-} from "../../../dispatch/application/dispatch-queue-service";
+import { dispatchOutboxMessageDirectly } from "../../../dispatch/application/dispatch-queue-service";
 import {
   buildDispatchPublishedAgentProfile,
   buildDispatchReplyContext,
@@ -246,12 +295,17 @@ import { recordMentionDispatchPlannerDecision } from "../../../dispatch/infrastr
 import {
   readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace,
   readRuntimeTransportRuntimeCoordinatorInteraction,
+  readRuntimeTransportRuntimeCoordinatorPublicationWakeStopEligibility,
   recordRuntimeTransportRuntimeCoordinatorHeadPreAgentStop,
   requestRuntimeTransportRuntimeCoordinatorWakeStop,
   respondToRuntimeTransportRuntimeCoordinatorInteraction,
 } from "../../../dispatch/infrastructure/runtime-transport/runtime-coordinator-client";
 import { cancelRuntimeTransportDeletedAgentProfileWakes } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import { resolveRuntimeTransportOwnerShard } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-shard";
+import {
+  DISPATCH_STORAGE_OVERLOADED_ERROR_CODE,
+  isD1OverloadedError,
+} from "../../../dispatch/rules/dispatch-error-policy";
 import { resolveCoreOutboxCandidateTransitionContractViolation } from "../../../dispatch/rules/dispatch-health-invariant-policy";
 import { emitCoreDispatchHealthFinding } from "../../../dispatch/rules/dispatch-health-view";
 import {
@@ -270,10 +324,12 @@ import {
 } from "../../../execution-recovery/application/execution-recovery-native-result";
 import {
   buildExecutionRecoveryFreshClientMessageId,
+  buildExecutionRecoveryOperationKeys,
   EXECUTION_RECOVERY_OPERATION_CLAIM_STORAGE_PREFIX,
 } from "../../../execution-recovery/application/execution-recovery-operation-identity";
 import { publishExecutionRecoveryToOrigin } from "../../../execution-recovery/application/execution-recovery-publication";
 import { inspectExecutionRecovery } from "../../../execution-recovery/application/execution-recovery-service";
+import { canReceivePersonalAgentActivity } from "../../../inbox/application/inbox-agent-owner-access";
 import {
   agentTaskCoordinationDb,
   type CoreBindings,
@@ -284,7 +340,10 @@ import {
   wakeEvidenceDb,
 } from "../../../lib/bindings";
 import { verifySpacePasswordProof } from "../../../lib/space-password-proof";
-import { readOrganizationAccountIdentityProjection } from "../../../organizations/organization-context";
+import {
+  readOrganizationAccountIdentityProjection,
+  resolveOrganizationMembershipById,
+} from "../../../organizations/organization-context";
 import { recordOrganizationMemberActivity } from "../../../organizations/organization-member-activity-repository";
 import {
   buildRemoteAgentExecutionRecoveryIdentity,
@@ -309,6 +368,7 @@ import type {
   CloseSpaceAgentStreamInput,
   CoreRpcContextInput,
   CreateSpaceDiagnosticReportInput,
+  CreateSpaceTaskInput,
   DeleteSpaceInput,
   DeleteSpaceResult,
   ExecuteExecutionRecoveryInput,
@@ -323,8 +383,10 @@ import type {
   GetSpaceDispatchTraceInput,
   GetSpaceMembersInput,
   GetSpaceMessageDetailsInput,
+  GetSpaceMessageReactionsInput,
   GetSpaceMetaInput,
   GetSpaceStatusInput,
+  GetSpaceTaskInput,
   GetSpaceThreadInput,
   GetSpaceUpdatesInput,
   GetSpaceViewerMembershipInput,
@@ -334,9 +396,11 @@ import type {
   LeaveSpaceInput,
   ListSignalsInput,
   ListSignalsResult,
+  ListSpaceTasksInput,
   ListSpaceThreadEventsInput,
   ListSpaceThreadSignalsInput,
   ListSpaceThreadsInput,
+  MutateSpaceTaskInput,
   PatchSpaceContractInput,
   PostExecutionRecoveryNoticeSignalInput,
   PostExecutionRecoveryNoticeSignalResponse,
@@ -348,7 +412,10 @@ import type {
   PutSpaceContractInput,
   RemoveSpaceMembersInput,
   SetSpaceAccessModeInput,
+  SetSpaceMessageReactionInput,
   SpaceAccessModeStateResult,
+  SpaceFilePinsInput,
+  SpaceMessagePinsInput,
   SpacePasswordStateResult,
   StartUsageExhaustedContinuationInput,
   StartUsageExhaustedContinuationResponse,
@@ -370,6 +437,7 @@ import {
   listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace,
   type RuntimeCoordinatorExecutionWakeProgressSelector,
   readRuntimeCoordinatorExecutionProjectionById,
+  readRuntimeCoordinatorExecutionRunningAtMs,
 } from "../../../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
 import {
   readResolvedOpenMeldContext,
@@ -400,6 +468,12 @@ import {
   processDispatchOutboxCandidates,
 } from "../../application/dispatch-outbox-batch-service";
 import {
+  allowsExternalSpaceLinkJoin,
+  resolveHumanSpaceSelfJoinUserId,
+  resolveOrganizationSpaceSelfJoinUserId,
+} from "../../application/organization-space-self-join";
+import { ReasoningReplay } from "../../application/reasoning-replay";
+import {
   assertSpaceAccessMatchesSpace,
   authorizeProtectedSpaceAccess,
   authorizeSpaceAccessProof,
@@ -428,13 +502,18 @@ import {
 import { handlePatchCursorUseCase } from "../../application/space-cursor-service";
 import { resolveSpaceDispatchConversationContinuityScope } from "../../application/space-dispatch-conversation-continuity";
 import { buildSpaceFileAuditEvent } from "../../application/space-file-audit";
+import { hashSpaceFileStream } from "../../application/space-file-stream";
+import { SpaceFileUploads } from "../../application/space-file-uploads";
 import { prepareSpaceInboxCandidateForCenterAgent } from "../../application/space-inbox-center-agent-candidate";
-import { buildSpaceInboxProjectionOutboxRecord } from "../../application/space-inbox-projection";
+import { recordSpaceInboxFirstContacts } from "../../application/space-inbox-first-contact";
+import {
+  buildSpaceInboxProjectionOutboxRecord,
+  buildSpaceReactionInboxProjectionOutboxRecord,
+} from "../../application/space-inbox-projection";
 import {
   attemptSpaceInboxProjectionOutboxRecord,
   resolveSpaceInboxRecipientEligibility,
 } from "../../application/space-inbox-projection-outbox-service";
-import { readLatestVisibleFormalUpdate } from "../../application/space-latest-visible-update-service";
 import {
   addSpaceMembersUseCase,
   ensureSpaceMembersBackfilled,
@@ -465,6 +544,7 @@ import { authorizeSpacePublicationModeChange } from "../../application/space-pub
 import { measureSpaceSchemaInitialization } from "../../application/space-schema-observability";
 import {
   assertSpaceSignalNavigationActionPolicy,
+  assertWakeDeviceWaitAuthoring,
   buildSignalTextOptions,
   handlePostSignalUseCase,
   publishPresenceSignalUseCase,
@@ -479,11 +559,23 @@ import {
   readSpaceStatusSummaryFromMembersSnapshotUseCase,
   readSpaceStatusSummaryUseCase,
 } from "../../application/space-status-service";
+import {
+  type CreateSpaceTaskContext,
+  SpaceTaskService,
+} from "../../application/space-task-service";
+import {
+  type SpaceTaskMutationContext,
+  SpaceTaskWorkflowError,
+} from "../../application/space-task-workflow";
 import { resolveExistingThreadSignalRetry } from "../../application/space-thread-signal-idempotency";
 import {
   readSpaceUpdatesUseCase,
   SpaceUpdatesAnchorNotFoundError,
 } from "../../application/space-updates-service";
+import {
+  assertSameSpaceWorkHandoff,
+  validateSpaceWorkHandoff,
+} from "../../application/space-work-handoff";
 import type {
   PasswordAuthorizationResult,
   SignalPublishContext,
@@ -495,6 +587,7 @@ import {
   resolveRuntimeCoordinatorConversationOccupancyWaitReasonCode,
   type WakeTraceWaterfallSourceSignalFact,
 } from "../../application/wake-trace-waterfall";
+import { resolveReactionEmoji } from "../../domain/reaction-emoji";
 import {
   readDispatchResultConversationFacts,
   readDispatchLedgerStatus as readSpaceDispatchLedgerStatus,
@@ -525,6 +618,7 @@ import {
   readDispatchOutboxRecordByDispatchId,
   recordDispatchOutboxCandidateFailure,
 } from "../../infrastructure/outbox/dispatch-outbox-repo";
+import { reconcileOrganizationAgentOwnership } from "../../infrastructure/sql/organization-agent-ownership";
 import {
   readSpaceContractRecordStateFromSql,
   repairSpaceContractRecordIfNeeded,
@@ -547,6 +641,8 @@ import {
   SpaceFileRepository,
   SpaceFileRepositoryError,
 } from "../../infrastructure/sql/space-file-repo";
+import { SpaceFileUpdateRepository } from "../../infrastructure/sql/space-file-update-repo";
+import { readSpaceHistoryNavigationGroups } from "../../infrastructure/sql/space-history-navigation-repo";
 import {
   insertSpaceInboxProjectionOutboxRecord,
   listDueSpaceInboxProjectionOutboxRecords,
@@ -578,11 +674,31 @@ import {
   type SpaceMemberRecord,
 } from "../../infrastructure/sql/space-member-repo";
 import {
+  completeRecalledMessageRepost,
+  mutateSpaceMessage,
+} from "../../infrastructure/sql/space-message-mutation-repo";
+import {
+  listSpaceMessagePins,
+  mutateSpaceMessagePin,
+} from "../../infrastructure/sql/space-message-pin-repo";
+import {
+  backfillSpaceMessageSearch,
+  initializeSpaceMessageSearch,
+  searchSpaceMessages,
+} from "../../infrastructure/sql/space-message-search-repo";
+import {
   initializeSpaceMetaRecordIfAbsent,
   readSpaceMetaRecordFromSql,
+  resolveSpaceMetaLinkJoinPolicy,
   type SpaceMetaRecord,
   upsertSpaceMetaRecord,
 } from "../../infrastructure/sql/space-meta-repo";
+import {
+  hydrateSpaceSignalReactions,
+  readSpaceReactionActors,
+  readSpaceReactions,
+  setSpaceReaction,
+} from "../../infrastructure/sql/space-reaction-repo";
 import {
   persistSignalWithRetention,
   SOFT_LIMIT_BYTES,
@@ -614,6 +730,7 @@ import {
   runAgentReplyObservationGuardedTransaction,
   type SignalEntry,
 } from "../../infrastructure/sql/space-signal-repo";
+import { SpaceTaskRepository } from "../../infrastructure/sql/space-task-repo";
 import {
   createSpaceThreadId,
   createSpaceThreadSignalPlacement,
@@ -626,16 +743,14 @@ import {
   listSpaceThreadSignalPlacementsAfter,
   listSpaceThreadSignalPlacementsBefore,
   listSpaceThreads,
+  readLatestExplicitThreadWake,
   readSpaceThread,
   readSpaceThreadByRootSignalId,
   readSpaceThreadSignalPlacementBySignalId,
+  readThreadParticipants,
   toSpaceThreadContext,
   updateSpaceThreadActivity,
 } from "../../infrastructure/sql/space-thread-repo";
-import {
-  normalizeSpaceCreatorOwnerUserId,
-  normalizeSpaceCreatorProfileId,
-} from "../../rules/access/space-creator-identity";
 import { authorizeSpaceDeletion } from "../../rules/access/space-deletion-policy";
 import { authorizeSpaceMemberRemoval } from "../../rules/access/space-member-management-policy";
 import {
@@ -656,7 +771,6 @@ import {
   type DispatchReadyDecision,
   isDispatchReadyDecision,
   resolveDispatchPlannerDecisionsForSignal,
-  stripDispatchTargetMentionsFromText,
 } from "../../rules/mention/mention-dispatch-rules";
 import type { SpaceCursorRecord } from "../../rules/parsers/space-cursor";
 import { parseStoredSignal } from "../../rules/parsers/stored-signal";
@@ -727,6 +841,7 @@ type SpaceHistorySignalFilters = {
 const buildRpcListSignalsBaseQuery = (
   input: ListSignalsInput
 ): Record<string, string> => ({
+  ...(input.q ? { q: input.q } : {}),
   ...(typeof input.afterTs === "number" && Number.isFinite(input.afterTs)
     ? { afterTs: String(Math.max(0, Math.trunc(input.afterTs))) }
     : {}),
@@ -778,20 +893,25 @@ const buildRpcListSignalsFilterQuery = (
 };
 
 const buildThreadSignalsReadPath = (input: {
+  includeWakeContinuation?: true | "conversation";
   afterSignalId?: string;
   limit?: number;
   threadId: string;
 }): string => {
   const path = `/threads/${encodeURIComponent(input.threadId)}/signals`;
   const afterSignalId = input.afterSignalId?.trim();
-  if (!(afterSignalId && Number.isSafeInteger(input.limit))) {
-    return path;
+  const searchParams = new URLSearchParams();
+  if (afterSignalId && Number.isSafeInteger(input.limit)) {
+    searchParams.set("afterSignalId", afterSignalId);
+    searchParams.set("limit", String(input.limit));
   }
-  const searchParams = new URLSearchParams({
-    afterSignalId,
-    limit: String(input.limit),
-  });
-  return `${path}?${searchParams.toString()}`;
+  if (input.includeWakeContinuation) {
+    searchParams.set(
+      "includeWakeContinuation",
+      String(input.includeWakeContinuation)
+    );
+  }
+  return searchParams.size ? `${path}?${searchParams.toString()}` : path;
 };
 
 const buildRpcListSignalsQuery = (
@@ -815,10 +935,9 @@ const OUTBOX_QUEUE_BACKOFF_MS = [1000, 3000] as const;
 const OUTBOX_ALARM_REDRIVE_INTERVAL_MS = SPACE_OUTBOX_ALARM_REDRIVE_INTERVAL_MS;
 const OUTBOX_CANDIDATE_POISON_FAILURE_THRESHOLD = 3;
 const OUTBOX_POISON_VISIBLE_FAILURE_REASON_CODE =
-  "dispatch.target_profile_owner_unresolved";
+  "dispatch.outbox.candidate_failed";
 const LEADING_AT_SIGNS_PATTERN = /^@+/;
 const DISPATCH_OUTBOX_DIRECT_DELIVERY_MODE = "direct";
-const DISPATCH_OUTBOX_PRODUCTION_DIRECT_DELIVERY_MODE = "production_direct";
 type DispatchOutboxSubmissionResult = {
   status: "enqueued" | "queue_unavailable" | "retry_scheduled" | "submitted";
 };
@@ -1027,6 +1146,10 @@ function mergePublishedOriginFactsIntoAuthorProfile(
 }
 
 function createPreparedDispatchOutboxRecordForDecision(input: {
+  contextMessages?: DispatchSourceSignalSnapshotInput["contextMessages"];
+  callerContext: NonNullable<
+    OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
+  >["callerContext"];
   spaceId: string;
   organizationId: string;
   ownerCreatorProfileIdsByOwnerUserId: Map<
@@ -1045,6 +1168,8 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
     OpenMeldDaemonDispatchQueueMessage["continuitySnapshot"]
   >;
   recentSignals: SignalEnvelope[];
+  quotedMessage?: DispatchSourceSignalSnapshotInput["quotedMessage"];
+  pinnedFiles?: DispatchSourceSignalSnapshotInput["pinnedFiles"];
   sourceText: string;
   senderProfileId: string;
   sourceEventId: string;
@@ -1062,11 +1187,7 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
     decision: input.decision,
     sourceText: input.sourceText,
   });
-  const normalizedSourceText = stripDispatchTargetMentionsFromText({
-    mentionTargetAliases: input.mentionTargetAliases,
-    targetProfileId: input.decision.targetProfileId,
-    text: directMessageSourceText,
-  });
+  const normalizedSourceText = directMessageSourceText.trim();
   const continuitySnapshot = resolveDispatchOutboxContinuitySnapshotForTarget({
     targetProfileId: input.decision.targetProfileId,
     continuitySnapshotByTargetProfileId:
@@ -1082,7 +1203,16 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
   });
 
   return createDispatchOutboxRecord({
+    ...(input.signal.type === "signal.text" &&
+    input.signal.data.contextSelection
+      ? { contextSelection: input.signal.data.contextSelection }
+      : {}),
     bindingEnabled: true,
+    ...(input.signal.type === "signal.text" &&
+    input.signal.data.deviceWait?.targetProfileId ===
+      input.decision.targetProfileId
+      ? { deviceWait: input.signal.data.deviceWait }
+      : {}),
     bindingState: "bound",
     continuitySnapshot,
     ...(dispatchOwner ? { dispatchOwner } : {}),
@@ -1099,6 +1229,10 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
     targetProfileId: input.decision.targetProfileId,
     senderProfileId: input.senderProfileId,
     sourceSignalSnapshot: buildDispatchSourceSignalSnapshot({
+      callerContext: input.callerContext,
+      quotedMessage: input.quotedMessage,
+      contextMessages: input.contextMessages,
+      pinnedFiles: input.pinnedFiles,
       signal: input.signal,
       sourceText: directMessageSourceText,
       normalizedSourceText,
@@ -1213,6 +1347,12 @@ function resolveDispatchReplyStalenessMeta(input: {
 }
 
 function buildDispatchSourceSignalSnapshot(input: {
+  contextMessages?: DispatchSourceSignalSnapshotInput["contextMessages"];
+  callerContext: NonNullable<
+    OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
+  >["callerContext"];
+  quotedMessage?: DispatchSourceSignalSnapshotInput["quotedMessage"];
+  pinnedFiles?: DispatchSourceSignalSnapshotInput["pinnedFiles"];
   signal: SignalEnvelope;
   sourceText: string;
   normalizedSourceText: string;
@@ -1225,6 +1365,10 @@ function buildDispatchSourceSignalSnapshot(input: {
       : undefined;
   const files =
     input.signal.type === "signal.text" ? input.signal.data.files : undefined;
+  const workHandoff =
+    input.signal.type === "signal.text"
+      ? input.signal.data.meta?.workHandoff
+      : undefined;
   const centerAgentInteractionSource =
     input.signal.type === "signal.text"
       ? input.signal.data.meta?.centerAgentInteractionSource
@@ -1235,6 +1379,12 @@ function buildDispatchSourceSignalSnapshot(input: {
         ? input.normalizedSourceText
         : input.sourceText,
     profileId: input.senderProfileId,
+    callerContext: input.callerContext,
+    ...(input.quotedMessage ? { quotedMessage: input.quotedMessage } : {}),
+    ...(input.contextMessages?.length
+      ? { contextMessages: input.contextMessages }
+      : {}),
+    ...(input.pinnedFiles?.length ? { pinnedFiles: input.pinnedFiles } : {}),
     profileKind: input.signal.profile.kind,
     ...(centerAgentInteractionSource ? { centerAgentInteractionSource } : {}),
     profileMentionLabel:
@@ -1244,6 +1394,7 @@ function buildDispatchSourceSignalSnapshot(input: {
         : null,
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
     ...(files && files.length > 0 ? { files } : {}),
+    ...(workHandoff ? { workHandoff } : {}),
   };
 }
 
@@ -1478,6 +1629,33 @@ const createWakeHandoffSeedFailedError = (
     targetProfileId,
   });
 
+function assertEditedMessageTargetsAreActiveMembers(
+  sql: SqlStorage,
+  message: Extract<SignalEnvelope, { type: "signal.text" }>,
+  previous: Extract<SignalEnvelope, { type: "signal.text" }>
+) {
+  const envelope = message.data.messageEnvelope;
+  if (!envelope) {
+    return;
+  }
+  const before = previous.data.messageEnvelope;
+  assertCurrentSpaceAddressingTargetsAreActiveMembers({
+    sql,
+    messageEnvelope: {
+      ...envelope,
+      activationTargets: envelope.activationTargets.filter(
+        (id) => !before?.activationTargets.includes(id)
+      ),
+      referenceTargets: envelope.referenceTargets.filter(
+        (id) => !before?.referenceTargets.includes(id)
+      ),
+      mentionTargets: (envelope.mentionTargets ?? []).filter(
+        (id) => !before?.mentionTargets?.includes(id)
+      ),
+    },
+  });
+}
+
 const assertCurrentSpaceAddressingTargetsAreActiveMembers = (input: {
   messageEnvelope: SignalTextBuildOptions["messageEnvelope"];
   sql: SqlStorage;
@@ -1674,6 +1852,7 @@ type WakeProgressTerminalFailureNotice = {
 
 type Session = SpaceWebSocketSession;
 type SpaceDispatchAccessOptions = {
+  includeAgentReadiness?: boolean;
   agentStreamId?: string;
   authoringPolicy?: SpaceSignalAuthoringPolicy;
   bootstrapTiming?: SpaceBootstrapBranchTiming;
@@ -2141,12 +2320,15 @@ export const handleWebSocketTextSignal = async (input: {
 };
 
 type PatchSpaceMetaInput = {
+  ownership?: { userId: string; role: "owner" | "member" };
+  allowGuests?: boolean;
   spaceId: string;
   name?: string;
   purpose?: string;
   creator?: SpaceCreator;
   guide?: string;
   accessMode?: SpaceAccessMode;
+  linkJoinPolicy?: SpaceLinkJoinPolicy;
   organizationId?: string;
   visibility?: "public" | "private";
   password?: string;
@@ -2183,6 +2365,7 @@ type InitializeDirectMessageSpaceMetaResponse = {
 
 type ConvertDirectMessageToSpaceInput = {
   context?: CoreRpcContextInput;
+  includeMemberSnapshots?: boolean;
   members: ResolvedSpaceMemberProfile[];
   name: string;
   spaceId: string;
@@ -2240,6 +2423,10 @@ const APPROVED_FINAL_OUTCOME_AUTHORITIES = new Set<
 const LIVE_INVALIDATION_VERSION_STORAGE_KEY =
   "space.live_invalidation.version.v1";
 
+function isImmutableSpaceMetaPatch(body: unknown): boolean {
+  return isSpacePurposePatchBody(body) || Object.hasOwn(body ?? {}, "creator");
+}
+
 function isSpacePurposePatchBody(body: unknown): boolean {
   return (
     body !== null &&
@@ -2277,6 +2464,7 @@ export class Space extends DurableObject<CoreBindings> {
     CreatorProfileIdsByProfileId
   >();
   private readonly sessions: Map<WebSocket, Session> = new Map();
+  private readonly reasoningReplay = new ReasoningReplay();
   private readonly activeReplyingSignalsByDispatchId = new Map<
     string,
     {
@@ -2288,9 +2476,14 @@ export class Space extends DurableObject<CoreBindings> {
   private lastTimestamp = 0;
   private lastLiveInvalidationVersion = 0;
   private liveInvalidationVersionUpdate: Promise<void> = Promise.resolve();
+  private liveBroadcastDelivery: Promise<void> = Promise.resolve();
   private lastPostCleanupAtMs = 0;
   private lastRetentionWarningAtMs = 0;
   private dispatchOutboxContinuationDueAtMs: number | null = null;
+  private dispatchOutboxFlush: Promise<void> | null = null;
+  // A load-shedding hint, not durable work state. Eviction may retry sooner;
+  // the existing persistent outbox and shared alarm still own recovery.
+  private dispatchOutboxRetryNotBeforeMs = 0;
   private spaceId: string;
 
   constructor(ctx: DurableObjectState, env: CoreBindings) {
@@ -2304,6 +2497,28 @@ export class Space extends DurableObject<CoreBindings> {
         initialize: () => ensureSpaceSqlSchema(this.ctx.storage.sql),
         spaceId: this.spaceId,
       });
+      const ownershipMigrationKey = "organization-agent-ownership-v1";
+      const ownershipMeta = this.readSpaceMetaRecord();
+      if (
+        ownershipMeta &&
+        !(await this.ctx.storage.get<boolean>(ownershipMigrationKey))
+      ) {
+        const db = identityDb(this.bindings);
+        if (!db) {
+          throw new Error(
+            "Organization Agent ownership migration requires identity storage"
+          );
+        }
+        const changed = await reconcileOrganizationAgentOwnership({
+          db,
+          organizationId: ownershipMeta.organizationId,
+          sql: this.ctx.storage.sql,
+        });
+        if (changed) {
+          this.closeAllSessions("space_access_changed");
+        }
+        await this.ctx.storage.put(ownershipMigrationKey, true);
+      }
       const persistedClock = this.ctx.storage.sql
         .exec<{ max_ts: number | null }>(
           "SELECT MAX(ts) AS max_ts FROM space_signals"
@@ -2378,6 +2593,9 @@ export class Space extends DurableObject<CoreBindings> {
     await this.runIsolatedAlarmStep("space_inbox_projection_outbox", () =>
       this.flushPendingSpaceInboxProjectionOutbox()
     );
+    await this.runIsolatedAlarmStep("space_file_update_outbox", () =>
+      this.flushFileUpdateNotifications()
+    );
     await this.runIsolatedAlarmStep("dispatch_outbox_queue", () =>
       this.flushPendingDispatchOutbox()
     );
@@ -2395,6 +2613,14 @@ export class Space extends DurableObject<CoreBindings> {
         storage: this.agentStreamProjectionStorage,
         nowMs: Date.now(),
       });
+    });
+    await this.runIsolatedAlarmStep("file_upload_cleanup", async () => {
+      if (this.env.OPENMELD_SPACE_ATTACHMENTS) {
+        await new SpaceFileUploads(
+          this.ctx.storage.sql,
+          this.env.OPENMELD_SPACE_ATTACHMENTS
+        ).cleanup();
+      }
     });
     await this.syncSpaceBackgroundAlarm();
   }
@@ -2509,7 +2735,7 @@ export class Space extends DurableObject<CoreBindings> {
     await assertRpcSpaceAccessAuthorized(
       await this.authorizeSpaceAccess(input.spaceAccess)
     );
-    const member = this.readSpaceFileActorMember(input.spaceAccess);
+    const member = this.readSpaceActorMember(input.spaceAccess);
     const canWrite =
       member?.profileKindSnapshot === "human" ||
       member?.profileKindSnapshot === "agent";
@@ -2553,6 +2779,198 @@ export class Space extends DurableObject<CoreBindings> {
     return this.runSpaceFileRepositoryOperation(() =>
       this.spaceFileRepository.getFile(input.fileId)
     );
+  }
+
+  async rpcSpaceFileUpdateSettings(input: {
+    fileId: string;
+    spaceId: string;
+    spaceAccess: SpaceAccessContext;
+    command: import("@openmeld/schemas/types").SpaceFileUpdateSettingsCommand;
+  }): Promise<import("@openmeld/schemas/types").SpaceFileUpdateSettings> {
+    this.applySpaceRef(input.spaceId);
+    const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
+    this.runSpaceFileRepositoryOperation(() =>
+      this.spaceFileRepository.getFile(input.fileId)
+    );
+    const parsed = spaceFileUpdateSettingsCommandSchema.safeParse(
+      input.command
+    );
+    if (!parsed.success) {
+      throw createCoreRpcHttpError({
+        status: 400,
+        code: "invalid_payload",
+        reason: "Invalid file update settings.",
+      });
+    }
+    const repository = new SpaceFileUpdateRepository(this.ctx.storage.sql);
+    if (parsed.data.action === "read") {
+      return repository.read(input.fileId);
+    }
+    const requestActor = getSpaceAccessRequestContext(
+      input.spaceAccess
+    )?.actorContext;
+    if (
+      actor.profileKind !== "human" ||
+      !actor.ownerUserId ||
+      requestActor?.profileKind !== "human" ||
+      requestActor.ownerUserId !== actor.ownerUserId
+    ) {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "space_file.human_required",
+        reason: "A human Space member must choose update recipients.",
+      });
+    }
+    const command = parsed.data;
+    for (const profileId of command.recipientProfileIds) {
+      const member = readSpaceMemberRecord(this.ctx.storage.sql, profileId);
+      if (
+        member?.status !== "active" ||
+        !["human", "agent"].includes(member.profileKindSnapshot)
+      ) {
+        throw createCoreRpcHttpError({
+          status: 400,
+          code: "space_file.recipient_unavailable",
+          reason: "Choose current Space members as update recipients.",
+        });
+      }
+    }
+    const result = this.ctx.storage.transactionSync(() =>
+      repository.configure({
+        fileId: input.fileId,
+        actor,
+        baseVersion: command.baseVersion,
+        recipientProfileIds: command.recipientProfileIds,
+      })
+    );
+    if (!result) {
+      throw createCoreRpcHttpError({
+        status: 409,
+        code: "space_file.settings_conflict",
+        reason: "Someone changed these settings. Reopen them before saving.",
+      });
+    }
+    return result;
+  }
+
+  private async flushFileUpdateNotifications(): Promise<void> {
+    const repository = new SpaceFileUpdateRepository(this.ctx.storage.sql);
+    for (const pending of repository.pending(Date.now())) {
+      try {
+        await this.publishFileUpdateNotification(pending, repository);
+        repository.complete(pending.id);
+      } catch (error) {
+        repository.retry(
+          pending.id,
+          Date.now(),
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+    }
+  }
+
+  private async publishFileUpdateNotification(
+    pending: ReturnType<SpaceFileUpdateRepository["pending"]>[number],
+    repository: SpaceFileUpdateRepository
+  ): Promise<void> {
+    if (this.readSourceTextSignalByClientMessageId(pending.id)) {
+      return;
+    }
+    const settings = repository.read(pending.fileId);
+    const actor = pending.settings.configuredBy;
+    const member = actor
+      ? readSpaceMemberRecord(this.ctx.storage.sql, actor.profileId)
+      : null;
+    if (
+      !actor?.ownerUserId ||
+      member?.status !== "active" ||
+      member.ownerUserIdSnapshot !== actor.ownerUserId ||
+      settings.configuredBy?.profileId !== actor.profileId ||
+      settings.version !== pending.settings.version
+    ) {
+      return;
+    }
+    const access = await this.authorizeWritableSpaceAccess(
+      createAuthenticatedSpaceAccessContext({
+        spaceId: this.spaceId,
+        requestContext: {
+          actorContext: {
+            requestId: pending.id,
+            openMeldProfileId: actor.profileId,
+            ownerUserId: actor.ownerUserId,
+            profileKind: "human",
+          },
+        },
+      })
+    );
+    if (!access.ok) {
+      if (access.response.status >= 500) {
+        throw new Error("File update notification access is unavailable.");
+      }
+      return;
+    }
+    const recipients = pending.settings.recipientProfileIds
+      .filter((id) => settings.recipientProfileIds.includes(id))
+      .flatMap((id) => {
+        const target = readSpaceMemberRecord(this.ctx.storage.sql, id);
+        return target?.status === "active" ? [target] : [];
+      });
+    if (!recipients.length) {
+      return;
+    }
+    let file: SpaceFileDescriptor;
+    try {
+      file = this.spaceFileRepository.getFile(pending.fileId);
+    } catch (error) {
+      if (
+        error instanceof SpaceFileRepositoryError &&
+        error.code === "space_file.not_found"
+      ) {
+        return;
+      }
+      throw error;
+    }
+    const { revision } = this.spaceFileRepository.resolveRevision({
+      fileId: pending.fileId,
+      revision: pending.revision,
+    });
+    const text = `${file.name} was updated to version ${pending.revision}. Review the new version before using it in related work. This automatic notice does not request another edit or additional Wakes.`;
+    const signal = this.buildTextSignal(
+      {
+        kind: "human",
+        profileId: actor.profileId,
+        profileName: member.profileNameSnapshot,
+      },
+      text,
+      {
+        files: [
+          {
+            fileId: file.id,
+            name: file.name,
+            revision: pending.revision,
+            mimeType: revision.mimeType,
+            sizeBytes: revision.sizeBytes,
+          },
+        ],
+        messageEnvelope: normalizeMessageEnvelope({
+          text,
+          activationTargets: recipients
+            .filter((target) => target.profileKindSnapshot === "agent")
+            .map((target) => target.profileId),
+          mentionTargets: recipients
+            .filter((target) => target.profileKindSnapshot === "human")
+            .map((target) => target.profileId),
+        }),
+        meta: {
+          clientMessageId: pending.id,
+          purpose: "space_file.updated",
+        },
+      }
+    );
+    await this.publishTextSignal(signal, {
+      authoringPolicy: "user_authored",
+      supportsCurrentSpaceAddressing: true,
+    });
   }
 
   async rpcListSpaceFileRevisions(input: {
@@ -2696,6 +3114,159 @@ export class Space extends DurableObject<CoreBindings> {
     return { entry };
   }
 
+  async rpcSpaceFileUpload(input: {
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+    uploadId: string;
+    command: SpaceFileUploadCommand;
+    body?: ReadableStream<Uint8Array>;
+  }) {
+    this.applySpaceRef(input.spaceId);
+    const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
+    const meta = this.requireSpaceFileMetaRecord();
+    const bucket = this.env.OPENMELD_SPACE_ATTACHMENTS;
+    if (!bucket) {
+      throw new Error("Space file storage is unavailable.");
+    }
+    const uploads = new SpaceFileUploads(this.ctx.storage.sql, bucket);
+    try {
+      return await uploads.execute({
+        actorId: actor.profileId,
+        scope: `${meta.organizationId}/${this.spaceId}`,
+        uploadId: input.uploadId,
+        command: input.command,
+        body: input.body,
+        prepare: async (metadata) => {
+          const target = metadata.target;
+          if (target.kind === "composer") {
+            return;
+          }
+          await this.rpcPrepareSpaceFileWrite({
+            spaceAccess: input.spaceAccess,
+            write: {
+              spaceId: this.spaceId,
+              fileId:
+                target.kind === "file"
+                  ? await buildSpaceFileEntryIdForMutation(
+                      target.clientMutationId
+                    )
+                  : target.fileId,
+              revisionId: `upload-${input.uploadId}`,
+              baseRevision: target.kind === "file" ? null : target.baseRevision,
+              clientMutationId: target.clientMutationId,
+              mimeType: metadata.mimeType,
+              sizeBytes: metadata.sizeBytes,
+              ...(target.kind === "file"
+                ? { name: target.name, parentId: target.parentId }
+                : {}),
+            },
+          });
+        },
+        finish: async (metadata: SpaceFileUploadMetadata, key: string) => {
+          // Reauthorize after the transfer: membership can change mid-upload.
+          await this.requireSpaceFileWriteActor(input.spaceAccess);
+          const object = await bucket.get(key);
+          if (!object) {
+            throw new Error("The uploaded file is unavailable.");
+          }
+          if (metadata.target.kind === "composer") {
+            const expiresAtMs = Date.now() + SPACE_COMPOSER_UPLOAD_TTL_MS;
+            const destination = buildSpaceComposerUploadObjectKey({
+              actorProfileId: actor.profileId,
+              organizationId: meta.organizationId,
+              spaceId: this.spaceId,
+              uploadId: input.uploadId,
+            });
+            await bucket.put(destination, object.body, {
+              httpMetadata: { contentType: metadata.mimeType },
+              customMetadata: {
+                actorProfileId: actor.profileId,
+                organizationId: meta.organizationId,
+                spaceId: this.spaceId,
+                uploadId: input.uploadId,
+                name: metadata.target.name,
+                mimeType: metadata.mimeType,
+                sizeBytes: String(metadata.sizeBytes),
+                expiresAtMs: String(expiresAtMs),
+              },
+            });
+            return {
+              upload: {
+                id: input.uploadId,
+                name: metadata.target.name,
+                mimeType: metadata.mimeType,
+                sizeBytes: metadata.sizeBytes,
+                expiresAt: new Date(expiresAtMs).toISOString(),
+              },
+            };
+          }
+          const target = metadata.target;
+          const baseRevision =
+            target.kind === "file" ? null : target.baseRevision;
+          const createFields =
+            target.kind === "file"
+              ? { name: target.name, parentId: target.parentId }
+              : {};
+          const write = {
+            spaceId: this.spaceId,
+            fileId:
+              target.kind === "file"
+                ? await buildSpaceFileEntryIdForMutation(
+                    target.clientMutationId
+                  )
+                : target.fileId,
+            baseRevision,
+            clientMutationId: target.clientMutationId,
+            mimeType: metadata.mimeType,
+            sizeBytes: metadata.sizeBytes,
+            ...createFields,
+            revisionId: await buildSpaceFileRevisionIdFromDigest({
+              baseRevision,
+              clientMutationId: target.clientMutationId,
+              mimeType: metadata.mimeType,
+              contentDigest: await hashSpaceFileStream(object.body),
+              ...createFields,
+            }),
+          };
+          const prepared = await this.rpcPrepareSpaceFileWrite({
+            spaceAccess: input.spaceAccess,
+            write,
+          });
+          if (prepared.committedFile) {
+            return { file: prepared.committedFile };
+          }
+          const source = await bucket.get(key);
+          if (!source) {
+            throw new Error("The uploaded file is unavailable.");
+          }
+          await bucket.put(prepared.objectKey, source.body, {
+            httpMetadata: { contentType: metadata.mimeType },
+          });
+          try {
+            return {
+              file: await this.rpcCommitSpaceFileWrite({
+                spaceAccess: input.spaceAccess,
+                write,
+              }),
+            };
+          } catch (error) {
+            const committed = this.spaceFileRepository.resolveCommittedWrite(
+              write.clientMutationId,
+              write.fileId
+            );
+            if (committed) {
+              return { file: committed };
+            }
+            await bucket.delete(prepared.objectKey);
+            throw error;
+          }
+        },
+      });
+    } finally {
+      await this.syncSpaceBackgroundAlarm();
+    }
+  }
+
   async rpcPrepareSpaceFileWrite(input: {
     spaceAccess: SpaceAccessContext;
     write: unknown;
@@ -2758,6 +3329,13 @@ export class Space extends DurableObject<CoreBindings> {
       revisionId: write.revisionId,
       spaceAccess: input.spaceAccess,
     });
+    // Arm recovery before committing the revision and its notification intent.
+    // A crash immediately after the transaction must not strand the notice.
+    const alarmAt = Date.now() + 1000;
+    const existingAlarm = await this.ctx.storage.getAlarm();
+    if (existingAlarm === null || existingAlarm > alarmAt) {
+      await this.ctx.storage.setAlarm(alarmAt);
+    }
     const file = this.runAuditedSpaceFileMutation(auditEvent, () =>
       this.spaceFileRepository.commitWrite({
         actor,
@@ -2767,6 +3345,7 @@ export class Space extends DurableObject<CoreBindings> {
       })
     );
     await this.broadcastSpaceFilesChanged("space_file.content_committed");
+    await this.syncSpaceBackgroundAlarm();
     return file;
   }
 
@@ -2848,7 +3427,7 @@ export class Space extends DurableObject<CoreBindings> {
     return meta;
   }
 
-  private readSpaceFileActorMember(
+  private readSpaceActorMember(
     spaceAccess: SpaceAccessContext
   ): SpaceMemberRecord | null {
     const profileId =
@@ -2869,7 +3448,7 @@ export class Space extends DurableObject<CoreBindings> {
     await assertRpcSpaceAccessAuthorized(
       await this.authorizeWritableSpaceAccess(spaceAccess)
     );
-    const member = this.readSpaceFileActorMember(spaceAccess);
+    const member = this.readSpaceActorMember(spaceAccess);
     if (!member) {
       throw createCoreRpcHttpError({
         status: 403,
@@ -3435,6 +4014,25 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcApplyRuntimeCoordinatorPublicationExhaustionCommand(
     input: RuntimeCoordinatorFinalizationCommand
   ): Promise<RuntimeCoordinatorFinalizationClaimRead> {
+    return await this.applyRuntimeCoordinatorFinalNoticeCommand(
+      input,
+      "terminal_failure"
+    );
+  }
+
+  async rpcApplyRuntimeCoordinatorWakeStopCommand(
+    input: RuntimeCoordinatorFinalizationCommand
+  ): Promise<RuntimeCoordinatorFinalizationClaimRead> {
+    return await this.applyRuntimeCoordinatorFinalNoticeCommand(
+      input,
+      "wake_stopped"
+    );
+  }
+
+  private async applyRuntimeCoordinatorFinalNoticeCommand(
+    input: RuntimeCoordinatorFinalizationCommand,
+    noticeType: "terminal_failure" | "wake_stopped"
+  ): Promise<RuntimeCoordinatorFinalizationClaimRead> {
     const parsed = runtimeCoordinatorFinalizationCommandSchema.safeParse(input);
     if (!parsed.success) {
       return { status: "unresolved" };
@@ -3465,8 +4063,34 @@ export class Space extends DurableObject<CoreBindings> {
     const threadContext = this.resolveThreadContextForSignal(
       command.dispatchFact.sourceEventId
     );
+    const ownerCancellation =
+      noticeType === "wake_stopped" &&
+      isComputerFileAccessOwnerCancellation(
+        command.acceptedResult.taskResult.payload
+      );
+    let reasonCode: string;
+    let text: string;
+    if (ownerCancellation) {
+      reasonCode = COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE;
+      text =
+        "Stopped before the Agent started because the Computer owner declined the file access request.";
+    } else if (noticeType === "wake_stopped") {
+      reasonCode = "runtime_coordinator.wake_stop_requested";
+      text = buildSystemNoticeText({
+        ...resolveRuntimeCoordinatorPublicationExhaustionActorName({ command }),
+        noticeType: "wake_stopped",
+      });
+    } else {
+      reasonCode = RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE;
+      text = buildRuntimeCoordinatorPublicationExhaustionNoticeText({
+        command,
+      });
+    }
     const signalContext = {
-      finalOutcomeAuthority: "runtime_coordinator_failure_publication",
+      finalOutcomeAuthority:
+        noticeType === "wake_stopped"
+          ? "runtime_coordinator_wake_stop_publication"
+          : "runtime_coordinator_failure_publication",
       ...(threadContext ? { threadContext } : {}),
     } satisfies SignalPublishContext;
     const signal = this.buildSystemNoticeSignal(
@@ -3479,15 +4103,15 @@ export class Space extends DurableObject<CoreBindings> {
         actorProfileId: command.targetProfileId,
         ...resolveRuntimeCoordinatorPublicationExhaustionActorName({ command }),
         dispatchId: command.dispatchId,
-        failureStage: "publication",
+        ...(noticeType === "terminal_failure"
+          ? { failureStage: "publication" as const }
+          : {}),
         generatedBy: "openmeld",
-        noticeType: "terminal_failure",
-        reason: RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE,
-        reasonCode: RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE,
+        noticeType,
+        reason: reasonCode,
+        reasonCode,
         ...(replyTo ? { replyTo } : {}),
-        text: buildRuntimeCoordinatorPublicationExhaustionNoticeText({
-          command,
-        }),
+        text,
       }
     );
     await armSpaceInboxProjectionRecoveryAlarm({
@@ -3510,7 +4134,8 @@ export class Space extends DurableObject<CoreBindings> {
     const settledClaim = readClaim();
     if (
       persistResult.persistedSignal &&
-      settledClaim.status === "publication_failed_visible" &&
+      (settledClaim.status === "publication_failed_visible" ||
+        settledClaim.status === "wake_stopped_visible") &&
       settledClaim.publishedSignalId === signal.id
     ) {
       this.broadcastSignal(signal, signalContext, { persisted: true });
@@ -4007,6 +4632,165 @@ export class Space extends DurableObject<CoreBindings> {
     };
   }
 
+  async rpcMutateSpaceMessage(
+    input: import("../../../rpc/methods").MutateSpaceMessageInput
+  ) {
+    this.applySpaceRef(input.spaceId);
+    await assertRpcSpaceAccessAuthorized(
+      await this.authorizeWritableSpaceAccess(input.spaceAccess)
+    );
+    const actor = toProtocolProfile(
+      requireWritableSpaceActor(input.spaceAccess)
+    );
+    const member = readSpaceMemberRecord(this.ctx.storage.sql, actor.profileId);
+    if (member?.status !== "active" || actor.kind !== "human") {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "space.message.author_required",
+        reason: "Only the sender can change this message.",
+      });
+    }
+    const parsed = spaceMessageMutationBodySchema.safeParse(input.body);
+    if (!parsed.success) {
+      throw createCoreRpcHttpError({
+        status: 400,
+        reason: "Invalid message change.",
+      });
+    }
+    const nowMs = Date.now();
+    const result = this.ctx.storage.transactionSync(() => {
+      const outcome = mutateSpaceMessage({
+        sql: this.ctx.storage.sql,
+        signalId: input.signalId,
+        actorProfileId: actor.profileId,
+        actorKind: actor.kind,
+        body: parsed.data,
+        nowMs,
+        onEdit: (message, previous) => {
+          assertEditedMessageTargetsAreActiveMembers(
+            this.ctx.storage.sql,
+            message,
+            previous
+          );
+          const addedFiles =
+            parsed.data.action === "edit" ? parsed.data.addedFiles : undefined;
+          if (addedFiles?.length) {
+            const resolved = this.resolveSpaceMessageFileReferences(addedFiles);
+            const byId = new Map(resolved.map((file) => [file.fileId, file]));
+            message.data.files = message.data.files?.map(
+              (file) => byId.get(file.fileId) ?? file
+            );
+          }
+          if (
+            !message.data.messageEnvelope?.activationTargets.length ||
+            previous.data.messageEnvelope?.activationTargets.length
+          ) {
+            return;
+          }
+          if (
+            listDispatchOutboxRecordsBySourceSignalId(
+              this.ctx.storage.sql,
+              message.id
+            ).length
+          ) {
+            throw createCoreRpcHttpError({
+              status: 409,
+              code: "space.message.wake_already_requested",
+              reason:
+                "This message already started Agent work. Editing cannot start it again.",
+            });
+          }
+          const placement = readSpaceThreadSignalPlacementBySignalId(
+            this.ctx.storage.sql,
+            message.id
+          );
+          const thread = placement
+            ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
+            : null;
+          const context: SignalPublishContext | undefined = thread
+            ? {
+                threadContext: {
+                  rootSignalId: thread.rootSignalId,
+                  threadId: thread.threadId,
+                },
+                threadPlacement: placement?.placement,
+              }
+            : undefined;
+          const plan = this.prepareDispatchOutboxPlanForSignal(
+            message,
+            context
+          );
+          this.collectInsertedDispatchMessages(plan.outboxRecords, []);
+        },
+      });
+      if (!outcome.changed) {
+        return { ...outcome, change: null };
+      }
+      const change: SignalEnvelope = {
+        v: 1,
+        id: crypto.randomUUID(),
+        spaceId: this.spaceId,
+        ts: nowMs,
+        profile: {
+          profileId: DISPATCH_HINT_SYSTEM_PROFILE_ID,
+          profileName: DISPATCH_HINT_SYSTEM_PROFILE_NAME,
+          kind: "system",
+        },
+        type: "signal.text",
+        data: {
+          text: `Message ${input.signalId} was ${parsed.data.action === "recall" ? "recalled" : "edited"}. Read the current message before replying.`,
+          meta: {
+            purpose: SPACE_MESSAGE_CHANGED_PURPOSE,
+            changedMessageId: input.signalId,
+          },
+        },
+      };
+      insertSignalRecord(this.ctx.storage.sql, change);
+      const placement = readSpaceThreadSignalPlacementBySignalId(
+        this.ctx.storage.sql,
+        input.signalId
+      );
+      if (placement) {
+        insertSpaceThreadSignalPlacement(this.ctx.storage.sql, {
+          ...placement,
+          signalId: change.id,
+          createdAt: new Date(nowMs).toISOString(),
+        });
+      }
+      insertSpaceIndexProjectionOutboxRecord(
+        this.ctx.storage.sql,
+        this.createCurrentMessagePreviewProjection()
+      );
+      return { ...outcome, change };
+    });
+    if (result.changed) {
+      const placement = readSpaceThreadSignalPlacementBySignalId(
+        this.ctx.storage.sql,
+        input.signalId
+      );
+      const thread = placement
+        ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
+        : null;
+      const signalContext: SignalPublishContext | undefined = thread
+        ? {
+            threadContext: {
+              rootSignalId: thread.rootSignalId,
+              threadId: thread.threadId,
+            },
+            threadPlacement: placement?.placement,
+          }
+        : undefined;
+      this.broadcastSignal(result.message, signalContext, { persisted: true });
+      if (result.change) {
+        this.broadcastSignal(result.change, signalContext, { persisted: true });
+      }
+      await this.broadcastSpaceMetaChanged({ reason: "space.message.updated" });
+      this.ctx.waitUntil(this.flushPendingDispatchOutbox());
+      this.ctx.waitUntil(this.syncSpaceBackgroundAlarm());
+    }
+    return { message: result.message };
+  }
+
   async rpcPostSignal(input: PostSignalInput): Promise<SignalEnvelope> {
     this.applySpaceRef(input.spaceId);
     const agentStreamId = parseOptionalAgentStreamId(input.agentStreamId);
@@ -4051,6 +4835,8 @@ export class Space extends DurableObject<CoreBindings> {
         type: "signal.text",
         data: {
           text: normalizedText,
+          ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
+          contextSelection: input.contextSelection,
           ...(input.attachments ? { attachments: input.attachments } : {}),
           ...(input.files ? { files: input.files } : {}),
           ...(input.messageEnvelope
@@ -4117,6 +4903,13 @@ export class Space extends DurableObject<CoreBindings> {
         const existingSignal =
           this.readSourceTextSignalByClientMessageId(clientMessageId);
         if (existingSignal) {
+          assertSameSpaceWorkHandoff({
+            existing: existingSignal,
+            authorProfileId: input.profile.profileId,
+            handoff: input.meta?.workHandoff,
+            text: input.text,
+            targetProfileIds: input.messageEnvelope?.activationTargets ?? [],
+          });
           return { signal: existingSignal, status: "accepted" };
         }
         if (
@@ -4157,6 +4950,10 @@ export class Space extends DurableObject<CoreBindings> {
     input: PostSignalOnceByClientMessageIdInput;
   }): PostSignalInput {
     return {
+      ...(input.input.deviceWait ? { deviceWait: input.input.deviceWait } : {}),
+      ...(input.input.contextSelection
+        ? { contextSelection: input.input.contextSelection }
+        : {}),
       ...(input.agentStreamId ? { agentStreamId: input.agentStreamId } : {}),
       authoringPolicy: input.input.authoringPolicy,
       ...(input.input.attachments
@@ -4301,23 +5098,25 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
 
-  private async refreshMemberNamesFromAuth(): Promise<void> {
+  private async refreshMemberNamesFromAuth(): Promise<
+    AuthProfileFacts | null | undefined
+  > {
     ensureSpaceMembersBackfilled({
       sql: this.ctx.storage.sql,
       spaceId: this.spaceId,
       liveSessions: this.sessions.values(),
       metaRecord: this.readSpaceMetaRecord(),
     });
-    if (
-      await refreshSpaceMemberNamesFromAuth({
-        sql: this.ctx.storage.sql,
-        env: this.bindings,
-      })
-    ) {
+    const result = await refreshSpaceMemberNamesFromAuth({
+      sql: this.ctx.storage.sql,
+      env: this.bindings,
+    });
+    if (result.changed) {
       this.ctx.waitUntil(
         this.projectCurrentSpaceIndexSnapshot("space.members_updated")
       );
     }
+    return result.profileFacts;
   }
 
   private resolveSpaceMemberProfileNameForPublication(
@@ -4707,6 +5506,9 @@ export class Space extends DurableObject<CoreBindings> {
         authoringPolicy: "user_authored",
         clientMessageId: continuationClientMessageId,
         context: continuationContext,
+        ...(input.contextSelection
+          ? { contextSelection: input.contextSelection }
+          : {}),
         messageEnvelope: {
           activationTargets: [input.targetProfileId],
           referenceTargets:
@@ -4793,7 +5595,11 @@ export class Space extends DurableObject<CoreBindings> {
       };
     }
     if (input.command.action !== "retry_as_new_execution") {
-      if (input.command.destination.surface === "space") {
+      if (
+        input.command.destination.surface === "space" &&
+        input.projection.identity.agentControllerRef !==
+          HOSTED_CENTER_AGENT_CONTROLLER_REF
+      ) {
         return null;
       }
       return await this.resolveAuthoritativeHostedExecutionRecoveryResponse(
@@ -4948,11 +5754,7 @@ export class Space extends DurableObject<CoreBindings> {
         targetProfileId: trace.dispatch.targetProfileId,
       });
     const identity: ExecutionRecoveryIdentity = {
-      agentControllerConversationId:
-        trace.origin?.resolvedAgentControllerConversationId ??
-        trace.origin?.agentControllerConversationId ??
-        null,
-      agentControllerRef: trace.origin?.agentControllerRef ?? null,
+      ...resolveExecutionRecoveryControllerIdentity(trace, nativeDelivery),
       attemptId:
         resultInbox?.attemptId ?? trace.latestAttempt?.attemptId ?? null,
       dispatchId: trace.dispatch.dispatchId,
@@ -5020,7 +5822,7 @@ export class Space extends DurableObject<CoreBindings> {
       recoveredSignalId,
       spaceRecoveryCompleted,
     });
-    return inspectExecutionRecovery({
+    const projection = inspectExecutionRecovery({
       destination,
       explicitUserStop: trace.finalVisibleOutcome?.status === "visible_stopped",
       identity: canonicalIdentity,
@@ -5040,8 +5842,72 @@ export class Space extends DurableObject<CoreBindings> {
         nativeDelivery?.failureCode ??
         trace.finalVisibleOutcome?.reasonCode ??
         null,
+      replyRecoverySupported: Boolean(nativeDelivery),
       updatedAtMs: Date.now(),
     });
+    return await this.projectNativeReplyRecoveryAttempt(
+      projection,
+      nativeDelivery
+    );
+  }
+
+  private async projectNativeReplyRecoveryAttempt(
+    projection: ExecutionRecoveryProjection,
+    originalDelivery: Awaited<
+      ReturnType<typeof readRemoteAgentNativeDeliveryByExecution>
+    >
+  ): Promise<ExecutionRecoveryProjection> {
+    if (
+      !originalDelivery ||
+      projection.status !== "available" ||
+      projection.recommendedAction !== "resume_controller_conversation"
+    ) {
+      return projection;
+    }
+    const db = wakeEvidenceDb(this.bindings);
+    if (!db) {
+      return projection;
+    }
+    const keys = await buildExecutionRecoveryOperationKeys({
+      action: "resume_controller_conversation",
+      destination: projection.destination,
+      expectedIdentity: projection.identity,
+      operationId: "inspect",
+    });
+    const identity = buildRemoteAgentExecutionRecoveryIdentity({
+      action: "resume_controller_conversation",
+      operationId: keys.effectOperationId,
+      originalDelivery,
+    });
+    const attempt = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+      db,
+      idempotencyKey: identity.idempotencyKey,
+    });
+    if (!attempt) {
+      return projection;
+    }
+    const failed =
+      attempt.status === "failed" || attempt.status === "worker_unavailable";
+    const outcomeUnknown = attempt.finalPublicationState === "outcome_unknown";
+    const knownStatus = failed ? "unavailable" : "in_progress";
+    return {
+      ...projection,
+      status: outcomeUnknown ? "outcome_unknown" : knownStatus,
+      recommendedAction: null,
+      actions: {
+        ...projection.actions,
+        resumeControllerConversation: {
+          ...projection.actions.resumeControllerConversation,
+          enabled: false,
+          reasonCode: failed
+            ? "execution_recovery.reply_failed"
+            : "execution_recovery.reply_in_progress",
+          warning: failed
+            ? "The reply still couldn't be completed. Your message is saved. Use Details to send a report."
+            : null,
+        },
+      },
+    };
   }
 
   private async requireExecutionRecoveryNativeDelivery(
@@ -5075,13 +5941,12 @@ export class Space extends DurableObject<CoreBindings> {
     identity: ExecutionRecoveryIdentity | null;
     serviceSupportsResume: boolean;
   }> {
-    if (input.destination.surface !== "space") {
+    if (input.nativeDelivery) {
       const delivery = input.nativeDelivery;
       const request = delivery?.executionRecoverySubmitRequest;
       const exactAssociationVerified = Boolean(
         delivery &&
           request &&
-          delivery.conversationKind !== "space" &&
           delivery.dispatchId === input.identity.dispatchId &&
           delivery.profileId === input.identity.targetProfileId &&
           delivery.spaceId === input.destination.spaceId &&
@@ -5097,7 +5962,10 @@ export class Space extends DurableObject<CoreBindings> {
         identity: exactAssociationVerified
           ? {
               ...input.identity,
-              agentControllerConversationId: delivery?.spaceId ?? null,
+              ...resolveExecutionRecoveryControllerIdentity(
+                input.trace,
+                delivery
+              ),
               agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
             }
           : null,
@@ -5140,7 +6008,7 @@ export class Space extends DurableObject<CoreBindings> {
     if (
       !(
         binding &&
-        binding.runtimeKind !== "hosted_center_agent" &&
+        !isHostedAgentRuntimeKind(binding.runtimeKind) &&
         executionIdentity &&
         binding.bindingId === executionIdentity.bindingId &&
         binding.openMeldServiceRuntimeId ===
@@ -5187,7 +6055,10 @@ export class Space extends DurableObject<CoreBindings> {
       | "new_execution_requested"
       | "outcome_unknown";
   }> {
-    if (input.command.destination.surface !== "space") {
+    if (
+      input.projection.identity.agentControllerRef ===
+      HOSTED_CENTER_AGENT_CONTROLLER_REF
+    ) {
       const db = wakeEvidenceDb(this.bindings);
       if (!db) {
         throw new Error("execution_recovery.storage_unavailable");
@@ -5202,6 +6073,9 @@ export class Space extends DurableObject<CoreBindings> {
         nowMs: Date.now(),
         operationId: input.command.operationId,
         originalDelivery: delivery,
+        resultRef:
+          buildControllerResumeResultRef(input.projection.identity) ??
+          undefined,
         markEffectStarted: input.markEffectStarted,
       });
       return {
@@ -5580,7 +6454,10 @@ export class Space extends DurableObject<CoreBindings> {
       readNextSpaceInboxProjectionOutboxAlarmAtMs(this.ctx.storage.sql, {
         nowMs: Date.now(),
       });
-    const nextDispatchAlarmAtMs = this.resolveNextDispatchOutboxAlarmAtMs();
+    const nextDispatchAlarmAtMs = minNullableTimestamp(
+      this.resolveNextDispatchOutboxAlarmAtMs(),
+      new SpaceFileUpdateRepository(this.ctx.storage.sql).nextAttempt()
+    );
     const nextMemberLivenessAlarmAtMs = readNextMemberProfileLivenessAlarmAtMs(
       this.ctx.storage.sql,
       { minAgeMs: MEMBER_PROFILE_LIVENESS_MIN_AGE_MS }
@@ -5613,7 +6490,15 @@ export class Space extends DurableObject<CoreBindings> {
         nextNonStreamAlarmAtMs,
         readNextSpaceExecutionInputAlarm(this.ctx.storage.sql)
       ),
-      nextAgentStreamAlarmAtMs
+      minNullableTimestamp(
+        nextAgentStreamAlarmAtMs,
+        this.env.OPENMELD_SPACE_ATTACHMENTS
+          ? new SpaceFileUploads(
+              this.ctx.storage.sql,
+              this.env.OPENMELD_SPACE_ATTACHMENTS
+            ).nextExpiry()
+          : null
+      )
     );
     const alarmOwnerDeadlines = {
       nextAgentStreamAlarmAtMs,
@@ -5737,6 +6622,9 @@ export class Space extends DurableObject<CoreBindings> {
     if (!hasPendingWork) {
       return null;
     }
+    if (this.dispatchOutboxRetryNotBeforeMs > Date.now()) {
+      return this.dispatchOutboxRetryNotBeforeMs;
+    }
     return (
       this.dispatchOutboxContinuationDueAtMs ??
       Date.now() + OUTBOX_ALARM_REDRIVE_INTERVAL_MS
@@ -5745,35 +6633,22 @@ export class Space extends DurableObject<CoreBindings> {
 
   private canSubmitDispatchOutbox(): boolean {
     const mode = this.resolveDispatchOutboxDeliveryMode();
-    if (
-      mode === DISPATCH_OUTBOX_DIRECT_DELIVERY_MODE ||
-      mode === DISPATCH_OUTBOX_PRODUCTION_DIRECT_DELIVERY_MODE
-    ) {
+    if (mode === DISPATCH_OUTBOX_DIRECT_DELIVERY_MODE) {
       return true;
     }
     return Boolean(this.bindings.OPENMELD_DAEMON_DISPATCH_QUEUE);
   }
 
-  private resolveDispatchOutboxDeliveryMode():
-    | "direct"
-    | "production_direct"
-    | "queue" {
+  private resolveDispatchOutboxDeliveryMode(): "direct" | "queue" {
     const configuredMode = String(
       this.bindings.OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE ?? ""
-    )
-      .trim()
-      .toLowerCase();
-    const workerEnvironment = String(
-      this.bindings.OPENMELD_WORKER_ENVIRONMENT ?? ""
     )
       .trim()
       .toLowerCase();
     if (configuredMode !== DISPATCH_OUTBOX_DIRECT_DELIVERY_MODE) {
       return "queue";
     }
-    return workerEnvironment === "prod"
-      ? DISPATCH_OUTBOX_PRODUCTION_DIRECT_DELIVERY_MODE
-      : DISPATCH_OUTBOX_DIRECT_DELIVERY_MODE;
+    return DISPATCH_OUTBOX_DIRECT_DELIVERY_MODE;
   }
 
   private pruneExpiredReplyingTransientSignals(nowMs = Date.now()): void {
@@ -5832,8 +6707,104 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     for (const snapshot of await this.readActiveAgentStreamSnapshots()) {
-      webSocket.send(JSON.stringify(buildAgentStreamDeltaFrame(snapshot)));
+      const projected = agentStreamForReplyPlacementReader(
+        snapshot,
+        session.supportsAgentReplyPlacement === true
+      );
+      if (projected) {
+        webSocket.send(JSON.stringify(buildAgentStreamDeltaFrame(projected)));
+      }
     }
+    const presences = new Map(
+      (await this.readActiveAgentStreamPresences()).map((presence) => [
+        presence.streamId,
+        presence,
+      ])
+    );
+    for (const frame of this.reasoningReplay.read(Date.now())) {
+      const presence = presences.get(frame.streamId);
+      if (
+        !presence ||
+        presence.dispatchId !== frame.dispatchId ||
+        presence.profileId !== frame.profileId ||
+        presence.triggerMessageId !== frame.triggerMessageId
+      ) {
+        this.reasoningReplay.forget(frame.streamId);
+        continue;
+      }
+      const projected = agentStreamForReplyPlacementReader(
+        frame,
+        session.supportsAgentReplyPlacement === true
+      );
+      if (!projected) {
+        continue;
+      }
+      if (!(await this.canReplayReasoning(frame))) {
+        continue;
+      }
+      if (
+        (await this.authorizeLiveSession(session)) &&
+        this.reasoningReplay.isCurrent(frame)
+      ) {
+        webSocket.send(JSON.stringify(projected));
+      }
+    }
+  }
+
+  private async canReplayReasoning(
+    frame: Extract<SpaceAgentStreamDeltaFrame, { kind: "thinking" }>
+  ): Promise<boolean> {
+    if (!frame.reasoningState) {
+      return true;
+    }
+    try {
+      const owner = await this.resolveOutboxActiveAttemptOwnerUserId(
+        frame.profileId
+      );
+      if (
+        owner.status === "ok" &&
+        (
+          await resolveRuntimeTransportOwnerShard(
+            this.bindings,
+            owner.ownerUserId
+          ).rpcReasoningPreferences({})
+        ).enabled
+      ) {
+        return true;
+      }
+      this.reasoningReplay.forget(frame.streamId);
+    } catch {
+      // Private replay fails closed when the preference owner is unavailable.
+    }
+    return false;
+  }
+
+  async rpcResolveReadTarget(
+    input: GetSpaceMetaInput &
+      import("@openmeld/schemas/types").SpaceEntryTarget
+  ): Promise<import("@openmeld/schemas/types").SpaceEntryTarget> {
+    this.applySpaceRef(input.spaceId);
+    if (!input.spaceAccess) {
+      throw new Error("Space access is required");
+    }
+    await assertRpcSpaceAccessAuthorized(
+      await this.authorizeSpaceAccess(input.spaceAccess)
+    );
+    const placement = input.signalId
+      ? readSpaceThreadSignalPlacementBySignalId(
+          this.ctx.storage.sql,
+          input.signalId
+        )
+      : null;
+    const thread = placement
+      ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
+      : null;
+    const threadRootSignalId = thread?.rootSignalId ?? input.threadRootSignalId;
+    return {
+      spaceId: input.spaceId,
+      ...(input.signalId ? { signalId: input.signalId } : {}),
+      ...(threadRootSignalId ? { threadRootSignalId } : {}),
+    };
   }
 
   async rpcGetMeta(input: GetSpaceMetaInput): Promise<SpaceMeta> {
@@ -5851,6 +6822,789 @@ export class Space extends DurableObject<CoreBindings> {
       pickSpaceDispatchAccessOptions(input)
     );
     return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcMessagePins(
+    input: SpaceMessagePinsInput
+  ): Promise<SpaceMessagePinsResponse> {
+    this.applySpaceRef(input.spaceId);
+    if (!input.mutation && input.spaceAccess) {
+      await assertRpcSpaceAccessAuthorized(
+        await this.authorizeSpaceAccess(input.spaceAccess)
+      );
+      return this.readMessagePins();
+    }
+    const response = await this.dispatchPasswordProtectedMethod(
+      this.buildDirectRpcRequest({
+        path: "/message-pins",
+        method: input.mutation ? "PATCH" : "GET",
+        context: input.context,
+        spacePassword: input.password,
+      }),
+      {
+        GET: () => Response.json(this.readMessagePins()),
+        PATCH: ({ context }) =>
+          this.handleMessagePinMutation(input.mutation, context),
+      }
+    );
+    return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcListTasks(
+    input: ListSpaceTasksInput
+  ): Promise<ListSpaceTasksResponse> {
+    this.applySpaceRef(input.spaceId);
+    if (input.spaceAccess) {
+      await assertRpcSpaceAccessAuthorized(
+        await this.authorizeSpaceAccess(input.spaceAccess)
+      );
+      return this.spaceTaskService.list(input.phase);
+    }
+    const response = await this.dispatchPasswordProtectedMethod(
+      this.buildDirectRpcRequest({
+        path: "/tasks",
+        method: "GET",
+        context: input.context,
+        spacePassword: input.password,
+      }),
+      {
+        GET: ({ context }) =>
+          this.handleSpaceTaskOperation(context, () =>
+            this.spaceTaskService.list(input.phase)
+          ),
+      }
+    );
+    return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcGetTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse> {
+    this.applySpaceRef(input.spaceId);
+    if (input.spaceAccess) {
+      await assertRpcSpaceAccessAuthorized(
+        await this.authorizeSpaceAccess(input.spaceAccess)
+      );
+      return this.spaceTaskService.read(input.taskId);
+    }
+    const response = await this.dispatchPasswordProtectedMethod(
+      this.buildDirectRpcRequest({
+        path: `/tasks/${encodeURIComponent(input.taskId)}`,
+        method: "GET",
+        context: input.context,
+        spacePassword: input.password,
+      }),
+      {
+        GET: ({ context }) =>
+          this.handleSpaceTaskOperation(context, () =>
+            this.spaceTaskService.read(input.taskId)
+          ),
+      }
+    );
+    return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcCreateTask(
+    input: CreateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    this.applySpaceRef(input.spaceId);
+    const response = await this.dispatchPasswordProtectedMethod(
+      this.buildDirectRpcRequest({
+        path: "/tasks",
+        method: "POST",
+        context: input.context,
+        spacePassword: input.password,
+      }),
+      {
+        POST: ({ context }) =>
+          this.handleSpaceTaskOperation(context, async (taskContext) => {
+            const normalizedBody = this.normalizeSpaceTaskSource(
+              input.body,
+              input.body.sourceSignalId ?? null,
+              input.body.threadId ?? null
+            );
+            const createContext = this.buildSpaceTaskCreateContext(
+              taskContext,
+              normalizedBody.sourceSignalId ?? null
+            );
+            const receipt = this.spaceTaskService.create(
+              normalizedBody,
+              createContext
+            );
+            if (receipt.applied) {
+              await this.broadcastSpaceTasksChanged("space.task.created");
+            }
+            return receipt;
+          }),
+      }
+    );
+    return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcMutateTask(
+    input: MutateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    this.applySpaceRef(input.spaceId);
+    const response = await this.dispatchPasswordProtectedMethod(
+      this.buildDirectRpcRequest({
+        path: `/tasks/${encodeURIComponent(input.taskId)}`,
+        method: "PATCH",
+        context: input.context,
+        spacePassword: input.password,
+      }),
+      {
+        PATCH: ({ context }) =>
+          this.handleSpaceTaskOperation(context, (taskContext) =>
+            this.handleSpaceTaskMutation(input, context, taskContext)
+          ),
+      }
+    );
+    return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse> {
+    this.applySpaceRef(input.spaceId);
+    if (!input.mutation && input.spaceAccess) {
+      await assertRpcSpaceAccessAuthorized(
+        await this.authorizeSpaceAccess(input.spaceAccess)
+      );
+      return this.readFilePins();
+    }
+    const response = await this.dispatchPasswordProtectedMethod(
+      this.buildDirectRpcRequest({
+        path: "/file-pins",
+        method: input.mutation ? "PATCH" : "GET",
+        context: input.context,
+        spacePassword: input.password,
+      }),
+      {
+        GET: () => Response.json(this.readFilePins()),
+        PATCH: ({ context }) =>
+          this.handleFilePinMutation(input.mutation, context),
+      }
+    );
+    return readSpaceRpcJsonOrThrow(response);
+  }
+
+  private get spaceTaskService(): SpaceTaskService {
+    return new SpaceTaskService({
+      repository: new SpaceTaskRepository(this.ctx.storage.sql),
+      runTransaction: (callback) => this.ctx.storage.transactionSync(callback),
+      spaceId: this.spaceId,
+    });
+  }
+
+  private async handleSpaceTaskMutation(
+    input: MutateSpaceTaskInput,
+    context: CoreRpcContextInput,
+    taskContext: SpaceTaskMutationContext
+  ): Promise<SpaceTaskMutationReceipt> {
+    const receipt = this.spaceTaskService.mutate(
+      input.taskId,
+      input.body,
+      taskContext
+    );
+    if (receipt.applied) {
+      await this.broadcastSpaceTasksChanged(`space.task.${input.body.action}`);
+    }
+    await this.requestTaskExecutionStopAfterCancellation({
+      context,
+      request: input,
+      receipt,
+    });
+    await this.publishTaskHandoffAfterMutation(
+      receipt,
+      resolveSourceDispatchChainContext(context)
+    );
+    await this.publishTaskCompletionAfterMutation(receipt);
+    return receipt;
+  }
+
+  private async requestTaskExecutionStopAfterCancellation(input: {
+    context: CoreRpcContextInput;
+    request: MutateSpaceTaskInput;
+    receipt: SpaceTaskMutationReceipt;
+  }): Promise<void> {
+    const task = input.receipt.task;
+    if (
+      !input.receipt.applied ||
+      input.receipt.event.type !== "canceled" ||
+      !task.sourceSignalId ||
+      task.assignee?.profileKind !== "agent"
+    ) {
+      return;
+    }
+    try {
+      await this.rpcPostWakeStop({
+        spaceId: this.spaceId,
+        context: input.context,
+        password: input.request.password,
+        body: {
+          reason:
+            input.request.body.action === "cancel"
+              ? input.request.body.reason
+              : "Space Task canceled.",
+          target: {
+            by: "source_signal",
+            sourceSignalId: task.sourceSignalId,
+            targetProfileId: task.assignee.profileId,
+          },
+        },
+      });
+    } catch (error) {
+      console.warn("[core.space.task_execution_stop_request_failed]", {
+        error: error instanceof Error ? error.message : String(error),
+        spaceId: this.spaceId,
+        taskId: task.taskId,
+      });
+    }
+  }
+
+  private async publishTaskCompletionAfterMutation(
+    receipt: SpaceTaskMutationReceipt
+  ): Promise<void> {
+    if (
+      receipt.task.phase !== "done" ||
+      (receipt.event.type !== "result_submitted" &&
+        receipt.event.type !== "review_accepted")
+    ) {
+      return;
+    }
+    await this.publishSpaceTaskCompletionNotice(receipt.task);
+  }
+
+  private async publishTaskHandoffAfterMutation(
+    receipt: SpaceTaskMutationReceipt,
+    sourceDispatchChainContext?: SourceDispatchChainContext
+  ): Promise<void> {
+    if (
+      receipt.event.type === "result_submitted" &&
+      receipt.task.phase === "in_review" &&
+      receipt.task.reviewer
+    ) {
+      await this.publishSpaceTaskDirectedNotice({
+        actor: receipt.event.actor,
+        eventId: receipt.event.eventId,
+        sourceDispatchChainContext,
+        task: receipt.task,
+        target: receipt.task.reviewer,
+        text: `Task ready for review: ${receipt.task.title}\n\n${receipt.task.result?.summary ?? "A result was submitted."}`,
+      });
+      return;
+    }
+    if (receipt.event.type !== "changes_requested") {
+      return;
+    }
+    if (receipt.task.phase === "in_progress" && receipt.task.assignee) {
+      await this.publishSpaceTaskDirectedNotice({
+        actor: receipt.event.actor,
+        eventId: receipt.event.eventId,
+        sourceDispatchChainContext,
+        task: receipt.task,
+        target: receipt.task.assignee,
+        text: `Changes requested for Task: ${receipt.task.title}\n\n${receipt.task.review?.feedback ?? "Review the latest feedback."}`,
+      });
+      return;
+    }
+    await this.publishSpaceTaskDirectedNotice({
+      actor: receipt.event.actor,
+      eventId: receipt.event.eventId,
+      sourceDispatchChainContext,
+      task: receipt.task,
+      target:
+        receipt.task.requestedBy.profileKind === "human"
+          ? receipt.task.requestedBy
+          : null,
+      text: `Task needs a human decision after two rework rounds: ${receipt.task.title}`,
+    });
+  }
+
+  private async publishSpaceTaskDirectedNotice(input: {
+    actor: SpaceTaskActor;
+    eventId: string;
+    sourceDispatchChainContext?: SourceDispatchChainContext;
+    task: SpaceTask;
+    target: SpaceTaskActor | null;
+    text: string;
+  }): Promise<void> {
+    const sourceSignal = input.task.sourceSignalId
+      ? this.readSignalById(input.task.sourceSignalId)
+      : null;
+    const replyTo = sourceSignal
+      ? buildDispatchReplyToSnapshot({
+          sourceEventId: sourceSignal.id,
+          sourceText:
+            sourceSignal.type === "signal.text" ? sourceSignal.data.text : null,
+          profileId: sourceSignal.profile.profileId,
+          profileKind: sourceSignal.profile.kind,
+          profileName: sourceSignal.profile.profileName,
+        })
+      : null;
+    const relation = input.target?.profileKind === "agent" ? "wake" : "mention";
+    const targetLiteral = input.target
+      ? formatCanonicalMentionLiteral({
+          name:
+            input.target.profileName.replace(/[()]/gu, "").trim() || "Member",
+          type: relation,
+        })
+      : null;
+    const text = [targetLiteral, `[${input.task.taskId}]`, input.text]
+      .filter(Boolean)
+      .join(" ");
+    const thread = input.task.threadId
+      ? readSpaceThread(this.ctx.storage.sql, input.task.threadId)
+      : null;
+    const signal = {
+      ...this.buildTextSignal(
+        {
+          kind: input.actor.profileKind,
+          profileId: input.actor.profileId,
+          profileName: input.actor.profileName,
+        },
+        text,
+        {
+          ...(replyTo ? { replyTo } : {}),
+          messageEnvelope: {
+            activationTargets:
+              input.target?.profileKind === "agent"
+                ? [input.target.profileId]
+                : [],
+            mentionTargets:
+              input.target?.profileKind === "human"
+                ? [input.target.profileId]
+                : [],
+            referenceTargets: [],
+            ...(input.task.sourceSignalId
+              ? { replyToSignalId: input.task.sourceSignalId }
+              : {}),
+            text,
+          },
+          meta: {
+            purpose: "space_task_handoff",
+            ...(input.task.sourceSignalId
+              ? { sourceEventId: input.task.sourceSignalId }
+              : {}),
+          },
+        }
+      ),
+      id: `space-task-handoff:${input.eventId}`,
+    };
+    const threadContext = thread ? toSpaceThreadContext(thread) : null;
+    try {
+      await this.publishTextSignal(signal, {
+        authoringPolicy: "system_emitted",
+        ...(input.sourceDispatchChainContext
+          ? { sourceDispatchChainContext: input.sourceDispatchChainContext }
+          : {}),
+        supportsCurrentSpaceAddressing: true,
+        ...(threadContext
+          ? { threadContext, threadPlacement: "thread" as const }
+          : {}),
+      });
+    } catch (error) {
+      console.warn("[core.space.task_handoff_notice_failed]", {
+        error: error instanceof Error ? error.message : String(error),
+        eventId: input.eventId,
+        spaceId: this.spaceId,
+        taskId: input.task.taskId,
+      });
+    }
+  }
+
+  private async handleSpaceTaskOperation<T>(
+    context: CoreRpcContextInput,
+    operation: (taskContext: SpaceTaskMutationContext) => T | Promise<T>
+  ): Promise<Response> {
+    try {
+      const taskContext = this.buildSpaceTaskMutationContext(context);
+      return Response.json(await operation(taskContext));
+    } catch (error) {
+      if (error instanceof SpaceTaskWorkflowError) {
+        return Response.json(
+          { code: error.code, message: error.message },
+          { status: error.status }
+        );
+      }
+      throw error;
+    }
+  }
+
+  private buildSpaceTaskMutationContext(
+    context: CoreRpcContextInput
+  ): SpaceTaskMutationContext {
+    const meta = this.readSpaceMetaRecord();
+    if (!meta) {
+      throw new SpaceTaskWorkflowError({
+        code: "space.not_found",
+        message: "Space not found.",
+        status: 404,
+      });
+    }
+    const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    });
+    if (
+      isDirectMessageSpace({
+        purpose: meta.purpose,
+        directMessageConvertedAt: meta.directMessage?.convertedAt,
+        activeMemberCount: activeMembers.length,
+      })
+    ) {
+      throw new SpaceTaskWorkflowError({
+        code: "space_task.unsupported_space",
+        message: "Tasks are available in shared Spaces.",
+        status: 409,
+      });
+    }
+    const profileId = context.actorContext.openMeldProfileId?.trim();
+    const member = profileId
+      ? activeMembers.find((candidate) => candidate.profileId === profileId)
+      : null;
+    if (
+      !member ||
+      (member.profileKindSnapshot !== "human" &&
+        member.profileKindSnapshot !== "agent") ||
+      (member.ownerUserIdSnapshot !== null &&
+        member.ownerUserIdSnapshot !== context.actorContext.ownerUserId)
+    ) {
+      throw new SpaceTaskWorkflowError({
+        code: "space.membership_required",
+        message: "Join this Space before working with Tasks.",
+        status: 403,
+      });
+    }
+    const actor = toSpaceTaskActor(member);
+    return {
+      actor,
+      isSpaceOwner: Boolean(
+        actor.profileKind === "human" &&
+          actor.ownerUserId &&
+          meta.ownerUserIds?.includes(actor.ownerUserId)
+      ),
+      resolveMember: (candidateProfileId) => {
+        const candidate = activeMembers.find(
+          (activeMember) => activeMember.profileId === candidateProfileId
+        );
+        return candidate &&
+          (candidate.profileKindSnapshot === "human" ||
+            candidate.profileKindSnapshot === "agent")
+          ? toSpaceTaskActor(candidate)
+          : null;
+      },
+    };
+  }
+
+  private buildSpaceTaskCreateContext(
+    context: SpaceTaskMutationContext,
+    sourceSignalId: string | null
+  ): CreateSpaceTaskContext {
+    if (!sourceSignalId) {
+      return { ...context, requestedBy: context.actor };
+    }
+    const sourceSignal = this.readSignalById(sourceSignalId);
+    if (!sourceSignal || sourceSignal.type !== "signal.text") {
+      throw new SpaceTaskWorkflowError({
+        code: "space_task.source_not_found",
+        message: "The source message is no longer available.",
+        status: 400,
+      });
+    }
+    const requestedBy = context.resolveMember(sourceSignal.profile.profileId);
+    if (!requestedBy) {
+      throw new SpaceTaskWorkflowError({
+        code: "space_task.requester_not_found",
+        message: "The source message must come from a current Space member.",
+        status: 400,
+      });
+    }
+    return { ...context, requestedBy };
+  }
+
+  private normalizeSpaceTaskSource(
+    body: CreateSpaceTaskBody,
+    sourceSignalId: string | null,
+    requestedThreadId: string | null
+  ): CreateSpaceTaskBody {
+    const sourceSignal = sourceSignalId
+      ? this.readSignalById(sourceSignalId)
+      : null;
+    if (
+      sourceSignalId &&
+      (!sourceSignal || sourceSignal.type !== "signal.text")
+    ) {
+      throw new SpaceTaskWorkflowError({
+        code: "space_task.source_not_found",
+        message: "The source message is no longer available.",
+        status: 400,
+      });
+    }
+    const placement = sourceSignalId
+      ? readSpaceThreadSignalPlacementBySignalId(
+          this.ctx.storage.sql,
+          sourceSignalId
+        )
+      : null;
+    const rootThread = sourceSignalId
+      ? readSpaceThreadByRootSignalId(this.ctx.storage.sql, sourceSignalId)
+      : null;
+    const inferredThreadId =
+      placement?.threadId ?? rootThread?.threadId ?? null;
+    if (
+      requestedThreadId &&
+      inferredThreadId &&
+      requestedThreadId !== inferredThreadId
+    ) {
+      throw new SpaceTaskWorkflowError({
+        code: "space_task.thread_mismatch",
+        message: "The source message belongs to another Thread.",
+        status: 400,
+      });
+    }
+    const threadId = requestedThreadId ?? inferredThreadId;
+    if (threadId) {
+      const thread = readSpaceThread(this.ctx.storage.sql, threadId);
+      if (
+        !thread ||
+        thread.spaceId !== this.spaceId ||
+        (sourceSignalId &&
+          !inferredThreadId &&
+          thread.rootSignalId !== sourceSignalId)
+      ) {
+        throw new SpaceTaskWorkflowError({
+          code: "space_task.thread_not_found",
+          message: "The selected Thread is no longer available.",
+          status: 400,
+        });
+      }
+    }
+    return {
+      ...body,
+      sourceSignalId,
+      threadId,
+    };
+  }
+
+  private async publishSpaceTaskCompletionNotice(
+    task: SpaceTask
+  ): Promise<void> {
+    if (!task.result) {
+      return;
+    }
+    const sourceSignal = task.sourceSignalId
+      ? this.readSignalById(task.sourceSignalId)
+      : null;
+    const replyTo = sourceSignal
+      ? buildDispatchReplyToSnapshot({
+          sourceEventId: sourceSignal.id,
+          sourceText:
+            sourceSignal.type === "signal.text" ? sourceSignal.data.text : null,
+          profileId: sourceSignal.profile.profileId,
+          profileKind: sourceSignal.profile.kind,
+          profileName: sourceSignal.profile.profileName,
+        })
+      : null;
+    const thread = task.threadId
+      ? readSpaceThread(this.ctx.storage.sql, task.threadId)
+      : null;
+    const signal = {
+      ...this.buildTextSignal(
+        {
+          kind: "system",
+          profileId: DISPATCH_HINT_SYSTEM_PROFILE_ID,
+          profileName: DISPATCH_HINT_SYSTEM_PROFILE_NAME,
+        },
+        `Task completed: ${task.title}\n\n${task.result.summary}`,
+        {
+          ...(replyTo ? { replyTo } : {}),
+          meta: {
+            purpose: "space_task_completed",
+            ...(task.sourceSignalId
+              ? { sourceEventId: task.sourceSignalId }
+              : {}),
+          },
+        }
+      ),
+      id: `space-task-completed:${task.taskId}:${task.result.resultRevision}`,
+    };
+    try {
+      await this.publishTextSignal(signal, {
+        authoringPolicy: "system_emitted",
+        ...(thread
+          ? {
+              threadContext: toSpaceThreadContext(thread),
+              threadPlacement: "thread" as const,
+            }
+          : {}),
+      });
+    } catch (error) {
+      console.warn("[core.space.task_completion_notice_failed]", {
+        error: error instanceof Error ? error.message : String(error),
+        spaceId: this.spaceId,
+        taskId: task.taskId,
+      });
+    }
+  }
+
+  private readFilePins(): SpaceFilePinsResponse {
+    const pins = listSpaceMessagePins(
+      this.ctx.storage.sql,
+      "space_file_pins"
+    ).flatMap((pin) => {
+      try {
+        const file = this.spaceFileRepository.getFile(pin.signalId);
+        const member = readSpaceMemberRecord(
+          this.ctx.storage.sql,
+          pin.pinnedByProfileId
+        );
+        return [
+          {
+            file,
+            pinnedByProfileId: pin.pinnedByProfileId,
+            pinnedAt: pin.pinnedAt,
+            pinnedByName: member?.profileNameSnapshot ?? "Former member",
+          },
+        ];
+      } catch (error) {
+        if (
+          error instanceof SpaceFileRepositoryError &&
+          error.code === "space_file.not_found"
+        ) {
+          return [];
+        }
+        throw error;
+      }
+    });
+    return spaceFilePinsResponseSchema.parse({ pins });
+  }
+
+  private async handleFilePinMutation(
+    body: unknown,
+    context: CoreRpcContextInput
+  ): Promise<Response> {
+    const parsed = spaceFilePinMutationSchema.safeParse(body);
+    if (!parsed.success) {
+      return Response.json(
+        { message: "Invalid file pin request." },
+        { status: 400 }
+      );
+    }
+    const member = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      context.actorContext.openMeldProfileId
+    );
+    if (
+      !member ||
+      member.status !== "active" ||
+      member.profileKindSnapshot !== "human" ||
+      member.ownerUserIdSnapshot !== context.actorContext.ownerUserId
+    ) {
+      return Response.json(
+        { message: "Join this Space as yourself to pin files." },
+        { status: 403 }
+      );
+    }
+    if (parsed.data.action === "pin") {
+      this.runSpaceFileRepositoryOperation(() =>
+        this.spaceFileRepository.getFile(parsed.data.fileId)
+      );
+    }
+    const result = mutateSpaceMessagePin(
+      this.ctx.storage.sql,
+      {
+        signalId: parsed.data.fileId,
+        action: parsed.data.action,
+        pinnedByProfileId: member.profileId,
+        pinnedAt: new Date().toISOString(),
+      },
+      "space_file_pins"
+    );
+    if (result === "forbidden") {
+      return Response.json(
+        { message: "Only the person who pinned this file can unpin it." },
+        { status: 403 }
+      );
+    }
+    await this.broadcastSpaceMetaChanged({ reason: "space.file_pins.updated" });
+    return Response.json(this.readFilePins());
+  }
+
+  private readMessagePins(): SpaceMessagePinsResponse {
+    const pins = listSpaceMessagePins(this.ctx.storage.sql).flatMap((pin) => {
+      const signal = this.readSignalById(pin.signalId);
+      if (!signal || signal.type !== "signal.text") {
+        return [];
+      }
+      const member = readSpaceMemberRecord(
+        this.ctx.storage.sql,
+        pin.pinnedByProfileId
+      );
+      return [
+        {
+          ...pin,
+          pinnedByName: member?.profileNameSnapshot ?? "Former member",
+          authorName: signal.profile.profileName ?? "Member",
+          preview: signal.data.text.replace(/\s+/gu, " ").slice(0, 500),
+        },
+      ];
+    });
+    return spaceMessagePinsResponseSchema.parse({ pins });
+  }
+
+  private async handleMessagePinMutation(
+    body: unknown,
+    context: CoreRpcContextInput
+  ): Promise<Response> {
+    const parsed = spaceMessagePinMutationSchema.safeParse(body);
+    if (!parsed.success) {
+      return Response.json(
+        { message: "Invalid pin request." },
+        { status: 400 }
+      );
+    }
+    const member = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      context.actorContext.openMeldProfileId
+    );
+    if (
+      !member ||
+      member.status !== "active" ||
+      member.profileKindSnapshot !== "human" ||
+      member.ownerUserIdSnapshot !== context.actorContext.ownerUserId
+    ) {
+      return Response.json(
+        {
+          code: "space.membership_required",
+          message: "Join this Space as yourself to pin messages.",
+        },
+        { status: 403 }
+      );
+    }
+    const signal = this.readSignalById(parsed.data.signalId);
+    if (
+      parsed.data.action === "pin" &&
+      (!signal || signal.type !== "signal.text")
+    ) {
+      return Response.json(
+        { message: "This message is no longer available." },
+        { status: 404 }
+      );
+    }
+    const result = mutateSpaceMessagePin(this.ctx.storage.sql, {
+      ...parsed.data,
+      pinnedByProfileId: member.profileId,
+      pinnedAt: new Date().toISOString(),
+    });
+    if (result === "forbidden") {
+      return Response.json(
+        {
+          code: "space.pin_owner_required",
+          message: "Only the person who pinned this message can unpin it.",
+        },
+        { status: 403 }
+      );
+    }
+    await this.broadcastSpaceMetaChanged({
+      reason: "space.message_pins.updated",
+    });
+    return Response.json(this.readMessagePins());
   }
 
   async rpcGetContract(input: GetSpaceContractInput): Promise<SpaceContract> {
@@ -5938,6 +7692,98 @@ export class Space extends DurableObject<CoreBindings> {
     return readSpaceRpcJsonOrThrow(response);
   }
 
+  async rpcResolveNativeReplyPlacement(
+    raw: ResolveNativeReplyPlacementInput
+  ): Promise<NativeReplyPlacement> {
+    const input = resolveNativeReplyPlacementInputSchema.parse(raw);
+    this.applySpaceRef(input.spaceId);
+    const outcome = await this.ctx.blockConcurrencyWhile(async () => {
+      try {
+        return { value: await this.resolveNativeReplyPlacement(input) };
+      } catch (error) {
+        return { error };
+      }
+    });
+    if ("error" in outcome) {
+      throw outcome.error;
+    }
+    return outcome.value;
+  }
+
+  private async resolveNativeReplyPlacement(
+    input: ResolveNativeReplyPlacementInput
+  ): Promise<NativeReplyPlacement> {
+    const key = `native-reply-placement:${input.dispatchId}`;
+    const stored = await this.ctx.storage.get<NativeReplyPlacement>(key);
+    const current = stored ? nativeReplyPlacementSchema.parse(stored) : null;
+    const meta = this.readSpaceMetaRecord();
+    if (!meta) {
+      throw new Error("space.reply_placement.space_unavailable");
+    }
+    const source = this.readSignalById(input.sourceSignalId);
+    if (!source) {
+      throw new Error("space.reply_placement.source_unavailable");
+    }
+    const sourceThread = this.resolveThreadContextForSignal(
+      input.sourceSignalId
+    );
+    const directMessage = Boolean(
+      meta.directMessage && !meta.directMessage.convertedAt
+    );
+    const choice = chooseNativeReplyPlacement({
+      request: input,
+      current,
+      directMessage,
+      sourceThread,
+    });
+    if ("current" in choice) {
+      return choice.current;
+    }
+    let threadContext = choice.threadContext;
+    if (choice.useThread && !threadContext) {
+      const response = await this.handleCreateThread(
+        new Request("https://space.internal/threads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rootSignalId: input.sourceSignalId,
+            clientMutationId: `reply:${input.dispatchId}`,
+          }),
+        }),
+        {
+          activeOrganizationId: meta.organizationId,
+          actorContext: {
+            openMeldProfileId: input.profileId,
+            profileKind: "agent",
+            requestId: `reply:${input.dispatchId}`,
+          },
+        }
+      );
+      if (!response.ok) {
+        throw new Error("space.reply_placement.thread_unavailable");
+      }
+      const result = createSpaceThreadResponseSchema.parse(
+        await response.json()
+      );
+      threadContext = toSpaceThreadContext(result.thread);
+    }
+    const result = nativeReplyPlacementSchema.parse({
+      dispatchId: input.dispatchId,
+      sourceSignalId: input.sourceSignalId,
+      profileId: input.profileId,
+      threadContext,
+      locked: input.lock,
+    });
+    await this.ctx.storage.put(key, result);
+    return result;
+  }
+
+  rpcClearReasoningReplay(input: ClearSpaceReasoningReplay): void {
+    const parsed = clearSpaceReasoningReplaySchema.parse(input);
+    this.applySpaceRef(parsed.spaceId);
+    this.reasoningReplay.clearProfile(parsed.profileId);
+  }
+
   async rpcApplyAgentStreamDelta(
     input: ApplySpaceAgentStreamDeltaInput
   ): Promise<
@@ -5948,13 +7794,18 @@ export class Space extends DurableObject<CoreBindings> {
     this.applySpaceRef(input.spaceId);
     if (input.kind === "thinking") {
       const nowMs = Date.now();
+      const replayRevision = this.reasoningReplay.revision;
       const result = await applyAgentStreamThinkingDelta({
         storage: this.agentStreamProjectionStorage,
         delta: input,
         nowMs,
       });
       if (result.status === "accepted") {
-        this.broadcast(buildAgentStreamThinkingDeltaFrame(input, nowMs));
+        const frame = buildAgentStreamThinkingDeltaFrame(input, nowMs);
+        if (replayRevision === this.reasoningReplay.revision) {
+          this.reasoningReplay.remember(frame);
+        }
+        this.broadcast(frame);
         await this.syncSpaceBackgroundAlarm();
         return {
           status: "accepted",
@@ -6030,6 +7881,7 @@ export class Space extends DurableObject<CoreBindings> {
       terminal: input.terminal,
       nowMs,
     });
+    this.reasoningReplay.forget(input.streamId);
     if (!result.stream) {
       await this.syncSpaceBackgroundAlarm();
       return null;
@@ -6043,6 +7895,7 @@ export class Space extends DurableObject<CoreBindings> {
       sequence: result.stream.sequence,
       profileId: result.stream.profileId,
       triggerMessageId: result.stream.triggerMessageId,
+      replyThreadRootSignalId: result.stream.replyThreadRootSignalId,
       dispatchId: result.stream.dispatchId,
       terminal: result.terminal,
       updatedAtMs: nowMs,
@@ -6093,27 +7946,6 @@ export class Space extends DurableObject<CoreBindings> {
           },
           () => this.rpcGetMembersForBootstrap(input, collector, lineageLoader)
         );
-        // The latest-visible-update read never depended on the members
-        // snapshot; start it alongside the members branch instead of behind
-        // it. The status branch awaits this promise.
-        const viewerIdentity = this.resolveBootstrapViewerIdentity(input);
-        const latestVisibleUpdatePromise = collector.measure(
-          {
-            name: "openmeld_bootstrap_status_latest_visible_update",
-            description:
-              "OpenMeld space bootstrap status latest visible update",
-          },
-          () =>
-            readLatestVisibleFormalUpdate({
-              sql: this.ctx.storage.sql,
-              env: this.bindings,
-              ...viewerIdentity,
-              lineageLoader,
-            })
-        );
-        // Guard against an unhandled rejection if the status branch fails
-        // before awaiting; the awaited promise still rejects for the caller.
-        latestVisibleUpdatePromise.catch(() => undefined);
         return Promise.all([
           collector.measure(
             {
@@ -6122,10 +7954,8 @@ export class Space extends DurableObject<CoreBindings> {
             },
             () =>
               this.rpcGetStatusForBootstrapFromMembersSnapshot(
-                input,
                 collector,
-                membersPromise,
-                latestVisibleUpdatePromise
+                membersPromise
               )
           ),
           membersPromise,
@@ -6177,6 +8007,9 @@ export class Space extends DurableObject<CoreBindings> {
 
     return createSpaceBootstrapWithTiming({
       payload: {
+        ...(input.includeAgentReadiness === false
+          ? { includesAgentReadiness: false }
+          : {}),
         ...(activeAgentStreamPresences === undefined
           ? {}
           : { activeAgentStreamPresences }),
@@ -6191,12 +8024,8 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   private async rpcGetStatusForBootstrapFromMembersSnapshot(
-    input: GetSpaceBootstrapInput,
     collector: SpaceBootstrapTimingCollector,
-    membersSnapshotPromise: Promise<SpaceMembersSnapshot>,
-    latestVisibleUpdatePromise?: Promise<
-      GetSpaceStatusResponse["latestVisibleUpdate"] | undefined
-    >
+    membersSnapshotPromise: Promise<SpaceMembersSnapshot>
   ): Promise<GetSpaceStatusResponse> {
     const metaRecordPromise = this.readSpaceMetaRecord();
     const membersSnapshot = await membersSnapshotPromise;
@@ -6217,17 +8046,12 @@ export class Space extends DurableObject<CoreBindings> {
       );
     }
 
-    const viewerIdentity = this.resolveBootstrapViewerIdentity(input);
     return await readSpaceStatusSummaryFromMembersSnapshotUseCase({
       sql: this.ctx.storage.sql,
       env: this.bindings,
       spaceId: parsed.data.spaceId,
       metaRecord,
       membersSnapshot,
-      ...(latestVisibleUpdatePromise
-        ? { latestVisibleUpdate: latestVisibleUpdatePromise }
-        : {}),
-      ...viewerIdentity,
       contractStore: {
         readSpaceContract: () => this.readSpaceContractRecord(),
       },
@@ -6237,24 +8061,6 @@ export class Space extends DurableObject<CoreBindings> {
         metricPrefix: "openmeld_bootstrap_status",
       },
     });
-  }
-
-  private resolveBootstrapViewerIdentity(input: GetSpaceBootstrapInput): {
-    viewerOwnerUserId?: string;
-    viewerProfileId?: string;
-  } {
-    const requestContext = input.spaceAccess
-      ? getSpaceAccessRequestContext(input.spaceAccess)
-      : (input.context ?? null);
-    if (!requestContext) {
-      return {};
-    }
-    return {
-      ...(requestContext.actorContext.ownerUserId
-        ? { viewerOwnerUserId: requestContext.actorContext.ownerUserId }
-        : {}),
-      viewerProfileId: requestContext.actorContext.openMeldProfileId,
-    };
   }
 
   private async rpcGetMembersForBootstrap(
@@ -6278,6 +8084,7 @@ export class Space extends DurableObject<CoreBindings> {
           descriptionPrefix: "Members branch",
           metricPrefix: "openmeld_bootstrap_members",
         },
+        includeAgentReadiness: input.includeAgentReadiness,
         ...(lineageLoader ? { lineageLoader } : {}),
       }
     );
@@ -6405,6 +8212,76 @@ export class Space extends DurableObject<CoreBindings> {
       })
     );
     return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcGetHistoryNavigation(
+    input: GetSpaceMembersInput & SpaceHistoryNavigationQuery
+  ): Promise<SpaceHistoryNavigation> {
+    this.applySpaceRef(input.spaceId);
+    const request = this.buildDirectRpcRequest({
+      path: "/history-navigation",
+      method: "GET",
+      context: input.context,
+      ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
+      ...(input.password === undefined
+        ? {}
+        : { spacePassword: input.password }),
+    });
+    const resolved = this.resolveSpaceAccessFromRequest(
+      request,
+      pickSpaceDispatchAccessOptions(input)
+    );
+    if (!resolved.ok) {
+      return readSpaceRpcJsonOrThrow(
+        this.unauthenticatedResponse(resolved.requestId)
+      );
+    }
+    const access = await this.authorizeSpaceAccess(resolved.spaceAccess);
+    if (!access.ok) {
+      return readSpaceRpcJsonOrThrow(access.response);
+    }
+    const range = spaceHistoryNavigationQuerySchema.parse({
+      ...(input.startSignalId ? { startSignalId: input.startSignalId } : {}),
+      ...(input.endSignalId ? { endSignalId: input.endSignalId } : {}),
+    });
+    const viewer = await this.resolveReadViewerIdentity(resolved.spaceAccess);
+    const groups = readSpaceHistoryNavigationGroups(
+      this.ctx.storage.sql,
+      range
+    );
+    const entries = groups.flatMap((group) => {
+      const stored = parseStoredSignal(group.payload_json);
+      if (!stored) {
+        return [];
+      }
+      const signal = redactSignalForViewer({
+        signal: stored,
+        viewerOwnerUserId: viewer.viewerOwnerUserId,
+        viewerProfileId: viewer.viewerProfileId,
+        creatorProfileIdByProfileId: viewer.creatorProfileIdByProfileId,
+      });
+      const text =
+        "text" in signal.data && typeof signal.data.text === "string"
+          ? signal.data.text
+          : "";
+      return [
+        {
+          signalId: group.signal_id,
+          endSignalId: group.end_signal_id,
+          startAt: group.start_at,
+          endAt: group.end_at,
+          count: group.count,
+          author: signal.profile?.profileName ?? "OpenMeld",
+          preview:
+            text.replace(/\s+/g, " ").trim().slice(0, 360) ||
+            "Message with attachments",
+        },
+      ];
+    });
+    return {
+      entries,
+      total: entries.reduce((sum, entry) => sum + entry.count, 0),
+    };
   }
 
   async rpcGetIdentityDirectory(
@@ -6563,6 +8440,7 @@ export class Space extends DurableObject<CoreBindings> {
     this.applySpaceRef(input.spaceId);
     const request = this.buildDirectRpcRequest({
       path: buildThreadSignalsReadPath({
+        includeWakeContinuation: input.includeWakeContinuation,
         afterSignalId: input.afterSignalId,
         limit: input.limit,
         threadId: input.threadId,
@@ -6583,6 +8461,67 @@ export class Space extends DurableObject<CoreBindings> {
       }
     );
     return readSpaceRpcJsonResult(response);
+  }
+
+  async rpcCheckDeviceWaitingWakeAccess(
+    request: import("@openmeld/schemas/types").WakeDeviceWaitAccessRequest
+  ): Promise<import("@openmeld/schemas/types").WakeDeviceWaitAccessResponse> {
+    const parsed = wakeDeviceWaitAccessRequestSchema.safeParse(request);
+    if (!parsed.success) {
+      throw new Error("Invalid device waiting Wake access request.");
+    }
+    const input = parsed.data;
+    this.applySpaceRef(input.spaceId);
+    const record = readDispatchOutboxRecordByDispatchId(
+      this.ctx.storage.sql,
+      input.dispatchId
+    );
+    if (
+      !record?.deviceWait ||
+      record.sourceEventId !== input.sourceSignalId ||
+      record.targetProfileId !== input.targetProfileId ||
+      record.organizationId !== this.readSpaceMetaRecord()?.organizationId
+    ) {
+      return { allowed: false };
+    }
+    const source = record.sourceSignalSnapshot;
+    // The outbox fixes the source Profile, not a send-time owner permission.
+    // Re-read its current Space membership projection on every attempt; the
+    // owner snapshot only reconstructs the actor for the live access gate below.
+    const sourceMember = source?.profileId
+      ? readSpaceMemberRecord(this.ctx.storage.sql, source.profileId)
+      : null;
+    const targetMember = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      input.targetProfileId
+    );
+    if (
+      sourceMember?.status !== "active" ||
+      targetMember?.status !== "active" ||
+      !sourceMember.ownerUserIdSnapshot ||
+      (source?.profileKind !== "human" && source?.profileKind !== "agent")
+    ) {
+      return { allowed: false };
+    }
+    const access = await this.authorizeWritableSpaceAccess(
+      createAuthenticatedSpaceAccessContext({
+        spaceId: this.spaceId,
+        // Both Profiles must still be members. Recheck that live authority
+        // without replaying a send-time password as an alternative credential.
+        requestContext: {
+          actorContext: {
+            requestId: `device-wait-access:${input.dispatchId}`,
+            openMeldProfileId: sourceMember.profileId,
+            ownerUserId: sourceMember.ownerUserIdSnapshot,
+            profileKind: source.profileKind,
+          },
+        },
+      })
+    );
+    if (!access.ok && access.response.status >= 500) {
+      throw new Error("Device waiting Wake access is unavailable.");
+    }
+    return { allowed: access.ok };
   }
 
   async rpcGetClaimTimeLiveness(
@@ -6717,6 +8656,9 @@ export class Space extends DurableObject<CoreBindings> {
     if (input.includeWaitReason === true) {
       url.searchParams.set("includeWaitReason", "true");
     }
+    if (input.includeDeviceWait === true) {
+      url.searchParams.set("includeDeviceWait", "true");
+    }
     if (typeof input.targetProfileId === "string") {
       url.searchParams.set("targetProfileId", input.targetProfileId);
     }
@@ -6758,6 +8700,9 @@ export class Space extends DurableObject<CoreBindings> {
     }
     if (input.includeWaitReason === true) {
       url.searchParams.set("includeWaitReason", "true");
+    }
+    if (input.includeDeviceWait === true) {
+      url.searchParams.set("includeDeviceWait", "true");
     }
     if (typeof input.targetProfileId === "string") {
       url.searchParams.set("targetProfileId", input.targetProfileId);
@@ -6864,6 +8809,194 @@ export class Space extends DurableObject<CoreBindings> {
     return readSpaceRpcJsonOrThrow(response);
   }
 
+  async rpcGetMessageReactions(
+    input: GetSpaceMessageReactionsInput & { spaceAccess: SpaceAccessContext }
+  ): Promise<GetSpaceMessageReactionsResponse> {
+    this.applySpaceRef(input.spaceId);
+    await assertRpcSpaceAccessAuthorized(
+      await this.authorizeSpaceAccess(input.spaceAccess)
+    );
+    this.requireReactionMessage(input.signalId);
+    const member = this.readSpaceActorMember(input.spaceAccess);
+    const emoji = input.emoji ? resolveReactionEmoji(input.emoji) : null;
+    return {
+      signalId: input.signalId,
+      reactions: readSpaceReactions(
+        this.ctx.storage.sql,
+        [input.signalId],
+        member?.profileId
+      ).get(input.signalId) ?? { version: 0, groups: [] },
+      ...(emoji
+        ? readSpaceReactionActors(this.ctx.storage.sql, {
+            ...input,
+            emoji: emoji.emoji,
+          })
+        : {}),
+    };
+  }
+
+  async rpcSetMessageReaction(
+    input: SetSpaceMessageReactionInput & { spaceAccess: SpaceAccessContext }
+  ): Promise<GetSpaceMessageReactionsResponse> {
+    this.applySpaceRef(input.spaceId);
+    await assertRpcSpaceAccessAuthorized(
+      await this.authorizeWritableSpaceAccess(input.spaceAccess)
+    );
+    const member = this.readSpaceActorMember(input.spaceAccess);
+    if (!member || member.profileKindSnapshot !== "human") {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "space.membership_required",
+        reason: "Join this Space with your profile to add a reaction.",
+      });
+    }
+    this.requireReactionMessage(input.signalId);
+    const emoji = resolveReactionEmoji(input.emoji);
+    if (!emoji) {
+      throw createCoreRpcHttpError({
+        status: 400,
+        code: "space.invalid_reaction",
+        reason: "Choose an emoji from the reaction picker.",
+      });
+    }
+    const changed = this.ctx.storage.transactionSync(() => {
+      const existing = readSpaceReactions(
+        this.ctx.storage.sql,
+        [input.signalId],
+        member.profileId
+      ).get(input.signalId) ?? { version: 0, groups: [] };
+      if (
+        input.active &&
+        existing.groups.length >= 30 &&
+        !existing.groups.some((group) => group.emoji === emoji.emoji)
+      ) {
+        throw createCoreRpcHttpError({
+          status: 409,
+          code: "space.reaction_limit",
+          reason:
+            "This message has reached its limit of 30 different reactions. Choose an existing reaction.",
+        });
+      }
+      const changed = setSpaceReaction(this.ctx.storage.sql, {
+        signalId: input.signalId,
+        ...emoji,
+        active: input.active,
+        actor: {
+          profileId: member.profileId,
+          displayName: member.profileNameSnapshot,
+          profileKind: "human",
+        },
+      });
+      if (changed && input.active) {
+        const signal = this.requireReactionMessage(input.signalId);
+        const meta = readSpaceMetaRecordFromSql(
+          this.ctx.storage.sql,
+          this.spaceId
+        );
+        if (!meta) {
+          throw new Error(
+            "Space metadata is required for reaction Inbox projection"
+          );
+        }
+        const placement = readSpaceThreadSignalPlacementBySignalId(
+          this.ctx.storage.sql,
+          signal.id
+        );
+        const thread =
+          placement?.placement === "thread"
+            ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
+            : null;
+        const record = buildSpaceReactionInboxProjectionOutboxRecord({
+          actor: member,
+          author: readSpaceMemberRecord(
+            this.ctx.storage.sql,
+            signal.profile.profileId
+          ),
+          emoji: emoji.emoji,
+          nowMs: Date.now(),
+          organizationId: meta.organizationId,
+          signal,
+          spaceName: meta.name ?? null,
+          threadRootSignalId: thread?.rootSignalId,
+          version: existing.version + 1,
+        });
+        if (record) {
+          insertSpaceInboxProjectionOutboxRecord(this.ctx.storage.sql, record);
+        }
+      }
+      return changed;
+    });
+    if (changed) {
+      await this.syncSpaceBackgroundAlarm();
+      this.broadcast({
+        type: "space.reactions.changed",
+        spaceId: this.spaceId,
+        version: await this.nextLiveInvalidationVersion(),
+        signalIds: [input.signalId],
+      });
+    }
+    return {
+      signalId: input.signalId,
+      reactions: readSpaceReactions(
+        this.ctx.storage.sql,
+        [input.signalId],
+        member.profileId
+      ).get(input.signalId) ?? { version: 0, groups: [] },
+    };
+  }
+
+  private requireReactionMessage(
+    signalId: string
+  ): Extract<SignalEnvelope, { type: "signal.text" }> {
+    const signal = this.readSignalById(signalId);
+    if (
+      !signal ||
+      signal.type !== "signal.text" ||
+      signal.profile.kind === "system" ||
+      signal.data.meta?.recalledAt !== undefined
+    ) {
+      throw createCoreRpcHttpError({
+        status: 404,
+        code: "space.message_not_found",
+        reason: "This message is no longer available.",
+      });
+    }
+    return signal;
+  }
+
+  async rpcGetMessageLinks(
+    input: GetSpaceMessageDetailsInput & { spaceAccess: SpaceAccessContext }
+  ): Promise<import("@openmeld/schemas").SpaceMessageLinks> {
+    this.applySpaceRef(input.spaceId);
+    await assertRpcSpaceAccessAuthorized(
+      await this.authorizeSpaceAccess(input.spaceAccess)
+    );
+    const signal = this.readSignalById(input.signalId);
+    if (
+      !signal ||
+      signal.type !== "signal.text" ||
+      signal.data.meta?.recalledAt !== undefined
+    ) {
+      throw createCoreRpcHttpError({
+        status: 404,
+        code: "space.message_not_found",
+        reason: "This message is no longer available.",
+      });
+    }
+    const { collectMessagePreviewUrls } = await import("@openmeld/protocol");
+    const { MAX_MESSAGE_LINK_PREVIEWS } = await import("@openmeld/schemas");
+    return {
+      signalId: signal.id,
+      revision:
+        typeof signal.data.meta?.messageRevision === "number"
+          ? signal.data.meta.messageRevision
+          : 0,
+      urls: collectMessagePreviewUrls(signal.data.text)
+        .filter((url) => url.length <= 4096)
+        .slice(0, MAX_MESSAGE_LINK_PREVIEWS),
+    };
+  }
+
   async rpcGetMessageDetails(
     input: GetSpaceMessageDetailsInput
   ): Promise<GetSpaceMessageDetailsResponse> {
@@ -6930,6 +9063,38 @@ export class Space extends DurableObject<CoreBindings> {
     return readSpaceRpcJsonOrThrow(response);
   }
 
+  rpcCheckSpaceOwnerDeparture(
+    raw: SpaceOwnerDepartureSpaceInput
+  ): Promise<{ spaceId: string; name: string } | null> {
+    const input = spaceOwnerDepartureSpaceInputSchema.parse(raw);
+    this.applySpaceRef(input.spaceId);
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const meta = this.readSpaceMetaRecord();
+      if (meta && meta.organizationId !== input.organizationId) {
+        throw new Error("Space organization mismatch.");
+      }
+      if (
+        meta?.ownerUserIds?.includes(input.userId) &&
+        !(meta.directMessage && !meta.directMessage.convertedAt)
+      ) {
+        return { spaceId: input.spaceId, name: meta.name ?? "Untitled Space" };
+      }
+      const db = identityDb(this.bindings);
+      if (!db) {
+        throw new Error("Space ownership storage is unavailable.");
+      }
+      // Repair an incomplete demotion's restrictive reference under the same
+      // serialization boundary as promotions. This never grants membership.
+      await db
+        .prepare(
+          "DELETE FROM space_owner_member_references WHERE space_id = ? AND member_id IN (SELECT id FROM members WHERE organization_id = ? AND user_id = ?)"
+        )
+        .bind(input.spaceId, input.organizationId, input.userId)
+        .run();
+      return null;
+    });
+  }
+
   rpcAuthorizeSpaceInvitation(
     raw: SpaceInvitationAccessInput
   ): { name: string } | null {
@@ -6952,7 +9117,38 @@ export class Space extends DurableObject<CoreBindings> {
     ) {
       return null;
     }
+    if (
+      input.audience === "guest" &&
+      !(
+        (meta.allowGuests || input.intent === "manage") &&
+        actor.ownerUserId &&
+        meta.ownerUserIds?.includes(actor.ownerUserId)
+      )
+    ) {
+      return null;
+    }
     return { name: meta.name ?? "Untitled Space" };
+  }
+
+  rpcHasSpaceGuestAccess(raw: SpaceInvitationAccessInput): boolean {
+    const input = spaceInvitationAccessInputSchema.parse(raw);
+    this.applySpaceRef(input.spaceId);
+    const actor = input.context.actorContext;
+    return Boolean(
+      actor.profileKind === "human" &&
+        actor.ownerUserId &&
+        this.readSpaceMetaRecord()?.allowGuests &&
+        [
+          ...this.ctx.storage.sql.exec(
+            "SELECT user_id FROM space_guest_users WHERE user_id = ?",
+            actor.ownerUserId
+          ),
+        ].length &&
+        hasActiveSpaceMemberRecordForOwnerUserId(
+          this.ctx.storage.sql,
+          actor.ownerUserId
+        )
+    );
   }
 
   rpcRevokeSpaceInvitation(
@@ -6963,6 +9159,8 @@ export class Space extends DurableObject<CoreBindings> {
       !this.rpcAuthorizeSpaceInvitation({
         spaceId: input.spaceId,
         context: input.context,
+        audience: input.audience,
+        intent: "manage",
       })
     ) {
       throw createCoreRpcHttpError({
@@ -6998,6 +9196,7 @@ export class Space extends DurableObject<CoreBindings> {
       !this.rpcAuthorizeSpaceInvitation({
         spaceId: input.spaceId,
         context: input.context,
+        audience: input.audience,
       })
     ) {
       throw createCoreRpcHttpError({
@@ -7006,7 +9205,7 @@ export class Space extends DurableObject<CoreBindings> {
         status: 403,
       });
     }
-    if (input.member.profileKind !== "human") {
+    if (input.member.profileKind !== "human" || !input.member.ownerUserId) {
       throw createCoreRpcHttpError({
         code: "space.invitation.forbidden",
         reason: "An invitation must be accepted by a person.",
@@ -7051,6 +9250,14 @@ export class Space extends DurableObject<CoreBindings> {
         input.invitationId,
         input.member.profileId
       );
+      if (input.audience === "guest") {
+        sql.exec(
+          "INSERT INTO space_guest_users (user_id, invitation_id, joined_at) VALUES (?, ?, ?) ON CONFLICT (user_id) DO UPDATE SET invitation_id = excluded.invitation_id, joined_at = excluded.joined_at",
+          input.member.ownerUserId,
+          input.invitationId,
+          Date.now()
+        );
+      }
       return result.addedMemberIds;
     });
     if (added === null) {
@@ -7067,6 +9274,29 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   async rpcConvertDirectMessageToSpace(
+    input: ConvertDirectMessageToSpaceInput
+  ): Promise<ConvertDirectMessageToSpaceResponse> {
+    const result = await this.ctx.blockConcurrencyWhile(async () => {
+      try {
+        return {
+          ok: true as const,
+          value: await this.convertDirectMessageToSpace(input),
+        };
+      } catch (error) {
+        // Expected admission failures must not break the Durable Object input gate.
+        if (!this.coreRpcErrorResponse(error)) {
+          throw error;
+        }
+        return { ok: false as const, error };
+      }
+    });
+    if (!result.ok) {
+      throw result.error;
+    }
+    return result.value;
+  }
+
+  private async convertDirectMessageToSpace(
     input: ConvertDirectMessageToSpaceInput
   ): Promise<ConvertDirectMessageToSpaceResponse> {
     this.applySpaceRef(input.spaceId);
@@ -7150,6 +9380,17 @@ export class Space extends DurableObject<CoreBindings> {
       });
     }
 
+    for (const ownerUserId of currentMeta.ownerUserIds ?? []) {
+      await this.protectSpaceOwnerMembership(
+        currentMeta.organizationId,
+        ownerUserId
+      );
+    }
+    if (!currentMeta.ownerUserIds?.length) {
+      throw new Error(
+        "The conversation needs an owner before it can become a Space."
+      );
+    }
     const convertedAt = new Date().toISOString();
     const memberResponse = this.ctx.storage.transactionSync(() => {
       const meta = this.requireConvertibleDirectMessageMeta();
@@ -7205,6 +9446,7 @@ export class Space extends DurableObject<CoreBindings> {
       addedMemberIds: memberResponse.addedMemberIds,
       alreadyMemberIds: memberResponse.alreadyMemberIds,
       convertedAt,
+      ...(input.includeMemberSnapshots ? { items: memberResponse.items } : {}),
       name: input.name,
       spaceId: this.spaceId,
     };
@@ -7651,6 +9893,10 @@ export class Space extends DurableObject<CoreBindings> {
         ? {}
         : { spacePassword: input.password }),
       body: {
+        ...(input.ownership ? { ownership: input.ownership } : {}),
+        ...(input.allowGuests === undefined
+          ? {}
+          : { allowGuests: input.allowGuests }),
         ...(typeof input.name === "string" ? { name: input.name } : {}),
         ...(typeof input.purpose === "string"
           ? { purpose: input.purpose }
@@ -7927,7 +10173,16 @@ export class Space extends DurableObject<CoreBindings> {
         context: input.context,
         body: {
           accessMode: input.accessMode,
+          ...(input.allowGuests === undefined
+            ? {}
+            : { allowGuests: input.allowGuests }),
+          ...(input.linkJoinPolicy === undefined
+            ? {}
+            : { linkJoinPolicy: input.linkJoinPolicy }),
           ...(input.password === undefined ? {} : { password: input.password }),
+          ...(input.visibility === undefined
+            ? {}
+            : { visibility: input.visibility }),
         },
       })
     );
@@ -8211,12 +10466,11 @@ export class Space extends DurableObject<CoreBindings> {
     const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
       status: "active",
     });
-    const isCurrentDirectMessage = Boolean(
-      meta?.purpose === "openmeld_dm_space" &&
-        meta.directMessage &&
-        !meta.directMessage.convertedAt &&
-        activeMembers.length === 2
-    );
+    const isCurrentDirectMessage = isDirectMessageSpace({
+      purpose: meta?.purpose,
+      directMessageConvertedAt: meta?.directMessage?.convertedAt,
+      activeMemberCount: activeMembers.length,
+    });
     const isActiveProfile = Boolean(
       profileId &&
         activeMembers.some((member) => member.profileId === profileId)
@@ -8543,12 +10797,15 @@ export class Space extends DurableObject<CoreBindings> {
       string,
       Array<{
         placement: SpaceThreadSignalPlacement;
-        signal: SignalEnvelope;
+        signal: SignalEnvelope | null;
       }>
     >();
     for (const entry of listSpaceThreadPreviewEntries(this.ctx.storage.sql)) {
-      const signal = parseStoredSignal(entry.payloadJson);
-      if (!signal) {
+      const signal =
+        entry.payloadJson === null
+          ? null
+          : parseStoredSignal(entry.payloadJson);
+      if (entry.payloadJson !== null && !signal) {
         continue;
       }
       const entries = entriesByThreadId.get(entry.placement.threadId) ?? [];
@@ -8569,15 +10826,16 @@ export class Space extends DurableObject<CoreBindings> {
     viewer: SpaceReadViewerIdentity,
     entries: ReadonlyArray<{
       placement: SpaceThreadSignalPlacement;
-      signal: SignalEnvelope;
+      signal: SignalEnvelope | null;
     }>
   ): SpaceThreadPreview {
-    const previewEntries = entries.slice(0, 2);
+    const previewEntries = entries.slice(-2);
     return {
       threadId: thread.threadId,
       replyCount: entries.length,
-      signals: previewEntries.map((entry) =>
-        this.redactSignalForReadViewer(entry.signal, viewer)
+      signals: this.redactSignalsForReadViewer(
+        previewEntries.flatMap((entry) => (entry.signal ? [entry.signal] : [])),
+        viewer
       ),
       placements: entries.map((entry) => entry.placement),
     };
@@ -8760,6 +11018,8 @@ export class Space extends DurableObject<CoreBindings> {
     }
     const url = new URL(input.request.url);
     const parsedQuery = listSpaceThreadSignalsQuerySchema.safeParse({
+      includeWakeContinuation:
+        url.searchParams.get("includeWakeContinuation") ?? undefined,
       afterSignalId: url.searchParams.get("afterSignalId") ?? undefined,
       limit: url.searchParams.get("limit") ?? undefined,
     });
@@ -8788,9 +11048,71 @@ export class Space extends DurableObject<CoreBindings> {
     }
     const signals = placements
       .map((placement) => this.readSignalById(placement.signalId))
-      .filter((signal): signal is SignalEnvelope => signal !== null)
-      .map((signal) => this.redactSignalForReadViewer(signal, input.viewer));
-    return spaceAddressingJsonResponse(input.request, { signals, placements });
+      .filter((signal): signal is SignalEnvelope => signal !== null);
+    return spaceAddressingJsonResponse(input.request, {
+      signals: this.redactSignalsForReadViewer(signals, input.viewer),
+      placements,
+      ...(parsedQuery.data.includeWakeContinuation
+        ? {
+            wakeContinuation: this.readThreadWakeContinuation(
+              thread,
+              parsedQuery.data.includeWakeContinuation === "conversation"
+                ? input.viewer.viewerProfileId
+                : undefined
+            ),
+          }
+        : {}),
+    });
+  }
+
+  private readThreadWakeContinuation(
+    thread: SpaceThread,
+    senderProfileId?: string
+  ): {
+    targetProfileId: string | null;
+    automaticTargetProfileId?: string | null;
+  } {
+    const latest = readLatestExplicitThreadWake(
+      this.ctx.storage.sql,
+      thread.threadId
+    );
+    const targetProfileId = resolveThreadWakeContinuation({
+      root: this.readSignalById(thread.rootSignalId),
+      latestExplicitWake: latest ? parseStoredSignal(latest) : null,
+    });
+    const member = targetProfileId
+      ? readSpaceMemberRecord(this.ctx.storage.sql, targetProfileId)
+      : null;
+    return {
+      targetProfileId: member?.status === "active" ? targetProfileId : null,
+      ...(senderProfileId
+        ? {
+            automaticTargetProfileId: this.readThreadAutomaticWakeTarget(
+              thread,
+              senderProfileId
+            ),
+          }
+        : {}),
+    };
+  }
+
+  private readThreadAutomaticWakeTarget(
+    thread: SpaceThread,
+    senderProfileId: string
+  ): string | null {
+    const target = resolveThreadAutomaticWakeTarget({
+      participants: readThreadParticipants(
+        this.ctx.storage.sql,
+        thread.threadId
+      ),
+      senderProfileId,
+    });
+    const member = target
+      ? readSpaceMemberRecord(this.ctx.storage.sql, target)
+      : null;
+    return member?.status === "active" && member.profileKindSnapshot === "agent"
+      ? target
+      : null;
   }
 
   private async handlePostThreadSignal(input: {
@@ -8844,6 +11166,14 @@ export class Space extends DurableObject<CoreBindings> {
         );
       }
       if (existingRetry.status === "replay") {
+        assertSameSpaceWorkHandoff({
+          existing: existingRetry.signal,
+          authorProfileId: input.context.actorContext.openMeldProfileId,
+          handoff: parsed.data.workHandoff,
+          text: parsed.data.text,
+          targetProfileIds:
+            parsed.data.messageEnvelope?.activationTargets ?? [],
+        });
         return spaceAddressingJsonResponse(input.request, {
           signal: existingRetry.signal,
           placement: existingRetry.placement,
@@ -8854,6 +11184,8 @@ export class Space extends DurableObject<CoreBindings> {
         toProtocolProfile(input.context),
         parsed.data.text,
         {
+          deviceWait: parsed.data.deviceWait,
+          contextSelection: parsed.data.contextSelection,
           ...(parsed.data.messageEnvelope
             ? { messageEnvelope: parsed.data.messageEnvelope }
             : {}),
@@ -8866,12 +11198,30 @@ export class Space extends DurableObject<CoreBindings> {
             : {}),
           meta: {
             clientMessageId: parsed.data.clientMessageId,
+            threadWakeContinuation: parsed.data.threadWakeContinuation,
+            restoredFromSignalId: parsed.data.restoredFromSignalId,
+            workHandoff: parsed.data.workHandoff,
             ...(parsed.data.authorHasRead
               ? { authorHasRead: true as const }
               : {}),
           },
         }
       );
+      // Resolve once, after the retry check and before ordinary authorized publication.
+      applyAutomaticThreadWake(signal, () => {
+        const target = this.readThreadAutomaticWakeTarget(
+          thread,
+          signal.profile.profileId
+        );
+        return target
+          ? {
+              profileId: target,
+              label:
+                this.resolveWakeStopTargetDisplay(target)
+                  .targetProfileMentionLabel ?? target,
+            }
+          : null;
+      });
       const threadContext = toSpaceThreadContext(thread);
       const signalCreatedAt = new Date(signal.ts).toISOString();
       try {
@@ -8937,7 +11287,9 @@ export class Space extends DurableObject<CoreBindings> {
       this.ctx.storage.sql,
       signalId
     );
-    if (!placement) {
+    // A root is still a main-timeline message. Opening a thread beneath an
+    // in-flight Wake must not move its reply or change its observation scope.
+    if (!placement || placement.placement === "root") {
       return null;
     }
     const thread = readSpaceThread(this.ctx.storage.sql, placement.threadId);
@@ -9254,12 +11606,26 @@ export class Space extends DurableObject<CoreBindings> {
     request: Request,
     options: Pick<
       SpaceDispatchAccessOptions,
-      "bootstrapTiming" | "lineageLoader" | "requireActiveActorMembership"
+      | "bootstrapTiming"
+      | "lineageLoader"
+      | "requireActiveActorMembership"
+      | "includeAgentReadiness"
     > = {}
   ): Promise<Response> {
     const resolved = this.resolveAuthenticatedSpaceAccessFromRequest(request);
     if (!resolved.ok) {
       return this.unauthenticatedResponse(resolved.requestId);
+    }
+
+    // Joining has its own authorization. Requiring read access first prevents
+    // Organization members from joining a members-only, listed Space.
+    if (request.method === "POST") {
+      return this.handlePostMembers(
+        request,
+        requireWritableSpaceActor(resolved.spaceAccess),
+        getSpaceAccessPassword(resolved.spaceAccess),
+        options.requireActiveActorMembership === true
+      );
     }
 
     const accessResult = await this.authorizeSpaceAccess(resolved.spaceAccess);
@@ -9271,16 +11637,8 @@ export class Space extends DurableObject<CoreBindings> {
       return this.handleGetMembers(
         requireAuthenticatedSpaceActor(resolved.spaceAccess),
         options.bootstrapTiming,
-        options.lineageLoader
-      );
-    }
-
-    if (request.method === "POST") {
-      return this.handlePostMembers(
-        request,
-        requireWritableSpaceActor(resolved.spaceAccess),
-        getSpaceAccessPassword(resolved.spaceAccess),
-        options.requireActiveActorMembership === true
+        options.lineageLoader,
+        options.includeAgentReadiness
       );
     }
 
@@ -9510,6 +11868,7 @@ export class Space extends DurableObject<CoreBindings> {
           includeTiming: url.searchParams.get("includeTiming"),
           includeSourceContext: url.searchParams.get("includeSourceContext"),
           includeWaitReason: url.searchParams.get("includeWaitReason"),
+          includeDeviceWait: url.searchParams.get("includeDeviceWait"),
           includeWakeStopEligibility: url.searchParams.get(
             "includeWakeStopEligibility"
           ),
@@ -9544,6 +11903,7 @@ export class Space extends DurableObject<CoreBindings> {
                 includePreviewText: parsed.data.includePreviewText === true,
                 includeSourceContext: parsed.data.includeSourceContext === true,
                 includeWaitReason: parsed.data.includeWaitReason === true,
+                includeDeviceWait: parsed.data.includeDeviceWait === true,
                 includeWakeStopEligibility:
                   parsed.data.includeWakeStopEligibility === true,
                 ...(parsed.data.targetProfileId
@@ -9794,8 +12154,7 @@ export class Space extends DurableObject<CoreBindings> {
       return true;
     }
     const auth = this.bindings.OPENMELD_AUTH_WORKER;
-    const resolveProfile = auth?.resolveProfileById?.bind(auth);
-    if (!resolveProfile) {
+    if (!auth?.resolveProfileById) {
       return false;
     }
     // Profile ownership comes from Auth, never client selectors or member names.
@@ -9808,12 +12167,14 @@ export class Space extends DurableObject<CoreBindings> {
       if (!profileOwnership.has(profileId)) {
         profileOwnership.set(
           profileId,
-          resolveProfile({ openMeldProfileId: profileId }).then(
-            (resolved) =>
-              resolved.ok &&
-              resolved.profile.status === "active" &&
-              resolved.profile.ownerUserId === ownerUserId
-          )
+          auth
+            .resolveProfileById({ openMeldProfileId: profileId })
+            .then(
+              (resolved) =>
+                resolved.ok &&
+                resolved.profile.status === "active" &&
+                resolved.profile.ownerUserId === ownerUserId
+            )
         );
       }
       if (await profileOwnership.get(profileId)) {
@@ -10224,6 +12585,7 @@ export class Space extends DurableObject<CoreBindings> {
           includePreviewText: url.searchParams.get("includePreviewText"),
           includeSourceContext: url.searchParams.get("includeSourceContext"),
           includeWaitReason: url.searchParams.get("includeWaitReason"),
+          includeDeviceWait: url.searchParams.get("includeDeviceWait"),
           includeWakeStopEligibility: url.searchParams.get(
             "includeWakeStopEligibility"
           ),
@@ -10248,6 +12610,7 @@ export class Space extends DurableObject<CoreBindings> {
               includePreviewText: parsed.data.includePreviewText === true,
               includeSourceContext: parsed.data.includeSourceContext === true,
               includeWaitReason: parsed.data.includeWaitReason === true,
+              includeDeviceWait: parsed.data.includeDeviceWait === true,
               includeWakeStopEligibility:
                 parsed.data.includeWakeStopEligibility === true,
               ...(parsed.data.targetProfileId
@@ -10489,10 +12852,12 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     if (request.method === "PATCH") {
-      return this.handlePatchMeta(request, {
-        context: resolved.context,
-        initializeIfAbsent: true,
-      });
+      return this.ctx.blockConcurrencyWhile(() =>
+        this.handlePatchMeta(request, {
+          context: resolved.context,
+          initializeIfAbsent: true,
+        })
+      );
     }
 
     return this.methodNotAllowed();
@@ -10507,7 +12872,9 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     if (request.method === "PATCH") {
-      return this.handlePatchMetaWithPasswordAtomic(request, resolved.context);
+      return this.ctx.blockConcurrencyWhile(() =>
+        this.handlePatchMetaWithPasswordAtomic(request, resolved.context)
+      );
     }
 
     return this.methodNotAllowed();
@@ -10575,7 +12942,10 @@ export class Space extends DurableObject<CoreBindings> {
       for (const queued of coalesceQueuedSpaceWebSocketInvalidations(
         session.blocked
       )) {
-        webSocket.send(this.encodeLiveMessageForSession(queued, session));
+        const encoded = this.encodeLiveMessageForSession(queued, session);
+        if (encoded !== null) {
+          webSocket.send(encoded);
+        }
       }
       session.blocked = undefined;
     }
@@ -10592,6 +12962,17 @@ export class Space extends DurableObject<CoreBindings> {
     try {
       const session = resolveActiveWebSocketSession(this.sessions, webSocket);
       if (!session) {
+        return;
+      }
+
+      if (!(await this.authorizeLiveSession(session))) {
+        removeFailedSpaceWebSocketSession({
+          closeCode: 1008,
+          closeReason: "space_access_changed",
+          session,
+          sessions: this.sessions,
+          webSocket,
+        });
         return;
       }
 
@@ -10865,16 +13246,28 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
+  private redactSignalsForReadViewer(
+    signals: readonly SignalEnvelope[],
+    viewer: SpaceReadViewerIdentity
+  ): SignalEnvelope[] {
+    return hydrateSpaceSignalReactions(
+      this.ctx.storage.sql,
+      signals,
+      viewer.viewerProfileId
+    ).map((signal) =>
+      redactSignalForViewer({
+        signal,
+        viewerOwnerUserId: viewer.viewerOwnerUserId,
+        viewerProfileId: viewer.viewerProfileId,
+        creatorProfileIdByProfileId: viewer.creatorProfileIdByProfileId,
+      })
+    );
+  }
   private redactSignalForReadViewer(
     signal: SignalEnvelope,
     viewer: SpaceReadViewerIdentity
   ): SignalEnvelope {
-    return redactSignalForViewer({
-      signal,
-      viewerOwnerUserId: viewer.viewerOwnerUserId,
-      viewerProfileId: viewer.viewerProfileId,
-      creatorProfileIdByProfileId: viewer.creatorProfileIdByProfileId,
-    });
+    return this.redactSignalsForReadViewer([signal], viewer)[0] ?? signal;
   }
 
   private async handleListSignals(input: {
@@ -10939,6 +13332,17 @@ export class Space extends DurableObject<CoreBindings> {
       signalTypes: resolveVisibleTimelineSignalTypes(signalTypes),
     };
 
+    if (parsedQuery.data.q) {
+      return this.handleMessageSearch({
+        query: parsedQuery.data.q,
+        cursor,
+        limit,
+        viewerOwnerUserId: input.viewerOwnerUserId,
+        viewerProfileId: input.viewerProfileId,
+        creatorProfileIdByProfileId: viewerCreatorProfileIdsByProfileId,
+      });
+    }
+
     if (afterSignalId) {
       try {
         const signals = this.measureBootstrapBranchTimingSync(
@@ -10956,7 +13360,11 @@ export class Space extends DurableObject<CoreBindings> {
             })
         );
         return Response.json({
-          signals,
+          signals: hydrateSpaceSignalReactions(
+            this.ctx.storage.sql,
+            signals,
+            input.viewerProfileId
+          ),
           nextCursor: null,
         });
       } catch (error) {
@@ -10993,7 +13401,11 @@ export class Space extends DurableObject<CoreBindings> {
             })
         );
         return Response.json({
-          signals,
+          signals: hydrateSpaceSignalReactions(
+            this.ctx.storage.sql,
+            signals,
+            input.viewerProfileId
+          ),
           nextCursor: null,
         });
       } catch (error) {
@@ -11027,7 +13439,11 @@ export class Space extends DurableObject<CoreBindings> {
           })
       );
       return Response.json({
-        signals,
+        signals: hydrateSpaceSignalReactions(
+          this.ctx.storage.sql,
+          signals,
+          input.viewerProfileId
+        ),
         nextCursor: null,
       });
     }
@@ -11048,7 +13464,14 @@ export class Space extends DurableObject<CoreBindings> {
             viewerCreatorProfileIdsByProfileId,
           })
       );
-      return Response.json(page);
+      return Response.json({
+        ...page,
+        signals: hydrateSpaceSignalReactions(
+          this.ctx.storage.sql,
+          page.signals,
+          input.viewerProfileId
+        ),
+      });
     }
 
     const signals = this.measureBootstrapBranchTimingSync(
@@ -11066,7 +13489,11 @@ export class Space extends DurableObject<CoreBindings> {
     );
 
     return Response.json({
-      signals,
+      signals: hydrateSpaceSignalReactions(
+        this.ctx.storage.sql,
+        signals,
+        input.viewerProfileId
+      ),
       nextCursor: null,
     });
   }
@@ -11145,23 +13572,26 @@ export class Space extends DurableObject<CoreBindings> {
       try {
         return Response.json({
           nextCursor: null,
-          signals: this.loadSignalsAroundAnchor({
-            afterCount: 0,
-            aroundSignalId: input.sourceSignalId,
-            beforeCount: input.beforeCount,
-            filters: {
-              fromProfileIds: [],
-              signalTypes: input.signalTypes,
-            },
-            ...(viewer.viewerOwnerUserId === null
-              ? {}
-              : { viewerOwnerUserId: viewer.viewerOwnerUserId }),
-            ...(viewer.viewerProfileId === null
-              ? {}
-              : { viewerProfileId: viewer.viewerProfileId }),
-            viewerCreatorProfileIdsByProfileId:
-              viewer.creatorProfileIdByProfileId,
-          }).filter((signal) => signal.id !== input.sourceSignalId),
+          signals: this.redactSignalsForReadViewer(
+            this.loadSignalsAroundAnchor({
+              afterCount: 0,
+              aroundSignalId: input.sourceSignalId,
+              beforeCount: input.beforeCount,
+              filters: {
+                fromProfileIds: [],
+                signalTypes: input.signalTypes,
+              },
+              ...(viewer.viewerOwnerUserId === null
+                ? {}
+                : { viewerOwnerUserId: viewer.viewerOwnerUserId }),
+              ...(viewer.viewerProfileId === null
+                ? {}
+                : { viewerProfileId: viewer.viewerProfileId }),
+              viewerCreatorProfileIdsByProfileId:
+                viewer.creatorProfileIdByProfileId,
+            }).filter((signal) => signal.id !== input.sourceSignalId),
+            viewer
+          ),
         });
       } catch (error) {
         if (error instanceof SpaceHistoryAnchorNotFoundError) {
@@ -11205,9 +13635,42 @@ export class Space extends DurableObject<CoreBindings> {
     const signals = placements
       .map((placement) => this.readSignalById(placement.signalId))
       .filter((signal): signal is SignalEnvelope => signal !== null)
-      .filter((signal) => allowedSignalTypes.has(signal.type))
-      .map((signal) => this.redactSignalForReadViewer(signal, viewer));
-    return Response.json({ nextCursor: null, signals });
+      .filter((signal) => allowedSignalTypes.has(signal.type));
+    return Response.json({
+      nextCursor: null,
+      signals: this.redactSignalsForReadViewer(signals, viewer),
+    });
+  }
+
+  private handleMessageSearch(input: {
+    query: string;
+    cursor: string | null;
+    limit: number;
+    viewerOwnerUserId?: string;
+    viewerProfileId?: string;
+    creatorProfileIdByProfileId?: Record<string, string | null>;
+  }): Response {
+    initializeSpaceMessageSearch(this.ctx.storage.sql);
+    if (!backfillSpaceMessageSearch(this.ctx.storage.sql)) {
+      return Response.json({
+        signals: [],
+        nextCursor: null,
+        searchIndexing: true,
+        threadRoots: {},
+      });
+    }
+    const page = searchSpaceMessages(this.ctx.storage.sql, {
+      query: input.query,
+      before: input.cursor ? Number(input.cursor) : null,
+      limit: Math.min(input.limit, 50),
+    });
+    return Response.json({
+      ...page,
+      searchIndexing: false,
+      signals: page.signals.map((signal) =>
+        redactSignalForViewer({ ...input, signal })
+      ),
+    });
   }
 
   private loadRecentSignals(input: {
@@ -11364,7 +13827,10 @@ export class Space extends DurableObject<CoreBindings> {
       aroundSignalId: input.aroundSignalId,
       beforeCount: input.beforeCount,
       afterCount: input.afterCount,
-      filters: toSignalEntryFilters(input.filters),
+      filters: {
+        ...toSignalEntryFilters(input.filters),
+        mainTimelineOnly: true,
+      },
     });
     if (!entries) {
       throw new SpaceHistoryAnchorNotFoundError(input.aroundSignalId);
@@ -11677,7 +14143,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     await this.ensureAgentOwnerMembershipPolicy(metaRecord);
-    await this.refreshMemberNamesFromAuth();
+    const profileFacts = await this.refreshMemberNamesFromAuth();
 
     const parsed = getSpaceStatusInputSchema.safeParse({
       spaceId: this.spaceId,
@@ -11690,6 +14156,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     const summary = await readSpaceStatusSummaryUseCase({
+      profileFacts,
       sql: this.ctx.storage.sql,
       env: this.bindings,
       spaceId: parsed.data.spaceId,
@@ -11846,7 +14313,8 @@ export class Space extends DurableObject<CoreBindings> {
   private async handleGetMembers(
     context: CoreRpcContextInput,
     bootstrapTiming?: SpaceBootstrapBranchTiming,
-    lineageLoader?: SpaceBootstrapLineageLoader
+    lineageLoader?: SpaceBootstrapLineageLoader,
+    includeAgentReadiness?: boolean
   ): Promise<Response> {
     const metaRecord = await this.readSpaceMetaRecord();
     if (!metaRecord) {
@@ -11855,8 +14323,10 @@ export class Space extends DurableObject<CoreBindings> {
 
     await this.ensureAgentOwnerMembershipPolicy(metaRecord);
 
-    await this.refreshMemberNamesFromAuth();
+    const profileFacts = await this.refreshMemberNamesFromAuth();
     const snapshot = await listSpaceMembersSnapshotUseCase({
+      includeAgentReadiness,
+      profileFacts,
       sql: this.ctx.storage.sql,
       env: this.bindings,
       spaceId: this.spaceId,
@@ -11944,6 +14414,7 @@ export class Space extends DurableObject<CoreBindings> {
         if (
           !profileContext ||
           profileContext.profileKind !== "agent" ||
+          !profileContext.ownerUserId ||
           profileContext.managedRole !== null ||
           agent.profileId === designatedCenterAgentProfileId ||
           profileContext.organizationId !== metaRecord.organizationId
@@ -12087,11 +14558,33 @@ export class Space extends DurableObject<CoreBindings> {
     spacePassword?: string,
     requireActiveActorMembership = false
   ): Promise<Response> {
-    const metaRecord = await this.readSpaceMetaRecord();
+    const body = await request.json().catch(() => null);
+    const parsed = postResolvedSpaceMembersBodySchema.safeParse(body);
+    if (!parsed.success) {
+      return Response.json(
+        {
+          ok: false,
+          code: "invalid_payload",
+          message: parsed.error.issues[0]?.message ?? "Invalid members payload",
+          requestId: context.actorContext.requestId,
+        },
+        { status: 400 }
+      );
+    }
+    let metaRecord = this.readSpaceMetaRecord();
     if (!metaRecord) {
       return this.spaceNotFoundResponse();
     }
 
+    const currentMembership = await this.authorizeCurrentSpaceMembership({
+      context,
+      requestId: context.actorContext.requestId,
+    });
+    if (!currentMembership.ok) {
+      return currentMembership.response;
+    }
+
+    const joinPolicyUpdatedAt = metaRecord.updatedAt;
     const joinAuthorization = await authorizeSpaceJoinAccess({
       context,
       hasActiveMemberForOwnerUserId: (ownerUserId) =>
@@ -12105,25 +14598,54 @@ export class Space extends DurableObject<CoreBindings> {
       spacePassword,
       verifySpacePasswordProof,
     });
-    if (!joinAuthorization.ok) {
+    const linkJoinUserId = resolveHumanSpaceSelfJoinUserId({
+      context,
+      members: parsed.data.members,
+    });
+    const organizationMembership = linkJoinUserId
+      ? await resolveOrganizationMembershipById({
+          env: this.bindings,
+          organizationId: metaRecord.organizationId,
+          userId: linkJoinUserId,
+          requestId: context.actorContext.requestId,
+        })
+      : null;
+    if (
+      organizationMembership &&
+      !organizationMembership.ok &&
+      organizationMembership.status === 503
+    ) {
+      throw createCoreRpcHttpError({
+        status: 503,
+        code: organizationMembership.code,
+        reason: organizationMembership.message,
+      });
+    }
+    // An Organization read may yield. Recheck Space policy before granting.
+    metaRecord = this.readSpaceMetaRecord();
+    if (!metaRecord) {
+      return this.spaceNotFoundResponse();
+    }
+    const externalLinkJoin = organizationMembership?.ok === false;
+    if (externalLinkJoin && !allowsExternalSpaceLinkJoin(metaRecord)) {
+      return this.spaceAccessAuthorizationFailureResponse({
+        code: "space.membership_required",
+        requestId: context.actorContext.requestId,
+      });
+    }
+    const organizationSelfJoin =
+      organizationMembership?.ok === true &&
+      organizationMembership.organizationId === metaRecord.organizationId &&
+      resolveOrganizationSpaceSelfJoinUserId({
+        context,
+        members: parsed.data.members,
+        meta: metaRecord,
+      }) !== null;
+    if (!(organizationSelfJoin || joinAuthorization.ok)) {
       return this.spaceAccessAuthorizationFailureResponse({
         code: joinAuthorization.code,
         requestId: context.actorContext.requestId,
       });
-    }
-
-    const body = await request.json().catch(() => null);
-    const parsed = postResolvedSpaceMembersBodySchema.safeParse(body);
-    if (!parsed.success) {
-      return Response.json(
-        {
-          ok: false,
-          code: "invalid_payload",
-          message: parsed.error.issues[0]?.message ?? "Invalid members payload",
-          requestId: context.actorContext.requestId,
-        },
-        { status: 400 }
-      );
     }
 
     const centerAgentDirectMessageBlock =
@@ -12169,18 +14691,37 @@ export class Space extends DurableObject<CoreBindings> {
       );
     }
 
-    const response = await addSpaceMembersUseCase({
-      sql: this.ctx.storage.sql,
-      env: this.bindings,
-      spaceId: this.spaceId,
-      members: parsed.data.members,
-      actorProfileId: context.actorContext.openMeldProfileId,
-      actorOwnerUserId: context.actorContext.ownerUserId,
-      actorDisplayName:
-        context.actorContext.profileName ?? context.actorContext.ownerName,
-      viewerOwnerUserId: context.actorContext.ownerUserId,
-      viewerProfileId: context.actorContext.openMeldProfileId,
-      liveSessions: this.sessions.values(),
+    // Password and Organization checks may yield. Never commit an admission
+    // against policy that changed while those checks were in flight.
+    if (this.readSpaceMetaRecord()?.updatedAt !== joinPolicyUpdatedAt) {
+      return this.spaceAccessAuthorizationFailureResponse({
+        code: "space.membership_required",
+        requestId: context.actorContext.requestId,
+      });
+    }
+    const response = this.ctx.storage.transactionSync(() => {
+      const result = addSpaceMembersUseCase({
+        sql: this.ctx.storage.sql,
+        env: this.bindings,
+        spaceId: this.spaceId,
+        members: parsed.data.members,
+        actorProfileId: context.actorContext.openMeldProfileId,
+        actorOwnerUserId: context.actorContext.ownerUserId,
+        actorDisplayName:
+          context.actorContext.profileName ?? context.actorContext.ownerName,
+        viewerOwnerUserId: context.actorContext.ownerUserId,
+        viewerProfileId: context.actorContext.openMeldProfileId,
+        liveSessions: this.sessions.values(),
+      });
+      if (externalLinkJoin && linkJoinUserId) {
+        this.ctx.storage.sql.exec(
+          "INSERT INTO space_guest_users (user_id, invitation_id, joined_at) VALUES (?, ?, ?) ON CONFLICT (user_id) DO NOTHING",
+          linkJoinUserId,
+          `public-link:${this.spaceId}`,
+          Date.now()
+        );
+      }
+      return result;
     });
     await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
     if (response.addedMemberIds.length > 0) {
@@ -12387,13 +14928,17 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     try {
+      const current = this.authorizeSpaceManagement(context);
+      if (!current.ok) {
+        return current.response;
+      }
       const response = removeSpaceMembersUseCase({
         sql: this.ctx.storage.sql,
         spaceId: this.spaceId,
         memberProfileIds: parsed.data.memberProfileIds,
         actorProfileId: context.actorContext.openMeldProfileId,
         actorOwnerUserId: context.actorContext.ownerUserId,
-        metaRecord,
+        metaRecord: current.meta,
       });
       await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
       if (response.removedMemberIds.length > 0) {
@@ -12451,7 +14996,7 @@ export class Space extends DurableObject<CoreBindings> {
         spaceId: this.spaceId,
         actorProfileId: context.actorContext.openMeldProfileId,
         actorOwnerUserId: context.actorContext.ownerUserId,
-        metaRecord,
+        metaRecord: this.readSpaceMetaRecord(),
       });
       await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
       await this.broadcastSpaceMembersChanged({
@@ -12597,18 +15142,26 @@ export class Space extends DurableObject<CoreBindings> {
         return centerAgentDirectMessageBlock;
       }
     }
-    if (existingMetaRecord && isSpacePurposePatchBody(body)) {
+    if (existingMetaRecord && isImmutableSpaceMetaPatch(body)) {
       return this.forbiddenResponse(
         context.actorContext.requestId,
         "space.forbidden",
-        "Space purpose is system-managed and cannot be changed through metadata updates."
+        "Space purpose and creator attribution cannot be changed through metadata updates."
       );
     }
-    if (existingMetaRecord && isSpaceNamePatchBody(body)) {
+    if (existingMetaRecord) {
       const authorization = this.authorizeSpaceManagement(context);
       if (!authorization.ok) {
         return authorization.response;
       }
+    }
+    if (Object.hasOwn(body ?? {}, "ownership")) {
+      return this.ctx.blockConcurrencyWhile(() =>
+        this.handleChangeSpaceOwner(body, context)
+      );
+    }
+    if (Object.hasOwn(body ?? {}, "allowGuests")) {
+      return this.handleChangeSpaceGuestAccess(body, context);
     }
     const response = await handlePatchMetaUseCase({
       body,
@@ -12618,29 +15171,208 @@ export class Space extends DurableObject<CoreBindings> {
         toPublicSpaceMeta(meta, this.ctx.storage.sql.databaseSize),
       writer: {
         initializeSpaceMetaRecordIfAbsent: (record) =>
-          initializeSpaceMetaRecordIfAbsent(this.ctx.storage.sql, record),
+          this.initializeOwnedSpace(record),
         readSpaceMetaRecord: () => this.readSpaceMetaRecord(),
         upsertSpaceMetaRecord: (record) =>
           upsertSpaceMetaRecord(this.ctx.storage.sql, record),
       },
     });
-    if (response.ok) {
-      upsertSpaceCreatorFromCurrentMeta({
-        sql: this.ctx.storage.sql,
-        spaceId: this.spaceId,
+    if (!response.ok) {
+      return response;
+    }
+    upsertSpaceCreatorFromCurrentMeta({
+      sql: this.ctx.storage.sql,
+      spaceId: this.spaceId,
+    });
+    await this.projectCurrentSpaceIndexSnapshot(
+      options.initializeIfAbsent ? "space.created" : "space.meta_updated"
+    );
+    if (!options.initializeIfAbsent) {
+      await this.broadcastSpaceMetaChanged({
+        reason: isSpaceNamePatchBody(body)
+          ? "space.name.updated"
+          : "space.meta.updated",
       });
-      await this.projectCurrentSpaceIndexSnapshot(
-        options.initializeIfAbsent ? "space.created" : "space.meta_updated"
-      );
-      if (!options.initializeIfAbsent) {
-        await this.broadcastSpaceMetaChanged({
-          reason: isSpaceNamePatchBody(body)
-            ? "space.name.updated"
-            : "space.meta.updated",
-        });
-      }
     }
     return response;
+  }
+
+  private async handleChangeSpaceGuestAccess(
+    body: unknown,
+    context: CoreRpcContextInput
+  ): Promise<Response> {
+    const parsed = patchSpaceMetaBodySchema.safeParse(body);
+    if (
+      !parsed.success ||
+      typeof parsed.data.allowGuests !== "boolean" ||
+      Object.keys(parsed.data).length !== 1
+    ) {
+      return Response.json(
+        { code: "invalid_payload", message: "Change guest access separately." },
+        { status: 400 }
+      );
+    }
+    const authorization = this.authorizeSpaceManagement(context);
+    if (!authorization.ok) {
+      return authorization.response;
+    }
+    this.ctx.storage.sql.exec(
+      "UPDATE space_meta SET allow_guests = ?, updated_at = ? WHERE space_id = ?",
+      Number(parsed.data.allowGuests),
+      Date.now(),
+      this.spaceId
+    );
+    const updated = this.readSpaceMetaRecord();
+    if (!updated) {
+      return this.spaceNotFoundResponse();
+    }
+    if (!parsed.data.allowGuests) {
+      this.closeAllSessions("space_access_changed");
+    }
+    await this.broadcastSpaceMetaChanged({ reason: "space.meta.updated" });
+    return Response.json(
+      toPublicSpaceMeta(updated, this.ctx.storage.sql.databaseSize)
+    );
+  }
+
+  private async handleChangeSpaceOwner(
+    body: unknown,
+    context: CoreRpcContextInput
+  ): Promise<Response> {
+    const parsed = patchSpaceMetaBodySchema.safeParse(body);
+    if (
+      !(parsed.success && parsed.data.ownership) ||
+      Object.keys(parsed.data).length !== 1
+    ) {
+      return Response.json(
+        {
+          code: "invalid_payload",
+          message: "Change one Space owner's role at a time.",
+        },
+        { status: 400 }
+      );
+    }
+    const initial = this.authorizeSpaceManagement(context);
+    if (!initial.ok) {
+      return initial.response;
+    }
+    const db = identityDb(this.bindings);
+    if (!db) {
+      return Response.json(
+        {
+          code: "space.identity_unavailable",
+          message: "Couldn't verify organization membership. Try again.",
+        },
+        { status: 503 }
+      );
+    }
+    const target = await readResolvedOrganizationOwnerHumanSpaceMember({
+      db,
+      organizationId: initial.meta.organizationId,
+      ownerUserId: parsed.data.ownership.userId,
+    });
+    const targetUserId = target?.ownerUserId;
+    const actorUserId = context.actorContext.ownerUserId;
+    if (!(target && targetUserId && actorUserId)) {
+      return Response.json(
+        {
+          code: "space.owner_membership_required",
+          message:
+            "Choose a current organization member who has joined this Space.",
+        },
+        { status: 409 }
+      );
+    }
+    // The enclosing DO serialization boundary also covers identity I/O and
+    // restrictive references, so concurrent demotions cannot remove all owners.
+    const current = this.authorizeSpaceManagement(context);
+    if (!current.ok) {
+      return current.response;
+    }
+    const member = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      target.profileId
+    );
+    if (member?.status !== "active") {
+      return Response.json(
+        {
+          code: "space.owner_membership_required",
+          message: "This person must join the Space before becoming an owner.",
+        },
+        { status: 409 }
+      );
+    }
+    const next = changeSpaceOwners({
+      ownerUserIds: current.meta.ownerUserIds ?? [],
+      ...parsed.data.ownership,
+    });
+    if (!next.ok) {
+      return Response.json(
+        {
+          code: next.code,
+          message: "Add another owner before removing the last owner.",
+        },
+        { status: 409 }
+      );
+    }
+    const ownership = parsed.data.ownership;
+    const memberReference = await db
+      .prepare(
+        "SELECT id FROM members WHERE organization_id = ? AND user_id = ? LIMIT 1"
+      )
+      .bind(current.meta.organizationId, targetUserId)
+      .first<{ id: string }>();
+    if (!memberReference) {
+      return Response.json(
+        {
+          code: "space.owner_membership_required",
+          message: "This person no longer belongs to the organization.",
+        },
+        { status: 409 }
+      );
+    }
+    if (ownership.role === "owner") {
+      // Protect the organization membership before committing Space ownership.
+      await db
+        .prepare(
+          "INSERT OR IGNORE INTO space_owner_member_references (space_id, member_id) VALUES (?, ?)"
+        )
+        .bind(this.spaceId, memberReference.id)
+        .run();
+    }
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec(
+        "UPDATE space_meta SET owner_user_ids_json = ?, updated_at = ? WHERE space_id = ?",
+        JSON.stringify(next.ownerUserIds),
+        Date.now(),
+        this.spaceId
+      );
+      this.ctx.storage.sql.exec(
+        "INSERT INTO space_ownership_audit (id, actor_user_id, target_user_id, role, created_at) VALUES (?, ?, ?, ?, ?)",
+        crypto.randomUUID(),
+        actorUserId,
+        targetUserId,
+        ownership.role,
+        Date.now()
+      );
+    });
+    const updated = this.readSpaceMetaRecord();
+    if (!updated) {
+      return this.spaceNotFoundResponse();
+    }
+    if (ownership.role === "member") {
+      await db
+        .prepare(
+          "DELETE FROM space_owner_member_references WHERE space_id = ? AND member_id = ?"
+        )
+        .bind(this.spaceId, memberReference.id)
+        .run();
+    }
+    await this.projectCurrentSpaceIndexSnapshot("space.meta_updated");
+    await this.broadcastSpaceMetaChanged({ reason: "space.meta.updated" });
+    return Response.json(
+      toPublicSpaceMeta(updated, this.ctx.storage.sql.databaseSize)
+    );
   }
 
   private async handlePutContract(
@@ -12650,6 +15382,10 @@ export class Space extends DurableObject<CoreBindings> {
   ): Promise<Response> {
     if (!(await this.readSpaceMetaRecord())) {
       return this.spaceNotFoundResponse();
+    }
+    const management = this.authorizeSpaceManagement(context);
+    if (!management.ok) {
+      return management.response;
     }
 
     const body = await request.json().catch(() => null);
@@ -12685,6 +15421,10 @@ export class Space extends DurableObject<CoreBindings> {
   ): Promise<Response> {
     if (!(await this.readSpaceMetaRecord())) {
       return this.spaceNotFoundResponse();
+    }
+    const management = this.authorizeSpaceManagement(context);
+    if (!management.ok) {
+      return management.response;
     }
 
     const body = await request.json().catch(() => null);
@@ -12726,7 +15466,7 @@ export class Space extends DurableObject<CoreBindings> {
         toPublicSpaceMeta(meta, this.ctx.storage.sql.databaseSize),
       writer: {
         initializeSpaceMetaRecordIfAbsent: (record) =>
-          initializeSpaceMetaRecordIfAbsent(this.ctx.storage.sql, record),
+          this.initializeOwnedSpace(record),
       },
       passwordTooShortResponse: (requestId) =>
         this.passwordTooShortResponse(requestId),
@@ -12839,7 +15579,16 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
-  private async handleDeleteSpace(
+  private handleDeleteSpace(
+    request: Request,
+    context: CoreRpcContextInput
+  ): Promise<Response> {
+    return this.ctx.blockConcurrencyWhile(() =>
+      this.deleteSpace(request, context)
+    );
+  }
+
+  private async deleteSpace(
     request: Request,
     context: CoreRpcContextInput
   ): Promise<Response> {
@@ -12888,7 +15637,15 @@ export class Space extends DurableObject<CoreBindings> {
       metaRecord: existing,
     });
 
-    this.closeAllSessionsForSpaceDeletion();
+    this.closeAllSessions("space_deleted");
+    const ownershipDb = identityDb(this.bindings);
+    if (!ownershipDb) {
+      throw new Error("Space ownership storage is unavailable.");
+    }
+    await ownershipDb
+      .prepare("DELETE FROM space_owner_member_references WHERE space_id = ?")
+      .bind(this.spaceId)
+      .run();
     deleteAllSqlSpaceData(this.ctx.storage.sql);
     await this.ctx.storage.deleteAll();
     ensureSpaceSqlSchema(this.ctx.storage.sql);
@@ -12900,6 +15657,48 @@ export class Space extends DurableObject<CoreBindings> {
       spaceId: this.spaceId,
       deleted: true as const,
     });
+  }
+
+  private async initializeOwnedSpace(
+    record: SpaceMetaRecord
+  ): Promise<SpaceMetaRecord> {
+    const existing = this.readSpaceMetaRecord();
+    if (existing) {
+      return existing;
+    }
+    const userId = record.creator?.ownerUserId;
+    if (!userId) {
+      throw new Error("A Space must have an organization member as its owner.");
+    }
+    await this.protectSpaceOwnerMembership(record.organizationId, userId);
+    return initializeSpaceMetaRecordIfAbsent(this.ctx.storage.sql, record);
+  }
+
+  private async protectSpaceOwnerMembership(
+    organizationId: string,
+    userId: string
+  ): Promise<void> {
+    const db = identityDb(this.bindings);
+    if (!db) {
+      throw new Error("Space ownership storage is unavailable.");
+    }
+    const member = await db
+      .prepare(
+        "SELECT id FROM members WHERE organization_id = ? AND user_id = ? LIMIT 1"
+      )
+      .bind(organizationId, userId)
+      .first<{ id: string }>();
+    if (!member) {
+      throw new Error("The Space owner must belong to the organization.");
+    }
+    // The restrictive reference is installed before Space truth is committed.
+    // Auth cannot delete this membership between verification and creation.
+    await db
+      .prepare(
+        "INSERT OR IGNORE INTO space_owner_member_references (space_id, member_id) VALUES (?, ?)"
+      )
+      .bind(this.spaceId, member.id)
+      .run();
   }
 
   private async projectCurrentSpaceIndexSnapshot(
@@ -13006,10 +15805,39 @@ export class Space extends DurableObject<CoreBindings> {
       const targetInboxDb = inboxDb(this.bindings);
       const result = await attemptSpaceInboxProjectionOutboxRecord({
         db: targetInboxDb,
+        canReceiveAgentActivity: (candidate) => {
+          const reply =
+            candidate.kind === "agent_reply"
+              ? this.readSignalById(candidate.sourceKey)
+              : null;
+          return canReceivePersonalAgentActivity({
+            db: this.requireSpaceIndexDb(),
+            organizationId: candidate.organizationId,
+            userId: candidate.recipientUserId,
+            agentProfileIds: listSpaceMemberRecords(this.ctx.storage.sql, {
+              status: "active",
+            })
+              .filter(
+                (member) =>
+                  member.profileKindSnapshot === "agent" &&
+                  (!candidate.sourceFacts ||
+                    candidate.sourceFacts.personalAgentProfileIds?.includes(
+                      member.profileId
+                    )) &&
+                  (candidate.kind !== "agent_reply" ||
+                    (reply?.type === "signal.text" &&
+                      reply.profile.kind === "agent" &&
+                      reply.profile.profileId === member.profileId))
+              )
+              .map((member) => member.profileId),
+          });
+        },
         isRecipientEligible: async (candidate) =>
           await resolveSpaceInboxRecipientEligibility({
             candidate,
             hasActiveSpaceMembership:
+              (candidate.sourceTarget.kind === "space" &&
+                candidate.sourceTarget.agentOwnerActivity === true) ||
               hasActiveHumanSpaceMemberRecordForOwnerUserId(
                 this.ctx.storage.sql,
                 candidate.recipientUserId
@@ -13184,16 +16012,84 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
+  private async authorizeCurrentSpaceMembership(input: {
+    context?: CoreRpcContextInput;
+    requestId: string;
+    spacePassword?: string;
+  }): Promise<PasswordAuthorizationResult> {
+    let meta = this.readSpaceMetaRecord();
+    if (!meta) {
+      return { ok: false, response: this.spaceNotFoundResponse() };
+    }
+    const userId = input.context?.actorContext.ownerUserId;
+    if (
+      userId &&
+      hasActiveSpaceMemberRecordForOwnerUserId(this.ctx.storage.sql, userId)
+    ) {
+      const membership = await resolveOrganizationMembershipById({
+        env: this.bindings,
+        organizationId: meta.organizationId,
+        userId,
+      });
+      // Membership lookup yields; do not authorize against an old guest policy.
+      meta = this.readSpaceMetaRecord();
+      if (!meta) {
+        return { ok: false, response: this.spaceNotFoundResponse() };
+      }
+      if (!membership.ok) {
+        if (membership.status === 503) {
+          throw createCoreRpcHttpError({
+            status: 503,
+            code: membership.code,
+            reason: membership.message,
+          });
+        }
+        const guest =
+          meta.allowGuests &&
+          [
+            ...this.ctx.storage.sql.exec(
+              "SELECT user_id FROM space_guest_users WHERE user_id = ?",
+              userId
+            ),
+          ].length > 0;
+        const profileId = input.context?.actorContext.openMeldProfileId;
+        const db = identityDb(this.bindings);
+        const agent =
+          input.context?.actorContext.profileKind === "agent" && profileId && db
+            ? await readAgentProfileOrganizationContext({
+                agentProfileId: profileId,
+                db,
+              })
+            : null;
+        const managedAgent =
+          agent?.profileKind === "agent" &&
+          agent.managedRole !== null &&
+          agent.organizationId === meta.organizationId;
+        if (!(guest || managedAgent)) {
+          return {
+            ok: false,
+            response: this.spaceAccessAuthorizationFailureResponse({
+              code: "space.membership_required",
+              requestId: input.requestId,
+            }),
+          };
+        }
+      }
+    }
+
+    return { ok: true, meta };
+  }
+
   private async authorizeSpacePasswordAccess(input: {
     context?: CoreRpcContextInput;
     requestId: string;
     spacePassword?: string;
   }): Promise<PasswordAuthorizationResult> {
-    const meta = this.readSpaceMetaRecord();
-    if (!meta) {
-      return { ok: false, response: this.spaceNotFoundResponse() };
+    const membership = await this.authorizeCurrentSpaceMembership(input);
+    if (!membership.ok) {
+      return membership;
     }
-
+    const meta = membership.meta;
     const authorization = await authorizeProtectedSpaceAccess({
       context: input.context,
       hasActiveMemberForOwnerUserId: (ownerUserId) =>
@@ -13228,53 +16124,14 @@ export class Space extends DurableObject<CoreBindings> {
       return { ok: false, response: this.spaceNotFoundResponse() };
     }
 
-    const creatorProfileId = normalizeSpaceCreatorProfileId(meta.creator);
-    if (!creatorProfileId) {
+    const authorization = authorizeSpaceMemberRemoval({ meta, context });
+    if (!authorization.ok) {
       return {
         ok: false,
         response: this.forbiddenResponse(
           context.actorContext.requestId,
-          "space.forbidden",
-          "space creator is missing; Space management is not authorized"
-        ),
-      };
-    }
-
-    if (meta.creator?.kind === "agent") {
-      const creatorOwnerUserId = normalizeSpaceCreatorOwnerUserId(meta.creator);
-      if (context.actorContext.profileKind !== "human") {
-        return {
-          ok: false,
-          response: this.forbiddenResponse(
-            context.actorContext.requestId,
-            "space.forbidden",
-            "agent-created spaces require owner human confirmation"
-          ),
-        };
-      }
-      if (
-        !creatorOwnerUserId ||
-        context.actorContext.ownerUserId !== creatorOwnerUserId
-      ) {
-        return {
-          ok: false,
-          response: this.forbiddenResponse(
-            context.actorContext.requestId,
-            "space.forbidden",
-            "Space management is only allowed for the owner human"
-          ),
-        };
-      }
-      return { ok: true, meta };
-    }
-
-    if (context.actorContext.openMeldProfileId !== creatorProfileId) {
-      return {
-        ok: false,
-        response: this.forbiddenResponse(
-          context.actorContext.requestId,
-          "space.forbidden",
-          "Space management is only allowed for the creator profile"
+          authorization.code,
+          authorization.message
         ),
       };
     }
@@ -13604,6 +16461,10 @@ export class Space extends DurableObject<CoreBindings> {
       type: "signal.text",
       data: {
         text,
+        ...(options?.deviceWait ? { deviceWait: options.deviceWait } : {}),
+        ...(options?.contextSelection
+          ? { contextSelection: options.contextSelection }
+          : {}),
         ...(options?.attachments ? { attachments: options.attachments } : {}),
         ...(options?.files ? { files: options.files } : {}),
         ...(options?.messageEnvelope
@@ -13695,31 +16556,88 @@ export class Space extends DurableObject<CoreBindings> {
       | SpaceAgentStreamPartFrame
       | SpaceAgentStreamTerminalFrame
   ) {
-    const quitters: Session[] = [];
+    if (this.sessions.size === 0) {
+      return;
+    }
+    this.liveBroadcastDelivery = this.liveBroadcastDelivery
+      .then(() => this.deliverAuthorizedLiveMessage(message))
+      .catch((error) => {
+        console.error("[core.space.live_access_check_failed]", {
+          spaceId: this.spaceId,
+          error: formatUnknownErrorMessage(error),
+        });
+        this.closeAllSessions("space_access_changed");
+      });
+    this.ctx.waitUntil(this.liveBroadcastDelivery);
+  }
 
-    this.sessions.forEach((session, ws) => {
-      if (session.profile) {
-        const encoded = this.encodeLiveMessageForSession(message, session);
-        try {
-          ws.send(encoded);
-        } catch {
+  private async authorizeLiveSession(session: Session): Promise<boolean> {
+    const profile = session.enforcedProfile ?? session.profile;
+    const userId = session.viewerOwnerUserId;
+    if (!profile) {
+      return false;
+    }
+    const access = await this.authorizeSpacePasswordAccess({
+      requestId: crypto.randomUUID(),
+      spacePassword: session.spacePassword,
+      context: {
+        actorContext: {
+          requestId: crypto.randomUUID(),
+          callerPrincipalId: userId ?? profile.profileId,
+          ownerUserId: userId,
+          openMeldProfileId: session.viewerProfileId ?? profile.profileId,
+          profileKind: profile.kind,
+        },
+      },
+    });
+    return access.ok;
+  }
+
+  private async deliverAuthorizedLiveMessage(
+    message: Parameters<Space["encodeLiveMessageForSession"]>[0]
+  ): Promise<void> {
+    const quitters: Session[] = [];
+    await Promise.all(
+      [...this.sessions].map(async ([ws, session]) => {
+        if (!(await this.authorizeLiveSession(session))) {
           removeFailedSpaceWebSocketSession({
-            closeCode: 1011,
-            closeReason: "broadcast_send_failed",
+            closeCode: 1008,
+            closeReason: "space_access_changed",
             session,
             sessions: this.sessions,
             webSocket: ws,
           });
-          quitters.push(session);
+          return;
         }
-        return;
-      }
+        if (this.sessions.get(ws) !== session || session.quit) {
+          return;
+        }
+        if (session.profile) {
+          const encoded = this.encodeLiveMessageForSession(message, session);
+          if (encoded === null) {
+            return;
+          }
+          try {
+            ws.send(encoded);
+          } catch {
+            removeFailedSpaceWebSocketSession({
+              closeCode: 1011,
+              closeReason: "broadcast_send_failed",
+              session,
+              sessions: this.sessions,
+              webSocket: ws,
+            });
+            quitters.push(session);
+          }
+          return;
+        }
 
-      if (!session.blocked) {
-        session.blocked = [];
-      }
-      session.blocked.push(message);
-    });
+        if (!session.blocked) {
+          session.blocked = [];
+        }
+        session.blocked.push(message);
+      })
+    );
 
     // If any sockets broke while sending, notify remaining members once.
     for (const quitter of quitters) {
@@ -13740,7 +16658,7 @@ export class Space extends DurableObject<CoreBindings> {
       | SpaceAgentStreamPartFrame
       | SpaceAgentStreamTerminalFrame,
     session: Session
-  ): string {
+  ): string | null {
     if (typeof message === "string") {
       return message;
     }
@@ -13776,7 +16694,11 @@ export class Space extends DurableObject<CoreBindings> {
       return JSON.stringify(message);
     }
     if (isSpaceAgentStreamFrame(message)) {
-      return JSON.stringify(message);
+      const projected = agentStreamForReplyPlacementReader(
+        message,
+        session.supportsAgentReplyPlacement === true
+      );
+      return projected ? JSON.stringify(projected) : null;
     }
     return JSON.stringify(
       spaceAddressingWireValueForSession(
@@ -13815,6 +16737,16 @@ export class Space extends DurableObject<CoreBindings> {
   private async broadcastSpaceFilesChanged(reason: string): Promise<void> {
     const frame: SpaceLiveInvalidationFrame = {
       type: "space.files.changed",
+      spaceId: this.spaceId,
+      version: await this.nextLiveInvalidationVersion(),
+      reason,
+    };
+    this.broadcast(frame);
+  }
+
+  private async broadcastSpaceTasksChanged(reason: string): Promise<void> {
+    const frame: SpaceLiveInvalidationFrame = {
+      type: "space.tasks.changed",
       spaceId: this.spaceId,
       version: await this.nextLiveInvalidationVersion(),
       reason,
@@ -13891,16 +16823,18 @@ export class Space extends DurableObject<CoreBindings> {
     this.broadcast(frame);
   }
 
-  private closeAllSessionsForSpaceDeletion(): void {
+  private closeAllSessions(
+    reason: "space_deleted" | "space_access_changed"
+  ): void {
     for (const session of this.sessions.values()) {
       session.quit = true;
     }
 
     for (const socket of this.ctx.getWebSockets()) {
       try {
-        socket.close(1008, "space_deleted");
+        socket.close(1008, reason);
       } catch {
-        // Best-effort websocket shutdown before durable object data deletion.
+        // The runtime may already have closed this socket.
       }
     }
     this.sessions.clear();
@@ -13918,6 +16852,10 @@ export class Space extends DurableObject<CoreBindings> {
     const dispatchMessages: OpenMeldDaemonDispatchQueueMessage[] = [];
     let duplicateFinalReplyBlocked = false;
     let persistedSignal = false;
+    let repostedSource: Extract<
+      SignalEnvelope,
+      { type: "signal.text" }
+    > | null = null;
     const persistNowMs = Date.now();
     if (signal.type === "signal.text") {
       assertCurrentSpaceAddressingTargetsAreActiveMembers({
@@ -13958,6 +16896,10 @@ export class Space extends DurableObject<CoreBindings> {
               return;
             }
             this.insertThreadPlacementForPublishedSignal(signal, signalContext);
+            repostedSource = completeRecalledMessageRepost(
+              this.ctx.storage.sql,
+              signal
+            );
             this.insertSpaceInboxProjectionForPublishedSignal({
               nowMs: persistNowMs,
               signal,
@@ -14002,6 +16944,7 @@ export class Space extends DurableObject<CoreBindings> {
         );
       },
     });
+    this.broadcastRepostedSource(repostedSource);
     this.maybeEmitRetentionWarningSignal({
       signal,
       createOutboxRecord,
@@ -14031,7 +16974,32 @@ export class Space extends DurableObject<CoreBindings> {
     };
   }
 
-  private persistTextSignalWithOptionalOutbox(
+  private broadcastRepostedSource(repostedSource: SignalEnvelope | null) {
+    if (repostedSource) {
+      const placement = readSpaceThreadSignalPlacementBySignalId(
+        this.ctx.storage.sql,
+        repostedSource.id
+      );
+      const thread = placement
+        ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
+        : null;
+      this.broadcastSignal(
+        repostedSource,
+        thread
+          ? {
+              threadContext: {
+                rootSignalId: thread.rootSignalId,
+                threadId: thread.threadId,
+              },
+              threadPlacement: placement?.placement,
+            }
+          : undefined,
+        { persisted: true }
+      );
+    }
+  }
+
+  private async persistTextSignalWithOptionalOutbox(
     signal: SignalEnvelope,
     createOutboxRecord: boolean,
     signalContext?: SignalPublishContext
@@ -14053,6 +17021,7 @@ export class Space extends DurableObject<CoreBindings> {
     const dispatchMessages: OpenMeldDaemonDispatchQueueMessage[] = [];
     let duplicateFinalReplyBlocked = false;
     let persistedSignal = false;
+    let repostedSource: SignalEnvelope | null = null;
     const persistNowMs = Date.now();
     if (signal.type === "signal.text") {
       assertCurrentSpaceAddressingTargetsAreActiveMembers({
@@ -14060,9 +17029,18 @@ export class Space extends DurableObject<CoreBindings> {
         sql: this.ctx.storage.sql,
       });
     }
+    const meta = this.readSpaceMetaRecord();
+    const callerContext = meta
+      ? await this.readSpaceCallerContext(
+          meta,
+          signal.profile.profileId,
+          signal.profile.kind
+        )
+      : undefined;
     const preparedDispatchOutboxPlan = this.prepareDispatchOutboxPlanForSignal(
       signal,
-      signalContext
+      signalContext,
+      callerContext
     );
     const retentionResult = persistSignalWithRetention({
       insertSignal: () => {
@@ -14088,6 +17066,10 @@ export class Space extends DurableObject<CoreBindings> {
               return;
             }
             this.insertThreadPlacementForPublishedSignal(signal, signalContext);
+            repostedSource = completeRecalledMessageRepost(
+              this.ctx.storage.sql,
+              signal
+            );
             this.insertSpaceInboxProjectionForPublishedSignal({
               nowMs: persistNowMs,
               signal,
@@ -14132,6 +17114,7 @@ export class Space extends DurableObject<CoreBindings> {
         );
       },
     });
+    this.broadcastRepostedSource(repostedSource);
     this.maybeEmitRetentionWarningSignal({
       signal,
       createOutboxRecord,
@@ -14216,11 +17199,41 @@ export class Space extends DurableObject<CoreBindings> {
     });
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords,
+      firstContactAgentProfileIds: recordSpaceInboxFirstContacts({
+        activeMemberRecords,
+        archiveCursorTs:
+          this.ctx.storage.sql
+            .exec<{ archive_cursor_ts: number | null }>(
+              "SELECT archive_cursor_ts FROM space_meta WHERE space_id = ?",
+              this.spaceId
+            )
+            .toArray()[0]?.archive_cursor_ts ?? null,
+        directMessage: isDirectMessageSpace({
+          purpose: metaRecord.purpose,
+          directMessageConvertedAt: metaRecord.directMessage?.convertedAt,
+          activeMemberCount: activeMemberRecords.length,
+        }),
+        organizationId: metaRecord.organizationId,
+        signal: input.signal,
+        signalContext: input.signalContext,
+        sql: this.ctx.storage.sql,
+      }),
+      directMessage: isDirectMessageSpace({
+        purpose: metaRecord.purpose,
+        directMessageConvertedAt: metaRecord.directMessage?.convertedAt,
+        activeMemberCount: activeMemberRecords.length,
+      }),
       nowMs: input.nowMs,
       organizationId: metaRecord.organizationId,
       signal: input.signal,
       signalContext: input.signalContext,
       spaceName: metaRecord.name ?? null,
+      threadParticipantProfileIds: input.signalContext?.threadContext
+        ? readThreadParticipants(
+            this.ctx.storage.sql,
+            input.signalContext.threadContext.threadId
+          ).map((participant) => participant.profileId)
+        : undefined,
       threadRootAuthorUserId: this.resolveSpaceInboxThreadRootAuthorUserId({
         activeMemberRecords,
         signalContext: input.signalContext,
@@ -14359,7 +17372,10 @@ export class Space extends DurableObject<CoreBindings> {
 
   private prepareDispatchOutboxPlanForSignal(
     signal: SignalEnvelope,
-    signalContext?: SignalPublishContext
+    signalContext?: SignalPublishContext,
+    callerContext?: NonNullable<
+      OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
+    >["callerContext"]
   ): PreparedDispatchOutboxPlan {
     const plannerContext = readDispatchPlannerContextForSignal({
       readSpaceContractRecord:
@@ -14371,6 +17387,11 @@ export class Space extends DurableObject<CoreBindings> {
       sql: this.ctx.storage.sql,
     });
     if (!plannerContext) {
+      assertWakeDeviceWaitAuthoring({
+        signal,
+        targetProfileIds: [],
+        nowMs: Date.now(),
+      });
       assertVisibleWakeHasPlannerContext(signal, signalContext);
       return {
         nonReadyDecisions: [],
@@ -14394,6 +17415,13 @@ export class Space extends DurableObject<CoreBindings> {
       nonReadyDecisions,
       signal,
       signalContext,
+    });
+    assertWakeDeviceWaitAuthoring({
+      signal,
+      targetProfileIds: mergedReadyDecisions.map(
+        (decision) => decision.targetProfileId
+      ),
+      nowMs: Date.now(),
     });
     const activeMemberRecords = listSpaceMemberRecords(this.ctx.storage.sql, {
       status: "active",
@@ -14458,9 +17486,73 @@ export class Space extends DurableObject<CoreBindings> {
       );
 
     const outboxRecords: OpenMeldDaemonDispatchOutboxRecord[] = [];
+    const explicitQuotedSignalId =
+      signal.type === "signal.text"
+        ? (signal.data.messageEnvelope?.replyToSignalId ??
+          signal.data.replyTo?.signalId)
+        : null;
+    const quotedSignalId =
+      explicitQuotedSignalId ?? signalContext?.threadContext?.rootSignalId;
+    const quotedMessage = quotedSignalId
+      ? buildDispatchQuotedMessage({
+          signalId: quotedSignalId,
+          signal: this.readSignalById(quotedSignalId),
+        })
+      : undefined;
+    const sourceThreadId = signalContext?.threadContext?.threadId ?? null;
+    const contextMessages = buildBareMentionContext({
+      source: signal,
+      mentionTexts: [...activeMemberByProfileId.values()].flatMap((member) => [
+        `@${member.profileId}`,
+        `@${member.profileNameSnapshot}`,
+        ...(effectiveMentionLabelByProfileId.has(member.profileId)
+          ? [`@${effectiveMentionLabelByProfileId.get(member.profileId)}`]
+          : []),
+      ]),
+      quotedSignal: explicitQuotedSignalId
+        ? this.readSignalById(explicitQuotedSignalId)
+        : null,
+      rootSignal: signalContext?.threadContext
+        ? this.readSignalById(signalContext.threadContext.rootSignalId)
+        : null,
+      readRecentSignals: () =>
+        recentSignals
+          .toReversed()
+          .filter(
+            (candidate) =>
+              candidate.profile.profileId === signal.profile.profileId &&
+              candidate.ts <= signal.ts &&
+              candidate.id !== signal.id
+          )
+          .slice(0, 20)
+          .filter((candidate) => {
+            const placement = readSpaceThreadSignalPlacementBySignalId(
+              this.ctx.storage.sql,
+              candidate.id
+            );
+            return (
+              (placement?.placement === "thread"
+                ? placement.threadId
+                : null) === sourceThreadId
+            );
+          }),
+    });
+    const pinnedFiles = this.readFilePins()
+      .pins.slice(0, 100)
+      .map(({ file }) => ({
+        fileId: file.id,
+        name: file.name,
+        revision: file.latestRevision.revision,
+        mimeType: file.latestRevision.mimeType,
+        sizeBytes: file.latestRevision.sizeBytes,
+      }));
     for (const decision of mergedReadyDecisions) {
       outboxRecords.push(
         createPreparedDispatchOutboxRecordForDecision({
+          callerContext,
+          quotedMessage,
+          contextMessages,
+          pinnedFiles,
           spaceId: this.spaceId,
           organizationId: spaceMeta.organizationId,
           ownerCreatorProfileIdsByOwnerUserId:
@@ -14497,6 +17589,47 @@ export class Space extends DurableObject<CoreBindings> {
       nonReadyDecisions,
       outboxRecords,
       plannerContext,
+    };
+  }
+
+  private async readSpaceCallerContext(
+    meta: SpaceMetaRecord,
+    profileId: string,
+    profileKind: "human" | "agent" | "system"
+  ): Promise<
+    NonNullable<
+      NonNullable<
+        OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
+      >["callerContext"]
+    >
+  > {
+    const member = readSpaceMemberRecord(this.ctx.storage.sql, profileId);
+    const userId = member?.ownerUserIdSnapshot;
+    const db = identityDb(this.bindings);
+    if (!db) {
+      throw new Error("Caller identity storage is unavailable.");
+    }
+    const organizationMember = userId
+      ? await db
+          .prepare(
+            "SELECT id FROM members WHERE organization_id = ? AND user_id = ? LIMIT 1"
+          )
+          .bind(meta.organizationId, userId)
+          .first<{ id: string }>()
+      : null;
+    const humanRelationship = organizationMember ? "internal" : "external";
+    const relationship =
+      profileKind === "human" ? humanRelationship : profileKind;
+    const owner =
+      profileKind === "human" && userId && meta.ownerUserIds?.includes(userId);
+    const membershipRole = member?.status === "active" ? "member" : "visitor";
+    return {
+      relationship,
+      spaceRole: owner ? "owner" : membershipRole,
+      audience:
+        meta.allowGuests || meta.accessMode !== "members_only"
+          ? "external"
+          : "organization",
     };
   }
 
@@ -14746,18 +17879,14 @@ export class Space extends DurableObject<CoreBindings> {
       return { status: enqueued ? "enqueued" : "queue_unavailable" };
     }
 
-    const outcome =
-      deliveryMode === DISPATCH_OUTBOX_PRODUCTION_DIRECT_DELIVERY_MODE
-        ? await dispatchProductionOutboxMessageDirectly({
-            ctx: this.ctx,
-            env: this.bindings,
-            message,
-          })
-        : await dispatchOutboxMessageDirectly({
-            ctx: this.ctx,
-            env: this.bindings,
-            message,
-          });
+    // Local and staging acceptance must exercise the production ownership
+    // boundary: workstation retries stay in this outbox, hosted recovery may
+    // use Queue only after authoritative runtime classification.
+    const outcome = await dispatchOutboxMessageDirectly({
+      ctx: this.ctx,
+      env: this.bindings,
+      message,
+    });
     if (outcome.status === "submitted") {
       markDispatchOutboxHandedOff(this.ctx.storage.sql, {
         dispatchId: message.dispatchId,
@@ -14878,6 +18007,24 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   private async flushPendingDispatchOutbox(): Promise<void> {
+    if (this.dispatchOutboxFlush) {
+      await this.dispatchOutboxFlush;
+      return;
+    }
+    const flush = this.runPendingDispatchOutboxFlush();
+    this.dispatchOutboxFlush = flush;
+    try {
+      await flush;
+    } finally {
+      this.dispatchOutboxFlush = null;
+    }
+  }
+
+  private async runPendingDispatchOutboxFlush(): Promise<void> {
+    if (this.dispatchOutboxRetryNotBeforeMs > Date.now()) {
+      await this.syncDispatchOutboxAlarm();
+      return;
+    }
     this.dispatchOutboxContinuationDueAtMs = null;
     const nowMs = Date.now();
     const handedOffRedriveBeforeMs = nowMs - OUTBOX_HANDED_OFF_REDRIVE_AFTER_MS;
@@ -14932,9 +18079,8 @@ export class Space extends DurableObject<CoreBindings> {
     let advancedCandidateCount = 0;
     await processDispatchOutboxCandidates({
       candidates: recoveryCandidates,
-      onCandidateFailure: (candidate, error) => {
-        this.recordOutboxCandidateFailure(candidate, logContext, error, nowMs);
-      },
+      onCandidateFailure: (candidate, error) =>
+        this.recordOutboxCandidateFailure(candidate, logContext, error, nowMs),
       processCandidate: async (candidate) => {
         const advanced = await this.redriveHandedOffOutboxCandidate(
           candidate,
@@ -15053,6 +18199,21 @@ export class Space extends DurableObject<CoreBindings> {
     error: unknown,
     nowMs: number
   ): Promise<void> {
+    if (isD1OverloadedError(formatUnknownErrorMessage(error))) {
+      this.dispatchOutboxRetryNotBeforeMs =
+        Date.now() + OUTBOX_ALARM_REDRIVE_INTERVAL_MS;
+      console.warn("[core.openmeld.space.outbox.storage_retry_deferred]", {
+        dispatchId: candidate.dispatchId,
+        event: "core.openmeld.space.outbox.storage_retry_deferred",
+        error: formatUnknownErrorMessage(error),
+        reasonCode: DISPATCH_STORAGE_OVERLOADED_ERROR_CODE,
+        retryNotBeforeMs: this.dispatchOutboxRetryNotBeforeMs,
+        sourceEventId: candidate.sourceEventId,
+        spaceId: this.spaceId,
+        targetProfileId: candidate.targetProfileId,
+      });
+      return;
+    }
     const reasonCode = "outbox.candidate_exception";
     let poisonState: ReturnType<typeof recordDispatchOutboxCandidateFailure>;
     try {
@@ -15582,6 +18743,9 @@ export class Space extends DurableObject<CoreBindings> {
 
     return {
       text,
+      ...(signal.data.meta?.workHandoff
+        ? { workHandoff: signal.data.meta.workHandoff }
+        : {}),
       profileId: String(signal.profile?.profileId ?? "").trim() || null,
       profileKind:
         signal.profile.kind === "agent" ||
@@ -15726,7 +18890,7 @@ export class Space extends DurableObject<CoreBindings> {
           db: bindingDb,
           owner: { id: ownerUserId, kind: "owner_account" },
         });
-        return binding?.runtimeKind === "hosted_center_agent"
+        return isHostedAgentRuntimeKind(binding?.runtimeKind)
           ? "admission_incomplete"
           : "not_applicable";
       }
@@ -15955,6 +19119,7 @@ export class Space extends DurableObject<CoreBindings> {
     includePreviewText?: boolean;
     includeSourceContext?: boolean;
     includeWaitReason?: boolean;
+    includeDeviceWait?: boolean;
     includeWakeStopEligibility?: boolean;
     sourceSignalId?: string | null;
     targetProfileId?: string;
@@ -16048,6 +19213,7 @@ export class Space extends DurableObject<CoreBindings> {
             clientMessageId,
             includeTiming: input.includeTiming === true,
             includeWaitReason: input.includeWaitReason === true,
+            includeDeviceWait: input.includeDeviceWait === true,
             includeWakeStopEligibility:
               input.includeWakeStopEligibility === true,
             lookupMatch,
@@ -16101,6 +19267,7 @@ export class Space extends DurableObject<CoreBindings> {
         ? this.attachWakeProgressSourceContexts(items)
         : items;
     const responseItems = projectWakeProgressItemsForClient({
+      includeDeviceWait: input.includeDeviceWait === true,
       includePreviewText: input.includePreviewText === true,
       items: contextualItems,
     });
@@ -16179,6 +19346,7 @@ export class Space extends DurableObject<CoreBindings> {
 
   private async readActiveWakeProgressOwnerEvidence(input: {
     db: D1Database;
+    includeTiming?: boolean;
     includePageInfo: boolean;
     sourceProfileId: string | null;
     targetProfileId: string | null;
@@ -16205,6 +19373,7 @@ export class Space extends DurableObject<CoreBindings> {
     const [executions, activeNativeDeliveries] = await Promise.all([
       listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
         db: input.db,
+        includeTiming: input.includeTiming,
         limit: ownerReadLimit,
         ...sourceFilter,
         spaceId: this.spaceId,
@@ -16233,6 +19402,7 @@ export class Space extends DurableObject<CoreBindings> {
     includePageInfo?: boolean;
     includeSourceContext?: boolean;
     includeWaitReason?: boolean;
+    includeDeviceWait?: boolean;
     includeWakeStopEligibility?: boolean;
     sourceProfileId?: string;
     targetProfileId?: string;
@@ -16244,6 +19414,7 @@ export class Space extends DurableObject<CoreBindings> {
     const { activeNativeDeliveries, executions, outboxRecords } =
       await this.readActiveWakeProgressOwnerEvidence({
         db: input.db,
+        includeTiming: input.includeTiming,
         includePageInfo: input.includePageInfo === true,
         sourceProfileId,
         targetProfileId,
@@ -16302,8 +19473,8 @@ export class Space extends DurableObject<CoreBindings> {
                 sourceSignalId ??
                 outboxRecord?.sourceEventId ??
                 null,
-              ...(input.includeTiming === true
-                ? { startedAtMs: execution.createdAtMs }
+              ...(input.includeTiming === true && execution.runningAtMs !== null
+                ? { startedAtMs: execution.runningAtMs }
                 : {}),
               targetLabel,
               targetProfileId: execution.targetProfileId,
@@ -16411,6 +19582,7 @@ export class Space extends DurableObject<CoreBindings> {
         },
         ...(page.pageInfo ? { pageInfo: page.pageInfo } : {}),
         items: projectWakeProgressItemsForClient({
+          includeDeviceWait: input.includeDeviceWait === true,
           includePreviewText: input.includePreviewText === true,
           items:
             input.includeSourceContext === true
@@ -16467,6 +19639,7 @@ export class Space extends DurableObject<CoreBindings> {
           includePreviewText: input.includePreviewText === true,
           includeSourceContext: false,
           includeWaitReason: input.includeWaitReason === true,
+          includeDeviceWait: input.includeDeviceWait === true,
           includeWakeStopEligibility: input.includeWakeStopEligibility === true,
         });
       }
@@ -16494,6 +19667,7 @@ export class Space extends DurableObject<CoreBindings> {
       },
       ...(page.pageInfo ? { pageInfo: page.pageInfo } : {}),
       items: projectWakeProgressItemsForClient({
+        includeDeviceWait: input.includeDeviceWait === true,
         includePreviewText: input.includePreviewText === true,
         items:
           input.includeSourceContext === true
@@ -16508,6 +19682,7 @@ export class Space extends DurableObject<CoreBindings> {
     clientMessageId: string | null;
     includeTiming?: boolean;
     includeWaitReason?: boolean;
+    includeDeviceWait?: boolean;
     includeWakeStopEligibility?: boolean;
     lookupMatch: SpaceDispatchLookupMatch;
     nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence;
@@ -16517,7 +19692,10 @@ export class Space extends DurableObject<CoreBindings> {
     terminalFailureNotices: readonly WakeProgressTerminalFailureNotice[];
   }): Promise<WakeProgressItem> {
     const traceResponse = await this.readSpaceDispatchTrace(
-      input.lookupMatch.dispatchId
+      input.lookupMatch.dispatchId,
+      {
+        responseContractVersion: SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
+      }
     ).catch(() => null);
     const trace = traceResponse?.trace ?? null;
     const terminalFailureNotice = findWakeProgressTerminalFailureNotice({
@@ -16540,16 +19718,26 @@ export class Space extends DurableObject<CoreBindings> {
       | WakeProgressItem["wakeStopEligibility"]
       | undefined;
     if (input.includeWakeStopEligibility === true) {
-      wakeStopEligibility =
-        await this.readWakeProgressPreAgentWakeStopEligibility({
-          clientMessageId: input.clientMessageId,
-          lookupMatch: input.lookupMatch,
-          outboxRecord: input.outboxRecord,
-          trace,
-        });
+      wakeStopEligibility = input.nativeDeliveryEvidence
+        ? nativeDeliveryWakeStopEligibility(input.nativeDeliveryEvidence)
+        : await this.readWakeProgressPreAgentWakeStopEligibility({
+            clientMessageId: input.clientMessageId,
+            lookupMatch: input.lookupMatch,
+            outboxRecord: input.outboxRecord,
+            trace,
+          });
     }
     const runtimeCoordinatorExecution =
       trace?.runtimeCoordinatorExecution ?? null;
+    const timingDb = input.includeTiming ? wakeEvidenceDb(this.env) : null;
+    const runningAtMs =
+      timingDb && runtimeCoordinatorExecution
+        ? await readRuntimeCoordinatorExecutionRunningAtMs({
+            db: timingDb,
+            runtimeCoordinatorExecutionId:
+              runtimeCoordinatorExecution.runtimeCoordinatorExecutionId,
+          })
+        : null;
     const pendingInteraction = runtimeCoordinatorExecution
       ? await this.readWakeProgressPendingAgentInteraction({
           actorOwnerUserId: input.actorOwnerUserId,
@@ -16559,7 +19747,9 @@ export class Space extends DurableObject<CoreBindings> {
     return buildWakeProgressItemFromDispatchEvidence({
       clientMessageId: input.clientMessageId,
       includeTiming: input.includeTiming === true,
+      runningAtMs,
       includeWaitReason: input.includeWaitReason === true,
+      includeDeviceWait: input.includeDeviceWait === true,
       lookupMatch: input.lookupMatch,
       nativeDeliveryEvidence: input.nativeDeliveryEvidence,
       outboxRecord: input.outboxRecord,
@@ -16580,6 +19770,12 @@ export class Space extends DurableObject<CoreBindings> {
     const execution = trace?.runtimeCoordinatorExecution ?? null;
     if (!execution) {
       return null;
+    }
+    if (
+      execution.status === "result_accepted" ||
+      execution.status === "failed_retryable"
+    ) {
+      return this.readWakeProgressPublicationWakeStopEligibility(execution);
     }
     if (
       execution.terminalOutcome !== null ||
@@ -16608,6 +19804,35 @@ export class Space extends DurableObject<CoreBindings> {
           ? (agentControllerReport.agentControllerInterface ?? null)
           : null,
     });
+  }
+
+  private async readWakeProgressPublicationWakeStopEligibility(
+    execution: NonNullable<
+      SpaceDispatchTraceSnapshot["runtimeCoordinatorExecution"]
+    >
+  ): Promise<WakeProgressItem["wakeStopEligibility"]> {
+    const ownerUserId = await this.readRuntimeOwnerUserId(
+      execution.openMeldServiceRuntimeId.value
+    );
+    if (!ownerUserId) {
+      return null;
+    }
+    return await readRuntimeTransportRuntimeCoordinatorPublicationWakeStopEligibility(
+      {
+        env: this.bindings,
+        ownerUserId,
+        wakeStop: {
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          ownerUserId,
+          runtimeCoordinatorExecutionId:
+            execution.runtimeCoordinatorExecutionId,
+          dispatchId: execution.dispatchId,
+          spaceId: execution.spaceId,
+          sourceClientMessageId: execution.sourceClientMessageId,
+          targetProfileId: execution.targetProfileId,
+        },
+      }
+    ).catch(() => null);
   }
 
   private async readWakeProgressPreAgentWakeStopEligibility(input: {
@@ -16768,20 +19993,27 @@ export class Space extends DurableObject<CoreBindings> {
         outboxRecord: input.outboxRecord,
         targetLabel: input.targetLabel,
       });
-    const wakeStopEligibility =
-      input.includeWakeStopEligibility === true
-        ? await this.readWakeProgressPreAgentWakeStopEligibility({
+    let wakeStopEligibility:
+      | WakeProgressItem["wakeStopEligibility"]
+      | undefined;
+    if (input.includeWakeStopEligibility === true) {
+      wakeStopEligibility = input.nativeDeliveryEvidence
+        ? nativeDeliveryWakeStopEligibility(input.nativeDeliveryEvidence)
+        : await this.readWakeProgressPreAgentWakeStopEligibility({
             clientMessageId: input.clientMessageId,
             lookupMatch: null,
             outboxRecord: input.outboxRecord,
             trace: null,
-          })
-        : undefined;
+          });
+    }
     if (headLifecycleProgress) {
       return createWakeProgressItem({
         clientMessageId: input.clientMessageId,
         dispatchId: input.outboxRecord.dispatchId,
         failureReasonCode: headLifecycleProgress.errorCode,
+        ...(headLifecycleProgress.deviceWait
+          ? { deviceWait: headLifecycleProgress.deviceWait }
+          : {}),
         message: headLifecycleProgress.message,
         phase: headLifecycleProgress.phase,
         sourceSignalId:
@@ -16807,6 +20039,7 @@ export class Space extends DurableObject<CoreBindings> {
     outboxRecord: OpenMeldDaemonDispatchOutboxRecoveryCandidate;
     targetLabel: string;
   }): Promise<{
+    deviceWait?: WakeProgressItem["deviceWait"];
     errorCode: string | null;
     message: string;
     phase: WakeProgressPhase;
@@ -16869,6 +20102,14 @@ export class Space extends DurableObject<CoreBindings> {
         phase: "queued",
         terminal: false,
         updatedAtMs: lifecycle.updatedAtMs,
+        ...(input.outboxRecord.deviceWait
+          ? {
+              deviceWait: {
+                deadlineAtMs: input.outboxRecord.deviceWait.deadlineAtMs,
+                reason: "earlier_work" as const,
+              },
+            }
+          : {}),
       };
     }
     const waitingBoundary = lifecycle.waitingBoundary;
@@ -16876,6 +20117,22 @@ export class Space extends DurableObject<CoreBindings> {
       return null;
     }
     const isPastSoftWait = Date.now() >= waitingBoundary.softDeadlineAtMs;
+    if (input.outboxRecord.deviceWait) {
+      return {
+        errorCode: null,
+        message: buildDeviceWaitProgressMessage(
+          targetLabel,
+          waitingBoundary.reasonCode
+        ),
+        deviceWait: {
+          deadlineAtMs: waitingBoundary.deadlineAtMs,
+          reason: resolveDeviceWaitProgressReason(waitingBoundary.reasonCode),
+        },
+        phase: "request_sent",
+        terminal: false,
+        updatedAtMs: lifecycle.updatedAtMs,
+      };
+    }
     return {
       errorCode: waitingBoundary.reasonCode,
       message: isPastSoftWait
@@ -17118,7 +20375,10 @@ export class Space extends DurableObject<CoreBindings> {
       try {
         tracesByDispatchId.set(
           match.dispatchId,
-          await this.readSpaceDispatchTrace(match.dispatchId)
+          await this.readSpaceDispatchTrace(match.dispatchId, {
+            responseContractVersion:
+              SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
+          })
         );
       } catch {
         tracesByDispatchId.set(match.dispatchId, null);
@@ -17492,6 +20752,14 @@ export class Space extends DurableObject<CoreBindings> {
     signal: SignalEnvelope,
     signalContext?: SignalPublishContext
   ): Promise<void> {
+    if (signal.type === "signal.text" && signal.data.meta?.workHandoff) {
+      await validateSpaceWorkHandoff({
+        env: this.env,
+        organizationId: this.readSpaceMetaRecord()?.organizationId ?? null,
+        signal,
+        resolveFiles: (files) => this.resolveSpaceMessageFileReferences(files),
+      });
+    }
     if (
       signal.type === "signal.text" &&
       signal.data.meta?.centerAgentExecutionInput
@@ -17786,9 +21054,10 @@ function spaceAddressingJsonResponse(
   value: unknown,
   init?: ResponseInit
 ): Response {
+  const readValue = toSpaceSignalReadWireValue(value);
   const responseValue = requestSupportsCurrentSpaceAddressing(request)
-    ? value
-    : toLegacySpaceAddressingWireValue(value);
+    ? readValue
+    : toLegacySpaceAddressingWireValue(readValue);
   return Response.json(responseValue, init);
 }
 
@@ -17803,9 +21072,10 @@ function spaceAddressingWireValueForSession(
   value: unknown,
   session: Session
 ): unknown {
+  const readValue = toSpaceSignalReadWireValue(value);
   return session.supportsSpaceMessageAddressing
-    ? value
-    : toLegacySpaceAddressingWireValue(value);
+    ? readValue
+    : toLegacySpaceAddressingWireValue(readValue);
 }
 
 function decodeMessage(msg: string | ArrayBuffer): string {
@@ -17845,10 +21115,27 @@ function isSpaceLiveInvalidationFrame(
     "type" in message &&
     (message.type === "space.members.changed" ||
       message.type === "space.meta.changed" ||
+      message.type === "space.reactions.changed" ||
       message.type === "space.files.changed" ||
+      message.type === "space.tasks.changed" ||
       message.type === "agent.readiness.invalidated" ||
       message.type === "wake.progress.changed")
   );
+}
+
+function toSpaceTaskActor(member: SpaceMemberRecord): SpaceTaskActor {
+  if (
+    member.profileKindSnapshot !== "human" &&
+    member.profileKindSnapshot !== "agent"
+  ) {
+    throw new Error("Space Task actors must be human or agent members");
+  }
+  return {
+    profileId: member.profileId,
+    profileKind: member.profileKindSnapshot,
+    profileName: member.profileNameSnapshot,
+    ownerUserId: member.ownerUserIdSnapshot,
+  };
 }
 
 function spaceFileErrorStatus(code: SpaceFileMutationErrorCode): number {
@@ -17934,6 +21221,9 @@ function buildAgentStreamDeltaFrame(
   snapshot: SpaceAgentStreamSnapshot
 ): SpaceAgentStreamDeltaFrame {
   return spaceAgentStreamDeltaFrameSchema.parse({
+    ...(snapshot.replyThreadRootSignalId !== undefined
+      ? { replyThreadRootSignalId: snapshot.replyThreadRootSignalId }
+      : {}),
     type: "space.agent_stream_delta",
     v: snapshot.v,
     spaceId: snapshot.spaceId,
@@ -17963,6 +21253,10 @@ function buildAgentStreamThinkingDeltaFrame(
     dispatchId: input.dispatchId,
     kind: "thinking",
     thinkingSnapshot: input.thinkingSnapshot,
+    ...(input.replyThreadRootSignalId !== undefined
+      ? { replyThreadRootSignalId: input.replyThreadRootSignalId }
+      : {}),
+    ...(input.reasoningState ? { reasoningState: input.reasoningState } : {}),
     state: "streaming",
     updatedAtMs,
   });
@@ -18378,6 +21672,21 @@ function buildWakeProgressItemFromOutbox(input: {
   });
 }
 
+function nativeDeliveryWakeStopEligibility(
+  evidence: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence
+): WakeProgressItem["wakeStopEligibility"] {
+  // The accepted native delivery owns this execution, not a workstation head.
+  // Viewer authorization and the mutation's current delivery check still apply.
+  return evidence.phase === "running"
+    ? {
+        controlMode: "cancel",
+        reasonCode: null,
+        reliability: "native_cancel",
+        status: "eligible",
+      }
+    : null;
+}
+
 function preAgentWakeStopEligible(): WakeProgressItem["wakeStopEligibility"] {
   return {
     controlMode: "openmeld_owned_pre_agent_cancel",
@@ -18437,7 +21746,9 @@ function buildWakeProgressItemFromTerminalFailureNotice(input: {
 function buildWakeProgressItemFromDispatchEvidence(input: {
   clientMessageId: string | null;
   includeTiming: boolean;
+  runningAtMs: number | null;
   includeWaitReason: boolean;
+  includeDeviceWait?: boolean;
   lookupMatch: SpaceDispatchLookupMatch;
   nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence;
   outboxRecord: OpenMeldDaemonDispatchOutboxRecoveryCandidate | null;
@@ -18452,6 +21763,12 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
   const headLifecycleProgress = resolveWakeProgressHeadLifecycleProgress({
     targetLabel: input.targetLabel,
     trace: input.trace,
+    deviceWait:
+      input.outboxRecord?.deviceWait ??
+      (input.sourceSignal?.data.deviceWait?.targetProfileId ===
+      input.lookupMatch.targetProfileId
+        ? input.sourceSignal.data.deviceWait
+        : undefined),
   });
   const finalVisibleProgress =
     headLifecycleProgress && !input.trace?.finalVisibleMessage
@@ -18480,6 +21797,10 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
   return createWakeProgressItem({
     clientMessageId: input.clientMessageId,
     dispatchId: input.lookupMatch.dispatchId,
+    ...(authorityProgress === headLifecycleProgress &&
+    headLifecycleProgress?.deviceWait
+      ? { deviceWait: headLifecycleProgress.deviceWait }
+      : {}),
     failureReasonCode:
       phase === "failed" ||
       phase === "publication_unknown" ||
@@ -18494,9 +21815,9 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
       input.sourceSignal?.id ??
       input.outboxRecord?.sourceEventId ??
       null,
-    ...(input.includeTiming && input.trace?.runtimeCoordinatorExecution
+    ...(input.includeTiming && input.runningAtMs !== null
       ? {
-          startedAtMs: input.trace.runtimeCoordinatorExecution.createdAtMs,
+          startedAtMs: input.runningAtMs,
         }
       : {}),
     targetLabel: input.targetLabel,
@@ -18617,7 +21938,9 @@ function resolveWakeProgressFinalVisibleOutcomeProgress(input: {
 function resolveWakeProgressHeadLifecycleProgress(input: {
   targetLabel: string;
   trace: SpaceDispatchTraceSnapshot | null;
+  deviceWait?: OpenMeldDaemonDispatchQueueMessage["deviceWait"];
 }): {
+  deviceWait?: WakeProgressItem["deviceWait"];
   errorCode: string | null;
   message: string;
   phase: WakeProgressPhase;
@@ -18651,6 +21974,14 @@ function resolveWakeProgressHeadLifecycleProgress(input: {
       }),
       phase: "queued",
       terminal: false,
+      ...(input.deviceWait
+        ? {
+            deviceWait: {
+              deadlineAtMs: input.deviceWait.deadlineAtMs,
+              reason: "earlier_work" as const,
+            },
+          }
+        : {}),
     };
   }
   if (
@@ -18670,20 +22001,17 @@ function resolveWakeProgressHeadLifecycleProgress(input: {
     };
   }
   if (headLifecycle.waitingBoundary) {
-    const softDeadlineMs = Date.parse(
-      headLifecycle.waitingBoundary.softDeadlineAt
-    );
-    const isPastSoftWait =
-      Number.isFinite(softDeadlineMs) && Date.now() >= softDeadlineMs;
-    return {
-      errorCode: headLifecycle.waitingBoundary.reasonCode,
-      message: isPastSoftWait
-        ? `Still waiting for OpenMeld Service to connect for ${targetLabel}. Start or restart OpenMeld Service on the target computer.`
-        : `Waiting for OpenMeld Service to connect for ${targetLabel}.`,
-      phase: "retrying",
-      terminal: false,
-    };
+    return buildWaitingHeadProgress({
+      deadlineAtMs: Date.parse(headLifecycle.waitingBoundary.deadlineAt),
+      softDeadlineAtMs: Date.parse(
+        headLifecycle.waitingBoundary.softDeadlineAt
+      ),
+      reasonCode: headLifecycle.waitingBoundary.reasonCode,
+      deviceWait: Boolean(input.deviceWait),
+      targetLabel,
+    });
   }
+
   const noExecutionReason =
     headLifecycle.noExecutionDecision?.reasonCode ??
     headLifecycle.publicationIntent?.reasonCode ??
@@ -18697,6 +22025,79 @@ function resolveWakeProgressHeadLifecycleProgress(input: {
     phase: "failed",
     terminal: false,
   };
+}
+
+function buildWaitingHeadProgress(input: {
+  deadlineAtMs: number;
+  softDeadlineAtMs: number;
+  reasonCode: string;
+  deviceWait: boolean;
+  targetLabel: string;
+}): NonNullable<ReturnType<typeof resolveWakeProgressHeadLifecycleProgress>> {
+  if (input.deviceWait) {
+    return {
+      errorCode: null,
+      message: buildDeviceWaitProgressMessage(
+        input.targetLabel,
+        input.reasonCode
+      ),
+      deviceWait: {
+        deadlineAtMs: input.deadlineAtMs,
+        reason: resolveDeviceWaitProgressReason(input.reasonCode),
+      },
+      phase: "request_sent",
+      terminal: false,
+    };
+  }
+  const isPastSoftWait =
+    Number.isFinite(input.softDeadlineAtMs) &&
+    Date.now() >= input.softDeadlineAtMs;
+  return {
+    errorCode: input.reasonCode,
+    message: isPastSoftWait
+      ? `Still waiting for OpenMeld Service to connect for ${input.targetLabel}. Start or restart OpenMeld Service on the target computer.`
+      : `Waiting for OpenMeld Service to connect for ${input.targetLabel}.`,
+    phase: "retrying",
+    terminal: false,
+  };
+}
+
+function buildDeviceWaitProgressMessage(
+  targetLabel: string,
+  reasonCode: string
+): string {
+  let reason =
+    reasonCode === "daemon.profile.offline"
+      ? "The specified computer is offline"
+      : "The computer is connected, but the Agent has not reported its Wake route yet";
+  if (reasonCode === "wake.device_wait.readiness_checking") {
+    reason =
+      "The computer is connected; the Agent's current readiness checks are still running";
+  }
+  if (reasonCode === "wake.device_wait.access_check_unavailable") {
+    reason =
+      "OpenMeld could not verify current Space access and will check again";
+  }
+  if (reasonCode === "daemon.service.draining") {
+    reason =
+      "OpenMeld on this computer is finishing existing work and is not accepting new tasks yet";
+  }
+  return `Waiting to start ${targetLabel}. ${reason}; no work has started.`;
+}
+
+function resolveDeviceWaitProgressReason(
+  reasonCode: string
+): NonNullable<WakeProgressItem["deviceWait"]>["reason"] {
+  if (reasonCode === "daemon.profile.offline") {
+    return "device_offline";
+  }
+  if (reasonCode === "wake.device_wait.access_check_unavailable") {
+    return "access_check_unavailable";
+  }
+  if (reasonCode === "daemon.service.draining") {
+    return "service_draining";
+  }
+  return "agent_not_ready";
 }
 
 function findWakeProgressTerminalFailureNotice(input: {
@@ -19247,6 +22648,10 @@ function buildDispatchQueueMessageFromOutboxRecord(
     transportMode: outboxRecord.transportMode,
     spacePassword: outboxRecord.spacePassword,
     controllerSnapshot: outboxRecord.controllerSnapshot,
+    ...(outboxRecord.deviceWait ? { deviceWait: outboxRecord.deviceWait } : {}),
+    ...(outboxRecord.contextSelection
+      ? { contextSelection: outboxRecord.contextSelection }
+      : {}),
     contextIdMappingSpec: outboxRecord.contextIdMappingSpec,
     dispatchRulesSnapshot: outboxRecord.dispatchRulesSnapshot,
     ...(outboxRecord.spaceContractSnapshot
@@ -20309,11 +23714,14 @@ function toPublicSpaceMeta(
     spaceId: meta.spaceId,
     organizationId: meta.organizationId,
     visibility: meta.visibility,
+    ownerUserIds: meta.ownerUserIds ?? [],
+    allowGuests: meta.allowGuests === true,
     ...(meta.name ? { name: meta.name } : {}),
     ...(meta.purpose ? { purpose: meta.purpose } : {}),
     ...(meta.creator ? { creator: meta.creator } : {}),
     ...(meta.guide ? { guide: meta.guide } : {}),
     accessMode: meta.accessMode,
+    linkJoinPolicy: resolveSpaceMetaLinkJoinPolicy(meta),
     passwordProtected: meta.accessMode === "protected",
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt,
@@ -21022,7 +24430,7 @@ function resolveOutboxPoisonVisibleFailureTargetLabel(input: {
 function buildOutboxPoisonVisibleFailureNoticeText(
   targetLabel: string
 ): string {
-  return `OpenMeld could not wake ${targetLabel} because OpenMeld could not confirm the agent's account right now. Try again in a moment.`;
+  return `OpenMeld could not prepare this request for ${targetLabel}. Try again. If it keeps failing, report the issue from the message details.`;
 }
 
 function buildFormalSignalPublishContext(input: {
@@ -21152,6 +24560,30 @@ function buildControllerResumeResultRef(
   return conversationId
     ? ["controller-resume", identity.dispatchId, conversationId].join(":")
     : null;
+}
+
+function resolveExecutionRecoveryControllerIdentity(
+  trace: SpaceDispatchTraceSnapshot,
+  delivery: Awaited<ReturnType<typeof readRemoteAgentNativeDeliveryByExecution>>
+): Pick<
+  ExecutionRecoveryIdentity,
+  "agentControllerConversationId" | "agentControllerRef"
+> {
+  const request = delivery?.executionRecoverySubmitRequest;
+  if (delivery?.submissionId && request) {
+    return {
+      agentControllerConversationId:
+        request.v === 4 ? request.runtimeConversation.id : delivery.spaceId,
+      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+    };
+  }
+  return {
+    agentControllerConversationId:
+      trace.origin?.resolvedAgentControllerConversationId ??
+      trace.origin?.agentControllerConversationId ??
+      null,
+    agentControllerRef: trace.origin?.agentControllerRef ?? null,
+  };
 }
 
 function assertMatchingExecutionRecoveryNotice(
@@ -21357,3 +24789,9 @@ function toPublicSpaceCursor(cursor: SpaceCursorRecord): SpaceCursor {
     updatedAt: cursor.updatedAt,
   };
 }
+
+import type {
+  NativeReplyPlacement,
+  ResolveNativeReplyPlacementInput,
+} from "@openmeld/schemas/types";
+import { chooseNativeReplyPlacement } from "../../application/native-reply-placement";

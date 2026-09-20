@@ -1,6 +1,18 @@
 // biome-ignore-all lint/performance/noBarrelFile: This package intentionally exposes stable public entrypoints.
 
 export {
+  ACCOUNT_ORGANIZATION_CONTEXT_PATH,
+  type AccountOrganizationContext,
+  accountOrganizationContextSchema,
+  type OrganizationSummary,
+  organizationSummarySchema,
+} from "./account-organization-context";
+export {
+  ACCOUNT_SESSION_PATH,
+  type AccountSession,
+  accountSessionSchema,
+} from "./account-session";
+export {
   AGENT_CONTEXT_ENVELOPE_VERSION,
   AGENT_CONTEXT_PROGRESSIVE_POLICY_VERSION,
   type AgentContextEnvelope,
@@ -65,9 +77,103 @@ export {
   resolveCenterAgentCompletedCallbackMessage,
 } from "./center-agent-publication-copy";
 export {
+  CLI_RELEASE_PATH,
+  type CliRelease,
+  cliReleaseSchema,
+} from "./cli-release";
+export {
+  type ClientEnvironmentResponse,
+  clientEnvironmentResponseSchema,
+} from "./client-environment";
+export {
   toCompatibleSpaceAddressingRequestWireValue,
   toLegacySpaceAddressingWireValue,
 } from "./compatibility/legacy-space-addressing-wire";
+export { toSpaceSignalReadWireValue } from "./compatibility/space-signal-read-wire";
+export {
+  type ComputerConnectionIntent,
+  type ComputerSetupOutput,
+  computerConnectionIntentSchema,
+  computerConnectionReviewSchema,
+  computerSetupOutputSchema,
+  type DesktopComputerConnectionOperation,
+  type DesktopComputerConnectionProgress,
+  type DesktopComputerConnectionRequest,
+  type DesktopComputerConnectionResult,
+  type DesktopComputerDisconnectOperation,
+  type DesktopComputerDisconnectPhase,
+  type DesktopComputerDisconnectRequest,
+  type DesktopComputerDisconnectResult,
+  type DesktopComputerOperation,
+  desktopComputerConnectionOperationSchema,
+  desktopComputerConnectionProgressSchema,
+  desktopComputerConnectionRequestSchema,
+  desktopComputerConnectionResultSchema,
+  desktopComputerDisconnectOperationSchema,
+  desktopComputerDisconnectPhaseSchema,
+  desktopComputerDisconnectRequestSchema,
+  desktopComputerDisconnectResultSchema,
+  desktopComputerOperationSchema,
+} from "./computer-connection";
+export {
+  type ComputerConnectionProgressObservation,
+  type ComputerConnectionProgressPhase,
+  computerConnectionProgressMeasurementSchema,
+  computerConnectionProgressObservationSchema,
+  computerConnectionProgressPhaseSchema,
+} from "./computer-connection-progress";
+export {
+  DESKTOP_AUTH_SCHEME,
+  DESKTOP_INSTALLED_AUTH_SCHEME,
+  DESKTOP_TEST_AUTH_SCHEME,
+  desktopAuthIdentity,
+} from "./desktop-auth-identity";
+export {
+  DESKTOP_APP_ORIGIN,
+  DESKTOP_COMPATIBILITY_PATH,
+  DESKTOP_CONTRACT_HEADER,
+  DESKTOP_CONTRACT_VERSION,
+  DESKTOP_WEB_BUILD_HEADER,
+  type DesktopInstalledTarget,
+  type DesktopLocalComputer,
+  type DesktopPlatform,
+  type DesktopSession,
+  type DesktopSpaceStreamBridge,
+  type DesktopSpaceStreamEvent,
+  type DesktopSpaceStreamInput,
+  desktopCompatibilitySchema,
+  desktopInstalledTargetSchema,
+  desktopLocalComputerSchema,
+  desktopPlatformSchema,
+  desktopProductionSourceSchema,
+  desktopSessionSchema,
+  desktopSpaceStreamEventSchema,
+  desktopSpaceStreamIdSchema,
+  desktopSpaceStreamInputSchema,
+  desktopWebBuildSchema,
+} from "./desktop-client";
+export * from "./desktop-development";
+export * from "./desktop-notifications";
+export {
+  DESKTOP_PROMOTED_RELEASE_KEY,
+  DESKTOP_UPDATE_FEED_URL,
+  type DesktopCandidateManifest,
+  type DesktopReleasePlatform,
+  desktopCandidateIdSchema,
+  desktopCandidateLocation,
+  desktopCandidateManifestKey,
+  desktopCandidateManifestSchema,
+  desktopCandidateUpdateArtifact,
+  desktopPlatformUpdateFeedUrl,
+  desktopPromotedReleaseKey,
+  desktopPromotedReleaseSchema,
+  desktopReleasePlatformSchema,
+  desktopUpdaterFeedSchema,
+  desktopUpdaterFeedSchemaForPlatform,
+  desktopWindowsBuildSchema,
+  resolveDesktopReleasePlatform,
+} from "./desktop-release";
+export * from "./desktop-updater";
 export {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,
@@ -93,16 +199,19 @@ export {
   officialCliSkillPayloadSchema,
   officialCliSkillReleaseSchema,
 } from "./official-cli-skill";
+export * from "./organization-actions";
 export {
   type OrganizationJoinRequest,
   type OrganizationJoinRequestInput,
   type OrganizationJoinRequestResponse,
   type OrganizationJoinRequestRpcInput,
   organizationJoinRequestInputSchema,
+  organizationJoinRequestResponseForVersion,
   organizationJoinRequestResponseSchema,
   organizationJoinRequestRpcInputSchema,
   organizationJoinRequestSchema,
 } from "./organization-join-request";
+export { normalizeOrganizationList } from "./organization-list";
 export { ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE } from "./organization-request-context";
 export {
   CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
@@ -130,6 +239,8 @@ export {
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE,
+  REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY,
+  REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE,
   resolveCenterAgentCallbackFailureMessage,
@@ -156,7 +267,78 @@ export {
   saveAccountSidebarBodySchema,
   sidebarSortSchema,
 } from "./schemas/account-sidebar";
+export type {
+  GetSpaceLinkPreviewsResponse,
+  LinkPreview,
+  SpaceMessageLinks,
+} from "./schemas/http/space-link-previews";
+export {
+  getSpaceLinkPreviewsInputSchema,
+  getSpaceLinkPreviewsResponseSchema,
+  linkPreviewSchema,
+  MAX_MESSAGE_LINK_PREVIEWS,
+  spaceMessageLinksSchema,
+} from "./schemas/http/space-link-previews";
+export {
+  SPACE_MESSAGE_CHANGED_PURPOSE,
+  spaceMessageMutationBodySchema,
+  spaceMessageMutationResponseSchema,
+} from "./schemas/http/space-message-mutation";
+export type {
+  MessageSearchResponse,
+  MessageSearchRpcInput,
+} from "./schemas/http/space-message-search";
+export {
+  messageSearchCursorSchema,
+  messageSearchQuerySchema,
+  messageSearchResponseSchema,
+  messageSearchRpcInputSchema,
+  spaceMessageSearchQuerySchema,
+  spaceMessageSearchResponseSchema,
+} from "./schemas/http/space-message-search";
 export * from "./schemas/index";
+export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
+export {
+  SERVICE_ACCOUNT_STOP_REFUSED_CODE,
+  type ServiceAccountAdmission,
+  type ServiceAccountAdmissionIdentity,
+  type ServiceAccountControlRequest,
+  serviceAccountAdmissionIdentitySchema,
+  serviceAccountAdmissionSchema,
+  serviceAccountControlRequestSchema,
+  serviceControlCapabilitiesSchema,
+  serviceControlCarrierCapabilitySchema,
+} from "./service-account-admission";
+export {
+  type ProfileWorkingFolderFact,
+  profileWorkingFolderFactSchema,
+  SERVICE_EXECUTION_HOST_MAX_FRAME_BYTES,
+  SERVICE_EXECUTION_HOST_MAX_PENDING_REQUESTS,
+  SERVICE_EXECUTION_HOST_PROTOCOL,
+  type ServiceExecutionHostArguments,
+  type ServiceExecutionHostCatalog,
+  type ServiceExecutionHostIdentity,
+  type ServiceExecutionHostInput,
+  type ServiceExecutionHostMessage,
+  type ServiceExecutionHostMethod,
+  type ServiceExecutionHostOutput,
+  type ServiceExecutionHostRoute,
+  type ServiceExecutionHostSnapshot,
+  serviceExecutionHostCatalogSchema,
+  serviceExecutionHostIdentitySchema,
+  serviceExecutionHostMessageSchema,
+  serviceExecutionHostMethods,
+  serviceExecutionHostOwnerSchema,
+  serviceExecutionHostRequestSchema,
+  serviceExecutionHostRouteSchema,
+  serviceExecutionHostSnapshotSchema,
+} from "./service-execution-host";
+export {
+  projectLegacySpaceAccessView,
+  projectSpaceAccessViewForVersion,
+  SPACE_ACCESS_VERSION,
+  SPACE_ACCESS_VERSION_HEADER,
+} from "./space-access-version";
 export {
   ORGANIZATION_INVITATION_LIFETIME_SECONDS,
   type SpaceInvitation,
@@ -177,6 +359,27 @@ export {
   spaceInvitationRpcResultSchema,
   spaceInvitationSchema,
 } from "./space-invitation";
+export {
+  type SpaceOwnerDepartureInput,
+  type SpaceOwnerDepartureResult,
+  type SpaceOwnerDepartureSpaceInput,
+  type SpaceOwnerDepartureWorker,
+  spaceOwnerDepartureInputSchema,
+  spaceOwnerDepartureResultSchema,
+  spaceOwnerDepartureSpaceInputSchema,
+} from "./space-owner-departure";
+export {
+  SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
+  SPACE_WORK_MAX_BYTES,
+  type SpaceWorkHandoff,
+  type SpaceWorkingCopyAccess,
+  type SpaceWorkSelection,
+  spaceWorkHandoffSchema,
+  spaceWorkingCopyAccessSchema,
+  spaceWorkingCopyResultSchema,
+  spaceWorkRelativePathSchema,
+  spaceWorkSelectionSchema,
+} from "./space-work-handoff";
 export type * from "./types/index";
 export {
   WEB_APPLICATION_ERROR_MAX_BYTES,

@@ -8,6 +8,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -86,9 +87,7 @@ export function AgentActivityAddToSpaceDialog(input: {
 					orientation="vertical"
 				>
 					{spacesQuery.isPending ? (
-						<p className="py-8 text-center text-muted-foreground text-sm">
-							Loading Spaces…
-						</p>
+						<SkeletonRows className="py-4" label="Loading Spaces" />
 					) : null}
 					{spacesQuery.isError ? (
 						<div className="grid justify-items-center gap-3 py-8 text-center">

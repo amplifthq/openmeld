@@ -24,6 +24,7 @@ import {
 } from "@openmeld/ui/lib/status-tone";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { isAgentExecutionSelfHealingReadiness } from "#/lib/spaces/agent-route-status";
+import { compareAgentListRecency } from "./agent-list-model";
 import { normalizeOptionalText } from "./agents-page-formatters";
 
 type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
@@ -35,11 +36,6 @@ export const AGENT_PROFILE_AUTO_REFRESH_MAX_DELAY_MS = 30_000;
 export type AgentProfileRepairAction = {
 	agentDisplayName: string;
 	agentControllerRef: string;
-	intent: "connect" | "reconnect";
-};
-export type AgentProfileBulkReconnectCandidate = {
-	action: AgentProfileRepairAction;
-	profile: AuthProfileView;
 };
 export type AgentProfileSetupAction = {
 	href: string;
@@ -161,32 +157,14 @@ export function sortAgentProfilesForDisplay(input: {
 	readinessByProfileId: ReadonlyMap<string, GetAgentExecutionReadinessResponse>;
 }): readonly AuthProfileView[] {
 	return [...input.profiles].sort((left, right) => {
-		const leftBindingRank = hasSpecificLocalAgentBinding({
-			profileId: left.openMeldProfileId,
-			readinessByProfileId: input.readinessByProfileId,
-		})
-			? 0
-			: 1;
-		const rightBindingRank = hasSpecificLocalAgentBinding({
-			profileId: right.openMeldProfileId,
-			readinessByProfileId: input.readinessByProfileId,
-		})
-			? 0
-			: 1;
 		return (
-			leftBindingRank - rightBindingRank ||
-			compareIsoDateTimeDescending(left.updatedAt, right.updatedAt) ||
-			compareIsoDateTimeDescending(left.createdAt, right.createdAt) ||
+			compareAgentListRecency(left, right) ||
 			left.profileName.localeCompare(right.profileName, undefined, {
 				sensitivity: "base",
 			}) ||
 			left.openMeldProfileId.localeCompare(right.openMeldProfileId)
 		);
 	});
-}
-
-function compareIsoDateTimeDescending(left: string, right: string): number {
-	return Date.parse(right) - Date.parse(left);
 }
 
 export function hasSpecificLocalAgentBinding(input: {
@@ -725,6 +703,7 @@ export function resolveAgentProfileRepairActions(input: {
 	const actionPlan = input.readiness.primaryActionPlan;
 	if (
 		readiness.displayState === "ready" ||
+		readiness.facts.binding.source !== "missing" ||
 		actionPlan.action !== "reconnect_binding"
 	) {
 		return [];
@@ -752,40 +731,10 @@ export function resolveAgentProfileRepairActions(input: {
 	}
 
 	const repairAction = createAgentProfileRepairActionFromLocalAgent({
-		intent: isExistingLocalSetupReconnect(input.readiness)
-			? "reconnect"
-			: "connect",
 		localAgent,
 	});
 
 	return repairAction ? [repairAction] : [];
-}
-
-export function resolveAgentProfileBulkReconnectCandidates(input: {
-	canManageProfile: (profile: AuthProfileView) => boolean;
-	currentLocalRuntimeCanReply: boolean | null;
-	isCurrentComputer: boolean;
-	localAgentCatalogEntries: readonly DeviceAgentCatalogEntry[];
-	profiles: readonly AuthProfileView[];
-	readinessByProfileId: ReadonlyMap<string, GetAgentExecutionReadinessResponse>;
-}): readonly AgentProfileBulkReconnectCandidate[] {
-	if (!input.isCurrentComputer || input.currentLocalRuntimeCanReply !== true) {
-		return [];
-	}
-
-	return input.profiles.flatMap((profile) => {
-		if (!input.canManageProfile(profile)) {
-			return [];
-		}
-		const readiness =
-			input.readinessByProfileId.get(profile.openMeldProfileId) ?? null;
-		const reconnectAction = resolveAgentProfileRepairActions({
-			isCurrentComputer: true,
-			localAgentCatalogEntries: input.localAgentCatalogEntries,
-			readiness,
-		}).find((action) => action.intent === "reconnect");
-		return reconnectAction ? [{ action: reconnectAction, profile }] : [];
-	});
 }
 
 function createAgentProfileConnectActionsFromLocalAgents(
@@ -795,7 +744,6 @@ function createAgentProfileConnectActionsFromLocalAgents(
 		.filter(isRunnableLocalAgentEntry)
 		.map((entry) =>
 			createAgentProfileRepairActionFromLocalAgent({
-				intent: "connect",
 				localAgent: entry,
 			})
 		)
@@ -914,36 +862,7 @@ export function hasAgentExecutionReason(
 	return reasonCodes.some(predicate);
 }
 
-export function isExistingLocalSetupReconnect(
-	readiness: GetAgentExecutionReadinessResponse
-): boolean {
-	if (readiness.primaryActionPlan.action !== "reconnect_binding") {
-		return false;
-	}
-	if (readiness.primaryActionPlan.target.kind !== "local_agent_connection") {
-		return false;
-	}
-	return hasAgentExecutionReason(
-		readiness.agentExecutionReadiness,
-		isExistingLocalSetupReconnectReasonCode
-	);
-}
-
-export function isExistingLocalSetupReconnectReasonCode(
-	reasonCode: string
-): boolean {
-	return (
-		reasonCode === "claim_eligibility.binding_capability_mismatch" ||
-		reasonCode === "claim_eligibility.binding_owner_mismatch" ||
-		reasonCode === "claim_eligibility.binding_runtime_mismatch" ||
-		reasonCode === "claim_eligibility.owner_mismatch" ||
-		reasonCode === "claim_eligibility.openmeld_service_runtime_id_mismatch" ||
-		reasonCode === "local_service.identity_mismatch"
-	);
-}
-
 export function createAgentProfileRepairActionFromLocalAgent(input: {
-	intent: AgentProfileRepairAction["intent"];
 	localAgent: DeviceAgentCatalogEntry;
 }): AgentProfileRepairAction | null {
 	const localAgentControllerRef = buildAgentControllerRef({
@@ -954,7 +873,6 @@ export function createAgentProfileRepairActionFromLocalAgent(input: {
 	return {
 		agentDisplayName: input.localAgent.displayName,
 		agentControllerRef: localAgentControllerRef,
-		intent: input.intent,
 	};
 }
 

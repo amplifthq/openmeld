@@ -59,6 +59,40 @@ function createUnauthenticatedControllerReadiness() {
 }
 
 describe("agent wake availability", () => {
+  it.each([
+    "local_service.identity_mismatch",
+    "claim_eligibility.binding_runtime_mismatch",
+    "claim_eligibility.openmeld_service_runtime_id_mismatch",
+    "claim_eligibility.binding_capability_mismatch",
+  ])("does not present %s as a first connection", (reasonCode) => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      claimDiagnostics: { status: "mismatch", reasonCodes: [reasonCode] },
+      route: {
+        deviceId: "device_11111111-1111-4111-8111-111111111111",
+        observedAt: "2026-07-13T06:00:00.000Z",
+        status: "online",
+      },
+      runtimeReadiness: {
+        displayState: "ready",
+        ready: true,
+        reasonCodes: ["runtime.ready"],
+      },
+    });
+    expect(
+      resolveAgentWakeAvailability({
+        readiness,
+        wakeRouteStatus: createReadyWakeRouteStatus(),
+      })
+    ).toMatchObject({
+      badgeLabel: "Connection mismatch",
+      phase: "unavailable",
+      reasonCode,
+      status: "unavailable_for_wake",
+    });
+  });
+
   it("keeps public availability reason roles explicit", () => {
     expect(
       classifyAgentWakeAvailabilityReason(
@@ -204,6 +238,58 @@ describe("agent wake availability", () => {
     expect(resolveAgentWakeAdmissionBlockReasonCode(readiness)).toBe(
       "agent_execution.readiness_unconfirmed"
     );
+  });
+
+  it("preserves a pending route reason instead of reporting unknown readiness", () => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      localService: {
+        reachable: true,
+        refreshable: true,
+        reasonCodes: ["local_service.refresh_in_progress"],
+        source: "runtime_transport",
+      },
+      route: { status: "offline", reasonCodes: ["route.not_registered"] },
+      runtimeReadiness: {
+        displayState: "ready",
+        ready: true,
+        reasonCodes: ["runtime.ready"],
+      },
+    });
+    expect(resolveAgentWakeAdmissionBlockReasonCode(readiness)).toBe(
+      "route.not_registered"
+    );
+  });
+
+  it("keeps service drift a definite service problem, not an update requirement", () => {
+    const readiness = resolveAgentExecutionStatus({
+      agentProfileId,
+      binding: createPrimaryBinding(),
+      route: { status: "offline", reasonCodes: ["route.not_registered"] },
+      service: {
+        executionCompatible: false,
+        expectedEpoch: "1",
+        observedEpoch: null,
+        reasonCodes: ["service.drifted"],
+        source: "unavailable",
+      },
+      runtimeReadiness: {
+        displayState: "ready",
+        ready: true,
+        reasonCodes: ["runtime.ready"],
+      },
+    });
+    expect(resolveAgentWakeAdmissionBlockReasonCode(readiness)).toBe(
+      "service.drifted"
+    );
+    expect(
+      resolveAgentWakeAdmissionTerminalDecision("service.drifted")
+    ).toEqual({
+      reasonCode: "service.drifted",
+      publicationCategory: "agent_profile_unavailable",
+      userRecoveryAction: "check_status",
+    });
   });
 
   it.each([
@@ -593,7 +679,7 @@ describe("agent wake availability", () => {
       phase: "available",
       reasonCode: "remote_agent.available",
       status: "available_for_wake",
-      summary: "Center Agent can answer now.",
+      summary: "This Agent can answer now.",
     });
     expect(JSON.stringify(availability)).not.toContain("OpenMeld Service");
     expect(JSON.stringify(availability)).not.toContain("Update");
@@ -1019,8 +1105,8 @@ describe("agent wake availability", () => {
       phase: "unavailable",
       reasonCode: "lookup_failed",
       status: "unavailable_for_wake",
-      summary: "This Agent's computer connection is unavailable right now.",
-      tooltip: "Computer connection unavailable",
+      summary: "OpenMeld couldn't check this agent's connection.",
+      tooltip: "Connection check unavailable",
     });
   });
 

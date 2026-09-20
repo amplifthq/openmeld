@@ -26,10 +26,12 @@ export async function readActiveOrganizationJoinLink(input: {
         WHERE organization_join_links.organization_id = ?
           AND organization_join_links.revoked_at IS NULL
           AND organization_join_links.space_id IS NULL
+          AND organization_join_links.mode = 'request'
+          AND (organization_join_links.expires_at IS NULL OR organization_join_links.expires_at > ?)
         LIMIT 1
       `
     )
-    .bind(input.organizationId)
+    .bind(input.organizationId, Date.now())
     .first<ActiveOrganizationJoinLinkRow>();
 
   return row

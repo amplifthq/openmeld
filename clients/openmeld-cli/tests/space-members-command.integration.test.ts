@@ -245,7 +245,7 @@ describe("space members command", () => {
       expect(plainStdout).toContain("reference");
       expect(plainStdout).toContain("Build Agent");
       expect(plainStdout).toContain(
-        "@Build Agent(wake), @Build Agent(reference)"
+        "--wake agt_22222222-2222-4222-8222-222222222222, --reference agt_22222222-2222-4222-8222-222222222222"
       );
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       const [request, init] = fetchSpy.mock.calls[0] ?? [];

@@ -1,4 +1,6 @@
-"use client";
+import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
+
+("use client");
 
 import type { OrganizationDirectoryResponse } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
@@ -13,6 +15,7 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
+import { SkeletonForm } from "@openmeld/ui/components/skeleton-content";
 import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import {
 	ChatCircleTextIcon,
@@ -26,7 +29,6 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { toast } from "sonner";
 import { AppPageHeader } from "#/components/app/app-page-header";
-import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import {
 	designateCurrentCenterAgent,
 	openCurrentCenterAgentDirectMessageSpace,
@@ -61,6 +63,7 @@ import {
 	resolveDesignatedCenterAgentProfile,
 } from "./center-agent-profile-presentation";
 import { CenterAgentUsageSection } from "./center-agent-usage-section";
+import { OrganizationMemoryPolicySection } from "./organization-memory-policy-section";
 
 const CENTER_AGENT_STATUS_BADGE_CLASS_NAMES = {
 	Available: resolveStatusToneProminentBadgeClassName("ready"),
@@ -85,11 +88,20 @@ export function CenterAgentSettingsPage() {
 		})
 	);
 	const isPersonalOrganization = currentOrganization.isPersonal === true;
-	const canManage =
+	const canManageCenterAgent =
 		isPersonalOrganization ||
 		canManageOrganizationArea(roleQuery.data, {
 			centerAgent: ["update"],
 		});
+	const canManageMemory =
+		isPersonalOrganization ||
+		canManageOrganizationArea(roleQuery.data, {
+			memory: ["manage"],
+		});
+	const roleErrorMessage =
+		isPersonalOrganization || !roleQuery.isError
+			? null
+			: roleQuery.error.message;
 
 	return (
 		<CenterAgentSettingsContent
@@ -97,12 +109,17 @@ export function CenterAgentSettingsPage() {
 			isDirectoryPending={directoryQuery.isPending}
 			isPersonalWorkspace={isPersonalOrganization}
 			members={directoryQuery.data?.members ?? []}
+			memoryRoleState={{
+				canManage: canManageMemory,
+				errorMessage: roleErrorMessage,
+				isPending: isPersonalOrganization ? false : roleQuery.isPending,
+			}}
 			organizationId={currentOrganization.id}
 			organizationName={currentOrganization.name}
 			orgSlug={currentOrganization.slug}
 			roleState={{
-				canManage,
-				isError: isPersonalOrganization ? false : roleQuery.isError,
+				canManage: canManageCenterAgent,
+				errorMessage: roleErrorMessage,
 				isPending: isPersonalOrganization ? false : roleQuery.isPending,
 			}}
 		/>
@@ -111,14 +128,45 @@ export function CenterAgentSettingsPage() {
 
 export type CenterAgentSettingsRoleState = {
 	canManage: boolean;
-	isError: boolean;
+	errorMessage: string | null;
 	isPending: boolean;
 };
+
+function CenterAgentOrganizationMemorySection(input: {
+	isPersonalWorkspace: boolean;
+	organizationId: string;
+	roleState: CenterAgentSettingsRoleState;
+}) {
+	if (input.isPersonalWorkspace) {
+		return null;
+	}
+
+	return (
+		<OrganizationMemoryPolicySection
+			isPersonalWorkspace={false}
+			organizationId={input.organizationId}
+			roleState={input.roleState}
+		/>
+	);
+}
+
+function isCenterAgentIdentityPending(input: {
+	designationPending: boolean;
+	hasDesignation: boolean;
+	directoryPending: boolean;
+	hasProfile: boolean;
+}) {
+	return (
+		input.designationPending ||
+		(input.hasDesignation && input.directoryPending && !input.hasProfile)
+	);
+}
 
 export function CenterAgentSettingsContent(input: {
 	agentProfiles: readonly DirectoryAgentProfile[];
 	isDirectoryPending: boolean;
 	isPersonalWorkspace: boolean;
+	memoryRoleState: CenterAgentSettingsRoleState;
 	members: readonly OrganizationDirectoryResponse["members"][number][];
 	organizationId: string;
 	organizationName: string;
@@ -331,12 +379,26 @@ export function CenterAgentSettingsContent(input: {
 					title="Could not load Documents."
 				/>
 			) : null}
+			<CenterAgentOrganizationMemorySection
+				isPersonalWorkspace={input.isPersonalWorkspace}
+				organizationId={input.organizationId}
+				roleState={input.memoryRoleState}
+			/>
 			<CenterAgentUsageSection
 				isPersonalWorkspace={input.isPersonalWorkspace}
 				organizationId={input.organizationId}
 			/>
-			{designationQuery.isPending ? (
-				<p className="text-muted-foreground text-sm">Loading Center Agent.</p>
+			{isCenterAgentIdentityPending({
+				designationPending: designationQuery.isPending,
+				hasDesignation: designation !== null,
+				directoryPending: input.isDirectoryPending,
+				hasProfile: Boolean(designatedProfile),
+			}) ? (
+				<SkeletonForm
+					className="rounded-md border border-border/70 p-5"
+					fields={2}
+					label="Loading Center Agent"
+				/>
 			) : null}
 			{designationQuery.isError ? (
 				<CenterAgentErrorState
@@ -533,7 +595,7 @@ function CenterAgentDisconnectedSection(input: {
 						disabled={
 							!input.roleState.canManage ||
 							input.connectState.isPending ||
-							input.roleState.isError ||
+							Boolean(input.roleState.errorMessage) ||
 							input.roleState.isPending
 						}
 						onClick={input.onConnectRemote}
@@ -553,7 +615,7 @@ function CenterAgentDisconnectedSection(input: {
 					{resolveRemoteConnectionDescription({
 						canManage: input.roleState.canManage,
 						isMutationPending: input.connectState.isPending,
-						isRoleError: input.roleState.isError,
+						isRoleError: Boolean(input.roleState.errorMessage),
 						isRolePending: input.roleState.isPending,
 					})}
 				</p>
@@ -600,11 +662,10 @@ function CenterAgentConnectionSection(input: {
 			</div>
 			<div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
 				<div className="flex min-w-0 items-start gap-4">
-					<DitherProfileAvatar
+					<RemoteAgentAvatar
 						data-testid={`center-agent-profile-avatar-${input.profile.profileId}`}
-						profileId={input.profile.profileId}
-						profileKind="center-agent"
 						profileName={input.profile.profileName}
+						shape="circle"
 						size={40}
 					/>
 					<div className="min-w-0">
@@ -728,12 +789,12 @@ function CenterAgentDangerSection(input: {
 					</p>
 					<p className="mt-1 text-muted-foreground text-sm">
 						{isPaused
-							? "It cannot start or continue tasks in OpenMeld, Slack, or connected channels until the Organization creator resumes it."
+							? "It cannot start or continue tasks in OpenMeld, Slack, or connected channels until an Organization owner or admin resumes it."
 							: "Stops every task currently interacting with the Center Agent across the organization and rejects new tasks until it is resumed."}
 					</p>
 					{input.canChangeOperatingState ? null : (
 						<p className="mt-2 text-muted-foreground text-xs">
-							Only the Organization creator can pause the Center Agent.
+							Only Organization owners and admins can pause the Center Agent.
 						</p>
 					)}
 				</div>

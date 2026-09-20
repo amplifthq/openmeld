@@ -1,3 +1,5 @@
+import { buildInboxEmailContent } from "@openmeld/auth/server";
+
 const TRANSIENT_EMAIL_ERROR_CODES = new Set([
   "E_DAILY_LIMIT_EXCEEDED",
   "E_DELIVERY_FAILED",
@@ -64,58 +66,18 @@ export function buildInboxItemUrl(input: {
   }
 }
 
-export function buildInboxUrgentEmail(input: {
+export async function buildInboxUrgentEmail(input: {
   purpose?: "invitation_review";
   from: string;
   inboxUrl: string;
   preview: string;
   title: string;
-}): InboxUrgentEmailContent {
+}): Promise<InboxUrgentEmailContent> {
   const title = input.title.replace(/[\r\n]+/g, " ").trim();
-  const escapedTitle = escapeHtml(title);
-  const escapedPreview = escapeHtml(input.preview);
-  const escapedInboxUrl = escapeHtml(input.inboxUrl);
-
-  if (input.purpose === "invitation_review") {
-    return {
-      from: input.from,
-      subject: title,
-      text: `${title}\n\n${input.preview}\n\nReview request: ${input.inboxUrl}\n\nYou received this because you can approve invitations for this organization.`,
-      html: `<!doctype html><html lang="en"><body><h1>${escapedTitle}</h1><p>${escapedPreview}</p><p><a href="${escapedInboxUrl}">Review request</a></p><p>You received this because you can approve invitations for this organization.</p></body></html>`,
-    };
-  }
-
   return {
+    ...(await buildInboxEmailContent({ ...input, title })),
     from: input.from,
-    html: `<!doctype html>
-<html lang="en">
-  <body style="margin:0;background:#f6f7f9;color:#17191c;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">An urgent item needs your attention in OpenMeld.</div>
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f6f7f9;padding:32px 16px;">
-      <tr>
-        <td align="center">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border:1px solid #e6e8eb;border-radius:16px;padding:32px;">
-            <tr><td style="font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#c2410c;">Urgent item in your Inbox</td></tr>
-            <tr><td style="padding-top:12px;font-size:24px;line-height:1.3;font-weight:650;">${escapedTitle}</td></tr>
-            <tr><td style="padding-top:12px;font-size:15px;line-height:1.6;color:#5b616b;">${escapedPreview}</td></tr>
-            <tr><td style="padding-top:24px;"><a href="${escapedInboxUrl}" style="display:inline-block;border-radius:10px;background:#17191c;color:#ffffff;font-size:14px;font-weight:600;line-height:20px;padding:10px 16px;text-decoration:none;">Open in OpenMeld</a></td></tr>
-            <tr><td style="padding-top:28px;font-size:12px;line-height:1.5;color:#8a9099;">You received this because urgent Inbox email notifications are enabled for your account.</td></tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>`,
-    subject: `Urgent: ${title}`,
-    text: `Urgent item in your Inbox
-
-${title}
-
-${input.preview}
-
-Open in OpenMeld: ${input.inboxUrl}
-
-You received this because urgent Inbox email notifications are enabled for your account.`,
+    subject: input.purpose === "invitation_review" ? title : `Urgent: ${title}`,
   };
 }
 
@@ -145,23 +107,6 @@ export function classifyInboxEmailError(
     providerCode,
     retryable: false,
   };
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => {
-    switch (character) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case '"':
-        return "&quot;";
-      default:
-        return "&#39;";
-    }
-  });
 }
 
 function readProviderErrorCode(error: unknown): string | null {

@@ -20,7 +20,6 @@ type RunConnectInput = Parameters<typeof runConnectCommand>[0];
 const ANSI_ESCAPE_PATTERN = "\\x1B\\[[0-9;]*m";
 const ANSI_ESCAPE_STRIP_REGEX = new RegExp(ANSI_ESCAPE_PATTERN, "g");
 const ANSI_ESCAPE_MATCH_REGEX = new RegExp(ANSI_ESCAPE_PATTERN);
-const CANONICAL_RELATION_SUFFIX_REGEX = /\((mention|reference|wake)\)/u;
 const LONG_SPACE_ID =
   "ab1c3286d92926cc07e70b4023d24a359387d250f670619af138c3a767f92efd";
 const READY_DAEMON_ROUTE_OBSERVATION = {
@@ -2438,7 +2437,7 @@ describe("connect experience enhancements", () => {
     }
   });
 
-  it("publishes human interactive profile-id addressing with canonical labels", async () => {
+  it("keeps typed profile-id addressing literal without selecting recipients", async () => {
     const harness = createMessageStreamHarness();
     mockConnectFetchSuccess({
       membersSnapshot: createTypedCanonicalMembersSnapshot(),
@@ -2466,8 +2465,7 @@ describe("connect experience enhancements", () => {
       const humanTargetProfileId = "22222222-0000-4000-8000-000000000008";
       const agentTargetProfileId = "agt_11111111-2222-4333-8444-555555555555";
       const canonicalInputText = `@${humanTargetProfileId}(mention) Please coordinate with @${agentTargetProfileId}(wake).`;
-      const publishedText =
-        "@Avery Stone Please coordinate with @Budget Analyst.";
+      const publishedText = canonicalInputText;
       const connectPromise = withCapturedStdio(async () => {
         await withTempHome(async () => {
           await runConnect({
@@ -2514,17 +2512,7 @@ describe("connect experience enhancements", () => {
 
       expect(submittedSignal.data?.text).toBe(publishedText);
       expect(submittedSignal.data?.meta?.clientMessageId?.trim()).toBeTruthy();
-      expect(submittedSignal.data?.messageEnvelope).toMatchObject({
-        activationTargets: [agentTargetProfileId],
-        mentionTargets: [humanTargetProfileId],
-        referenceTargets: [],
-        text: publishedText,
-      });
-      expect(submittedSignal.data?.text).not.toContain(humanTargetProfileId);
-      expect(submittedSignal.data?.text).not.toContain(agentTargetProfileId);
-      expect(submittedSignal.data?.text).not.toMatch(
-        CANONICAL_RELATION_SUFFIX_REGEX
-      );
+      expect(submittedSignal.data?.messageEnvelope).toBeUndefined();
       expect(stripAnsi(stderr)).not.toContain("Rejected:");
     } finally {
       if (stdoutTtyDescriptor) {
@@ -2545,7 +2533,7 @@ describe("connect experience enhancements", () => {
     }
   });
 
-  it("publishes agent ndjson canonical Wake input as a bare mention", async () => {
+  it("keeps agent ndjson Wake-like text literal without waking a recipient", async () => {
     const harness = createMessageStreamHarness();
     mockConnectFetchSuccess({
       membersSnapshot: createTypedCanonicalMembersSnapshot(),
@@ -2570,7 +2558,7 @@ describe("connect experience enhancements", () => {
     try {
       const canonicalInputText =
         "@Budget Analyst(wake) Please propose the rollout plan.";
-      const publishedText = "@Budget Analyst Please propose the rollout plan.";
+      const publishedText = canonicalInputText;
       const connectPromise = withCapturedStdio(async () => {
         await withTempHome(async () => {
           await runConnect({
@@ -2616,11 +2604,7 @@ describe("connect experience enhancements", () => {
 
       expect(submittedSignal.data?.text).toBe(publishedText);
       expect(submittedSignal.data?.meta?.clientMessageId?.trim()).toBeTruthy();
-      expect(submittedSignal.data?.messageEnvelope).toMatchObject({
-        activationTargets: ["agt_11111111-2222-4333-8444-555555555555"],
-        referenceTargets: [],
-        text: publishedText,
-      });
+      expect(submittedSignal.data?.messageEnvelope).toBeUndefined();
     } finally {
       if (stdoutTtyDescriptor) {
         Object.defineProperty(process.stdout, "isTTY", stdoutTtyDescriptor);
@@ -2635,7 +2619,7 @@ describe("connect experience enhancements", () => {
     }
   });
 
-  it("rejects invalid typed canonical mentions on human interactive submit before sending", async () => {
+  it("publishes unknown typed mention-like text without recipient validation", async () => {
     const harness = createMessageStreamHarness();
     mockConnectFetchSuccess({
       membersSnapshot: createTypedCanonicalMembersSnapshot(),
@@ -2685,19 +2669,19 @@ describe("connect experience enhancements", () => {
         Buffer.from("@budget analyst(wake) Please propose the rollout plan.\n")
       );
       await vi.waitFor(() => {
-        expect(harness.send).toHaveBeenCalledTimes(1);
+        expect(harness.send).toHaveBeenCalledTimes(2);
       });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      process.stdin.emit("data", Buffer.from("\n"));
-      await new Promise((resolve) => setTimeout(resolve, 0));
       harness.close(1006, "");
 
       const { stderr } = await connectPromise;
-      expect(stripAnsi(stderr)).toContain("Rejected:");
-      expect(stripAnsi(stderr)).toContain(
-        "That mention does not match a current member. Type @ and choose a member from the list."
+      const submittedSignal = JSON.parse(
+        String(harness.send.mock.calls[1]?.[0])
       );
-      expect(stripAnsi(stderr)).not.toContain("Rejected: empty");
+      expect(submittedSignal.data.text).toBe(
+        "@budget analyst(wake) Please propose the rollout plan."
+      );
+      expect(submittedSignal.data.messageEnvelope).toBeUndefined();
+      expect(stripAnsi(stderr)).not.toContain("Rejected:");
     } finally {
       if (stdoutTtyDescriptor) {
         Object.defineProperty(process.stdout, "isTTY", stdoutTtyDescriptor);
@@ -3193,6 +3177,7 @@ describe("connect experience enhancements", () => {
       });
 
       await harness.waitUntilReady();
+      await vi.waitFor(() => expect(startSpy).toHaveBeenCalledOnce());
       harness.close(1000, "pi-tui-top-context");
 
       const { plainStderr } = await connectPromise;

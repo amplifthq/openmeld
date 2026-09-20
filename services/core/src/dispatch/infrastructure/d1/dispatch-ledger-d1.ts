@@ -2,6 +2,7 @@ import { isAgentWakeAdmissionPreparationPendingReason } from "@openmeld/agent-ru
 import {
   buildMentionDispatchResultEnvelope,
   buildRuntimeCoordinatorExecutionId,
+  RUNTIME_COORDINATOR_DEVICE_WAITING_REASON_CODE,
   sanitizeDispatchErrorSummary,
 } from "@openmeld/schemas";
 import type {
@@ -82,6 +83,7 @@ export type DispatchSlaMetrics = {
 };
 
 export type RuntimeCoordinatorQueueDecisionRequest = {
+  ownerUserId?: string | null;
   claimDecision: RuntimeCoordinatorQueueTriggeredClaimDecision;
   coordinatorDecision: RuntimeCoordinatorTokenAwareExecutionDecision;
   eventKind: Extract<
@@ -119,6 +121,7 @@ export type OpenMeldDaemonDispatchAttemptClaimResult =
     };
 
 type ExistingDispatchLedgerRow = {
+  ownerUserId: string | null;
   attemptCount: number;
   dispatchId: string;
   firstSeenAtMs: number;
@@ -1145,6 +1148,7 @@ export const claimDispatchAttempt = async (
   const coordinatorClaimResult = await buildRuntimeCoordinatorClaimResult({
     coordinatorQueueDecision,
     db: input.db,
+    existing,
     message: input.message,
     nowMs: input.nowMs,
   });
@@ -1289,6 +1293,7 @@ type RuntimeCoordinatorQueueDecision =
 const buildRuntimeCoordinatorClaimResult = async (input: {
   coordinatorQueueDecision: RuntimeCoordinatorQueueDecision;
   db: D1Database;
+  existing: ExistingDispatchLedgerRow | null;
   message: OpenMeldDaemonDispatchQueueMessage;
   nowMs: number;
 }): Promise<OpenMeldDaemonDispatchAttemptClaimResult | null> => {
@@ -1309,7 +1314,12 @@ const buildRuntimeCoordinatorClaimResult = async (input: {
     buildRuntimeCoordinatorQueueDecisionRequest(input.coordinatorQueueDecision);
   if (runtimeCoordinatorDecisionRequest) {
     return {
-      runtimeCoordinatorDecisionRequest,
+      runtimeCoordinatorDecisionRequest: {
+        ...runtimeCoordinatorDecisionRequest,
+        ownerUserId:
+          input.existing?.ownerUserId ??
+          normalizeDispatchOwnerEvidence(input.message.dispatchOwner).id,
+      },
       status: "deduped",
     };
   }
@@ -1373,6 +1383,7 @@ const resolveRuntimeCoordinatorQueueDecisionForClaim = (input: {
     shouldRetryRuntimeCoordinatorHeadWaitingAfterRouteRecovery({
       claimDecision: input.claimDecision,
       latestAttempt: input.latestAttempt,
+      message: input.message,
     })
   ) {
     return { kind: "allow" };
@@ -1451,7 +1462,39 @@ const shouldRetryPreExecutionAdmissionAfterRetryableFailure = (input: {
 const shouldRetryRuntimeCoordinatorHeadWaitingAfterRouteRecovery = (input: {
   claimDecision: DispatchAttemptClaimDecision;
   latestAttempt: DispatchAttemptLedgerRow;
+  message: OpenMeldDaemonDispatchQueueMessage;
 }): boolean => {
+  // A route that declined admission has no execution token to recover. Re-enter
+  // the existing head admission path; RuntimeCoordinator still decides whether
+  // execution may be created. Never apply this to evidence of delivered work.
+  if (
+    input.latestAttempt?.status ===
+      OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable &&
+    input.latestAttempt.errorCode === "daemon.service.draining" &&
+    input.latestAttempt.daemonSessionId === null &&
+    input.latestAttempt.connectionGeneration === null &&
+    input.latestAttempt.leaseEpoch === null
+  ) {
+    return (
+      input.claimDecision.kind === "claim_existing_inside_window" ||
+      ((input.claimDecision.kind === "claim_recovery" ||
+        input.claimDecision.kind === "reset_existing") &&
+        input.claimDecision.deliveryRecoveryReason === "route_lost")
+    );
+  }
+  if (
+    input.message.deviceWait &&
+    input.latestAttempt?.status ===
+      OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable &&
+    input.latestAttempt.errorCode ===
+      RUNTIME_COORDINATOR_DEVICE_WAITING_REASON_CODE
+  ) {
+    return (
+      (input.claimDecision.kind === "claim_recovery" ||
+        input.claimDecision.kind === "reset_existing") &&
+      input.claimDecision.deliveryRecoveryReason === "route_lost"
+    );
+  }
   if (
     input.latestAttempt?.status !==
       OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedRetryable ||
@@ -1564,6 +1607,8 @@ const readDispatchLedgerRow = async (input: {
             latest_attempt_id,
             attempt_count,
             reply_hint_sent_at_ms,
+            dispatch_owner_kind,
+            dispatch_owner_id,
             status
           FROM openMeldDaemon_dispatch_ledger
           WHERE idempotency_key = ?
@@ -1578,12 +1623,18 @@ const readDispatchLedgerRow = async (input: {
       last_attempt_at_ms?: unknown;
       latest_attempt_id?: unknown;
       reply_hint_sent_at_ms?: unknown;
+      dispatch_owner_kind?: unknown;
+      dispatch_owner_id?: unknown;
       status?: unknown;
     }>();
   if (!existing) {
     return null;
   }
   return {
+    ownerUserId:
+      existing.dispatch_owner_kind === "owner_account"
+        ? normalizeString(existing.dispatch_owner_id)
+        : null,
     attemptCount: Math.max(0, Number(existing.attempt_count ?? 0)),
     dispatchId:
       normalizeString(existing.dispatch_id) ??

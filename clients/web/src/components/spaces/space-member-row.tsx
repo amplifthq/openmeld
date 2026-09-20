@@ -20,6 +20,7 @@ import {
 import {
 	Tooltip,
 	TooltipContent,
+	TooltipHint,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import type { StatusTone } from "@openmeld/ui/lib/status-tone";
@@ -182,7 +183,12 @@ function AgentSpaceMemberRow(input: AgentSpaceMemberRowProps) {
 			}
 			profileName={input.entry.profileName}
 			profileNameAdornment={
-				<AgentSpaceMemberAvailabilityIndicator presentation={presentation} />
+				<>
+					<AgentSpaceMemberAvailabilityIndicator presentation={presentation} />
+					<RemoteAgentIndicator
+						agentControllerRef={input.entry.agentControllerRef}
+					/>
+				</>
 			}
 			profileNameClassName={SPACE_MEMBER_NAME_CLASS_NAME}
 			profileSummaryAriaLabel={`Check ${input.entry.profileName} Profile`}
@@ -460,14 +466,15 @@ function HumanSpaceMemberRow(input: HumanSpaceMemberRowProps) {
 function SpaceMemberActivityText(input: { label: string }) {
 	const accessibleLabel = `${input.label}. ${SPACE_MEMBER_ACTIVITY_TOOLTIP}`;
 	const activity = (
-		<span
-			aria-label={accessibleLabel}
-			className="cursor-help break-words"
-			role="note"
-			title={SPACE_MEMBER_ACTIVITY_TOOLTIP}
-		>
-			{input.label}
-		</span>
+		<TooltipHint content={SPACE_MEMBER_ACTIVITY_TOOLTIP}>
+			<span
+				aria-label={accessibleLabel}
+				className="cursor-help break-words"
+				role="note"
+			>
+				{input.label}
+			</span>
+		</TooltipHint>
 	);
 
 	return (
@@ -1032,3 +1039,5 @@ function isOwnedByCurrentUser(input: {
 }): boolean {
 	return isSameOwnerUserId(input);
 }
+
+import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";

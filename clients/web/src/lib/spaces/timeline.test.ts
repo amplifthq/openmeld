@@ -164,25 +164,6 @@ describe("space timeline helpers", () => {
 		});
 	});
 
-	it("preserves durable Center Agent Task references on the timeline item", () => {
-		const [item] = buildSpaceTimelineItems({
-			envelopes: [
-				createTextSignal({
-					id: "sig-task-created",
-					meta: {
-						centerAgentTaskReferences: [{ taskId: "task-1" }],
-						purpose: AGENT_REPLY_FINAL_PURPOSE,
-					},
-					text: "I started the Task.",
-					ts: 30,
-				}),
-			],
-			membersSnapshot: createMembersSnapshot(),
-		});
-
-		expect(item?.centerAgentTaskReferences).toEqual([{ taskId: "task-1" }]);
-	});
-
 	it("projects reply staleness only when the signal carries it", () => {
 		const items = buildSpaceTimelineItems({
 			envelopes: [
@@ -262,6 +243,37 @@ describe("space timeline helpers", () => {
 		expect(item).toMatchObject({
 			actorName: "Runner",
 			actorProfileName: "Runner",
+		});
+	});
+
+	it("presents a retained empty-reply failure as failure rather than an Agent reply", () => {
+		const failure = createTextSignal({
+			id: "old-empty-reply",
+			ts: 30,
+			text: "Old internal error",
+			profile: {
+				kind: "agent",
+				profileId: "agt_123",
+				profileName: "Center Agent",
+			},
+			meta: {
+				dispatchId: "failed-dispatch",
+				errorCode: "remote_agent.empty_assistant_response",
+				purpose: REMOTE_AGENT_FAILURE_PURPOSE,
+			},
+		});
+		const items = buildSpaceTimelineItems({
+			envelopes: [failure],
+			membersSnapshot: createMembersSnapshot(),
+			agentStreams: [],
+		});
+		expect(items[0]).toMatchObject({
+			signalType: "signal.system_notice",
+			systemNoticeType: "terminal_failure",
+			systemNoticeDispatchId: "failed-dispatch",
+			systemNoticeTargetProfileId: "agt_123",
+			isAgentFinalReply: false,
+			text: "Center Agent couldn't generate a reply. Your message is saved.",
 		});
 	});
 
@@ -416,7 +428,10 @@ describe("space timeline helpers", () => {
 		});
 	});
 
-	it("keeps a Thread stream out of the main conversation and in its Thread", () => {
+	it.each([
+		false,
+		true,
+	])("keeps a Thread stream out of main, including a main-message trigger (%s)", (mainTrigger) => {
 		const rootSignal = createTextSignal({
 			id: "signal-thread-root",
 			text: "Start a Thread here.",
@@ -434,7 +449,8 @@ describe("space timeline helpers", () => {
 			}),
 			reasonCode: "model.inventory_unavailable",
 			status: "failed" as const,
-			triggerMessageId: threadMessage.id,
+			triggerMessageId: mainTrigger ? rootSignal.id : threadMessage.id,
+			...(mainTrigger ? { replyThreadRootSignalId: rootSignal.id } : {}),
 		};
 
 		const mainItems = buildSpaceTimelineItems({
@@ -529,7 +545,10 @@ describe("space timeline helpers", () => {
 		});
 	});
 
-	it("lets the authoritative durable final message replace mismatched best-effort streamed text", () => {
+	it.each([
+		"stream:submission-1",
+		"local-agent:10:dispatch-1:9:attempt-1",
+	])("replaces %s as soon as its durable reply arrives, before stream closure", (streamId) => {
 		const items = buildSpaceTimelineItems({
 			envelopes: [
 				createTextSignal({
@@ -550,7 +569,9 @@ describe("space timeline helpers", () => {
 							],
 							truncated: false,
 						},
-						clientMessageId: "submission-1",
+						...(streamId.startsWith("local-agent:")
+							? {}
+							: { clientMessageId: "submission-1" }),
 						dispatchId: "dispatch-1",
 						purpose: AGENT_REPLY_FINAL_PURPOSE,
 						targetProfileId: "agt_33333333-3333-3333-3333-333333333333",
@@ -568,6 +589,7 @@ describe("space timeline helpers", () => {
 			membersSnapshot: createMembersSnapshot(),
 			agentStreams: [
 				createAgentStreamProjection({
+					streamId,
 					sequence: 4,
 					text: "Different best-effort partial",
 				}),
@@ -904,7 +926,7 @@ describe("space timeline helpers", () => {
 		});
 	});
 
-	it("preserves Agent Reference targets without inventing Wake details", () => {
+	it("preserves Human mentions and Agent references without inventing Wake details", () => {
 		const items = buildSpaceTimelineItems({
 			envelopes: [
 				createTextSignal({
@@ -913,6 +935,7 @@ describe("space timeline helpers", () => {
 					text: "@watcher context only",
 					messageEnvelope: {
 						activationTargets: [],
+						mentionTargets: ["11111111-1111-4111-8111-111111111111"],
 						referenceTargets: ["agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],
 						text: "@watcher context only",
 					},
@@ -926,6 +949,7 @@ describe("space timeline helpers", () => {
 
 		expect(items[0]).toMatchObject({
 			referenceTargetProfileIds: ["agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],
+			mentionTargetProfileIds: ["11111111-1111-4111-8111-111111111111"],
 			wakeClientMessageId: null,
 			wakeSourceSignalId: null,
 			wakeTargetProfileIds: [],
@@ -1513,6 +1537,7 @@ function createMembersSnapshot(
 }
 
 function createAgentStreamProjection(input: {
+	streamId?: string;
 	sequence: number;
 	text: string;
 }): SpaceConversationVisibleStreamProjection {
@@ -1525,7 +1550,7 @@ function createAgentStreamProjection(input: {
 		sequence: input.sequence,
 		spaceId: "space-123",
 		status: "streaming",
-		streamId: "stream:submission-1",
+		streamId: input.streamId ?? "stream:submission-1",
 		text: input.text,
 		textSequence: input.sequence,
 		triggerMessageId: "signal-trigger-1",
@@ -1628,6 +1653,7 @@ function createTextSignal(input: {
 	id: string;
 	messageEnvelope?: {
 		activationTargets: string[];
+		mentionTargets?: string[];
 		navigationAction?: {
 			label: string;
 			target:
@@ -1650,7 +1676,6 @@ function createTextSignal(input: {
 			kind: "local_agent";
 			sessionId?: string;
 		};
-		centerAgentTaskReferences?: Array<{ taskId: string }>;
 		clientMessageId?: string;
 		conversationCompaction?: {
 			completedAtMs: number;

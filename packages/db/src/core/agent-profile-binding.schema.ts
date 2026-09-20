@@ -59,7 +59,7 @@ export const openMeldDaemonAgentProfileBindings = sqliteTable(
     ),
     check(
       "openMeldDaemon_agent_profile_bindings_owner_kind_check",
-      sql`"owner_kind" in ('owner_account')`
+      sql`("owner_kind" = 'owner_account' and ("runtime_kind" != 'hosted_center_agent' or ("binding_state" = 'disabled_historical' and coalesce("reason_code", '') = 'agent_profile_binding.profile_deleted'))) or ("owner_kind" = 'organization' and "runtime_kind" = 'hosted_center_agent')`
     ),
     check(
       "openMeldDaemon_agent_profile_bindings_owner_id_non_empty_check",
@@ -75,11 +75,11 @@ export const openMeldDaemonAgentProfileBindings = sqliteTable(
     ),
     check(
       "openMeldDaemon_agent_profile_bindings_runtime_kind_check",
-      sql`"runtime_kind" in ('openmeld_service', 'hosted_center_agent')`
+      sql`"runtime_kind" in ('openmeld_service', 'hosted_center_agent', 'hosted_remote_agent')`
     ),
     check(
       "openMeldDaemon_agent_profile_bindings_hosted_identity_check",
-      sql`(("runtime_kind" = 'openmeld_service' and "hosted_runtime_identity_json" is null) or ("runtime_kind" = 'hosted_center_agent' and "hosted_runtime_identity_json" is not null and json_valid("hosted_runtime_identity_json")))`
+      sql`(("runtime_kind" = 'openmeld_service' and "hosted_runtime_identity_json" is null) or ("runtime_kind" in ('hosted_center_agent', 'hosted_remote_agent') and "hosted_runtime_identity_json" is not null and json_valid("hosted_runtime_identity_json")))`
     ),
     check(
       "openMeldDaemon_agent_profile_bindings_agent_controller_ref_non_empty_check",

@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-
+import { productionReleaseEvidenceSchema } from "../../packages/schemas/src/schemas/release/production-release-evidence.ts";
 import { productionReleaseScopeSchema } from "../../packages/schemas/src/schemas/release/production-scope-lease.ts";
 import { createProductionScopeLeaseGitEnvironment } from "./production-scope-lease.mjs";
 
@@ -26,18 +26,51 @@ export function publishGuardedLocalReleaseEvidence(input) {
     );
   }
 
-  const currentEvidence = readGuardedLocalReleaseEvidence(context);
+  if (
+    input.receipts &&
+    (Object.keys(input.receipts).length !== scopes.length ||
+      scopes.some((scope) => !input.receipts[scope]))
+  ) {
+    throw new Error(
+      "Component receipts must cover exactly the selected scopes."
+    );
+  }
+  const currentEvidence = readGuardedLocalReleaseEvidence(
+    context,
+    new Set(scopes)
+  );
   const pending = [];
   for (const scope of scopes) {
     const current = currentEvidence.get(scope);
-    const metadata = createEvidenceMetadata(context, scope, sourceSha);
+    const metadata = createEvidenceMetadata(
+      context,
+      scope,
+      sourceSha,
+      input.receipts?.[scope]
+    );
+    const recoveryProof = input.recoveryProof?.[scope];
+    const proofMetadata = recoveryProof
+      ? createRecoveryProofMetadata(context, current, metadata, recoveryProof)
+      : undefined;
+    if (
+      isRecordedReceipt(current?.metadata, metadata, Boolean(proofMetadata))
+    ) {
+      continue;
+    }
+    const proofSha = proofMetadata
+      ? createEvidenceCommit(context, current, proofMetadata)
+      : undefined;
     pending.push({
-      evidenceSha: createEvidenceCommit(context, current, metadata),
+      evidenceSha: createEvidenceCommit(context, current, metadata, proofSha),
       expectedSha: current?.evidenceSha ?? "",
       metadata,
       ref: evidenceRef(scope),
       scope,
     });
+  }
+
+  if (pending.length === 0) {
+    return { published: true, scopes, sourceSha };
   }
 
   const args = ["push", "--no-verify", "--porcelain", "--atomic"];
@@ -56,7 +89,7 @@ export function publishGuardedLocalReleaseEvidence(input) {
   }
   return {
     published: true,
-    scopes: pending.map((item) => item.scope),
+    scopes,
     sourceSha,
   };
 }
@@ -68,6 +101,12 @@ export function readGuardedLocalReleaseSources(input = {}) {
       scope,
       {
         recordedAt: evidence.metadata.recordedAt,
+        ...(evidence.metadata.receipt
+          ? {
+              receipt: evidence.metadata.receipt,
+              evidenceSha: evidence.evidenceSha,
+            }
+          : {}),
         sha: evidence.metadata.sourceSha,
         source: "guarded-local",
         url: undefined,
@@ -76,7 +115,7 @@ export function readGuardedLocalReleaseSources(input = {}) {
   );
 }
 
-function readGuardedLocalReleaseEvidence(context) {
+function readGuardedLocalReleaseEvidence(context, selectedScopes) {
   const result = runGit(
     context,
     ["ls-remote", "--refs", context.remote, `${EVIDENCE_REF_PREFIX}/*`],
@@ -98,6 +137,9 @@ function readGuardedLocalReleaseEvidence(context) {
       continue;
     }
     const scope = productionReleaseScopeSchema.parse(ref.slice(prefix.length));
+    if (selectedScopes && !selectedScopes.has(scope)) {
+      continue;
+    }
     const evidenceSha = requireExactSha(
       `${scope} guarded local release evidence`,
       shaValue
@@ -150,22 +192,172 @@ function evidenceRef(scope) {
   return `${EVIDENCE_REF_PREFIX}/${scope}`;
 }
 
-function createEvidenceMetadata(context, scope, sourceSha) {
-  return {
+function createEvidenceMetadata(context, scope, sourceSha, receipt) {
+  let schemaVersion = receipt ? 2 : 1;
+  if (receipt?.operationKey) {
+    schemaVersion = 3;
+  }
+  return productionReleaseEvidenceSchema.parse({
     evidenceId: randomUUID(),
     kind: EVIDENCE_KIND,
     recordedAt: context.now.toISOString(),
-    schemaVersion: 1,
+    schemaVersion,
     scope,
     sourceSha,
-  };
+    ...(receipt ? { receipt } : {}),
+  });
 }
 
-function createEvidenceCommit(context, current, metadata) {
+function createRecoveryProofMetadata(context, current, next, receipt) {
+  if (
+    next.scope !== "remote-agent" ||
+    current?.metadata.schemaVersion !== 3 ||
+    current.metadata.receipt?.status !== "failed" ||
+    current.metadata.receipt.application !== "unknown" ||
+    next.schemaVersion !== 3 ||
+    !["verified", "failed"].includes(next.receipt?.status) ||
+    receipt.recovery?.originalEvidenceSha !== current.evidenceSha ||
+    receipt.attemptId !== next.receipt.attemptId ||
+    receipt.operationKey !== next.receipt.operationKey ||
+    receipt.startedAt !== next.receipt.startedAt ||
+    receipt.componentIndex !== next.receipt.componentIndex ||
+    receipt.status !== next.receipt.status ||
+    receipt.application !== next.receipt.application ||
+    JSON.stringify(receipt.identity) !==
+      JSON.stringify(next.receipt.identity) ||
+    (next.receipt.status === "failed" &&
+      (next.receipt.application !== "unknown" || next.receipt.identity)) ||
+    (next.receipt.status === "verified" &&
+      (next.receipt.application !== "applied" ||
+        receipt.identity?.kind !== "worker-deployment" ||
+        receipt.identity.workerName !== "openmeld-remote-agent-prod"))
+  ) {
+    throw new Error(
+      "Recovery proof must match the exact retained failed Remote Agent attempt and completion."
+    );
+  }
+  return productionReleaseEvidenceSchema.parse({
+    evidenceId: randomUUID(),
+    kind: EVIDENCE_KIND,
+    recordedAt: context.now.toISOString(),
+    schemaVersion: 4,
+    scope: next.scope,
+    sourceSha: next.sourceSha,
+    receipt,
+  });
+}
+
+function isRecordedReceipt(current, next, recoveryProved = false) {
+  if (!current) {
+    return false;
+  }
+  if (next.schemaVersion < current.schemaVersion) {
+    throw new Error(
+      "An existing receipt cannot be downgraded; use current release tooling to reconcile it."
+    );
+  }
+  if (!next.receipt) {
+    return false;
+  }
+  const previous = current.receipt;
+  if (
+    previous &&
+    previous.status !== "verified" &&
+    previous.attemptId !== next.receipt.attemptId
+  ) {
+    throw new Error(
+      "An unresolved component attempt cannot be replaced; reconcile its deployment first."
+    );
+  }
+  if (
+    previous?.attemptId === next.receipt.attemptId &&
+    current.sourceSha !== next.sourceSha
+  ) {
+    throw new Error("A retained release attempt cannot change its source SHA.");
+  }
+  if (
+    previous?.attemptId === next.receipt.attemptId &&
+    previous.componentIndex === next.receipt.componentIndex &&
+    previous.status === next.receipt.status
+  ) {
+    if (
+      current.sourceSha !== next.sourceSha ||
+      JSON.stringify(previous) !== JSON.stringify(next.receipt)
+    ) {
+      throw new Error(
+        "An existing component event cannot be rewritten with different evidence."
+      );
+    }
+    return !recoveryProved;
+  }
+  if (Date.parse(next.recordedAt) < Date.parse(current.recordedAt)) {
+    throw new Error(
+      "Refusing an older component receipt; reconcile the latest deployment evidence first."
+    );
+  }
+  const recovered = validateCorrelationTransition(
+    current,
+    next,
+    recoveryProved
+  );
+  if (previous?.attemptId === next.receipt.attemptId) {
+    const order = { started: 0, applied: 1, verified: 2, failed: 2 };
+    if (
+      next.receipt.componentIndex < previous.componentIndex ||
+      (next.receipt.componentIndex === previous.componentIndex &&
+        order[next.receipt.status] <= order[previous.status] &&
+        !recovered)
+    ) {
+      throw new Error(
+        "A completed component event cannot move backward or change its terminal outcome."
+      );
+    }
+  }
+  return false;
+}
+
+function validateCorrelationTransition(current, next, recoveryProved) {
+  const previous = current.receipt;
+  if (
+    current.schemaVersion !== 3 ||
+    previous?.attemptId !== next.receipt.attemptId ||
+    previous.componentIndex !== next.receipt.componentIndex
+  ) {
+    return false;
+  }
+  if (
+    previous.operationKey !== next.receipt.operationKey ||
+    previous.startedAt !== next.receipt.startedAt ||
+    (previous.identity &&
+      JSON.stringify(previous.identity) !==
+        JSON.stringify(next.receipt.identity))
+  ) {
+    throw new Error(
+      "A correlated component attempt cannot change its target or applied identity."
+    );
+  }
+  if (recoveryProved) {
+    return previous.status === "failed" && previous.application === "unknown";
+  }
+  return (
+    previous.status === "failed" &&
+    previous.application === "applied" &&
+    previous.identity &&
+    next.receipt.status === "verified"
+  );
+}
+
+function createEvidenceCommit(context, current, metadata, proofSha) {
   const parentSha = current?.evidenceSha ?? metadata.sourceSha;
   const result = spawnSync(
     "git",
-    ["commit-tree", `${metadata.sourceSha}^{tree}`, "-p", parentSha],
+    [
+      "commit-tree",
+      `${metadata.sourceSha}^{tree}`,
+      "-p",
+      parentSha,
+      ...(proofSha ? ["-p", proofSha] : []),
+    ],
     {
       cwd: context.cwd,
       encoding: "utf8",
@@ -199,21 +391,13 @@ function parseEvidenceMetadata(input) {
       `Guarded local release evidence ${input.evidenceSha} has malformed metadata.`
     );
   }
-  const recordedAt = new Date(metadata.recordedAt);
-  if (
-    metadata.kind !== EVIDENCE_KIND ||
-    metadata.schemaVersion !== 1 ||
-    metadata.scope !== input.scope ||
-    !EXACT_SHA_PATTERN.test(String(metadata.sourceSha ?? "")) ||
-    typeof metadata.evidenceId !== "string" ||
-    metadata.evidenceId.length === 0 ||
-    Number.isNaN(recordedAt.getTime())
-  ) {
+  const parsed = productionReleaseEvidenceSchema.safeParse(metadata);
+  if (!parsed.success || parsed.data.scope !== input.scope) {
     throw new Error(
       `Guarded local release evidence ${input.evidenceSha} violates its metadata contract.`
     );
   }
-  return metadata;
+  return parsed.data;
 }
 
 function runGit(context, args, options = {}) {

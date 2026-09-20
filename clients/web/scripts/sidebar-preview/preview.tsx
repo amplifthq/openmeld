@@ -2,6 +2,7 @@ import { Button } from "@openmeld/ui/components/button";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	createRootRoute,
 	createRoute,
@@ -13,7 +14,7 @@ import { createRoot } from "react-dom/client";
 import { AgentProfileSidebarItemComponent } from "../../src/components/agents/agent-profile-sidebar-item";
 import { SidebarListSkeleton } from "../../src/components/app/sidebar-list-skeleton";
 import { HumanProfileItem } from "../../src/components/directory/human-profile-item";
-import { SpaceSidebarMenuItem } from "../../src/components/spaces/space-sidebar-menu-item";
+import { ConversationSidebarRow } from "../../src/components/spaces/conversation-sidebar-row";
 import { agentScenarios, peopleScenarios, spaceScenarios } from "./scenarios";
 import "./preview.css";
 
@@ -97,19 +98,38 @@ function Preview() {
 									pins[scenario.item.spaceId] ??
 									Boolean(scenario.item.pinnedAt);
 								return (
-									<SpaceSidebarMenuItem
-										key={scenario.item.spaceId}
-										{...scenario}
-										index={index}
-										isActive={selected === scenario.item.spaceId}
-										item={{
-											...scenario.item,
-											pinnedAt: pinned ? "2026-09-01T00:00:00Z" : null,
+									<ConversationSidebarRow
+										activeWakeSummary={scenario.activeWakeSummary}
+										archived={false}
+										attentionTone={null}
+										conversation={{
+											kind: "space",
+											item: {
+												...scenario.item,
+												pinnedAt: pinned ? "2026-09-01T00:00:00Z" : null,
+											},
+											spaceId: scenario.item.spaceId,
+											title: scenario.item.spaceName,
+											activity: scenario.item.messagePreview?.timestamp ?? 0,
+											profileId: "viewer",
+											url: scenario.routePath,
 										}}
-										onOpenSpace={() => setSelected(scenario.item.spaceId)}
-										onTogglePinned={() =>
-											setPins({ ...pins, [scenario.item.spaceId]: !pinned })
+										disabled={false}
+										groups={[]}
+										index={index}
+										key={scenario.item.spaceId}
+										onMove={() =>
+											setPins({ ...pins, [scenario.item.spaceId]: true })
 										}
+										onUnpin={() =>
+											setPins({ ...pins, [scenario.item.spaceId]: false })
+										}
+										profileId="viewer"
+										section={pinned ? "pinned" : "spaces"}
+										selected={selected === scenario.item.spaceId}
+										title={scenario.item.spaceName}
+										unreadCount={scenario.unreadCount}
+										url={scenario.routePath}
 									/>
 								);
 							})}
@@ -197,7 +217,9 @@ if (!root) {
 	throw new Error("Missing preview root");
 }
 createRoot(root).render(
-	<TooltipProvider>
-		<RouterProvider router={router} />
-	</TooltipProvider>
+	<QueryClientProvider client={new QueryClient()}>
+		<TooltipProvider>
+			<RouterProvider router={router} />
+		</TooltipProvider>
+	</QueryClientProvider>
 );

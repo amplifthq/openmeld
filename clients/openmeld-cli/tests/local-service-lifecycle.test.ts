@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { DaemonServiceContract } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DaemonInstallState } from "../src/config/daemon-state";
@@ -237,10 +240,13 @@ vi.mock("../src/local-service/lifecycle/daemon-service-runtime", async () => {
 });
 
 describe("local service lifecycle", () => {
+  let testHome: string;
   let runtimeSettled = false;
   let serviceManager: DaemonServiceManager;
 
   beforeEach(() => {
+    testHome = mkdtempSync(join(tmpdir(), "openmeld-lifecycle-"));
+    vi.stubEnv("OPENMELD_HOME", testHome);
     activateDaemonServiceBundleMock.mockReset().mockResolvedValue(undefined);
     discardPreparedDaemonServiceBundleMock
       .mockReset()
@@ -368,6 +374,7 @@ describe("local service lifecycle", () => {
   });
 
   afterEach(() => {
+    rmSync(testHome, { recursive: true, force: true });
     vi.useRealTimers();
   });
 
@@ -1338,7 +1345,9 @@ describe("local service lifecycle", () => {
     expect(serviceManager.install).toHaveBeenCalledTimes(1);
   });
 
-  it("writes the packaged canary lane contract through the shared lifecycle writer", async () => {
+  it("writes the packaged canary lane contract with its isolated local defaults", async () => {
+    vi.stubEnv("OPENMELD_GATEWAY_URL", undefined);
+    vi.stubEnv("OPENMELD_AUTH_URL", "http://localhost:8788");
     vi.stubEnv("OPENMELD_ENV_PRESET", "canary");
     const canaryContract = buildServiceContract({
       bundleId: "bundle-old",
@@ -1359,7 +1368,7 @@ describe("local service lifecycle", () => {
           serviceContract: buildServiceContract({
             bundleId: "bundle-new",
             desiredState: "stopped",
-            gatewayUrl: "https://gateway.staging.openmeld.ai",
+            gatewayUrl: "http://localhost:8080",
             lane: "canary",
             profileId: "agt_canary",
           }),
@@ -1381,7 +1390,7 @@ describe("local service lifecycle", () => {
         bundleId: "bundle-new",
         desiredState: "stopped",
         deviceId: "device-123",
-        gatewayUrl: "https://gateway.staging.openmeld.ai",
+        gatewayUrl: "http://localhost:8080",
         lane: "canary",
         profileId: "agt_canary",
         serviceController: "launchd",
@@ -1396,7 +1405,7 @@ describe("local service lifecycle", () => {
         env: expect.objectContaining({
           OPENMELD_AUTH_URL: "http://localhost:8788",
           OPENMELD_ENV_PRESET: "canary",
-          OPENMELD_GATEWAY_URL: "https://gateway.staging.openmeld.ai",
+          OPENMELD_GATEWAY_URL: "http://localhost:8080",
         }),
       })
     );

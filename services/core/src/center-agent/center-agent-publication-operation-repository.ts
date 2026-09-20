@@ -2,7 +2,8 @@ import { createCoreRpcHttpError } from "../rpc/errors";
 
 export type CenterAgentPublicationDestinationKind =
   | "slack_channel"
-  | "slack_file";
+  | "slack_file"
+  | "message_channel_file";
 export type CenterAgentPublicationSourceKind =
   | "organization_document"
   | "remote_agent_execution"

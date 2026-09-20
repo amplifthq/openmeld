@@ -1,13 +1,27 @@
-import { collectCanonicalMentionTextFragments } from "@openmeld/schemas";
-import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
+import type {
+  MessageMentionType,
+  SpaceMembersSnapshot,
+} from "@openmeld/schemas/types";
 import {
-  assertValidSpaceCanonicalMentionSyntax,
   createSpaceTargetCatalog,
   type PreparedSpaceComposerSubmission,
   prepareSpaceComposerSubmission,
+  prepareSpaceFileOnlySubmission,
   type SpaceComposerReplyTarget,
-  spaceTextHasOneShotMentionAttempts,
+  SpaceComposerSubmissionError,
 } from "@openmeld/space";
+
+export type CliSpaceAddressingTarget = {
+  primaryMentionLabel: string;
+  profileId: string;
+  relation: MessageMentionType;
+};
+
+export type CliSpaceAddressingOptions = {
+  wakeTargets?: readonly string[];
+  referenceTargets?: readonly string[];
+  mentionTargets?: readonly string[];
+};
 
 export type PreparedCliSpaceComposerSubmission = {
   outboundMessageEnvelope?: NonNullable<
@@ -19,125 +33,125 @@ export type PreparedCliSpaceComposerSubmission = {
   resolvedAddressingTargets: readonly CliSpaceAddressingTarget[];
 };
 
-export type CliSpaceAddressingTarget = {
-  primaryMentionLabel: string;
-  profileId: string;
-  relation: PreparedSpaceComposerSubmission["canonicalMentionsInTextOrder"][number]["type"];
-};
-
-export async function prepareCliSpaceComposerSubmission(input: {
-  missingSnapshotMessage: string;
-  onMembersSnapshotLoaded?: (snapshot: SpaceMembersSnapshot) => void;
-  onSnapshotLoadFailure?: (error: unknown) => void;
-  replyTo?: SpaceComposerReplyTarget | null;
-  loadMembersSnapshot?: () => Promise<SpaceMembersSnapshot | null>;
-  text: string;
-}): Promise<PreparedCliSpaceComposerSubmission> {
-  const hasCanonicalMentionAttempts = spaceTextHasOneShotMentionAttempts(
-    input.text
-  );
-  if (hasCanonicalMentionAttempts) {
-    assertValidSpaceCanonicalMentionSyntax(input.text);
+export async function prepareCliSpaceComposerSubmission(
+  input: CliSpaceAddressingOptions & {
+    missingSnapshotMessage: string;
+    onMembersSnapshotLoaded?: (snapshot: SpaceMembersSnapshot) => void;
+    onSnapshotLoadFailure?: (error: unknown) => void;
+    replyTo?: SpaceComposerReplyTarget | null;
+    loadMembersSnapshot?: () => Promise<SpaceMembersSnapshot | null>;
+    authoredMentionsInTextOrder?: PreparedSpaceComposerSubmission["authoredMentionsInTextOrder"];
+    text: string;
   }
-
-  let membersSnapshot: SpaceMembersSnapshot | null = null;
-  if (hasCanonicalMentionAttempts && input.loadMembersSnapshot) {
+): Promise<PreparedCliSpaceComposerSubmission> {
+  const requested = (
+    [
+      ["wake", input.wakeTargets ?? []],
+      ["reference", input.referenceTargets ?? []],
+      ["mention", input.mentionTargets ?? []],
+    ] as const
+  ).flatMap(([relation, ids]) =>
+    ids.map((profileId) => ({ profileId, relation }))
+  );
+  let snapshot: SpaceMembersSnapshot | null = null;
+  if (
+    requested.length > 0 ||
+    (input.authoredMentionsInTextOrder?.length ?? 0) > 0
+  ) {
     try {
-      membersSnapshot = await input.loadMembersSnapshot();
-      if (membersSnapshot) {
-        input.onMembersSnapshotLoaded?.(membersSnapshot);
+      snapshot = (await input.loadMembersSnapshot?.()) ?? null;
+      if (snapshot) {
+        input.onMembersSnapshotLoaded?.(snapshot);
       }
     } catch (error) {
       input.onSnapshotLoadFailure?.(error);
       throw error;
     }
+    if (!snapshot) {
+      throw new SpaceComposerSubmissionError({
+        code: "addressing.members_snapshot_missing",
+        message: input.missingSnapshotMessage,
+      });
+    }
   }
-
-  const preparedSubmission = prepareSpaceComposerSubmission({
-    missingSnapshotMessage: input.missingSnapshotMessage,
-    replyTo: input.replyTo,
-    snapshot: membersSnapshot,
-    text: input.text,
-  });
-  const publishedMessage = resolvePublishedMessage({
-    membersSnapshot,
-    preparedSubmission,
-  });
-  const outboundText = publishedMessage.text;
-  const outboundMessageEnvelope = preparedSubmission.messageEnvelope
-    ? {
-        ...preparedSubmission.messageEnvelope,
-        text: outboundText,
-      }
-    : undefined;
-
+  const { mentions, prefix, resolvedAddressingTargets } =
+    resolveRequestedRecipients(snapshot, requested);
+  const preparedSubmission =
+    prefix.length === 0 && input.text.length === 0
+      ? prepareSpaceFileOnlySubmission({ replyTo: input.replyTo })
+      : prepareSpaceComposerSubmission({
+          authoredMentionsInTextOrder: [
+            ...mentions,
+            ...(input.authoredMentionsInTextOrder ?? []).map((mention) => ({
+              ...mention,
+              start:
+                mention.start === undefined
+                  ? undefined
+                  : mention.start + prefix.length,
+            })),
+          ],
+          missingSnapshotMessage: input.missingSnapshotMessage,
+          replyTo: input.replyTo,
+          snapshot,
+          text: prefix + input.text,
+        });
   return {
-    ...(outboundMessageEnvelope ? { outboundMessageEnvelope } : {}),
+    ...(preparedSubmission.messageEnvelope
+      ? { outboundMessageEnvelope: preparedSubmission.messageEnvelope }
+      : {}),
     ...(preparedSubmission.replyTo
       ? { outboundReplyTo: preparedSubmission.replyTo }
       : {}),
-    outboundText,
+    outboundText: preparedSubmission.text,
     preparedSubmission,
-    resolvedAddressingTargets: publishedMessage.resolvedAddressingTargets,
+    resolvedAddressingTargets,
   };
 }
 
-function resolvePublishedMessage(input: {
-  membersSnapshot: SpaceMembersSnapshot | null;
-  preparedSubmission: PreparedSpaceComposerSubmission;
-}): {
-  resolvedAddressingTargets: readonly CliSpaceAddressingTarget[];
-  text: string;
-} {
-  const text = input.preparedSubmission.text;
-  const canonicalMentions = collectCanonicalMentionTextFragments(text).flatMap(
-    (fragment) =>
-      fragment.parsedLiteral
-        ? [{ ...fragment, parsedLiteral: fragment.parsedLiteral }]
-        : []
-  );
-  if (canonicalMentions.length === 0) {
-    return { resolvedAddressingTargets: [], text };
-  }
-  if (!input.membersSnapshot) {
-    throw new Error(
-      "Space message addressing invariant failed: resolved mentions require the current members snapshot."
-    );
-  }
-
-  const targetCatalog = createSpaceTargetCatalog(input.membersSnapshot);
-  let cursor = 0;
-  const parts: string[] = [];
-  for (const mention of canonicalMentions) {
-    const target = targetCatalog.byExactMentionLabel.get(
-      mention.parsedLiteral.name
-    );
+function resolveRequestedRecipients(
+  snapshot: SpaceMembersSnapshot | null,
+  requested: readonly { profileId: string; relation: MessageMentionType }[]
+) {
+  const catalog = snapshot ? createSpaceTargetCatalog(snapshot) : null;
+  const seen = new Map<string, MessageMentionType>();
+  const resolvedAddressingTargets: CliSpaceAddressingTarget[] = [];
+  const mentions: PreparedSpaceComposerSubmission["authoredMentionsInTextOrder"][number][] =
+    [];
+  let prefix = "";
+  for (const request of requested) {
+    const profileId = request.profileId.trim();
+    const target = catalog?.byProfileId.get(profileId);
     if (!target) {
-      throw new Error(
-        `Space message addressing invariant failed: resolved target ${mention.parsedLiteral.name} is not in the current members snapshot.`
-      );
+      throw new SpaceComposerSubmissionError({
+        code: "addressing.target_not_in_current_space",
+        message: `No current Space member has Profile ID "${profileId}". Run openmeld space members and use the full Profile ID.`,
+      });
     }
-    parts.push(text.slice(cursor, mention.start));
-    parts.push(`@${target.primaryMentionLabel}`);
-    cursor = mention.end;
+    const previous = seen.get(profileId);
+    if (previous && previous !== request.relation) {
+      throw new SpaceComposerSubmissionError({
+        code: "addressing.target_reused_across_relations",
+        message: `Choose one relation for Profile ID "${profileId}".`,
+      });
+    }
+    if (previous) {
+      continue;
+    }
+    seen.set(profileId, request.relation);
+    const label = target.profileName || target.primaryMentionLabel;
+    const text = `@${label}`;
+    mentions.push({
+      profileId,
+      relation: request.relation,
+      start: prefix.length,
+      text,
+    });
+    prefix += `${text} `;
+    resolvedAddressingTargets.push({
+      primaryMentionLabel: label,
+      profileId,
+      relation: request.relation,
+    });
   }
-  parts.push(text.slice(cursor));
-
-  return {
-    resolvedAddressingTargets:
-      input.preparedSubmission.canonicalMentionsInTextOrder.map((mention) => {
-        const target = targetCatalog.byProfileId.get(mention.profileId);
-        if (!target) {
-          throw new Error(
-            `Space message addressing invariant failed: resolved profile ${mention.profileId} is not in the current members snapshot.`
-          );
-        }
-        return {
-          primaryMentionLabel: target.primaryMentionLabel,
-          profileId: target.profileId,
-          relation: mention.type,
-        };
-      }),
-    text: parts.join(""),
-  };
+  return { mentions, prefix, resolvedAddressingTargets };
 }

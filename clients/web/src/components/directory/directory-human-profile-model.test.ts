@@ -5,7 +5,6 @@ import {
 import type {
 	AuthProfileView,
 	MessageChannelConnectionProjection,
-	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationDirectoryResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
@@ -17,6 +16,46 @@ import {
 } from "#/components/directory/directory-human-profile-model";
 
 describe("directory Human Profile model", () => {
+	it("keeps Remote controller and model information on the personal user page", () => {
+		const modelSelection = {
+			modelId: "deepseek/deepseek-v4-flash",
+		};
+		const rows = buildPersonalHumanProfileRows({
+			account: { email: null, name: null },
+			canCreateHumanProfile: true,
+			computers: null,
+			computersStatus: "ready",
+			documents: [],
+			documentsStatus: "ready",
+			orgSlug: "ari",
+			profiles: [
+				buildHumanProfile(),
+				buildPersonalAgentProfile({
+					managedRole: null,
+					openMeldProfileId: "remote-a",
+					profileName: "Ari’s Remote Agent",
+				}),
+			],
+			subjectUserId: "user-a",
+			agentProfileSummaries: [
+				{
+					agentControllerRef: "hosted:remote-agent",
+					avatarImageUrl: null,
+					id: "remote-a",
+					modelSelection,
+					modelSelectionIsKnown: true,
+					name: "Ari’s Remote Agent",
+					path: "/unused-directory-path",
+				},
+			],
+		});
+		expect(rows[0]?.agentProfiles[0]).toMatchObject({
+			agentControllerRef: "hosted:remote-agent",
+			modelSelection,
+			modelSelectionIsKnown: true,
+			path: "/o/ari/people/human-a/agents/remote-a",
+		});
+	});
 	it("does not invent Organization roles or email values in a personal workspace", () => {
 		const missingProfile = buildPersonalRows({ profiles: [] })[0];
 		const activeProfile = buildPersonalRows({
@@ -401,7 +440,10 @@ describe("directory Human Profile model", () => {
 		]);
 	});
 
-	it("orders an owner's Agent Profiles by recent use before creation time", () => {
+	it.each([
+		null,
+		"2026-09-05T12:00:00.000Z",
+	])("sorts by recorded task activity when available (%s), otherwise creation", (lastTaskActivityAt) => {
 		const rows = buildOrganizationRows({
 			agentProfiles: [
 				buildAgentProfile({
@@ -417,6 +459,7 @@ describe("directory Human Profile model", () => {
 					lastUsedAt: "2026-09-05T12:00:00.000Z",
 					ownerUserId: "user-a",
 					profileId: "agent-recent",
+					lastTaskActivityAt,
 					profileName: "Recently Used Agent",
 				}),
 			],
@@ -431,14 +474,19 @@ describe("directory Human Profile model", () => {
 			rows
 				.find((row) => row.userId === "user-a")
 				?.agentProfiles.map((profile) => profile.id)
-		).toEqual(["agent-recent", "agent-new"]);
+		).toEqual(
+			lastTaskActivityAt
+				? ["agent-recent", "agent-new"]
+				: ["agent-new", "agent-recent"]
+		);
 	});
 
-	it("adds a team-safe Controller and model selection after runtime data arrives", () => {
+	it("reads team-visible Controller and model selection from the lightweight directory", () => {
 		const rows = buildOrganizationRows({
 			agentProfiles: [
 				{
-					agentControllerRef: null,
+					agentControllerRef: "builtin:codex",
+					modelSelection: { modelId: "gpt-5.6-sol" },
 					avatarUrl: undefined,
 					isCenterAgent: false,
 					ownerUserId: "user-b",
@@ -452,21 +500,6 @@ describe("directory Human Profile model", () => {
 				identityLinks: [],
 			}),
 			messageChannelsStatus: "ready",
-			runtimeOverview: {
-				agentProfiles: [
-					{
-						profileId: "agent-team",
-						readiness: {
-							publicProfileConfiguration: {
-								agentControllerRef: "builtin:codex",
-								modelSelection: { modelId: "gpt-5.6-sol" },
-							},
-						},
-					},
-				],
-				generatedAt: "2026-09-03T00:00:00.000Z",
-				organizationId: "org-a",
-			} as OrganizationAgentRuntimeOverviewResponse,
 		});
 
 		expect(rows.find((row) => row.userId === "user-b")?.agentProfiles).toEqual([
@@ -480,6 +513,43 @@ describe("directory Human Profile model", () => {
 				path: "/o/acme/people/22222222-2222-4222-8222-222222222222/agents/agent-team",
 			},
 		]);
+	});
+
+	it.each([
+		{ controller: "builtin:codex", modelSelection: null, known: true },
+		{ controller: "builtin:codex", modelSelection: undefined, known: false },
+		{ controller: null, modelSelection: null, known: true },
+	])("preserves default, unavailable and unbound lightweight configurations: %j", ({
+		controller,
+		modelSelection,
+		known,
+	}) => {
+		const rows = buildOrganizationRows({
+			agentProfiles: [
+				{
+					...buildAgentProfile({
+						agentControllerRef: "builtin:codex",
+						ownerUserId: "user-a",
+						profileId: "agent-model",
+						profileName: "Agent",
+					}),
+					agentControllerRef: controller,
+					modelSelection,
+				},
+			],
+			messageChannels: buildMessageChannels({
+				connections: [],
+				identityLinks: [],
+			}),
+			messageChannelsStatus: "ready",
+		});
+		expect(
+			rows.find((row) => row.userId === "user-a")?.agentProfiles[0]
+		).toMatchObject({
+			agentControllerRef: controller,
+			modelSelection: null,
+			modelSelectionIsKnown: known,
+		});
 	});
 
 	it("includes ordinary Agent Profiles in a personal Human Profile", () => {
@@ -525,7 +595,6 @@ function buildOrganizationRows(input: {
 	documentsStatus?: "failed" | "loading" | "ready";
 	messageChannels: ReturnType<typeof buildMessageChannels>;
 	messageChannelsStatus: "failed" | "loading" | "ready";
-	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
 }) {
 	const directory = organizationDirectoryResponseSchema.parse({
 		agentProfiles: [],
@@ -562,7 +631,6 @@ function buildOrganizationRows(input: {
 		messageChannels: input.messageChannels,
 		messageChannelsStatus: input.messageChannelsStatus,
 		orgSlug: "acme",
-		runtimeOverview: input.runtimeOverview,
 	});
 }
 
@@ -571,6 +639,7 @@ function buildAgentProfile(input: {
 	createdAt?: string;
 	isCenterAgent?: boolean;
 	lastUsedAt?: string | null;
+	lastTaskActivityAt?: string | null;
 	ownerUserId: string;
 	profileId: string;
 	profileName: string;
@@ -580,6 +649,7 @@ function buildAgentProfile(input: {
 		createdAt: input.createdAt ?? "2026-08-20T00:00:00.000Z",
 		isCenterAgent: input.isCenterAgent,
 		lastUsedAt: input.lastUsedAt ?? null,
+		lastTaskActivityAt: input.lastTaskActivityAt,
 		ownerUserId: input.ownerUserId,
 		profileId: input.profileId,
 		profileName: input.profileName,

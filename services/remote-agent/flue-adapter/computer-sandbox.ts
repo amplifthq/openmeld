@@ -6,6 +6,14 @@ import {
   type SandboxFactory,
   type ShellResult,
 } from "@flue/runtime";
+import {
+  maxLength,
+  minLength,
+  parse,
+  pipe,
+  strictObject,
+  string,
+} from "valibot";
 import type {
   RemoteAgentCallbackContext,
   RemoteAgentCoreWorkerBinding,
@@ -26,7 +34,9 @@ import {
 } from "./agent-computer-workspace-access";
 import { createComputerCommandTool } from "./computer-command";
 import type { createAgentComputerFileHandoff } from "./computer-file-handoff";
-import { buildAgentComputerName } from "./computer-identity";
+import { resolveRemoteAgentComputerName } from "./computer-identity";
+import { getComputerSpaceFileTools } from "./computer-space-files";
+import type { AgentComputer } from "./computer-workspace";
 import { AGENT_COMPUTER_SHELL_BACKEND_ID } from "./computer-workspace";
 import type { createMemberProfileReportComputerFileStore } from "./member-profile-report-computer-files";
 import { getOrganizationDocumentComputerToolDefinitions } from "./organization-document-computer-tools";
@@ -34,6 +44,7 @@ import {
   getRemoteAgentSandboxToolDefinitions,
   type RemoteAgentComputerSearch,
 } from "./sandbox-tools";
+import { materializeSpaceWork } from "./space-work-materialization";
 import { emitRemoteAgentToolUsage } from "./tool-usage-observability";
 
 const DEFAULT_EXEC_TIMEOUT_MS = 120_000;
@@ -59,14 +70,16 @@ export function isRemoteAgentComputerEnabled(env: {
 }
 
 /**
- * Open the Center Agent's computer and expose it through Flue's sandbox
- * contract, so the read/write/edit/bash/grep/glob tools operate on the
- * durable org-level workspace instead of an ephemeral container.
+ * Expose the Agent's durable Computer through Flue's sandbox contract.
+ * Both hosted roles share the same tools; computer identity sets file scope.
  */
 export async function createRemoteAgentComputerCapability(input: {
   context: RemoteAgentCallbackContext;
   coreWorker: RemoteAgentCoreWorkerBinding;
-  env: ComputerObservabilityEnv & { AGENT_COMPUTER?: unknown };
+  env: ComputerObservabilityEnv & {
+    AGENT_COMPUTER?: unknown;
+    BROWSER?: unknown;
+  };
   includeOrganizationDocuments: boolean;
   storage?: RemoteAgentStorage;
 }): Promise<{
@@ -78,10 +91,11 @@ export async function createRemoteAgentComputerCapability(input: {
   sandbox: SandboxFactory;
 }> {
   const namespace = input.env.AGENT_COMPUTER as AgentComputerNamespace;
+  const computerId = namespace.idFromName(
+    resolveRemoteAgentComputerName(input.context)
+  );
   const workspaceAccess = createAgentComputerWorkspaceAccess({
-    computerId: namespace.idFromName(
-      buildAgentComputerName(input.context.agentProfileId)
-    ),
+    computerId,
     namespace,
   });
   const organizationDocumentsSnapshot = input.includeOrganizationDocuments
@@ -98,12 +112,24 @@ export async function createRemoteAgentComputerCapability(input: {
           binding.centerAgentOrganizationDocumentsComputerSnapshot?.(rpcInput)
       )
     : null;
-  const { documents, workingDirectory } =
+  const { documents, workingDirectory: baseWorkingDirectory } =
     await materializeAgentComputerWorkspace({
       context: input.context,
       organizationDocumentsSnapshot,
       workspaceAccess,
     });
+  if (input.context.workHandoff && !input.storage) {
+    throw new Error("Durable storage is required to prepare handoff files.");
+  }
+  const workingDirectory = input.storage
+    ? await materializeSpaceWork({
+        context: input.context,
+        coreWorker: input.coreWorker,
+        storage: input.storage,
+        workspaceAccess,
+        workingDirectory: baseWorkingDirectory,
+      })
+    : baseWorkingDirectory;
   const api = instrumentRemoteAgentComputerSandboxApi({
     api: new AgentComputerSandboxApi(workspaceAccess),
     context: input.context,
@@ -117,10 +143,29 @@ export async function createRemoteAgentComputerCapability(input: {
         workingCopies: createReacquiringOrganizationDocumentWorkingCopyStore({
           projection: documents,
           workspaceAccess,
-          workingDirectory,
+          workingDirectory: baseWorkingDirectory,
         }),
       })
     : [];
+  const browserDefinitions: RemoteAgentToolDefinition[] = [];
+  if (input.env.BROWSER && input.context.spaceId) {
+    const spaceId = input.context.spaceId;
+    const browser = namespace.get(
+      computerId
+    ) as DurableObjectStub<AgentComputer>;
+    const browserInput = strictObject({
+      code: pipe(string(), minLength(1), maxLength(32_000)),
+    });
+    browserDefinitions.push({
+      name: "browser_execute",
+      description: `${await browser.describeBrowser(spaceId)} This browser session is isolated to this execution and closes when the call completes. Complete navigation and all interactions within one call.`,
+      input: browserInput,
+      execute: async (rawInput) => {
+        const { code } = parse(browserInput, rawInput);
+        return await browser.executeBrowser({ spaceId, code });
+      },
+    });
+  }
   return {
     definitions: [
       ...getRemoteAgentSandboxToolDefinitions({
@@ -130,8 +175,16 @@ export async function createRemoteAgentComputerCapability(input: {
         workingDirectory,
       }),
       ...organizationDocumentDefinitions,
+      ...browserDefinitions,
       ...(input.storage
         ? [
+            ...getComputerSpaceFileTools({
+              context: input.context,
+              coreWorker: input.coreWorker,
+              storage: input.storage,
+              workspaceAccess,
+              workingDirectory,
+            }),
             createComputerCommandTool({
               context: input.context,
               storage: input.storage,

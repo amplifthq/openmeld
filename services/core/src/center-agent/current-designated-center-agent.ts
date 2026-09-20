@@ -1,6 +1,5 @@
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { type CoreBindings, identityDb } from "../lib/bindings";
-import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   type CenterAgentDesignationRecord,
@@ -11,7 +10,7 @@ import {
 export type CurrentDesignatedCenterAgentProfile = {
   managedRole: string | null;
   organizationId: string | null;
-  ownerUserId: string;
+  ownerUserId: string | null;
   profileId: string;
   profileKind: "agent" | "human" | "system";
   profileName: string;
@@ -21,8 +20,6 @@ export type CurrentDesignatedCenterAgentProfile = {
 export type CurrentDesignatedCenterAgentAuthorization = {
   activeOrganization: {
     organizationId: string;
-    role: string;
-    userId: string;
   };
   actorProfile: CurrentDesignatedCenterAgentProfile;
   actorProfileId: string;
@@ -35,18 +32,21 @@ export async function requireCurrentDesignatedCenterAgentCaller(input: {
   context: OpenMeldRequestContext;
   env: CoreBindings;
 }): Promise<CurrentDesignatedCenterAgentAuthorization> {
-  const membership = await resolveActiveOrganizationMembership(input);
-  if (!membership.ok) {
-    throw createCoreRpcHttpError({
-      status: membership.status,
-      reason: membership.message,
-      code: membership.code,
-    });
-  }
+  const organizationId = normalizeOptionalText(
+    input.context.activeOrganizationId
+  );
   const actorProfileId = normalizeOptionalText(
     input.context.actorContext.openMeldProfileId
   );
-  if (!(actorProfileId && input.context.actorContext.profileKind === "agent")) {
+  if (
+    !(
+      organizationId &&
+      actorProfileId &&
+      input.context.actorContext.profileKind === "agent"
+    ) ||
+    input.context.actorContext.callerPrincipalId !== actorProfileId ||
+    input.context.actorContext.ownerUserId
+  ) {
     throw centerAgentNotDesignatedError(
       "This action requires the designated Center Agent profile."
     );
@@ -54,7 +54,7 @@ export async function requireCurrentDesignatedCenterAgentCaller(input: {
   const db = requireCenterAgentDb(input.env);
   const designation = await readCenterAgentDesignationRecord({
     db,
-    organizationId: membership.organizationId,
+    organizationId,
   });
   if (!designation) {
     throw createCoreRpcHttpError({
@@ -72,13 +72,19 @@ export async function requireCurrentDesignatedCenterAgentCaller(input: {
     throw createCoreRpcHttpError({
       code: "center_agent.paused",
       reason:
-        "The Center Agent is paused. The Organization creator must resume it before it can continue.",
+        "The Center Agent is paused. An Organization owner or admin must resume it before it can continue.",
       status: 409,
     });
   }
   const actorProfile = await readCenterAgentProfile({ db, actorProfileId });
   const canonicalProfileName = normalizeOptionalText(actorProfile?.profileName);
-  if (!(actorProfile && canonicalProfileName)) {
+  if (
+    !(actorProfile && canonicalProfileName) ||
+    actorProfile.managedRole !== "center_agent" ||
+    actorProfile.status !== "active" ||
+    actorProfile.organizationId !== organizationId ||
+    actorProfile.ownerUserId !== null
+  ) {
     throw createCoreRpcHttpError({
       status: 503,
       reason: "The designated Center Agent identity is unavailable.",
@@ -87,9 +93,7 @@ export async function requireCurrentDesignatedCenterAgentCaller(input: {
   }
   return {
     activeOrganization: {
-      organizationId: membership.organizationId,
-      role: membership.role,
-      userId: membership.userId,
+      organizationId,
     },
     actorProfile: { ...actorProfile, profileName: canonicalProfileName },
     actorProfileId,
@@ -129,7 +133,7 @@ async function readCenterAgentProfile(input: {
     .first<{
       managed_role: string | null;
       organization_id: string | null;
-      owner_user_id: string;
+      owner_user_id: string | null;
       profile_id: string;
       profile_kind: "agent" | "human" | "system";
       profile_name: string;

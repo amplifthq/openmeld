@@ -1,23 +1,22 @@
 "use client";
 
-import { BrowserNotificationControl } from "#/components/inbox/browser-notification-toggle";
-import { useInboxBrowserNotificationSettings } from "#/components/inbox/use-inbox-browser-notification-settings";
-import { resolveBrowserNotificationDescription } from "#/lib/inbox/browser-notifications";
+import { ClientNotificationControl } from "#/components/inbox/client-notification-control";
+import { useInboxNotificationSettings } from "#/components/inbox/use-inbox-notification-settings";
+import { resolveClientNotificationDescription } from "#/lib/inbox/client-notifications";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 
 /**
- * Global browser-notification switch surfaced inside Space Info.
+ * Global client-notification switch surfaced inside Space Info.
  *
- * Phase 1 has no per-Space subscriptions: this is the same global, per-browser
- * preference as Settings -> Personal -> Notifications, shown here so members
- * can discover and flip it from any conversation. The copy must keep saying
- * "everywhere" so the control is never mistaken for a per-Space toggle.
+ * This controls delivery on this client. The header bell owns the current
+ * conversation's account-saved message preference.
+
  */
 export function SpaceInfoNotificationsSection() {
 	const organization = useOptionalAppOrganization();
 	const currentUserId = organization?.currentUserId;
 	const { error, isPending, setEnabled, settings } =
-		useInboxBrowserNotificationSettings(currentUserId);
+		useInboxNotificationSettings(currentUserId);
 
 	if (!(currentUserId && settings)) {
 		return null;
@@ -32,17 +31,23 @@ export function SpaceInfoNotificationsSection() {
 			<div className="mb-3 space-y-1">
 				<p className="font-medium text-sm">Notifications</p>
 				<p className="text-muted-foreground text-xs/relaxed">
-					Browser notifications for every Space and Direct Message in this
-					browser — not just this one. Same setting as Settings → Personal →
-					Notifications.
+					{settings.permission === "unknown"
+						? "Applies to all your Spaces and chats on this Mac. You can also change this in Settings > Notifications."
+						: "Applies to all your Spaces and chats in this browser. You can also change this in Settings > Notifications."}
+					Use the bell at the top of this conversation to choose which messages
+					notify you.
 				</p>
 			</div>
 			<div className="flex items-center justify-between gap-3">
 				<div className="min-w-0">
-					<p className="text-sm">Browser notifications</p>
+					<p className="text-sm">
+						{settings.permission === "unknown"
+							? "Desktop notifications"
+							: "Browser notifications"}
+					</p>
 					<p className="text-muted-foreground text-xs">{statusDescription}</p>
 				</div>
-				<BrowserNotificationControl
+				<ClientNotificationControl
 					disabled={isPending}
 					onChange={setEnabled}
 					settings={settings}
@@ -59,12 +64,12 @@ export function SpaceInfoNotificationsSection() {
 
 function resolveSpaceInfoNotificationStatusDescription(input: {
 	enabled: boolean;
-	permission: Parameters<typeof resolveBrowserNotificationDescription>[0];
+	permission: Parameters<typeof resolveClientNotificationDescription>[0];
 }): string {
 	if (input.permission !== "granted") {
-		return resolveBrowserNotificationDescription(input.permission);
+		return resolveClientNotificationDescription(input.permission);
 	}
 	return input.enabled
-		? "On for all conversations while OpenMeld runs in the background."
+		? "On. Messages follow your default and conversation settings."
 		: "Off for all conversations.";
 }

@@ -8,6 +8,7 @@ import type {
 	Project,
 } from "@openmeld/schemas/types";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import {
 	Select,
 	SelectContent,
@@ -102,12 +103,7 @@ export function AgentActivityPage(input: {
 		<AppSurfaceLayout
 			globalControls={<AppGlobalControls />}
 			mobileSidebarTitle="Agent Activity"
-			outerRail={
-				<AppOuterRail
-					account={account}
-					initialState={input.initialSidebarStates?.outer}
-				/>
-			}
+			outerRail={<AppOuterRail account={account} />}
 			sidebar={
 				<AppInnerSidebar
 					initialState={input.initialSidebarStates?.inner}
@@ -482,9 +478,7 @@ function AgentActivitySnapshotState() {
 				</div>
 			) : null}
 			{data.snapshotQuery.isPending && data.projects.length > 0 ? (
-				<p aria-live="polite" className="text-muted-foreground text-sm">
-					Loading agent activity…
-				</p>
+				<SkeletonRows label="Loading agent activity" />
 			) : null}
 			{data.snapshotQuery.isError ? (
 				<div

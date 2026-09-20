@@ -1,5 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import "fake-indexeddb/auto";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readCenterAgentPendingMessage } from "#/lib/organizations/center-agent-pending-message";
@@ -7,6 +14,16 @@ import {
 	CenterAgentPendingConversation,
 	CenterAgentRoutePendingPage,
 } from "./center-agent-route-pending";
+
+vi.mock("@tanstack/react-router", async (original) => ({
+	...(await original<typeof import("@tanstack/react-router")>()),
+	useNavigate: () => vi.fn(),
+	useRouterState: ({
+		select,
+	}: {
+		select: (state: { location: { searchStr: string } }) => unknown;
+	}) => select({ location: { searchStr: "" } }),
+}));
 
 vi.mock("#/components/app/app-inner-sidebar", () => ({
 	AppInnerSidebar: ({ children }: { children: ReactNode }) => (
@@ -25,7 +42,10 @@ describe("CenterAgentRoutePendingPage", () => {
 		window.localStorage.clear();
 	});
 
-	afterEach(cleanup);
+	afterEach(() => {
+		cleanup();
+		vi.restoreAllMocks();
+	});
 
 	it("restores an unsent Center Agent draft after the pending composer remounts", () => {
 		const queryClient = new QueryClient();
@@ -139,7 +159,7 @@ describe("CenterAgentRoutePendingPage", () => {
 		).toBe("");
 	});
 
-	it("renders an interactive composer before organization data is available", () => {
+	it("renders an interactive composer before organization data is available", async () => {
 		const queryClient = new QueryClient();
 
 		render(
@@ -160,11 +180,14 @@ describe("CenterAgentRoutePendingPage", () => {
 		expect(screen.getByTestId("center-agent-pending-outer-rail")).toBeTruthy();
 		expect(screen.queryByRole("navigation", { name: "Spaces" })).toBeNull();
 		fireEvent.change(composer, { target: { value: "Hello from first paint" } });
+		await act(async () => undefined);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		expect(screen.getByText("Hello from first paint")).toBeTruthy();
 		expect(screen.queryByText("Sending…")).toBeNull();
-		expect(screen.getByRole("button", { name: "Sending…" })).toBeTruthy();
+		expect(
+			await screen.findByRole("button", { name: "Sending…" })
+		).toBeTruthy();
 		expect(
 			readCenterAgentPendingMessage(queryClient, {
 				organizationSlug: "acme",
@@ -190,7 +213,7 @@ describe("CenterAgentRoutePendingPage", () => {
 		expect(screen.queryByTestId("center-agent-pending-outer-rail")).toBeNull();
 	});
 
-	it("renders the expanded pending rail at the persisted outer-sidebar width", () => {
+	it("keeps the pending application rail fixed while restoring the middle-column width", () => {
 		const queryClient = new QueryClient();
 
 		render(
@@ -204,17 +227,14 @@ describe("CenterAgentRoutePendingPage", () => {
 		);
 
 		const rail = screen.getByTestId("center-agent-pending-outer-rail");
-		expect(rail.getAttribute("data-state")).toBe("expanded");
-		expect(rail.style.width).toBe("168px");
+		expect(rail.className).toContain("w-[4.75rem]");
+		expect(screen.getByTestId("app-module-sidebar").style.width).toBe("168px");
 		expect(
-			screen.getByTestId("center-agent-pending-outer-rail-expanded")
-		).toBeTruthy();
-		expect(
-			screen.queryByTestId("center-agent-pending-outer-rail-collapsed")
-		).toBeNull();
+			screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+		).toBe("expanded");
 	});
 
-	it("renders the collapsed pending rail with the shared collapsed width", () => {
+	it("keeps the pending application rail visible with a collapsed middle list", () => {
 		const queryClient = new QueryClient();
 
 		render(
@@ -228,13 +248,9 @@ describe("CenterAgentRoutePendingPage", () => {
 		);
 
 		const rail = screen.getByTestId("center-agent-pending-outer-rail");
-		expect(rail.getAttribute("data-state")).toBe("icon");
-		expect(rail.style.width).toBe("52px");
+		expect(rail.className).toContain("w-[4.75rem]");
 		expect(
-			screen.getByTestId("center-agent-pending-outer-rail-collapsed")
-		).toBeTruthy();
-		expect(
-			screen.queryByTestId("center-agent-pending-outer-rail-expanded")
-		).toBeNull();
+			screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+		).toBe("hidden");
 	});
 });

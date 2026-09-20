@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { deployCoreWorker } from "./deploy-core-worker.mjs";
+import { createWorkerDeploymentCapture } from "./worker-deployment-evidence.mjs";
 
 const RELEASE_SHA = "a".repeat(40);
 const SOURCE_MISMATCH_RE = /does not match checked-out HEAD/u;
@@ -33,6 +34,53 @@ test("deploys the exact admitted Core version without rebuilding it", () => {
   ]);
 });
 
+test("forwards exact Core activation for staged and atomic deployment, never upload alone", () => {
+  for (const trafficPercent of [0, 100]) {
+    const evidence = {
+      releaseSha: RELEASE_SHA,
+      workerName: "openmeld-core-prod",
+      versionId: "fb18a6dd-5ee3-43fd-aa64-087346c6bfd3",
+      trafficPercent,
+    };
+    const capture = createWorkerDeploymentCapture({
+      sourceSha: RELEASE_SHA,
+      operationKey: "f".repeat(64),
+      target: {
+        workerName: evidence.workerName,
+        projectionTag: "exact-core-projection",
+        outputEnvironment: "prod",
+      },
+      env: {},
+    });
+    const activated = [];
+    try {
+      capture.recordDeploymentBaseline({ status: 0, stdout: "[]" });
+      deployCoreWorker({
+        releaseSha: RELEASE_SHA,
+        tag: "exact-core-projection",
+        env: capture.env,
+        adapters: {
+          readHeadSha: () => RELEASE_SHA,
+          readCoreWranglerConfig: () => "{}",
+          runStartupAdmission: () => evidence,
+          runStep: (step) => {
+            activated.push(step.label);
+          },
+        },
+      });
+      const captured = capture.read();
+      assert.equal(captured.versionId, evidence.versionId);
+      assert.equal(captured.proof, "command-output");
+      assert.equal(
+        activated.includes("Deploy the startup-admitted Core version"),
+        trafficPercent === 0
+      );
+    } finally {
+      capture.close();
+    }
+  }
+});
+
 test("refuses to admit a SHA other than the checked-out Core source", () => {
   assert.throws(
     () =>
@@ -49,5 +97,29 @@ test("refuses to admit a SHA other than the checked-out Core source", () => {
         releaseSha: RELEASE_SHA,
       }),
     SOURCE_MISMATCH_RE
+  );
+});
+
+test("checks published channel alignment before any recovery deployment", () => {
+  const steps = [];
+  assert.throws(() =>
+    deployCoreWorker({
+      verifyLocalComponents: true,
+      releaseSha: RELEASE_SHA,
+      adapters: {
+        readHeadSha: () => RELEASE_SHA,
+        runStep(step) {
+          steps.push(step);
+          throw new Error("channel unavailable");
+        },
+        runStartupAdmission() {
+          assert.fail("must not deploy before channel verification");
+        },
+      },
+    })
+  );
+  assert.deepEqual(
+    steps.map((step) => step.args),
+    [["run", "deploy:release-ready"]]
   );
 });

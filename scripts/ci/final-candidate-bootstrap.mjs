@@ -252,6 +252,7 @@ function installTrustedControlDependencies(controlRoot) {
       "--frozen-lockfile",
       "--filter",
       "@openmeld/schemas",
+      "--prod",
       "--ignore-scripts",
     ],
     {

@@ -1,3 +1,4 @@
+import { WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE } from "@openmeld/schemas";
 import type {
 	PostSpaceWakeStopBody,
 	PostSpaceWakeStopResponse,
@@ -24,6 +25,7 @@ export type SpaceWakeStopUiStatus =
 export type SpaceWakeStopRequestStatus = PostSpaceWakeStopResponse["status"];
 
 export type SpaceWakeStopTargetResolution = {
+	isWaitingToStart?: boolean;
 	canStop: boolean;
 	clientMessageId: string | null;
 	selector: SpaceWakeStopSelector | null;
@@ -56,6 +58,8 @@ type SpaceWakeOutcomeMentionIndexNode = {
 };
 
 type SpaceWakeOutcomeLookup = {
+	outcomeTargetsByDispatchId: ReadonlyMap<string, ReadonlySet<string>>;
+	dispatchIdByOutcomeItemId: ReadonlyMap<string, string>;
 	directOutcomeItemIdsBySourceSignalId: ReadonlyMap<
 		string,
 		ReadonlyMap<string, ReadonlySet<string>>
@@ -69,6 +73,7 @@ type SpaceWakeOutcomeLookup = {
 
 export type SpaceWakeOutcomeIndex = {
 	hasVisibleOutcomeForSourceTarget: (input: {
+		dispatchId?: string | null;
 		sourceItem: SpaceTimelineItem;
 		targetProfileId: string;
 	}) => boolean;
@@ -84,6 +89,8 @@ export function buildSpaceWakeOutcomeIndex(
 		string,
 		Map<string, Set<string>>
 	>();
+	const dispatchIdByOutcomeItemId = new Map<string, string>();
+	const outcomeTargetsByDispatchId = new Map<string, Set<string>>();
 	const finalNoticeMentionIndex = createSpaceWakeOutcomeMentionIndexNode();
 	const latestFinalNoticeRecordsByTargetProfileId = new Map<
 		string,
@@ -97,8 +104,14 @@ export function buildSpaceWakeOutcomeIndex(
 		) {
 			continue;
 		}
+		indexWakeOutcomeExecution(
+			item,
+			outcomeTargetsByDispatchId,
+			dispatchIdByOutcomeItemId
+		);
 		if (
 			item.replyToSignalId &&
+			(item.isAgentFinalReply || item.wakeDispatchId) &&
 			item.actorProfileKind === "agent" &&
 			item.actorProfileId
 		) {
@@ -141,6 +154,8 @@ export function buildSpaceWakeOutcomeIndex(
 	}
 
 	const wakeOutcomeLookup: SpaceWakeOutcomeLookup = {
+		outcomeTargetsByDispatchId,
+		dispatchIdByOutcomeItemId,
 		directOutcomeItemIdsBySourceSignalId,
 		finalNoticeMentionIndex,
 		latestFinalNoticeRecordsByTargetProfileId,
@@ -152,6 +167,31 @@ export function buildSpaceWakeOutcomeIndex(
 				wakeOutcomeLookup,
 			}),
 	};
+}
+
+function indexWakeOutcomeExecution(
+	item: SpaceTimelineItem,
+	targetsByDispatch: Map<string, Set<string>>,
+	dispatchByItem: Map<string, string>
+) {
+	const dispatchId = item.wakeDispatchId ?? item.systemNoticeDispatchId;
+	const targetProfileId =
+		item.systemNoticeTargetProfileId ?? item.actorProfileId;
+	if (
+		!(
+			dispatchId &&
+			targetProfileId &&
+			(item.isAgentFinalReply ||
+				item.wakeDispatchId ||
+				isWakeClosingSystemNoticeType(item.systemNoticeType))
+		)
+	) {
+		return;
+	}
+	const targets = targetsByDispatch.get(dispatchId) ?? new Set<string>();
+	targets.add(targetProfileId);
+	targetsByDispatch.set(dispatchId, targets);
+	dispatchByItem.set(item.id, dispatchId);
 }
 
 export function resolveSpaceMessageWakeStopTarget(
@@ -174,16 +214,9 @@ export function resolveSpaceMessageWakeStopTargets(
 		return [];
 	}
 	const targetProfileIdSet = new Set(targetProfileIds);
-	const visibleOutcomeTargetProfileIds =
-		resolveVisibleWakeOutcomeTargetProfileIds({
-			sourceItem: input.item,
-			targetProfileIds,
-			timelineItems: input.timelineItems ?? [],
-			wakeOutcomeIndex: input.wakeOutcomeIndex,
-		});
-	const activeTargetProfileIds = targetProfileIds.filter(
-		(targetProfileId) => !visibleOutcomeTargetProfileIds.has(targetProfileId)
-	);
+	const wakeOutcomeIndex =
+		input.wakeOutcomeIndex ??
+		buildSpaceWakeOutcomeIndex(input.timelineItems ?? []);
 
 	const matchingItems = input.wakeProgressItems.filter((item) =>
 		matchesSpaceMessageWakeProgressItem({
@@ -194,10 +227,16 @@ export function resolveSpaceMessageWakeStopTargets(
 	);
 	const activeTargets = resolveWakeStopTargetsForProgressItems({
 		items: matchingItems,
-		predicate: isActiveWakeProgressItem,
+		predicate: (item) =>
+			isActiveWakeProgressItem(item) &&
+			!wakeOutcomeIndex.hasVisibleOutcomeForSourceTarget({
+				sourceItem: input.item,
+				targetProfileId: item.targetProfileId,
+				dispatchId: item.dispatchId,
+			}),
 		sourceItem: input.item,
 		stopRequestStatusBySelectorKey: input.stopRequestStatusBySelectorKey,
-		targetProfileIds: activeTargetProfileIds,
+		targetProfileIds,
 	});
 	if (activeTargets.length > 0) {
 		return activeTargets;
@@ -401,6 +440,14 @@ export function resolveWakeStopTargetForProgressItem(input: {
 
 	return {
 		canStop,
+		isWaitingToStart: Boolean(
+			(input.item.deviceWait &&
+				(input.item.phase === "request_sent" ||
+					input.item.phase === "queued")) ||
+				(input.item.phase === "connecting" &&
+					input.item.waitReasonCode ===
+						WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE)
+		),
 		clientMessageId:
 			input.item.clientMessageId ??
 			input.sourceItem?.wakeClientMessageId ??
@@ -416,10 +463,19 @@ export function resolveWakeStopTargetForProgressItem(input: {
 }
 
 function hasVisibleWakeOutcomeForSourceTarget(input: {
+	dispatchId?: string | null;
 	sourceItem: SpaceTimelineItem;
 	targetProfileId: string;
 	wakeOutcomeLookup: SpaceWakeOutcomeLookup;
 }): boolean {
+	if (
+		input.dispatchId &&
+		input.wakeOutcomeLookup.outcomeTargetsByDispatchId
+			.get(input.dispatchId)
+			?.has(input.targetProfileId)
+	) {
+		return true;
+	}
 	const sourceSignalIds = [
 		input.sourceItem.id,
 		input.sourceItem.wakeSourceSignalId,
@@ -431,10 +487,24 @@ function hasVisibleWakeOutcomeForSourceTarget(input: {
 				?.get(input.targetProfileId);
 		if (
 			directOutcomeItemIds &&
-			hasOtherWakeOutcomeItem(directOutcomeItemIds, input.sourceItem.id)
+			[...directOutcomeItemIds].some(
+				(itemId) =>
+					itemId !== input.sourceItem.id &&
+					(!(
+						input.dispatchId &&
+						input.wakeOutcomeLookup.dispatchIdByOutcomeItemId.has(itemId)
+					) ||
+						input.wakeOutcomeLookup.dispatchIdByOutcomeItemId.get(itemId) ===
+							input.dispatchId)
+			)
 		) {
 			return true;
 		}
+	}
+	// A source-level mention or a later notice cannot close an identified
+	// execution. In particular, an old execution's outcome cannot hide a retry.
+	if (input.dispatchId) {
+		return false;
 	}
 
 	if (
@@ -488,18 +558,6 @@ export function resolveVisibleWakeOutcomeTargetProfileIds(input: {
 		}
 	}
 	return targetProfileIds;
-}
-
-function hasOtherWakeOutcomeItem(
-	itemIds: ReadonlySet<string>,
-	sourceItemId: string
-): boolean {
-	for (const itemId of itemIds) {
-		if (itemId !== sourceItemId) {
-			return true;
-		}
-	}
-	return false;
 }
 
 function createSpaceWakeOutcomeMentionIndexNode(): SpaceWakeOutcomeMentionIndexNode {

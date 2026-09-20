@@ -14,6 +14,8 @@ export const organizationJoinLinkTokenSchema = z
 export const organizationJoinLinkManagementQuerySchema = z.strictObject({
   organizationId: z.string().trim().min(1).max(255),
   spaceId: z.string().trim().min(1).max(255).optional(),
+  mode: z.enum(["direct", "request"]).optional(),
+  responseVersion: z.literal("3").optional(),
 });
 
 export const organizationJoinLinkSchema = z.strictObject({
@@ -24,6 +26,8 @@ export const organizationJoinLinkSchema = z.strictObject({
   role: z.literal("member"),
   createdBy: z.string().min(1),
   createdAt: z.iso.datetime(),
+  mode: z.enum(["direct", "request"]).optional(),
+  expiresAt: z.iso.datetime().nullable().optional(),
   spaceId: z.string().min(1).nullable().optional(),
 });
 
@@ -127,7 +131,7 @@ export const revokeOrganizationJoinLinkResponseSchema = z.strictObject({
 
 export const previewOrganizationJoinLinkQuerySchema = z.strictObject({
   token: organizationJoinLinkTokenSchema,
-  responseVersion: z.literal("2").optional(),
+  responseVersion: z.enum(["2", "3"]).optional(),
 });
 
 export const previewOrganizationJoinLinkResponseSchema = z.discriminatedUnion(
@@ -138,6 +142,8 @@ export const previewOrganizationJoinLinkResponseSchema = z.discriminatedUnion(
       active: z.literal(true),
       organizationName: z.string().min(1),
       organizationSlug: z.string().min(1),
+      mode: z.enum(["direct", "request"]).optional(),
+      expiresAt: z.iso.datetime().nullable().optional(),
       spaceId: z.string().min(1).nullable().optional(),
     }),
     z.strictObject({

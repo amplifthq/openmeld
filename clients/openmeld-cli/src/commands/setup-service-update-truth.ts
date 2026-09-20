@@ -1,7 +1,9 @@
+import { resolveOpenMeldToolsUpdateTargetVersions } from "@openmeld/schemas";
 import type { OpenMeldToolsUpdateOperation } from "@openmeld/schemas/types";
 import { compareSemver } from "../config/version-state";
+import { resolveCurrentDaemonExpectedVersion } from "../local-service/lifecycle/current-daemon-version";
 import { inspectDaemonServiceInventory } from "../local-service/lifecycle/daemon-service-inventory";
-import { resolveDaemonServiceUpdateOperation } from "../local-service/lifecycle/daemon-service-update-state";
+import { waitForOpenMeldToolsUpdateCompletion } from "../local-service/maintenance/openmeld-tools-update-join";
 import { OPENMELD_VERSION } from "../runtime/version";
 
 export type SetupServiceUpdateTruth =
@@ -21,12 +23,14 @@ export function resolveSetupServiceUpdateTruth(input: {
   if (!operation) {
     return { status: "ready" };
   }
+  const target = resolveOpenMeldToolsUpdateTargetVersions(operation);
+  const currentInstallationSatisfiesTarget =
+    input.currentServiceVerified === true &&
+    input.installedServiceVersion !== null &&
+    compareSemver(input.currentCliVersion, target.cliVersion) >= 0 &&
+    compareSemver(input.installedServiceVersion, target.serviceVersion) >= 0;
   if (operation.phase === "restored" || operation.phase === "needs_help") {
-    if (
-      input.currentServiceVerified &&
-      input.installedServiceVersion === input.currentCliVersion &&
-      compareSemver(input.currentCliVersion, operation.targetVersion) >= 0
-    ) {
+    if (currentInstallationSatisfiesTarget) {
       return { status: "ready" };
     }
     return {
@@ -40,21 +44,11 @@ export function resolveSetupServiceUpdateTruth(input: {
   ) {
     return {
       message:
-        "OpenMeld Service update started in the background. Run `openmeld setup` again after it finishes.",
+        "OpenMeld Service is updating in the background. Setup will continue automatically when it finishes.",
       status: "updating",
     };
   }
-  if (
-    input.currentServiceVerified &&
-    input.installedServiceVersion === input.currentCliVersion &&
-    compareSemver(input.currentCliVersion, operation.targetVersion) > 0
-  ) {
-    return { status: "ready" };
-  }
-  if (
-    input.currentCliVersion === operation.targetVersion &&
-    input.installedServiceVersion === operation.targetVersion
-  ) {
+  if (currentInstallationSatisfiesTarget) {
     return { status: "ready" };
   }
   return {
@@ -64,13 +58,19 @@ export function resolveSetupServiceUpdateTruth(input: {
   };
 }
 
-export async function assertSetupServiceUpdateComplete(): Promise<void> {
-  const operation = await resolveDaemonServiceUpdateOperation();
+export async function assertSetupServiceUpdateComplete(
+  input: Parameters<typeof waitForOpenMeldToolsUpdateCompletion>[0] = {}
+): Promise<void> {
+  const operation = await waitForOpenMeldToolsUpdateCompletion(input);
   if (!operation) {
     return;
   }
+  const target = resolveOpenMeldToolsUpdateTargetVersions(operation);
+  const expectedServiceVersion = await resolveCurrentDaemonExpectedVersion(
+    target.serviceVersion
+  );
   const inventory = await inspectDaemonServiceInventory({
-    expectedVersion: OPENMELD_VERSION,
+    expectedVersion: expectedServiceVersion,
     intent: "status_cleanup",
   });
   const truth = resolveSetupServiceUpdateTruth({

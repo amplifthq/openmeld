@@ -856,7 +856,7 @@ describe("reply readiness", () => {
     expect(readiness.reasonText).toBe("Checking this agent's Wake route.");
   });
 
-  it("uses the current CLI local service version for reply readiness inventory checks", async () => {
+  it("uses the selected Service version for reply readiness inventory checks", async () => {
     const status = createInstalledStatus();
     const runtimeStatus: DaemonServiceRuntimeStatus = {
       status: "running",
@@ -882,7 +882,7 @@ describe("reply readiness", () => {
     await resolveDeviceReplyReadinessStatus({ status });
 
     expect(inspectDaemonServiceInventoryMock).toHaveBeenCalledWith({
-      expectedVersion: resolveCurrentDaemonExpectedVersion(),
+      expectedVersion: await resolveCurrentDaemonExpectedVersion(),
       intent: "status_cleanup",
     });
   });

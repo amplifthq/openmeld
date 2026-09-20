@@ -19,9 +19,12 @@ import pythonModules from "@cloudflare/computer/shell/python";
 import sqliteModules from "@cloudflare/computer/shell/sqlite";
 import xanModules from "@cloudflare/computer/shell/xan";
 import yqModules from "@cloudflare/computer/shell/yq";
+import { agentComputerBrowserRequestSchema } from "@openmeld/schemas";
+import type { BrowserBinding } from "agents/browser";
+import { createBrowserTools } from "agents/browser/ai";
 
 /**
- * The Center Agent's computer: an org-level durable workspace backed by
+ * The hosted Agent's computer: an identity-scoped durable workspace backed by
  * the Durable Object's SQLite storage via `@cloudflare/computer`.
  *
  * Files live in the DO (durable across restarts and independent of any
@@ -39,7 +42,6 @@ import yqModules from "@cloudflare/computer/shell/yq";
 export const AGENT_COMPUTER_BINDING = "AGENT_COMPUTER";
 export const AGENT_COMPUTER_SHELL_BACKEND_ID = "worker-shell";
 export const AGENT_COMPUTER_CONTAINER_BACKEND_ID = "container";
-const CENTER_AGENT_TASK_CONVERSATION_PREFIX = "center-agent-task:";
 
 /** Root layout of the computer. Prompt conventions reference these. */
 export const AGENT_COMPUTER_ROOT = "/computer";
@@ -47,13 +49,13 @@ export const AGENT_COMPUTER_LAYOUT_DIRECTORIES = [
   `${AGENT_COMPUTER_ROOT}/org`,
   `${AGENT_COMPUTER_ROOT}/projects`,
   `${AGENT_COMPUTER_ROOT}/spaces`,
-  `${AGENT_COMPUTER_ROOT}/tasks`,
   `${AGENT_COMPUTER_ROOT}/routines`,
   `${AGENT_COMPUTER_ROOT}/home`,
 ] as const;
 
 type AgentComputerEnv = {
-  LOADER: unknown;
+  LOADER: WorkerLoader;
+  BROWSER?: BrowserBinding;
 };
 
 class AgentComputerBase extends DurableObject<AgentComputerEnv> {}
@@ -63,6 +65,43 @@ function workspaceRef(ctx: DurableObjectState) {
 }
 
 export class AgentComputer extends withWorkspaceContainer(AgentComputerBase) {
+  private browserTool(spaceId: string) {
+    if (!(this.env.BROWSER && spaceId)) {
+      throw new Error(
+        "The Computer browser requires its binding and current Space."
+      );
+    }
+    const tools = createBrowserTools({
+      ctx: this.ctx,
+      loader: this.env.LOADER,
+      browser: this.env.BROWSER,
+      name: "agent-browser",
+      session: { mode: "one-shot" },
+      quickActions: false,
+      timeout: 30_000,
+    });
+    const tool = tools.browser_execute;
+    if (!(tool?.execute && tool.description)) {
+      throw new Error("The Computer browser tool is unavailable.");
+    }
+    return { description: tool.description, execute: tool.execute };
+  }
+
+  describeBrowser(spaceId: string): string {
+    return this.browserTool(spaceId).description;
+  }
+
+  async executeBrowser(input: unknown): Promise<unknown> {
+    const { spaceId, code } = agentComputerBrowserRequestSchema.parse(input);
+    return await this.browserTool(spaceId).execute(
+      { code },
+      {
+        messages: [],
+        toolCallId: crypto.randomUUID(),
+      }
+    );
+  }
+
   readonly #containerBackend = new CloudflareContainerBackend({
     container: () => this,
     // Preserve the native Computer's existing public-network capability.
@@ -126,10 +165,6 @@ export function buildAgentComputerSpaceDirectory(spaceId: string): string {
   return `${AGENT_COMPUTER_ROOT}/spaces/${spaceId}`;
 }
 
-export function buildAgentComputerTaskDirectory(taskId: string): string {
-  return `${AGENT_COMPUTER_ROOT}/tasks/${encodePathIdentity(taskId)}`;
-}
-
 export function buildAgentComputerRoutineDirectory(routineId: string): string {
   return `${AGENT_COMPUTER_ROOT}/routines/${encodePathIdentity(routineId)}`;
 }
@@ -139,15 +174,6 @@ export function resolveAgentComputerWorkingDirectory(input: {
   routineId?: string | null;
   spaceId: string | null;
 }): string {
-  if (input.conversationId?.startsWith(CENTER_AGENT_TASK_CONVERSATION_PREFIX)) {
-    const taskId = input.conversationId.slice(
-      CENTER_AGENT_TASK_CONVERSATION_PREFIX.length
-    );
-    if (!taskId) {
-      throw new Error("Center Agent Task Computer identity is empty.");
-    }
-    return buildAgentComputerTaskDirectory(taskId);
-  }
   if (input.routineId) {
     return buildAgentComputerRoutineDirectory(input.routineId);
   }

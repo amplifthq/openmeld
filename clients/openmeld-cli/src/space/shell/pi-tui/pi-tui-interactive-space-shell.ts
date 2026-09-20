@@ -39,6 +39,11 @@ const CTRL_C_EXIT_CONFIRMATION_TEXT = renderOpenMeldBrandAccent(
   "Press Ctrl+C again to leave this Space."
 );
 
+import {
+  type SpaceComposerAuthoredMentionInTextOrder,
+  updateAuthoredMentionRanges,
+} from "@openmeld/space";
+
 type PiTuiInteractiveSpaceShellInput = {
   getRecentMentionProfileIds?: () => readonly string[];
   onBufferChange: (bufferText: string) => void;
@@ -52,6 +57,30 @@ type PiTuiInteractiveSpaceShellInput = {
 };
 
 export class PiTuiInteractiveSpaceShell implements InteractiveSpaceShell {
+  #authoredText = "";
+  #authoredMentions: SpaceComposerAuthoredMentionInTextOrder[] = [];
+  #submittedMentions: {
+    text: string;
+    mentions: readonly SpaceComposerAuthoredMentionInTextOrder[];
+  } | null = null;
+
+  getAuthoredMentions(
+    text: string
+  ): readonly SpaceComposerAuthoredMentionInTextOrder[] {
+    if (this.#submittedMentions?.text === text) {
+      return this.#submittedMentions.mentions;
+    }
+    return this.#authoredText === text ? this.#authoredMentions : [];
+  }
+
+  #updateAuthoredText(text: string): void {
+    this.#authoredMentions = updateAuthoredMentionRanges({
+      previousText: this.#authoredText,
+      text,
+      mentions: this.#authoredMentions,
+    });
+    this.#authoredText = text;
+  }
   readonly #input: PiTuiInteractiveSpaceShellInput;
   readonly #terminal: Terminal;
   readonly #tui: TUI;
@@ -85,6 +114,18 @@ export class PiTuiInteractiveSpaceShell implements InteractiveSpaceShell {
     this.#composerPanel = new ComposerPanel(this.#tui, spacePiTuiEditorTheme);
     this.#composerPanel.editor.setAutocompleteProvider(
       new PiTuiComposerAutocompleteProvider({
+        onMentionSelected: (selection) => {
+          this.#updateAuthoredText(selection.text);
+          this.#authoredMentions.push({
+            profileId: selection.profileId,
+            relation: selection.relation,
+            start: selection.start,
+            text: selection.mentionText,
+          });
+          this.#authoredMentions.sort(
+            (a, b) => (a.start ?? 0) - (b.start ?? 0)
+          );
+        },
         getMembersSnapshot: () =>
           this.#latestViewState?.resources.membersSnapshot ?? null,
         getRecentMentionProfileIds: () =>
@@ -92,12 +133,14 @@ export class PiTuiInteractiveSpaceShell implements InteractiveSpaceShell {
       })
     );
     this.#composerPanel.editor.onChange = (text) => {
+      this.#updateAuthoredText(text);
       if (this.#syncingEditorText) {
         return;
       }
       this.#input.onBufferChange(text);
     };
     this.#composerPanel.editor.onSubmit = (text) => {
+      this.#submittedMentions = { text, mentions: [...this.#authoredMentions] };
       this.#input.onSubmit(text);
     };
 
@@ -157,6 +200,7 @@ export class PiTuiInteractiveSpaceShell implements InteractiveSpaceShell {
 
   clearSubmittedInputLine(_line: string): void {
     // The editor clears its own submitted buffer during submit handling.
+    this.#submittedMentions = null;
   }
 
   prepareExternalWrite(): void {
@@ -313,6 +357,10 @@ export class PiTuiInteractiveSpaceShell implements InteractiveSpaceShell {
     }
     this.#syncingEditorText = true;
     try {
+      if (this.#submittedMentions?.text === nextBufferText) {
+        this.#authoredText = nextBufferText;
+        this.#authoredMentions = [...this.#submittedMentions.mentions];
+      }
       this.#composerPanel.editor.setText(nextBufferText);
     } finally {
       this.#syncingEditorText = false;

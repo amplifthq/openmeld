@@ -1,14 +1,14 @@
 "use client";
 
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type {
 	AuthProfileView,
 	OrganizationSpaceDirectoryWithMemberCountsItem,
 } from "@openmeld/schemas/types";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
-import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import { cn } from "@openmeld/ui/lib/utils";
-import { HashIcon, PlusIcon } from "@phosphor-icons/react";
+import { ChatCircleTextIcon, PlusIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
@@ -24,9 +24,12 @@ import {
 	AppSpaceShell,
 	SpaceWindowShell,
 } from "#/components/spaces/app-space-shell";
+import { DirectMessagesIndexContent } from "#/components/spaces/direct-messages-index";
 import { SpaceDirectory } from "#/components/spaces/space-directory";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
+import { SpacePendingInvitations } from "#/components/spaces/space-pending-invitations";
 import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
+import { SpacesDirectoryNavigation } from "#/components/spaces/spaces-directory-navigation";
 import { useAccountSpaceIndicators } from "#/components/spaces/use-account-space-indicators";
 import { useAccountSpacePinMutation } from "#/components/spaces/use-account-space-pin-mutation";
 import {
@@ -71,6 +74,14 @@ import {
 } from "#/query/spaces/account-spaces";
 
 export const Route = createFileRoute("/o/$orgSlug/spaces/")({
+	validateSearch: (
+		search: Record<string, unknown>
+	): { view?: "discover" | "messages" } => ({
+		view:
+			search.view === "discover" || search.view === "messages"
+				? search.view
+				: undefined,
+	}),
 	staticData: appShellStaticData.space,
 	pendingComponent: AppSpacesIndexPendingRoute,
 	pendingMinMs: APP_ROUTE_PENDING_MIN_DURATION_MS,
@@ -100,17 +111,28 @@ function AppSpacesIndexPendingRoute() {
 }
 
 function AppSpacesIndexRoute() {
+	const { view } = Route.useSearch();
 	const { orgSlug } = Route.useParams();
 	const { sidebarStates } = Route.useLoaderData();
+	if (view === "messages") {
+		return (
+			<DirectMessagesIndexContent
+				initialSidebarStates={sidebarStates}
+				orgSlug={orgSlug}
+			/>
+		);
+	}
 	return (
 		<AppSpacesIndexContent
 			initialSidebarStates={sidebarStates}
+			initialView={view}
 			orgSlug={orgSlug}
 		/>
 	);
 }
 
 export function AppSpacesIndexContent(input: {
+	initialView?: "discover";
 	initialSidebarStates?: AppSidebarPersistedStates;
 	orgSlug: string;
 }) {
@@ -169,10 +191,7 @@ export function AppSpacesIndexContent(input: {
 			}),
 		onError: (error, variables) => {
 			setJoinError({
-				message:
-					error instanceof Error && error.message
-						? error.message
-						: "OpenMeld could not join this Space.",
+				message: toStructuredApiClientFailure(error).message,
 				spaceId: variables.spaceId,
 			});
 		},
@@ -308,6 +327,7 @@ export function AppSpacesIndexContent(input: {
 				activeOrganization={activeOrganization}
 				canJoinSpaces={savedViewState.canJoinSpaces}
 				errorMessage={errorMessage}
+				initialView={input.initialView}
 				isMembershipError={savedViewState.isMembershipError}
 				isPending={
 					organizationSpacesQuery.isPending ||
@@ -479,6 +499,7 @@ function AppSpacesIndexEntryShell(input: {
 }
 
 type SpaceIndexContentStateInput = {
+	initialView?: "discover";
 	accountProfiles: readonly AuthProfileView[];
 	accountSpaceItemsById: ReadonlyMap<string, AccountSpaceItem>;
 	activeOrganization: OrganizationSummary | null;
@@ -502,7 +523,14 @@ type SpaceIndexContentStateInput = {
 };
 
 function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
-	const [tab, setTab] = useState(0);
+	const [tab, setTab] = useState(
+		input.initialView === "discover" && !input.isPersonalContext ? 1 : 0
+	);
+	useEffect(() => {
+		setTab(
+			input.initialView === "discover" && !input.isPersonalContext ? 1 : 0
+		);
+	}, [input.initialView, input.isPersonalContext]);
 	const body = resolveSpaceIndexBody(input, tab);
 
 	return (
@@ -518,35 +546,21 @@ function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
 							New Space
 						</Link>
 					}
-					leadingControl={<HashIcon className="size-4 text-muted-foreground" />}
+					leadingControl={
+						<ChatCircleTextIcon className="size-4 text-muted-foreground" />
+					}
 					navigation={
-						<TabsSubtle
-							aria-label="Spaces view"
-							className="h-full shrink-0 gap-5"
-							idPrefix="spaces-directory"
-							onSelect={setTab}
-							selectedIndex={tab}
-							variant="underline"
-						>
-							<TabsSubtleItem
-								index={0}
-								label="Your Spaces"
-								labelClassName="text-sm"
-							/>
-							{!input.isPersonalContext && (
-								<TabsSubtleItem
-									index={1}
-									label="Discover"
-									labelClassName="text-sm"
-								/>
-							)}
-						</TabsSubtle>
+						<SpacesDirectoryNavigation
+							onSpaceViewChange={(view) => setTab(view === "discover" ? 1 : 0)}
+							view={tab === 1 ? "discover" : undefined}
+						/>
 					}
 					renderFrame={false}
 					title="Spaces"
 				/>
 			}
 		>
+			{tab === 1 ? <SpacePendingInvitations /> : null}
 			{body}
 		</AppMainContent>
 	);

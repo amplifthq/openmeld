@@ -1,4 +1,6 @@
-"use client";
+import { TeamHeader } from "./team-header";
+
+("use client");
 
 import type {
 	CenterAgentMemberResearchBatch,
@@ -6,11 +8,16 @@ import type {
 	ModelCatalog,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
-import { PlusIcon, UsersThreeIcon } from "@phosphor-icons/react";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
+import {
+	SkeletonRegion,
+	SkeletonRows,
+} from "@openmeld/ui/components/skeleton-content";
+import { PlusIcon } from "@phosphor-icons/react";
 import { type ReactNode, useEffect, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
+import { ComputerCardsSkeleton } from "#/components/computers/computer-cards-skeleton";
 import { ComputersPicker } from "#/components/computers/computers-picker";
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import {
@@ -25,11 +32,12 @@ import type {
 	DirectoryHumanProfileRow,
 	DirectoryIdentityAccount,
 } from "#/components/directory/directory-human-profile-model";
+import { useHumanPresence } from "#/components/profiles/human-presence";
 import { localPeopleSidebarFixtures } from "#/lib/dev/people-sidebar-fixtures";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
-import { SpaceWindowHeader } from "../spaces/space-header";
 import { PeopleSidebar } from "./people-sidebar";
 import { TeamHome } from "./team-home";
+import { TeamHomeSkeleton } from "./team-home-skeleton";
 
 type LocalAgentRecoveryController = ReturnType<
 	typeof useLocalAgentRecoveryController
@@ -46,9 +54,10 @@ export type DirectoryHumanProfilesViewState = {
 	research: "idle" | "pending";
 };
 
-const DIRECTORY_ACTIVITY_REFRESH_INTERVAL_MS = 60_000;
+const DIRECTORY_ACTIVITY_REFRESH_INTERVAL_MS = 30_000;
 
 export function DirectoryHumanProfilesWorkspace(input: {
+	presentation?: "page" | "sidebar";
 	activeBatch: CenterAgentMemberResearchBatch | null;
 	canCreateProfile: boolean;
 	computerGroups: readonly OrganizationComputerGroup[];
@@ -82,9 +91,14 @@ export function DirectoryHumanProfilesWorkspace(input: {
 	state: DirectoryHumanProfilesViewState;
 }) {
 	const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
+	const presence = useHumanPresence();
+	const membersWithPresence = input.members.map((member) => ({
+		...member,
+		presence: presence.get(member.id) ?? ("unknown" as const),
+	}));
 	const [previewReady, setPreviewReady] = useState(false);
 	const preview = localPeopleSidebarFixtures({
-		members: input.members,
+		members: membersWithPresence,
 		computerGroups: input.computerGroups,
 		orgSlug: input.orgSlug,
 		enabled: previewReady,
@@ -136,6 +150,9 @@ export function DirectoryHumanProfilesWorkspace(input: {
 		!input.selectedProfileId &&
 		input.state.profiles === "ready" &&
 		!input.errorMessage;
+	if (input.presentation === "sidebar") {
+		return sidebar;
+	}
 
 	return (
 		<AppFullWidthLayout
@@ -143,7 +160,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 			initialOuterSidebarState={input.initialSidebarStates?.outer}
 			mainHeader={
 				input.selectedProfileId ? undefined : (
-					<SpaceWindowHeader
+					<TeamHeader
 						actions={
 							input.onInviteMembers ? (
 								<Button onClick={input.onInviteMembers} size="sm">
@@ -152,32 +169,12 @@ export function DirectoryHumanProfilesWorkspace(input: {
 								</Button>
 							) : undefined
 						}
-						leadingControl={
-							<UsersThreeIcon className="size-4 text-muted-foreground" />
-						}
-						navigation={
-							<TabsSubtle
-								aria-label="Team view"
-								className="h-full shrink-0 gap-5"
-								idPrefix="team-directory"
-								onSelect={() => undefined}
-								selectedIndex={0}
-								variant="underline"
-							>
-								<TabsSubtleItem
-									index={0}
-									label="Members"
-									labelClassName="text-sm"
-								/>
-							</TabsSubtle>
-						}
-						renderFrame={false}
-						title="Team"
+						active="people"
 					/>
 				)
 			}
 			mainSidebarContent={sidebar}
-			showMainHeader
+			showMainHeader={!input.selectedProfileId}
 		>
 			{input.researchErrorMessage ? (
 				<p className="m-4 rounded-md border border-destructive/50 px-4 py-3 text-destructive text-sm">
@@ -228,6 +225,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 			)}
 			{!(selectedMember || showTeamHome) && (
 				<HumanProfileWorkspaceState
+					detail={Boolean(input.selectedProfileId)}
 					emptyMessage={input.emptyMessage}
 					errorMessage={input.errorMessage}
 					loading={input.state.profiles === "loading"}
@@ -315,18 +313,42 @@ function HumanProfileComputers(input: {
 	profileId: string;
 	recovery: LocalAgentRecoveryController;
 }) {
-	if (input.directoryError) {
+	// The current user's inventory is independently authorized. Another member's
+	// projection cannot hold it back, but remains required for that member's list.
+	const needsTeamProjection = !input.group?.isCurrentUser;
+	const inventory = input.recovery.localRuntimesQuery;
+	if (
+		!needsTeamProjection &&
+		(inventory.isError || inventory.fetchStatus === "paused")
+	) {
+		return (
+			<div className="space-y-3 p-4">
+				<p className="text-muted-foreground text-sm" role="alert">
+					Your computers could not be loaded.
+				</p>
+				<Button
+					disabled={inventory.isFetching}
+					onClick={() => inventory.refetch()}
+					size="sm"
+					variant="outline"
+				>
+					Try again
+				</Button>
+			</div>
+		);
+	}
+	if (needsTeamProjection && input.directoryError) {
 		return (
 			<p className="px-4 py-3 text-destructive text-sm" role="alert">
 				{input.directoryError}
 			</p>
 		);
 	}
-	if (input.directoryIsPending) {
+	if (needsTeamProjection && input.directoryIsPending) {
 		return (
-			<p className="px-4 py-3 text-muted-foreground text-sm">
-				Loading computers…
-			</p>
+			<div className="p-4">
+				<ComputerCardsSkeleton />
+			</div>
 		);
 	}
 	if (!input.group) {
@@ -343,8 +365,8 @@ function HumanProfileComputers(input: {
 		<div className="p-4">
 			<ComputersPicker
 				computerGroups={[input.group]}
-				directoryError={input.directoryError}
-				directoryIsPending={input.directoryIsPending}
+				directoryError={needsTeamProjection ? input.directoryError : null}
+				directoryIsPending={needsTeamProjection && input.directoryIsPending}
 				isOrganizationContext={input.isOrganizationContext}
 				isPending={
 					input.group.isCurrentUser &&
@@ -360,13 +382,35 @@ function HumanProfileComputers(input: {
 }
 
 function HumanProfileWorkspaceState(input: {
+	detail: boolean;
 	emptyMessage: string;
 	errorMessage: string | null;
 	loading: boolean;
 }) {
-	const message = input.loading
-		? "Loading people…"
-		: (input.errorMessage ?? input.emptyMessage);
+	if (input.loading) {
+		return input.detail ? (
+			<SkeletonRegion
+				className="mx-auto w-full max-w-5xl space-y-6 p-6"
+				label="Loading member"
+			>
+				<div className="space-y-6">
+					<div className="flex items-center gap-4">
+						<Skeleton className="size-24 rounded-full" />
+						<div className="min-w-0 space-y-3">
+							<Skeleton className="h-6 w-40" />
+							<Skeleton className="h-4 w-48" />
+						</div>
+					</div>
+					<Skeleton className="h-4 w-24" />
+					<SkeletonRows label="Loading profile details" />
+					<ComputerCardsSkeleton />
+				</div>
+			</SkeletonRegion>
+		) : (
+			<TeamHomeSkeleton className="p-6" label="Loading people" />
+		);
+	}
+	const message = input.errorMessage ?? input.emptyMessage;
 	return (
 		<div className="grid min-h-full place-items-center px-6 py-12 text-center">
 			<p className="max-w-md text-muted-foreground text-sm">{message}</p>

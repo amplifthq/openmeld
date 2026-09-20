@@ -1,11 +1,18 @@
+import { AGENT_REPLY_FINAL_PURPOSE } from "@openmeld/schemas";
 import type {
+	SignalEnvelope,
+	SpaceMembersSnapshot,
 	WakeProgressItem,
 	WakeProgressPhase,
 } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import { createWakeProgressItem } from "@openmeld/space";
 import { useEffect, useMemo, useState } from "react";
-import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+import { buildActiveWakeConversationItems } from "#/lib/spaces/active-wake-conversation";
+import {
+	buildSpaceTimelineItems,
+	type SpaceTimelineItem,
+} from "#/lib/spaces/timeline";
 
 export const SPACE_MESSAGE_STATE_TUNING_PREVIEW_QUERY = "message-state-preview";
 export const SPACE_MESSAGE_STATE_TUNING_PREVIEW_VALUE = "all";
@@ -46,8 +53,10 @@ export function useSpaceMessageStateTuningPreviewItems(input: {
 	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
 	selfProfileId: string;
 	spaceId?: string;
+	membersSnapshot: SpaceMembersSnapshot | null;
 }): readonly SpaceTimelineItem[] | null {
 	const [enabled, setEnabled] = useState(false);
+	const [replayStep, setReplayStep] = useState<number | null>(null);
 	useEffect(() => {
 		if (!import.meta.env.DEV) {
 			return;
@@ -57,7 +66,24 @@ export function useSpaceMessageStateTuningPreviewItems(input: {
 			searchParams.get(SPACE_MESSAGE_STATE_TUNING_PREVIEW_QUERY) ===
 				SPACE_MESSAGE_STATE_TUNING_PREVIEW_VALUE
 		);
+		if (
+			searchParams.get(SPACE_MESSAGE_STATE_TUNING_PREVIEW_QUERY) ===
+			"reply-race"
+		) {
+			setEnabled(true);
+			setReplayStep(0);
+		}
 	}, []);
+	useEffect(() => {
+		if (replayStep === null || replayStep >= 3) {
+			return;
+		}
+		const timer = window.setTimeout(
+			() => setReplayStep(replayStep + 1),
+			10_000
+		);
+		return () => window.clearTimeout(timer);
+	}, [replayStep]);
 
 	return useMemo(() => {
 		if (!(enabled && input.spaceId)) {
@@ -71,15 +97,25 @@ export function useSpaceMessageStateTuningPreviewItems(input: {
 		if (previewHuman?.profileKind !== "human") {
 			return null;
 		}
-		const memberAgent = input.centerAgentProfileId
-			? input.profileEntriesById.get(input.centerAgentProfileId)
-			: [...input.profileEntriesById.values()].find(
-					(entry) => entry.profileKind === "agent"
-				);
+		const memberAgent =
+			input.centerAgentProfileId && replayStep === null
+				? input.profileEntriesById.get(input.centerAgentProfileId)
+				: [...input.profileEntriesById.values()].find(
+						(entry) => entry.profileKind === "agent"
+					);
 		const previewAgent =
 			memberAgent?.profileKind === "agent"
 				? memberAgent
 				: createStandalonePreviewAgent(previewHuman);
+		if (replayStep !== null) {
+			return buildReplyRacePreview({
+				agent: previewAgent,
+				human: previewHuman,
+				spaceId: input.spaceId,
+				membersSnapshot: input.membersSnapshot,
+				step: replayStep,
+			});
+		}
 		return buildSpaceMessageStateTuningPreviewItems({
 			agent: previewAgent,
 			human: previewHuman,
@@ -87,11 +123,115 @@ export function useSpaceMessageStateTuningPreviewItems(input: {
 		});
 	}, [
 		enabled,
+		replayStep,
+		input.membersSnapshot,
 		input.centerAgentProfileId,
 		input.profileEntriesById,
 		input.selfProfileId,
 		input.spaceId,
 	]);
+}
+
+/** Replays public protocol ordering through the same projection used by Spaces and DMs. */
+function buildReplyRacePreview(input: {
+	agent: SpaceMemberDirectoryEntry;
+	human: SpaceMemberDirectoryEntry;
+	spaceId: string;
+	membersSnapshot: SpaceMembersSnapshot | null;
+	step: number;
+}): readonly SpaceTimelineItem[] {
+	const progress = createPreviewWakeProgressItem(
+		input.agent,
+		"running",
+		"reply-race"
+	);
+	const { dispatchId, clientMessageId, sourceSignalId } = progress;
+	if (!(dispatchId && clientMessageId && sourceSignalId)) {
+		throw new Error("Reply replay requires complete Wake correlation.");
+	}
+	const text = `@${input.human.profileName} @${input.agent.profileName} UI replay: the answer arrives before the stream closes.`;
+	const source: SignalEnvelope = {
+		v: 1,
+		id: sourceSignalId,
+		spaceId: input.spaceId,
+		ts: 1,
+		profile: {
+			kind: "human",
+			profileId: input.human.profileId,
+			profileName: input.human.profileName,
+		},
+		type: "signal.text",
+		data: {
+			text,
+			messageEnvelope: {
+				text,
+				activationTargets: [input.agent.profileId],
+				referenceTargets: [],
+				mentionTargets: [input.human.profileId],
+			},
+		},
+	};
+	const final: SignalEnvelope = {
+		v: 1,
+		id: "dev:reply-race:final",
+		spaceId: input.spaceId,
+		ts: 3,
+		profile: {
+			kind: "agent",
+			profileId: input.agent.profileId,
+			profileName: input.agent.profileName,
+		},
+		type: "signal.text",
+		data: {
+			text: "The reply replaced the working status. There should be only one Agent answer here.",
+			meta: {
+				purpose: AGENT_REPLY_FINAL_PURPOSE,
+				dispatchId,
+				clientMessageId,
+			},
+			replyTo: {
+				signalId: source.id,
+				profileId: input.human.profileId,
+				profileKind: "human",
+				profileName: input.human.profileName,
+				previewText: source.data.text,
+			},
+		},
+	};
+	const timelineItems = buildSpaceTimelineItems({
+		membersSnapshot: input.membersSnapshot,
+		envelopes: input.step >= 2 ? [source, final] : [source],
+		agentStreams:
+			input.step === 1 || input.step === 2
+				? [
+						{
+							createdAtMs: 2,
+							updatedAtMs: 2,
+							dispatchId,
+							observedRevision: 1,
+							profileId: input.agent.profileId,
+							reasonCode: null,
+							sequence: 1,
+							spaceId: input.spaceId,
+							status: "streaming",
+							streamId: `local-agent:${dispatchId.length}:${dispatchId}:9:attempt-1`,
+							text: "",
+							textSequence: 1,
+							triggerMessageId: source.id,
+						},
+					]
+				: [],
+	});
+	return buildActiveWakeConversationItems({
+		activityItems: input.step < 3 ? [progress] : [],
+		profileEntriesById: new Map([
+			[input.agent.profileId, input.agent],
+			[input.human.profileId, input.human],
+		]),
+		spaceId: input.spaceId,
+		threadId: null,
+		timelineItems,
+	});
 }
 
 function createStandalonePreviewAgent(

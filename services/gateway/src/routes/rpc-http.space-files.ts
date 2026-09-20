@@ -24,12 +24,16 @@ import {
   restoreSpaceFileEntryResponseSchema,
   restoreSpaceFileRevisionBodySchema,
   restoreSpaceFileRevisionResponseSchema,
-  SPACE_FILE_MAX_SIZE_BYTES,
+  SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
   spaceComposerUploadIdSchema,
   spaceFileContentQuerySchema,
   spaceFileEntryIdSchema,
   spaceFileMimeTypeSchema,
   spaceFileRevisionNumberSchema,
+  spaceFileUpdateSettingsCommandSchema,
+  spaceFileUpdateSettingsSchema,
+  spaceFileUploadCommandSchema,
+  spaceFileUploadResponseSchema,
   stageSpaceComposerUploadQuerySchema,
   stageSpaceComposerUploadResponseSchema,
   trashSpaceFileEntryBodySchema,
@@ -53,6 +57,7 @@ import {
   executeRpcRoute,
   formatAuditValue,
   resolveGatewayStructuredRpcErrorResponse,
+  resolvePublicRouteRequestId,
 } from "./rpc-http.helpers";
 import { parseSpaceRouteParams } from "./rpc-http.parsers";
 import type { RpcHttpMethod } from "./rpc-http.types";
@@ -73,6 +78,82 @@ const SPACE_COMPOSER_UPLOAD_PUBLISH_ROUTE =
 const PRIVATE_CONTENT_CACHE_CONTROL = "private, no-store";
 
 export function registerSpaceFileRoutes(app: Hono<HonoBindings>): void {
+  const settingsRoute = "/v1/spaces/:spaceId/files/:entryId/update-settings";
+  for (const method of ["GET", "PATCH"] as const) {
+    app.on(method, settingsRoute, async (c) => {
+      const target = parseEntryTarget(c, settingsRoute, method);
+      if (!target.ok) {
+        return target.response;
+      }
+      const command = spaceFileUpdateSettingsCommandSchema.safeParse(
+        method === "GET"
+          ? { action: "read" }
+          : await c.req.json().catch(() => null)
+      );
+      if (!command.success) {
+        return respondInvalidBody(
+          c,
+          target.spaceId,
+          settingsRoute,
+          "PATCH",
+          command
+        );
+      }
+      return executeRpcRoute({
+        c,
+        route: settingsRoute,
+        method,
+        spaceId: target.spaceId,
+        responseSchema: spaceFileUpdateSettingsSchema,
+        execute: () =>
+          c.var.coreRpc.spaceFileUpdateSettings({
+            spaceId: target.spaceId,
+            fileId: target.entryId,
+            command: command.data,
+            context: buildCoreRpcContext(c),
+            spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+          }),
+      });
+    });
+  }
+  app.post("/v1/spaces/:spaceId/file-uploads/:entryId", async (c) => {
+    const route = "/v1/spaces/:spaceId/file-uploads/:entryId";
+    const target = parseEntryTarget(c, route, "POST");
+    if (!target.ok) {
+      return target.response;
+    }
+    const command = spaceFileUploadCommandSchema.safeParse(
+      c.req.query("part")
+        ? { action: "part", partNumber: Number(c.req.query("part")) }
+        : await c.req.json().catch(() => null)
+    );
+    if (!command.success) {
+      return jsonErrorResponse({
+        code: "invalid_payload",
+        message: "Invalid upload request.",
+        status: 400,
+        requestId: c.var.openMeldRequestContext.actorContext.requestId,
+      });
+    }
+    return await executeRpcRoute({
+      c,
+      route,
+      method: "POST",
+      spaceId: target.spaceId,
+      responseSchema: spaceFileUploadResponseSchema,
+      execute: () =>
+        c.var.coreRpc.spaceFileUpload({
+          spaceId: target.spaceId,
+          uploadId: target.entryId,
+          command: command.data,
+          ...(command.data.action === "part" && c.req.raw.body
+            ? { body: c.req.raw.body }
+            : {}),
+          context: buildCoreRpcContext(c),
+          spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+        }),
+    });
+  });
   app.put(SPACE_COMPOSER_UPLOAD_ROUTE, stageSpaceComposerUpload);
   app.delete(SPACE_COMPOSER_UPLOAD_ROUTE, discardSpaceComposerUpload);
   app.post(SPACE_COMPOSER_UPLOAD_PUBLISH_ROUTE, publishSpaceComposerUpload);
@@ -570,7 +651,7 @@ async function uploadSpaceFile(c: Context<HonoBindings>): Promise<Response> {
     Response.json(uploadSpaceFileResponseSchema.parse({ file: result.file }), {
       status: 201,
     }),
-    c.var.openMeldRequestContext.actorContext.requestId
+    resolvePublicRouteRequestId(c)
   );
 }
 
@@ -632,7 +713,7 @@ async function updateSpaceFileContent(
   }
   return withRequestIdHeader(
     Response.json(uploadSpaceFileResponseSchema.parse({ file: result.file })),
-    c.var.openMeldRequestContext.actorContext.requestId
+    resolvePublicRouteRequestId(c)
   );
 }
 
@@ -659,9 +740,11 @@ async function downloadSpaceFileContent(
       message: query.error.issues[0]?.message ?? "Invalid file revision.",
     });
   }
-  let resolved: ResolveSpaceFileContentResponse & { bytes: ArrayBuffer };
+  let resolved: ResolveSpaceFileContentResponse & {
+    bytes: ReadableStream<Uint8Array>;
+  };
   try {
-    const response = await c.var.coreRpc.readSpaceFileContent({
+    const response = await c.var.coreRpc.streamSpaceFileContent({
       spaceId: target.spaceId,
       content: {
         spaceId: target.spaceId,
@@ -676,7 +759,7 @@ async function downloadSpaceFileContent(
       ...resolveSpaceFileContentResponseSchema.parse(metadata),
       bytes,
     };
-    if (!(resolved.bytes instanceof ArrayBuffer)) {
+    if (!(resolved.bytes instanceof ReadableStream)) {
       throw new Error("Core returned invalid Space file bytes.");
     }
   } catch (error) {
@@ -688,21 +771,13 @@ async function downloadSpaceFileContent(
       spaceId: target.spaceId,
     });
   }
-  if (resolved.bytes.byteLength !== resolved.revision.sizeBytes) {
-    return respondFileError({
-      c,
-      route: SPACE_FILE_CONTENT_ROUTE,
-      method: "GET",
-      spaceId: target.spaceId,
-      status: 502,
-      code: "upstream_unreachable",
-      message: "This file could not be read right now.",
-      reason: "core_returned_mismatched_space_file_bytes",
-    });
-  }
   logFileSuccess(c, SPACE_FILE_CONTENT_ROUTE, "GET", target.spaceId, 200);
+  const content = resolved.bytes.pipeThrough(
+    // biome-ignore lint/correctness/noUndeclaredVariables: Workers native stream detects truncated downloads without buffering.
+    new FixedLengthStream(resolved.revision.sizeBytes)
+  );
   return withRequestIdHeader(
-    new Response(resolved.bytes, {
+    new Response(content, {
       headers: {
         "cache-control": PRIVATE_CONTENT_CACHE_CONTROL,
         "content-disposition": buildContentDisposition(resolved.file.name),
@@ -711,7 +786,7 @@ async function downloadSpaceFileContent(
         "x-openmeld-file-revision": String(resolved.revision.revision),
       },
     }),
-    c.var.openMeldRequestContext.actorContext.requestId
+    resolvePublicRouteRequestId(c)
   );
 }
 
@@ -772,7 +847,7 @@ async function readSpaceFileBody(input: {
   const declaredLength = Number(c.req.raw.headers.get("content-length"));
   if (
     Number.isFinite(declaredLength) &&
-    declaredLength > SPACE_FILE_MAX_SIZE_BYTES
+    declaredLength > SPACE_FILE_RAW_UPLOAD_MAX_BYTES
   ) {
     return {
       ok: false,
@@ -809,8 +884,8 @@ async function readSpaceFileBody(input: {
   }
   let bytes: ArrayBuffer;
   try {
-    bytes = await c.req.raw.arrayBuffer();
-  } catch {
+    bytes = await readRawFileBody(c.req.raw.body);
+  } catch (error) {
     return {
       ok: false,
       response: respondFileError({
@@ -818,13 +893,19 @@ async function readSpaceFileBody(input: {
         route,
         method,
         spaceId,
-        status: 400,
-        code: "invalid_payload",
-        message: "File contents could not be read.",
+        status: error instanceof RangeError ? 413 : 400,
+        code:
+          error instanceof RangeError
+            ? "space_file.too_large"
+            : "invalid_payload",
+        message:
+          error instanceof RangeError
+            ? "Use multipart upload for files larger than 10 MiB."
+            : "File contents could not be read.",
       }),
     };
   }
-  if (bytes.byteLength > SPACE_FILE_MAX_SIZE_BYTES) {
+  if (bytes.byteLength > SPACE_FILE_RAW_UPLOAD_MAX_BYTES) {
     return {
       ok: false,
       response: respondFileError({
@@ -839,6 +920,40 @@ async function readSpaceFileBody(input: {
     };
   }
   return { ok: true, bytes, mimeType: mimeType.data };
+}
+
+async function readRawFileBody(
+  body: ReadableStream<Uint8Array> | null
+): Promise<ArrayBuffer> {
+  if (!body) {
+    return new ArrayBuffer(0);
+  }
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+      size += chunk.value.byteLength;
+      if (size > SPACE_FILE_RAW_UPLOAD_MAX_BYTES) {
+        throw new RangeError("Raw upload is too large");
+      }
+      chunks.push(chunk.value);
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return bytes.buffer;
+  } finally {
+    await reader.cancel();
+    reader.releaseLock();
+  }
 }
 
 function parseTarget(
@@ -918,7 +1033,7 @@ function respondCoreFileError(input: {
   route: string;
   spaceId: string;
 }): Response {
-  const requestId = input.c.var.openMeldRequestContext.actorContext.requestId;
+  const requestId = resolvePublicRouteRequestId(input.c);
   const structured = resolveGatewayStructuredRpcErrorResponse({
     err: input.error,
     requestId,
@@ -965,13 +1080,15 @@ function respondFileError(input: {
     errorCode: input.code,
     ...(input.spaceId ? { spaceId: input.spaceId } : {}),
     ...(input.reason ? { reason: formatAuditValue(input.reason, 320) } : {}),
-    ...contextAuditFields(input.c.var.openMeldRequestContext),
+    ...(input.c.var.openMeldRequestContext
+      ? contextAuditFields(input.c.var.openMeldRequestContext)
+      : { requestId: resolvePublicRouteRequestId(input.c) }),
   });
   return jsonErrorResponse({
     status: input.status,
     code: input.code,
     message: input.message,
-    requestId: input.c.var.openMeldRequestContext.actorContext.requestId,
+    requestId: resolvePublicRouteRequestId(input.c),
   });
 }
 
@@ -989,7 +1106,9 @@ function logFileSuccess(
     status,
     latencyMs: Date.now() - c.var.startedAt,
     spaceId,
-    ...contextAuditFields(c.var.openMeldRequestContext),
+    ...(c.var.openMeldRequestContext
+      ? contextAuditFields(c.var.openMeldRequestContext)
+      : { requestId: resolvePublicRouteRequestId(c) }),
   });
 }
 

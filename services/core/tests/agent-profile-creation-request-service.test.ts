@@ -1,4 +1,7 @@
-import { DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION } from "@openmeld/schemas";
+import {
+  DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+} from "@openmeld/schemas";
 import type {
   AgentProfileCreationApprovalPolicy,
   CreateAgentProfileCreationRequestBody,
@@ -53,6 +56,34 @@ describe("Agent Profile creation request service", () => {
     });
     expect(projectApprovalInbox).toHaveBeenCalledWith(result.request);
     expect(createAgentProfile).not.toHaveBeenCalled();
+  });
+
+  it("creates a personal Remote Agent without local evidence and rejects creating one for a teammate", async () => {
+    const configuration = {
+      ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+    };
+    const result = await createService().create({
+      actorProfileId: "human-requester",
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+      body: requestBody({ configuration, targetOwnerUserId: "user-requester" }),
+    });
+    expect(result.request.status).toBe("completed");
+    expect(createAgentProfile).toHaveBeenCalledOnce();
+    await expect(
+      createService().create({
+        actorProfileId: "human-requester",
+        organizationId: "org-1",
+        requesterUserId: "user-requester",
+        body: requestBody({
+          configuration,
+          idempotencyKey: "remote-for-teammate",
+          targetOwnerUserId: "user-teammate",
+        }),
+      })
+    ).rejects.toBeInstanceOf(AgentProfileCreationRequestForbiddenError);
+    expect(createAgentProfile).toHaveBeenCalledOnce();
   });
 
   it("rejects a Web request without a run target before creating any identity or request", async () => {
@@ -649,7 +680,158 @@ describe("Agent Profile creation request service", () => {
     errorLog.mockRestore();
   });
 
-  function createService() {
+  it("acknowledges durable acceptance without waiting for execution and deduplicates delivery", async () => {
+    const service = createService(true);
+    const creation = deferred<string>();
+    createAgentProfile.mockReturnValue(creation.promise);
+    const accepted = await service.create({
+      actorProfileId: "human-requester",
+      body: requestBody({ targetOwnerUserId: "user-requester" }),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    });
+    expect(accepted.request.status).toBe("approved");
+    expect(createAgentProfile).not.toHaveBeenCalled();
+    const selector = { id: accepted.request.id, organizationId: "org-1" };
+    const running = service.execute(selector);
+    await vi.waitFor(() => expect(createAgentProfile).toHaveBeenCalledOnce());
+    expect((await service.execute(selector)).status).toBe("approved");
+    creation.resolve("agt_11111111-1111-4111-8111-111111111111");
+    expect((await running).status).toBe("completed");
+    expect((await service.execute(selector)).status).toBe("completed");
+    expect(createAgentProfile).toHaveBeenCalledOnce();
+  });
+
+  it("recovers only the requester's exact intent and never exposes another participant's request", async () => {
+    const service = createService(true);
+    const accepted = await service.create({
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    });
+    expect(
+      await service.list({
+        actorProfileId: "human-requester",
+        organizationId: "org-1",
+        userId: "user-requester",
+        idempotencyKey: "request-1",
+      })
+    ).toEqual([accepted.request]);
+    expect(
+      await service.list({
+        actorProfileId: "another-profile",
+        organizationId: "org-1",
+        userId: "user-requester",
+        idempotencyKey: "request-1",
+      })
+    ).toEqual([]);
+    expect(
+      await service.list({
+        organizationId: "org-1",
+        userId: "other-user",
+        requestId: accepted.request.id,
+      })
+    ).toEqual([]);
+    expect(
+      await service.list({
+        organizationId: "other-org",
+        userId: "user-requester",
+        requestId: accepted.request.id,
+      })
+    ).toEqual([]);
+    expect(
+      await service.list({
+        organizationId: "org-1",
+        userId: "user-target",
+        idempotencyKey: "request-1",
+      })
+    ).toEqual([]);
+  });
+
+  it("holds teammate admission and replay while preserving self creation", async () => {
+    const held = createService(true, false);
+    await expect(
+      held.setPreference({
+        body: {
+          newSessionPolicy: "automatically_allow",
+          existingSessionPolicy: "automatically_allow",
+        },
+        organizationId: "org-1",
+        userId: "user-requester",
+      })
+    ).rejects.toBeInstanceOf(AgentProfileCreationRequestForbiddenError);
+    const intent = {
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    };
+    await expect(held.create(intent)).rejects.toBeInstanceOf(
+      AgentProfileCreationRequestForbiddenError
+    );
+    const accepted = await createService(true).create(intent);
+    await expect(held.create(intent)).rejects.toBeInstanceOf(
+      AgentProfileCreationRequestForbiddenError
+    );
+    await expect(
+      held.decide({
+        organizationId: "org-1",
+        requestId: accepted.request.id,
+        userId: "user-target",
+        decision: "approve",
+      })
+    ).rejects.toBeInstanceOf(AgentProfileCreationRequestForbiddenError);
+    await expect(
+      held.retry({
+        organizationId: "org-1",
+        requestId: accepted.request.id,
+        userId: "user-requester",
+      })
+    ).rejects.toBeInstanceOf(AgentProfileCreationRequestForbiddenError);
+    expect(
+      await held.list({ organizationId: "org-1", userId: "user-requester" })
+    ).toEqual([]);
+    expect(createAgentProfile).not.toHaveBeenCalled();
+  });
+
+  it("settles queued teammate creation without effects and still completes self creation", async () => {
+    const enabled = createService(true);
+    const intent = {
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    };
+    const accepted = await enabled.create(intent);
+    const approved = await enabled.decide({
+      organizationId: "org-1",
+      requestId: accepted.request.id,
+      userId: "user-target",
+      decision: "approve",
+    });
+    const held = createService(true, false);
+    const result = await held.execute(approved);
+    expect(result.status).toBe("failed");
+    expect(result.createdAgentProfileId).toBeNull();
+    expect(await held.execute(approved)).toEqual(result);
+    expect(createAgentProfile).not.toHaveBeenCalled();
+
+    repository = new InMemoryRepository();
+    const self = createService(false, false);
+    const own = await self.create({
+      ...intent,
+      body: requestBody({ targetOwnerUserId: "user-requester" }),
+    });
+    expect(own.request.status).toBe("completed");
+    expect(own.request.createdAgentProfileId).toBeTruthy();
+  });
+
+  // Dormant lifecycle coverage explicitly opts in; production defaults stay closed.
+  function createService(
+    acceptanceOnly = false,
+    teammateRequestsEnabled = true
+  ) {
     const inboxProjection =
       createAgentProfileCreationRequestInboxProjectionService({
         now: () => NOW_MS,
@@ -657,13 +839,36 @@ describe("Agent Profile creation request service", () => {
         repository,
         resolve: resolveApprovalInbox,
       });
-    return createAgentProfileCreationRequestService({
+    const service = createAgentProfileCreationRequestService({
+      teammateRequestsEnabled,
+      validateNewRequest: async () => {
+        // Runtime selection is covered by the RPC boundary tests.
+      },
       attemptInboxProjection: inboxProjection.attemptForRequest,
+      scheduleExecution: async () => {
+        // The fixture delivers explicitly after admission.
+      },
       createAgentProfile,
       now: () => NOW_MS,
       randomUuid: () => "22222222-2222-4222-8222-222222222222",
       repository,
     });
+    if (acceptanceOnly) {
+      return service;
+    }
+    // Existing lifecycle scenarios exercise admission followed by a separate
+    // delivery. Acceptance-only tests above deliberately do not deliver work.
+    return {
+      ...service,
+      create: async (request: Parameters<typeof service.create>[0]) => {
+        const result = await service.create(request);
+        return { ...result, request: await service.execute(result.request) };
+      },
+      decide: async (request: Parameters<typeof service.decide>[0]) =>
+        await service.execute(await service.decide(request)),
+      retry: async (request: Parameters<typeof service.retry>[0]) =>
+        await service.execute(await service.retry(request)),
+    };
   }
 });
 
@@ -696,6 +901,17 @@ function deferred<T>() {
 }
 
 class InMemoryRepository implements AgentProfileCreationRequestRepository {
+  listUnclaimedProfileCreations(input: { limit: number }) {
+    return Promise.resolve(
+      this.records
+        .filter(
+          (record) =>
+            record.status === "approved" &&
+            record.profileCreationStartedAtMs === null
+        )
+        .slice(0, input.limit)
+    );
+  }
   identityCheckpointError: Error | null = null;
   preference: {
     existingSessionPolicy: AgentProfileCreationApprovalPolicy;

@@ -1,27 +1,38 @@
 import type { GetSpaceStatusResponse } from "@openmeld/schemas/types";
 import { isDirectMessageSpace } from "@openmeld/space";
+import { Button } from "@openmeld/ui/components/button";
+import {
+	Dialog,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@openmeld/ui/components/dialog";
 import {
 	Tooltip,
 	TooltipContent,
+	TooltipHint,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
-import {
-	ChatCircleTextIcon,
-	HashIcon,
-	WarningIcon,
-} from "@phosphor-icons/react";
+import { ChatCircleTextIcon, WarningIcon } from "@phosphor-icons/react";
 import { Fragment, type ReactNode, useState } from "react";
-import type { SpaceLiveState } from "#/lib/spaces/timeline";
-import { AgentChatBadge } from "./agent-chat-badge";
-import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import {
-	SpaceHeaderNavigationMenu,
-	type SpaceHeaderNavigationMenuItem,
-} from "./space-header-navigation-menu";
-import { SpaceInfoDialog } from "./space-info-dialog";
+	AppModuleSidebarToggle,
+	useHasModuleSidebar,
+} from "#/components/app/app-module-sidebar";
+import { MessageSearchButton } from "#/components/search/message-search";
+import type { SpaceLiveState } from "#/lib/spaces/timeline";
+import { ChatArchiveButton } from "./chat-archive-button";
+import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
+import { SpaceHeaderNavigationMenu } from "./space-header-navigation-menu";
+import { SpacePinsRecallAction } from "./space-pins";
+import { useSpaceReadingHeader } from "./space-reading-header";
+import { SpaceSettingsDialog } from "./space-settings-dialog";
 import { SpaceShareDialog } from "./space-share-dialog";
+import { useSpaceSharingDraft } from "./use-space-sharing-draft";
 
 export type SpaceWindowHeaderSubtitleItem = {
 	key: string;
@@ -41,34 +52,57 @@ export function SpaceWindowHeader(input: {
 	// indicator stays pinned to the name while the title truncates.
 	titleAdornment?: ReactNode;
 }) {
+	const readingHeader = useSpaceReadingHeader();
+	const hasModuleSidebar = useHasModuleSidebar();
 	const subtitleItems = input.subtitleItems ?? [];
 	const hasSecondaryRow =
 		input.navigation !== undefined || subtitleItems.length > 0;
 	const content = (
 		<div
 			className={cn(
-				"relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 px-[var(--app-page-inline-padding)]",
+				"group/space-header relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 px-[var(--app-page-inline-padding)] data-[compact=true]:grid-cols-[auto_auto_minmax(0,1fr)_auto] data-[compact=true]:grid-rows-[var(--space-conversation-title-height)]",
 				hasSecondaryRow
 					? "grid-rows-[minmax(0,var(--space-conversation-title-height))_minmax(0,var(--space-conversation-navigation-height))]"
 					: "grid-rows-1",
 				input.contentClassName
 			)}
+			ref={readingHeader?.setHeader}
 		>
-			{input.leadingControl ? (
-				<div className="col-start-1 row-start-1 flex shrink-0 items-center gap-3">
+			{input.leadingControl || hasModuleSidebar ? (
+				<div
+					className="col-start-1 row-start-1 flex shrink-0 items-center gap-3"
+					data-slot="space-window-header-leading"
+				>
+					<AppModuleSidebarToggle />
 					{input.leadingControl}
 				</div>
 			) : null}
 			<div
-				className="col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden"
+				className={cn(
+					"col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden group-data-[compact=true]/space-header:col-span-1 group-data-[compact=true]/space-header:col-start-3 group-data-[compact=true]/space-header:my-auto group-data-[compact=true]/space-header:border-l group-data-[compact=true]/space-header:pl-3",
+					!(input.leadingControl || hasModuleSidebar) &&
+						"col-span-2 col-start-1"
+				)}
 				data-slot="space-window-header-title"
 			>
-				<h1 className="truncate font-medium text-lg">{input.title}</h1>
+				<TooltipHint content={readingHeader ? input.title : undefined}>
+					<h1
+						className={cn(
+							"truncate font-medium text-lg",
+							readingHeader && "max-w-[28rem]"
+						)}
+					>
+						{input.title}
+					</h1>
+				</TooltipHint>
 				{input.titleAdornment ?? null}
 			</div>
 
 			{input.actions ? (
-				<div className="col-start-3 row-start-1 flex shrink-0 items-center justify-end gap-2">
+				<div
+					className="col-start-3 row-start-1 flex shrink-0 items-center justify-end gap-2 group-data-[compact=true]/space-header:col-start-4"
+					data-slot="space-window-header-actions"
+				>
 					{input.actions}
 				</div>
 			) : null}
@@ -76,7 +110,7 @@ export function SpaceWindowHeader(input: {
 			{hasSecondaryRow ? (
 				<div
 					className={cn(
-						"col-end-4 row-start-2 flex min-w-0 items-center gap-3",
+						"col-end-4 row-start-2 flex min-w-0 items-center gap-3 group-data-[compact=true]/space-header:contents",
 						input.navigation
 							? "col-start-1 -mx-2 overflow-visible px-2"
 							: "col-start-2 overflow-hidden",
@@ -86,14 +120,14 @@ export function SpaceWindowHeader(input: {
 				>
 					{input.navigation ? (
 						<div
-							className="flex h-full shrink-0 items-center"
+							className="motion-safe:group-data-[compact=true]/space-header:slide-in-from-bottom-2 flex h-full shrink-0 items-center group-data-[compact=true]/space-header:col-start-2 group-data-[compact=true]/space-header:row-start-1 motion-safe:group-data-[compact=true]/space-header:animate-in motion-safe:group-data-[compact=true]/space-header:duration-150"
 							data-slot="space-window-header-navigation"
 						>
 							{input.navigation}
 						</div>
 					) : null}
 					{subtitleItems.length > 0 ? (
-						<div className="flex min-w-0 items-center gap-x-2 overflow-hidden text-muted-foreground text-xs">
+						<div className="flex min-w-0 items-center gap-x-2 overflow-hidden text-muted-foreground text-xs group-data-[compact=true]/space-header:hidden">
 							{subtitleItems.map((item, index) => (
 								<Fragment key={item.key}>
 									{index > 0 ? <span aria-hidden="true">·</span> : null}
@@ -132,6 +166,7 @@ export function SpaceHeader(input: {
 	canManageSpaceAccess: boolean;
 	canManageSpaceName: boolean;
 	currentProfileName: string | null;
+	currentProfileId?: string;
 	deleteSpaceErrorMessage: string | null;
 	directMessageOwnerVisibilityLabel?: string | null;
 	hideShareControl?: boolean;
@@ -146,61 +181,72 @@ export function SpaceHeader(input: {
 	// surfaces (e.g. the public route) render a plain live dot.
 	liveErrorMessage?: string | null;
 	liveState?: SpaceLiveState;
+	isLoadingMessages?: boolean;
 	managementControl?: ReactNode;
-	menuItems?: readonly SpaceHeaderNavigationMenuItem[];
-	menuLabel?: string;
+	showChatSettingsMenu?: boolean;
 	// Forces an immediate live-stream reconnect; wired to the manual retry control
 	// on the degraded status indicator.
 	onReconnectLiveUpdates?: () => void;
 	renderFrame?: boolean;
-	// Count of unread messages from others (newer than the read watermark).
-	// Rendered as a trailing "N new" subtitle token when greater than zero.
-	unreadCount?: number;
 	membersControl?: ReactNode;
 	notificationControl?: ReactNode;
 	// "Get set up" recall action shown before Members when the in-Space setup
 	// panel is dismissed but still has actions.
 	setupRecallAction?: ReactNode;
+	onRecallPinnedItems?: () => void;
 	viewControl?: ReactNode;
 	onDeleteSpace: () => Promise<void> | void;
 	onLeaveSpace?: () => Promise<void> | void;
 	showDeleteSpaceAction: boolean;
 	onSetAccessMode: (input: {
 		accessMode: GetSpaceStatusResponse["accessMode"];
+		linkJoinPolicy?: GetSpaceStatusResponse["linkJoinPolicy"];
 		password?: string;
 	}) => Promise<void>;
 	onUpdateSpaceName: (name: string) => Promise<void>;
 	spaceNameErrorMessage: string | null;
 	status: GetSpaceStatusResponse;
 }) {
-	const [spaceInformationOpen, setSpaceInformationOpen] = useState(false);
+	const [activeDialog, setActiveDialog] = useState<"settings" | "share" | null>(
+		null
+	);
+	const [settingsInitialSection, setSettingsInitialSection] = useState<
+		"access" | "general" | "members"
+	>("general");
+	const [shareInitialView, setShareInitialView] = useState<"invite" | "main">(
+		"main"
+	);
+	const [isConfirmingDraftClose, setIsConfirmingDraftClose] = useState(false);
 	const spaceName = resolveHeaderTitle(
 		input.conversationTitle,
 		input.status.name
 	);
+	const sharingDraft = useSpaceSharingDraft({
+		accessMode: input.status.accessMode,
+		allowGuests: input.status.allowGuests,
+		linkJoinPolicy: input.status.linkJoinPolicy,
+		spaceId: input.status.spaceId,
+		visibility: input.status.organizationVisibility,
+	});
 	const isDirectMessage = isDirectMessageSpace({
 		activeMemberCount: input.status.members.totalCount,
 		directMessageConvertedAt: input.status.directMessageConvertedAt,
 		purpose: input.status.spacePurpose,
 	});
-	const subtitleItems: SpaceWindowHeaderSubtitleItem[] = [];
-	if (input.directMessageOwnerVisibilityLabel) {
-		subtitleItems.push({
-			key: "agent-owner-visibility",
-			node: <span>{input.directMessageOwnerVisibilityLabel}</span>,
-		});
-	}
-	const unreadCount = input.unreadCount ?? 0;
-	if (unreadCount > 0) {
-		subtitleItems.push({
-			key: "unread",
-			node: (
-				<span className="font-medium text-amber-600 dark:text-amber-400">
-					{`${unreadCount} new`}
-				</span>
-			),
-		});
-	}
+	const handleDialogOpenChange = (
+		dialog: "settings" | "share",
+		open: boolean
+	) => {
+		if (open) {
+			setActiveDialog(dialog);
+			return;
+		}
+		if (sharingDraft.isDirty) {
+			setIsConfirmingDraftClose(true);
+			return;
+		}
+		setActiveDialog(null);
+	};
 
 	return (
 		<SpaceWindowHeader
@@ -220,32 +266,63 @@ export function SpaceHeader(input: {
 								{input.setupRecallAction}
 							</div>
 						) : null}
+						<SpacePinsRecallAction onRecall={input.onRecallPinnedItems} />
+						<MessageSearchButton
+							profileId={input.currentProfileId}
+							spaceId={input.status.spaceId}
+						/>
+						{isDirectMessage && input.currentProfileId ? (
+							<ChatArchiveButton
+								profileId={input.currentProfileId}
+								spaceId={input.status.spaceId}
+							/>
+						) : null}
 						{input.membersControl ?? null}
 						{input.hideShareControl === true ? null : (
 							<SpaceShareDialog
 								accessMode={input.status.accessMode}
+								allowGuests={input.status.allowGuests}
 								canManageAccess={input.canManageSpaceAccess}
+								draftController={sharingDraft}
 								errorMessage={input.accessModeErrorMessage}
+								initialShareView={shareInitialView}
 								isPending={input.isAccessModePending}
+								linkJoinPolicy={input.status.linkJoinPolicy}
+								onOpenAccessSettings={() => {
+									setSettingsInitialSection("access");
+									setActiveDialog("settings");
+								}}
+								onOpenChange={(open) => {
+									if (open) {
+										setShareInitialView("main");
+									}
+									handleDialogOpenChange("share", open);
+								}}
 								onSetAccessMode={input.onSetAccessMode}
+								open={activeDialog === "share"}
+								openMeldProfileId={input.currentProfileId}
 								spaceId={input.status.spaceId}
 								spaceName={spaceName}
+								visibility={input.status.organizationVisibility}
 							/>
 						)}
-						{input.menuItems ? (
+						{input.showChatSettingsMenu ? (
 							<SpaceHeaderNavigationMenu
-								ariaLabel={input.menuLabel ?? "More options"}
-								items={input.menuItems}
+								ariaLabel="Center Agent menu"
+								items={[]}
 								onOpenConversationInformation={() => {
-									setSpaceInformationOpen(true);
+									setSettingsInitialSection("general");
+									setActiveDialog("settings");
 								}}
 							/>
 						) : null}
-						<SpaceInfoDialog
+						<SpaceSettingsDialog
 							access={{
+								allowGuests: input.status.allowGuests,
 								canManage: input.canManageSpaceAccess,
 								errorMessage: input.accessModeErrorMessage,
 								isPending: input.isAccessModePending,
+								linkJoinPolicy: input.status.linkJoinPolicy,
 								mode: input.status.accessMode,
 								onSetMode: input.onSetAccessMode,
 							}}
@@ -256,6 +333,8 @@ export function SpaceHeader(input: {
 								isVisible: input.showDeleteSpaceAction,
 								onDelete: input.onDeleteSpace,
 							}}
+							draftController={sharingDraft}
+							initialSection={settingsInitialSection}
 							isCenterAgentDirectMessage={input.isCenterAgentDirectMessage}
 							isDirectMessage={isDirectMessage}
 							leaveAction={
@@ -274,18 +353,59 @@ export function SpaceHeader(input: {
 								onSave: input.onUpdateSpaceName,
 								value: spaceName,
 							}}
-							onOpenChange={
-								input.menuItems ? setSpaceInformationOpen : undefined
-							}
-							open={input.menuItems ? spaceInformationOpen : undefined}
-							showTrigger={!input.menuItems}
+							onOpenChange={(open) => handleDialogOpenChange("settings", open)}
+							onOpenInvitations={() => {
+								setShareInitialView(sharingDraft.isDirty ? "main" : "invite");
+								setActiveDialog("share");
+							}}
+							onOpenShare={() => {
+								setShareInitialView("main");
+								setActiveDialog("share");
+							}}
+							open={activeDialog === "settings"}
+							openMeldProfileId={input.currentProfileId}
+							showTrigger={!input.showChatSettingsMenu}
 							spaceId={input.status.spaceId}
+							visibility={input.status.organizationVisibility}
 						/>
+						<Dialog
+							onOpenChange={setIsConfirmingDraftClose}
+							open={isConfirmingDraftClose}
+						>
+							<DialogContent size="sm">
+								<DialogHeader>
+									<DialogTitle>Discard unsaved access changes?</DialogTitle>
+									<DialogDescription>
+										Your changes have not been applied to this Space.
+									</DialogDescription>
+								</DialogHeader>
+								<DialogFooter>
+									<Button
+										onClick={() => setIsConfirmingDraftClose(false)}
+										variant="secondary"
+									>
+										Keep editing
+									</Button>
+									<Button
+										onClick={() => {
+											sharingDraft.reset();
+											setIsConfirmingDraftClose(false);
+											setActiveDialog(null);
+										}}
+										variant="destructive"
+									>
+										Discard changes
+									</Button>
+								</DialogFooter>
+							</DialogContent>
+						</Dialog>
 					</div>
 				</>
 			}
 			leadingControl={
-				<SpaceHeaderIdentityIcon isDirectMessage={isDirectMessage} />
+				isDirectMessage ? (
+					<SpaceHeaderIdentityIcon isDirectMessage />
+				) : undefined
 			}
 			navigation={input.viewControl}
 			renderFrame={input.renderFrame}
@@ -293,24 +413,24 @@ export function SpaceHeader(input: {
 				input.isCenterAgentDirectMessage && "overflow-x-auto",
 				input.setupRecallAction && "max-lg:pr-12"
 			)}
-			subtitleItems={subtitleItems}
 			title={spaceName}
 			titleAdornment={
 				<span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">
 					{input.conversationTitleAction?.(spaceName)}
 					{input.isCenterAgentDirectMessage || isDirectMessage
 						? null
-						: renderSpaceAccessModeHeaderLabel(input.status.accessMode)}
+						: renderSpaceAccessModeHeaderLabel(input.status)}
 					<SpaceLiveStatusIndicator
+						isLoadingMessages={input.isLoadingMessages}
 						liveErrorMessage={input.liveErrorMessage ?? null}
 						liveState={input.liveState ?? "connected"}
 						onReconnectNow={input.onReconnectLiveUpdates}
 					/>
-					{renderAgentChatBadge(
-						input.isCenterAgentDirectMessage,
-						isDirectMessage,
-						input.status.members.agentCount
-					)}
+					{input.directMessageOwnerVisibilityLabel ? (
+						<span className="inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 font-normal text-[10px] leading-none">
+							{input.directMessageOwnerVisibilityLabel}
+						</span>
+					) : null}
 				</span>
 			}
 		/>
@@ -318,9 +438,8 @@ export function SpaceHeader(input: {
 }
 
 export function SpaceHeaderIdentityIcon(input: { isDirectMessage: boolean }) {
-	const Icon = input.isDirectMessage ? ChatCircleTextIcon : HashIcon;
 	return (
-		<Icon
+		<ChatCircleTextIcon
 			aria-hidden="true"
 			className="size-4 text-muted-foreground"
 			data-space-header-icon={
@@ -331,27 +450,14 @@ export function SpaceHeaderIdentityIcon(input: { isDirectMessage: boolean }) {
 	);
 }
 
-function renderAgentChatBadge(
-	isCenterAgent: boolean | undefined,
-	isDirectMessage: boolean,
-	agentCount: number
-) {
-	if (isCenterAgent) {
-		return <AgentChatBadge kind="center" />;
-	}
-	if (isDirectMessage && agentCount === 1) {
-		return <AgentChatBadge kind="local" />;
-	}
-	return null;
-}
-
 function renderSpaceAccessModeHeaderLabel(
-	accessMode: GetSpaceStatusResponse["accessMode"]
+	status: GetSpaceStatusResponse
 ): ReactNode {
+	const { accessMode } = status;
 	if (accessMode !== "public") {
 		return (
 			<span className="hidden sm:inline">
-				{resolveSpaceAccessModeLabel(accessMode)}
+				{resolveSpaceAccessModeLabel(status)}
 			</span>
 		);
 	}
@@ -382,12 +488,12 @@ function PublicSpaceAccessWarningLabel() {
 	);
 }
 
-function resolveSpaceAccessModeLabel(
-	accessMode: GetSpaceStatusResponse["accessMode"]
-): string {
-	switch (accessMode) {
+function resolveSpaceAccessModeLabel(status: GetSpaceStatusResponse): string {
+	switch (status.accessMode) {
 		case "members_only":
-			return "Members only";
+			return status.organizationVisibility === "public"
+				? "Open to organization"
+				: "Invite only";
 		case "protected":
 			return "Password protected";
 		case "public_view_join_password":
@@ -415,7 +521,8 @@ function resolveLiveStatusSrLabel(liveState: SpaceLiveState): string {
 	}
 }
 
-function SpaceLiveStatusIndicator(input: {
+export function SpaceLiveStatusIndicator(input: {
+	isLoadingMessages?: boolean;
 	liveErrorMessage: string | null;
 	liveState: SpaceLiveState;
 	onReconnectNow?: () => void;
@@ -425,12 +532,12 @@ function SpaceLiveStatusIndicator(input: {
 	const needsAttention = isDegraded || isStale;
 	const dotClassName = cn(
 		"status-dot",
-		resolveStatusToneIndicatorClassName(
-			needsAttention ? "warning" : "ready",
-			"solid"
-		)
+		resolveStatusToneIndicatorClassName("warning", "solid")
 	);
-	const srLabel = resolveLiveStatusSrLabel(input.liveState);
+	const srLabel =
+		!needsAttention && input.isLoadingMessages
+			? "Loading messages"
+			: resolveLiveStatusSrLabel(input.liveState);
 	// When degraded we expose a manual retry: don't make the user wait out the
 	// (possibly background-throttled) backoff timer.
 	const canRetry = isDegraded && input.onReconnectNow !== undefined;
@@ -440,21 +547,16 @@ function SpaceLiveStatusIndicator(input: {
 	const attentionTooltip = isDegraded
 		? degradedTooltip
 		: (input.liveErrorMessage ?? srLabel);
-	// Every state gets a hover tooltip — the green/connecting dots carry no
-	// visible text, so without it a sighted user has no way to read the status.
-	const tooltipLabel = needsAttention ? attentionTooltip : srLabel;
 
 	const indicatorBody = (
 		<>
 			<span aria-hidden="true" className={dotClassName} />
-			{needsAttention ? (
-				<span
-					aria-hidden="true"
-					className="font-normal text-amber-600 text-xs dark:text-amber-400"
-				>
-					{isDegraded ? SPACE_LIVE_RECONNECTING_LABEL : SPACE_LIVE_STALE_LABEL}
-				</span>
-			) : null}
+			<span
+				aria-hidden="true"
+				className="font-normal text-amber-600 text-xs dark:text-amber-400"
+			>
+				{isDegraded ? SPACE_LIVE_RECONNECTING_LABEL : SPACE_LIVE_STALE_LABEL}
+			</span>
 		</>
 	);
 
@@ -465,31 +567,43 @@ function SpaceLiveStatusIndicator(input: {
 			<output aria-live="polite" className="sr-only">
 				{srLabel}
 			</output>
-			<Tooltip>
-				<TooltipTrigger
-					render={
-						canRetry ? (
-							<button
-								aria-label="Reconnect live updates now"
-								className="flex shrink-0 cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-inherit"
-								data-testid="space-live-status"
-								onClick={input.onReconnectNow}
-								type="button"
-							>
-								{indicatorBody}
-							</button>
-						) : (
-							<span
-								className="flex shrink-0 items-center gap-1.5"
-								data-testid="space-live-status"
-							>
-								{indicatorBody}
-							</span>
-						)
-					}
-				/>
-				<TooltipContent side="bottom">{tooltipLabel}</TooltipContent>
-			</Tooltip>
+			{/* A healthy message stream is not Human presence or Agent readiness. */}
+			{needsAttention ? (
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							canRetry ? (
+								<button
+									aria-label="Reconnect live updates now"
+									className="flex shrink-0 cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-inherit"
+									data-testid="space-live-status"
+									onClick={input.onReconnectNow}
+									type="button"
+								>
+									{indicatorBody}
+								</button>
+							) : (
+								<span
+									className="flex shrink-0 items-center gap-1.5"
+									data-testid="space-live-status"
+								>
+									{indicatorBody}
+								</span>
+							)
+						}
+					/>
+					<TooltipContent side="bottom">{attentionTooltip}</TooltipContent>
+				</Tooltip>
+			) : null}
+			{!needsAttention && input.isLoadingMessages ? (
+				<span
+					className="flex shrink-0 items-center gap-1.5 text-muted-foreground text-xs"
+					data-testid="space-message-loading"
+				>
+					<span aria-hidden="true" className="status-dot bg-current" />
+					<span aria-hidden="true">Loading</span>
+				</span>
+			) : null}
 		</>
 	);
 }

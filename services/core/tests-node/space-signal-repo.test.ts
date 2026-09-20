@@ -121,6 +121,48 @@ describe("space-signal-repo", () => {
     }
   });
 
+  it("accepts a thread root as a cursor without accepting another thread's root", () => {
+    const harness = createObservationSqlHarness();
+    try {
+      harness.insertSignal("root", 1);
+      harness.database
+        .prepare(
+          "INSERT INTO space_thread_signal_placements VALUES (?, ?, 'root', ?)"
+        )
+        .run("root", "thread-1", 2);
+      const observe = (threadId: string | null) =>
+        readAgentReplyObservationState(harness.sql, {
+          observedThroughSignalId: "root",
+          sourceSignalId: "root",
+          threadId,
+        });
+
+      expect(observe(null)).toBe("current");
+      expect(observe("thread-1")).toBe("current");
+      expect(observe("thread-2")).toBe("anchor_missing");
+
+      harness.insertSignal("unrelated-main", 3);
+      expect(observe("thread-1")).toBe("current");
+      harness.insertSignal("thread-reply", 4, "thread-1");
+      expect(observe("thread-1")).toBe("changed");
+      const publish = vi.fn();
+      expect(
+        runAgentReplyObservationGuardedTransaction({
+          observation: {
+            observedThroughSignalId: "root",
+            sourceSignalId: "root",
+            threadId: "thread-1",
+          },
+          operation: publish,
+          storage: harness.storage,
+        }).status
+      ).toBe("changed");
+      expect(publish).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
   it("serializes four same-cursor Agent replies through the real SQLite observation guard", () => {
     const harness = createObservationSqlHarness();
     try {

@@ -1,68 +1,139 @@
 import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
-import { ArrowUpIcon, ChatCircleTextIcon } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import { ArrowUpIcon } from "@phosphor-icons/react";
+import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import {
 	PromptInput,
 	PromptInputAction,
 	PromptInputActions,
 	PromptInputTextarea,
 } from "#/components/ibelick/prompt-input";
+import { CenterAgentDirectMessageIntro } from "#/components/spaces/center-agent-direct-message-intro";
+import { Bubble, BubbleContent } from "#/components/spaces/primitives/bubble";
+import {
+	Message,
+	MessageContent,
+	MessageHeader,
+} from "#/components/spaces/primitives/message";
+import {
+	SpaceComposerAddMenu,
+	SpaceComposerAttachmentRecovery,
+	SpaceComposerFileTray,
+	useSpaceComposerFileInput,
+} from "#/components/spaces/space-composer-attachments";
+import { SpaceConversationDateMarker } from "#/components/spaces/space-conversation-date-marker";
 import { SpaceConversationSkeleton } from "#/components/spaces/space-conversation-skeleton";
+import {
+	SpaceHeaderIdentityIcon,
+	SpaceWindowHeader,
+} from "#/components/spaces/space-header";
+import { SpaceImagePreview } from "#/components/spaces/space-image-preview";
+import {
+	resolveSpaceMessageBubblePresentationClass,
+	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
+} from "#/components/spaces/space-message-bubble-style";
 import { SpaceMessageDeliveryStatus } from "#/components/spaces/space-message-delivery-status";
+import { SpaceMessageProfileAvatar } from "#/components/spaces/space-message-profile-avatar";
 import type { PendingCenterAgentMessage } from "#/lib/organizations/center-agent-pending-message";
+import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
+import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
+import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
+import { CenterAgentHeaderTabs } from "./center-agent-header-navigation";
+
+type CenterAgentComposerAttachments = {
+	files: readonly SpaceComposerFile[];
+	isAtLimit: boolean;
+	addFiles: (files: readonly File[]) => Promise<void>;
+	removeFile: (localId: string) => void;
+	retryFile: (localId: string) => Promise<void>;
+	cleanup: readonly import("#/lib/spaces/composer-file-drafts").ComposerFileDraftCleanup[];
+	restorationError: unknown | null;
+	retryCleanup: (localId: string) => Promise<void>;
+	retryRestoration: () => void;
+};
+
+function CenterAgentAttachmentState(input: {
+	attachments: CenterAgentComposerAttachments | undefined;
+	isSending: boolean;
+}) {
+	if (!input.attachments) {
+		return null;
+	}
+	return (
+		<>
+			<SpaceComposerFileTray
+				disabled={input.isSending}
+				files={input.attachments.files}
+				onRemove={input.attachments.removeFile}
+				onRetry={input.attachments.retryFile}
+			/>
+			<SpaceComposerAttachmentRecovery
+				cleanup={input.attachments.cleanup}
+				onRetryCleanup={input.attachments.retryCleanup}
+				onRetryRestoration={input.attachments.retryRestoration}
+				restorationError={input.attachments.restorationError}
+			/>
+		</>
+	);
+}
 
 export function CenterAgentOptimisticConversation(input: {
-	composerAccessory?: ReactNode;
-	hasAttachments?: boolean;
+	organizationSlug?: string;
+	conversationTitle?: string;
+	selfProfile?: {
+		openMeldProfileId: string;
+		profileName: string;
+		avatarUrl?: string;
+	} | null;
+	attachments?: CenterAgentComposerAttachments;
 	empty?: boolean;
 	emptyContent?: ReactNode;
 	header?: ReactNode;
 	composerText: string;
+	composerErrorMessage?: string | null;
 	onComposerChange: (value: string) => void;
 	onSend: () => void;
 	pendingMessage: PendingCenterAgentMessage | null;
 	presentation?: "compact" | "full";
 }) {
 	const isSending = input.pendingMessage !== null;
+	const organization = useOptionalAppOrganization()?.currentOrganization;
+	const organizationSlug = input.organizationSlug ?? organization?.slug;
+	const fileInput = useSpaceComposerFileInput({
+		disabled: isSending || !input.attachments,
+		onAddFiles: async (files) => {
+			await input.attachments?.addFiles(files);
+		},
+	});
 
 	return (
 		<section
 			className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden rounded-[inherit] bg-background"
 			data-space-conversation-presentation={input.presentation}
 			data-testid="center-agent-conversation-skeleton"
+			style={
+				{
+					"--space-members-panel-width":
+						SPACE_PANEL_WIDTH_METRICS.members.defaultWidth,
+				} as CSSProperties
+			}
 		>
 			{input.header ?? (
-				<header className="flex h-[var(--space-conversation-header-height)] shrink-0 flex-col justify-center gap-4 border-border border-b px-4">
-					{input.empty ? (
-						<div className="flex items-center gap-3">
-							<ChatCircleTextIcon className="size-5 text-muted-foreground" />
-							<h1 className="font-medium text-lg">New chat</h1>
-						</div>
-					) : (
-						<div aria-hidden="true" className="flex min-w-0 items-center gap-3">
-							<ChatCircleTextIcon className="size-5 text-muted-foreground" />
-							<div className="flex min-w-0 flex-col gap-2">
-								<Skeleton className="h-4 w-36 motion-reduce:animate-none" />
-							</div>
-						</div>
-					)}
-					{!input.empty && (
-						<div
-							aria-hidden="true"
-							className="flex gap-5 text-muted-foreground text-sm"
-						>
-							<span className="text-foreground">Messages</span>
-							<span>Graph</span>
-							<span>Files</span>
-							<span>Tasks</span>
-							<span>Routines</span>
-							<span>Skills</span>
-							<span>Plugins</span>
-							<span>Channels</span>
-						</div>
-					)}
-				</header>
+				<SpaceWindowHeader
+					leadingControl={<SpaceHeaderIdentityIcon isDirectMessage />}
+					navigation={
+						organizationSlug ? (
+							<CenterAgentHeaderTabs
+								activeSectionId="chat"
+								activeSpaceView="messages"
+								idPrefix="pending-chat-view"
+								organizationSlug={organizationSlug}
+							/>
+						) : undefined
+					}
+					secondaryContentClassName="overflow-x-auto"
+					title={input.conversationTitle ?? "New chat"}
+				/>
 			)}
 			<div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
 				<div
@@ -70,52 +141,125 @@ export function CenterAgentOptimisticConversation(input: {
 					className="min-h-0 flex-1 overflow-y-auto"
 					role="log"
 				>
-					{input.empty && !input.pendingMessage ? (
-						<div className="px-6">{input.emptyContent}</div>
-					) : (
-						<div
-							className="flex h-full w-full flex-col gap-5 py-5"
-							data-space-conversation-content-width=""
-						>
-							{input.pendingMessage ? (
-								<>
-									<div className="flex justify-end">
-										<div className="max-w-[min(80%,42rem)]">
-											<div className="rounded-lg border border-border bg-muted px-3 py-2 text-foreground text-sm">
-												{input.pendingMessage.text}
-											</div>
-										</div>
-									</div>
-									<CenterAgentOptimisticReplyShell />
-								</>
-							) : (
-								<SpaceConversationSkeleton />
-							)}
-						</div>
-					)}
+					<div
+						className="flex w-full flex-col py-4"
+						data-space-conversation-content-width=""
+					>
+						{input.emptyContent ??
+							(input.pendingMessage && organization ? (
+								<CenterAgentDirectMessageIntro
+									disabled
+									isPersonalContext={organization.isPersonal === true}
+									onSelectStarterAction={input.onComposerChange}
+									onStartComputerSetup={() => undefined}
+									showStarterActions
+									showStarterComputerSetup={false}
+								/>
+							) : null)}
+						{input.pendingMessage ? (
+							<>
+								<SpaceConversationDateMarker
+									date={new Date(input.pendingMessage.createdAtMs)}
+									loadedSignalCount={0}
+								/>
+								<Message
+									align="end"
+									className="py-1.5"
+									data-space-self-message="true"
+								>
+									<MessageContent className="gap-0">
+										<MessageHeader className="h-6 px-0">
+											{input.selfProfile ? (
+												<div className="flex items-center gap-1.5">
+													<SpaceMessageProfileAvatar
+														agentControllerRef={null}
+														avatarImageUrl={input.selfProfile.avatarUrl}
+														displayName={input.selfProfile.profileName}
+														profileId={input.selfProfile.openMeldProfileId}
+														profileKind="human"
+													/>
+													<span className="font-bold text-foreground text-sm">
+														{input.selfProfile.profileName}
+													</span>
+												</div>
+											) : (
+												<Skeleton className="h-4 w-24 animate-none" />
+											)}
+										</MessageHeader>
+										<Bubble align="end">
+											<BubbleContent
+												className={`${resolveSpaceMessageBubblePresentationClass({ isSelf: true })} ${SPACE_MESSAGE_CONTENT_PADDING_CLASS} whitespace-pre-wrap`}
+											>
+												<div className="leading-[26px]">
+													{input.pendingMessage.text}
+												</div>
+												{input.pendingMessage.files?.map((file) => (
+													<PendingAttachment
+														file={file}
+														key={`${file.name}:${file.size}:${file.lastModified}`}
+													/>
+												))}
+											</BubbleContent>
+										</Bubble>
+										{/* Keep the transcript's action-footer space before publication. */}
+										<div aria-hidden="true" className="mt-0.5 min-h-7" />
+									</MessageContent>
+								</Message>
+								<CenterAgentOptimisticReplyShell />
+							</>
+						) : (
+							!input.empty && <SpaceConversationSkeleton />
+						)}
+					</div>
 				</div>
 				<footer className="shrink-0 bg-background">
 					<div className="w-full py-4" data-space-conversation-content-width="">
+						{input.composerErrorMessage ? (
+							<p className="pb-2 text-destructive text-sm" role="alert">
+								{input.composerErrorMessage}
+							</p>
+						) : null}
 						<PromptInput
-							className="w-full"
+							className="relative w-full"
 							disabled={isSending}
 							maxHeight={240}
 							onSubmit={input.onSend}
 							value={input.composerText}
 						>
+							<CenterAgentAttachmentState
+								attachments={input.attachments}
+								isSending={isSending}
+							/>
+							{fileInput.isDraggingFiles && (
+								<div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border border-primary border-dashed bg-background/90 text-sm">
+									Drop files to attach
+								</div>
+							)}
 							<PromptInputTextarea
 								aria-label="Message Center Agent"
 								autoComplete="off"
 								autoFocus={input.empty}
-								className="px-1 py-2 text-sm leading-6 placeholder:text-muted-foreground"
+								className="min-h-11 px-1 py-2 text-sm leading-6 placeholder:text-muted-foreground"
 								name="center-agent-message"
 								onChange={(event) => {
 									input.onComposerChange(event.target.value);
 								}}
+								onDragLeave={fileInput.handleDragLeave}
+								onDragOver={fileInput.handleDragOver}
+								onDrop={fileInput.handleDrop}
+								onPaste={fileInput.handlePaste}
 								placeholder="Tell Center Agent what you need…"
 							/>
-							<PromptInputActions className="min-w-0 justify-between border-border border-t pt-2">
-								<div>{input.composerAccessory}</div>
+							<PromptInputActions className="min-w-0 justify-between pt-2">
+								<div>
+									{input.attachments && (
+										<SpaceComposerAddMenu
+											addFiles={fileInput.addFiles}
+											disabled={isSending}
+											limitReached={input.attachments.isAtLimit}
+										/>
+									)}
+								</div>
 								<PromptInputAction
 									tooltip={isSending ? "Sending…" : "Send message"}
 								>
@@ -123,7 +267,10 @@ export function CenterAgentOptimisticConversation(input: {
 										aria-label={isSending ? "Sending…" : "Send message"}
 										disabled={
 											isSending ||
-											!(input.composerText.trim() || input.hasAttachments)
+											!(
+												input.composerText.trim() ||
+												input.attachments?.files.length
+											)
 										}
 										onClick={input.onSend}
 										size="icon-sm"
@@ -138,6 +285,35 @@ export function CenterAgentOptimisticConversation(input: {
 				</footer>
 			</div>
 		</section>
+	);
+}
+
+function PendingAttachment({ file }: { file: File }) {
+	const [preview, setPreview] = useState<string | null>(null);
+	const isImage = file.type.startsWith("image/");
+	useEffect(() => {
+		if (!isImage) {
+			return;
+		}
+		const url = URL.createObjectURL(file);
+		setPreview(url);
+		return () => URL.revokeObjectURL(url);
+	}, [file, isImage]);
+	return isImage ? (
+		<div className="size-16">
+			{preview ? (
+				<SpaceImagePreview
+					altText={file.name}
+					imageSource={preview}
+					isSingle={false}
+					thumbnailClassName="size-16 rounded-xl"
+				/>
+			) : (
+				<span className="sr-only">{file.name}</span>
+			)}
+		</div>
+	) : (
+		<div className="text-muted-foreground text-xs">{file.name}</div>
 	);
 }
 

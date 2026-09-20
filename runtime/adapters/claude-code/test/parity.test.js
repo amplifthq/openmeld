@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { buildDispatchSpaceActionMcpToolIds } from "@openmeld/adapter-core";
 import { OPENMELD_CLAUDE_ALLOWED_TOOLS } from "../dist/transport/claude-permission-policy.js";
 
 const AUTH_RE = /Not logged in/i;
@@ -510,6 +511,8 @@ test("claude adapter dispatch uses the Agent SDK transport by default", async ()
   const captured = {};
   const previews = [];
 
+  const reasoning = [];
+
   await writeFile(
     fixturePath,
     [
@@ -531,6 +534,23 @@ test("claude adapter dispatch uses the Agent SDK transport by default", async ()
       createAgentSdkQuery: createFakeClaudeAgentQueryFactory({
         captured,
         messages: [
+          {
+            type: "stream_event",
+            event: { type: "message_start", message: { id: "msg-thinking" } },
+            session_id: "sdk-session-1",
+          },
+          {
+            type: "stream_event",
+            event: {
+              type: "content_block_delta",
+              index: 0,
+              delta: {
+                type: "thinking_delta",
+                thinking: "Checking the request",
+              },
+            },
+            session_id: "sdk-session-1",
+          },
           {
             type: "stream_event",
             event: {
@@ -588,6 +608,11 @@ test("claude adapter dispatch uses the Agent SDK transport by default", async ()
         previews.push(preview.text);
       },
       prompt: "hello sdk",
+      onRuntimeEvent: (event) => {
+        if (event.phase === "reasoning") {
+          reasoning.push(event);
+        }
+      },
       runtimeContext: createRuntimeContext(dispatchDir),
       sourceEventId: "evt-sdk",
       spaceId: "space-1",
@@ -597,6 +622,9 @@ test("claude adapter dispatch uses the Agent SDK transport by default", async ()
 
     assert.equal(result.status, "success");
     assert.equal(result.output, "hello from sdk preview");
+    assert.equal(reasoning.length, 1);
+    assert.equal(reasoning[0].blockId, "msg-thinking:0");
+    assert.equal(reasoning[0].text, "Checking the request");
     assert.deepEqual(result.contextDelta, {
       agentControllerConversationId: "sdk-session-1",
       agentControllerConversation: {
@@ -612,9 +640,9 @@ test("claude adapter dispatch uses the Agent SDK transport by default", async ()
     assert.equal(typeof captured.options.env.PATH, "string");
     assert.deepEqual(captured.options.allowedTools, [
       ...OPENMELD_CLAUDE_ALLOWED_TOOLS,
-      "mcp__openmeld_internal_dispatch_space_action__reply",
-      "mcp__openmeld_internal_dispatch_space_action__status",
-      "mcp__openmeld_internal_dispatch_space_action__stay_silent",
+      ...buildDispatchSpaceActionMcpToolIds("__").map(
+        (toolId) => `mcp__${toolId}`
+      ),
     ]);
     assert.deepEqual(captured.options.mcpServers, {
       openmeld_internal_dispatch_space_action: {
@@ -2365,6 +2393,26 @@ test("claude cli transport maps quota and rate-limit failures", async () => {
     await rm(quotaDir, { force: true, recursive: true });
     await rm(rateDir, { force: true, recursive: true });
   }
+});
+
+test("claude preserves an unfamiliar structured failure without exposing diagnostic stderr", async () => {
+  const { classifyClaudeFailure } = await import(
+    "../dist/transport/claude-cli-transport.js"
+  );
+  const message =
+    "The upstream service ended this request.\nReference: request-42.";
+  const result = classifyClaudeFailure({
+    providerErrorMessages: [message],
+    providerOriginalErrorMessages: [message],
+    stderrText: "stack: internal diagnostics",
+  });
+  assert.equal(result.originalError, message);
+  assert.equal(result.providerAccessEvidence, undefined);
+  const untrusted = classifyClaudeFailure({
+    providerErrorMessages: [],
+    stderrText: message,
+  });
+  assert.equal(untrusted.originalError, undefined);
 });
 
 test("claude invoke heals stale session by retrying once without resume", async () => {

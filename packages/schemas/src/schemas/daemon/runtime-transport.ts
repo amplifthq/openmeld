@@ -1,9 +1,16 @@
 import * as z from "../../lazy-zod";
+export const OPENMELD_EXECUTION_ADMISSION_HEADER =
+  "x-openmeld-execution-admission";
+
 import { agentProfileWorkRecoveryActionKindSchema } from "../agent-profile-work-recovery";
 import {
   executionRecoveryDestinationSchema,
   executionRecoveryIdentitySchema,
 } from "../http/execution-recovery";
+import {
+  LOCAL_AGENT_REASONING_MAX_CHARS,
+  localAgentReasoningStateSchema,
+} from "../http/local-agent-reasoning";
 import { organizationProtectedInformationSchema } from "../http/organization-information-protection";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { spacePasswordSchema } from "../http/space-password";
@@ -25,6 +32,7 @@ import {
   MAX_PROFILE_NAME_LENGTH,
   MAX_TEXT_LENGTH,
 } from "../protocol/constants";
+import { executionContextTaskSchema } from "../protocol/execution-context";
 import { messageEnvelopeSchema } from "../protocol/message-envelope";
 import {
   agentProfileIdSchema,
@@ -37,6 +45,7 @@ import { workingLanguageGuidanceSchema } from "../runtime/working-language";
 import { spaceContractSchema } from "../space-mesh/space-contract";
 import { spaceThreadContextSchema } from "../space-mesh/space-thread";
 import { agentControllerRefSchema } from "./agent-controller-ref";
+import { executionHostObservationSchema } from "./computer-care";
 import {
   openMeldDaemonCancelPayloadSchema,
   openMeldDaemonCancelRequestPayloadSchema,
@@ -85,7 +94,7 @@ import { openMeldDaemonTaskResultEnvelopeSchema } from "./task-result";
 
 export const RUNTIME_TRANSPORT_SCHEMA_VERSION = 1 as const;
 export const CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH =
-  "runtime-transport-epoch-2026-07-default-project" as const;
+  "runtime-transport-epoch-2026-09-large-space-files" as const;
 
 export const daemonRuntimeContractSchema = z.strictObject({
   epoch: z.string().min(1),
@@ -139,6 +148,7 @@ export const runtimeTransportAgentProfileWorkRecoveryReadResponseSchema =
     z.strictObject({
       action: runtimeTransportAgentProfileWorkRecoveryActionSchema,
       authorizedContinuationClientMessageId: clientMessageIdSchema.nullable(),
+      forkInterruptedConversation: z.boolean().optional(),
       interruptedClientMessageId: clientMessageIdSchema,
       interruptedDispatchId: z.string().trim().min(1).max(512),
       // Older owner shards omit these exact-source fields during a rolling Core
@@ -151,6 +161,15 @@ export const runtimeTransportAgentProfileWorkRecoveryReadResponseSchema =
         .max(512)
         .optional(),
       interruptedSourceSignalId: z.string().trim().min(1).max(512).optional(),
+      // Whether the attempt this work would replace is safely out of the way.
+      // `not_started` means no execution was ever created for it, `withdrawn`
+      // means the computer acknowledged that its attempt is gone, and
+      // `awaiting_withdrawal` means Core cannot yet prove either. Older owner
+      // shards omit it during a rolling Core deployment, so callers must defer
+      // replacement work rather than assume the attempt was retired.
+      interruptedLocalAttempt: z
+        .enum(["awaiting_withdrawal", "not_started", "withdrawn"])
+        .optional(),
       spaceId: z.string().trim().min(1).max(512),
       status: z.literal("available"),
     }),
@@ -261,6 +280,7 @@ export const runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema 
     currentConfigurationRevision: z.number().int().positive(),
     currentDefaultProjectId: z.string().trim().min(1).nullable().optional(),
     expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+    forkInterruptedConversation: z.boolean().optional(),
     requireAcceptedExecutionTargetRevision: z.literal(true),
   });
 
@@ -284,6 +304,26 @@ export const runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseS
     status: z.enum(["marked", "not_pending", "unavailable"]),
   });
 
+export const runtimeTransportAgentProfileWorkHandoffRequestSchema =
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
+    sourceDispatchId: z.string().trim().min(1).max(512),
+    sourceTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+    successorDispatchId: z.string().trim().min(1).max(512),
+    successorExecutionContextId: z.string().trim().min(1).max(512).optional(),
+    successorTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+  });
+
+export const runtimeTransportAgentProfileWorkHandoffResponseSchema =
+  z.strictObject({
+    status: z.enum([
+      "already_handed_off",
+      "handed_off",
+      "source_not_occupied",
+      "successor_conflict",
+      "unavailable",
+    ]),
+  });
+
 export const runtimeTransportAgentProfileWorkQueueApproveRequestSchema =
   runtimeTransportAgentProfileWorkRecoveryTargetSchema;
 
@@ -300,6 +340,25 @@ export const runtimeTransportAgentProfileWorkSkipRequestSchema =
 export const runtimeTransportAgentProfileWorkSkipResponseSchema =
   z.strictObject({
     status: z.enum(["skipped", "not_pending", "unavailable"]),
+  });
+
+export const runtimeTransportAgentProfileWorkLocalAttemptWithdrawalRequestSchema =
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
+    expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+  });
+
+// `requested` means the withdrawal was asked for again and is still
+// unconfirmed; it is not a claim that the attempt stopped. `not_started` and
+// `withdrawn` are the two answers that leave nothing outstanding.
+export const runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema =
+  z.strictObject({
+    status: z.enum([
+      "not_pending",
+      "not_started",
+      "requested",
+      "unavailable",
+      "withdrawn",
+    ]),
   });
 
 export const runtimeTransportAgentProfileExecutionTargetMutationRequestSchema =
@@ -368,6 +427,8 @@ export const runtimeTransportErrorCodeSchema = z.enum([
   "runtime_coordinator.execution_token_authority_unavailable",
   "runtime_coordinator.execution_token_scope_mismatch",
   "runtime_coordinator.execution_token_unavailable",
+  "runtime_coordinator.execution_context_mismatch",
+  "runtime_coordinator.execution_context_unavailable",
 ]);
 
 export const runtimeTransportLeaseSchema = z.strictObject({
@@ -376,6 +437,7 @@ export const runtimeTransportLeaseSchema = z.strictObject({
 });
 
 export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
+  executionHost: executionHostObservationSchema.optional(),
   agentReplyContextReview: z.literal(true).optional(),
   informationProtectionPrompt: z.literal(true).optional(),
   workingLanguagePrompt: z.literal(true).optional(),
@@ -416,6 +478,7 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
 
 export const runtimeTransportCapabilitiesSchema =
   runtimeTransportBaseCapabilitiesSchema.extend({
+    spaceWorkHandoff: z.literal(true).optional(),
     computerFileAccess: z
       .strictObject({
         readPolicy: z.literal(true).optional(),
@@ -565,6 +628,8 @@ export const runtimeTransportRegisterSessionRequestSchema = z.strictObject({
 });
 
 export const runtimeTransportRegisterSessionResponseSchema = z.strictObject({
+  executionAdmissionConfirmation: z.literal(true).optional(),
+  computerCare: z.literal(true).optional(),
   ok: z.boolean(),
   connectionGeneration: z.number().int().positive(),
   acceptedLeases: z.array(runtimeTransportLeaseSchema),
@@ -1151,6 +1216,7 @@ export const runtimeTransportDeliverDispatchPayloadSchema = z.strictObject({
   targetProfileMentionLabel: spaceMentionLabelSchema.optional(),
   targetProfileIsCenterAgent: z.boolean().optional(),
   agentControllerConversationId: z.string().trim().min(1).optional(),
+  executionContext: executionContextTaskSchema.optional(),
   deliveryRecoveryReason:
     openMeldDaemonDispatchDeliveryRecoveryReasonSchema.optional(),
   dispatchChainId: z.string().min(1).optional(),
@@ -1398,6 +1464,7 @@ export const runtimeTransportRuntimeCoordinatorHeadAcceptRequestSchema =
 export const runtimeTransportRuntimeCoordinatorHeadAcceptResponseSchema =
   z.discriminatedUnion("status", [
     z.strictObject({
+      executionContext: executionContextTaskSchema.optional(),
       acceptedDispatchSnapshot:
         openMeldDaemonAcceptedDispatchSnapshotSchema.optional(),
       action: runtimeTransportRuntimeCoordinatorHeadAcceptActionSchema,
@@ -1460,6 +1527,7 @@ export const runtimeTransportRuntimeCoordinatorHeadNoExecutionReasonCodeSchema =
 
 export const runtimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategorySchema =
   z.enum([
+    "space_access_unavailable",
     "binding_required",
     "agent_profile_unavailable",
     "local_agent_unavailable",
@@ -1474,6 +1542,7 @@ export const runtimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategor
 
 export const runtimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryActionSchema =
   z.enum([
+    "send_new_wake",
     "set_up_agent_binding",
     "enable_agent_binding",
     "repair_agent_binding",
@@ -1538,13 +1607,28 @@ export const runtimeTransportRuntimeCoordinatorHeadNoExecutionResponseSchema =
   ]);
 
 export const runtimeTransportRuntimeCoordinatorHeadWaitingReasonCodeSchema =
-  z.enum(["daemon.profile.offline", "daemon.profile.pending_first_report"]);
+  z.enum([
+    "wake.device_wait.access_check_unavailable",
+    "daemon.service.draining",
+    "daemon.profile.offline",
+    "daemon.profile.pending_first_report",
+    "wake.device_wait.readiness_checking",
+  ]);
 
 export const runtimeTransportRuntimeCoordinatorHeadWaitingCategorySchema =
-  z.enum(["service_not_connected", "wake_route_registration_pending"]);
+  z.enum([
+    "space_access_unavailable",
+    "service_not_connected",
+    "wake_route_registration_pending",
+    "local_agent_unavailable",
+  ]);
 
 export const runtimeTransportRuntimeCoordinatorHeadWaitingRecoveryActionSchema =
-  z.enum(["start_or_restart_openmeld_service", "wait_for_wake_route_report"]);
+  z.enum([
+    "start_or_restart_openmeld_service",
+    "wait_for_wake_route_report",
+    "check_status",
+  ]);
 
 const runtimeCoordinatorOfflineWaitingDecisionShape = {
   reasonCode: z.literal("daemon.profile.offline"),
@@ -1558,6 +1642,21 @@ const runtimeCoordinatorPendingFirstReportWaitingDecisionShape = {
   waitingCategory: z.literal("wake_route_registration_pending"),
 } as const;
 
+const runtimeCoordinatorReadinessWaitingDecisionShape = {
+  reasonCode: z.enum([
+    "wake.device_wait.readiness_checking",
+    "daemon.service.draining",
+  ]),
+  userRecoveryAction: z.literal("check_status"),
+  waitingCategory: z.literal("local_agent_unavailable"),
+} as const;
+
+const runtimeCoordinatorAccessWaitingDecisionShape = {
+  reasonCode: z.literal("wake.device_wait.access_check_unavailable"),
+  userRecoveryAction: z.literal("check_status"),
+  waitingCategory: z.literal("space_access_unavailable"),
+} as const;
+
 const runtimeCoordinatorHeadWaitingBoundaryCommonShape = {
   deadlineAtMs: z.number().int().nonnegative(),
   deadlineOutcome: z.literal("publication_intent_ready"),
@@ -1569,6 +1668,20 @@ const runtimeCoordinatorHeadWaitingBoundaryCommonShape = {
 
 const runtimeTransportRuntimeCoordinatorHeadWaitingBoundarySchema =
   z.discriminatedUnion("reasonCode", [
+    z.strictObject({
+      ...runtimeCoordinatorHeadWaitingBoundaryCommonShape,
+      ...runtimeCoordinatorAccessWaitingDecisionShape,
+      trigger: z.literal("space_access_rechecked"),
+      userVisibleState: z.literal("waiting_for_space_access"),
+      waitingFor: z.literal("space_access_check"),
+    }),
+    z.strictObject({
+      ...runtimeCoordinatorHeadWaitingBoundaryCommonShape,
+      ...runtimeCoordinatorReadinessWaitingDecisionShape,
+      trigger: z.literal("agent_readiness_reported"),
+      userVisibleState: z.literal("waiting_for_agent_readiness"),
+      waitingFor: z.literal("agent_readiness_report"),
+    }),
     z.strictObject({
       ...runtimeCoordinatorHeadWaitingBoundaryCommonShape,
       ...runtimeCoordinatorOfflineWaitingDecisionShape,
@@ -1598,6 +1711,14 @@ export const runtimeTransportRuntimeCoordinatorHeadWaitingRequestSchema =
   z.discriminatedUnion("reasonCode", [
     z.strictObject({
       ...runtimeCoordinatorHeadWaitingRequestCommonShape,
+      ...runtimeCoordinatorAccessWaitingDecisionShape,
+    }),
+    z.strictObject({
+      ...runtimeCoordinatorHeadWaitingRequestCommonShape,
+      ...runtimeCoordinatorReadinessWaitingDecisionShape,
+    }),
+    z.strictObject({
+      ...runtimeCoordinatorHeadWaitingRequestCommonShape,
       ...runtimeCoordinatorOfflineWaitingDecisionShape,
     }),
     z.strictObject({
@@ -1619,6 +1740,14 @@ const runtimeCoordinatorHeadWaitingResponseCommonShape = {
 
 export const runtimeTransportRuntimeCoordinatorHeadWaitingResponseSchema =
   z.union([
+    z.strictObject({
+      ...runtimeCoordinatorHeadWaitingResponseCommonShape,
+      ...runtimeCoordinatorAccessWaitingDecisionShape,
+    }),
+    z.strictObject({
+      ...runtimeCoordinatorHeadWaitingResponseCommonShape,
+      ...runtimeCoordinatorReadinessWaitingDecisionShape,
+    }),
     z.strictObject({
       ...runtimeCoordinatorHeadWaitingResponseCommonShape,
       ...runtimeCoordinatorOfflineWaitingDecisionShape,
@@ -1868,6 +1997,8 @@ export const runtimeTransportAgentControllerConversationOccupancySchema =
   });
 
 export const runtimeTransportDispatchLocalQueueWaitReasonSchema = z.enum([
+  "workspace_conflict",
+  "agent_profile_concurrency",
   "agent_controller_maintenance",
   "global_concurrency",
   "local_execution_lane_concurrency",
@@ -1887,6 +2018,7 @@ export const runtimeTransportDispatchLocalQueueDiagnosticsSchema =
   });
 
 export const runtimeTransportDispatchLifecycleRequestSchema = z.strictObject({
+  acknowledgementId: z.string().uuid().optional(),
   v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
   runtimeCoordinatorExecutionId:
     runtimeCoordinatorExecutionRecordSchema.shape.runtimeCoordinatorExecutionId.optional(),
@@ -1902,6 +2034,17 @@ export const runtimeTransportDispatchLifecycleRequestSchema = z.strictObject({
     runtimeTransportAgentControllerConversationOccupancySchema.optional(),
   localQueue: runtimeTransportDispatchLocalQueueDiagnosticsSchema.optional(),
 });
+
+export const runtimeTransportDispatchLifecycleAcknowledgementSchema =
+  z.strictObject({
+    acknowledgementId: z.string().uuid(),
+    dispatchId: z.string().min(1),
+    attemptId: z.string().min(1),
+    connectionGeneration: z.number().int().positive(),
+    accepted: z.boolean(),
+    validForMs: z.number().int().nonnegative(),
+    reasonCode: z.string().min(1).nullable(),
+  });
 
 export const runtimeTransportDispatchRuntimeEvidencePhaseSchema = z.enum([
   "received",
@@ -1979,6 +2122,14 @@ export const runtimeTransportDispatchToolActivityRequestSchema = z.strictObject(
     part: localAgentStreamToolPartSchema,
   }
 );
+
+export const runtimeTransportDispatchReasoningRequestSchema =
+  runtimeTransportDispatchToolActivityRequestSchema
+    .omit({ part: true })
+    .extend({
+      thinkingSnapshot: z.string().max(LOCAL_AGENT_REASONING_MAX_CHARS),
+      reasoningState: localAgentReasoningStateSchema,
+    });
 
 export const runtimeTransportDispatchInteractionRequestSchema = z.strictObject({
   v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
@@ -2176,8 +2327,11 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.session.heartbeat",
   "daemon.dispatch.deliver",
   "daemon.dispatch.lifecycle",
+  "daemon.dispatch.lifecycle_acknowledged",
   "daemon.dispatch.runtime_evidence",
   "daemon.dispatch.tool_activity",
+  "daemon.dispatch.reasoning",
+  "daemon.reasoning.preferences",
   "daemon.dispatch.interaction_request",
   "daemon.dispatch.interaction_response",
   "daemon.dispatch.interaction_delivered",

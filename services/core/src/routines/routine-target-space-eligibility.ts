@@ -1,6 +1,7 @@
 import type { CenterAgentRoutineTargetSpace } from "@openmeld/schemas/types";
 import { buildDirectMessagePairKey } from "@openmeld/space";
 import { readCenterAgentDesignationRecord } from "../center-agent/center-agent-repository";
+import { requirePersonalRemoteAgentBinding } from "../remote-agent/application/personal-remote-agent-binding";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   listRoutineTargetSpacesFromSpaceIndex,
@@ -25,6 +26,7 @@ type RoutineTargetEligibilityContextResolution =
   | { status: "designation_missing" };
 
 export function createRoutineTargetSpaceEligibility(input: {
+  agentProfileId?: string;
   db: D1Database;
   projectionsDb: D1Database;
 }) {
@@ -35,6 +37,7 @@ export function createRoutineTargetSpaceEligibility(input: {
       representedHuman: RoutineRepresentedHuman;
     }): Promise<CenterAgentRoutineTargetSpace[]> {
       const context = await resolveRoutineTargetEligibilityContext({
+        agentProfileId: input.agentProfileId,
         db: input.db,
         organizationId: inputList.organizationId,
         representedHuman: inputList.representedHuman,
@@ -75,6 +78,7 @@ export function createRoutineTargetSpaceEligibility(input: {
       }
 
       const context = await resolveRoutineTargetEligibilityContext({
+        agentProfileId: input.agentProfileId,
         db: input.db,
         organizationId: inputTarget.organizationId,
         representedHuman: inputTarget.representedHuman,
@@ -130,10 +134,30 @@ export function createRoutineTargetSpaceEligibility(input: {
 }
 
 async function resolveRoutineTargetEligibilityContext(input: {
+  agentProfileId?: string;
   db: D1Database;
   organizationId: string;
   representedHuman: RoutineRepresentedHuman;
 }): Promise<RoutineTargetEligibilityContextResolution> {
+  if (input.agentProfileId) {
+    await requirePersonalRemoteAgentBinding({
+      db: input.db,
+      organizationId: input.organizationId,
+      agentProfileId: input.agentProfileId,
+      ownerUserId: input.representedHuman.userId,
+    });
+    return {
+      status: "available",
+      value: {
+        centerAgentDirectMessagePairKey: buildDirectMessagePairKey(
+          input.representedHuman.profileId,
+          input.agentProfileId
+        ),
+        centerAgentIsActive: true,
+        centerAgentProfileId: input.agentProfileId,
+      },
+    };
+  }
   const designation = await readCenterAgentDesignationRecord({
     db: input.db,
     organizationId: input.organizationId,
@@ -186,7 +210,7 @@ function centerAgentRequiredError() {
 function targetSpacePublicationUnavailableError() {
   return createCoreRpcHttpError({
     status: 409,
-    reason: "The current Center Agent cannot publish to the target Space.",
+    reason: "This Agent cannot publish to the target Space.",
     code: "routine.target_space_publication_unavailable",
   });
 }

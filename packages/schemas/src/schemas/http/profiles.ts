@@ -61,7 +61,8 @@ export const authProfileViewSchema = z
     profileKind: authProfileKindSchema,
     isDefault: z.boolean(),
     status: authProfileStatusSchema,
-    ownerUserId: z.string().min(1),
+    ownerUserId: z.string().min(1).nullable(),
+    organizationId: z.string().min(1).nullable().optional(),
     ownerName: z.string().min(1).optional(),
     avatarUrl: z.string().min(1).optional(),
     source: z.string().min(1),
@@ -172,3 +173,19 @@ export const deleteProfileResponseSchema = z.strictObject({
   ok: z.literal(true),
   profile: authProfileViewSchema,
 });
+
+export const createdAgentProfileActionResponseSchema =
+  createAgentProfileResponseSchema.refine(
+    (value) => value.profile.profileKind === "agent",
+    "Expected an Agent Profile."
+  );
+export const createdHumanProfileActionResponseSchema =
+  createHumanProfileResponseSchema.refine(
+    (value) => value.profile.profileKind === "human",
+    "Expected a Human Profile."
+  );
+export const deletedAgentProfileActionResponseSchema =
+  deleteProfileResponseSchema.refine(
+    (value) => value.profile.profileKind === "agent",
+    "Expected an Agent Profile."
+  );

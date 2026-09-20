@@ -9,9 +9,11 @@ import {
 export function useSpaceComposerSession(input: {
 	authoring: UseSpaceMentionAuthoringInput;
 	files: {
-		organizationSlug: string;
+		organizationSlug?: string;
 		profileId: string;
 		spaceId: string;
+		draftScope?: string;
+		restoreFromScopes?: readonly string[];
 	};
 }) {
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -20,6 +22,15 @@ export function useSpaceComposerSession(input: {
 	>(null);
 	const [isSending, setIsSending] = useState(false);
 	const sendInFlightRef = useRef(false);
+	const requestTailRef = useRef(Promise.resolve());
+	const reserveRequest = useCallback(() => {
+		const ready = requestTailRef.current;
+		let complete: () => void = () => undefined;
+		requestTailRef.current = new Promise<void>((resolve) => {
+			complete = resolve;
+		});
+		return { ready, complete };
+	}, []);
 	const authoring = useSpaceMentionAuthoring(input.authoring);
 	const files = useSpaceComposerFiles(input.files);
 
@@ -59,8 +70,17 @@ export function useSpaceComposerSession(input: {
 			setErrorMessage,
 		},
 		onEditorChange,
+		recordPendingSubmission: (submission?: {
+			fileIds?: readonly string[];
+			submittedAtMs?: number;
+		}) => {
+			files.preflightSubmission(submission?.fileIds);
+			authoring.recordPendingSubmission(submission?.submittedAtMs);
+			return files.beginSubmission(submission?.fileIds);
+		},
 		send: {
 			begin: beginSend,
+			reserveRequest,
 			finish: finishSend,
 			inFlightRef: sendInFlightRef,
 			isSending,

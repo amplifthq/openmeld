@@ -6,6 +6,8 @@ import {
   postNormalMessageResponseSchema,
   readListSignalsQueryRawValues,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
+  spaceMessageMutationBodySchema,
+  spaceMessageMutationResponseSchema,
   validateSpaceSignalClientMessageIdPolicy,
 } from "@openmeld/schemas";
 import type { Hono } from "hono";
@@ -74,6 +76,10 @@ const buildPostSignalCoreRpcInput = (input: {
   spaceId: input.spaceId,
   profile: input.profile,
   text: input.parsed.text,
+  ...(input.parsed.deviceWait ? { deviceWait: input.parsed.deviceWait } : {}),
+  ...(input.parsed.contextSelection
+    ? { contextSelection: input.parsed.contextSelection }
+    : {}),
   authoringPolicy: "user_authored" as const,
   ...(input.parsed.attachments
     ? { attachments: input.parsed.attachments }
@@ -126,6 +132,7 @@ export const buildListSignalsRpcInput = (input: {
   spaceId: input.spaceId,
   ...(input.query.afterTs === null ? {} : { afterTs: input.query.afterTs }),
   ...(input.hasLimit ? { limit: input.query.limit } : {}),
+  ...(input.query.q ? { q: input.query.q } : {}),
   ...(input.query.cursor === null ? {} : { cursor: input.query.cursor }),
   ...(input.query.recentOnly ? { recent: true } : {}),
   ...(input.query.afterSignalId
@@ -268,11 +275,19 @@ const registerGetSignalsRoute = (app: Hono<HonoBindings>): void => {
       route: "/v1/spaces/:spaceId/signals",
       method: "GET",
       includeLegacySpaceAddressingWireFields: true,
-      execute: async () => {
-        return await c.var.coreRpc.listSignals(
-          rpcInput,
-          OPENMELD_SPACE_ADDRESSING_VERSION
-        );
+      execute: () =>
+        c.var.coreRpc.listSignals(rpcInput, OPENMELD_SPACE_ADDRESSING_VERSION),
+      resolveSuccessHeaders: ({ payload }) => {
+        const parsed = catchupResponseSchema.safeParse(payload);
+        if (parsed.success && parsed.data.nextCursor) {
+          const next = new URL(c.req.url);
+          next.searchParams.set("cursor", parsed.data.nextCursor);
+          next.searchParams.delete("recent");
+          return {
+            Link: `<${next.pathname}${next.search}>; rel="next"; type="application/json"`,
+          };
+        }
+        return undefined;
       },
       responseSchema: catchupResponseSchema,
     });
@@ -280,6 +295,38 @@ const registerGetSignalsRoute = (app: Hono<HonoBindings>): void => {
 };
 
 export function registerSignalsRoutes(app: Hono<HonoBindings>): void {
+  app.post("/v1/spaces/:spaceId/messages/:signalId", async (c) => {
+    const spaceId = c.req.param("spaceId");
+    const body = spaceMessageMutationBodySchema.safeParse(
+      await c.req.json().catch(() => null)
+    );
+    if (!body.success) {
+      return c.json(
+        {
+          error: {
+            code: "space.message.invalid_change",
+            message: "Invalid message change.",
+          },
+        },
+        400
+      );
+    }
+    return await executeRpcRoute({
+      c,
+      method: "POST",
+      route: "/v1/spaces/:spaceId/messages/:signalId",
+      spaceId,
+      execute: () =>
+        c.var.coreRpc.mutateSpaceMessage({
+          spaceId,
+          signalId: c.req.param("signalId"),
+          body: body.data,
+          context: buildCoreRpcContext(c),
+          spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
+        }),
+      responseSchema: spaceMessageMutationResponseSchema,
+    });
+  });
   registerGetSignalsRoute(app);
 
   app.post("/v1/spaces/:spaceId/signals", async (c) => {
@@ -377,18 +424,24 @@ export function registerSignalsRoutes(app: Hono<HonoBindings>): void {
         const profile = buildProfileDisplay(c.var.resolvedProfile);
         let signal: Awaited<ReturnType<typeof c.var.coreRpc.postSignal>>;
         try {
-          signal = await c.var.coreRpc.postSignal(
-            buildPostSignalCoreRpcInput({
-              context: buildCoreRpcContext(c),
-              parsed: parsed.value,
-              password,
-              profile,
-              spaceId,
-            }),
-            supportsCurrentSpaceAddressing(c.req.raw.headers)
-              ? OPENMELD_SPACE_ADDRESSING_VERSION
-              : undefined
-          );
+          const postInput = buildPostSignalCoreRpcInput({
+            context: buildCoreRpcContext(c),
+            parsed: parsed.value,
+            password,
+            profile,
+            spaceId,
+          });
+          const addressingVersion = supportsCurrentSpaceAddressing(
+            c.req.raw.headers
+          )
+            ? OPENMELD_SPACE_ADDRESSING_VERSION
+            : undefined;
+          signal = parsed.value.deviceWait
+            ? await c.var.coreRpc.postDeviceWaitingSignal(
+                postInput,
+                addressingVersion
+              )
+            : await c.var.coreRpc.postSignal(postInput, addressingVersion);
         } catch (error) {
           emitGatewaySignalPostRuntimeEvidence({
             env: c.env,

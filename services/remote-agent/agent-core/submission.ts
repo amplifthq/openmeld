@@ -1,5 +1,4 @@
 import {
-  buildRemoteAgentCenterAgentTaskConversationId,
   buildSpaceAttachmentObjectKey,
   remoteAgentWorkerSubmitMessagesResultSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
@@ -25,6 +24,7 @@ import {
   initializeRemoteAgentExecutionState,
 } from "./execution-state";
 import { buildRemoteAgentTurnTimeContext } from "./prompt";
+import { renderPersonalRemoteAgentCollaborationContext } from "./prompt/space-collaboration";
 import { cleanupExpiredRemoteAgentSlackMemberResearchState } from "./slack-member-research-state";
 import { cleanupExpiredRemoteAgentToolProgress } from "./tool-progress";
 import { cleanupExpiredRemoteAgentTurnEndMarkers } from "./turn-end";
@@ -56,7 +56,7 @@ export type RemoteAgentAdmissionImage =
 
 export type RemoteAgentSubmissionMetadata = {
   agentProfileId: string;
-  agentProfileOwnerUserId: string;
+  agentProfileOwnerUserId: string | null;
   authorDisplayName: string | null;
   bindingId: string;
   dispatchId: string;
@@ -157,49 +157,9 @@ export function buildRemoteAgentName(request: {
   );
 }
 
-export function resolveRemoteAgentConversationIdentityAdmissionRejection(
-  request: RemoteAgentWorkerSubmitTurnRequest
-): {
-  message: string;
-  reasonCode: RemoteAgentWorkerAdmissionRejectionCode;
-} | null {
-  if (request.v !== 3 && request.v !== 4) {
-    return null;
-  }
-  const conversationIdentity = request.conversationIdentity;
-  if (!conversationIdentity) {
-    return null;
-  }
-  if (
-    conversationIdentity.kind === "center_agent_task" &&
-    request.conversationId !==
-      buildRemoteAgentCenterAgentTaskConversationId(conversationIdentity.taskId)
-  ) {
-    return {
-      message:
-        "Remote Agent Task conversation identity does not match its route.",
-      reasonCode: "remote_agent.center_agent_task_identity_mismatch",
-    };
-  }
-  return null;
-}
-
 export function resolveRemoteAgentTurnEnvelopeForName(input: {
   agentName: string;
-  requestContext: Pick<
-    RemoteAgentWorkerSubmitTurnRequest,
-    | "dispatchId"
-    | "agentProfileId"
-    | "author"
-    | "conversationId"
-    | "idempotencyKey"
-    | "onBehalfOf"
-    | "organizationId"
-    | "sourceClientMessageId"
-    | "spaceId"
-    | "triggerMessageId"
-    | "turnEnvelope"
-  > | null;
+  requestContext: RemoteAgentWorkerSubmitTurnRequest | null;
 }): RemoteAgentWorkerSubmitTurnRequest["turnEnvelope"] | null {
   const rejection = resolveRemoteAgentTurnEnvelopeAdmissionRejection(input);
   if (rejection) {
@@ -210,20 +170,7 @@ export function resolveRemoteAgentTurnEnvelopeForName(input: {
 
 export function resolveRemoteAgentTurnEnvelopeAdmissionRejection(input: {
   agentName: string;
-  requestContext: Pick<
-    RemoteAgentWorkerSubmitTurnRequest,
-    | "dispatchId"
-    | "agentProfileId"
-    | "author"
-    | "conversationId"
-    | "idempotencyKey"
-    | "onBehalfOf"
-    | "organizationId"
-    | "sourceClientMessageId"
-    | "spaceId"
-    | "triggerMessageId"
-    | "turnEnvelope"
-  > | null;
+  requestContext: RemoteAgentWorkerSubmitTurnRequest | null;
 }): {
   message: string;
   reasonCode: RemoteAgentWorkerAdmissionRejectionCode;
@@ -248,8 +195,7 @@ export function resolveRemoteAgentTurnEnvelopeAdmissionRejection(input: {
       ? context !== null &&
         context.sourceClientMessageId == null &&
         context.onBehalfOf === null &&
-        context.author.profileKind === "agent" &&
-        context.author.profileId === context.agentProfileId
+        routineAuthorMatches(context)
       : true;
   if (!routineRequestIdentityMatches) {
     return {
@@ -296,6 +242,30 @@ export function resolveRemoteAgentTurnEnvelopeAdmissionRejection(input: {
     };
   }
   return null;
+}
+
+function routineAuthorMatches(
+  context: RemoteAgentWorkerSubmitTurnRequest
+): boolean {
+  if (
+    context.v === 4 &&
+    context.conversationIdentity?.kind === "personal_agent"
+  ) {
+    const sender = context.turnEnvelope.sender;
+    return (
+      sender.kind === "routine" &&
+      sender.delegatedBy.verified &&
+      sender.delegatedBy.ownerUserId === context.agentProfileOwnerUserId &&
+      context.agentProfileOwnerUserId != null &&
+      context.author.profileKind === "human" &&
+      context.author.profileId === sender.delegatedBy.profileId &&
+      context.conversationIdentity.agentProfileId === context.agentProfileId
+    );
+  }
+  return (
+    context.author.profileKind === "agent" &&
+    context.author.profileId === context.agentProfileId
+  );
 }
 
 export function resolveRemoteAgentTurnEnvelopeForExecution(input: {
@@ -398,26 +368,13 @@ function buildRemoteAgentPromptContent(
   request: RemoteAgentWorkerSubmitTurnRequest,
   includeContinuityContext: boolean
 ): string {
-  const isCenterAgentTask =
-    (request.v === 3 || request.v === 4) &&
-    request.conversationIdentity !== undefined &&
-    request.conversationIdentity.kind === "center_agent_task";
   const message = request.messages
     .map((message) => message.content.trim())
     .filter((content) => content.length > 0)
     .join("\n\n");
-  const {
-    channelContext: _sourceChannelContext,
-    memory: _sourceMemory,
-    ...taskTurnEnvelope
-  } = request.turnEnvelope;
-  const effectiveTurnEnvelope = isCenterAgentTask
-    ? taskTurnEnvelope
-    : request.turnEnvelope;
-  const renderedChannelContext =
-    !isCenterAgentTask && request.turnEnvelope.channelContext
-      ? renderChannelContext(request.turnEnvelope.channelContext)
-      : null;
+  const renderedChannelContext = request.turnEnvelope.channelContext
+    ? renderChannelContext(request.turnEnvelope.channelContext)
+    : null;
   const renderedContinuityContext =
     request.v === 4 && includeContinuityContext && request.continuityContext
       ? renderRemoteAgentConversationContinuityContext(
@@ -425,14 +382,17 @@ function buildRemoteAgentPromptContent(
         )
       : null;
   const turnContext = [
-    renderRemoteAgentTurnEnvelope(effectiveTurnEnvelope, {
-      sourceSignalId:
-        effectiveTurnEnvelope.trigger.source === "web_dm" ||
-        effectiveTurnEnvelope.trigger.source === "space_wake"
-          ? request.triggerMessageId
-          : null,
-    }),
-    renderRemoteAgentSpaceGuide(effectiveTurnEnvelope),
+    renderPersonalRemoteAgentCollaborationContext(request) ??
+      renderRemoteAgentTurnEnvelope(request.turnEnvelope, {
+        sourceSignalId:
+          request.turnEnvelope.trigger.source === "web_dm" ||
+          request.turnEnvelope.trigger.source === "space_wake"
+            ? request.triggerMessageId
+            : null,
+      }),
+    request.v === 4 && request.conversationIdentity?.kind === "personal_agent"
+      ? null
+      : renderRemoteAgentSpaceGuide(request.turnEnvelope),
     renderedChannelContext,
     renderedContinuityContext,
   ]
@@ -460,21 +420,6 @@ function buildRemoteAgentPromptContent(
       "No one is present in real time. Do not ask follow-up or clarification questions.",
       `Subject: ${request.turnEnvelope.trigger.subjectDisplayName} (${request.turnEnvelope.trigger.subjectUserId})`,
       "Use only the organization-connected sources allowed by the task instructions.",
-      "",
-      "Task instructions:",
-      message,
-    ].join("\n");
-  }
-  if (isCenterAgentTask) {
-    return [
-      turnContext,
-      "",
-      "[Center Agent Task]",
-      "This is a durable Task with its own conversation.",
-      "Treat only the Task instructions below as the current user direction. The source conversation transcript, personal memory, and channel snapshot are not Task instructions.",
-      "Use the available Organization context and tools when they help complete the goal.",
-      "Complete this Task directly; do not create another Center Agent Task.",
-      "Return a self-contained result. OpenMeld records it on this Task and delivers it to the frozen source destination.",
       "",
       "Task instructions:",
       message,
@@ -530,6 +475,7 @@ function renderRemoteAgentConversationContinuityContext(
       occurredAt: entry.occurredAt,
       source: entry.source,
       text: entry.content.text,
+      ...(entry.reactions ? { reactions: entry.reactions } : {}),
       truncated: entry.content.truncated,
     })
   );
@@ -830,14 +776,12 @@ function assertRemoteAgentCallbackContextMatchesAdmission(input: {
   submissionId: string;
 }): void {
   const requestConversationIdentity =
-    input.request.v === 3 || input.request.v === 4
-      ? input.request.conversationIdentity
-      : undefined;
+    input.request.v === 4 ? input.request.conversationIdentity : undefined;
   const conversationIdentityMatches = requestConversationIdentity
     ? input.context.conversationIdentity?.kind ===
         requestConversationIdentity.kind &&
-      input.context.conversationIdentity.taskId ===
-        requestConversationIdentity.taskId
+      input.context.conversationIdentity.agentProfileId ===
+        requestConversationIdentity.agentProfileId
     : input.context.conversationIdentity === undefined;
   if (
     input.context.submissionId !== input.submissionId ||

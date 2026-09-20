@@ -7,14 +7,7 @@ import type {
   CenterAgentRequestMemberAttentionRpcInput,
   InboxSourceCandidate,
 } from "@openmeld/schemas/types";
-import { projectCenterAgentTaskNeedsAttention } from "../../center-agent-tasks/application/center-agent-task-attention-projector";
-import { readCenterAgentTaskAttemptByTaskHandle } from "../../center-agent-tasks/infrastructure/d1/center-agent-task-repo";
-import {
-  type CoreBindings,
-  inboxDb,
-  localStateDb,
-  wakeEvidenceDb,
-} from "../../lib/bindings";
+import { type CoreBindings, inboxDb, wakeEvidenceDb } from "../../lib/bindings";
 import { readRemoteAgentNativeDeliveryBySubmissionId } from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import { prepareSpaceInboxCandidateForCenterAgent } from "../../space/application/space-inbox-center-agent-candidate";
@@ -34,8 +27,7 @@ export async function rpcCenterAgentRequestMemberAttention(
     request.context.agentControllerConversationId?.trim();
   const deliveryDb = wakeEvidenceDb(env);
   const attentionDb = inboxDb(env);
-  const taskDb = localStateDb(env);
-  if (!(conversationSubmissionId && deliveryDb && attentionDb && taskDb)) {
+  if (!(conversationSubmissionId && deliveryDb && attentionDb)) {
     throw attentionRequestUnavailableError();
   }
   if (conversationSubmissionId !== request.submissionId) {
@@ -58,16 +50,7 @@ export async function rpcCenterAgentRequestMemberAttention(
   ) {
     throw attentionRequestMismatchError();
   }
-  const taskAttempt = await readCenterAgentTaskAttemptByTaskHandle({
-    db: taskDb,
-    organizationId: delivery.organizationId,
-    taskHandle: {
-      deliveryId: delivery.deliveryId,
-      kind: "native_delivery",
-      v: 1,
-    },
-  });
-  if (!taskAttempt && delivery.conversationKind !== "space") {
+  if (delivery.conversationKind !== "space") {
     throw attentionRequestMismatchError();
   }
 
@@ -88,32 +71,6 @@ export async function rpcCenterAgentRequestMemberAttention(
   }
 
   const nowMs = Date.now();
-  if (taskAttempt) {
-    const importance =
-      request.impact === "response_needed" ? "normal" : "urgent";
-    const projected = await projectCenterAgentTaskNeedsAttention({
-      deliveryId: delivery.deliveryId,
-      importance,
-      inboxDb: attentionDb,
-      nowMs,
-      organizationId: delivery.organizationId,
-      prompt: request.prompt,
-      requestId: request.submissionId,
-      taskDb,
-    });
-    if (!projected) {
-      throw attentionRequestMismatchError();
-    }
-    return centerAgentRequestMemberAttentionResponseSchema.parse({
-      importance,
-      instruction:
-        importance === "urgent"
-          ? "This urgent request is now in Needs action and uses the member's urgent notification preferences. Explain the concrete time-sensitive or blocking risk without exaggeration."
-          : "This request is now in Needs action. Tell the member exactly what response is needed, and do not describe it as urgent.",
-      organizationId: delivery.organizationId,
-      requestId: request.submissionId,
-    });
-  }
   const sourceCandidate: InboxSourceCandidate = {
     attention: "action_required",
     contextLabel: "Center Agent",

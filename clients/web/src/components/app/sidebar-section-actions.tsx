@@ -34,6 +34,7 @@ import { useSidebarGroupRename } from "./app-sidebar-group";
 
 type Sort = AccountSidebarPreferences["spaces"]["sort"];
 export function SidebarSectionActions(input: {
+	alwaysVisible?: boolean;
 	label: string;
 	sort: Sort;
 	disabled: boolean;
@@ -69,7 +70,7 @@ export function SidebarSectionActions(input: {
 		<>
 			<SidebarGroupActions
 				className="static hidden h-6 group-focus-within/sidebar-group-root:flex group-hover/sidebar-group-root:flex data-open:flex [@media(hover:none)]:flex"
-				data-open={addOpen || settingsOpen || undefined}
+				data-open={input.alwaysVisible || addOpen || settingsOpen || undefined}
 			>
 				{(input.onNewItem || input.onNewGroup) && (
 					<DropdownMenu onOpenChange={setAddOpen} open={addOpen}>

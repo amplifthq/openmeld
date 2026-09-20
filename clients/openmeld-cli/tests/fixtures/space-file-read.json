@@ -1,0 +1,42 @@
+{
+  "file": {
+    "id": "file-fixture",
+    "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "parentId": null,
+    "name": "night-orders.csv",
+    "path": "/night-orders.csv",
+    "createdAt": "2026-09-08T18:55:57.868Z",
+    "updatedAt": "2026-09-08T18:55:57.868Z",
+    "createdBy": {
+      "profileId": "11111111-1111-4111-8111-111111111111",
+      "profileKind": "human",
+      "displayName": "Test User",
+      "ownerUserId": "22222222-2222-4222-8222-222222222222"
+    },
+    "updatedBy": {
+      "profileId": "11111111-1111-4111-8111-111111111111",
+      "profileKind": "human",
+      "displayName": "Test User",
+      "ownerUserId": "22222222-2222-4222-8222-222222222222"
+    },
+    "trashedAt": null,
+    "trashedBy": null,
+    "kind": "file",
+    "latestRevision": {
+      "id": "revision-3d02c45faa121a59424ad4dad64c9823cadce58221138363b9b2e9f20fc8345f",
+      "fileId": "file-fixture",
+      "revision": 1,
+      "mimeType": "text/csv",
+      "sizeBytes": 364,
+      "createdAt": "2026-09-08T18:55:57.868Z",
+      "createdBy": {
+        "profileId": "11111111-1111-4111-8111-111111111111",
+        "profileKind": "human",
+        "displayName": "Test User",
+        "ownerUserId": "22222222-2222-4222-8222-222222222222"
+      }
+    }
+  },
+  "revision": 1,
+  "content": "order_id,region,quantity,unit_price,refunded,notes\nA01,US,2,30,false,Starter bundle\nA02,CA,1,50,false,Referral\nA03,US,3,20,true,Full refund\nA04,US,4,15,false,Team order\nA05,CA,2,25,false,Repeat buyer\nA06,US,1,80,false,Enterprise trial\nA07,CA,3,10,true,Full refund\nA08,US,5,12,false,Monthly renewal\nA09,CA,2,40,false,Team expansion\nA10,US,1,45,false,First purchase\n"
+}

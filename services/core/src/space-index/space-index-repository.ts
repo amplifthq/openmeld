@@ -833,7 +833,8 @@ export async function listOrganizationSpacesFromSpaceIndex(input: {
   generatedAt: string;
   limit: number;
   organizationId: string;
-  ownerUserId: string;
+  ownerUserId: string | null;
+  profileId?: string;
 }): Promise<OrganizationSpaceDirectoryWithMemberCountsResponse> {
   const { results } = await input.db
     .prepare(
@@ -857,7 +858,7 @@ export async function listOrganizationSpacesFromSpaceIndex(input: {
           ON cad.organization_id = s.organization_id
         LEFT JOIN space_index_memberships m
           ON m.space_id = s.space_id
-          AND m.owner_user_id_snapshot = ?
+          AND (m.owner_user_id_snapshot = ? OR m.profile_id = ?)
           AND m.status = 'active'
         WHERE s.organization_id = ?
           AND s.status = 'active'
@@ -887,7 +888,12 @@ export async function listOrganizationSpacesFromSpaceIndex(input: {
         LIMIT ?
       `
     )
-    .bind(input.ownerUserId, input.organizationId, input.limit)
+    .bind(
+      input.ownerUserId,
+      input.profileId ?? null,
+      input.organizationId,
+      input.limit
+    )
     .all<OrganizationSpaceDirectoryRow>();
 
   return {

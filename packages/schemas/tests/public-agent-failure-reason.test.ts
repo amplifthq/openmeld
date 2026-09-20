@@ -14,6 +14,15 @@ import {
   shouldPreferMappedPublicAgentFailureReason,
 } from "../src";
 
+it.each([
+  "wake.device_wait.expired",
+  "wake.device_wait.access_revoked",
+])("does not imply automatic retry for ended request %s", (errorCode) => {
+  expect(
+    resolvePublicAgentFailureRecovery({ errorCode, targetLabel: "Runner" })
+  ).toMatchObject({ kind: "request_ended", recoveryTarget: null });
+});
+
 const PROVIDER_CREDITS_COPY =
   "The model provider rejected this request because the provider account does not have enough credits. Add credits or update billing directly with the provider, then wake the agent again.";
 const PROVIDER_CREDENTIALS_COPY =
@@ -32,6 +41,28 @@ const DETAILED_PROVIDER_FAILURE_SUMMARY_RE =
   /^invalid_value \(invalid_request_error\): Invalid value for reasoning effort\./;
 
 describe("public agent failure reason mapping", () => {
+  it.each([
+    [
+      "execution_context.project_repository_required",
+      "connected Git repository",
+    ],
+    ["execution_context.workspace_access_unverified", "project file boundary"],
+    ["context.mcp_isolation_unverified", "tools authorized for this task"],
+  ])("explains local task preparation failure %s without blaming the provider", (errorCode, expected) => {
+    const reason = resolveMappedPublicAgentFailureReason(errorCode);
+    expect(reason).toContain(expected);
+    expect(reason).not.toContain("provider was unreachable");
+  });
+  it("does not turn a service conflict into an update or setup instruction", () => {
+    const recovery = resolvePublicAgentFailureRecovery({
+      errorCode: "service.drifted",
+      targetLabel: "Runner",
+    });
+    expect(recovery).toMatchObject({
+      primaryActionId: "check_status",
+      recoveryTarget: "computer",
+    });
+  });
   it("explains a resume timeout without claiming the Agent finished or failed to post", () => {
     expect(
       resolveMappedPublicAgentFailureReason("context.resume_timeout")
@@ -628,18 +659,16 @@ describe("public agent failure reason mapping", () => {
     }
   });
 
-  it("returns structured setup recovery for binding runtime and capability mismatches", () => {
+  it("does not offer setup as implicit migration for connection mismatches", () => {
     expect(
       resolvePublicAgentFailureRecovery({
         errorCode: "claim_eligibility.binding_runtime_mismatch",
         targetLabel: "Runner",
       })
     ).toEqual({
-      body: "Runner is connected to an older computer setup. Update setup on this computer, then try again.",
-      kind: "local_agent_prepare",
-      primaryActionId: "connect_local_agent",
-      primaryActionLabel: "Connect local agent",
-      recoveryTarget: "prepare_setup",
+      body: "Runner's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.",
+      kind: "system_retry",
+      recoveryTarget: null,
     });
     expect(
       resolvePublicAgentFailureRecovery({
@@ -647,11 +676,9 @@ describe("public agent failure reason mapping", () => {
         targetLabel: "Runner",
       })
     ).toEqual({
-      body: "Runner is connected to a different local agent setup. Update setup on this computer, then try again.",
-      kind: "local_agent_prepare",
-      primaryActionId: "connect_local_agent",
-      primaryActionLabel: "Connect local agent",
-      recoveryTarget: "prepare_setup",
+      body: "Runner's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.",
+      kind: "system_retry",
+      recoveryTarget: null,
     });
   });
 
@@ -956,7 +983,7 @@ describe("public agent failure reason mapping", () => {
     ],
     [
       "service.drifted",
-      "OpenMeld on Runner's computer needs an update before it can receive local Wake work.",
+      "OpenMeld found a service problem on Runner's computer. Open Computer details to see what needs attention.",
     ],
     [
       "local_service.not_connected_for_account",
@@ -964,7 +991,7 @@ describe("public agent failure reason mapping", () => {
     ],
     [
       "local_service.identity_mismatch",
-      "Runner's computer connection does not match this Agent. Reconnect the computer.",
+      "Runner's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.",
     ],
     [
       "local_service.unavailable",
@@ -980,7 +1007,7 @@ describe("public agent failure reason mapping", () => {
     ],
     [
       "agent_execution.route_unavailable",
-      "Runner is connected, but OpenMeld cannot see an active local Wake route from this computer yet. OpenMeld is checking the route from this computer.",
+      "OpenMeld couldn't check Runner's connection. Try again.",
     ],
     [
       "route.not_registered",
@@ -992,7 +1019,7 @@ describe("public agent failure reason mapping", () => {
     ],
     [
       "route.unavailable",
-      "Runner is connected, but OpenMeld cannot see an active local Wake route from this computer yet. OpenMeld is checking the route from this computer.",
+      "OpenMeld couldn't check Runner's connection. Try again.",
     ],
     [
       "controller.registry.disabled",
@@ -1114,7 +1141,7 @@ describe("public agent failure reason mapping", () => {
       "center_agent.designation_required",
       "Connect the Center Agent before waking it from this Space.",
     ],
-    ["remote_agent.available", "Center Agent can answer now."],
+    ["remote_agent.available", "This Agent can answer now."],
     [
       "remote_agent.budget_resting",
       "Center Agent is resting until the next budget window.",

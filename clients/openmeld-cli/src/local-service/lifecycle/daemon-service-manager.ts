@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import {
   access,
@@ -9,15 +8,20 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { userInfo } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { WindowsUserTaskRequest } from "@openmeld/schemas";
 import { sleep } from "@openmeld/utils";
 import type { DaemonServiceController } from "../../config/daemon-state";
 import { daemonRuntimeRootPath } from "../../config/daemon-state";
 import type { OpenMeldEnvironmentTarget } from "../../config/openmeld-environment-target";
 import type { OpenMeldPathResolutionInput } from "../../config/paths";
+import {
+  resolveOpenMeldEnvPreset,
+  resolveOpenMeldRootDir,
+} from "../../config/paths";
 import { assertSafePublishedProductionServiceRegistrationMutation } from "../../config/published-production-safety";
 import { resolveDaemonServiceIdentity } from "./daemon-service-identity";
+import { runNativeServiceCommand as runCommand } from "./native-command";
 import {
   readWindowsTaskAction,
   runWindowsUserTask,
@@ -31,7 +35,7 @@ export type RunCommandResult = {
   stderr: string;
 };
 
-type RunCommandOptions = {
+export type RunCommandOptions = {
   args: string[];
   command: string;
   env?: NodeJS.ProcessEnv;
@@ -73,7 +77,7 @@ export type DaemonServiceJobDiagnostics = {
   lastExitCodeText: string | null;
   /** Numeric last exit code when the raw text is a plain integer. */
   lastExitCode: number | null;
-  /** launchd marker for a spawn held back by the OS (Background Task Management). */
+  /** launchd marker for deferred non-demand startup; not proof of permission denial. */
   pendedNondemandSpawn: string | null;
   /** Job is configured to auto-start and stay alive (keepalive + runatload). */
   keepaliveRunAtLoad: boolean;
@@ -138,6 +142,11 @@ const LAUNCHD_STATE_PATTERN = /state\s*=\s*running/i;
 const LAUNCHD_DISABLED_SERVICES_ENTRY_PATTERN =
   /"([^"]+)"\s*=>\s*(enabled|disabled)/i;
 const LAUNCHD_STRING_PATTERN = /<string>([^<]+)<\/string>/g;
+const LAUNCHD_SERVICE_PROCESS_TYPE = "Interactive";
+const LAUNCHD_PROCESS_TYPE_PATTERN =
+  /<key>ProcessType<\/key>\s*<string>([^<]+)<\/string>/;
+const LAUNCHD_RESTART_ON_FAILURE_PATTERN =
+  /<key>KeepAlive<\/key>\s*<dict>\s*<key>SuccessfulExit<\/key>\s*<false\s*\/>\s*<\/dict>/;
 const LAUNCHD_ENVIRONMENT_BLOCK_PATTERN =
   /<key>EnvironmentVariables<\/key>\s*<dict>([\s\S]*?)<\/dict>/;
 const WINDOWS_LINE_SEPARATOR_PATTERN = /\r?\n/;
@@ -215,57 +224,49 @@ const LAUNCHD_CONTROLLER: DaemonServiceController = "launchd";
 const WINDOWS_CONTROLLER: DaemonServiceController = "windows-service";
 const DAEMON_SERVICE_RESTART_BACKOFF_SECONDS = 60;
 
-async function runCommand(input: RunCommandOptions): Promise<RunCommandResult> {
-  return await new Promise((resolve, reject) => {
-    const child = spawn(input.command, input.args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      env: input.env ?? process.env,
-      windowsHide: true,
+export async function startLaunchdService(input: {
+  serviceKey: string;
+  guiDomain: string;
+  plistPath: string;
+  run?: (options: RunCommandOptions) => Promise<RunCommandResult>;
+}): Promise<void> {
+  const run = input.run ?? runCommand;
+  const observed = await run({
+    command: "launchctl",
+    args: ["print", input.serviceKey],
+    throwOnError: false,
+  });
+  if (observed.exitCode !== 0 && !isLaunchdServiceMissing(observed)) {
+    throw buildServiceManagerProbeError("launchctl print", observed);
+  }
+  await run({
+    command: "launchctl",
+    args: ["enable", input.serviceKey],
+    throwOnError: true,
+  });
+  // A loaded job must not be bootstrapped again: launchd can report EIO for
+  // that case, which is not evidence that its registration needs replacing.
+  if (observed.exitCode !== 0) {
+    const bootstrap = await run({
+      command: "launchctl",
+      args: ["bootstrap", input.guiDomain, input.plistPath],
+      throwOnError: false,
     });
-
-    let stdout = "";
-    let stderr = "";
-    child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    child.once("error", (error) => {
-      if (input.throwOnError) {
-        reject(error);
-        return;
-      }
-      resolve({
-        exitCode: 1,
-        stdout,
-        stderr: `${stderr}${String(error)}`,
-      });
-    });
-
-    child.once("close", (code) => {
-      const exitCode = typeof code === "number" ? code : 1;
-      if (input.throwOnError && exitCode !== 0) {
-        reject(
-          new Error(
-            [
-              `command failed: ${input.command} ${input.args.join(" ")}`,
-              stdout.trim(),
-              stderr.trim(),
-            ]
-              .filter(Boolean)
-              .join(" | ")
-          )
-        );
-        return;
-      }
-      resolve({
-        exitCode,
-        stdout,
-        stderr,
-      });
-    });
+    if (
+      bootstrap.exitCode !== 0 &&
+      !LAUNCHD_ALREADY_PATTERN.test(bootstrap.stderr)
+    ) {
+      throw new Error(
+        `failed to start launchd service: ${bootstrap.stderr.trim() || bootstrap.stdout.trim()}`
+      );
+    }
+  }
+  // Registration/KeepAlive is not a demand start. Never use -k: an existing
+  // healthy instance must survive repeated setup/start requests.
+  await run({
+    command: "launchctl",
+    args: ["kickstart", input.serviceKey],
+    throwOnError: true,
   });
 }
 
@@ -351,6 +352,26 @@ function isLaunchdServiceMissing(result: RunCommandResult): boolean {
   return LAUNCHD_SERVICE_NOT_FOUND_PATTERNS.some((pattern) =>
     pattern.test(output)
   );
+}
+
+export async function waitForLaunchdJobUnloaded(
+  serviceKey: string
+): Promise<void> {
+  await waitForCondition({
+    until: async () => {
+      const result = await runCommand({
+        command: "launchctl",
+        args: ["print", serviceKey],
+        throwOnError: false,
+      });
+      if (result.exitCode !== 0 && !isLaunchdServiceMissing(result)) {
+        throw buildServiceManagerProbeError("launchctl print", result);
+      }
+      return isLaunchdServiceMissing(result);
+    },
+    onTimeout: () =>
+      new Error(`Timed out waiting for launchd job ${serviceKey} to unload.`),
+  });
 }
 
 function formatManagerStatusDetails(
@@ -448,6 +469,42 @@ function sanitizeControlCharacters(value: string): string {
   return sanitized;
 }
 
+export function matchesLaunchdServiceStartupPolicy(
+  definition: string
+): boolean {
+  return (
+    LAUNCHD_PROCESS_TYPE_PATTERN.exec(definition)?.[1] ===
+      LAUNCHD_SERVICE_PROCESS_TYPE &&
+    LAUNCHD_RESTART_ON_FAILURE_PATTERN.test(definition)
+  );
+}
+
+/** Reads only the owned definition; callers report drift through existing diagnostics. */
+export async function readDaemonServiceStartupPolicyCurrent(input: {
+  controller: DaemonServiceController | null;
+  status: DaemonServiceManagerRuntimeStatus | null;
+}): Promise<boolean | null> {
+  if (
+    input.controller !== "launchd" ||
+    !input.status?.installed ||
+    !input.status.definitionPath
+  ) {
+    return null;
+  }
+  const definition = await readFile(input.status.definitionPath, "utf8").catch(
+    (error: NodeJS.ErrnoException) => {
+      // An uninstalled definition is not evidence of a scheduling-policy mismatch.
+      if (error.code === "ENOENT") {
+        return null;
+      }
+      throw error;
+    }
+  );
+  return definition === null
+    ? null
+    : matchesLaunchdServiceStartupPolicy(definition);
+}
+
 export function buildLaunchdPlist(
   spec: DaemonServiceCommandSpec,
   pathInput: OpenMeldPathResolutionInput = {}
@@ -486,7 +543,12 @@ ${args}
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
-  <true/>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ProcessType</key>
+  <string>${LAUNCHD_SERVICE_PROCESS_TYPE}</string>
   <key>ThrottleInterval</key>
   <integer>${DAEMON_SERVICE_RESTART_BACKOFF_SECONDS}</integer>
   <key>EnvironmentVariables</key>
@@ -590,7 +652,9 @@ export function isDaemonServiceJobNeverSpawned(
   );
 }
 
-export function isDaemonServiceBackgroundExecutionBlocked(
+// A pending spawn is evidence of deferred startup, not of a denied permission.
+// launchd also reports it when the GUI domain is in on-demand-only mode.
+export function isDaemonServiceJobSpawnPending(
   diagnostics: DaemonServiceJobDiagnostics
 ): boolean {
   return (
@@ -1038,28 +1102,10 @@ function buildLaunchdManager(
       });
     },
     start: async () => {
-      await runCommand({
-        command: "launchctl",
-        args: ["enable", launchdServiceKey],
-        throwOnError: false,
-      });
-      const bootstrap = await runCommand({
-        command: "launchctl",
-        args: ["bootstrap", guiDomain, plistPath],
-        throwOnError: false,
-      });
-      if (
-        bootstrap.exitCode !== 0 &&
-        !LAUNCHD_ALREADY_PATTERN.test(bootstrap.stderr)
-      ) {
-        throw new Error(
-          `failed to start launchd service: ${bootstrap.stderr.trim() || bootstrap.stdout.trim()}`
-        );
-      }
-      await runCommand({
-        command: "launchctl",
-        args: ["enable", launchdServiceKey],
-        throwOnError: false,
+      await startLaunchdService({
+        serviceKey: launchdServiceKey,
+        guiDomain,
+        plistPath,
       });
     },
     stop: async () => {
@@ -1174,8 +1220,15 @@ function buildLaunchdManager(
     waitUntilStopped: async () => {
       await waitForCondition({
         until: async () => {
-          const status = await buildLaunchdManager(pathInput).status();
-          return !status.running;
+          const result = await runCommand({
+            command: "launchctl",
+            args: ["print", launchdServiceKey],
+            throwOnError: false,
+          });
+          if (result.exitCode !== 0 && !isLaunchdServiceMissing(result)) {
+            throw buildServiceManagerProbeError("launchctl print", result);
+          }
+          return isLaunchdServiceMissing(result);
         },
         onTimeout: async () => {
           const status = await buildLaunchdManager(pathInput).status();
@@ -1561,40 +1614,64 @@ export function guardDaemonServiceManagerMutations(
   manager: DaemonServiceManager,
   pathInput: OpenMeldPathResolutionInput = {}
 ): DaemonServiceManager {
-  const assertMutationAllowed = (operation: string): void => {
+  const assertMutationAllowed = async (operation: string): Promise<void> => {
     assertSafePublishedProductionServiceRegistrationMutation(
       operation,
       pathInput
     );
+    if (resolveOpenMeldEnvPreset(pathInput) !== "dev-local") {
+      return;
+    }
+    const status = await manager.status();
+    if (!status.installed) {
+      return;
+    }
+    const env =
+      status.commandSpec?.env ??
+      (status.definitionPath
+        ? parseDaemonServiceEnvironmentFromDefinition({
+            controller: manager.controller,
+            definition: await readFile(status.definitionPath, "utf8"),
+          })
+        : {});
+    if (
+      env.OPENMELD_ENV_PRESET !== "dev-local" ||
+      !env.OPENMELD_HOME ||
+      resolve(env.OPENMELD_HOME) !== resolve(resolveOpenMeldRootDir(pathInput))
+    ) {
+      throw new Error(
+        `Cannot ${operation} OpenMeld Service: its registered development home does not match this environment.`
+      );
+    }
   };
   return {
     ...manager,
     install: async (spec) => {
-      assertMutationAllowed("install");
+      await assertMutationAllowed("install");
       await manager.install(spec);
     },
     uninstall: async () => {
-      assertMutationAllowed("uninstall");
+      await assertMutationAllowed("uninstall");
       await manager.uninstall();
     },
     enableAutostart: async () => {
-      assertMutationAllowed("enable autostart for");
+      await assertMutationAllowed("enable autostart for");
       await manager.enableAutostart();
     },
     disableAutostart: async () => {
-      assertMutationAllowed("disable autostart for");
+      await assertMutationAllowed("disable autostart for");
       await manager.disableAutostart();
     },
     start: async () => {
-      assertMutationAllowed("start");
+      await assertMutationAllowed("start");
       await manager.start();
     },
     stop: async () => {
-      assertMutationAllowed("stop");
+      await assertMutationAllowed("stop");
       await manager.stop();
     },
     deactivate: async () => {
-      assertMutationAllowed("deactivate");
+      await assertMutationAllowed("deactivate");
       await manager.deactivate();
     },
   };

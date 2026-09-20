@@ -1,0 +1,203 @@
+---
+name: writing-tests
+description: >
+  Gates whether a new test should exist and forces it to be efficient, protecting CI from low-value test bloat.
+  Use before any change to what a pytest, Jest, or Playwright test asserts or sets up, down to one fixture or one assertion added to an existing block.
+  Front-loads the value bar (every test must catch a realistic regression no existing test already catches; extend the nearest existing test before writing a new standalone one; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; pick the cheapest test level; Django TestCase over TransactionTestCase; no sleeps, no real network; no time bombs from absolute dates left to age against the real clock; no database a test never uses).
+  Includes a "don't write it" decision tree. For fixing an existing flaky test use `/fixing-flaky-tests`; after this gate says a Playwright test is warranted, use `/playwright-test` for mechanics.
+---
+
+# Writing tests worth keeping
+
+The rationale and the same rules in human-facing form live in the handbook: [Backend coding conventions › Testing](https://posthog.com/handbook/engineering/conventions/backend-coding#testing) (`docs/published/handbook/engineering/conventions/backend-coding.md`).
+This skill is the operational gate — run it before writing tests. It carries the decision procedure plus [a catalog of the bug shapes we actually ship](references/mistakes-we-make.md).
+The gate covers added coverage, not new test functions. One fixture and one assertion added to an existing block goes through the same two questions, because that is the shape this skill asks you to prefer.
+
+## The gate: two questions
+
+Before writing any test, answer both in one sentence each.
+
+### 1. Does it earn its place?
+
+> **What realistic regression does this test catch that no existing test already catches?**
+
+If you can't answer it concretely — name the bug, the code path, the input that would break — **do not write the test.**
+"Increases coverage", "good practice", and "the function exists" are not answers.
+
+A good answer sounds like: _"if someone makes `parse_filters` drop the `team_id` clause, this fails"_ or _"empty-cohort input used to 500; this locks in the 400."_
+That is a test worth keeping.
+
+Aim each test at a failure mode we actually hit, not a hypothetical.
+The bugs PostHog ships and reverts cluster into a handful of shapes — cataloged with the test that catches each, and the failure modes no unit test should, in [references/mistakes-we-make.md](references/mistakes-we-make.md).
+If your test doesn't map to one of them, be skeptical it's worth keeping.
+
+### 2. Where does it go?
+
+Passing the first question buys the _coverage_, not a new test function.
+Find the test that already covers the nearest behavior and answer:
+
+> **Why can't this be a case in that test?**
+
+When your case is a variation of that behavior, extend it: a `@parameterized` case in Python, a `test.each` row in Jest.
+A new standalone test is what you write when extending doesn't work, and you should be able to say why in a sentence: the setup differs, the behavior belongs to a different unit, or no relevant test exists.
+"It's cleaner as its own test" isn't a reason on its own; name which of those three applies.
+
+Extend to remove duplication, not to save setup time.
+A parameterized case is still its own test invocation, so `setUp` and `beforeEach` run for it just as they would for a standalone function.
+That sets the limit too: fold in variations of the same behavior, and don't bolt assertions about unrelated behavior onto a test that already passes.
+
+Search before you write.
+If you haven't looked for the nearest existing test, you can't answer this question.
+
+## Don't write it — the five no's
+
+Most low-value tests fall into one of these. Recognize and skip them.
+
+1. **Trivial / framework behavior.**
+   Don't test getters, setters, constants, dataclass field assignment, that Django saved a row, that DRF serialized a field, or that a library does what its docs say.
+   You're testing someone else's code, not yours.
+
+2. **Change-detector tests.**
+   A test that just mirrors the implementation — asserting which private methods were called, in what order, with mocks wired to match the current code — fails on every refactor and catches no real bug.
+   Test _observable behavior through the public interface_ (return value, persisted state, emitted event, HTTP response), not the choreography that produces it.
+   See [Change-Detector Tests Considered Harmful](https://testing.googleblog.com/2015/01/testing-on-toilet-change-detector-tests.html) and [Prefer Testing Public APIs](https://testing.googleblog.com/2015/01/testing-on-toilet-prefer-testing-public.html).
+
+3. **Redundant coverage.**
+   Ten tests that exercise the same path with different data are one parameterized test.
+   If a new test is a variation of an existing one, it's a `@parameterized` case (Python) or a `test.each` row (Jest) — **not** a new test function.
+   AI-generated suites bloat here first: hundreds of near-identical cases turning a 30s suite into 3 minutes.
+
+4. **Coverage-chasing.**
+   Don't add tests to hit a number; an uncovered line is information, not a defect.
+   If the only reason to test a branch is the coverage report, the branch probably doesn't need a test — or the code is dead and should be deleted instead.
+
+5. **Cross-language source-scraping.**
+   Never read or regex-parse one language's source from another language's test — a Python test that `Path(...).read_text()`s a `.ts` file and matches `category: '...'`, a TS test that greps a `.py` file, and so on.
+   It couples two trees through a brittle string match that breaks on edits that change nothing about behavior (a rename, a reformat, a moved file, a comment), and it proves nothing about runtime — the two sides never actually run together in the test.
+   If two sides genuinely must agree on a set of values, give them **one source of truth** — a generated artifact or a checked-in data file both import — and assert against that. Otherwise let the drift surface where the two sides really meet (an API contract test, a rendered output, a round-trip), not by scraping the other language's source for strings.
+
+When the answer is "don't write it," the right move is often to **extend an existing test** (add a parameterized case) or **delete code** rather than test it.
+Both shrink the suite's surface.
+
+## If you write it — weight it down the pyramid
+
+A test that earns its place still has to be cheap.
+Cost is a ladder; each rung is roughly an order of magnitude slower and flakier than the one below:
+
+```text
+pure function / unit  →  kea logic test  →  Django TestCase  →  ClickHouse-backed test  →  Playwright e2e
+        cheapest                                                                                most expensive
+```
+
+The goal is a **ratio**, not a cap: many tests at the bottom, very few at the top.
+A thousand pure unit tests are cheaper and more reliable than ten that boot Django, which are cheaper than one Playwright run.
+Want more coverage? Add it at the bottom.
+
+**When something is hard to test cheaply, that's a design signal — extract, don't escalate.**
+If the only way to exercise your logic is to stand up a database, a request, and a render, the logic is tangled with its dependencies.
+Pull it into a pure function or a kea logic and test _that_ directly: you get a faster test and better-factored code at once.
+Escalating to the next rung is the last resort, not the default.
+
+- If logic is in (or can be moved to) a pure function, test the function — don't stand up a DB, a request, or a render.
+- Frontend: test the **kea logic** (`logic.actions` / `logic.values`), not a full component render, whenever the behavior lives in the logic.
+  A `render()` + DOM-query test is for things only the DOM can show.
+- Reach for ClickHouse or a browser only when the regression genuinely lives there — not because it was the first way the test came to mind.
+
+### Python (pytest / Django)
+
+- **`TestCase`, not `TransactionTestCase`, unless you truly need it.**
+  `TransactionTestCase` flushes the DB between tests instead of rolling back a transaction — dramatically slower, and a common source of cross-test interference.
+  It's a Postgres-isolation choice, orthogonal to which datastore you touch: a ClickHouse-backed test is still a plain `TestCase` (`ClickhouseTestMixin` sets ClickHouse up), so reaching ClickHouse is not a reason to switch.
+  Common cases that people reach for `TransactionTestCase` to solve usually have cheaper alternatives:
+  - testing `transaction.on_commit` side effects → use `TestCase` + `self.captureOnCommitCallbacks(execute=True)`.
+  - needing a connection visible across a real separate thread (`thread_sensitive`) → `async_to_sync(...)`, not `asyncio.run(...)`.
+    Use `TransactionTestCase` only when the regression genuinely requires committed transaction boundaries that `TestCase` hides.
+- **A test class only takes a database it uses.** `BaseTest` and `APIBaseTest` inherit Django `TestCase`, so a class on either one needs a database to run: `setUpTestData` writes an organization, a project, a team and a user for it, and every test method runs inside a transaction. A class of pure assertions pays all of that and reads no row. Put those cases on `django.test.SimpleTestCase`, which refuses database access and therefore proves they never needed one. The `posthog/test/repo_invariants/test_database_free_test_classes.py` ratchet enforces it: it holds the frozen list of the classes already here, and fails the pull request that adds another. When it trips, [references/database-free-test-classes.md](references/database-free-test-classes.md) covers what the failure means, the three ways to answer it, and how to regenerate the baseline.
+- **Dedicated data migration tests are temporary.** Remove a dedicated test after every supported environment has applied the migration, the rollback window has closed, and no supported upgrade relies on the old data state. Delete the expired test instead of marking it skipped. Keep the migration file and tests for migration tooling, safety checks, reusable backfill systems, and backfills people can still run. Use `/django-migrations` for the migration safety workflow.
+- **DRF input-validation belongs in a `SimpleTestCase`, not an `APIBaseTest` round-trip.**
+  A test that posts a malformed body to an endpoint and asserts a 400 pays for `APIBaseTest` to build an Organization + Team + User in Postgres and wrap the test in a transaction — just to exercise validation that runs entirely in memory.
+  DRF field validators (`required`, type coercion, `choices`, `min/max`, regex) and `validate_<field>` methods run inside `Serializer(data=...).is_valid()` with no database and no request: field-level validation happens in `to_internal_value`, _before_ the object-level `validate()` that typically needs `self.context`. So an invalid-field case never reaches the DB-touching code.
+  Test the serializer directly and assert on `.errors`:
+
+  ```python
+  class TestTeamValidation(SimpleTestCase):  # no DB — not APIBaseTest
+      def test_sample_rate_too_many_digits(self) -> None:
+          s = TeamSerializer(data={"session_recording_sample_rate": "30001"}, partial=True)
+          assert not s.is_valid()
+          assert s.errors["session_recording_sample_rate"][0].code == "max_digits"
+  ```
+
+  When you push the case matrix down to the serializer, **keep (or add) one DB-backed endpoint test as a wiring guard** — that the viewset actually invokes this serializer, so a bad request is rejected with a 400. The no-DB serializer test proves the validation logic; it does _not_ prove the viewset is wired to that serializer (a refactor that drops the `serializer_class`, skips `is_valid()`, or stops calling `is_valid(raise_exception=True)` would pass every `SimpleTestCase` and still ship a broken endpoint). One endpoint case closes that gap; the matrix stays in the `SimpleTestCase`. For a query serializer instantiated inline (e.g. `Serializer(data=request.query_params).is_valid(raise_exception=True)`), the wiring guard is a bad-query-param → 400 assertion.
+  Two more caveats. First, `.errors` carries DRF's _raw_ code (`invalid`, `max_digits`); the `{"attr", "code", "detail", "type"}` HTTP envelope is rendered later by `exceptions-hog` (which maps `invalid` → `invalid_input`) — that rendering is framework behavior, so don't re-assert it per case (the wiring-guard test covers the envelope once). Second, validation that genuinely needs the DB stays at the endpoint — uniqueness checks, `PrimaryKeyRelatedField` queryset lookups, related-object existence, permission/team scoping, password-hash checks. Don't force those into a `SimpleTestCase`.
+
+- **Parameterize** repeated assertions with the `parameterized` library — don't copy-paste test bodies.
+- **No doc comments** in Python tests (house rule).
+- Mock only **true boundaries** — network, external APIs, the clock, queues.
+  Don't mock your own internal helpers (that's how change-detector tests are born).
+- **Person/group/cohort data:** use the helpers in `posthog/test/persons.py` (`create_person`, `create_group`, `create_group_type_mapping`, `add_cohort_members`, etc.) — never `Person.objects.create()` or similar ORM calls directly.
+  See [`posthog/test/AGENTS.md`](../../../posthog/test/AGENTS.md) for the full API reference and rationale.
+- **Whole-repo guards go in `posthog/test/repo_invariants/`.** If a test's input is the entire repo — it walks `apps.get_models()`, inspects `sys.modules` after a cold `django.setup()`, enumerates every route or signal receiver, or `rglob`s the tree against a baseline — any file anywhere can break it and diff-based test selection can't select it. That directory runs unconditionally in the `repo-checks` CI job on every backend PR (products-only and drafts included) with no Postgres/ClickHouse, and the Core shards skip it. Tests with a bounded input stay next to the code they cover.
+
+### Frontend (Jest)
+
+- One top-level `describe` block per file (house rule).
+- Prefer logic tests over component renders (see the ladder above).
+- `test.each` for variations rather than copied test bodies.
+- **Avoid `*ByRole(..., { name: ... })` on components that render a large DOM** (calendars, the taxonomic filter, whole scenes).
+  Role queries walk every element running `getComputedStyle`-based checks and accessible-name computation — seconds per query in jsdom, multiplied by every `waitFor`/`findBy*` retry; this pattern has produced single tests with 40s p95 in CI.
+  Prefer `getByText`, `getByTestId`/`data-attr` selectors, or `getByLabelText`; scope with `within(<small container>)` if a role query is genuinely needed.
+  The `jest-no-byrole-name-queries` semgrep rule flags this.
+- **No huge snapshots.**
+  A snapshot over a large rendered tree or serialized blob is a change-detector test that bloats the repo and breaks on every unrelated change.
+  Snapshot a small, intentional value, or assert specific fields instead.
+
+### Always — determinism and isolation
+
+- **Control the state transition instead of racing it.** Choose the control that matches
+  the behavior under test:
+  - For elapsed-time behavior, enable fake timers before starting the work and advance
+    exactly the duration the behavior requires.
+  - For a final async result, use `wait_for` / `waitFor` on the observable result.
+  - For an in-flight state, make the mocked boundary await a promise controlled by the
+    test. Assert the pending state, release the promise, then assert the final state.
+    Do not assume a debounce, `setTimeout`, kea breakpoint, or fast mock will still be
+    pending on the next line. Test setup may shorten internal delays without changing
+    production behavior.
+- **No `time.sleep` / arbitrary waits.** A sleep is a flake waiting to happen, and it
+  slows every run. Replace it with the matching control above or `freeze_time`.
+- **An absolute date in a test is a time bomb until you pin the clock.**
+  A fixture date keeps its meaning only while the real clock stays where you left it.
+  If anything under test measures that date against `now` — an age, a window, a "recent" flag, an expiry — the assertion holds today and fails some weeks later, on every open branch at once.
+  Pinning a date into application state is not pinning the clock: a test that sets an "evaluated at" value to a fixed instant, and leaves the wall clock real, still fails when real time drifts past the window, because the code re-reads `now` and the two stop agreeing.
+  Pin the process clock to the instant the fixtures speak in — `freeze_time` in Python, `jest.useFakeTimers()` with `jest.setSystemTime()` in Jest, released by `jest.useRealTimers()` in a `finally` — or write the fixture relative to `now` (`now - 2 days`), so the distance is what the test states.
+  Pinning the clock covers only what reads it inside your process; the next rule covers the rest.
+  Ask this of every absolute date in a test, not only of an explicit `freeze_time`: _what does this assert when today is a year past it?_ If the answer is not "the same thing", fix it before you commit.
+- **A frozen clock doesn't freeze the infrastructure.**
+  `freeze_time` patches the clock inside your process; everything outside it still runs on the real one — ClickHouse TTL, Postgres `now()` defaults, S3 lifecycle rules, another service's token-expiry check.
+  So freezing to an absolute date and then writing rows that something judges by age builds a **time bomb**: green for weeks, then red forever once wall-clock time drifts past the retention window.
+  It fails on every branch at once, so it reads as though whichever PR is in front of you caused it — and that misattribution, not the fix, is where the time goes.
+  Most ClickHouse tables are already safe: they build their TTL through `ttl_period()` ([`posthog/clickhouse/kafka_engine.py`](../../../posthog/clickhouse/kafka_engine.py)), which returns `""` under `settings.TEST`, so tests get no TTL at all.
+  A table that hardcodes its `TTL` clause opts out of that guard — `ai_events` is one. Check rather than assume: `grep -rlE '^\s*TTL ' posthog/models/ posthog/clickhouse/ --include=*.py`.
+  Make the row's lifetime independent of the ambient clock instead — pin the retention column on insert, the way `bulk_create_ai_events` writes `retention_days=10000`. Moving the frozen date forward only resets the timer.
+- **No real network / live external services.** Mock the boundary.
+- **No cross-test ordering.**
+  Tests must pass in any order and in isolation; don't rely on state a previous test left behind.
+- **No `@skip` / `xfail` / `.skip`** without a one-line reason and a linked issue.
+  A permanently-skipped test is dead weight — delete it or fix it.
+- **Never commit `.only`** (`it.only` / `describe.only`).
+  It doesn't skip one test, it skips every _other_ test in the file — turning the suite green on a sliver.
+
+## Before you open the PR
+
+The PR template prompts for this under "How did you test this code?" — state the justification where a reviewer will see it.
+One line per group of tests is enough:
+
+> _"Added 3 cases to `test_cohort_query` covering empty / single / oversized cohorts — guards the 500 we just fixed; couldn't extend an existing test because none exercised the empty path."_
+
+If you can't write that line, you've found a test that shouldn't be in the PR.
+
+## Related skills
+
+- **Fixing an existing flaky test** → use `/fixing-flaky-tests` (reproduce, root-cause, validate). Use this skill too only if the fix adds or substantially changes coverage.
+  That skill applies the gate above retroactively: a flaky test has already proven its cost, so if you can't name the regression it catches, deleting it is a valid outcome there — not just a stabilization job.
+- **Authoring a non-flaky Playwright test** → first use this skill to decide whether a browser test earns its cost; if it does, use `/playwright-test` for the mechanics.

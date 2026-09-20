@@ -1,5 +1,6 @@
 "use client";
 
+import { sanitizeSignalTextPreview } from "@openmeld/schemas";
 import type { OrganizationProfileDirectoryResponse } from "@openmeld/schemas/types";
 import {
 	Dialog,
@@ -19,21 +20,25 @@ import {
 	ArrowRightIcon,
 	ChatCircleTextIcon,
 	DesktopIcon,
-	HashIcon,
 	MoonIcon,
 	PlusIcon,
 	SunIcon,
 } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
 import { useMatches, useNavigate } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
+	messageSearchHref,
+	useMessageSearch,
+} from "#/components/search/message-search";
+import { useAppSettings } from "#/components/settings/use-app-settings";
+import {
 	isDirectMessageItem,
 	resolveAccountSpaceTrailingStatus,
 } from "#/components/spaces/account-space-sections";
-import { NewDirectMessageDialog } from "#/components/spaces/new-direct-message-dialog";
+import { ChatIcon } from "#/components/spaces/conversation-sidebar-row";
+import { NewChatDialog } from "#/components/spaces/new-chat-dialog";
 import { SpaceActiveWakeIndicator } from "#/components/spaces/space-active-wake-indicator";
 import { resolveSpaceActiveWakePresentation } from "#/components/spaces/space-active-wake-presentation";
 import {
@@ -42,22 +47,18 @@ import {
 	SpaceMemberAvatars,
 } from "#/components/spaces/space-member-avatars";
 import { SpaceProfileIcon } from "#/components/spaces/space-profile-icon";
-import { useAccountSpacePinMutation } from "#/components/spaces/use-account-space-pin-mutation";
-import { useSpaceListIndicators } from "#/components/spaces/use-space-list-indicators";
+import { useConversations } from "#/components/spaces/use-conversations";
+import type { useSpaceListIndicators } from "#/components/spaces/use-space-list-indicators";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
-	buildOrganizationAccountSettingsPath,
 	buildOrganizationAgentCreationPath,
 	buildOrganizationAgentsPath,
-	buildOrganizationAppearanceSettingsPath,
 	buildOrganizationComputersPath,
 	buildOrganizationConnectPath,
-	buildOrganizationDefaultPath,
 	buildOrganizationDirectMessagePath,
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationInboxPath,
 	buildOrganizationNewSpacePath,
-	buildOrganizationNotificationsSettingsPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationSpacePath,
 	buildOrganizationSpacesPath,
@@ -67,8 +68,6 @@ import type {
 	AccountSpaceItem,
 	AccountSpaceSections,
 } from "#/lib/spaces/account-spaces";
-import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
-import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import { CommandCenterList, type CommandEntry } from "./command-center-list";
 import { recentSpaceIds, recordRecentSpace } from "./command-recent-spaces";
 import { useAppKeyboardShortcuts } from "./use-app-keyboard-shortcuts";
@@ -161,7 +160,7 @@ export function AppCommandCenter() {
 					)}
 				</DialogContent>
 			</Dialog>
-			<NewDirectMessageDialog onOpenChange={setNewMessage} open={newMessage} />
+			<NewChatDialog onOpenChange={setNewMessage} open={newMessage} />
 		</>
 	);
 }
@@ -177,29 +176,21 @@ function CommandCenterContents(input: {
 }) {
 	const { currentOrganization } = useAppOrganization();
 	const orgSlug = currentOrganization.slug;
+	const [isComposing, setIsComposing] = useState(false);
+	const messageSearch = useMessageSearch({
+		draft: input.query,
+		isComposing,
+		profileId: input.profileId,
+	});
 	const navigate = useNavigate();
+	const openSettings = useAppSettings();
 	const { resolvedTheme, setTheme } = useTheme();
-	const spaces = useQuery(
-		accountSpaceItemsQueryOptions({
-			enabled: !!input.profileId,
-			profileId: input.profileId,
-			scope: "account",
-		})
-	);
-	const directory = useQuery(
-		organizationProfileDirectoryQueryOptions({
-			enabled: !!input.profileId,
-			organizationId: currentOrganization.id,
-		})
-	);
-	const sections = spaces.data ?? EMPTY_SECTIONS;
-	const indicators = useSpaceListIndicators({
+	const model = useConversations({
 		currentProfileId: input.profileId,
 		currentSpaceId: input.currentSpaceId,
-		organizationId: currentOrganization.id,
-		sections,
 	});
-	const pin = useAccountSpacePinMutation({ currentProfileId: input.profileId });
+	const { spaces, directory, indicators, pin } = model.directMessages;
+	const sections = spaces.data ?? EMPTY_SECTIONS;
 	const go = (to: string) => {
 		input.close();
 		navigate({ to }).catch((error: Error) => toast.error(error.message));
@@ -212,26 +203,56 @@ function CommandCenterContents(input: {
 		).values(),
 	];
 	const searching = !!input.query.trim();
-	const visibleSpaces = searching
-		? items
+	const visibleConversations = searching
+		? model.conversations
 		: input.recent
 				.flatMap((id) => {
-					const item = items.find((candidate) => candidate.spaceId === id);
+					const item = model.conversations.find(
+						(candidate) => candidate.spaceId === id
+					);
 					return item ? [item] : [];
 				})
 				.slice(0, 7);
 	const appearances = resolveSpaceMemberAppearances(directory.data);
-	const entries = visibleSpaces.map((item) =>
-		spaceCommandEntry(
-			item,
-			indicators,
-			searching,
-			orgSlug,
-			input.profileId,
-			go,
-			appearances
-		)
-	);
+	const entries: CommandEntry[] = visibleConversations.map((conversation) => {
+		if (conversation.kind === "space") {
+			return spaceCommandEntry(
+				conversation.item,
+				indicators,
+				searching,
+				orgSlug,
+				input.profileId,
+				go,
+				appearances
+			);
+		}
+		const summary = indicators.activeWakeSummaryBySpaceId.get(
+			conversation.spaceId
+		);
+		const unread =
+			(indicators.unreadBySpaceId.get(conversation.spaceId)?.unreadCount ?? 0) >
+			0;
+		return {
+			id: conversation.spaceId,
+			label: conversation.title,
+			group: searching ? "Direct messages" : "Recent conversations",
+			leading: (
+				<ChatIcon
+					chat={conversation.chat}
+					summary={summary}
+					title={conversation.title}
+				/>
+			),
+			trailing: (
+				<CommandSpaceStatus
+					status={summary ? resolveSpaceActiveWakePresentation(summary) : null}
+					unread={unread}
+				/>
+			),
+			actionLabel: "Open direct message",
+			run: () => go(conversation.url),
+		};
+	});
 	if (searching) {
 		entries.push(...profileCommandEntries(directory.data, orgSlug, go));
 	}
@@ -298,9 +319,12 @@ function CommandCenterContents(input: {
 		});
 	}
 	for (const [label, to, destination] of [
-		["Center Agent", buildOrganizationDefaultPath(orgSlug), "home"],
 		["Spaces", buildOrganizationSpacesPath(orgSlug), "spaces"],
-		["Chats", buildOrganizationDirectMessagesPath(orgSlug), "messages"],
+		[
+			"Direct messages",
+			buildOrganizationDirectMessagesPath(orgSlug),
+			"messages",
+		],
 		["People", buildOrganizationPeoplePath(orgSlug), "people"],
 		["Agents", buildOrganizationAgentsPath(orgSlug), "agents"],
 		["Inbox", buildOrganizationInboxPath(orgSlug), "inbox"],
@@ -324,12 +348,22 @@ function CommandCenterContents(input: {
 			input.close();
 		},
 	});
-	for (const [label, to] of [
-		["Account settings", buildOrganizationAccountSettingsPath(orgSlug)],
-		["Appearance", buildOrganizationAppearanceSettingsPath(orgSlug)],
-		["Notifications", buildOrganizationNotificationsSettingsPath(orgSlug)],
+	for (const [label, section] of [
+		["Account settings", "account"],
+		["Appearance", "appearance"],
+		["Notifications", "notifications"],
 	] as const) {
-		entries.push(link(label, to, "Settings", "settings preferences"));
+		entries.push({
+			id: `settings:${section}`,
+			label,
+			group: "Settings",
+			keywords: "settings preferences",
+			actionLabel: "Open settings",
+			run: () => {
+				input.close();
+				return openSettings(section);
+			},
+		});
 	}
 	const themeIcons = {
 		light: <SunIcon className="size-4" />,
@@ -363,15 +397,89 @@ function CommandCenterContents(input: {
 			},
 		});
 	}
+	const messageCommands = buildMessageCommands(messageSearch, {
+		query: input.query,
+		isComposing,
+		orgSlug,
+		profileId: input.profileId,
+		go,
+	});
 	return (
 		<CommandCenterList
-			entries={entries}
-			error={spaces.isError || directory.isError}
-			loading={spaces.isPending || directory.isPending}
+			entries={[...messageCommands.entries, ...entries]}
+			error={
+				spaces.isError ||
+				directory.isError ||
+				model.directMessages.sessions.isError ||
+				model.directMessages.store.isError
+			}
+			loading={
+				spaces.isPending ||
+				directory.isPending ||
+				model.directMessages.sessions.isPending ||
+				model.directMessages.store.isPending
+			}
+			onCompositionChange={setIsComposing}
 			onQueryChange={input.onQueryChange}
 			query={input.query}
+			searchStatus={messageCommands.status}
 		/>
 	);
+}
+
+function buildMessageCommands(
+	messageSearch: ReturnType<typeof useMessageSearch>,
+	input: {
+		query: string;
+		isComposing: boolean;
+		orgSlug: string;
+		profileId: string;
+		go: (to: string) => void;
+	}
+) {
+	const messageEntries: CommandEntry[] = messageSearch.matches.map((match) => ({
+		id: `message:${match.signal.spaceId}:${match.signal.id}`,
+		label: sanitizeSignalTextPreview(match.signal.data.text) ?? "Message",
+		description: `${match.spaceName ?? "Conversation"} · ${match.signal.profile.profileName}`,
+		group: "Search",
+		keywords: input.query,
+		actionLabel: "Open message",
+		run: () =>
+			input.go(messageSearchHref(match, input.orgSlug, input.profileId)),
+	}));
+	if (
+		messageSearch.results.hasNextPage &&
+		!messageSearch.continueAutomatically &&
+		!messageSearch.searching
+	) {
+		messageEntries.push({
+			id: "more-message-results",
+			label: "Show more results",
+			group: "Search",
+			keywords: input.query,
+			run: () => messageSearch.results.fetchNextPage(),
+		});
+	}
+	let searchStatus: string | undefined;
+	if (!input.isComposing && input.query.trim()) {
+		if ([...input.query.trim()].length < 3) {
+			searchStatus = "Use at least 3 characters to search messages.";
+		} else if (messageSearch.results.isError) {
+			searchStatus = "Unable to finish searching. Try again.";
+			messageEntries.push({
+				id: "retry-message-search",
+				label: "Try again",
+				group: "Search",
+				keywords: input.query,
+				run: () => messageSearch.results.refetch(),
+			});
+		} else if (messageSearch.searching) {
+			searchStatus = "Searching…";
+		} else if (!messageEntries.length) {
+			searchStatus = "No matching messages.";
+		}
+	}
+	return { entries: messageEntries, status: searchStatus };
 }
 
 function spaceCommandEntry(
@@ -389,7 +497,7 @@ function spaceCommandEntry(
 		(indicators.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0) > 0;
 	return {
 		id: item.spaceId,
-		group: searching ? "Spaces" : "Recent Spaces",
+		group: searching ? "Spaces" : "Recent conversations",
 		label: item.spaceName,
 		keywords: item.spacePurpose ?? "",
 		actionLabel: "Open Space",
@@ -399,7 +507,7 @@ function spaceCommandEntry(
 				members={item.memberPreviews}
 			/>
 		) : (
-			<HashIcon className="size-4" />
+			<ChatCircleTextIcon className="size-4" />
 		),
 		trailing: <CommandSpaceStatus status={status} unread={unread} />,
 		accessibleLabel: [

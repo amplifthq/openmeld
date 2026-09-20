@@ -1,4 +1,5 @@
 import type * as zod from "zod/v4";
+import { computerConnectionProgressObservationSchema } from "../../computer-connection-progress";
 import * as z from "../../lazy-zod";
 import { openMeldProfileIdSchema } from "../daemon/profile-identity";
 import {
@@ -12,6 +13,21 @@ import {
 } from "../start/device-projection";
 
 const PREPARE_BOUNDED_ID_SCHEMA = z.string().trim().min(1).max(256);
+// Local continuation intent; Prepare remains the setup state owner. No token is
+// persisted here: the signed-in owner mints a fresh reconnect token when needed.
+export const prepareSessionContinuationSchema = z.strictObject({
+  prepareSessionId: PREPARE_BOUNDED_ID_SCHEMA,
+  localAgentSelection: z
+    .discriminatedUnion("mode", [
+      z.strictObject({ mode: z.literal("all") }),
+      z.strictObject({ mode: z.literal("none") }),
+      z.strictObject({
+        mode: z.literal("specific"),
+        localAgentIds: z.array(PREPARE_BOUNDED_ID_SCHEMA).max(64),
+      }),
+    ])
+    .optional(),
+});
 const PREPARE_REASON_CODE_SCHEMA = z.string().trim().min(1).max(256);
 const PREPARE_USER_MESSAGE_SCHEMA = z.string().trim().min(1).max(512);
 const PREPARE_LONG_TEXT_SCHEMA = z.string().trim().min(1).max(4096);
@@ -122,6 +138,43 @@ export const prepareStepDiagnosticsBundleSchema = z.object({
   supportCode: PREPARE_STEP_DIAGNOSTICS_SHORT_TEXT_SCHEMA,
   // The immediate native failure, without copying arbitrary exception text.
   nativeFailure: z.object({ osStatus: z.int() }).optional(),
+  // Additive and independent of nativeFailure for older Core receivers.
+  operationFailure: z
+    .object({
+      code: z
+        .string()
+        .regex(/^E[A-Z]+$/u)
+        .max(32),
+      errno: z.int().optional(),
+      syscall: z
+        .string()
+        .regex(/^[a-z]+$/u)
+        .max(32)
+        .optional(),
+      pathCategory: z.enum([
+        "app_bundle",
+        "absolute_other",
+        "relative",
+        "unknown",
+      ]),
+      destinationCategory: z
+        .enum(["app_bundle", "absolute_other", "relative", "unknown"])
+        .optional(),
+    })
+    .optional(),
+  evidenceWindow: z
+    .object({
+      startedAt: PREPARE_ISO_DATE_TIME_SCHEMA,
+      endedAt: PREPARE_ISO_DATE_TIME_SCHEMA,
+    })
+    .optional(),
+  serviceLogWindow: z
+    .object({
+      excludedUndatedLines: z.int().nonnegative(),
+      excludedOutsideWindowLines: z.int().nonnegative(),
+      sourceTruncated: z.boolean(),
+    })
+    .optional(),
   stepId: PREPARE_STEP_DIAGNOSTICS_SHORT_TEXT_SCHEMA,
   // Stable OpenMeld-internal device UUID read from the local service contract. It
   // is not user-identifying data; it lets Workers Logs correlate a machine's
@@ -134,6 +187,17 @@ export const prepareStepDiagnosticsBundleSchema = z.object({
     .min(1)
     .max(PREPARE_STEP_DIAGNOSTICS_CLI_VERSION_MAX_CHARS),
   os: z.object({
+    // release remains the kernel release; these are macOS product/build facts.
+    productVersion: z
+      .string()
+      .regex(/^[0-9]+(?:\.[0-9]+){1,3}$/u)
+      .max(64)
+      .optional(),
+    buildVersion: z
+      .string()
+      .regex(/^[A-Za-z0-9.]+$/u)
+      .max(64)
+      .optional(),
     platform: z
       .string()
       .trim()
@@ -727,6 +791,12 @@ export const prepareDiagnosticResponseSchema = z.strictObject({
 
 export const prepareSessionStreamRoleSchema = z.enum(["web", "terminal"]);
 
+export const prepareConnectionProgressWriteSchema =
+  computerConnectionProgressObservationSchema.extend({
+    connectionEpoch: z.int().positive(),
+    prepareSessionId: PREPARE_BOUNDED_ID_SCHEMA,
+  });
+
 export const prepareSessionStreamClientFrameSchema = z.discriminatedUnion(
   "type",
   [
@@ -746,6 +816,10 @@ export const prepareSessionStreamClientFrameSchema = z.discriminatedUnion(
     z.strictObject({
       type: z.literal("terminal.step.write"),
       payload: terminalStepWriteSchema,
+    }),
+    z.strictObject({
+      type: z.literal("terminal.connection_progress.write"),
+      payload: prepareConnectionProgressWriteSchema,
     }),
     z.strictObject({
       type: z.literal("terminal.local_agent_catalog.write"),
@@ -772,6 +846,12 @@ export const prepareSessionStreamServerFrameSchema = z.discriminatedUnion(
       }),
     }),
     z.strictObject({
+      type: z.literal("server.capabilities"),
+      payload: z.strictObject({
+        connectionProgress: z.literal(1),
+      }),
+    }),
+    z.strictObject({
       type: z.literal("snapshot"),
       payload: z.strictObject({
         snapshot: prepareSessionSnapshotSchema,
@@ -782,6 +862,10 @@ export const prepareSessionStreamServerFrameSchema = z.discriminatedUnion(
       payload: z.strictObject({
         snapshot: prepareSessionSnapshotSchema,
       }),
+    }),
+    z.strictObject({
+      type: z.literal("connection_progress"),
+      payload: prepareConnectionProgressWriteSchema,
     }),
     z.strictObject({
       type: z.literal("terminal.replaced"),

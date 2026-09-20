@@ -15,9 +15,9 @@ import { useEffect, useState } from "react";
 import {
 	dismissInboxBrowserNotificationPrompt,
 	readInboxBrowserNotificationPromptDismissed,
-	subscribeInboxBrowserNotificationSettings,
-} from "#/lib/inbox/browser-notifications";
-import { useInboxBrowserNotificationSettings } from "./use-inbox-browser-notification-settings";
+	subscribeInboxNotificationSettings,
+} from "#/lib/inbox/client-notifications";
+import { useInboxNotificationSettings } from "./use-inbox-notification-settings";
 
 type PromptState = {
 	dismissed: boolean;
@@ -26,7 +26,7 @@ type PromptState = {
 
 export function InboxBrowserNotificationPrompt(input: { userId: string }) {
 	const { error, isPending, setEnabled, settings } =
-		useInboxBrowserNotificationSettings(input.userId);
+		useInboxNotificationSettings(input.userId);
 	const [promptState, setPromptState] = useState<PromptState>({
 		dismissed: true,
 		userId: null,
@@ -42,7 +42,7 @@ export function InboxBrowserNotificationPrompt(input: { userId: string }) {
 			});
 		};
 		refresh();
-		return subscribeInboxBrowserNotificationSettings(refresh);
+		return subscribeInboxNotificationSettings(refresh);
 	}, [input.userId]);
 
 	const dismissed =
@@ -80,8 +80,9 @@ export function InboxBrowserNotificationPrompt(input: { userId: string }) {
 					<AlertDialogTitle>Stay on top of important work</AlertDialogTitle>
 					<AlertDialogDescription>
 						Get a browser notification when someone directly addresses you,
-						something needs your action, or work you requested finishes. You can
-						turn this off anytime.
+						something needs your action, or work you requested finishes. If you
+						choose Not now, you can enable notifications later in Settings &gt;
+						Notifications.
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				{error ? (

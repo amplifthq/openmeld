@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	isSpaceMessageAgentWorking,
 	isSpaceWakeProgressWaitingForFinalStatus,
 	resolveSpaceMessageDeliveryPresentation,
 	resolveSpaceMessageDeliveryStatusText,
@@ -10,6 +11,57 @@ import {
 const CREATED_AT_MS = Date.UTC(2026, 4, 27, 10);
 
 describe("message-state", () => {
+	it.each([
+		["running", true],
+		["writing", true],
+		["publishing", true],
+		["queued", false],
+		["stopped", false],
+		["failed", false],
+		["replied", false],
+	] as const)("animates an Agent reply only during work: %s", (phase, expected) => {
+		expect(
+			isSpaceMessageAgentWorking({
+				actorProfileKind: "agent",
+				activeWakeProgress: {
+					clientMessageId: "client-1",
+					dispatchId: "dispatch-1",
+					failureReasonCode: null,
+					message: "Agent progress",
+					phase,
+					sourceSignalId: "source-1",
+					startedAtMs: CREATED_AT_MS,
+					targetLabel: "Review Partner",
+					targetProfileId: "remote-1",
+					terminal: false,
+					updatedAtMs: CREATED_AT_MS,
+				},
+			})
+		).toBe(expected);
+	});
+	it("stops after a stream ends and leaves published messages still", () => {
+		for (const status of [
+			"streaming",
+			"stopped",
+			"failed",
+			"completed_but_publish_failed",
+		] as const) {
+			expect(
+				isSpaceMessageAgentWorking({
+					actorProfileKind: "agent",
+					agentStreamState: {
+						status,
+						sequence: 1,
+						streamId: "stream-1",
+						reasonCode: null,
+					},
+				})
+			).toBe(status === "streaming");
+		}
+		expect(isSpaceMessageAgentWorking({ actorProfileKind: "agent" })).toBe(
+			false
+		);
+	});
 	it("keeps the initial sending presentation visually silent", () => {
 		const presentation = resolveSpaceMessageDeliveryPresentation({
 			item: {

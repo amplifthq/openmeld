@@ -12,6 +12,7 @@ import {
 	ToggleGroup,
 	ToggleGroupItem,
 } from "@openmeld/ui/components/toggle-group";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
@@ -289,26 +290,29 @@ function ActivityBand(input: { subLane: ActivitySubLane }) {
 				/>
 			))}
 			{input.subLane.segments.map((segment) => (
-				<span
-					aria-label={`${segment.sessionName} · ${
-						segment.isActive ? "working" : segment.session.status
-					} · ${segment.durationLabel}`}
-					className={cn(
-						"absolute inset-y-1 min-w-1.5",
-						resolveStatusToneIndicatorClassName(segment.tone, "solid"),
-						resolveStatusToneStrongTextClassName(segment.tone),
-						segment.isActive && "agent-activity-active-segment"
-					)}
+				<TooltipHint
+					content={`${segment.sessionName} · ${segment.durationLabel}`}
 					key={segment.session.id}
-					role="img"
-					style={{
-						left: `${String(segment.startPercent)}%`,
-						width: segment.isPoint
-							? undefined
-							: `${String(segment.widthPercent)}%`,
-					}}
-					title={`${segment.sessionName} · ${segment.durationLabel}`}
-				/>
+				>
+					<span
+						aria-label={`${segment.sessionName} · ${
+							segment.isActive ? "working" : segment.session.status
+						} · ${segment.durationLabel}`}
+						className={cn(
+							"absolute inset-y-1 min-w-1.5",
+							resolveStatusToneIndicatorClassName(segment.tone, "solid"),
+							resolveStatusToneStrongTextClassName(segment.tone),
+							segment.isActive && "agent-activity-active-segment"
+						)}
+						role="img"
+						style={{
+							left: `${String(segment.startPercent)}%`,
+							width: segment.isPoint
+								? undefined
+								: `${String(segment.widthPercent)}%`,
+						}}
+					/>
+				</TooltipHint>
 			))}
 		</div>
 	);

@@ -40,6 +40,26 @@ const CREATION_REQUEST = {
 } as const;
 
 describe("Agent Profile creation request routes", () => {
+  it("forwards exact request selectors without changing the actor or Organization", async () => {
+    const { coreRpc, env } = makeEnv();
+    const selectors: Record<string, string>[] = [
+      { requestId: "creation-request-1" },
+      { idempotencyKey: "one-intent" },
+    ];
+    for (const selector of selectors) {
+      const response = await app.fetch(
+        new Request(
+          `http://local/v1/organizations/org-1/agent-profile-creation-requests?${new URLSearchParams(selector)}`
+        ),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      expect(coreRpc.listAgentProfileCreationRequests).toHaveBeenLastCalledWith(
+        { context: expectedContext(), organizationId: "org-1", ...selector }
+      );
+    }
+  });
   it("forwards create, list, and decision calls with the active actor context", async () => {
     const { coreRpc, env } = makeEnv();
 

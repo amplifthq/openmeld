@@ -13,6 +13,16 @@ import {
 } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Keep dormant request-flow tests available for an isolated future reopening.
+const launchPolicy = vi.hoisted(() => ({ enabled: true }));
+vi.mock("@openmeld/schemas", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@openmeld/schemas")>()),
+	get TEAMMATE_AGENT_REQUESTS_ENABLED() {
+		return launchPolicy.enabled;
+	},
+}));
+
 import { StartFlowStateProvider } from "#/components/app/start-flow-state";
 import { readPendingAgentProfileCreationLocalSetup } from "#/lib/profiles/agent-profile-creation-local-setup";
 import { agentExecutionReadinessQueryKeys } from "#/query/agents/execution-readiness";
@@ -21,6 +31,7 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
+import vendorModelCatalog from "../../../../../release/vendor-models.json";
 import {
 	LegacyCreateProfileDialog as CreateProfileDialog,
 	CreateProfileDialog as CurrentCreateProfileDialog,
@@ -34,6 +45,7 @@ const CREATING_PROFILE_BUTTON_PATTERN = /creating profile/i;
 const CHOOSE_LATER_PATTERN = /Choose later/i;
 const HUMAN_PROFILE_CARD_PATTERN = /Person/i;
 const AGENT_PROFILE_CARD_PATTERN = /Agent profile/i;
+const REMOTE_AGENT_CARD_PATTERN = /Remote Agent/;
 const OPENCODE_AGENT_PATTERN = /opencode/i;
 const BORDER_CLASS_PATTERN = /\bborder\b/;
 const ASHLEY_RELEASE_SESSION_PATTERN = /Prepare the release · Codex · OpenMeld/;
@@ -41,7 +53,7 @@ const DEFAULT_GPT_55_MODEL_PATTERN = /GPT-5.5 \(default\)/;
 const AUTHORIZE_PATTERN = /authorize/i;
 const USE_CONTROLLER_DEFAULT_PATTERN = /use controller default/i;
 const CURRENT_CODEX_RADIO_PATTERN = /^Codex$/i;
-const CUSTOMIZE_AGENT_BUTTON_PATTERN = /^Advanced Agent Settings/i;
+const CUSTOMIZE_AGENT_BUTTON_PATTERN = /Advanced Agent Settings/i;
 const WAKE_ACCESS_PATTERN = /Wake access/i;
 const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
 	"Add a personal profile to this account before bringing profiles into this Space.";
@@ -82,6 +94,14 @@ const createAgentProfileCreationRequestMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const toastWarningMock = vi.hoisted(() => vi.fn());
+
+// The shared setup workflow has its own completion integration suite. This
+// boundary proves creation mounts that workflow without a second user action.
+vi.mock("#/components/connect/start-bring-agents-setup-page", () => ({
+	ComputerSetupFlow: () => (
+		<section aria-label="Inline computer setup">Setup command</section>
+	),
+}));
 
 vi.mock("sonner", () => ({
 	toast: {
@@ -225,6 +245,7 @@ vi.mock("#/query/config/model-catalog", () => ({
 			schemaVersion: 1,
 			updatedAt: "2026-06-18T00:00:00.000Z",
 			agentControllers: {
+				"center-agent": vendorModelCatalog.agentControllers["center-agent"],
 				codex: {
 					defaultModelId: "gpt-5.5",
 					models: [
@@ -635,6 +656,7 @@ async function selectAgentProfileKind() {
 
 describe("CreateProfileDialog", () => {
 	beforeEach(() => {
+		launchPolicy.enabled = true;
 		readPeopleComputerReplyReadinessMock.mockImplementation(async (target) => ({
 			...buildFakeRecovery().currentLocalRuntimeReplyReadinessQuery.data,
 			currentTarget: { availability: "resolved", ...target },
@@ -768,6 +790,194 @@ describe("CreateProfileDialog", () => {
 		toastErrorMock.mockReset();
 		toastSuccessMock.mockReset();
 		toastWarningMock.mockReset();
+	});
+
+	it.each([
+		0, 1, 2, 3,
+	])("selects connected computers and same-computer reconnects (scenario %i)", async (scenario) => {
+		const connectedCount = scenario === 3 ? 1 : scenario;
+		const recovery = buildFakeRecovery();
+		const inventory = recovery.localRuntimesQuery.data?.peopleComputers;
+		const computer = inventory?.computers[0];
+		if (!(inventory && computer)) {
+			throw new Error("Expected the fixture Computer inventory.");
+		}
+		inventory.computers = [
+			{
+				...computer,
+				deviceId: "online-device",
+				deviceDisplayName: "Online laptop",
+				executionTargets: [],
+				connection: {
+					status: "connected",
+					reasonCodes: [],
+					sessions: [
+						{
+							deviceId: "online-device",
+							runtimeLane: "dev-local",
+							lastHeartbeatMs: Date.now(),
+							serviceVersion: "0.3.165",
+							executionCompatibility: {
+								status: "compatible",
+								expectedEpoch:
+									"runtime-transport-epoch-2026-07-default-project",
+								observedEpoch:
+									"runtime-transport-epoch-2026-07-default-project",
+								reasonCode: "daemon.runtime_contract.compatible",
+							},
+							serviceUpdate: { wakeBlocked: false, reasonCodes: [] },
+						},
+					],
+				},
+			},
+			{
+				...computer,
+				deviceDisplayName: "Offline laptop",
+				connection: {
+					status: "disconnected",
+					sessions: [],
+					reasonCodes: ["daemon.session.stale_lease"],
+				},
+			},
+			{
+				...computer,
+				deviceId: "reconnect-device",
+				deviceDisplayName: "Reconnect laptop",
+				connection: {
+					status: "unknown",
+					sessions: [],
+					reasonCodes: ["daemon.session.reject_conflict"],
+				},
+			},
+			{
+				...computer,
+				deviceId: "unknown-device",
+				deviceDisplayName: "Unknown laptop",
+				connection: {
+					status: "unknown",
+					sessions: [],
+					reasonCodes: ["computer.connection.lookup_failed"],
+				},
+			},
+		];
+		const onlineComputer = inventory.computers[0];
+		if (!onlineComputer) {
+			throw new Error("Expected the online Computer fixture.");
+		}
+		if (connectedCount === 0) {
+			inventory.computers.shift();
+		}
+		if (connectedCount === 2) {
+			inventory.computers.push({
+				...onlineComputer,
+				deviceId: "second-online-device",
+				deviceDisplayName: "Online desktop",
+				connection: {
+					...onlineComputer.connection,
+					sessions: onlineComputer.connection.sessions.map((session) => ({
+						...session,
+						deviceId: "second-online-device",
+					})),
+				},
+			});
+		}
+		recovery.selectComputer = vi.fn((target) => {
+			recovery.deviceId = target.deviceId;
+			recovery.runtimeLane = target.runtimeLane;
+		});
+		if (scenario === 3) {
+			inventory.computers = [
+				{
+					...onlineComputer,
+					identityStatus: "enrolled",
+					legacyDeviceIds: [recovery.deviceId ?? "device-123"],
+				},
+			];
+		}
+		renderCurrentCreateProfileDialog({ recovery });
+		if (connectedCount < 2) {
+			expect(screen.queryByRole("combobox", { name: "Computer" })).toBeNull();
+			expect(screen.queryByText("Computer", { exact: true })).toBeNull();
+			expect(screen.queryByText("Online laptop · Connected")).toBeNull();
+			expect(screen.queryByText("Advanced connection selection")).toBeNull();
+			if (connectedCount === 1) {
+				expect(recovery.selectComputer).toHaveBeenCalledWith({
+					deviceId: "online-device",
+					runtimeLane: "dev-local",
+				});
+			} else {
+				expect(recovery.selectComputer).not.toHaveBeenCalled();
+			}
+			return;
+		}
+		fireEvent.click(await screen.findByRole("combobox", { name: "Computer" }));
+		for (const name of [
+			"Offline laptop · Offline",
+			"Reconnect laptop · Reconnect required",
+			"Unknown laptop · Status unavailable",
+		]) {
+			expect(screen.queryByRole("option", { name })).toBeNull();
+		}
+		expect(recovery.selectComputer).not.toHaveBeenCalled();
+		const online = screen.getByRole("option", {
+			name: "Online laptop · Connected",
+		});
+		expect(online.getAttribute("aria-disabled")).not.toBe("true");
+		fireEvent.click(online);
+		expect(recovery.selectComputer).toHaveBeenCalledWith({
+			deviceId: "online-device",
+			runtimeLane: "dev-local",
+		});
+	});
+
+	it("does not offer teammate creation while held for launch", async () => {
+		launchPolicy.enabled = false;
+		renderCreateProfileDialog({ orgSlug: "acme", allowTeammateRequests: true });
+		await selectAgentProfileKind();
+		expect(screen.queryByRole("radio", { name: "A teammate" })).toBeNull();
+	});
+
+	it("replaces cached Agent configuration with the inline connection workflow immediately", async () => {
+		const recovery = buildFakeRecovery();
+		const computer =
+			recovery.localRuntimesQuery.data?.peopleComputers.computers[0];
+		if (!computer) {
+			throw new Error("Expected the fixture Computer inventory.");
+		}
+		computer.identityStatus = "enrolled";
+		computer.connectedComputerId = "computer-office";
+		computer.deviceDisplayName = "Office Mac";
+		computer.connection = {
+			status: "disconnected",
+			sessions: [],
+			reasonCodes: [],
+		};
+		const readiness = recovery.currentLocalRuntimeReplyReadinessQuery.data;
+		if (!readiness) {
+			throw new Error("Expected the fixture readiness projection.");
+		}
+		readiness.service.connected = false;
+		readiness.service.matchingCurrentRuntime = false;
+		renderCurrentCreateProfileDialog({ recovery });
+		expect(
+			await screen.findByRole("region", { name: "Inline computer setup" })
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Reconnect Computer" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Back to Agent setup" })
+		).toBeNull();
+		expect(screen.queryByText("Reconnect Office Mac")).toBeNull();
+		expect(screen.getByDisplayValue("Connect a new computer")).toBeTruthy();
+		fireEvent.change(
+			screen.getByRole("combobox", { name: "Computer to reconnect" }),
+			{ target: { value: computer.deviceId } }
+		);
+		expect(screen.getByText("Reconnect Office Mac")).toBeTruthy();
+		expect(screen.queryByRole("textbox", { name: "Agent name" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
+		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
 	});
 
 	it("uses the new Agent-first flow and preserves a manually edited name", async () => {
@@ -905,7 +1115,7 @@ describe("CreateProfileDialog", () => {
 			(screen.getByLabelText("Profile name") as HTMLInputElement).value
 		).toBe("Build Session Inventory");
 		expect(
-			screen.getByRole("heading", { name: "Create a new Agent" })
+			screen.getByRole("heading", { name: "Create an Agent" })
 		).toBeTruthy();
 		expect(
 			screen.queryByRole("tab", { name: HUMAN_PROFILE_CARD_PATTERN })
@@ -1337,6 +1547,27 @@ describe("CreateProfileDialog", () => {
 		});
 	});
 
+	it("refreshes the organization member directory after creating a Remote Agent", async () => {
+		renderCurrentCreateProfileDialog();
+		await waitFor(() => {
+			expect(readOrganizationDirectoryMock).toHaveBeenCalled();
+		});
+		fireEvent.click(
+			await screen.findByRole("tab", { name: REMOTE_AGENT_CARD_PATTERN })
+		);
+		fireEvent.change(screen.getByRole("textbox", { name: "Agent name" }), {
+			target: { value: "New Remote Partner" },
+		});
+		const readsBeforeCreation = readOrganizationDirectoryMock.mock.calls.length;
+		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+		await waitFor(() => {
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalled();
+			expect(readOrganizationDirectoryMock.mock.calls.length).toBeGreaterThan(
+				readsBeforeCreation
+			);
+		});
+	});
+
 	it("refreshes the new Agent and its readiness after a completed Fork request", async () => {
 		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
 		const onAfterJoin = vi.fn().mockResolvedValue(undefined);
@@ -1412,7 +1643,8 @@ describe("CreateProfileDialog", () => {
 						"scope-test",
 						"organization-123"
 					),
-				})
+				}),
+				{ cancelRefetch: false }
 			);
 			expect(onAfterJoin).toHaveBeenCalledWith({
 				openMeldProfileId: NEW_AGENT_ID,
@@ -1826,9 +2058,9 @@ describe("CreateProfileDialog", () => {
 		expect(recordProfileSpaceHistoryMock).not.toHaveBeenCalled();
 	});
 
-	it("refreshes the created Agent before opening its Profile Details", async () => {
+	it("opens the committed Agent without waiting for background cache refreshes", async () => {
 		const onAgentRequestCreated = vi.fn();
-		const { queryClient } = renderCreateProfileDialog({
+		const { queryClient, onOpenChange } = renderCreateProfileDialog({
 			onAgentRequestCreated,
 			organizationId: "organization-123",
 		});
@@ -1846,14 +2078,16 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledTimes(1);
 		});
-		expect(onAgentRequestCreated).not.toHaveBeenCalled();
-
-		finishRefresh();
-		await waitFor(() => {
-			expect(onAgentRequestCreated).toHaveBeenCalledWith(
-				expect.objectContaining({ createdAgentProfileId: NEW_AGENT_ID })
-			);
-		});
+		try {
+			await waitFor(() => {
+				expect(onAgentRequestCreated).toHaveBeenCalledWith(
+					expect.objectContaining({ createdAgentProfileId: NEW_AGENT_ID })
+				);
+				expect(onOpenChange).toHaveBeenCalledWith(false);
+			});
+		} finally {
+			finishRefresh();
+		}
 	});
 
 	it("reports Core's partial result without repeating local Binding or Space writes", async () => {
@@ -1917,7 +2151,7 @@ describe("CreateProfileDialog", () => {
 			expect(onOpenChange).toHaveBeenCalledWith(false);
 		});
 		expect(toastWarningMock).toHaveBeenCalledWith(
-			"Profile created. Setup is not complete. Open the Agent request to review the issue and retry setup."
+			"Your Agent was created, but setup needs attention. Open Creation history to review the issue and retry setup."
 		);
 		expect(toastSuccessMock).not.toHaveBeenCalled();
 		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
@@ -2212,7 +2446,11 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(
 			screen.getByRole("combobox", { name: "Codex permissions mode" })
 		);
-		fireEvent.click(screen.getByRole("option", { name: "Approve for me" }));
+		fireEvent.click(
+			screen.getByRole("option", {
+				name: "Approve for me",
+			})
+		);
 		await waitFor(() => {
 			expect(screen.getByRole("combobox", { name: "Model" })).toBeTruthy();
 		});
@@ -2587,7 +2825,7 @@ describe("CreateProfileDialog", () => {
 		expect(
 			(
 				screen.getByRole("checkbox", {
-					name: "I understand this permissions mode can run with dangerous full access.",
+					name: "I understand this mode may run dangerous actions without asking.",
 				}) as HTMLInputElement
 			).checked
 		).toBe(true);
@@ -2618,6 +2856,20 @@ describe("CreateProfileDialog", () => {
 				screen.getByRole("combobox", { name: "Folder source" }).textContent
 			).toContain("Let OpenMeld choose");
 		});
+		expect(
+			(screen.getByLabelText("Profile name") as HTMLInputElement).value
+		).not.toBe("Remembered Agent");
+		fireEvent.change(screen.getByLabelText("Profile name"), {
+			target: { value: "Claude Writer" },
+		});
+		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
+		expect(
+			(screen.getByLabelText("Profile name") as HTMLInputElement).value
+		).toBe("Remembered Agent");
+		fireEvent.click(screen.getByRole("radio", { name: "Claude Code" }));
+		expect(
+			(screen.getByLabelText("Profile name") as HTMLInputElement).value
+		).toBe("Claude Writer");
 	});
 
 	it.each([
@@ -2663,21 +2915,24 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() =>
 			expect(getAgentProfileCreationDefaultsMock).toHaveBeenCalled()
 		);
-		const create = (await screen.findByRole("button", {
-			name: "Create Agent",
+		const primary = (await screen.findByRole("button", {
+			name:
+				savedMode === "codex:fullAccess"
+					? "Create Agent"
+					: "Review permissions",
 		})) as HTMLButtonElement;
-		await waitFor(() =>
-			expect(create.disabled).toBe(savedMode !== "codex:fullAccess")
-		);
+		expect(primary.disabled).toBe(false);
 		if (savedMode !== "codex:fullAccess") {
+			expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
 			fireEvent.click(
 				screen.getByRole("button", { name: "Review permissions" })
 			);
 			fireEvent.click(
 				await screen.findByRole("checkbox", {
-					name: "I understand this permissions mode can run with dangerous full access.",
+					name: "I understand this mode may run dangerous actions without asking.",
 				})
 			);
+			fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
 			await waitFor(() =>
 				expect(
 					(
@@ -2690,7 +2945,7 @@ describe("CreateProfileDialog", () => {
 		}
 	});
 
-	it("keeps a restored Agent directly creatable without restoring a disconnected Project", async () => {
+	it("keeps restored settings editable and remembers changes without creating an Agent", async () => {
 		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
 		window.localStorage.setItem(
 			"openmeld:agent-profile-creation-journey:organization-123:user-123",
@@ -2717,13 +2972,41 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() =>
 			expect(getAgentProfileCreationDefaultsMock).toHaveBeenCalled()
 		);
-		expect(
-			screen.queryByRole("button", { name: "Use OpenMeld managed folder" })
-		).toBeNull();
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("button", { name: "Use OpenMeld managed folder" })
+			).toBeNull()
+		);
 		const submitButton = screen.getByRole("button", {
 			name: "Create Agent",
 		}) as HTMLButtonElement;
 		await waitFor(() => expect(submitButton.disabled).toBe(false));
+		fireEvent.click(
+			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_PATTERN })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Edit Model" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
+		fireEvent.click(
+			await screen.findByRole("option", { name: "GPT-5.4 Mini" })
+		);
+		expect(screen.getByRole("dialog", { name: "Model" })).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+		await waitFor(() => {
+			expect(screen.getByLabelText("Agent name")).toBeTruthy();
+			expect(
+				screen
+					.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_PATTERN })
+					.getAttribute("aria-expanded")
+			).toBe("true");
+			expect(
+				JSON.parse(
+					window.localStorage.getItem(
+						"openmeld:agent-profile-creation-journey:organization-123:user-123"
+					) ?? "null"
+				)
+			).toMatchObject({ agentId: "codex", modelId: "gpt-5.4-mini" });
+		});
+		expect(createAgentProfileCreationRequestMock).not.toHaveBeenCalled();
 		fireEvent.click(submitButton);
 		await waitFor(() =>
 			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
@@ -2732,10 +3015,19 @@ describe("CreateProfileDialog", () => {
 						agentControllerRef: "builtin:codex",
 						defaultProjectId: null,
 						agentControllerPermissionMode: "codex:askForApproval",
+						modelId: "gpt-5.4-mini",
 					}),
 				})
 			)
 		);
+		await waitFor(() => expect(toastSuccessMock).toHaveBeenCalled());
+		expect(
+			JSON.parse(
+				window.localStorage.getItem(
+					"openmeld:agent-profile-creation-journey:organization-123:user-123"
+				) ?? "null"
+			)
+		).toMatchObject({ agentId: "codex", modelId: "gpt-5.4-mini" });
 	});
 
 	it("does not render Agent Controller Permission Mode for unsupported local controllers", async () => {
@@ -2824,7 +3116,11 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(
 			screen.getByRole("combobox", { name: "Codex permissions mode" })
 		);
-		fireEvent.click(screen.getByRole("option", { name: "Approve for me" }));
+		fireEvent.click(
+			screen.getByRole("option", {
+				name: "Approve for me",
+			})
+		);
 		expect(
 			screen.getByRole("combobox", { name: "Codex permissions mode" })
 				.textContent
@@ -2953,7 +3249,11 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(
 			screen.getByRole("combobox", { name: "Codex permissions mode" })
 		);
-		fireEvent.click(screen.getByRole("option", { name: "Full access" }));
+		fireEvent.click(
+			screen.getByRole("option", {
+				name: "Full access",
+			})
+		);
 
 		const submitButton = screen.getByRole("button", {
 			name: CREATE_PROFILE_BUTTON_PATTERN,
@@ -2963,7 +3263,7 @@ describe("CreateProfileDialog", () => {
 		expect(createAgentProfileCreationRequestMock).not.toHaveBeenCalled();
 		fireEvent.click(
 			screen.getByLabelText(
-				"I understand this permissions mode can run with dangerous full access."
+				"I understand this mode may run dangerous actions without asking."
 			)
 		);
 		await waitFor(() => {

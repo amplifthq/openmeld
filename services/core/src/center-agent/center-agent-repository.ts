@@ -11,7 +11,7 @@ type CenterAgentDesignationRow = {
   organization_id: string;
   agent_profile_id: string;
   duty: string | null;
-  designated_by: string;
+  designated_by: string | null;
   operating_state: CenterAgentOperatingState;
   paused_at: number | null;
   paused_by_user_id: string | null;
@@ -47,7 +47,7 @@ type CenterAgentAttributionProfileRow = {
   profile_status: "active" | "disabled";
   organization_id: string | null;
   managed_role: string | null;
-  owner_user_id: string;
+  owner_user_id: string | null;
   owner_name: string | null;
   member_user_id: string | null;
   is_default: number | boolean;
@@ -57,7 +57,7 @@ export type CenterAgentDesignationRecord = {
   organizationId: string;
   agentProfileId: string;
   duty: null;
-  designatedBy: string;
+  designatedBy: string | null;
   operatingState: CenterAgentOperatingState;
   pausedAtMs: number | null;
   pausedByUserId: string | null;
@@ -456,7 +456,7 @@ export async function resolveCenterAgentAttribution(input: {
     organizationId: input.organizationId,
     profileId: input.onBehalfOfProfileId,
   });
-  if (!profile) {
+  if (!profile?.ownerUserId) {
     throw new Error("onBehalfOf profile is not part of this Organization");
   }
 
@@ -574,7 +574,7 @@ async function readOrganizationScopedAttributionProfile(input: {
 }): Promise<{
   displayName: string;
   ownerName: string | null;
-  ownerUserId: string;
+  ownerUserId: string | null;
   profileId: string;
   profileKind: "agent" | "human" | "system";
 } | null> {

@@ -7,6 +7,7 @@ import {
   profileWorkingDirectorySchema,
   uuidProfileIdSchema,
 } from "../protocol/profile";
+import { wakeDeviceWaitTargetSchema } from "../protocol/wake-device-wait";
 import {
   agentExecutionReadinessSchema,
   agentWakeAvailabilitySchema,
@@ -157,6 +158,7 @@ export const spaceMemberAgentSnapshotSchema =
         agentControllerPermissionMode:
           agentControllerPermissionModeSchema.optional(),
         runtimeDeviceDisplayName: nullableTrimmedStringSchema.optional(),
+        deviceWaitTarget: wakeDeviceWaitTargetSchema.optional(),
         agentControllerConversationId: nullableTrimmedStringSchema,
         modelSelection: agentProfileBindingModelSelectionSchema.optional(),
         workingDirectory: profileWorkingDirectorySchema.nullable().optional(),

@@ -34,6 +34,12 @@ This package owns UI mechanics and visual primitives only. It does not own
 product copy, business rules, readiness, Wake state, setup state, Space truth,
 or client routing.
 
+`SettingsDialogContent` is the shared presentational shell for Space settings
+and App settings: Fluid dialog behavior, a navigation slot, and independently
+scrolling content. The default keeps the Space dialog dimensions; the spacious
+variant scales width and height together for App settings. Navigation models,
+section selection, permissions, and URL state remain in the consuming client.
+
 Prefer existing Fluid components whenever the required primitive is available,
 including dropdowns, selects, and action menus. Do not reconstruct menus from
 generic Popover and Button components; reuse Fluid interaction behavior and the
@@ -41,6 +47,36 @@ shared radius tokens. Sidebar section actions reveal on their own section's
 hover or keyboard focus, with open-menu and touch-device visibility preserved.
 
 ## Import Rule
+
+`fluid/tooltip` adapts Fluid Functionalism's Base UI Tooltip registry. The
+existing `components/tooltip` import forwards to this single implementation;
+editor toolbars, sidebar controls, and former native-title hints all reuse it.
+Hover waits 500ms, including standalone instances and adjacent triggers.
+Keyboard focus remains immediate. Fluid shape, typography, spacing, and the
+shared fast spring apply globally; reduced motion keeps the fade without travel.
+Base UI owns placement, dismissal, and portal lifetime. Product code uses
+`TooltipHint` for a single renderable child or the compound slots for composition.
+Native iframe titles retain their accessibility meaning.
+
+Repeated message actions use Base UI's native typed tooltip handle with the
+same Fluid content. Detached triggers pass an explicit 500ms delay and share
+the content's accessible description ID. One conversation owns the handle;
+it is never a global cross-conversation popup or a second positioning system.
+
+`components/link-preview-card` owns compact link metadata presentation only:
+site, title, bounded description, and optional bounded image. It accepts
+validated data from its consumer and performs no metadata requests or Space
+authorization. Message-specific extraction, caching, and disclosure stay in Web.
+
+`fluid/dialog` adapts the official Fluid Functionalism Base UI Dialog registry
+(September 9, 2026). It owns the small/large/extra-large width ladder and elevated
+surface, while reusing `components/dialog` for portal, focus, dismissal, and CSS
+motion. It does not add a second state or animation engine. Reduced motion
+removes panel animation. Product settings compose the existing `SettingsNav`
+and `ScrollArea`; product sections and mutation rules remain Web-owned.
+Dialogs use the fixed level-2 surface (`#1e1e1e` in dark mode) with level-4
+shadow depth. Nested dialogs keep this same background rather than progressively
+brightening with their parent's surface. Child controls inherit level 2.
 
 ### Scroll ownership
 
@@ -54,6 +90,8 @@ across pointer modes, preserving focus and scroll position.
 Base UI owns overflow measurement. A 12px content mask appears only on edges
 with hidden content, without guessing the parent surface color. Vertical areas
 constrain intrinsic content width; horizontal areas keep intrinsic measurement.
+The mask's four `--fluid-fade-*` properties do not inherit: an edge change must
+not invalidate styles throughout a long transcript beneath the viewport.
 `viewportRef` and `viewportProps` target the actual scrolling element.
 
 Use `ScrollArea` for ordinary panes, directories, settings, card details,
@@ -105,7 +143,9 @@ stable `activeLayoutId` across route remounts, scoped to the sidebar presentatio
 so selection also travels between groups. Composite rows retain their existing
 links, actions, dimensions, and color overrides. Reduced motion removes travel.
 `fluid/sidebar-user-footer` adapts the official horizontal user dropdown block;
-clients provide identity, menu actions, and adjacent settings/theme buttons.
+clients provide identity and menu actions. `SidebarUserMenuItem` lets clients
+compose Search, Settings, theme, and account controls inside one `SidebarMenu`,
+so one reduced-motion-aware background travels across the complete footer.
 The existing `components/sidebar` family remains the inner resize-only surface;
 clients must not nest both engines for one Main Sidebar.
 Its unused menu primitives have been removed; menu consumers use the Fluid family.
@@ -197,6 +237,63 @@ combobox compositions. Controlled consumers must feed pointer and delegated
 focus changes back into the same owning selection store; they must not add a
 second local hover background beside the shared indicator.
 
+`Tabs`, `TabsList`, `TabItem`, and `TabPanel` are the vendored Fluid Base UI
+Tabs composition. They reuse the shared proximity hook and surface tokens,
+with raised selection at two levels above the surrounding substrate.
+`TabsList background={false}` removes the track without flattening selection.
+The upstream hover color maps to the existing `interaction-hover` token.
+Tab content inherits its selected substrate so nested badges can rise one step.
+The eight-level context and paired class resolver live in `@openmeld/ui/lib`;
+Web's `Elevated` consumes those same primitives.
+
+Agent configuration cards use that same substrate-relative surface at offset
+two, matching the runtime Tabs selection. Cards and their shared hover
+indicators use `rounded-md`; editor popovers rise one further surface level.
+Do not reintroduce card-local border/shadow recipes or oversized radius overrides.
+
+The Agent dashboard includes a read-only Usage limits card in the same grid.
+It reuses the shared quota donut, status rules, provider labels, and observation
+times; it is not an editable setting or an independent source of Wakeability.
+Its readout must load independently of the owner's editable Binding settings.
+
+### Loading regions
+
+Keep the authorized shell, navigation, known identity, and unrelated usable
+content visible while a region loads. Shared `SkeletonRegion`, `SkeletonRows`,
+`SkeletonForm`, and `SkeletonTable` are presentation only: the caller owns query
+state, authorization, retry, and empty-state decisions. Choose shapes and
+geometry that match the actual card, list, form, table, or conversation; one
+whole-page gray rectangle is not an equivalent replacement. Shapes are
+decorative, with one accessible announcement per region and reduced-motion
+support. Never turn an unknown setting into an unchecked switch or default
+selection while waiting for its saved value.
+
+First-load placeholders must not clear same-subject content during background
+refresh. Do not preserve one account, Organization, Profile, Computer, or Binding's
+content under another identity; revocation and identity failures are not normal
+stale-data refreshes. Keep error/offline outcomes separate from pending and
+confirmed-empty results. Existing mutation progress, download progress, and
+pagination feedback remain inline rather than replacing loaded content.
+
+Lazy Space panels import their fallback shapes from a lightweight module, not
+from the lazy panel itself. Code loading and data loading reuse the same panel
+geometry without defeating the code-splitting boundary.
+
+Welcome Create/Join actions reuse Fluid Card shared-layout hover with disabled
+items excluded from highlighting. Radio selection uses the same offset-two
+surface recipe as Tabs. Web composers share `PromptInput` and a dedicated
+`styles/composer.css` finish: fixed light/dark backgrounds, one quiet inset edge,
+a small outer shadow, and `rounded-2xl` corners. Shared card token changes must
+not change this finish. Its content retains level-two context so Wake/Reference
+tokens use level three. These changes do not alter access policy or send behavior.
+
+Space and Thread pending actions mount inside the shared composer width. Their
+inset, collapsible strip overlaps behind the composer edge. Plan, question, and
+permission forms reuse the AICSS-adapted `ApprovalCard` anatomy; its shared Fluid
+ScrollArea bounds request details and provides edge fades, while response actions
+remain outside the scrolling body. The primitive never approves or advances a
+request; the existing interaction owner retains all response and access policy.
+
 `TabsSubtle` also exposes an `underline` variant for flat navigation embedded
 against a structural divider. It keeps selection rectangular, uses the owning
 surface edge as the indicator baseline, and does not introduce a second rounded
@@ -219,8 +316,27 @@ label, icon, and visibility policy.
 
 `DitherAvatarBackground` owns only deterministic, decorative Canvas rendering
 at the requested display size and a bounded device pixel ratio. It does not own
-Profile seed construction, Human-versus-Center-Agent foregrounds, uploaded-image
+Profile seed construction, Human initials, uploaded-image
 priority, or any product identity rule; those remain client composition.
+
+`FluidAvatar` owns the decorative fluid avatar primitive, adapted from Rare UI's
+Fluid Orb. It is distinct from Web's `SpaceAgentOrb` working-status indicator.
+Its `animated` and `animateOnHover` props are independently opt-in. Reduced
+motion, offscreen visibility, and hidden documents suspend animation. Each
+avatar preserves its last frame and playback position when paused, and resumes
+from that position. The single-avatar creation preview opts into autoplay;
+other surfaces opt in through working state or hover. One
+128-pixel WebGL renderer serves the page; avatar instances retain small 2D
+frames. Static frames are cached by color with a 64-frame limit. Idle instances
+do not subscribe to animation frames. Context failure preserves a rendered
+frame or the supplied fallback without repeatedly allocating GPU contexts.
+
+Web's `RemoteAgentAvatar` supplies a normalized Profile name as the color seed,
+so creation previews and saved Profiles use the same restrained 36-color
+palette. Renaming changes the color; identical names share a color. Personal
+Remote Agents use rounded squares, Center Agents use circles, and Local Agents
+retain their harness logos. Web supplies authoritative working state; the
+primitive never infers work from presence or starts its own status queries.
 
 `SettingsAccountProfileCard` accepts an optional composed avatar node so each
 client can render its owned product identity without moving Profile rules into

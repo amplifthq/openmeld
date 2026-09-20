@@ -1,5 +1,18 @@
 import type { z } from "zod/v4";
 
+export type AuthRpcProfileFact = z.infer<
+  typeof import("../../schemas/http/auth-rpc")["authRpcProfileFactSchema"]
+>;
+export type AuthRpcResolveProfileByIdResult = z.infer<
+  typeof import("../../schemas/http/auth-rpc")["authRpcResolveProfileByIdResultSchema"]
+>;
+export type AuthRpcResolveProfilesByIdsInput = z.infer<
+  typeof import("../../schemas/http/auth-rpc")["authRpcResolveProfilesByIdsInputSchema"]
+>;
+export type AuthRpcResolveProfilesByIdsResult = z.infer<
+  typeof import("../../schemas/http/auth-rpc")["authRpcResolveProfilesByIdsResultSchema"]
+>;
+
 type OpenMeldRequestedOrganizationSelectorSchema =
   typeof import("../../schemas/http/auth-rpc")["openMeldRequestedOrganizationSelectorSchema"];
 type AuthOrganizationContextSourceSchema =

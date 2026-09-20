@@ -1,8 +1,18 @@
-import { ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS } from "@openmeld/schemas";
-import type { AccountSpaceActiveWakeSummaryResponse } from "@openmeld/schemas/types";
+import {
+	ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS,
+	sanitizeSignalTextPreview,
+} from "@openmeld/schemas";
+import type {
+	AccountSpaceActiveWakeSummaryResponse,
+	SignalEnvelope,
+} from "@openmeld/schemas/types";
+import type { QueryClient } from "@tanstack/react-query";
 import { queryOptions } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { preserveOptimisticAccountSpacePinUpdates } from "#/components/spaces/account-space-sections";
+import {
+	applyAcceptedAccountSpaceMessage,
+	preserveOptimisticAccountSpacePinUpdates,
+} from "#/components/spaces/account-space-sections";
 import { withLocalAccountRuntimeFixtures } from "#/lib/dev/space-runtime-fixtures";
 import { getAccountSpaceActiveWakeSummary } from "#/lib/spaces/account-space-active-wake";
 import {
@@ -14,7 +24,9 @@ import { baseQueryOptions } from "#/query/query-config";
 import { spaceQueryKeys } from "./status";
 
 const ACCOUNT_SPACE_ACTIVE_WAKE_POLL_INTERVAL_MS = 15_000;
-export const ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS = 15_000;
+// Newly invited members have no live connection to that Space yet. Refresh
+// the shared directory every five seconds while the app is in the foreground.
+export const ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS = 5000;
 
 type AccountSpaceActiveWakePresentationSnapshot = {
 	browserRequestStartedAtMonotonicMs: number | null;
@@ -33,6 +45,35 @@ export const accountSpaceQueryKeys = {
 	items: (profileId: string, scope: "account" | "profile") =>
 		["spaces", "account-spaces", profileId, scope] as const,
 } as const;
+
+// The accepted Space signal is already authoritative while its index catches up.
+export function updateAccountSpaceAcceptedMessage(
+	client: QueryClient,
+	profileId: string,
+	signal: SignalEnvelope
+): void {
+	if (signal.type !== "signal.text") {
+		return;
+	}
+	client.setQueriesData<AccountSpaceSections>(
+		{
+			queryKey: [...accountSpaceQueryKeys.all, profileId],
+			predicate: (query) =>
+				query.queryKey[3] === "account" || query.queryKey[3] === "profile",
+		},
+		(current) =>
+			current
+				? applyAcceptedAccountSpaceMessage(current, signal.spaceId, {
+						signalId: signal.id,
+						profileId: signal.profile.profileId,
+						timestamp: signal.ts,
+						text: (
+							sanitizeSignalTextPreview(signal.data.text) ?? "Message"
+						).slice(0, 240),
+					})
+				: current
+	);
+}
 
 export function accountSpaceItemsQueryOptions(input: {
 	enabled: boolean;
@@ -84,6 +125,7 @@ export function accountSpaceActiveWakeSummaryQueryOptions(input: {
 							includeSourceContext: true,
 							includePreviewText: true,
 							includeWaitReason: true,
+							includeDeviceWait: true,
 							includePageInfo: true,
 							includeWakeStopEligibility: true,
 						})

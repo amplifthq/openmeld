@@ -3,15 +3,9 @@ import type {
   SignalEnvelope,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
-import { readCenterAgentTaskConversationContinuity } from "../src/center-agent-tasks/application/center-agent-task-conversation-continuity";
-import { createCenterAgentTask } from "../src/center-agent-tasks/infrastructure/d1/center-agent-task-repo";
 import type { CoreBindings } from "../src/lib/bindings";
 import { buildRemoteAgentConversationContinuityContext } from "../src/remote-agent/application/remote-agent-conversation-continuity";
 import { resolveSpaceDispatchConversationContinuityScope } from "../src/space/application/space-dispatch-conversation-continuity";
-import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
 
 const SPACE_ID = "0123456789abcdef".repeat(4);
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
@@ -158,124 +152,6 @@ describe("Remote Agent conversation rollover continuity", () => {
       code: "space.continuity.thread_mismatch",
     });
   });
-
-  it("uses the Task owner's typed bounded projection and canonical actor mapping", async () => {
-    const harness = createTaskHarness();
-    try {
-      await createCenterAgentTask({
-        db: harness.db,
-        goal: "Investigate the issue.",
-        idempotencyKey: "create-task-1",
-        nowMs: 1,
-        organizationId: "org-a",
-        origin: { kind: "open_meld" },
-        requesterUserId: "user-a",
-        taskId: "task-1",
-        title: "Investigate",
-      });
-      insertTaskEvent(harness, {
-        actor: "system",
-        id: "event-oldest",
-        occurredAtMs: 50,
-        observedAtMs: 50,
-        text: "Old bounded context.",
-      });
-      insertTaskEvent(harness, {
-        actor: "requester",
-        id: "event-requester",
-        occurredAtMs: 100,
-        observedAtMs: 100,
-        text: "Please investigate.",
-      });
-      insertTaskEvent(harness, {
-        actor: "center_agent",
-        id: "event-agent",
-        occurredAtMs: 200,
-        observedAtMs: 200,
-        text: "I found the cause.",
-      });
-      insertTaskEvent(harness, {
-        actor: "system",
-        id: "event-system",
-        occurredAtMs: 300,
-        observedAtMs: 300,
-        text: "Retrying safely.",
-      });
-      insertTaskEvent(harness, {
-        actor: "requester",
-        id: "event-current",
-        occurredAtMs: 400,
-        observedAtMs: 400,
-        text: "Continue.",
-      });
-      insertTaskEvent(harness, {
-        actor: "center_agent",
-        id: "event-later",
-        occurredAtMs: 500,
-        observedAtMs: 500,
-        text: "Must not cross the trigger.",
-      });
-
-      await expect(
-        readCenterAgentTaskConversationContinuity({
-          db: harness.db,
-          limit: 3,
-          organizationId: "org-a",
-          taskId: "task-1",
-          triggerEventId: "event-current",
-        })
-      ).resolves.toEqual({
-        entries: [
-          expect.objectContaining({
-            authorKind: "human",
-            eventId: "event-requester",
-          }),
-          expect.objectContaining({
-            authorKind: "agent",
-            eventId: "event-agent",
-          }),
-          expect.objectContaining({
-            authorKind: "system",
-            eventId: "event-system",
-          }),
-        ],
-        truncated: true,
-      });
-    } finally {
-      harness.close();
-    }
-  });
-
-  it("fails closed when the exact Task trigger event is unavailable", async () => {
-    const harness = createTaskHarness();
-    try {
-      await createCenterAgentTask({
-        db: harness.db,
-        goal: "Investigate the issue.",
-        idempotencyKey: "create-task-missing-trigger",
-        nowMs: 1,
-        organizationId: "org-a",
-        origin: { kind: "open_meld" },
-        requesterUserId: "user-a",
-        taskId: "task-missing-trigger",
-        title: "Investigate",
-      });
-
-      await expect(
-        readCenterAgentTaskConversationContinuity({
-          db: harness.db,
-          limit: 3,
-          organizationId: "org-a",
-          taskId: "task-missing-trigger",
-          triggerEventId: "event-missing",
-        })
-      ).rejects.toMatchObject({
-        code: "center_agent_task.continuity.trigger_not_found",
-      });
-    } finally {
-      harness.close();
-    }
-  });
 });
 
 function createSpaceRequest(): Exclude<
@@ -382,55 +258,4 @@ function createSpaceNamespace(
     get: () => stub as unknown as DurableObjectStub,
     idFromString: (value: string) => ({ toString: () => value }),
   } as unknown as DurableObjectNamespace;
-}
-
-function createTaskHarness() {
-  const harness = createSqliteD1Harness();
-  harness.run({ sql: "CREATE TABLE users (id text PRIMARY KEY NOT NULL)" });
-  harness.run({
-    sql: "CREATE TABLE organizations (id text PRIMARY KEY NOT NULL)",
-  });
-  harness.run({ sql: "INSERT INTO users (id) VALUES ('user-a')" });
-  harness.run({ sql: "INSERT INTO organizations (id) VALUES ('org-a')" });
-  applyDrizzleMigrationsForTables(harness, [
-    "center_agent_tasks",
-    "center_agent_task_events",
-  ]);
-  return harness;
-}
-
-function insertTaskEvent(
-  harness: ReturnType<typeof createTaskHarness>,
-  input: {
-    actor: "center_agent" | "requester" | "system";
-    id: string;
-    occurredAtMs: number;
-    observedAtMs: number;
-    text: string;
-  }
-): void {
-  harness.run({
-    params: [
-      input.id,
-      input.id,
-      input.actor,
-      input.text,
-      input.occurredAtMs,
-      input.observedAtMs,
-    ],
-    sql: `
-      INSERT INTO center_agent_task_events (
-        id,
-        task_id,
-        organization_id,
-        idempotency_key,
-        attempt_generation,
-        kind,
-        actor,
-        text,
-        occurred_at_ms,
-        observed_at_ms
-      ) VALUES (?, 'task-1', 'org-a', ?, NULL, 'center_agent_update', ?, ?, ?, ?)
-    `,
-  });
 }

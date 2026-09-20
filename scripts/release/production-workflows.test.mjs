@@ -99,6 +99,7 @@ test("keeps the manual production dispatcher deploy-only and scoped by default",
     "gateway",
     "auth",
     "core",
+    "core-current-cli-projection",
     "remote-agent",
     "cloud",
     "full",
@@ -117,6 +118,20 @@ test("keeps the manual production dispatcher deploy-only and scoped by default",
     (source.match(/github\.ref == 'refs\/heads\/main'/gu)?.length ?? 0) >= 6
   );
   assert.ok(source.includes(`if [ "\${GITHUB_REF}" != "refs/heads/main" ]`));
+});
+
+test("exposes a hosted Core receiver stage with the current stable CLI projection", () => {
+  const source = readRepoFile(".github/workflows/release-on-main.yml");
+  const coreJob = source.split("\n  core:")[1]?.split(YAML_JOB_BOUNDARY)[0];
+
+  assert.ok(source.includes("          - core-current-cli-projection"));
+  assert.ok(coreJob?.includes("inputs.scope == 'core-current-cli-projection'"));
+  assert.ok(
+    coreJob?.includes(
+      "deployment_mode: $" +
+        "{{ inputs.scope == 'core-current-cli-projection' && 'current-stable-cli-projection' || 'standard' }}"
+    )
+  );
 });
 
 test("admits hosted fleet order before any Production deployment can start", () => {
@@ -289,17 +304,13 @@ test("deploys the Auth receiver before Web in coordinated GitHub releases", () =
   );
 });
 
-test("runs one explicit Final Candidate request with separate runner and publishers", () => {
+test("keeps Final Candidate execution separate from status publication", () => {
   const candidate = readRepoFile(".github/workflows/final-candidate.yml");
   const deepConfidence = readRepoFile(".github/workflows/deep-confidence.yml");
   const rootPackage = JSON.parse(readRepoFile("package.json"));
   const hook = readRepoFile(".husky/pre-push");
 
   assert.ok(candidate.includes("name: OpenMeld Final Candidate"));
-  assert.ok(candidate.includes("types: [labeled]"));
-  assert.ok(!candidate.includes("synchronize"));
-  assert.ok(!candidate.includes("opened"));
-  assert.ok(!candidate.includes("ready_for_review"));
   assert.ok(!candidate.includes("workflow_dispatch"));
   assert.equal(candidate.match(/^ {4}runs-on: ubuntu-latest$/gmu)?.length, 3);
   assert.ok(candidate.includes("github.event.label.name == 'final-candidate'"));
@@ -366,11 +377,8 @@ test("pins PR evidence and the final merge group to their exact identities", () 
   assert.ok(trustedGit.includes("core.hooksPath"));
   assert.ok(engine.includes("assertCandidateSnapshot(state.snapshot)"));
   assert.ok(engine.includes("candidateKind: context.candidateKind"));
-  assert.ok(
-    engine.includes(
-      'requireCurrentBase: context.candidateKind === "merge-group"'
-    )
-  );
+  // Current-base and merge-group freshness are exercised by the policy and
+  // candidate behavior suites; source spelling is not the contract.
   assert.ok(mergeGroup.includes("merge_group:"));
   assert.ok(mergeGroup.includes("github.event.merge_group.head_sha"));
   assert.ok(mergeGroup.includes("github.event.merge_group.base_sha"));

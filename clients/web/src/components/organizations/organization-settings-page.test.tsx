@@ -65,6 +65,10 @@ function makeOrganizationScope(): OrganizationScopeAuthorized {
 	};
 }
 
+vi.mock("#/lib/organizations/organization-join-requests", () => ({
+	requestOrganizationJoinRequests: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({ children, to }: { children: ReactNode; to: string }) => (
 		<a href={to}>{children}</a>
@@ -753,7 +757,7 @@ describe("OrganizationSettingsPage", () => {
 		expect(getOrganizationJoinLinkMock).not.toHaveBeenCalled();
 	});
 
-	it("shows invitation load failures inside the invitations card with retry", async () => {
+	it("shows invitation record load failures and recovers on retry", async () => {
 		getActiveOrganizationMemberRoleMock.mockResolvedValue("admin");
 		listOrganizationInvitationsMock
 			.mockRejectedValueOnce(new Error("Not authenticated"))
@@ -766,25 +770,25 @@ describe("OrganizationSettingsPage", () => {
 			</TestQueryClientProvider>
 		);
 
-		expect(
-			await screen.findByText("Invitations could not be loaded.")
-		).toBeTruthy();
+		expect(await screen.findByText("Not authenticated")).toBeTruthy();
 		expect(screen.getByText("Not authenticated")).toBeTruthy();
 		expect(screen.queryByText("Authentication request failed")).toBeNull();
 		expect(screen.getByText("Invite form")).toBeTruthy();
 		expect(await screen.findByText("Invite link")).toBeTruthy();
 		expect(getOrganizationJoinLinkMock).toHaveBeenCalledWith({
+			mode: "direct",
 			organizationId: "org-acme",
 		});
 
-		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
 		await waitFor(() => {
 			expect(listOrganizationInvitationsMock).toHaveBeenCalledTimes(3);
 		});
-		expect(
-			await screen.findByText("No invitations awaiting acceptance")
-		).toBeTruthy();
+		await waitFor(() => {
+			expect(screen.queryByText("Not authenticated")).toBeNull();
+			expect(screen.getByText("No invitation records yet.")).toBeTruthy();
+		});
 	});
 
 	it("keeps personal identity editable without organization invitation controls", async () => {

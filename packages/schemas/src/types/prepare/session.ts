@@ -1,5 +1,9 @@
 import type { z } from "zod/v4";
 
+export type PrepareSessionContinuation = z.infer<
+  typeof import("../../schemas/prepare/session")["prepareSessionContinuationSchema"]
+>;
+
 export type PrepareBlocker = z.infer<
   typeof import("../../schemas/prepare/session")["prepareBlockerSchema"]
 >;

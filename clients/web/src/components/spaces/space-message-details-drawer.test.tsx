@@ -42,8 +42,7 @@ import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-a
 import type { SpaceMessageReferencesById } from "./space-message-reference";
 
 const useQueryMock = vi.hoisted(() => vi.fn());
-const REPORT_POINTER_COPY_PATTERN =
-	/The report sends message IDs and system trace pointers/;
+const REPORT_POINTER_COPY_PATTERN = /Message text is not included/;
 const COMPUTERS_RECOVERY_HREF_PATTERN = /\/computers$/u;
 const REFERENCED_SPACE_ID = "d".repeat(64);
 
@@ -111,7 +110,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		useQueryMock.mockReset();
 	});
 
-	it("shows the owner-visible Local Agent original error only in Technical details", () => {
+	it("shows the owner-visible Local Agent original error without opening Technical details", () => {
 		const details = createHumanMessageDetails();
 		details.wakeContext = {
 			clientMessageId: notApplicableFact(),
@@ -128,14 +127,14 @@ describe("SpaceMessageDetailsDrawer", () => {
 		useQueryMock.mockReturnValue(createQueryResult({ data: details }));
 
 		renderMessageDetailsPanel();
-		const technicalDetails = openTechnicalDetails();
-
-		expect(within(technicalDetails).getByText("Original error")).toBeTruthy();
 		expect(
-			within(technicalDetails).getByText(
-				"You've hit your usage limit. Try again at 2:03 AM."
-			)
+			screen.getByRole("heading", { name: "Original error" })
 		).toBeTruthy();
+		expect(
+			screen.getByText("You've hit your usage limit. Try again at 2:03 AM.")
+		).toBeTruthy();
+		const technicalDetails = openTechnicalDetails();
+		expect(within(technicalDetails).queryByText("Original error")).toBeNull();
 	});
 
 	it("renders a human message from the backend Message Details model", () => {
@@ -152,11 +151,9 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(screen.getByText("hello")).toBeTruthy();
 		expect(screen.queryByText("Message sent")).toBeNull();
 		expect(screen.getByText("Felix")).toBeTruthy();
-		expect(
-			screen.getByRole("time", {
-				name: formatMessageDetailsTestTime(details.message.sentAtMs),
-			})
-		).toBeTruthy();
+		expect(screen.getByRole("time").getAttribute("aria-description")).toBe(
+			formatMessageDetailsTestTime(details.message.sentAtMs)
+		);
 		expect(screen.queryByText("Support details")).toBeNull();
 		expect(screen.getByText(REPORT_POINTER_COPY_PATTERN)).toBeTruthy();
 		expect(getQueryOptions().queryKey).toEqual([
@@ -860,7 +857,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 				attempt.action === null
 					? {
 							action: "resume_controller_conversation",
-							label: "Continue conversation",
+							label: "Recover reply",
 							status: "available",
 							warning:
 								"OpenMeld will ask the same Agent conversation to post the reply it already finished. It will not run the task again.",
@@ -1110,6 +1107,41 @@ describe("SpaceMessageDetailsDrawer", () => {
 			resultRef: "dispatch-runner::result-1",
 			targetProfileId: "agt_triage",
 		});
+	});
+
+	it("shows the recovered answer instead of the earlier failure copy", () => {
+		useQueryMock.mockReturnValue(
+			createQueryResult({ data: createHumanMessageDetails() })
+		);
+		renderMessageDetailsPanel({
+			replyItems: [
+				createTimelineItem({
+					id: "failed",
+					replyToSignalId: "sig-human",
+					signalType: "signal.system_notice",
+					systemNoticeType: "terminal_failure",
+					systemNoticeTargetProfileId: "agt_triage",
+					systemNoticeDispatchId: "dispatch",
+					systemNoticeReasonCode: "remote_agent.empty_assistant_response",
+					text: "Earlier failure",
+				}),
+				createTimelineItem({
+					id: "recovered",
+					replyToSignalId: "sig-human",
+					signalType: "signal.system_notice",
+					systemNoticeType: "execution_recovery_completed",
+					systemNoticeTargetProfileId: "agt_triage",
+					systemNoticeDispatchId: "dispatch",
+					text: "Here is the saved answer.",
+				}),
+			],
+		});
+		expect(screen.getByText("Here is the saved answer.")).toBeTruthy();
+		expect(
+			screen.queryByText(
+				"Center Agent couldn't generate a reply. Your message is saved."
+			)
+		).toBeNull();
 	});
 
 	it("does not retry publication failures", () => {

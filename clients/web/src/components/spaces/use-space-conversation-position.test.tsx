@@ -24,6 +24,8 @@ afterEach(() => {
 function fixture() {
 	const viewport = document.createElement("div");
 	const message = document.createElement("div");
+	message.dataset.signalId = "message-a";
+	message.dataset.historySignalId = "message-a";
 	viewport.appendChild(message);
 	document.body.appendChild(viewport);
 	let messageTop = 800;
@@ -60,26 +62,31 @@ function fixture() {
 	};
 }
 
-it("restores after history arrives and keeps the same message when an image changes layout", () => {
+it.each([
+	true,
+	false,
+])("restores before the next frame and preserves image layout changes (history pending: %s)", (historyIsPending) => {
 	const f = fixture();
 	writeSpaceConversationPosition(f.key, {
 		anchorSignalId: "message-a",
 		offsetFromVisibleTop: 20,
 	});
 	const { result, rerender } = renderHook(useSpaceConversationPosition, {
-		initialProps: { ...f.input, historyIsPending: true },
+		initialProps: { ...f.input, historyIsPending },
 	});
 	expect(result.current.defaultScrollPosition).toBe("start");
-	act(() => vi.advanceTimersByTime(40));
-	expect(f.input.viewport.scrollTop).toBe(0);
-	rerender({ ...f.input, historyIsPending: false });
-	act(() => vi.advanceTimersByTime(40));
+	if (historyIsPending) {
+		expect(f.input.viewport.scrollTop).toBe(0);
+		rerender({ ...f.input, historyIsPending: false });
+	}
+	// Cached or newly mounted history must be aligned before a frame can paint.
 	expect(f.input.viewport.scrollTop).toBe(780);
 	f.moveMessage(1100);
 	act(() => {
 		notifyResizeObservers(f.message);
-		vi.advanceTimersByTime(40);
 	});
+	// ResizeObserver runs after layout, before paint. Waiting for another frame
+	// exposes the displaced message for one paint when deferred rows expand.
 	expect(f.input.viewport.scrollTop).toBe(1080);
 	// A deliberate user scroll takes ownership back; later layout cannot undo it.
 	fireEvent.wheel(f.input.viewport);
@@ -116,13 +123,13 @@ it("releases a restored reading position when the user sends and follows the lat
 	expect(result.current.autoScroll).toBe(true);
 });
 
-it("loads earlier history for an anchor outside the latest page", async () => {
+it("does not block or move the reader when the saved anchor is no longer cached", async () => {
 	const f = fixture();
 	writeSpaceConversationPosition(f.key, {
 		anchorSignalId: "message-a",
 		offsetFromVisibleTop: 20,
 	});
-	const { rerender } = renderHook(useSpaceConversationPosition, {
+	const { result, rerender } = renderHook(useSpaceConversationPosition, {
 		initialProps: {
 			...f.input,
 			hasEarlierHistory: true,
@@ -132,10 +139,18 @@ it("loads earlier history for an anchor outside the latest page", async () => {
 	await act(async () => {
 		await vi.advanceTimersByTimeAsync(40);
 	});
-	expect(f.input.onLoadEarlierHistory).toHaveBeenCalledOnce();
-	rerender({ ...f.input, historyVersion: 2, hasEarlierHistory: false });
-	act(() => vi.advanceTimersByTime(40));
-	expect(f.input.viewport.scrollTop).toBe(780);
+	expect(f.input.onLoadEarlierHistory).not.toHaveBeenCalled();
+	expect(result.current.restorationStatus).toBe("ready");
+	f.input.viewport.scrollTop = 200;
+	act(() => {
+		result.current.onScroll(f.input.viewport);
+		vi.advanceTimersByTime(150);
+	});
+	expect(readSpaceConversationPosition(f.key)).not.toEqual({
+		anchorSignalId: "message-a",
+		offsetFromVisibleTop: 20,
+	});
+	rerender({ ...f.input, historyVersion: 2 });
 });
 
 it("saves before navigation without waiting for scrollend, and keeps different Spaces independent", () => {
@@ -154,4 +169,70 @@ it("saves before navigation without waiting for scrollend, and keeps different S
 	expect(
 		readSpaceConversationPosition("human-a:space-conversation:b")
 	).toBeNull();
+});
+
+it("waits for a scroll pause before measuring and ignores callback identity changes", () => {
+	const f = fixture();
+	const measure = vi.spyOn(f.message, "getBoundingClientRect");
+	const { result, rerender } = renderHook(useSpaceConversationPosition, {
+		initialProps: f.input,
+	});
+	act(() => vi.advanceTimersByTime(40));
+	measure.mockClear();
+	for (let step = 0; step < 10; step++) {
+		f.input.viewport.scrollTop = 800 + step * 5;
+		act(() => {
+			result.current.onScroll(f.input.viewport);
+			vi.advanceTimersByTime(16);
+		});
+		rerender({
+			...f.input,
+			onLoadEarlierHistory: vi.fn(async () => undefined),
+		});
+	}
+	expect(measure).not.toHaveBeenCalled();
+	act(() => vi.advanceTimersByTime(150));
+	expect(readSpaceConversationPosition(f.key)).toEqual({
+		anchorSignalId: "message-a",
+		offsetFromVisibleTop: -45,
+	});
+});
+
+it("falls back without fetching when a recorded anchor was evicted", async () => {
+	const f = fixture();
+	const stream = document.createElement("div");
+	stream.dataset.signalId = "stream:submission-reading-position";
+	stream.getBoundingClientRect = () =>
+		({
+			top: 1000 - f.input.viewport.scrollTop,
+			bottom: 1800 - f.input.viewport.scrollTop,
+		}) as DOMRect;
+	f.input.viewport.appendChild(stream);
+	const first = renderHook(useSpaceConversationPosition, {
+		initialProps: f.input,
+	});
+	act(() => vi.advanceTimersByTime(40));
+	f.input.viewport.scrollTop = 1100;
+	act(() => first.result.current.onScrollEnd(f.input.viewport));
+	first.unmount();
+	expect(readSpaceConversationPosition(f.key)).toEqual({
+		anchorSignalId: "message-a",
+		offsetFromVisibleTop: -300,
+	});
+	stream.remove();
+	f.input.viewport.scrollTop = 0;
+	const onLoadHistoryAround = vi.fn(async () => true);
+	renderHook(useSpaceConversationPosition, {
+		initialProps: {
+			...f.input,
+			hasEarlierHistory: true,
+			messageElementsRef: { current: new Map<string, HTMLElement>() },
+			onLoadHistoryAround,
+		},
+	});
+	await act(async () => {
+		await vi.advanceTimersByTimeAsync(40);
+	});
+	expect(onLoadHistoryAround).not.toHaveBeenCalled();
+	expect(f.input.viewport.scrollTop).toBe(0);
 });

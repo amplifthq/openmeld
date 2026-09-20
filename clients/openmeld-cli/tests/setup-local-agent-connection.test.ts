@@ -25,6 +25,7 @@ const {
   runDaemonRunMock,
   runPrepareSessionExecutorMock,
   assertSetupServiceUpdateCompleteMock,
+  waitForOpenMeldToolsUpdateCompletionMock,
 } = vi.hoisted(() => ({
   createAgentProfileBindingApiMock: vi.fn(),
   createCliApiClientFoundationMock: vi.fn(),
@@ -50,10 +51,16 @@ const {
   runDaemonRunMock: vi.fn(),
   runPrepareSessionExecutorMock: vi.fn(),
   assertSetupServiceUpdateCompleteMock: vi.fn(),
+  waitForOpenMeldToolsUpdateCompletionMock: vi.fn(),
 }));
 
 vi.mock("../src/commands/setup-service-update-truth", () => ({
   assertSetupServiceUpdateComplete: assertSetupServiceUpdateCompleteMock,
+}));
+
+vi.mock("../src/local-service/maintenance/openmeld-tools-update-join", () => ({
+  waitForOpenMeldToolsUpdateCompletion:
+    waitForOpenMeldToolsUpdateCompletionMock,
 }));
 
 vi.mock("@openmeld/api-client", () => ({
@@ -242,6 +249,9 @@ describe("local setup executor", () => {
     assertSetupServiceUpdateCompleteMock
       .mockReset()
       .mockResolvedValue(undefined);
+    waitForOpenMeldToolsUpdateCompletionMock
+      .mockReset()
+      .mockResolvedValue(null);
     runDaemonInstallMock.mockResolvedValue(undefined);
     runDaemonReinstallMock.mockResolvedValue({
       ok: true,
@@ -1572,7 +1582,7 @@ describe("local setup executor", () => {
     expect(runDaemonRunMock).not.toHaveBeenCalled();
   });
 
-  it("hands healthy version drift to the background worker without reporting setup complete", async () => {
+  it("does not complete setup when a scheduled update loses its completion evidence", async () => {
     resolveRuntimeContextMock.mockResolvedValue({
       resolvedView: "human",
       viewMode: "human",
@@ -1618,6 +1628,11 @@ describe("local setup executor", () => {
       jobId: "update-1",
       targetVersion: "1.0.0",
     });
+    waitForOpenMeldToolsUpdateCompletionMock.mockRejectedValueOnce(
+      new Error(
+        "OpenMeld update update-1 did not finish successfully (completion evidence unavailable)."
+      )
+    );
     const { runSetupLocalAgentConnection } = await import(
       "../src/commands/setup-local-agent-connection"
     );
@@ -1628,7 +1643,7 @@ describe("local setup executor", () => {
         view: "human",
       })
     ).rejects.toThrow(
-      "OpenMeld Service update started in the background. Run `openmeld setup` again after it finishes."
+      "OpenMeld update update-1 did not finish successfully (completion evidence unavailable)."
     );
 
     expect(runDaemonReinstallMock).toHaveBeenCalledWith(

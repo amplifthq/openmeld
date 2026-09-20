@@ -198,7 +198,7 @@ export function resolveCreateProfileSubmitBlock(
 	}
 	if (requiresUnconfirmedAgentControllerPermissionMode(input)) {
 		return {
-			message: "Confirm this permissions mode before creating the Agent.",
+			message: "Review what this Agent can do without asking.",
 			action: { label: "Review permissions", section: "permissions" },
 		};
 	}

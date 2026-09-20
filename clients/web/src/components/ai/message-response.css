@@ -1,0 +1,31 @@
+.typeset.typeset-reasoning {
+	white-space: normal;
+	font-size: inherit;
+	line-height: inherit;
+	color: inherit;
+}
+.typeset-reasoning :is(p, ul, ol, pre, blockquote, table) {
+	margin-block: 0.4em;
+}
+.typeset-reasoning :is(h1, h2, h3, h4, h5, h6) {
+	margin-block: 0.5em 0.25em;
+	font-size: inherit;
+	line-height: inherit;
+	font-weight: 600;
+}
+.typeset-reasoning :is(ul, ol) {
+	padding-inline-start: 1.4em;
+}
+.typeset-reasoning ul {
+	list-style-type: disc;
+}
+.typeset-reasoning ol {
+	list-style-type: decimal;
+}
+.typeset-reasoning pre {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.typeset-reasoning code {
+	font-size: 0.95em;
+}

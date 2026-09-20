@@ -46,6 +46,16 @@ describe("listSpaceThreadSignalsQuerySchema", () => {
     expect(listSpaceThreadSignalsQuerySchema.parse({})).toEqual({});
     expect(
       listSpaceThreadSignalsQuerySchema.parse({
+        includeWakeContinuation: "true",
+      })
+    ).toEqual({ includeWakeContinuation: true });
+    expect(
+      listSpaceThreadSignalsQuerySchema.parse({
+        includeWakeContinuation: "conversation",
+      })
+    ).toEqual({ includeWakeContinuation: "conversation" });
+    expect(
+      listSpaceThreadSignalsQuerySchema.parse({
         afterSignalId: "  sig-observed  ",
         limit: "20",
       })

@@ -13,8 +13,12 @@ import {
   MESSAGE_CHANNEL_ERROR_CODES,
   ORGANIZATION_DOCUMENT_ERROR_CODES,
   ORGANIZATION_SKILL_ERROR_CODES,
+  PLUGIN_ERROR_CODES,
+  projectSpaceAccessViewForVersion,
+  SPACE_ACCESS_VERSION_HEADER,
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_FILE_ERROR_CODES,
+  SPACE_TASK_ERROR_CODES,
   toLegacySpaceAddressingWireValue,
 } from "@openmeld/schemas";
 import { getSpaceAccessRequestId } from "@openmeld/space";
@@ -78,6 +82,7 @@ type ExecutePublicRpcRouteInput = {
   retryMode?: "transient" | "none";
   responseSchema?: z.ZodType<unknown>;
   successStatus?: number;
+  resolveSuccessHeaders?: ExecuteRpcRouteInput["resolveSuccessHeaders"];
 };
 
 type RespondBadRequestInput = {
@@ -137,6 +142,7 @@ const DIRECT_GATEWAY_ERROR_CODES = [
   ...MESSAGE_CHANNEL_ERROR_CODES,
   ...ORGANIZATION_DOCUMENT_ERROR_CODES,
   ...ORGANIZATION_SKILL_ERROR_CODES,
+  ...PLUGIN_ERROR_CODES,
   "connector.organization_context_changed",
   "organization_binding_authorization.binding_required",
   "organization_binding_authorization.no_bindings",
@@ -186,6 +192,7 @@ const DIRECT_GATEWAY_ERROR_CODES = [
   "space.publication_mode.owner_required",
   "space.publication_mode.password_not_configured",
   ...SPACE_FILE_ERROR_CODES,
+  ...SPACE_TASK_ERROR_CODES,
   "attachment_too_large",
   "attachment_type_unsupported",
   "attachment_content_mismatch",
@@ -220,6 +227,7 @@ export async function executeRpcRoute(
 ): Promise<Response> {
   const { c, route, method, spaceId } = input;
   const context = c.var.openMeldRequestContext;
+  const requestId = resolvePublicRouteRequestId(c);
   const startedAt = c.var.startedAt;
 
   try {
@@ -252,7 +260,7 @@ export async function executeRpcRoute(
       status: input.successStatus ?? 200,
       latencyMs: Date.now() - startedAt,
       ...(spaceId ? { spaceId } : {}),
-      ...contextAuditFields(context),
+      ...(context ? contextAuditFields(context) : { requestId }),
     });
 
     const status = input.successStatus ?? 200;
@@ -267,11 +275,14 @@ export async function executeRpcRoute(
         ? toLegacySpaceAddressingWireValue(validatedResult.payload)
         : validatedResult.payload;
     return withRequestIdHeader(
-      Response.json(responsePayload, {
-        ...(successHeaders ? { headers: successHeaders } : {}),
-        status,
-      }),
-      context.actorContext.requestId
+      Response.json(
+        projectSpaceAccessResponse(responsePayload, route, c.req.raw.headers),
+        {
+          ...(successHeaders ? { headers: successHeaders } : {}),
+          status,
+        }
+      ),
+      requestId
     );
   } catch (err) {
     return mapCoreRpcError({
@@ -323,9 +334,17 @@ export async function executePublicRpcRoute(
         ? toLegacySpaceAddressingWireValue(validatedResult.payload)
         : validatedResult.payload;
     return withRequestIdHeader(
-      Response.json(responsePayload, {
-        status: input.successStatus ?? 200,
-      }),
+      Response.json(
+        projectSpaceAccessResponse(responsePayload, route, c.req.raw.headers),
+        {
+          status: input.successStatus ?? 200,
+          headers: input.resolveSuccessHeaders?.({
+            payload: validatedResult.payload,
+            result,
+            status: input.successStatus ?? 200,
+          }),
+        }
+      ),
       requestId
     );
   } catch (err) {
@@ -335,6 +354,25 @@ export async function executePublicRpcRoute(
       route,
       method,
     });
+  }
+}
+
+function projectSpaceAccessResponse(
+  value: unknown,
+  route: string,
+  headers: Headers
+): unknown {
+  switch (route) {
+    case "/v1/spaces":
+    case "/v1/spaces/:spaceId/meta":
+    case "/v1/spaces/:spaceId/status":
+    case "/v1/spaces/:spaceId/bootstrap":
+      return projectSpaceAccessViewForVersion(
+        value,
+        headers.get(SPACE_ACCESS_VERSION_HEADER)
+      );
+    default:
+      return value;
   }
 }
 
@@ -487,6 +525,9 @@ export function buildCoreRpcContext(
 function mapCoreRpcError(input: CoreRpcErrorInput): Response {
   const { c, route, method, spaceId, err } = input;
   const context = c.var.openMeldRequestContext;
+  if (!context) {
+    return mapPublicCoreRpcError(input);
+  }
   const startedAt = c.var.startedAt;
   const parsed = parseRpcHttpError(err);
 
@@ -571,7 +612,7 @@ function mapPublicCoreRpcError(input: CoreRpcErrorInput): Response {
   });
 }
 
-function resolvePublicRouteRequestId(c: Context<HonoBindings>): string {
+export function resolvePublicRouteRequestId(c: Context<HonoBindings>): string {
   if (c.var.spaceAccessContext) {
     return getSpaceAccessRequestId(c.var.spaceAccessContext);
   }
@@ -856,7 +897,7 @@ function validateSuccessResponse(input: {
 }): { ok: true; payload: unknown } | { ok: false; response: Response } {
   return validateSuccessResponseForRequestId({
     ...input,
-    requestId: input.c.var.openMeldRequestContext.actorContext.requestId,
+    requestId: resolvePublicRouteRequestId(input.c),
   });
 }
 
@@ -901,7 +942,9 @@ function validateSuccessResponseForRequestId(input: {
       `invalid_success_payload ${issuePath} ${issueMessage}`,
       320
     ),
-    ...contextAuditFields(input.c.var.openMeldRequestContext),
+    ...(input.c.var.openMeldRequestContext
+      ? contextAuditFields(input.c.var.openMeldRequestContext)
+      : { requestId: input.requestId }),
   });
 
   return {

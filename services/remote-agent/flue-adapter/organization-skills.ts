@@ -156,7 +156,11 @@ export function buildFlueSkillDefinition(
     ),
     instructions: release.bundle.instructions,
     ...(portable.license ? { license: portable.license } : {}),
-    metadata: portable.metadata,
+    // Flue 2.0.3 serializes an empty map as a bare YAML scalar, which its
+    // activation parser rejects. Omit optional metadata when there is none.
+    ...(Object.keys(portable.metadata).length > 0
+      ? { metadata: portable.metadata }
+      : {}),
     name,
   };
 }

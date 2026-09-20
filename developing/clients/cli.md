@@ -276,14 +276,11 @@ ordinary message presentation. A Local Agent that needs more Organization
 context asks through this same command and receives only what the represented
 member and current environment authorize.
 
-When the Center Agent creates one or more canonical Tasks during that turn, the
-visible reply already carries typed Task references. Agent View preserves those
-references and adds Organization-scoped Web URLs instead of reducing the reply
-to text. The CLI still does not create a parallel Task API or decide that every
-request is a Task: quick answers and immediate safe actions stay in Chat, while
-the Center Agent may create durable, asynchronous, parallel, or recoverable
-work through the existing Task tool. A returned Task reference means the work
-already exists and must not be resubmitted.
+The private Center Agent Direct Message does not create Space Tasks or return a
+parallel Task reference. When the same Agent Profile participates in an
+ordinary shared Space, it may use the Space-owned Task contract described
+below. Quick answers and immediate safe actions stay in Messages on both
+surfaces.
 
 If the Center Agent needs human input, Human View points the member to the same
 Center Agent Chat. Agent View returns the structured pending interaction and
@@ -405,6 +402,15 @@ is disabled, while Agent remains selectable. An explicit `--kind human`
 request fails before mutation with Auth's stable capability error. A missing or
 invalid capability response fails closed for Human creation; Auth remains the
 final enforcement boundary for older CLI versions.
+
+Profile inspection reuses the primary Binding to select applicable diagnostics.
+For a hosted Binding, `profiles show` retains Binding information and omits the
+workstation runtime fields (`runtime: {}` in JSON); it does not inspect a
+local workspace or infer hosted Wakeability from local Service state.
+
+`agents repair --agent <id> --install <install-id>` may select another valid
+installation even when the current installation is ready. It uses the existing
+install resolver and preserves enabled state and all selector validation.
 
 `openmeld profiles create` is the one CLI and Local Agent creation entry for
 both self-owned and teammate-owned Agent Profiles. Supplying `--owner` routes
@@ -586,6 +592,17 @@ the local service is ready. `openmeld upgrade` reports separate timings for the
 release check, CLI download/install, and OpenMeld Service alignment. These are
 user-visible stage timings, not hidden debug logs, so a slow network, install,
 or service restart is immediately distinguishable.
+
+Local integrations can use `openmeld service start|stop --json --expected-account
+<account-id>` for an already connected POSIX Service. The CLI verifies that
+account at the mutation owner, including concurrent sign-in changes. The option
+requires JSON output and rejects profile, force, and startup overrides. It does
+not log in, install a missing Service, or take over another account's Service.
+Missing, expired, mismatched, busy, or unsupported ownership returns an explicit
+error; no unguarded retry is allowed. The
+[Service admission contract](../architecture/local-openmeld-service.md#account-checked-service-start-and-stop)
+owns its cross-process behavior. Desktop's pilot controls remain disabled.
+
 The binary download stage also shows the manifest-declared transfer size: an
 exact-base delta when available, otherwise the complete gzip archive (currently
 about 25 MB), never the larger installed executable size.
@@ -655,7 +672,11 @@ For an update, a handoff response says only that the update started in the
 background after the prepared replacement and durable job reached the operating
 system's update worker. It must not say updated, complete, or aligned. A terminal
 that remains attached may use those completion words only after the operation is
-`updated` and the exact target CLI and Service are observed. The user may close
+`updated` and the exact operation-scoped CLI and Service targets are observed.
+Older operations expose only one legacy target and readers apply it to both
+components. An eligible CLI-only release can explicitly retain an older healthy
+Service, so clients must not substitute the CLI target for a present Service
+target. The user may close
 the Terminal or Web Setup immediately after handoff. The worker waits for all
 accepted Wake work and durable result receipts, resumes after interruption or
 computer restart, verifies the replacement, and restores the previous verified
@@ -665,6 +686,13 @@ version change. Broken or ambiguous Service state remains an explicit repair.
 Core's update projection selects the job policy: `available` keeps admitting new
 Wake work while waiting for an idle switch; `required` stops new admission but
 still lets already accepted work finish safely.
+
+For npm installation or repair, the selected package root must identify the
+requested package name and version before its Service bundle can be prepared.
+An explicit CLI script path is not permission to relabel older package bytes as
+a newer Service. A mismatch fails actionably and leaves the current Service
+untouched. npm continues to source CLI and Service from the same actual package;
+the independent retained-Service selection is a managed-binary release feature.
 `openmeld uninstall` removes local OpenMeld data
 for this device as a whole, while `openmeld service uninstall` removes only the
 daemon registration and disposable Runtime state. The lane's stable local device
@@ -942,6 +970,52 @@ Deployment order and the separate W2/W5 Remote Agent windows live in
 
 ### Space File Commands
 
+Selected-file work uses these explicit boundaries:
+
+```text
+openmeld space files working-copy prepare <space-id> --selection <json> --directory <new-directory>
+openmeld space files working-copy status <space-id> <copy-id>
+openmeld space files working-copy resume <space-id> <copy-id>
+openmeld space files working-copy commit <space-id> <copy-id>
+openmeld space files working-copy reconcile <space-id> <copy-id>
+openmeld space files working-copy refresh <space-id> <copy-id>
+openmeld space files working-copy resolve <space-id> <copy-id> --file-id <file-id> --revision <incoming-revision>
+openmeld space files working-copy incoming <space-id> <copy-id> --directory <new-directory>
+openmeld space files handoff <space-id> --manifest <json> --target <profile-id> --client-message-id <stable-id> [--thread <thread-id>]
+```
+
+Selection JSON follows `spaceWorkSelectionSchema`; the handoff follows
+`spaceWorkHandoffSchema`. Prepare requires a fresh directory. Resume preserves
+edits to completed downloads. Commit freezes changed bytes and persists their
+mutation identities before upload. Reconcile retries those exact bytes after
+an unknown outcome, keeping subsequent local edits dirty. Incoming downloads
+the current shared versions to a separate directory for manual comparison;
+it never resets the existing copy. No background watcher uploads changes.
+
+A definite `space_file.conflict` stops retrying the rejected snapshot. For that
+same copy, `refresh` downloads the conflicting shared version alongside the
+working file; `status` returns its path and revision. Merge into the original
+working file, then explicitly `resolve` that file against the downloaded
+revision before committing. Identical local and incoming bytes can adopt that
+revision without another upload. Resolve rejects an unchanged rejected snapshot
+that differs from incoming, or
+an unprepared revision. It neither merges automatically nor selects latest
+silently. The server still rejects a base that advanced again. The original
+rejected snapshot and incoming content remain available; unknown upload outcomes
+continue to reconcile the same mutation instead of entering this flow.
+
+Use commit's returned exact references in a later handoff or final reply.
+Handoff posts one complete message through existing Wake admission. It does not
+upload an arbitrary directory or claim that the successor started. Account or
+Organization changes fence network work. Working copies are lane-, account-,
+Organization-, Space-, and Profile-scoped local bookkeeping, not permission.
+
+An admitted selected-work Wake prepares the same working copy before running.
+Its `working_copy` model tool exposes status, commit, reconcile, refresh, and
+resolve only for that Wake's copy; final `reply` can select returned exact file
+references. Managed-copy commands require macOS; automatic workstation execution
+requires the Codex App Server permission profile and actual access probe.
+
 `openmeld space files` is the canonical terminal and workstation-Agent entry to
 the current Space filesystem. The MVP commands are:
 
@@ -988,6 +1062,21 @@ password without printing or embedding that password in output. Thread replies
 use the same message file contract.
 
 ### OpenMeld Space Action Commands
+
+The dispatch Space Action MCP also exposes non-final `list_tasks`,
+`create_task`, `start_task`, `submit_task_result`, `review_task`, and
+`cancel_task` tools in an eligible shared Space. Their Space, source Signal,
+and Agent actor are fixed by the active dispatch context. They call the shared
+Space Task API through normal CLI authentication and recheck that the context
+did not change before accepting the result. A Task tool does not consume or
+replace the Wake's one required final Space action.
+
+Agents create a Task only for a clear delivery obligation that needs durable
+ownership, progress, review, or later closure. Questions and tiny same-turn
+actions stay in Messages. Creating assigns the current Agent by default and
+leaves the Task in To do; starting, result submission, review, and cancellation
+are explicit revision-bound writes. Task cancellation may request the existing
+Wake Stop path, but the Task receipt never claims that a process stopped.
 
 An Agent chooses exactly one dispatch-scoped OpenMeld Space Action as a Wake's
 final outcome. A supported controller receives first-party `reply`, `status`,
@@ -1074,6 +1163,20 @@ current Wake. It must not say `Posted to Space` or otherwise claim publication;
 only RuntimeCoordinator finalization followed by Space acceptance can make that
 claim.
 
+The `reply`, `status`, and `stay_silent` MCP tools advertise the shared
+`dispatchSpaceActionToolResultSchema` and return it as `structuredContent`.
+The receipt distinguishes `proposal_saved_locally`, `rejected_closed`, and
+`outcome_unknown`; Coordinator acceptance and Space publication remain
+`unconfirmed`. Local receipts include the original context, dispatch, attempt,
+action type, and recording time, but never the context nonce.
+
+After local context expiry, an exact already-recorded action may recover its
+original local receipt without changing the record or extending execution
+authority. Dispatch and target identity checks still apply. Different or new
+actions are rejected, and file reads, uploads, and target listing still require
+an active context. Invalid or unreadable records stay preserved and produce an
+unknown receipt rather than a claim that nothing was recorded or published.
+
 `wake` and `reply --wake` are `post_message` outcomes with
 `messageEnvelope.activationTargets`. They close the current Wake with a visible
 handoff message and start the next ready Agent Profile through normal Space
@@ -1159,7 +1262,28 @@ remains a compatibility receiver for commands generated before this contract
 changed and uses the same fail-atomic Prepare handoff; it is not the
 Web-recommended handoff.
 
-The signed macOS binary stores new bearer sessions in the user's macOS
+`computer disconnect --connection-intent <json>` ends the explicitly reviewed
+local account connection while retaining its cloud Computer record. The intent
+uses the same expected account and stable previous-session identity as setup.
+The existing Service admission owner checks that identity under its auth lock
+before Stop, including same-account re-login. Controlled Stop must complete
+before the existing auth owner clears that exact session; lifecycle ownership
+covers both operations. A cleanup retry requires matching stopped Service intent,
+environment ownership, and verified runtime absence. Desktop sign-in is separate.
+Ordinary Service Stop keeps CLI credentials; cloud Forget removes the saved
+Computer record. Neither is an alias for Disconnect. Entry checks must not
+sign in, update, repair, or start the Service before reviewed admission.
+
+Isolated macOS `dev-local` sign-ins use the existing private-file store when
+Auth and Gateway are loopback endpoints and an explicit Home is outside the
+default user-state directories (including symlink targets). The CLI warns that
+this is unencrypted test storage. Existing token references are never migrated;
+Service reads use the same reference after restart. Set
+`OPENMELD_DEV_CREDENTIAL_STORE=system` at login to retain normal OS storage
+selection; use a fresh Home and verify the provider for Keychain acceptance.
+See [local development sign-in](../engineering/development-workflow.md#local-macos-cliservice-sign-in).
+
+The signed macOS binary otherwise stores new bearer sessions in the user's macOS
 Keychain through Security.framework. The bare Developer ID CLI must not request
 a restricted Keychain access-group entitlement, because it has no embedded
 provisioning profile and macOS would reject the executable before it starts.
@@ -1189,8 +1313,8 @@ one-off helper failures may recover through the single bounded retry. If the
 session is still unavailable, the command fails closed, preserves
 `session_token_unavailable` in Agent View, and tells the caller to retry from a
 fresh CLI process or inspect `openmeld auth status --view agent`. It must not
-misreport that unavailable state as an invalid sign-in or require a new login
-without that evidence. A later
+promise the condition is temporary, misreport it as an invalid sign-in, or
+require a new login without that evidence. A later
 login through a packaged CLI stores its newly issued replacement in Keychain
 only when that Keychain write succeeds, then removes the previous private file.
 A failed old credential deletion is retained as pending cleanup outside the
@@ -1409,6 +1533,11 @@ Agent View returns the canonical target, URL, `grantsAccess: false`, and an exac
 `space access` continuation command. It must use the shared target schema and
 link builder rather than manually concatenating a Web route.
 
+Brief history retains canonical Space File references on their source messages,
+including the exact revision. It omits file bytes, not the pointers required to
+read them. An Agent receiving a later handoff must be able to discover an earlier
+attachment without asking the user to upload it again.
+
 `space history --kind text --brief` is the narrow check for readable recent
 conversation history without presence-event noise. Brief mode caps every
 message body at 1,200 Unicode code points, reports the original character count
@@ -1430,33 +1559,28 @@ metadata may still expose `security` as a password-protection label; consumers
 must use the canonical `organizationVisibility`, `accessMode`, and
 `passwordProtected` fields for access decisions.
 
-`space members <space-id>` reads the shared member-directory projection for the
-people and agents currently in the Space, including canonical mention labels
-and the Wake/Reference/Human Mention relations each member accepts. Agent
-canonical forms are `@Name(wake)` and `@Name(reference)`; a person's form is
-`@Name(mention)`. `space action reply` exposes the same distinction through
-`--wake`, `--reference`, and `--mention`. It is an authoring aid,
-not membership, readiness, presence, or execution authority. Agent View emits
-the full validated directory through the presenter protocol; explicit `--json`
-emits the strict versioned `space.members` envelope.
+`space members <space-id>` returns current identities, full Profile IDs, and
+allowed Wake/Reference/Human Mention relations. Human View shows explicit
+recipient flags; Agent View keeps the validated directory and full IDs.
+`space members --target <profile-id-or-mention> --brief` remains a read-only
+lookup aid; resolving a name here never authorizes a send.
 
-`space members <space-id> --target <profile-id-or-mention> --brief` resolves
-exactly one current member using the directory's canonical lookup tokens and
-returns only identity, addressing relations, and the matching Core-owned Agent
-Wake Availability projection. Ambiguous targets fail closed and require an
-exact Profile ID. The convenience `canWakeNow` field means only that the
-preserved readiness status is currently `available_for_wake`; it is not a
-second readiness authority and does not predict completion.
+`space send`, its top-level `send` alias, and `space action reply` use repeatable
+`--wake <agent-profile-id>`, `--reference <agent-profile-id>`, and
+`--mention <human-profile-id>`. Send selectors are full current Profile IDs.
+A missing member, conflicting relation, or incompatible Profile kind fails
+before upload/publication. Repeating an ID in one relation is deduplicated.
+Dispatch-owned replies still use their prompt-owned context and publication
+boundary; generic send cannot replace a dispatch action.
 
-`space send` and Terminal interactive input treat `@target(wake)`,
-`@target(reference)`, and `@target(mention)` as CLI authoring controls. The
-target may be an exact current mention label or a stable Profile ID. Both paths
-resolve it through the same current member snapshot, post
-`@primaryMentionLabel` in message text and message-envelope text, and retain the
-exact Profile ID and relation in structured targets. Agent View reports the
-resolved ID-to-label mapping in the addressing summary. `--plain` is the
-explicit escape hatch that skips member resolution, publishes the authored text
-literally, and creates no structured target.
+Message text is literal, including old `@Name(wake)` syntax, code, and examples.
+`--plain` optionally asserts that no recipient flags were supplied. Plain sends
+need no member-directory read. Explicit recipients are resolved against one
+current snapshot and displayed by current name; the message envelope carries
+Profile IDs and relations. Agent View reports the exact addressing summary.
+Interactive terminal selections retain identity beside the text; typing or
+pasting the same name does not select a recipient. Raw stdio input is literal;
+use `space send` recipient flags for non-interactive addressing.
 
 Current CLI HTTP reads declare Space Addressing response version 1, and current
 Space WebSocket sessions declare `spaceMessageAddressing` in the hello
@@ -1592,6 +1716,17 @@ switch that renders human names as plain text while agent coloring stays on.
 
 ## Local Capability And Execution Boundary
 
+Agent Profile owners can read or change admission through
+`openmeld profiles execution-mode <profile-id> [--mode serial|parallel]`.
+The command calls Core's current-Organization owner-authorized API; it does not
+edit a local concurrency default or restart the Service. The response includes
+the selected mode, migration phase, and revision. Serial mode limits future
+reservations to one; parallel mode uses the shared five-reservation ceiling.
+Running and waiting Wakes retain their Context, native identity, and results.
+Changing this policy cannot cancel work, replay effects, or revert stored
+formats. The Core/Gateway receiver must be released before this command is
+distributed with the CLI.
+
 The CLI may display Agent Profile Wakeability, but it does not own the
 execution truth.
 
@@ -1652,6 +1787,15 @@ An authoritative pre-result RuntimeCoordinator status such as `running` or
 `projection_pending` diagnostic. The latter explains why no final message can
 yet be linked; it must not relabel active execution as final publication work or
 tell the operator that the target Computer is offline.
+
+A found Coordinator head with `status: queued` and no linked execution also
+precedes `projection_pending`. Agent View reports `current_state=queued`, the
+shared `runtime_coordinator.head_queued` reason, and asks the caller to wait for
+the Agent's execution slot before checking again. Dispatch or attempt queue
+labels alone cannot establish this state. The shared head-status reason mapper
+also supplies human execution-authority diagnostics so those views agree.
+This changes diagnostic values only: trace request version 3, response fields,
+and parsing of older Core responses remain unchanged.
 
 In Agent View, `--details` requests the bounded Remote Agent runtime diagnostic
 projection when the selected dispatch used the hosted Center Agent. The caller
@@ -1800,3 +1944,24 @@ Use scoped owner documents for deeper rules:
   real installed product.
 - Detailed workflows and release gates belong in
   `developing/engineering/development-workflow.md`.
+## Plugins
+
+`openmeld plugins list`, `plugins actions <service>`, and
+`plugins call <service> <action-id>` use the current Organization's connected
+accounts through Core. Calls require a Local Agent owned by the signed-in
+account and an enabled workstation Binding; `--profile` selects that Agent.
+Inside a Wake the dispatch context selects it automatically and Core reads the
+recorded requester and destination to prevent accidental use of the Agent
+owner's private account for another member's request. A direct CLI invocation
+uses the signed-in account's authority. The local account and its Service are
+the trust boundary; a dispatch ID is provenance, not a RuntimeCoordinator token
+or a sandbox protecting the account from arbitrary local programs.
+
+Action discovery and execution explicitly select `--account personal|shared`.
+There is no fallback between these identities. `--view agent` returns the shared
+structured response. `--operation` is required for execution and identifies an
+exact request; changing input requires a new operation ID. High-risk actions
+first return a confirmation token; the Agent must review the exact action,
+input, and account with the requester before using `--confirm`. A replay reports
+the previous status rather than executing again. Failed or unknown outcomes
+exit unsuccessfully; discovery and confirmation are not successful execution.

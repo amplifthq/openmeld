@@ -8,9 +8,9 @@ vi.mock("./space-access-editor", () => ({
 	PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP: "Public Space access warning.",
 }));
 
-vi.mock("./space-info-dialog", () => ({
-	SpaceInfoDialog: () => (
-		<button aria-label="Space information" type="button">
+vi.mock("./space-settings-dialog", () => ({
+	SpaceSettingsDialog: () => (
+		<button aria-label="Space settings" type="button">
 			Info
 		</button>
 	),
@@ -25,7 +25,7 @@ vi.mock("./space-share-dialog", () => ({
 }));
 
 describe("SpaceHeader Direct Message identity", () => {
-	it("shows the local Agent badge only while the origin Space is a two-member chat", () => {
+	it("removes the chat icon on conversion to a Space without adding Agent type labels", () => {
 		const { container, rerender } = render(
 			createSpaceHeader({
 				memberCount: 2,
@@ -33,7 +33,7 @@ describe("SpaceHeader Direct Message identity", () => {
 			})
 		);
 
-		expect(screen.getByText("Local Agent")).toBeTruthy();
+		expect(screen.queryByText("Local Agent")).toBeNull();
 		expect(
 			container.querySelector('[data-space-header-icon="direct-message"]')
 		).toBeTruthy();
@@ -46,9 +46,7 @@ describe("SpaceHeader Direct Message identity", () => {
 		);
 
 		expect(screen.queryByText("Local Agent")).toBeNull();
-		expect(
-			container.querySelector('[data-space-header-icon="channel"]')
-		).toBeTruthy();
+		expect(container.querySelector("[data-space-header-icon]")).toBeNull();
 	});
 });
 

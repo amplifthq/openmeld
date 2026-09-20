@@ -14,6 +14,7 @@ describe("Organization member activity repository", () => {
     applyDrizzleMigrationsForTables(harness, [
       "users",
       "organizations",
+      "members",
       "organization_member_activity",
     ]);
     harness.run({

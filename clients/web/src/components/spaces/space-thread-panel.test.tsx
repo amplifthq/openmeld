@@ -9,6 +9,7 @@ import type {
 	SignalEnvelope,
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
@@ -59,7 +60,21 @@ vi.mock("@tanstack/react-query", async () => {
 
 	return {
 		...actual,
-		useQuery: useQueryMock,
+		useQuery: (options: {
+			enabled?: boolean;
+			queryKey: readonly unknown[];
+		}) => {
+			const isMessageDetails = options.queryKey.includes("message-details");
+			const query = actual.useQuery({
+				...options,
+				enabled: !isMessageDetails && options.enabled,
+			});
+			const result = useQueryMock(options);
+			if (!isMessageDetails) {
+				return query;
+			}
+			return options.enabled === false ? { data: undefined } : result;
+		},
 	};
 });
 
@@ -170,7 +185,7 @@ describe("SpaceThreadPanel", () => {
 		});
 
 		const pendingActions = screen.getByTestId("pending-agent-actions");
-		const composer = document.querySelector('[data-slot="thread-composer"]');
+		const composer = screen.getByRole("textbox");
 
 		expect(composer).toBeInstanceOf(HTMLElement);
 		if (!composer) {
@@ -181,60 +196,51 @@ describe("SpaceThreadPanel", () => {
 		);
 	});
 
-	it("marks only the open thread read after its latest message stays visible", async () => {
+	it("reads the visible reply only in the open Thread scope", async () => {
 		vi.useFakeTimers();
+		const originalHitTest = document.elementFromPoint;
+		Object.defineProperty(document, "elementFromPoint", {
+			configurable: true,
+			value: () =>
+				document.querySelector('[data-message-row-id="sig-thread-1"]'),
+		});
+		const geometry = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: HTMLElement) {
+				return this.dataset.messageRowId
+					? new DOMRect(0, 150, 500, 1600)
+					: new DOMRect(0, 100, 500, 400);
+			});
 		const onViewedThroughTs = vi.fn().mockResolvedValue(undefined);
 		const latestTs = Date.UTC(2026, 4, 27, 10, 0, 9);
-		renderThreadPanel({
-			onViewedThroughTs,
-			signals: [createTextSignal({ ts: latestTs })],
-		});
-
-		await act(async () => {
-			vi.advanceTimersByTime(800);
-			await Promise.resolve();
-		});
-		expect(onViewedThroughTs).toHaveBeenCalledWith(latestTs);
-	});
-
-	it("returns thread reads to the normal debounce after a retry succeeds", async () => {
-		vi.useFakeTimers();
-		const warning = vi
-			.spyOn(console, "warn")
-			.mockImplementation(() => undefined);
-		const onViewedThroughTs = vi
-			.fn()
-			.mockRejectedValueOnce(new Error("offline"))
-			.mockResolvedValue(undefined);
-		const firstTs = Date.UTC(2026, 4, 27, 10, 0, 9);
-		const secondTs = firstTs + 1000;
-		const view = renderThreadPanel({
-			onViewedThroughTs,
-			signals: [createTextSignal({ ts: firstTs })],
-		});
-
-		await act(async () => {
-			vi.advanceTimersByTime(800);
-			await Promise.resolve();
-		});
-		await act(async () => {
-			vi.advanceTimersByTime(1000);
-			await Promise.resolve();
-		});
-		expect(onViewedThroughTs).toHaveBeenCalledTimes(2);
-
-		view.rerenderThreadPanel({
-			onViewedThroughTs,
-			signals: [createTextSignal({ ts: secondTs })],
-		});
-		await act(async () => vi.advanceTimersByTime(799));
-		expect(onViewedThroughTs).toHaveBeenCalledTimes(2);
-		await act(async () => {
-			vi.advanceTimersByTime(1);
-			await Promise.resolve();
-		});
-		expect(onViewedThroughTs).toHaveBeenLastCalledWith(secondTs);
-		warning.mockRestore();
+		try {
+			renderThreadPanel({
+				onViewedThroughTs,
+				signals: [createTextSignal({ ts: latestTs })],
+				unreadTargets: [
+					{
+						signalId: "sig-thread-1",
+						occurredAtMs: latestTs,
+						threadRootSignalId: "sig-root",
+					},
+					{
+						signalId: "main-unseen",
+						occurredAtMs: latestTs - 1,
+						threadRootSignalId: null,
+					},
+				],
+			});
+			await act(async () => vi.advanceTimersByTimeAsync(149));
+			expect(onViewedThroughTs).not.toHaveBeenCalled();
+			await act(async () => vi.advanceTimersByTimeAsync(1));
+			expect(onViewedThroughTs).toHaveBeenCalledExactlyOnceWith(latestTs);
+		} finally {
+			geometry.mockRestore();
+			Object.defineProperty(document, "elementFromPoint", {
+				configurable: true,
+				value: originalHitTest,
+			});
+		}
 	});
 
 	it("keeps the Thread composer actions flush and aligned while sending", () => {
@@ -248,16 +254,17 @@ describe("SpaceThreadPanel", () => {
 		const mentionButton = screen.getByRole("button", {
 			name: "Mention a member",
 		});
-		const addButton = screen.getByRole("button", { name: "Add to message" });
+		const addButton = screen.getByRole("button", { name: "Add" });
 		expect(mentionButton.parentElement?.className).toContain("gap-0");
 		expect(addButton).toHaveProperty("disabled", false);
 		expect(mentionButton).toHaveProperty("disabled", false);
 
 		view.rerenderThreadPanel({ isSendingMessage: true });
 
-		expect(
-			screen.getByRole("button", { name: "Add to message" })
-		).toHaveProperty("disabled", false);
+		expect(screen.getByRole("button", { name: "Add" })).toHaveProperty(
+			"disabled",
+			false
+		);
 		expect(
 			screen.getByRole("button", { name: "Mention a member" })
 		).toHaveProperty("disabled", false);
@@ -558,7 +565,7 @@ describe("SpaceThreadPanel", () => {
 		expect(marker?.getAttribute("aria-busy")).toBeNull();
 	});
 
-	it("uses Dither for Center Agent replies in an ordinary Space thread", () => {
+	it("uses circular Fluid avatars for Center Agent replies in an ordinary Space thread", () => {
 		const centerAgentProfileId = "agt_cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 		renderThreadPanel({
 			centerAgentProfileId,
@@ -575,11 +582,7 @@ describe("SpaceThreadPanel", () => {
 		const avatar = screen.getByTestId(
 			`space-center-agent-profile-avatar-${centerAgentProfileId}`
 		);
-		expect(
-			avatar.querySelector("canvas")?.getAttribute("data-profile-avatar-seed")
-		).toBe(
-			`openmeld-dither-profile-avatar:v1:center-agent:${centerAgentProfileId}`
-		);
+		expect(avatar.getAttribute("data-shape")).toBe("circle");
 	});
 
 	it("renders completed Agent Activity once inside its durable thread reply", () => {
@@ -736,8 +739,8 @@ describe("SpaceThreadPanel", () => {
 		const footer = sourceMessage?.querySelector("[data-slot='message-footer']");
 		expect(footer).not.toBeNull();
 		expect(
-			within(footer as HTMLElement).getByText("Codex 5.6 Sol couldn’t reply")
-		).toBeTruthy();
+			within(footer as HTMLElement).queryByText("Codex 5.6 Sol couldn’t reply")
+		).toBeNull();
 		expect(
 			within(sourceMessage as HTMLElement).queryByText(detailedFailure)
 		).toBeNull();
@@ -746,7 +749,7 @@ describe("SpaceThreadPanel", () => {
 		).toBeNull();
 		expect(
 			within(footer as HTMLElement).getByRole("button", {
-				name: "Message details",
+				name: "View error details: Codex 5.6 Sol couldn’t reply",
 			})
 		).toBeTruthy();
 	});
@@ -773,7 +776,11 @@ describe("SpaceThreadPanel", () => {
 		expect(
 			screen.queryByRole("button", { name: "Retry as new execution" })
 		).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
+		);
 		await screen.findByRole("dialog", { name: "Message details" });
 		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
 		expect(
@@ -830,7 +837,11 @@ describe("SpaceThreadPanel", () => {
 		});
 
 		expect(screen.queryByRole("button", { name: "Recover result" })).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
+		);
 		const recoverButton = await screen.findByRole("button", {
 			name: "Recover result",
 		});
@@ -980,7 +991,7 @@ describe("SpaceThreadPanel", () => {
 			onSend,
 		});
 
-		expect(screen.getByText("1 file ready to send")).toBeTruthy();
+		expect(screen.queryByText("1 file ready to send")).toBeNull();
 		const sendButton = screen.getByRole("button", { name: "Send reply" });
 		expect(sendButton.hasAttribute("disabled")).toBe(false);
 		fireEvent.click(sendButton);
@@ -988,7 +999,7 @@ describe("SpaceThreadPanel", () => {
 		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
 	});
 
-	it("sends a thread reply while excluding a failed file", async () => {
+	it("preserves a thread reply until a failed file is removed", () => {
 		const onSend = vi.fn(async () => undefined);
 		renderThreadPanel({
 			composerFiles: [createFailedComposerFile()],
@@ -997,12 +1008,12 @@ describe("SpaceThreadPanel", () => {
 		});
 
 		expect(
-			screen.getByText("1 file couldn't be uploaded and won't be sent.")
+			screen.getByText("Retry or remove the failed attachment to continue.")
 		).toBeTruthy();
 		const sendButton = screen.getByRole("button", { name: "Send reply" });
-		expect(sendButton).toHaveProperty("disabled", false);
+		expect(sendButton).toHaveProperty("disabled", true);
 		fireEvent.click(sendButton);
-		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
+		expect(onSend).not.toHaveBeenCalled();
 	});
 
 	it("keeps a recently completed root Wake terminal when its thread omits the top-level reply", () => {
@@ -1287,8 +1298,18 @@ function renderThreadPanel(
 		textareaRef: { current: null },
 		wakeFailureTargetContextsByProfileId: new Map(),
 	} satisfies ComponentProps<typeof SpaceThreadPanel>;
+	const queryClient = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
 	const renderResult = render(
-		<SpaceThreadPanel {...defaultProps} {...overrides} />
+		<SpaceThreadPanel {...defaultProps} {...overrides} />,
+		{
+			wrapper: ({ children }) => (
+				<QueryClientProvider client={queryClient}>
+					{children}
+				</QueryClientProvider>
+			),
+		}
 	);
 	return {
 		...renderResult,
@@ -1312,6 +1333,7 @@ function createReadyComposerFile() {
 		},
 		errorMessage: null,
 		errorRequestId: null,
+		failurePhase: null,
 		fileName: "launch-brief.pdf",
 		localId: "local-file-1",
 		mimeType: "application/pdf",
@@ -1327,6 +1349,7 @@ function createFailedComposerFile() {
 		upload: null,
 		errorMessage: "OpenMeld couldn't add this file. Try again.",
 		errorRequestId: "request-file-failed",
+		failurePhase: "stage" as const,
 		fileName: "broken.pdf",
 		localId: "local-file-failed",
 		mimeType: "application/pdf",

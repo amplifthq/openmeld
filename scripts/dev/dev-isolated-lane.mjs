@@ -5,12 +5,15 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { readListeningTcpPortOwners } from "./dev-port-owners.mjs";
 import { readProcessRows } from "./process-rows.mjs";
+import { sameProcess } from "./process-tree.mjs";
 
 const REGISTRY_VERSION = 1;
 const REGISTRY_DIRECTORY_NAME = "openmeld-dev";
@@ -27,6 +30,7 @@ const PORT_OFFSETS = {
   gateway: 1,
   auth: 2,
   remoteAgent: 3,
+  cliBinary: 4,
   webInspector: 8,
   gatewayInspector: 9,
   authInspector: 10,
@@ -42,6 +46,12 @@ export async function reserveIsolatedDevLane(options = {}) {
   const repoRoot = resolve(String(options.repoRoot ?? process.cwd()));
   const pid = normalizePid(options.pid ?? process.pid);
   const kind = normalizeRole(options.kind);
+  const startedAt =
+    pid === process.pid
+      ? readProcessRows({ repoRoot, includeMetrics: true }).find(
+          (row) => row.pid === pid
+        )?.startedAt
+      : undefined;
   const isPidAlive = options.isPidAlive ?? defaultIsPidAlive;
   const gitCommonDir = resolveGitCommonDirectory({
     gitCommonDir: options.gitCommonDir,
@@ -72,6 +82,7 @@ export async function reserveIsolatedDevLane(options = {}) {
           repoRoot,
           stackStartCommand: options.stackStartCommand ?? "pnpm dev:isolated",
         });
+        attached.webStartedAt = startedAt;
         writeRegistry(registryPaths.registryPath, {
           ...registry,
           lanes: {
@@ -123,6 +134,7 @@ export async function reserveIsolatedDevLane(options = {}) {
         ports,
         repoRoot,
       });
+      lane.stackStartedAt = startedAt;
 
       writeRegistry(registryPaths.registryPath, {
         ...registry,
@@ -190,7 +202,16 @@ export function buildIsolatedDevEnvironment(lane) {
     AUTH_WORKER_NODE_ENV: "development",
     BETTER_AUTH_URL: authUrl,
     VITE_BETTER_AUTH_URL: authUrl,
+    // A compiled Desktop Web build is production-mode JavaScript, not a
+    // production endpoint. Keep its visible setup command in this local lane.
+    VITE_OPENMELD_SETUP_USER_FACING_COMMAND: "openmeld-dev",
+    VITE_OPENMELD_DEV_LANE_ID: lane.laneId,
+    VITE_OPENMELD_GATEWAY_URL: gatewayUrl,
+    VITE_OPENMELD_WEB_URL: webUrl,
     VITE_OPENMELD_HOME: lane.openMeldHome,
+    VITE_OPENMELD_CLI_BINARY_MANIFEST_URL: `http://127.0.0.1:${lane.ports.cliBinary}/cli/manifest.json`,
+    OPENMELD_CLI_BINARY_MANIFEST_URL: `http://127.0.0.1:${lane.ports.cliBinary}/cli/manifest.json`,
+    OPENMELD_CLI_BINARY_DEV_PORT: String(lane.ports.cliBinary),
     OPENMELD_AUTH_URL: authUrl,
     OPENMELD_DEV_AUTH_INSPECTOR_PORT: String(lane.ports.authInspector),
     OPENMELD_DEV_AUTH_PORT: String(lane.ports.auth),
@@ -218,6 +239,44 @@ export function buildLaneId(repoRoot) {
     .update(resolve(String(repoRoot)))
     .digest("hex");
   return `wt-${digest.slice(0, 12)}`;
+}
+
+export function readCurrentIsolatedDevLane(repoRoot) {
+  const root = resolve(repoRoot);
+  const gitCommonDir = resolveGitCommonDirectory({ repoRoot: root });
+  const registry = readRegistry(buildRegistryPaths(gitCommonDir).registryPath);
+  const lane = registry.lanes[buildLaneId(root)];
+  if (
+    !lane ||
+    lane.repoRoot !== root ||
+    !isLivePid(lane.stackPid, defaultIsPidAlive) ||
+    !Number.isInteger(lane.ports.cliBinary)
+  ) {
+    throw new Error(
+      "Start this worktree's current Worker stack with pnpm dev:worktree before serving its CLI binary."
+    );
+  }
+  return lane;
+}
+
+export function readIsolatedDevOwners(repoRoot, rows, gitCommonDir) {
+  const registry = readRegistry(
+    buildRegistryPaths(gitCommonDir ?? resolveGitCommonDirectory({ repoRoot }))
+      .registryPath
+  );
+  const lane = registry.lanes[buildLaneId(repoRoot)];
+  if (!lane || lane.repoRoot !== resolve(repoRoot)) {
+    return [];
+  }
+  return ["stack", "web"].flatMap((kind) => {
+    const row = rows.find((item) => item.pid === lane[`${kind}Pid`]);
+    return sameProcess(
+      { pid: lane[`${kind}Pid`], startedAt: lane[`${kind}StartedAt`] },
+      row
+    )
+      ? [row]
+      : [];
+  });
 }
 
 function attachWebProcess(input) {
@@ -469,11 +528,12 @@ function ensureLaneDirectories(lane) {
   mkdirSync(lane.wranglerStateDirectory, { recursive: true });
 }
 
-async function withRegistryLock(input, callback) {
-  const timeoutAt = Date.now() + REGISTRY_LOCK_TIMEOUT_MS;
+export async function withRegistryLock(input, callback) {
+  const timeoutAt = Date.now() + (input.timeoutMs ?? REGISTRY_LOCK_TIMEOUT_MS);
   mkdirSync(dirname(input.lockPath), { recursive: true });
 
   while (true) {
+    input.signal?.throwIfAborted();
     try {
       writeFileSync(
         input.lockPath,
@@ -485,13 +545,12 @@ async function withRegistryLock(input, callback) {
       if (!isAlreadyExistsError(error)) {
         throw error;
       }
-      if (canReclaimRegistryLock(input.lockPath, input.isPidAlive)) {
-        rmSync(input.lockPath, { force: true, recursive: true });
+      if (reclaimRegistryLock(input.lockPath, input.isPidAlive)) {
         continue;
       }
       if (Date.now() >= timeoutAt) {
         throw new Error(
-          "Timed out waiting for the isolated dev lane registry lock. No process was stopped."
+          `Timed out waiting for the isolated dev lane registry lock ${input.lockPath}. No process was stopped.${legacyRecoveryDirectory(input.lockPath) ? ` Legacy recovery directory ${input.lockPath}.reclaim has no owner identity; inspect its originating processes before removing it.` : ""}`
         );
       }
       await sleep(REGISTRY_LOCK_RETRY_MS);
@@ -503,6 +562,40 @@ async function withRegistryLock(input, callback) {
   } finally {
     rmSync(input.lockPath, { force: true, recursive: true });
   }
+}
+
+function reclaimRegistryLock(lockPath, isPidAlive) {
+  // SQLite's OS lock is released even after SIGKILL. Keep its file permanently:
+  // unlinking it would let contenders lock different inodes. Using the old
+  // guard path also prevents older worktrees from concurrently reclaiming.
+  const recoveryPath = `${lockPath}.reclaim`;
+  if (legacyRecoveryDirectory(lockPath)) {
+    return false;
+  }
+  let database;
+  try {
+    database = new DatabaseSync(recoveryPath, { timeout: 0 });
+    database.exec("BEGIN EXCLUSIVE");
+    if (!canReclaimRegistryLock(lockPath, isPidAlive)) {
+      return false;
+    }
+    rmSync(lockPath, { force: true, recursive: true });
+    return true;
+  } catch (error) {
+    // Do not block the event loop: the owning loop supplies cancellable retries.
+    if (error.errcode === 5 || legacyRecoveryDirectory(lockPath)) {
+      return false;
+    }
+    throw error;
+  } finally {
+    database?.close();
+  }
+}
+
+function legacyRecoveryDirectory(lockPath) {
+  return statSync(`${lockPath}.reclaim`, {
+    throwIfNoEntry: false,
+  })?.isDirectory();
 }
 
 function canReclaimRegistryLock(lockPath, isPidAlive) {
@@ -539,7 +632,7 @@ function buildRegistryPaths(gitCommonDir) {
   };
 }
 
-function resolveGitCommonDirectory(options) {
+export function resolveGitCommonDirectory(options) {
   if (options.gitCommonDir) {
     return resolve(String(options.gitCommonDir));
   }

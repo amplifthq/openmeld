@@ -148,7 +148,7 @@ describe("space Composer editor model", () => {
 		});
 	});
 
-	it("recognizes exact pasted members without touching email, escaped, or code text", () => {
+	it("keeps all plain pasted text literal even when a current member matches", () => {
 		const text =
 			"runner@example.com https://openmeld.dev/@Runner `@Runner` \\@Runner @RunnerExtra then @Runner";
 		const value = createSpaceComposerPastedValue({
@@ -170,15 +170,7 @@ describe("space Composer editor model", () => {
 		});
 
 		expect(serializeSpaceComposerEditorValue(value)).toEqual({
-			authoredMentions: [
-				{
-					end: text.length,
-					profileId: "agent-runner",
-					relation: "wake",
-					start: text.length - 7,
-					text: "@Runner",
-				},
-			],
+			authoredMentions: [],
 			text,
 		});
 	});

@@ -1,3 +1,4 @@
+import { isHostedAgentControllerRef } from "@openmeld/schemas";
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { SparkleIcon } from "@phosphor-icons/react";
@@ -216,14 +217,15 @@ export function SpaceConversationRecoveryBanner(
 			activeOwnedAgentProfileIds.add(profile.openMeldProfileId);
 		}
 	}
-	const hasOwnedAgentMember =
+	const hasOwnedLocalAgentMember =
 		props.snapshot?.agents.some(
 			(agent) =>
 				agent.status === "active" &&
 				agent.removedAt === null &&
+				!isHostedAgentControllerRef(agent.agentControllerRef) &&
 				activeOwnedAgentProfileIds.has(agent.profileId)
 		) === true;
-	const suppressSetup = props.isDirectMessage && !hasOwnedAgentMember;
+	const suppressSetup = props.isDirectMessage && !hasOwnedLocalAgentMember;
 	const allowAddAgentsGuidance = !props.isDirectMessage;
 	const { onSetupVisibilityChange } = props;
 	useEffect(() => {

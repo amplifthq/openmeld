@@ -1,6 +1,7 @@
 import * as z from "../../lazy-zod";
 import { openMeldNavigationTargetSchema } from "../../navigation-action";
 import { DISPATCH_ERROR_SUMMARY_MAX_LENGTH } from "../../public-agent-failure-reason";
+import { spaceWorkHandoffSchema } from "../../space-work-handoff";
 import {
   ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
   organizationSkillRuntimeReleaseSelectionSchema,
@@ -16,19 +17,17 @@ import {
 } from "../protocol/agent-stream";
 import { MAX_TEXT_LENGTH } from "../protocol/constants";
 import { conversationCompactionMarkerSchema } from "../protocol/conversation-compaction";
+import { messageEnvelopeSchema } from "../protocol/message-envelope";
 import {
   agentProfileIdSchema,
   openMeldRuntimeProfileIdSchema,
 } from "../protocol/profile";
 import {
-  CENTER_AGENT_TASK_REFERENCE_MAX_COUNT,
-  centerAgentTaskReferenceSchema,
-} from "../protocol/signal";
-import {
   SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
   spaceMessageAttachmentSchema,
   spaceMessageAttachmentsSchema,
 } from "../protocol/space-attachment";
+import { spaceMessageReactionsSchema } from "../space-mesh/message-reaction";
 import { centerAgentModelRouteSchema } from "./center-agent-model";
 import {
   remoteAgentTurnEnvelopeSchema,
@@ -49,6 +48,21 @@ const REMOTE_AGENT_LOGICAL_CONVERSATION_ID_MAX_CHARS = 1024;
 const REMOTE_AGENT_RUNTIME_CONVERSATION_ID_MAX_CHARS = 2048;
 const contentHashSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 const isoDateTimeSchema = z.iso.datetime({ offset: true });
+
+/** A personal Agent's Space conversation must not share a runtime with another Agent. */
+export function buildPersonalRemoteAgentConversationId(input: {
+  agentProfileId: string;
+  organizationId: string;
+  spaceId: string;
+}): string {
+  const parts = [input.organizationId, input.agentProfileId, input.spaceId].map(
+    (value) => nonEmptyStringSchema.max(256).parse(value)
+  );
+  return [
+    "personal-remote-agent.v1",
+    ...parts.map((value) => `${value.length}:${value}`),
+  ].join("|");
+}
 
 export function buildRemoteAgentRuntimeConversationId(input: {
   generation: number;
@@ -91,11 +105,6 @@ export const remoteAgentConversationContinuityEntrySourceSchema =
       messageId: nonEmptyStringSchema.max(256),
       provider: z.enum(["feishu", "lark", "slack"]),
     }),
-    z.strictObject({
-      eventId: nonEmptyStringSchema.max(256),
-      kind: z.literal("center_agent_task_event"),
-      taskId: nonEmptyStringSchema.max(256),
-    }),
   ]);
 
 export const remoteAgentConversationContinuityEntrySchema = z
@@ -113,6 +122,7 @@ export const remoteAgentConversationContinuityEntrySchema = z
         .max(REMOTE_AGENT_CONVERSATION_CONTINUITY_ENTRY_TEXT_MAX_CHARS * 2),
       truncated: z.boolean(),
     }),
+    reactions: spaceMessageReactionsSchema.optional(),
     occurredAt: isoDateTimeSchema,
     source: remoteAgentConversationContinuityEntrySourceSchema,
   })
@@ -181,15 +191,6 @@ export const remoteAgentRuntimeConversationSchema = z.strictObject({
   generation: z.number().int().nonnegative(),
   id: nonEmptyStringSchema.max(REMOTE_AGENT_RUNTIME_CONVERSATION_ID_MAX_CHARS),
 });
-
-export const REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX =
-  "center-agent-task:";
-
-export function buildRemoteAgentCenterAgentTaskConversationId(
-  taskId: string
-): string {
-  return `${REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX}${nonEmptyStringSchema.parse(taskId)}`;
-}
 
 export const REMOTE_AGENT_STREAM_DELTA_MAX_CHARS = 1024 as const;
 
@@ -284,7 +285,6 @@ export const remoteAgentWorkerAdmissionRejectionCodeSchema = z.enum([
   "remote_agent.conversation_history_limit_exceeded",
   "remote_agent.routine_identity_mismatch",
   "remote_agent.member_research_identity_mismatch",
-  "remote_agent.center_agent_task_identity_mismatch",
   "remote_agent.turn_envelope_identity_mismatch",
 ]);
 
@@ -356,6 +356,15 @@ export const remoteAgentWorkerAuthorContextSchema = z.strictObject({
 });
 
 const remoteAgentWorkerSubmitTurnRequestShape = {
+  // Recovery may only render an answer from retained conversation context.
+  // The worker must disable tools, Skills, and Computer capabilities.
+  replyRecovery: z
+    .strictObject({
+      originalDispatchId: nonEmptyStringSchema,
+      operationId: nonEmptyStringSchema,
+      resultRef: nonEmptyStringSchema.optional(),
+    })
+    .optional(),
   organizationId: nonEmptyStringSchema,
   spaceId: nonEmptyStringSchema,
   // Canonical conversation identity is independent from the publication
@@ -365,7 +374,7 @@ const remoteAgentWorkerSubmitTurnRequestShape = {
   // result is published.
   conversationId: optionalNonEmptyStringSchema,
   agentProfileId: agentProfileIdSchema,
-  agentProfileOwnerUserId: nonEmptyStringSchema,
+  agentProfileOwnerUserId: nonEmptyStringSchema.nullable(),
   bindingId: nonEmptyStringSchema,
   triggerMessageId: nonEmptyStringSchema,
   dispatchId: nonEmptyStringSchema,
@@ -382,6 +391,7 @@ const remoteAgentWorkerSubmitTurnRequestShape = {
   messages: z.array(remoteAgentWorkerTurnMessageSchema).min(1),
   author: remoteAgentWorkerAuthorContextSchema,
   onBehalfOf: remoteAgentWorkerAuthorContextSchema.nullable(),
+  workHandoff: spaceWorkHandoffSchema.optional(),
   organizationSkillReleases: z
     .array(organizationSkillRuntimeReleaseSelectionSchema)
     .max(ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT)
@@ -400,38 +410,58 @@ export const remoteAgentWorkerSubmitTurnRequestV2Schema = z.strictObject({
   modelRoute: centerAgentModelRouteSchema,
 });
 
-export const remoteAgentWorkerConversationIdentitySchema = z.discriminatedUnion(
-  "kind",
-  [
-    z.strictObject({
-      kind: z.literal("center_agent_task"),
-      taskId: nonEmptyStringSchema,
-    }),
-  ]
-);
-
-export const remoteAgentWorkerSubmitTurnRequestV3Schema = z.strictObject({
-  v: z.literal(3),
-  ...remoteAgentWorkerSubmitTurnRequestShape,
-  conversationIdentity: remoteAgentWorkerConversationIdentitySchema,
-  modelRoute: centerAgentModelRouteSchema,
+export const remoteAgentWorkerConversationIdentitySchema = z.strictObject({
+  kind: z.literal("personal_agent"),
+  agentProfileId: nonEmptyStringSchema,
 });
 
 export const remoteAgentWorkerSubmitTurnRequestV4Schema = z
   .strictObject({
     v: z.literal(4),
     ...remoteAgentWorkerSubmitTurnRequestShape,
+    conversationIdentity:
+      remoteAgentWorkerConversationIdentitySchema.optional(),
     conversationId: nonEmptyStringSchema.max(
       REMOTE_AGENT_LOGICAL_CONVERSATION_ID_MAX_CHARS
     ),
-    conversationIdentity:
-      remoteAgentWorkerConversationIdentitySchema.optional(),
     continuityContext:
       remoteAgentConversationContinuityContextSchema.optional(),
+    sourceMessageEnvelope: messageEnvelopeSchema.optional(),
     modelRoute: centerAgentModelRouteSchema,
     runtimeConversation: remoteAgentRuntimeConversationSchema,
+    spaceDispatchContext: z
+      .strictObject({
+        dispatchChainId: nonEmptyStringSchema,
+        autoRelayDepth: z.number().int().nonnegative(),
+        visitedProfileIds: z.array(nonEmptyStringSchema).max(256),
+        visitedProfileIdsHash: nonEmptyStringSchema,
+      })
+      .optional(),
   })
   .superRefine((request, context) => {
+    if (request.conversationIdentity?.kind === "personal_agent") {
+      if (!request.spaceDispatchContext) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "Personal Agent turns require their source dispatch context.",
+          path: ["spaceDispatchContext"],
+        });
+      }
+      if (
+        request.conversationIdentity.agentProfileId !==
+          request.agentProfileId ||
+        request.conversationId !==
+          buildPersonalRemoteAgentConversationId(request)
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "Personal Agent conversations must match the Organization, Agent Profile, and Space.",
+          path: ["conversationIdentity"],
+        });
+      }
+    }
     const expectedRuntimeConversationId = buildRemoteAgentRuntimeConversationId(
       {
         generation: request.runtimeConversation.generation,
@@ -478,7 +508,6 @@ export const remoteAgentWorkerSubmitTurnRequestSchema = z.discriminatedUnion(
   [
     remoteAgentWorkerSubmitTurnRequestV1Schema,
     remoteAgentWorkerSubmitTurnRequestV2Schema,
-    remoteAgentWorkerSubmitTurnRequestV3Schema,
     remoteAgentWorkerSubmitTurnRequestV4Schema,
   ]
 );
@@ -881,13 +910,10 @@ export const remoteAgentStreamDeltaCallbackResponseSchema = z.union([
 export const remoteAgentCoreCallbackBodySchema = z.union([
   z.strictObject({
     ...remoteAgentCoreCallbackIdentitySchema,
-    centerAgentTaskReferences: z
-      .array(centerAgentTaskReferenceSchema)
-      .max(CENTER_AGENT_TASK_REFERENCE_MAX_COUNT)
-      .optional(),
     conversationCompaction: conversationCompactionMarkerSchema.optional(),
     navigationTarget: openMeldNavigationTargetSchema.optional(),
     status: z.literal("completed").optional(),
+    mentionTargets: z.array(openMeldRuntimeProfileIdSchema).max(25).optional(),
     text: nonEmptyStringSchema.max(MAX_TEXT_LENGTH),
     attachments: spaceMessageAttachmentsSchema.optional(),
     files: spaceMessageFileReferencesSchema.optional(),
@@ -927,10 +953,6 @@ export const routineWorkflowContinuationEventPayloadSchema =
 
 export const remoteAgentCoreCompletedCallbackBodySchema = z.strictObject({
   ...remoteAgentCoreCallbackIdentitySchema,
-  centerAgentTaskReferences: z
-    .array(centerAgentTaskReferenceSchema)
-    .max(CENTER_AGENT_TASK_REFERENCE_MAX_COUNT)
-    .optional(),
   conversationCompaction: conversationCompactionMarkerSchema.optional(),
   navigationTarget: openMeldNavigationTargetSchema.optional(),
   status: z.literal("completed"),

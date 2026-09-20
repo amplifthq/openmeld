@@ -5,14 +5,13 @@ import {
 } from "../agent-activity/activity-retention-service";
 import { retryAgentActivitySessionInventoryMemberCleanups } from "../agent-activity/activity-session-inventory-member-cleanup-service";
 import { retryAgentProfileCreationRequestInboxProjections } from "../agent-profile-creation-request/agent-profile-creation-request-inbox-projection";
-import { recoverStaleAgentProfileCreationRequests } from "../agent-profile-creation-request/agent-profile-creation-request-recovery";
+import { recoverAgentProfileCreationRequests } from "../agent-profile-creation-request/agent-profile-creation-request-recovery";
 import { retryReadyAgentTaskContinuations } from "../agent-task-coordination/application/agent-task-terminal-outcome-service";
 import { runAgentControllerTaskRetention } from "../agent-task-coordination/infrastructure/d1/agent-controller-task-retention";
 import { retryPendingCenterAgentWakePublications } from "../center-agent/application/center-agent-wake-publication-service";
 import { shouldWriteDestinationNeutralTaskContinuations } from "../center-agent/application/task-continuation-rollout";
 import { runCenterAgentMemberResearchTick } from "../center-agent-member-research/member-research-service";
-import { recoverCenterAgentTaskWork } from "../center-agent-tasks/application/center-agent-task-service";
-import { createCenterAgentTaskNativeRuntimePort } from "../center-agent-tasks/infrastructure/remote-agent/center-agent-task-native-runtime";
+import { deleteExpiredServiceConnectionIncidents } from "../computers/service-connection-evidence-repo";
 import { retryPendingPreHeadFailurePublications } from "../dispatch/application/dispatch-queue-service";
 import { runWakeEvidenceRetentionIfSplitActive } from "../dispatch/infrastructure/d1/wake-evidence-retention";
 import {
@@ -38,11 +37,11 @@ import {
   resolveOrganizationMembershipById,
 } from "../organizations/organization-context";
 import { resolveOrganizationDirectoryMembers } from "../organizations/organization-directory";
+import { reconcileChannelAuthorizationUpdatesTick } from "../remote-agent/application/channel-authorization-update-service";
 import { runLarkPlatformRegistrationTick } from "../remote-agent/application/lark-platform-registration-scheduler";
 import {
   reconcileLinkedSlackNativeDeliveryInbox,
   retryMissingRemoteAgentAcceptedDeliveryProbes,
-  retryPendingCenterAgentTaskTerminalProjections,
   retryRemoteAgentRoutineFailurePublications,
   retryRemoteAgentRoutineSubmissions,
   submitRemoteAgentRoutineDelivery,
@@ -97,11 +96,9 @@ export async function runCoreScheduledTasks(input: {
   runWeeklyEvalReport?: typeof runWeeklyEvalReport;
   reconcileOrganizationDocumentInbox?: typeof reconcileOrganizationDocumentDraftInbox;
   reconcileSlackNativeDeliveryInbox?: typeof reconcileLinkedSlackNativeDeliveryInbox;
-  recoverCenterAgentTasks?: typeof recoverCenterAgentTaskWork;
-  retryCenterAgentTaskTerminalProjections?: typeof retryPendingCenterAgentTaskTerminalProjections;
   retryInboxEmailDeliveries?: typeof retryInboxUrgentEmailDeliveries;
   retryAgentProfileCreationRequestInboxProjections?: typeof retryAgentProfileCreationRequestInboxProjections;
-  recoverStaleAgentProfileCreationRequests?: typeof recoverStaleAgentProfileCreationRequests;
+  recoverAgentProfileCreationRequests?: typeof recoverAgentProfileCreationRequests;
   retrySessionInventoryMemberCleanups?: typeof retryAgentActivitySessionInventoryMemberCleanups;
   deleteExpiredComposerUploads?: typeof deleteExpiredSpaceComposerUploads;
 }): Promise<void> {
@@ -114,7 +111,7 @@ export async function runCoreScheduledTasks(input: {
   }
 
   if (input.cron === ROUTINE_TICK_CRON) {
-    await runStaleAgentProfileCreationRequestRecovery(input);
+    await runAgentProfileCreationRequestRecovery(input);
     await runAgentProfileCreationRequestInboxProjectionRedrive(input);
     await runAgentActivitySessionInventoryMemberCleanup(input);
     await runLarkPlatformRegistrationContinuation(input);
@@ -126,8 +123,11 @@ export async function runCoreScheduledTasks(input: {
     await runOrganizationDocumentInboxReconciliation(input);
     await runSlackNativeDeliveryInboxReconciliation(input);
     await runInboxEmailDeliveryRedrive(input);
-    await runCenterAgentTaskRecovery(input);
-    await runCenterAgentTaskTerminalProjectionRecovery(input);
+    await reconcileChannelAuthorizationUpdatesTick(input).catch((error) =>
+      console.error("[core.channel.authorization_updates_tick_failed]", {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
     assertRoutineWorkflowConfiguration(input.env);
     const db = routineDb(input.env);
     if (!db) {
@@ -275,7 +275,7 @@ async function runSpaceComposerUploadCleanup(input: {
   }
 }
 
-async function runStaleAgentProfileCreationRequestRecovery(
+async function runAgentProfileCreationRequestRecovery(
   input: Parameters<typeof runCoreScheduledTasks>[0]
 ): Promise<void> {
   const db = identityDb(input.env);
@@ -284,22 +284,21 @@ async function runStaleAgentProfileCreationRequestRecovery(
   }
   try {
     const result = await (
-      input.recoverStaleAgentProfileCreationRequests ??
-      recoverStaleAgentProfileCreationRequests
-    )({ db, nowMs: input.nowMs });
-    if (result.scanned > 0) {
+      input.recoverAgentProfileCreationRequests ??
+      recoverAgentProfileCreationRequests
+    )({ db, env: input.env, nowMs: input.nowMs });
+    if (result.scanned > 0 || result.redelivered > 0) {
       console.log(
         JSON.stringify({
-          event: "core.agent_profile_creation_request.stale_recovery",
+          event: "core.agent_profile_creation_request.recovery",
           ...result,
         })
       );
     }
   } catch (error) {
-    console.error(
-      "[core.agent_profile_creation_request.stale_recovery_failed]",
-      { error: error instanceof Error ? error.message : String(error) }
-    );
+    console.error("[core.agent_profile_creation_request.recovery_failed]", {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -447,105 +446,6 @@ async function runAcceptedDeliveryProbeRecovery(input: {
   }
 }
 
-async function runCenterAgentTaskTerminalProjectionRecovery(input: {
-  env: CoreBindings;
-  nowMs: number;
-  retryCenterAgentTaskTerminalProjections?: typeof retryPendingCenterAgentTaskTerminalProjections;
-}): Promise<void> {
-  const taskDb = localStateDb(input.env);
-  const deliveryDb = wakeEvidenceDb(input.env);
-  const taskInboxDb = inboxDb(input.env);
-  if (!(taskDb && deliveryDb && taskInboxDb)) {
-    console.error(
-      "[core.center_agent_task.terminal_projection_recovery_store_unavailable]",
-      {
-        deliveryDatabaseAvailable: Boolean(deliveryDb),
-        inboxDatabaseAvailable: Boolean(taskInboxDb),
-        taskDatabaseAvailable: Boolean(taskDb),
-      }
-    );
-    return;
-  }
-  try {
-    const result = await (
-      input.retryCenterAgentTaskTerminalProjections ??
-      retryPendingCenterAgentTaskTerminalProjections
-    )({
-      deliveryDb,
-      env: input.env,
-      nowMs: input.nowMs,
-    });
-    if (
-      result.canonicalized +
-        result.errors +
-        result.ownerRejected +
-        result.retained >
-      0
-    ) {
-      console.log(
-        JSON.stringify({
-          event: "core.center_agent_task.terminal_projection_recovery",
-          ...result,
-        })
-      );
-    }
-  } catch (error) {
-    console.error(
-      "[core.center_agent_task.terminal_projection_recovery_failed]",
-      {
-        error: error instanceof Error ? error.message : String(error),
-      }
-    );
-  }
-}
-
-async function runCenterAgentTaskRecovery(input: {
-  env: CoreBindings;
-  nowMs: number;
-  recoverCenterAgentTasks?: typeof recoverCenterAgentTaskWork;
-}): Promise<void> {
-  const taskDb = localStateDb(input.env);
-  const deliveryDb = wakeEvidenceDb(input.env);
-  const taskInboxDb = inboxDb(input.env);
-  if (!(taskDb && deliveryDb && taskInboxDb)) {
-    console.error("[core.center_agent_task.recovery_store_unavailable]", {
-      deliveryDatabaseAvailable: Boolean(deliveryDb),
-      inboxDatabaseAvailable: Boolean(taskInboxDb),
-      taskDatabaseAvailable: Boolean(taskDb),
-    });
-    return;
-  }
-  try {
-    const result = await (
-      input.recoverCenterAgentTasks ?? recoverCenterAgentTaskWork
-    )({
-      db: taskDb,
-      inboxDb: taskInboxDb,
-      now: () => input.nowMs,
-      runtime: createCenterAgentTaskNativeRuntimePort({
-        deliveryDb,
-        env: input.env,
-      }),
-    });
-    if (
-      result.admissionsDelivered +
-        result.admissionsFailed +
-        result.stopsResolved +
-        result.stopsFailed +
-        result.errors >
-      0
-    ) {
-      console.log(
-        JSON.stringify({ event: "core.center_agent_task.recovery", ...result })
-      );
-    }
-  } catch (error) {
-    console.error("[core.center_agent_task.recovery_failed]", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
 async function runInboxEmailDeliveryRedrive(input: {
   env: CoreBindings;
   nowMs: number;
@@ -564,7 +464,7 @@ async function runInboxEmailDeliveryRedrive(input: {
   try {
     const organizationMembersById = new Map<
       string,
-      Promise<Set<string> | null>
+      Promise<Map<string, string> | null>
     >();
     const result = await (
       input.retryInboxEmailDeliveries ?? retryInboxUrgentEmailDeliveries
@@ -574,6 +474,7 @@ async function runInboxEmailDeliveryRedrive(input: {
       resolveOrganizationAccess: async ({
         organizationId,
         recipientUserId,
+        requireOrganizationManager,
       }) => {
         let members = organizationMembersById.get(organizationId);
         if (!members) {
@@ -583,7 +484,9 @@ async function runInboxEmailDeliveryRedrive(input: {
           })
             .then(
               (directoryMembers) =>
-                new Set(directoryMembers.map((member) => member.userId))
+                new Map(
+                  directoryMembers.map((member) => [member.userId, member.role])
+                )
             )
             .catch(() => null);
           organizationMembersById.set(organizationId, members);
@@ -592,7 +495,11 @@ async function runInboxEmailDeliveryRedrive(input: {
         if (!activeMemberIds) {
           return "unavailable";
         }
-        return activeMemberIds.has(recipientUserId) ? "allowed" : "denied";
+        const role = activeMemberIds.get(recipientUserId);
+        return role &&
+          (!requireOrganizationManager || role === "owner" || role === "admin")
+          ? "allowed"
+          : "denied";
       },
       send: async (request) => await sendInboxUrgentEmail(request),
     });
@@ -914,9 +821,36 @@ async function runScheduledRetention(input: {
   const agentActivityFailure = await runAgentActivityScheduledRetention(input);
   const agentControllerTaskFailure =
     await runAgentControllerTaskScheduledRetention(input);
-  return [agentActivityFailure, agentControllerTaskFailure].filter(
-    (failure) => failure !== null
-  );
+  const connectionHistoryFailure = await runServiceConnectionRetention(input);
+  return [
+    agentActivityFailure,
+    agentControllerTaskFailure,
+    connectionHistoryFailure,
+  ].filter((failure) => failure !== null);
+}
+
+async function runServiceConnectionRetention(input: {
+  env: CoreBindings;
+  nowMs: number;
+}) {
+  try {
+    const db = wakeEvidenceDb(input.env);
+    if (!db) {
+      throw new Error("Connection history database is unavailable.");
+    }
+    const result = await deleteExpiredServiceConnectionIncidents({
+      db,
+      nowMs: input.nowMs,
+    });
+    console.info("[core.connection_history.retention]", result);
+    return null;
+  } catch (error) {
+    console.error(
+      "[core.connection_history.retention_failed]",
+      summarizeScheduledError(error)
+    );
+    return error;
+  }
 }
 
 async function runAgentControllerTaskScheduledRetention(input: {

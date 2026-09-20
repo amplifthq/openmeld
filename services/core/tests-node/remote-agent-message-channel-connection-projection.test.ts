@@ -11,6 +11,7 @@ describe("Remote Agent Message Channel connection projection", () => {
         stateDb: {} as D1Database,
       },
       {
+        readSlackToken: vi.fn(async () => null),
         listLarkPlatformConnections: vi.fn(async () => [
           {
             appId: "cli_feishu_1",
@@ -85,7 +86,7 @@ describe("Remote Agent Message Channel connection projection", () => {
         lastVerifiedAt: "1970-01-01T00:00:04.000Z",
         permissionBundleVersion: "lark-channel-v1",
         provider: "lark",
-        reasonCode: null,
+        reasonCode: "lark.authorization_update_required",
         status: "connected",
         transport: "webhook",
       },
@@ -137,6 +138,7 @@ describe("Remote Agent Message Channel connection projection", () => {
             } satisfies RemoteAgentLarkPlatformChannelConnectionRecord,
           ]),
           readSlackBinding: vi.fn(async () => null),
+          readSlackToken: vi.fn(async () => null),
         }
       )
     ).rejects.toThrow(

@@ -36,6 +36,10 @@
         "class_name": "RuntimeTransportHub"
       },
       {
+        "name": "OPENMELD_LARK_CHANNEL_CONNECTOR",
+        "class_name": "LarkChannelConnector"
+      },
+      {
         "name": "OPENMELD_PREPARE_SESSION_HUB",
         "class_name": "PrepareSessionHub"
       }
@@ -50,6 +54,10 @@
     }
   ],
   "r2_buckets": [
+    {
+      "binding": "OPENMELD_SPACE_ATTACHMENTS",
+      "bucket_name": "openmeld-space-attachments-test"
+    },
     {
       "binding": "OPENMELD_ORGANIZATION_SKILLS",
       "bucket_name": "openmeld-organization-skills-test"
@@ -82,6 +90,7 @@
           "to": "RuntimeTransportHub"
         }
       ]
-    }
+    },
+    { "tag": "v5", "new_sqlite_classes": ["LarkChannelConnector"] }
   ]
 }

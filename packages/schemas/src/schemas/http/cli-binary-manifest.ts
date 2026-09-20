@@ -130,17 +130,43 @@ export const cliBinaryReleaseSchema = cliBinaryArtifactSchema
     }
   });
 
+const binaryPlatformsSchema = z
+  .record(z.string().trim().min(1), cliBinaryReleaseSchema)
+  .refine((platforms) => Object.keys(platforms).length > 0, {
+    message: "at least one platform is required",
+  });
+
+export const cliBinaryServiceReleaseSchema = z.object({
+  platforms: binaryPlatformsSchema,
+  version: z.string().trim().min(1),
+});
+
 export const cliBinaryManifestSchema = z.object({
   channels: z.object({
-    stable: z.object({
-      minRequiredCliVersion: z.string().trim().min(1).nullable().optional(),
-      platforms: z
-        .record(z.string().trim().min(1), cliBinaryReleaseSchema)
-        .refine((platforms) => Object.keys(platforms).length > 0, {
-          message: "at least one platform is required",
-        }),
-      version: z.string().trim().min(1),
-    }),
+    stable: z
+      .object({
+        minRequiredCliVersion: z.string().trim().min(1).nullable().optional(),
+        platforms: binaryPlatformsSchema,
+        // Omitted by legacy channels whose CLI binary also supplies the Service.
+        // A selected Service release has its own immutable artifact metadata;
+        // a version number alone cannot safely select or verify an executable.
+        service: cliBinaryServiceReleaseSchema.optional(),
+        version: z.string().trim().min(1),
+      })
+      .superRefine((stable, context) => {
+        if (!stable.service) {
+          return;
+        }
+        for (const platform of Object.keys(stable.platforms)) {
+          if (!stable.service.platforms[platform]) {
+            context.addIssue({
+              code: "custom",
+              path: ["service", "platforms", platform],
+              message: "a Service artifact is required for every CLI platform",
+            });
+          }
+        }
+      }),
   }),
   schemaVersion: z.literal(1),
 });

@@ -5,12 +5,16 @@ import {
   getCenterAgentInboxSummaryRpcInputSchema,
   getInboxItemResponseSchema,
   getInboxItemRpcInputSchema,
+  getInboxMessageNotificationPreferencesRpcInputSchema,
   getInboxNotificationPreferencesRpcInputSchema,
   getInboxSummaryRpcInputSchema,
   getSpaceInboxSummaryRpcInputSchema,
   getSpaceInboxUnreadTargetsRpcInputSchema,
+  inboxFeedResponseSchema,
+  inboxMessageNotificationPreferencesResponseSchema,
   inboxNotificationPreferencesResponseSchema,
   inboxSummaryResponseSchema,
+  listInboxFeedRpcInputSchema,
   listInboxItemsResponseSchema,
   listInboxItemsRpcInputSchema,
   markAllInboxItemsReadResponseSchema,
@@ -21,8 +25,11 @@ import {
   markInboxItemReadRpcInputSchema,
   markSpaceInboxReadThroughResponseSchema,
   markSpaceInboxReadThroughRpcInputSchema,
+  mutateInboxFeedResponseSchema,
+  mutateInboxFeedRpcInputSchema,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
+  updateInboxMessageNotificationPreferencesRpcInputSchema,
   updateInboxNotificationPreferencesRpcInputSchema,
 } from "@openmeld/schemas";
 import type {
@@ -32,12 +39,16 @@ import type {
   GetCenterAgentInboxSummaryRpcInput,
   GetInboxItemResponse,
   GetInboxItemRpcInput,
+  GetInboxMessageNotificationPreferencesRpcInput,
   GetInboxNotificationPreferencesRpcInput,
   GetInboxSummaryRpcInput,
   GetSpaceInboxSummaryRpcInput,
   GetSpaceInboxUnreadTargetsRpcInput,
+  InboxFeedResponse,
+  InboxItem,
   InboxNotificationPreferencesResponse,
   InboxSummaryResponse,
+  ListInboxFeedRpcInput,
   ListInboxItemsResponse,
   ListInboxItemsRpcInput,
   MarkAllInboxItemsReadResponse,
@@ -48,24 +59,87 @@ import type {
   MarkInboxItemReadRpcInput,
   MarkSpaceInboxReadThroughResponse,
   MarkSpaceInboxReadThroughRpcInput,
+  MutateInboxFeedResponse,
+  MutateInboxFeedRpcInput,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
+  UpdateInboxMessageNotificationPreferencesRpcInput,
   UpdateInboxNotificationPreferencesRpcInput,
 } from "@openmeld/schemas/types";
 import { type CoreBindings, inboxDb } from "../../../lib/bindings";
+import { reconcileInvitationInbox } from "../../../organizations/invitation-inbox-projection";
 import { resolveActiveOrganizationMembership } from "../../../organizations/organization-context";
 import { createCoreRpcHttpError } from "../../../rpc/errors";
+import { createInboxFeedService } from "../../application/inbox-feed-service";
+import { createInboxMessageNotificationPreferencesService } from "../../application/inbox-message-notification-preferences";
 import {
   createInboxService,
   InboxServiceError,
 } from "../../application/inbox-service";
+
+export async function rpcListInboxFeed(
+  env: CoreBindings,
+  input: ListInboxFeedRpcInput
+): Promise<InboxFeedResponse> {
+  const { context, ...query } = parseRequest(
+    listInboxFeedRpcInputSchema,
+    input
+  );
+  const prepared = await prepareRequest(env, context);
+  await reconcileInvitationInbox(prepared.db, prepared.organizationId);
+  return parseResponse(
+    inboxFeedResponseSchema,
+    await runService(() =>
+      createInboxFeedService({
+        db: prepared.db,
+        canManageOrganization: prepared.canManageOrganization,
+      }).list(
+        {
+          organizationId: prepared.organizationId,
+          recipientUserId: prepared.userId,
+        },
+        query
+      )
+    )
+  );
+}
+
+export async function rpcMutateInboxFeed(
+  env: CoreBindings,
+  input: MutateInboxFeedRpcInput
+): Promise<MutateInboxFeedResponse> {
+  const { context, ...body } = parseRequest(
+    mutateInboxFeedRpcInputSchema,
+    input
+  );
+  const prepared = await prepareRequest(env, context);
+  return parseResponse(
+    mutateInboxFeedResponseSchema,
+    await runService(() =>
+      createInboxFeedService({
+        db: prepared.db,
+        canManageOrganization: prepared.canManageOrganization,
+      }).mutate(
+        {
+          organizationId: prepared.organizationId,
+          recipientUserId: prepared.userId,
+        },
+        body
+      )
+    )
+  );
+}
 
 export async function rpcDismissInboxItem(
   env: CoreBindings,
   input: DismissInboxItemRpcInput
 ): Promise<DismissInboxItemResponse> {
   const request = parseRequest(dismissInboxItemRpcInputSchema, input);
-  const prepared = await prepareRequest(env, request.context);
+  const prepared = await prepareRequest(
+    env,
+    request.context,
+    request.includeAccountItems
+  );
   return parseResponse(
     dismissInboxItemResponseSchema,
     await runService(() =>
@@ -83,17 +157,37 @@ export async function rpcListInboxItems(
   input: ListInboxItemsRpcInput
 ): Promise<ListInboxItemsResponse> {
   const request = parseRequest(listInboxItemsRpcInputSchema, input);
-  const prepared = await prepareRequest(env, request.context);
+  const prepared = await prepareRequest(
+    env,
+    request.context,
+    request.includeAccountItems
+  );
+  await reconcileInvitationInbox(prepared.db, prepared.organizationId);
   return parseResponse(
     listInboxItemsResponseSchema,
     await runService(() =>
-      prepared.service.list({
-        cursor: request.cursor,
-        limit: request.limit,
-        organizationId: prepared.organizationId,
-        recipientUserId: prepared.userId,
-        view: request.view,
-      })
+      prepared.service
+        .list({
+          cursor: request.cursor,
+          limit: request.limit,
+          notificationPreview: request.notificationPreview === "true",
+          organizationId: prepared.organizationId,
+          ...(request.presentation === undefined
+            ? {}
+            : { presentation: request.presentation }),
+          recipientUserId: prepared.userId,
+          view: request.view,
+        })
+        .then((response) => ({
+          ...response,
+          items: response.items.map((item) =>
+            projectReplyToRecipientForReceiver(
+              item,
+              request.includeReplyToRecipient,
+              request.includeSourceFacts
+            )
+          ),
+        }))
     )
   );
 }
@@ -103,15 +197,28 @@ export async function rpcGetInboxItem(
   input: GetInboxItemRpcInput
 ): Promise<GetInboxItemResponse> {
   const request = parseRequest(getInboxItemRpcInputSchema, input);
-  const prepared = await prepareRequest(env, request.context);
+  const prepared = await prepareRequest(
+    env,
+    request.context,
+    request.includeAccountItems
+  );
+  await reconcileInvitationInbox(prepared.db, prepared.organizationId);
   return parseResponse(
     getInboxItemResponseSchema,
     await runService(() =>
-      prepared.service.get({
-        itemId: request.itemId,
-        organizationId: prepared.organizationId,
-        recipientUserId: prepared.userId,
-      })
+      prepared.service
+        .get({
+          itemId: request.itemId,
+          organizationId: prepared.organizationId,
+          recipientUserId: prepared.userId,
+        })
+        .then((response) => ({
+          item: projectReplyToRecipientForReceiver(
+            response.item,
+            request.includeReplyToRecipient,
+            request.includeSourceFacts
+          ),
+        }))
     )
   );
 }
@@ -121,12 +228,20 @@ export async function rpcGetInboxSummary(
   input: GetInboxSummaryRpcInput
 ): Promise<InboxSummaryResponse> {
   const request = parseRequest(getInboxSummaryRpcInputSchema, input);
-  const prepared = await prepareRequest(env, request.context);
+  const prepared = await prepareRequest(
+    env,
+    request.context,
+    request.includeAccountItems
+  );
+  await reconcileInvitationInbox(prepared.db, prepared.organizationId);
   return parseResponse(
     inboxSummaryResponseSchema,
     await runService(() =>
       prepared.service.summary({
         organizationId: prepared.organizationId,
+        ...(request.presentation === undefined
+          ? {}
+          : { presentation: request.presentation }),
         recipientUserId: prepared.userId,
       })
     )
@@ -234,16 +349,28 @@ export async function rpcMarkInboxItemRead(
   input: MarkInboxItemReadRpcInput
 ): Promise<MarkInboxItemReadResponse> {
   const request = parseRequest(markInboxItemReadRpcInputSchema, input);
-  const prepared = await prepareRequest(env, request.context);
+  const prepared = await prepareRequest(
+    env,
+    request.context,
+    request.includeAccountItems
+  );
   return parseResponse(
     markInboxItemReadResponseSchema,
     await runService(() =>
-      prepared.service.markRead({
-        itemId: request.itemId,
-        organizationId: prepared.organizationId,
-        read: request.read,
-        recipientUserId: prepared.userId,
-      })
+      prepared.service
+        .markRead({
+          itemId: request.itemId,
+          organizationId: prepared.organizationId,
+          read: request.read,
+          recipientUserId: prepared.userId,
+        })
+        .then((response) => ({
+          item: projectReplyToRecipientForReceiver(
+            response.item,
+            request.includeReplyToRecipient,
+            request.includeSourceFacts
+          ),
+        }))
     )
   );
 }
@@ -259,6 +386,9 @@ export async function rpcMarkAllInboxItemsRead(
     await runService(() =>
       prepared.service.markAllRead({
         organizationId: prepared.organizationId,
+        ...(request.presentation === undefined
+          ? {}
+          : { presentation: request.presentation }),
         recipientUserId: prepared.userId,
       })
     )
@@ -302,9 +432,72 @@ export async function rpcUpdateInboxNotificationPreferences(
   );
 }
 
+export async function rpcGetInboxMessageNotificationPreferences(
+  env: CoreBindings,
+  input: GetInboxMessageNotificationPreferencesRpcInput
+) {
+  const request = parseRequest(
+    getInboxMessageNotificationPreferencesRpcInputSchema,
+    input
+  );
+  const prepared = await prepareRequest(env, request.context);
+  return parseResponse(
+    inboxMessageNotificationPreferencesResponseSchema,
+    await runService(() =>
+      createInboxMessageNotificationPreferencesService(prepared.db).get({
+        userId: prepared.userId,
+        organizationId: prepared.organizationId,
+        spaceId: request.spaceId,
+      })
+    )
+  );
+}
+
+export async function rpcUpdateInboxMessageNotificationPreferences(
+  env: CoreBindings,
+  input: UpdateInboxMessageNotificationPreferencesRpcInput
+) {
+  const request = parseRequest(
+    updateInboxMessageNotificationPreferencesRpcInputSchema,
+    input
+  );
+  const prepared = await prepareRequest(env, request.context);
+  return parseResponse(
+    inboxMessageNotificationPreferencesResponseSchema,
+    await runService(() =>
+      createInboxMessageNotificationPreferencesService(prepared.db).update({
+        userId: prepared.userId,
+        organizationId: prepared.organizationId,
+        preference: request.preference,
+      })
+    )
+  );
+}
+
+/** Older Gateway receivers have a strict target parser. Keep their RPC shape
+ * unchanged even after Core starts persisting recipient-specific reply facts. */
+function projectReplyToRecipientForReceiver(
+  item: InboxItem,
+  includeReplyToRecipient?: boolean,
+  includeSourceFacts?: boolean
+): InboxItem {
+  const { sourceFacts: _sourceFacts, ...legacyItem } = item;
+  const compatibleItem = includeSourceFacts === true ? item : legacyItem;
+  if (
+    includeReplyToRecipient === true ||
+    compatibleItem.sourceTarget.kind !== "space"
+  ) {
+    return compatibleItem;
+  }
+  const { replyToRecipient: _replyToRecipient, ...sourceTarget } =
+    compatibleItem.sourceTarget;
+  return { ...compatibleItem, sourceTarget };
+}
+
 async function prepareRequest(
   env: CoreBindings,
-  context: ListInboxItemsRpcInput["context"]
+  context: ListInboxItemsRpcInput["context"],
+  includeAccountItems = false
 ) {
   const membership = await resolveActiveOrganizationMembership({
     context,
@@ -326,8 +519,16 @@ async function prepareRequest(
     });
   }
   return {
+    db,
     organizationId: membership.organizationId,
-    service: createInboxService({ db }),
+    canManageOrganization:
+      membership.role === "owner" || membership.role === "admin",
+    service: createInboxService({
+      db,
+      includeAccountItems,
+      canManageOrganization:
+        membership.role === "owner" || membership.role === "admin",
+    }),
     userId: membership.userId,
   };
 }

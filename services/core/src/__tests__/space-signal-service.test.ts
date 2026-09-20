@@ -28,8 +28,11 @@ import { describe, expect, it, vi } from "vitest";
 import { DISPATCH_REPLYING_HINT_START_PURPOSE } from "../dispatch/rules/dispatch-hint-policy";
 import { inspectExecutionRecovery } from "../execution-recovery/application/execution-recovery-service";
 import type { CoreBindings } from "../lib/bindings";
+import type { ActiveRemoteAgentNativeDeliveryWakeProgressEvidence } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import { buildDefaultSpaceContract } from "../space/application/space-contract-service";
 import {
+  assertWakeDeviceWaitAuthoring,
+  buildSignalTextOptions,
   handlePostSignalUseCase,
   publishPresenceSignalUseCase,
   publishTextSignalUseCase,
@@ -512,7 +515,9 @@ const buildWakeProgressItemFromLookupTrace = async (
   lookupMatchOverrides: Partial<SpaceDispatchLookupMatch> = {},
   wakeStopEligibility: WakeStopEligibilityReadModel | null = null,
   includeWakeStopEligibility = wakeStopEligibility !== null,
-  includeWaitReason = false
+  includeWaitReason = false,
+  nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence,
+  sourceSignal: Extract<SignalEnvelope, { type: "signal.text" }> | null = null
 ): Promise<WakeProgressItem> => {
   const lookupMatch = {
     dispatchId: "dispatch-head-progress-1",
@@ -530,8 +535,9 @@ const buildWakeProgressItemFromLookupTrace = async (
       includeWaitReason?: boolean;
       includeWakeStopEligibility?: boolean;
       lookupMatch: SpaceDispatchLookupMatch;
+      nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence;
       outboxRecord: null;
-      sourceSignal: null;
+      sourceSignal: Extract<SignalEnvelope, { type: "signal.text" }> | null;
       targetLabel: string;
       terminalFailureNotices: readonly unknown[];
     }) => Promise<WakeProgressItem>;
@@ -564,9 +570,10 @@ const buildWakeProgressItemFromLookupTrace = async (
     includeTiming: true,
     includeWaitReason,
     includeWakeStopEligibility,
+    nativeDeliveryEvidence,
     lookupMatch,
     outboxRecord: null,
-    sourceSignal: null,
+    sourceSignal,
     targetLabel: "Codex Agent",
     terminalFailureNotices,
   });
@@ -737,6 +744,7 @@ function createRuntimeAgentControllerReportDb(input: {
 async function readWakeProgressWakeStopEligibilityForTest(input: {
   db: D1Database;
   trace: SpaceDispatchTraceSnapshot;
+  publicationEligibility?: WakeStopEligibilityReadModel | null;
 }): Promise<WakeProgressItem["wakeStopEligibility"]> {
   const space = Object.create(Space.prototype) as unknown as {
     readWakeProgressWakeStopEligibility: (
@@ -746,6 +754,13 @@ async function readWakeProgressWakeStopEligibilityForTest(input: {
   Object.defineProperty(space, "bindings", {
     value: { OPENMELD_DB: input.db },
   });
+  Object.defineProperty(
+    space,
+    "readWakeProgressPublicationWakeStopEligibility",
+    {
+      value: () => Promise.resolve(input.publicationEligibility ?? null),
+    }
+  );
   return await space.readWakeProgressWakeStopEligibility(input.trace);
 }
 
@@ -994,6 +1009,7 @@ function createActiveWakeProgressSql(input: {
 }
 
 type WakeProgressExecutionRow = {
+  runningAtMs?: number;
   acceptedAtMs?: number;
   callbackReceivedAtMs?: number | null;
   createdAtMs?: number;
@@ -1075,6 +1091,7 @@ function createWakeEvidenceDb(
               )
               .map((execution, index) => ({
                 dispatch_id: execution.dispatchId,
+                running_at_ms: execution.runningAtMs ?? null,
                 latest_dispatch_attempt_status:
                   execution.latestAttemptStatus ?? null,
                 latest_occupancy_payload_json:
@@ -1480,6 +1497,49 @@ async function readActiveWakeProgressForTest(input: {
 }
 
 describe("space signal service", () => {
+  it("builds and validates device waiting from the canonical top-level intent only", () => {
+    const wait = {
+      bindingId: "binding-1",
+      openMeldServiceRuntimeId: "runtime-1",
+      targetProfileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      deadlineAtMs: Date.now() + 60_000,
+    };
+    const options = buildSignalTextOptions({
+      text: "Check",
+      deviceWait: wait,
+      meta: {
+        clientMessageId: "client-1",
+        deviceWait: { ...wait, deadlineAtMs: 0 },
+      },
+    });
+    expect(options).toMatchObject({
+      deviceWait: wait,
+      meta: { clientMessageId: "client-1" },
+    });
+    expect(options?.meta).not.toHaveProperty("deviceWait");
+    const signal = createSignal();
+    signal.data = { ...signal.data, ...options };
+    expect(() =>
+      assertWakeDeviceWaitAuthoring({
+        signal,
+        targetProfileIds: [wait.targetProfileId],
+        nowMs: Date.now(),
+      })
+    ).not.toThrow();
+    signal.data.deviceWait = { ...wait, deadlineAtMs: 0 };
+    signal.data.meta = { ...signal.data.meta, deviceWait: wait };
+    expect(() =>
+      assertWakeDeviceWaitAuthoring({
+        signal,
+        targetProfileIds: [wait.targetProfileId],
+        nowMs: Date.now(),
+      })
+    ).toThrow("future deadline");
+    expect(
+      buildSignalTextOptions({ text: "Check", meta: { deviceWait: wait } })
+    ).toBeUndefined();
+  });
+
   it("rejects an unreadable final reply before reserving its publication claim", () => {
     const sql = { exec: vi.fn() } as unknown as SqlStorage;
     const signal = {
@@ -3693,71 +3753,6 @@ describe("space signal service", () => {
     );
   });
 
-  it("preserves Task references for system-emitted messages and strips them from user messages", async () => {
-    const publishedSignals: SignalEnvelope[] = [];
-    const body = {
-      type: "signal.text",
-      data: {
-        text: "I started the Task.",
-        meta: {
-          centerAgentTaskReferences: [{ taskId: "task-1" }],
-          purpose: "agent_reply_final",
-        },
-      },
-    };
-    const buildTextSignal = (
-      profile: Parameters<
-        Parameters<typeof handlePostSignalUseCase>[0]["buildTextSignal"]
-      >[0],
-      text: string,
-      options?: Parameters<
-        Parameters<typeof handlePostSignalUseCase>[0]["buildTextSignal"]
-      >[2]
-    ): SignalEnvelope => ({
-      ...createSignal(),
-      profile,
-      data: {
-        text,
-        ...(options?.meta ? { meta: options.meta } : {}),
-      },
-    });
-    const publishTextSignal = (signal: SignalEnvelope) => {
-      publishedSignals.push(signal);
-      return Promise.resolve();
-    };
-
-    const trustedResponse = await handlePostSignalUseCase({
-      body,
-      profile: createSignal().profile,
-      authoringPolicy: "system_emitted",
-      buildTextSignal,
-      publishTextSignal,
-      isDispatchSnapshotOversizeError: () => false,
-      dispatchSnapshotOversizeErrorCode: "dispatch.snapshot_oversize",
-    });
-    const userResponse = await handlePostSignalUseCase({
-      body,
-      profile: createSignal().profile,
-      authoringPolicy: "user_authored",
-      buildTextSignal,
-      publishTextSignal,
-      isDispatchSnapshotOversizeError: () => false,
-      dispatchSnapshotOversizeErrorCode: "dispatch.snapshot_oversize",
-    });
-
-    expect(trustedResponse.status).toBe(200);
-    expect(userResponse.status).toBe(200);
-    const [trustedSignal, userSignal] = publishedSignals;
-    expect(
-      trustedSignal?.type === "signal.text"
-        ? trustedSignal.data.meta?.centerAgentTaskReferences
-        : undefined
-    ).toEqual([{ taskId: "task-1" }]);
-    expect(
-      userSignal?.type === "signal.text" ? userSignal.data.meta : undefined
-    ).not.toHaveProperty("centerAgentTaskReferences");
-  });
-
   it("returns 422 when dispatch snapshot is oversize", async () => {
     const response = await handlePostSignalUseCase({
       body: {
@@ -4397,6 +4392,69 @@ describe("space signal service", () => {
     });
   });
 
+  it("keeps a message's device deadline on its selected Agent only", async () => {
+    const selectedProfileId = "agt_33333333-3333-4333-8333-333333333333";
+    const otherProfileId = "agt_44444444-4444-4444-8444-444444444444";
+    const source = createSignal();
+    const deviceWait = {
+      targetProfileId: selectedProfileId,
+      bindingId: "binding-1",
+      openMeldServiceRuntimeId: "runtime-1",
+      deadlineAtMs: Date.now() + 60_000,
+    };
+    source.data.deviceWait = deviceWait;
+    source.data.meta = {
+      ...source.data.meta,
+      deviceWait: { ...deviceWait, targetProfileId: otherProfileId },
+    };
+    const trace = {
+      runtimeCoordinatorExecution: null,
+      runtimeCoordinatorHeadLifecycle: {
+        factSource: "runtime_coordinator_head_lifecycle",
+        readStatus: "found",
+        status: "queued",
+      },
+    } as unknown as SpaceDispatchTraceSnapshot;
+    const selected = await buildWakeProgressItemFromLookupTrace(
+      trace,
+      [],
+      { targetProfileId: selectedProfileId },
+      null,
+      false,
+      false,
+      undefined,
+      source
+    );
+    expect(selected.deviceWait).toEqual({
+      deadlineAtMs: deviceWait.deadlineAtMs,
+      reason: "earlier_work",
+    });
+    const other = await buildWakeProgressItemFromLookupTrace(
+      trace,
+      [],
+      { targetProfileId: otherProfileId },
+      null,
+      false,
+      false,
+      undefined,
+      source
+    );
+    expect(other).not.toHaveProperty("deviceWait");
+    expect(other.message).toBe("Wake for @Codex Agent is queued.");
+    source.data.deviceWait = undefined;
+    const mirrorOnly = await buildWakeProgressItemFromLookupTrace(
+      trace,
+      [],
+      { targetProfileId: otherProfileId },
+      null,
+      false,
+      false,
+      undefined,
+      source
+    );
+    expect(mirrorOnly).not.toHaveProperty("deviceWait");
+  });
+
   it("shows RuntimeCoordinator head no-execution in Wake progress without claiming final Space failure publication", async () => {
     const item = await buildWakeProgressItemFromLookupTrace({
       runtimeCoordinatorExecution: null,
@@ -4619,6 +4677,41 @@ describe("space signal service", () => {
     ).toBe(false);
   });
 
+  it.each([
+    "running",
+    "publishing",
+    "publication_unknown",
+  ] as const)("projects hosted Stop from native %s evidence without a workstation execution", async (phase) => {
+    const item = await buildWakeProgressItemFromLookupTrace(
+      createWakeProgressReplyProducedTrace({}),
+      [],
+      { status: "succeeded" },
+      null,
+      true,
+      false,
+      {
+        clientMessageId: "client-message-1",
+        dispatchId: "dispatch-head-progress-1",
+        failureReasonCode: null,
+        phase,
+        sourceSignalId: "sig-source-1",
+        startedAtMs: 1000,
+        targetProfileId: "agt_33333333-3333-4333-8333-333333333333",
+        updatedAtMs: 2000,
+      }
+    );
+    expect(item.wakeStopEligibility).toEqual(
+      phase === "running"
+        ? {
+            controlMode: "cancel",
+            reasonCode: null,
+            reliability: "native_cancel",
+            status: "eligible",
+          }
+        : null
+    );
+  });
+
   it("projects cancel-backed Wake Stop eligibility into active Wake progress", async () => {
     const item = await buildWakeProgressItemFromLookupTrace(
       createRunningRuntimeCoordinatorTrace(),
@@ -4712,6 +4805,123 @@ describe("space signal service", () => {
         reliability: "unsupported",
         status: "not_eligible",
       },
+    });
+  });
+
+  it.each([
+    "result_accepted",
+    "failed_retryable",
+  ] as const)("uses Coordinator publication eligibility for %s with an expired controller report", async (status) => {
+    const trace = createRunningRuntimeCoordinatorTrace();
+    if (!trace.runtimeCoordinatorExecution) {
+      throw new Error("Missing execution fixture");
+    }
+    trace.runtimeCoordinatorExecution.status = status;
+    const db = createRuntimeAgentControllerReportDb({
+      agentControllerInterface: createAgentControllerInterfaceSnapshot({
+        cancel: false,
+        interrupt: false,
+      }),
+      expiresAtMs: Date.now() - 60_000,
+    });
+    const publicationEligibility = {
+      controlMode: "openmeld_owned_publication_cancel",
+      reasonCode: null,
+      reliability: "openmeld_owned_publication",
+      status: "eligible",
+    } satisfies WakeStopEligibilityReadModel;
+    expect(
+      await readWakeProgressWakeStopEligibilityForTest({
+        db,
+        trace,
+        publicationEligibility,
+      })
+    ).toEqual(publicationEligibility);
+    expect(db.prepare).not.toHaveBeenCalled();
+    expect(
+      await readWakeProgressWakeStopEligibilityForTest({
+        db,
+        trace,
+        publicationEligibility: null,
+      })
+    ).toBeNull();
+    expect(db.prepare).not.toHaveBeenCalled();
+  });
+
+  it("routes publication eligibility to the execution owner's Coordinator and fails closed on an older receiver", async () => {
+    const execution =
+      createRunningRuntimeCoordinatorTrace().runtimeCoordinatorExecution;
+    if (!execution) {
+      throw new Error("Missing execution fixture");
+    }
+    execution.status = "result_accepted";
+    const eligibility = {
+      controlMode: "openmeld_owned_publication_cancel",
+      reasonCode: null,
+      reliability: "openmeld_owned_publication",
+      status: "eligible",
+    } satisfies WakeStopEligibilityReadModel;
+    const fetch = vi.fn((_url: string, _init: RequestInit) =>
+      Promise.resolve(Response.json(eligibility))
+    );
+    const idFromName = vi.fn((owner: string) => owner);
+    const readRuntimeOwnerUserId = vi.fn((_runtimeId: string) =>
+      Promise.resolve("owner-1")
+    );
+    const space = Object.create(Space.prototype) as {
+      readWakeProgressWakeStopEligibility(
+        trace: SpaceDispatchTraceSnapshot
+      ): Promise<WakeStopEligibilityReadModel | null>;
+    };
+    Object.defineProperties(space, {
+      bindings: {
+        value: {
+          OPENMELD_RUNTIME_TRANSPORT: { idFromName, get: () => ({ fetch }) },
+        },
+      },
+      readRuntimeOwnerUserId: { value: readRuntimeOwnerUserId },
+    });
+    const trace = {
+      ...createRunningRuntimeCoordinatorTrace(),
+      runtimeCoordinatorExecution: execution,
+    };
+    expect(await space.readWakeProgressWakeStopEligibility(trace)).toEqual(
+      eligibility
+    );
+    expect(readRuntimeOwnerUserId).toHaveBeenCalledWith(
+      execution.openMeldServiceRuntimeId.value
+    );
+    expect(idFromName).toHaveBeenCalledWith("owner-1");
+    expect(fetch.mock.calls[0]?.[0]).toBe(
+      "https://runtime-transport.internal/runtime-coordinator/wake-stop/publication-eligibility"
+    );
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1].body))).toMatchObject({
+      ownerUserId: "owner-1",
+      runtimeCoordinatorExecutionId: execution.runtimeCoordinatorExecutionId,
+      dispatchId: execution.dispatchId,
+      targetProfileId: execution.targetProfileId,
+      sourceClientMessageId: execution.sourceClientMessageId,
+      spaceId: execution.spaceId,
+    });
+    fetch.mockResolvedValue(
+      Response.json({ ok: false, code: "not_found" }, { status: 404 })
+    );
+    expect(await space.readWakeProgressWakeStopEligibility(trace)).toBeNull();
+  });
+
+  it("keeps a running Wake ineligible when its controller report expires", async () => {
+    const eligibility = await readWakeProgressWakeStopEligibilityForTest({
+      db: createRuntimeAgentControllerReportDb({
+        agentControllerInterface: createAgentControllerInterfaceSnapshot({
+          cancel: true,
+        }),
+        expiresAtMs: Date.now() - 60_000,
+      }),
+      trace: createRunningRuntimeCoordinatorTrace(),
+    });
+    expect(eligibility).toMatchObject({
+      status: "not_eligible",
+      reasonCode: "agent_controller_interface.missing",
     });
   });
 
@@ -5261,6 +5471,7 @@ describe("space signal service", () => {
         {
           createdAtMs: Date.UTC(2026, 2, 4, 0, 1, 0),
           dispatchId: "dispatch-summary-1",
+          runningAtMs: Date.UTC(2026, 2, 4, 0, 10, 0),
           executionStatus: "running",
           sourceClientMessageId: "client-message-summary-1",
           sourceEventId: "signal-summary-1",
@@ -5281,7 +5492,7 @@ describe("space signal service", () => {
         dispatchId: "dispatch-summary-1",
         phase: "running",
         sourceSignalId: "signal-summary-1",
-        startedAtMs: Date.UTC(2026, 2, 4, 0, 1, 0),
+        startedAtMs: Date.UTC(2026, 2, 4, 0, 10, 0),
         targetProfileId: "agent-summary-1",
         terminal: false,
       }),
@@ -5635,6 +5846,7 @@ describe("space signal service", () => {
     expect(readSpaceWakeProgress).toHaveBeenCalledWith({
       actorOwnerUserId: undefined,
       clientMessageId: "client-message-hosted-stop-1",
+      includeDeviceWait: false,
       includePreviewText: false,
       includeSourceContext: false,
       includeTiming: false,

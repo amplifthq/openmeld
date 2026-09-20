@@ -142,7 +142,9 @@ function isSpaceLiveInvalidationFrame(
 		"type" in message &&
 		(message.type === "space.members.changed" ||
 			message.type === "space.meta.changed" ||
+			message.type === "space.reactions.changed" ||
 			message.type === "space.files.changed" ||
+			message.type === "space.tasks.changed" ||
 			message.type === "agent.readiness.invalidated" ||
 			message.type === "wake.progress.changed")
 	);

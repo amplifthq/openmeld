@@ -72,7 +72,10 @@ export function updateAllCachedInboxItems(input: {
 		if (!current) {
 			continue;
 		}
-		const isUnreadView = queryKey.at(-1) === "unread";
+		const isUnreadView =
+			queryKey.at(-1) === "unread" ||
+			queryKey.at(-1) === "urgent_updates" ||
+			queryKey.at(-1) === "recent_updates";
 		input.queryClient.setQueryData<InfiniteData<ListInboxItemsResponse>>(
 			queryKey,
 			{

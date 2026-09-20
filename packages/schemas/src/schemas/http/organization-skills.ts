@@ -218,8 +218,16 @@ export const organizationSkillRouteParamsSchema = z.strictObject({
   skillId: identifierSchema,
 });
 
+export const organizationSkillRuntimeReleaseSchema = z.strictObject({
+  bundle: organizationSkillBundleSchema,
+  digest: digestSchema,
+  releaseId: identifierSchema,
+  skillId: identifierSchema,
+});
+
 export const getOrganizationSkillResponseSchema = z.strictObject({
   skill: organizationSkillSchema,
+  selectedRelease: organizationSkillRuntimeReleaseSchema.optional(),
 });
 
 export const createOrganizationSkillBodySchema = z.strictObject({
@@ -384,12 +392,6 @@ export const centerAgentInstallOrganizationSkillResponseSchema =
     }),
   ]);
 
-export const organizationSkillRuntimeReleaseSchema = z.strictObject({
-  bundle: organizationSkillBundleSchema,
-  digest: digestSchema,
-  releaseId: identifierSchema,
-  skillId: identifierSchema,
-});
 export const organizationSkillRuntimeReleaseSelectionSchema = z.strictObject({
   digest: digestSchema,
   name: skillNameSchema,
@@ -409,6 +411,7 @@ export const listOrganizationSkillsRpcInputSchema = z.strictObject({
 export const getOrganizationSkillRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
   skillId: identifierSchema,
+  releaseId: identifierSchema.optional(),
 });
 export const createOrganizationSkillRpcInputSchema =
   createOrganizationSkillBodySchema.extend({
@@ -445,6 +448,7 @@ export const previewOrganizationSkillFromGitHubRpcInputSchema =
 export const readOrganizationSkillRuntimeSnapshotRpcInputSchema =
   z.strictObject({
     context: openMeldRequestContextSchema,
+    preparationIdempotencyKey: z.string().min(1).max(2048).optional(),
     releases: z
       .array(organizationSkillRuntimeReleaseSelectionSchema)
       .max(ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT),

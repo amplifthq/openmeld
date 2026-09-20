@@ -4,9 +4,28 @@ import {
   getActiveSpaceWakeProgressResponseSchema,
   getSpaceWakeProgressInputSchema,
   getSpaceWakeProgressResponseSchema,
+  wakeStopEligibilityReadModelSchema,
 } from "../../src/schemas";
 
 describe("space Wake progress HTTP schemas", () => {
+  it("accepts server-owned publication Stop without claiming native Controller control", () => {
+    expect(
+      wakeStopEligibilityReadModelSchema.safeParse({
+        controlMode: "openmeld_owned_publication_cancel",
+        reliability: "openmeld_owned_publication",
+        reasonCode: null,
+        status: "eligible",
+      }).success
+    ).toBe(true);
+    expect(
+      wakeStopEligibilityReadModelSchema.safeParse({
+        controlMode: "openmeld_owned_publication_cancel",
+        reliability: "native_cancel",
+        reasonCode: null,
+        status: "eligible",
+      }).success
+    ).toBe(false);
+  });
   it("accepts a product Wake progress response", () => {
     const parsed = getSpaceWakeProgressResponseSchema.safeParse({
       query: {

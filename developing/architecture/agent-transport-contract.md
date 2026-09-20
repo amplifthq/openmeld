@@ -49,15 +49,15 @@ owners.
   one OpenMeld Service Runtime and Agent Controller.
 - Runtime owns machine identity, lane identity, heartbeat, and observed
   Agent Controller availability.
-- Agent Profile Work Coordinator owns one workstation Agent Profile's current
-  admission slot, bounded FIFO order, and recovery hold. It does not own the
+- Agent Profile Work Coordinator owns one workstation Agent Profile's bounded
+  reservations, ordered waiting work, and recovery hold. It does not own the
   Wake payload or concrete execution truth.
 - The Space durable dispatch outbox is the production acceptance and recovery
   conveyor for interactive Space Wakes. After the current Core-owned Binding
   preflight, a workstation Wake goes directly from that outbox to
   RuntimeCoordinator and the current local OpenMeld Service. A retryable
   workstation admission remains in the same outbox and is redriven by the
-  Space alarm. An authoritatively identified hosted Center Agent may use Queue
+  Space alarm. An authoritatively identified hosted Agent may use Queue
   as a recovery transport after a retryable or outcome-ambiguous direct native
   delivery. Queue also remains the conveyor for its other queue message
   families; it is not RuntimeCoordinator authority or the default workstation
@@ -113,6 +113,17 @@ preserves FIFO order within one target. A candidate failure is isolated from
 the other target queues. After a full batch advances successfully while more
 pending records remain, the shared Space alarm schedules an immediate
 continuation; retrying or poisoned work keeps the normal durable retry cadence.
+Concurrent flush callers share one in-flight flush per Space. D1 overload is
+storage backpressure, not evidence of a malformed request or a missing Agent
+account: it does not consume the candidate poison budget. The same durable
+outbox record remains recoverable through the shared alarm. An in-memory
+retry-not-before hint suppresses additional flushes for the normal redrive
+interval; eviction can shorten that hint but cannot lose the durable work.
+Other repeated candidate exceptions retain the bounded poison behavior and
+report a request-preparation failure, not an unproven account failure.
+Local, staging, and production direct delivery use the same runtime-aware
+submission function; the Worker environment must not select a different
+workstation recovery policy. Local Core enables direct delivery by default.
 The application-level outbox responsibility states are `pending`,
 `handed_off`, and `cancelled`. `handed_off` means the selected transport
 accepted responsibility: direct RuntimeCoordinator submission for workstation
@@ -183,11 +194,86 @@ finishes. Any other legacy head that may already be executing returns
 Seeing that projection must retain the handed-off Space outbox item without
 resubmitting it on an ordinary alarm.
 
+### Explicit device waiting
+
+A new workstation Wake may explicitly request `deviceWait`, selecting the
+current Binding and OpenMeld Service Runtime with an absolute start deadline.
+The Space message and its durable dispatch outbox retain that immutable intent.
+Core verifies the selected target against current Binding and Organization
+authority. Confirmed offline availability, including a Core-confirmed offline
+route while the computer is reconnecting, may admit this Wake without creating
+an execution; ordinary Wakes keep their existing admission contract.
+
+RuntimeCoordinator owns the accepted wait, deadline, FIFO position, cancellation,
+and terminal decision. The deadline applies while waiting for either the device
+or earlier Profile work. It never restarts on redrive or FIFO promotion. The
+normal Service registration, route report, and recurring heartbeat trigger exact
+Space outbox redrive. The handed-off outbox retains the payload while its ledger
+projects `runtime_coordinator.device_waiting`; ordinary conveyor alarms do not
+create repeated delivery attempts for that owned wait. Queue and D1 remain transport
+and projections, never scheduling or execution authorities.
+
+Before first execution, Core rechecks current requester and target Space access,
+Organization authority, Binding, controller configuration, and canonical
+readiness. Local Service still validates the concrete working folder. A changed
+Binding or Runtime is a visible no-execution failure; reconnection cannot
+silently retarget work. Pending route registration may remain in the same bounded
+wait. A transport failure while reading authority is retryable, not permission.
+Fresh Usage and controller checks remain under
+`wake.device_wait.readiness_checking`; a failed Space-access read uses
+`wake.device_wait.access_check_unavailable` and `space_access_unavailable`.
+Observed `daemon.service.draining` retains its original code in the same bounded
+waiting mechanism. All keep the original deadline. The ledger's
+`runtime_coordinator.device_waiting` error code is a conveyor-ownership marker;
+the Coordinator boundary and correlated `head_waiting_boundary_recorded` ops
+decision retain the actual cause. Service heartbeats/reports recheck access as
+part of the same admission path; the access boundary is not a new scheduler.
+The next accepted Service heartbeat or report rechecks the complete admission
+path. A definitive permission, identity, or readiness blocker still terminalizes
+the Wake; checking is not a successful admission decision.
+
+Ordinary Wake preparation and explicit device waiting share the canonical
+preparation-reason policy, existing Service reports, and Coordinator recovery.
+The opt-in adds a selected device and an immutable user start deadline; it does
+not introduce a second preparation or retry policy. Once a head is accepted,
+temporary access-read outages use that same durable wait rather than an
+independent Queue retry. Every recovery attempt rechecks access before execution.
+
+Password rotation alone does not revoke these waits. The access RPC requires
+both the requester and target Profile to remain active Space members, and the
+owning protected-Space gate grants authenticated active members access before
+checking a password. This recheck does not supply the frozen outbox password;
+that credential may become stale without denying member authority. Removing
+either member still rejects the wait; possessing a password
+does not bypass this waiting-Wake membership requirement. Use Wake cancellation
+or revoke membership to stop retained work, rather than relying on a password
+change to revoke existing member authority.
+
+The owner transaction fences first execution at the deadline and against Stop.
+An expired wait publishes `wake.device_wait.expired`; cancellation, failure, and
+execution linkage cannot transition back into pre-execution waiting. Deadline
+alarms reread authority and publish only the transaction's accepted decision.
+An accepted or FIFO-queued request without an observed waiting boundary carries
+only a start deadline. Expiration uses a generic local-Agent no-execution
+category and does not invent an offline route. Both alarm and waiting-request
+expiry write `wake.device_wait.expired` with `send_new_wake`; they never inherit
+the previous boundary's restart/repair action. Historical observed causes remain
+in the ledger and ops decision evidence.
+Once execution is linked, the start deadline no longer applies. Existing durable
+result recovery, exact-conversation answer recovery, `outcome_unknown`, and
+no-automatic-replay rules continue to govern interrupted work.
+
+Public Wakeability stays `Offline` while the device is offline. An opted-in Wake
+progress reader separately receives the waiting reason and deadline, and uses
+the existing pre-agent cancellation capability. Receipt of the message, waiting,
+and actual execution remain distinct facts.
+
 Core gates fresh Work Coordinator admission with the same canonical
 Wakeability projection used by product surfaces. Its current compatibility
 identifier is `AgentExecutionReadiness`. A definitive current blocking fact
-ends as a visible pre-head no-execution outcome; it must not create a current or
-queued Coordinator item. Missing readiness evidence or working-folder report
+ends as a visible pre-head no-execution outcome, except for explicit offline
+device-wait admission above; otherwise it must not create a current or queued
+Coordinator item. Missing readiness evidence or working-folder report
 coverage, revision, freshness, initial route registration, or required Usage
 observations while Service reports catch up is not a
 definitive refusal. Core retains that same undelivered Wake through the existing
@@ -225,13 +311,60 @@ remain neutral pre-delivery progress. They must not infer that another Wake
 owns the Profile work slot, and the D1 `profile_queue_waiting` projection must
 not become a second presentation authority.
 
-When the current Wake becomes terminal, the same owner-shard transaction
-releases it, selects the next queued head, and records the minimum pending
-promotion marker. The normal path requests exact Space redrive immediately
+When a reserved Wake becomes terminal, the same owner-shard transaction
+releases only that reservation, selects eligible waiting work, and records one
+pending promotion marker per promoted Wake. The normal path requests exact Space redrive immediately
 after that transaction. The existing alarm retries only a promotion whose
 external redrive did not complete. A repeated terminal event is idempotent and
-cannot promote a second item. Route or Service `waiting` does not release the
-Profile work slot.
+cannot repeat a promotion. Route or Service `waiting` does not release a
+reservation.
+
+A Coordinator work item is only a scheduling claim over one Wake; the head
+lifecycle record and its execution token authority remain that Wake's truth. A
+claim whose head is missing or already terminal, or whose linked execution
+already holds a terminal outcome, is retired: nothing can promote it and no
+terminal transition can settle it again. Retired claims must not keep holding a
+reservation, because a `queued` head carries no deadline of its own, so every
+later Wake would accumulate behind work that can never run. New-Wake admission
+therefore reconciles that Profile's claims against canonical head truth inside
+the same owner-shard transaction, retires the whole proven-retired set in one
+transition, prunes the matching active references, and promotes eligible
+successors through the ordinary promotion marker and redrive path. Missing or
+unreadable execution authority keeps its claim; only proven-retired work is
+released. A paused Coordinator is left untouched, because its recovery gate
+holds the reservation for an owner decision. Active-reference repair does not
+replace this reconciliation: it rebuilds references from canonical storage keys
+and cannot reconstruct queue metadata.
+
+Independent workstation tasks use Core-assigned Execution Contexts. Core admits
+at most five contexts for one Agent Profile, with one writer per context and
+at most 50 waiting Wakes. Legacy work without a context drains exclusively.
+Context selection is explicit for new work and forks, and scoped to the exact
+requester, Organization, Space, discussion, Profile, Binding, and Runtime.
+Admission freezes both the context assignment and a decision to retain legacy
+continuity. Linking an execution or redriving a Wake cannot assign it again.
+
+Core retains each accepted Wake's context association and completed native
+history checkpoint independently of the in-flight Head lifecycle. Head retirement
+must not erase a source needed for continuation or a completed-prefix fork.
+These records describe identity and history; they do not decide current execution
+or publication. Validated task results must echo the assigned context, and native
+conversation ownership cannot move to another context. Receipt validation may
+reserve immutable native identity, but a proposal that still requires review
+does not freeze fork-visible history. The checkpoint is committed atomically
+with the accepted finalization command before terminal promotion, using the
+final repair or reconsideration turn when present. Accepted commands and their
+checkpoints remain immutable under replay. Scoped results never overwrite the
+Profile Binding's legacy native conversation.
+
+A fork whose source never froze a checkpoint still inherits the exact source
+context, Wake, native conversation, and workspace from that retained
+association; only its completed prefix is left unassigned. An interrupted or
+provider-occupied dispatch produces exactly that residue. Such a fork is
+admitted only for a harness whose retained history can name a settled boundary
+under read-only preparation, and the Service confirms and journals that exact
+cutoff before creating the child. A harness that needs its boundary identified
+up front is refused rather than forked at a guessed point.
 
 A structured `usage_exhausted` terminal outcome is the deliberate exception to
 ordinary promotion: the Coordinator retains the interrupted work identity and
@@ -374,6 +507,40 @@ RuntimeCoordinator execution follows one authority path:
 
 Important execution rules:
 
+- For an accepted/running execution whose current Service transport is unavailable,
+  RuntimeCoordinator retains the same execution for a 30-minute communication
+  recovery window, anchored to its last accepted local progress. This is not a
+  total runtime deadline. Opening a socket or checking a watchdog cannot extend
+  that baseline; fresh accepted progress from the same token run ends the old
+  uncertainty. A reconnection after the last accepted progress also retains that
+  window when the watchdog missed the offline interval; registration alone does
+  not prove that execution evidence has caught up. A continuously connected
+  controller with stale progress keeps the ordinary
+  five-minute policy. Stop, revocation, confirmed failure, and replacement-process
+  reconciliation take precedence. Window expiry retains `runtime.progress_stale`
+  and the existing owner-mediated late-result recovery, never automatic rerun.
+- The five-minute policy names the cause it actually found. An occupied native
+  conversation reports its occupancy once and then goes quiet, so it reaches the
+  same threshold looking like a lost computer. When the blocked work item still
+  carries `waitReason = controller_conversation_occupied`, the terminal closes as
+  `runtime.controller_conversation_occupied` instead, on the same deadline and
+  with the same retained late-result recovery. Occupancy is read from the
+  Coordinator's own admission state, never from D1. A conversation released
+  before the threshold clears that wait reason, so an ordinary stall keeps
+  `runtime.progress_stale` and its "reconnect the computer" copy.
+- After transport hibernation, accepted runtime evidence and tool/reasoning
+  progress read the durable command when its transient transport entry is gone.
+  This read projection does not recreate execution authority. Lease, source
+  message, execution identity, token and owned-reconnection checks still apply.
+  Tool/reasoning publication additionally requires the current session socket
+  and connection generation. Missing durable command state remains an explicit rejection.
+- Watchdog scheduling is a bounded Durable Object projection of command and token
+  authority. Command writes and terminal transitions update it transactionally.
+  Existing history is repaired in pages with a durable cursor, without deleting
+  history. Each alarm reads at most ten due items and repairs at most ten legacy
+  records; authoritative eligibility is rechecked before spending execution
+  budget. Failed items receive a bounded retry timestamp so later work can advance.
+  Scheduling timestamps are not progress evidence or execution authority.
 - A controlled OpenMeld Service update, reinstall, or repair first marks the
   current Runtime Transport route as not accepting new dispatches. The existing
   socket remains connected while owned local executions continue to report
@@ -405,8 +572,9 @@ Important execution rules:
   return `daemon.profile.pending_first_report` while the intended owner's
   OpenMeld Service is still heartbeat-fresh but has not reported that Agent
   Profile's Wake route. RuntimeCoordinator must keep that Wake in its durable
-  head-waiting boundary for the existing five-minute hard deadline and redrive
-  it when the route report arrives. Queue attempt count alone must not
+  head-waiting boundary and redrive it when the route report arrives. Ordinary
+  Wakes keep the existing five-minute hard deadline; an explicit device wait
+  keeps its frozen start deadline. Queue attempt count alone must not
   terminalize the Wake during this window. If the bounded wait expires, failure
   publication preserves `daemon.profile.pending_first_report` and explains that
   the Service was connected but the agent did not become ready; it must not
@@ -449,7 +617,9 @@ Important execution rules:
   terminalizing, or successfully settled row is not failure evidence.
 - Hosted direct-first transport is allowed only after the Space durable outbox
   write and an authoritative Core Binding preflight confirms
-  `hosted_center_agent`. If that check no longer holds, or direct admission
+  `hosted_center_agent` or `hosted_remote_agent`. Personal hosted Agents must
+  also pass current owner, Organization membership, and Binding checks; they
+  do not require or inherit Center Agent designation. If that check no longer holds, or direct admission
   needs retry, Core enqueues the exact same idempotent dispatch. Queue recovery
   must resume the native-delivery ledger/request; it must not fork the Wake into
   RuntimeCoordinator or create a second worker submission.
@@ -462,6 +632,12 @@ Important execution rules:
   user-visible side effect started. This startup boundary must be cleared as
   soon as initialization succeeds; it must never become a total Agent execution
   deadline or retry a turn whose outcome may be ambiguous.
+  A timed-out `thread/start` also has an unknown allocation outcome and must not
+  be automatically repeated. Confirm the owned process exited before a safe
+  handshake retry. Preserve the first handshake failure if the retry fails;
+  startup diagnostics may expose only bounded, allowlisted phase/status hints,
+  never raw stderr, private paths, MCP names, or credentials. These observations
+  are not execution authority or proof of the cause of a timeout.
 - `accepted_local` means OpenMeld Service has accepted the task on the user's
   computer. If the runtime has not started yet, the local service must attach
   queue diagnostics so Trace can explain whether the task is waiting for the
@@ -470,6 +646,12 @@ Important execution rules:
   `accepted_local` after local process startup until that provider accepts the
   exact turn; process spawn, protocol stdout, and conversation occupancy are
   not `running` evidence.
+- Working-time presentation projects the existing first `runningAtMs` from
+  accepted Coordinator lifecycle state. The lifecycle event ledger preserves
+  this timestamp through keepalive replacement; its observation timestamp and
+  execution creation timestamp are not working-start evidence. Older records
+  without this fact omit working time. This read projection does not change
+  execution or timeout authority.
 - A provider's versioned Agent Controller conversation occupancy contract may
   keep the current Wake at the Profile FIFO head after local execution starts.
   A structured occupied admission is non-terminal: the Service reports it as
@@ -519,6 +701,14 @@ Important execution rules:
   incomplete cancellation keeps retry evidence in the Space
   membership-liveness alarm instead of leaving a removed Agent with an
   indefinitely active Wake presentation.
+  Old retryable deliveries that never acquired a head are also subject to
+  deletion: a confirmed missing Profile must converge through the existing
+  RuntimeCoordinator pre-agent Stop and System Message publication path, not
+  retry owner discovery forever. Core-recorded dispatch ownership can address
+  this cancellation after Auth deletion; it never authorizes new execution.
+  Missing identity and temporarily unavailable identity lookup remain distinct.
+  A linked execution or existing terminal head keeps its RuntimeCoordinator
+  authority; deletion recovery must not replace its outcome or restart work.
 - Space access authority must stay structured across the Wake path. When Core,
   Space, dispatch, or RuntimeCoordinator code carries a `SpaceAccessContext`, it
   must preserve the access actor kind through internal RPC and direct Durable
@@ -586,6 +776,13 @@ exact-execution exception or cancel. It must not become a stored approval, a
 profile override, or a reason to interrupt default-policy runs. A working
 folder that is provably outside the active boundary is a deterministic denied
 outcome and does not ask the owner to reconsider the policy on every Wake.
+
+An explicit decline of that exact permission request becomes a stopped outcome
+through RuntimeCoordinator's existing accepted-result Stop path. The Service
+reports `computer.file_access.owner_declined`; Core verifies its durable receipt
+and execution identity before Space elects the final claim. Retries reuse the
+same stopped publication and acknowledgement. An expired/interrupted waiter or
+legacy ambiguous `owner_cancelled` result is not evidence of explicit refusal.
 
 ### Runtime Transport And RuntimeCoordinator Boundary
 
@@ -751,6 +948,11 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   `503`. The projection must never degrade a lookup failure into
   `profile.inactive`: consumers keep their current catalog on a failed read,
   while a false inactive would deregister live routes.
+- Core obtains the target runtime's Profile facts from Auth's bounded
+  `resolveProfilesByIds` RPC. Every requested ID needs either its matching fact
+  or explicit absence. Missing response entries, identity mismatches and a
+  failure in any batch invalidate the whole catalog read. Batching does not
+  weaken the per-Profile owner, kind, status or runtime checks.
 - The projection is a read. It is not lease, registration, or deregistration
   authority. After a rebind, the next read stops including the route;
   in-flight lease arbitration stays with Runtime Transport.
@@ -785,10 +987,14 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   whether resolution used the Default Project or Profile workspace, and carries
   the local Project `bindingGeneration` (as
   `localProjectBindingGeneration`) when applicable. The Core trust matcher
-  accepts the set only while those current identities match and every
-  observation is fresh. The Core-owned Wakeability projection consumes that
-  matcher as its current working-folder gate; missing, legacy, partial, stale,
-  duplicated, or identity-mismatched evidence remains unknown and fails closed.
+  checks the requested Profile against its Auth-owned Default Project and the
+  Core-owned primary Binding already read for that readiness decision. Exactly
+  one matching observation must be fresh and belong to the current Service
+  session, device, and lane. Missing, legacy, stale, duplicated, or
+  identity-mismatched target evidence remains unknown and fails closed. An
+  unrelated Profile's missing or stale observation does not block this target.
+  Full expected-route reconciliation retains responsibility for catalog
+  completeness and registration; a readiness read does not reload the catalog.
   `localProjectBindingGeneration` is an opaque Service-owned local connection
   identity. Core does not compare it with a cloud generation; a later accepted
   current-session report replaces the earlier generation and triggers
@@ -796,6 +1002,12 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   Missing or invalid facts use the precise Project/workspace reason codes from
   the shared schema; local folder paths never cross the Service boundary.
   Historical Wake outcomes never substitute for this current observation.
+  Space member/status and Organization directory readiness use the same Core
+  decision. Profiles in one request share existing Runtime registry and
+  Controller report reads; no result survives into another request. Each
+  target still passes its own identity, revision, and freshness checks. A
+  failed target read fails closed for that target and the next request reads
+  fresh facts. Readiness does not grant an execution lease or publish a reply.
 - Controller target changes, Controller unbinding, and local working-folder
   changes use an owner-sharded RuntimeCoordinator execution-state read that
   spans every Space. Web may use that read to disable disruptive actions
@@ -845,6 +1057,12 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   indexes. Collection and page-apply failures share the same fail-closed,
   backoff-based state machine. Reference overflow is explicit and bounded, and
   the ready-state hot path never scans total account history.
+  Legacy active references without FIFO work metadata remain fail-closed for
+  that Profile's operational-context display. They are not an active-index
+  inconsistency when the Profile is correctly indexed: rebuilding active
+  references cannot reconstruct FIFO metadata and must not repeatedly make
+  every other Profile's mutation admission unavailable. Execution-state reads
+  continue to honor those canonical active references.
 - Removing a visibly settled execution head does not release duplicate
   protection. The deterministic terminal execution-token authority rejects an
   exact head and dispatch replay before admission; D1 history may explain the
@@ -918,31 +1136,32 @@ drift.
 
 Core may project `Unavailable` before a new Wake when the exact current Agent
 Controller report contains a reliable, fresh Usage Limit that explicitly says
-Usage is exhausted. When the shared versioned Local Agent capability matrix
-declares native Usage support, a missing, stale, expired, unavailable, or
-otherwise unconfirmed current observation projects `Checking` and rejects new
-Wake admission. Core and the Local Service must consume that same matrix.
+Usage is exhausted. Missing, stale, expired, unavailable, or otherwise
+unconfirmed Usage does not add an admission block to an otherwise ready Agent.
+The provider owns actual capacity enforcement; its auxiliary quota endpoint is
+not an execution prerequisite. Core and the Local Service consume the same
+versioned capability matrix to interpret reliable exhaustion evidence.
 Explicitly unsupported Usage and Local Agents whose Usage reporting is passive
 or not evaluated do not use Usage as an admission condition. A provider-scoped
 controller is filtered by the provider prefix of the Binding's selected model
-before this verdict is computed. A supported selected provider therefore fails
-closed on missing or unconfirmed evidence, while an exhausted unselected
-provider cannot block that Agent Profile. A Binding whose provider cannot be
+before this verdict is computed. An exhausted unselected provider cannot block
+that Agent Profile. A Binding whose provider cannot be
 resolved remains compatible and does not gain a guessed Usage admission
 condition. An ACI report
 declares the matrix it implements through
 `usageLimitsSupportMatrixVersion`. If that optional field is absent, Core
-treats the report as a parseable legacy contract, but it cannot authorize new
-work for a controller whose reviewed matrix requires native Usage. Missing,
-mismatched, or unconfirmed Usage fails closed as bounded `Checking`. A
+treats the report as a parseable legacy contract and does not infer a new
+Usage-specific block from it. This does not relax authentication, permissions,
+current Controller readiness, or execution identity checks. A
 percentage alone, low-capacity warning, generic quota wording, or ordinary
-transient `429` is never proof of exhaustion. Core derives all three outcomes
+transient `429` is never proof of exhaustion. Core derives this additional block
 from the already-held structured report and does not call the provider on the
 Wake hot path.
 
 The same exact-version rule gates Usage recovery after an accepted Wake. A
-legacy report remains parseable, but it neither authorizes a new Wake nor
-triggers automatic continuation under a newer Core capability matrix.
+legacy report remains parseable, but cannot trigger automatic continuation
+under a newer Core capability matrix. Missing Usage must never release work
+already held after a proven exhausted execution.
 
 After a Wake is accepted, a provider failure changes later Wakeability only
 when the result carries fresh structured hard-blocker evidence for the exact
@@ -1161,6 +1380,14 @@ Runtime results use the Space action contract:
   Claude Code, Cursor, Grok Build, OpenCode, and future controllers use the same Space
   action boundary rather than provider-specific coordination prompts.
 
+Reply publication and observation use the source message's conversation scope.
+A main-timeline source remains in the main scope when a thread is opened beneath
+it; a `root` placement does not move that Wake into the thread. Only a source
+posted inside a thread defaults its outcome to that thread. Thread reads and
+the atomic reply guard both accept that thread's root as an observation cursor,
+including when there are no replies yet. Other threads' cursors remain invalid,
+and newer messages in the observed scope still require review.
+
 ACP is an adapter transport, not a second execution lane. Cursor and Grok Build
 may share JSON-RPC/session/process mechanics inside adapter core, but each
 adapter owns its vendor launch, authentication, model, interaction, and error
@@ -1186,8 +1413,10 @@ coordination context, not proof that the current Agent's work is wrong. If that
 bounded delta is empty,
 the proposed action carries the current observation cursor without another
 controller turn. If the delta is non-empty, Service continues the exact same
-Agent Controller conversation in repair mode with only the previous proposed
-action and the bounded newer messages. It reads again after that turn whenever
+Agent Controller conversation in repair mode with the previous proposed
+action and a bounded view of already observed and newer messages. Native repair
+forks may start from the canonical parent each time, so the review input must
+not assume that a preceding review's messages exist in that fork. It reads again after that turn whenever
 Space atomically reports that collaboration advanced again.
 The earlier dispatch-scoped Space Action remains an unpublished, replaceable
 proposal even if its local command reported that OpenMeld accepted it. The
@@ -1199,18 +1428,24 @@ preserved as superseded evidence. Missing exact-conversation identity fails
 explicitly instead of starting a fresh conversation. There is no semantic
 review-count limit: a fixed count can discard a valid result in a legitimately
 busy business workflow. Context remains bounded because every review reads at
-most 20 signals, bounds each rendered signal, and advances from the last
-observed Space cursor. RuntimeCoordinator Stop, execution authority, and real
+most 20 signals and advances from the last observed Space cursor. Within the
+coordination call, Service retains at most the latest 20 distinct relevant
+signals in publication order and renders at most 2,000 characters per signal.
+It identifies the last omitted signal and marks truncated text so the Agent
+can consult authorized Space/thread history when those details matter. This
+view is ephemeral public context, not a private transcript, read receipt,
+execution authority, or replacement canonical conversation. RuntimeCoordinator Stop, execution authority, and real
 transport failure remain the terminal controls; context review is not a new
 Wake, retry of external work, or unbounded transcript replay.
 
-An unavailable pre-publication read records diagnostic evidence and carries the
-dispatch source signal as the conservative observation cursor. The Space atomic
-check remains the final safety boundary and rejects the action if collaboration
-actually changed. This optimization helps later-finishing parallel Agents adapt;
-it does not serialize execution or replace explicit Center Agent delegation and
-Agent Task Coordination when work needs planned ownership, completion barriers,
-or parent synthesis.
+An unavailable pre-publication read records diagnostic evidence and fails the
+Wake explicitly with `dispatch.agent_reply_observation.unavailable`; it does not
+invent an empty delta or a successful observation cursor. The recorded action
+remains an unpublished proposal. After a successful read, the Space atomic check
+still rejects publication if collaboration advanced again. Context review helps
+later-finishing parallel Agents adapt; it does not serialize execution or replace
+explicit Center Agent delegation and Agent Task Coordination when work needs
+planned ownership, completion barriers, or parent synthesis.
 
 ### Agent Transport Space Action Delivery
 
@@ -1335,13 +1570,63 @@ Execution Recovery action. It uses the owner-only continuation path described
 above, so closing the public action cannot disable deterministic Usage
 recovery.
 
+Storing the owner's continuation decision and holding a safe permit to start
+the replacement work are separate facts. A Core terminal decision is not the
+permit: a stale-evidence terminal is a decision made from missing evidence, so
+the local Agent may still be queued on the conversation the interrupted work
+was waiting for, and starting a replacement on that basis is what produces two
+attempts at one instruction.
+
+Accepting a cancellation is not the permit either. Control acceptance says the
+request was taken: an adapter can register a stop signal before the provider
+turn is acknowledged, and interrupting a started turn is a request, not a
+completion barrier. The permit is the adapter's own statement that it withdrew
+the attempt before any provider turn began. A stop requested after a turn
+started is a different outcome: that turn keeps its result and whatever effects
+it already produced, so it must not be replayed as never-executed work. An
+adapter that cannot tell the two apart says nothing, and silence stays unproven
+rather than becoming permission.
+
+That statement is carried on the existing local control result, correlated with
+the exact execution, dispatch, task, and delivery session, and kept as durable
+per-execution evidence pinned to the run it answers for. A late acknowledgement
+cannot retire a run that a newer one superseded, and the evidence must be
+accepted even when the Wake Stop lifecycle cannot advance a terminal execution,
+because it is the only fact replacement work can verify. A head that never
+linked an execution never reached a computer and needs no withdrawal.
+
+Accepting a withdrawal removes the Service's inflight record, so the Service
+keeps a bounded receipt of what that withdrawal established and answers a repeat
+request from it. Without that, a lost response would downgrade a proven fact to
+"no such task", which cannot be turned back into proof and would block the
+owner's choice on evidence that merely went missing in transit. Absence from an
+inflight registry is never itself proof: it does not establish that no provider
+work or side effect remains. A Service restart before the proof reaches Core
+leaves the attempt unproven, which keeps the replacement withheld.
+
+Every continuation attempt rereads that prerequisite, including a retry that
+reuses a stored authorization, and re-requests the withdrawal instead of
+assuming an earlier cancellation landed. An unproven withdrawal withholds the
+replacement and reports an explicit awaiting-stop stage with the owner's
+decision retained; it is never an unexplained stall, a silent permission to
+start, or a claim that the attempt stopped. Skip promises only that OpenMeld
+will not continue the work, which Core decides on its own; it requests the same
+withdrawal but does not wait on it, and its copy must not imply that the local
+attempt has stopped or that completed side effects are undone.
+
+An owner shard that predates this prerequisite cannot answer it. Durable Object
+code propagates after a Worker deploy, so an unanswered prerequisite is "not yet
+known": it withholds the replacement and stays retryable. It is never read as
+permission to start a second attempt at the same instruction.
+
 An explicit user Stop is not automatically recoverable. A process crash with
 no result must not fabricate completion. An external-side-effect outcome that
 cannot be proven remains outcome-unknown and must not be automatically rerun.
 Transport reconnect/redrive preserves the same execution identity.
 
 If RuntimeCoordinator has already closed an execution as
-`runtime.progress_stale` or `runtime.local_runtime_lost`, an exact
+`runtime.progress_stale`, `runtime.controller_conversation_occupied` or
+`runtime.local_runtime_lost`, an exact
 token-run-matching successful result may be accepted into that same dispatch
 result inbox as `late_result_available`. Core publishes one idempotent recovery
 notice that references the retained result without rerunning the original Wake.
@@ -1472,6 +1757,47 @@ lease, task, authoritative Space, target Agent Profile, and source signal all
 match the pending RuntimeCoordinator execution.
 
 Core processes tool-activity and result frames in arrival order per dispatch.
+Local Agent reasoning uses `daemon.dispatch.reasoning` and the existing Space
+thinking delta channel, with the same execution-token and identity checks as
+tool activity. It never enters a tool part or persisted Work summary. The
+account owner preference defaults enabled and is stored by the owner-sharded
+RuntimeTransportHub. The Service announces support with
+`x-openmeld-reasoning-stream: 1`; Core sends the preference only to announcing
+connections. Until that negotiation succeeds, a Service sends no reasoning.
+Older peers continue to execute and publish Wakes normally.
+
+The Service sends a full latest snapshot capped at 8,192 characters: first
+output immediately, later changes at most every 100 ms. It retains at most
+eight bounded blocks, drops live output under socket backpressure, and clears
+the buffer when disabled or disconnected. The Hub permits at most one pending
+reasoning delivery per dispatch rather than building a backlog of private text.
+Live delivery failure must not fail execution. Space persists only the existing
+stream identity, cursor, and presence metadata for thinking, never its body.
+Space may retain the latest accepted thinking frame in instance memory for
+authenticated live-connection replay. This tail is bounded to 8,192 characters
+per stream, 128 streams per Space, and 30 minutes since its last thinking
+frame. Replay checks the active stream identity and uses the existing viewer
+reply-placement projection, then rechecks the live viewer's access before sending.
+Local reasoning replay also requires the current owner's cloud preference to
+permit sharing; an unavailable owner or preference fails closed. Preference
+changes clear tails for the Hub's pending dispatches through a Core-only Space
+RPC, without waiting for the local Service. Clearing invalidates replay already
+awaiting authorization and prevents an in-flight write from restoring the cache.
+A disabled frame replaces the private tail with
+empty text, and stream closure removes it. No tail is written to Durable Object
+storage, WebSocket attachments, or browser persistence. Instance eviction,
+restart, or tail expiry loses this optional replay; subsequent producer output
+is still needed in those cases. Replay is presentation only and cannot advance
+execution state. Web may fill a missing transient tail behind a newer presence
+cursor, but must not overwrite a received tail or disabled state.
+Web renders lightweight sanitized Markdown in a bounded transient viewport,
+reusing the message renderer without raw HTML, images, code highlighting,
+code controls, or per-token animation. The first tail opens automatically;
+tool/reasoning phase changes preserve the user's disclosure choice and manual
+scroll position. Reopening resumes following the latest text. Collapsed tails
+do not mount the Markdown renderer. Neither private final replies nor tool inputs and
+outputs are added to this stream.
+
 The Space part RPC must finish before the matching result may retire execution
 authority or begin finalization. This ordering is dispatch-scoped: heartbeat
 handling and unrelated dispatches must not wait behind one slow Space stream
@@ -1640,6 +1966,40 @@ publication record and a pending terminal-projection index atomically. Its
 bounded-work alarm retries the D1 projection and clears the index only after
 Core accepts it. A transient Core failure therefore cannot leave a visibly
 stopped child permanently invisible to its parent subscription.
+
+An accepted local result retires its execution token, but does not complete the
+Wake's cloud publication obligation. Stop for that accepted result runs through
+the same RuntimeCoordinator finalization serializer without contacting the old
+Service. RuntimeCoordinator verifies the exact accepted inbox result against its
+stored execution authority before reconstructing a missing legacy finalization
+command. It persists the command and retry before recording the Stop fence.
+Space elects the stopped notice through the same atomic final-outcome claim as
+reply publication; an already-persisted final outcome wins. Only that persisted
+claim permits RuntimeCoordinator to settle cancellation and project dependent
+task outcomes. An unavailable Space claim leaves durable repair pending; it
+must not become a successful Stop or trigger another Agent execution.
+
+The Stop request waits for its serialized finalization operation, including
+work already ahead of it. The serializer's short observation window is not a
+Stop rejection or evidence that execution state changed. Return the operation's
+actual result; a published stopped notice permits success, while unavailable
+publication keeps the existing retryable failure. The transport request deadline
+still applies and does not imply that cancellation failed or completed.
+
+The internal `rpcApplyRuntimeCoordinatorWakeStopCommand` uses the existing shared
+finalization-command and claim-read schemas. If that RPC is unavailable during
+a Core rollout, Stop returns `retry_later` and preserves the repair command.
+It does not require a CLI, Service, or Agent Controller protocol upgrade.
+
+For an accepted-but-unpublished execution, viewer-authorized Space progress
+reads ask RuntimeCoordinator for publication Stop eligibility. Its read-only
+endpoint checks the stored `result_received` lifecycle, nonterminal authority,
+and exact request scope; the absence of a current token run or fresh Controller
+report does not remove this server-owned capability. Missing or terminal
+authority returns no eligibility. An execution still running locally keeps the
+existing fresh cancel/interrupt report requirement. The existing Stop mutation
+continues to validate the accepted result and elect the final Space claim;
+eligibility cannot cancel work, publish a notice, or advance recovery.
 
 Wake execution invariants:
 

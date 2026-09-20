@@ -125,11 +125,13 @@ export async function listSpaceThreadSignals(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput & {
     afterSignalId?: string;
+    includeWakeContinuation?: true | "conversation";
     limit?: number;
     threadId: string;
   }
 ): Promise<ListSpaceThreadSignalsResponse> {
   const parsedQuery = listSpaceThreadSignalsQuerySchema.safeParse({
+    includeWakeContinuation: input.includeWakeContinuation,
     afterSignalId: input.afterSignalId,
     limit: input.limit,
   });
@@ -139,16 +141,12 @@ export async function listSpaceThreadSignals(
         "Invalid bounded thread signals query"
     );
   }
-  const hasBoundedQuery = parsedQuery.data.afterSignalId !== undefined;
   return await client.requestJson({
     url: buildSpaceThreadSignalsPath(
       input.spaceId,
       input.threadId,
-      hasBoundedQuery
-        ? {
-            afterSignalId: parsedQuery.data.afterSignalId as string,
-            limit: parsedQuery.data.limit as number,
-          }
+      parsedQuery.data.afterSignalId || parsedQuery.data.includeWakeContinuation
+        ? parsedQuery.data
         : undefined
     ),
     operation: "space.thread.signals",

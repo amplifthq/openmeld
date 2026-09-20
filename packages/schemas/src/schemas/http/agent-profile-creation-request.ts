@@ -1,10 +1,36 @@
 import * as z from "zod/v4";
-import { agentControllerRefSchema } from "../daemon/agent-controller-ref";
+import {
+  agentControllerRefSchema,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+} from "../daemon/agent-controller-ref";
 import { agentProfileCreationPreferenceSelectionSchema } from "./agent-profile-binding";
 
 const identifierSchema = z.string().trim().min(1).max(256);
+// Launch hold, not legacy: retain teammate requests for isolated development
+// of Request an Agent. Self-owned creation still uses this request contract.
+// Reopening checklist: developing/product/agent-profiles.md#teammate-request-launch-hold
+export const TEAMMATE_AGENT_REQUESTS_ENABLED: boolean = false;
+
 const profileNameSchema = z.string().trim().min(1).max(80);
 const isoDateTimeSchema = z.iso.datetime({ offset: true });
+
+export const agentProfileCreationRequestSelectorSchema = z
+  .object({
+    requestId: identifierSchema.optional(),
+    idempotencyKey: identifierSchema.optional(),
+  })
+  .refine((value) => !(value.requestId && value.idempotencyKey), {
+    message: "Select a request by its ID or idempotency key, not both.",
+  });
+
+// A notification to execute the existing durable request, never a copy of its
+// authorization or creation configuration.
+export const agentProfileCreationExecutionMessageSchema = z.strictObject({
+  kind: z.literal("agent_profile_creation"),
+  v: z.literal(1),
+  organizationId: identifierSchema,
+  requestId: identifierSchema,
+});
 
 export const agentProfileCreationApprovalPolicySchema = z.enum([
   "never_allow",
@@ -59,6 +85,28 @@ const completeAgentProfileCreationConfigurationSchema =
       const hasComputer = configuration.targetComputerId !== null;
       const hasCandidate =
         configuration.localAgentConnectionCandidateId != null;
+      if (
+        configuration.agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF
+      ) {
+        for (const key of [
+          "targetComputerId",
+          "localAgentConnectionCandidateId",
+          "defaultProjectId",
+          "agentControllerCollaborationMode",
+          "agentControllerPermissionMode",
+          "openCodePermission",
+          "reasoningLevel",
+        ] as const) {
+          if (configuration[key] != null) {
+            context.addIssue({
+              code: "custom",
+              message: "Remote Agents do not use local agent settings.",
+              path: [key],
+            });
+          }
+        }
+        return;
+      }
       if (hasController !== hasComputer) {
         context.addIssue({
           code: "custom",
@@ -208,6 +256,17 @@ export const createAgentProfileCreationRequestBodySchema = z
   })
   .superRefine((request, context) => {
     const nativeSessionId = request.nativeSessionId ?? null;
+    if (
+      request.configuration?.agentControllerRef ===
+        HOSTED_REMOTE_AGENT_CONTROLLER_REF &&
+      request.sessionStrategy !== "new"
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Remote Agents start a new conversation.",
+        path: ["sessionStrategy"],
+      });
+    }
     if (request.sessionStrategy === "new" && nativeSessionId !== null) {
       context.addIssue({
         code: "custom",
@@ -229,8 +288,25 @@ export const createAgentProfileCreationRequestResponseSchema = z.strictObject({
   request: agentProfileCreationRequestSchema,
 });
 
+// Compare the creation intent, not JSON field order or the transport envelope.
+// Both the durable record and a validated command normalize through this shape.
+export const agentProfileCreationIntentSchema = z
+  .object(createAgentProfileCreationRequestBodySchema.shape)
+  .transform((intent) => ({
+    configuration: agentProfileCreationConfigurationSchema.parse(
+      intent.configuration ?? DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION
+    ),
+    nativeSessionId: intent.nativeSessionId ?? null,
+    profileName: intent.profileName,
+    requestedSpaceId: intent.requestedSpaceId ?? null,
+    sessionStrategy: intent.sessionStrategy,
+    source: intent.source,
+    targetOwnerUserId: intent.targetOwnerUserId,
+  }));
+
 export const listAgentProfileCreationRequestsResponseSchema = z.strictObject({
   organizationId: identifierSchema,
+  matchedIdempotencyKey: identifierSchema.optional(),
   requests: z.array(agentProfileCreationRequestSchema).max(200),
 });
 

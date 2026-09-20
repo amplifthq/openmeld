@@ -16,6 +16,29 @@ const WRITING_ITEM: WakeProgressItem = {
 };
 
 describe("Wake progress client projection", () => {
+  it("includes device waiting details only for clients that opt into that contract", () => {
+    const waiting: WakeProgressItem = {
+      ...WRITING_ITEM,
+      phase: "request_sent",
+      deviceWait: {
+        deadlineAtMs: WRITING_ITEM.updatedAtMs + 60_000,
+        reason: "device_offline",
+      },
+    };
+    expect(
+      projectWakeProgressItemsForClient({
+        items: [waiting],
+        includePreviewText: true,
+      })[0]
+    ).not.toHaveProperty("deviceWait");
+    expect(
+      projectWakeProgressItemsForClient({
+        items: [waiting],
+        includePreviewText: false,
+        includeDeviceWait: true,
+      })[0]
+    ).toMatchObject({ deviceWait: waiting.deviceWait });
+  });
   it("omits live reply preview text unless the client opts in", () => {
     const [item] = projectWakeProgressItemsForClient({
       includePreviewText: false,

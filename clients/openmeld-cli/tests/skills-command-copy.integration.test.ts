@@ -24,6 +24,7 @@ import {
   runSkillsUpdate,
 } from "../src/commands/skills";
 import { setConfiguredSkillsConfig } from "../src/config/runtime-config";
+import { computeDirectoryContentHash } from "../src/skills/content-hash";
 import { withCapturedStdio, withTempHome } from "./helpers/fs";
 
 describe("skills command copy", () => {
@@ -95,7 +96,10 @@ describe("skills command copy", () => {
             managedBy: "openmeld",
             skillId: "openmeld-cli",
             mode: "copy",
-            contentHash: "stale-hash",
+            contentHash: await computeDirectoryContentHash({
+              rootDir: skillDir,
+              ignoredNames: [".openmeld-skill.json"],
+            }),
             version: "0.0.0",
             updatedAt: new Date().toISOString(),
           },

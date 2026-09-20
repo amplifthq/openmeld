@@ -1,9 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { runAgentActivityDigestTick } from "../src/agent-activity/activity-digest-service";
-import type { recoverCenterAgentTaskWork } from "../src/center-agent-tasks/application/center-agent-task-service";
+import type { deleteExpiredServiceConnectionIncidents } from "../src/computers/service-connection-evidence-repo";
 import type { retryInboxUrgentEmailDeliveries } from "../src/inbox/application/inbox-email-delivery-service";
 import type { CoreBindings } from "../src/lib/bindings";
-import type { retryPendingCenterAgentTaskTerminalProjections } from "../src/remote-agent/application/native-delivery-service";
 import {
   AGENT_ACTIVITY_RETENTION_CRON,
   EVAL_WEEKLY_REPORT_CRON,
@@ -12,7 +11,22 @@ import {
   WAKE_EVIDENCE_RETENTION_CRON,
 } from "../src/scheduled/core-scheduled-tasks";
 
+const { deleteExpiredConnectionIncidents } = vi.hoisted(() => ({
+  deleteExpiredConnectionIncidents:
+    vi.fn<typeof deleteExpiredServiceConnectionIncidents>(),
+}));
+
+vi.mock("../src/computers/service-connection-evidence-repo", () => ({
+  deleteExpiredServiceConnectionIncidents: deleteExpiredConnectionIncidents,
+}));
+
 describe("Core scheduled task dispatcher", () => {
+  beforeEach(() => {
+    deleteExpiredConnectionIncidents
+      .mockReset()
+      .mockResolvedValue({ deleted: 0 });
+  });
+
   it("routes the weekly eval Cron without running unrelated retention", async () => {
     const runWeeklyEvalReport = vi.fn(async () => ({
       organizationId: "org-official",
@@ -108,8 +122,9 @@ describe("Core scheduled task dispatcher", () => {
     const retryAgentProfileCreationRequestInboxProjections = vi.fn(
       async () => ({ completed: 1, failed: 0, scanned: 1 })
     );
-    const recoverStaleAgentProfileCreationRequests = vi.fn(async () => ({
+    const recoverAgentProfileCreationRequests = vi.fn(async () => ({
       markedFailed: 1,
+      redelivered: 0,
       scanned: 1,
       superseded: 0,
     }));
@@ -122,25 +137,6 @@ describe("Core scheduled task dispatcher", () => {
       attempted: 0,
       errors: 0,
       projected: 0,
-    }));
-    const recoverCenterAgentTasks = vi.fn<typeof recoverCenterAgentTaskWork>(
-      async () => ({
-        admissionsDelivered: 0,
-        admissionsFailed: 0,
-        errors: 0,
-        stopsFailed: 0,
-        stopsPending: 0,
-        stopsResolved: 0,
-      })
-    );
-    const retryCenterAgentTaskTerminalProjections = vi.fn<
-      typeof retryPendingCenterAgentTaskTerminalProjections
-    >(async () => ({
-      canonicalized: 1,
-      errors: 0,
-      ownerRejected: 0,
-      retained: 0,
-      scanned: 1,
     }));
     const directSendInboxUrgentEmail = vi.fn(
       async (input: { deliveryId: string }) => ({
@@ -197,9 +193,7 @@ describe("Core scheduled task dispatcher", () => {
       } as unknown as CoreBindings,
       nowMs: 1000,
       countStrandedSlackIngress,
-      recoverCenterAgentTasks,
-      recoverStaleAgentProfileCreationRequests,
-      retryCenterAgentTaskTerminalProjections,
+      recoverAgentProfileCreationRequests,
       reconcileOrganizationDocumentInbox,
       reconcileSlackNativeDeliveryInbox,
       retryAgentTaskContinuations,
@@ -220,8 +214,9 @@ describe("Core scheduled task dispatcher", () => {
     });
 
     expect(runRoutineTick).toHaveBeenCalledTimes(1);
-    expect(recoverStaleAgentProfileCreationRequests).toHaveBeenCalledWith({
+    expect(recoverAgentProfileCreationRequests).toHaveBeenCalledWith({
       db: routineDatabase,
+      env: expect.objectContaining({ OPENMELD_DB: routineDatabase }),
       nowMs: 1000,
     });
     expect(
@@ -234,11 +229,6 @@ describe("Core scheduled task dispatcher", () => {
       db: routineDatabase,
       nowMs: 1000,
       resolveMembershipState: expect.any(Function),
-    });
-    expect(retryCenterAgentTaskTerminalProjections).toHaveBeenCalledWith({
-      deliveryDb: routineDatabase,
-      env: expect.anything(),
-      nowMs: 1000,
     });
     expect(runLarkPlatformRegistrationTick).toHaveBeenCalledWith({
       classifyOrganization: expect.any(Function),
@@ -318,17 +308,6 @@ describe("Core scheduled task dispatcher", () => {
       env: expect.anything(),
       nowMs: 1000,
     });
-    expect(recoverCenterAgentTasks).toHaveBeenCalledWith({
-      db: localStateDatabase,
-      inboxDb: routineDatabase,
-      now: expect.any(Function),
-      runtime: expect.any(Object),
-    });
-    const taskRecoveryInput = recoverCenterAgentTasks.mock.calls[0]?.[0];
-    if (!taskRecoveryInput?.now) {
-      throw new Error("expected Center Agent Task recovery to receive a clock");
-    }
-    expect(taskRecoveryInput.now()).toBe(1000);
     expect(retryAgentTaskContinuations).toHaveBeenCalledWith({
       db: expect.anything(),
       env: expect.anything(),
@@ -570,6 +549,10 @@ describe("Core scheduled task dispatcher", () => {
       db: expect.objectContaining({ owner: "coordination" }),
       nowMs: 2000,
     });
+    expect(deleteExpiredConnectionIncidents).toHaveBeenCalledWith({
+      db: expect.objectContaining({ owner: "wake-evidence" }),
+      nowMs: 2000,
+    });
   });
 
   it("runs digest production only behind its explicit consumer fence", async () => {
@@ -667,12 +650,18 @@ describe("Core scheduled task dispatcher", () => {
     expect(runWakeEvidenceRetention).toHaveBeenCalledTimes(1);
     expect(runAgentActivityRetention).not.toHaveBeenCalled();
     expect(runAgentControllerTaskRetention).toHaveBeenCalledTimes(1);
+    expect(deleteExpiredConnectionIncidents).toHaveBeenCalledWith({
+      db: expect.anything(),
+      nowMs: 4000,
+    });
   });
 
   it("preserves every scheduled retention failure with safe log context", async () => {
     const activityError = new Error("activity retention unavailable");
     const controllerError = new TypeError("controller retention unavailable");
+    const connectionError = new Error("connection retention unavailable");
     const wakeError = new Error("wake retention unavailable");
+    deleteExpiredConnectionIncidents.mockRejectedValueOnce(connectionError);
     const error = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
@@ -697,7 +686,7 @@ describe("Core scheduled task dispatcher", () => {
         runWakeEvidenceRetention: vi.fn(() => Promise.reject(wakeError)),
       })
     ).rejects.toMatchObject({
-      errors: [activityError, controllerError, wakeError],
+      errors: [activityError, controllerError, connectionError, wakeError],
     });
     expect(error.mock.calls.flat().join(" ")).toContain(
       "controller retention unavailable"

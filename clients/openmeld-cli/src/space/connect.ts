@@ -60,12 +60,12 @@ import {
   type OutputMode,
 } from "../ui/output";
 import { sanitizeTerminalDisplayText } from "../ui/terminal-safe-text";
+import { rethrowSpaceAddressingSnapshotLoadFailure } from "./addressing-preflight";
 import {
   buildAgentSessionMetaPayload,
   normalizeAgentOutputEvent,
   normalizeAgentOutputMembersSnapshot,
 } from "./agent-output-contract";
-import { rethrowCanonicalMentionSnapshotLoadFailure } from "./canonical-mention-preflight";
 import {
   type ComposeDraftState,
   consumeComposeInputLine,
@@ -1592,7 +1592,7 @@ export async function runConnect(input: {
     const prepareRawStdioOutboundText = async (text: string) => {
       const preparedSubmission = await prepareCliSpaceComposerSubmission({
         missingSnapshotMessage:
-          "Cannot validate mention labels right now because current space members could not be loaded.",
+          "Cannot validate recipients because current Space members could not be loaded.",
         onMembersSnapshotLoaded: (membersSnapshot) => {
           readModelSeed.applyMembersSnapshot(membersSnapshot);
         },
@@ -1600,7 +1600,7 @@ export async function runConnect(input: {
           presenter.event("info", "connect.warn.members_fetch_failed", {
             error: toErrorMessage(error),
           });
-          rethrowCanonicalMentionSnapshotLoadFailure(error);
+          rethrowSpaceAddressingSnapshotLoadFailure(error);
         },
         loadMembersSnapshot: async () => {
           const currentMembersSnapshot = readModelSeed.getMembersSnapshot();
@@ -2240,14 +2240,15 @@ async function runInteractiveHumanTextSession(input: {
   };
   const prepareInteractiveOutboundText = async (text: string) => {
     const preparedSubmission = await prepareCliSpaceComposerSubmission({
+      authoredMentionsInTextOrder: shell.getAuthoredMentions?.(text) ?? [],
       missingSnapshotMessage:
-        "Cannot validate mention labels right now because current space members could not be loaded.",
+        "Cannot validate recipients because current Space members could not be loaded.",
       onMembersSnapshotLoaded: (membersSnapshot) => {
         applyMembersSnapshot(membersSnapshot);
       },
       onSnapshotLoadFailure: (error) => {
         reportMembersRefreshFailure(error);
-        rethrowCanonicalMentionSnapshotLoadFailure(error);
+        rethrowSpaceAddressingSnapshotLoadFailure(error);
       },
       loadMembersSnapshot: async () => {
         const currentMembersSnapshot = store.getState().members.snapshot;
@@ -2260,8 +2261,8 @@ async function runInteractiveHumanTextSession(input: {
     });
 
     return {
-      canonicalMentionsInTextOrder:
-        preparedSubmission.preparedSubmission.canonicalMentionsInTextOrder,
+      mentionsInTextOrder:
+        preparedSubmission.preparedSubmission.mentionsInTextOrder,
       messageEnvelope: preparedSubmission.outboundMessageEnvelope ?? null,
       resolvedStructuredTargets:
         preparedSubmission.preparedSubmission.resolvedStructuredTargets,
@@ -2608,8 +2609,7 @@ async function runInteractiveHumanTextSession(input: {
             submittedText: submitResult.text,
             structuredMentionProfileIdsInTextOrder:
               submitResult.resolvedStructuredTargets.profileIdsInTextOrder,
-            canonicalMentionsInTextOrder:
-              submitResult.canonicalMentionsInTextOrder,
+            mentionsInTextOrder: submitResult.mentionsInTextOrder,
             mentionProfileIndex: input.readModelSeed.getMentionHighlightIndex(),
             allowedProfileIds: membersSnapshot
               ? listSpaceMemberProfileIds(membersSnapshot)

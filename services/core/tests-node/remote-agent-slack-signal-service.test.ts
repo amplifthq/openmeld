@@ -31,6 +31,7 @@ import {
 } from "../src/remote-agent/application/slack-client";
 import { buildRemoteAgentSlackConversationId } from "../src/remote-agent/application/slack-conversation-id";
 import { digestSlackIdentityLinkToken } from "../src/remote-agent/application/slack-identity-link-token";
+import { SLACK_RICH_CONTEXT_LIMITATION_NOTE } from "../src/remote-agent/application/slack-rich-context";
 import { decryptSlackSearchAuthorization } from "../src/remote-agent/application/slack-search-authorization";
 import {
   processRemoteAgentSlackEvent,
@@ -1449,6 +1450,16 @@ describe("Remote Agent Slack signal service", () => {
         "is_stranger",
         "ari@example.test"
       ),
+      conversationsHistoryResponse: {
+        ok: true,
+        messages: [
+          {
+            ts: "1710000000.000100",
+            text: "<@B123> create a Codex agent",
+            user: "U123",
+          },
+        ],
+      },
     });
 
     try {
@@ -1765,6 +1776,347 @@ describe("Remote Agent Slack signal service", () => {
       expect(submitted?.turnEnvelope.trigger).toMatchObject({
         channelId: "D123",
         source: "slack",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("recovers a content-empty app mention from an exact reply and logs only safe structure", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1_710_000_001,
+        requestId: "req_slack_forwarded",
+        status: "pending" as const,
+        submissionId: "sub_slack_forwarded",
+      })
+    );
+    const fetchMock = stubSlackFetch({
+      conversationsRepliesResponse: (url) => {
+        if (url.searchParams.get("limit") !== "1") {
+          return { ok: true, messages: [] };
+        }
+        expect(url.searchParams.get("channel")).toBe("C123");
+        expect(url.searchParams.get("oldest")).toBe("1710000000.000100");
+        expect(url.searchParams.get("latest")).toBe("1710000000.000100");
+        expect(url.searchParams.get("ts")).toBe("1709999999.000050");
+        expect(
+          fetchMock.mock.calls.some(([request]) =>
+            String(request).includes("/assistant.threads.setStatus")
+          )
+        ).toBe(true);
+        expect(url.searchParams.get("inclusive")).toBe("true");
+        expect(url.searchParams.get("limit")).toBe("1");
+        return {
+          messages: [
+            {
+              blocks: [{ type: "rich_text" }],
+              files: [
+                {
+                  id: "F_FORWARD",
+                  mimetype: "image/png",
+                  name: "forwarded.png",
+                  permalink:
+                    "https://openmeld-dev.slack.com/files/U123/F_FORWARD/forwarded",
+                  size: 2048,
+                },
+              ],
+              text: "Forwarded launch details",
+              ts: "1710000000.000100",
+              user: "U123",
+            },
+          ],
+          ok: true,
+        };
+      },
+      email: "ari@example.test",
+    });
+    const consoleInfoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, {
+            richContextReproEnabled: "true",
+            workerSubmit,
+          }),
+          createAppMentionPayload({
+            eventId: "EvForwarded",
+            text: "",
+            threadTs: "1709999999.000050",
+          })
+        )
+      ).resolves.toEqual({ status: "processed" });
+
+      const submitted = workerSubmit.mock.calls[0]?.[0];
+      expect(submitted?.messages[0]?.content).toContain(
+        "Forwarded launch details"
+      );
+      expect(submitted?.messages[0]?.content).toContain('"fileId":"F_FORWARD"');
+      expect(consoleInfoSpy).toHaveBeenCalledWith(
+        "[core.remote_agent.slack_ingest.rich_context_repro]",
+        expect.objectContaining({
+          channelId: "C123",
+          event: "core.remote_agent.slack_ingest.rich_context_repro",
+          eventId: "EvForwarded",
+          history: expect.objectContaining({
+            status: "complete",
+            observation: expect.objectContaining({
+              matchingMessageCount: 1,
+              messageCount: 1,
+            }),
+          }),
+          rawEvent: expect.objectContaining({
+            filesCount: 0,
+            hasPermalink: false,
+            textLen: 0,
+          }),
+        })
+      );
+      const reproLog = consoleInfoSpy.mock.calls.find(
+        ([prefix]) =>
+          prefix === "[core.remote_agent.slack_ingest.rich_context_repro]"
+      );
+      expect(JSON.stringify(reproLog)).not.toContain(
+        "Forwarded launch details"
+      );
+      expect(JSON.stringify(reproLog)).not.toContain(
+        "https://openmeld-dev.slack.com/files"
+      );
+      expect(
+        fetchMock.mock.calls
+          .map(([request]) => new URL(String(request)))
+          .filter(
+            (url) =>
+              url.pathname === "/api/conversations.replies" &&
+              url.searchParams.get("limit") === "1"
+          )
+      ).toHaveLength(1);
+    } finally {
+      consoleInfoSpy.mockRestore();
+      harness.close();
+    }
+  });
+
+  it("adds quoted Slack message text and files from an exact permalink lookup", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1_710_000_001,
+        requestId: "req_slack_quote",
+        status: "pending" as const,
+        submissionId: "sub_slack_quote",
+      })
+    );
+    const mentionText =
+      "<@B123> use <https://acme.slack.com/archives/C123/p1709999999000200|this quoted message>";
+    const fetchMock = stubSlackFetch({
+      conversationsHistoryResponse: (url) => {
+        if (url.searchParams.get("oldest") === "1709999999.000200") {
+          expect(url.searchParams.get("oldest")).toBe("1709999999.000200");
+          return {
+            messages: [
+              {
+                files: [
+                  {
+                    id: "F_QUOTED",
+                    mimetype: "application/pdf",
+                    name: "quoted-plan.pdf",
+                    permalink:
+                      "https://acme.slack.com/files/U_OTHER/F_QUOTED/quoted-plan",
+                    size: 4096,
+                  },
+                ],
+                text: "Quoted launch plan",
+                ts: "1709999999.000200",
+                user: "U_OTHER",
+              },
+            ],
+            ok: true,
+          };
+        }
+        return {
+          messages: [
+            {
+              text: mentionText,
+              ts: "1710000000.000100",
+              user: "U123",
+            },
+          ],
+          ok: true,
+        };
+      },
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createAppMentionPayload({
+            eventId: "EvQuote",
+            text: mentionText,
+            threadTs: "1710000000.000100",
+          })
+        )
+      ).resolves.toEqual({ status: "processed" });
+
+      const submitted = workerSubmit.mock.calls[0]?.[0];
+      expect(submitted?.messages[0]?.content).toContain(
+        "Slack quoted message context (untrusted data)"
+      );
+      expect(submitted?.messages[0]?.content).toContain("Quoted launch plan");
+      expect(submitted?.messages[0]?.content).toContain('"fileId":"F_QUOTED"');
+      expect(submitted?.turnEnvelope.channelContext?.sync.status).toBe(
+        "complete"
+      );
+      expect(
+        fetchMock.mock.calls
+          .map(([request]) => new URL(String(request)))
+          .filter((url) => url.pathname === "/api/conversations.history")
+          .map((url) => url.searchParams.get("channel"))
+      ).toEqual(["C123", "C123"]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("marks forwarded mention context incomplete when exact history is also empty", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1_710_000_001,
+        requestId: "req_slack_forward_empty",
+        status: "pending" as const,
+        submissionId: "sub_slack_forward_empty",
+      })
+    );
+    stubSlackFetch({
+      conversationsHistoryResponse: {
+        messages: [
+          {
+            files: [],
+            text: "",
+            ts: "1710000000.000100",
+            user: "U123",
+          },
+        ],
+        ok: true,
+      },
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createAppMentionPayload({
+            eventId: "EvForwardedEmpty",
+            text: "",
+            threadTs: "1709999999.000050",
+          })
+        )
+      ).resolves.toEqual({ status: "processed" });
+
+      const submitted = workerSubmit.mock.calls[0]?.[0];
+      expect(submitted?.messages[0]?.content).toContain(
+        "Help me with this Slack thread."
+      );
+      expect(submitted?.messages[0]?.content).toContain(
+        SLACK_RICH_CONTEXT_LIMITATION_NOTE
+      );
+      expect(submitted?.turnEnvelope.channelContext).toMatchObject({
+        messages: [],
+        sync: { mode: "snapshot", status: "unavailable" },
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("keeps the main mention processing and marks rich context unavailable when lookups fail", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1_710_000_001,
+        requestId: "req_slack_quote_limited",
+        status: "pending" as const,
+        submissionId: "sub_slack_quote_limited",
+      })
+    );
+    const mentionText =
+      "<@B123> check https://acme.slack.com/archives/C_SOURCE/p1709999999000200";
+    stubSlackFetch({
+      conversationsHistoryResponse: new Response(
+        JSON.stringify({ error: "missing_scope", ok: false }),
+        { status: 403 }
+      ),
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createAppMentionPayload({
+            eventId: "EvQuoteLimited",
+            text: mentionText,
+            threadTs: "1709999999.000050",
+          })
+        )
+      ).resolves.toEqual({ status: "processed" });
+
+      const submitted = workerSubmit.mock.calls[0]?.[0];
+      expect(submitted?.messages[0]?.content).toContain(mentionText);
+      expect(submitted?.messages[0]?.content).toContain(
+        SLACK_RICH_CONTEXT_LIMITATION_NOTE
+      );
+      expect(submitted?.turnEnvelope.channelContext).toMatchObject({
+        messages: [],
+        sync: { mode: "snapshot", status: "forbidden" },
       });
     } finally {
       harness.close();
@@ -2228,6 +2580,21 @@ describe("Remote Agent Slack signal service", () => {
     const fetchMock = stubSlackFetch({
       conversationsRepliesResponse: (url) => {
         const oldest = url.searchParams.get("oldest");
+        if (url.searchParams.get("limit") === "1") {
+          return {
+            ok: true,
+            messages: [
+              {
+                ts: oldest,
+                user: "U123",
+                text:
+                  oldest === firstMentionTs
+                    ? "<@B123> diagnose the build above"
+                    : "<@B123> turn this fix into a checklist",
+              },
+            ],
+          };
+        }
         if (!oldest) {
           return {
             has_more: false,
@@ -2361,7 +2728,11 @@ describe("Remote Agent Slack signal service", () => {
       });
       const repliesUrls = fetchMock.mock.calls
         .map(([request]) => new URL(String(request)))
-        .filter((url) => url.pathname === "/api/conversations.replies");
+        .filter(
+          (url) =>
+            url.pathname === "/api/conversations.replies" &&
+            url.searchParams.get("limit") !== "1"
+        );
       expect(repliesUrls).toHaveLength(2);
       expect(repliesUrls[0]?.searchParams.get("latest")).toBe(firstMentionTs);
       expect(repliesUrls[0]?.searchParams.get("oldest")).toBeNull();
@@ -2487,10 +2858,14 @@ describe("Remote Agent Slack signal service", () => {
       const historyUrls = fetchMock.mock.calls
         .map(([request]) => new URL(String(request)))
         .filter((url) => url.pathname === "/api/conversations.history");
-      expect(historyUrls).toHaveLength(1);
+      expect(historyUrls).toHaveLength(2);
       expect(historyUrls[0]?.searchParams.get("channel")).toBe("C123");
-      expect(historyUrls[0]?.searchParams.get("latest")).toBe(currentMentionTs);
-      expect(historyUrls[0]?.searchParams.get("limit")).toBe("8");
+      expect(historyUrls[0]?.searchParams.get("oldest")).toBe(currentMentionTs);
+      expect(historyUrls[0]?.searchParams.get("inclusive")).toBe("true");
+      expect(historyUrls[0]?.searchParams.get("limit")).toBe("1");
+      expect(historyUrls[1]?.searchParams.get("channel")).toBe("C123");
+      expect(historyUrls[1]?.searchParams.get("latest")).toBe(currentMentionTs);
+      expect(historyUrls[1]?.searchParams.get("limit")).toBe("8");
     } finally {
       harness.close();
     }
@@ -6813,77 +7188,14 @@ function applySlackMigrations(
   applyMigrationForTable(input, "agent_delegations");
   applyMigrationForTable(input, "agent_task_completion_subscriptions");
   applyMigrationForTable(input, "agent_task_terminal_outcomes");
-  input.run({
-    sql: `
-      CREATE TABLE IF NOT EXISTS center_agent_designations (
-        organization_id TEXT PRIMARY KEY,
-        agent_profile_id TEXT NOT NULL,
-        duty TEXT,
-        designated_by TEXT NOT NULL,
-        operating_state TEXT NOT NULL DEFAULT 'active',
-        paused_at INTEGER,
-        paused_by_user_id TEXT,
-        created_at INTEGER NOT NULL
-      )
-    `,
-  });
-  input.run({
-    sql: `
-      CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL,
-        email_verified INTEGER DEFAULT false NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
-        normalized_email TEXT
-      )
-    `,
-  });
-  input.run({
-    sql: `
-      CREATE TABLE IF NOT EXISTS organizations (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        metadata TEXT,
-        created_at INTEGER NOT NULL
-      )
-    `,
-  });
-  input.run({
-    sql: `
-      CREATE TABLE IF NOT EXISTS members (
-        id TEXT PRIMARY KEY,
-        organization_id TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        role TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )
-    `,
-  });
-  input.run({
-    sql: `
-      CREATE TABLE IF NOT EXISTS openmeld_profiles (
-        profile_id TEXT PRIMARY KEY,
-        profile_name TEXT NOT NULL,
-        profile_handle TEXT NOT NULL,
-        profile_kind TEXT NOT NULL,
-        is_default INTEGER DEFAULT false NOT NULL,
-        status TEXT DEFAULT 'active' NOT NULL,
-        organization_id TEXT,
-        owner_user_id TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
-        CONSTRAINT openmeld_profiles_organization_profile_kind_check
-          CHECK (
-            (profile_kind = 'agent' AND organization_id IS NOT NULL)
-            OR (profile_kind IN ('human', 'system') AND organization_id IS NULL)
-          )
-      )
-    `,
-  });
-  applyMigrationForTable(input, "openMeldDaemon_agent_profile_bindings");
+  applyDrizzleMigrationsForTables(input, [
+    "users",
+    "organizations",
+    "members",
+    "openmeld_profiles",
+    "center_agent_designations",
+    "openMeldDaemon_agent_profile_bindings",
+  ]);
   applyDrizzleMigrationsForTables(input, [
     "organization_skill_releases",
     "organization_skills",
@@ -6976,6 +7288,9 @@ function seedSlackOrganization(
   input: Parameters<typeof applyMigrationForTable>[0]
 ) {
   input.run({
+    sql: "INSERT INTO users (id, name, email, created_at, updated_at) VALUES ('user_owner', 'Center Agent Creator', 'creator@example.test', 100, 100)",
+  });
+  input.run({
     params: ["user_member", "Ari", "ari@example.test", 1, 100, 100],
     sql: `
       INSERT INTO users (
@@ -7031,6 +7346,8 @@ function seedSlackOrganization(
       "active",
       null,
       "user_member",
+      "auth_bootstrap",
+      null,
       100,
       100,
     ],
@@ -7044,10 +7361,12 @@ function seedSlackOrganization(
         status,
         organization_id,
         owner_user_id,
+        source,
+        managed_role,
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
   });
   input.run({
@@ -7059,7 +7378,9 @@ function seedSlackOrganization(
       0,
       "active",
       "org_1",
-      "user_owner",
+      null,
+      "auth_bootstrap",
+      "center_agent",
       100,
       100,
     ],
@@ -7073,10 +7394,12 @@ function seedSlackOrganization(
         status,
         organization_id,
         owner_user_id,
+        source,
+        managed_role,
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
   });
   input.run({
@@ -7094,8 +7417,8 @@ function seedSlackOrganization(
   input.run({
     params: [
       "binding_1",
-      "owner_account",
-      "user_owner",
+      "organization",
+      "org_1",
       AGENT_PROFILE_ID,
       HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       "hosted_center_agent",
@@ -7132,6 +7455,7 @@ function buildEnv(
     cryptoKey?: string;
     ensureWorkspaceMember?: ReturnType<typeof vi.fn>;
     queueSend?: ReturnType<typeof vi.fn>;
+    richContextReproEnabled?: string;
     workerReconcile?: ReturnType<typeof vi.fn>;
     workerSubmit?: ReturnType<typeof vi.fn>;
   } = {}
@@ -7140,6 +7464,12 @@ function buildEnv(
     OPENMELD_DB: db,
     OPENMELD_LOCAL_STATE_DB: db,
     OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED: "true",
+    ...(input.richContextReproEnabled
+      ? {
+          OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED:
+            input.richContextReproEnabled,
+        }
+      : {}),
     OPENMELD_AUTH_WORKER: {
       resolveOrganizationAccountIdentity: (request) =>
         resolveTestOrganizationAccountIdentity(db, request),

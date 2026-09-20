@@ -7,6 +7,27 @@ afterEach(() => {
 	localStorage.clear();
 });
 
+it("keeps Chats collapsed on the directory and respects a manual choice after visiting a chat", () => {
+	const { result, rerender } = renderHook(
+		({ active }) => useSidebarDisclosure("chat", "viewer", "org", active),
+		{ initialProps: { active: null as string | null } }
+	);
+	expect(result.current.isOpen("Chats:chats")).toBe(false);
+	rerender({ active: "chats" });
+	expect(result.current.isOpen("Chats:chats")).toBe(true);
+	rerender({ active: null });
+	expect(result.current.isOpen("Chats:chats")).toBe(false);
+	act(() => result.current.setOpen("Chats:chats", true));
+	const restored = renderHook(() =>
+		useSidebarDisclosure("chat", "viewer", "org", null)
+	);
+	expect(restored.result.current.isOpen("Chats:chats")).toBe(true);
+	const spaces = renderHook(() =>
+		useSidebarDisclosure("space", "viewer", "org", null)
+	);
+	expect(spaces.result.current.isOpen("Spaces:chats")).toBe(false);
+});
+
 it("starts Team collapsed, reveals the selected person's group, and remembers manual choices", () => {
 	const { result, rerender } = renderHook(
 		({ active }) => useSidebarDisclosure("people", "viewer", "org", active),

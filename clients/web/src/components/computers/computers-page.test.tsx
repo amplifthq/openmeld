@@ -25,6 +25,16 @@ const useQueryMock = vi.hoisted(() => vi.fn());
 const useQueryClientMock = vi.hoisted(() => vi.fn());
 const selectedComputerPanelPropsSpy = vi.hoisted(() => vi.fn());
 const useRefreshComputersAfterSetupCompleteMock = vi.hoisted(() => vi.fn());
+const desktopPlatformMock = vi.hoisted(() =>
+	vi.fn(() => null as object | null)
+);
+
+vi.mock("#/desktop/platform", () => ({
+	getDesktopPlatform: desktopPlatformMock,
+}));
+vi.mock("#/hooks/auth.hooks", () => ({
+	useAuthSession: () => ({ data: { user: { id: "user-felix" } } }),
+}));
 
 const DEFAULT_COMPUTERS_ROUTE_STATE: ComputersRouteState = {
 	computersFocusFileAccess: false,
@@ -34,6 +44,7 @@ const DEFAULT_COMPUTERS_ROUTE_STATE: ComputersRouteState = {
 };
 const COMPUTER_OPTIONS_NAME_PATTERN = /Computer options/;
 const CHECKED_AT_LABEL_PATTERN = /^Checked /;
+const CONNECTION_ACTION_LABEL_PATTERN = /^(Connect|Disconnect)$/;
 let organizationComputersQueryData: OrganizationComputersResponse;
 let organizationDirectoryQueryData: OrganizationDirectoryResponse;
 const TestComputersRouteStateContext = createContext<ComputersRouteState>(
@@ -109,6 +120,7 @@ vi.mock("#/components/agents/use-local-agent-recovery-controller", () => ({
 
 vi.mock("#/components/agents/selected-computer-panel", () => ({
 	SelectedComputerPanel: (props: {
+		connectionAction?: ReactNode;
 		computer: { deviceDisplayName: string; deviceId: string };
 		focusFileAccess: boolean;
 		focusService: boolean;
@@ -123,6 +135,7 @@ vi.mock("#/components/agents/selected-computer-panel", () => ({
 				data-testid="selected-computer-panel"
 			>
 				{props.computer.deviceDisplayName}
+				{props.connectionAction}
 			</div>
 		);
 	},
@@ -281,6 +294,9 @@ function buildRecoveryControllerStub(input: {
 					}
 				: { availability: "missing" },
 			isPending: false,
+			isSuccess: true,
+			isError: false,
+			error: null,
 		},
 		currentLocalRuntimeReplyReadinessQuery: {
 			data: input.currentReadiness ?? undefined,
@@ -496,6 +512,7 @@ function buildLegacyRequiredOrganizationComputers(): OrganizationComputersRespon
 
 describe("ComputersPage", () => {
 	beforeEach(() => {
+		desktopPlatformMock.mockReturnValue(null);
 		selectedComputerPanelPropsSpy.mockReset();
 		useRefreshComputersAfterSetupCompleteMock
 			.mockReset()
@@ -519,6 +536,105 @@ describe("ComputersPage", () => {
 		);
 	});
 
+	it.each([
+		[
+			"connected local",
+			"device-current",
+			"device-current",
+			"available",
+			false,
+			false,
+			"Disconnect",
+		],
+		[
+			"disconnected local",
+			"device-current",
+			"device-current",
+			"unavailable",
+			false,
+			false,
+			"Connect",
+		],
+		[
+			"other computer",
+			"device-office",
+			"device-current",
+			"available",
+			false,
+			false,
+			null,
+		],
+		[
+			"identity pending",
+			"device-current",
+			null,
+			"available",
+			true,
+			false,
+			null,
+		],
+		[
+			"identity failed with cached data",
+			"device-current",
+			"device-current",
+			"available",
+			false,
+			true,
+			null,
+		],
+		[
+			"identity missing",
+			"device-current",
+			null,
+			"unavailable",
+			false,
+			false,
+			null,
+		],
+	] as const)("scopes the card connection entry: %s", (_name, selectedDeviceId, localDeviceId, status, isPending, isError, label) => {
+		desktopPlatformMock.mockReturnValue({});
+		const defaultQuery = useQueryMock.getMockImplementation();
+		if (!defaultQuery) {
+			throw new Error("Computer query fixture is missing");
+		}
+		useQueryMock.mockImplementation((options) => {
+			if (options.queryKey[0] === "desktop-service-control") {
+				return {
+					data: {
+						service: { controlCapabilities: { deviceId: localDeviceId } },
+					},
+					isPending,
+					isError,
+				};
+			}
+			if (options.queryKey[1] === "computer-connection") {
+				return { data: { status }, isPending: false, isError: false };
+			}
+			return defaultQuery(options);
+		});
+		render(
+			<TestComputersRouteStateProvider
+				value={{ computersSelectedDeviceId: selectedDeviceId }}
+			>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
+		);
+		const panel = within(screen.getByTestId("selected-computer-panel"));
+		if (label) {
+			const link = panel.getByRole("link", { name: label });
+			expect(link.getAttribute("href")).toBe(
+				"/o/acme/connect?profileId=human-felix"
+			);
+			expect(link.className).toContain(
+				label === "Connect" ? "bg-primary" : "border-input"
+			);
+		} else {
+			expect(
+				panel.queryByRole("link", { name: CONNECTION_ACTION_LABEL_PATTERN })
+			).toBeNull();
+		}
+	});
+
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
@@ -529,6 +645,7 @@ describe("ComputersPage", () => {
 		expect(useLocalAgentRecoveryControllerMock).toHaveBeenCalledWith({
 			agentExecutionReadinessScope: "bound_runtime",
 			currentLocalRuntimeReplyReadinessRefetchIntervalMs: 10_000,
+			loadAgentExecutionReadiness: false,
 			loadSetupState: false,
 		});
 	});
@@ -567,7 +684,10 @@ describe("ComputersPage", () => {
 		expect(screen.getByTestId("computer-detail-loading")).toBeTruthy();
 	});
 
-	it("shows a read-only detail for another member's computer", () => {
+	it.each([
+		"computer:device-ashley",
+		"computer:user-ashley:device-ashley",
+	])("shows a read-only detail for another member's computer through %s", (routeId) => {
 		organizationDirectoryQueryData = buildOrganizationDirectory({
 			includeOtherMemberComputers: true,
 		});
@@ -577,7 +697,7 @@ describe("ComputersPage", () => {
 
 		render(
 			<TestComputersRouteStateProvider
-				value={{ computersSelectedDeviceId: "computer:device-ashley" }}
+				value={{ computersSelectedDeviceId: routeId }}
 			>
 				<TestComputersPage />
 			</TestComputersRouteStateProvider>
@@ -654,6 +774,74 @@ describe("ComputersPage", () => {
 		expect(
 			screen.getByTestId("computer-owner-profile-link").getAttribute("href")
 		).toBe("/o/acme/people/member%3Amember-ashley");
+	});
+
+	it.each([
+		["computer:device-ashley", null],
+		["computer:user-ashley:device-ashley", "Ashley's Mac Studio"],
+		["computer:user-other:device-ashley", "Old computer record"],
+		["computer:missing-owner:device-ashley", null],
+	])("never substitutes another owner's computer for %s", (routeId, expectedName) => {
+		organizationDirectoryQueryData = buildOrganizationDirectory({
+			includeOtherMemberComputers: true,
+		});
+		const otherMember = organizationDirectoryQueryData.members[1];
+		if (!otherMember) {
+			throw new Error("Expected teammate fixture");
+		}
+		organizationDirectoryQueryData.members.push({
+			...otherMember,
+			userId: "user-other",
+			memberId: "member-other",
+			user: { ...otherMember.user, id: "user-other", name: "Other account" },
+		});
+		organizationComputersQueryData = buildOrganizationComputers({
+			includeOtherMemberComputer: true,
+		});
+		const original = organizationComputersQueryData.computers.find(
+			(computer) => computer.computerId === "device-ashley"
+		);
+		if (!original) {
+			throw new Error("Expected teammate computer fixture");
+		}
+		organizationComputersQueryData.computers.unshift({
+			...original,
+			ownerUserId: "user-other",
+			deviceDisplayName: "Old computer record",
+			serviceState: "not_connected",
+			localAgents: original.localAgents.map((agent) => ({
+				...agent,
+				status: "stale",
+			})),
+		});
+		render(
+			<TestComputersRouteStateProvider
+				value={{ computersSelectedDeviceId: routeId }}
+			>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
+		);
+		if (expectedName) {
+			expect(
+				screen.getByRole("heading", { level: 1, name: expectedName })
+			).toBeTruthy();
+			if (expectedName === "Old computer record") {
+				expect(
+					screen.getAllByText("Status out of date").length
+				).toBeGreaterThan(0);
+			}
+		} else {
+			expect(screen.getByTestId("computer-not-found-state")).toBeTruthy();
+			expect(screen.queryByText("Computer Connection")).toBeNull();
+			if (routeId === "computer:device-ashley") {
+				expect(
+					screen.getByText(
+						"This older link matches computers under more than one account. Open the owner's profile in People and select the computer again."
+					)
+				).toBeTruthy();
+			}
+		}
+		expect(screen.queryByTestId("selected-computer-panel")).toBeNull();
 	});
 
 	it("waits for a fresh Organization projection before declaring a legacy Computer missing", () => {

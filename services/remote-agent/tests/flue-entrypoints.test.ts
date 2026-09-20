@@ -28,7 +28,6 @@ import {
 import {
   createRoutineTurnEnvelope,
   createSubmitTurnRequest,
-  createSubmitTurnRequestV2,
   TEST_NOW_MS,
 } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
@@ -144,41 +143,6 @@ describe("Flue Cloudflare entrypoints", () => {
       expect(submitConversationTurn).toHaveBeenCalledWith(request);
     } finally {
       info.mockRestore();
-    }
-  });
-
-  it("rejects a Task turn whose typed identity conflicts with its conversation route", async () => {
-    const { v: _version, ...baseRequest } = createSubmitTurnRequestV2();
-    const request = {
-      ...baseRequest,
-      conversationId: "center-agent-task:task_123",
-      conversationIdentity: {
-        kind: "center_agent_task" as const,
-        taskId: "task_other",
-      },
-      v: 3 as const,
-    };
-    const namespace = {
-      get: vi.fn(),
-      idFromName: vi.fn(),
-    } as unknown as CenterAgentNamespace;
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-
-    try {
-      await expect(
-        submitConversationTurnToCenterAgent({ namespace, request })
-      ).resolves.toEqual({
-        idempotencyKey: request.idempotencyKey,
-        message:
-          "Remote Agent Task conversation identity does not match its route.",
-        outcome: "rejected",
-        reasonCode: "remote_agent.center_agent_task_identity_mismatch",
-        v: 1,
-      });
-      expect(namespace.idFromName).not.toHaveBeenCalled();
-      expect(namespace.get).not.toHaveBeenCalled();
-    } finally {
-      warn.mockRestore();
     }
   });
 

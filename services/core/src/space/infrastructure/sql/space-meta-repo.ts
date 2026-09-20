@@ -3,10 +3,12 @@ import { parseSpaceCreator } from "@openmeld/protocol";
 import {
   spaceAccessModeSchema,
   spaceDirectMessageMetaSchema,
+  spaceLinkJoinPolicySchema,
   spaceOrganizationVisibilitySchema,
 } from "@openmeld/schemas";
 import type {
   SpaceAccessMode,
+  SpaceLinkJoinPolicy,
   SpaceOrganizationVisibility,
 } from "@openmeld/schemas/types";
 import {
@@ -25,8 +27,11 @@ type SqlMetaRow = {
   creator_json: string | null;
   organization_id: string | null;
   organization_visibility: string | null;
+  owner_user_ids_json: string;
+  allow_guests: number;
   guide: string | null;
   access_mode: string | null;
+  link_join_policy: string | null;
   password_proof_json: string | null;
   created_at: number;
   updated_at: number;
@@ -42,10 +47,13 @@ export type SpaceMetaRecord = {
     pairKey: string;
   };
   creator?: SpaceCreator;
+  ownerUserIds?: string[];
+  allowGuests?: boolean;
   organizationId: string;
   visibility: SpaceOrganizationVisibility;
   guide?: string;
   accessMode: SpaceAccessMode;
+  linkJoinPolicy?: SpaceLinkJoinPolicy;
   passwordProof?: SpacePasswordProof;
   createdAt: string;
   updatedAt: string;
@@ -66,8 +74,11 @@ export const readSpaceMetaRecordFromSql = (
           creator_json,
           organization_id,
           organization_visibility,
+          owner_user_ids_json,
+          allow_guests,
           guide,
           access_mode,
+          link_join_policy,
           password_proof_json,
           created_at,
           updated_at
@@ -93,6 +104,7 @@ export const readSpaceMetaRecordFromSql = (
     rawAccessMode: row.access_mode,
     passwordProof,
   });
+  const linkJoinPolicy = parseSpaceMetaLinkJoinPolicy(row.link_join_policy);
   const createdAt = timestampMsToIso(
     parseRequiredTimestampMs(row.created_at, "space_meta.created_at")
   );
@@ -107,10 +119,13 @@ export const readSpaceMetaRecordFromSql = (
     ...(row.purpose ? { purpose: row.purpose } : {}),
     ...(directMessage ? { directMessage } : {}),
     ...(creator ? { creator } : {}),
+    ownerUserIds: parseOwnerUserIds(row.owner_user_ids_json),
+    allowGuests: row.allow_guests === 1,
     organizationId,
     visibility,
     ...(row.guide ? { guide: row.guide } : {}),
     accessMode,
+    linkJoinPolicy,
     ...(passwordProof ? { passwordProof } : {}),
     createdAt,
     updatedAt,
@@ -142,26 +157,32 @@ export const initializeSpaceMetaRecordIfAbsent = (
         purpose,
         direct_message_json,
         creator_json,
+        owner_user_ids_json,
         organization_id,
         organization_visibility,
         guide,
         access_mode,
+        link_join_policy,
         password_proof_json,
         archive_cursor_ts,
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
     `,
     record.spaceId,
     record.name ?? null,
     record.purpose ?? null,
     directMessageJson,
     creatorJson,
+    JSON.stringify(
+      record.creator?.ownerUserId ? [record.creator.ownerUserId] : []
+    ),
     organizationId,
     visibility,
     record.guide ?? null,
     record.accessMode,
+    record.linkJoinPolicy ?? null,
     passwordProofJson,
     createdAtMs,
     updatedAtMs
@@ -200,16 +221,18 @@ export const upsertSpaceMetaRecord = (
         purpose,
         direct_message_json,
         creator_json,
+        owner_user_ids_json,
         organization_id,
         organization_visibility,
         guide,
         access_mode,
+        link_join_policy,
         password_proof_json,
         archive_cursor_ts,
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
       ON CONFLICT(space_id) DO UPDATE SET
         name = excluded.name,
         purpose = excluded.purpose,
@@ -219,6 +242,7 @@ export const upsertSpaceMetaRecord = (
         organization_visibility = excluded.organization_visibility,
         guide = excluded.guide,
         access_mode = excluded.access_mode,
+        link_join_policy = excluded.link_join_policy,
         password_proof_json = excluded.password_proof_json,
         updated_at = excluded.updated_at
     `,
@@ -227,15 +251,32 @@ export const upsertSpaceMetaRecord = (
     record.purpose ?? null,
     directMessageJson,
     creatorJson,
+    JSON.stringify(
+      record.creator?.ownerUserId ? [record.creator.ownerUserId] : []
+    ),
     organizationId,
     visibility,
     record.guide ?? null,
     record.accessMode,
+    record.linkJoinPolicy ?? null,
     passwordProofJson,
     createdAtMs,
     updatedAtMs
   );
 };
+
+function parseOwnerUserIds(raw: string): string[] {
+  const value: unknown = JSON.parse(raw);
+  if (
+    !(
+      Array.isArray(value) &&
+      value.every((id) => typeof id === "string" && id.length > 0)
+    )
+  ) {
+    throw new Error("space_meta.owner_user_ids_json invalid");
+  }
+  return value;
+}
 
 function readOne<T extends Record<string, SqlStorageValue>>(
   cursor: SqlStorageCursor<T>
@@ -333,6 +374,23 @@ function parseSpaceMetaAccessMode(input: {
     ...(input.passwordProof ? { passwordProof: input.passwordProof } : {}),
   });
   return parsed.data;
+}
+
+function parseSpaceMetaLinkJoinPolicy(value: unknown): SpaceLinkJoinPolicy {
+  if (value === null || String(value).trim().length === 0) {
+    return "access_mode";
+  }
+  const parsed = spaceLinkJoinPolicySchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error("space_meta.link_join_policy invalid");
+  }
+  return parsed.data;
+}
+
+export function resolveSpaceMetaLinkJoinPolicy(
+  meta: Pick<SpaceMetaRecord, "linkJoinPolicy">
+): SpaceLinkJoinPolicy {
+  return meta.linkJoinPolicy ?? "access_mode";
 }
 
 function assertSpaceMetaAccessModeInvariant(input: {

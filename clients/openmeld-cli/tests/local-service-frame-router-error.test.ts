@@ -6,10 +6,8 @@ import {
 } from "@openmeld/local-service";
 import { RUNTIME_TRANSPORT_SCHEMA_VERSION } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  emitDaemonErrorFrame,
-  handleDaemonSocketFrame,
-} from "../src/local-service/carrier/frame-router";
+import { emitDaemonErrorFrame } from "../src/local-service/carrier/daemon-frame-transport";
+import { handleDaemonSocketFrame } from "../src/local-service/carrier/frame-router";
 import type { Presenter } from "../src/runtime/presenter/types";
 import type { WsClient } from "../src/transport/ws";
 
@@ -64,6 +62,56 @@ function createInterruptibleAdapter(
 }
 
 describe("local service frame-router error handling", () => {
+  it("does not clear live reasoning when registration repeats an unchanged preference", () => {
+    const socket = createSocket();
+    const changed = vi.fn();
+    const currentSocketRef = {
+      connectionGeneration: 1,
+      socket,
+      reasoningStreamEnabled: true,
+      reasoningPreferenceListeners: new Set([changed]),
+    };
+    const input: FrameRouterInput = {
+      computerFileAccessStorePath: "/tmp/openmeld-test-unused-policy.json",
+      contextStore: new Map(),
+      currentSocketRef,
+      daemonSessionId: "daemon-session-1",
+      inflightDispatchMetaByTaskId: new Map(),
+      inflightTaskControlRegistry: createInflightTaskControlRegistry(),
+      pendingAgentInteractionRegistry: createPendingAgentInteractionRegistry(),
+      leasesByProfileId: new Map(),
+      localAdapterContainer: createLocalAdapterContainer([]),
+      localExecutionSlots: {} as FrameRouterInput["localExecutionSlots"],
+      ledgerPaths: {} as FrameRouterInput["ledgerPaths"],
+      parsedFrame: {
+        code: "daemon.reasoning.preferences",
+        payload: { enabled: true },
+      },
+      presenter: createPresenter().presenter,
+      profileOwnerName: null,
+      profileOwnerUserId: "user-1",
+      routeByProfileId: new Map(),
+      socket,
+      waiters: {
+        heartbeatRejecter: null,
+        heartbeatResolver: null,
+        registerRejecter: null,
+        registerResolver: null,
+      },
+    };
+    handleDaemonSocketFrame(input);
+    expect(changed).not.toHaveBeenCalled();
+    handleDaemonSocketFrame({
+      ...input,
+      parsedFrame: {
+        code: "daemon.reasoning.preferences",
+        payload: { enabled: false },
+      },
+    });
+    expect(currentSocketRef.reasoningStreamEnabled).toBe(false);
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
   });

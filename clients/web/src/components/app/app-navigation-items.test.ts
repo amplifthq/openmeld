@@ -6,20 +6,18 @@ import {
 } from "./shell-layout";
 
 describe("resolveAppNavigationItems", () => {
-	it("labels the existing Organization root as Center Agent", () => {
+	it("labels the Organization workspace root as Desk", () => {
 		const items = resolveAppNavigationItems({
 			includeSpaces: true,
 			orgSlug: "acme",
 		});
 
 		expect(items[0]).toEqual({
-			label: "Center Agent",
+			label: "Desk",
 			section: "home",
 			to: "/o/acme",
 		});
-		expect(items.filter((item) => item.label === "Center Agent")).toHaveLength(
-			1
-		);
+		expect(items.filter((item) => item.label === "Desk")).toHaveLength(1);
 	});
 
 	it("keeps Computers out of shared product navigation", () => {

@@ -45,6 +45,7 @@ export const CORE_LOG_EVENTS = {
   remoteAgentStreamDeltaRejected: "remote_agent_stream_delta_rejected",
   remoteAgentStreamPartRejected: "remote_agent_stream_part_rejected",
   remoteAgentStreamTerminalSkipped: "remote_agent_stream_terminal_skipped",
+  slackRichContextRepro: "core.remote_agent.slack_ingest.rich_context_repro",
   retentionDebt: "retention_debt",
   retentionWarningEmitFailed: "retention_warning_emit_failed",
   spaceMetaInvalidJson: "space_meta_invalid_json",

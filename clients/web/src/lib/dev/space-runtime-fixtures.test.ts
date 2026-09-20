@@ -37,13 +37,16 @@ function setup() {
 		})
 	);
 	const respond = vi.fn();
+	const stop = vi.fn();
 	const api = {
 		getActiveWakeProgress: read,
 		respondToAgentInteraction: respond,
+		postWakeStop: stop,
 	} as unknown as ReturnType<typeof createSpaceApi>;
 	return {
 		read,
 		respond,
+		stop,
 		api,
 		local: withLocalSpaceRuntimeFixtures(api, "viewer"),
 	};
@@ -146,5 +149,39 @@ describe("local runtime API fixtures", () => {
 		expect(
 			account.summary.items.some((entry) => entry.spaceId === "space")
 		).toBe(false);
+	});
+
+	it("stops only the synthetic Wake in memory after checking access", async () => {
+		const { local, read, stop } = setup();
+		const input = {
+			spaceId: "working-space",
+			body: {
+				target: {
+					by: "source_signal" as const,
+					sourceSignalId: "00000000-0000-4000-8000-000000000002",
+					targetProfileId: "worker",
+				},
+			},
+		};
+		read.mockRejectedValueOnce(new Error("Access denied"));
+		await expect(local.postWakeStop(input)).rejects.toThrow("Access denied");
+		expect((await local.getActiveWakeProgress(input)).items[0]?.phase).toBe(
+			"running"
+		);
+		expect(await local.postWakeStop(input)).toMatchObject({
+			ok: true,
+			status: "cancelled",
+		});
+		expect((await local.getActiveWakeProgress(input)).items[0]).toMatchObject({
+			phase: "stopped",
+			terminal: true,
+		});
+		expect(stop).not.toHaveBeenCalled();
+		const realInput = {
+			...input,
+			body: { target: { ...input.body.target, sourceSignalId: "real-source" } },
+		};
+		await local.postWakeStop(realInput);
+		expect(stop).toHaveBeenCalledWith(realInput);
 	});
 });

@@ -1,3 +1,8 @@
+import { AGENT_PROFILE_WORK_CONCURRENCY_LIMIT } from "@openmeld/agent-runtime";
+import {
+  computerConnectionIntentSchema,
+  TEAMMATE_AGENT_REQUESTS_ENABLED,
+} from "@openmeld/schemas";
 import { Command, Option } from "commander";
 import {
   runActivityContext,
@@ -82,7 +87,6 @@ import {
   runComputerList,
   runComputerRename,
 } from "./commands/computer";
-import { recoverInterruptedComputerAuthHandoff } from "./commands/computer-auth-handoff-recovery";
 import { runDoctor } from "./commands/doctor";
 import { runFeedback } from "./commands/feedback";
 import { runInstallSelf } from "./commands/install-self";
@@ -114,6 +118,7 @@ import {
   runDaemonStop,
   runDaemonUninstall,
 } from "./commands/service";
+import { runServiceAccountControl } from "./commands/service-account-control";
 import { emitDaemonAgentOverview } from "./commands/service-agent-overview";
 import { runServiceTrace } from "./commands/service-trace";
 import { runSetup } from "./commands/setup";
@@ -148,6 +153,7 @@ import {
   runManagedCliDelegation,
 } from "./local-components/managed-command-authority";
 import { runPendingDaemonServiceUpdate } from "./local-service/lifecycle/daemon-service-update-coordinator";
+import { runServiceAccountCarrier } from "./local-service/lifecycle/service-account-authorization";
 import { emitStartupAgentOverviewForCommand } from "./openmeld-agent-overview";
 import {
   runStartFromCliOptions,
@@ -229,6 +235,7 @@ import {
 } from "./organization-skills/command";
 import { formatAgentControllerPermissionModeHelp } from "./profile/controller-permission-mode-input";
 import { runProfileCurrentSession } from "./profile/current-session-command";
+import { runProfileExecutionMode } from "./profile/execution-mode-command";
 import { hasExplicitProfileUpdateField } from "./profile/profile-update-cli-options";
 import {
   runProfileCreationRequestCancel,
@@ -526,6 +533,10 @@ program
   .command("setup")
   .description("Set up this computer for OpenMeld Space Wake.")
   .option(
+    "--connection-intent <json>",
+    "Account and exact previous Computer session explicitly reviewed for this connection"
+  )
+  .option(
     "--profile <id>",
     "Existing OpenMeld agent profile ID to connect to this computer"
   )
@@ -571,6 +582,7 @@ program
   )
   .action(
     async (opts: {
+      connectionIntent?: string;
       agent?: string[];
       deviceCode?: string;
       humanProfile?: string;
@@ -582,12 +594,23 @@ program
       startSession?: string;
     }) => {
       const view = getGlobalViewOption();
+      const connectionIntent = opts.connectionIntent
+        ? computerConnectionIntentSchema.parse(
+            JSON.parse(opts.connectionIntent)
+          )
+        : undefined;
+      if (connectionIntent && !(opts.startSession && opts.deviceCode)) {
+        throw new Error(
+          "--connection-intent requires --start-session and --device-code."
+        );
+      }
       await runCommandWithEntryChecks({
         routeTokens: ["setup"],
         view,
         profile: opts.profile,
         run: async () => {
           await runSetup({
+            connectionIntent,
             agent: opts.agent,
             deviceCode: opts.deviceCode,
             humanProfile: opts.humanProfile,
@@ -1562,6 +1585,34 @@ const computerCmd = program
   .command("computer")
   .description("Inspect and name computers in OpenMeld.");
 
+computerCmd
+  .command("disconnect")
+  .description(
+    "Disconnect this computer from its reviewed account without forgetting its record."
+  )
+  .requiredOption(
+    "--connection-intent <json>",
+    "Account and exact Computer session reviewed for disconnection"
+  )
+  .action(async (opts: { connectionIntent: string }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["computer", "disconnect"],
+      view,
+      run: async () => {
+        const { runComputerDisconnect } = await import(
+          "./commands/computer-disconnect"
+        );
+        await runComputerDisconnect(
+          computerConnectionIntentSchema.parse(
+            JSON.parse(opts.connectionIntent)
+          ),
+          view
+        );
+      },
+    });
+  });
+
 computerCmd.addHelpText(
   "after",
   buildCommandHelpExamples("Examples", [
@@ -1635,6 +1686,16 @@ const skillsCmd = program
   .command("skills")
   .description("Read and load Organization Skills.")
   .option("--json", "Print one machine-readable JSON envelope.", false);
+
+registerPluginCommands(program, {
+  view: getGlobalViewOption,
+  run: (routeTokens, run) =>
+    runCommandWithEntryChecks({
+      routeTokens,
+      view: getGlobalViewOption(),
+      run,
+    }),
+});
 
 skillsCmd.action(async (opts: { json?: boolean }) => {
   const view = getGlobalViewOption();
@@ -1770,8 +1831,12 @@ skillsCmd
   .command("load")
   .description("Load one enabled Skill into the private OpenMeld cache.")
   .argument("<skill>", "Organization Skill name or id")
+  .option(
+    "--release <release-id>",
+    "Load this exact release instead of the active release"
+  )
   .option("--json", "Print one machine-readable JSON envelope.", false)
-  .action(async (skill: string, opts: { json?: boolean }) => {
+  .action(async (skill: string, opts: { json?: boolean; release?: string }) => {
     const view = getGlobalViewOption();
     await runCommandWithEntryChecks({
       routeTokens: ["skills", "load"],
@@ -1779,6 +1844,7 @@ skillsCmd
       run: async () => {
         await runOrganizationSkillsLoad({
           json: opts.json === true,
+          releaseId: opts.release,
           skill,
           view,
         });
@@ -2184,6 +2250,10 @@ const serviceCmd = program
 serviceCmd
   .command("start")
   .description("Start OpenMeld Service on this device.")
+  .option(
+    "--expected-account <id>",
+    "Require this signed-in account for Service control"
+  )
   .option("--mode <mode>", "Start mode: background (default) or foreground")
   .option(
     "--gateway-url <url>",
@@ -2199,10 +2269,11 @@ serviceCmd
     "Heartbeat interval in milliseconds (default: 25000)"
   )
   .option("--json", "Print machine-readable JSON.", false)
-  .action(runServiceStartCliAction);
+  .action(async (opts) => await runServiceStartCliAction(opts));
 
 serviceCmd
   .command("run", { hidden: true })
+  .option("--account-admission-id <id>", "CLI-owned Service startup admission")
   .description(
     "Run OpenMeld Service in this process. System service entrypoint (launchd/systemd unit definitions call this); humans should use `openmeld service start`."
   )
@@ -2220,7 +2291,7 @@ serviceCmd
     "--heartbeat-ms <n>",
     "Heartbeat interval in milliseconds (default: 25000)"
   )
-  .action(runServiceStartCliAction);
+  .action(async (opts) => await runServiceStartCliAction(opts));
 
 serviceCmd
   .command("update-worker", { hidden: true })
@@ -2543,6 +2614,10 @@ serviceCmd
   .command("stop")
   .description("Stop OpenMeld Service on this device.")
   .option(
+    "--expected-account <id>",
+    "Require this signed-in account for Service control"
+  )
+  .option(
     "--force",
     "Send SIGKILL immediately instead of SIGTERM (human flow defaults to confirmation)"
   )
@@ -2551,31 +2626,84 @@ serviceCmd
     "Optional OpenMeld profile override used for state sync"
   )
   .option("--json", "Print machine-readable JSON.", false)
-  .action(async (opts: ServiceStopCliOptions & { json?: boolean }) => {
-    const json = opts.json === true;
-    const view = getGlobalViewOption();
-    await runCommandWithEntryChecks({
-      routeTokens: ["service", "stop"],
-      view,
-      run: async () => {
-        await runDaemonStop({
-          force: Boolean(opts.force),
-          json,
-          profile: opts.profile,
-          view,
+  .action(
+    async (
+      opts: ServiceStopCliOptions & { json?: boolean; expectedAccount?: string }
+    ) => {
+      if (opts.expectedAccount !== undefined) {
+        if (!opts.json || opts.force || opts.profile) {
+          throw new Error(
+            "Account-bound Service control requires --json and does not accept force or profile overrides."
+          );
+        }
+        await runServiceAccountControl({
+          operation: "stop",
+          expectedAccount: opts.expectedAccount,
         });
-        if (!json) {
-          await maybeRunAgentViewRecoveryAfterSuccess({
+        return;
+      }
+      const json = opts.json === true;
+      const view = getGlobalViewOption();
+      await runCommandWithEntryChecks({
+        routeTokens: ["service", "stop"],
+        view,
+        run: async () => {
+          await runDaemonStop({
+            force: Boolean(opts.force),
+            json,
+            profile: opts.profile,
             view,
           });
-        }
-      },
-    });
-  });
+          if (!json) {
+            await maybeRunAgentViewRecoveryAfterSuccess({
+              view,
+            });
+          }
+        },
+      });
+    }
+  );
 
 async function runServiceStartCliAction(
-  opts: ServiceRunCliOptions & { json?: boolean }
+  opts: ServiceRunCliOptions & {
+    json?: boolean;
+    expectedAccount?: string;
+    accountAdmissionId?: string;
+  }
 ): Promise<void> {
+  if (opts.expectedAccount !== undefined) {
+    if (
+      !opts.json ||
+      opts.profile ||
+      opts.deviceId ||
+      opts.gatewayUrl ||
+      opts.heartbeatMs ||
+      opts.mode
+    ) {
+      throw new Error(
+        "Account-bound Service control requires --json and does not accept startup overrides."
+      );
+    }
+    await runServiceAccountControl({
+      operation: "start",
+      expectedAccount: opts.expectedAccount,
+    });
+    emitCliJsonEnvelope({
+      schemaVersion: 1,
+      type: "daemon.run",
+      ok: true,
+      reason: "started",
+    });
+    return;
+  }
+  if (opts.accountAdmissionId) {
+    const { accountAdmissionId, ...remaining } = opts;
+    await runServiceAccountCarrier(
+      accountAdmissionId,
+      async () => await runServiceStartCliAction(remaining)
+    );
+    return;
+  }
   const json = opts.json === true;
   const view = getGlobalViewOption();
   if (
@@ -3588,6 +3716,26 @@ withSpaceProfileOption(
   spaceCmd
     .command("send")
     .description("Send one message to a Space.")
+    .option(
+      "--new-task",
+      `Start an independent task (up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} per Agent)`
+    )
+    .option(
+      "--fork-from <signal-id>",
+      "Fork the selected Agent's completed task at this message"
+    )
+    .option(
+      "--continue-from <signal-id>",
+      "Continue the selected Agent's task from this message"
+    )
+    .option(
+      "--task-access <mode>",
+      "File access: space_context, read_only, or workspace (local files require Codex)"
+    )
+    .option(
+      "--task-workspace <mode>",
+      "Task folder: isolated (private project worktree for local work) or current"
+    )
     .argument("[space]", "Space ID (64-character hex)")
     .argument("[text...]", "Text to send")
     .option(
@@ -3599,8 +3747,26 @@ withSpaceProfileOption(
     .option("--stdin", "Read message text from stdin (EOF to finish)", false)
     .option("--text-file <path>", "Read message text from a UTF-8 file")
     .option(
+      "--wake <profile-id>",
+      "Wake an Agent Profile (repeatable)",
+      collectRepeatedOptionValue,
+      []
+    )
+    .option(
+      "--reference <profile-id>",
+      "Reference an Agent Profile (repeatable)",
+      collectRepeatedOptionValue,
+      []
+    )
+    .option(
+      "--mention <profile-id>",
+      "Mention a Human Profile (repeatable)",
+      collectRepeatedOptionValue,
+      []
+    )
+    .option(
       "--plain",
-      "Send text literally without resolving @Name(wake), @Name(reference), or @Name(mention) addressing",
+      "Assert that this message has no recipients; text is always literal",
       false
     )
     .option(
@@ -3633,11 +3799,23 @@ withSpaceProfileOption(
         baseUrl: cliOptions.gatewayUrl,
         space: spaceValue,
         filePaths: Array.isArray(opts.file) ? opts.file.map(String) : [],
+        contextSelection: resolveSpaceTaskSelection({
+          space: spaceValue,
+          wakeTargets: opts.wake,
+          newTask: opts.newTask,
+          forkFrom: opts.forkFrom,
+          continueFrom: opts.continueFrom,
+          taskAccess: opts.taskAccess,
+          taskWorkspace: opts.taskWorkspace,
+        }),
         password: cliOptions.password,
         text: textValue,
         stdin: Boolean(opts.stdin),
         textFile: typeof opts.textFile === "string" ? opts.textFile : undefined,
         plainText: opts.plain === true,
+        wakeTargets: opts.wake,
+        referenceTargets: opts.reference,
+        mentionTargets: opts.mention,
         replyToSignalId:
           typeof opts.replyTo === "string" ? opts.replyTo : undefined,
         view,
@@ -4318,6 +4496,26 @@ withSpaceProfileOption(
 program
   .command("send")
   .description("Alias for `openmeld space send`.")
+  .option(
+    "--new-task",
+    `Start an independent task (up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} per Agent)`
+  )
+  .option(
+    "--fork-from <signal-id>",
+    "Fork the selected Agent's completed task at this message"
+  )
+  .option(
+    "--continue-from <signal-id>",
+    "Continue the selected Agent's task from this message"
+  )
+  .option(
+    "--task-access <mode>",
+    "File access: space_context, read_only, or workspace (local files require Codex)"
+  )
+  .option(
+    "--task-workspace <mode>",
+    "Task folder: isolated (private project worktree for local work) or current"
+  )
   .argument("[text...]", "Text to send")
   .option("--profile <id>", "OpenMeld profile ID")
   .option("--base-url <url>", "OpenMeld gateway URL")
@@ -4331,8 +4529,26 @@ program
   )
   .option("--text-file <path>", "Read message text from a UTF-8 file")
   .option(
+    "--wake <profile-id>",
+    "Wake an Agent Profile (repeatable)",
+    collectRepeatedOptionValue,
+    []
+  )
+  .option(
+    "--reference <profile-id>",
+    "Reference an Agent Profile (repeatable)",
+    collectRepeatedOptionValue,
+    []
+  )
+  .option(
+    "--mention <profile-id>",
+    "Mention a Human Profile (repeatable)",
+    collectRepeatedOptionValue,
+    []
+  )
+  .option(
     "--plain",
-    "Send text literally without resolving @Name(wake), @Name(reference), or @Name(mention) addressing",
+    "Assert that this message has no recipients; text is always literal",
     false
   )
   .option("--password <value>", "Space password for protected access")
@@ -4344,9 +4560,17 @@ program
         baseUrl?: string;
         space?: string;
         stdin?: boolean;
+        newTask?: boolean;
+        forkFrom?: string;
+        continueFrom?: string;
+        taskAccess?: string;
+        taskWorkspace?: string;
         file?: string[];
         textFile?: string;
         plain?: boolean;
+        wake?: string[];
+        reference?: string[];
+        mention?: string[];
         password?: string;
       }
     ) => {
@@ -4363,6 +4587,15 @@ program
         run: async () => {
           await runSpaceSend({
             profile: opts.profile,
+            contextSelection: resolveSpaceTaskSelection({
+              space,
+              wakeTargets: opts.wake,
+              newTask: opts.newTask,
+              forkFrom: opts.forkFrom,
+              continueFrom: opts.continueFrom,
+              taskAccess: opts.taskAccess,
+              taskWorkspace: opts.taskWorkspace,
+            }),
             baseUrl: opts.baseUrl,
             space,
             password: opts.password,
@@ -4372,6 +4605,9 @@ program
             textFile:
               typeof opts.textFile === "string" ? opts.textFile : undefined,
             plainText: opts.plain === true,
+            wakeTargets: opts.wake,
+            referenceTargets: opts.reference,
+            mentionTargets: opts.mention,
             view,
             entryChecksHandled: true,
           });
@@ -4671,6 +4907,25 @@ const profileCmd = program
   .alias("profile")
   .description("Manage OpenMeld profiles.");
 
+profileCmd
+  .command("execution-mode")
+  .description(
+    "Read or change independent-task admission for an Agent Profile."
+  )
+  .argument("<profile>", "Agent Profile ID")
+  .option(
+    "--mode <mode>",
+    "parallel or serial; serial lets existing tasks finish"
+  )
+  .action(async (profile: string, options: { mode?: string }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["profile", "execution-mode"],
+      view,
+      run: () => runProfileExecutionMode({ profile, mode: options.mode, view }),
+    });
+  });
+
 profileCmd.action(async () => {
   const view = getGlobalViewOption();
   await runCommandWithEntryChecks({
@@ -4728,12 +4983,9 @@ profileCmd
   )
   .option(
     "--owner <userId>",
-    "Create for a member from `openmeld org directory --view agent`, or self"
+    "Agent owner: self (creating for other members is not available)"
   )
-  .option(
-    "--computer <computerId>",
-    "Exact Organization-visible Computer for a teammate-owned Agent"
-  )
+  .option("--computer <computerId>", "Exact Computer for your Agent")
   .option("--project <projectId>", "Default Project for the new Agent")
   .option(
     "--no-default-project",
@@ -4936,19 +5188,18 @@ profileCmd
   });
 
 const profileRequestsCmd = profileCmd
-  .command("requests")
+  // Launch hold: keep exact commands for self-creation recovery and isolated
+  // Request an Agent development, without advertising the unreleased product.
+  .command("requests", { hidden: !TEAMMATE_AGENT_REQUESTS_ENABLED })
   .description(
     "Create and manage Organization Agent Profile creation requests."
   );
 
 profileRequestsCmd
   .command("create")
-  .description("Request an Agent Profile for yourself or a teammate.")
+  .description("Create an Agent Profile for yourself.")
   .argument("<profileName>", "Agent Profile name")
-  .requiredOption(
-    "--owner <userId>",
-    "Target member user ID from `openmeld org directory --view agent`, or self"
-  )
+  .requiredOption("--owner <userId>", "Agent owner: self")
   .option(
     "--session <strategy>",
     "Session strategy: new, resume, or fork",
@@ -5013,7 +5264,7 @@ profileRequestsCmd
 
 for (const decision of ["approve", "decline"] as const) {
   profileRequestsCmd
-    .command(decision)
+    .command(decision, { hidden: !TEAMMATE_AGENT_REQUESTS_ENABLED })
     .description(
       `${decision === "approve" ? "Approve" : "Decline"} an Agent Profile creation request for you.`
     )
@@ -5072,7 +5323,7 @@ for (const action of ["cancel", "retry"] as const) {
 }
 
 const profileRequestPreferencesCmd = profileRequestsCmd
-  .command("preferences")
+  .command("preferences", { hidden: !TEAMMATE_AGENT_REQUESTS_ENABLED })
   .description("Manage approvals for teammate Agent Profile requests.");
 
 profileRequestPreferencesCmd
@@ -5396,6 +5647,45 @@ async function main() {
     return;
   }
   const argv = process.argv.map((arg) => (arg === "--h" ? "--help" : arg));
+  if (
+    argv.length === 5 &&
+    argv[2] === "computer" &&
+    argv[3] === "connection-review" &&
+    argv[4] === "--json"
+  ) {
+    const { readComputerConnectionReview } = await import(
+      "./commands/computer-connection-review"
+    );
+    outLine(JSON.stringify(await readComputerConnectionReview()));
+    return;
+  }
+  // Exact read-only probes precede managed delegation and layout repair. The
+  // carrier probe must describe this executable, not a newer delegated CLI.
+  if (argv.length === 5 && argv[2] === "service" && argv[4] === "--json") {
+    if (argv[3] === "control-carrier-capability") {
+      const { readServiceControlCarrierCapability } = await import(
+        "./commands/service-control-carrier-capability"
+      );
+      outLine(JSON.stringify(readServiceControlCarrierCapability()));
+      return;
+    }
+    if (argv[3] === "control-capabilities") {
+      const { readServiceControlCapabilities } = await import(
+        "./commands/service-control-capabilities"
+      );
+      const capabilities = await readServiceControlCapabilities().catch(() => ({
+        deviceId: null,
+        start: false,
+        stop: false,
+      }));
+      emitCliJsonEnvelope({
+        schemaVersion: 1,
+        type: "service.control_capabilities",
+        ...capabilities,
+      });
+      return;
+    }
+  }
   if (isDispatchSpaceActionToolServerArgv(argv)) {
     await runSpaceActionMcpServer();
     return;
@@ -5437,25 +5727,9 @@ async function runLocalCli(argv: string[]): Promise<void> {
       return;
     }
     await ensureSystemLayout();
-    const [startupCommand, startupSubcommand] =
-      parseLeadingCommandTokensFromArgv(argv, 2);
-    if (
-      !(
-        isPassiveCliQueryArgv(argv) ||
-        (startupCommand === "service" && startupSubcommand === "run")
-      )
-    ) {
-      const recoveryRuntime = {
-        interactive: false,
-        resolvedView: "agent",
-        viewMode: "agent",
-      } as const;
-      await recoverInterruptedComputerAuthHandoff({
-        presenter: createSilentPresenter("agent"),
-        runtime: recoveryRuntime,
-        view: "agent",
-      });
-    }
+    // Account handoff owns Service recovery. Generic commands must remain
+    // usable when that Service cannot start, especially install-self, upgrade
+    // and diagnostics. Auth storage still isolates uncommitted credentials.
 
     const removedCcInputMessage = getRemovedCcCliInputMessage(argv);
     if (removedCcInputMessage) {
@@ -5676,3 +5950,6 @@ main().catch((error: unknown) => {
   errLine(message);
   process.exitCode = 1;
 });
+
+import { registerPluginCommands } from "./plugins/registration";
+import { resolveSpaceTaskSelection } from "./space/send-input";

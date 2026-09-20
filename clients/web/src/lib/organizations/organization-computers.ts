@@ -24,11 +24,18 @@ export async function readCurrentOrganizationComputers(input: {
 		if (response.organizationId !== input.organizationId) {
 			throw new Error("Organization computers response organization mismatch.");
 		}
-		return import.meta.env.DEV
-			? (
-					await import("#/lib/dev/computer-state-fixtures")
-				).withOrganizationComputerStateFixtures(response)
-			: response;
+		if (import.meta.env.DEV) {
+			const { withOrganizationComputerStateFixtures } = await import(
+				"#/lib/dev/computer-state-fixtures"
+			);
+			const { withPeopleComputerFixtures } = await import(
+				"#/lib/dev/people-sidebar-fixtures"
+			);
+			return await withPeopleComputerFixtures(
+				withOrganizationComputerStateFixtures(response)
+			);
+		}
+		return response;
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}

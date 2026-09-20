@@ -150,7 +150,7 @@ describe("Remote Agent worker admission", () => {
     ).resolves.toEqual({
       response: {
         message:
-          "Center Agent is paused. Ask the Organization creator to resume it before trying again.",
+          "Center Agent is paused. Ask the Organization owner or admin to resume it before trying again.",
         reasonCode: "remote_agent.center_agent_paused",
       },
       status: "rejected",
@@ -166,7 +166,7 @@ describe("Remote Agent worker admission", () => {
         execution: {
           acceptedAtMs: 1_700_000_000_000,
           cancellationReason:
-            "Center Agent was paused by the Organization creator.",
+            "Center Agent was paused by the Organization owner or admin.",
           completedAtMs: null,
           idempotencyKey: "turn-1",
           lastProgressAtMs: 1_700_000_000_001,
@@ -225,7 +225,7 @@ describe("Remote Agent worker admission", () => {
     expect(cancelExecution).toHaveBeenCalledWith({
       idempotencyKey: "turn-1",
       organizationId: "org-1",
-      reason: "Center Agent was paused by the Organization creator.",
+      reason: "Center Agent was paused by the Organization owner or admin.",
       spaceId: "space-1",
       submissionId: "submission-1",
       v: 1,

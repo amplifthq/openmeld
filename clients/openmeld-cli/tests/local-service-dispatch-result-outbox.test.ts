@@ -151,6 +151,12 @@ describe("local service dispatch result outbox", () => {
     });
 
     expect(send).toHaveBeenCalledTimes(1);
+    flushDispatchResultOutbox({
+      currentSocketRef: { connectionGeneration: 2, socket: { send } as never },
+      ledgerPaths,
+      presenter: createPresenter(),
+    });
+    expect(send).toHaveBeenCalledTimes(1);
     const outbox = readOutboxFile(ledgerPaths);
     expect(outbox.records).toHaveLength(1);
     expect(outbox.records[0]).toMatchObject({
@@ -163,6 +169,61 @@ describe("local service dispatch result outbox", () => {
     expect(
       outbox.records[0]?.taskResult.payload.bootstrapTemplateFacts
     ).toBeUndefined();
+  });
+
+  it("replays an unacknowledged result immediately on a new connection without duplicating it on that connection", async () => {
+    await withTempHome(async () => {
+      const ledgerPaths = createLedgerPaths();
+      const send = vi.fn();
+      const currentSocketRef: CurrentDaemonSocketRef = {
+        connectionGeneration: 1,
+        socket: { send } as never,
+      };
+      const settlement = enqueueSuccessResult({
+        currentSocketRef,
+        ledgerPaths,
+        waitForSettlement: true,
+      });
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(
+        readOutboxFile(ledgerPaths).records[0]?.nextAttemptAtMs
+      ).toBeGreaterThan(Date.now());
+
+      currentSocketRef.connectionGeneration = 2;
+      flushDispatchResultOutbox({
+        currentSocketRef,
+        ledgerPaths,
+        presenter: createPresenter(),
+      });
+      expect(send).toHaveBeenCalledTimes(2);
+      flushDispatchResultOutbox({
+        currentSocketRef,
+        ledgerPaths,
+        presenter: createPresenter(),
+      });
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(
+        JSON.parse(send.mock.calls[1]?.[0] ?? "{}").payload.executionTokenEcho
+      ).toEqual(createExecutionTokenEcho());
+      expect(readOutboxFile(ledgerPaths).records).toHaveLength(1);
+
+      acknowledgeDispatchResultOutboxRecord({
+        attemptId: "attempt-1",
+        dispatchId: "dispatch-1",
+        ledgerPaths,
+        ok: true,
+        presenter: createPresenter(),
+      });
+      currentSocketRef.connectionGeneration = 3;
+      flushDispatchResultOutbox({
+        currentSocketRef,
+        ledgerPaths,
+        presenter: createPresenter(),
+      });
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(readOutboxFile(ledgerPaths).records).toHaveLength(0);
+      expect(await settlement).toEqual({ status: "accepted" });
+    });
   });
 
   it("keeps a disconnected result and flushes it after reconnect", async () => {

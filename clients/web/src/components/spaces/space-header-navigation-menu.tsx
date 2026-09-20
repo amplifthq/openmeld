@@ -79,7 +79,7 @@ export function SpaceHeaderNavigationMenu(input: {
 						onClick={input.onOpenConversationInformation}
 					>
 						<InfoIcon aria-hidden="true" />
-						Conversation information
+						Chat settings
 					</FluidDropdownMenuItem>
 				) : null}
 			</FluidDropdownMenuContent>

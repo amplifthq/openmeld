@@ -158,7 +158,7 @@ describe("space outbox watchdog", () => {
     const syncDispatchOutboxAlarm = vi.fn(async () => undefined);
     const sqlExec = vi.fn(() => ({ toArray: () => [] }));
     const directDelivery = vi
-      .spyOn(dispatchQueueService, "dispatchProductionOutboxMessageDirectly")
+      .spyOn(dispatchQueueService, "dispatchOutboxMessageDirectly")
       .mockResolvedValue({
         reasonCode: "dispatch_direct_retry_requested",
         recoveryTransport: "queue",
@@ -189,12 +189,16 @@ describe("space outbox watchdog", () => {
     expect(syncDispatchOutboxAlarm).toHaveBeenCalled();
   });
 
-  it("keeps production workstation direct retries in the durable outbox", async () => {
+  it.each([
+    "local",
+    "stg",
+    "prod",
+  ])("keeps workstation direct retries in the same durable outbox in %s", async (workerEnvironment) => {
     const queueSend = vi.fn(async () => undefined);
     const syncDispatchOutboxAlarm = vi.fn(async () => undefined);
     const sqlExec = vi.fn(() => ({ toArray: () => [] }));
     const directDelivery = vi
-      .spyOn(dispatchQueueService, "dispatchProductionOutboxMessageDirectly")
+      .spyOn(dispatchQueueService, "dispatchOutboxMessageDirectly")
       .mockResolvedValue({
         reasonCode: "dispatch_direct_retry_requested",
         recoveryTransport: "outbox",
@@ -206,7 +210,7 @@ describe("space outbox watchdog", () => {
       bindings: {
         OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE: "direct",
         OPENMELD_DAEMON_DISPATCH_QUEUE: { send: queueSend },
-        OPENMELD_WORKER_ENVIRONMENT: "prod",
+        OPENMELD_WORKER_ENVIRONMENT: workerEnvironment,
       },
       sqlExec,
       syncDispatchOutboxAlarm,
@@ -496,7 +500,7 @@ describe("space outbox watchdog", () => {
   it("reports a durable workstation outbox retry without inventing a Queue failure", async () => {
     const outboxRecord = createRuntimeCoordinatorRedriveOutboxRecord();
     const directDelivery = vi
-      .spyOn(dispatchQueueService, "dispatchProductionOutboxMessageDirectly")
+      .spyOn(dispatchQueueService, "dispatchOutboxMessageDirectly")
       .mockResolvedValue({
         reasonCode: "dispatch_direct_retry_requested",
         recoveryTransport: "outbox",
@@ -504,7 +508,7 @@ describe("space outbox watchdog", () => {
         status: "retry_scheduled",
       });
     const space = createInternalRedriveHarness({
-      deliveryMode: "production_direct",
+      deliveryMode: "direct",
       dispatchId: outboxRecord.dispatchId,
       payloadJson: outboxRecord.payloadJson,
     });
@@ -686,6 +690,72 @@ describe("space outbox watchdog", () => {
     infoSpy.mockRestore();
   });
 
+  it("keeps the same Wake recoverable through repeated D1 overload without rapid retries or a false account failure", async () => {
+    const candidate = createOutboxRecordForSource("signal-storage-overload");
+    let nowMs = 1_700_000_100_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    const decision = vi.fn((_candidate: { dispatchId: string }) =>
+      Promise.reject(
+        new Error(
+          "D1_ERROR: D1 DB is overloaded. Requests queued for too long."
+        )
+      )
+    );
+    const { poisonStateByDispatchId, space, terminalSignals } =
+      createFlushHarness({
+        candidateRows: [toOutboxRow(candidate)],
+        resolveDecision: decision,
+      });
+    try {
+      await space.flushPendingDispatchOutbox();
+      nowMs += 1000;
+      await space.flushPendingDispatchOutbox();
+      expect(decision).toHaveBeenCalledTimes(1);
+      nowMs += 14_000;
+      await space.flushPendingDispatchOutbox();
+      nowMs += 15_000;
+      await space.flushPendingDispatchOutbox();
+      expect(decision).toHaveBeenCalledTimes(3);
+      expect(terminalSignals).toHaveLength(0);
+      expect(poisonStateByDispatchId.get(candidate.dispatchId)).toEqual({
+        failureCount: 0,
+        poisonedAtMs: null,
+      });
+      nowMs += 15_000;
+      await space.flushPendingDispatchOutbox();
+      expect(decision).toHaveBeenCalledTimes(4);
+      expect(
+        decision.mock.calls.every(
+          ([entry]) => entry.dispatchId === candidate.dispatchId
+        )
+      ).toBe(true);
+      expect(terminalSignals).toHaveLength(0);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("shares an in-flight outbox flush instead of processing the same Wake concurrently", async () => {
+    const candidate = createOutboxRecordForSource("signal-concurrent-flush");
+    let finish: (() => void) | undefined;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const decision = vi.fn(async () => {
+      await pending;
+      return { kind: "keep" };
+    });
+    const { space } = createFlushHarness({
+      candidateRows: [toOutboxRow(candidate)],
+      resolveDecision: decision,
+    });
+    const first = space.flushPendingDispatchOutbox();
+    const second = space.flushPendingDispatchOutbox();
+    finish?.();
+    await Promise.all([first, second]);
+    expect(decision).toHaveBeenCalledTimes(1);
+  });
+
   it("parks a poison outbox candidate after repeated failures", async () => {
     const poison = createOutboxRecordForSource("signal-poison");
     const decisionSpy = vi.fn(() =>
@@ -727,8 +797,8 @@ describe("space outbox watchdog", () => {
         dispatchId: poison.dispatchId,
         generatedBy: "openmeld",
         noticeType: "terminal_failure",
-        reason: "dispatch.target_profile_owner_unresolved",
-        text: "OpenMeld could not wake @Codex Agent because OpenMeld could not confirm the agent's account right now. Try again in a moment.",
+        reason: "dispatch.outbox.candidate_failed",
+        text: "OpenMeld could not prepare this request for @Codex Agent. Try again. If it keeps failing, report the issue from the message details.",
       },
       type: "signal.system_notice",
     });
@@ -1218,7 +1288,7 @@ const createAlarmLaneHarness = (lanes: {
 };
 
 const createInternalRedriveHarness = (input: {
-  deliveryMode?: "production_direct" | "queue";
+  deliveryMode?: "direct" | "queue";
   dispatchId: string;
   payloadJson: string;
   queueSend?: (message: unknown) => Promise<void>;
@@ -1258,7 +1328,7 @@ const createInternalRedriveHarness = (input: {
   Object.defineProperties(space, {
     bindings: {
       value: {
-        ...(input.deliveryMode === "production_direct"
+        ...(input.deliveryMode === "direct"
           ? {
               OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE: "direct",
               OPENMELD_WORKER_ENVIRONMENT: "prod",

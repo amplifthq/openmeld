@@ -8,7 +8,19 @@ const authMock = {
     setPassword: vi.fn(),
   },
 };
-const createAuthMock = vi.fn(() => authMock);
+const createAuthMock = vi.fn(() => ({
+  api: {
+    ...authMock.api,
+    // Better Auth's public returnHeaders option wraps the same payload. Keep
+    // identity-only RPC fixtures raw and give HTTP callers the vendor envelope.
+    async getSession(options: { returnHeaders?: boolean }) {
+      const response = await authMock.api.getSession(options);
+      return options.returnHeaders
+        ? { response, headers: new Headers() }
+        : response;
+    },
+  },
+}));
 let requestStateActive = false;
 const runWithAuthRequestStateMock = vi.fn(
   async <T>(callback: () => T | Promise<T>): Promise<T> => {
@@ -1137,8 +1149,7 @@ describe("auth session resolution", () => {
       expect.stringContaining("FROM organizations")
     );
     expect(profileServiceMock.ensureManagedAgentProfile).toHaveBeenCalledWith({
-      ownerUserId: "owner-123",
-      createdByUserId: "owner-123",
+      createdByUserId: null,
       creatorProfileId: null,
       organizationId: "org-123",
       managedRole: "center_agent",
@@ -1676,6 +1687,7 @@ describe("auth session resolution", () => {
         profileKind: "agent",
         profileName: "Research Agent",
         status: "active",
+        managedRole: null,
       },
     });
   });
@@ -1707,6 +1719,7 @@ describe("auth session resolution", () => {
         profileKind: "agent",
         profileName: "Research Agent",
         status: "disabled",
+        managedRole: null,
       },
     });
   });

@@ -1,15 +1,24 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import {
+  mkdir,
+  readFile,
+  readlink,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import packageJson from "../package.json";
 import {
   resolveCliBinaryUpdatePlan,
   verifyCliBinaryCodeSignature,
-} from "../src/runtime/cli-binary-update-artifact";
+} from "@openmeld/local-service/cli-binary-update-artifact";
+import { resolveOpenMeldToolsUpdateTargetVersions } from "@openmeld/schemas";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import packageJson from "../package.json";
+import type { DaemonServiceUpdateJob } from "../src/local-service/lifecycle/daemon-service-update-state";
+import { resolveOpenMeldToolsUpdateFailure } from "../src/local-service/maintenance/openmeld-tools-update-failure";
 import { withCapturedStdio, withTempHome } from "./helpers/fs";
 import { seedVersionState } from "./helpers/version";
 
@@ -242,9 +251,75 @@ describe("openmeld upgrade in binary distribution", () => {
     });
   });
 
+  it("classifies a temporary workspace failure before download as an install failure", async () => {
+    await withTempHome(async (home) => {
+      await seedVersionState(home);
+      const artifactBytes = Buffer.from("fake openmeld binary\n", "utf8");
+      const manifest = buildBinaryManifest(artifactBytes);
+      const fetchMock = mockBinaryFetch(manifest, artifactBytes);
+      vi.doMock("node:fs/promises", async () => {
+        const actual =
+          await vi.importActual<typeof import("node:fs/promises")>(
+            "node:fs/promises"
+          );
+        return {
+          ...actual,
+          mkdtemp: vi
+            .fn()
+            .mockRejectedValue(new Error("temporary directory unavailable")),
+        };
+      });
+
+      try {
+        const { runUpgrade } = await loadUpgradeModules();
+        let thrown: unknown;
+        await withCapturedStdio(async () => {
+          try {
+            await runUpgrade({ view: "agent", yes: true });
+          } catch (error) {
+            thrown = error;
+          }
+        });
+
+        expect(thrown).toEqual(
+          expect.objectContaining({
+            message: "temporary directory unavailable",
+          })
+        );
+        expect(resolveOpenMeldToolsUpdateFailure(thrown)).toBe(
+          "cli.update.install_failed"
+        );
+        expect(fetchMock).toHaveBeenCalledOnce();
+        expect(spawn).not.toHaveBeenCalled();
+      } finally {
+        vi.doUnmock("node:fs/promises");
+      }
+    });
+  });
+
   it("stops before install-self when the downloaded binary sha256 does not match the manifest", async () => {
     await withTempHome(async (home) => {
       await seedVersionState(home);
+      const installedBinaryPath = join(
+        home,
+        ".openmeld",
+        "versions",
+        packageJson.version,
+        "openmeld"
+      );
+      const currentPointerPath = join(home, ".openmeld", "bin", "openmeld");
+      const installedBytes = Buffer.from("working OpenMeld CLI\n", "utf8");
+      await mkdir(dirname(installedBinaryPath), { recursive: true });
+      await mkdir(dirname(currentPointerPath), { recursive: true });
+      await writeFile(installedBinaryPath, installedBytes, { mode: 0o755 });
+      await symlink(
+        relative(dirname(currentPointerPath), installedBinaryPath),
+        currentPointerPath
+      );
+      vi.stubEnv(
+        "OPENMELD_INTERNAL_UPGRADE_BASE_BINARY_PATH",
+        currentPointerPath
+      );
       const expectedBytes = Buffer.from("expected openmeld binary\n", "utf8");
       const downloadedBytes = Buffer.from("tampered openmeld binary\n", "utf8");
       const manifest = buildBinaryManifest(expectedBytes, {
@@ -252,7 +327,7 @@ describe("openmeld upgrade in binary distribution", () => {
       });
       mockBinaryFetch(manifest, downloadedBytes);
 
-      const { runUpgrade } = await loadUpgradeModules();
+      const { readVersionState, runUpgrade } = await loadUpgradeModules();
       await withCapturedStdio(async () => {
         await expect(
           runUpgrade({
@@ -263,6 +338,15 @@ describe("openmeld upgrade in binary distribution", () => {
       });
 
       expect(spawn).not.toHaveBeenCalled();
+      await expect(readFile(installedBinaryPath)).resolves.toEqual(
+        installedBytes
+      );
+      await expect(readlink(currentPointerPath)).resolves.toBe(
+        relative(dirname(currentPointerPath), installedBinaryPath)
+      );
+      await expect(readVersionState()).resolves.toMatchObject({
+        last_version: packageJson.version,
+      });
     });
   });
 
@@ -409,12 +493,7 @@ describe("openmeld upgrade in binary distribution", () => {
     await expect(
       verifyCliBinaryCodeSignature({
         artifactPath: "/tmp/openmeld",
-        release: {
-          ...platformRelease,
-          minRequiredCliVersion: manifest.channels.stable.minRequiredCliVersion,
-          platform,
-          version: manifest.channels.stable.version,
-        },
+        release: platformRelease,
         runCommand,
       })
     ).rejects.toThrow("signed OpenMeld CLI verification requires macOS");
@@ -536,9 +615,32 @@ describe("openmeld upgrade in binary distribution", () => {
     });
   });
 
-  it("does not forward process.argv[1] as a Node script path in binary internal alignment", async () => {
+  it.each([
+    false,
+    true,
+  ])("uses the selected Service target in binary alignment (independent=%s)", async (independent) => {
     await withTempHome(async (home) => {
       await seedVersionState(home);
+      const manifest = buildBinaryManifest(
+        Buffer.from("selected Service artifact")
+      );
+      const service = independent
+        ? {
+            version: "0.0.1",
+            platforms: manifest.channels.stable.platforms,
+          }
+        : undefined;
+      vi.mocked(fetch).mockResolvedValue(
+        Response.json({
+          ...manifest,
+          channels: {
+            stable: {
+              ...manifest.channels.stable,
+              ...(service ? { service } : {}),
+            },
+          },
+        })
+      );
       resolveDaemonServiceAlignmentDecisionMock.mockReturnValueOnce({
         status: "needs_full_alignment",
         reasonCodes: ["bundle_strategy_legacy"],
@@ -557,17 +659,126 @@ describe("openmeld upgrade in binary distribution", () => {
 
         expect(scheduleDaemonServiceUpdateMock).toHaveBeenCalledWith(
           expect.objectContaining({
-            targetVersion: packageJson.version,
+            targetCliVersion: packageJson.version,
+            targetServiceVersion: service?.version ?? packageJson.version,
+            targetVersion: service?.version ?? packageJson.version,
             urgency: "available",
           })
         );
         const scheduleInput =
           scheduleDaemonServiceUpdateMock.mock.calls[0]?.[0];
         expect(scheduleInput).not.toHaveProperty("cliScriptPath");
+        if (service) {
+          expect(scheduleInput.binaryRelease.version).toBe(service.version);
+        } else {
+          expect(scheduleInput).not.toHaveProperty("binaryRelease");
+        }
         expect(runDaemonServiceFullAlignmentMock).not.toHaveBeenCalled();
       } finally {
         process.argv[1] = originalArgvEntry ?? process.execPath;
       }
+    });
+  });
+
+  it("enriches a legacy update handoff with the CLI and selected Service targets", async () => {
+    await withTempHome(async (home) => {
+      await seedVersionState(home);
+      const manifest = buildBinaryManifest(
+        Buffer.from("legacy handoff Service artifact")
+      );
+      const selectedServiceVersion = "0.0.1";
+      vi.mocked(fetch).mockResolvedValue(
+        Response.json({
+          ...manifest,
+          channels: {
+            stable: {
+              ...manifest.channels.stable,
+              service: {
+                version: selectedServiceVersion,
+                platforms: manifest.channels.stable.platforms,
+              },
+            },
+          },
+        })
+      );
+      vi.stubEnv(
+        "OPENMELD_INTERNAL_TOOLS_UPDATE_OPERATION_ID",
+        "legacy-update-1"
+      );
+      vi.stubEnv(
+        "OPENMELD_INTERNAL_TOOLS_UPDATE_REQUESTED_AT",
+        "2026-09-17T00:00:00.000Z"
+      );
+      vi.stubEnv("OPENMELD_INTERNAL_TOOLS_UPDATE_REQUEST_SOURCE", "automatic");
+      vi.stubEnv("OPENMELD_INTERNAL_TOOLS_UPDATE_TARGET_CLI_VERSION", "");
+      vi.stubEnv("OPENMELD_INTERNAL_TOOLS_UPDATE_TARGET_SERVICE_VERSION", "");
+      resolveDaemonServiceAlignmentDecisionMock.mockReturnValueOnce({
+        status: "needs_full_alignment",
+        reasonCodes: ["bundle_strategy_legacy"],
+      });
+
+      const actualCoordinator = await vi.importActual<
+        typeof import("../src/local-service/lifecycle/daemon-service-update-coordinator")
+      >("../src/local-service/lifecycle/daemon-service-update-coordinator");
+      const persistedJobs: DaemonServiceUpdateJob[] = [];
+      scheduleDaemonServiceUpdateMock.mockImplementationOnce(
+        async (request) =>
+          await actualCoordinator.scheduleDaemonServiceUpdate(request, {
+            createJobId: () => "unexpected-new-operation-id",
+            installWorker: async () => undefined,
+            now: () => "2026-09-17T00:00:02.000Z",
+            persistPendingJob: (job) => {
+              persistedJobs.push(job);
+              return Promise.resolve();
+            },
+            prepareBundle: async ({ daemonVersion }) => ({
+              v: 2,
+              schema: "openmeld-daemon-active-bundle-v2",
+              bundleId: `${daemonVersion}-legacy-handoff`,
+              daemonVersion,
+              entryScriptRelativePath: "openmeld",
+              bundleFormat: "binary_v1",
+              sourceEntryScriptPath: `/tmp/openmeld/${daemonVersion}/openmeld`,
+              sourcePackageRootPath: `/tmp/openmeld/${daemonVersion}`,
+              sourceDistRootPath: `/tmp/openmeld/${daemonVersion}`,
+              sourceDistFingerprint: "legacy-handoff",
+              sourceKind: "package_install",
+              createdAt: "2026-09-17T00:00:01.000Z",
+              updatedAt: "2026-09-17T00:00:01.000Z",
+            }),
+            prepareWorkerCarrier: async () => undefined,
+            pruneWorkerVersions: async () => undefined,
+            readPendingJob: async () => null,
+            resolveDesiredState: async () => "background",
+            startWorker: async () => undefined,
+            withManagedInstallTransaction: async (run) => await run(),
+          })
+      );
+
+      const { runUpgrade } = await loadUpgradeModules();
+      await withCapturedStdio(async () => {
+        await runUpgrade({
+          view: "agent",
+          internalAlignService: true,
+        });
+      });
+
+      const persistedJob = persistedJobs[0];
+      expect(persistedJob).toMatchObject({
+        jobId: "legacy-update-1",
+        requestedAt: "2026-09-17T00:00:00.000Z",
+        requestSource: "automatic",
+        targetCliVersion: packageJson.version,
+        targetServiceVersion: selectedServiceVersion,
+        targetVersion: selectedServiceVersion,
+      });
+      if (!persistedJob) {
+        throw new Error("expected the legacy handoff job to be persisted");
+      }
+      expect(resolveOpenMeldToolsUpdateTargetVersions(persistedJob)).toEqual({
+        cliVersion: packageJson.version,
+        serviceVersion: selectedServiceVersion,
+      });
     });
   });
 });

@@ -75,7 +75,7 @@ export const centerAgentPublicationOperations = sqliteTable(
     ),
     check(
       "center_agent_publication_operations_destination_kind_check",
-      sql`"destination_kind" in ('slack_channel', 'slack_file')`
+      sql`"destination_kind" in ('slack_channel', 'slack_file', 'message_channel_file')`
     ),
     check(
       "center_agent_publication_operations_destination_id_non_empty_check",

@@ -347,15 +347,15 @@ describe("planAgentProfileReplyRecovery", () => {
 
     expect(plan).toMatchObject({
       agentId: "codex",
-      body: "Felix Codex is connected to an older computer setup. Update setup on this computer, then try again.",
+      body: "Felix Codex's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.",
       agentControllerRef: "builtin:codex",
       kind: "connect_controller",
       primaryActionLabel: "Reconnect local agent",
       recoveryReasonCode: "claim_eligibility.binding_runtime_mismatch",
       secondaryLabel:
-        "Felix Codex is connected to an older computer setup. Update setup on this computer, then try again.",
+        "Felix Codex's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.",
       title:
-        "Felix Codex is connected to an older computer setup. Update setup on this computer, then try again.",
+        "Felix Codex's saved connection does not match this computer setup. To use this setup, create a new Agent. The existing Agent has not been moved.",
     });
   });
 

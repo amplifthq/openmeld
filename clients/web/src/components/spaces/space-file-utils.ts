@@ -1,5 +1,12 @@
 import type { SpaceFileContent } from "@openmeld/api-client";
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
+import { SPACE_FILE_MAX_SIZE_BYTES } from "@openmeld/schemas";
+
+export function formatSpaceFileSizeLimitError(fileName?: string): string {
+	const limit = `${SPACE_FILE_MAX_SIZE_BYTES / (1024 * 1024)} MiB`;
+	const subject = fileName ? `“${fileName}” exceeds` : "This file exceeds";
+	return `${subject} the ${limit} upload limit. To share a larger file, paste a link to it instead.`;
+}
 
 const SPACE_FILE_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	dateStyle: "medium",
@@ -21,7 +28,7 @@ export function resolveSpaceFileErrorMessage(error: unknown): string {
 		case "space_file.conflict":
 			return "Someone saved a newer version. Reload the file before trying again.";
 		case "space_file.too_large":
-			return "Files must be 10 MiB or smaller.";
+			return formatSpaceFileSizeLimitError();
 		default:
 			return failure.message || "OpenMeld couldn’t complete this file action.";
 	}
@@ -39,6 +46,23 @@ export function downloadContent(
 	anchor.download = fileName;
 	anchor.click();
 	URL.revokeObjectURL(url);
+}
+
+export async function downloadUrlContent(
+	fileName: string,
+	url: string
+): Promise<void> {
+	const response = await fetch(url, { credentials: "include" });
+	if (!response.ok) {
+		throw new Error("OpenMeld couldn’t download this file.");
+	}
+	const blob = await response.blob();
+	const objectUrl = URL.createObjectURL(blob);
+	const anchor = document.createElement("a");
+	anchor.href = objectUrl;
+	anchor.download = fileName;
+	anchor.click();
+	URL.revokeObjectURL(objectUrl);
 }
 
 export function formatFileSize(sizeBytes: number): string {

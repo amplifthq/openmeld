@@ -19,6 +19,97 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("space index AccountSpaces read model", () => {
+  it("does not inherit private Space membership through the Organization Center Agent", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      const meta = {
+        ...createMeta({
+          name: "Private review",
+          spaceId: "private-review",
+          updatedAt: "2026-09-09T00:00:00.000Z",
+        }),
+        accessMode: "members_only" as const,
+        creator: {
+          kind: "human" as const,
+          ownerUserId: "owner-other",
+          profileId: "human-other",
+          profileName: "Other",
+        },
+      };
+      const centerMember = {
+        ...createMember({
+          addedAt: meta.updatedAt,
+          profileId: "agent-center",
+          profileKindSnapshot: "agent",
+          profileNameSnapshot: "Center Agent",
+          spaceId: meta.spaceId,
+        }),
+        ownerUserIdSnapshot: null,
+        ownerNameSnapshot: null,
+      };
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: meta,
+        memberRecords: [centerMember],
+      });
+      const accountQuery = {
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "account" as const,
+        selectedProfileId: "human-1",
+      };
+      expect(
+        (await listAccountSpacesFromSpaceIndex(accountQuery)).spaceItems
+      ).toEqual([]);
+      const organizationQuery = {
+        db: harness.db,
+        generatedAt: meta.updatedAt,
+        limit: 10,
+        organizationId: "org-1",
+        ownerUserId: null,
+        profileId: "agent-center",
+      };
+      expect(
+        (
+          await listOrganizationSpacesFromSpaceIndex(organizationQuery)
+        ).spaces.map((space) => space.spaceId)
+      ).toEqual([meta.spaceId]);
+      expect(
+        (
+          await listOrganizationSpacesFromSpaceIndex({
+            ...organizationQuery,
+            profileId: "agent-other",
+          })
+        ).spaces
+      ).toEqual([]);
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: meta,
+        memberRecords: [
+          centerMember,
+          createMember({
+            addedAt: meta.updatedAt,
+            profileId: "human-1",
+            profileKindSnapshot: "human",
+            profileNameSnapshot: "Mira",
+            spaceId: meta.spaceId,
+          }),
+        ],
+      });
+      expect(
+        (await listAccountSpacesFromSpaceIndex(accountQuery)).spaceItems.map(
+          (space) => space.spaceId
+        )
+      ).toEqual([meta.spaceId]);
+    } finally {
+      harness.close();
+    }
+  });
+
   it("opts in to the first three active members without exposing other Spaces", async () => {
     const harness = createSpaceIndexHarness();
     try {

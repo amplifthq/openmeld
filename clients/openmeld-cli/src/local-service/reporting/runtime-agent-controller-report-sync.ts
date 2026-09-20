@@ -1,4 +1,5 @@
 import type { LocalDaemonAdapterContainer } from "@openmeld/local-service";
+import { reconcileNewRunnableBuiltinAgentRegistrations } from "../../agents/registry";
 import type { AgentControllerInterfaceProbePolicy } from "../inventory/agent-controller-interface";
 import {
   collectLocalAgentControllerInventory,
@@ -39,6 +40,11 @@ export async function syncLocalServiceRuntimeAgentControllerReports(input: {
     ReturnType<typeof collectLocalAgentControllerInventory>
   >;
   try {
+    // Discovery belongs to the existing background inventory pass, not route
+    // registration. Slow unrelated install probes must not strand new Wakes.
+    // Newly registered controllers notify the carrier through the normal
+    // lane-local catalog-change signal; explicit disabled choices stay intact.
+    await reconcileNewRunnableBuiltinAgentRegistrations();
     inventory = await collectLocalAgentControllerInventory({
       includeControllerInterface: true,
       localAdapterContainer: input.localAdapterContainer,
@@ -50,7 +56,6 @@ export async function syncLocalServiceRuntimeAgentControllerReports(input: {
       family: "runtime_agent_controller",
       message: "Local agent inventory collection failed.",
       reasonCode: "runtime.reporting.inventory_failed",
-      requiresCarrierHandshake: false,
       status: "failed",
     });
     throw error;
@@ -83,7 +88,6 @@ export async function syncLocalServiceRuntimeAgentControllerReports(input: {
       family: "runtime_agent_controller",
       message: "No local controllers are installed on this computer.",
       reasonCode: "runtime.agent_controller_report.no_local_controllers",
-      requiresCarrierHandshake: false,
       status: "not_applicable",
     });
     return {

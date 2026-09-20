@@ -138,6 +138,8 @@ function makeEnv(input?: {
         return Promise.reject(input.getError);
       }
       return Promise.resolve({
+        size: (input?.readBytes ?? BYTES).byteLength,
+        body: new Blob([input?.readBytes ?? BYTES]).stream(),
         arrayBuffer: async () =>
           input?.readBytes ?? Uint8Array.from(BYTES).buffer,
       });
@@ -415,7 +417,7 @@ describe("Core Space file content RPC", () => {
     );
     expect(bucket.put).toHaveBeenCalledWith(
       expect.stringContaining(`/files/${FILE_ID}/revisions/`),
-      expect.any(ArrayBuffer),
+      expect.any(ReadableStream),
       expect.objectContaining({
         httpMetadata: { contentType: REVISION.mimeType },
       })

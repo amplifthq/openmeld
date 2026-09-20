@@ -82,7 +82,7 @@ export const getCoreDbSchemaSources = (): DbFactSource[] => {
       kind: "schema_module",
       owner: "packages/db",
       path: CORE_CENTER_AGENT_TASKS_SCHEMA_DEFINITION_PATH,
-      note: "Core owns requester-private Center Agent Task containers, execution attempts, and safe visible activity in shared D1.",
+      note: "Retired Center Agent Task storage is retained only until a post-retirement migration; no active product reader or writer remains.",
     },
     {
       kind: "schema_module",

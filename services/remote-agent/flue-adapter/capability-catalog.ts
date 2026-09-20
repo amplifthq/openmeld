@@ -107,12 +107,26 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     aliases: [
       "check my computer",
       "computer diagnostics",
+      "diagnose execution host",
+      "why is my agent not working",
+      "电脑在线但任务不运行",
       "OpenMeld Tools status",
       "local agent status",
       "检查我的电脑",
       "电脑诊断",
       "OpenMeld 工具状态",
       "本地代理状态",
+    ],
+    namespace: "agents_and_computers",
+  },
+  openmeld_read_space_wake_progress: {
+    aliases: [
+      "why is my task queued",
+      "task stuck waiting",
+      "pending approval",
+      "任务为什么排队",
+      "任务卡住",
+      "等待审批",
     ],
     namespace: "agents_and_computers",
   },
@@ -273,31 +287,6 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
   openmeld_watch_agent_task: {
     aliases: ["watch an agent task", "wait for an agent task", "观察代理任务"],
     dependencies: ["openmeld_list_agent_tasks"],
-    namespace: "spaces_and_tasks",
-  },
-  openmeld_list_center_agent_tasks: {
-    aliases: [
-      "my tasks",
-      "OpenMeld Task board",
-      "OpenMeld Tasks",
-      "task progress",
-      "task status",
-      "我的任务",
-      "任务列表",
-      "任务状态",
-      "查看 OpenMeld 任务",
-    ],
-    namespace: "spaces_and_tasks",
-  },
-  openmeld_get_center_agent_task: {
-    aliases: [
-      "read one OpenMeld Task",
-      "task detail",
-      "task history",
-      "任务详情",
-      "查看任务详情",
-    ],
-    dependencies: ["openmeld_list_center_agent_tasks"],
     namespace: "spaces_and_tasks",
   },
   openmeld_list_organization_members: {

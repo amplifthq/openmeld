@@ -54,6 +54,13 @@ export type PiTuiComposerAutocompleteItem = AutocompleteItem & {
 };
 
 export class PiTuiComposerAutocompleteProvider implements AutocompleteProvider {
+  readonly #onMentionSelected?: (input: {
+    text: string;
+    start: number;
+    profileId: string;
+    relation: MessageMentionType;
+    mentionText: string;
+  }) => void;
   readonly #getMembersSnapshot: () => SpaceMembersSnapshot | null;
   readonly #getRecentMentionProfileIds: () => readonly string[];
 
@@ -61,10 +68,18 @@ export class PiTuiComposerAutocompleteProvider implements AutocompleteProvider {
   #resetRelationSelectionOnNextSync = false;
 
   constructor(input: {
+    onMentionSelected?: (input: {
+      text: string;
+      start: number;
+      profileId: string;
+      relation: MessageMentionType;
+      mentionText: string;
+    }) => void;
     getMembersSnapshot: () => SpaceMembersSnapshot | null;
     getRecentMentionProfileIds?: () => readonly string[];
   }) {
     this.#getMembersSnapshot = input.getMembersSnapshot;
+    this.#onMentionSelected = input.onMentionSelected;
     this.#getRecentMentionProfileIds =
       input.getRecentMentionProfileIds ?? (() => []);
   }
@@ -127,6 +142,19 @@ export class PiTuiComposerAutocompleteProvider implements AutocompleteProvider {
     this.resetMentionPicker();
     nextLines[cursorLine] =
       `${beforePrefix}${mentionItem.value} ${afterCursor}`;
+    if (mentionItem.mentionProfileId && mentionItem.mentionRelation) {
+      this.#onMentionSelected?.({
+        text: nextLines.join("\n"),
+        start:
+          nextLines
+            .slice(0, cursorLine)
+            .reduce((length, line) => length + line.length + 1, 0) +
+          beforePrefix.length,
+        profileId: mentionItem.mentionProfileId,
+        relation: mentionItem.mentionRelation,
+        mentionText: mentionItem.value,
+      });
+    }
     return {
       lines: nextLines,
       cursorLine,
@@ -410,7 +438,7 @@ function buildRelationPickerItems(
 
   for (const relationChoice of listSpaceMentionRelationChoices(target)) {
     items.push({
-      value: relationChoice.canonicalLiteral,
+      value: `@${target.profileName}`,
       label: relationChoice.label,
       description: relationChoice.description,
       mentionAllowedRelations: target.allowedRelations,

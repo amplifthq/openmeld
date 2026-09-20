@@ -1,14 +1,18 @@
 import {
+  agentProfileCreationIntentSchema,
   agentProfileCreationRequestSchema,
   createAgentProfileCreationRequestBodySchema,
   DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   setAgentProfileCreationApprovalPreferenceBodySchema,
+  TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "@openmeld/schemas";
 import type {
   AgentProfileCreationApprovalPolicy,
   AgentProfileCreationApprovalPreference,
   AgentProfileCreationConfiguration,
   AgentProfileCreationRequest,
+  AgentProfileCreationRequestSelector,
   AgentProfileCreationRequestSource,
   AgentProfileCreationRequestStatus,
   AgentProfileCreationRequestStatusReason,
@@ -91,6 +95,9 @@ export type AgentProfileCreationRequestRepository = {
   listStaleProfileCreations(input: {
     limit: number;
     staleBeforeMs: number;
+  }): Promise<AgentProfileCreationRequestRecord[]>;
+  listUnclaimedProfileCreations(input: {
+    limit: number;
   }): Promise<AgentProfileCreationRequestRecord[]>;
   insert(
     record: AgentProfileCreationRequestRecord,
@@ -236,7 +243,16 @@ export async function failStaleAgentProfileCreationRequests(input: {
 }
 
 export function createAgentProfileCreationRequestService(input: {
+  // Only isolated lifecycle tests opt in. Production callers use the launch hold.
+  teammateRequestsEnabled?: boolean;
   attemptInboxProjection: (requestId: string) => Promise<void>;
+  validateNewRequest: (request: {
+    body: CreateAgentProfileCreationRequestBody;
+    organizationId: string;
+  }) => Promise<void>;
+  scheduleExecution: (
+    request: AgentProfileCreationRequestRecord
+  ) => Promise<void>;
   createAgentProfile: (
     request: AgentProfileCreationRequestRecord,
     checkpoint: AgentProfileCreationRequestExecutionCheckpoint
@@ -246,12 +262,33 @@ export function createAgentProfileCreationRequestService(input: {
   repository: AgentProfileCreationRequestRepository;
 }) {
   const now = input.now ?? Date.now;
+  const teammateRequestsEnabled =
+    input.teammateRequestsEnabled ?? TEAMMATE_AGENT_REQUESTS_ENABLED;
+  const isReleased = (request: {
+    requesterUserId: string;
+    targetOwnerUserId: string;
+  }) =>
+    teammateRequestsEnabled ||
+    request.requesterUserId === request.targetOwnerUserId;
+  const requireReleased = (request: {
+    requesterUserId: string;
+    targetOwnerUserId: string;
+  }) => {
+    if (!isReleased(request)) {
+      throw new AgentProfileCreationRequestForbiddenError(
+        "Creating an Agent for another member is not available. Create an Agent for yourself instead."
+      );
+    }
+  };
   const randomUuid = input.randomUuid ?? (() => crypto.randomUUID());
 
   const completeApprovedRequest = async (
     record: AgentProfileCreationRequestRecord
   ): Promise<AgentProfileCreationRequest> => {
-    if (record.status !== "approved") {
+    if (
+      record.status !== "approved" ||
+      record.profileCreationStartedAtMs !== null
+    ) {
       return toPublicRequest(record);
     }
     const startedAtMs = Math.max(now(), record.updatedAtMs + 1);
@@ -268,6 +305,9 @@ export function createAgentProfileCreationRequestService(input: {
     let committedAgentProfileId = claimed.createdAgentProfileId;
     let createdAgentProfileId: string;
     try {
+      // Terminal failure acknowledges old Queue deliveries instead of retrying
+      // a launch-held request forever. Already claimed executions are untouched.
+      requireReleased(claimed);
       createdAgentProfileId = await input.createAgentProfile(claimed, {
         checkpointCreatedAgentProfileId: async (agentProfileId) => {
           if (activeClaim.createdAgentProfileId) {
@@ -387,10 +427,32 @@ export function createAgentProfileCreationRequestService(input: {
   ) => {
     assertSameIntent(record, actorProfileId, body);
     await input.attemptInboxProjection(record.id);
+    await scheduleApprovedRequest(record);
     return { replayed: true, request: toPublicRequest(record) } as const;
   };
 
-  const completeInsertedRequest = async (
+  const scheduleApprovedRequest = async (
+    record: AgentProfileCreationRequestRecord
+  ) => {
+    if (
+      record.status !== "approved" ||
+      record.profileCreationStartedAtMs !== null
+    ) {
+      return;
+    }
+    try {
+      await input.scheduleExecution(record);
+    } catch (error) {
+      // The approved row is the durable execution intent. The scheduled
+      // recovery will deliver it even if this notification was lost.
+      console.error("[core.agent_profile_creation_request.schedule_failed]", {
+        requestId: record.id,
+        error: readFailureMessage(error),
+      });
+    }
+  };
+
+  const acknowledgeInsertedRequest = async (
     record: AgentProfileCreationRequestRecord
   ) => {
     if (record.status === "pending") {
@@ -398,16 +460,13 @@ export function createAgentProfileCreationRequestService(input: {
       await input.attemptInboxProjection(record.id);
       return { replayed: false, request: response } as const;
     }
-    return {
-      replayed: false,
-      request:
-        record.status === "approved"
-          ? await completeApprovedRequest(record)
-          : toPublicRequest(record),
-    } as const;
+    await scheduleApprovedRequest(record);
+    return { replayed: false, request: toPublicRequest(record) } as const;
   };
 
   return {
+    execute: async (selector: { id: string; organizationId: string }) =>
+      await completeApprovedRequest(await requireRequest(selector)),
     cancel: async (request: {
       organizationId: string;
       requesterUserId: string;
@@ -470,6 +529,10 @@ export function createAgentProfileCreationRequestService(input: {
       );
       const configuration =
         body.configuration ?? DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION;
+      requireReleased({
+        requesterUserId: request.requesterUserId,
+        targetOwnerUserId: body.targetOwnerUserId,
+      });
       const existing = await input.repository.findByIdempotencyKey({
         idempotencyKey: body.idempotencyKey,
         organizationId: request.organizationId,
@@ -483,7 +546,17 @@ export function createAgentProfileCreationRequestService(input: {
         );
       }
 
+      await input.validateNewRequest({
+        body,
+        organizationId: request.organizationId,
+      });
+
       requireWebAgentRunTarget(body.source, configuration);
+      requirePersonalRemoteAgentSelfOwnership(
+        configuration.agentControllerRef,
+        request.requesterUserId,
+        body.targetOwnerUserId
+      );
 
       const preference = await input.repository.getPreference({
         organizationId: request.organizationId,
@@ -540,7 +613,7 @@ export function createAgentProfileCreationRequestService(input: {
         }
         return await replayExistingRequest(raced, request.actorProfileId, body);
       }
-      return await completeInsertedRequest(inserted);
+      return await acknowledgeInsertedRequest(inserted);
     },
 
     decide: async (request: {
@@ -582,6 +655,7 @@ export function createAgentProfileCreationRequestService(input: {
         return response;
       }
 
+      requireReleased(current);
       const approved = await input.repository.transition({
         expectedStatuses: ["pending"],
         expectedUpdatedAtMs: current.updatedAtMs,
@@ -600,7 +674,8 @@ export function createAgentProfileCreationRequestService(input: {
         );
       }
       await input.attemptInboxProjection(approved.id);
-      return await completeApprovedRequest(approved);
+      await scheduleApprovedRequest(approved);
+      return toPublicRequest(approved);
     },
 
     getPreference: async (request: {
@@ -618,12 +693,39 @@ export function createAgentProfileCreationRequestService(input: {
       };
     },
 
-    list: async (request: {
-      organizationId: string;
-      userId: string;
-    }): Promise<AgentProfileCreationRequest[]> => {
+    list: async (
+      request: AgentProfileCreationRequestSelector & {
+        actorProfileId?: string;
+        organizationId: string;
+        userId: string;
+      }
+    ): Promise<AgentProfileCreationRequest[]> => {
+      if (request.requestId) {
+        const record = await input.repository.getById({
+          organizationId: request.organizationId,
+          requestId: request.requestId,
+        });
+        return record &&
+          isReleased(record) &&
+          (record.requesterUserId === request.userId ||
+            record.targetOwnerUserId === request.userId)
+          ? [toPublicRequest(record)]
+          : [];
+      }
+      if (request.idempotencyKey) {
+        const record = await input.repository.findByIdempotencyKey({
+          organizationId: request.organizationId,
+          requesterUserId: request.userId,
+          idempotencyKey: request.idempotencyKey,
+        });
+        return record &&
+          isReleased(record) &&
+          record.actorProfileId === request.actorProfileId
+          ? [toPublicRequest(record)]
+          : [];
+      }
       const records = await input.repository.listForParticipant(request);
-      return records.map(toPublicRequest);
+      return records.filter(isReleased).map(toPublicRequest);
     },
 
     retry: async (request: {
@@ -643,13 +745,15 @@ export function createAgentProfileCreationRequestService(input: {
           "Only a participant can retry this request."
         );
       }
+      requireReleased(current);
       if (current.status === "approved") {
         if (current.profileCreationStartedAtMs !== null) {
           throw new AgentProfileCreationRequestStateError(
             "This Agent is already being created."
           );
         }
-        return await completeApprovedRequest(current);
+        await scheduleApprovedRequest(current);
+        return toPublicRequest(current);
       }
       const nowMs = Math.max(now(), current.updatedAtMs + 1);
       let retryStatusReason: AgentProfileCreationRequestStatusReason =
@@ -676,7 +780,8 @@ export function createAgentProfileCreationRequestService(input: {
           "This request cannot be retried."
         );
       }
-      return await completeApprovedRequest(approved);
+      await scheduleApprovedRequest(approved);
+      return toPublicRequest(approved);
     },
 
     setPreference: async (request: {
@@ -684,6 +789,11 @@ export function createAgentProfileCreationRequestService(input: {
       organizationId: string;
       userId: string;
     }): Promise<AgentProfileCreationApprovalPreference> => {
+      if (!teammateRequestsEnabled) {
+        throw new AgentProfileCreationRequestForbiddenError(
+          "Agent creation approval settings are not available."
+        );
+      }
       const body = setAgentProfileCreationApprovalPreferenceBodySchema.parse(
         request.body
       );
@@ -731,16 +841,8 @@ function assertSameIntent(
 ): void {
   if (
     record.actorProfileId !== actorProfileId ||
-    JSON.stringify(record.configuration) !==
-      JSON.stringify(
-        body.configuration ?? DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION
-      ) ||
-    record.targetOwnerUserId !== body.targetOwnerUserId ||
-    record.profileName !== body.profileName ||
-    record.sessionStrategy !== body.sessionStrategy ||
-    record.nativeSessionId !== (body.nativeSessionId ?? null) ||
-    record.requestedSpaceId !== (body.requestedSpaceId ?? null) ||
-    record.source !== body.source
+    JSON.stringify(agentProfileCreationIntentSchema.parse(record)) !==
+      JSON.stringify(agentProfileCreationIntentSchema.parse(body))
   ) {
     throw new AgentProfileCreationRequestConflictError();
   }
@@ -797,12 +899,28 @@ function readFailureMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function requirePersonalRemoteAgentSelfOwnership(
+  controllerRef: string | null,
+  requesterUserId: string,
+  ownerUserId: string
+): void {
+  if (
+    controllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF &&
+    requesterUserId !== ownerUserId
+  ) {
+    throw new AgentProfileCreationRequestForbiddenError(
+      "Create Remote Agents for your own account."
+    );
+  }
+}
+
 function requireWebAgentRunTarget(
   source: AgentProfileCreationRequestSource,
   configuration: AgentProfileCreationConfiguration
 ) {
   if (
     source === "web" &&
+    configuration.agentControllerRef !== HOSTED_REMOTE_AGENT_CONTROLLER_REF &&
     !(configuration.agentControllerRef && configuration.targetComputerId)
   ) {
     throw new AgentProfileCreationRequestStateError(

@@ -9,6 +9,7 @@ export type AgentControllerPermissionModeDisplayMetadata = {
   fieldLabel: string;
   label: string;
   requiresExplicitConfirmation: boolean;
+  technicalDetail: string | null;
   tone: AgentControllerPermissionModeTone;
 };
 
@@ -33,49 +34,60 @@ export const DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE =
 const CLAUDE_CODE_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
   {
     description:
-      'Default Claude Code permission mode. CLI: claude --permission-mode default --allowedTools "Bash(openmeld)" "Bash(openmeld *)".',
+      "Claude Code asks you in the Space before actions that need permission.",
     label: "Ask permissions",
     requiresExplicitConfirmation: false,
+    technicalDetail:
+      'claude --permission-mode default --allowedTools "Bash(openmeld)" "Bash(openmeld *)"',
     tone: "neutral",
     value: "claude-code:default",
   },
   {
     description:
-      'Accept file edits automatically. CLI: claude --permission-mode acceptEdits --allowedTools "Bash(openmeld)" "Bash(openmeld *)".',
+      "Claude Code accepts file edits automatically. Other restricted actions may still ask you in the Space.",
     label: "Accept edits",
     requiresExplicitConfirmation: false,
+    technicalDetail:
+      'claude --permission-mode acceptEdits --allowedTools "Bash(openmeld)" "Bash(openmeld *)"',
     tone: "neutral",
     value: "claude-code:acceptEdits",
   },
   {
     description:
-      'Plan before making changes. CLI: claude --permission-mode plan --allowedTools "Bash(openmeld)" "Bash(openmeld *)".',
+      "Claude Code focuses on planning before it makes changes. Its other permission rules still apply.",
     label: "Plan mode",
     requiresExplicitConfirmation: false,
+    technicalDetail:
+      'claude --permission-mode plan --allowedTools "Bash(openmeld)" "Bash(openmeld *)"',
     tone: "neutral",
     value: "claude-code:plan",
   },
   {
     description:
-      'Use Claude Code auto mode. CLI: claude --permission-mode auto --allowedTools "Bash(openmeld)" "Bash(openmeld *)".',
+      "Claude Code automatically continues on eligible actions and asks when it still needs approval.",
     label: "Auto mode",
     requiresExplicitConfirmation: false,
+    technicalDetail:
+      'claude --permission-mode auto --allowedTools "Bash(openmeld)" "Bash(openmeld *)"',
     tone: "neutral",
     value: "claude-code:auto",
   },
   {
     description:
-      'Automatically reject permission requests not already allowed. CLI: claude --permission-mode dontAsk --allowedTools "Bash(openmeld)" "Bash(openmeld *)".',
+      "Claude Code rejects permission requests that are not already allowed instead of waiting for your approval.",
     label: "Don't ask",
     requiresExplicitConfirmation: false,
+    technicalDetail:
+      'claude --permission-mode dontAsk --allowedTools "Bash(openmeld)" "Bash(openmeld *)"',
     tone: "neutral",
     value: "claude-code:dontAsk",
   },
   {
     description:
-      "Bypass Claude Code permission prompts. CLI: claude --permission-mode bypassPermissions.",
+      "Claude Code bypasses its permission prompts for this Agent. Separate file-access limits on this Computer still apply.",
     label: "Bypass permissions",
     requiresExplicitConfirmation: true,
+    technicalDetail: "claude --permission-mode bypassPermissions",
     tone: "warning",
     value: "claude-code:bypassPermissions",
   },
@@ -84,33 +96,38 @@ const CLAUDE_CODE_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
 const CODEX_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
   {
     description:
-      "Always ask to edit external files and use the internet. CLI: codex -s workspace-write -a untrusted.",
+      "Codex asks before editing files outside its working folder or using the internet.",
     label: "Ask for approval",
     requiresExplicitConfirmation: false,
+    technicalDetail: "codex -s workspace-write -a untrusted",
     tone: "neutral",
     value: "codex:askForApproval",
   },
   {
     description:
-      'Only ask for actions detected as potentially unsafe. CLI: codex -s workspace-write -a on-request -c approvals_reviewer="auto_review".',
+      "Codex automatically reviews eligible approval requests. It may approve or deny them; denied actions may stop or require a safer approach.",
     label: "Approve for me",
     requiresExplicitConfirmation: false,
+    technicalDetail:
+      'codex -s workspace-write -a on-request -c approvals_reviewer="auto_review"',
     tone: "neutral",
     value: "codex:approveForMe",
   },
   {
     description:
-      "Unrestricted access to the internet and any file on your computer. CLI: codex --dangerously-bypass-approvals-and-sandbox.",
+      "Codex bypasses its sandbox and approval prompts for this Agent. Separate file-access limits on this Computer still apply.",
     label: "Full access",
     requiresExplicitConfirmation: true,
+    technicalDetail: "codex --dangerously-bypass-approvals-and-sandbox",
     tone: "warning",
     value: "codex:fullAccess",
   },
   {
     description:
-      "Uses permissions defined in config.toml. CLI: codex without OpenMeld sandbox or approval overrides.",
+      "Codex follows the permissions in config.toml. OpenMeld does not override its sandbox or approval settings.",
     label: "Custom (config.toml)",
     requiresExplicitConfirmation: false,
+    technicalDetail: "codex (no OpenMeld permission overrides)",
     tone: "neutral",
     value: "codex:customConfig",
   },
@@ -122,21 +139,25 @@ const CURSOR_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
       "Use Cursor’s standard permissions. If Cursor needs approval, OpenMeld asks you in the Space.",
     label: "Default",
     requiresExplicitConfirmation: false,
+    technicalDetail: null,
     tone: "neutral",
     value: "cursor:default",
   },
   {
     description:
-      "Read-only mode for planning and designing before implementation.",
+      "Cursor uses its read-only planning mode for analysis and design.",
     label: "Plan",
     requiresExplicitConfirmation: false,
+    technicalDetail: null,
     tone: "neutral",
     value: "cursor:plan",
   },
   {
-    description: "Q&A mode — no edits or command execution.",
+    description:
+      "Cursor answers questions without editing files or running commands.",
     label: "Ask",
     requiresExplicitConfirmation: false,
+    technicalDetail: null,
     tone: "neutral",
     value: "cursor:ask",
   },
@@ -145,14 +166,16 @@ const CURSOR_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
       "Use Cursor’s Auto-review (Smart Auto) to automatically run safe actions. If Cursor still needs approval, OpenMeld asks you in the Space.",
     label: "Auto-review (Smart Auto)",
     requiresExplicitConfirmation: false,
+    technicalDetail: "cursor-agent --auto-review acp",
     tone: "neutral",
     value: "cursor:autoReview",
   },
   {
     description:
-      "Force Cursor to allow commands unless explicitly denied. CLI: cursor-agent --force.",
+      "Cursor allows commands unless an explicit Cursor deny rule blocks them.",
     label: "Run Everything",
     requiresExplicitConfirmation: true,
+    technicalDetail: "cursor-agent --force acp",
     tone: "warning",
     value: "cursor:force",
   },
@@ -164,6 +187,7 @@ const GROK_BUILD_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
       "Use Grok Build’s standard permissions. If Grok needs approval, OpenMeld asks you in the Space.",
     label: "Ask permissions",
     requiresExplicitConfirmation: false,
+    technicalDetail: null,
     tone: "neutral",
     value: "grok-build:default",
   },
@@ -172,6 +196,7 @@ const GROK_BUILD_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
       "Accept file edits automatically. Grok may still ask before running commands or using other tools.",
     label: "Accept edits",
     requiresExplicitConfirmation: false,
+    technicalDetail: null,
     tone: "neutral",
     value: "grok-build:acceptEdits",
   },
@@ -180,14 +205,16 @@ const GROK_BUILD_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
       "Use Grok Build’s plan permission mode. Reads, commands, and MCP tools still follow Grok’s permission rules.",
     label: "Plan mode",
     requiresExplicitConfirmation: false,
+    technicalDetail: null,
     tone: "neutral",
     value: "grok-build:plan",
   },
   {
     description:
-      "Let Grok Build automatically run actions it classifies as safe. Grok may still ask for approval.",
+      "Grok Build automatically continues on eligible actions and asks when it still needs approval.",
     label: "Auto mode",
     requiresExplicitConfirmation: false,
+    technicalDetail: null,
     tone: "neutral",
     value: "grok-build:auto",
   },
@@ -196,6 +223,7 @@ const GROK_BUILD_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
       "Automatically reject actions that are not already allowed instead of waiting for approval.",
     label: "Don't ask",
     requiresExplicitConfirmation: false,
+    technicalDetail: null,
     tone: "neutral",
     value: "grok-build:dontAsk",
   },
@@ -204,6 +232,7 @@ const GROK_BUILD_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
       "Bypass Grok Build permission prompts. Explicit deny rules and safety hooks may still block an action.",
     label: "Bypass permissions",
     requiresExplicitConfirmation: true,
+    technicalDetail: null,
     tone: "warning",
     value: "grok-build:bypassPermissions",
   },

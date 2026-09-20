@@ -15,19 +15,26 @@ const api = vi.hoisted(() => ({
 	acceptInvitation: vi.fn(),
 	listOrganizations: vi.fn(),
 	listUserInvitations: vi.fn(),
+	previewJoinLink: vi.fn(),
+	requestInvitation: vi.fn(),
+	acceptJoinLink: vi.fn(),
 }));
 const AMPLIFT_CURRENT_CHOICE_LABEL = /Amplift.*Current/;
 const PERSONAL_WORKSPACE_CHOICE_LABEL =
 	/Personal Workspace.*For you only.*Create an organization to connect Slack or invite teammates/;
 const OPENMELD_OFFICIAL_CHOICE_LABEL = /OpenMeld Official/;
+const JOIN_WITH_LINK_LABEL = /Join with an invite link/;
 
 vi.mock("#/lib/organizations/auth-organizations", () => ({
 	acceptOrganizationInvitation: api.acceptInvitation,
-	acceptOrganizationJoinLink: vi.fn(),
+	acceptOrganizationJoinLink: api.acceptJoinLink,
 	createOrganization: vi.fn(),
 	listCurrentUserOrganizationInvitations: api.listUserInvitations,
 	listOrganizations: api.listOrganizations,
-	previewOrganizationJoinLink: vi.fn(),
+	previewOrganizationJoinLink: api.previewJoinLink,
+}));
+vi.mock("#/lib/organizations/organization-join-requests", () => ({
+	requestOrganizationJoinRequests: api.requestInvitation,
 }));
 
 describe("OrganizationOnboardingStep", () => {
@@ -58,6 +65,117 @@ describe("OrganizationOnboardingStep", () => {
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
+	});
+
+	it("requests an invitation from onboarding without claiming membership", async () => {
+		api.listUserInvitations.mockResolvedValue([]);
+		api.previewJoinLink.mockResolvedValue({
+			ok: true,
+			active: true,
+			organizationName: "Acme",
+			organizationSlug: "acme",
+		});
+		api.requestInvitation.mockResolvedValue([
+			{ id: "request-1", status: "pending" },
+		]);
+		const personal = {
+			id: "org-personal",
+			isPersonal: true,
+			name: "Personal",
+			slug: "personal",
+		};
+		const onOrganizationChosen = vi.fn();
+		render(
+			<TestQueryClientProvider>
+				<OrganizationOnboardingStep
+					currentOrganization={personal}
+					currentUserId="user-1"
+					onOrganizationChosen={onOrganizationChosen}
+					onPreviewOrganizationChange={vi.fn()}
+					organizations={[personal]}
+				/>
+			</TestQueryClientProvider>
+		);
+		fireEvent.click(screen.getByRole("button", { name: JOIN_WITH_LINK_LABEL }));
+		fireEvent.change(screen.getByLabelText("Invite link"), {
+			target: {
+				value: "https://openmeld.ai/join-organization?token=joinlink_test",
+			},
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Check invite" }));
+		const requestButton = await screen.findByRole("button", {
+			name: "Request to join",
+		});
+		expect(screen.queryByText("Ready to join")).toBeNull();
+		expect(api.requestInvitation).not.toHaveBeenCalled();
+		fireEvent.click(requestButton);
+		await screen.findByText("Request sent");
+		expect(api.requestInvitation).toHaveBeenCalledWith({
+			token: "joinlink_test",
+		});
+		expect(api.acceptJoinLink).not.toHaveBeenCalled();
+		expect(onOrganizationChosen).not.toHaveBeenCalled();
+		expect(
+			screen.getByRole("link", { name: "View request" }).getAttribute("href")
+		).toBe("/invitation-requests?requestId=request-1");
+		fireEvent.click(screen.getByRole("button", { name: "Back to workspaces" }));
+		expect(
+			screen.getByRole("button", { name: PERSONAL_WORKSPACE_CHOICE_LABEL })
+		).toBeTruthy();
+	});
+
+	it("joins directly only after Auth confirms an administrator link", async () => {
+		api.listUserInvitations.mockResolvedValue([]);
+		api.previewJoinLink.mockResolvedValue({
+			ok: true,
+			active: true,
+			mode: "direct",
+			organizationName: "Acme",
+			organizationSlug: "acme",
+		});
+		api.acceptJoinLink.mockResolvedValue({
+			ok: true,
+			organizationId: "org-acme",
+			organizationSlug: "acme",
+			organizationName: "Acme",
+			alreadyMember: false,
+			role: "member",
+		});
+		const personal = {
+			id: "org-personal",
+			isPersonal: true,
+			name: "Personal",
+			slug: "personal",
+		};
+		const chosen = vi.fn();
+		render(
+			<TestQueryClientProvider>
+				<OrganizationOnboardingStep
+					currentOrganization={personal}
+					currentUserId="user-1"
+					onOrganizationChosen={chosen}
+					onPreviewOrganizationChange={vi.fn()}
+					organizations={[personal]}
+				/>
+			</TestQueryClientProvider>
+		);
+		fireEvent.click(screen.getByRole("button", { name: JOIN_WITH_LINK_LABEL }));
+		fireEvent.change(screen.getByLabelText("Invite link"), {
+			target: { value: "joinlink_direct" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Check invite" }));
+		const join = await screen.findByRole("button", { name: "Join Acme" });
+		expect(chosen).not.toHaveBeenCalled();
+		fireEvent.click(join);
+		await waitFor(() =>
+			expect(chosen).toHaveBeenCalledWith(
+				expect.objectContaining({ id: "org-acme", slug: "acme" })
+			)
+		);
+		expect(api.acceptJoinLink).toHaveBeenCalledWith({
+			token: "joinlink_direct",
+		});
+		expect(api.requestInvitation).not.toHaveBeenCalled();
 	});
 
 	it("shows each existing organization's logo or name fallback", () => {

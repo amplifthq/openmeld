@@ -125,6 +125,10 @@ const exactWakeAdmissionTerminalDecisions: Readonly<
     publicationCategory: "update_required",
     userRecoveryAction: "update_openmeld_service",
   },
+  "service.drifted": {
+    publicationCategory: "agent_profile_unavailable",
+    userRecoveryAction: "check_status",
+  },
 };
 
 /**
@@ -202,7 +206,6 @@ export function resolveAgentWakeAdmissionTerminalDecision(
   if (
     normalizedReasonCode.startsWith("daemon.runtime_contract.") ||
     normalizedReasonCode === "service.not_installed" ||
-    normalizedReasonCode === "service.drifted" ||
     normalizedReasonCode === "background_helper.update_required"
   ) {
     return {
@@ -288,6 +291,7 @@ export function resolveAgentWakeAdmissionBlockReasonCode(
     reasonCodes.find((reasonCode) =>
       reasonCode.startsWith("working_folder.")
     ) ??
+    reasonCodes.find(isAgentWakeAdmissionPreparationPendingReason) ??
     "agent_execution.readiness_unconfirmed"
   );
 }
@@ -384,8 +388,8 @@ const routeCheckingWakeAvailabilityFallbackCopy = {
 
 const routeUnavailableWakeAvailabilityFallbackCopy = {
   badgeLabel: "Unavailable",
-  summary: "This Agent's computer connection is unavailable right now.",
-  tooltip: "Computer connection unavailable",
+  summary: "OpenMeld couldn't check this agent's connection.",
+  tooltip: "Connection check unavailable",
 } as const;
 
 const connectLocalAgentAvailabilityFallbackCopy = {
@@ -996,6 +1000,23 @@ function createUnavailableWakeAvailability(
     readiness.primaryAction === "reconnect_binding" ||
     readiness.primaryAction === "run_prepare"
   ) {
+    const connectionMismatchReasonCode = pickKnownReasonCode(readiness, [
+      "local_service.identity_mismatch",
+      "claim_eligibility.binding_runtime_mismatch",
+      "claim_eligibility.openmeld_service_runtime_id_mismatch",
+      "claim_eligibility.binding_capability_mismatch",
+    ]);
+    if (connectionMismatchReasonCode) {
+      return createAvailability(readiness, {
+        ...unavailableWakeAvailabilityFallbackCopy,
+        category: "unavailable",
+        isRefreshing: false,
+        label: "Connection mismatch",
+        phase: "unavailable",
+        reasonCode: connectionMismatchReasonCode,
+        status: "unavailable_for_wake",
+      });
+    }
     const controllerBlockerReasonCode = pickKnownReasonCode(readiness, [
       "controller.registry.disabled",
       "controller.bootstrap.failed",

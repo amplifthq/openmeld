@@ -10,6 +10,7 @@ import {
 	fireEvent,
 	render,
 	screen,
+	waitFor,
 	within,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -38,14 +39,6 @@ describe("HumanProfileDetailsPopover", () => {
 		queryClient.setQueryData(
 			organizationQueryKeys.profileDirectory("org-acme"),
 			buildProfileDirectory()
-		);
-		queryClient.setQueryData(
-			organizationQueryKeys.agentRuntimeOverview("org-acme"),
-			{
-				agentProfiles: [],
-				generatedAt: "2026-09-05T00:00:00.000Z",
-				organizationId: "org-acme",
-			}
 		);
 		queryClient.setQueryData(
 			organizationQueryKeys.computers("org-acme"),
@@ -94,6 +87,15 @@ describe("HumanProfileDetailsPopover", () => {
 			dialog.queryByRole("link", { name: "Open Monica Agent 1" })
 		).toBeNull();
 		expect(dialog.getByText("View all")).toBeTruthy();
+		expect(
+			queryClient.getQueryState(
+				organizationQueryKeys.agentRuntimeOverview("org-acme")
+			)
+		).toBeUndefined();
+		fireEvent.click(
+			dialog.getByRole("link", { name: "View Monica Cheng profile" })
+		);
+		return waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 	});
 
 	it("omits the entire Agents footer when the person has no Agents", () => {
@@ -103,14 +105,6 @@ describe("HumanProfileDetailsPopover", () => {
 		queryClient.setQueryData(
 			organizationQueryKeys.profileDirectory("org-acme"),
 			{ ...buildProfileDirectory(), agentProfiles: [] }
-		);
-		queryClient.setQueryData(
-			organizationQueryKeys.agentRuntimeOverview("org-acme"),
-			{
-				agentProfiles: [],
-				generatedAt: "2026-09-05T00:00:00.000Z",
-				organizationId: "org-acme",
-			}
 		);
 		queryClient.setQueryData(
 			organizationQueryKeys.computers("org-acme"),
@@ -141,11 +135,13 @@ describe("HumanProfileDetailsPopover", () => {
 
 	it("uses the same compact avatar and primary action for Agent details", () => {
 		render(
-			<AgentProfileDetailsContent
-				chatHref="/o/acme/direct-messages/agent-codex"
-				details={buildAgentDetails()}
-				entry={buildAgentEntry()}
-			/>
+			<QueryClientProvider client={new QueryClient()}>
+				<AgentProfileDetailsContent
+					chatHref="/o/acme/direct-messages/agent-codex"
+					details={buildAgentDetails()}
+					entry={buildAgentEntry()}
+				/>
+			</QueryClientProvider>
 		);
 
 		const avatar = screen.getByTestId(

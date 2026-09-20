@@ -17,7 +17,7 @@ function encodePathSegment(value: string): string {
 }
 
 export function buildOrganizationDefaultPath(orgSlug: string): string {
-	return buildOrganizationRootPath(orgSlug);
+	return buildOrganizationSpacesPath(orgSlug);
 }
 
 export function buildOrganizationInboxPath(orgSlug: string): string {
@@ -204,19 +204,6 @@ export function buildOrganizationCenterAgentRoutinesPath(
 	return `${buildOrganizationCenterAgentRootPath(orgSlug)}/routines`;
 }
 
-export function buildOrganizationCenterAgentTasksPath(orgSlug: string): string {
-	return `${buildOrganizationCenterAgentRootPath(orgSlug)}/tasks`;
-}
-
-export function buildOrganizationCenterAgentTaskPath(input: {
-	orgSlug: string;
-	taskId: string;
-}): string {
-	return `${buildOrganizationCenterAgentTasksPath(input.orgSlug)}/${encodePathSegment(
-		input.taskId
-	)}`;
-}
-
 export function buildOrganizationDocumentsPath(orgSlug: string): string {
 	return `${buildOrganizationRootPath(orgSlug)}/documents`;
 }
@@ -272,12 +259,19 @@ export function buildOrganizationCenterAgentChatPath(
 		group?: string;
 		session?: string;
 		focusSignalId?: string;
+		focusThreadRootSignalId?: string;
 		view?: "files" | "graph" | "messages";
 	}
 ): string {
 	const path = `${buildOrganizationRootPath(orgSlug)}/chats/center-agent`;
 	if (
-		!(search?.focusSignalId || search?.view || search?.session || search?.draft)
+		!(
+			search?.focusSignalId ||
+			search?.focusThreadRootSignalId ||
+			search?.view ||
+			search?.session ||
+			search?.draft
+		)
 	) {
 		return path;
 	}
@@ -294,6 +288,9 @@ export function buildOrganizationCenterAgentChatPath(
 	if (search.focusSignalId) {
 		params.set("focusSignalId", search.focusSignalId);
 	}
+	if (search.focusThreadRootSignalId) {
+		params.set("focusThreadRootSignalId", search.focusThreadRootSignalId);
+	}
 	if (search.view) {
 		params.set("view", search.view);
 	}
@@ -301,7 +298,7 @@ export function buildOrganizationCenterAgentChatPath(
 }
 
 export function buildOrganizationSkillsPath(orgSlug: string): string {
-	return `${buildOrganizationCenterAgentRootPath(orgSlug)}/skills`;
+	return `${buildOrganizationRootPath(orgSlug)}/skills`;
 }
 
 export function buildOrganizationSkillPath(input: {
@@ -313,7 +310,20 @@ export function buildOrganizationSkillPath(input: {
 	)}`;
 }
 
+/**
+ * Center Agent settings live in the global App Settings destination, grouped
+ * under the current Organization (or Personal in a Personal Workspace). This
+ * builder is the single canonical destination for that section; the former
+ * `/center-agent/settings` route is kept only as a redirect.
+ */
 export function buildOrganizationCenterAgentSettingsPath(
+	orgSlug: string
+): string {
+	return `${buildOrganizationSettingsRootPath(orgSlug)}/center-agent`;
+}
+
+/** The redirect-only historical Center Agent settings location. */
+export function buildOrganizationLegacyCenterAgentSettingsPath(
 	orgSlug: string
 ): string {
 	return `${buildOrganizationCenterAgentRootPath(orgSlug)}/settings`;
@@ -425,8 +435,6 @@ export function resolveOrganizationSwitchPath(input: {
 		switch (subsection) {
 			case "routines":
 				return buildOrganizationCenterAgentRoutinesPath(input.nextOrgSlug);
-			case "tasks":
-				return buildOrganizationCenterAgentTasksPath(input.nextOrgSlug);
 			case "skills":
 				return buildOrganizationSkillsPath(input.nextOrgSlug);
 			case "channels":
@@ -505,6 +513,15 @@ function resolveProductHomeSwitchPath(input: {
 }): string | null {
 	const [section, subsection] = input.pathSegments;
 	switch (section) {
+		case "skills":
+			return buildOrganizationSkillsPath(input.nextOrgSlug);
+		case "plugins":
+			return subsection
+				? buildOrganizationPluginPath({
+						orgSlug: input.nextOrgSlug,
+						service: subsection,
+					})
+				: buildOrganizationPluginsPath(input.nextOrgSlug);
 		case "people":
 			return buildOrganizationPeoplePath(input.nextOrgSlug);
 		case "agents":
@@ -543,6 +560,8 @@ function resolveSettingsSwitchPath(input: {
 			return buildOrganizationNotificationsSettingsPath(input.nextOrgSlug);
 		case "connected-apps":
 			return buildOrganizationConnectedPluginsSettingsPath(input.nextOrgSlug);
+		case "center-agent":
+			return buildOrganizationCenterAgentSettingsPath(input.nextOrgSlug);
 		case "general":
 			return buildOrganizationOrgSettingsPath(input.nextOrgSlug);
 		case "privacy":

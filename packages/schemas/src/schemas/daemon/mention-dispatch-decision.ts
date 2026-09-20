@@ -2,7 +2,6 @@ import type {
   OpenMeldDaemonMentionDispatchResultEnvelope,
   OpenMeldDaemonMentionDispatchResultPayload,
 } from "../../types/daemon/mention-dispatch-result";
-import { collectCanonicalMentionTextFragments } from "../protocol/message-envelope";
 import {
   OPENMELD_DAEMON_MENTION_DISPATCH_RESULT_SCHEMA_VERSION,
   openMeldDaemonMentionDispatchResultEnvelopeSchema,
@@ -61,18 +60,6 @@ type ResolvedMentionDispatchRule = {
   ruleSource: Exclude<MentionDispatchRuleSource, "system">;
 };
 
-export type MentionDispatchDecisionInput = {
-  createDispatchId?: () => string;
-  dispatchPolicy?: MentionDispatchPolicy;
-  dispatchRules?: MentionDispatchRuleSet;
-  resolveMentionTargetLabel: (
-    mentionLabel: string
-  ) => MentionTargetResolution | null;
-  senderProfileId: string;
-  sourceEventId: string;
-  text: string;
-};
-
 export type TargetDispatchDecisionInput = {
   createDispatchId?: () => string;
   dispatchPolicy?: MentionDispatchPolicy;
@@ -92,40 +79,6 @@ const createDefaultDispatchId = (): string => {
 
 const normalizeProfileIdForComparison = (value: string): string =>
   String(value ?? "").trim();
-
-const extractMentionLabels = (text: string): string[] => {
-  return collectCanonicalMentionTextFragments(text).flatMap((fragment) => {
-    if (fragment.parsedLiteral?.type !== "wake") {
-      return [];
-    }
-    return [fragment.parsedLiteral.name];
-  });
-};
-
-const resolveMentionTargetWithFallback = (input: {
-  mentionLabel: string;
-  resolveMentionTargetLabel: (
-    mentionLabel: string
-  ) => MentionTargetResolution | null;
-}): {
-  resolvedTarget: MentionTargetResolution;
-  resolvedMentionLabel: string;
-} | null => {
-  const rawMentionLabel = String(input.mentionLabel ?? "").trim();
-  if (rawMentionLabel.length === 0) {
-    return null;
-  }
-
-  const resolvedTarget = input.resolveMentionTargetLabel(rawMentionLabel);
-  if (resolvedTarget) {
-    return {
-      resolvedTarget,
-      resolvedMentionLabel: rawMentionLabel,
-    };
-  }
-
-  return null;
-};
 
 const createDecision = (input: {
   createDispatchId: () => string;
@@ -347,64 +300,6 @@ const resolveDecisionForTarget = (input: {
     ruleId: effectiveRule.ruleId,
     ruleReason: effectiveRule.ruleReason,
   });
-};
-
-export const planMentionDispatchDecisions = (
-  input: MentionDispatchDecisionInput
-): MentionDispatchDecision[] => {
-  const mentions = extractMentionLabels(input.text);
-  if (mentions.length === 0) {
-    return [];
-  }
-
-  const dispatchPolicy = input.dispatchPolicy ?? "mention_only";
-  const seenKeys = new Set<string>();
-  const decisions: MentionDispatchDecision[] = [];
-  const createDispatchId = input.createDispatchId ?? createDefaultDispatchId;
-  const normalizedSenderProfileId = normalizeProfileIdForComparison(
-    input.senderProfileId
-  );
-
-  for (const mentionLabel of mentions) {
-    const resolvedMention = resolveMentionTargetWithFallback({
-      mentionLabel,
-      resolveMentionTargetLabel: input.resolveMentionTargetLabel,
-    });
-    if (!resolvedMention) {
-      const normalizedMissingMentionLabel = String(mentionLabel ?? "").trim();
-      const invalidDecision = resolveDecisionForMissingTarget({
-        createDispatchId,
-        missingTargetKind: "mention_label",
-        mentionLabel:
-          normalizedMissingMentionLabel.length > 0
-            ? normalizedMissingMentionLabel
-            : mentionLabel,
-        seenKeys,
-        sourceEventId: input.sourceEventId,
-      });
-      if (invalidDecision) {
-        decisions.push(invalidDecision);
-      }
-      continue;
-    }
-
-    const decision = resolveDecisionForTarget({
-      createDispatchId,
-      dispatchPolicy,
-      dispatchRules: input.dispatchRules,
-      mentionLabel: resolvedMention.resolvedMentionLabel,
-      normalizedSenderProfileId,
-      resolvedTarget: resolvedMention.resolvedTarget,
-      seenKeys,
-      sourceEventId: input.sourceEventId,
-      targetKind: "mention_label",
-    });
-    if (decision) {
-      decisions.push(decision);
-    }
-  }
-
-  return decisions;
 };
 
 export const planTargetDispatchDecisions = (

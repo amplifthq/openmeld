@@ -11,11 +11,15 @@ import { createFileRoute, Link, useLocation } from "@tanstack/react-router";
 import { AuthPageShell } from "#/components/auth/auth-page-shell";
 import { useAuthSession } from "#/hooks/auth.hooks";
 import {
+	acceptOrganizationJoinLink,
 	listOrganizations,
 	previewOrganizationJoinLink,
 } from "#/lib/organizations/auth-organizations";
 import { requestOrganizationJoinRequests } from "#/lib/organizations/organization-join-requests";
-import { buildOrganizationDefaultPath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationDefaultPath,
+	buildOrganizationSpacePath,
+} from "#/lib/organizations/organization-routes";
 
 export const Route = createFileRoute("/join-organization")({
 	component: JoinOrganizationRoute,
@@ -45,12 +49,31 @@ export function JoinOrganizationPage(input: {
 		mutationFn: () =>
 			requestOrganizationJoinRequests({ token: input.token ?? "" }),
 	});
+	const join = useMutation({
+		mutationFn: () => acceptOrganizationJoinLink({ token: input.token ?? "" }),
+		onSuccess: (result) =>
+			window.location.assign(
+				preview.data?.active && preview.data.spaceId
+					? buildOrganizationSpacePath({
+							orgSlug: result.organizationSlug,
+							spaceId: preview.data.spaceId,
+						})
+					: buildOrganizationDefaultPath(result.organizationSlug)
+			),
+	});
 	const organizations = useQuery({
 		queryKey: ["join-link-organizations", session.data?.user.id],
 		enabled: Boolean(session.data),
 		queryFn: listOrganizations,
 	});
 	const activeLink = preview.data?.active ? preview.data : null;
+	const direct = activeLink?.mode === "direct";
+	const activeMutation = direct ? join : request;
+	const submitLabel = direct
+		? `Join ${activeLink.organizationName}`
+		: "Request to join";
+	const busyLabel = direct ? "Joining…" : "Submitting…";
+	const signInLabel = direct ? "Sign in to join" : "Sign in to request to join";
 	const existing =
 		activeLink && !activeLink.spaceId
 			? organizations.data?.find(
@@ -87,7 +110,7 @@ export function JoinOrganizationPage(input: {
 					search={{ redirect: input.locationHref }}
 					to="/login"
 				>
-					Sign in to request an invitation
+					{signInLabel}
 				</Link>
 			);
 		}
@@ -108,8 +131,8 @@ export function JoinOrganizationPage(input: {
 			return (
 				<>
 					<p>
-						Your request was submitted. After approval, you’ll receive an
-						invitation by email.
+						We’ve notified the owners and admins. Once one approves, you can
+						enter the organization from your request page.
 					</p>
 					<a
 						className={buttonVariants({ variant: "outline" })}
@@ -121,23 +144,14 @@ export function JoinOrganizationPage(input: {
 			);
 		}
 		return (
-			<>
-				<p className="text-muted-foreground text-sm">
-					You’re requesting to join as an organization member, not a guest.
-					{spaceAccessDescription}
-				</p>
-				{request.error ? (
-					<p className="text-destructive text-sm" role="alert">
-						{request.error.message}
-					</p>
-				) : null}
-				<Button
-					disabled={request.isPending || organizations.isPending}
-					onClick={() => request.mutate()}
-				>
-					{request.isPending ? "Submitting…" : "Request invitation"}
-				</Button>
-			</>
+			<JoinLinkAction
+				direct={direct}
+				disabled={activeMutation.isPending || organizations.isPending}
+				error={activeMutation.error}
+				label={activeMutation.isPending ? busyLabel : submitLabel}
+				onSubmit={() => activeMutation.mutate()}
+				spaceAccessDescription={spaceAccessDescription}
+			/>
 		);
 	};
 	return (
@@ -146,16 +160,45 @@ export function JoinOrganizationPage(input: {
 				<CardHeader>
 					<CardTitle>
 						{activeLink
-							? `Request to join ${activeLink.organizationName}`
+							? `${activeLink.mode === "direct" ? "Join" : "Request to join"} ${activeLink.organizationName}`
 							: "Request an invitation"}
 					</CardTitle>
 					<CardDescription>
-						An organization owner or admin must approve your request before you
-						can join.
+						{activeLink?.mode === "direct"
+							? "You’re invited. Join when you’re ready."
+							: "An owner or admin must approve your request to join."}
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-4">{content()}</CardContent>
 			</Card>
 		</AuthPageShell>
+	);
+}
+
+function JoinLinkAction(input: {
+	direct: boolean;
+	error: Error | null;
+	disabled: boolean;
+	label: string;
+	onSubmit: () => void;
+	spaceAccessDescription: string;
+}) {
+	return (
+		<>
+			<p className="text-muted-foreground text-sm">
+				{input.direct
+					? "You’ll join as an organization member."
+					: "You’re requesting to join as an organization member."}
+				{input.spaceAccessDescription}
+			</p>
+			{input.error ? (
+				<p className="text-destructive text-sm" role="alert">
+					{input.error.message}
+				</p>
+			) : null}
+			<Button disabled={input.disabled} onClick={input.onSubmit}>
+				{input.label}
+			</Button>
+		</>
 	);
 }

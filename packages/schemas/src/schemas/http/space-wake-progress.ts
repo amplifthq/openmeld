@@ -45,6 +45,12 @@ export const wakeStopEligibilityReasonCodeSchema = z.enum([
 
 export const wakeStopEligibilityReadModelSchema = z.union([
   z.strictObject({
+    controlMode: z.literal("openmeld_owned_publication_cancel"),
+    reasonCode: z.null(),
+    reliability: z.literal("openmeld_owned_publication"),
+    status: z.literal("eligible"),
+  }),
+  z.strictObject({
     controlMode: z.literal("openmeld_owned_pre_agent_cancel"),
     reasonCode: z.null(),
     reliability: z.literal("openmeld_owned_pre_agent"),
@@ -71,6 +77,18 @@ export const wakeStopEligibilityReadModelSchema = z.union([
 ]);
 
 export const wakeProgressItemSchema = z.strictObject({
+  deviceWait: z
+    .strictObject({
+      deadlineAtMs: z.number().int().nonnegative(),
+      reason: z.enum([
+        "device_offline",
+        "agent_not_ready",
+        "earlier_work",
+        "access_check_unavailable",
+        "service_draining",
+      ]),
+    })
+    .optional(),
   clientMessageId: clientMessageIdSchema.nullable(),
   sourceSignalId: z.string().trim().min(1).nullable(),
   sourceContext: z
@@ -111,6 +129,7 @@ export const getSpaceWakeProgressInputSchema = z.strictObject({
   includeTiming: optionalBooleanQuerySchema,
   includeSourceContext: optionalBooleanQuerySchema,
   includeWaitReason: optionalBooleanQuerySchema,
+  includeDeviceWait: optionalBooleanQuerySchema,
   includeWakeStopEligibility: optionalBooleanQuerySchema,
   targetProfileId: optionalSelectorSchema,
 });
@@ -131,6 +150,7 @@ export const getActiveSpaceWakeProgressInputSchema = z.strictObject({
   includeTiming: optionalBooleanQuerySchema,
   includeSourceContext: optionalBooleanQuerySchema,
   includeWaitReason: optionalBooleanQuerySchema,
+  includeDeviceWait: optionalBooleanQuerySchema,
   includeWakeStopEligibility: optionalBooleanQuerySchema,
   sourceProfileId: optionalSelectorSchema,
   targetProfileId: optionalSelectorSchema,

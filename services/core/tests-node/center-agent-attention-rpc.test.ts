@@ -6,8 +6,6 @@ const readNativeDelivery = vi.hoisted(() => vi.fn());
 const prepareCenterAgentCandidate = vi.hoisted(() => vi.fn());
 const createAttentionRequest = vi.hoisted(() => vi.fn());
 const prepareHostedRequest = vi.hoisted(() => vi.fn());
-const readTaskAttempt = vi.hoisted(() => vi.fn());
-const projectTaskAttention = vi.hoisted(() => vi.fn());
 
 vi.mock(
   "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo",
@@ -27,18 +25,6 @@ vi.mock(
 vi.mock("../src/center-agent/application/represented-member-request", () => ({
   prepareHostedCenterAgentRequest: prepareHostedRequest,
 }));
-vi.mock(
-  "../src/center-agent-tasks/infrastructure/d1/center-agent-task-repo",
-  () => ({
-    readCenterAgentTaskAttemptByTaskHandle: readTaskAttempt,
-  })
-);
-vi.mock(
-  "../src/center-agent-tasks/application/center-agent-task-attention-projector",
-  () => ({
-    projectCenterAgentTaskNeedsAttention: projectTaskAttention,
-  })
-);
 
 describe("Center Agent attention RPC", () => {
   beforeEach(() => {
@@ -66,8 +52,6 @@ describe("Center Agent attention RPC", () => {
       actorProfileId: "agt_11111111-1111-4111-8111-111111111111",
       db: membershipDb(true),
     });
-    readTaskAttempt.mockReset().mockResolvedValue(null);
-    projectTaskAttention.mockReset().mockResolvedValue(true);
   });
 
   it("accepts only the current verified native Space delivery and creates the canonical request", async () => {
@@ -110,51 +94,6 @@ describe("Center Agent attention RPC", () => {
       status: 403,
     });
     expect(readNativeDelivery).not.toHaveBeenCalled();
-    expect(createAttentionRequest).not.toHaveBeenCalled();
-  });
-
-  it("routes a Task delivery to the canonical Task Needs action projection", async () => {
-    const deliveryDb = { owner: "wake-evidence" } as unknown as D1Database;
-    const inboxDb = { owner: "inbox" } as unknown as D1Database;
-    const taskDb = { owner: "local-state" } as unknown as D1Database;
-    readNativeDelivery.mockResolvedValue(
-      nativeDelivery({ conversationKind: "message_channel" })
-    );
-    readTaskAttempt.mockResolvedValue({ generation: 1, taskId: "task-one" });
-
-    await expect(
-      rpcCenterAgentRequestMemberAttention(
-        env({ deliveryDb, inboxDb, taskDb }),
-        request()
-      )
-    ).resolves.toMatchObject({
-      importance: "urgent",
-      organizationId: "org-one",
-      requestId: "submission-one",
-    });
-    expect(readNativeDelivery).toHaveBeenCalledWith({
-      db: deliveryDb,
-      submissionId: "submission-one",
-    });
-    expect(readTaskAttempt).toHaveBeenCalledWith({
-      db: taskDb,
-      organizationId: "org-one",
-      taskHandle: {
-        deliveryId: "delivery-one",
-        kind: "native_delivery",
-        v: 1,
-      },
-    });
-    expect(projectTaskAttention).toHaveBeenCalledWith({
-      deliveryId: "delivery-one",
-      importance: "urgent",
-      inboxDb,
-      nowMs: expect.any(Number),
-      organizationId: "org-one",
-      prompt: "Choose the release owner so work can continue.",
-      requestId: "submission-one",
-      taskDb,
-    });
     expect(createAttentionRequest).not.toHaveBeenCalled();
   });
 

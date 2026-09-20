@@ -5,10 +5,14 @@ import {
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import { truncateInboxText } from "../inbox/application/inbox-text";
-import { buildSpaceInboxProjectionOutboxRecord } from "../space/application/space-inbox-projection";
+import {
+  buildSpaceInboxProjectionOutboxRecord,
+  buildSpaceReactionInboxProjectionOutboxRecord,
+} from "../space/application/space-inbox-projection";
 import {
   attemptSpaceInboxProjectionOutboxRecord,
   resolveSpaceInboxRecipientEligibility,
+  selectSpaceInboxRecipients,
 } from "../space/application/space-inbox-projection-outbox-service";
 import {
   listDueSpaceInboxProjectionOutboxRecords,
@@ -48,6 +52,238 @@ const publishTextSignal = (
 ).publishTextSignal;
 
 describe("Space Inbox projection", () => {
+  it("limits thread updates to participants, including replies to an older root", () => {
+    const record = buildSpaceInboxProjectionOutboxRecord({
+      activeMemberRecords: [
+        member("writer", "writer-user", "human"),
+        member("root", "root-user", "human"),
+        member("earlier-reply", "reply-user", "human"),
+        member("observer", "observer-user", "human"),
+        member("unrelated-agent", "observer-user", "agent"),
+      ],
+      nowMs: 2000,
+      organizationId: "org-1",
+      spaceName: "Planning",
+      signal: textSignal({
+        authorKind: "human",
+        authorName: "Alex",
+        authorProfileId: "writer",
+        authorHasRead: true,
+        text: "A thread update",
+      }),
+      signalContext: {
+        threadContext: { threadId: "thread-1", rootSignalId: "root-message" },
+        threadPlacement: "thread",
+      },
+      threadParticipantProfileIds: ["root", "earlier-reply", "writer"],
+    });
+    expect(record?.candidates.map((item) => item.recipientUserId)).toEqual([
+      "root-user",
+      "reply-user",
+    ]);
+  });
+
+  it("makes reactions to old messages new ordinary updates for the author alone", () => {
+    const signal = textSignal({
+      authorKind: "human",
+      authorName: "Alex",
+      authorProfileId: "author",
+      text: "An old message",
+    });
+    if (signal.type !== "signal.text") {
+      throw new Error("Expected a message");
+    }
+    const input = {
+      actor: member("reactor", "reactor-user", "human"),
+      author: member("author", "author-user", "human"),
+      emoji: "👍",
+      nowMs: 9000,
+      organizationId: "org-1",
+      signal,
+      spaceName: "Planning",
+      threadRootSignalId: "old-root",
+      version: 4,
+    };
+    const record = buildSpaceReactionInboxProjectionOutboxRecord(input);
+    expect(record?.candidates).toEqual([
+      expect.objectContaining({
+        recipientUserId: "author-user",
+        attention: "update",
+        importance: "normal",
+        kind: "space_message",
+        occurredAtMs: 9000,
+        sourceTarget: {
+          kind: "space",
+          spaceId: "space-1",
+          signalId: "signal-1",
+          threadRootSignalId: "old-root",
+        },
+      }),
+    ]);
+    expect(buildSpaceReactionInboxProjectionOutboxRecord(input)).toEqual(
+      record
+    );
+    expect(
+      buildSpaceReactionInboxProjectionOutboxRecord({ ...input, version: 6 })
+        ?.projectionId
+    ).not.toBe(record?.projectionId);
+    expect(
+      buildSpaceReactionInboxProjectionOutboxRecord({
+        ...input,
+        actor: input.author,
+      })
+    ).toBeNull();
+    expect(
+      buildSpaceReactionInboxProjectionOutboxRecord({
+        ...input,
+        author: { ...input.author, status: "removed" },
+      })
+    ).toBeNull();
+  });
+  it.each([
+    true,
+    false,
+  ])("notifies the replying Agent's absent owner in DM=%s even without a human requester", async (directMessage) => {
+    const record = buildSpaceInboxProjectionOutboxRecord({
+      activeMemberRecords: [
+        member("agent", "owner", "agent"),
+        member("other-agent", "other-owner", "agent"),
+      ],
+      directMessage,
+      nowMs: 2000,
+      organizationId: "org-1",
+      spaceName: "Design review",
+      signal: textSignal({
+        authorKind: "agent",
+        authorName: "Design Agent",
+        authorProfileId: "agent",
+        text: "The review is ready.",
+      }),
+    });
+    expect(record?.candidates).toEqual([
+      expect.objectContaining({
+        recipientUserId: "owner",
+        kind: "agent_reply",
+        importance: "normal",
+        sourceTarget: expect.objectContaining({
+          agentOwnerActivity: true,
+          directMessage,
+          signalId: "signal-1",
+        }),
+      }),
+    ]);
+    expect(
+      await selectSpaceInboxRecipients(
+        record?.candidates ?? [],
+        async () => false
+      )
+    ).toEqual([]);
+  });
+
+  it.each([
+    "owner",
+    "requester",
+  ])("keeps one owner reply item when %s Wakes the Agent", async (wakeRequesterUserId) => {
+    const record = buildSpaceInboxProjectionOutboxRecord({
+      activeMemberRecords: [
+        member("owner-human", "owner", "human"),
+        member("requester-human", "requester", "human"),
+        member("agent", "owner", "agent"),
+      ],
+      nowMs: 2000,
+      organizationId: "org-1",
+      spaceName: "Review",
+      wakeRequesterUserId,
+      threadParticipantProfileIds:
+        wakeRequesterUserId === "owner"
+          ? ["owner-human", "agent"]
+          : ["owner-human", "requester-human", "agent"],
+      signal: textSignal({
+        authorKind: "agent",
+        authorName: "Design Agent",
+        authorProfileId: "agent",
+        text: "Done.",
+      }),
+      signalContext: {
+        threadContext: { rootSignalId: "thread-root", threadId: "thread-1" },
+        threadPlacement: "thread",
+      },
+    });
+    const candidates = await selectSpaceInboxRecipients(
+      record?.candidates ?? [],
+      async () => true
+    );
+    expect(
+      candidates.filter((item) => item.recipientUserId === "owner")
+    ).toEqual([
+      expect.objectContaining({
+        kind: "agent_reply",
+        importance: "normal",
+        sourceTarget: expect.objectContaining({
+          threadRootSignalId: "thread-root",
+        }),
+      }),
+    ]);
+    expect(candidates.map((item) => item.recipientUserId).sort()).toEqual(
+      wakeRequesterUserId === "owner" ? ["owner"] : ["owner", "requester"]
+    );
+  });
+  it("keeps personal-Agent awareness ordinary for delivery and preserves normal recipients for managed Agents", async () => {
+    const record = buildSpaceInboxProjectionOutboxRecord({
+      activeMemberRecords: [
+        member("author", "sender", "human"),
+        member("agent", "owner", "agent"),
+        member("agent-2", "owner", "agent"),
+      ],
+      directMessage: true,
+      nowMs: 2000,
+      organizationId: "org-1",
+      spaceName: "Chat",
+      signal: textSignal({
+        authorKind: "human",
+        authorName: "Alex",
+        authorProfileId: "author",
+        authorHasRead: true,
+        text: "Hello",
+      }),
+    });
+    expect(record?.candidates).toHaveLength(1);
+    expect(record?.candidates[0]).toMatchObject({
+      recipientUserId: "owner",
+      kind: "space_message",
+      importance: "normal",
+      sourceTarget: {
+        agentOwnerActivity: true,
+        directMessage: true,
+        signalId: "signal-1",
+      },
+    });
+    expect(
+      await selectSpaceInboxRecipients(
+        record?.candidates ?? [],
+        async () => false
+      )
+    ).toEqual([]);
+    const owner = record?.candidates[0];
+    if (!owner) {
+      throw new Error("Expected an owner activity candidate");
+    }
+    const ordinary = {
+      ...owner,
+      importance: "normal" as const,
+      sourceTarget: {
+        kind: "space" as const,
+        spaceId: "space-1",
+        signalId: "signal-1",
+      },
+    };
+    expect(
+      await selectSpaceInboxRecipients([ordinary, owner], async () => true)
+    ).toEqual([owner]);
+    expect(
+      await selectSpaceInboxRecipients([ordinary, owner], async () => false)
+    ).toEqual([ordinary]);
+  });
   it("keeps an unconfirmed Human author's CLI update unread without turning self references into notifications", () => {
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords: [
@@ -69,6 +305,7 @@ describe("Space Inbox projection", () => {
         threadPlacement: "thread",
       },
       threadRootAuthorUserId: "user-author",
+      threadParticipantProfileIds: ["profile-author", "profile-reader"],
       spaceName: "Planning",
     });
     expect(record?.candidates).toEqual([
@@ -173,6 +410,12 @@ describe("Space Inbox projection", () => {
       text: "Please review the updated launch notes.",
     });
     const record = buildSpaceInboxProjectionOutboxRecord({
+      threadParticipantProfileIds: [
+        "profile-author",
+        "profile-referenced",
+        "profile-second",
+        "profile-agent",
+      ],
       activeMemberRecords: [
         member("profile-author", "user-author", "human"),
         member("profile-referenced", "user-referenced", "human"),
@@ -233,7 +476,7 @@ describe("Space Inbox projection", () => {
     ).toBe(false);
   });
 
-  it("classifies a final agent message as an agent reply only for the exact requester", () => {
+  it("keeps a managed Agent reply scoped to the requester after owner eligibility is checked", async () => {
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords: [
         member("profile-human", "user-human", "human"),
@@ -253,13 +496,74 @@ describe("Space Inbox projection", () => {
       wakeRequesterUserId: "user-human",
     });
 
-    expect(record?.candidates).toEqual([
+    expect(
+      await selectSpaceInboxRecipients(
+        record?.candidates ?? [],
+        async () => false
+      )
+    ).toEqual([
       expect.objectContaining({
         kind: "agent_reply",
         recipientUserId: "user-human",
         title: "Center Agent replied in Operations",
       }),
     ]);
+  });
+
+  it.each([
+    "user-sender",
+    "user-root",
+  ])("marks a Human reply only for another member's thread root (%s)", (authorUserId) => {
+    const record = buildSpaceInboxProjectionOutboxRecord({
+      activeMemberRecords: [
+        member("profile-root", "user-root", "human"),
+        member("profile-sender", authorUserId, "human"),
+        member("profile-participant", "user-participant", "human"),
+        member("profile-observer", "user-observer", "human"),
+      ],
+      nowMs: 2000,
+      organizationId: "org-1",
+      spaceName: "Planning",
+      signal: textSignal({
+        authorKind: "human",
+        authorName: "Human sender",
+        authorProfileId: "profile-sender",
+        text: "Here is the answer.",
+      }),
+      signalContext: {
+        threadContext: { rootSignalId: "signal-root", threadId: "thread-1" },
+        threadPlacement: "thread",
+      },
+      threadRootAuthorUserId: "user-root",
+      threadParticipantProfileIds: [
+        "profile-root",
+        "profile-sender",
+        "profile-participant",
+      ],
+    });
+    const recipients = record?.candidates ?? [];
+    const root = recipients.find(
+      (item) => item.recipientUserId === "user-root"
+    );
+    expect(root).toMatchObject({
+      kind: "space_message",
+      attention: "update",
+      importance: "normal",
+      sourceTarget: { signalId: "signal-1", threadRootSignalId: "signal-root" },
+    });
+    if (authorUserId !== "user-root") {
+      expect(root?.sourceTarget).toMatchObject({ replyToRecipient: true });
+    } else {
+      expect(root?.sourceTarget).not.toHaveProperty("replyToRecipient");
+    }
+    expect(
+      recipients
+        .filter((item) => item.recipientUserId !== "user-root")
+        .every((item) => !("replyToRecipient" in item.sourceTarget))
+    ).toBe(true);
+    expect(
+      recipients.some((item) => item.recipientUserId === "user-observer")
+    ).toBe(false);
   });
 
   it("delivers an agent reply to the requester, Human Mentions, and thread target without broadcasting", () => {
@@ -290,6 +594,12 @@ describe("Space Inbox projection", () => {
       },
       spaceName: "Operations",
       threadRootAuthorUserId: "user-thread-author",
+      threadParticipantProfileIds: [
+        "profile-requester",
+        "profile-referenced",
+        "profile-thread-author",
+        "profile-agent",
+      ],
       wakeRequesterUserId: "user-requester",
     });
 
@@ -305,6 +615,11 @@ describe("Space Inbox projection", () => {
       expect.objectContaining({
         kind: "agent_reply",
         recipientUserId: "user-thread-author",
+      }),
+      expect.objectContaining({
+        kind: "agent_reply",
+        recipientUserId: "user-agent-owner",
+        sourceTarget: expect.objectContaining({ agentOwnerActivity: true }),
       }),
     ]);
     expect(
@@ -490,12 +805,9 @@ describe("Space Inbox projection", () => {
       updatedAtMs: 1000,
     };
     const statements: string[] = [];
-    const sql = {
-      exec(statement: string) {
-        statements.push(statement);
-        return { rowsWritten: 1, toArray: () => [] };
-      },
-    } as unknown as SqlStorage;
+    const sql = createProjectionSqlDouble((statement) =>
+      statements.push(statement)
+    );
     let failSecondRecipientOnce = true;
     const ensureItem = vi.fn(({ candidate: item }) => {
       if (item.recipientUserId === "user-2" && failSecondRecipientOnce) {
@@ -560,11 +872,7 @@ describe("Space Inbox projection", () => {
       status: "pending",
       updatedAtMs: 1000,
     };
-    const sql = {
-      exec() {
-        return { rowsWritten: 1, toArray: () => [] };
-      },
-    } as unknown as SqlStorage;
+    const sql = createProjectionSqlDouble();
     const ensureItem = vi.fn().mockResolvedValue({
       deliveryId: "delivery-1",
       itemId: "item-1",
@@ -610,11 +918,7 @@ describe("Space Inbox projection", () => {
       status: "pending",
       updatedAtMs: 1000,
     };
-    const sql = {
-      exec() {
-        return { rowsWritten: 1, toArray: () => [] };
-      },
-    } as unknown as SqlStorage;
+    const sql = createProjectionSqlDouble();
     const ensureItem = vi.fn().mockResolvedValue({
       deliveryId: null,
       itemId: "item-user-1",
@@ -671,12 +975,9 @@ describe("Space Inbox projection", () => {
       updatedAtMs: 1000,
     };
     const executions: Array<{ bindings: unknown[]; statement: string }> = [];
-    const sql = {
-      exec(statement: string, ...bindings: unknown[]) {
-        executions.push({ bindings, statement });
-        return { rowsWritten: 1, toArray: () => [] };
-      },
-    } as unknown as SqlStorage;
+    const sql = createProjectionSqlDouble((statement, bindings) =>
+      executions.push({ bindings, statement })
+    );
     const ensureItem = vi.fn(({ candidate: item }) => {
       return item.recipientUserId === "user-poison"
         ? Promise.reject(new Error("recipient no longer exists"))
@@ -700,9 +1001,51 @@ describe("Space Inbox projection", () => {
     const failureUpdate = executions.find(({ statement }) =>
       statement.includes("status = 'failed'")
     );
+
     expect(failureUpdate?.bindings[0]).toBe(
       JSON.stringify([candidate("user-poison")])
     );
+  });
+
+  it("addresses an unthreaded Agent DM reply to its human member without a Wake correlation", () => {
+    const input = {
+      activeMemberRecords: [
+        member("human", "reader", "human"),
+        member("agent", "owner", "agent"),
+      ],
+      nowMs: 2000,
+      organizationId: "org-1",
+      spaceName: "Private chat",
+      signal: textSignal({
+        authorKind: "agent",
+        authorName: "Agent",
+        authorProfileId: "agent",
+        text: "Here is the result.",
+      }),
+    };
+    expect(buildSpaceInboxProjectionOutboxRecord(input)?.candidates).toEqual([
+      expect.objectContaining({
+        recipientUserId: "owner",
+        kind: "agent_reply",
+      }),
+    ]);
+    const record = buildSpaceInboxProjectionOutboxRecord({
+      ...input,
+      directMessage: true,
+    });
+    expect(record?.candidates).toEqual([
+      expect.objectContaining({
+        recipientUserId: "reader",
+        kind: "agent_reply",
+        importance: "normal",
+        sourceTarget: expect.objectContaining({ directMessage: true }),
+      }),
+      expect.objectContaining({
+        recipientUserId: "owner",
+        kind: "agent_reply",
+        importance: "normal",
+      }),
+    ]);
   });
 
   it("suppresses a delayed candidate that no longer has active Space access", async () => {
@@ -719,11 +1062,7 @@ describe("Space Inbox projection", () => {
       status: "pending",
       updatedAtMs: 1000,
     };
-    const sql = {
-      exec() {
-        return { rowsWritten: 1, toArray: () => [] };
-      },
-    } as unknown as SqlStorage;
+    const sql = createProjectionSqlDouble();
     const ensureItem = vi.fn().mockResolvedValue({
       deliveryId: null,
       itemId: "item-active",
@@ -909,6 +1248,37 @@ describe("Space Inbox projection", () => {
     warn.mockRestore();
   });
 });
+
+// These existing orchestration tests replace storage to inspect write intent.
+// Real SQLite identity, rollback and retry coverage lives in the Node boundary suite.
+function createProjectionSqlDouble(
+  onExec?: (statement: string, bindings: unknown[]) => void
+): SqlStorage {
+  const selections = new Map<string, string>();
+  return {
+    exec(statement: string, ...bindings: unknown[]) {
+      onExec?.(statement, bindings);
+      const key = JSON.stringify(bindings.slice(0, 2));
+      if (
+        statement.includes(
+          "INSERT OR IGNORE INTO space_inbox_projection_selections"
+        ) &&
+        !selections.has(key)
+      ) {
+        selections.set(key, String(bindings[2]));
+      }
+      const selection = statement.includes(
+        "SELECT candidate_json FROM space_inbox_projection_selections"
+      )
+        ? selections.get(key)
+        : undefined;
+      return {
+        rowsWritten: 1,
+        toArray: () => (selection ? [{ candidate_json: selection }] : []),
+      };
+    },
+  } as unknown as SqlStorage;
+}
 
 function member(
   profileId: string,

@@ -4,6 +4,7 @@ import type {
   AdapterAgentControllerConversationOccupancy,
   AdapterComputerFileAccessBoundary,
   AdapterDispatchExecutionMode,
+  AdapterDispatchRequest,
   AdapterDispatchTelemetry,
   AdapterErrorType,
   AdapterInstructionPrompt,
@@ -23,6 +24,9 @@ import type {
 import {
   AGENT_CONTROLLER_CONVERSATION_OCCUPANCY_CONTRACT_VERSION,
   classifyRuntimePermissionDenialMessage,
+  createProviderOriginalError,
+  listAgentControllerSupervisedProcessIds,
+  resolveDispatchSpaceActionMcpServer,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
 import { classifyCodexProviderAccountFailure } from "../output/codex-provider-failure.js";
@@ -32,10 +36,22 @@ import {
   resolveCodexAppServerControlRequestTimeoutMs,
 } from "./codex-app-server-admission.js";
 import { buildCodexAppServerLaunch } from "./codex-app-server-launch.js";
-import { buildCodexFileAccessBoundaryGlobalArgs } from "./codex-file-access-boundary.js";
+import {
+  buildCodexFileAccessBoundaryGlobalArgs,
+  CODEX_FILE_ACCESS_PERMISSION_PROFILE,
+  isCodexExecutionContextFileAccessConfirmed,
+} from "./codex-file-access-boundary.js";
+import {
+  assertCodexScopedMcpInventory,
+  buildCodexScopedMcpDisableArgs,
+} from "./codex-scoped-mcp.js";
 import { buildCodexSpaceActionMcpGlobalArgs } from "./codex-space-action-mcp-config.js";
+import { CodexStartupDiagnostics } from "./codex-startup-diagnostics.js";
+import { verifyCodexWorkspaceAccess } from "./codex-workspace-access-probe.js";
 
 const CODEX_APP_SERVER_VERSION_PATTERN = /\/([^\s]+)/u;
+const EXECUTION_CONTEXT_ERROR_PATTERN =
+  /^(execution_context\.[a-z_]+|context\.mcp_isolation_unverified)(?::|$)/u;
 
 export type CodexAppServerTransportResult = {
   output: string;
@@ -121,6 +137,10 @@ type AppServerThreadResponse = {
   thread?: AppServerThread;
 };
 
+type AppServerThreadReadResponse = {
+  thread?: AppServerThread & { turns?: AppServerTurn[] };
+};
+
 type AppServerTurn = {
   error?: { codexErrorInfo?: unknown; message?: unknown } | null;
   id?: unknown;
@@ -137,14 +157,15 @@ type AppServerTurnStartResponse = {
   turn?: AppServerTurn;
 };
 
-type CodexAppServerApprovalPolicy = "never" | "on-request" | "untrusted";
-type CodexAppServerApprovalReviewer = "auto_review";
+type CodexAppServerApprovalPolicy = "never" | "on-request";
+type CodexAppServerApprovalReviewer = "user" | "auto_review";
 type CodexAppServerSandboxMode =
   | "danger-full-access"
   | "read-only"
   | "workspace-write";
 
 type CodexAppServerThreadPermissionModeParams = {
+  permissions?: string;
   approvalPolicy?: CodexAppServerApprovalPolicy;
   approvalsReviewer?: CodexAppServerApprovalReviewer;
   sandbox?: CodexAppServerSandboxMode;
@@ -176,6 +197,7 @@ type CodexAppServerCollaborationModePreset = {
 };
 
 type CodexAppServerThreadContext = {
+  permissionResponse: unknown;
   model: string | null;
   threadId: string;
   threadSource: string | null;
@@ -295,6 +317,7 @@ export async function invokeCodexAppServerTransport(input: {
   onProcessControlEvent?: AdapterRuntimeProcessCallback;
   onRuntimeEvent?: AdapterRuntimeEventCallback;
   instructionPrompt?: AdapterInstructionPrompt;
+  newSessionTitle?: AdapterDispatchRequest["newSessionTitle"];
   prompt: string;
   streamingMode?: AdapterStreamingMode;
   startupTimeoutMs?: number;
@@ -315,10 +338,14 @@ export async function invokeCodexAppServerTransport(input: {
   }
 
   const invokedAtMs = Date.now();
+  const reasoningSummary = input.onRuntimeEvent
+    ? { summary: "auto" as const }
+    : {};
   const permissionModeParams = resolveCodexAppServerPermissionModeParams(
     input.agentControllerPermissionMode,
     input.executionMode,
-    input.computerFileAccessBoundary !== undefined
+    input.computerFileAccessBoundary !== undefined,
+    input.computerFileAccessBoundary?.executionContextAccess !== undefined
   );
   const conversationPolicyParams =
     resolveCodexAppServerConversationPolicyParams(input.conversationPolicy);
@@ -340,6 +367,9 @@ export async function invokeCodexAppServerTransport(input: {
     async (session) => {
       throwIfCodexDispatchCancelled(input.cancellationSignal);
       const threadContext = await resolveDispatchThreadContext({
+        executionContextScoped:
+          input.computerFileAccessBoundary?.executionContextAccess !==
+          undefined,
         cancellationSignal: input.cancellationSignal,
         conversationPolicyParams,
         codexWorkdir: input.codexWorkdir,
@@ -349,6 +379,13 @@ export async function invokeCodexAppServerTransport(input: {
         threadId: input.threadId,
         instructionPrompt: input.instructionPrompt,
       });
+      assertFileAccessBeforeTurn(
+        threadContext.permissionResponse,
+        input.computerFileAccessBoundary,
+        input.codexWorkdir,
+        input.executionMode
+      );
+      await session.verifyScopedMcp(threadContext.threadId);
       const collaborationMode =
         await resolveCodexAppServerTurnCollaborationMode({
           conversationPolicy: input.conversationPolicy,
@@ -367,58 +404,24 @@ export async function invokeCodexAppServerTransport(input: {
         threadSource: threadContext.threadSource,
       });
       session.emitProviderConversationObserved(continuityThreadId);
+      session.observeReasoningForThread(executionThreadId);
       throwIfCodexDispatchCancelled(input.cancellationSignal);
-      const turnResponse = await session.requestControl(
-        "turn/start",
-        {
-          ...permissionModeParams.turn,
-          ...(collaborationMode ? { collaborationMode } : {}),
-          cwd: input.codexWorkdir,
-          ...conversationPolicyParams,
-          input: [
-            {
-              text: turnPrompt,
-              text_elements: [],
-              type: "text",
-            },
-          ],
-          threadId: executionThreadId,
-        },
-        {
-          code: "runtime.turn_start_timeout",
-          operation: "turn/start",
-        }
-      );
-      const turn = readTurnStartResponse(turnResponse);
-      const turnId = readRequiredText(turn.id, "turn/start response turn.id");
-      session.emitProviderTurnAccepted({
-        threadId: executionThreadId,
-        turnId,
-      });
-      const unregisterActiveTurn = session.registerActiveTurn({
+      const completedTurn = await startAndAwaitAppServerTurn({
+        cancellationSignal: input.cancellationSignal,
+        collaborationMode,
+        conversationPolicyParams,
+        codexWorkdir: input.codexWorkdir,
+        executionMode: input.executionMode,
+        executionThreadId,
+        existingThreadId: input.threadId,
+        newSessionTitle: input.newSessionTitle,
         onActiveTurn: input.onActiveTurn,
+        permissionModeParams: permissionModeParams.turn,
+        reasoningSummary,
+        session,
         taskId: input.taskId,
-        threadId: executionThreadId,
-        turnId,
+        turnPrompt,
       });
-      if (input.cancellationSignal?.aborted && turn.status !== "completed") {
-        await session.request("turn/interrupt", {
-          threadId: executionThreadId,
-          turnId,
-        });
-      }
-      let completedTurn: AppServerTurn;
-      try {
-        completedTurn =
-          turn.status === "completed"
-            ? turn
-            : await session.waitForTurnCompleted({
-                threadId: executionThreadId,
-                turnId,
-              });
-      } finally {
-        unregisterActiveTurn?.();
-      }
       const interactionFailure = session.readInteractionFailure();
       if (interactionFailure) {
         throw new CodexAppServerTransportError({
@@ -459,11 +462,116 @@ export async function invokeCodexAppServerTransport(input: {
   );
 }
 
+async function startAndAwaitAppServerTurn(input: {
+  cancellationSignal?: AbortSignal;
+  collaborationMode?: CodexAppServerCollaborationMode | null;
+  conversationPolicyParams: CodexAppServerConversationPolicyParams;
+  codexWorkdir: string;
+  executionMode?: AdapterDispatchExecutionMode;
+  executionThreadId: string;
+  existingThreadId?: string | null;
+  newSessionTitle?: string | null;
+  onActiveTurn?: CodexAppServerActiveTurnRegistrar;
+  permissionModeParams: CodexAppServerPermissionModeParams["turn"];
+  reasoningSummary: Record<string, unknown>;
+  session: CodexAppServerSession;
+  taskId: string;
+  turnPrompt: string;
+}): Promise<AppServerTurn> {
+  const { session, executionThreadId } = input;
+  let activeTurnId: string | null = null;
+  let interruptRequested = false;
+  let interruptSent = false;
+  const sendInterruptIfActive = async (targetTurnId: string) => {
+    if (interruptSent) {
+      return;
+    }
+    interruptSent = true;
+    try {
+      await session.request("turn/interrupt", {
+        threadId: executionThreadId,
+        turnId: targetTurnId,
+      });
+    } catch {
+      // Ignore interrupt errors if the turn is already terminating or completed
+    }
+  };
+
+  const unregisterActiveTurn = session.registerActiveTurn({
+    interrupt: async () => {
+      interruptRequested = true;
+      if (activeTurnId) {
+        await sendInterruptIfActive(activeTurnId);
+      }
+    },
+    onActiveTurn: input.onActiveTurn,
+    taskId: input.taskId,
+    threadId: executionThreadId,
+    turnId: null,
+  });
+
+  try {
+    const turnResponse = await session.requestControl(
+      "turn/start",
+      {
+        ...input.permissionModeParams,
+        ...(input.collaborationMode
+          ? { collaborationMode: input.collaborationMode }
+          : {}),
+        cwd: input.codexWorkdir,
+        ...input.conversationPolicyParams,
+        ...input.reasoningSummary,
+        input: [
+          {
+            text: input.turnPrompt,
+            text_elements: [],
+            type: "text",
+          },
+        ],
+        threadId: executionThreadId,
+      },
+      {
+        code: "runtime.turn_start_timeout",
+        operation: "turn/start",
+      }
+    );
+    const turn = readTurnStartResponse(turnResponse);
+    const turnId = readRequiredText(turn.id, "turn/start response turn.id");
+    activeTurnId = turnId;
+    session.emitProviderTurnAccepted({
+      threadId: executionThreadId,
+      turnId,
+    });
+    session.setNewSessionTitleInBackground({
+      existingThreadId: input.existingThreadId ?? null,
+      executionMode: input.executionMode,
+      threadId: executionThreadId,
+      title: input.newSessionTitle ?? undefined,
+    });
+    if (
+      (interruptRequested || input.cancellationSignal?.aborted) &&
+      turn.status !== "completed"
+    ) {
+      await sendInterruptIfActive(turnId);
+    }
+    return turn.status === "completed"
+      ? turn
+      : await session.waitForTurnCompleted({
+          threadId: executionThreadId,
+          turnId,
+        });
+  } finally {
+    unregisterActiveTurn?.();
+  }
+}
+
 function requireSuccessfulCodexTurn(turn: AppServerTurn): void {
   if (turn.status !== "failed") {
     return;
   }
   const failureMessage = readTurnFailureMessage(turn);
+  const originalError =
+    createProviderOriginalError(failureMessage) ?? undefined;
   const permissionDenial = classifyRuntimePermissionDenialMessage({
     message: failureMessage,
     source: "codex",
@@ -473,6 +581,7 @@ function requireSuccessfulCodexTurn(turn: AppServerTurn): void {
       code: permissionDenial.code,
       errorType: permissionDenial.errorType,
       message: permissionDenial.message,
+      originalError,
     });
   }
   const providerFailure = classifyCodexProviderAccountFailure({
@@ -492,6 +601,7 @@ function requireSuccessfulCodexTurn(turn: AppServerTurn): void {
     code: "runtime.turn.failed",
     errorType: "adapter",
     message: `runtime.turn.failed: ${failureMessage}`,
+    originalError,
   });
 }
 
@@ -538,20 +648,20 @@ export async function verifyCodexAppServerThread(input: {
   );
 }
 
-export async function forkCodexAppServerThread(input: {
+export async function resolveCodexAppServerCompletedTurn(input: {
   codexTimeoutMs: number | null;
   codexWorkdir: string;
   env?: Record<string, string | undefined>;
   launchContract: RuntimeAgentControllerLaunchContract;
-  sourceThreadId: string;
-  title?: string;
-}): Promise<{ threadId: string }> {
-  const sourceThreadId = normalizeOptionalText(input.sourceThreadId);
-  if (!sourceThreadId) {
+  onRuntimeEvent?: AdapterRuntimeEventCallback;
+  threadId: string;
+}): Promise<{ completedTurnId: string; threadId: string }> {
+  const threadId = normalizeOptionalText(input.threadId);
+  if (!threadId) {
     throw new CodexAppServerTransportError({
       code: "schema.invalid",
       errorType: "config",
-      message: "schema.invalid: sourceThreadId is required",
+      message: "schema.invalid: threadId is required",
     });
   }
 
@@ -561,6 +671,95 @@ export async function forkCodexAppServerThread(input: {
       codexWorkdir: input.codexWorkdir,
       env: input.env,
       launchContract: input.launchContract,
+      onRuntimeEvent: input.onRuntimeEvent,
+    },
+    async (session) => {
+      const response = await session.requestControl(
+        "thread/read",
+        {
+          includeTurns: true,
+          threadId,
+        },
+        {
+          code: "execution_context.history_unavailable",
+          operation: "thread/read",
+        }
+      );
+      const completedTurnId = readLastCompletedTurnId(response);
+      if (!completedTurnId) {
+        // No settled turn means there is no honest boundary to inherit, and a
+        // fork without one copies whatever is in flight. Refuse rather than
+        // hand back a superset the caller cannot verify.
+        throw new CodexAppServerTransportError({
+          code: "execution_context.fork_checkpoint_unavailable",
+          errorType: "config",
+          message:
+            "execution_context.fork_checkpoint_unavailable: thread/read found no completed turn on the source thread",
+        });
+      }
+      return { completedTurnId, threadId };
+    }
+  );
+}
+
+export async function forkCodexAppServerThread(input: {
+  computerFileAccessBoundary?: AdapterComputerFileAccessBoundary;
+  codexTimeoutMs: number | null;
+  codexWorkdir: string;
+  env?: Record<string, string | undefined>;
+  forkFullHistory?: boolean;
+  launchContract: RuntimeAgentControllerLaunchContract;
+  sourceThreadId: string;
+  sourceCompletedTurnId?: string;
+  targetWorkingDirectory?: string;
+  title?: string;
+  onRuntimeEvent?: AdapterRuntimeEventCallback;
+}): Promise<{ threadId: string }> {
+  const sourceThreadId = normalizeOptionalText(input.sourceThreadId);
+  if (!sourceThreadId) {
+    throw new CodexAppServerTransportError({
+      code: "schema.invalid",
+      errorType: "config",
+      message: "schema.invalid: sourceThreadId is required",
+    });
+  }
+  const sourceCompletedTurnId = normalizeOptionalText(
+    input.sourceCompletedTurnId
+  );
+  const executionContextScoped =
+    input.computerFileAccessBoundary?.executionContextAccess !== undefined;
+  if (sourceCompletedTurnId && input.forkFullHistory) {
+    throw new CodexAppServerTransportError({
+      code: "schema.invalid",
+      errorType: "config",
+      message:
+        "schema.invalid: a fork takes either sourceCompletedTurnId or forkFullHistory, not both",
+    });
+  }
+  // A fork without a cutoff copies the source's whole stored history. When the
+  // source is mid-turn that history contains the turn in progress, so the child
+  // would inherit an interrupted or never-finished turn as if it were settled
+  // context. Nothing here can detect whether the source is mid-turn, so the only
+  // safe default is to require a proven cutoff and make the unbounded copy an
+  // explicit, named decision by the caller.
+  if (!(sourceCompletedTurnId || input.forkFullHistory)) {
+    throw new CodexAppServerTransportError({
+      code: "execution_context.fork_checkpoint_unavailable",
+      errorType: "config",
+      message: executionContextScoped
+        ? "execution_context.fork_checkpoint_unavailable: a completed turn is required for a scoped fork"
+        : "execution_context.fork_checkpoint_unavailable: a completed turn is required, or forkFullHistory must be set to fork the source's entire history",
+    });
+  }
+
+  return await withCodexAppServerSession(
+    {
+      codexTimeoutMs: input.codexTimeoutMs,
+      codexWorkdir: input.targetWorkingDirectory ?? input.codexWorkdir,
+      env: input.env,
+      launchContract: input.launchContract,
+      computerFileAccessBoundary: input.computerFileAccessBoundary,
+      onRuntimeEvent: input.onRuntimeEvent,
     },
     async (session) => {
       const response = await session.requestControl(
@@ -568,6 +767,21 @@ export async function forkCodexAppServerThread(input: {
         {
           excludeTurns: true,
           threadId: sourceThreadId,
+          ...(input.computerFileAccessBoundary?.executionContextAccess
+            ? {
+                permissions: CODEX_FILE_ACCESS_PERMISSION_PROFILE,
+                approvalPolicy: "never",
+                runtimeWorkspaceRoots: [
+                  input.targetWorkingDirectory ?? input.codexWorkdir,
+                ],
+              }
+            : {}),
+          ...(sourceCompletedTurnId
+            ? { lastTurnId: sourceCompletedTurnId }
+            : {}),
+          ...(input.targetWorkingDirectory
+            ? { cwd: input.targetWorkingDirectory }
+            : {}),
         },
         {
           code: "context.fork_timeout",
@@ -598,7 +812,40 @@ export async function forkCodexAppServerThread(input: {
   );
 }
 
+function assertFileAccessBeforeTurn(
+  response: unknown,
+  boundary: AdapterComputerFileAccessBoundary | undefined,
+  workingDirectory: string,
+  executionMode?: AdapterDispatchExecutionMode
+): void {
+  if (
+    boundary &&
+    !isCodexExecutionContextFileAccessConfirmed(
+      response,
+      boundary,
+      workingDirectory,
+      executionMode
+    )
+  ) {
+    throw new CodexAppServerTransportError({
+      code: "computer.file_access.unverified",
+      errorType: "config",
+      message: "Codex did not confirm the task's isolated file access profile.",
+    });
+  }
+}
+
+function scopedRuntimeWorkspaceParams(
+  permissions: CodexAppServerThreadPermissionModeParams,
+  workingDirectory: string
+): { runtimeWorkspaceRoots?: string[] } {
+  return permissions.permissions
+    ? { runtimeWorkspaceRoots: [workingDirectory] }
+    : {};
+}
+
 async function resolveDispatchThreadContext(input: {
+  executionContextScoped: boolean;
   cancellationSignal?: AbortSignal;
   conversationPolicyParams: CodexAppServerConversationPolicyParams;
   codexWorkdir: string;
@@ -610,7 +857,7 @@ async function resolveDispatchThreadContext(input: {
 }): Promise<CodexAppServerThreadContext> {
   const existingThreadId = normalizeOptionalText(input.threadId);
   if (existingThreadId) {
-    if (input.executionMode === "repair") {
+    if (input.executionMode === "repair" && !input.executionContextScoped) {
       return await forkEphemeralCodexRepairThread({
         conversationPolicyParams: input.conversationPolicyParams,
         codexWorkdir: input.codexWorkdir,
@@ -630,6 +877,10 @@ async function resolveDispatchThreadContext(input: {
             : {}),
           ...input.permissionModeParams,
           cwd: input.codexWorkdir,
+          ...scopedRuntimeWorkspaceParams(
+            input.permissionModeParams,
+            input.codexWorkdir
+          ),
           excludeTurns: true,
           threadId: existingThreadId,
         },
@@ -671,6 +922,10 @@ async function resolveDispatchThreadContext(input: {
         : {}),
       ...input.permissionModeParams,
       cwd: input.codexWorkdir,
+      ...scopedRuntimeWorkspaceParams(
+        input.permissionModeParams,
+        input.codexWorkdir
+      ),
       ...(input.instructionPrompt
         ? {
             developerInstructions:
@@ -704,6 +959,10 @@ async function forkEphemeralCodexRepairThread(input: {
         : {}),
       ...input.permissionModeParams,
       cwd: input.codexWorkdir,
+      ...scopedRuntimeWorkspaceParams(
+        input.permissionModeParams,
+        input.codexWorkdir
+      ),
       ephemeral: true,
       excludeTurns: true,
       threadId: input.sourceThreadId,
@@ -821,16 +1080,28 @@ function readCodexAppServerCollaborationModePreset(
 function resolveCodexAppServerPermissionModeParams(
   value: unknown,
   executionMode?: AdapterDispatchExecutionMode,
-  hasComputerFileAccessBoundary = false
+  hasComputerFileAccessBoundary = false,
+  hasExecutionContextBoundary = false
 ): CodexAppServerPermissionModeParams {
+  if (hasExecutionContextBoundary) {
+    return {
+      thread: {
+        approvalPolicy: "never",
+        permissions: CODEX_FILE_ACCESS_PERMISSION_PROFILE,
+      },
+      turn: { approvalPolicy: "never" },
+    };
+  }
   if (executionMode === "repair") {
     return {
       thread: {
-        approvalPolicy: "untrusted",
+        approvalPolicy: "on-request",
+        approvalsReviewer: "user",
         ...(hasComputerFileAccessBoundary ? {} : { sandbox: "read-only" }),
       },
       turn: {
-        approvalPolicy: "untrusted",
+        approvalPolicy: "on-request",
+        approvalsReviewer: "user",
       },
     };
   }
@@ -872,12 +1143,14 @@ function resolveCodexAppServerPermissionModeParams(
       return {
         thread: {
           approvalPolicy: "on-request",
+          approvalsReviewer: "user",
           ...(hasComputerFileAccessBoundary
             ? {}
             : { sandbox: "workspace-write" }),
         },
         turn: {
           approvalPolicy: "on-request",
+          approvalsReviewer: "user",
         },
       };
     default:
@@ -947,6 +1220,7 @@ async function withCodexAppServerSession<T>(
 }
 
 class CodexAppServerSession {
+  #processCleanup: Promise<void> | null = null;
   readonly #codexTimeoutMs: number | null;
   readonly #codexWorkdir: string;
   readonly #controlRequestTimeoutMs?: number;
@@ -961,6 +1235,7 @@ class CodexAppServerSession {
   readonly #permissionMode?: AgentControllerPermissionMode;
   readonly #pending = new Map<JsonRpcId, PendingJsonRpcRequest>();
   readonly #turnAgentMessageDeltas = new Map<string, string>();
+  #reasoningThreadId: string | null = null;
   #child: ChildProcessWithoutNullStreams | null = null;
   #runtimeProcess: SpawnedAgentControllerProcess | null = null;
   #contextCompactionObserved = false;
@@ -974,6 +1249,7 @@ class CodexAppServerSession {
   readonly #startupTimeoutMs: number;
   #startupTimeout: NodeJS.Timeout | null = null;
   #settledFailure: unknown = null;
+  readonly #startupDiagnostics = new CodexStartupDiagnostics();
   readonly #waiters = new Set<{
     predicate: (message: JsonRpcMessage) => boolean;
     reject: (error: unknown) => void;
@@ -1033,9 +1309,18 @@ class CodexAppServerSession {
       ...(this.#env ?? {}),
     };
     const spaceActionMcpArgs = buildCodexSpaceActionMcpGlobalArgs(env);
+    const scopedMcpArgs = this.#computerFileAccessBoundary
+      ?.executionContextAccess
+      ? await buildCodexScopedMcpDisableArgs({
+          env,
+          launchContract: this.#launchContract,
+          workingDirectory: this.#codexWorkdir,
+        })
+      : [];
     const launch = buildCodexAppServerLaunch({
       args: [
         ...computerFileAccessArgs,
+        ...scopedMcpArgs,
         ...spaceActionMcpArgs,
         "app-server",
         "--listen",
@@ -1054,6 +1339,10 @@ class CodexAppServerSession {
       cwd: tmpdir(),
       env: launch.env,
       shell: launch.shell ?? false,
+      ...(this.#computerFileAccessBoundary?.executionContextAccess &&
+      this.#env?.OPENMELD_PROCESS_SUPERVISION_ID
+        ? { supervisionId: this.#env.OPENMELD_PROCESS_SUPERVISION_ID }
+        : {}),
     });
     const { child, processId, signalTarget } = runtimeProcess;
     this.#child = child;
@@ -1091,7 +1380,8 @@ class CodexAppServerSession {
     });
 
     child.stderr.setEncoding("utf8");
-    child.stderr.on("data", () => {
+    child.stderr.on("data", (chunk) => {
+      this.#startupDiagnostics.observeStderr(String(chunk));
       if (this.#lifecycle.firstStderrAtMs !== null) {
         return;
       }
@@ -1118,19 +1408,45 @@ class CodexAppServerSession {
     });
 
     child.on("close", (exitCode, signal) => {
-      runtimeProcess.terminateRemainingDescendants();
       this.#clearTimers();
       this.#lifecycle.exitCode = exitCode;
       this.#lifecycle.exitObservedAtMs = Date.now();
       this.#lifecycle.exitSignal = signal;
-      this.#emitRuntimeEvent({
-        exitCode,
-        phase: "process_exit",
-        processId,
-        signal,
-        signalTarget,
-        tsMs: this.#lifecycle.exitObservedAtMs,
-      });
+      const exitObservedAtMs = this.#lifecycle.exitObservedAtMs;
+      this.#processCleanup = (async () => {
+        let ownedProcessesQuiescent = false;
+        try {
+          const cleanup = await runtimeProcess.terminateRemainingDescendants();
+          if (
+            cleanup.ok &&
+            signalTarget === "process_group" &&
+            processId !== null &&
+            isProcessGroupAbsent(processId)
+          ) {
+            ownedProcessesQuiescent =
+              (
+                await listAgentControllerSupervisedProcessIds({
+                  fresh: true,
+                  processId,
+                  supervisionId: runtimeProcess.supervisionId,
+                })
+              ).length === 0 && isProcessGroupAbsent(processId);
+          }
+        } catch {
+          // Missing cleanup/discovery evidence must never authorize file reclamation.
+        }
+        this.#emitRuntimeEvent({
+          exitCode,
+          phase: "process_exit",
+          processId,
+          signal,
+          signalTarget,
+          tsMs: exitObservedAtMs,
+          ...(ownedProcessesQuiescent
+            ? { ownedProcessesQuiescent: true as const }
+            : {}),
+        });
+      })();
       this.#onProcessControlEvent?.({
         phase: "process_exit",
         processId,
@@ -1141,7 +1457,7 @@ class CodexAppServerSession {
           new CodexAppServerTransportError({
             code: "upstream_unreachable",
             errorType: "adapter",
-            message: "upstream_unreachable: codex app-server exited early",
+            message: `upstream_unreachable: codex app-server exited early.${this.#startupDiagnostics.summary()}`,
           })
         );
       }
@@ -1183,7 +1499,7 @@ class CodexAppServerSession {
         new CodexAppServerTransportError({
           code: "runtime.startup_timeout",
           errorType: "timeout",
-          message: `runtime.startup_timeout: codex app-server did not initialize within ${this.#startupTimeoutMs}ms`,
+          message: `runtime.startup_timeout: codex app-server did not initialize within ${this.#startupTimeoutMs}ms.${this.#startupDiagnostics.summary()}`,
         })
       );
       this.#requestProcessTermination();
@@ -1200,6 +1516,18 @@ class CodexAppServerSession {
         },
       });
       this.notify("initialized", {});
+      if (this.#computerFileAccessBoundary?.executionContextAccess) {
+        await verifyCodexWorkspaceAccess({
+          boundary: this.#computerFileAccessBoundary,
+          executionMode: this.#executionMode,
+          workingDirectory: this.#codexWorkdir,
+          execute: (params) =>
+            this.requestControl("command/exec", params, {
+              code: "execution_context.workspace_probe_timeout",
+              operation: "command/exec",
+            }),
+        });
+      }
       return initialized;
     } finally {
       if (this.#startupTimeout !== null) {
@@ -1207,6 +1535,24 @@ class CodexAppServerSession {
         this.#startupTimeout = null;
       }
     }
+  }
+
+  async verifyScopedMcp(threadId: string): Promise<void> {
+    if (!this.#computerFileAccessBoundary?.executionContextAccess) {
+      return;
+    }
+    const inventory = await this.requestControl(
+      "mcpServerStatus/list",
+      { threadId, detail: "full", limit: 100 },
+      {
+        code: "execution_context.mcp_inventory_timeout",
+        operation: "mcpServerStatus/list",
+      }
+    );
+    assertCodexScopedMcpInventory(inventory, {
+      expectDispatchServer:
+        resolveDispatchSpaceActionMcpServer(this.#env) !== null,
+    });
   }
 
   async close(): Promise<void> {
@@ -1227,18 +1573,33 @@ class CodexAppServerSession {
       child.stdin.end();
     }
     if (this.#lifecycle.exitObservedAtMs !== null) {
+      await this.#processCleanup;
       return;
     }
     this.#requestProcessTermination();
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        resolve();
-      }, APP_SERVER_PROCESS_KILL_GRACE_MS);
-      child.once("close", () => {
+    await new Promise<void>((resolve, reject) => {
+      const onClose = () => {
         clearTimeout(timeout);
         resolve();
-      });
+      };
+      const timeout = setTimeout(() => {
+        child.removeListener("close", onClose);
+        reject(
+          new CodexAppServerTransportError({
+            code: "runtime.process_exit_unconfirmed",
+            errorType: "adapter",
+            message:
+              "runtime.process_exit_unconfirmed: Codex process exit was not confirmed; automatic retry is unsafe",
+            originalError:
+              this.#settledFailure instanceof Error
+                ? this.#settledFailure.message
+                : undefined,
+          })
+        );
+      }, APP_SERVER_PROCESS_KILL_GRACE_MS * 2);
+      child.once("close", onClose);
     });
+    await this.#processCleanup;
   }
 
   async request(
@@ -1275,7 +1636,7 @@ class CodexAppServerSession {
           const error = new CodexAppServerTransportError({
             code: timeout.code,
             errorType: "timeout",
-            message: `${timeout.code}: codex app-server did not acknowledge ${timeout.operation} within ${timeout.timeoutMs}ms`,
+            message: `${timeout.code}: codex app-server did not acknowledge ${timeout.operation} within ${timeout.timeoutMs}ms.${this.#startupDiagnostics.summary()}`,
           });
           this.#failAll(error);
           this.#requestProcessTermination();
@@ -1305,6 +1666,36 @@ class CodexAppServerSession {
           ? {}
           : { overrideMs: this.#controlRequestTimeoutMs }),
       }),
+    });
+  }
+
+  setNewSessionTitleInBackground(input: {
+    existingThreadId: string | null;
+    executionMode?: AdapterDispatchExecutionMode;
+    threadId: string;
+    title?: AdapterDispatchRequest["newSessionTitle"];
+  }): void {
+    if (
+      normalizeOptionalText(input.existingThreadId) ||
+      input.executionMode === "repair" ||
+      !input.title
+    ) {
+      return;
+    }
+    // Metadata is best effort on the already-running connection. Do not use
+    // requestControl: its admission timeout kills the whole execution. One
+    // unanswered request lives only until this ordinary session closes.
+    this.request("thread/name/set", {
+      name: input.title,
+      threadId: input.threadId,
+    }).catch((error: unknown) => {
+      console.warn("[openmeld.codex.new_session_title_failed]", {
+        code:
+          error instanceof CodexAppServerTransportError
+            ? error.code
+            : "unknown",
+        threadId: input.threadId,
+      });
     });
   }
 
@@ -1344,10 +1735,11 @@ class CodexAppServerSession {
   }
 
   registerActiveTurn(input: {
+    interrupt?: () => Promise<void>;
     onActiveTurn?: CodexAppServerActiveTurnRegistrar;
     taskId: string;
     threadId: string;
-    turnId: string;
+    turnId: string | null;
   }): (() => void) | null {
     if (!input.onActiveTurn) {
       return null;
@@ -1355,13 +1747,17 @@ class CodexAppServerSession {
     return input.onActiveTurn({
       taskId: input.taskId,
       threadId: input.threadId,
-      turnId: input.turnId,
-      interrupt: async () => {
-        await this.request("turn/interrupt", {
-          threadId: input.threadId,
-          turnId: input.turnId,
-        });
-      },
+      turnId: input.turnId ?? "",
+      interrupt:
+        input.interrupt ??
+        (async () => {
+          if (input.turnId) {
+            await this.request("turn/interrupt", {
+              threadId: input.threadId,
+              turnId: input.turnId,
+            });
+          }
+        }),
     });
   }
 
@@ -1497,6 +1893,22 @@ class CodexAppServerSession {
   }
 
   #handleNotification(message: JsonRpcMessage): void {
+    this.#startupDiagnostics.observeNotification(
+      message.method ?? "",
+      message.params
+    );
+    if (message.method === "item/reasoning/summaryTextDelta") {
+      this.#observeReasoningSummary(message.params);
+      return;
+    }
+    if (
+      message.method?.startsWith("item/reasoning/") ||
+      toRecord(toRecord(message.params)?.item)?.type === "reasoning"
+    ) {
+      // Reasoning has no role in turn completion or reply extraction. Do not
+      // retain raw deltas or full completed reasoning items in the event queue.
+      return;
+    }
     this.#notifications.push(message);
     this.#observeContextTelemetry(message);
     this.#collectAgentMessageDelta(message);
@@ -1710,6 +2122,32 @@ class CodexAppServerSession {
     return this.#interactionFailure;
   }
 
+  observeReasoningForThread(threadId: string): void {
+    this.#reasoningThreadId = threadId;
+  }
+
+  #observeReasoningSummary(payload: unknown): void {
+    const params = toRecord(payload);
+    if (
+      !this.#reasoningThreadId ||
+      params?.threadId !== this.#reasoningThreadId ||
+      typeof params.turnId !== "string" ||
+      typeof params.itemId !== "string" ||
+      typeof params.summaryIndex !== "number" ||
+      typeof params.delta !== "string" ||
+      params.delta.length === 0
+    ) {
+      return;
+    }
+    this.#emitRuntimeEvent({
+      phase: "reasoning",
+      blockId: `${params.turnId}:${params.itemId}:${params.summaryIndex}`,
+      text: params.delta,
+      mode: "append",
+      tsMs: Date.now(),
+    });
+  }
+
   emitProviderConversationObserved(threadId: string): void {
     const agentControllerConversationId = normalizeOptionalText(threadId);
     if (!agentControllerConversationId) {
@@ -1746,6 +2184,7 @@ function readThreadContextFromResponse(
 ): CodexAppServerThreadContext {
   const response = toRecord(value) as AppServerThreadResponse | null;
   return {
+    permissionResponse: value,
     model: normalizeOptionalText(response?.model),
     threadId: readRequiredText(
       response?.thread?.id,
@@ -1753,6 +2192,26 @@ function readThreadContextFromResponse(
     ),
     threadSource: normalizeOptionalText(response?.thread?.threadSource),
   };
+}
+
+function readLastCompletedTurnId(value: unknown): string | null {
+  const response = toRecord(value) as AppServerThreadReadResponse | null;
+  const turns = Array.isArray(response?.thread?.turns)
+    ? response.thread.turns
+    : [];
+  // The source may be mid-turn. Only a settled turn is a history boundary a
+  // fork may inherit, so scan backwards for the last completed one.
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index];
+    if (normalizeOptionalText(turn?.status) !== "completed") {
+      continue;
+    }
+    const turnId = normalizeOptionalText(turn?.id);
+    if (turnId) {
+      return turnId;
+    }
+  }
+  return null;
 }
 
 function readTurnStartResponse(value: unknown): AppServerTurn {
@@ -2569,6 +3028,7 @@ function toJsonRpcTransportError(
 ): CodexAppServerTransportError {
   const message =
     normalizeOptionalText(error.message) ?? "codex app-server error";
+  const originalError = createProviderOriginalError(message) ?? undefined;
   const permissionDenial = classifyRuntimePermissionDenialMessage({
     message,
     source: "codex",
@@ -2578,6 +3038,7 @@ function toJsonRpcTransportError(
       code: permissionDenial.code,
       errorType: permissionDenial.errorType,
       message: permissionDenial.message,
+      originalError,
     });
   }
   const providerFailure = classifyCodexProviderAccountFailure({ message });
@@ -2601,6 +3062,7 @@ function toJsonRpcTransportError(
       code: "auth.required",
       errorType: "auth",
       message,
+      originalError,
     });
   }
   if (
@@ -2615,12 +3077,14 @@ function toJsonRpcTransportError(
       code: "context_not_found",
       errorType: "config",
       message,
+      originalError,
     });
   }
   return new CodexAppServerTransportError({
     code: "upstream_unreachable",
     errorType: "adapter",
     message,
+    originalError,
     ...(typeof error.code === "number" ? { rpcErrorCode: error.code } : {}),
   });
 }
@@ -2631,6 +3095,17 @@ function toCodexAppServerTransportError(
 ): CodexAppServerTransportError {
   if (error instanceof CodexAppServerTransportError) {
     return error;
+  }
+  const contextError =
+    error instanceof Error
+      ? EXECUTION_CONTEXT_ERROR_PATTERN.exec(error.message)?.[1]
+      : undefined;
+  if (contextError) {
+    return new CodexAppServerTransportError({
+      code: contextError,
+      errorType: "config",
+      message: `${contextError}: the local execution boundary could not be verified`,
+    });
   }
   if (
     error &&
@@ -2689,6 +3164,15 @@ function normalizeText(value: unknown): string {
 function normalizeOptionalText(value: unknown): string | null {
   const normalized = normalizeText(value);
   return normalized.length > 0 ? normalized : null;
+}
+
+function isProcessGroupAbsent(processId: number): boolean {
+  try {
+    process.kill(-processId, 0);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ESRCH";
+  }
 }
 
 function parseCodexAppServerVersion(response: unknown): string | null {

@@ -14,16 +14,27 @@ type ForwardedAttempt =
   | { kind: "completed_empty"; attempt: CompletedEmptyAttempt }
   | { kind: "forwarded" };
 
+export type ProviderAttemptCompletion = {
+  attemptNo: 1 | 2;
+  durationMs: number;
+  event: Extract<AssistantMessageEvent, { type: "done" | "error" }>;
+};
+
+type CompletionObserver = (completion: ProviderAttemptCompletion) => void;
+
 /**
  * Retries once only when a complete provider event stream proves that the model
- * produced no observable content or tool action. Any intermediate event is
- * forwarded immediately and permanently disables retry for that attempt.
+ * produced no visible text or tool action. Invisible events are buffered within
+ * a fixed bound; visible output, tools, cancellation, and exhausted budgets are
+ * never replayed. The caller retains the same inference context and tool results.
  */
 export function retryCompletedEmptyAssistantStreamOnce(input: {
   createAttempt: () => AssistantMessageEventStream;
   onRetry?: () => void;
+  onCompletion?: CompletionObserver;
   signal?: AbortSignal;
 }): AssistantMessageEventStream {
+  const startedAtMs = Date.now();
   const firstAttempt = input.createAttempt();
   const output = createAssistantMessageEventStream();
   // biome-ignore lint/complexity/noVoid: Provider failures arrive as terminal events on the returned stream; this task only pumps events into it.
@@ -31,6 +42,7 @@ export function retryCompletedEmptyAssistantStreamOnce(input: {
     ...input,
     firstAttempt,
     output,
+    startedAtMs,
   });
   return output;
 }
@@ -39,26 +51,35 @@ async function forwardCompletedEmptyAssistantRetry(input: {
   createAttempt: () => AssistantMessageEventStream;
   firstAttempt: AssistantMessageEventStream;
   onRetry?: () => void;
+  onCompletion?: CompletionObserver;
   output: AssistantMessageEventStream;
   signal?: AbortSignal;
+  startedAtMs: number;
 }): Promise<void> {
   const first = await forwardProviderAttempt({
     allowCompletedEmptyRetry: true,
+    attemptNo: 1,
+    onCompletion: input.onCompletion,
+    startedAtMs: input.startedAtMs,
     output: input.output,
     stream: input.firstAttempt,
   });
   if (first.kind === "forwarded") {
     return;
   }
-  if (input.signal?.aborted) {
+  if (input.signal?.aborted || Date.now() - input.startedAtMs >= 120_000) {
     for (const event of first.attempt.events) {
       input.output.push(event);
     }
     return;
   }
   input.onRetry?.();
+  const startedAtMs = Date.now();
   await forwardProviderAttempt({
     allowCompletedEmptyRetry: false,
+    attemptNo: 2,
+    onCompletion: input.onCompletion,
+    startedAtMs,
     discardedUsage: first.attempt.message.usage,
     output: input.output,
     stream: input.createAttempt(),
@@ -67,75 +88,110 @@ async function forwardCompletedEmptyAssistantRetry(input: {
 
 async function forwardProviderAttempt(input: {
   allowCompletedEmptyRetry: boolean;
+  attemptNo: 1 | 2;
+  onCompletion?: CompletionObserver;
+  startedAtMs: number;
   discardedUsage?: AssistantMessage["usage"];
   output: AssistantMessageEventStream;
   stream: AssistantMessageEventStream;
 }): Promise<ForwardedAttempt> {
-  let bufferedStart: AssistantMessageEvent | null = null;
-  let eventCount = 0;
+  const bufferedEvents: AssistantMessageEvent[] = [];
+  let bufferedChars = 0;
+  let retryEligible = input.allowCompletedEmptyRetry;
   for await (const sourceEvent of input.stream) {
-    eventCount += 1;
-    if (
-      input.allowCompletedEmptyRetry &&
-      eventCount === 1 &&
-      sourceEvent.type === "start"
-    ) {
-      bufferedStart = sourceEvent;
-      continue;
+    const deltaChars = eventDeltaLength(sourceEvent);
+    // Observe the source terminal event before retry suppression or usage merging.
+    // Reporting cannot prevent a reply or turn a success into a Wake failure.
+    if (sourceEvent.type === "done" || sourceEvent.type === "error") {
+      observeCompletion(input.onCompletion, {
+        attemptNo: input.attemptNo,
+        durationMs: Math.max(0, Date.now() - input.startedAtMs),
+        event: sourceEvent,
+      });
     }
     if (
-      input.allowCompletedEmptyRetry &&
-      isProvablyCompletedEmptyAssistantEvent(
-        sourceEvent,
-        eventCount,
-        bufferedStart !== null
-      )
+      retryEligible &&
+      isInvisibleAssistantEvent(sourceEvent) &&
+      bufferedEvents.length < 256 &&
+      bufferedChars + deltaChars <= 65_536
     ) {
+      bufferedEvents.push(sourceEvent);
+      bufferedChars += deltaChars;
+      continue;
+    }
+    if (retryEligible && isProvablyCompletedEmptyAssistantEvent(sourceEvent)) {
       return {
         attempt: {
-          events: bufferedStart ? [bufferedStart, sourceEvent] : [sourceEvent],
+          events: [...bufferedEvents, sourceEvent],
           message: sourceEvent.message,
         },
         kind: "completed_empty",
       };
     }
-    if (bufferedStart) {
-      input.output.push(bufferedStart);
-      bufferedStart = null;
+    retryEligible = false;
+    for (const event of bufferedEvents) {
+      input.output.push(event);
     }
+    bufferedEvents.length = 0;
     input.output.push(
       input.discardedUsage
         ? mergeTerminalEventUsage(sourceEvent, input.discardedUsage)
         : sourceEvent
     );
   }
-  if (bufferedStart) {
-    input.output.push(bufferedStart);
+  for (const event of bufferedEvents) {
+    input.output.push(event);
   }
   return { kind: "forwarded" };
 }
 
+function eventDeltaLength(event: AssistantMessageEvent): number {
+  return "delta" in event ? event.delta.length : 0;
+}
+
+function observeCompletion(
+  observer: CompletionObserver | undefined,
+  completion: ProviderAttemptCompletion
+): void {
+  try {
+    observer?.(completion);
+  } catch {
+    console.error("[remote_agent.provider.completion_observation_failed]");
+  }
+}
+
 function isProvablyCompletedEmptyAssistantEvent(
-  event: AssistantMessageEvent,
-  eventCount: number,
-  hadBufferedStart: boolean
+  event: AssistantMessageEvent
 ): event is Extract<AssistantMessageEvent, { type: "done" }> {
   if (
     event.type !== "done" ||
     event.reason !== "stop" ||
+    (event.message.rawStopReason !== undefined &&
+      event.message.rawStopReason !== "stop") ||
     hasDeliverableAssistantContent(event.message)
   ) {
     return false;
   }
-  return eventCount === 1 || (eventCount === 2 && hadBufferedStart);
+  return true;
+}
+
+function isInvisibleAssistantEvent(event: AssistantMessageEvent): boolean {
+  if (!("partial" in event) || hasDeliverableAssistantContent(event.partial)) {
+    return false;
+  }
+  return (
+    event.type === "start" ||
+    event.type.startsWith("thinking_") ||
+    (event.type.startsWith("text_") &&
+      !("delta" in event && event.delta.trim()))
+  );
 }
 
 function hasDeliverableAssistantContent(message: AssistantMessage): boolean {
   return message.content.some(
     (part) =>
       part.type === "toolCall" ||
-      (part.type === "text" && part.text.trim().length > 0) ||
-      (part.type === "thinking" && part.thinking.trim().length > 0)
+      (part.type === "text" && part.text.trim().length > 0)
   );
 }
 

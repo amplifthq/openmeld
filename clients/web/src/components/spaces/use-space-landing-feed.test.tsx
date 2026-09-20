@@ -3,6 +3,10 @@ import {
 	SPACE_STREAM_KEEPALIVE_PONG,
 } from "@openmeld/protocol";
 import type {
+	DesktopSpaceStreamBridge,
+	DesktopSpaceStreamEvent,
+} from "@openmeld/schemas";
+import type {
 	SignalEnvelope,
 	SpaceAgentStreamSnapshot,
 } from "@openmeld/schemas/types";
@@ -10,6 +14,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { subscribeAgentReadinessInvalidations } from "#/lib/agents/agent-readiness-invalidation-bus";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
 	readSpaceCursorLastSeenTs,
@@ -112,6 +117,10 @@ class FakeWebSocket {
 		await this.emit("open");
 	}
 
+	async emitAccessRevoked() {
+		await this.emit("close", { code: 1008, reason: "space_access_changed" });
+	}
+
 	async emitMessage(data: unknown) {
 		await this.emit("message", { data });
 	}
@@ -151,9 +160,6 @@ function renderFeed(
 	options: {
 		history?: FeedHistoryState;
 		initialAgentStreams?: readonly SpaceAgentStreamSnapshot[];
-		onAgentReadinessInvalidated?: (input: {
-			agentProfileIds: readonly string[];
-		}) => Promise<void> | void;
 		participationEnabled?: boolean;
 		seededEnvelopes?: readonly SignalEnvelope[];
 	} = {}
@@ -196,7 +202,7 @@ function renderFeed(
 				statusRefetch,
 				membersRefetch,
 				initialAgentStreams: options.initialAgentStreams ?? [],
-				onAgentReadinessInvalidated: options.onAgentReadinessInvalidated,
+				readinessScope: { organizationId: "org-1", storageScope: "account-1" },
 				history: props.history,
 			}),
 		{
@@ -319,6 +325,62 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		vi.useRealTimers();
 		vi.unstubAllGlobals();
 		vi.restoreAllMocks();
+	});
+
+	it("refreshes authority when Core closes a session after access changes", async () => {
+		const { statusRefetch } = renderFeed();
+		await openLatestSocket();
+		await act(async () => FakeWebSocket.latest.emitAccessRevoked());
+		expect(statusRefetch).toHaveBeenCalledTimes(1);
+	});
+
+	it("refreshes authority from the Desktop native close metadata", () => {
+		let deliver: ((event: DesktopSpaceStreamEvent) => void) | undefined;
+		const open = vi.fn().mockResolvedValue(undefined);
+		const bridge: DesktopSpaceStreamBridge = {
+			spaceStreamOpen: open,
+			spaceStreamPing: vi.fn().mockResolvedValue(undefined),
+			spaceStreamClose: vi.fn().mockResolvedValue(undefined),
+			onSpaceStream: (listener) => {
+				deliver = listener;
+				return vi.fn();
+			},
+		};
+		Object.defineProperty(window, "openmeldDesktop", {
+			configurable: true,
+			value: bridge,
+		});
+		try {
+			const { statusRefetch } = renderFeed();
+			const subscription = open.mock.calls[0]?.[0];
+			if (!(subscription && deliver)) {
+				throw new Error("Expected a native subscription");
+			}
+			act(() => {
+				deliver?.({ id: subscription.id, type: "open" });
+				deliver?.({
+					id: subscription.id,
+					type: "message",
+					data: JSON.stringify({
+						type: "system.hello.ack",
+						profile: {
+							kind: "human",
+							profileId: "11111111-1111-1111-1111-111111111111",
+						},
+					}),
+				});
+				deliver?.({
+					id: subscription.id,
+					type: "close",
+					code: 1008,
+					reason: "space_access_changed",
+				});
+			});
+
+			expect(statusRefetch).toHaveBeenCalledTimes(1);
+		} finally {
+			Reflect.deleteProperty(window, "openmeldDesktop");
+		}
 	});
 
 	it("does not report the Space live before Core accepts the subscription", async () => {
@@ -514,10 +576,15 @@ describe("useSpaceLandingFeed transport freshness", () => {
 	});
 
 	it("refreshes readiness caches from live agent readiness invalidations", async () => {
-		const onAgentReadinessInvalidated = vi.fn(async () => undefined);
-		const { membersRefetch, statusRefetch } = renderFeed({
+		vi.stubGlobal("BroadcastChannel", undefined);
+		const onAgentReadinessInvalidated = vi.fn();
+		const unsubscribe = subscribeAgentReadinessInvalidations(
 			onAgentReadinessInvalidated,
-		});
+			{ organizationId: "org-1", storageScope: "account-1" }
+		);
+		const { membersRefetch, queryClient, statusRefetch } = renderFeed();
+		const entryKey = ["spaces", "entry-resolution", "space-123", "human-1"];
+		queryClient.setQueryData(entryKey, { view: { state: "allowed" } });
 		await openLatestSocket();
 
 		await act(async () => {
@@ -533,14 +600,57 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		});
 		await flushMicrotasks();
 
-		expect(onAgentReadinessInvalidated).toHaveBeenCalledWith({
-			agentProfileIds: ["agt-1"],
-		});
+		expect(onAgentReadinessInvalidated).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentProfileIds: ["agt-1"],
+			})
+		);
+		unsubscribe();
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(301);
 		});
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 		expect(membersRefetch).toHaveBeenCalledTimes(1);
+		expect(queryClient.getQueryState(entryKey)?.isInvalidated).toBe(false);
+	});
+
+	it("bounds member event bursts and follows a slow read with one fresh read", async () => {
+		const { membersRefetch } = renderFeed();
+		await openLatestSocket();
+		let release!: () => void;
+		membersRefetch.mockImplementationOnce(
+			() =>
+				new Promise<undefined>((resolve) => {
+					release = () => resolve(undefined);
+				})
+		);
+		const emit = async (version: number) =>
+			FakeWebSocket.latest.emitMessage(
+				JSON.stringify({
+					type: "space.members.changed",
+					spaceId: "space-123",
+					version,
+				})
+			);
+		await act(async () => {
+			await emit(1);
+			await vi.advanceTimersByTimeAsync(200);
+			await emit(2);
+			await vi.advanceTimersByTimeAsync(100);
+		});
+		expect(membersRefetch).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			await emit(3);
+			await emit(4);
+			await vi.advanceTimersByTimeAsync(500);
+		});
+		expect(membersRefetch).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			release();
+			await flushMicrotasks();
+			await vi.advanceTimersByTimeAsync(300);
+		});
+		expect(membersRefetch).toHaveBeenCalledTimes(2);
 	});
 
 	it("refetches members from a space.members.changed frame regardless of query staleness", async () => {
@@ -548,7 +658,9 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		// SPACE_BOOTSTRAP_GC_TIME_MS): convergence inside the stale window is
 		// owned by this imperative frame -> refetch path, which must never be
 		// gated on react-query staleness.
-		const { membersRefetch, statusRefetch } = renderFeed();
+		const { membersRefetch, queryClient, statusRefetch } = renderFeed();
+		const entryKey = ["spaces", "entry-resolution", "space-123", "human-1"];
+		queryClient.setQueryData(entryKey, { view: { state: "allowed" } });
 		await openLatestSocket();
 
 		await act(async () => {
@@ -567,6 +679,7 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		});
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 		expect(membersRefetch).toHaveBeenCalledTimes(1);
+		expect(queryClient.getQueryState(entryKey)?.isInvalidated).toBe(true);
 	});
 
 	it("refreshes Space identity without refetching members after metadata changes", async () => {
@@ -658,6 +771,8 @@ describe("useSpaceLandingFeed transport freshness", () => {
 
 	it("coalesces Wake progress frames behind a slow refresh and keeps one final refresh", async () => {
 		const { queryClient } = renderFeed();
+		await openLatestSocket();
+		await flushMicrotasks();
 		let finishFirstRefresh: (() => void) | undefined;
 		const firstRefresh = new Promise<void>((resolve) => {
 			finishFirstRefresh = resolve;
@@ -666,7 +781,6 @@ describe("useSpaceLandingFeed transport freshness", () => {
 			.spyOn(queryClient, "invalidateQueries")
 			.mockImplementationOnce(() => firstRefresh)
 			.mockResolvedValue(undefined);
-		await openLatestSocket();
 
 		for (const version of [10, 11, 12]) {
 			await act(async () => {

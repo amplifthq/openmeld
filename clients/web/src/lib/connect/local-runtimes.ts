@@ -4,6 +4,7 @@ import {
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
 import type {
+	CurrentDeviceTargetResponse,
 	CurrentLocalAgentInstallationsResponse,
 	CurrentLocalRuntimeReplyReadinessResponse,
 	LocalRuntimesResponse,
@@ -26,27 +27,34 @@ export async function readLocalRuntimes(): Promise<PeopleComputerInventory> {
 		const api = createCurrentDeviceApi(
 			createUnscopedWebOpenMeldApiFoundation()
 		);
-		const [peopleComputers, routingPreference] = await Promise.all([
-			api.listPeopleComputers({ includeUsageLimits: "true" }),
-			api.getCurrentTarget(),
-		]);
+		// Routing preference has its own scoped query. Inventory must not wait for
+		// it or issue a duplicate raw getCurrentTarget request outside that cache.
+		const peopleComputers = await api.listPeopleComputers({
+			includeUsageLimits: "true",
+		});
 		const inventory = import.meta.env.DEV
 			? (
 					await import("#/lib/dev/computer-state-fixtures")
 				).withComputerStateFixtures(peopleComputers)
 			: peopleComputers;
-		const target =
-			routingPreference.availability === "resolved" ? routingPreference : null;
-		// Rendering adapter for the existing local-agent controls. isCurrent here
-		// means only the account's routing preference, never this browser's machine.
-		// All live connection facts remain in the Core PeopleComputers snapshot.
-		return {
-			peopleComputers: inventory,
-			...projectPeopleComputersToLegacyLocalRuntimes(inventory, target),
-		};
+		return projectComputerInventory(inventory);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}
+}
+
+/** Decorate a snapshot for existing controls without changing either authority. */
+export function projectComputerInventory(
+	inventory: PeopleComputersResponse,
+	preference?: CurrentDeviceTargetResponse
+): PeopleComputerInventory {
+	return {
+		peopleComputers: inventory,
+		...projectPeopleComputersToLegacyLocalRuntimes(
+			inventory,
+			preference?.availability === "resolved" ? preference : null
+		),
+	};
 }
 
 export async function readPeopleComputerReplyReadiness(

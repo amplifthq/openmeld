@@ -12,10 +12,10 @@ import { readCurrentObservedDaemonRuntimeStatus } from "../local-service/lifecyc
 import { resolveLocalServiceDemand } from "../local-service/lifecycle/local-service-demand";
 import type { StartReadinessSnapshot } from "./readiness-types";
 
-export function collectStartLocalBackgroundHelperReadiness(): Promise<
+export async function collectStartLocalBackgroundHelperReadiness(): Promise<
   StartReadinessSnapshot["service"]
 > {
-  const expectedVersion = resolveCurrentDaemonExpectedVersion();
+  const expectedVersion = await resolveCurrentDaemonExpectedVersion();
   return getDaemonStatus()
     .then((status) => {
       if (!status.installed) {

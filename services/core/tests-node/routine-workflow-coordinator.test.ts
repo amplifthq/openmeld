@@ -172,10 +172,12 @@ function workflowWithExistingInstance(input: {
     sendEvent: vi.fn(),
     status: vi.fn().mockResolvedValue(input.status),
     terminate: vi.fn(),
+    delete: vi.fn(),
   } as WorkflowInstance;
   return {
     create: vi.fn(),
     createBatch: vi.fn(),
+    deleteBatch: vi.fn(),
     get: vi.fn().mockResolvedValue(instance),
   } as Workflow<{ runId: string }>;
 }

@@ -1,0 +1,7 @@
+{
+  "repository": "https://github.com/PostHog/posthog",
+  "path": ".agents/skills/debugging-ci-failures",
+  "revision": "6605e83ebe51a259b22427428887763c1d9ab583",
+  "installedOn": "2026-09-10",
+  "upstreamFilesModified": false
+}

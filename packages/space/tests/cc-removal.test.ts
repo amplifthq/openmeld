@@ -2,11 +2,9 @@ import type { SignalEnvelope } from "@openmeld/protocol";
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
-  assertNoRemovedCcSpaceAddressingSyntax,
   buildSignalMessageReadProjection,
   buildSpaceRoundReadProjection,
   listSpaceMentionRelationChoices,
-  prepareSpaceComposerSubmission,
 } from "../src/index";
 
 const HUMAN_PROFILE_ID = "11111111-1111-4111-8111-111111111111";
@@ -73,23 +71,6 @@ describe("current Space addressing without CC", () => {
         },
       }).map((choice) => choice.label)
     ).toEqual(["Mention"]);
-  });
-
-  it("rejects removed canonical CC syntax with actionable guidance", () => {
-    expect(() =>
-      prepareSpaceComposerSubmission({
-        missingSnapshotMessage: "Members are required.",
-        snapshot,
-        text: "@Mira(cc) Please review.",
-      })
-    ).toThrowError(
-      "CC has been removed from Space Message Addressing. Use Reference instead."
-    );
-    expect(() =>
-      assertNoRemovedCcSpaceAddressingSyntax("@Mira(cc) Please review.")
-    ).toThrowError(
-      "CC has been removed from Space Message Addressing. Use Reference instead."
-    );
   });
 
   it("projects historical CC targets as Reference-only no-dispatch targets", () => {

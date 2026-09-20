@@ -30,6 +30,7 @@ import {
 } from "../config/paths";
 import { assertNoPublishedProductionMutationDuringTests } from "../config/published-production-safety";
 import { compareSemver } from "../config/version-state";
+import { readDaemonActiveBundleState } from "../local-service/lifecycle/daemon-service-bundle";
 import { readPendingDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-state";
 import { OPENMELD_VERSION } from "../runtime/version";
 import { pruneManagedVersions } from "./managed-version-pruning";
@@ -114,7 +115,26 @@ async function readCurrentPointerVersion(
     ? target
     : path.resolve(path.dirname(pointerPath), target);
   const version = path.basename(path.dirname(resolved));
-  return version.length > 0 ? version : null;
+  return version.length > 0 &&
+    path.resolve(resolved) ===
+      openMeldManagedVersionBinaryPath(version, pathInput)
+    ? version
+    : null;
+}
+
+export async function readManagedCliInstallation(): Promise<{
+  version: string;
+  binaryPath: string;
+} | null> {
+  const version = await readCurrentPointerVersion();
+  if (!version) {
+    return null;
+  }
+  const binaryPath = openMeldManagedVersionBinaryPath(version);
+  if (!(await isUsableManagedBinary(binaryPath))) {
+    return null;
+  }
+  return { version, binaryPath };
 }
 
 /**
@@ -269,10 +289,17 @@ async function performManagedInstallLocked(input?: {
 async function readManagedInstallProtectedVersions(
   pathInput: OpenMeldPathResolutionInput = {}
 ): Promise<Set<string>> {
-  const [protectedVersions, pendingServiceUpdate] = await Promise.all([
-    readDaemonServiceUpdateWorkerProtectedManagedVersions(pathInput),
-    readPendingDaemonServiceUpdate(pathInput),
-  ]);
+  const [protectedVersions, pendingServiceUpdate, activeBundle] =
+    await Promise.all([
+      readDaemonServiceUpdateWorkerProtectedManagedVersions(pathInput),
+      readPendingDaemonServiceUpdate(pathInput),
+      readDaemonActiveBundleState(pathInput),
+    ]);
+  // CLI releases may advance while this Service remains active. Its immutable
+  // executable is still a recovery and task-tool dependency, not CLI rollback.
+  if (activeBundle?.bundleFormat === "binary_v1") {
+    protectedVersions.add(activeBundle.daemonVersion);
+  }
   if (pendingServiceUpdate?.preparedBundle.bundleFormat === "binary_v1") {
     protectedVersions.add(pendingServiceUpdate.preparedBundle.daemonVersion);
   }

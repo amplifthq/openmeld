@@ -4,14 +4,16 @@ const DELETED_PROFILE_RECONCILE_ERROR_MAX_LENGTH = 500;
 
 export type DeletedProfileReconcileOutboxRecord = {
   attemptCount: number;
-  ownerUserId: string;
+  ownerUserId: string | null;
+  organizationId: string | null;
   profileId: string;
   profileKind: "agent" | "human";
 };
 
 type DeletedProfileReconcileOutboxRow = {
   attempt_count: number;
-  owner_user_id: string;
+  owner_user_id: string | null;
+  organization_id: string | null;
   profile_id: string;
   profile_kind: "agent" | "human";
 };
@@ -27,6 +29,7 @@ export async function listDueDeletedProfileReconcileOutbox(input: {
         SELECT
           profile_id,
           owner_user_id,
+          organization_id,
           profile_kind,
           attempt_count
         FROM openmeld_profile_deletion_outbox
@@ -41,6 +44,7 @@ export async function listDueDeletedProfileReconcileOutbox(input: {
   return (result.results ?? []).map((row) => ({
     attemptCount: row.attempt_count,
     ownerUserId: row.owner_user_id,
+    organizationId: row.organization_id,
     profileId: row.profile_id,
     profileKind: row.profile_kind,
   }));

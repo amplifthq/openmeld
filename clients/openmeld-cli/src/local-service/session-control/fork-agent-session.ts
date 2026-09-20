@@ -41,6 +41,11 @@ export async function forkAgentSession(input: {
       const result = await forkCodexAppServerThread({
         codexTimeoutMs: PROVIDER_FORK_TIMEOUT_MS,
         codexWorkdir: source.workingDirectory,
+        // The user picked this Session in inventory and asked for a copy of it,
+        // so copying its entire stored history is the requested operation. No
+        // completed-turn cutoff is available or wanted here; the execution
+        // context path is the one that must prove a boundary.
+        forkFullHistory: true,
         launchContract: launch.candidates[0].launchContract,
         sourceThreadId: input.request.sourceNativeSessionId,
         title: buildForkedSessionTitle(input.request.profileName),

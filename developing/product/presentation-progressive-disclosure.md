@@ -110,7 +110,7 @@ scope, not the visible grouped product destinations or their order.
 
 One product per context uses the same first rail slot and never moves. Center
 Agent has no secondary sidebar. Its daily work is the full-width conversation
-with stable header navigation: **Messages, Graph, Files, Tasks, Routines,
+with stable header navigation: **Messages, Graph, Files, Routines,
 Skills, Apps**. Lower-frequency destinations live in one compact header menu:
 **Channels, Memory, Center Agent settings**. The conversation variant also
 contains **Conversation information**. There is no separate About surface.
@@ -120,9 +120,7 @@ preserved as a hidden or personal-only route.
 
 - Header names the owner: "Coordinator agent for Felix Lu" / "… for Acme".
 - **Chat** remains the low-friction place to start work and ask the resident
-  Center Agent for coordination. **Tasks** is the durable work home: a read-only
-  **Active / Needs action / Finished** board and conversation-first Task detail.
-  It does not expose user-managed chat sessions.
+  Center Agent for coordination. Separate chat sessions isolate conversational context.
 - Designation state card: designated → profile identity (display name,
   avatar, designatedBy, since) + revoke; empty → explanation + designate
   flow (owner/admin only; in the personal context the user is always owner).
@@ -162,16 +160,8 @@ preserved as a hidden or personal-only route.
   personal context cannot take members — see below). The role template stays
   single-source; context-specific wording (solo chief-of-staff vs team
   dispatcher) is a noted future refinement, not MVP.
-- A persistent bottom-right Center Agent control opens a compact view of the
-  same canonical Chat or Task. It never creates a new session. From Task detail
-  it opens that Task; elsewhere it may restore the member's last authorized
-  Center Agent location. Maximize preserves the exact Chat or Task destination.
-  The compact control is a shortcut, while **Center Agent → Tasks** remains the
-  durable management home.
-
-The complete Task context, visibility, Channel, concurrency, recovery, Inbox,
-board/detail, and compact-window contract is owned by
-`developing/product/center-agent-tasks.md`.
+- The persistent Center Agent control opens the existing compact Chat. It does
+  not create a separate Task or change the selected Computer.
 
 ## The Personal Context Is Permanently Solo
 
@@ -253,19 +243,27 @@ truth because cross-origin isolation may detach the opener relationship;
 explicit Cancel and timeout remain the non-success exits. Back changes only the
 visible step and does not undo saved facts.
 
-## Space Visibility Presentation (two orthogonal axes)
+## Space Access Presentation
 
-- **Personal context**: Space creation shows **Link access only** (open /
-  view with password / password). Organization directory listing is silently
-  `private` — a solo directory listing has no meaning. The two-axis conflict
-  cannot appear.
-- **Org contexts**: both axes show, re-worded to state their scopes —
-  "**Organization directory listing**" (listed and joinable in this org's
-  Space directory / unlisted) and "**Link access**" (what the link does for
-  someone who has it). Org-unlisted + link-open is valid and useful (the
-  Google Docs "unlisted" model).
-- The wire contract keeps visibility explicit and required; defaults live in
-  the client only (existing decision, restated for scope).
+- New Web Spaces use `members_only`. Personal Spaces are private without an
+  access selector. Organization Spaces offer one **General access** choice:
+  **Only invited people** (default) or **Everyone at [Organization]**.
+- Share and Settings > Access render the same access panel with the same
+  permissions and mutations. Use the shared Fluid Dialog and Select. Show an
+  inline **Invite teammates** email form, **Who can join this Space**, and
+  **Copy Space link**. Keep invite links and pending invitations collapsed;
+  member lists belong in Members, not the sharing panel. Copying a Space link
+  preserves the destination; it neither grants membership nor changes access.
+- Everyone at the Organization can join a listed Space, even with
+  `members_only` link access. They join before its private content is loaded.
+- Existing external link policies remain effective. Show their actual audience
+  prominently, label the directory selector **Organization access**, and put
+  the existing link controls under **Manage link access**. Owners can close
+  external access. Do not silently migrate policies or expose new anonymous
+  modes in the common creation/settings path.
+- The wire contract retains independent visibility and access-mode facts.
+  Guest roles, anonymous participation, and ownership transfer are separate
+  capabilities, not new combinations of these presentation options.
 
 ## Context-Switching Behavior
 

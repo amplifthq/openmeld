@@ -20,7 +20,111 @@
 - Source of truth: This file owns the durable architecture boundary for data
   ownership and observability.
 
+## Message search ownership
+
+Each Space owns an FTS5 trigram index over its retained `signal.text` payloads.
+The index stores no attachment content, reasoning, or execution diagnostics.
+SQLite triggers update the index atomically with canonical message inserts,
+edits, recalls, and retention deletes. Historical indexing advances in batches
+of 500 rows on demand and exposes incompleteness instead of empty success.
+
+Core's shared search reader enumerates active member-owned Space candidates in
+the Organization directory, then calls the normal authorized Space reader for
+each candidate. Directory snapshots never grant access. A request visits at
+most four Spaces, with 30 matches per Space and an explicit continuation cursor;
+it does not use the sidebar's limited loaded list or build a second global
+message store. Results are newest-first within each Space, not globally ranked.
+Inbox search intersects message hits with current recipient/source permissions
+and uncleared canonical Inbox IDs. Non-message activities use a recipient-scoped
+literal title/preview query, paginated at 30 rows. This bounded response contract
+does not imply a measured latency guarantee for large activity histories.
+
+`GET /v1/messages/search` and optional `q` on signal reads are additive shared
+HTTP/RPC contracts. Existing signal reads keep their shape. Rollout must provide
+the Core receiver, then Gateway route, before exposing Web callers; an older
+backend fails visibly rather than silently searching loaded previews. Rollback
+removes callers first; persistent additive SQLite triggers remain compatible
+with older message writers. CLI, Service, setup, Wake, and diagnostics contracts
+are unchanged, so no local-component floor or forced update is required.
+
+## Human Presence
+
+Core owns Organization-scoped Human presence independently of Computer connection,
+Agent Activity, Wakeability, and historical member activity. Authenticated Web
+pages report their own random session ID and increasing sequence through
+`/v1/organizations/current/member-presence`; Core re-verifies the current member
+and active Human Profile and assigns all timestamps. One active session makes
+the member Online. A departing page affects only itself. Older or duplicate
+reports cannot renew a lease or overwrite a newer departure.
+
+Active foreground pages renew every 30 seconds. A lease expires after 90 seconds,
+and five minutes without a Human interaction independently ends online presence.
+Heartbeat-only sessions cannot establish presence. A temporary loss of focus or
+hidden tab stops renewals without sending a departure; the existing 90-second
+server lease bounds this grace period. Returning to the foreground resumes the
+same session. Space navigation within one Organization does not recreate it.
+Page departure or account/Organization exit ends its lease;
+missing departure delivery relies on expiry. Expired records retain ordering and
+are pruned on the member's next write after 24 hours; they are not an activity log.
+Reads re-check current Organization membership and current active profile identity.
+Clients consume one authorized batch projection, never Computer state or
+`lastActiveAt` to determine Online. Errors or missing evidence remain unknown.
+
+Historical activity stays in `organization_member_activity`. Web entry, foreground
+return, and actual interaction may advance it through its existing bounded writer;
+presence renewals alone do not. Accepted Human messages retain their historical
+activity semantics and do not claim sustained online presence. Space visit time
+keeps its own scope. No system-wide input or interaction contents are collected.
+
+The new endpoint and table are additive. Existing directory and activity payloads
+are unchanged for older CLI, Service, Skills, and cloud clients. Deployment order
+is additive database migration, Core, Gateway, then Web. New Web against an older
+receiver displays unknown presence; it never falls back to Computer connection.
+Setup, Wake, Space actions, and diagnostics remain interoperable without a local
+component contract bump. Rollback may retain the additive table.
+
+## Space pin ownership
+
+Space Durable Object SQLite owns message and file pins, in separate
+`space_message_pins` and `space_file_pins` tables (schema version 36). Records
+contain the source identifier, pinner profile, and timestamp. Original messages,
+file metadata, and file revisions remain authoritative; pin reads resolve them
+instead of persisting copied previews. Missing messages and trashed files are
+omitted. Retrying a pin preserves its original owner and timestamp, and unpin
+ownership is checked synchronously before deletion in the owning Space.
+
+## Space Task ownership
+
+The Space Durable Object is the only writer for Space Tasks. Its SQLite schema
+owns `space_tasks`, append-only `space_task_events`, and idempotent
+`space_task_operations`. The stored Task document is the current read model;
+phase and revision columns support bounded board reads and conflict-safe writes.
+Every mutation compares the expected Task revision inside the Space transaction.
+An operation id may replay only the exact same request and returns the retained
+receipt without appending another event.
+
+Task phase is collaboration truth. RuntimeCoordinator and Remote Agent native
+delivery continue to own execution state. Cancellation may call their existing
+Stop boundary after the Task transaction commits, but no Task row proves that a
+process started, stopped, or completed. Task handoff and completion messages are
+deterministic Space Signals, so retrying a Task operation cannot duplicate the
+visible transition or Agent Wake.
+
+Linked GitHub issues are references on the Task document. GitHub remains the
+only writer of issue state. `lastObservedState` is a Task-owned observation
+from an authorized GitHub tool result, not a second issue store and not
+webhook truth. Remote Agent may create or cancel Tasks after a GitHub tool
+succeeds; it does not write Task rows itself and does not PATCH GitHub when a
+Task closes.
+
 ## Space message previews and slow Web experiences
+
+Space member snapshots use the existing request-local D1 read batch for Agent
+readiness profile reads. The batch changes transport round trips only: owning
+repositories retain SQL, validation, identity checks, and failure semantics.
+No readiness result survives into the next request, and separate physical
+databases never share a batch. Bootstrap keeps its current response and
+authorization contract.
 
 Space owns message preview truth. Message publication and retention capture a
 bounded text preview and a monotonically increasing Space-local revision into
@@ -52,6 +156,53 @@ The receiver validates payload size/shape and applies the current threshold
 and a best-effort per-isolate volume cap. These diagnostics are sampled failure
 evidence, not a complete traffic or latency distribution. Worker log retention
 governs how far back an investigation can look.
+
+The same receiver also accepts `kind=space_open`, logged as
+`web.openmeld.space_open`. An ephemeral attempt starts at browser initialization
+for a direct Space URL or at router navigation to a different Space path. Public
+to organization-route canonicalization preserves that attempt. Same-path focus
+changes are not new openings. The observation survives router resolution and
+ends only after confirmed access, rendered messages or a valid empty state,
+and an editable composer or a read-only presentation. Render milestones run
+after a paint opportunity; they are not exact browser paint timestamps, proof
+of Send admission, or evidence that Agents are online. Failures, access barriers,
+and navigation away remain distinct outcomes. Hidden time is disclosed, not
+subtracted or presented as foreground latency.
+
+After five seconds, a still-pending snapshot records the current stage, the
+entry query's status/fetch status/failure count, visibility, and the browser's
+online hint. That hint never controls readiness. Up to eight target-Space JSON
+requests begun during the attempt record preparation, send, response headers,
+validation, completion or failure, phase timings, HTTP status, and existing
+`x-openmeld-request-id` values. Requests already running before the attempt,
+server functions, and requests outside this allowlist are not covered by this
+detail; an empty list does not mean no network work occurred. No body is cloned
+or logged. Application-error reports share the ephemeral page and attempt IDs.
+The prolonged access-check surface can copy the attempt ID and attempt a
+best-effort snapshot submission; copying is not a delivery receipt.
+
+Ten percent of attempts are selected at start independently of latency. Completed
+normal-cohort reports (`sampling=normal`) support comparison of fast and slow
+opens. Additional slow and failure samples are separate cohorts; do not pool
+them into unweighted percentiles. Normal, slow, failure, and user-requested
+reports each have a separate twenty-per-hour browser quota. Receiver caps,
+visibility, missing terminal events, and best-effort delivery still limit the
+distribution; this is not complete traffic accounting. Legacy interaction
+reports remain accepted; new interactions use null for uncollected request and
+long-task metrics rather than claiming zero.
+
+Cache observations read the existing identity-scoped display/history queries
+at browser-cache activation and actual restore (`memory`, `restored`, or `cold`). Intent
+prefetch provenance is bounded to twenty ephemeral route/profile keys and five
+minutes; `complete` means observed prefetch completion, not guaranteed cache
+freshness or a cache hit. Unknown is retained when no provenance was observed.
+Neither these labels nor telemetry IDs authorize access or write product state.
+The shared schemas accept existing version-1 reports with additive optional
+diagnostics; new report kinds and nullable metrics require the updated Web
+receiver. Old Web assets remain accepted by new Web. A new asset talking to an
+older receiver may lose only diagnostics, with no effect on API results, access,
+setup, Wake, or publication. No CLI, Service, Core, or Gateway protocol changes
+or deployment are required by this Web-only telemetry extension.
 
 ## Boundary
 
@@ -91,12 +242,13 @@ One physical storage binding can temporarily contain multiple domains. That does
 not create shared ownership. Logical ownership still decides who may write facts,
 who may project them, and who must repair them.
 
-Auth owns Organization membership removal. Its `beforeRemoveMember` guard may
-perform one read-only join from the Core-owned `center_agent_designations` row to
-the designated managed profile's owner in the shared D1 database. This bounded
-referential read exists only to prevent removal of the Center Agent execution
-host and must fail closed. It gives Auth no write authority over Center Agent or
-Agent Profile state; Core remains the only owner and writer of those facts.
+Auth owns Organization membership removal and managed Profile identity. A
+Center Agent belongs to the Organization, not a personal execution host;
+removing its creator does not remove the agent or its conversations. Core owns
+designation, operating state, and the organization-owned hosted Binding.
+Historical creation and designation actors are attribution, never an ownership
+guard or a grant of private Space access. See
+[Organization Agent ownership](organization-agent-ownership.md).
 
 ## Durable Data Domains
 
@@ -114,20 +266,34 @@ Deleting the Space removes its input outbox with the rest of Space data.
 OpenMeld separates durable truth from query projections.
 
 Agent Profile Work Coordinator state lives in the existing owner-sharded
-RuntimeTransportHub Durable Object. Each Profile has one current record with
-the running lifecycle id, at most 50 ordered waiting lifecycle ids, and only the
-minimum pending-promotion or recovery-hold metadata. It is current scheduling
+RuntimeTransportHub Durable Object. Each Profile has one current admission
+record with up to five reservations, at most 50 ordered waiting lifecycle ids,
+and bounded pending-promotion or recovery-hold metadata. The decoder retains
+previously accepted five-reservation records during a policy reduction. For
+Context-enabled Profiles this supersedes the former one-slot FIFO projection;
+the first reserved item is a compatibility view, not the only running Wake.
+The durable migration boundary and serial/parallel policy share this owner and
+survive idle queue cleanup. It is current scheduling
 state, not an append-only history. Complete prompts, attachments, and Space
 context remain in the Space durable outbox; durable execution and final-outcome
 evidence remain in the existing RuntimeCoordinator and Dispatch Ledger domains.
+
+Context, exact-Wake association, completed-history checkpoint, and native-ID
+reverse index records live in the same owner shard, outside the hot queue.
+They preserve continuity after Head retirement; they do not confer execution
+authority. A native conversation cannot belong to two Contexts in the same
+Runtime and Controller namespace. A frozen legacy association preserves its
+original unclassified visibility rather than adopting the last Space's scope.
 
 D1 may project `profile_queue_waiting`, queue counts, and correlation ids for
 queries and diagnostics. Those rows never promote work, reconstruct a Wake
 payload, or decide execution. Durable evidence useful for one collaboration's
 audit or trace follows the existing retention policy. Current coordinator
-snapshots, inactive admission rows, and execution head references are removed
-when they no longer own active work, recovery, promotion, or pending
-publication. Final publication records may keep their exact lifecycle record
+snapshots, inactive admission rows without durable mode/migration state, and
+execution head references are removed when they no longer own active work,
+recovery, promotion, or pending publication. Retained per-Profile policy does
+not count as active execution or keep a Profile in the active-work index.
+Final publication records may keep their exact lifecycle record
 for idempotent replay, but they are removed from the historical lifecycle
 index. A completed execution head may be deleted only after its deterministic
 terminal execution-token authority can reject the same head and dispatch on
@@ -171,7 +337,12 @@ Auth also owns `account_sidebar_preferences`, keyed by account user ID and
 Organization ID. It stores personal group names, opaque Space IDs, section sort
 modes, and manual ordering. Membership gates reads and writes; revision-checked
 updates reject stale devices instead of overwriting newer preferences. These
-preferences never grant Space access, write pins, or change Space membership.
+preferences never grant Space access, write ordinary Space/DM pin membership,
+or change Space membership. The shared Conversations Pinned section reads its
+manual order from the existing root `pinned.spaceIds`; ordinary pin membership
+continues to come from Space Index. Center Agent session pins remain in the
+existing `chats` preferences. Grouped and Recent are two Web presentations of
+these same owners, with no new conversation store or execution authority.
 The Web renders only Spaces returned by the existing authorized Space Index.
 Deleting a personal group removes its presentation association only.
 
@@ -181,7 +352,6 @@ Deleting a personal group removes its presentation association only.
 | Profile                            | OpenMeld profile product semantics.                                                                                                                                                                 | Profile-owned source of truth.                                                                                                                                                                                                                                                                                                                                         |
 | Runtime                            | Runtime registry and agent controller reports.                                                                                                                                                      | Runtime-owned source of truth.                                                                                                                                                                                                                                                                                                                                         |
 | Dispatch Ledger                    | Wake execution ledger and query projection.                                                                                                                                                         | Records RuntimeCoordinator decisions; not execution authority.                                                                                                                                                                                                                                                                                                         |
-| Center Agent Tasks                 | Organization-scoped canonical requester-private Tasks, immutable requester and origin provenance, product event streams, lifecycle, native-delivery attempt links, and authorized read projections. | Core-owned D1 source of truth and sole product writer. Remote Agent owns the isolated runtime conversation; native delivery, Message Channel, and Inbox owners retain their existing truth. Task freezes the verified requester snapshot and bounded carrier attribution from its parent delivery, then links and projects those facts without replacing their owners. |
 | Agent Task Coordination            | Durable exact-task subscriptions, delegation topology, and observed terminal outcomes used to continue work across Agent executions.                                                                | Core owns coordination state only; RuntimeCoordinator, native delivery, and controller-native task owners remain execution authority.                                                                                                                                                                                                                                  |
 | Agent Activity                     | Organization-scoped Project definitions, immutable safe activity evidence, current-session projections, digests, and daily aggregates.                                                              | Core-owned D1 source of truth; local provider files and the OpenMeld Service outbox are observation and delivery inputs, not Organization truth.                                                                                                                                                                                                                       |
 | Agent Profile Creation Requests    | Organization-scoped coordination for creating an Agent Profile owned by the requester or another member, including immutable origin, Session strategy, approval progress, and completion linkage.   | Core-owned D1 request and per-member approval-preference truth. Auth owns the final Agent Profile identity write; Agent Activity owns authorized Session observation; Inbox is only the target owner's attention projection; Space and Binding owners retain membership and execution authority.                                                                       |
@@ -209,6 +379,22 @@ Deleting a personal group removes its presentation association only.
 | Ephemeral                          | Short-lived handoff/session state.                                                                                                                                                                  | Temporary state, not a permanent domain.                                                                                                                                                                                                                                                                                                                               |
 | Space Truth                        | Space collaboration truth.                                                                                                                                                                          | Space Durable Object source of truth.                                                                                                                                                                                                                                                                                                                                  |
 
+Inbox message notification preferences have two Core-owned D1 records:
+`inbox_message_notification_defaults` stores one mode per account, and
+`inbox_conversation_notification_preferences` stores explicit overrides per
+account, Organization, and Space. Absence of an override means live inheritance.
+These records never write Inbox read state, urgency, email deliveries, or Space
+membership. Core may use an explicit mute as a read-time filter for the opt-in
+Inbox attention presentation; the raw Inbox projection and delivery ledger stay
+unchanged. Core verifies active Organization membership and current conversation
+access before reading or changing a conversation preference. Browser delivery
+re-reads the authorized preference after its delivery lock; browser-local
+permission and sound settings remain local.
+Conversation preferences currently cascade on account or Organization deletion,
+but a deleted Space's override row remains inaccessible until that cascade.
+The active-Space access check excludes it from preference reads and writes;
+the row does not retain message content or grant Inbox visibility.
+
 Agent Profile Creation Requests keep the approval/update time, execution attempt
 number, and optional start time on the Core-owned request row. Recovery covers
 both an approval abandoned before claim and a claimed execution abandoned
@@ -218,6 +404,18 @@ carries a generation-fenced durable Inbox projection intent. Core repairs
 missing or stale intent left by mixed-version writers and redrives the
 idempotent Inbox projection; this operational state is not a second request or
 Inbox authority.
+
+An approved, unclaimed creation row is also the durable execution intent. Core
+acknowledges it before running setup and sends a versioned
+`agent_profile_creation` reference through the existing shared Core Queue.
+The minute scheduler redelivers unclaimed rows if enqueue or notification was
+lost. The Queue consumer reloads and atomically claims the same row, checks
+current membership, and runs the existing checkpointed executor. It does not
+use HTTP `waitUntil` as durable execution, copy configuration into a second
+outbox, or create a second execution owner. Claimed attempts retain the bounded
+stale-failure policy; recovery never blindly replays uncertain local effects.
+Exact request-ID reads remain participant-scoped; idempotency-key recovery
+also requires the original requesting actor. Neither reads all owner Profiles.
 
 Start is orchestration. It is not a permanent data owner and must not become a
 long-term database domain.
@@ -379,6 +577,32 @@ audit row.
 
 ## Connector Connection Data Boundary
 
+Connection access policy and revision live on `connector_connections`.
+`connector_access_events` records the actor, prior and next policies, and the
+new revision in the same D1 transaction as a conditional policy update. These
+records contain no provider credentials. Core owns this policy for Center,
+Local, and personal Remote Agent consumers.
+
+Local plugin calls reuse `center_agent_connector_action_operations` and the
+existing audit journal; its historical physical name does not restrict its
+consumer. A claim freezes the authenticated Agent, represented member, selected
+connection, input signature, and operation ID. An exact replay returns that
+record, including after revocation, and never starts a second provider call.
+New operations recheck access immediately before claiming. A revocation blocks
+new admission; it does not cancel a provider action already admitted.
+Unknown provider outcomes remain unknown and require investigation rather than
+automatic resubmission. Provider response data is returned to the caller but
+is not copied into the operation ledger.
+
+`plugin_action_confirmations` stores short-lived, exact-request confirmations
+bound to the organization, Agent, signature (including operation ID), and access
+revision. The operation ledger fences duplicate execution. Expired confirmation
+rows are removed when issuing new confirmations. The existing Remote Agent
+worker hosts the credential-bearing executor through an internal service
+binding, independently of any conversation or LLM. It rechecks provider action
+metadata against the admitted effect before execution. No broad runtime token
+or provider credential is returned to a CLI.
+
 The `connector_app_requests` D1 table is Core's internal demand ledger for Apps
 that a member asks OpenMeld to support. A request is scoped by Organization,
 requesting user, and a normalized provider key so a repeated request updates the
@@ -486,6 +710,11 @@ Profile Directory does not call Runtime Transport, and Runtime Overview batches
 route, owner-Service, and display-inventory reads by owner before applying the
 same permission-scoped readiness projection used by the compatibility
 Directory.
+The Profile Directory includes the public Controller ref for every authorized
+Organization Agent Profile, including teammate-owned Profiles. Core reads only
+the Profile ID and Controller ref from enabled primary Bindings, scoped to the
+exact Profile/owner pairs admitted by Auth. This does not expose private Binding,
+Session, computer, or runtime details and does not require Runtime Transport.
 Core records the activity overlay only after Space accepts and persists a text
 Signal from an active Human Profile or after an authenticated Web request proves
 the active Organization member and that member's current active Human Profile.
@@ -677,13 +906,19 @@ record belongs in either the shared submission contract or this storage domain.
 
 ## Center Agent Routine And Run Data Boundary
 
-D1 is the only durable product truth for Center Agent Routines:
+D1 is the only durable product truth for Center and personal Remote Agent Routines:
 
 - `routines` stores each organization-owned definition, its bounded structured
   unattended-action grants, and its rebuildable `nextDueAt` UTC projection.
 - `routine_runs` stores durable Run records for individually claimed
   occurrences and aggregate `skipped` records for bounded overdue ranges.
 - Core is the only runtime writer for both tables.
+- `routines.agent_profile_id` fixes the personal executor, while null retains
+  the designated Center executor. `routine_runs.agent_profile_id_snapshot`
+  freezes that distinction at occurrence claim, including skipped history.
+  Admission and callback handling reject executor mismatches. Personal and
+  Center management queries select their own executor scope; no second
+  scheduler or alternate Routine store is introduced.
 - Remote Agent Durable Object state, Flue private storage, client caches, and
   eligible-target projections are not alternate Routine or Run stores.
 
@@ -942,6 +1177,14 @@ attribution. Its SQLite tables are canonical business state, not a D1
 projection. No Resources, Organization Documents, Center Agent Computer, or
 Space Index table mirrors this tree.
 
+The same Space owns `space_file_update_settings` and
+`space_file_update_outbox`. The file revision transaction enqueues notification
+intent only when a human has configured recipients; the deterministic identity
+is the file id plus revision. Alarm recovery publishes through the ordinary
+Space message, Inbox projection, and dispatch outbox paths, rechecking current
+consent and access. Retry state stores its last error and next attempt locally.
+These rows do not own Wake execution or claim that recipients read the file.
+
 Private immutable revision bytes live in the Space file R2 binding under the
 shared key constructor:
 
@@ -1109,6 +1352,20 @@ exclude it.
 
 ## Runtime Transport Session Disconnect Diagnostics
 
+RuntimeCoordinator event writes preserve all existing valid event IDs. If the
+length-prefixed identity exceeds the shared 512-character bound, the writer uses
+a deterministic SHA-256 identity instead; the complete execution ID and
+idempotency key remain separate columns. Oversized legacy IDs never passed the
+schema, so this correction preserves replay identity for previously stored rows.
+Token redaction and payload validation still apply.
+
+Service-runtime restoration and awaited persistence propagate storage failures.
+A failed storage read is not an empty successful restore, and an awaited failed
+write cannot be reported as durable success. Diagnostic logs preserve bounded
+platform error text, any supplied platform reference, and explicit retryable or
+overloaded flags; missing flags remain unknown. These flags do not authorize
+unbounded retries inside a broken Durable Object.
+
 The owner-scoped Runtime Transport Durable Object owns the bounded session
 disconnect diagnostic projection. The socket close and socket error handlers
 are its only writers. The owner-scoped disconnect diagnostics endpoint and Core
@@ -1216,14 +1473,14 @@ RuntimeCoordinator; a retryable workstation result stays in the unchanged
 outbox for alarm redrive and does not enter Queue. Direct processing uses the
 same dispatch claim, RuntimeCoordinator head, execution ledger, and idempotency
 key as the former Queue path. If the preflight authoritatively identifies the
-hosted Center Agent, direct processing instead uses the same native-delivery
+hosted Agent, direct processing instead uses the same native-delivery
 ledger, exact persisted worker request, and admission watchdog as Queue
 processing, and a retryable or outcome-ambiguous hosted result may send the
 same outbox message through Queue. A retryable preflight that cannot identify
 the hosted runtime stays in the outbox rather than blindly entering Queue.
 Diagnostics must distinguish `direct`, `queue`, `direct_queue_fallback`, and
 workstation routing from hosted native delivery. A Binding whose
-`runtimeKind` is `hosted_center_agent` uses the hosted runtime family as the
+`runtimeKind` is `hosted_center_agent` or `hosted_remote_agent` uses the hosted runtime family as the
 routing authority; a stale workstation controller snapshot is normalized at
 the Binding read boundary and recorded as diagnostic drift. It must not route
 the hosted Wake to local workspace readiness or produce simultaneous remote
@@ -1240,7 +1497,8 @@ Cloudflare Queue carried a workstation Wake.
 
 The shared `openmeld-daemon-dispatch` Queue resource remains required by hosted
 native-delivery recovery, Remote Agent deadline probes, Agent Task
-continuations, and Agent Task observation redrive. Removing workstation Wake
+continuations, Agent Task observation redrive, and accepted Agent Profile
+creation. Removing workstation Wake
 messages from Queue is not permission to delete that shared resource or any of
 those independent consumers.
 
@@ -1478,11 +1736,15 @@ and ingress ownership.
 ## Slack Thread Context Cursor
 
 Slack remains the source of truth for thread message content. Before an
-accepted `app_mention` enters native delivery, Core reads one bounded
-`conversations.replies` page through the Organization-bound Slack credential
-and adapts the messages into the provider-neutral `ChannelContext` contract.
-The verified current mention remains the turn request and is excluded from the
-untrusted historical records.
+accepted `app_mention` reaches the model, Core admits its original event and
+shows working status, then reads the exact current message through
+`conversations.history` (root) or `conversations.replies` (thread reply), with
+both inclusive time bounds fixed to that message, to hydrate its provider-owned
+text and file metadata. It then reads one bounded `conversations.replies` page
+through the Organization-bound Slack credential and adapts earlier messages
+into the provider-neutral `ChannelContext` contract. The hydrated current
+mention remains the turn request and is excluded from the untrusted historical
+records.
 
 `openMeldRemoteAgent_slack_thread_context_cursors` stores only the last
 successfully admitted Slack message timestamp for one Organization, workspace,
@@ -1495,11 +1757,21 @@ instead of reusing context synchronized under an older Organization Binding.
 
 The initial read is a snapshot through the current mention. Later reads are
 deltas strictly after the admitted cursor and through the new current mention.
-Core makes at most one provider read per mention; a partial provider page is
-marked `truncated` and resumes from its last admitted message on a later turn.
-Forbidden, rate-limited, timed-out, and otherwise unavailable reads do not
-block the verified current request, do not advance the cursor, and carry their
-explicit empty retrieval status to the Remote Agent.
+Core makes one exact current-message read, one bounded thread-context read, a
+bounded recent-channel read for a root mention, and at most three exact reads
+for same-channel Slack message permalinks present in the current request.
+Cross-channel references are rejected without a provider read. Quoted messages
+are transient untrusted reference context, not new requests or authority. A
+partial provider page is marked `truncated` and resumes from its last admitted
+message on a later turn. Forbidden, rate-limited, timed-out, and otherwise
+unavailable reads do not block the current request, do not advance the cursor,
+and carry an explicit non-complete retrieval status and limitation note to the
+Remote Agent.
+
+The opt-in forwarded-message reproduction diagnostic records only Slack
+message identifiers, provider field names, counts, lengths, and lookup status.
+It never records message text, URLs, credentials, or raw event/response bodies,
+and it remains disabled outside a bounded reproduction window.
 
 ## Opportunity Data Boundary
 
@@ -1529,128 +1801,6 @@ Remote Agent state, Organization Documents, Inbox, Changelog, client caches,
 and future Local Agent reports must not become alternate Opportunity stores or
 writers. Any later ingestion path requires an explicit Core contract rather
 than direct table access.
-
-## Center Agent Tasks
-
-Core owns the canonical Center Agent Task record and append-only product event
-stream defined in `developing/product/center-agent-tasks.md`. Phase 1 storage
-includes stable Task and event identities, verified requester attribution, typed
-origin, one derived product state/phase/outcome projection, one monotonic
-version, native-delivery attempt links,
-and idempotent control operations. Task list is cursor-paginated; Task detail
-returns the full current product event and attempt history. The Remote Agent
-owns private runtime-conversation history and compaction under the stable Task
-conversation id.
-
-Logical database routing follows those owners even while every accessor maps to
-the same physical D1 database. Canonical Task records, attempts, and events use
-`localStateDb`; native-delivery execution and publication evidence uses
-`wakeEvidenceDb`; Task-derived Inbox items use `inboxDb`. A projector may read
-an exact native-delivery fact and idempotently write the matching Task or Inbox
-projection, but no path may use one owner's database accessor as a shortcut for
-another owner's data. This separation is required before any future
-observability-only physical split.
-
-Runtime-generation rollover follows the same boundary. The Task owner exposes a
-bounded typed continuity projection before one exact trigger event, including
-the canonical actor-to-author meaning. Remote Agent consumes that projection;
-it does not read `center_agent_task_events` directly. Space rollover continuity
-likewise comes from the Space Durable Object, which verifies the exact dispatch
-identity and its frozen main-or-thread placement before returning bounded
-Signals. A generic Space timeline query cannot substitute for that projection.
-
-The Task owner writes `center_agent_task_authorized_readers` as the current
-read-authorization projection. Inbox source targets carry only the canonical
-Task id. Inbox list, count, read, mutation, and email queries join the owner
-projection and never copy access authority into Inbox JSON or join the private
-`center_agent_tasks` table. Interactive Inbox requests still require current
-Auth-owned Organization membership. Urgent-email redrive rechecks that
-membership through the Auth Organization Directory contract; unavailable
-directory reads retry, while a verified revocation suppresses the delivery.
-
-Task state is not execution state. RuntimeCoordinator, native delivery, and
-controller-native owners remain authoritative for exact execution lifecycle;
-Agent Task Coordination remains authoritative only for exact subscriptions and
-declared continuations. Task storage keeps typed links and reducer evidence. It
-must not copy mutable execution rows into a second executor or settle a Task from
-generic Agent availability, Agent Activity, Dispatch Ledger, stale progress, or
-model prose.
-
-Task list, detail, and mutation responses resolve the active attempt link
-against `wakeEvidenceDb`. The native-delivery owner returns only exact,
-requester-matching accepted/running evidence inside its freshness window. That
-freshness comes from the dedicated worker-acceptance or forward-progress
-lifecycle timestamp. After full native-delivery identity and active-status
-validation, each new worker stream sequence advances that timestamp and a
-monotonic sequence fence in `wakeEvidenceDb`; repeating the same delta or tool
-part does not refresh freshness. Space projection and Message Channel provider
-publication consume that accepted evidence but do not own it. Message Channel
-connection and credential reads remain on `localStateDb`, while card progress
-claims and stream evidence remain on `wakeEvidenceDb`. Publication claims,
-probes, Inbox projection, retries of the same provider card update, and other
-ledger bookkeeping never refresh execution evidence. A terminal, stale,
-mismatched, or unavailable owner read cannot be projected as `Working`; the
-canonical Task stays `Active` without a phase and the failed evidence read
-remains observable.
-
-Core appends one Task event and advances its projections atomically. Stable
-client/provider operation ids deduplicate retries. Mutations that change
-canonical Task state use an expected revision; stale callers receive the current
-snapshot and a typed conflict rather than last-write-wins. Task events are
-immutable, while list, board, compact-window, and Inbox rows are rebuildable
-projections.
-
-`center_agent_task_admission_outbox` is the Core-owned durable conveyor from an
-accepted Task mutation to one exact native-delivery admission. Initial Task
-creation commits the Task row, Task event, queued attempt, active-generation
-projection, and pending outbox row in one D1 batch; later attempts commit the
-same set without recreating the Task row. The outbox freezes the stable
-operation identity, Task event, requester, instruction, parent delivery or
-submission, attempt generation, and delivery id. Minute recovery redrives only
-a still-queued exact attempt with the same native-delivery idempotency key.
-Transient pre-owner errors keep the row pending. Only a durable native-owner
-acceptance, rejection, or ambiguity receipt settles it; terminal or
-already-advanced attempts reconcile without creating another execution. This
-outbox is delivery coordination, not a second Task event writer or execution
-authority.
-
-Accepted-operation replay validates the exact stored payload, event, attempt,
-and admission identity before current admission authorization, so a response
-retry returns the original result even after a later policy change. Reusing an
-operation id with different input fails as a conflict. Any new or still-pending
-admission rechecks the current requester membership, active Center Agent
-designation and managed Profile, primary hosted Binding and runtime identity,
-canonical Organization identity, runtime and Organization policy, and current
-model route before external admission. A failed recheck cannot mutate or
-redrive the Task.
-
-The shared Task schema is the only reducer from the stored lifecycle literal to
-the client-facing `state`, `phase`, and `outcome` fields. Clients consume that
-projection directly and must not maintain their own board-lane mapping. The
-stored lifecycle literal remains the mutation reducer input, not a parallel
-product-state source.
-
-One Task owns one logical runtime conversation lane. Independent Tasks may
-execute in parallel. Execution attempts link exact owner handles without taking
-execution authority. Stop and Retry keep stable Task-level operation identities;
-a future Recovery operation requires its own exact recoverability projection and
-identity. Late or duplicate owner evidence is retained for reconciliation and
-cannot overwrite an authoritative Stop or terminal attempt.
-
-The native-delivery admission watchdog must idempotently project any exact
-terminal ledger row before treating the admission as already settled. This
-repairs the crash window where native-delivery settlement committed but Task or
-Agent Task Coordination projection did not. A missing exact delivery row fails
-fast. Task Stop recovery separately retries the fenced delivery for a bounded
-window; timeout moves the Task to requester-visible Needs action with diagnostic
-code `center_agent_task.stop_confirmation_timeout`, while preserving the Stop
-fence and prohibiting a new Retry attempt until authoritative settlement.
-
-Task access is fail-closed and rechecked for delayed projection, list, detail,
-mutation, Inbox delivery, and any future live invalidation. Provider-native
-visibility does not grant OpenMeld access. Task event content, compact summaries,
-and logs follow the privacy boundary in the product owner and never store raw
-reasoning, tool payloads, credentials, paths, or provider transcript copies.
 
 ## Agent Task Coordination
 
@@ -1978,13 +2128,24 @@ text. Callback context receives the same answer as a recoverable delivery
 projection; an instance restart may repopulate it from the execution record and
 retry the ordinary Core callback. Partial stream text, failed execution,
 cancellation, and observability records cannot become this answer authority.
+That same execution record retains a requested failure while runtime settlement
+or Computer cleanup is pending. This fences new work without claiming terminal
+execution; progress updates preserve it and Stop remains available. Both the
+observer and recovery reconciler require settled runtime and confirmed command
+cleanup before terminal publication. Cancellation takes precedence over the
+requested failure, and successful-looking assistant text cannot erase it.
 Every observer and reconciliation path derives its callback from the terminal
 compare-and-set winner. A stale or conflicting callback-context answer is
 replaced by the execution record's exact normalized answer before publication;
 a legacy callback-only answer cannot repair a completed execution that has no
 owner answer. That invalid legacy owner state is durably changed to failure,
 and either side of a restart can repeat the same explicit-failure projection.
-One terminal-outcome projector maps completed, failed, aborted, and missing
+Previously persisted work-loop checkpoints are an explicit exception to the
+completed-answer invariant: the execution owner adopts that structured fact
+before projection, retains it with no completed answer, and replays the existing
+continuation callback. Assistant text cannot replace it, while an authoritative
+failure or Stop wins. Already finalized Core deliveries are not reopened.
+One terminal-outcome projector maps completed, legacy checkpoint, failed, aborted, and missing
 execution outcomes into callback payloads for both observation and
 reconciliation. If the callback projection itself is missing, reconciliation
 fails with `remote_agent.terminal_callback_projection_missing`, leaves the
@@ -2068,8 +2229,16 @@ per-turn evidence and expires it after seven days. It records only structured
 milestones and decisions: provider
 request preparation and response headers, first model event, first visible
 assistant content, model completion, model and tool counts, capability search
-and describe results, the source of each tool call, and whether the per-attempt
-tool budget was exhausted. It never records prompt text, reply text, model
+and describe results, the source of each tool call, and whether the
+assignment safety budget was exhausted. For current workers, `toolCallCount`
+is the aggregate charged attempt number across the same dispatch, including
+unchanged-observation refusals that do not execute another read, and
+`toolCallLimit` is its frozen configured limit; source counters and recent events
+remain submission-local. Legacy records retain their original per-submission
+meaning. Active accounting does not expire; after Core accepts a final callback,
+the matching last submission's accounting can expire after one hour. An older
+submission's callback cannot expire a newer submission's accounting. It never
+records prompt text, reply text, model
 reasoning, tool arguments, tool results, tokens, or provider payloads.
 
 Core reports runtime evidence as `available`, `not_recorded`, or `unavailable`.
@@ -2094,29 +2263,6 @@ does the Agent Task projection settle as `publication_failed`. CardKit
 finalization freezes its provider sequence before provider I/O but does not
 borrow the reply API's recovery duration. No second retry table or
 provider-specific execution ledger may own these facts.
-
-For Task-owned native delivery, the final result text is retained in the native
-ledger only as a replay bridge until the Task owner has durably appended the
-canonical terminal event. The projector then erases that payload from the
-native ledger. If the Task row or attempt does not exist yet, projection keeps
-the exact payload so a later replay can still create the canonical Task event;
-it never substitutes a generic success message while exact text remains
-available. Core's bounded minute recovery scans these retained Task-owned
-terminal payloads after Task admission and Stop recovery, then re-enters the
-same Task projector; correctness never depends on the worker sending a duplicate
-callback. Owner-store failure or a still-missing attempt leaves the exact payload
-in place for the next recovery tick. Every bounded scan records its Task terminal
-projection attempt on the native ledger and orders never-attempted rows first,
-then least-recently attempted rows. A permanently missing attempt or temporary
-owner-store failure therefore cannot monopolize the oldest batch and starve a
-later recoverable Task result. Once the Task attempt exists, a Stop fence,
-a superseded generation, an existing conflicting terminal outcome, or an active
-`needs_attention` state
-is a durable Task-owner rejection rather than a replayable gap. Those paths
-erase the exact staged payload without rewriting Task truth, while preserving
-the non-sensitive delivery metadata needed for diagnostics. A Task or Inbox
-store failure fails the projection and retains the payload for retry instead of
-turning an unavailable owner into an implicit rejection.
 
 Routine deliveries add a `routineRunId` association and use the frozen
 Routine destination: `conversationKind = "space"` for an OpenMeld Space or
@@ -2354,7 +2500,7 @@ bot/capability projection and Webhook proof so the first repair poll must
 reconfigure and verify the provider App. It neither creates a second connection
 nor calls the provider device-registration endpoint. The new attempt records
 the manager who initiated this repair; the connection keeps its original
-installer identity. Configuration and Webhook-wait retries use bounded
+installer identity. Configuration and connection retries use bounded
 exponential backoff from five seconds to five minutes across the seven-day
 window. Missing credentials, a different current connection state, or another
 unrelated active attempt fails closed. A stale Repair request after another
@@ -2364,16 +2510,50 @@ unrepairable App. Retry projections retain the latest bounded failure reason so
 clients can explain continued automatic verification without creating a second
 retry authority.
 
-Before configuring an unconnected App, the live configuration-claim owner
-replaces only callback secrets exceeding the provider's 32-character limit.
-The encrypted replacement and clearing both URL-verification proofs are one
-guarded D1 batch. A lost or expired claim, changed credentials, or a connected
-App prevents replacement and provider configuration. The App Secret and valid
-callback secret values are preserved. This also repairs legacy credentials
-when an existing App re-enters configuration through Repair; it is not a bulk
-credential migration. URL-verification writes compare the encrypted token used
-to authenticate the challenge with the current credential row, so an in-flight
-challenge authenticated before replacement cannot restore obsolete proof.
+New registrations keep the launcher's persistent configuration and store only
+an encrypted App Secret; unused callback credentials remain null. Core checks
+the exact Channel permission bundle and bot identity, prepares the current
+connection under its live registration claim, and asks the connection-named
+`LarkChannelConnector` Durable Object to open an authenticated provider socket.
+Only a successful handshake followed by the same unexpired claim can atomically
+mark the connection and attempt connected. A claim lost during the handshake,
+disconnection, or changed Organization/provider cannot activate the connection.
+No synthetic Webhook proofs are written.
+
+The connector owns the live socket and a bounded SQLite pending-event outbox;
+D1 remains the owner of connection identity, generation, and authorization.
+Complete authenticated events are persisted with their generation before the
+provider receives code 200. Fragment assembly is bounded and incomplete frames
+are not acknowledged. Queue delivery runs afterward, checks the current D1
+connection, binds the tenant when needed, and retains the event on failure.
+Queue consumers reject a mismatched connection generation before reading
+conversation context or starting a turn. Event IDs still deduplicate through
+the existing ingress ledger; the outbox does not own execution outcomes.
+Disconnect closes the socket and discards pending revoked work. Recovery uses
+Durable Object alarms and provider heartbeat/reconnect configuration. Idle
+connected bots do not poll D1. Outbound sockets use standard Worker WebSocket
+APIs and the official Lark protobuf codec; the Node SDK's `ws`/HTTP-upgrade
+transport is not compatible with this runtime. Outbound sockets do not
+hibernate, so per-connection Durable Object duration must be included in
+capacity and cost planning.
+
+Repairing an existing Webhook connection publishes persistent event and card
+callback configuration for the same app before activating its connector.
+The claimed attempt retains the publication version so pending provider review
+does not create repeated publications. Existing Webhook ingress remains
+supported for its explicitly selected transport, and fails closed after that
+connection becomes persistent. No bulk mutation or automatic fallback changes
+live organizations' selected transport.
+
+The persistent connector adds optional `connectionGeneration` to the shared
+Message Channel Queue envelope. Old queued Webhook envelopes remain readable.
+The new producer and its generation-aware consumer ship in the same Core
+release; do not gradually mix it with old Core Queue consumers. Before
+rolling back to a Core version without this field/connector, stop persistent
+producers and drain their Queue work, or retain the compatible receiver and
+Durable Object class in the rollback. CLI, local Service, managed skills,
+workstation Wake/Space actions, Gateway HTTP payloads, and Remote Agent
+submission contracts are unchanged. No local-component contract floor is raised.
 
 The App Secret, Webhook verification token, and event encryption key live in a
 separate encrypted credential row. The connection and credential write is one
@@ -2381,13 +2561,22 @@ D1 batch, so failed encryption or persistence cannot produce a connected
 projection. Tenant access tokens are minted and cached only within their
 provider lifetime inside one Worker isolate and are never stored in D1.
 
-Webhook readiness is connection-owned evidence, not a generic provider flag.
+Legacy Webhook readiness remains connection-owned evidence. Existing Webhook
+connections retain their authenticated challenge and event handling during the
+migration window; new setup does not depend on public callback reachability.
 The provider's encrypted URL-verification challenge may omit all three
 signature headers. Core may decrypt that envelope only into a URL-verification
 challenge and must match its verification token before recording reachability.
 Partial or invalid signature headers are rejected. Ordinary encrypted events
 still require a valid signature; this exception never admits an event or starts
 a Center Agent turn.
+URL verification must meet the provider's one-second response deadline. Core
+reads the connection and its current verification credentials together, checks
+the encrypted challenge and token synchronously, and schedules the existing
+credential-fenced reachability transaction with `waitUntil` before returning
+the challenge. The response does not itself mark the connection ready. Failed
+background persistence is logged and leaves readiness unproven; disconnected,
+expired, or replaced credentials cannot regain readiness through that write.
 Core records the Event Subscription URL challenge and Message Card Request URL
 challenge separately. A Webhook connection becomes `connected` only after its
 application configuration has supplied the bot identity and both surfaces have
@@ -2589,7 +2778,7 @@ older projection from the model-authored summary and appends exactly one fresh
 projection. This is not another transcript or writer, and a non-error result is
 not independent proof of an external provider effect. OpenMeld does not copy
 the generated checkpoint or action-evidence projection into D1, Agent memory,
-Task events, callback context, Signals, or Analytics Engine.
+callback context, Signals, or Analytics Engine.
 
 Structured compaction events record only correlation IDs, timestamps, duration,
 message counts, estimated token count, Flue reason, checkpoint count, and
@@ -2987,6 +3176,65 @@ CLI trace is a user-operable diagnostic surface. Operator shortcuts may wrap it,
 but they must stay thin wrappers and must not become direct D1 readers or a
 second trace system.
 
+### Automatic Wake failure discovery
+
+`pnpm ops:wake-failures` is the privileged developer failure list. It discovers
+automatically retained failure facts without a user submitting Send report.
+Dispatch attempts own execution/admission failure evidence; RuntimeCoordinator
+execution events own workstation reply-publication failure evidence. The list
+is a read projection of these existing records, not a new report table, writer,
+notification queue, or execution authority. Unlike trace wrappers, this bounded
+discovery command may read these D1 projections using operator credentials.
+Detailed investigation still uses the authorized Space trace and Cloudflare
+selectors returned in each record. Discovery does not grant Space membership.
+
+The default interval is 24 hours; a request is limited to 30 days and 200 rows.
+The cursor uses the observation timestamp plus the source record ID, and callers
+reuse the returned interval for later pages. Group counts cover only the current
+page. Attempt observation uses its first recorded finish time, falling back to
+creation time only for older rows without a finish timestamp. Existing evidence
+retention applies; missing or delayed projection writes
+are not inferred as successful executions. A missing correlation row preserves
+the failure with null pointers instead of silently dropping it.
+
+Repeated lifecycle callbacks update one attempt primary key; publication events
+use their existing idempotency key. Independent failed attempts remain auditable
+even after a later successful attempt. Groups separate attempt failures from
+publication failures and preserve the structured reason code. Retryable failures
+are not represented as final Wake outcomes. The exact admission reasons
+`runtime_coordinator.device_waiting` and
+`runtime_coordinator.agent_profile_execution_active` describe expected waiting
+and are excluded only on retryable attempts. Terminal failures remain visible
+even if they reuse one of those reason codes. User cancellation, running work,
+and success are not failures.
+No failure produces a new message, GitHub Issue, or human Diagnostic Report.
+The command selects identifiers, statuses, timestamps, and reason codes only;
+it never selects prompts, result bodies, raw error messages, or event payloads.
+
+Remote Agent observes each provider stream's terminal `done` or `error` event
+before empty-response retry suppression and token-usage merging. The shared
+`remoteAgentProviderCompletionSchema` bounds the structured completion log:
+submission ID, call ID, provider attempt number, response ID, stop reason,
+allowlisted raw stop reason, trimmed text/thinking lengths, tool count, and
+numeric usage. It excludes text, reasoning, tool arguments, and error bodies.
+The existing Analytics Engine execution-stage event also records the content
+kind and stop reason, for example `provider.completed_empty_stop`. A completed
+provider stream is not proof of a successful Wake or published reply.
+
+An empty or thinking-only completion is recorded as a failed provider stage,
+even when transport completed normally. Attempt two records `recovered_*` or
+`recovery_exhausted_*`; non-deliverable completions use warning-level structured
+logs. Group these existing events by model and call ID to measure recovery rate,
+repeated failures, added latency, and token cost. Provider rerouting remains the
+existing OpenRouter same-model policy. These measurements do not automatically
+change a selected model or create user-submitted Diagnostic Reports.
+
+Completion observation adds no retry, per-token logging, execution timeout, or
+cross-service payload field. Reporter failure cannot interrupt stream delivery.
+These completion logs follow Workers log retention/access and Analytics Engine
+sampling; they are supporting evidence, not an unsampled durable failure ledger.
+An absent terminal event remains an evidence gap, not proof of an empty response.
+
 `EvidenceSyncHealth` is an owner-only diagnostic read model for explaining
 whether the evidence channels behind Wakeability were read, missing,
 stale, degraded, or blocked. It may compose Agent Profile identity, Binding,
@@ -3000,6 +3248,42 @@ Diagnostic surfaces such as CLI trace may show `EvidenceSyncHealth` to owners
 and operators so they can understand which evidence channel needs attention.
 
 ## Diagnostic Reports
+
+### Automatic Service connection evidence
+
+Service connection incidents are bounded operational evidence, separate from
+user-submitted Diagnostic Reports. The Service derives them from its existing
+carrier recovery identifier and lifecycle events. They do not own connection,
+readiness, retry policy, or Wake outcomes.
+
+`openmeld_service_connection_incidents` belongs to Diagnostics and uses
+`wakeEvidenceDb` (currently the shared production database). Reports contain
+only schema-whitelisted phases, times, safe native error codes, optional request
+IDs, opaque connection IDs, device/lane identity and Service version. No token,
+credential fingerprint, raw error, path, prompt, transcript or tool input is
+accepted. Gateway bounds a report to 128 KiB before JSON parsing.
+
+The uploader must authenticate as the owner and match the current registered
+device/lane Service session. Historical incidents can come from an earlier
+Service process on that same account and device. An immutable owner/incident
+key makes replay idempotent; conflicting evidence is rejected. Store at most
+100 incidents per owner/device/lane and expose at most 20 per read. The existing
+daily Core retention schedule deletes receipts older than 30 days in bounded
+batches, independently of the disabled physical-database-split retention gate.
+Expired records are excluded from reads immediately.
+
+Only the computer owner can read these details through Computer Connection
+history. Team membership alone does not grant access. The existing Wake Trace
+can opt into `serviceConnectionDiagnostics`; Core first authorizes the Space
+trace, verifies the runtime's account owner, and returns incident IDs whose
+intervals overlap that execution. Overlap is correlation, not proof of cause.
+No opt-in means no new response field, preserving strict older trace clients.
+An unavailable evidence read must not hide the underlying execution trace.
+
+Explicit owner-authorized sharing remains necessary for another teammate or
+support to receive the private incident contents.
+
+### User-submitted reports
 
 A Diagnostic Report is a user-submitted event.
 
@@ -3075,6 +3359,38 @@ failed-step write; they do not require the damaged old Computer credential.
 When available, `nativeFailure.osStatus` preserves the immediate macOS error
 through wrapped exceptions without uploading the exception text. This optional
 field is stripped safely by older Core versions.
+
+Version 3 adds a 15-minute evidence window ending at collection start.
+The Service log reader reads at most the last 256 KiB and includes only complete,
+timestamped lines in that window. `serviceLogWindow` counts excluded undated and
+out-of-window lines and marks a truncated source; an empty tail means no eligible
+evidence in the inspected suffix, not that no failure occurred. Missing/empty
+files keep their existing notes; unreadable files are collection errors.
+Lifecycle entries are filtered to the same window before applying payload caps.
+
+`os.release` remains the kernel release. Optional `os.productVersion` and
+`os.buildVersion` come from a bounded macOS `sw_vers` query, not from the kernel
+version shown by older device metadata. `operationFailure` preserves allowlisted
+native code/errno/syscall and path categories from the immediate error or its
+bounded cause chain. It does not upload exception text or actual paths and never
+interprets EPERM/EACCES as proof of TCC or App Management denial.
+
+Carrier lifecycle evidence retains operation, distribution, actual actor PID,
+parent PID, target category, and structured operation failure in the uploaded
+projection. Exact executable/target paths and carrier exception messages remain
+local. These process IDs describe the OpenMeld operation, not an inferred macOS
+responsible/accessing process. No macOS unified logs are collected automatically.
+System-only notices still require narrowly scoped local evidence.
+
+Contract impact: all new top-level and OS fields are optional; bundle version is
+not a discriminator. New Core accepts v1/v2 producers; old Core strips unknown
+v3 fields and keeps the legacy bundle. Existing Service/CLI setup, Wake, status,
+Space actions, Skills, Gateway, and Web remain compatible, with no epoch bump or
+database migration. Deploy the Core schema before publishing CLI/Service to retain
+the richer evidence; reverse order only loses optional evidence. The feature PR
+defers version/manifest stamping; the eventual local release is advisory
+`available`. Diagnostics remain logs-only and never change lifecycle or execution
+authority.
 
 For support, resolve the reported email to its verified Auth user ID, then filter
 Workers Logs by `event = core.openmeld.setup.step_failed` and `ownerUserId`.
@@ -3222,8 +3538,6 @@ Use scoped owner documents for related rules:
 - `developing/product/product-model.md`: product promise and user-visible loop.
 - `developing/product/center-agent-routines.md`: Routine and Run product
   semantics, authority, scheduling, and result-surface rules.
-- `developing/product/center-agent-tasks.md`: canonical Task and Task Context,
-  access, lifecycle, execution linkage, concurrency, and recovery semantics.
 - `developing/architecture/agent-transport-contract.md`: execution authority,
   readiness, Wake finalization, and final outcome contract.
 - `developing/architecture/shared-contracts.md`: shared schemas and reusable

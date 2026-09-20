@@ -1,18 +1,26 @@
 import {
   OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION,
   OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
+  OPENMELD_HEADER_INBOX_SUMMARY_VERSION,
   OPENMELD_INBOX_ITEM_KIND_VERSION,
   OPENMELD_INBOX_SOURCE_TARGET_VERSION,
+  OPENMELD_INBOX_SUMMARY_VERSION,
 } from "@openmeld/gateway-contract";
 import {
   centerAgentInboxSummaryResponseSchema,
   dismissInboxItemResponseSchema,
   getInboxItemResponseSchema,
+  inboxFeedQuerySchema,
+  inboxFeedResponseSchema,
   inboxItemRouteParamsSchema,
+  inboxMessageNotificationPreferencesQuerySchema,
+  inboxMessageNotificationPreferencesResponseSchema,
   inboxNotificationPreferencesResponseSchema,
+  inboxSummaryQuerySchema,
   inboxSummaryResponseSchema,
   listInboxItemsQuerySchema,
   listInboxItemsResponseSchema,
+  markAllInboxItemsReadQuerySchema,
   markAllInboxItemsReadResponseSchema,
   markCenterAgentInboxReadThroughBodySchema,
   markCenterAgentInboxReadThroughResponseSchema,
@@ -20,19 +28,25 @@ import {
   markInboxItemReadResponseSchema,
   markSpaceInboxReadThroughBodySchema,
   markSpaceInboxReadThroughResponseSchema,
+  mutateInboxFeedBodySchema,
+  mutateInboxFeedResponseSchema,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
   spaceInboxUnreadTargetsRouteParamsSchema,
+  updateInboxMessageNotificationPreferencesBodySchema,
   updateInboxNotificationPreferencesBodySchema,
 } from "@openmeld/schemas";
 import type { OpenMeldApiClientFoundation } from "../client";
 import {
   buildCenterAgentInboxReadThroughPath,
   buildCenterAgentInboxSummaryPath,
+  buildInboxFeedPath,
+  buildInboxFeedStatePath,
   buildInboxItemDismissPath,
   buildInboxItemPath,
   buildInboxItemReadPath,
   buildInboxMarkAllReadPath,
+  buildInboxMessageNotificationPreferencesPath,
   buildInboxPath,
   buildInboxPreferencesPath,
   buildInboxSummaryPath,
@@ -45,6 +59,81 @@ import type { CreateInboxApi, InboxRequestInput } from "./types";
 export const createInboxApi: CreateInboxApi = (
   client: OpenMeldApiClientFoundation
 ) => ({
+  feed: async (input = {}) => {
+    const {
+      requestContext: _context,
+      signal: _signal,
+      timeoutMs: _timeout,
+      ...rawQuery
+    } = input;
+    const query = requireValidInput(
+      inboxFeedQuerySchema,
+      rawQuery,
+      "Inbox filters are invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      method: "GET",
+      operation: "inbox.feed",
+      headers: inboxSourceTargetVersionHeaders(),
+      schema: inboxFeedResponseSchema,
+      invalidMessage: "Invalid Inbox attention feed response",
+      url: buildInboxFeedPath(query),
+    });
+  },
+  mutateFeed: async (input) => {
+    const body = requireValidInput(
+      mutateInboxFeedBodySchema,
+      {
+        snapshotId: input.snapshotId,
+        groupKey: input.groupKey,
+        operation: input.operation,
+      },
+      "Inbox selection is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      method: "POST",
+      operation: "inbox.feed.state",
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      schema: mutateInboxFeedResponseSchema,
+      invalidMessage: "Invalid Inbox selection response",
+      url: buildInboxFeedStatePath(),
+    });
+  },
+  getMessageNotificationPreferences: async (input = {}) => {
+    const query = requireValidInput(
+      inboxMessageNotificationPreferencesQuerySchema,
+      { spaceId: input.spaceId },
+      "Message notification preferences query is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      method: "GET",
+      operation: "inbox.message_preferences.read",
+      invalidMessage: "Invalid message notification preferences response",
+      schema: inboxMessageNotificationPreferencesResponseSchema,
+      url: buildInboxMessageNotificationPreferencesPath(query.spaceId),
+    });
+  },
+  updateMessageNotificationPreferences: async (input) => {
+    const body = requireValidInput(
+      updateInboxMessageNotificationPreferencesBodySchema,
+      input.preference,
+      "Message notification preferences request is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      method: "PATCH",
+      operation: "inbox.message_preferences.update",
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage: "Invalid message notification preferences response",
+      schema: inboxMessageNotificationPreferencesResponseSchema,
+      url: buildInboxMessageNotificationPreferencesPath(),
+    });
+  },
   centerAgentSummary: async (input = {}) =>
     await client.requestJson({
       ...requestOptions(input),
@@ -63,6 +152,7 @@ export const createInboxApi: CreateInboxApi = (
     return await client.requestJson({
       ...requestOptions(input),
       invalidMessage: "invalid Inbox dismiss response",
+      headers: inboxSourceTargetVersionHeaders(),
       method: "PUT",
       operation: "inbox.item.dismiss",
       schema: dismissInboxItemResponseSchema,
@@ -91,6 +181,12 @@ export const createInboxApi: CreateInboxApi = (
       {
         ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
         ...(input.limit === undefined ? {} : { limit: input.limit }),
+        ...(input.presentation === undefined
+          ? {}
+          : { presentation: input.presentation }),
+        ...(input.notificationPreview === undefined
+          ? {}
+          : { notificationPreview: input.notificationPreview }),
         ...(input.view === undefined ? {} : { view: input.view }),
       },
       "Inbox list request is invalid."
@@ -105,15 +201,27 @@ export const createInboxApi: CreateInboxApi = (
       url: buildInboxPath(query),
     });
   },
-  summary: async (input = {}) =>
-    await client.requestJson({
+  summary: async (input = {}) => {
+    const query = requireValidInput(
+      inboxSummaryQuerySchema,
+      input.presentation === undefined
+        ? {}
+        : { presentation: input.presentation },
+      "Inbox summary request is invalid."
+    );
+    return await client.requestJson({
       ...requestOptions(input),
       invalidMessage: "invalid Inbox summary response",
+      headers: {
+        ...inboxSourceTargetVersionHeaders(),
+        [OPENMELD_HEADER_INBOX_SUMMARY_VERSION]: OPENMELD_INBOX_SUMMARY_VERSION,
+      },
       method: "GET",
       operation: "inbox.summary",
       schema: inboxSummaryResponseSchema,
-      url: buildInboxSummaryPath(),
-    }),
+      url: buildInboxSummaryPath(query.presentation),
+    });
+  },
   markRead: async (input) => {
     const params = requireValidInput(
       inboxItemRouteParamsSchema,
@@ -139,15 +247,23 @@ export const createInboxApi: CreateInboxApi = (
       url: buildInboxItemReadPath(params.itemId),
     });
   },
-  markAllRead: async (input = {}) =>
-    await client.requestJson({
+  markAllRead: async (input = {}) => {
+    const query = requireValidInput(
+      markAllInboxItemsReadQuerySchema,
+      input.presentation === undefined
+        ? {}
+        : { presentation: input.presentation },
+      "Inbox mark-all-read request is invalid."
+    );
+    return await client.requestJson({
       ...requestOptions(input),
       invalidMessage: "invalid Inbox mark-all-read response",
       method: "POST",
       operation: "inbox.mark_all_read",
       schema: markAllInboxItemsReadResponseSchema,
-      url: buildInboxMarkAllReadPath(),
-    }),
+      url: buildInboxMarkAllReadPath(query.presentation),
+    });
+  },
   markCenterAgentReadThrough: async (input) => {
     const body = requireValidInput(
       markCenterAgentInboxReadThroughBodySchema,
@@ -174,6 +290,10 @@ export const createInboxApi: CreateInboxApi = (
       invalidMessage: "invalid Space Inbox summary response",
       method: "GET",
       operation: "inbox.space.summary",
+      headers: {
+        ...inboxSourceTargetVersionHeaders(),
+        [OPENMELD_HEADER_INBOX_SUMMARY_VERSION]: OPENMELD_INBOX_SUMMARY_VERSION,
+      },
       schema: spaceInboxSummaryResponseSchema,
       url: buildSpaceInboxSummaryPath(),
     }),

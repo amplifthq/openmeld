@@ -17,6 +17,9 @@ export const routines = sqliteTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    // Null preserves the Organization's designated Center Agent executor.
+    // Personal Routines keep an immutable, explicit Agent Profile identity.
+    agentProfileId: text("agent_profile_id"),
     instructions: text("instructions").notNull(),
     authorizedActionsJson: text("authorized_actions_json")
       .default("[]")
@@ -29,6 +32,7 @@ export const routines = sqliteTable(
     timezone: text("timezone"),
     runAtMs: integer("run_at_ms"),
     destinationKind: text("destination_kind").default("space").notNull(),
+    messageChannelDestinationJson: text("message_channel_destination_json"),
     targetSpaceId: text("target_space_id"),
     slackTeamId: text("slack_team_id"),
     slackChannelId: text("slack_channel_id"),
@@ -86,7 +90,7 @@ export const routines = sqliteTable(
     ),
     check(
       "routines_destination_kind_check",
-      sql`"destination_kind" in ('space', 'slack_thread')`
+      sql`"destination_kind" in ('space', 'slack_thread', 'message_channel')`
     ),
     check(
       "routines_target_space_non_empty_check",
@@ -94,7 +98,7 @@ export const routines = sqliteTable(
     ),
     check(
       "routines_destination_fields_check",
-      sql`("destination_kind" = 'space' and "target_space_id" is not null and "slack_team_id" is null and "slack_channel_id" is null and "slack_thread_ts" is null and "slack_conversation_id" is null) or ("destination_kind" = 'slack_thread' and "target_space_id" is null and "slack_team_id" is not null and "slack_channel_id" is not null and "slack_thread_ts" is not null and "slack_conversation_id" is not null)`
+      sql`("destination_kind" = 'space' and "message_channel_destination_json" is null and "target_space_id" is not null and "slack_team_id" is null and "slack_channel_id" is null and "slack_thread_ts" is null and "slack_conversation_id" is null) or ("destination_kind" = 'slack_thread' and "message_channel_destination_json" is null and "target_space_id" is null and "slack_team_id" is not null and "slack_channel_id" is not null and "slack_thread_ts" is not null and "slack_conversation_id" is not null) or ("destination_kind" = 'message_channel' and "message_channel_destination_json" is not null and json_valid("message_channel_destination_json") and "target_space_id" is null and "slack_team_id" is null and "slack_channel_id" is null and "slack_thread_ts" is null and "slack_conversation_id" is null)`
     ),
     check(
       "routines_status_check",
@@ -132,7 +136,11 @@ export const routineRuns = sqliteTable(
     failureCode: text("failure_code"),
     failureDetail: text("failure_detail"),
     routineNameSnapshot: text("routine_name_snapshot"),
+    agentProfileIdSnapshot: text("agent_profile_id_snapshot"),
     destinationKindSnapshot: text("destination_kind_snapshot"),
+    messageChannelDestinationJsonSnapshot: text(
+      "message_channel_destination_json_snapshot"
+    ),
     targetSpaceIdSnapshot: text("target_space_id_snapshot"),
     slackTeamIdSnapshot: text("slack_team_id_snapshot"),
     slackChannelIdSnapshot: text("slack_channel_id_snapshot"),

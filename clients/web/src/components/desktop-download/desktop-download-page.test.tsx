@@ -1,12 +1,7 @@
-import type { OpenMeldLogoStrongProps } from "@openmeld/ui/components/openmeld-logo-strong";
 import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesktopDownloadPage } from "./desktop-download-page";
-
-const useNavigateMock = vi.hoisted(() => vi.fn());
-const UNSIGNED_WARNING_RE = /This preview is unsigned and not notarized/u;
-const CONTROL_CLICK_OPEN_RE = /Control-click the app and choose Open/u;
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({ children, to, ...props }: { children: ReactNode; to: string }) => (
@@ -14,63 +9,91 @@ vi.mock("@tanstack/react-router", () => ({
 			{children}
 		</a>
 	),
-	useNavigate: () => useNavigateMock,
+	useNavigate: () => vi.fn(),
 	useRouterState: (input: {
 		select: (state: { location: { pathname: string } }) => string;
 	}) => input.select({ location: { pathname: "/desktop" } }),
 }));
 
-vi.mock("@openmeld/ui/components/openmeld-logo-strong", () => ({
-	OpenMeldLogoStrong: ({ className, size }: OpenMeldLogoStrongProps) => (
-		<img
-			alt="OpenMeld logo"
-			data-class-name={className}
-			data-size={size}
-			height={1}
-			src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
-			width={1}
-		/>
-	),
-}));
+const MAC_INSTALL_COPY = /downloaded DMG/;
+const DOWNLOAD_LINK_LABEL = /^Download for/;
 
 describe("DesktopDownloadPage", () => {
-	afterEach(() => {
-		cleanup();
-		useNavigateMock.mockReset();
-	});
-
-	it("publishes the unsigned OpenMeld Desktop download entry", () => {
-		render(<DesktopDownloadPage />);
-
-		expect(
-			screen.getByRole("heading", { name: "OpenMeld Desktop for macOS" })
-		).toBeTruthy();
+	afterEach(cleanup);
+	it("keeps the download button bound to the displayed candidate", () => {
+		const downloadPath = `/desktop/download?candidate=${"a".repeat(64)}`;
+		render(
+			<DesktopDownloadPage
+				release={{
+					platform: "macos-arm64",
+					version: "0.1.0-preview.0",
+					sizeBytes: 151_512_850,
+					downloadPath,
+					message: null,
+				}}
+			/>
+		);
 		expect(
 			screen
-				.getByRole("link", { name: "Download OpenMeld Desktop" })
+				.getByRole("link", { name: "Download for Mac (Apple silicon)" })
 				.getAttribute("href")
-		).toBe("/desktop/download");
+		).toBe(downloadPath);
+		expect(
+			screen.getByText("Version 0.1.0-preview.0 · DMG · 152 MB")
+		).toBeTruthy();
+	});
+	it.each([
+		"windows-x64",
+		"windows-arm64",
+	] as const)("shows the exact Windows artifact without Mac install instructions: %s", (platform) => {
+		const downloadPath = `/desktop/download?candidate=${"b".repeat(64)}`;
+		render(
+			<DesktopDownloadPage
+				platform={platform}
+				release={{
+					platform,
+					version: "0.1.4",
+					sizeBytes: 1024,
+					downloadPath,
+					message: null,
+				}}
+			/>
+		);
+		expect(
+			screen
+				.getByRole("link", {
+					name:
+						platform === "windows-x64"
+							? "Download for Windows (x64)"
+							: "Download for Windows (ARM64)",
+				})
+				.getAttribute("href")
+		).toBe(downloadPath);
+		expect(screen.getByText("Open OpenMeld from the Start menu.")).toBeTruthy();
+		expect(screen.queryByText(MAC_INSTALL_COPY)).toBeNull();
+	});
+	it("does not offer a Mac download as fallback for an unavailable Windows release", () => {
+		render(<DesktopDownloadPage platform="windows-x64" release={null} />);
+		expect(
+			screen.queryByRole("link", { name: DOWNLOAD_LINK_LABEL })
+		).toBeNull();
+		expect(
+			screen.getByText("Desktop downloads aren't available yet")
+		).toBeTruthy();
+	});
+	it.each([
+		"default",
+		"candidate",
+		"invalid",
+	] as const)("offers no download when unavailable: %s", (unavailable) => {
+		render(<DesktopDownloadPage release={null} unavailable={unavailable} />);
+		expect(
+			screen.queryByRole("link", { name: "Download for Mac (Apple silicon)" })
+		).toBeNull();
 		expect(
 			screen
 				.getByRole("link", { name: "Open OpenMeld Web" })
 				.getAttribute("href")
 		).toBe("/login");
-		expect(screen.getByText("Unsigned Apple silicon preview")).toBeTruthy();
-		expect(screen.getByText("Latest uploaded preview")).toBeTruthy();
-		expect(
-			screen.getByRole("img", { name: "OpenMeld logo" }).dataset.size
-		).toBe("clamp(0.45rem,1.8vw,1.2rem)");
-	});
-
-	it("sets clear requirements and Gatekeeper guidance", () => {
-		render(<DesktopDownloadPage />);
-
-		expect(screen.getByText("Apple silicon only")).toBeTruthy();
-		expect(screen.getByText("Node.js LTS with npm")).toBeTruthy();
-		expect(screen.getByText(UNSIGNED_WARNING_RE)).toBeTruthy();
-		expect(screen.getByText(CONTROL_CLICK_OPEN_RE)).toBeTruthy();
-		const detailGrid = screen.getByTestId("desktop-detail-grid");
-		expect(detailGrid.className).toContain("md:grid-cols-2");
-		expect(detailGrid.querySelectorAll("section.rounded-md")).toHaveLength(3);
 	});
 });

@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { gzipSync } from "node:zlib";
-import { cliBinaryManifestSchema } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
+import { gunzipSync, gzipSync } from "node:zlib";
+import {
+  cliBinaryCompressedReleaseSchema,
+  cliBinaryManifestSchema,
+} from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
 import { smokeSignedMacOsSecureStorage } from "../e2e/signed-cli-macos-secure-storage-smoke.mjs";
 import {
   buildCliBinary,
@@ -15,6 +19,7 @@ import {
 } from "./build-cli-binary.mjs";
 import { resolveCliBinaryDeltaForRelease } from "./cli-binary-delta.mjs";
 import { signAndNotarizeCliBinary } from "./macos-cli-signing.mjs";
+import { compareSemverCore } from "./release-semver.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
@@ -28,6 +33,8 @@ export const CLI_MANIFEST_OBJECT_KEY = "cli/manifest.json";
 export const DEFAULT_CLI_DOWNLOAD_BASE_URL = "https://openmeld.ai/cli/download";
 export const CLI_MANIFEST_SCHEMA_VERSION = 1;
 export const CLI_BINARY_CODE_IDENTIFIER = "sh.openmeld.cli";
+const LOCAL_COMPONENTS_MANIFEST_PATH = "release/local-components.json";
+const PRODUCTION_CLI_MANIFEST_URL = `${new URL(DEFAULT_CLI_DOWNLOAD_BASE_URL).origin}/${CLI_MANIFEST_OBJECT_KEY}`;
 
 export function resolveCliMinRequiredVersion(repoRoot = REPO_ROOT) {
   const packageJson = JSON.parse(
@@ -55,6 +62,7 @@ export function buildCliManifest(input) {
       stable: {
         version: input.version,
         minRequiredCliVersion: input.minRequiredCliVersion,
+        ...(input.service ? { service: input.service } : {}),
         platforms: {
           [input.platform]: {
             url: `${input.downloadBaseUrl}/${input.artifactName}`,
@@ -142,11 +150,18 @@ export async function uploadCliBinary(input = {}) {
     DEFAULT_CLI_R2_BUCKET;
   const downloadBaseUrl =
     input.downloadBaseUrl ?? DEFAULT_CLI_DOWNLOAD_BASE_URL;
+  const service = Object.hasOwn(input, "service")
+    ? input.service
+    : await resolveCliServiceSelectionForUpload({
+        fetch: input.fetch ?? fetch,
+        repoRoot: input.repoRoot ?? REPO_ROOT,
+      });
 
   const compiled = (input.buildBinary ?? buildCliBinary)({
     outDir: input.outDir,
     platform,
     version: input.version,
+    service,
   });
   const built = await prepareVerifiedCliBinary({
     built: compiled,
@@ -182,6 +197,7 @@ export async function uploadCliBinary(input = {}) {
     sizeBytes: built.sizeBytes,
     teamIdentifier: built.notarization.teamId,
     version: built.version,
+    service,
   });
   const manifestPath = path.join(path.dirname(built.outFile), "manifest.json");
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
@@ -260,6 +276,122 @@ export async function uploadCliBinary(input = {}) {
   );
 
   return { ...built, archive, bucketName, delta, manifest, manifestPath };
+}
+
+export function resolveRetainedCliServiceSelection(input) {
+  if (input.targetCliVersion === input.targetServiceVersion) {
+    return undefined;
+  }
+  if (
+    compareSemverCore(input.targetServiceVersion, input.targetCliVersion) > 0
+  ) {
+    throw new Error(
+      `OpenMeld Service ${input.targetServiceVersion} cannot be selected for older CLI ${input.targetCliVersion}.`
+    );
+  }
+  const stable = input.channelManifest?.channels?.stable;
+  if (!stable) {
+    throw new Error(
+      "The production CLI manifest is missing channels.stable, so its Service artifact cannot be retained."
+    );
+  }
+  const selected = stable.service ?? {
+    platforms: stable.platforms,
+    version: stable.version,
+  };
+  if (selected.version !== input.targetServiceVersion) {
+    throw new Error(
+      `The production CLI channel selects Service ${selected.version}, not retained target ${input.targetServiceVersion}. Publish a coupled Service release instead of guessing an artifact.`
+    );
+  }
+  return selected;
+}
+
+async function resolveCliServiceSelectionForUpload(input) {
+  const localComponents = JSON.parse(
+    readFileSync(
+      path.join(input.repoRoot, LOCAL_COMPONENTS_MANIFEST_PATH),
+      "utf8"
+    )
+  );
+  const targetCliVersion =
+    localComponents?.components?.cli?.packageVersion ?? null;
+  const targetServiceVersion =
+    localComponents?.components?.service?.bundleVersion ?? null;
+  if (!(targetCliVersion && targetServiceVersion)) {
+    throw new Error(
+      "release/local-components.json must declare CLI and Service versions before publishing the CLI binary."
+    );
+  }
+  if (targetCliVersion === targetServiceVersion) {
+    return undefined;
+  }
+  const response = await input.fetch(PRODUCTION_CLI_MANIFEST_URL);
+  if (!response.ok) {
+    throw new Error(
+      `Cannot read the production CLI manifest needed to retain Service ${targetServiceVersion} (HTTP ${response.status}).`
+    );
+  }
+  const channelManifest = cliBinaryManifestSchema.parse(await response.json());
+  const service = resolveRetainedCliServiceSelection({
+    channelManifest,
+    targetCliVersion,
+    targetServiceVersion,
+  });
+  await verifyRetainedCliServiceArtifacts({
+    fetch: input.fetch,
+    service,
+  });
+  return service;
+}
+
+export async function verifyRetainedCliServiceArtifacts(input) {
+  for (const [platform, artifact] of Object.entries(input.service.platforms)) {
+    const parsedArtifact = cliBinaryCompressedReleaseSchema.safeParse(artifact);
+    if (!parsedArtifact.success) {
+      throw new Error(
+        `Retained Service ${input.service.version} ${platform} has incomplete raw or gzip artifact metadata.`
+      );
+    }
+    const rawHead = await input.fetch(artifact.url, { method: "HEAD" });
+    if (!rawHead.ok) {
+      throw new Error(
+        `Retained Service ${input.service.version} ${platform} raw artifact is unavailable at ${artifact.url} (HTTP ${rawHead.status}).`
+      );
+    }
+    const rawLength = Number(rawHead.headers.get("content-length"));
+    if (rawLength !== artifact.sizeBytes) {
+      throw new Error(
+        `Retained Service ${input.service.version} ${platform} raw artifact size does not match its immutable manifest (${String(rawLength)} != ${String(artifact.sizeBytes)}).`
+      );
+    }
+    const archiveResponse = await input.fetch(artifact.archiveUrl);
+    if (!archiveResponse.ok) {
+      throw new Error(
+        `Retained Service ${input.service.version} ${platform} gzip artifact is unavailable at ${artifact.archiveUrl} (HTTP ${archiveResponse.status}).`
+      );
+    }
+    const archiveBytes = Buffer.from(await archiveResponse.arrayBuffer());
+    const archiveHash = createHash("sha256").update(archiveBytes).digest("hex");
+    if (
+      archiveBytes.byteLength !== artifact.archiveSizeBytes ||
+      archiveHash !== artifact.archiveSha256
+    ) {
+      throw new Error(
+        `Retained Service ${input.service.version} ${platform} gzip artifact does not match its immutable manifest.`
+      );
+    }
+    const rawBytes = gunzipSync(archiveBytes);
+    const rawHash = createHash("sha256").update(rawBytes).digest("hex");
+    if (
+      rawBytes.byteLength !== artifact.sizeBytes ||
+      rawHash !== artifact.sha256
+    ) {
+      throw new Error(
+        `Retained Service ${input.service.version} ${platform} gzip artifact does not reconstruct the declared raw artifact.`
+      );
+    }
+  }
 }
 
 function runStep(input) {

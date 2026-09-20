@@ -37,7 +37,14 @@ import {
   type RuntimeCoordinatorHeadLifecycleRecord,
   type RuntimeCoordinatorPreExecutionHandoffRecord,
   type RuntimeCoordinatorRunCommandState,
+  resolveRuntimeCoordinatorWatchdogProgressBaselineAtMs,
+  withRuntimeCoordinatorLocalAttemptWithdrawalRequest,
+  withRuntimeCoordinatorLocalAttemptWithdrawn,
 } from "./runtime-coordinator-authority";
+import {
+  syncRuntimeCoordinatorWatchdogSchedule,
+  writeRuntimeCoordinatorWatchdogSchedule,
+} from "./runtime-coordinator-watchdog-storage";
 
 type RuntimeCoordinatorStorage = Pick<
   DurableObjectStorage,
@@ -187,6 +194,140 @@ export const writeRuntimeCoordinatorRunCommandStateToStorage = async (
   );
 };
 
+export async function retainRuntimeCoordinatorCommunicationRecovery(
+  storage: RuntimeCoordinatorStorage,
+  commandState: RuntimeCoordinatorRunCommandState
+): Promise<RuntimeCoordinatorRunCommandState> {
+  return await storage.transaction(async (transaction) => {
+    const latest = await readRuntimeCoordinatorRunCommandStateFromStorage(
+      transaction,
+      commandState.runtimeCoordinatorExecutionId
+    );
+    if (
+      !latest ||
+      latest.activeRunId !== commandState.activeRunId ||
+      latest.localProgress.phase === "result_received"
+    ) {
+      return commandState;
+    }
+    const baseline =
+      resolveRuntimeCoordinatorWatchdogProgressBaselineAtMs(latest);
+    if (latest.communicationRecoveryBaselineAtMs === baseline) {
+      return latest;
+    }
+    const next = { ...latest, communicationRecoveryBaselineAtMs: baseline };
+    await writeRuntimeCoordinatorRunCommandStateInTransaction(
+      transaction,
+      next
+    );
+    return next;
+  });
+}
+
+/**
+ * Records that Core asked the computer to withdraw one attempt.
+ *
+ * The stored record is re-read inside the transaction: an attempt that has
+ * already been replaced, redelivered, or cleaned up must not be resurrected by
+ * a caller holding an older copy of it.
+ */
+export async function requestRuntimeCoordinatorLocalAttemptWithdrawalInStorage(input: {
+  activeRunId: string;
+  nowMs: number;
+  reasonCode: string;
+  runtimeCoordinatorExecutionId: string;
+  storage: RuntimeCoordinatorStorage;
+}): Promise<RuntimeCoordinatorRunCommandState | null> {
+  return await input.storage.transaction(async (transaction) => {
+    const latest = await readRuntimeCoordinatorRunCommandStateFromStorage(
+      transaction,
+      input.runtimeCoordinatorExecutionId
+    );
+    if (!latest || latest.activeRunId !== input.activeRunId) {
+      return null;
+    }
+    const next = withRuntimeCoordinatorLocalAttemptWithdrawalRequest({
+      commandState: latest,
+      nowMs: input.nowMs,
+      reasonCode: input.reasonCode,
+    });
+    if (next === latest) {
+      return null;
+    }
+    await writeRuntimeCoordinatorRunCommandStateInTransaction(
+      transaction,
+      next
+    );
+    return next;
+  });
+}
+
+/**
+ * Keeps the Service's acknowledgement that one exact attempt is gone.
+ *
+ * Identity is checked against the records as they are now, not as the caller
+ * last saw them: the same session that received the delivery, the same
+ * execution, dispatch and task, and the run the token authority still calls
+ * current. A late acknowledgement for a retired run therefore cannot retire a
+ * newer attempt or revive a command state that has already been cleaned up.
+ */
+export async function recordRuntimeCoordinatorLocalAttemptWithdrawnInStorage(input: {
+  daemonSessionId: string;
+  nowMs: number;
+  reasonCode: string | null;
+  resolvedDispatchId: string;
+  resolvedTaskId: string;
+  runtimeCoordinatorExecutionId: string;
+  storage: RuntimeCoordinatorStorage;
+}): Promise<RuntimeCoordinatorRunCommandState | null> {
+  return await input.storage.transaction(async (transaction) => {
+    const [latest, authority] = await Promise.all([
+      readRuntimeCoordinatorRunCommandStateFromStorage(
+        transaction,
+        input.runtimeCoordinatorExecutionId
+      ),
+      readRuntimeCoordinatorTokenAuthorityFromStorage(
+        transaction,
+        input.runtimeCoordinatorExecutionId
+      ),
+    ]);
+    if (
+      !(latest && authority) ||
+      latest.runtimeCoordinatorExecutionId !==
+        input.runtimeCoordinatorExecutionId ||
+      latest.lastDeliveryProvenance.daemonSessionId !== input.daemonSessionId ||
+      latest.dispatchId !== input.resolvedDispatchId ||
+      latest.sanitizedDeliveryRequest.payload.taskId !== input.resolvedTaskId
+    ) {
+      return null;
+    }
+    // The run is what this acknowledgement can speak for. A terminal decision
+    // retires that run and clears `currentRunId`, so requiring a current run
+    // would discard exactly the acknowledgements that matter here. Requiring
+    // that the run was never superseded is the check that still holds: it
+    // refuses a late answer about an attempt a newer one has already replaced.
+    const acknowledgedRun = authority.runsById[latest.activeRunId];
+    if (
+      !acknowledgedRun ||
+      acknowledgedRun.supersededByRunId !== null ||
+      (authority.currentRunId !== null &&
+        authority.currentRunId !== latest.activeRunId)
+    ) {
+      return null;
+    }
+    const next = withRuntimeCoordinatorLocalAttemptWithdrawn({
+      commandState: latest,
+      nowMs: input.nowMs,
+      reasonCode: input.reasonCode,
+    });
+    await writeRuntimeCoordinatorRunCommandStateInTransaction(
+      transaction,
+      next
+    );
+    return next;
+  });
+}
+
 export const writeRuntimeCoordinatorRunCommandStateInTransaction = async (
   transaction: DurableObjectTransaction,
   state: RuntimeCoordinatorRunCommandState
@@ -208,6 +349,10 @@ export const writeRuntimeCoordinatorRunCommandStateInTransaction = async (
       nextIds
     ),
   ]);
+  await syncRuntimeCoordinatorWatchdogSchedule(
+    transaction,
+    state.runtimeCoordinatorExecutionId
+  );
 };
 
 export const deleteRuntimeCoordinatorRunCommandStateFromStorage = async (
@@ -228,6 +373,11 @@ export const deleteRuntimeCoordinatorRunCommandStateFromStorage = async (
         existingIds.filter((id) => id !== runtimeCoordinatorExecutionId)
       ),
     ]);
+    await writeRuntimeCoordinatorWatchdogSchedule(
+      transaction,
+      runtimeCoordinatorExecutionId,
+      null
+    );
   });
 };
 

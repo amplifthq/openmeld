@@ -42,6 +42,7 @@ export class LarkPlatformRegistrationError extends Error {
 }
 
 export async function beginLarkPlatformRegistration(input: {
+  appId?: string;
   appDescription: string;
   appName: string;
   expectedProvider: RemoteAgentLarkPlatformProvider;
@@ -111,7 +112,9 @@ export async function beginLarkPlatformRegistration(input: {
       LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE
     )
   );
-  registrationUrl.searchParams.set("createOnly", "true");
+  if (input.appId) {
+    registrationUrl.searchParams.set("clientID", input.appId);
+  }
   registrationUrl.searchParams.set("desc", input.appDescription.trim());
   registrationUrl.searchParams.set("from", "sdk");
   registrationUrl.searchParams.set("name", input.appName.trim());

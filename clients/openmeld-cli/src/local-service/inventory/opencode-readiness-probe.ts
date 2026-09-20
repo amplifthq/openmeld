@@ -1,7 +1,7 @@
 import { type ChildProcessByStdio, spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:net";
-import { homedir } from "node:os";
+import { homedir, loadavg } from "node:os";
 import type { Readable } from "node:stream";
 import {
   createOpencodeClient,
@@ -9,6 +9,7 @@ import {
 } from "@opencode-ai/sdk/v2";
 import {
   buildCliLaunchInvocation,
+  createProviderOriginalError,
   createUnavailableProviderUsageLimits,
   createUnsupportedProviderUsageLimits,
   type RuntimeAgentControllerLaunchContract,
@@ -47,18 +48,20 @@ export type OpenCodeReadinessProbeResult = {
 };
 
 export async function probeOpenCodeReadiness(input: {
+  workingDirectory: string;
   launchContract: RuntimeAgentControllerLaunchContract;
   timeoutMs?: number;
 }): Promise<OpenCodeReadinessProbeResult> {
   let server: OpenCodeProbeServer | null = null;
   try {
     server = await startOpenCodeProbeServer({
+      workingDirectory: input.workingDirectory,
       launchContract: input.launchContract,
       timeoutMs: input.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS,
     });
     const client = createOpencodeClient({
       baseUrl: server.url,
-      directory: process.cwd(),
+      directory: input.workingDirectory,
       throwOnError: true,
     });
     // The SDK reads have no timeout of their own; without this bound a hung
@@ -191,6 +194,7 @@ type OpenCodeProbeServer = {
 type OpenCodeProbeChild = ChildProcessByStdio<null, Readable, Readable>;
 
 async function startOpenCodeProbeServer(input: {
+  workingDirectory: string;
   launchContract: RuntimeAgentControllerLaunchContract;
   timeoutMs: number;
 }): Promise<OpenCodeProbeServer> {
@@ -202,14 +206,17 @@ async function startOpenCodeProbeServer(input: {
 
   return new Promise((resolve, reject) => {
     const child = spawn(invocation.bin, invocation.args, {
-      cwd: process.cwd(),
+      cwd: input.workingDirectory,
       detached: process.platform !== "win32",
       env: process.env,
       shell: invocation.shell ?? false,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    const spawnedAtMs = Date.now();
     let stdout = "";
     let stderr = "";
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
     let settled = false;
     const finish = (
       result: { error: Error } | { server: OpenCodeProbeServer }
@@ -230,12 +237,20 @@ async function startOpenCodeProbeServer(input: {
     const timeout = setTimeout(() => {
       finish({
         error: new Error(
-          `Timed out waiting for OpenCode server start after ${input.timeoutMs}ms.`
+          [
+            `Timed out waiting for OpenCode server start after ${input.timeoutMs}ms.`,
+            `Startup evidence: pid=${child.pid ?? "unknown"}, elapsedMs=${Date.now() - spawnedAtMs}, stdoutBytes=${stdoutBytes}, stderrBytes=${stderrBytes}, load1m=${loadavg()[0]?.toFixed(2) ?? "unavailable"}.`,
+            createProviderOriginalError(stderr) ||
+              createProviderOriginalError(stdout),
+          ]
+            .filter(Boolean)
+            .join(" ")
         ),
       });
     }, input.timeoutMs);
 
     child.stdout.on("data", (chunk) => {
+      stdoutBytes += Buffer.byteLength(chunk);
       stdout = appendProbeOutput(stdout, chunk);
       const url = parseOpenCodeServerUrlFromOutput(stdout);
       if (url) {
@@ -243,6 +258,7 @@ async function startOpenCodeProbeServer(input: {
       }
     });
     child.stderr.on("data", (chunk) => {
+      stderrBytes += Buffer.byteLength(chunk);
       stderr = appendProbeOutput(stderr, chunk);
     });
     child.on("error", (error) => {

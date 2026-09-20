@@ -16,7 +16,6 @@ import {
   daemonServiceRuntimeStatePath,
 } from "../src/config/daemon-state";
 import { locksDir } from "../src/config/paths";
-import { DAEMON_RUNTIME_CONTRACT_EPOCH } from "../src/local-service/core/constants";
 import {
   daemonServiceActiveBundlePath,
   daemonServiceExecutableWrapperPath,
@@ -29,6 +28,7 @@ import type {
   DaemonServiceManagerRuntimeStatus,
 } from "../src/local-service/lifecycle/daemon-service-manager";
 import { ensureDaemonRuntimePaths } from "../src/local-service/state/daemon-device-id";
+import { DAEMON_LOCAL_STATE_EPOCH } from "../src/local-service/state/local-state-version";
 import { withTempHome } from "./helpers/fs";
 
 const INSTALLED_STATUS: DaemonStatus = {
@@ -121,6 +121,34 @@ function createServiceManager(
 }
 
 describe("local service inventory", () => {
+  it("reports an outdated scheduling policy without losing the installed Service's identity", async () => {
+    await withTempHome(async (home) => {
+      const definitionPath = join(home, "service.plist");
+      await writeFile(
+        definitionPath,
+        `<plist><string>${daemonServiceExecutableWrapperPath()}</string></plist>`
+      );
+      const inventory = await inspectDaemonServiceInventory({
+        expectedVersion: "0.2.2",
+        readDaemonStatus: async () => INSTALLED_STATUS,
+        resolveServiceManager: async () =>
+          createServiceManager({
+            ...EXTERNAL_MANAGER_STATUS,
+            definitionPath,
+          }),
+        listOwnedProcesses: async () => [],
+      });
+      expect(inventory.serviceManagerStatus?.definitionPath).toBe(
+        definitionPath
+      );
+      expect(inventory.anomalies.map(({ code }) => code)).toContain(
+        "service_manager_startup_policy_drift"
+      );
+      expect(inventory.anomalies.map(({ code }) => code)).not.toContain(
+        "service_manager_path_drift"
+      );
+    });
+  });
   it("preserves an orphaned legacy lifecycle lock as a blocking anomaly", async () => {
     await withTempHome(async () => {
       const stalePid = 5757;
@@ -530,7 +558,7 @@ describe("local service inventory", () => {
     });
   });
 
-  it("reports bundle content drift when the current CLI dist differs from the active bundle fingerprint", async () => {
+  it("reports bundle content drift when installed files differ from the recorded fingerprint", async () => {
     await withTempHome(async () => {
       const fixtureRoot = await mkdtemp(join(tmpdir(), "openmeld-cli-dist-"));
       const fixtureDistRoot = join(fixtureRoot, "dist");
@@ -573,7 +601,6 @@ describe("local service inventory", () => {
           expectedVersion: "0.2.2",
           readDaemonStatus: async () => INSTALLED_STATUS,
           listOwnedProcesses: async () => [],
-          cliScriptPath,
         });
 
         expect(
@@ -629,7 +656,6 @@ describe("local service inventory", () => {
           expectedVersion: "0.2.2",
           readDaemonStatus: async () => INSTALLED_STATUS,
           listOwnedProcesses: async () => [],
-          cliScriptPath,
         });
 
         expect(
@@ -1099,7 +1125,7 @@ describe("local service inventory", () => {
 
       expect(inventory.runtimeContractCompatibility).toEqual({
         status: "missing",
-        expectedEpoch: DAEMON_RUNTIME_CONTRACT_EPOCH,
+        expectedEpoch: DAEMON_LOCAL_STATE_EPOCH,
         observedEpoch: null,
         updatedAt: null,
         reasonCode: "daemon.runtime_contract.missing",
@@ -1136,7 +1162,7 @@ describe("local service inventory", () => {
 
       expect(inventory.runtimeContractCompatibility).toMatchObject({
         status: "mismatch",
-        expectedEpoch: DAEMON_RUNTIME_CONTRACT_EPOCH,
+        expectedEpoch: DAEMON_LOCAL_STATE_EPOCH,
         observedEpoch: "daemon-runtime-epoch-old",
         updatedAt: "2026-03-03T00:00:00.000Z",
       });
@@ -1167,7 +1193,7 @@ describe("local service inventory", () => {
       expect(inventory.runtimeStatus.status).toBe("not_running");
       expect(inventory.runtimeContractCompatibility).toEqual({
         status: "not_observed",
-        expectedEpoch: DAEMON_RUNTIME_CONTRACT_EPOCH,
+        expectedEpoch: DAEMON_LOCAL_STATE_EPOCH,
         observedEpoch: null,
         updatedAt: null,
         reasonCode: "daemon.runtime_contract.not_observed",

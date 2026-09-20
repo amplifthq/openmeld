@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, join, parse, resolve } from "node:path";
 
@@ -90,15 +91,26 @@ export function resolveOpenMeldRootDir(
   );
 }
 
-/**
- * OS-level resources are shared by every process using the same environment
- * preset, even when a command uses an isolated OPENMELD_HOME. Their local
- * coordination files therefore live under the preset's canonical home.
- */
-export function resolveOpenMeldPresetOwnedPathInput(
+/** Development OS resources follow the same root already carried by setup
+ * and persisted in service registrations. No cwd or transient lane variable
+ * may change the identity of an installed service. */
+export function resolveOpenMeldServiceScope(
+  input: OpenMeldPathResolutionInput = {}
+): string | null {
+  if (resolveOpenMeldEnvPreset(input) !== "dev-local") {
+    return null;
+  }
+  const root = resolve(resolveOpenMeldRootDir(input));
+  return createHash("sha256").update(root).digest("hex").slice(0, 16);
+}
+
+export function resolveOpenMeldServiceOwnedPathInput(
   input: OpenMeldPathResolutionInput = {}
 ): OpenMeldPathResolutionInput {
   const env = { ...(input.env ?? process.env) };
+  if (resolveOpenMeldServiceScope(input)) {
+    return { ...input, env };
+  }
   delete env[OPENMELD_HOME_ENV_KEY];
   return {
     ...input,

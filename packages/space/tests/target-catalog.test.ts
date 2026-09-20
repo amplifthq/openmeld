@@ -449,7 +449,7 @@ describe("space target catalog", () => {
       expect.objectContaining({
         reasonCodes: ["agent_execution.check_status"],
         reasonText: "Checking whether this agent can reply.",
-        status: "blocked",
+        status: "preparing",
       })
     );
   });

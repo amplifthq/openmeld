@@ -3,6 +3,7 @@ import type {
   CenterAgentConnectorActionExecutionConnection,
   RemoteAgentTurnEnvelope,
 } from "@openmeld/schemas/types";
+import { digestCanonicalJson } from "@openmeld/utils";
 import {
   array,
   boolean,
@@ -18,9 +19,12 @@ import {
   optional,
   picklist,
   pipe,
+  record,
   string,
   trim,
+  union,
 } from "valibot";
+import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
@@ -29,7 +33,6 @@ import {
   readRemoteAgentCallbackContext,
   recordRemoteAgentNavigationTarget,
 } from "./callback-context";
-import { digestCanonicalJson } from "./canonical-json";
 import {
   readConnectorActionOperation,
   recordConnectorActionOperation,
@@ -37,7 +40,6 @@ import {
 } from "./connector-tools";
 import { callCoreRpc, requireCoreRpc } from "./core-rpc";
 import {
-  isRemoteAgentDestructiveConfirmationResult,
   resolveRemoteAgentDestructiveAuthorization,
   resolveRemoteAgentRoutineExternalWriteBlock,
 } from "./destructive-authorization";
@@ -45,6 +47,13 @@ import {
   assertRemoteAgentExecutionCanContinue,
   buildRemoteAgentExecutionIdentity,
 } from "./execution-state";
+import {
+  appendOpenMeldTaskReferenceToIssueBody,
+  applyGitHubIssueSpaceTaskBinding,
+  readGitHubIssueIdentityFromWrite,
+  toFailedSpaceTaskGitHubBindingToolResult,
+  toSpaceTaskGitHubBindingToolResult,
+} from "./space-task-github-binding";
 import {
   buildRemoteAgentToolContext,
   resolveOrganizationMemberTurnEnvelopeSpeaker,
@@ -110,6 +119,7 @@ export const REMOTE_AGENT_GITHUB_READ_TOOL_NAMES = [
   "github_list_workflow_runs",
   "github_get_workflow_run",
   "github_list_workflow_run_jobs",
+  "github_get_release_by_tag",
 ] as const;
 
 const REMOTE_AGENT_GITHUB_WRITE_TOOL_NAMES = [
@@ -132,6 +142,7 @@ const REMOTE_AGENT_GITHUB_WRITE_TOOL_NAMES = [
   "github_update_issue",
   "github_update_pull_request",
   "github_update_pull_request_branch",
+  "github_dispatch_workflow",
   "github_rerun_workflow",
   "github_merge_pull_request",
 ] as const;
@@ -147,12 +158,6 @@ export type RemoteAgentGitHubToolName =
 export type RemoteAgentGitHubToolDefinition =
   RemoteAgentToolDefinition<RemoteAgentGitHubToolName>;
 type GitHubActor = (typeof GITHUB_ACTORS)[number];
-
-export type RemoteAgentConnectorExecutionConfig = {
-  baseUrl?: string;
-  fetch?: typeof fetch;
-  runtimeToken?: string;
-};
 
 const nonEmptyStringSchema = pipe(string(), minLength(1));
 const positiveIntegerSchema = pipe(number(), integer(), minValue(1));
@@ -189,6 +194,7 @@ const workflowRunFields = {
   ...repositoryFields,
   runId: positiveIntegerSchema,
 };
+const workflowIdSchema = union([positiveIntegerSchema, nonEmptyStringSchema]);
 const writeConfirmationField = {
   writeConfirmationToken: optional(nonEmptyStringSchema),
 };
@@ -263,6 +269,7 @@ type GitHubActionId =
   | "github.create_pull_request_review_comment"
   | "github.create_ref"
   | "github.delete_file"
+  | "github.dispatch_workflow"
   | "github.get_branch"
   | "github.get_commit"
   | "github.get_commit_statuses"
@@ -271,6 +278,7 @@ type GitHubActionId =
   | "github.get_issue"
   | "github.get_pull_request"
   | "github.get_repository"
+  | "github.get_release_by_tag"
   | "github.get_workflow_run"
   | "github.list_branches"
   | "github.list_check_runs_for_ref"
@@ -311,6 +319,7 @@ type GitHubIssueBatchItem = {
   labels?: string[];
   marker: string;
   result?: unknown;
+  spaceTask?: unknown;
   status: "pending" | "outcome_unknown" | "completed";
   title: string;
 };
@@ -329,7 +338,7 @@ type GitHubIssueBatchManifest = {
 };
 
 export function getRemoteAgentGitHubToolDefinitions(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -697,11 +706,22 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
       inputConfig: input,
       name: "github_list_workflow_run_jobs",
     }),
+    githubToolDefinition({
+      actionId: "github.get_release_by_tag",
+      description:
+        "Get the GitHub Release with one exact tag. Use this when the repository workflow is expected to publish a GitHub Release; a Release record does not prove that an unrelated workflow run created it.",
+      input: object({
+        ...repositoryFields,
+        tag: nonEmptyStringSchema,
+      }),
+      inputConfig: input,
+      name: "github_get_release_by_tag",
+    }),
     githubIssueBatchToolDefinition(input),
     githubToolDefinition({
       actionId: "github.create_issue",
       description: githubWriteToolDescription(
-        "Create an issue in a GitHub repository."
+        "Create an issue in a GitHub repository. In a shared OpenMeld Space, OpenMeld also records a linked Space Task when that association succeeds. The result's spaceTask field says whether the Task was created; do not tell the user a Task exists unless spaceTask.created is true."
       ),
       input: object({
         assignees: optional(array(string())),
@@ -948,7 +968,7 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
     githubToolDefinition({
       actionId: "github.update_issue",
       description: githubWriteToolDescription(
-        "Update an issue's title, body, state, assignees, labels, or milestone."
+        "Update an issue's title, body, state, assignees, labels, or milestone. Closing an issue in a shared OpenMeld Space also closes still-active Space Tasks linked to that issue when the association lookup succeeds. Read spaceTask in the result before claiming Tasks were closed."
       ),
       input: object({
         assignees: optional(array(string())),
@@ -997,6 +1017,22 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
         `update the branch for ${repositoryLabel(payload)}#${String(payload.pullNumber)} with its base branch`,
     }),
     githubToolDefinition({
+      actionId: "github.dispatch_workflow",
+      description: githubWriteToolDescription(
+        "Request a new run for a GitHub Actions workflow that supports workflow_dispatch. Read the repository workflow and its declared inputs first. Pass an explicit branch or tag ref; do not assume main or substitute a bare commit SHA. A completed tool result means the dispatch operation completed, not that the workflow, deployment, or release succeeded. When the provider returns an exact workflow_run_id, inspect that same run later; when its run identity is unavailable, report that uncertainty and do not dispatch again just to obtain an id."
+      ),
+      input: object({
+        inputs: optional(record(nonEmptyStringSchema, string())),
+        ...repositoryFields,
+        ref: nonEmptyStringSchema,
+        workflowId: workflowIdSchema,
+      }),
+      inputConfig: input,
+      name: "github_dispatch_workflow",
+      writeDisclosure: (payload) =>
+        `dispatch workflow ${String(payload.workflowId)} on ${String(payload.ref)} in ${repositoryLabel(payload)}`,
+    }),
+    githubToolDefinition({
       actionId: "github.rerun_workflow",
       description: githubWriteToolDescription(
         "Re-run all jobs in a GitHub Actions workflow run, optionally with debug logging enabled."
@@ -1032,7 +1068,7 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
 }
 
 function githubIssueBatchToolDefinition(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -1135,7 +1171,7 @@ function resolveGitHubIssueBatchBlockedReasons(
 }
 
 async function executeGitHubIssueBatch(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   payload: Record<string, unknown>;
   storage: RemoteAgentStorage;
@@ -1228,7 +1264,7 @@ async function executeGitHubIssueBatch(input: {
 
 async function executeGitHubIssueBatchManifest(input: {
   attribution: Record<string, unknown>;
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   manifest: GitHubIssueBatchManifest;
   manifestKey: string;
@@ -1264,6 +1300,7 @@ async function executeGitHubIssueBatchManifest(input: {
     items: input.manifest.items.map((item) => ({
       externalKey: item.externalKey,
       result: item.result,
+      spaceTask: item.spaceTask,
       status: item.status,
     })),
     operationId: input.operationId,
@@ -1273,7 +1310,7 @@ async function executeGitHubIssueBatchManifest(input: {
 }
 
 async function executeGitHubIssueBatchItem(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   index: number;
   item: GitHubIssueBatchManifest["items"][number];
@@ -1325,11 +1362,13 @@ async function executeGitHubIssueBatchItem(input: {
       outcome: "completed",
       toolContext: input.toolContext,
     });
+    await bindGitHubIssueBatchItemToSpaceTask(input);
     return { status: "completed" };
   }
 
   await recordGitHubConnectorActionAudit({
     actionId: "github.create_issue",
+    connectionName: input.manifest.connectionName,
     coreWorker: input.coreWorker,
     operationId: auditOperationId,
     outcome: "attempted",
@@ -1372,7 +1411,89 @@ async function executeGitHubIssueBatchItem(input: {
     outcome: "completed",
     toolContext: input.toolContext,
   });
+  await bindGitHubIssueBatchItemToSpaceTask(input);
   return { status: "completed" };
+}
+
+async function bindGitHubIssueBatchItemToSpaceTask(input: {
+  connectorExecution?: ConnectorExecutionConfig;
+  coreWorker: RemoteAgentCoreWorkerBinding;
+  index: number;
+  item: GitHubIssueBatchManifest["items"][number];
+  manifest: GitHubIssueBatchManifest;
+  manifestKey: string;
+  owner: string;
+  repo: string;
+  storage: RemoteAgentStorage;
+  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+}): Promise<void> {
+  const item = input.manifest.items[input.index] ?? input.item;
+  try {
+    const binding = await applyGitHubIssueSpaceTaskBinding({
+      actionId: "github.create_issue",
+      actionInput: {
+        body: item.body,
+        owner: input.owner,
+        repo: input.repo,
+        title: item.title,
+      },
+      data: item.result,
+      ports: input.coreWorker,
+      toolContext: input.toolContext,
+    });
+    if (!binding) {
+      return;
+    }
+    input.manifest.items[input.index] = {
+      ...item,
+      spaceTask: toSpaceTaskGitHubBindingToolResult(binding),
+    };
+    await input.storage.put(input.manifestKey, input.manifest);
+    const identity = readGitHubIssueIdentityFromWrite({
+      actionInput: {
+        owner: input.owner,
+        repo: input.repo,
+      },
+      data: item.result,
+    });
+    const createdBody = item.body
+      ? `${item.body}\n\n${item.marker}`
+      : item.marker;
+    const nextBody =
+      binding.issueBodyAppendix && identity
+        ? appendOpenMeldTaskReferenceToIssueBody(
+            createdBody,
+            binding.issueBodyAppendix
+          )
+        : null;
+    if (!(identity && nextBody && input.connectorExecution)) {
+      return;
+    }
+    await runOpenConnectorAction({
+      actionId: "github.update_issue",
+      baseUrl: input.connectorExecution.baseUrl,
+      connectionName: input.manifest.connectionName,
+      fetch: input.connectorExecution.fetch,
+      input: {
+        body: nextBody,
+        issueNumber: identity.number,
+        owner: input.owner,
+        repo: input.repo,
+      },
+      runtimeToken: input.connectorExecution.runtimeToken,
+    });
+  } catch (error) {
+    console.warn("[remote_agent.space_task_github_binding_failed]", {
+      actionId: "github.create_issue",
+      error: error instanceof Error ? error.message : String(error),
+      operationId: input.manifest.operationId,
+    });
+    input.manifest.items[input.index] = {
+      ...item,
+      spaceTask: toFailedSpaceTaskGitHubBindingToolResult(error),
+    };
+    await input.storage.put(input.manifestKey, input.manifest);
+  }
 }
 
 function buildGitHubIssueBatchActionInput(input: {
@@ -1487,7 +1608,7 @@ function githubToolDefinition(input: {
   description: string | { writeSummary: string };
   input: RemoteAgentToolInputSchema;
   inputConfig: {
-    connectorExecution?: RemoteAgentConnectorExecutionConfig;
+    connectorExecution?: ConnectorExecutionConfig;
     coreWorker: RemoteAgentCoreWorkerBinding;
     storage: RemoteAgentStorage;
     submissionId: string;
@@ -1507,12 +1628,6 @@ function githubToolDefinition(input: {
     description: `${GITHUB_ACTOR_GUIDANCE} ${
       input.writeDisclosure ? `${GITHUB_WRITE_OPERATION_GUIDANCE} ` : ""
     }${actionDescription}`,
-    ...(destructive
-      ? {
-          endsTurnAfter: (result: unknown) =>
-            isRemoteAgentDestructiveConfirmationResult(result),
-        }
-      : {}),
     execute: async (payload) =>
       await executeGitHubAction({
         actionId: input.actionId,
@@ -1644,7 +1759,7 @@ function buildGitHubActionAttributionFromExecutionConnection(
 
 async function executeGitHubAction(input: {
   actionId: GitHubActionId;
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   payload: Record<string, unknown>;
   storage: RemoteAgentStorage;
@@ -1752,10 +1867,11 @@ async function executeGitHubAction(input: {
 async function executeIdempotentGitHubWrite(input: {
   actionId: GitHubActionId;
   actionInput: Record<string, unknown>;
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   githubActor: GitHubActor;
   operationId: string;
+  skipSpaceTaskBinding?: boolean;
   storage: RemoteAgentStorage;
   submissionId: string;
   toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
@@ -1915,13 +2031,122 @@ async function executeIdempotentGitHubWrite(input: {
     selection,
     service: "github",
   });
-  return {
+  const result = {
     attribution,
     data: run.data,
     operationId: input.operationId,
     providerExecutionId: run.providerExecutionId,
     replayed: claim.replayed,
-    status: "completed",
+    status: "completed" as const,
+  };
+  if (input.skipSpaceTaskBinding) {
+    return result;
+  }
+  return await withGitHubIssueSpaceTaskBinding({
+    actionId: input.actionId,
+    actionInput: input.actionInput,
+    connectorExecution: input.connectorExecution,
+    coreWorker: input.coreWorker,
+    githubActor: input.githubActor,
+    operationId: input.operationId,
+    result,
+    storage: input.storage,
+    submissionId: input.submissionId,
+    toolContext: input.toolContext,
+    writeConfirmationToken: input.writeConfirmationToken,
+    writeDisclosure: input.writeDisclosure,
+  });
+}
+
+async function withGitHubIssueSpaceTaskBinding(input: {
+  actionId: GitHubActionId;
+  actionInput: Record<string, unknown>;
+  connectorExecution?: ConnectorExecutionConfig;
+  coreWorker: RemoteAgentCoreWorkerBinding;
+  githubActor: GitHubActor;
+  operationId: string;
+  result: {
+    attribution: unknown;
+    data: unknown;
+    operationId: string;
+    providerExecutionId: unknown;
+    replayed: boolean;
+    status: "completed";
+  };
+  storage: RemoteAgentStorage;
+  submissionId: string;
+  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+  writeConfirmationToken: unknown;
+  writeDisclosure: GitHubWriteDisclosure;
+}): Promise<Record<string, unknown>> {
+  let binding: Awaited<ReturnType<typeof applyGitHubIssueSpaceTaskBinding>> =
+    null;
+  try {
+    binding = await applyGitHubIssueSpaceTaskBinding({
+      actionId: input.actionId,
+      actionInput: input.actionInput,
+      data: input.result.data,
+      ports: input.coreWorker,
+      toolContext: input.toolContext,
+    });
+  } catch (error) {
+    console.warn("[remote_agent.space_task_github_binding_failed]", {
+      actionId: input.actionId,
+      error: error instanceof Error ? error.message : String(error),
+      operationId: input.operationId,
+    });
+    return {
+      ...input.result,
+      spaceTask: toFailedSpaceTaskGitHubBindingToolResult(error),
+    };
+  }
+  if (binding?.issueBodyAppendix) {
+    const identity = readGitHubIssueIdentityFromWrite({
+      actionInput: input.actionInput,
+      data: input.result.data,
+    });
+    const nextBody = appendOpenMeldTaskReferenceToIssueBody(
+      typeof input.actionInput.body === "string"
+        ? input.actionInput.body
+        : null,
+      binding.issueBodyAppendix
+    );
+    if (identity && nextBody) {
+      try {
+        await executeIdempotentGitHubWrite({
+          actionId: "github.update_issue",
+          actionInput: {
+            body: nextBody,
+            issueNumber: identity.number,
+            owner: identity.owner,
+            repo: identity.repo,
+          },
+          connectorExecution: input.connectorExecution,
+          coreWorker: input.coreWorker,
+          githubActor: input.githubActor,
+          operationId: `${input.operationId}:space-task-link`,
+          skipSpaceTaskBinding: true,
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolContext: input.toolContext,
+          writeConfirmationToken: input.writeConfirmationToken,
+          writeDisclosure: () =>
+            `add the OpenMeld Task link to ${identity.owner}/${identity.repo}#${String(identity.number)}`,
+        });
+      } catch (error) {
+        console.warn("[remote_agent.space_task_github_link_failed]", {
+          error: error instanceof Error ? error.message : String(error),
+          operationId: input.operationId,
+        });
+      }
+    }
+  }
+  if (!binding) {
+    return input.result;
+  }
+  return {
+    ...input.result,
+    spaceTask: toSpaceTaskGitHubBindingToolResult(binding),
   };
 }
 
@@ -1982,7 +2207,7 @@ async function resolvePendingGitHubDestructiveConfirmation(input: {
   return {
     attribution: input.attribution,
     ...result,
-    ...(result.status === "destructive_confirmation_required"
+    ...(result.status === "destructive_action_preview"
       ? {
           confirmation: {
             ...result.confirmation,
@@ -1998,7 +2223,7 @@ function describeGitHubWriteTool(input: {
   summary: string;
 }): string {
   if (input.destructive) {
-    return `${input.summary} This is a destructive external write. In an interactive conversation, the first call without writeConfirmationToken returns the required confirmation; after the user confirms, call again with that exact one-time token and unchanged input. Routines do not currently support delete or merge actions; the tool returns routine_destructive_action_unsupported with zero side effects.`;
+    return `${input.summary} This is a destructive external write. The first call without writeConfirmationToken previews the exact action and returns a one-time token. If the verified user already authorized that action and target, call again with the token and unchanged input in this turn; otherwise ask first. A token is not user authorization. Routines do not currently support delete or merge actions; the tool returns routine_destructive_action_unsupported with zero side effects.`;
   }
   return `${input.summary} This is an ordinary external write.`;
 }
@@ -2592,6 +2817,7 @@ function describeGitHubWriteIdentity(input: {
 }
 
 async function recordGitHubConnectorActionAudit(input: {
+  connectionName?: string;
   actionId: GitHubActionId;
   coreWorker: RemoteAgentCoreWorkerBinding;
   operationId: string;
@@ -2611,6 +2837,7 @@ async function recordGitHubConnectorActionAudit(input: {
     "centerAgentRecordConnectorActionAudit",
     {
       actionId: input.actionId,
+      connectionName: input.connectionName,
       context: input.toolContext.context,
       operationId: input.operationId,
       outcome: input.outcome,
@@ -2736,7 +2963,7 @@ function githubIssueBatchManifestMatches(
 }
 
 async function findGitHubIssueByOperationMarker(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   connectionName: string;
   marker: string;
   owner: string;
@@ -2794,7 +3021,7 @@ function resolveUnavailableGitHubConnectionMessage(input: {
       : "Your GitHub";
   const action = input.hasNavigationAction
     ? "Use the Open GitHub access action below"
-    : "Open Center Agent → Plugins → GitHub for this workspace";
+    : "Open Plugins → GitHub for this workspace";
   return `${accessName} is not ready. It may be disconnected or authorization may still be pending. ${action}, check ${accessName}, and try again. OpenMeld did not use a different GitHub identity.`;
 }
 
@@ -2966,7 +3193,7 @@ function resolveOpenConnectorGitHubActionError(input: {
     input.errorCode === "authorization_failed" ||
     (input.errorCode === "invalid_input" && normalizedMessage === "not found")
   ) {
-    return `${baseMessage} GitHub could not find or access this resource. It may not exist, or the repository may not be included in the GitHub App installation. Review Center Agent → Plugins → GitHub and the installation's repository access.`;
+    return `${baseMessage} GitHub could not find or access this resource. It may not exist, or the repository may not be included in the GitHub App installation. Review Plugins → GitHub and the installation's repository access.`;
   }
 
   return baseMessage;

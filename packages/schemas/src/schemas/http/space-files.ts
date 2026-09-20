@@ -1,6 +1,9 @@
+import * as eagerZod from "zod/v4";
 import * as z from "../../lazy-zod";
 
-export const SPACE_FILE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
+export const SPACE_FILE_MAX_SIZE_BYTES = 250 * 1024 * 1024;
+const CONTENT_DIGEST_PATTERN = /^[a-f0-9]{64}$/u;
+export const SPACE_FILE_RAW_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
 export const SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES = 1024 * 1024;
 export const SPACE_FILE_MAX_NAME_LENGTH = 255;
 export const SPACE_FILE_MAX_FOLDER_DEPTH = 20;
@@ -30,16 +33,18 @@ const MIME_TYPES_BY_EXTENSION: Readonly<Record<string, string>> = {
 };
 const scopeIdSchema = z.string().trim().min(1).max(512);
 
-export const spaceFileEntryIdSchema = z.string().trim().min(1).max(128);
+// MCP tool discovery traverses schema identity to generate JSON Schema. These
+// shared tool-input leaves must be concrete schemas, not lazy proxy identities.
+export const spaceFileEntryIdSchema = eagerZod.string().trim().min(1).max(128);
 export const spaceFileRevisionIdSchema = z.string().trim().min(1).max(128);
 export const spaceFileClientMutationIdSchema = z
   .string()
   .trim()
   .min(1)
   .max(128);
-export const spaceFileRevisionNumberSchema = z.number().int().min(1);
+export const spaceFileRevisionNumberSchema = eagerZod.number().int().min(1);
 export const spaceFileBaseRevisionSchema = z.number().int().min(1).nullable();
-export const spaceFileSizeBytesSchema = z
+export const spaceFileSizeBytesSchema = eagerZod
   .number()
   .int()
   .min(0)
@@ -91,6 +96,21 @@ export async function buildSpaceFileRevisionIdForMutation(input: {
   parentId?: string | null;
 }): Promise<string> {
   const contentDigest = await sha256Hex(input.bytes);
+  return await buildSpaceFileRevisionIdFromDigest({ ...input, contentDigest });
+}
+
+export async function buildSpaceFileRevisionIdFromDigest(input: {
+  baseRevision: number | null;
+  contentDigest: string;
+  clientMutationId: string;
+  mimeType: string;
+  name?: string;
+  parentId?: string | null;
+}): Promise<string> {
+  const contentDigest = z
+    .string()
+    .regex(CONTENT_DIGEST_PATTERN)
+    .parse(input.contentDigest);
   const revisionIdentity = JSON.stringify({
     baseRevision: spaceFileBaseRevisionSchema.parse(input.baseRevision),
     contentDigest,
@@ -141,30 +161,26 @@ async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
     byte.toString(16).padStart(2, "0")
   ).join("");
 }
-export const spaceFileMimeTypeSchema = z
+export const spaceFileMimeTypeSchema = eagerZod
   .string()
   .trim()
   .toLowerCase()
   .max(255)
   .regex(MEDIA_TYPE_PATTERN, "File type must be a valid media type.");
-export const spaceFileNameSchema = z
+export const spaceFileNameSchema = eagerZod
   .string()
-  .transform((value) => value.trim())
-  .pipe(
-    z
-      .string()
-      .min(1)
-      .max(SPACE_FILE_MAX_NAME_LENGTH)
-      .refine((value) => !PATH_SEPARATOR_PATTERN.test(value), {
-        message: "File names cannot contain path separators.",
-      })
-      .refine((value) => !hasControlCharacter(value), {
-        message: "File names cannot contain control characters.",
-      })
-      .refine((value) => value !== "." && value !== "..", {
-        message: "File names cannot be dot path segments.",
-      })
-  );
+  .trim()
+  .min(1)
+  .max(SPACE_FILE_MAX_NAME_LENGTH)
+  .refine((value) => !PATH_SEPARATOR_PATTERN.test(value), {
+    message: "File names cannot contain path separators.",
+  })
+  .refine((value) => !hasControlCharacter(value), {
+    message: "File names cannot contain control characters.",
+  })
+  .refine((value) => value !== "." && value !== "..", {
+    message: "File names cannot be dot path segments.",
+  });
 
 export const spaceFileActorSchema = z.strictObject({
   profileId: scopeIdSchema,
@@ -247,7 +263,7 @@ export const spaceFileRevisionSchema = z.strictObject({
  * `revision` identify the immutable bytes; the remaining fields are the
  * server-resolved send-time presentation snapshot.
  */
-export const spaceMessageFileReferenceSchema = z.strictObject({
+export const spaceMessageFileReferenceSchema = eagerZod.strictObject({
   fileId: spaceFileEntryIdSchema,
   revision: spaceFileRevisionNumberSchema,
   name: spaceFileNameSchema,
@@ -315,6 +331,12 @@ export const listSpaceFilesResponseSchema = z.strictObject({
 
 export const getSpaceFileResponseSchema = z.strictObject({
   file: spaceFileDescriptorSchema,
+});
+
+export const readSpaceFileTextResponseSchema = z.strictObject({
+  file: spaceFileDescriptorSchema,
+  revision: spaceFileRevisionNumberSchema,
+  content: z.string(),
 });
 
 export const listSpaceFileRevisionsResponseSchema = z.strictObject({

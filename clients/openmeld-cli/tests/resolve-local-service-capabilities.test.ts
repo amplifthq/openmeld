@@ -52,6 +52,7 @@ describe("resolve local service capabilities", () => {
         connectCandidate: true,
         connectDeclaredPath: true,
         discoverProjects: true,
+        readConnections: true,
         moveConnection: true,
         removeConnection: true,
         removeMissingConnections: true,
@@ -67,6 +68,7 @@ describe("resolve local service capabilities", () => {
           adapterId: "codex",
           capabilityDeclaration: {
             continuationCapability: "standard",
+            executionContextVersion: 2,
             imageInputCapability: "local_file_path",
             preparationRequirement: "none",
             runtimeWorkingDirectoryMode: "spawn_cwd",
@@ -125,6 +127,7 @@ describe("resolve local service capabilities", () => {
         connectCandidate: true,
         connectDeclaredPath: true,
         discoverProjects: true,
+        readConnections: true,
         moveConnection: true,
         removeConnection: true,
         removeMissingConnections: true,
@@ -156,7 +159,7 @@ describe("resolve local service capabilities", () => {
     ).not.toHaveProperty("profileConfigurationRevision");
   });
 
-  it("keeps new Service registration compatible with the frozen Core capability schema", () => {
+  it("keeps unscoped Service registration within the base capability contract", () => {
     const capabilities = resolveDaemonCapabilities({
       localAdapterContainer: createLocalAdapterContainer([]),
     });

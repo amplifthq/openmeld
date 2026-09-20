@@ -1,6 +1,36 @@
 import type { AccountSidebarPreferences } from "@openmeld/schemas";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { moveSidebarItemIds, sortSidebarManual } from "../app/sidebar-order";
+import type { SpaceSidebarActiveWakeSummary } from "./space-active-wake-presentation";
+
+export function resolveSidebarAttentionSpaceIds(
+	activeWakeSummaries: ReadonlyMap<string, SpaceSidebarActiveWakeSummary>,
+	inboxAttention: readonly {
+		spaceId: string;
+		unresolvedActionCount: number;
+		unreadUrgentUpdateCount: number;
+	}[] = []
+): Set<string> {
+	const ids = new Set(
+		inboxAttention
+			.filter(
+				(item) =>
+					item.unresolvedActionCount > 0 || item.unreadUrgentUpdateCount > 0
+			)
+			.map((item) => item.spaceId)
+	);
+	for (const [spaceId, summary] of activeWakeSummaries) {
+		if (
+			summary.statuses?.some(
+				(status) =>
+					status.kind === "needs_input" || status.kind === "waiting_for_owner"
+			)
+		) {
+			ids.add(spaceId);
+		}
+	}
+	return ids;
+}
 
 export function sortSidebarSpaces<
 	T extends Pick<

@@ -9,9 +9,13 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TestQueryClientProvider } from "#/test-support/query-client";
+import {
+	createTestQueryClient,
+	TestQueryClientProvider,
+} from "#/test-support/query-client";
 
 const {
 	openMeldLogoStrongMock,
@@ -79,6 +83,13 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 
 	return {
 		...actual,
+		Navigate: (props: { to: string; replace?: boolean }) => {
+			const navigate = useNavigateMock;
+			useEffect(() => {
+				navigate(props);
+			}, [props]);
+			return null;
+		},
 		useElementScrollRestoration: () => undefined,
 		Link: ({
 			children,
@@ -138,20 +149,16 @@ vi.mock("@openmeld/ui/components/openmeld-logo-strong", () => ({
 	OpenMeldLogoStrong: openMeldLogoStrongMock,
 }));
 
-import {
-	APP_PAGE_FRAME_CLASS_NAME,
-	APP_PAGE_FRAME_PADDING_CLASS_NAME,
-} from "#/components/app/shell-layout";
 import { PublicSpacePage } from "./$spaceId";
 
 const MESSAGE_TEXTBOX_NAME = "Message this space";
 const SIGN_IN_LINK_NAME = "Sign in";
 const JOIN_SPACE_BUTTON_PATTERN = /Join as My Human/;
-const CLASS_NAME_SEPARATOR_PATTERN = /\s+/;
 const CENTER_AGENT_PROFILE_ID = "agt_99999999-9999-4999-8999-999999999999";
 const PUBLIC_AGENT_PROFILE_ID = "agt_88888888-8888-4888-8888-888888888888";
 
 type PublicSpaceApiTestDouble = {
+	getHistoryNavigation: ReturnType<typeof vi.fn>;
 	addMembers: ReturnType<typeof vi.fn>;
 	getStatus: ReturnType<typeof vi.fn>;
 	getViewerMembership: ReturnType<typeof vi.fn>;
@@ -233,23 +240,9 @@ describe("PublicSpacePage", () => {
 		expect(
 			within(globalHeader as HTMLElement).queryByRole("tablist")
 		).toBeNull();
-		const conversationBody = screen.getByRole("region", {
-			name: "Space conversation",
-		}).parentElement;
-		const conversationFrame = conversationBody?.parentElement;
-		const conversationFrameClassNames =
-			conversationFrame?.className.split(CLASS_NAME_SEPARATOR_PATTERN) ?? [];
-		expect(conversationFrameClassNames).toContain("mx-auto");
-		expect(conversationFrameClassNames).toContain(APP_PAGE_FRAME_CLASS_NAME);
-		expect(conversationFrameClassNames).toContain("border-x");
-		for (const className of APP_PAGE_FRAME_PADDING_CLASS_NAME.split(" ")) {
-			expect(conversationFrameClassNames).toContain(className);
-		}
 		expect(
-			document
-				.getElementById("space-thread-panel")
-				?.className.split(CLASS_NAME_SEPARATOR_PATTERN)
-		).toContain("border-l-0");
+			screen.getByRole("region", { name: "Space conversation" })
+		).not.toBeNull();
 		expect(
 			screen.getByRole("link", { name: SIGN_IN_LINK_NAME }).getAttribute("href")
 		).toBe("/login?redirect=%2Fspaces%2Fspace-123");
@@ -266,13 +259,54 @@ describe("PublicSpacePage", () => {
 		).toBeNull();
 	});
 
-	it("uses the shared resolver and preserves a message target through sign-in", async () => {
+	it("renders preloaded public messages as server HTML text instead of the loading shell", async () => {
+		const api = createPublicSpaceApi();
+		const queryClient = createTestQueryClient();
+		queryClient.setQueryData(
+			["spaces", "entry-resolution", "space-123", null, null, null],
+			await api.resolveEntry({ spaceId: "space-123" })
+		);
+		queryClient.setQueryData(
+			["public-space", "space-123", "status"],
+			await api.getStatus({ spaceId: "space-123" })
+		);
+		queryClient.setQueryData(
+			["public-space", "space-123", "signals", "main:latest"],
+			await api.listSignalEnvelopes({ spaceId: "space-123" })
+		);
+		queryClient.setQueryData(
+			["public-space", "space-123", "threads"],
+			await api.listThreads({ spaceId: "space-123" })
+		);
+		queryClient.setQueryData(
+			["spaces", "space-123", "__public_space_viewer__", "history-navigation"],
+			await api.getHistoryNavigation({ spaceId: "space-123" })
+		);
+		const apiCreationsBeforeRender = createWebSpaceApiMock.mock.calls.length;
+
+		const html = renderToString(
+			<TestQueryClientProvider queryClient={queryClient}>
+				<PublicSpacePage isAuthenticated={false} spaceId="space-123" />
+			</TestQueryClientProvider>
+		);
+		const body = document.createElement("body");
+		body.innerHTML = html;
+
+		expect(body.textContent).toContain("Hello public viewer.");
+		expect(body.textContent).not.toContain("Loading the latest messages");
+		expect(createWebSpaceApiMock).toHaveBeenCalledTimes(
+			apiCreationsBeforeRender
+		);
+	});
+
+	it.each([
+		"self_join_available",
+		"owner_add_required",
+	])("preserves a message target through sign-in with %s participation", async (state) => {
 		const resolveEntry = vi.fn(async () => ({
-			participation: { state: "self_join_available" },
+			participation: { state },
 			recovery: null,
 			safeContext: {
-				organizationId: "org-acme",
-				organizationSlug: "acme",
 				spaceName: "Shared Roadmap",
 			},
 			target: {
@@ -382,7 +416,7 @@ describe("PublicSpacePage", () => {
 		expect(publicSpaceLogo.getAttribute("data-scale")).toBe("0.32");
 	});
 
-	it("uses the projected Center Agent Dither identity in public messages and threads", async () => {
+	it("uses the projected Center Agent Fluid avatar in public messages and threads", async () => {
 		const rootSignal = createCenterAgentSignalEnvelope({
 			id: "signal-center-root",
 			text: "Public Center Agent update.",
@@ -450,7 +484,11 @@ describe("PublicSpacePage", () => {
 		fireEvent.mouseEnter(
 			rootMessage.closest("[data-signal-id]") as HTMLElement
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Open thread" }));
+		const openThreadLink = screen.getByRole("link", { name: "Open thread" });
+		expect(openThreadLink.getAttribute("href")).toBe(
+			"/spaces/space-123?threadRootSignalId=signal-center-root"
+		);
+		fireEvent.click(openThreadLink);
 
 		const threadPanel = await screen.findByLabelText("Thread");
 		expect(
@@ -508,9 +546,13 @@ describe("PublicSpacePage", () => {
 
 		const linkedReply = await screen.findByText("The linked public reply.");
 		expect(linkedReply.closest('[aria-label="Thread"]')).not.toBeNull();
-		expect(
-			linkedReply.closest('[data-signal-id="linked-thread-reply"]')
-		).not.toBeNull();
+		const replyRow = linkedReply.closest(
+			'[data-signal-id="linked-thread-reply"]'
+		);
+		await waitFor(() => {
+			expect(replyRow?.getAttribute("data-highlighted")).toBe("true");
+			expect(document.activeElement).toBe(replyRow);
+		});
 	});
 
 	it("keeps completed root Wakes terminal in public threads when the thread query omits the top-level reply", async () => {
@@ -561,7 +603,7 @@ describe("PublicSpacePage", () => {
 		fireEvent.mouseEnter(
 			rootMessage?.closest("[data-signal-id]") as HTMLElement
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Open thread" }));
+		fireEvent.click(screen.getByRole("link", { name: "Open thread" }));
 
 		const threadPanel = await screen.findByLabelText("Thread");
 		expect(await within(threadPanel).findByText(rootText)).not.toBeNull();
@@ -712,6 +754,7 @@ describe("PublicSpacePage", () => {
 	it("opens one active human membership through the canonical Web viewer entry", async () => {
 		createWebSpaceApiMock.mockReturnValue(
 			createPublicSpaceApi({
+				resolveEntry: createMemberEntryResolution(),
 				getViewerMembership: vi.fn(async () => ({
 					spaceId: "space-123",
 					activeMemberProfiles: [
@@ -740,6 +783,7 @@ describe("PublicSpacePage", () => {
 
 	it("opens an agent-only membership through the canonical Human viewer without joining the Human", async () => {
 		const spaceApi = createPublicSpaceApi({
+			resolveEntry: createMemberEntryResolution(),
 			getViewerMembership: vi.fn(async () => ({
 				spaceId: "space-123",
 				activeMemberProfiles: [
@@ -769,6 +813,7 @@ describe("PublicSpacePage", () => {
 	it("does not expose Agent members as Web viewer choices when multiple account profiles are members", async () => {
 		createWebSpaceApiMock.mockReturnValue(
 			createPublicSpaceApi({
+				resolveEntry: createMemberEntryResolution(),
 				getViewerMembership: vi.fn(async () => ({
 					spaceId: "space-123",
 					activeMemberProfiles: [
@@ -853,7 +898,8 @@ describe("PublicSpacePage", () => {
 		await waitFor(() => {
 			expect(useNavigateMock).toHaveBeenCalledWith({
 				replace: true,
-				to: "/o/acme/spaces/space-123?profileId=human-self",
+				to: "/spaces/space-123",
+				reloadDocument: true,
 			});
 		});
 	});
@@ -940,7 +986,7 @@ describe("PublicSpacePage", () => {
 
 		expect(await screen.findByText("Shared Roadmap")).not.toBeNull();
 		expect(screen.getByRole("tab", { name: "Messages" })).not.toBeNull();
-		expect(screen.getByRole("tab", { name: "Graph" })).not.toBeNull();
+		expect(screen.queryByRole("tab", { name: "Graph" })).toBeNull();
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Create a Profile" })
 		);
@@ -973,10 +1019,21 @@ function renderPublicSpace(input: {
 	);
 }
 
+function createMemberEntryResolution() {
+	return vi.fn(async () => ({
+		target: { spaceId: "space-123" },
+		view: { state: "allowed", experience: "member" },
+		participation: { state: "active_member" },
+		safeContext: { organizationSlug: "acme", spaceName: "Shared Roadmap" },
+		recovery: null,
+	}));
+}
+
 function createPublicSpaceApi(
 	overrides: Partial<PublicSpaceApiTestDouble> = {}
 ): PublicSpaceApiTestDouble {
 	return {
+		getHistoryNavigation: vi.fn(async () => ({ entries: [], total: 1 })),
 		addMembers: vi.fn(async () => ({
 			addedMemberIds: ["human-self"],
 			alreadyMemberIds: [],
@@ -1019,15 +1076,17 @@ function createPublicSpaceApi(
 			activeMemberProfiles: [],
 			preferredOpenProfileId: null,
 		})),
-		resolveEntry: vi.fn(async () => ({
+		resolveEntry: vi.fn(async (target) => ({
 			participation: { state: "self_join_available" },
 			recovery: null,
 			safeContext: {
-				organizationId: "org-acme",
-				organizationSlug: "acme",
 				spaceName: "Shared Roadmap",
 			},
-			target: { spaceId: "space-123" },
+			target: {
+				spaceId: "space-123",
+				signalId: target.signalId,
+				threadRootSignalId: target.threadRootSignalId,
+			},
 			view: { experience: "public", state: "allowed" },
 		})),
 		...overrides,

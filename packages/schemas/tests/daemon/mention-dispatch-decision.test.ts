@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   MENTION_DISPATCH_ERROR_CODES,
-  planMentionDispatchDecisions,
   planTargetDispatchDecisions,
 } from "../../src";
 
@@ -106,88 +105,5 @@ describe("planTargetDispatchDecisions", () => {
         targetProfileIds: [],
       })
     ).toEqual([]);
-  });
-});
-
-describe("planMentionDispatchDecisions", () => {
-  it("does not treat parsed mention labels as listen-all activation targets", () => {
-    const decisions = planMentionDispatchDecisions({
-      dispatchPolicy: "listen_all",
-      resolveMentionTargetLabel: () => ({
-        bindingState: "bound",
-        enabled: true,
-        targetProfileId: READY_AGENT_PROFILE_ID,
-      }),
-      senderProfileId: HUMAN_PROFILE_ID,
-      sourceEventId: "evt-listen-all-mention",
-      text: "hello @Ready Agent(wake)",
-    });
-
-    expect(decisions).toEqual([
-      expect.objectContaining({
-        errorCode: MENTION_DISPATCH_ERROR_CODES.dispatchPolicyUnsupported,
-        sourceEventId: "evt-listen-all-mention",
-        status: "blocked",
-        targetProfileId: READY_AGENT_PROFILE_ID,
-      }),
-    ]);
-  });
-
-  it("keeps canonical mention-label lookup misses tagged as mention target failures", () => {
-    const decisions = planMentionDispatchDecisions({
-      resolveMentionTargetLabel: () => null,
-      senderProfileId: HUMAN_PROFILE_ID,
-      sourceEventId: "evt-missing-mention",
-      text: "hello @Missing Agent(wake)",
-    });
-
-    expect(decisions).toEqual([
-      expect.objectContaining({
-        status: "failed",
-        sourceEventId: "evt-missing-mention",
-        targetProfileId: "Missing Agent",
-        errorCode: MENTION_DISPATCH_ERROR_CODES.invalidTarget,
-        ruleReason: "mention label cannot be resolved",
-      }),
-    ]);
-  });
-
-  it("matches exact canonical mention labels", () => {
-    const decisions = planMentionDispatchDecisions({
-      resolveMentionTargetLabel: (mentionLabel) =>
-        mentionLabel === "Ready Agent"
-          ? {
-              bindingState: "bound",
-              enabled: true,
-              targetProfileId: READY_AGENT_PROFILE_ID,
-            }
-          : null,
-      senderProfileId: HUMAN_PROFILE_ID,
-      sourceEventId: "evt-case-insensitive",
-      text: "hello @Ready Agent(wake).",
-    });
-
-    expect(decisions).toEqual([
-      expect.objectContaining({
-        status: "dispatch_ready",
-        sourceEventId: "evt-case-insensitive",
-        targetProfileId: READY_AGENT_PROFILE_ID,
-      }),
-    ]);
-  });
-
-  it("ignores escaped canonical mention markers", () => {
-    const decisions = planMentionDispatchDecisions({
-      resolveMentionTargetLabel: () => ({
-        bindingState: "bound",
-        enabled: true,
-        targetProfileId: READY_AGENT_PROFILE_ID,
-      }),
-      senderProfileId: HUMAN_PROFILE_ID,
-      sourceEventId: "evt-escaped",
-      text: String.raw`hello \@Ready Agent(wake)`,
-    });
-
-    expect(decisions).toEqual([]);
   });
 });

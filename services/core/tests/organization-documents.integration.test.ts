@@ -461,8 +461,7 @@ describe("Organization documents", () => {
     } as CoreBindings;
     const context = requestContext(
       fixture.organizationId,
-      fixture.centerAgentProfileId,
-      fixture.owner.userId
+      fixture.centerAgentProfileId
     );
 
     const first = await rpcCenterAgentOrganizationDocumentsComputerSnapshot(
@@ -1200,8 +1199,7 @@ describe("Organization documents", () => {
     const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
     const context = requestContext(
       fixture.organizationId,
-      fixture.centerAgentProfileId,
-      fixture.owner.userId
+      fixture.centerAgentProfileId
     );
     const speakerMember = {
       memberId: fixture.ownerMemberId,
@@ -1275,7 +1273,6 @@ describe("Organization documents", () => {
     const authorizedContext = requestContext(
       fixture.organizationId,
       fixture.centerAgentProfileId,
-      fixture.owner.userId,
       delivery.submissionId
     );
     const saved = await rpcCenterAgentManageOrganizationDocuments(coreEnv, {
@@ -1347,7 +1344,11 @@ describe("Organization documents", () => {
     ).resolves.toEqual({ source_native_delivery_id: delivery.deliveryId });
     const legacyAudit = await rpcListCenterAgentAuditJournal(coreEnv, {
       actionSet: "v13",
-      context: authorizedContext,
+      context: humanRequestContext(
+        fixture.organizationId,
+        fixture.ownerHumanProfileId,
+        fixture.owner.userId
+      ),
       limit: 25,
     });
     expect(
@@ -1357,7 +1358,11 @@ describe("Organization documents", () => {
     ).toBeUndefined();
     const sourceAwareAudit = await rpcListCenterAgentAuditJournal(coreEnv, {
       actionSet: "v14",
-      context: authorizedContext,
+      context: humanRequestContext(
+        fixture.organizationId,
+        fixture.ownerHumanProfileId,
+        fixture.owner.userId
+      ),
       limit: 25,
     });
     expect(
@@ -1615,8 +1620,7 @@ describe("Organization documents", () => {
           action: "create_folder",
           context: requestContext(
             fixture.organizationId,
-            fixture.centerAgentProfileId,
-            fixture.owner.userId
+            fixture.centerAgentProfileId
           ),
           name: folderName,
           operationId,
@@ -1677,8 +1681,7 @@ describe("Organization documents", () => {
           action: "create_folder",
           context: requestContext(
             fixture.organizationId,
-            fixture.centerAgentProfileId,
-            fixture.owner.userId
+            fixture.centerAgentProfileId
           ),
           name: folderName,
           operationId,
@@ -1769,7 +1772,6 @@ describe("Organization documents", () => {
             context: requestContext(
               fixture.organizationId,
               fixture.centerAgentProfileId,
-              fixture.owner.userId,
               "submission-that-ended-during-authorization"
             ),
             operationId,
@@ -1805,7 +1807,6 @@ describe("Organization documents", () => {
         context: requestContext(
           fixture.organizationId,
           fixture.centerAgentProfileId,
-          fixture.owner.userId,
           deniedSubmissionId
         ),
         operationId: "routine-save-without-grant",
@@ -1830,7 +1831,6 @@ describe("Organization documents", () => {
         context: requestContext(
           fixture.organizationId,
           fixture.centerAgentProfileId,
-          fixture.owner.userId,
           authorizedSubmissionId
         ),
         operationId: "routine-save-with-grant",
@@ -1916,8 +1916,7 @@ describe("Organization documents", () => {
     } as CoreBindings;
     const context = requestContext(
       fixture.organizationId,
-      fixture.centerAgentProfileId,
-      fixture.owner.userId
+      fixture.centerAgentProfileId
     );
     const speakerMember = {
       memberId: fixture.ownerMemberId,
@@ -2009,7 +2008,6 @@ describe("Organization documents", () => {
     const context = requestContext(
       fixture.organizationId,
       fixture.centerAgentProfileId,
-      fixture.owner.userId,
       delivery.submissionId
     );
     const speakerMember = {
@@ -2784,7 +2782,7 @@ async function seedFixture(): Promise<{
         managed_role,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, 'agent', 0, 'active', ?, ?, ?, 'cli_create', 'center_agent', ?, ?)
+      ) VALUES (?, ?, ?, 'agent', 0, 'active', ?, NULL, ?, 'cli_create', 'center_agent', ?, ?)
     `
   )
     .bind(
@@ -2792,7 +2790,6 @@ async function seedFixture(): Promise<{
       "Center Agent",
       `center-agent-${suffix}`,
       organizationId,
-      users[0].id,
       users[0].id,
       1000,
       1000
@@ -3134,7 +3131,6 @@ async function seedAcceptedRoutineDocumentDelivery(input: {
 function requestContext(
   organizationId: string,
   profileId: string,
-  ownerUserId = "owner-contract",
   agentControllerConversationId?: string
 ) {
   return {
@@ -3142,8 +3138,7 @@ function requestContext(
     ...(agentControllerConversationId ? { agentControllerConversationId } : {}),
     actorContext: {
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      callerPrincipalId: ownerUserId,
-      ownerUserId,
+      callerPrincipalId: profileId,
       profileKind: "agent" as const,
       profileName: "Center Agent",
       requestId: "org-document-contract-request",

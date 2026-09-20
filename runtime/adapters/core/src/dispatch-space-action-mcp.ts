@@ -8,6 +8,15 @@ const SPACE_ACTION_TOOL_COMMAND_PATH_ENV =
 export const OPENMELD_SPACE_ACTION_MCP_SERVER_ID =
   "openmeld_internal_dispatch_space_action";
 export const OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES = [
+  "working_copy",
+  "read_file",
+  "read_history",
+  "list_tasks",
+  "create_task",
+  "start_task",
+  "submit_task_result",
+  "review_task",
+  "cancel_task",
   "reply",
   "status",
   "stay_silent",
@@ -21,6 +30,11 @@ const FORWARDED_ENV_NAMES = [
   "OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID",
   USER_FACING_CLI_COMMAND_ENV,
   "OPENMELD_ENV_PRESET",
+  // The tool process must use the carrier's lane, not its host's default home.
+  // This is an installation selector, not a credential or additional authority.
+  "OPENMELD_HOME",
+  "OPENMELD_AUTH_URL",
+  "OPENMELD_GATEWAY_URL",
 ] as const;
 
 const OPENMELD_CLI_COMMANDS = new Set([

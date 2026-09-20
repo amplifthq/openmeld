@@ -29,13 +29,22 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 }
 
 export function parseStagingReleaseArgs(argv) {
-  const args = argv.filter((arg) => arg !== "--");
+  const skipContainers = argv.includes("--containers-rollout=none");
+  const args = argv.filter(
+    (arg) => arg !== "--" && arg !== "--containers-rollout=none"
+  );
   const command = args[0];
   if (!STAGING_COMMANDS.has(command)) {
     throw new Error("Staging release command must be plan, deploy, or verify.");
   }
+  if (skipContainers && (command === "verify" || args.includes("web"))) {
+    throw new Error(
+      "Container rollout applies only to a Remote Agent deployment."
+    );
+  }
+  const rollout = skipContainers ? { skipContainers: true } : {};
   if (args.length === 1) {
-    return { command, scope: null };
+    return { command, scope: null, ...rollout };
   }
   if (command === "verify" || args.length !== 3 || args[1] !== "--scope") {
     throw new Error(
@@ -48,7 +57,7 @@ export function parseStagingReleaseArgs(argv) {
       "Staging deploy scope must be web or remote-agent. Use the full deploy for database-backed components."
     );
   }
-  return { command, scope };
+  return { command, scope, ...rollout };
 }
 
 export function buildStagingDeployStepSpecs(input = {}) {
@@ -61,7 +70,12 @@ export function buildStagingDeployStepSpecs(input = {}) {
       environmentContractStep(),
       stagingSecretCheckStep(),
       stagingResourceVerificationStep(),
-      workerDeployStep(input.scope, worker.packageName, worker.label),
+      workerDeployStep(
+        input.scope,
+        worker.packageName,
+        worker.label,
+        input.skipContainers
+      ),
       stagingResourceVerificationStep(),
       stagingEntryPointVerificationStep(),
     ];
@@ -119,7 +133,12 @@ export function buildStagingDeployStepSpecs(input = {}) {
     workerDeployStep("core", "@openmeld/core", "Core"),
     workerDeployStep("gateway", "@openmeld/gateway", "Gateway"),
     workerDeployStep("web", "openmeld-web", "Web"),
-    workerDeployStep("remote-agent", "@openmeld/remote-agent", "Remote Agent"),
+    workerDeployStep(
+      "remote-agent",
+      "@openmeld/remote-agent",
+      "Remote Agent",
+      input.skipContainers
+    ),
     stagingResourceVerificationStep(),
     stagingEntryPointVerificationStep(),
   ];
@@ -137,10 +156,10 @@ export function buildStagingVerifyStepSpecs() {
 async function runStagingRelease(input) {
   const steps =
     input.command === "deploy"
-      ? buildStagingDeployStepSpecs({ scope: input.scope })
+      ? buildStagingDeployStepSpecs(input)
       : buildStagingVerifyStepSpecs();
   if (input.command === "plan") {
-    printPlan(buildStagingDeployStepSpecs({ scope: input.scope }));
+    printPlan(buildStagingDeployStepSpecs(input));
     return;
   }
   if (input.command === "deploy") {
@@ -198,7 +217,28 @@ function stagingEntryPointVerificationStep() {
   };
 }
 
-function workerDeployStep(component, packageName, label) {
+function workerDeployStep(
+  component,
+  packageName,
+  label,
+  skipContainers = false
+) {
+  if (component === "remote-agent" && skipContainers) {
+    return stagingComponentStep({
+      args: [
+        "--filter",
+        packageName,
+        "exec",
+        "sh",
+        "-c",
+        "pnpm run sync:secrets:stg && pnpm run deploy:stg --containers-rollout=none",
+      ],
+      command: "pnpm",
+      component,
+      label: `Deploy staging ${label} (keep existing containers)`,
+      mutates: true,
+    });
+  }
   return stagingComponentStep({
     args: ["--filter", packageName, "run", "sync:stg"],
     command: "pnpm",

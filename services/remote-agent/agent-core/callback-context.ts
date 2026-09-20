@@ -2,19 +2,22 @@ import {
   CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
   CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY,
   CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY,
-  CENTER_AGENT_TASK_REFERENCE_MAX_COUNT,
   type CenterAgentModelRoute,
   centerAgentModelRouteSchema,
   conversationCompactionMarkerSchema,
   type OpenMeldNavigationTarget,
   openMeldNavigationTargetSchema,
+  openMeldRuntimeProfileIdSchema,
   REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE,
+  REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY,
+  REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE,
   remoteAgentCoreCallbackBodySchema,
   remoteAgentCoreCallbackEventSchema,
   remoteAgentCoreCallbackResponseSchema,
   remoteAgentWorkerConversationIdentitySchema,
+  remoteAgentWorkerSubmitTurnRequestV1Schema,
   remoteAgentWorkLoopCheckpointSchema,
   resolveMappedPublicAgentFailureReason,
   SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
@@ -29,12 +32,10 @@ import type {
   CenterAgentCreateProjectToolResponse,
   CenterAgentCreateProjectToolRpcInput,
   CenterAgentCreateRoutineToolRpcInput,
-  CenterAgentCreateTaskToolRpcInput,
   CenterAgentDeleteRoutineToolRpcInput,
   CenterAgentDraftOrganizationDocumentResponse,
   CenterAgentDraftOrganizationDocumentRpcInput,
   CenterAgentGetOrganizationInviteLinkToolRpcInput,
-  CenterAgentGetTaskToolRpcInput,
   CenterAgentInstallOrganizationSkillResponse,
   CenterAgentInstallOrganizationSkillRpcInput,
   CenterAgentInviteSlackTeammatesRpcInput,
@@ -50,7 +51,6 @@ import type {
   CenterAgentListSlackChannelsResponse,
   CenterAgentListSpaceFilesResponse,
   CenterAgentListSpaceFilesRpcInput,
-  CenterAgentListTasksToolRpcInput,
   CenterAgentManageOrganizationDocumentsResponse,
   CenterAgentManageOrganizationDocumentsRpcInput,
   CenterAgentManageSpaceFilesResponse,
@@ -106,7 +106,6 @@ import type {
   CenterAgentSetOrganizationWorkingLanguageToolRpcInput,
   CenterAgentSpaceAuthoringContractResponse,
   CenterAgentStartSelfMemberResearchToolRpcInput,
-  CenterAgentTaskReference,
   CenterAgentUpdateProjectToolResponse,
   CenterAgentUpdateProjectToolRpcInput,
   CenterAgentUpdateRoutineToolRpcInput,
@@ -114,11 +113,8 @@ import type {
   CommitSpaceFileWriteInput,
   ConversationCompactionMarker,
   CreateCenterAgentRoutineResponse,
-  CreateCenterAgentTaskResponse,
   DeleteCenterAgentRoutineResponse,
-  GetCenterAgentTaskResponse,
   ListCenterAgentRoutinesResponse,
-  ListCenterAgentTasksResponse,
   OpenMeldRequestContext,
   OrganizationDocumentPromptContextResponse,
   OrganizationDocumentPromptContextRpcInput,
@@ -137,10 +133,11 @@ import type {
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamPartCallbackBody,
   RemoteAgentTurnEnvelope,
-  RemoteAgentWorkerConversationIdentity,
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
   RemoteAgentWorkLoopCheckpoint,
+  ResolveSpaceFileContentInput,
+  ResolveSpaceFileContentResponse,
   ResumeCenterAgentRoutineResponse,
   SpaceAttachmentDescriptor,
   SpaceFileDescriptor,
@@ -156,6 +153,7 @@ import {
   normalizeRemoteAgentErrorMessage,
 } from "./error-message";
 import { extractSlackThreadPublicationTargetKeys } from "./slack-thread-publication-evidence";
+import { retainFinalizedRemoteAgentToolProgress } from "./tool-progress";
 import type { RemoteAgentTurnUsage, RemoteAgentUsageRecord } from "./usage";
 
 export type RemoteAgentCallbackStatus =
@@ -171,7 +169,6 @@ const CALLBACK_RETRY_MAX_DELAY_MS = 300_000;
 const CALLBACK_CONTEXT_WRITE_MAX_ATTEMPTS = 8;
 const ANONYMOUS_IDENTITY_BOUNDARY_WRITE_MAX_ATTEMPTS = 8;
 const NAVIGATION_TARGET_WRITE_MAX_ATTEMPTS = 8;
-const CENTER_AGENT_TASK_REFERENCE_WRITE_MAX_ATTEMPTS = 8;
 const CONVERSATION_COMPACTION_WRITE_MAX_ATTEMPTS = 8;
 const WORK_LOOP_CHECKPOINT_WRITE_MAX_ATTEMPTS = 8;
 export const REMOTE_AGENT_CALLBACK_CONTEXT_WAIT_MS = 5000;
@@ -199,7 +196,7 @@ export type RemoteAgentCallbackContext = {
   accepted: boolean;
   acceptedAt: string;
   agentProfileId: string;
-  agentProfileOwnerUserId: string;
+  agentProfileOwnerUserId: string | null;
   anonymousIdentityBoundary?: RemoteAgentAnonymousIdentityBoundary;
   bindingId: string;
   callbackAttempts: number;
@@ -207,10 +204,12 @@ export type RemoteAgentCallbackContext = {
   callbackNextAttemptAt?: string;
   callbackStatus: RemoteAgentCallbackStatus;
   completedText?: string;
-  centerAgentTaskReferences?: CenterAgentTaskReference[];
   conversationId?: string;
-  conversationIdentity?: RemoteAgentWorkerConversationIdentity;
+  conversationIdentity?: import("zod/v4").infer<
+    typeof remoteAgentWorkerConversationIdentitySchema
+  >;
   runtimeConversationId?: string;
+  replyRecovery?: RemoteAgentWorkerSubmitTurnRequest["replyRecovery"];
   conversationCompaction?: ConversationCompactionMarker;
   outputAttachments?: SpaceMessageAttachment[];
   outputFiles?: SpaceMessageFileReference[];
@@ -222,10 +221,13 @@ export type RemoteAgentCallbackContext = {
   modelRoute?: CenterAgentModelRoute;
   modelId?: string | null;
   navigationTarget?: OpenMeldNavigationTarget;
+  mentionTargets?: string[];
   organizationId: string;
   organizationSkillReleases?: OrganizationSkillRuntimeReleaseSelection[];
+  workHandoff?: RemoteAgentWorkerSubmitTurnRequest["workHandoff"];
   requestId?: string;
   sourceClientMessageId: string | null;
+  sharedSpaceContextEnabled?: boolean;
   trustedSlackThreadPublicationTargetKeys?: string[];
   spaceId: string;
   submissionCreatedAt: number;
@@ -281,6 +283,13 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  getSpaceTask?(input: unknown): Promise<unknown>;
+  listSpaceTasks?(input: unknown): Promise<unknown>;
+  createSpaceTask?(input: unknown): Promise<unknown>;
+  mutateSpaceTask?(input: unknown): Promise<unknown>;
+  centerAgentSetReplyPlacement?(
+    input: CenterAgentSetReplyPlacementInput
+  ): Promise<NativeReplyPlacement>;
   centerAgentSetOrganizationWorkingLanguage?(
     input: CenterAgentSetOrganizationWorkingLanguageToolRpcInput
   ): Promise<CenterAgentSetOrganizationWorkingLanguageToolResponse>;
@@ -328,15 +337,6 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentCreateRoutine?(
     input: CenterAgentCreateRoutineToolRpcInput
   ): Promise<CreateCenterAgentRoutineResponse>;
-  centerAgentCreateTask?(
-    input: CenterAgentCreateTaskToolRpcInput
-  ): Promise<CreateCenterAgentTaskResponse>;
-  centerAgentGetTask?(
-    input: CenterAgentGetTaskToolRpcInput
-  ): Promise<GetCenterAgentTaskResponse>;
-  centerAgentListTasks?(
-    input: CenterAgentListTasksToolRpcInput
-  ): Promise<ListCenterAgentTasksResponse>;
   centerAgentListOrganizationMembers?(
     input: CenterAgentListOrganizationMembersToolRpcInput
   ): Promise<CenterAgentListOrganizationMembersResponse>;
@@ -458,6 +458,12 @@ export type RemoteAgentCoreWorkerBinding = {
       context: OpenMeldRequestContext;
     }
   ): Promise<CenterAgentReadSlackFileResponse>;
+  centerAgentReadChannelFile?(
+    input: CenterAgentReadChannelFileBody & { context: OpenMeldRequestContext }
+  ): Promise<CenterAgentReadChannelFileResponse>;
+  centerAgentPostChannelFile?(
+    input: CenterAgentPostChannelFileBody & { context: OpenMeldRequestContext }
+  ): Promise<CenterAgentPostChannelFileResponse>;
   centerAgentSearchSlackMessages?(
     input: CenterAgentSearchSlackMessagesBody & {
       context: OpenMeldRequestContext;
@@ -537,6 +543,7 @@ export type RemoteAgentCoreWorkerBinding = {
   ): Promise<unknown>;
   centerAgentUpdateSpaceSettings?(input: unknown): Promise<unknown>;
   centerAgentWakeAgentProfilesInSpace?(input: unknown): Promise<unknown>;
+  personalRemoteAgentSpaceTool?(input: unknown): Promise<unknown>;
   centerAgentListAgentTasks?(input: unknown): Promise<unknown>;
   centerAgentWatchAgentTask?(input: unknown): Promise<unknown>;
   inspectExecutionRecovery?(input: unknown): Promise<unknown>;
@@ -556,6 +563,11 @@ export type RemoteAgentCoreWorkerBinding = {
     spaceId: string;
     write: CommitSpaceFileWriteInput;
   }): Promise<SpaceFileDescriptor>;
+  readSpaceFileContent?(input: {
+    context: OpenMeldRequestContext;
+    spaceId: string;
+    content: ResolveSpaceFileContentInput;
+  }): Promise<ResolveSpaceFileContentResponse & { bytes: ArrayBuffer }>;
   deleteSpaceAttachmentRecord?(input: {
     attachmentId: string;
   }): Promise<{ deleted: boolean }>;
@@ -635,14 +647,16 @@ export function createRemoteAgentCallbackContext(input: {
   return {
     accepted: input.ack.accepted,
     acceptedAt: new Date(input.nowMs).toISOString(),
+    ...(input.request.replyRecovery
+      ? { replyRecovery: input.request.replyRecovery }
+      : {}),
     agentProfileId: input.request.agentProfileId,
     agentProfileOwnerUserId: input.request.agentProfileOwnerUserId,
     bindingId: input.request.bindingId,
     callbackAttempts: 0,
     callbackStatus: "pending",
     conversationId: input.request.conversationId,
-    ...((input.request.v === 3 || input.request.v === 4) &&
-    input.request.conversationIdentity
+    ...(input.request.v === 4 && input.request.conversationIdentity
       ? { conversationIdentity: input.request.conversationIdentity }
       : {}),
     ...(input.request.v === 4
@@ -652,12 +666,16 @@ export function createRemoteAgentCallbackContext(input: {
     idempotencyKey: input.request.idempotencyKey,
     ...(input.request.v === 1 ? {} : { modelRoute: input.request.modelRoute }),
     organizationId: input.request.organizationId,
+    workHandoff: input.request.workHandoff,
     organizationSkillReleases:
       input.request.organizationSkillReleases?.map((release) => ({
         ...release,
       })) ?? [],
     requestId: input.ack.requestId,
     sourceClientMessageId: input.request.sourceClientMessageId ?? null,
+    sharedSpaceContextEnabled:
+      input.request.v === 4 &&
+      input.request.sourceMessageEnvelope !== undefined,
     trustedSlackThreadPublicationTargetKeys:
       extractSlackThreadPublicationTargetKeys(
         input.request.messages.map((message) => message.content)
@@ -683,7 +701,7 @@ export async function putRemoteAgentCallbackContext(
   notifyRemoteAgentCallbackContextWaiters(context.submissionId);
 }
 
-async function updateRemoteAgentCallbackContext(input: {
+export async function updateRemoteAgentCallbackContext(input: {
   storage: RemoteAgentStorage;
   submissionId: string;
   update: (current: RemoteAgentCallbackContext) => RemoteAgentCallbackContext;
@@ -715,6 +733,25 @@ async function updateRemoteAgentCallbackContext(input: {
   throw new Error(
     `Remote Agent callback context ${input.submissionId} could not be updated after concurrent writes.`
   );
+}
+
+export async function recordRemoteAgentReplyMentions(input: {
+  storage: RemoteAgentStorage;
+  submissionId: string;
+  mentionTargets: string[];
+}): Promise<RemoteAgentCallbackContext> {
+  const mentionTargets = openMeldRuntimeProfileIdSchema
+    .array()
+    .max(25)
+    .parse(input.mentionTargets);
+  return await updateRemoteAgentCallbackContext({
+    storage: input.storage,
+    submissionId: input.submissionId,
+    update: (current) => ({
+      ...current,
+      mentionTargets: [...new Set(mentionTargets)],
+    }),
+  });
 }
 
 export async function recordRemoteAgentNavigationTarget(input: {
@@ -1033,9 +1070,6 @@ export function buildRemoteAgentCoreCallbackBody(input: {
     agentProfileId: input.context.agentProfileId,
     bindingId: input.context.bindingId,
     callbackAttempt: input.context.callbackAttempts + 1,
-    ...(input.context.centerAgentTaskReferences?.length
-      ? { centerAgentTaskReferences: input.context.centerAgentTaskReferences }
-      : {}),
     dispatchId: input.context.dispatchId,
     idempotencyKey: input.context.idempotencyKey,
     organizationId: input.context.organizationId,
@@ -1049,6 +1083,9 @@ export function buildRemoteAgentCoreCallbackBody(input: {
     status: "completed",
     submissionId: input.context.submissionId,
     text: normalizeRemoteAgentCompletedAnswer(input.text),
+    ...(input.context.mentionTargets?.length
+      ? { mentionTargets: input.context.mentionTargets }
+      : {}),
     triggerMessageId: input.context.triggerMessageId,
     ...(input.context.outputAttachments?.length
       ? { attachments: input.context.outputAttachments }
@@ -1122,60 +1159,6 @@ export async function recordRemoteAgentWorkLoopCheckpoint(input: {
   }
   throw new Error(
     `Remote Agent work-loop checkpoint ${input.submissionId} could not be persisted after concurrent writes.`
-  );
-}
-
-export async function recordRemoteAgentCenterAgentTaskReference(input: {
-  storage: RemoteAgentStorage;
-  submissionId: string;
-  taskId: string;
-}): Promise<RemoteAgentCallbackContext> {
-  const taskId = input.taskId.trim();
-  if (!taskId) {
-    throw new Error(
-      "Remote Agent Center Agent Task reference requires taskId."
-    );
-  }
-  const key = buildRemoteAgentCallbackContextKey(input.submissionId);
-  for (
-    let attempt = 0;
-    attempt < CENTER_AGENT_TASK_REFERENCE_WRITE_MAX_ATTEMPTS;
-    attempt += 1
-  ) {
-    const current = await readRemoteAgentCallbackContext(
-      input.storage,
-      input.submissionId
-    );
-    if (!current) {
-      throw new Error(
-        `Remote Agent Center Agent Task reference requires callback context ${input.submissionId}.`
-      );
-    }
-    if (current.callbackStatus !== "pending") {
-      throw new Error(
-        `Remote Agent Center Agent Task reference cannot update ${current.callbackStatus} callback context ${input.submissionId}.`
-      );
-    }
-    const references = current.centerAgentTaskReferences ?? [];
-    if (references.some((reference) => reference.taskId === taskId)) {
-      return current;
-    }
-    if (references.length >= CENTER_AGENT_TASK_REFERENCE_MAX_COUNT) {
-      throw new Error(
-        `Remote Agent Center Agent Task references exceed the ${CENTER_AGENT_TASK_REFERENCE_MAX_COUNT}-reference limit.`
-      );
-    }
-    const updated: RemoteAgentCallbackContext = {
-      ...current,
-      centerAgentTaskReferences: [...references, { taskId }],
-    };
-    if (await input.storage.compareAndSet(key, current, updated)) {
-      notifyRemoteAgentCallbackContextWaiters(input.submissionId);
-      return updated;
-    }
-  }
-  throw new Error(
-    `Remote Agent Center Agent Task reference could not update callback context ${input.submissionId} after concurrent writes.`
   );
 }
 
@@ -1449,7 +1432,6 @@ export async function projectRemoteAgentCompletedAnswer(input: {
         lastFailureFact: _lastFailureFact,
         lastCoreResponse: _lastCoreResponse,
         terminalFailureFact: _terminalFailureFact,
-        workLoopCheckpoint: _workLoopCheckpoint,
         ...contextWithoutStalePayload
       } = current;
       return {
@@ -1547,6 +1529,16 @@ export async function attemptRemoteAgentCallbackDelivery(input: {
       spaceId: body.spaceId,
       submissionId: body.submissionId,
     });
+    if (
+      response.status === "accepted" &&
+      body.status !== "continuation_required"
+    ) {
+      await retainFinalizedRemoteAgentToolProgress({
+        context,
+        nowMs: input.nowMs,
+        storage: input.storage,
+      });
+    }
     return await updateRemoteAgentCallbackContext({
       storage: input.storage,
       submissionId: context.submissionId,
@@ -1811,6 +1803,8 @@ function resolveRemoteAgentFailureMessage(code: string): string {
       return CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY;
     case REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE:
       return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY;
+    case REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE:
+      return REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY;
     case "remote_agent.turn_not_completed":
       return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
     case "remote_agent.execution_cancelled":
@@ -1923,6 +1917,11 @@ function isRemoteAgentCallbackContext(
     typeof candidate.bindingId === "string" &&
     typeof candidate.triggerMessageId === "string" &&
     typeof candidate.dispatchId === "string" &&
+    (candidate.mentionTargets === undefined ||
+      openMeldRuntimeProfileIdSchema
+        .array()
+        .max(25)
+        .safeParse(candidate.mentionTargets).success) &&
     typeof candidate.submissionCreatedAt === "number" &&
     (candidate.toolExecutionDeadlineAtMs === undefined ||
       (Number.isSafeInteger(candidate.toolExecutionDeadlineAtMs) &&
@@ -1945,15 +1944,10 @@ function isRemoteAgentCallbackContext(
     (candidate.runtimeConversationId === undefined ||
       (typeof candidate.runtimeConversationId === "string" &&
         candidate.runtimeConversationId.trim().length > 0)) &&
-    (candidate.centerAgentTaskReferences === undefined ||
-      (Array.isArray(candidate.centerAgentTaskReferences) &&
-        candidate.centerAgentTaskReferences.length <=
-          CENTER_AGENT_TASK_REFERENCE_MAX_COUNT &&
-        candidate.centerAgentTaskReferences.every(
-          (reference) =>
-            typeof reference?.taskId === "string" &&
-            reference.taskId.trim().length > 0
-        ))) &&
+    (candidate.replyRecovery === undefined ||
+      remoteAgentWorkerSubmitTurnRequestV1Schema.shape.replyRecovery.safeParse(
+        candidate.replyRecovery
+      ).success) &&
     (candidate.modelRoute === undefined ||
       centerAgentModelRouteSchema.safeParse(candidate.modelRoute).success) &&
     (candidate.workLoopCheckpoint === undefined ||
@@ -2052,3 +2046,12 @@ function toOptionalErrorMessage(error: unknown): string | undefined {
   }
   return sanitizeDispatchErrorSummary(toErrorMessage(error)) ?? undefined;
 }
+
+import type {
+  CenterAgentPostChannelFileBody,
+  CenterAgentPostChannelFileResponse,
+  CenterAgentReadChannelFileBody,
+  CenterAgentReadChannelFileResponse,
+  CenterAgentSetReplyPlacementInput,
+  NativeReplyPlacement,
+} from "@openmeld/schemas/types";

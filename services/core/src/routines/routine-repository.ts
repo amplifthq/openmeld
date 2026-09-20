@@ -1,7 +1,9 @@
 import {
+  buildMessageChannelConversationId,
   centerAgentRoutineAuthorizedActionsSchema,
   centerAgentRoutineCreationAttributionSchema,
   centerAgentRoutineExternalActionPolicySchema,
+  messageChannelConversationLocatorSchema,
 } from "@openmeld/schemas";
 import type {
   CenterAgentAttribution,
@@ -22,6 +24,7 @@ type RoutineAuditAction =
   | "update_routine";
 
 export type StoredRoutine = Omit<CenterAgentRoutine, "canManage"> & {
+  agentProfileId?: string | null;
   authorizedActions: CenterAgentRoutineAuthorizedAction[];
   creationAttribution: CenterAgentRoutineCreationAttribution | null;
   externalActionPolicy: CenterAgentRoutineExternalActionPolicy;
@@ -35,12 +38,14 @@ export type DueRoutine = StoredRoutine & {
 };
 
 export type RoutineRunExecutionRecord = CenterAgentRoutineRun & {
+  agentProfileIdSnapshot: string | null;
   continuationDelegationId: string | null;
   executionEngine: RoutineExecutionEngine | null;
   routineNameSnapshot: string | null;
 };
 
 type RoutineRow = {
+  agent_profile_id: string | null;
   id: string;
   organization_id: string;
   name: string;
@@ -51,7 +56,8 @@ type RoutineRow = {
   cron_expression: string | null;
   timezone: string | null;
   run_at_ms: number | null;
-  destination_kind: "slack_thread" | "space";
+  message_channel_destination_json: string | null;
+  destination_kind: "slack_thread" | "space" | "message_channel";
   target_space_id: string | null;
   slack_team_id: string | null;
   slack_channel_id: string | null;
@@ -76,6 +82,7 @@ type RoutineRow = {
 };
 
 type RoutineRunRow = {
+  agent_profile_id_snapshot: string | null;
   id: string;
   routine_id: string;
   organization_id: string;
@@ -86,7 +93,12 @@ type RoutineRunRow = {
   execution_engine: string | null;
   continuation_delegation_id: string | null;
   routine_name_snapshot: string | null;
-  destination_kind_snapshot: "slack_thread" | "space" | null;
+  message_channel_destination_json_snapshot: string | null;
+  destination_kind_snapshot:
+    | "slack_thread"
+    | "space"
+    | "message_channel"
+    | null;
   target_space_id_snapshot: string | null;
   slack_team_id_snapshot: string | null;
   slack_channel_id_snapshot: string | null;
@@ -100,7 +112,8 @@ type RoutineRunRow = {
 };
 
 export type UnpublishedFailedRoutineRun = {
-  destinationKind: "slack_thread" | "space";
+  messageChannelLocator?: CenterAgentRoutine["messageChannelLocator"];
+  destinationKind: "slack_thread" | "space" | "message_channel";
   failurePublicationAttemptCount: number;
   failureCode: string;
   failureDetail: string | null;
@@ -117,6 +130,7 @@ export type UnpublishedFailedRoutineRun = {
 const ROUTINE_RECORD_SELECT = `
   SELECT
     routine.id AS id,
+    routine.agent_profile_id AS agent_profile_id,
     routine.organization_id AS organization_id,
     routine.name AS name,
     routine.instructions AS instructions,
@@ -126,6 +140,7 @@ const ROUTINE_RECORD_SELECT = `
     routine.cron_expression AS cron_expression,
     routine.timezone AS timezone,
     routine.run_at_ms AS run_at_ms,
+    routine.message_channel_destination_json AS message_channel_destination_json,
     routine.destination_kind AS destination_kind,
     routine.target_space_id AS target_space_id,
     routine.slack_team_id AS slack_team_id,
@@ -172,6 +187,7 @@ export type RoutineOccurrenceClaimOutcome =
   | { status: "lost_race" };
 
 export async function listRoutineRecords(input: {
+  agentProfileId?: string | null;
   db: D1Database;
   organizationId: string;
 }): Promise<StoredRoutine[]> {
@@ -180,10 +196,11 @@ export async function listRoutineRecords(input: {
       `
         ${ROUTINE_RECORD_SELECT}
         WHERE routine.organization_id = ?
+          AND routine.agent_profile_id IS ?
         ORDER BY routine.updated_at_ms DESC, routine.id DESC
       `
     )
-    .bind(input.organizationId)
+    .bind(input.organizationId, input.agentProfileId ?? null)
     .all<RoutineRow>();
 
   return (result.results ?? []).map(mapRoutineRow);
@@ -292,6 +309,7 @@ export async function insertRoutineRecord(input: {
       `
         INSERT INTO routines (
           id,
+          agent_profile_id,
           organization_id,
           name,
           instructions,
@@ -301,6 +319,7 @@ export async function insertRoutineRecord(input: {
           cron_expression,
           timezone,
           run_at_ms,
+          message_channel_destination_json,
           destination_kind,
           target_space_id,
           slack_team_id,
@@ -316,7 +335,7 @@ export async function insertRoutineRecord(input: {
           created_at_ms,
           updated_at_ms
         )
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, json_patch(
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, json_patch(
           json_object('displayName', ?),
           COALESCE(
             (
@@ -345,6 +364,7 @@ export async function insertRoutineRecord(input: {
     )
     .bind(
       input.routine.id,
+      input.routine.agentProfileId ?? null,
       input.routine.organizationId,
       input.routine.name,
       input.routine.instructions,
@@ -354,6 +374,7 @@ export async function insertRoutineRecord(input: {
       input.routine.cronExpression,
       input.routine.timezone,
       input.routine.runAtMs,
+      serializeMessageChannelDestination(input.routine.messageChannelLocator),
       input.routine.destinationKind,
       input.routine.targetSpaceId,
       input.routine.slackTeamId,
@@ -403,6 +424,7 @@ export async function updateRoutineRecord(input: {
           cron_expression = ?,
           timezone = ?,
           run_at_ms = ?,
+          message_channel_destination_json = ?,
           destination_kind = ?,
           target_space_id = ?,
           slack_team_id = ?,
@@ -425,6 +447,7 @@ export async function updateRoutineRecord(input: {
       input.routine.cronExpression,
       input.routine.timezone,
       input.routine.runAtMs,
+      serializeMessageChannelDestination(input.routine.messageChannelLocator),
       input.routine.destinationKind,
       input.routine.targetSpaceId,
       input.routine.slackTeamId,
@@ -558,6 +581,7 @@ export async function deleteRoutineRecord(input: {
 }
 
 export async function listRoutineRunRecords(input: {
+  agentProfileId?: string;
   beforeScheduledFor?: number;
   db: D1Database;
   limit: number;
@@ -578,6 +602,7 @@ export async function listRoutineRunRecords(input: {
           failure_code,
           failure_detail,
           routine_name_snapshot,
+          message_channel_destination_json_snapshot,
           destination_kind_snapshot,
           target_space_id_snapshot,
           slack_team_id_snapshot,
@@ -592,6 +617,7 @@ export async function listRoutineRunRecords(input: {
         FROM routine_runs
         WHERE organization_id = ?
           AND routine_id = ?
+          AND agent_profile_id_snapshot IS ?
           AND scheduled_for < ?
         ORDER BY scheduled_for DESC, id DESC
         LIMIT ?
@@ -600,6 +626,7 @@ export async function listRoutineRunRecords(input: {
     .bind(
       input.organizationId,
       input.routineId,
+      input.agentProfileId ?? null,
       beforeScheduledFor,
       input.limit
     )
@@ -623,6 +650,7 @@ export async function readRoutineRunExecutionRecord(input: {
   return row
     ? {
         ...mapRoutineRunRow(row),
+        agentProfileIdSnapshot: row.agent_profile_id_snapshot,
         continuationDelegationId: row.continuation_delegation_id,
         executionEngine: parseRoutineExecutionEngine(row.execution_engine),
         routineNameSnapshot: row.routine_name_snapshot,
@@ -646,6 +674,8 @@ async function readRoutineRunRow(input: {
           failure_code,
           failure_detail,
           routine_name_snapshot,
+          agent_profile_id_snapshot,
+          message_channel_destination_json_snapshot,
           destination_kind_snapshot,
           target_space_id_snapshot,
           slack_team_id_snapshot,
@@ -770,6 +800,8 @@ export async function claimRoutineOccurrenceAndAdvance(input: {
           failure_code,
           failure_detail,
           routine_name_snapshot,
+          agent_profile_id_snapshot,
+          message_channel_destination_json_snapshot,
           destination_kind_snapshot,
           target_space_id_snapshot,
           slack_team_id_snapshot,
@@ -781,7 +813,7 @@ export async function claimRoutineOccurrenceAndAdvance(input: {
           started_at_ms,
           finished_at_ms
         )
-        SELECT ?, id, organization_id, ?, ?, ?, ?, name, destination_kind,
+        SELECT ?, id, organization_id, ?, ?, ?, ?, name, agent_profile_id, message_channel_destination_json, destination_kind,
           target_space_id, slack_team_id, slack_channel_id, slack_thread_ts,
           slack_conversation_id, slack_thread_label, ?, ?, ?
         FROM routines
@@ -867,6 +899,8 @@ export async function quarantineInvalidRoutineSchedule(input: {
           failure_code,
           failure_detail,
           routine_name_snapshot,
+          agent_profile_id_snapshot,
+          message_channel_destination_json_snapshot,
           destination_kind_snapshot,
           target_space_id_snapshot,
           slack_team_id_snapshot,
@@ -878,7 +912,7 @@ export async function quarantineInvalidRoutineSchedule(input: {
           finished_at_ms
         )
         SELECT ?, id, organization_id, ?, 'skipped', 'routine.schedule_invalid',
-          ?, name, destination_kind, target_space_id, slack_team_id,
+          ?, name, agent_profile_id, message_channel_destination_json, destination_kind, target_space_id, slack_team_id,
           slack_channel_id, slack_thread_ts, slack_conversation_id,
           slack_thread_label, ?, ?
         FROM routines
@@ -1136,6 +1170,7 @@ export async function listUnpublishedFailedRoutineRuns(input: {
           failure_detail,
           failure_publication_attempt_count,
           routine_name_snapshot,
+          message_channel_destination_json_snapshot,
           destination_kind_snapshot,
           target_space_id_snapshot,
           slack_team_id_snapshot,
@@ -1151,6 +1186,10 @@ export async function listUnpublishedFailedRoutineRuns(input: {
             (
               COALESCE(destination_kind_snapshot, 'space') = 'space'
               AND target_space_id_snapshot IS NOT NULL
+            )
+            OR (
+              destination_kind_snapshot = 'message_channel'
+              AND message_channel_destination_json_snapshot IS NOT NULL
             )
             OR (
               destination_kind_snapshot = 'slack_thread'
@@ -1183,7 +1222,12 @@ export async function listUnpublishedFailedRoutineRuns(input: {
       id: string;
       organization_id: string;
       routine_name_snapshot: string;
-      destination_kind_snapshot: "slack_thread" | "space" | null;
+      message_channel_destination_json_snapshot: string | null;
+      destination_kind_snapshot:
+        | "slack_thread"
+        | "space"
+        | "message_channel"
+        | null;
       slack_channel_id_snapshot: string | null;
       slack_conversation_id_snapshot: string | null;
       slack_team_id_snapshot: string | null;
@@ -1191,6 +1235,9 @@ export async function listUnpublishedFailedRoutineRuns(input: {
       target_space_id_snapshot: string | null;
     }>();
   return (result.results ?? []).map((row) => ({
+    messageChannelLocator: parseMessageChannelDestination(
+      row.message_channel_destination_json_snapshot
+    ),
     destinationKind: row.destination_kind_snapshot ?? "space",
     failurePublicationAttemptCount: Number(
       row.failure_publication_attempt_count
@@ -1323,6 +1370,7 @@ function changedExactlyOneRow(result: D1Result<unknown> | undefined): boolean {
 
 function mapRoutineRow(row: RoutineRow): StoredRoutine {
   return {
+    agentProfileId: row.agent_profile_id,
     authorizedActions: centerAgentRoutineAuthorizedActionsSchema.parse(
       JSON.parse(row.authorized_actions_json) as unknown
     ),
@@ -1334,6 +1382,9 @@ function mapRoutineRow(row: RoutineRow): StoredRoutine {
         )
       : null,
     cronExpression: row.cron_expression,
+    messageChannelLocator: parseMessageChannelDestination(
+      row.message_channel_destination_json
+    ),
     destinationKind: row.destination_kind,
     externalActionPolicy: centerAgentRoutineExternalActionPolicySchema.parse(
       row.external_action_policy
@@ -1389,7 +1440,11 @@ function mapRoutineLastRunSummary(
 }
 
 function mapRoutineRunRow(row: RoutineRunRow): CenterAgentRoutineRun {
+  const messageChannelLocator = parseMessageChannelDestination(
+    row.message_channel_destination_json_snapshot
+  );
   return {
+    ...(messageChannelLocator ? { messageChannelLocator } : {}),
     destinationKind: row.destination_kind_snapshot ?? "space",
     failureCode: row.failure_code,
     failureDetail: row.failure_detail,
@@ -1422,4 +1477,29 @@ function parseRoutineExecutionEngine(
     return value;
   }
   throw new Error(`Routine Run has invalid execution engine ${value}`);
+}
+
+function serializeMessageChannelDestination(
+  locator: CenterAgentRoutine["messageChannelLocator"]
+): string | null {
+  return locator
+    ? JSON.stringify({
+        conversationId: buildMessageChannelConversationId(locator),
+        locator,
+      })
+    : null;
+}
+
+function parseMessageChannelDestination(
+  value: string | null
+): CenterAgentRoutine["messageChannelLocator"] {
+  if (!value) {
+    return undefined;
+  }
+  const stored = JSON.parse(value);
+  const locator = messageChannelConversationLocatorSchema.parse(stored.locator);
+  if (buildMessageChannelConversationId(locator) !== stored.conversationId) {
+    throw new Error("Stored Routine destination is inconsistent");
+  }
+  return locator;
 }

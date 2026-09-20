@@ -13,11 +13,43 @@ import {
   setAuthSession,
   updateAuthSessionActiveOrganization,
 } from "../src/config/auth-session";
+import { acquireLock, releaseLock } from "../src/config/lock";
 import { withTempHome } from "./helpers/fs";
 
 const LINE_BREAK_RE = /\r?\n/u;
 
 describe("auth session storage", () => {
+  it("clears only the reviewed Computer session, preserving a concurrent account replacement", async () => {
+    await withTempHome(async () => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      const base = {
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+      };
+      await setAuthSession({
+        ...base,
+        accessToken: "account-a-token",
+        user: { id: "account-a" },
+      });
+      const reviewed = await getAuthSession();
+      if (!reviewed) {
+        throw new Error("Missing fixture session");
+      }
+      await setAuthSession({
+        ...base,
+        accessToken: "account-b-token",
+        user: { id: "account-b" },
+      });
+      await expect(clearAuthSession(reviewed)).rejects.toThrow();
+      const replacement = await getAuthSession();
+      expect(replacement?.user?.id).toBe("account-b");
+      if (!replacement) {
+        throw new Error("Replacement was lost");
+      }
+      await clearAuthSession(replacement);
+      expect(await getAuthSession()).toBeNull();
+    });
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -25,6 +57,40 @@ describe("auth session storage", () => {
       process.env,
       "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN"
     );
+  });
+
+  it("reads the committed session during an unrelated mutation when no transition needs recovery", async () => {
+    await withTempHome(async () => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "committed-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "committed-owner" },
+      });
+      const lock = await acquireLock({
+        openMeldProfileId: "auth-session",
+        key: "session-transition-mutation",
+      });
+      const reading = getAuthSession();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const result = await Promise.race([
+          reading,
+          new Promise<"blocked">((resolve) => {
+            timer = setTimeout(() => resolve("blocked"), 2000);
+          }),
+        ]);
+        expect(result).toMatchObject({
+          accessToken: "committed-token",
+          user: { id: "committed-owner" },
+        });
+      } finally {
+        clearTimeout(timer);
+        await releaseLock(lock);
+        await reading;
+      }
+    });
   });
 
   it("persists and loads auth session", async () => {

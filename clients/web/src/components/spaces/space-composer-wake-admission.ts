@@ -1,14 +1,22 @@
-import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
+import type {
+	SpaceMembersSnapshot,
+	WakeDeviceWait,
+} from "@openmeld/schemas/types";
 import {
 	createSpaceTargetCatalog,
 	SpaceComposerSubmissionError,
 } from "@openmeld/space";
+import {
+	canSubmitSpaceComposerDeviceWait,
+	isCurrentSpaceComposerDeviceWait,
+} from "./space-composer-device-wait";
 
 const WAKEABILITY_CHECK_FAILED_MESSAGE =
 	"OpenMeld couldn't confirm that this agent can reply right now. Try again.";
 
 export async function requireCurrentSpaceComposerWakeAdmission(input: {
 	agentProfileIds: readonly string[];
+	deviceWait?: WakeDeviceWait;
 	readCurrentMembers: () => Promise<SpaceMembersSnapshot | null>;
 }): Promise<void> {
 	const agentProfileIds = normalizeAgentProfileIds(input.agentProfileIds);
@@ -26,6 +34,23 @@ export async function requireCurrentSpaceComposerWakeAdmission(input: {
 		throw createWakeBlockedError(WAKEABILITY_CHECK_FAILED_MESSAGE);
 	}
 	const targetCatalog = createSpaceTargetCatalog(membersSnapshot);
+	if (input.deviceWait) {
+		const wait = input.deviceWait;
+		const member = membersSnapshot.agents.find(
+			(candidate) => candidate.profileId === wait.targetProfileId
+		);
+		if (
+			!(
+				agentProfileIds.includes(wait.targetProfileId) &&
+				isCurrentSpaceComposerDeviceWait(member, wait)
+			)
+		) {
+			throw createWakeBlockedError(
+				"This Agent’s computer changed or the wait expired. Check the Agent and choose Send and wait again.",
+				wait.targetProfileId
+			);
+		}
+	}
 
 	for (const agentProfileId of agentProfileIds) {
 		const target = targetCatalog.byProfileId.get(agentProfileId);
@@ -36,6 +61,12 @@ export async function requireCurrentSpaceComposerWakeAdmission(input: {
 			target.wakeAvailability.status === "ready" ||
 			target.wakeAvailability.status === "preparing"
 		) {
+			continue;
+		}
+		const member = membersSnapshot.agents.find(
+			(candidate) => candidate.profileId === agentProfileId
+		);
+		if (canSubmitSpaceComposerDeviceWait(member, input.deviceWait)) {
 			continue;
 		}
 

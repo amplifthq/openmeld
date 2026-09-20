@@ -6,11 +6,14 @@ const AGENT_CONTROLLER_REF_SEPARATOR = ":";
 export const HOSTED_CENTER_AGENT_CONTROLLER_REF =
   "hosted:center-agent" as const;
 export const HOSTED_CENTER_AGENT_CONTROLLER_REF_ID = "center-agent" as const;
+export const HOSTED_REMOTE_AGENT_CONTROLLER_REF =
+  "hosted:remote-agent" as const;
 
 export type AgentControllerRefKind =
   | "builtin"
   | "custom"
-  | "hosted:center-agent";
+  | "hosted:center-agent"
+  | "hosted:remote-agent";
 
 export type AgentControllerRef = {
   kind: AgentControllerRefKind;
@@ -104,6 +107,14 @@ export function parseAgentControllerRef(
     };
   }
 
+  if (normalized === HOSTED_REMOTE_AGENT_CONTROLLER_REF) {
+    return {
+      kind: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+      id: "remote-agent",
+      ref: normalized,
+    };
+  }
+
   for (const kind of ["builtin", "custom"] as const) {
     const prefix = `${kind}${AGENT_CONTROLLER_REF_SEPARATOR}`;
     if (!normalized.startsWith(prefix)) {
@@ -162,5 +173,15 @@ export function isHostedCenterAgentControllerRef(
   return (
     parseAgentControllerRef(agentControllerRef)?.kind ===
     HOSTED_CENTER_AGENT_CONTROLLER_REF
+  );
+}
+
+export function isHostedAgentControllerRef(
+  value: string | null | undefined
+): boolean {
+  const ref = parseAgentControllerRef(value)?.ref;
+  return (
+    ref === HOSTED_CENTER_AGENT_CONTROLLER_REF ||
+    ref === HOSTED_REMOTE_AGENT_CONTROLLER_REF
   );
 }

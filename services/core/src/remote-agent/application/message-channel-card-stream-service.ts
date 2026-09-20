@@ -6,7 +6,10 @@ import {
   markRemoteAgentMessageChannelProviderCardUpdateOutcomeUnknown,
   markRemoteAgentMessageChannelProviderCardUpdatePublished,
 } from "../infrastructure/d1/message-channel-provider-progress-repo";
-import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
+import {
+  type RemoteAgentNativeDeliveryRecord,
+  readRemoteAgentNativeDeliveryByIdempotencyKey,
+} from "../infrastructure/d1/native-delivery-ledger-repo";
 import type { MessageChannelProviderRegistry } from "./message-channel-adapters";
 import { advanceRemoteAgentMessageChannelCardRollover } from "./message-channel-card-rollover-service";
 import { splitMessageChannelCardSegment } from "./message-channel-card-segmentation";
@@ -187,6 +190,16 @@ async function publishClaimedCardUpdate(input: {
         sequence: input.sequence,
       });
     if (!published) {
+      // Final publication may claim the same card while this provider request
+      // is in flight. Its higher sequence owns the complete answer; never
+      // reopen progress or misreport a lost final fence as provider failure.
+      const current = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+        db: input.evidenceDb,
+        idempotencyKey: input.delivery.idempotencyKey,
+      });
+      if (current && current.finalPublicationState !== null) {
+        return resolveUnclaimedCardUpdate(input.sequence, current);
+      }
       throw new Error(
         "Message Channel stream publication lost its durable claim"
       );
@@ -235,7 +248,7 @@ function resolveUnclaimedCardUpdate(
 ): RemoteAgentStreamDeltaCallbackResponse {
   if (
     (delivery?.providerProgressSequence ?? 0) >= sequence ||
-    delivery?.finalPublicationState !== null
+    (delivery !== null && delivery.finalPublicationState !== null)
   ) {
     return remoteAgentStreamDeltaCallbackResponseSchema.parse({
       lastSequence: sequence,

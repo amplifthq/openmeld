@@ -243,6 +243,7 @@ describe("Remote Agent external tools", () => {
     const browserResponse = {
       result: "# Rendered page",
       success: true,
+      meta: { status: 200, title: "Rendered page" },
     } satisfies BrowserRunMarkdownSuccessResponse;
     const quickAction = vi.fn(async () =>
       Response.json(browserResponse, {
@@ -261,7 +262,11 @@ describe("Remote Agent external tools", () => {
         url: "https://example.com/docs",
         waitForTimeout: 250,
       })
-    ).resolves.toEqual({ result: "# Rendered page", success: true });
+    ).resolves.toEqual({
+      result: "# Rendered page",
+      success: true,
+      meta: { status: 200, title: "Rendered page" },
+    });
     expect(quickAction).toHaveBeenCalledWith("markdown", {
       url: "https://example.com/docs",
       waitForTimeout: 250,

@@ -36,7 +36,8 @@ and policy-blocked system notices. The following cases use production components
 
 | Space | Scenario |
 | --- | --- |
-| Design feedback | Agent working status and elapsed time in the conversation |
+| Design feedback | Agent working status, elapsed time, and Stop in the conversation |
+| Engineering daily | Another app holds the conversation; waiting explanation and Cancel waiting |
 | Release coordination | Plan review in the normal Pending Agent actions surface |
 | Performance lab | Command permission in the normal Pending Agent actions surface |
 | Billing migration | Sandbox failure system message |
@@ -51,7 +52,8 @@ consume the same scenario state. Detail snapshots are available before the accou
 summary is published, so visiting a Space does not discover a new sorting priority.
 Running scenarios refresh progress evidence on reads while retaining their start
 time. Approvals validate through the shared interaction schema;
-responses change only disposable browser-memory scenario data. No runtime state
+Stop uses the normal confirmation dialog and resolves the synthetic Wake in memory.
+Interaction and Stop responses change only disposable browser-memory scenario data. No runtime state
 is written and no command runs. Reload resets transient scenarios. These cases
 validate production UI, not real Agent execution or cross-tab synchronization.
 
@@ -116,7 +118,11 @@ fixtures. The product's Space sidebar does not consume synthetic Working or
 needs-input summaries: its indicators come from the same API progress data
 as the conversation. Use the standalone preview below for isolated row states.
 Rerunning the seed restores unread records so clicking them does not exhaust the
-test matrix permanently.
+test matrix permanently. For Desktop tray checks, the newest record belongs to
+a muted Space, the next record is an ordinary eligible unread, and a later record
+is a reply in a Thread whose Space uses mentions-and-replies notifications. This
+lets the same reset verify muted-message fallback first, then exact Thread
+navigation after the ordinary unread is read.
 
 ## Repeatable visual state matrix
 

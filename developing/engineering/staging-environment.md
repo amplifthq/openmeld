@@ -17,6 +17,15 @@
 
 ## What Staging Provides
 
+For a CLI-only update smoke, `pnpm staging:cli:publish -- --retain-service`
+keeps the currently published staging Service selection (or the current staging
+CLI artifact for a coupled baseline). The selected artifact is embedded in the
+new binary and published in the same manifest. Publish a current-code baseline
+first; historical carriers do not prove the new maintenance behavior. Deploy
+the Web manifest reader before this smoke so it preserves the Service selection.
+Verify the Service process identity and connection remain unchanged across the
+CLI upgrade; the ordinary coupled-update smoke does not prove this behavior.
+
 Staging is a persistent, internal OpenMeld environment. It runs the same five
 internal deployables as production:
 
@@ -127,6 +136,7 @@ pnpm env:doctor:stg
 pnpm staging:deploy
 pnpm staging:deploy -- --scope web
 pnpm staging:deploy -- --scope remote-agent
+pnpm staging:deploy -- --scope remote-agent --containers-rollout=none
 pnpm staging:verify
 pnpm staging:cli:plan
 pnpm staging:cli:publish
@@ -150,6 +160,14 @@ pnpm staging:smoke:computer -- plan
 - `staging:verify` is read-only. It verifies the checked-in environment
   contract, Doppler readiness, Cloudflare resource inventory, and public
   staging entry points.
+- For Worker-only changes with an already deployed, compatible Computer image,
+  pass `--containers-rollout=none` to the full or Remote Agent scoped deploy.
+  The guarded entry point still syncs staging secrets and verifies resources;
+  Wrangler updates Worker code while retaining existing container images and
+  instances. This avoids requiring local Docker. Do not use this option for
+  first deployment or changed container images/configuration. The default
+  deployment continues to deploy containers. See Cloudflare's
+  [container rollout modes](https://developers.cloudflare.com/containers/configuration/rollouts/).
 - `staging:cli:plan` shows the exact source, isolated prerelease version,
   bucket, and manifest without changing anything.
 - `staging:cli:publish` builds, signs, notarizes, and uploads a binary only to
@@ -191,14 +209,16 @@ when both Canary launchd labels are free, then restores that exact directory
 after the run. The temporary smoke home uses private file token storage so the
 packaged CLI and the source API helper share one disposable Staging credential;
 the runner deletes that home before restoring the previous Canary state.
-After the local process starts, the runner waits for Core's current-device
-projection to observe the Service connection before it sends maintenance or
-update commands.
+After the local process starts, the runner reads the validated local Service
+contract and waits for Core's projection of that device and lane to observe
+the connection. Checks, maintenance, updates, and cleanup target this isolated
+installation, never the account's previously selected Computer.
 
 One run verifies the focused update safety contracts, connects a temporary
 Canary Computer, publishes a newer prerelease only to the Staging CLI channel,
-waits for automatic update to start, sends a manual Update through the same
-authenticated current-Computer API used by Web, and requires both requests to
+advances the existing hourly OS maintenance tick after startup settles, waits
+for that worker to discover and start the automatic update, sends a manual Update through the same
+authenticated explicit-Computer API used by Web, and requires both requests to
 return one operation ID. It then verifies the managed CLI, restarted Service,
 and Staging Core all report the new version. Success output is a short list of
 `PASS` lines. Failure output includes the failed step; cleanup failures preserve

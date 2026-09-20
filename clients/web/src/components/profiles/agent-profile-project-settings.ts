@@ -1,4 +1,4 @@
-import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
+import { isHostedAgentControllerRef } from "@openmeld/schemas";
 import type { AuthProfileView } from "@openmeld/schemas/types";
 
 export const FUTURE_WAKES_PROJECT_SETTINGS_NOTICE =
@@ -10,6 +10,6 @@ export function shouldShowAgentProfileProjectSettings(input: {
 }): boolean {
 	return (
 		input.managedRole === null &&
-		input.agentControllerRef !== HOSTED_CENTER_AGENT_CONTROLLER_REF
+		!isHostedAgentControllerRef(input.agentControllerRef)
 	);
 }

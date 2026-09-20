@@ -1,7 +1,12 @@
 import { ensureSpaceExecutionInputOutbox } from "./space-execution-input-repo";
+import { SpaceFileUpdateRepository } from "./space-file-update-repo";
+import { ensureSpaceInboxContactTable } from "./space-inbox-contact-repo";
+import { ensureSpaceInboxProjectionSelectionsTable } from "./space-inbox-projection-outbox-repo";
+import { ensureSpaceReactionTables } from "./space-reaction-repo";
+import { ensureSpaceTaskTables } from "./space-task-repo";
 
-export const SPACE_SQL_SCHEMA_VERSION = 33;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v33";
+export const SPACE_SQL_SCHEMA_VERSION = 43;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v43";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -14,6 +19,7 @@ const SPACE_META_PASSWORD_PROOF_COLUMN = "password_proof_json";
 const SPACE_META_PURPOSE_COLUMN = "purpose";
 const SPACE_META_DIRECT_MESSAGE_COLUMN = "direct_message_json";
 const SPACE_META_GUIDE_COLUMN = "guide";
+const SPACE_META_LINK_JOIN_POLICY_COLUMN = "link_join_policy";
 const SPACE_META_GUIDELINES_LEGACY_COLUMN = "guidelines";
 const SPACE_CURSORS_MENTION_ALIAS_COLUMN = "mention_alias";
 const SPACE_SIGNALS_CLIENT_MESSAGE_ID_COLUMN = "client_message_id";
@@ -23,6 +29,21 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
     return;
   }
   ensureSpaceExecutionInputOutbox(sql);
+  new SpaceFileUpdateRepository(sql).initialize();
+  ensureSpaceReactionTables(sql);
+  ensureSpaceInboxContactTable(sql);
+  ensureSpaceInboxProjectionSelectionsTable(sql);
+  ensureSpaceTaskTables(sql);
+  sql.exec(`CREATE TABLE IF NOT EXISTS space_file_pins (
+    signal_id TEXT PRIMARY KEY,
+    pinned_by_profile_id TEXT NOT NULL,
+    pinned_at TEXT NOT NULL
+  )`);
+  sql.exec(`CREATE TABLE IF NOT EXISTS space_message_pins (
+    signal_id TEXT PRIMARY KEY,
+    pinned_by_profile_id TEXT NOT NULL,
+    pinned_at TEXT NOT NULL
+  )`);
   sql.exec(`CREATE TABLE IF NOT EXISTS space_invitation_receipts (
     invitation_id TEXT PRIMARY KEY,
     profile_id TEXT,
@@ -40,6 +61,8 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
 	        CHECK (organization_visibility IN ('public', 'private')),
 	      guide TEXT NULL,
       access_mode TEXT NULL,
+      link_join_policy TEXT NULL
+        CHECK (link_join_policy IN ('invite_only', 'access_mode')),
       password_proof_json TEXT NULL,
       archive_cursor_ts INTEGER NULL,
       created_at INTEGER NOT NULL,
@@ -51,6 +74,7 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   ensureSpaceMetaDirectMessageColumn(sql);
   ensureSpaceMetaPasswordProofColumn(sql);
   ensureSpaceMetaAccessModeColumn(sql);
+  ensureSpaceMetaLinkJoinPolicyColumn(sql);
   ensureSpaceMetaOrganizationColumns(sql);
 
   // retired: role_instructions is no longer read or written
@@ -86,6 +110,12 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
     )
   `);
   ensureSpaceSignalsClientMessageIdColumn(sql);
+  sql.exec(`
+    CREATE TABLE IF NOT EXISTS space_recalled_message_drafts (
+      signal_id TEXT PRIMARY KEY,
+      payload_json TEXT NOT NULL
+    )
+  `);
   sql.exec(`
     CREATE TABLE IF NOT EXISTS space_message_preview_revision (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -406,8 +436,11 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   sql.exec(
     "CREATE INDEX IF NOT EXISTS idx_space_inbox_projection_outbox_status_retry ON space_inbox_projection_outbox (status, next_retry_at_ms, created_at_ms)"
   );
+  // Publication and subsequent reactions have distinct projection identities.
+  // Keep projection_id as the idempotency boundary; one message has many events.
+  sql.exec("DROP INDEX IF EXISTS idx_space_inbox_projection_outbox_signal_id");
   sql.exec(
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_space_inbox_projection_outbox_signal_id ON space_inbox_projection_outbox (signal_id)"
+    "CREATE INDEX IF NOT EXISTS idx_space_inbox_projection_outbox_source_signal ON space_inbox_projection_outbox (signal_id)"
   );
   sql.exec(
     "CREATE INDEX IF NOT EXISTS idx_space_dispatch_rules_updated_at ON space_dispatch_rules (updated_at_ms)"
@@ -448,6 +481,35 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   sql.exec(
     "CREATE INDEX IF NOT EXISTS idx_space_file_audit_operation_id ON space_file_audit_events (operation, operation_id)"
   );
+
+  const metaColumns = sql
+    .exec<{ name: string }>("PRAGMA table_info(space_meta)")
+    .toArray();
+  if (!metaColumns.some((column) => column.name === "owner_user_ids_json")) {
+    sql.exec(
+      "ALTER TABLE space_meta ADD COLUMN owner_user_ids_json TEXT NOT NULL DEFAULT '[]'"
+    );
+    // Seed historical ownership once. Subsequent creator edits never grant ownership.
+    sql.exec(`UPDATE space_meta SET owner_user_ids_json = json_array(
+      COALESCE(json_extract(creator_json, '$.ownerUserId'),
+        (SELECT owner_user_id_snapshot FROM space_members
+         WHERE profile_id = json_extract(space_meta.creator_json, '$.profileId') LIMIT 1)))
+      WHERE json_valid(creator_json) AND COALESCE(json_extract(creator_json, '$.ownerUserId'),
+        (SELECT owner_user_id_snapshot FROM space_members
+         WHERE profile_id = json_extract(space_meta.creator_json, '$.profileId') LIMIT 1)) IS NOT NULL`);
+  }
+  if (!metaColumns.some((column) => column.name === "allow_guests")) {
+    sql.exec(
+      "ALTER TABLE space_meta ADD COLUMN allow_guests INTEGER NOT NULL DEFAULT 0 CHECK (allow_guests IN (0, 1))"
+    );
+  }
+  sql.exec(
+    "CREATE TABLE IF NOT EXISTS space_guest_users (user_id TEXT PRIMARY KEY, invitation_id TEXT NOT NULL, joined_at INTEGER NOT NULL)"
+  );
+  sql.exec(`CREATE TABLE IF NOT EXISTS space_ownership_audit (
+    id TEXT PRIMARY KEY, actor_user_id TEXT NOT NULL, target_user_id TEXT NOT NULL,
+    role TEXT NOT NULL, created_at INTEGER NOT NULL
+  )`);
 
   sql.exec(
     `
@@ -763,6 +825,21 @@ function ensureSpaceMetaAccessModeColumn(sql: SqlStorage): void {
     END
     WHERE access_mode IS NULL
       OR trim(access_mode) = ''
+  `);
+}
+
+function ensureSpaceMetaLinkJoinPolicyColumn(sql: SqlStorage): void {
+  const hasLinkJoinPolicyColumn = listTableColumnNames(sql, "space_meta").has(
+    SPACE_META_LINK_JOIN_POLICY_COLUMN
+  );
+  if (hasLinkJoinPolicyColumn) {
+    return;
+  }
+
+  sql.exec(`
+    ALTER TABLE space_meta
+    ADD COLUMN link_join_policy TEXT NULL
+      CHECK (link_join_policy IN ('invite_only', 'access_mode'))
   `);
 }
 

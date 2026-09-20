@@ -12,8 +12,13 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import {
+	closeAuthorizationBrowser,
+	openAuthorizationBrowser,
+	prepareAuthorizationBrowser,
+} from "#/desktop/authorization-browser";
 import {
 	beginCurrentOrganizationLarkPlatformRegistration,
 	disconnectCurrentOrganizationLarkPlatform,
@@ -43,6 +48,9 @@ export function useLarkPlatformChannelManagement(input: {
 	organizationId: string;
 }) {
 	const queryClient = useQueryClient();
+	const authorizationOrganizationRef = useRef<string | null>(
+		input.organizationId
+	);
 	const [activeRegistration, setActiveRegistration] =
 		useState<LarkPlatformRegistrationResponse | null>(null);
 	const [dialogOpen, setDialogOpen] = useState(false);
@@ -58,14 +66,20 @@ export function useLarkPlatformChannelManagement(input: {
 	);
 	const beginMutation = useMutation({
 		mutationFn: async (request: {
-			mode: "repair" | "restart" | "resume";
+			mode: "repair" | "restart" | "resume" | "reauthorize";
+			organizationId: string;
 			provider: LarkPlatformProvider;
-		}) =>
-			await beginCurrentOrganizationLarkPlatformRegistration({
-				...request,
-				organizationId: input.organizationId,
-			}),
+		}) => {
+			const { organizationId, ...registrationRequest } = request;
+			return await beginCurrentOrganizationLarkPlatformRegistration({
+				...registrationRequest,
+				organizationId,
+			});
+		},
 		onError: (_error, request) => {
+			if (authorizationOrganizationRef.current !== request.organizationId) {
+				return;
+			}
 			if (request.mode === "resume") {
 				setActiveRegistration(null);
 			}
@@ -81,6 +95,9 @@ export function useLarkPlatformChannelManagement(input: {
 			);
 		},
 		onSuccess: (registration, request) => {
+			if (authorizationOrganizationRef.current !== request.organizationId) {
+				return;
+			}
 			setSelectedProvider(request.provider);
 			if (activeRegistration) {
 				queryClient.removeQueries({
@@ -169,6 +186,12 @@ export function useLarkPlatformChannelManagement(input: {
 	const registration = registrationQuery.data ?? activeRegistration;
 	const registrationStatus = registration?.attempt.status ?? null;
 	useEffect(() => {
+		authorizationOrganizationRef.current = input.organizationId;
+		return () => {
+			authorizationOrganizationRef.current = null;
+		};
+	}, [input.organizationId]);
+	useEffect(() => {
 		if (registrationStatus !== "connected") {
 			return;
 		}
@@ -201,7 +224,11 @@ export function useLarkPlatformChannelManagement(input: {
 			setDialogOpen(true);
 			return;
 		}
-		beginMutation.mutate({ mode: "resume", provider });
+		beginMutation.mutate({
+			mode: "resume",
+			organizationId: input.organizationId,
+			provider,
+		});
 	};
 	const openExistingConnection = (provider: LarkPlatformProvider) => {
 		const providerConnection = input.connections.find(
@@ -238,9 +265,52 @@ export function useLarkPlatformChannelManagement(input: {
 	};
 
 	return {
-		beginPendingProvider: beginMutation.isPending
-			? (beginMutation.variables?.provider ?? null)
-			: null,
+		cancelSetup: (provider: LarkPlatformProvider) =>
+			disconnectMutation.mutate(provider),
+		reauthorize: async () => {
+			if (!selectedProvider || beginMutation.isPending) {
+				return;
+			}
+			const authorizationWindow = prepareAuthorizationBrowser(
+				"openmeld-lark-authorization"
+			);
+			const authorizationOrganizationId = input.organizationId;
+			if (!authorizationWindow) {
+				toast.error(
+					"Your browser blocked authorization. Allow pop-ups and try again."
+				);
+				return;
+			}
+			try {
+				const response = await beginMutation.mutateAsync({
+					mode: "reauthorize",
+					organizationId: authorizationOrganizationId,
+					provider: selectedProvider,
+				});
+				const url = response.attempt.registrationUrl;
+				if (!url) {
+					throw new Error("Authorization link is unavailable.");
+				}
+				if (
+					authorizationOrganizationRef.current !== authorizationOrganizationId
+				) {
+					closeAuthorizationBrowser(authorizationWindow);
+					return;
+				}
+				await openAuthorizationBrowser(authorizationWindow, url);
+			} catch (error) {
+				closeAuthorizationBrowser(authorizationWindow);
+				toast.error(
+					resolveMessageChannelErrorMessage(
+						error,
+						"Could not open authorization. Please try again."
+					)
+				);
+			}
+		},
+		beginPendingProvider:
+			(beginMutation.isPending ? beginMutation.variables?.provider : null) ??
+			(disconnectMutation.isPending ? disconnectMutation.variables : null),
 		connection,
 		disconnect: () => {
 			if (selectedProvider) {
@@ -257,22 +327,35 @@ export function useLarkPlatformChannelManagement(input: {
 		manage,
 		open: dialogOpen,
 		openExistingConnection,
-		pollPending: registrationQuery.isFetching,
+		pollPending:
+			registrationQuery.isFetching ||
+			(beginMutation.isPending &&
+				beginMutation.variables?.mode === "reauthorize"),
 		provider: selectedProvider,
 		repair: () => {
 			if (selectedProvider) {
-				beginMutation.mutate({ mode: "repair", provider: selectedProvider });
+				beginMutation.mutate({
+					mode: "repair",
+					organizationId: input.organizationId,
+					provider: selectedProvider,
+				});
 			}
 		},
 		repairPending:
-			beginMutation.isPending && beginMutation.variables?.mode === "repair",
+			beginMutation.isPending &&
+			(beginMutation.variables?.mode === "repair" ||
+				beginMutation.variables?.mode === "reauthorize"),
 		registration,
 		retryPoll: async () => {
 			await registrationQuery.refetch();
 		},
 		startOver: () => {
 			if (selectedProvider) {
-				beginMutation.mutate({ mode: "restart", provider: selectedProvider });
+				beginMutation.mutate({
+					mode: "restart",
+					organizationId: input.organizationId,
+					provider: selectedProvider,
+				});
 			}
 		},
 		startOverPending:

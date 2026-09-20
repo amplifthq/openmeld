@@ -1,4 +1,8 @@
-import type { OrganizationDirectoryResponse } from "@openmeld/schemas/types";
+import { DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION } from "@openmeld/schemas";
+import type {
+	OrganizationComputersResponse,
+	OrganizationDirectoryResponse,
+} from "@openmeld/schemas/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	cleanup,
@@ -6,15 +10,29 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { AgentProfileCreationRequestsPanel } from "./agent-profile-creation-requests-panel";
 
 const listRequestsMock = vi.hoisted(() => vi.fn());
+const launchPolicy = vi.hoisted(() => ({ enabled: false }));
+// Retain dormant approval coverage for the future isolated reopening.
+vi.mock("@openmeld/schemas", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@openmeld/schemas")>()),
+	get TEAMMATE_AGENT_REQUESTS_ENABLED() {
+		return launchPolicy.enabled;
+	},
+}));
 const decideRequestMock = vi.hoisted(() => vi.fn());
 const cancelRequestMock = vi.hoisted(() => vi.fn());
 const retryRequestMock = vi.hoisted(() => vi.fn());
+const restartRequestMock = vi.hoisted(() => vi.fn());
+const computersMock = vi.hoisted(() => vi.fn());
+vi.mock("#/lib/organizations/organization-computers", () => ({
+	readCurrentOrganizationComputers: computersMock,
+}));
 const continueLocalSetupMock = vi.hoisted(() => vi.fn());
 const readLocalSetupMock = vi.hoisted(() => vi.fn());
 const INCOMING_REQUEST_SUMMARY =
@@ -27,6 +45,7 @@ vi.mock("#/lib/profiles/agent-profile-creation-requests", () => ({
 	decideAgentProfileCreationRequest: decideRequestMock,
 	listAgentProfileCreationRequests: listRequestsMock,
 	retryAgentProfileCreationRequest: retryRequestMock,
+	restartAgentProfileCreationOnComputer: restartRequestMock,
 }));
 
 vi.mock("#/lib/profiles/agent-profile-creation-local-setup", () => ({
@@ -56,6 +75,7 @@ const BASE_REQUEST = {
 
 describe("AgentProfileCreationRequestsPanel", () => {
 	beforeEach(() => {
+		launchPolicy.enabled = false;
 		listRequestsMock.mockReset().mockResolvedValue({
 			organizationId: "org-1",
 			requests: [
@@ -92,6 +112,8 @@ describe("AgentProfileCreationRequestsPanel", () => {
 			pending: false,
 		});
 		readLocalSetupMock.mockReset().mockReturnValue(null);
+		restartRequestMock.mockReset();
+		computersMock.mockReset();
 	});
 
 	afterEach(() => {
@@ -99,7 +121,98 @@ describe("AgentProfileCreationRequestsPanel", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("opens the failed setup context, offers only a usable owned computer, and continues with that selection", async () => {
+		const request = {
+			...BASE_REQUEST,
+			requesterUserId: "user-felix",
+			status: "failed",
+			configuration: {
+				...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+				agentControllerRef: "builtin:opencode",
+				targetComputerId: "old-computer",
+				modelId: "openrouter/z-ai/glm-5.3",
+			},
+		};
+		listRequestsMock.mockResolvedValue({
+			organizationId: "org-1",
+			requests: [request],
+		});
+		const computer: OrganizationComputersResponse["computers"][number] = {
+			computerId: "available",
+			deviceDisplayName: "My Mac",
+			deviceType: "desktop",
+			lastSeenAtMs: null,
+			localAgents: [
+				{
+					agentControllerRef: "builtin:opencode",
+					enabled: true,
+					status: "ready",
+				},
+			],
+			osVersion: null,
+			ownerUserId: "user-felix",
+			platformFamily: "macOS",
+			serviceState: "connected",
+		};
+		computersMock.mockResolvedValue({
+			organizationId: "org-1",
+			generatedAt: BASE_REQUEST.createdAt,
+			computers: [
+				computer,
+				{
+					...computer,
+					computerId: "other-owner",
+					deviceDisplayName: "Another member's Mac",
+					ownerUserId: "other",
+				},
+				{
+					...computer,
+					computerId: "offline",
+					deviceDisplayName: "Offline Mac",
+					serviceState: "not_connected",
+				},
+			],
+		});
+		restartRequestMock.mockResolvedValue({
+			request: { ...request, id: "replacement", status: "approved" },
+		});
+		renderPanel();
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Choose computer" })
+		);
+		const dialog = within(await screen.findByRole("dialog"));
+		expect(dialog.getByText("Finish setting up Release Reviewer")).toBeTruthy();
+		expect(dialog.getByText("Model: openrouter/z-ai/glm-5.3")).toBeTruthy();
+		await dialog.findByRole("option", { name: "My Mac" });
+		expect(
+			dialog.queryByRole("option", { name: "Another member's Mac" })
+		).toBeNull();
+		expect(dialog.queryByRole("option", { name: "Offline Mac" })).toBeNull();
+		expect(
+			(
+				dialog.getByRole("button", {
+					name: "Continue setup",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		fireEvent.change(dialog.getByLabelText("Computer"), {
+			target: { value: "available" },
+		});
+		fireEvent.click(dialog.getByRole("button", { name: "Continue setup" }));
+		await waitFor(() =>
+			expect(restartRequestMock).toHaveBeenCalledWith({
+				onAccepted: expect.any(Function),
+				organizationId: "org-1",
+				requestId: request.id,
+				currentUserId: "user-felix",
+				computerId: "available",
+			})
+		);
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+	});
+
 	it("shows request origin and exposes only the participant's valid actions", async () => {
+		launchPolicy.enabled = true;
 		renderPanel();
 
 		expect(await screen.findByText("Release Reviewer")).toBeTruthy();
@@ -125,6 +238,7 @@ describe("AgentProfileCreationRequestsPanel", () => {
 	});
 
 	it("refreshes Agents when setup fails after creating the Profile", async () => {
+		launchPolicy.enabled = true;
 		decideRequestMock.mockResolvedValueOnce({
 			request: {
 				...BASE_REQUEST,
@@ -153,7 +267,9 @@ describe("AgentProfileCreationRequestsPanel", () => {
 				{
 					...BASE_REQUEST,
 					createdAgentProfileId: "agent-created-before-setup-failed",
-					failureMessage: "The selected Computer is no longer reachable.",
+					// Captured production RPC error from the reported creation failure.
+					failureMessage:
+						'HTTP 503: {"ok":false,"error":{"code":"agent_profile.workspace_change_eligibility_unavailable","message":"OpenMeld couldn’t confirm whether this Agent is working, so the working folder is temporarily unavailable. Try again."}}',
 					requesterUserId: "user-felix",
 					status: "failed",
 					statusReason: "profile_created",
@@ -163,8 +279,12 @@ describe("AgentProfileCreationRequestsPanel", () => {
 
 		renderPanel();
 
+		expect(await screen.findByText("Needs attention")).toBeTruthy();
 		expect(
-			await screen.findByText("Profile created, setup incomplete")
+			screen.getByRole("table", { name: "Agent creation history" })
+		).toBeTruthy();
+		expect(
+			screen.getByText("Couldn’t prepare the working folder. Retry setup.")
 		).toBeTruthy();
 		expect(screen.getByRole("button", { name: "View Agent" })).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Retry setup" }));
@@ -202,7 +322,7 @@ describe("AgentProfileCreationRequestsPanel", () => {
 
 		renderPanel();
 
-		fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+		fireEvent.click(await screen.findByRole("button", { name: "Retry setup" }));
 		await waitFor(() => {
 			expect(retryRequestMock).toHaveBeenCalledWith({
 				organizationId: "org-1",
@@ -242,9 +362,7 @@ describe("AgentProfileCreationRequestsPanel", () => {
 
 		renderPanel();
 
-		expect(
-			await screen.findByText("Profile created, setup incomplete")
-		).toBeTruthy();
+		expect(await screen.findByText("Needs attention")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Retry setup" }));
 		await waitFor(() => {
 			expect(continueLocalSetupMock).toHaveBeenCalledWith({
@@ -282,9 +400,7 @@ describe("AgentProfileCreationRequestsPanel", () => {
 
 		renderPanel();
 
-		expect(
-			await screen.findByText("Profile created, setup incomplete")
-		).toBeTruthy();
+		expect(await screen.findByText("Needs attention")).toBeTruthy();
 		expect(
 			screen.getByText(
 				"Choose the custom working folder again in Agent settings on this computer."
@@ -328,6 +444,7 @@ describe("AgentProfileCreationRequestsPanel", () => {
 					...BASE_REQUEST,
 					createdAgentProfileId: "agent-created-before-setup-failed",
 					status: "approved",
+					requesterUserId: "user-felix",
 					statusReason: "profile_created",
 				},
 			],
@@ -338,6 +455,14 @@ describe("AgentProfileCreationRequestsPanel", () => {
 		expect(await screen.findByText("Finishing setup…")).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Cancel request" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Retry setup" })).toBeNull();
+	});
+	it("hides cached teammate requests and approval actions during the launch hold", async () => {
+		renderPanel();
+		expect(
+			await screen.findByText("No Agent creation history yet.")
+		).toBeTruthy();
+		expect(screen.queryByText("Release Reviewer")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
 	});
 });
 

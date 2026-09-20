@@ -3,6 +3,7 @@ import type { ModelCatalog } from "@openmeld/schemas/types";
 import {
 	Tooltip,
 	TooltipContent,
+	TooltipHint,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
@@ -10,6 +11,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { CaretRightIcon, DesktopTowerIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
+import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import {
 	resolveDirectoryComputerStatusTone,
 	resolveDirectoryComputerToneClassName,
@@ -331,8 +333,11 @@ function AgentProfileSummaryCard(input: {
 		>
 			<AgentProfileSummaryAvatar profile={input.profile} />
 			<span className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
-				<span className="truncate font-medium text-sm">
-					{input.profile.name}
+				<span className="flex min-w-0 items-center gap-1.5 font-medium text-sm">
+					<span className="truncate">{input.profile.name}</span>
+					<RemoteAgentIndicator
+						agentControllerRef={input.profile.agentControllerRef}
+					/>
 				</span>
 				{controllerModelDetail ? (
 					<span className="truncate text-muted-foreground text-xs">
@@ -364,6 +369,7 @@ function AgentProfileSummaryAvatar(input: {
 		<AgentProfileControllerAvatar
 			agentControllerRef={input.profile.agentControllerRef}
 			profileId={input.profile.id}
+			profileName={input.profile.name}
 			size={32}
 		/>
 	);
@@ -414,17 +420,20 @@ export function DirectoryIdentityAccountSummary(input: {
 				size={input.context === "card" ? "sm" : "md"}
 			/>
 			{label ? (
-				<span
-					className={cn(
-						"min-w-0 text-muted-foreground",
-						input.context === "detail" ? "select-text break-all text-sm" : null,
-						input.context === "card" ? "select-text break-all text-xs" : null,
-						input.context === "sidebar" ? "truncate text-xs" : null
-					)}
-					title={input.context === "sidebar" ? label : undefined}
-				>
-					{label}
-				</span>
+				<TooltipHint content={input.context === "sidebar" ? label : undefined}>
+					<span
+						className={cn(
+							"min-w-0 text-muted-foreground",
+							input.context === "detail"
+								? "select-text break-all text-sm"
+								: null,
+							input.context === "card" ? "select-text break-all text-xs" : null,
+							input.context === "sidebar" ? "truncate text-xs" : null
+						)}
+					>
+						{label}
+					</span>
+				</TooltipHint>
 			) : null}
 		</span>
 	);

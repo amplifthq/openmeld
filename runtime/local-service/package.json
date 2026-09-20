@@ -6,6 +6,26 @@
   "main": "./dist/index.js",
   "types": "./src/index.ts",
   "exports": {
+    "./heartbeat-policy": {
+      "types": "./src/heartbeat-policy.ts",
+      "import": "./src/heartbeat-policy.ts",
+      "default": "./dist/heartbeat-policy.js"
+    },
+    "./catalog-sync-skipped-profiles": {
+      "types": "./src/catalog-sync-skipped-profiles.ts",
+      "import": "./src/catalog-sync-skipped-profiles.ts",
+      "default": "./dist/catalog-sync-skipped-profiles.js"
+    },
+    "./service-reconcile-decision": {
+      "types": "./src/service-reconcile-decision.ts",
+      "import": "./src/service-reconcile-decision.ts",
+      "default": "./dist/service-reconcile-decision.js"
+    },
+    "./cli-binary-update-artifact": {
+      "types": "./src/cli-binary-update-artifact.ts",
+      "import": "./src/cli-binary-update-artifact.ts",
+      "default": "./dist/cli-binary-update-artifact.js"
+    },
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts",

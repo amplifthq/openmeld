@@ -1,6 +1,7 @@
 import {
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
+  serviceConnectionDiagnosticIdSchema,
 } from "@openmeld/schemas";
 import type { RuntimeTransportCapabilities } from "@openmeld/schemas/types";
 import { normalizeOptionalText } from "../application/runtime-transport-normalization";
@@ -14,6 +15,11 @@ export const RUNTIME_TRANSPORT_VERIFIED_OWNER_HEADER =
 // previously blew the platform's 2KiB attachment limit and silently broke
 // hibernation recovery.
 export type RuntimeTransportSocketAttachment = {
+  executionAdmissionConfirmation?: boolean;
+  computerCare?: boolean;
+  spaceWorkHandoff?: boolean;
+  connectionDiagnosticId?: string;
+  reasoningStream?: boolean;
   computerFileAccessCapability:
     | typeof COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY
     | null;
@@ -29,6 +35,11 @@ export const readRuntimeTransportSocketAttachment = (
   webSocket: WebSocket
 ): RuntimeTransportSocketAttachment => {
   let attachment: {
+    executionAdmissionConfirmation?: unknown;
+    computerCare?: unknown;
+    spaceWorkHandoff?: unknown;
+    connectionDiagnosticId?: unknown;
+    reasoningStream?: unknown;
     verifiedOwnerUserId?: unknown;
     computerFileAccessCapability?: unknown;
     localFolderPickerCapability?: unknown;
@@ -37,6 +48,11 @@ export const readRuntimeTransportSocketAttachment = (
   };
   try {
     attachment = (webSocket.deserializeAttachment() ?? {}) as {
+      executionAdmissionConfirmation?: unknown;
+      computerCare?: unknown;
+      spaceWorkHandoff?: unknown;
+      connectionDiagnosticId?: unknown;
+      reasoningStream?: unknown;
       verifiedOwnerUserId?: unknown;
       computerFileAccessCapability?: unknown;
       localFolderPickerCapability?: unknown;
@@ -57,6 +73,16 @@ export const readRuntimeTransportSocketAttachment = (
   }
 
   return {
+    executionAdmissionConfirmation:
+      attachment.executionAdmissionConfirmation === true,
+    computerCare: attachment.computerCare === true,
+    ...(serviceConnectionDiagnosticIdSchema.safeParse(
+      attachment.connectionDiagnosticId
+    ).success
+      ? { connectionDiagnosticId: String(attachment.connectionDiagnosticId) }
+      : {}),
+    reasoningStream: attachment.reasoningStream === true,
+    spaceWorkHandoff: attachment.spaceWorkHandoff === true,
     computerFileAccessCapability:
       attachment.computerFileAccessCapability ===
       COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY
@@ -76,6 +102,11 @@ export const readRuntimeTransportSocketAttachment = (
 export const writeRuntimeTransportSocketAttachment = (
   webSocket: WebSocket,
   input: {
+    executionAdmissionConfirmation?: boolean;
+    computerCare?: boolean;
+    connectionDiagnosticId?: string;
+    reasoningStream?: boolean;
+    spaceWorkHandoff?: boolean;
     verifiedOwnerUserId: string;
     computerFileAccessCapability?:
       | typeof COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY
@@ -90,6 +121,21 @@ export const writeRuntimeTransportSocketAttachment = (
   try {
     const current = readRuntimeTransportSocketAttachment(webSocket);
     webSocket.serializeAttachment({
+      executionAdmissionConfirmation:
+        input.executionAdmissionConfirmation ??
+        current.executionAdmissionConfirmation ??
+        false,
+      computerCare: input.computerCare ?? current.computerCare ?? false,
+      ...((input.connectionDiagnosticId ?? current.connectionDiagnosticId)
+        ? {
+            connectionDiagnosticId:
+              input.connectionDiagnosticId ?? current.connectionDiagnosticId,
+          }
+        : {}),
+      reasoningStream:
+        input.reasoningStream ?? current.reasoningStream ?? false,
+      spaceWorkHandoff:
+        input.spaceWorkHandoff ?? current.spaceWorkHandoff ?? false,
       verifiedOwnerUserId: input.verifiedOwnerUserId,
       computerFileAccessCapability:
         input.computerFileAccessCapability === undefined
@@ -128,11 +174,20 @@ export function applyRuntimeTransportNegotiatedCapabilities(input: {
   const hasLocalFolderPicker =
     input.attachment.localFolderPickerCapability ===
     LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY;
-  if (!(hasComputerFileAccess || hasLocalFolderPicker)) {
+  if (
+    !(
+      hasComputerFileAccess ||
+      hasLocalFolderPicker ||
+      input.attachment.spaceWorkHandoff
+    )
+  ) {
     return input.capabilities;
   }
   return {
     ...(input.capabilities ?? {}),
+    ...(input.attachment.spaceWorkHandoff
+      ? { spaceWorkHandoff: true as const }
+      : {}),
     ...(hasComputerFileAccess
       ? {
           computerFileAccess: {

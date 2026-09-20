@@ -4,6 +4,7 @@ import { formatStoredRoutineSchedule } from "@openmeld/routine-schedule";
 import type { CenterAgentRoutineManagement } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { Switch } from "@openmeld/ui/components/switch";
 import {
 	SharedLayoutGroup,
@@ -11,6 +12,7 @@ import {
 } from "@openmeld/ui/fluid/shared-layout-group";
 import { CalendarDotsIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
+import { AppEmptyState } from "#/components/app/app-empty-state";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { formatCenterAgentInteractionClient } from "#/lib/organizations/center-agent-interaction-source";
 import { formatRoutineTimestamp } from "#/lib/organizations/center-agent-routine-presentation";
@@ -202,9 +204,10 @@ function CenterAgentRoutinesPanelContent(input: {
 		return (
 			<div className="flex flex-col gap-6">
 				{pageHeader}
-				<section aria-busy="true" aria-live="polite">
-					<p className="text-muted-foreground text-sm">Loading routines.</p>
-				</section>
+				<SkeletonRows
+					className="rounded-md border border-border/70 p-4"
+					label="Loading routines"
+				/>
 			</div>
 		);
 	}
@@ -259,24 +262,16 @@ function CenterAgentRoutinesPanelContent(input: {
 					organizationId={input.organizationId}
 					orgSlug={input.orgSlug}
 				/>
-				<section className="flex min-h-64 flex-col items-center justify-center rounded-md border border-border/70 border-dashed bg-card/25 px-6 py-10 text-center">
-					<span className="grid size-10 place-items-center rounded-md border border-border/70 bg-background/45 text-muted-foreground">
-						<CalendarDotsIcon aria-hidden="true" className="size-5" />
-					</span>
-					<h2 className="mt-4 font-medium text-foreground text-lg">
-						No routines yet
-					</h2>
-					<p className="mt-2 max-w-md text-muted-foreground text-sm leading-6">
-						Routines let your Center Agent work in a target Space on a schedule.
-					</p>
-					<Button
-						className="mt-5"
-						onClick={management.openCreate}
-						type="button"
-					>
-						Create routine
-					</Button>
-				</section>
+				<AppEmptyState
+					actions={
+						<Button onClick={management.openCreate} type="button">
+							Create routine
+						</Button>
+					}
+					description="Routines let your Center Agent work in a target Space on a schedule."
+					icon={<CalendarDotsIcon aria-hidden="true" className="size-5" />}
+					title="No routines yet"
+				/>
 				{createDialog}
 				{editDialog}
 				{deleteDialog}
@@ -361,7 +356,7 @@ function CenterAgentRoutinesPageHeader(input: {
 					</>
 				) : undefined
 			}
-			description="Schedule your Center Agent to work in a target Space."
+			description="Schedule work in a Space or a connected conversation."
 			eyebrow={
 				input.isPersonalWorkspace ? "Personal workspace" : "Organization"
 			}
@@ -547,6 +542,11 @@ function resolveRoutineStatusLabel(
 function resolveRoutineDestinationLabel(
 	routine: CenterAgentRoutineManagement
 ): string {
+	if (routine.destinationKind === "message_channel") {
+		return routine.messageChannelLocator?.provider === "feishu"
+			? "Feishu conversation"
+			: "Lark conversation";
+	}
 	if (routine.destinationKind === "slack_thread") {
 		return routine.slackThreadLabel ?? "Slack thread";
 	}

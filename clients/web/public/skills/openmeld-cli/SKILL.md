@@ -21,7 +21,7 @@ OpenMeld CLI and the appropriate account access.
 
 Follow these relative links from the current local folder or public URL.
 Do not preload every file. Use `openmeld <command> --help` for a missing flag.
-This guide requires CLI 0.3.159 or later. A guide cannot add commands to an older
+This guide requires CLI 0.3.174 or later. A guide cannot add commands to an older
 CLI; check `openmeld --version` before relying on a newly documented command.
 
 ## Identity and ownership
@@ -49,9 +49,11 @@ Do not substitute `openmeld space send` for the final Wake reply.
 An action error is an error: preserve it. Ordinary terminal output is not a
 Space reply. Verify that the Space received the visible outcome.
 
-Use `--wake` when asking another available Agent to execute; `--reference`
-only adds context and `--mention` notifies a Human. Read the operations topic
-before choosing an action.
+Use `--wake <agent-profile-id>` when asking another available Agent to execute;
+`--reference <agent-profile-id>` only adds context and `--mention <human-profile-id>`
+notifies a Human. Pass full Profile IDs from Space members or dispatch action
+targets, not names or short IDs. Message text, including `@Name(wake)`, is literal
+and never selects a recipient. Read the operations topic before choosing an action.
 
 ## Setup and safety
 

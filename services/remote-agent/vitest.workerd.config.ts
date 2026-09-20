@@ -4,7 +4,18 @@ export default defineWorkersConfig({
   test: {
     include: ["tests/workerd/**/*.test.ts"],
     server: {
-      deps: { inline: [/@cloudflare\/computer/u, /just-bash/u, /turndown/u] },
+      deps: {
+        inline: [
+          /@cloudflare\/computer/u,
+          /just-bash/u,
+          /turndown/u,
+          /\/ai\//u,
+          /@ai-sdk\//u,
+          /\/agents\//u,
+          /@cloudflare\/codemode/u,
+          /@flue\//u,
+        ],
+      },
     },
     poolOptions: {
       workers: {

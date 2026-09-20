@@ -29,7 +29,6 @@ import type {
   CenterAgentUpdateProjectToolRpcInput,
   Project,
 } from "@openmeld/schemas/types";
-import { prepareCenterAgentOrganizationMemberRequest } from "../center-agent/application/anonymous-member-request";
 import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
 import { prepareCenterAgentAuditJournalEntryStatement } from "../center-agent/center-agent-repository";
 import { type CoreBindings, projectDb } from "../lib/bindings";
@@ -399,9 +398,7 @@ export async function rpcCenterAgentRemoveProject(
     confirmation.organizationId !== prepared.authority.organizationId ||
     confirmation.actorProfileId !== prepared.actorProfileId ||
     confirmation.representedUserId !== prepared.representedHuman.userId ||
-    confirmation.representedProfileId !== prepared.representedHuman.profileId ||
-    (request.executionMode === "interactive" &&
-      confirmation.preparedRequestId === request.context.actorContext.requestId)
+    confirmation.representedProfileId !== prepared.representedHuman.profileId
   ) {
     throw invalidRemoveConfirmationError();
   }
@@ -520,7 +517,7 @@ async function prepareProjectListRequest(input: {
   env: CoreBindings;
   speakerMember: CenterAgentListProjectsToolRpcInput["speakerMember"];
 }): Promise<PreparedCenterAgentProjectListRequest> {
-  const prepared = await prepareCenterAgentOrganizationMemberRequest(
+  const prepared = await prepareRemoteAgentMemberRequest(
     input.env,
     input.context,
     input.speakerMember
@@ -731,3 +728,5 @@ function parseReplay<T>(
   const stored = JSON.parse(operation.responseJson) as Record<string, unknown>;
   return parseResponse(schema, { ...stored, outcome: "replayed" });
 }
+
+import { prepareRemoteAgentMemberRequest } from "../remote-agent/application/remote-agent-member-request";

@@ -134,6 +134,49 @@ const toSnapshotFileName = (entry: DrizzleJournalEntry): string => {
 };
 
 describe("shared drizzle migration history integrity", () => {
+  it("preserves Inbox identities, frozen selections and email receipts through the account-scope rebuild with enforced foreign keys", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      const files = listSqlMigrationFiles();
+      const migration = "0177_jittery_white_tiger.sql";
+      applyMigrationFiles(database, files.slice(0, files.indexOf(migration)));
+      database.exec(`
+        PRAGMA foreign_keys=ON;
+        INSERT INTO users (id, name, email) VALUES ('inbox-owner', 'Inbox owner', 'inbox-migration@example.test');
+        INSERT INTO organizations (id, name, slug, created_at) VALUES ('inbox-org', 'Inbox', 'inbox-migration', 1);
+        INSERT INTO inbox_items (rowid, id, organization_id, recipient_user_id, kind, attention, importance, title, preview, source_kind, source_key, source_target_json, resolution_status, read_at_ms, cleared_at_ms, resolved_at_ms, occurred_at_ms, created_at_ms, updated_at_ms)
+        VALUES (719, 'retained-item', 'inbox-org', 'inbox-owner', 'system_issue', 'action_required', 'urgent', 'Retained request', 'Source ended this request.', 'system_attention_event', 'retained-source', '{"kind":"settings","section":"computers"}', 'resolved', 2, 3, 4, 1, 1, 4);
+        INSERT INTO inbox_email_deliveries (id, inbox_item_id, state, attempt_count, next_attempt_at_ms, message_id, sent_at_ms, created_at_ms, updated_at_ms)
+        VALUES ('retained-receipt', 'retained-item', 'sent', 2, 1, 'provider-accepted-id', 2, 1, 2);
+        INSERT INTO inbox_feed_snapshots (id, organization_id, recipient_user_id, category, unread_only, agents_only, through_row_id, created_at_ms, expires_at_ms)
+        VALUES ('retained-snapshot', 'inbox-org', 'inbox-owner', 'all', 0, 0, 719, 1, 9999);
+        INSERT INTO inbox_feed_snapshot_members VALUES ('retained-snapshot', 'retained-item');
+      `);
+      const items = database.prepare("SELECT rowid, * FROM inbox_items").all();
+      const receipts = database
+        .prepare("SELECT * FROM inbox_email_deliveries")
+        .all();
+      const members = database
+        .prepare("SELECT * FROM inbox_feed_snapshot_members")
+        .all();
+      database.exec("BEGIN");
+      applyMigrationFiles(database, [migration]);
+      database.exec("COMMIT");
+      expect(
+        database.prepare("SELECT rowid, * FROM inbox_items").all()
+      ).toEqual(items);
+      expect(
+        database.prepare("SELECT * FROM inbox_email_deliveries").all()
+      ).toEqual(receipts);
+      expect(
+        database.prepare("SELECT * FROM inbox_feed_snapshot_members").all()
+      ).toEqual(members);
+      expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    } finally {
+      database.close();
+    }
+  });
+
   it("enforces one personal Organization per creator from canonical metadata", () => {
     const database = new DatabaseSync(":memory:");
     try {
@@ -892,7 +935,7 @@ describe("shared drizzle migration history integrity", () => {
     }
   });
 
-  it("stores one active organization join link while preserving revoked history", () => {
+  it("stores one active organization join link per mode while preserving revoked history", () => {
     const database = new DatabaseSync(":memory:");
     try {
       applyMigrationFiles(database, listSqlMigrationFiles());
@@ -907,6 +950,8 @@ describe("shared drizzle migration history integrity", () => {
         "created_at",
         "revoked_at",
         "space_id",
+        "mode",
+        "expires_at",
       ]);
       expect(listTableIndexes(database, "organization_join_links")).toEqual(
         expect.arrayContaining([
@@ -960,6 +1005,29 @@ describe("shared drizzle migration history integrity", () => {
         `,
         "UNIQUE constraint failed: organization_join_links.organization_id"
       );
+
+      expect(
+        database
+          .prepare(
+            "SELECT mode, expires_at FROM organization_join_links WHERE id = 'join-link-1'"
+          )
+          .get()
+      ).toMatchObject({ mode: "request", expires_at: null });
+      database.exec(`
+        INSERT INTO organization_join_links (
+          id, organization_id, token, role, created_by, created_at, mode, expires_at
+        ) VALUES (
+          'direct-join-link', 'join-link-org', 'joinlink_direct', 'member',
+          'join-link-owner', 2, 'direct', 3000
+        );
+      `);
+      expect(
+        database
+          .prepare(
+            "SELECT COUNT(*) AS count FROM organization_join_links WHERE revoked_at IS NULL"
+          )
+          .get()
+      ).toMatchObject({ count: 2 });
 
       database.exec(`
         UPDATE organization_join_links
@@ -2017,14 +2085,39 @@ describe("shared drizzle migration history integrity", () => {
   it("stores every connector service in the shared contract", () => {
     const database = new DatabaseSync(":memory:");
     try {
-      applyMigrationFiles(database, listSqlMigrationFiles());
+      const migrationFiles = listSqlMigrationFiles();
+      const channelMigration = migrationFiles.filter((file) =>
+        file.startsWith("0168_")
+      );
+      expect(channelMigration).toHaveLength(1);
+      applyMigrationFiles(
+        database,
+        migrationFiles.filter((file) => !file.startsWith("0168_"))
+      );
       database.exec("PRAGMA foreign_keys = ON");
       database.exec(`
         INSERT INTO users (id, name, email)
         VALUES ('connector-owner', 'Connector Owner', 'connector@example.com');
         INSERT INTO organizations (id, name, slug, created_at)
         VALUES ('connector-org', 'Connector Org', 'connector-org', 1);
+        INSERT INTO connector_connections
+          (connection_name, organization_id, user_id, service, status, created_at_ms, updated_at_ms)
+        VALUES ('existing_github', 'connector-org', 'connector-owner', 'github', 'pending', 1, 1);
+        INSERT INTO github_app_installation_states
+          (state_digest, organization_id, user_id, actor_profile_id, target_connection_name, status, expires_at_ms, created_at_ms, updated_at_ms)
+        VALUES ('existing-state', 'connector-org', 'connector-owner', 'profile', 'existing_github', 'installing', 1000, 1, 1);
       `);
+      database.exec("BEGIN");
+      applyMigrationFiles(database, channelMigration);
+      database.exec("COMMIT");
+      expect(
+        database
+          .prepare(
+            "SELECT target_connection_name FROM github_app_installation_states WHERE state_digest = 'existing-state'"
+          )
+          .get()
+      ).toEqual({ target_connection_name: "existing_github" });
+      expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 
       const insert = database.prepare(`
         INSERT INTO connector_connections (
@@ -2046,7 +2139,7 @@ describe("shared drizzle migration history integrity", () => {
       expect(
         database
           .prepare(
-            "SELECT service FROM connector_connections ORDER BY service ASC"
+            "SELECT service FROM connector_connections WHERE scope = 'shared' ORDER BY service ASC"
           )
           .all()
           .map((row) => row.service)
@@ -2669,6 +2762,7 @@ describe("shared drizzle migration history integrity", () => {
         "id",
         "organization_id",
         "name",
+        "agent_profile_id",
         "instructions",
         "authorized_actions_json",
         "external_action_policy",
@@ -2677,19 +2771,20 @@ describe("shared drizzle migration history integrity", () => {
         "timezone",
         "run_at_ms",
         "destination_kind",
+        "message_channel_destination_json",
         "target_space_id",
         "slack_team_id",
         "slack_channel_id",
         "slack_thread_ts",
         "slack_conversation_id",
         "slack_thread_label",
+        "creation_attribution_json",
         "status",
         "next_due_at",
         "created_by_user_id",
         "updated_by_user_id",
         "created_at_ms",
         "updated_at_ms",
-        "creation_attribution_json",
       ]);
       expect(listTableIndexes(database, "routines")).toEqual(
         expect.arrayContaining([
@@ -2722,6 +2817,8 @@ describe("shared drizzle migration history integrity", () => {
         "slack_conversation_id_snapshot",
         "slack_thread_label_snapshot",
         "continuation_delegation_id",
+        "agent_profile_id_snapshot",
+        "message_channel_destination_json_snapshot",
       ]);
       expect(listTableIndexes(database, "routine_runs")).toEqual(
         expect.arrayContaining([

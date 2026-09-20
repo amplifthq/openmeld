@@ -1,8 +1,12 @@
+import type { ChildProcess } from "node:child_process";
+import { once } from "node:events";
 import {
   chmod,
   mkdir,
   mkdtemp,
+  readFile,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -30,10 +34,29 @@ import {
 } from "./fixtures/opencode-npm-latest";
 import { OPENCODE_CONNECTED_PROVIDER_LIST_RESPONSE } from "./fixtures/opencode-provider-list";
 
+const STARTUP_TIMEOUT_EVIDENCE_RE =
+  /pid=\d+, elapsedMs=\d+, stdoutBytes=0, stderrBytes=[1-9]\d*, load1m=/u;
+
 const { createOpencodeClientMock, warnDaemonEventMock } = vi.hoisted(() => ({
   createOpencodeClientMock: vi.fn(),
   warnDaemonEventMock: vi.fn(),
 }));
+
+const probeProcessObserver = vi.hoisted(() => ({
+  onSpawn: undefined as ((child: ChildProcess) => void) | undefined,
+}));
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...actual,
+    spawn: (...args: Parameters<typeof actual.spawn>) => {
+      const child = actual.spawn(...args);
+      probeProcessObserver.onSpawn?.(child);
+      return child;
+    },
+  };
+});
 
 vi.mock("@opencode-ai/sdk/v2", () => ({
   createOpencodeClient: createOpencodeClientMock,
@@ -495,12 +518,16 @@ describe("agent controller interface inventory", () => {
 
   it("reports OpenCode auth, models, and interrupt-backed Stop from the local CLI", async () => {
     const home = await mkdtemp(join(tmpdir(), "openmeld-aci-opencode-"));
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(home);
     try {
+      await mkdir(join(home, ".git"));
       const binPath = join(home, "opencode");
+      const cwdLog = join(home, "probe-cwd");
       await writeFile(
         binPath,
         [
           "#!/bin/sh",
+          `pwd > '${cwdLog}'`,
           'if [ "$1" = "--version" ]; then echo "opencode 1.17.11"; exit 0; fi',
           'if [ "$1" = "serve" ]; then echo "opencode server listening on http://127.0.0.1:34567"; sleep 60; exit 0; fi',
           "exit 1",
@@ -577,9 +604,13 @@ describe("agent controller interface inventory", () => {
       });
       expect(createOpencodeClientMock).toHaveBeenCalledWith({
         baseUrl: "http://127.0.0.1:34567",
-        directory: process.cwd(),
+        directory: (await readFile(cwdLog, "utf8")).trim(),
         throwOnError: true,
       });
+      const probeCwd = (await readFile(cwdLog, "utf8")).trim();
+      expect(probeCwd).not.toBe(process.cwd());
+      expect(probeCwd.startsWith(`${home}/`)).toBe(false);
+      await expect(stat(probeCwd)).rejects.toMatchObject({ code: "ENOENT" });
       expect(globalThis.fetch).toHaveBeenCalledWith(OPENCODE_NPM_LATEST_URL, {
         headers: {
           accept: "application/json",
@@ -587,6 +618,7 @@ describe("agent controller interface inventory", () => {
         signal: expect.any(AbortSignal),
       });
     } finally {
+      cwdSpy.mockRestore();
       await rm(home, { force: true, recursive: true });
     }
   });
@@ -816,6 +848,63 @@ describe("agent controller interface inventory", () => {
     }
   );
 
+  it.each([
+    { output: "Loading provider configuration", visible: true },
+    { output: "Authorization: Bearer synthetic-secret-token", visible: false },
+  ])("preserves safe startup timeout evidence ($visible)", async ({
+    output,
+    visible,
+  }) => {
+    const home = await mkdtemp(
+      join(tmpdir(), "openmeld-aci-startup-evidence-")
+    );
+    let child: ChildProcess | undefined;
+    try {
+      const binPath = join(home, "opencode");
+      await writeFile(
+        binPath,
+        `#!/bin/sh\nprintf '%s\\n' '${output}' >&2\nexec sleep 60\n`,
+        "utf8"
+      );
+      await chmod(binPath, 0o755);
+      const spawned = new Promise<ChildProcess>((resolve) => {
+        probeProcessObserver.onSpawn = resolve;
+      });
+      // Keep real process I/O, but do not race its scheduling against the
+      // evidence deadline. Advance time only after stderr reaches the pipe.
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+      const pending = probeOpenCodeReadiness({
+        workingDirectory: home,
+        launchContract: { commandPath: binPath, kind: "executable" },
+        timeoutMs: 3000,
+      });
+      child = await spawned;
+      if (!child.stderr) {
+        throw new Error("Expected the real probe stderr pipe");
+      }
+      await once(child.stderr, "data");
+      await vi.advanceTimersByTimeAsync(3000);
+      const result = await pending;
+      expect(result).toMatchObject({
+        auth: { status: "unknown" },
+        probeCompleted: false,
+        status: "unknown",
+      });
+      expect(result.message).toMatch(STARTUP_TIMEOUT_EVIDENCE_RE);
+      expect(result.message?.includes(output)).toBe(visible);
+      expect(child.signalCode).toBe("SIGTERM");
+    } finally {
+      probeProcessObserver.onSpawn = undefined;
+      vi.useRealTimers();
+      if (child && child.exitCode === null && child.signalCode === null) {
+        const closed = once(child, "close");
+        child.kill("SIGKILL");
+        await closed;
+      }
+      await rm(home, { force: true, recursive: true });
+    }
+  });
+
   it("keeps an unfinished OpenCode provider probe out of the error state", async () => {
     const home = await mkdtemp(join(tmpdir(), "openmeld-aci-opencode-error-"));
     try {
@@ -834,6 +923,7 @@ describe("agent controller interface inventory", () => {
 
       await expect(
         probeOpenCodeReadiness({
+          workingDirectory: home,
           launchContract: { commandPath: binPath, kind: "executable" },
           timeoutMs: 100,
         })

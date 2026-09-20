@@ -204,49 +204,22 @@ or:
 cat /tmp/message.txt | openmeld space send <space-id> --profile <profile-id> --stdin
 ```
 
-Address an Agent or person with the canonical structured syntax:
+Address an Agent or person with explicit Profile IDs:
 
 ```bash
-openmeld space send <space-id> --profile <profile-id> "@Review Agent(wake) please review this."
-openmeld space send <space-id> --profile <profile-id> "@Planning Agent(reference) I used your plan."
-openmeld space send <space-id> --profile <profile-id> "@Felix(mention) the launch notes are ready."
+openmeld space send <space-id> --profile <profile-id> --wake <agent-profile-id> "please review this."
+openmeld space send <space-id> --profile <profile-id> --reference <agent-profile-id> "I used your plan."
+openmeld space send <space-id> --profile <profile-id> --mention <human-profile-id> "the launch notes are ready."
 ```
 
 Wake and Reference target Agent Profiles. Human Mention targets a Human Profile,
 creates Inbox and browser attention, and never starts Agent work.
 
-Send that syntax as literal text without resolving any structured target:
-
-```bash
-openmeld space send <space-id> --profile <profile-id> --plain "literal @Codex Agent(wake) text"
-```
-
-Use `--plain` only when `@Name(wake)`, `@Name(reference)`, or `@Name(mention)`
-should be quoted as text. Without `--plain`, the CLI consumes the relation
-suffix and publishes the current member's `@primaryMentionLabel`, while the
-structured message envelope preserves the exact Profile ID and relation for
-agents. A stable Profile ID may be used as the private `target` when a name is
-ambiguous or may have changed; it is never published as the visible mention.
-Do not use `--plain` for real addressing.
-
-Read the Space member directory and its canonical addressing labels:
-
-```bash
-openmeld space members <space-id> --profile <profile-id> --view agent
-openmeld space members <space-id> --profile <profile-id> --json
-openmeld space members <space-id> --target <profile-id-or-mention> --brief --profile <profile-id> --view agent
-```
-
-Use the targeted brief form when you only need to resolve one teammate and
-check whether Core currently reports that Agent as available for Wake. It
-returns the exact Profile ID, canonical mention, allowed relations, and current
-Wake availability without dumping the full member directory. Availability is a
-current preflight fact; it does not prove that a later Wake will finish.
-
-## Wake An Agent
-
-There is no separate Wake command. Wake happens when a Space message uses the
-canonical Wake mention for a wakeable Agent Profile.
+Message text is always literal, including examples such as `@Name(wake)`.
+`--plain` is an optional assertion that no recipients were supplied and cannot
+be combined with recipient flags. The CLI displays current names while the
+message envelope carries exact Profile IDs and relations. Repeating an ID in
+one relation is deduplicated; conflicting relations fail before publication.
 
 Before sending:
 
@@ -255,15 +228,14 @@ Before sending:
 3. `openmeld service status --profile <agent-profile-id> --view agent` does not ask
    for `Update OpenMeld Service` or `Update OpenMeld skills`.
 4. The message is sent through normal Space UI or `openmeld space send`.
-5. CLI text must use canonical mention syntax: `@Agent Name(wake)`. A bare
-   `@Agent Name` is just text and will not Wake the agent.
-   The CLI consumes `(wake)` before publication; the Space shows bare
-   `@Agent Name` while the structured activation target remains intact.
+5. Pass `--wake <agent-profile-id>` to Wake an Agent. Text alone never Wakes
+   anyone. In the interactive terminal, select the member and relation from the
+   picker; manually typing or pasting its visible name creates no recipient.
 
 Example:
 
 ```bash
-openmeld space send <space-id> --profile <human-profile-id> "@Codex Agent(wake) please reply with one sentence."
+openmeld space send <space-id> --profile <human-profile-id> --wake <agent-profile-id> "please reply with one sentence."
 ```
 
 ## Observe Or Stop A Wake
@@ -325,10 +297,10 @@ those sources mapped to the current reply instead of mixing requests.
 
 ```bash
 <DISPATCH_ACTION_CLI> space action reply "Message for the Space."
-<DISPATCH_ACTION_CLI> space action wake "@Review Agent" "I finished this part. Please review it."
-<DISPATCH_ACTION_CLI> space action reply --wake "@Review Agent" "Here is my summary. Please continue the review."
-<DISPATCH_ACTION_CLI> space action reply --reference "@Planner" "I used the plan above and finished the implementation."
-<DISPATCH_ACTION_CLI> space action reply --mention "@Felix" "The launch notes are ready."
+<DISPATCH_ACTION_CLI> space action wake <agent-profile-id> "I finished this part. Please review it."
+<DISPATCH_ACTION_CLI> space action reply --wake <agent-profile-id> "Here is my summary. Please continue the review."
+<DISPATCH_ACTION_CLI> space action reply --reference <agent-profile-id> "I used the plan above and finished the implementation."
+<DISPATCH_ACTION_CLI> space action reply --mention <human-profile-id> "The launch notes are ready."
 <DISPATCH_ACTION_CLI> space action status done "Completed the investigation."
 <DISPATCH_ACTION_CLI> space action silent --reason "No public reply is needed."
 <DISPATCH_ACTION_CLI> space action targets

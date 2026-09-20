@@ -37,6 +37,92 @@ const UNSUPPORTED_WAKE_STOP_ELIGIBILITY = {
 } satisfies NonNullable<WakeProgressItem["wakeStopEligibility"]>;
 
 describe("resolveSpaceMessageWakeStopTarget", () => {
+	it("retains only B's Core-authorized Stop after A replies on the same source", () => {
+		const source = createTimelineItem();
+		const a = {
+			...createWakeProgressItem({
+				phase: "running",
+				wakeStopEligibility: null,
+			}),
+			dispatchId: "A",
+		};
+		const b = {
+			...a,
+			dispatchId: "B",
+			wakeStopEligibility: CANCEL_BACKED_WAKE_STOP_ELIGIBILITY,
+		};
+		const reply = createTimelineItem({
+			id: "reply-A",
+			actorProfileKind: "agent",
+			actorProfileId: TARGET_PROFILE_ID,
+			replyToSignalId: source.id,
+			wakeDispatchId: "A",
+			isAgentFinalReply: true,
+		});
+		const resolved = resolveSpaceMessageWakeStopTarget({
+			item: source,
+			wakeProgressItems: [a, b],
+			timelineItems: [source, reply],
+		});
+		expect(resolved.canStop).toBe(true);
+		expect(resolved.selector).toMatchObject({
+			by: "source_signal",
+			sourceSignalId: source.id,
+			targetProfileId: TARGET_PROFILE_ID,
+		});
+		expect(
+			resolveSpaceMessageWakeStopTarget({
+				item: source,
+				wakeProgressItems: [{ ...b, wakeStopEligibility: null }],
+				timelineItems: [source, reply],
+			}).canStop
+		).toBe(false);
+	});
+	it.each([
+		"connecting",
+		"running",
+	] as const)("only offers waiting cancellation before running: %s", (phase) => {
+		const target = resolveSpaceMessageWakeStopTarget({
+			item: createTimelineItem(),
+			wakeProgressItems: [
+				{
+					...createWakeProgressItem({
+						phase,
+						wakeStopEligibility: CANCEL_BACKED_WAKE_STOP_ELIGIBILITY,
+					}),
+					waitReasonCode: "runtime.agent_controller_conversation.occupied",
+				},
+			],
+		});
+		expect(target.canStop).toBe(true);
+		expect(target.isWaitingToStart).toBe(phase === "connecting");
+	});
+	it.each([
+		"timeline",
+		"details",
+	] as const)("uses server publication eligibility for %s Stop", (variant) => {
+		const item = createWakeProgressItem({
+			phase: "publishing",
+			wakeStopEligibility: {
+				controlMode: "openmeld_owned_publication_cancel",
+				reasonCode: null,
+				reliability: "openmeld_owned_publication",
+				status: "eligible",
+			},
+		});
+		const target = resolveSpaceMessageWakeStopTarget({
+			item: createTimelineItem(),
+			wakeProgressItems: [item],
+		});
+		expect(target.canStop).toBe(true);
+		expect(shouldRenderSpaceWakeStopControl(target, variant)).toBe(true);
+		const unavailable = resolveSpaceMessageWakeStopTarget({
+			item: createTimelineItem(),
+			wakeProgressItems: [{ ...item, wakeStopEligibility: null }],
+		});
+		expect(unavailable.canStop).toBe(false);
+		expect(shouldRenderSpaceWakeStopControl(unavailable, variant)).toBe(false);
+	});
 	it.each([
 		"timeline",
 		"details",

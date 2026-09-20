@@ -9,8 +9,6 @@ import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationCenterAgentRoutinesPath,
 	buildOrganizationCenterAgentSettingsPath,
-	buildOrganizationCenterAgentTaskPath,
-	buildOrganizationCenterAgentTasksPath,
 	buildOrganizationChannelsPath,
 	buildOrganizationComputerPath,
 	buildOrganizationComputersPath,
@@ -25,6 +23,7 @@ import {
 	buildOrganizationDirectoryRootPath,
 	buildOrganizationInboxItemPath,
 	buildOrganizationInboxPath,
+	buildOrganizationLegacyCenterAgentSettingsPath,
 	buildOrganizationMemoryPath,
 	buildOrganizationNotificationsSettingsPath,
 	buildOrganizationOrganizationsPath,
@@ -43,7 +42,7 @@ import {
 
 describe("organization default route", () => {
 	it("keeps Home separate from the Center Agent chat destination", () => {
-		expect(buildOrganizationDefaultPath("acme")).toBe("/o/acme");
+		expect(buildOrganizationDefaultPath("acme")).toBe("/o/acme/spaces");
 		expect(buildOrganizationCenterAgentChatPath("acme")).toBe(
 			"/o/acme/chats/center-agent"
 		);
@@ -70,16 +69,17 @@ describe("integration management routes", () => {
 		expect(buildOrganizationChannelsPath("acme")).toBe(
 			"/o/acme/center-agent/channels"
 		);
-		expect(buildOrganizationPluginsPath("acme")).toBe(
-			"/o/acme/center-agent/plugins"
-		);
+		expect(buildOrganizationPluginsPath("acme")).toBe("/o/acme/plugins");
 		expect(
 			buildOrganizationPluginPath({ orgSlug: "acme", service: "google-drive" })
-		).toBe("/o/acme/center-agent/plugins/google-drive");
+		).toBe("/o/acme/plugins/google-drive");
 		expect(buildOrganizationMemoryPath("acme")).toBe(
 			"/o/acme/center-agent/memory"
 		);
 		expect(buildOrganizationCenterAgentSettingsPath("acme")).toBe(
+			"/o/acme/settings/center-agent"
+		);
+		expect(buildOrganizationLegacyCenterAgentSettingsPath("acme")).toBe(
 			"/o/acme/center-agent/settings"
 		);
 	});
@@ -98,7 +98,7 @@ describe("integration management routes", () => {
 			"/o/acme/settings/notifications"
 		);
 		expect(buildOrganizationConnectedPluginsSettingsPath("acme")).toBe(
-			"/o/acme/center-agent/plugins"
+			"/o/acme/plugins"
 		);
 	});
 });
@@ -170,28 +170,17 @@ describe("primary organization routes", () => {
 		);
 	});
 
-	it("keeps Tasks and immutable Task details inside the Center Agent product", () => {
-		expect(buildOrganizationCenterAgentTasksPath("acme")).toBe(
-			"/o/acme/center-agent/tasks"
-		);
-		expect(
-			buildOrganizationCenterAgentTaskPath({
-				orgSlug: "acme",
-				taskId: "task/one",
-			})
-		).toBe("/o/acme/center-agent/tasks/task%2Fone");
-	});
-
-	it("keeps Organization Skills inside the Center Agent route family", () => {
-		expect(buildOrganizationSkillsPath("acme")).toBe(
-			"/o/acme/center-agent/skills"
-		);
+	it("builds organization-level Skill routes with encoded identity segments", () => {
+		expect(buildOrganizationSkillsPath("acme")).toBe("/o/acme/skills");
 		expect(
 			buildOrganizationSkillPath({
 				orgSlug: "acme",
 				skillId: "skill/one",
 			})
-		).toBe("/o/acme/center-agent/skills/skill%2Fone");
+		).toBe("/o/acme/skills/skill%2Fone");
+		expect(
+			buildOrganizationSkillPath({ orgSlug: "team one", skillId: "skill %/#?" })
+		).toBe("/o/team%20one/skills/skill%20%25%2F%23%3F");
 	});
 
 	it("uses immutable Project ids for the Projects route family", () => {
@@ -225,25 +214,19 @@ describe("resolveOrganizationSwitchPath", () => {
 			"/o/acme/center-agent/routines",
 			"/o/beta/center-agent/routines",
 		],
-		[
-			"Center Agent Tasks",
-			"/o/acme/center-agent/tasks",
-			"/o/beta/center-agent/tasks",
-		],
-		[
-			"Center Agent Task detail",
-			"/o/acme/center-agent/tasks/task-acme",
-			"/o/beta/center-agent/tasks",
-		],
-		[
-			"Center Agent Skills",
-			"/o/acme/center-agent/skills",
-			"/o/beta/center-agent/skills",
-		],
+		["Center Agent Skills", "/o/acme/center-agent/skills", "/o/beta/skills"],
 		[
 			"Center Agent Skill detail",
 			"/o/acme/center-agent/skills/skill-acme",
-			"/o/beta/center-agent/skills",
+			"/o/beta/skills",
+		],
+		["Skills", "/o/acme/skills", "/o/beta/skills"],
+		["Skill detail", "/o/acme/skills/skill-acme", "/o/beta/skills"],
+		["Trailing Skill slash", "/o/acme/skills/skill%2Fone/", "/o/beta/skills"],
+		[
+			"Legacy trailing Skill slash",
+			"/o/acme/center-agent/skills/skill%2Fone/",
+			"/o/beta/skills",
 		],
 		["Spaces", "/o/acme/spaces", "/o/beta/spaces"],
 		["Space detail", "/o/acme/spaces/space-acme", "/o/beta/spaces"],
@@ -261,15 +244,11 @@ describe("resolveOrganizationSwitchPath", () => {
 			"/o/acme/center-agent/channels",
 			"/o/beta/center-agent/channels",
 		],
-		[
-			"Center Agent Plugins",
-			"/o/acme/center-agent/plugins",
-			"/o/beta/center-agent/plugins",
-		],
+		["Center Agent Plugins", "/o/acme/center-agent/plugins", "/o/beta/plugins"],
 		[
 			"Center Agent Plugin detail",
 			"/o/acme/center-agent/plugins/github",
-			"/o/beta/center-agent/plugins",
+			"/o/beta/plugins",
 		],
 		[
 			"Center Agent Memory",
@@ -278,8 +257,8 @@ describe("resolveOrganizationSwitchPath", () => {
 		],
 		[
 			"Center Agent settings",
-			"/o/acme/center-agent/settings",
-			"/o/beta/center-agent/settings",
+			"/o/acme/settings/center-agent",
+			"/o/beta/settings/center-agent",
 		],
 		["Projects", "/o/acme/projects", "/o/beta/projects"],
 		["Project detail", "/o/acme/projects/project-acme", "/o/beta/projects"],
@@ -317,11 +296,7 @@ describe("resolveOrganizationSwitchPath", () => {
 			"/o/acme/settings/notifications",
 			"/o/beta/settings/notifications",
 		],
-		[
-			"Connected Plugins",
-			"/o/acme/settings/connected-apps",
-			"/o/beta/center-agent/plugins",
-		],
+		["Connected Plugins", "/o/acme/settings/connected-apps", "/o/beta/plugins"],
 		["Privacy", "/o/acme/settings/privacy", "/o/beta/settings/privacy"],
 		["General", "/o/acme/settings/general", "/o/beta/settings/general"],
 	])("keeps %s on its canonical destination", (_label, currentPathname, expectedPath) => {

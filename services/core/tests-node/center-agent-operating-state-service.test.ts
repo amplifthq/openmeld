@@ -25,7 +25,7 @@ describe("Center Agent operating state", () => {
     expect(cancelExecution).toHaveBeenNthCalledWith(1, {
       idempotencyKey: "turn-space",
       organizationId: "org-1",
-      reason: "Center Agent was paused by the Organization creator.",
+      reason: "Center Agent was paused by an Organization owner or admin.",
       spaceId: "space-1",
       submissionId: "submission-space",
       v: 1,
@@ -33,7 +33,7 @@ describe("Center Agent operating state", () => {
     expect(cancelExecution).toHaveBeenNthCalledWith(2, {
       idempotencyKey: "turn-slack",
       organizationId: "org-1",
-      reason: "Center Agent was paused by the Organization creator.",
+      reason: "Center Agent was paused by an Organization owner or admin.",
       spaceId: "slack-conversation-1",
       submissionId: "submission-slack",
       v: 1,
@@ -86,7 +86,7 @@ function executionState(status: "cancellation_requested" | "completed") {
     acceptedAtMs: 100,
     cancellationReason:
       status === "cancellation_requested"
-        ? "Center Agent was paused by the Organization creator."
+        ? "Center Agent was paused by an Organization owner or admin."
         : null,
     completedAtMs: status === "completed" ? 200 : null,
     idempotencyKey: "turn-space",

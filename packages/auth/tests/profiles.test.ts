@@ -93,6 +93,11 @@ function createInMemoryRepository(
   const profiles = initial.map(withProfileDefaults);
 
   const repository: OpenMeldProfileRepository = {
+    findFactsByProfileIds(profileIds) {
+      return Promise.resolve(
+        profiles.filter((profile) => profileIds.includes(profile.profileId))
+      );
+    },
     findByProfileId(profileId) {
       return Promise.resolve(
         profiles.find((profile) => profile.profileId === profileId) ?? null
@@ -271,6 +276,23 @@ function createInMemoryRepository(
         updatedAt: now,
       });
 
+      return Promise.resolve();
+    },
+    updateManagedProfileIdentityForOrganization(
+      organizationId,
+      profileId,
+      input
+    ) {
+      const target = profiles.find(
+        (profile) =>
+          profile.organizationId === organizationId &&
+          profile.profileId === profileId &&
+          profile.managedRole === "center_agent"
+      );
+      if (target) {
+        target.profileName = input.profileName;
+        target.profileHandle = input.profileHandle;
+      }
       return Promise.resolve();
     },
     updateProfileIdentityForOwner(ownerUserId, profileId, input) {
@@ -994,8 +1016,8 @@ describe("OpenMeld profile service", () => {
       profileName: "Center Agent",
     });
     const ensuredAgainForFirstOrg = await service.ensureManagedAgentProfile({
-      ownerUserId: "user_1",
-      createdByUserId: "user_1",
+      ownerUserId: "user_2",
+      createdByUserId: "user_2",
       organizationId: TEST_ORGANIZATION_ID,
       managedRole: "center_agent",
       profileName: "Renamed Center Agent",
@@ -1015,7 +1037,19 @@ describe("OpenMeld profile service", () => {
       createdForFirstOrg.profileId
     );
     expect(createdForFirstOrg.managedRole).toBe("center_agent");
+    expect(createdForFirstOrg.ownerUserId).toBeNull();
+    expect(createdForFirstOrg.createdByUserId).toBe("user_1");
+    expect(createdForFirstOrg.organizationId).toBe(TEST_ORGANIZATION_ID);
     expect(createdForSecondOrg.managedRole).toBe("center_agent");
+    const renamed = await service.updateManagedAgentProfileInOrganization({
+      organizationId: TEST_ORGANIZATION_ID,
+      profileId: createdForFirstOrg.profileId,
+      managedRole: "center_agent",
+      profileName: "Organization Coordinator",
+    });
+    expect(renamed.profileId).toBe(createdForFirstOrg.profileId);
+    expect(renamed.ownerUserId).toBeNull();
+    expect(renamed.profileHandle).toBe("organization-coordinator");
     expect(
       repository.profiles.filter(
         (profile) =>
@@ -1480,7 +1514,11 @@ describe("OpenMeld profile service", () => {
           ownerUserId: "user_1",
           profileId,
         })
-      ).rejects.toBeInstanceOf(ProfileValidationError);
+      ).rejects.toBeInstanceOf(
+        profileId === centerAgent.profileId
+          ? ProfileNotFoundError
+          : ProfileValidationError
+      );
     }
   });
 
@@ -1664,6 +1702,59 @@ describe("OpenMeld profile service", () => {
         profileId: TEST_AGENT_PROFILE_ID,
       })
     ).rejects.toBeInstanceOf(ProfileNotFoundError);
+  });
+
+  it.each([
+    "human",
+    "primary",
+    "other-account",
+  ] as const)("Agent-only deletion preserves %s before mutation", async (kind) => {
+    const repository = createInMemoryRepository();
+    const service = createOpenMeldProfileService(repository, {
+      additionalHumanProfileCreationEnabled: true,
+      generateHumanProfileId: () => TEST_HUMAN_PROFILE_ID,
+      generateAgentProfileId: () => TEST_AGENT_PROFILE_ID,
+    });
+    const primary = await service.ensurePrimaryHumanProfile({
+      userId: "user_1",
+      userName: "Owner",
+      userEmail: "owner@example.com",
+    });
+    let profile = primary;
+    if (kind === "human") {
+      profile = await service.createHumanProfile({
+        ownerUserId: "user_1",
+        createdByUserId: "user_1",
+        creatorProfileId: primary.profileId,
+        profileName: "Human",
+      });
+    } else if (kind === "other-account") {
+      profile = await service.createAgentProfile({
+        ownerUserId: "user_1",
+        createdByUserId: "user_1",
+        organizationId: TEST_ORGANIZATION_ID,
+        profileName: "Agent",
+      });
+    }
+    await expect(
+      service.deleteProfileForOwner({
+        ownerUserId: kind === "other-account" ? "user_2" : "user_1",
+        profileId: profile.profileId,
+        expectedProfileKind: "agent",
+      })
+    ).rejects.toThrow();
+    await expect(
+      repository.findByOwnerAndProfileId("user_1", profile.profileId)
+    ).resolves.toMatchObject({ status: "active" });
+    if (kind === "human") {
+      await service.deleteProfileForOwner({
+        ownerUserId: "user_1",
+        profileId: profile.profileId,
+      });
+      await expect(
+        repository.findByOwnerAndProfileId("user_1", profile.profileId)
+      ).resolves.toBeNull();
+    }
   });
 
   it("rejects plain text profileId in resolve/update/delete paths", async () => {

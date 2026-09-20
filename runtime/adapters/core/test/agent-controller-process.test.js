@@ -6,6 +6,7 @@ import {
   createAgentControllerProcessTableSnapshotReader,
 } from "../dist/agent-controller-process.js";
 import {
+  resolveAgentControllerDescendantProcessIds,
   resolveAgentControllerSupervisedProcessIds,
   signalAgentControllerProcessTree,
   terminateRemainingAgentControllerProcesses,
@@ -31,6 +32,37 @@ test("shares one async process-table snapshot across a simultaneous controller s
   nowMs = 75;
   assert.equal(await readProcessTable(), "snapshot-2");
   assert.equal(readCount, 2);
+  assert.equal(await readProcessTable({ fresh: true }), "snapshot-3");
+  assert.equal(readCount, 3);
+});
+
+test("shares a slow in-flight process scan after its snapshot age expires", async () => {
+  let nowMs = 0;
+  let readCount = 0;
+  let release;
+  const read = createAgentControllerProcessTableSnapshotReader({
+    maxAgeMs: 75,
+    now: () => nowMs,
+    readProcessTable: () => {
+      readCount += 1;
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    },
+  });
+  const first = read();
+  nowMs = 1000;
+  const follower = read();
+  assert.equal(readCount, 1);
+  release("old snapshot");
+  assert.deepEqual(await Promise.all([first, follower]), [
+    "old snapshot",
+    "old snapshot",
+  ]);
+  const fresh = read();
+  assert.equal(readCount, 2);
+  release("fresh snapshot");
+  assert.equal(await fresh, "fresh snapshot");
 });
 
 test("shares one async process-table timeout without suppressing the bounded retry", async () => {
@@ -135,6 +167,33 @@ test("aggregates repeated discovery timeouts and records recovery", () => {
   assert.equal(writes[2].payload.occurrenceCount, 3);
 });
 
+test("distinguishes descendants from reparented supervised processes", () => {
+  const processTable = [
+    "4200 1 4200",
+    "4201 4200 4200",
+    "4300 4201 4300",
+    "4301 4300 4301",
+    "4400 1 4400 OPENMELD_PROCESS_SUPERVISION_ID=supervision-4200",
+    "4500 1 4500 OPENMELD_PROCESS_SUPERVISION_ID=another-task",
+  ].join("\n");
+
+  assert.deepEqual(
+    resolveAgentControllerDescendantProcessIds({
+      processId: 4200,
+      processTable,
+    }),
+    [4300, 4301]
+  );
+  assert.deepEqual(
+    resolveAgentControllerSupervisedProcessIds({
+      processId: 4200,
+      processTable,
+      supervisionId: "supervision-4200",
+    }),
+    [4300, 4301, 4400]
+  );
+});
+
 test("keeps reparented supervised processes after the leader exits", () => {
   const processIds = resolveAgentControllerSupervisedProcessIds({
     markedProcessIds: [4300, 4400],
@@ -149,6 +208,21 @@ test("keeps reparented supervised processes after the leader exits", () => {
   });
 
   assert.deepEqual(processIds, [4300, 4400]);
+  assert.deepEqual(
+    resolveAgentControllerSupervisedProcessIds({
+      markedProcessIds: [4200, 4201, 4300],
+      processId: null,
+      processTable: [
+        "1 0 1",
+        "4200 1 4200",
+        "4201 4200 4200",
+        "4300 1 4300",
+        "5000 1 5000",
+      ].join("\n"),
+      supervisionId: "supervision-4200",
+    }),
+    [4200, 4201, 4300]
+  );
 });
 
 test("signals the process group without waiting for process discovery", () => {

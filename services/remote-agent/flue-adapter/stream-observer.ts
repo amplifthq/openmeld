@@ -19,6 +19,7 @@ import {
   completeRemoteAgentExecutionState,
   markRemoteAgentExecutionProgress,
   RemoteAgentTerminalExecutionOwnerMissingError,
+  readRemoteAgentRequestedExecutionFailure,
   resolveRemoteAgentTerminalExecutionOutcome,
 } from "../agent-core/execution-state";
 import {
@@ -37,12 +38,12 @@ import {
   emitRemoteAgentCloudflareRuntimeEvidence,
   emitRemoteAgentExecutionStageEvidence,
 } from "./cloudflare-runtime-evidence";
-import { stopRemoteAgentComputerCommands } from "./computer-command";
 import {
   isConversationCompactionObservation,
   type RemoteAgentConversationCompactionObserver,
   remoteAgentConversationCompactionObserver,
 } from "./conversation-compaction";
+import { finishRemoteAgentComputerCommands } from "./execution-cleanup";
 import { getRemoteAgentExecutionSubmissionId } from "./execution-context";
 import {
   extractAssistantText,
@@ -180,6 +181,35 @@ async function handleCenterAgentToolPart(input: {
     return;
   }
   try {
+    // Flush the introduction before a long tool starts. CardKit does not
+    // render Web tool parts; an accepted-but-suppressed part is not visible.
+    if (context.turnEnvelope?.trigger.source === "message_channel") {
+      const result = await input.streamPublisher.flush({
+        context,
+        coreWorker,
+        observedAtMs: input.toolPart.observedAtMs,
+        storage,
+      });
+      if (result.status === "published") {
+        await recordFirstVisibleCenterAgentContent({
+          context,
+          env,
+          observedAtMs: Date.now(),
+          storage,
+          submissionId: input.toolPart.submissionId,
+        });
+      }
+      logRemoteAgentStreamResult({
+        context,
+        env,
+        eventIndex: input.eventIndex,
+        observedAtMs: input.toolPart.observedAtMs,
+        phase: "flush",
+        result,
+        submissionId: input.toolPart.submissionId,
+      });
+      return;
+    }
     const part = await preserveToolWorkThroughCompletion({
       storage,
       toolPart: input.toolPart,
@@ -296,7 +326,7 @@ async function handleCenterAgentStreamDelta(input: {
       observedAtMs: input.streamDelta.observedAtMs,
     });
   }
-  await markRemoteAgentExecutionProgress({
+  const execution = await markRemoteAgentExecutionProgress({
     identity: buildRemoteAgentExecutionIdentity(context),
     nowMs: input.streamDelta.observedAtMs,
     progressKind:
@@ -307,6 +337,20 @@ async function handleCenterAgentStreamDelta(input: {
     return;
   }
   if (context.workLoopCheckpoint) {
+    return;
+  }
+  if (
+    await readRemoteAgentRequestedExecutionFailure({
+      identity: buildRemoteAgentExecutionIdentity(context),
+      storage,
+    })
+  ) {
+    return;
+  }
+  if (
+    execution &&
+    ["failed", "aborted", "cancellation_requested"].includes(execution.status)
+  ) {
     return;
   }
   if (!isRemoteAgentStreamEligible(context)) {
@@ -413,21 +457,31 @@ async function handleCenterAgentPromptCompletion(input: {
   const usage = normalizeFluePromptUsage(input.event.usage);
   const observedFailure = resolveObservedRemoteAgentTerminalFailure({
     event: input.event,
-    hasAssistantText,
+    hasAssistantText: hasAssistantText || !!callbackContext?.workLoopCheckpoint,
   });
-  const commandFailure = await finishComputerCommands(
-    callbackContext,
-    input.dependencies
-  );
-  const terminalFailure = commandFailure ?? observedFailure;
-  const settledExecution = await settleRemoteAgentPromptExecution({
-    assistantText,
-    executionIdentity,
-    hasAssistantText,
-    isError: input.event.isError || terminalFailure !== null,
+  await finishRemoteAgentComputerCommands({
+    context: callbackContext,
+    env,
     storage,
-    terminalFailure,
   });
+  const terminalFailure = observedFailure;
+  const settledExecution =
+    callbackContext?.workLoopCheckpoint && !terminalFailure && executionIdentity
+      ? await completeRemoteAgentExecutionState({
+          identity: executionIdentity,
+          nowMs: completedAtMs,
+          storage,
+          status: "checkpoint",
+          checkpoint: callbackContext.workLoopCheckpoint,
+        })
+      : await settleRemoteAgentPromptExecution({
+          assistantText,
+          executionIdentity,
+          hasAssistantText,
+          isError: input.event.isError || terminalFailure !== null,
+          storage,
+          terminalFailure,
+        });
   await flushRemoteAgentStream({
     coreWorker,
     env,
@@ -500,30 +554,6 @@ async function handleCenterAgentPromptCompletion(input: {
     } else {
       await cleanup;
     }
-  }
-}
-
-async function finishComputerCommands(
-  context: RemoteAgentCallbackContext | null,
-  dependencies: RemoteAgentObservationDependencies
-): Promise<RemoteAgentTerminalFailureFact | null> {
-  if (!context) {
-    return null;
-  }
-  try {
-    const unfinished = await stopRemoteAgentComputerCommands({
-      context,
-      env: dependencies.env,
-      storage: dependencies.storage,
-    });
-    if (unfinished > 0) {
-      throw new Error(
-        "Center Agent ended with unfinished Computer commands. Stop was requested; command completion was not proven."
-      );
-    }
-    return null;
-  } catch (error) {
-    return createRemoteAgentTerminalFailureFact({ status: "failed", error });
   }
 }
 

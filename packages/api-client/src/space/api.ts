@@ -12,6 +12,7 @@ import {
   executeSpaceExecutionRecovery,
   inspectSpaceExecutionRecovery,
 } from "./execution-recovery";
+import { spaceFileUpdateSettings } from "./file-update-settings";
 import {
   createSpaceFolder,
   discardSpaceComposerUpload,
@@ -23,12 +24,15 @@ import {
   restoreSpaceFileEntry,
   restoreSpaceFileRevision,
   stageSpaceComposerUpload,
+  streamSpaceFileContent,
   trashSpaceFileEntry,
   updateSpaceFileContent,
   updateSpaceFileEntry,
   uploadSpaceFile,
 } from "./files";
+import { getSpaceHistoryNavigation } from "./history-navigation";
 import { leaveSpace } from "./leave";
+import { getSpaceLinkPreviews } from "./link-previews";
 import {
   addCenterAgentToSpace,
   addOrganizationDirectoryProfilesToSpace,
@@ -39,11 +43,22 @@ import {
   joinSpace,
 } from "./members";
 import { getSpaceMessageDetails } from "./message-details";
+import {
+  getSpaceMessageReactions,
+  setSpaceMessageReaction,
+} from "./message-reactions";
 import { updateSpaceMeta } from "./meta";
+import { mutateSpaceMessage } from "./mutate-message";
 import { postSpaceNormalMessage } from "./post-normal-message";
 import { removeSpaceMembers } from "./remove-members";
 import { listSpaceSignalEnvelopes, listSpaceSignals } from "./signals";
 import { getSpaceStatus } from "./status";
+import {
+  createSpaceTask,
+  getSpaceTask,
+  listSpaceTasks,
+  mutateSpaceTask,
+} from "./tasks";
 import {
   createSpaceThread,
   getSpaceThread,
@@ -77,6 +92,8 @@ export const createSpaceApi: CreateSpaceApi = (
       await uploadSpaceAttachment(client, input),
     listFiles: async (input) => await listSpaceFiles(client, input),
     getFile: async (input) => await getSpaceFile(client, input),
+    fileUpdateSettings: async (input) =>
+      await spaceFileUpdateSettings(client, input),
     listFileRevisions: async (input) =>
       await listSpaceFileRevisions(client, input),
     createFolder: async (input) => await createSpaceFolder(client, input),
@@ -97,6 +114,8 @@ export const createSpaceApi: CreateSpaceApi = (
       await updateSpaceFileContent(client, input),
     downloadFileContent: async (input) =>
       await downloadSpaceFileContent(client, input),
+    streamFileContent: async (input) =>
+      await streamSpaceFileContent(client, input),
     removeMembers: async (input) => await removeSpaceMembers(client, input),
     setAccessMode: async (input) => await setSpaceAccessMode(client, input),
     updateMeta: async (input) => await updateSpaceMeta(client, input),
@@ -108,6 +127,8 @@ export const createSpaceApi: CreateSpaceApi = (
       await getSpaceMembersSnapshot(client, input),
     getMemberDirectory: async (input) =>
       await getSpaceMemberDirectory(client, input),
+    getHistoryNavigation: async (input) =>
+      await getSpaceHistoryNavigation(client, input),
     getIdentityDirectory: async (input) =>
       await getSpaceIdentityDirectory(client, input),
     getViewerMembership: async (input) =>
@@ -128,10 +149,14 @@ export const createSpaceApi: CreateSpaceApi = (
     getWakeProgress: async (input) => await getSpaceWakeProgress(client, input),
     getWakeTraceWaterfall: async (input) =>
       await getSpaceWakeTraceWaterfall(client, input),
+    getMessageReactions: (input) => getSpaceMessageReactions(client, input),
+    setMessageReaction: (input) => setSpaceMessageReaction(client, input),
     getMessageDetails: async (input) =>
       await getSpaceMessageDetails(client, input),
+    getLinkPreviews: (input) => getSpaceLinkPreviews(client, input),
     createDiagnosticReport: async (input) =>
       await createSpaceDiagnosticReport(client, input),
+    mutateMessage: (input) => mutateSpaceMessage(client, input),
     postNormalMessage: async (input) =>
       await postSpaceNormalMessage(client, input),
     createThread: async (input) => await createSpaceThread(client, input),
@@ -143,5 +168,9 @@ export const createSpaceApi: CreateSpaceApi = (
       await listSpaceThreadSignals(client, input),
     postThreadSignal: async (input) =>
       await postSpaceThreadSignal(client, input),
+    listTasks: async (input) => await listSpaceTasks(client, input),
+    getTask: async (input) => await getSpaceTask(client, input),
+    createTask: async (input) => await createSpaceTask(client, input),
+    mutateTask: async (input) => await mutateSpaceTask(client, input),
   };
 };

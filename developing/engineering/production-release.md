@@ -27,7 +27,10 @@ Release only what changed.
 - A Web fix releases Web.
 - A Gateway fix releases Gateway.
 - A database migration plus Core change releases Database, then Core.
-- A CLI patch publishes CLI and updates its required Core projection.
+- A CLI patch publishes CLI and updates its required Core projection. When the
+  base-aware classifier proves no Service-owned input changed, the release may
+  retain the exact prior published Service; otherwise CLI and Service remain
+  coupled.
 - Any change to a file that feeds the packaged CLI or OpenMeld Service bundle,
   including the CLI's `src/model-catalog/offline-catalog.json` snapshot, is a
   local-component release even when no runtime behavior changes: stamp from a
@@ -81,17 +84,85 @@ The resolved source SHA is the cutoff for that release. Commits that reach
 `main` after the cutoff belong to the next release; do not restart or widen an
 already-running release merely to chase a newer `main`.
 
-After every fully successful guarded local release, the executor atomically
-advances one ref per completed scope under
-`refs/heads/openmeld-production-release-evidence/<scope>`. Each ref advances an
-append-only evidence chain whose latest record contains the exact released
-first-parent `main` commit and completion time. `release:status` combines those
-records with hosted release jobs and uses the latest completed event for each
-scope. A successful redeploy of the same source SHA is still a new completed
-event and must advance that scope's evidence ref with its later completion time.
-A workstation release therefore cannot disappear merely because no GitHub
-deployment job ran, and an explicit rollback remains visible as the latest
-deployed source instead of being mistaken for a failed evidence write.
+Guarded local releases advance the existing append-only refs under
+`refs/heads/openmeld-production-release-evidence/<scope>` while retaining the
+selected component leases. Each component first records `started`, then
+`applied` with its observed identity after the deploy command, and `verified`
+only after its existing health and source checks. A later failure records
+`failed`, distinguishing unknown application from an observed applied version.
+Previously verified components remain visible even when another component fails;
+this never creates an overall successful-release record for a partial run.
+
+Version 3 binds each attempt to an operation key (source, component, actual
+command and deployment target, including the Core projection). Worker identity
+comes from a fresh command-scoped Wrangler output file. Before that command, the
+executor retains the target Worker's deployment IDs; afterward exactly one new
+deployment must be the active deployment and contain the command's exact version
+at 100% traffic. Zero or multiple new deployments stop as unresolved instead of
+guessing an ID. The correlated deployment ID is checked again after health
+checks. An arbitrary current version, stale
+output, another Worker/environment, changed projection, or missing output cannot
+be promoted to verified. The guarded Core deploy wrappers forward the already
+admitted version after activation, including atomic migrations; they do not alter
+startup admission, profiling or build policy. The CLI publisher returns its
+existing exact-source/tag/channel verification for no-op projection recovery;
+`cli-projection` evidence explicitly does not claim a new Worker upload.
+
+Before effects, the executor reads retained receipts under the existing leases.
+A matching correlated applied Worker can resume its remaining read-only checks
+and append a completion for the same attempt, without rerunning deployment. A
+failed health check can likewise be recovered only with unchanged identity.
+CLI/Core recovery additionally uses the CLI owner's read-only immutable-channel
+checks, never another publisher invocation. A verified identical operation is
+idempotent. For an intentional new same-source deployment, pass `--redeploy` to
+the guarded `deploy` command only after the prior attempt is resolved; that flag
+cannot override an unresolved attempt. A different-source release or rollback
+still follows ordinary source, channel and lease guards.
+
+Unknown application, missing output, unreadable receipts, mismatched targets and
+unresolved legacy records block before a new attempt or deployment. They require
+separate evidence-backed reconciliation, not a new UUID or a status override.
+For the specific Remote Agent Worker-first/container-image failure, current-main
+tooling provides `release:recover:remote-agent-partial`. It requires the clean
+original release source, the retained failed attempt and its start event, the
+original operation key, and exact Cloudflare Worker/container selectors. Under
+the existing Remote Agent lease, it checks that one Worker deployment appeared
+inside the failed command window while the old container image remained active.
+That observation does not prove the first Worker's source. The command runs the
+normal Remote Agent deploy from the original source. It resolves the new image
+tag through Cloudflare's registry manifest to an immutable digest and requires
+the container application to report that digest, a newer version, no active
+rollout, healthy aggregate counts and complete instance pagination without an
+active old version. It rechecks the new command-correlated Worker afterward.
+Only then does it append a version 3 verified receipt for the original attempt.
+The receipt's first parent retains the original failed event; its second parent
+is a version 4 recovery proof with the baseline and completion observations.
+Old release tooling continues to read the version 3 receipt. On failure, the
+canonical receipt remains `failed/unknown`; a linked diagnostic proof records
+the observed Worker and container state when Cloudflare can be read. Further
+recovery remains blocked for manual reconciliation. Aggregate health and an
+idle instance list do not prove that every dormant instance ran the new image;
+authenticated product Smoke remains a separate acceptance step.
+Version 1 successes and version 2 observations remain readable at their original
+evidence strength; they are not upgraded into correlated identities. Older
+writers cannot downgrade a retained record. All events remain append-only with
+atomic compare-and-swap, and new completion writes retain the original source,
+operation key, attempt and exact applied identity. Database receipts retain
+`release-source` evidence; uncertain DB application is never replayed blindly.
+Use current-main release tooling; old control checkouts are not certified to
+interpret version 3.
+
+`release:status` pages relevant workflows and all job attempts rather than
+filtering an all-workflow 250-run window. It compares actual job completion
+times, never workflow creation order. A missing source, invalid completion time,
+ambiguous tie, API failure or safety-bound truncation remains explicit evidence
+uncertainty; it cannot silently make the affected component current. A known
+later deployment can supersede an older unreadable-source event, but the
+historical limitation remains in the report. Historical planner failures are
+contained in per-component `unknown` results; a genuine current-change planning
+conflict still blocks. JSON and human output retain both scoped and global
+blockers. This is a projection of available recorded deployments, not an
+independent live-production acceptance check.
 
 `--deployed` remains a one-run diagnostic override for historical releases that
 predate these refs. It is not the normal completion path:
@@ -176,6 +247,14 @@ Core callers and keeps a selected CLI unpublished until every cloud receiver is
 ready. Shared schemas and Core's native-delivery service are intentionally not
 directional path signals because they carry contracts in both directions.
 
+When a diff changes the worker schema, native-delivery service, and Center
+Agent receiver together without a recognized directional request owner, the
+planner rejects a combined Core/CLI and Remote Agent release. Review the actual
+contract direction and use explicitly ordered single-side stages. This prevents
+request-only recovery fields from being mistaken for response-only changes;
+adding the bidirectional service to a request allowlist would reverse the bug
+for response changes.
+
 The strict version-4 Center Agent conversation contract is such a request-side
 change. Apply its D1 generation-pointer migration first, deploy Remote Agent so
 it accepts version 4, and deploy Core last so it begins producing version 4.
@@ -251,6 +330,26 @@ Gateway/Core release remains valid before the CLI publication. Compatible
 profiles may choose a different order between Gateway and Core, but both must
 still precede CLI.
 
+The `space-task-receivers-first` profile recognizes the Space Task schema,
+Core RPC and Space receiver, and a Task caller together. Core deploys with the
+immutable current published CLI projection first, followed by Gateway, Web,
+Remote Agent, and CLI when selected. CLI and Web call Gateway's Task HTTP
+routes; Remote Agent calls Core directly and does not require Gateway.
+Every selected consumer requires Core in the plan, and CLI/Web also require
+Gateway. Core-only and Core/Gateway receiver stages remain supported without
+requiring the future Service fingerprint to match the published channel;
+the existing receiver executor verifies the real channel and immutable tag.
+Opposing receiver constraints fail closed rather than overriding their order.
+
+Keep the same pre-feature base (for example the previously published CLI tag)
+through every stage, including after a version-only PR. A narrow version-PR
+diff cannot establish the Task dependency. Use the guarded ordered local
+Core/Gateway/Web/CLI plan for the first publication; CLI-only with that base is
+rejected. The static hosted fleet admission also rejects a selected order it
+cannot execute. No direct receiver script invocation or hash-check bypass is
+part of this rollout. The final normal CLI stage publishes artifacts and
+updates Core to the new CLI projection after the receivers are healthy.
+
 When any receiver-first profile includes both Core and CLI, the first Core
 deploy reads the stable production CLI version, loads that version's
 `release/local-components.json` from its immutable `v<version>` Git tag, and
@@ -276,6 +375,20 @@ publishes CLI without Core fails closed. This profile is structural and
 provider-neutral: it protects any strict Service-to-Core protocol addition
 without coupling release order to one Agent Controller or business workflow.
 
+This profile also supports a cloud-only receiver stage before the signed GitHub
+CLI release. Selecting Core without CLI uses the same immutable published CLI
+projection, with its existing channel and tag checks, instead of requiring the
+future CLI bundle to be published first. Keep the pre-feature base in both stage
+plans; publish CLI only after the Core receiver is healthy.
+
+The coordinated device-wait schema, Space receiver, and Gateway route select
+`device-wait-receivers-first`: Database, Auth, Core, Gateway, Web, Remote Agent,
+then CLI. Core must expose `postDeviceWaitingSignal` before Gateway calls it,
+and Gateway must accept the opt-in before Web offers Send and wait. This
+composes with the Service-to-Core receiver order. Conflicting receiver profiles
+fail closed. A staged Core deployment also preserves the already-published CLI
+projection until artifact publication completes.
+
 The ordinary `cloud` order installs Auth receivers before Web, then continues
 through Gateway, Core, and Remote Agent. A Web-only release still skips Auth;
 the dependency only orders coordinated releases. Contracts that require a
@@ -284,6 +397,16 @@ or receiver-first profile instead of weakening this default dependency.
 The planner reports this ordinary order as `default-auth-receiver-first`, which
 names its mixed-version invariant instead of implying that every boundary in
 the cloud graph is consumer-first.
+
+The `space-caller-context-receivers-first` profile handles the unified Space
+access contract: Database, Auth, Remote Agent, CLI (including Core), Gateway,
+then Web. The signed Service must be downloadable before Core raises its
+required Service floor and emits caller context. Do not deploy an intermediate
+Core with the old CLI projection. Existing clients use the legacy response
+projection until the new Gateway and Web are installed. For the hosted lane,
+run these explicit scopes in order, using one immutable release SHA; CLI uses
+the separate CLI Release workflow. A generic cloud/full dispatch cannot replace
+this sequence.
 
 The hosted `cloud` and `full` dispatcher implements one static scope order.
 Before any Production mutation it compares the exact release against the
@@ -297,6 +420,47 @@ mismatch later. Use the planner's guarded ordered path until that exact order
 has reviewed hosted orchestration support.
 
 ### Inbox source-target receiver-first order
+
+Personal Remote Agent shared tools require Core's execution authorization and
+Skill preparation receiver before the new Remote tool callers. The
+`personal-remote-tools-receivers-first` profile recognizes that schema, Core
+authorization owner, and Remote tool owner together. Its order is Auth, Web,
+Gateway, Core, Remote Agent (Database first and CLI last when selected). This
+also installs Inbox source-target readers before Core's producer. The Remote
+entrypoint's browser facet export does not change the incoming request contract.
+An actual opposing Remote request receiver change fails closed for a split
+rollout; selecting Remote without Core is rejected.
+
+This cloud stage retains the immutable current published CLI projection, using
+the same guarded Core receiver deployment as other staged contract rollouts.
+The new shared schema also changes the packaged Service fingerprint, so prepare
+the base-aware available CLI/Service release separately and publish it through
+the signed GitHub CLI lane after the cloud receivers. This preserves current
+local clients without advertising an unpublished bundle or bypassing stamping.
+
+Task Inbox retirement reverses the writer/reader dependency. The planner proves
+this specific removal from Git: the Task Inbox producer must be deleted, and
+the Inbox schema must differ only by removing the Task item kind, source kind,
+and target object. Explicit source-SHA plans inspect that immutable tree; local
+plans inspect the working candidate against its merge base. A pathname alone
+does not establish retirement. Mixed expansion/removal, partial removal, or a
+remaining producer fails closed and requires a separate compatibility rollout.
+
+For this retirement, Core must stop returning Task rows before Gateway or Web
+stops accepting them. `inbox-task-retirement-producer-first` places Core before
+Auth, Gateway, and Web. If the same release requires a Remote request receiver,
+`remote-agent-and-inbox-task-retirement-first` orders Database, Remote Agent,
+Core, Auth, Gateway, Web, then CLI. Core also precedes the new Auth join-request
+caller that requests response version 2. Required Inbox scopes and the combined
+Remote scope remain enforced; conflicting receiver orders still require a
+split. This rule does not authorize dropping the retained Task tables.
+
+Both retirement profiles deploy Core with the current published CLI projection
+even when CLI is excluded from the deployment scope for a later GitHub release.
+Verification and preflight do not compare that stage against the checked-in
+future CLI projection; the current-projection deployment retains its own
+published-channel compatibility checks. The later CLI release publishes the new
+artifacts and updates Core's release projection through the normal guarded path.
 
 The planner selects `inbox-source-target-receiver-first` when a diff changes the
 strict Inbox source-target schema together with a Core writer for those targets.
@@ -457,7 +621,8 @@ checks.
 ## Local Scoped Release
 
 The `people-computers-receivers-first` profile recognizes the shared computer
-schema, Core projection, and Gateway endpoint together. It deploys selected
+schema, Core projection, and Gateway endpoint together, or the shared Service
+connection evidence schema with its Core and Gateway receivers. It deploys selected
 Auth, Core, Gateway, Web, Remote Agent, then CLI scopes (Database remains first
 when selected). Core and Gateway must precede new computer callers. A staged
 Core receiver deploy uses the immutable current stable CLI projection even when
@@ -607,25 +772,44 @@ checked in or reused as stale release input.
    attached additional module is not valid release evidence when the bundled
    entrypoint imports it through a different path.
 3. Upload the production Core source and compile-time definitions as a new
-   Cloudflare Worker Version with zero production traffic.
+   Cloudflare Worker Version with zero production traffic. If Cloudflare
+   explicitly rejects that upload with `10211`, a pending Durable Object class
+   lifecycle change requires atomic deployment. The same guard validates the
+   configuration and runs `wrangler deploy` once with the same source, tag and
+   compile-time definitions. No other upload failure enters this path.
 4. Read Cloudflare's actual `Worker Startup Time` and the structured
-   `version-upload` result. Missing or malformed evidence fails closed.
+   `version-upload` result, or the `deploy` result for an atomic migration.
+   Missing or malformed evidence fails closed. Atomic deployment has already
+   applied 100 percent traffic; evidence must record that fact, never zero.
 5. Compare the measurement with OpenMeld's `500 ms` performance target. A
    higher value produces durable warning evidence but does not reject a version
    that Cloudflare accepted within its platform limit.
-6. Deploy that exact accepted Version to 100 percent production traffic without
-   rebuilding it. This prevents a second startup validation of equivalent code
-   from producing a different result.
+6. For a normal version upload, deploy that exact accepted Version to 100 percent
+   production traffic without rebuilding it. Atomic migration deployment already
+   performed platform startup validation and activation together; do not deploy
+   it a second time. A failure after atomic activation requires inspecting live
+   deployment evidence before recovery, not assuming that production is unchanged.
 7. Synchronize routes, domains, and Cron Triggers through `wrangler triggers
-   deploy` after the Version is active.
+   deploy` after the Version is active. Atomic deployment already applies them.
 
-The uploaded Version owns the code, bindings, migrations, compatibility
+The uploaded Version owns the code, bindings, compatibility
 settings, and compile-time definitions that Cloudflare accepted. Core's release
 guard rejects `logpush` or `tail_consumers` in the Wrangler configuration
 because Cloudflare does not apply those non-versioned settings through a Version
 deployment. Do not add either setting until the release path has a separately
 reviewed way to apply and verify it. Trigger synchronization remains explicit
 because routes, domains, and schedules are also outside the Version payload.
+
+Durable Object class lifecycle changes require the atomic path described above;
+they cannot be applied by `versions upload`. Cloudflare validates Worker startup
+before accepting that deployment. Prefer keeping lifecycle changes separate from
+unrelated product changes, and do not roll back across a class lifecycle change.
+See [Cloudflare's lifecycle deployment contract](https://developers.cloudflare.com/workers/versions-and-deployments/gradual-deployments/with-durable-objects/#durable-object-class-lifecycle-changes).
+
+CLI recovery invokes the Core guard from trusted current-main release control
+against the original immutable product checkout. It retains channel verification,
+source identity, leases and startup admission; a deployment-control repair does
+not require republishing the same CLI version from a different source.
 
 `pnpm run evidence:startup:core` captures a local CPU profile and summarizes
 active, garbage-collection, and idle time. Use it to locate expensive global
@@ -674,12 +858,17 @@ web
 gateway
 auth
 core
+core-current-cli-projection
 remote-agent
 cloud
 full
 ```
 
 - The default is `web`, not `full`.
+- `core-current-cli-projection` is the hosted receiver-first Core stage. It
+  deploys the approved Core source while compiling the immutable currently
+  published CLI projection, so a future CLI/Service release is not advertised
+  before its receivers are healthy.
 - `database-auth` and `database-core` are the normal migration bundles. They
   keep the database and its owning Worker in one ordered workflow without
   redeploying the fleet.
@@ -877,8 +1066,9 @@ approved that exact version; `--version` and `--next` are mutually exclusive.
 - Required is sometimes the least harmful user choice, but it is not the
   default and must not be applied to every release.
 
-The stamp command rebuilds the packaged CLI before recording its Service hash,
-rejects source drift, and verifies the result. Never hand-edit the hash, reuse
+The stamp command writes the version and required-update floor before building
+the packaged CLI, then records its Service hash and verifies the result. It
+rejects source drift and restores its metadata changes on failure. Never hand-edit the hash, reuse
 an existing `dist`, or pass `--current` to prepare a release manifest. Rerun the
 stamp after any merge, rebase, or later local-component change. Land the stamp
 through a versioned `codex/release-X.Y.Z-<baseSHA>` PR from a clean worktree;
@@ -929,6 +1119,42 @@ the same resumable release command at the exact original `release_sha`:
   relying on a human-authored exclusion list.
 - Always provide the original `release_sha`; a release tag or Core projection
   from another commit is a hard failure, not a recovery target.
+
+### npm submission and availability
+
+`npm publish` can succeed while npm is still processing the package and exact
+version queries return 404. Submission is not availability. Both release lanes
+publish to and query `https://registry.npmjs.org/`, preferring an online query.
+After submission, verification waits with backoff for up to 20 minutes of
+scheduled waits (plus bounded probe time). A missing version after that budget
+leaves channel verification pending and exits nonzero, never successful.
+
+The resumable publisher records source-bound immutable refs on the release
+remote at `refs/heads/openmeld-npm-publication/<version>/attempted` before
+calling npm and `/accepted` after npm returns success. Both point to the exact
+release source SHA. They do not claim that the package is downloadable and do
+not replace the registry probe or the CLI/Core scope leases. Hosted receipt
+operations use trusted Git authentication without exposing credentials to
+candidate code or hooks. Never move a receipt to a different source.
+
+A new runner reads these receipts before starting release stages. Existing
+receipts prevent automatic resubmission on a 404. The original version tag,
+which older releases pushed after npm succeeded, also preserves that evidence
+for releases predating receipts. A pending-only recovery checks npm first and
+does not rebuild artifacts or redeploy Core. A network/authentication probe
+failure remains an error, not evidence that the version is absent.
+
+For pending availability, rerun the normal guarded command or GitHub workflow
+at the original release SHA; it resumes verification. If only `attempted`
+exists, the command was interrupted or failed and acceptance is unknown. Read
+the original npm publish output and check npm status before taking further
+action. Do not delete receipts or increment the version merely because a query
+returns 404. If the publish log conclusively proves rejection before acceptance
+(for example, a credential rejection), first correct that cause. An operator
+may then remove only that version's `attempted` ref using an exact-SHA lease,
+after confirming no publisher is active and no `accepted` ref exists, and rerun
+the guarded command. Ambiguous submission outcomes remain verification-only
+until resolved; they must not silently become another publish attempt.
 
 When R2, npm, and the immutable release tag are already complete but the Core
 projection alone failed Cloudflare startup validation, do not rerun the CLI

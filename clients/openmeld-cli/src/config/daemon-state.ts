@@ -22,8 +22,8 @@ import {
 import type { OpenMeldEnvPreset, OpenMeldPathResolutionInput } from "./paths";
 import {
   resolveOpenMeldEnvPreset,
-  resolveOpenMeldPresetOwnedPathInput,
   resolveOpenMeldRootDir,
+  resolveOpenMeldServiceOwnedPathInput,
   runtimeDir,
   systemDir,
 } from "./paths";
@@ -50,6 +50,7 @@ const DAEMON_REPAIR_JOURNAL_FILENAME = "repair-journal.json";
 const DAEMON_SERVICE_LOCK_PROFILE = "daemon-service";
 const DAEMON_SERVICE_LOCK_KEY = "daemon-service-run";
 type DaemonServiceLifecycleLockContext = {
+  lock: OpenMeldLock;
   active: boolean;
   failures: unknown[];
   ownerRoot: string;
@@ -57,6 +58,15 @@ type DaemonServiceLifecycleLockContext = {
 };
 const daemonServiceLifecycleLockContext =
   new AsyncLocalStorage<DaemonServiceLifecycleLockContext>();
+
+export function currentDaemonServiceLifecycleLock(): OpenMeldLock | null {
+  const context = daemonServiceLifecycleLockContext.getStore();
+  return context?.active &&
+    context.ownerRoot ===
+      resolveOpenMeldRootDir(resolveOpenMeldServiceOwnedPathInput())
+    ? context.lock
+    : null;
+}
 const DAEMON_STABLE_LAUNCHER_FILENAME = "daemon-service-launcher.mjs";
 const DAEMON_SERVICE_EXECUTABLE_WRAPPER_FILENAME_BY_PRESET = {
   prod: "OpenMeld Service",
@@ -341,7 +351,7 @@ export async function acquireDaemonServiceLifecycleLock(
     intent: "run_background",
     command: "openmeld service start",
   },
-  pathResolution: OpenMeldPathResolutionInput = resolveOpenMeldPresetOwnedPathInput()
+  pathResolution: OpenMeldPathResolutionInput = resolveOpenMeldServiceOwnedPathInput()
 ): Promise<DaemonServiceLifecycleLock> {
   return await acquireLock({
     openMeldProfileId: DAEMON_SERVICE_LIFECYCLE_LOCK_PROFILE,
@@ -388,7 +398,7 @@ export function withDaemonServiceLifecycleLock<T>(
   meta: DaemonLifecycleLockMeta,
   callback: () => Promise<T>
 ): Promise<T> {
-  const pathResolution = resolveOpenMeldPresetOwnedPathInput();
+  const pathResolution = resolveOpenMeldServiceOwnedPathInput();
   const ownerRoot = resolveOpenMeldRootDir(pathResolution);
   const currentContext = daemonServiceLifecycleLockContext.getStore();
   if (currentContext?.active && currentContext.ownerRoot === ownerRoot) {
@@ -434,6 +444,7 @@ async function withDaemonServiceLifecycleOwnerLock<T>(input: {
     lock,
     run: async () => {
       const context: DaemonServiceLifecycleLockContext = {
+        lock,
         active: true,
         failures: [],
         ownerRoot: input.ownerRoot,
@@ -490,7 +501,7 @@ export async function readDaemonServiceLifecycleLockMeta(): Promise<DaemonLifecy
   const meta = await readLockMeta({
     openMeldProfileId: DAEMON_SERVICE_LIFECYCLE_LOCK_PROFILE,
     key: DAEMON_SERVICE_LIFECYCLE_LOCK_KEY,
-    pathResolution: resolveOpenMeldPresetOwnedPathInput(),
+    pathResolution: resolveOpenMeldServiceOwnedPathInput(),
   });
   if (!meta) {
     return null;
@@ -525,7 +536,7 @@ export async function readDaemonServiceLifecycleLockMetaWithCleanup(): Promise<D
   await tryCleanupStaleLock({
     openMeldProfileId: DAEMON_SERVICE_LIFECYCLE_LOCK_PROFILE,
     key: DAEMON_SERVICE_LIFECYCLE_LOCK_KEY,
-    pathResolution: resolveOpenMeldPresetOwnedPathInput(),
+    pathResolution: resolveOpenMeldServiceOwnedPathInput(),
   });
   return await readDaemonServiceLifecycleLockMeta();
 }

@@ -1,5 +1,5 @@
 import { prepareStepDiagnosticsBundleSchema } from "@openmeld/schemas";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   collectPrepareStepDiagnostics,
   OPENMELD_NO_DIAGNOSTICS_ENV,
@@ -24,6 +24,9 @@ const BUNDLE_WHITELIST_KEYS = new Set([
   "serviceLogNote",
   "collectionErrors",
   "truncated",
+  "evidenceWindow",
+  "serviceLogWindow",
+  "operationFailure",
 ]);
 
 function buildJournalEvent(
@@ -33,7 +36,7 @@ function buildJournalEvent(
     schema: "openmeld-daemon-lifecycle-event-v1",
     v: 1,
     type: "service_manager.action",
-    timestamp: "2026-07-02T10:42:00.000Z",
+    timestamp: new Date().toISOString(),
     lane: "prod",
     intent: "setup",
     command: "openmeld setup",
@@ -64,11 +67,20 @@ function buildSources(
         keepaliveRunAtLoad: true,
       }),
     readDeviceId: () => Promise.resolve("device-abc"),
+    readMacOSVersion: () => Promise.resolve(null),
     ...overrides,
   };
 }
 
 describe("collectPrepareStepDiagnostics", () => {
+  beforeEach(() => {
+    // Source fixtures represent events already present at collection time.
+    // Advancing wall time inside an async source put them outside the window.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-12T12:00:00Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
   it("preserves a native status through wrapped errors without uploading exception content", async () => {
     const serialized = await collectPrepareStepDiagnostics({
       stepId: "connect_terminal",
@@ -102,7 +114,7 @@ describe("collectPrepareStepDiagnostics", () => {
     for (const key of Object.keys(bundle)) {
       expect(BUNDLE_WHITELIST_KEYS.has(key)).toBe(true);
     }
-    expect(bundle.bundleVersion).toBe(2);
+    expect(bundle.bundleVersion).toBe(3);
     expect(bundle.supportCode).toBe("prepare.refresh_service.failed");
     expect(bundle.stepId).toBe("refresh_service");
     expect(bundle.deviceId).toBe("device-abc");

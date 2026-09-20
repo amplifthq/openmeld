@@ -3,6 +3,8 @@ import {
   leaveSpaceResponseSchema,
   postSpaceMembersResponseSchema,
   removeSpaceMembersResponseSchema,
+  spaceHistoryNavigationQuerySchema,
+  spaceHistoryNavigationSchema,
   spaceIdentityDirectorySchema,
   spaceMemberDirectorySchema,
   spaceMembersSnapshotSchema,
@@ -42,6 +44,35 @@ const SPACE_ORGANIZATION_DIRECTORY_PROFILES_ROUTE =
   "/v1/spaces/:spaceId/organization-directory-profiles";
 
 export function registerMembersRoutes(app: Hono<HonoBindings>): void {
+  app.get("/v1/spaces/:spaceId/history-navigation", (c) => {
+    const parsed = parseSpaceRouteParams(c.req.param("spaceId"));
+    const query = spaceHistoryNavigationQuerySchema.safeParse(c.req.query());
+    if (!(parsed.ok && query.success)) {
+      return c.json(
+        {
+          error: {
+            code: "invalid_history_navigation",
+            message: "Invalid history range.",
+          },
+        },
+        400
+      );
+    }
+    const spaceId = parsed.value.spaceId;
+    return executeRpcRoute({
+      c,
+      route: "/v1/spaces/:spaceId/history-navigation",
+      method: "GET",
+      spaceId,
+      execute: () =>
+        c.var.coreRpc.getSpaceHistoryNavigation({
+          ...query.data,
+          spaceId,
+          spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
+        }),
+      responseSchema: spaceHistoryNavigationSchema,
+    });
+  });
   app.get(SPACE_MEMBER_DIRECTORY_ROUTE, (c) => {
     const rawSpaceId = c.req.param("spaceId");
     const parsedSpace = parseSpaceRouteParams(rawSpaceId);

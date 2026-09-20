@@ -1,6 +1,7 @@
 import {
 	OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION,
 	OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
+	OPENMELD_HEADER_INBOX_SUMMARY_VERSION,
 	OPENMELD_HEADER_PROFILE_ID,
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID,
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_SLUG,
@@ -8,9 +9,9 @@ import {
 	OPENMELD_HEADER_SPACE_PASSWORD,
 } from "@openmeld/gateway-contract";
 import {
-	CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION_HEADER,
 	gatewayErrorEnvelopeSchema,
 	normalizeSpacePasswordText,
+	SPACE_ACCESS_VERSION_HEADER,
 } from "@openmeld/schemas";
 import { SLACK_OAUTH_ORGANIZATION_SLUG_SEARCH_PARAM } from "#/lib/slack-oauth-start";
 import {
@@ -30,6 +31,7 @@ const OPENMELD_SLACK_OAUTH_START_ROUTE = "/slack/oauth/start";
 const OPENMELD_SLACK_IDENTITY_START_ROUTE = "/slack/identity/start";
 const OPENMELD_SPACE_ROUTE_PATTERN = /^\/v1\/spaces\/([^/]+)(?:\/|$)/u;
 const ALLOWED_PROXY_REQUEST_HEADERS = new Set([
+	SPACE_ACCESS_VERSION_HEADER,
 	"accept",
 	"accept-language",
 	"cache-control",
@@ -41,9 +43,9 @@ const ALLOWED_PROXY_REQUEST_HEADERS = new Set([
 	"if-unmodified-since",
 	"origin",
 	"pragma",
-	CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION_HEADER.toLowerCase(),
 	OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION.toLowerCase(),
 	OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION.toLowerCase(),
+	OPENMELD_HEADER_INBOX_SUMMARY_VERSION.toLowerCase(),
 	OPENMELD_HEADER_SPACE_ADDRESSING_VERSION.toLowerCase(),
 	OPENMELD_HEADER_PROFILE_ID.toLowerCase(),
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID.toLowerCase(),
@@ -93,38 +95,7 @@ export function buildOpenMeldGatewayUpstreamHeaders(input: {
 		const normalizedHeaderName = headerName.toLowerCase();
 		const isSpacePasswordHeader =
 			normalizedHeaderName === OPENMELD_HEADER_SPACE_PASSWORD.toLowerCase();
-		const isProfileIdHeader =
-			normalizedHeaderName === OPENMELD_HEADER_PROFILE_ID.toLowerCase();
-		const isOrganizationSelectorHeader =
-			normalizedHeaderName ===
-				OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID.toLowerCase() ||
-			normalizedHeaderName ===
-				OPENMELD_HEADER_REQUESTED_ORGANIZATION_SLUG.toLowerCase();
-		const isTaskResponseContractHeader =
-			normalizedHeaderName ===
-			CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION_HEADER.toLowerCase();
-		const isInboxSourceTargetVersionHeader =
-			normalizedHeaderName ===
-			OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION.toLowerCase();
-		const isInboxItemKindVersionHeader =
-			normalizedHeaderName ===
-			OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION.toLowerCase();
-		const isSpaceAddressingVersionHeader =
-			normalizedHeaderName ===
-			OPENMELD_HEADER_SPACE_ADDRESSING_VERSION.toLowerCase();
-		if (
-			(normalizedHeaderName.startsWith("x-openmeld-") &&
-				!isSpacePasswordHeader &&
-				!isProfileIdHeader &&
-				!isOrganizationSelectorHeader &&
-				!isTaskResponseContractHeader &&
-				!isInboxSourceTargetVersionHeader &&
-				!isInboxItemKindVersionHeader &&
-				!isSpaceAddressingVersionHeader) ||
-			normalizedHeaderName.startsWith("x-forwarded-") ||
-			normalizedHeaderName === "authorization" ||
-			!ALLOWED_PROXY_REQUEST_HEADERS.has(normalizedHeaderName)
-		) {
+		if (!ALLOWED_PROXY_REQUEST_HEADERS.has(normalizedHeaderName)) {
 			continue;
 		}
 

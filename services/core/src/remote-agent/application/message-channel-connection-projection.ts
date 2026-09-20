@@ -1,6 +1,7 @@
 import {
   messageChannelConnectionProjectionSchema,
   messageChannelProviderSchema,
+  SLACK_BOT_SCOPES,
 } from "@openmeld/schemas";
 import type { MessageChannelConnectionProjection } from "@openmeld/schemas/types";
 import {
@@ -19,6 +20,8 @@ import {
   type RemoteAgentSlackWorkspaceBindingRecord,
   readRemoteAgentSlackWorkspaceBindingByOrganization,
 } from "../infrastructure/d1/slack-workspace-binding-repo";
+import { readSlackWorkspaceToken } from "../infrastructure/d1/slack-workspace-token-repo";
+import { requiresLarkPlatformAuthorizationUpdate } from "./lark-platform-permission-bundles";
 import type { MessageChannelIdentityLinkAuditRecord } from "./message-channel-identity-link-audit";
 
 const PROVIDER_ACCOUNT_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
@@ -54,6 +57,7 @@ export type MessageChannelIdentityLinkTarget =
     };
 
 export type MessageChannelConnectionProjectionDependencies = {
+  readSlackToken: typeof readSlackWorkspaceToken;
   listLarkPlatformConnections(input: {
     db: D1Database;
     organizationId: string;
@@ -65,6 +69,7 @@ export type MessageChannelConnectionProjectionDependencies = {
 };
 
 const DEFAULT_DEPENDENCIES: MessageChannelConnectionProjectionDependencies = {
+  readSlackToken: readSlackWorkspaceToken,
   listLarkPlatformConnections:
     listRemoteAgentLarkPlatformChannelConnectionsForOrganization,
   readSlackBinding: readRemoteAgentSlackWorkspaceBindingByOrganization,
@@ -88,8 +93,22 @@ export async function listRemoteAgentMessageChannelConnectionProjections(
       organizationId: input.organizationId,
     }),
   ]);
+  const slackToken = slackBinding
+    ? await dependencies.readSlackToken({
+        db: input.identityDb,
+        slackTeamId: slackBinding.slackTeamId,
+      })
+    : null;
+  const slackNeedsAuthorization =
+    slackToken?.organizationId === input.organizationId &&
+    slackToken.grantedBotScopes !== null &&
+    SLACK_BOT_SCOPES.some(
+      (scope) => !slackToken.grantedBotScopes?.includes(scope)
+    );
   const connections = [
-    ...(slackBinding ? [projectSlackConnection(slackBinding)] : []),
+    ...(slackBinding
+      ? [projectSlackConnection(slackBinding, slackNeedsAuthorization)]
+      : []),
     ...larkPlatformConnections.map((connection) => {
       if (connection.organizationId !== input.organizationId) {
         throw new Error(
@@ -311,7 +330,8 @@ export async function buildMessageChannelIdentityLinkId(input: {
 }
 
 function projectSlackConnection(
-  binding: RemoteAgentSlackWorkspaceBindingRecord
+  binding: RemoteAgentSlackWorkspaceBindingRecord,
+  needsAuthorization: boolean
 ): MessageChannelConnectionProjection {
   return messageChannelConnectionProjectionSchema.parse({
     externalAccountId: binding.slackTeamId,
@@ -321,7 +341,9 @@ function projectSlackConnection(
     lastVerifiedAt: null,
     permissionBundleVersion: null,
     provider: "slack",
-    reasonCode: null,
+    reasonCode: needsAuthorization
+      ? "slack.authorization_update_required"
+      : null,
     status: "connected",
     transport: "webhook",
   });
@@ -341,7 +363,11 @@ export function projectRemoteAgentLarkPlatformConnection(
         : new Date(connection.lastVerifiedAtMs).toISOString(),
     permissionBundleVersion: connection.permissionBundleVersion,
     provider: connection.provider,
-    reasonCode: connection.failureReasonCode,
+    reasonCode:
+      connection.failureReasonCode ??
+      (requiresLarkPlatformAuthorizationUpdate(connection) === true
+        ? `${connection.provider}.authorization_update_required`
+        : null),
     status: connection.status,
     transport: connection.transport,
   });

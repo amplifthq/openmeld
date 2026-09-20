@@ -99,8 +99,7 @@ export function isWebViteDevCommand(normalizedCommand, matcherContext) {
 
   return (
     normalizedCommand.includes("/vite/bin/vite") &&
-    normalizedCommand.includes(" dev") &&
-    normalizedCommand.includes("--port 3000")
+    normalizedCommand.includes(" dev")
   );
 }
 

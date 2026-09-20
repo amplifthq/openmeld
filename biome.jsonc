@@ -6,7 +6,11 @@
     "ultracite/biome/next"
   ],
   "files": {
-    "includes": ["!changelog/index.json", "!!**/.claude/worktrees"]
+    "includes": [
+      "!changelog/index.json",
+      "!!**/.claude/worktrees",
+      "!!**/remote-agent/transport/lark/protocol"
+    ]
   },
   "linter": {
     "rules": {

@@ -463,6 +463,7 @@ describe("whoami view mode", () => {
         })
       );
       readDaemonServiceContractMock.mockResolvedValueOnce({
+        daemonVersion: "0.2.0",
         profileId: "codex--bbbbbbbb",
       });
       vi.mocked(resolveOpenMeldProfileOrNull).mockResolvedValueOnce({
@@ -532,6 +533,7 @@ describe("whoami view mode", () => {
         })
       );
       readDaemonServiceContractMock.mockResolvedValueOnce({
+        daemonVersion: "0.2.0",
         profileId: "agt-service-profile",
       });
       vi.mocked(resolveOpenMeldProfileOrNull)
@@ -624,6 +626,7 @@ describe("whoami view mode", () => {
         })
       );
       readDaemonServiceContractMock.mockResolvedValueOnce({
+        daemonVersion: "0.2.0",
         profileId: "agt-service-profile",
       });
       vi.mocked(resolveOpenMeldProfileOrNull)
@@ -959,6 +962,7 @@ describe("whoami view mode", () => {
         })
       );
       readDaemonServiceContractMock.mockResolvedValue({
+        daemonVersion: "0.2.0",
         profileId: "codex-owner--cccccccc",
       });
       resolveAgentProfileRuntimeStateMock.mockResolvedValueOnce({
@@ -1034,6 +1038,7 @@ describe("whoami view mode", () => {
         })
       );
       readDaemonServiceContractMock.mockResolvedValue({
+        daemonVersion: "0.2.0",
         profileId: "codex-owner--missing-local-projection",
       });
       resolveAgentProfileRuntimeStateMock.mockResolvedValueOnce({
@@ -1105,6 +1110,7 @@ describe("whoami view mode", () => {
         })
       );
       readDaemonServiceContractMock.mockResolvedValue({
+        daemonVersion: "0.2.0",
         profileId: "codex-owner--workspace-human",
       });
       resolveAgentProfileRuntimeStateMock.mockResolvedValueOnce({
@@ -1206,6 +1212,7 @@ describe("whoami view mode", () => {
         })
       );
       readDaemonServiceContractMock.mockResolvedValue({
+        daemonVersion: "0.2.0",
         profileId: "agt-openclaw",
       });
       resolveAgentProfileRuntimeStateMock.mockResolvedValueOnce({
@@ -1303,6 +1310,7 @@ describe("whoami view mode", () => {
         })
       );
       readDaemonServiceContractMock.mockResolvedValue({
+        daemonVersion: "0.2.0",
         profileId: "codex-owner--prefixed",
       });
       resolveAgentProfileRuntimeStateMock.mockResolvedValueOnce({

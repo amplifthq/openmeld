@@ -109,9 +109,20 @@ export type LedgerPaths = {
   stateTempFilePath: string;
 };
 
+// Execution emits frames; it does not own, close, or reconnect a cloud socket.
+export type DaemonFrameSink = {
+  readonly bufferedAmount?: number;
+  send(data: string): void;
+};
+
 export type CurrentDaemonSocketRef = {
+  confirmExecutionAdmission?: (
+    request: RuntimeTransportDeliverDispatchRequest
+  ) => Promise<void>;
+  reasoningStreamEnabled?: boolean;
+  reasoningPreferenceListeners?: Set<() => void>;
   connectionGeneration: number | null;
-  socket: import("../../transport/ws").WsClient | null;
+  socket: DaemonFrameSink | null;
 };
 
 export type DaemonDispatchLimits = {
@@ -165,6 +176,7 @@ export type DaemonProfileSkipReason = SharedDaemonProfileSkipReason;
 export type SkippedDaemonProfile = SharedSkippedDaemonProfile;
 
 export type RouteCatalog = {
+  executionHostCatalogRevision?: number;
   expectedRoutesContractVersion?: "v4";
   profileIds: string[];
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
@@ -174,6 +186,7 @@ export type RouteCatalog = {
 };
 
 export type MutableRouteCatalogState = {
+  executionHostCatalogRevision?: number;
   expectedRoutesContractVersion?: "v4";
   fingerprint: string;
   profileIds: string[];
@@ -225,6 +238,12 @@ export type OpenMeldDaemonTaskErrorType =
   | "timeout";
 
 export type ParsedDispatchTask = {
+  workHandoff?: import("@openmeld/schemas").SpaceWorkHandoff;
+  workingCopyId?: string;
+  executionContext?: import("@openmeld/schemas/types").ExecutionContextTask;
+  callerContext?: NonNullable<
+    RuntimeTransportDeliverDispatchRequest["payload"]["sourceSignalSnapshot"]
+  >["callerContext"];
   agentControllerConversationId: string | null;
   attachments: SpaceMessageAttachment[];
   files: SpaceMessageFileReference[];
@@ -266,13 +285,13 @@ export type ParsedDispatchTask = {
 };
 
 export type DispatchPromptBootstrapInput = {
+  callerContext?: ParsedDispatchTask["callerContext"];
   continuitySnapshot?: OpenMeldDaemonDispatchContinuitySnapshot | null;
   dispatchTriggerSource: "activation_targets" | "listen_all";
   imageAttachmentPromptSection?: string | null;
   spaceFiles?: readonly SpaceMessageFileReference[] | null;
   organizationProtectedInformation?: string | null;
   workingLanguage?: WorkingLanguageGuidance | null;
-  serviceFreshnessWarningLines?: string[] | null;
   sendTargetReferenceLines?: string[] | null;
   shouldInjectBootstrap: boolean;
   mentionSourceProfileId?: string | null;
@@ -329,11 +348,14 @@ export type ParsedDaemonFrame = {
     | "daemon.dispatch.interaction_request"
     | "daemon.dispatch.interaction_response"
     | "daemon.dispatch.lifecycle"
+    | "daemon.dispatch.lifecycle_acknowledged"
     | "daemon.dispatch.preview"
     | "daemon.dispatch.preview_end"
     | "daemon.dispatch.result"
     | "daemon.dispatch.runtime_evidence"
     | "daemon.dispatch.tool_activity"
+    | "daemon.dispatch.reasoning"
+    | "daemon.reasoning.preferences"
     | "daemon.error"
     | "daemon.computer_file_access.read_policy"
     | "daemon.computer_file_access.read_policy_result"

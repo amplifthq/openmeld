@@ -3,11 +3,19 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { daemonRuntimeRootPath } from "./daemon-state";
+import {
+  DAEMON_SERVICE_RUNTIME_AUTO_START_ENV,
+  DAEMON_SERVICE_RUNTIME_CONTROLLER_ENV,
+  DAEMON_SERVICE_RUNTIME_DETACHED_ENV,
+  DAEMON_SERVICE_RUNTIME_MODE_ENV,
+  DAEMON_SERVICE_RUNTIME_SYSTEM_SERVICE_ENV,
+  daemonRuntimeRootPath,
+} from "./daemon-state";
 import {
   type OpenMeldPathResolutionInput,
   resolveOpenMeldEnvPreset,
   resolveOpenMeldRootDir,
+  resolveOpenMeldServiceScope,
 } from "./paths";
 
 const MANAGED_VERSION_FROM_EXECUTABLE_PATTERN =
@@ -17,6 +25,23 @@ const SELF_CONTAINED_BUNDLE_FROM_EXECUTABLE_PATTERN =
 
 export const INDEPENDENT_MAINTENANCE_REGISTRATION =
   "openmeld-independent-maintenance-v1";
+
+// Maintenance may call normal Service commands, but it is never the main
+// Service process. Also normalize registrations written by older versions.
+export function configureDaemonMaintenanceEnvironment(
+  env: NodeJS.ProcessEnv
+): void {
+  for (const key of [
+    DAEMON_SERVICE_RUNTIME_AUTO_START_ENV,
+    DAEMON_SERVICE_RUNTIME_CONTROLLER_ENV,
+    DAEMON_SERVICE_RUNTIME_DETACHED_ENV,
+    DAEMON_SERVICE_RUNTIME_MODE_ENV,
+    DAEMON_SERVICE_RUNTIME_SYSTEM_SERVICE_ENV,
+  ]) {
+    delete env[key];
+  }
+  env.OPENMELD_INTERNAL_MAINTENANCE_WORKER = "1";
+}
 const NPM_ENTRY_IMPORT_PATTERN = /^await import\((".*")\);$/mu;
 
 export function daemonServiceUpdateWorkerNpmEntryPath(
@@ -27,7 +52,8 @@ export function daemonServiceUpdateWorkerNpmEntryPath(
 
 export async function hasIndependentMaintenanceRegistration(
   pathInput: OpenMeldPathResolutionInput = {},
-  platform: NodeJS.Platform = process.platform
+  platform: NodeJS.Platform = process.platform,
+  expectedDefinition?: string
 ): Promise<boolean> {
   if (platform === "win32") {
     const { runWindowsUserTask, readWindowsTaskAction } = await import(
@@ -44,6 +70,8 @@ export async function hasIndependentMaintenanceRegistration(
       task.installed &&
         !task.legacy &&
         task.actionArguments &&
+        (expectedDefinition === undefined ||
+          task.actionArguments === expectedDefinition) &&
         resolveOpenMeldRootDir({
           env: readWindowsTaskAction(task.actionArguments).env,
         }) === resolveOpenMeldRootDir(pathInput)
@@ -54,6 +82,9 @@ export async function hasIndependentMaintenanceRegistration(
     platform
   );
   if (!registration?.includes(INDEPENDENT_MAINTENANCE_REGISTRATION)) {
+    return false;
+  }
+  if (expectedDefinition !== undefined && registration !== expectedDefinition) {
     return false;
   }
   const { parseDaemonServiceEnvironmentFromDefinition } = await import(
@@ -77,8 +108,11 @@ export function resolveDaemonServiceUpdateWorkerIdentity(
   pathInput: OpenMeldPathResolutionInput = {}
 ): DaemonServiceUpdateWorkerIdentity {
   const preset = resolveOpenMeldEnvPreset(pathInput);
-  const suffix = preset === "prod" ? "" : `-${preset}`;
-  const dotSuffix = preset === "prod" ? "" : `.${preset}`;
+  const scope = resolveOpenMeldServiceScope(pathInput);
+  const suffix =
+    (preset === "prod" ? "" : `-${preset}`) + (scope ? `-${scope}` : "");
+  const dotSuffix =
+    (preset === "prod" ? "" : `.${preset}`) + (scope ? `.${scope}` : "");
   return {
     launchdLabel: `com.openmeld.openmeld-service-update${dotSuffix}`,
     serviceName: `openmeld-service-update${suffix}`,

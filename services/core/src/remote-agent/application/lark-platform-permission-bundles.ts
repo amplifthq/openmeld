@@ -17,7 +17,42 @@ export const LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE = Object.freeze({
 export type LarkPlatformChannelPermissionBundle =
   typeof LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE;
 
+export function requiresLarkPlatformAuthorizationUpdate(connection: {
+  status: string;
+  provider: string;
+  permissionBundleVersion: string;
+  failureReasonCode: string | null;
+}): boolean | null {
+  if (connection.status === "connected") {
+    return (
+      connection.permissionBundleVersion !==
+      LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.version
+    );
+  }
+  if (connection.status === "disconnected") {
+    return false;
+  }
+  if (
+    connection.status === "configuring" &&
+    [
+      `${connection.provider}.application_config_permission_required`,
+      `${connection.provider}.authorization_update_required`,
+      `${connection.provider}.permission_bundle_mismatch`,
+    ].includes(connection.failureReasonCode ?? "")
+  ) {
+    return true;
+  }
+  return null;
+}
+
 const BASE64_PADDING_PATTERN = /=+$/u;
+
+// Setup authority is requested in the provider's consent page, never granted
+// to the Center Agent as a runtime Channel capability.
+export const LARK_PLATFORM_APP_CONFIGURATION_SCOPE =
+  "application:application:patch";
+export const LARK_PLATFORM_APP_SELF_MANAGE_SCOPE =
+  "application:application:self_manage";
 
 function requireExactBundleValue<const T extends boolean | string>(
   value: boolean | string,
@@ -45,7 +80,11 @@ export async function encodeLarkPlatformRegistrationAddons(
     },
     preset: bundle.preset,
     scopes: {
-      tenant: [...bundle.scopes],
+      tenant: [
+        ...bundle.scopes,
+        LARK_PLATFORM_APP_CONFIGURATION_SCOPE,
+        LARK_PLATFORM_APP_SELF_MANAGE_SCOPE,
+      ],
     },
   });
   const compressed = await new Response(

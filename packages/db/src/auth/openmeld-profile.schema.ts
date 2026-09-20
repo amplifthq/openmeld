@@ -69,9 +69,9 @@ export const openMeldProfiles = sqliteTable(
         onDelete: "cascade",
       })
       .default(sql`null`),
-    ownerUserId: text("owner_user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    ownerUserId: text("owner_user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
     createdByUserId: text("created_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -137,6 +137,10 @@ export const openMeldProfiles = sqliteTable(
     check(
       "openmeld_profiles_source_check",
       sql`"source" in ('auth_bootstrap', 'web_create', 'cli_create', 'local_agent_create', 'center_agent_create', 'migration')`
+    ),
+    check(
+      "openmeld_profiles_ownership_check",
+      sql`("managed_role" = 'center_agent' and "organization_id" is not null and "owner_user_id" is null) or (coalesce("managed_role", '') != 'center_agent' and "owner_user_id" is not null)`
     ),
     check(
       "openmeld_profiles_managed_role_check",

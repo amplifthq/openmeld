@@ -1,5 +1,6 @@
 import {
 	getCenterAgentDirectMessageSpaceProjectionResponseSchema,
+	listSpaceThreadsResponseSchema,
 	organizationSpaceDirectoryWithMemberCountsResponseSchema,
 	signalEnvelopeSchema,
 } from "@openmeld/schemas";
@@ -18,6 +19,7 @@ import {
 	persistQueryClientSave,
 } from "@tanstack/react-query-persist-client";
 import { z } from "zod/v4";
+import { observeSpaceOpen } from "#/lib/observability/space-open";
 import { currentComputerToolbarDisplaySnapshotSchema } from "#/query/connect/current-computer-toolbar-display-snapshot";
 import { centerAgentQueryKeys } from "#/query/organizations/center-agent";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
@@ -31,7 +33,9 @@ import { spaceConversationDisplaySnapshotSchema } from "#/query/spaces/display-s
 import {
 	mergeSpaceHistorySnapshots,
 	SPACE_SAVED_HISTORY_MAX_BYTES,
+	SPACE_SAVED_THREAD_DISPLAY_MAX_BYTES,
 } from "#/query/spaces/history";
+import { spaceMemberDirectoryDisplaySchema } from "#/query/spaces/member-directory-display";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import type {
 	DexieQueryCacheStore,
@@ -549,6 +553,15 @@ export function createBrowserQueryPersistenceController(
 			spaceId,
 			openMeldProfileId,
 		}) => {
+			const hasDisplay = Boolean(
+				queryClient.getQueryData(
+					spaceQueryKeys.history(spaceId, openMeldProfileId)
+				) &&
+					queryClient.getQueryData(
+						spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId)
+					)
+			);
+			observeSpaceOpen(spaceId, { cache: hasDisplay ? "memory" : "cold" });
 			const operation = runExclusive(async () => {
 				if (
 					activeOwnerAccountId !== ownerAccountId ||
@@ -572,6 +585,7 @@ export function createBrowserQueryPersistenceController(
 					targetQueryKeys: [
 						spaceQueryKeys.history(spaceId, openMeldProfileId),
 						spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId),
+						spaceQueryKeys.memberDirectoryDisplay(spaceId, openMeldProfileId),
 					],
 				});
 			});
@@ -837,6 +851,26 @@ async function restoreAndSubscribe(input: {
 		);
 	}
 	hydrate(input.queryClient, restored);
+	if (input.segment.scopeKind === "space") {
+		const history = restored.queries.find(
+			(query) =>
+				query.queryKey[0] === "spaces" && query.queryKey[1] === "history"
+		);
+		const display = restored.queries.find(
+			(query) =>
+				query.queryKey[0] === "spaces" &&
+				query.queryKey[1] === "display-snapshot"
+		);
+		const spaceId = history?.queryKey[2];
+		if (
+			history &&
+			typeof spaceId === "string" &&
+			display &&
+			dataUpdatedAtBeforeRestore.get(hashKey(history.queryKey)) === undefined
+		) {
+			observeSpaceOpen(spaceId, { cache: "restored" });
+		}
+	}
 	if (input.didRestoreUsableClient()) {
 		await Promise.all(
 			input.targetQueryKeys.map(async (targetQueryKey) => {
@@ -895,6 +929,13 @@ async function restoreAndSubscribe(input: {
 }
 
 const spaceHistorySnapshotSchema = z.strictObject({
+	threadDisplay: listSpaceThreadsResponseSchema
+		.refine(
+			(snapshot) =>
+				new TextEncoder().encode(JSON.stringify(snapshot)).byteLength <=
+				SPACE_SAVED_THREAD_DISPLAY_MAX_BYTES
+		)
+		.optional(),
 	envelopes: z
 		.array(signalEnvelopeSchema)
 		.refine(
@@ -981,6 +1022,10 @@ function resolvePersistedDataSerializer(scopeKind: QueryCacheScopeKind): {
 }
 
 function serializeSpacePersistedDisplayData(data: unknown): unknown {
+	const directory = spaceMemberDirectoryDisplaySchema.safeParse(data);
+	if (directory.success) {
+		return directory.data;
+	}
 	const displaySnapshot =
 		spaceConversationDisplaySnapshotSchema.safeParse(data);
 	if (displaySnapshot.success) {
@@ -1046,6 +1091,10 @@ function isApprovedSuccessfulQuery(
 		case "space":
 			if (targetQueryKey[1] === "history") {
 				return spaceHistorySnapshotSchema.safeParse(query.state.data).success;
+			}
+			if (targetQueryKey[1] === "member-directory-display") {
+				return spaceMemberDirectoryDisplaySchema.safeParse(query.state.data)
+					.success;
 			}
 			if (targetQueryKey[1] === "display-snapshot") {
 				return spaceConversationDisplaySnapshotSchema.safeParse(

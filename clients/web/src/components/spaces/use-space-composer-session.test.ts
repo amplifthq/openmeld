@@ -1,4 +1,10 @@
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	act,
+	cleanup,
+	renderHook as renderTestingHook,
+} from "@testing-library/react";
+import { createElement, type PropsWithChildren } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { useSpaceComposerSession } from "./use-space-composer-session";
 
@@ -85,3 +91,11 @@ describe("useSpaceComposerSession", () => {
 		);
 	});
 });
+
+function renderHook<Result>(callback: () => Result) {
+	const client = new QueryClient();
+	return renderTestingHook(callback, {
+		wrapper: ({ children }: PropsWithChildren) =>
+			createElement(QueryClientProvider, { client }, children),
+	});
+}

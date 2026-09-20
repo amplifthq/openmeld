@@ -1,4 +1,8 @@
 export type {
+  AgentProfileExecutionModeResponse,
+  RuntimeTransportAgentProfileExecutionModeRequest,
+} from "../../schemas/http/agent-profile-execution-mode";
+export type {
   AccountDisplayName,
   SelectLastSelectedOrganizationBody,
   SelectLastSelectedOrganizationErrorCode,
@@ -130,8 +134,10 @@ export type {
   AgentProfileCreationApprovalPolicy,
   AgentProfileCreationApprovalPreference,
   AgentProfileCreationConfiguration,
+  AgentProfileCreationExecutionMessage,
   AgentProfileCreationRequest,
   AgentProfileCreationRequestMutationResponse,
+  AgentProfileCreationRequestSelector,
   AgentProfileCreationRequestSource,
   AgentProfileCreationRequestStatus,
   AgentProfileCreationRequestStatusReason,
@@ -163,14 +169,18 @@ export type {
   AuthOrganizationContextSource,
   AuthRpcClaims,
   AuthRpcMethod,
+  AuthRpcProfileFact,
   AuthRpcResolveOrganizationAccountIdentityInput,
   AuthRpcResolveOrganizationAccountIdentityResult,
   AuthRpcResolveOrganizationDirectoryAgentProfilesInput,
   AuthRpcResolveOrganizationDirectoryAgentProfilesResult,
   AuthRpcResolveOrganizationDirectoryMembersInput,
   AuthRpcResolveOrganizationDirectoryMembersResult,
+  AuthRpcResolveProfileByIdResult,
   AuthRpcResolveProfileInput,
   AuthRpcResolveProfileResult,
+  AuthRpcResolveProfilesByIdsInput,
+  AuthRpcResolveProfilesByIdsResult,
   AuthRpcResolveRequestAuthInput,
   AuthRpcResolveRequestAuthResult,
   AuthRpcResolveRequestAuthWithProfileInput,
@@ -430,46 +440,6 @@ export type {
   CenterAgentVerifiedMemberToolSpeaker,
 } from "./center-agent-speaker";
 export type {
-  CenterAgentCreateTaskToolRpcInput,
-  CenterAgentGetTaskToolRpcInput,
-  CenterAgentListTasksToolRpcInput,
-  CenterAgentTask,
-  CenterAgentTaskAttempt,
-  CenterAgentTaskDetail,
-  CenterAgentTaskDetailResponseV1,
-  CenterAgentTaskDetailResponseV2,
-  CenterAgentTaskDetailRpcResponse,
-  CenterAgentTaskEvent,
-  CenterAgentTaskEventActor,
-  CenterAgentTaskEventKind,
-  CenterAgentTaskExecutionEvidence,
-  CenterAgentTaskOrigin,
-  CenterAgentTaskOutcome,
-  CenterAgentTaskPhase,
-  CenterAgentTaskResponseContractVersion,
-  CenterAgentTaskResponseV1,
-  CenterAgentTaskResponseV2,
-  CenterAgentTaskRouteParams,
-  CenterAgentTaskState,
-  CenterAgentTaskStatus,
-  ContinueCenterAgentTaskBody,
-  ContinueCenterAgentTaskRpcInput,
-  CreateCenterAgentTaskResponse,
-  GetCenterAgentTaskResponse,
-  GetCenterAgentTaskRpcInput,
-  ListCenterAgentTasksQuery,
-  ListCenterAgentTasksResponse,
-  ListCenterAgentTasksResponseV1,
-  ListCenterAgentTasksResponseV2,
-  ListCenterAgentTasksRpcInput,
-  ListCenterAgentTasksRpcResponse,
-  MutateCenterAgentTaskResponse,
-  RetryCenterAgentTaskBody,
-  RetryCenterAgentTaskRpcInput,
-  StopCenterAgentTaskBody,
-  StopCenterAgentTaskRpcInput,
-} from "./center-agent-tasks";
-export type {
   CenterAgentReadTurnDiagnosticsResponse,
   CenterAgentReadTurnDiagnosticsRpcInput,
   CenterAgentTurnDiagnostic,
@@ -494,6 +464,7 @@ export type {
 } from "./cli-binary-manifest";
 export type {
   CenterAgentConnectorConnectionSelection,
+  CenterAgentResolveConnectorConnectionBody,
   ConnectorAppCatalogProvider,
   ConnectorAppCatalogResponse,
   ConnectorAppRequest,
@@ -569,6 +540,8 @@ export type {
 } from "./feedback";
 export type { GatewayErrorCode, GatewayErrorEnvelope } from "./gateway-error";
 export type * from "./inbox";
+export type * from "./inbox-desktop-updates";
+export type * from "./inbox-feed";
 export type { ListSignalsQuery } from "./list-signals-query";
 export type {
   GetLocalRuntimeExpectedRoutesQuery,
@@ -601,6 +574,7 @@ export type {
   SetCurrentOpenMeldToolsMaintenanceResponse,
   SetLocalRuntimeDisplayNameBody,
 } from "./local-runtimes";
+export type * from "./message-channel-files";
 export type {
   LarkPlatformActiveRegistrationListResponse,
   LarkPlatformActiveRegistrationProjection,
@@ -654,6 +628,7 @@ export type {
   OrganizationDirectoryResponse,
   OrganizationMemberWebActivityResponse,
   OrganizationProfileDirectoryAgentProfile,
+  OrganizationProfileDirectoryReadOptions,
   OrganizationProfileDirectoryResponse,
 } from "./organization-directory";
 export type {
@@ -821,6 +796,16 @@ export type {
   PeopleComputersResponse,
   PeopleComputerTarget,
 } from "./people-computers";
+export type * from "./plugin-access";
+export type {
+  PluginActionRequest,
+  PluginActionResponse,
+  PluginActionRpcInput,
+} from "./plugin-actions";
+export type {
+  PluginRuntimeRequest,
+  PluginRuntimeResponse,
+} from "./plugin-runtime";
 export type {
   GetPrepareReadinessQuery,
   GetPrepareReadinessResponse,
@@ -948,6 +933,7 @@ export type {
   SetSpaceAccessModeBody,
   SpaceAccessMode,
   SpaceAccessModeState,
+  SpaceLinkJoinPolicy,
 } from "./space-access-mode";
 export type {
   RespondToSpaceAgentInteractionBody,
@@ -1156,6 +1142,12 @@ export type {
   SpaceMessageDetailsWorkingDetails,
 } from "./space-message-details";
 export type {
+  SpaceFilePinMutation,
+  SpaceFilePinsResponse,
+  SpaceMessagePinMutation,
+  SpaceMessagePinsResponse,
+} from "./space-message-pins";
+export type {
   PatchSpaceMetaBody,
   SpaceCreator,
   SpaceMeta,
@@ -1184,6 +1176,24 @@ export type {
   SpaceStatusLatestVisibleUpdate,
   SpaceStatusMembersSummary,
 } from "./space-status";
+export type {
+  CreateSpaceTaskBody,
+  ListSpaceTasksQuery,
+  ListSpaceTasksResponse,
+  MutateSpaceTaskBody,
+  SpaceTask,
+  SpaceTaskActor,
+  SpaceTaskErrorCode,
+  SpaceTaskEvent,
+  SpaceTaskEventType,
+  SpaceTaskExternalWorkItem,
+  SpaceTaskId,
+  SpaceTaskMutationReceipt,
+  SpaceTaskPhase,
+  SpaceTaskResponse,
+  SpaceTaskResult,
+  SpaceTaskReview,
+} from "./space-tasks";
 export type {
   CreateSpaceThreadBody,
   CreateSpaceThreadResponse,

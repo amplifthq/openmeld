@@ -15,7 +15,8 @@ def seed(db, org, viewer, human, now, ident, insert, session, gateway_port, gate
                    "Enterprise onboarding and customer success",
                    "Search relevance experiments and evaluation",
                    "Platform reliability and incident response",
-                   "Design systems and accessibility working group"]
+                   "Design systems and accessibility working group",
+                   "Shared HTML readability"]
     headers = {"Authorization":"Bearer "+session["token"], "Content-Type":"application/json",
                "x-openmeld-profile-id":human["profile_id"],
                "x-openmeld-requested-organization-id":org["id"]}
@@ -59,23 +60,64 @@ def seed(db, org, viewer, human, now, ident, insert, session, gateway_port, gate
             json.load(response)
         conversations.seed(context, sid, i, preview_members)
         if i in (0, 2, 7, 9):
+            signal_index = 479 if i == 0 else 2
+            signal_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"fixture-conversation:{sid}:{signal_index}"))
+            source_target = {"kind":"space", "spaceId":sid, "signalId":signal_id}
+            title = f"New discussion in {name}"
+            preview = "Local sidebar fixture: please review the latest update."
+            if i == 0:
+                title = "Muted tray smoke message"
+                preview = "This newest unread is muted and must not hide the next eligible message."
+            elif i == 2:
+                title = "Tray smoke: ordinary unread"
+                preview = "This is the latest eligible unread after the muted message."
+            elif i == 7:
+                title = "Tray smoke: thread reply"
+                preview = "This reply should open the exact message inside its Thread."
+                source_target.update({
+                    "replyToRecipient": True,
+                    "threadRootSignalId": str(uuid.uuid5(uuid.NAMESPACE_URL, f"fixture-conversation:{sid}:0")),
+                })
+            inbox_item = {
+                "organization_id": org["id"],
+                "recipient_user_id": viewer["id"],
+                "kind": "space_message",
+                "attention": "update",
+                "importance": "normal",
+                "title": title,
+                "preview": preview,
+                "context_label": name,
+                "source_kind": "space_signal",
+                "source_key": ident(f"unread-source:{i}"),
+                "source_target_json": json.dumps(source_target),
+                "resolution_status": "not_applicable",
+                "occurred_at_ms": now-i*60000,
+                "created_at_ms": now,
+                "updated_at_ms": now,
+                "read_at_ms": None,
+                "cleared_at_ms": None,
+            }
             with db:
-                insert("inbox_items", id=ident(f"unread:{i}"), organization_id=org["id"],
-                       recipient_user_id=viewer["id"], kind="space_message", attention="update",
-                       importance="normal", title=f"New discussion in {name}",
-                       preview="Local sidebar fixture: please review the latest update.", context_label=name,
-                       source_kind="space_signal", source_key=ident(f"unread-source:{i}"),
-                       source_target_json=json.dumps({"kind":"space","spaceId":sid}),
-                       resolution_status="not_applicable", occurred_at_ms=now-i*60000,
-                       created_at_ms=now, updated_at_ms=now)
-                db.execute("UPDATE inbox_items SET read_at_ms=NULL,cleared_at_ms=NULL WHERE id=?", (ident(f"unread:{i}"),))
+                item_id = ident(f"unread:{i}")
+                insert("inbox_items", id=item_id, **inbox_item)
+                assignments = ",".join(f'"{column}"=?' for column in inbox_item)
+                db.execute(
+                    f'UPDATE inbox_items SET {assignments} WHERE id=?',
+                    (*inbox_item.values(), item_id),
+                )
+                if i in (0, 2, 7):
+                    notification_mode = {0: "muted", 2: "all_messages", 7: "mentions_and_replies"}[i]
+                    db.execute(
+                        "INSERT OR REPLACE INTO inbox_conversation_notification_preferences (user_id,organization_id,space_id,mode) VALUES (?,?,?,?)",
+                        (viewer["id"], org["id"], sid, notification_mode),
+                    )
         if i in (1, 2, 3, 8, 9, 10):
             agent_id = "agt_"+ident(f"agent:{i}")
             agent_name = db.execute("SELECT profile_name FROM openmeld_profiles WHERE profile_id=?", (agent_id,)).fetchone()[0]
             runtime_states.append({"spaceId":sid,"profileId":"agt_"+ident(f"agent:{i}"),
                                    "profileName":agent_name,
                                    "sourceSignalId":str(uuid.uuid5(uuid.NAMESPACE_URL, f"fixture-conversation:{sid}:0")),
-                                   "scenario":"plan_review" if i == 3 else "permission" if i == 10 else "working",
-                                   "needsInput":i in (3,10)})
+                                   "scenario":"plan_review" if i == 3 else "permission" if i == 10 else "question" if i == 9 else "conversation_wait" if i == 2 else "working",
+                                   "needsInput":i in (3,9,10)})
 
     return runtime_states

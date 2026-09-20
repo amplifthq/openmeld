@@ -89,6 +89,11 @@ function resolveDaemonStopCause(input: {
   if (input.type === "daemon.crash") {
     return "service_crash";
   }
+  // A transport observation does not establish why the connection was lost,
+  // and must not inherit a concurrent CLI command's stop/update attribution.
+  if (input.type === "connection.state") {
+    return "unknown";
+  }
   if (input.intent === "stop") {
     return "user_stop";
   }
@@ -99,13 +104,6 @@ function resolveDaemonStopCause(input: {
     input.intent === "status_cleanup"
   ) {
     return "controlled_service_update";
-  }
-  if (
-    input.type === "connection.state" &&
-    input.result !== "connected" &&
-    input.result !== "stopping"
-  ) {
-    return "network_disconnect";
   }
   return "unknown";
 }
@@ -181,12 +179,22 @@ export async function emitDaemonLifecycleEvent(input: {
     "OpenMeld Service lifecycle journal"
   );
   const journalPath = daemonLifecycleJournalPath(input.pathInput);
-  const attribution = await resolveDaemonLifecycleAttribution(input);
+  const timestamp = new Date().toISOString();
+  const attribution =
+    input.type === "connection.state"
+      ? {
+          command: "openmeld service run",
+          intent: "unknown" as const,
+          lane: resolveOpenMeldEnvPreset(input.pathInput),
+          pid: process.pid,
+          sessionId: resolveCliContextId(),
+        }
+      : await resolveDaemonLifecycleAttribution(input);
   const event: DaemonLifecycleEvent = {
     schema: "openmeld-daemon-lifecycle-event-v1",
     v: 1,
     type: input.type,
-    timestamp: new Date().toISOString(),
+    timestamp,
     lane: attribution.lane,
     intent: attribution.intent,
     command: attribution.command,

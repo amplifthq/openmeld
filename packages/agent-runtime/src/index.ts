@@ -44,6 +44,7 @@ export {
   buildAgentControllerRef,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_CONTROLLER_REF_ID,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   hasRuntimeAdapterCapabilityForRef,
   parseAgentControllerRef,
   type RuntimeAdapterCapabilityIdentity,
@@ -142,7 +143,6 @@ export {
   resolveAgentProfileEditCapabilities,
 } from "./agent-profile-edit-capabilities";
 export {
-  AGENT_PROFILE_USAGE_CHECKING_REASON_CODE,
   AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE,
   type AgentProfileUsageRecoveryAvailability,
   type AgentProfileUsageWakeability,
@@ -341,6 +341,14 @@ export {
   type WakeStopEligibility,
   type WakeStopEligibilityControlMode,
 } from "./wake-stop-eligibility";
+export {
+  AGENT_PROFILE_WORK_CONCURRENCY_LIMIT,
+  AGENT_PROFILE_WORK_MAX_WAITING,
+  AGENT_PROFILE_WORK_READABLE_RESERVATION_LIMIT,
+  type AgentProfileWorkCapacityPolicy,
+  DEFAULT_AGENT_PROFILE_WORK_CAPACITY_POLICY,
+  isAgentProfileWorkCapacityPolicy,
+} from "./work-policy";
 export {
   buildWorkingLanguagePromptPlan,
   renderWorkingLanguagePrompt,

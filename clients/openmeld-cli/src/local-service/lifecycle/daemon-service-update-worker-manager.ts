@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 import {
+  configureDaemonMaintenanceEnvironment,
   daemonServiceUpdateWorkerNpmEntryPath,
   hasIndependentMaintenanceRegistration,
   INDEPENDENT_MAINTENANCE_REGISTRATION,
@@ -38,7 +39,11 @@ import {
   verifyDaemonActiveBundleIntegrity,
 } from "./daemon-service-bundle";
 import { buildDaemonSystemServiceCommandSpec } from "./daemon-service-command-spec";
-import { resolveDaemonServiceManager } from "./daemon-service-manager";
+import {
+  resolveDaemonServiceManager,
+  startLaunchdService,
+  waitForLaunchdJobUnloaded,
+} from "./daemon-service-manager";
 import {
   type DaemonServiceUpdateJob,
   readPendingDaemonServiceUpdate,
@@ -68,22 +73,55 @@ type RunCommandResult = {
 
 export async function ensureDaemonServiceMaintenanceInstalled(): Promise<void> {
   // The pending update owns its executor until verification and rollback finish.
-  if (
-    (await readPendingDaemonServiceUpdate()) ||
-    (await hasIndependentMaintenanceRegistration())
-  ) {
+  if (await readPendingDaemonServiceUpdate()) {
     return;
   }
   const preparedBundle = await readDaemonActiveBundleState();
   if (
     !(
-      preparedBundle &&
-      (await verifyDaemonActiveBundleIntegrity(preparedBundle))
+      preparedBundle?.sourceDistFingerprint &&
+      (preparedBundle.bundleFormat === "binary_v1" ||
+        (await verifyDaemonActiveBundleIntegrity(preparedBundle)))
     )
   ) {
     throw new Error(
       "OpenMeld cannot install automatic maintenance without a verified Service program."
     );
+  }
+  // Binary preparation below verifies the maintenance executable against the
+  // prepared source fingerprint. The main Service carrier may still be the
+  // previous version until startup replaces it; it is not this worker's source.
+  const spec = await buildDaemonServiceUpdateWorkerSpec({ preparedBundle });
+  const identity = resolveDaemonServiceUpdateWorkerIdentity();
+  let expectedDefinition: string;
+  if (process.platform === "darwin") {
+    expectedDefinition = buildLaunchdServiceUpdateWorkerPlist({
+      label: identity.launchdLabel,
+      logPath: resolveUpdateWorkerLogPath({}),
+      spec,
+    });
+  } else if (process.platform === "linux") {
+    expectedDefinition = buildSystemdServiceUpdateWorkerUnit({ spec });
+  } else {
+    expectedDefinition = windowsTaskActionArguments({
+      ...spec,
+      logPath: resolveUpdateWorkerLogPath({}),
+    });
+  }
+  if (
+    await hasIndependentMaintenanceRegistration(
+      {},
+      process.platform,
+      expectedDefinition
+    )
+  ) {
+    // A saved registration can outlive its executable (for example after a
+    // local reinstall). Restore the verified carrier before trusting the job.
+    await prepareDaemonServiceUpdateWorkerCarrier({ preparedBundle });
+    if (process.platform === "darwin") {
+      await startDaemonServiceUpdateWorker();
+    }
+    return;
   }
   await installDaemonServiceUpdateWorker({ preparedBundle });
 }
@@ -133,13 +171,16 @@ export async function registerDaemonServiceUpdateWorker(
       command: "launchctl",
       args: ["bootout", serviceKey],
     });
-    await requireSuccessfulCommand({
-      command: "launchctl",
-      args: ["bootstrap", guiDomain, plistPath],
-    });
+    await waitForLaunchdJobUnloaded(serviceKey);
+    // Stop/uninstall leaves a persistent disabled override. Clear it before
+    // bootstrap, otherwise launchd rejects reinstall with an opaque EIO.
     await requireSuccessfulCommand({
       command: "launchctl",
       args: ["enable", serviceKey],
+    });
+    await requireSuccessfulCommand({
+      command: "launchctl",
+      args: ["bootstrap", guiDomain, plistPath],
     });
     return;
   }
@@ -282,9 +323,10 @@ export async function startDaemonServiceUpdateWorker(
     const guiDomain =
       process.getuid === undefined ? "gui/501" : `gui/${process.getuid()}`;
     const serviceKey = `${guiDomain}/${identity.launchdLabel}`;
-    await requireSuccessfulCommand({
-      command: "launchctl",
-      args: ["kickstart", serviceKey],
+    await startLaunchdService({
+      guiDomain,
+      serviceKey,
+      plistPath: resolveDaemonServiceUpdateWorkerLaunchdPlistPath(pathInput),
     });
     return;
   }
@@ -335,8 +377,13 @@ export async function uninstallDaemonServiceUpdateWorker(
       process.getuid === undefined ? "gui/501" : `gui/${process.getuid()}`;
     await runCommand({
       command: "launchctl",
+      args: ["disable", `${guiDomain}/${identity.launchdLabel}`],
+    });
+    await runCommand({
+      command: "launchctl",
       args: ["bootout", `${guiDomain}/${identity.launchdLabel}`],
     });
+    await waitForLaunchdJobUnloaded(`${guiDomain}/${identity.launchdLabel}`);
     await rm(resolveDaemonServiceUpdateWorkerLaunchdPlistPath(pathInput), {
       force: true,
     });
@@ -423,11 +470,13 @@ export async function buildDaemonServiceUpdateWorkerSpec(
       "OpenMeld could not resolve the prepared Service update executable."
     );
   }
+  const env = { ...baseSpec.env };
+  configureDaemonMaintenanceEnvironment(env);
   return {
     args: binaryDistribution
       ? ["service", "update-worker"]
       : [targetEntryPath, "service", "update-worker"],
-    env: baseSpec.env,
+    env,
     executable: binaryDistribution ? targetEntryPath : process.execPath,
     pendingJobPath: join(
       daemonRuntimeStateRootPath(pathInput),

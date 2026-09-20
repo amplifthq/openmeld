@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LarkPlatformChannelDialog } from "./lark-platform-channel-dialog";
 
+const DID_NOT_ACCEPT_PATTERN = /did not accept/;
+
 afterEach(cleanup);
 
 describe("LarkPlatformChannelDialog", () => {
@@ -18,6 +20,7 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage="Saved setup could not be read."
 				onDisconnect={vi.fn()}
 				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
 				onRepair={vi.fn()}
 				onRetryPoll={vi.fn()}
 				onStartOver={onStartOver}
@@ -55,6 +58,7 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage={null}
 				onDisconnect={vi.fn()}
 				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
 				onRepair={vi.fn()}
 				onRetryPoll={vi.fn()}
 				onStartOver={onStartOver}
@@ -89,9 +93,11 @@ describe("LarkPlatformChannelDialog", () => {
 	});
 
 	it.each([
-		["lark", "Lark", "https://open.larksuite.com/app"],
-		["feishu", "Feishu", "https://open.feishu.cn/app"],
-	] as const)("shows the %s permission recovery action instead of indefinite verification", (provider, label, consoleUrl) => {
+		["lark", "Lark"],
+		["feishu", "Feishu"],
+	] as const)("shows the %s permission recovery action instead of indefinite verification", (provider, label) => {
+		const onRetryPoll = vi.fn();
+		const onReauthorize = vi.fn();
 		render(
 			<LarkPlatformChannelDialog
 				canManage
@@ -100,8 +106,9 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage={null}
 				onDisconnect={vi.fn()}
 				onOpenChange={vi.fn()}
+				onReauthorize={onReauthorize}
 				onRepair={vi.fn()}
-				onRetryPoll={vi.fn()}
+				onRetryPoll={onRetryPoll}
 				onStartOver={vi.fn()}
 				open
 				pollPending={false}
@@ -123,17 +130,18 @@ describe("LarkPlatformChannelDialog", () => {
 				startOverPending={false}
 			/>
 		);
-		expect(
-			screen.getByText("Allow OpenMeld to configure the app")
-		).toBeTruthy();
-		expect(
-			screen
-				.getByRole("link", { name: `Open ${label} Developer Console` })
-				.getAttribute("href")
-		).toBe(consoleUrl);
+		expect(screen.getByText("Authorization required")).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: `Reauthorize ${label}` })
+		);
+		expect(onReauthorize).toHaveBeenCalledOnce();
 		expect(
 			screen.queryByText("Verifying permissions and Webhook delivery")
 		).toBeNull();
+		fireEvent.click(
+			screen.getByRole("button", { name: "I've authorized, check again" })
+		);
+		expect(onRetryPoll).toHaveBeenCalledOnce();
 	});
 
 	it.each([
@@ -149,6 +157,7 @@ describe("LarkPlatformChannelDialog", () => {
 			errorMessage: null,
 			onDisconnect: vi.fn(),
 			onOpenChange: vi.fn(),
+			onReauthorize: vi.fn(),
 			onRepair: vi.fn(),
 			onRetryPoll: vi.fn(),
 			onStartOver,
@@ -180,7 +189,7 @@ describe("LarkPlatformChannelDialog", () => {
 			`https://${destination}/page/launcher?user_code=redacted&name=Existing+app`
 		);
 		expect(
-			screen.getByText(`Sign in with your ${label} account.`, { exact: false })
+			screen.getByText(`Sign in to ${label}, create a bot`, { exact: false })
 		).toBeTruthy();
 		expect(screen.getByText("Waiting for approval")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Start over" }));
@@ -208,6 +217,7 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage={null}
 				onDisconnect={onDisconnect}
 				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
 				onRepair={vi.fn()}
 				onRetryPoll={vi.fn()}
 				onStartOver={vi.fn()}
@@ -247,6 +257,7 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage={null}
 				onDisconnect={vi.fn()}
 				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
 				onRepair={onRepair}
 				onRetryPoll={vi.fn()}
 				onStartOver={vi.fn()}
@@ -262,11 +273,10 @@ describe("LarkPlatformChannelDialog", () => {
 		expect(screen.getByRole("heading", { name: "Repair Lark" })).toBeTruthy();
 		expect(
 			screen.getByText(
-				"Setup expired before OpenMeld could verify this app’s permissions and Webhook delivery. Repair retries the existing app; it does not create another one."
+				"Setup expired before OpenMeld could verify this app’s permissions and establish a connection. Repair retries the existing app; it does not create another one."
 			)
 		).toBeTruthy();
-		const badge = screen.getByText("Needs Attention");
-		expect(badge.className).toContain("h-8");
+		expect(screen.getByText("Needs attention")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Repair Lark" }));
 		expect(onRepair).toHaveBeenCalledOnce();
 	});
@@ -293,6 +303,7 @@ describe("LarkPlatformChannelDialog", () => {
 				errorMessage={null}
 				onDisconnect={vi.fn()}
 				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
 				onRepair={onRepair}
 				onRetryPoll={vi.fn()}
 				onStartOver={vi.fn()}
@@ -323,32 +334,40 @@ describe("LarkPlatformChannelDialog", () => {
 		expect(onRepair).toHaveBeenCalledOnce();
 	});
 
-	it("explains a failed configuration check while automatic retries continue", () => {
+	it.each([
+		"lark",
+		"feishu",
+	] as const)("does not blame %s for a configuration failure and preserves database diagnostics", (provider) => {
+		const label = provider === "lark" ? "Lark" : "Feishu";
+		const errorMessage =
+			"D1_ERROR: D1 DB is overloaded. Requests queued for too long.";
+		const onRetryPoll = vi.fn();
 		render(
 			<LarkPlatformChannelDialog
 				canManage
 				connection={null}
 				disconnectPending={false}
-				errorMessage={null}
+				errorMessage={errorMessage}
 				onDisconnect={vi.fn()}
 				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
 				onRepair={vi.fn()}
-				onRetryPoll={vi.fn()}
+				onRetryPoll={onRetryPoll}
 				onStartOver={vi.fn()}
 				open
 				pollPending={false}
-				provider="lark"
+				provider={provider}
 				registration={{
 					attempt: {
 						expiresAt: "2026-07-28T00:00:00.000Z",
 						id: "attempt_configuring",
 						nextPollAt: "2026-07-21T00:05:00.000Z",
-						provider: "lark",
-						reasonCode: "lark.application_config_failed",
+						provider,
+						reasonCode: `${provider}.application_config_failed`,
 						registrationUrl: null,
 						status: "configuring",
 					},
-					connection: repairConnection("configuring"),
+					connection: { ...repairConnection("configuring"), provider },
 					organizationId: "org_1",
 				}}
 				repairPending={false}
@@ -358,9 +377,13 @@ describe("LarkPlatformChannelDialog", () => {
 
 		expect(
 			screen.getByText(
-				"Lark did not accept the latest app configuration. OpenMeld will retry automatically."
+				`OpenMeld could not finish configuring the ${label} app. It will retry automatically.`
 			)
 		).toBeTruthy();
+		expect(screen.getByRole("alert").textContent).toBe(errorMessage);
+		expect(screen.queryByText(DID_NOT_ACCEPT_PATTERN)).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+		expect(onRetryPoll).toHaveBeenCalledOnce();
 	});
 });
 

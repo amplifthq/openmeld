@@ -73,7 +73,7 @@ describe("CenterAgentSlackConnectionDialog", () => {
 		expect(screen.getByText("Reconnect required")).toBeTruthy();
 		expect(
 			screen.getByText(
-				"Slack is connected, but this installation can’t receive direct messages yet. Reconnect once to approve the latest permissions."
+				"Slack is connected. Reconnect to approve updated permissions for the Center Agent."
 			)
 		).toBeTruthy();
 		const reconnect = screen.getByRole("link", { name: "Reconnect Slack" });

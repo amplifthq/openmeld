@@ -1,7 +1,10 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
-import { SpaceComposerFileTray } from "./space-composer-attachments";
+import {
+	SpaceComposerAttachmentRecovery,
+	SpaceComposerFileTray,
+} from "./space-composer-attachments";
 
 vi.mock("@phosphor-icons/react", () => ({
 	FileIcon: () => <span />,
@@ -17,8 +20,9 @@ describe("SpaceComposerFileTray", () => {
 		cleanup();
 	});
 
-	it("keeps fixed-width cards in one horizontally scrolling row", () => {
+	it("keeps attachments in one scrolling row and announces file failures", () => {
 		const onRemove = vi.fn();
+		const onRetry = vi.fn();
 		render(
 			<SpaceComposerFileTray
 				disabled={false}
@@ -33,61 +37,61 @@ describe("SpaceComposerFileTray", () => {
 					createComposerFile({
 						errorMessage: "OpenMeld couldn’t add this file. Try again.",
 						errorRequestId: "request-file-failed",
+						failurePhase: "stage",
 						fileName: "broken.pdf",
 						localId: "failed-file",
 						status: "failed",
 					}),
 				]}
 				onRemove={onRemove}
+				onRetry={onRetry}
 			/>
 		);
 
-		const tray = screen.getByRole("group", { name: "Files to send" });
-		expect(tray.className).toContain("flex");
-		expect(tray.className).toContain("flex-nowrap");
-		expect(tray.className).toContain("overflow-x-auto");
-		expect(tray.className).toContain("[scrollbar-width:none]");
-		expect(tray.className).toContain("[&::-webkit-scrollbar]:hidden");
-		expect(tray.className).not.toContain("flex-wrap");
-		expect(tray.className).not.toContain("grid-cols-1");
-
-		const cards = Array.from(tray.children) as HTMLElement[];
-		expect(cards).toHaveLength(3);
-		for (const card of cards) {
-			expect(card.className).toContain("w-40");
-			expect(card.className).toContain("flex-none");
-			expect(card.className).not.toContain("w-fit");
-		}
-
-		const readyName = screen.getByText("launch-brief.pdf");
-		const readyStatus = screen.getByText("Ready");
-		expect(readyName.tagName).toBe("P");
-		expect(readyStatus.tagName).toBe("P");
-		expect(readyName.compareDocumentPosition(readyStatus)).toBe(
-			Node.DOCUMENT_POSITION_FOLLOWING
+		expect(screen.getByRole("group", { name: "Files to send" })).toBeTruthy();
+		expect(screen.getByRole("img", { name: LONG_FILE_NAME })).toBeTruthy();
+		expect(screen.queryByText("Ready")).toBeNull();
+		expect(screen.queryByText("Uploading…")).toBeNull();
+		expect(screen.queryByRole("progressbar")).toBeNull();
+		expect(screen.getByRole("alert").textContent).toBe(
+			"OpenMeld couldn’t add this file. Try again."
 		);
-		const longFileName = screen.getByText(LONG_FILE_NAME);
-		expect(longFileName.className).toContain("truncate");
-		expect(longFileName.getAttribute("data-slot")).toBe("tooltip-trigger");
-		expect(screen.getByText("Uploading…")).toBeTruthy();
-		expect(
-			screen
-				.getByRole("progressbar", {
-					name: `${LONG_FILE_NAME} upload progress`,
-				})
-				.getAttribute("aria-valuenow")
-		).toBe("42");
-		expect(
-			screen.getByText("OpenMeld couldn’t add this file. Try again.")
-		).toBeTruthy();
 		expect(screen.getByText("Request ID: request-file-failed")).toBeTruthy();
 
 		const removeReadyFile = screen.getByRole("button", {
 			name: "Remove launch-brief.pdf",
 		});
-		expect(removeReadyFile.className).toContain("size-7");
 		fireEvent.click(removeReadyFile);
 		expect(onRemove).toHaveBeenCalledWith("ready-file");
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		expect(onRetry).toHaveBeenCalledWith("failed-file");
+	});
+
+	it("keeps failed cleanup and restoration actions available", () => {
+		const onRetryCleanup = vi.fn();
+		const onRetryRestoration = vi.fn();
+		render(
+			<SpaceComposerAttachmentRecovery
+				cleanup={[
+					{
+						error: new Error("connection closing"),
+						fileName: "broken.png",
+						id: "broken-file",
+						reason: "removed",
+						revision: 3,
+						scope: "acme:human:space",
+						status: "failed",
+					},
+				]}
+				onRetryCleanup={onRetryCleanup}
+				onRetryRestoration={onRetryRestoration}
+				restorationError={new Error("connection closing")}
+			/>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Retry cleanup" }));
+		expect(onRetryCleanup).toHaveBeenCalledWith("broken-file");
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		expect(onRetryRestoration).toHaveBeenCalledOnce();
 	});
 });
 
@@ -97,6 +101,7 @@ function createComposerFile(
 	return {
 		errorMessage: null,
 		errorRequestId: null,
+		failurePhase: null,
 		fileName: "launch-brief.pdf",
 		localId: "ready-file",
 		mimeType: "application/pdf",

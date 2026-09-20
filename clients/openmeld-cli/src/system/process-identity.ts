@@ -1,20 +1,33 @@
 import { execFileSync } from "node:child_process";
+import { readWindowsProcessStartFileTime } from "@openmeld/adapter-core/windows-system";
+
+const WINDOWS_PROCESS_IDENTITY_PATTERN = /^win32:\d{10,20}$/u;
+
+export function isPreciseProcessStartIdentity(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    ((value.startsWith("ps:") && value.length > 3) ||
+      WINDOWS_PROCESS_IDENTITY_PATTERN.test(value))
+  );
+}
 
 export const CURRENT_PROCESS_START_IDENTITY =
   readProcessStartIdentity(process.pid) ??
   `fallback:${process.pid}:${Math.floor(Date.now() - process.uptime() * 1000)}`;
 
-export function isProcessIdentityAlive(input: {
-  ownerPid: number;
-  ownerProcessStartedAt: string;
-}): boolean {
+export function isProcessIdentityAlive(
+  input: { ownerPid: number; ownerProcessStartedAt: string },
+  platform: NodeJS.Platform = process.platform
+): boolean {
   if (!isProcessAlive(input.ownerPid)) {
     return false;
   }
-  const observedIdentity = readProcessStartIdentity(input.ownerPid);
+  const observedIdentity = readProcessStartIdentity(input.ownerPid, platform);
   if (
-    observedIdentity?.startsWith("ps:") &&
-    input.ownerProcessStartedAt.startsWith("ps:")
+    isPreciseProcessStartIdentity(observedIdentity) &&
+    isPreciseProcessStartIdentity(input.ownerProcessStartedAt) &&
+    observedIdentity.split(":", 1)[0] ===
+      input.ownerProcessStartedAt.split(":", 1)[0]
   ) {
     return observedIdentity === input.ownerProcessStartedAt;
   }
@@ -23,9 +36,16 @@ export function isProcessIdentityAlive(input: {
   return true;
 }
 
-export function readProcessStartIdentity(pid: number): string | null {
+export function readProcessStartIdentity(
+  pid: number,
+  platform: NodeJS.Platform = process.platform
+): string | null {
   if (!(Number.isSafeInteger(pid) && pid > 0)) {
     return null;
+  }
+  if (platform === "win32") {
+    const created = readWindowsProcessStartFileTime(pid);
+    return created === null ? null : `win32:${created}`;
   }
   try {
     const output = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {

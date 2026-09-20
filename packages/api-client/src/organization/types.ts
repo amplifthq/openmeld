@@ -1,5 +1,6 @@
 import type {
   AgentProfileCreationRequestMutationResponse,
+  AgentProfileCreationRequestSelector,
   CenterAgentOrganizationMemoryPolicyResponse,
   CenterAgentWipeMemberMemoryResponse,
   CreateAgentProfileCreationRequestBody,
@@ -116,7 +117,7 @@ export type OrganizationApi = {
     input: CreateAgentProfileCreationRequestInput
   ) => Promise<CreateAgentProfileCreationRequestResponse>;
   listAgentProfileCreationRequests: (
-    input: OrganizationRouteInput
+    input: OrganizationRouteInput & AgentProfileCreationRequestSelector
   ) => Promise<ListAgentProfileCreationRequestsResponse>;
   decideAgentProfileCreationRequest: (
     input: DecideAgentProfileCreationRequestInput

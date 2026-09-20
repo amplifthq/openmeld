@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execPlatformFile as execFile } from "@openmeld/adapter-core/process-launch";
 import type { CliCommandFailure, CliCommandResult } from "../../shared/types";
 import type { CliVersionView } from "../../shared/view-types";
 import { type ExecFileError, type ExecFileFn, runCliJson } from "./driver";
@@ -49,6 +49,20 @@ export const startService = (deps?: CommandDeps): Promise<CliCommandResult> =>
 
 export const stopService = (deps?: CommandDeps): Promise<CliCommandResult> =>
   run(["service", "stop"], deps);
+
+export const serviceControlCapabilities = (deps?: CommandDeps) =>
+  run(["service", "control-capabilities"], deps);
+
+export const controlServiceForAccount = (
+  operation: "start" | "stop",
+  expectedAccount: string,
+  deps?: CommandDeps
+) =>
+  run(["service", operation, "--expected-account", expectedAccount], {
+    ...deps,
+    // Controlled Stop owns the drain; a healthy Wake must not be killed by the GUI.
+    timeoutMs: 0,
+  });
 
 export const enableServiceAutoStart = (
   deps?: CommandDeps

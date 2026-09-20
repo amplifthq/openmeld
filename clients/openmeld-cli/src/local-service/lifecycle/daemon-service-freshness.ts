@@ -100,15 +100,6 @@ export function resolveDaemonServiceFreshnessWarningForAnomalyCodes(input: {
   };
 }
 
-export function buildDaemonServiceFreshnessPromptLines(
-  warning: DaemonServiceFreshnessWarning | null | undefined
-): string[] {
-  if (!warning) {
-    return [];
-  }
-  return [`- Service freshness: ${warning.detailText} ${warning.nextStep}`];
-}
-
 function dedupeAnomalyCodes(
   anomalyCodes: readonly DaemonServiceAnomalyCode[]
 ): DaemonServiceAnomalyCode[] {

@@ -37,6 +37,7 @@ async function handleLarkPlatformWebhook(input: {
   const body = await readJsonRequestBody(input.c.req.raw, {
     maxBytes: LARK_PLATFORM_WEBHOOK_RAW_BODY_MAX_BYTES,
   });
+  const bodyReadAtMs = Date.now();
   if (!body.ok) {
     return body.message === "Payload too large"
       ? input.c.text("Provider payload too large", 413)
@@ -49,6 +50,17 @@ async function handleLarkPlatformWebhook(input: {
     rawBody: body.rawBody,
     receivedAtMs,
   });
+  if (verification?.status === "challenge") {
+    const verifiedAtMs = Date.now();
+    console.info("[gateway.message_channel.webhook.challenge_timing]", {
+      gatewayRequestId,
+      provider: input.provider,
+      surface: input.surface,
+      bodyReadMs: bodyReadAtMs - receivedAtMs,
+      verificationRpcMs: verifiedAtMs - bodyReadAtMs,
+      responseReadyMs: verifiedAtMs - receivedAtMs,
+    });
+  }
   if (!verification) {
     return input.c.text("Provider verification unavailable", 503);
   }

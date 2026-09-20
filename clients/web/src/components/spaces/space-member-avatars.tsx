@@ -1,3 +1,4 @@
+import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
 import type {
 	AccountSpaceIndexItem,
 	OrganizationProfileDirectoryResponse,
@@ -72,12 +73,19 @@ export function SpaceMemberAvatars(input: {
 				<span
 					className={
 						horizontal
-							? "relative flex shrink-0 overflow-hidden rounded-full bg-background ring-1 ring-background"
-							: `absolute flex overflow-hidden rounded-full bg-sidebar ring-1 ring-sidebar ${positions[index]}`
+							? "relative flex shrink-0 overflow-hidden bg-background ring-1 ring-background"
+							: `absolute flex overflow-hidden bg-sidebar ring-1 ring-sidebar ${positions[index]}`
 					}
 					key={member.profileId}
-					style={
-						horizontal
+					style={{
+						borderRadius:
+							member.profileKind === "human" ||
+							(input.appearances?.get(member.profileId)?.agentControllerRef ??
+								member.agentControllerRef) ===
+								HOSTED_CENTER_AGENT_CONTROLLER_REF
+								? "50%"
+								: "22%",
+						...(horizontal
 							? {
 									zIndex: members.length - index,
 									marginLeft:
@@ -85,8 +93,8 @@ export function SpaceMemberAvatars(input: {
 											? Math.min(16, 32 / (members.length - 1)) - size
 											: 0,
 								}
-							: undefined
-					}
+							: {}),
+					}}
 				>
 					{member.profileKind === "human" ? (
 						<DitherProfileAvatar
@@ -105,6 +113,7 @@ export function SpaceMemberAvatars(input: {
 								member.agentControllerRef
 							}
 							profileId={member.profileId}
+							profileName={member.profileName}
 							size={size}
 						/>
 					)}

@@ -12,8 +12,10 @@ import {
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
 import { type QueryClient, useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
+import { DesktopServiceControls } from "#/desktop/desktop-service-controls";
+import { canConfigureLocalComputer } from "#/desktop/platform";
 import { mapCurrentLocalRuntimeReplyReadinessQueryState } from "#/lib/connect/current-local-runtime-readiness";
 import { refreshWebAgentReadinessSharedCaches } from "#/query/agents/execution-readiness";
 import { currentLocalRuntimeReplyReadinessQueryOptions } from "#/query/connect/local-runtimes";
@@ -29,9 +31,10 @@ const SETUP_COMPLETE_REFRESH_GRACE_MS = 12_000;
 
 export function SelectedComputerPanel(input: {
 	computer: LocalRuntimeComputer;
+	connectionAction?: ReactNode;
 	focusFileAccess: boolean;
 	focusService: boolean;
-	isReconcilingStatus: boolean;
+	isReconcilingStatus?: boolean;
 	onFocusConsumed?: () => void;
 	organizationId: string;
 	queryClient: QueryClient;
@@ -90,7 +93,12 @@ export function SelectedComputerPanel(input: {
 		}),
 		input.queryClient
 	);
+	const isReconcilingStatus =
+		input.isReconcilingStatus === true ||
+		(selectedReadinessQuery.isFetching &&
+			!selectedReadinessQuery.isFetchedAfterMount);
 	const effectiveReplyReadiness =
+		// This query belongs to the viewed Computer, not the account's other target.
 		mapCurrentLocalRuntimeReplyReadinessQueryState({
 			isPending: target !== null && selectedReadinessQuery.isPending,
 			readiness: selectedReadinessQuery.isError
@@ -101,10 +109,12 @@ export function SelectedComputerPanel(input: {
 		? null
 		: (selectedReadinessQuery.data ?? null);
 	const canManageComputerFileAccess =
+		canConfigureLocalComputer() &&
 		selectedSession?.controls?.computerFileAccess?.readPolicy === true &&
 		selectedSession.controls.computerFileAccess.updatePolicy === true;
 	return (
 		<div className="flex flex-col gap-4">
+			<DesktopServiceControls deviceId={input.computer.deviceId} />
 			{environments.length > 1 ? (
 				<details
 					className="order-last space-y-3 rounded-md border p-4"
@@ -143,13 +153,14 @@ export function SelectedComputerPanel(input: {
 			) : null}
 			<OpenMeldServiceCard
 				computer={input.computer}
+				connectionAction={input.connectionAction}
 				currentExpectedServiceVersion={
 					input.recovery.expectedServiceVersion ?? null
 				}
 				currentLocalRuntimeReplyReadiness={currentLocalRuntimeReplyReadiness}
 				focusService={input.focusService}
 				hasSelectedEnvironment={target !== null}
-				isReconcilingStatus={input.isReconcilingStatus}
+				isReconcilingStatus={isReconcilingStatus}
 				key={`service/${target ? computerEnvironmentKey(target) : input.computer.deviceId}`}
 				onCheckingStatusChange={(checking) => {
 					const deviceId = input.computer.deviceId;
@@ -179,7 +190,7 @@ export function SelectedComputerPanel(input: {
 				controlTarget={target}
 				hasSelectedEnvironment={target !== null}
 				isReconcilingStatus={
-					input.isReconcilingStatus ||
+					isReconcilingStatus ||
 					input.setupCompleteRefreshPending ||
 					checkingComputerId === input.computer.deviceId
 				}

@@ -19,10 +19,8 @@ import {
   signalStatusSchema,
   signalSystemNoticeEnvelopeSchema,
   signalSystemNoticeSchema,
-  signalTextEnvelopeSchema,
   signalTextSchema,
   spaceLiveSignalFrameSchema,
-  systemEmittedSignalTextSchema,
   uuidProfileIdSchema,
 } from "../../src/index";
 
@@ -757,59 +755,6 @@ describe("protocol schemas", () => {
       clientMessageId: "client-1",
       sourceEventId: "evt-1",
     });
-  });
-
-  it("preserves durable Center Agent Task references on system-authored text", () => {
-    const result = signalTextEnvelopeSchema.safeParse({
-      v: 1,
-      id: "signal-task-reference",
-      profile: {
-        kind: "agent",
-        profileId: AGENT_PROFILE_ID,
-        profileName: "Center Agent",
-      },
-      spaceId: "room-a",
-      ts: 101,
-      type: "signal.text",
-      data: {
-        text: "I started the Task.",
-        meta: {
-          centerAgentTaskReferences: [{ taskId: "task-1" }],
-          purpose: "agent_reply_final",
-        },
-      },
-    });
-
-    expect(result.success).toBe(true);
-    if (!result.success) {
-      return;
-    }
-    expect(result.data.data.meta?.centerAgentTaskReferences).toEqual([
-      { taskId: "task-1" },
-    ]);
-  });
-
-  it("preserves Task references only through the system-emitted authoring schema", () => {
-    const body = {
-      type: "signal.text",
-      data: {
-        text: "I started the Task.",
-        meta: {
-          centerAgentTaskReferences: [{ taskId: "task-1" }],
-          purpose: "agent_reply_final",
-        },
-      },
-    } as const;
-
-    const trusted = systemEmittedSignalTextSchema.parse(body);
-    const userAuthored = signalTextSchema.parse(body);
-
-    expect(trusted.data.meta?.centerAgentTaskReferences).toEqual([
-      { taskId: "task-1" },
-    ]);
-    expect(userAuthored.data.meta).not.toHaveProperty(
-      "centerAgentTaskReferences"
-    );
   });
 
   it("rejects non-string signal.text clientMessageId values", () => {

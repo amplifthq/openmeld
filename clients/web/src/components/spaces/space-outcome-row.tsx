@@ -1,13 +1,13 @@
 import { cn } from "@openmeld/ui/lib/utils";
-import { StopCircleIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import {
+	isQuotaWakeFailure,
 	resolveWakeFailureDisplay,
 	type WakeFailureDisplay,
 	type WakeFailureTargetContext,
 } from "#/lib/spaces/wake-failure-display";
-import { Marker, MarkerContent, MarkerIcon } from "./primitives/marker";
+import { Marker, MarkerContent } from "./primitives/marker";
 import {
 	SpaceExecutionRecoveryButton,
 	type SpaceExecutionRecoveryHandler,
@@ -23,8 +23,8 @@ import {
 	type SpaceOutcomeRowTone,
 } from "./space-outcome-tone";
 
-// A request-level Wake outcome (terminal_failure or wake_stopped) is a compact,
-// always-visible one-line summary. Only Core-authorized recovery may add an
+// A request-level Wake outcome (terminal_failure or wake_stopped) is compact
+// and always visible. Reuse the shared system divider. Only Core-authorized recovery may add an
 // execution action; starting another Wake belongs to the ordinary composer.
 // Full reason and diagnostics remain in Message details.
 /**
@@ -76,7 +76,6 @@ function renderSpaceOutcomeAction(input: {
 }
 
 export function SpaceOutcomeRow(input: {
-	align?: "end" | "start";
 	className?: string;
 	onOpenDetails: (() => void) | null;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
@@ -85,68 +84,44 @@ export function SpaceOutcomeRow(input: {
 	text: string;
 	tone: SpaceOutcomeRowTone;
 }) {
-	const isEndAligned = input.align === "end";
 	const spaceReferencesById =
 		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
-	const isClickable = Boolean(input.onOpenDetails);
-
 	return (
-		<div
+		<Marker
 			className={cn(
-				"flex w-full min-w-0",
-				isEndAligned ? "justify-end" : "justify-start",
+				"w-full",
+				resolveSpaceOutcomeRowToneClassName(input.tone),
 				input.className
 			)}
-			data-align={input.align ?? "start"}
-			data-slot="space-outcome-row"
 			data-testid="space-outcome-row"
+			variant="separator"
 		>
-			<div
-				className={cn(
-					"flex min-w-0 max-w-full items-center gap-2",
-					isEndAligned ? "justify-end" : "justify-start"
-				)}
-			>
-				<Marker
-					aria-label={isClickable ? "Open message details" : undefined}
-					className={cn(
-						"w-fit min-w-0 max-w-full items-center gap-2",
-						resolveSpaceOutcomeRowToneClassName(input.tone),
-						isClickable &&
-							cn(
-								APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
-								"cursor-pointer appearance-none border-0 bg-transparent p-0 hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:outline-offset-2"
-							)
-					)}
-					onClick={input.onOpenDetails ?? undefined}
-					render={isClickable ? <button type="button" /> : undefined}
-				>
-					<MarkerIcon>{resolveSpaceOutcomeRowIcon(input.tone)}</MarkerIcon>
-					<MarkerContent
+			<MarkerContent className="flex max-w-[calc(100%-4rem)] flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-[13px] leading-5">
+				{input.onOpenDetails ? (
+					<button
+						aria-label="Open message details"
 						className={cn(
-							"min-w-0 text-[13px] leading-5",
-							isEndAligned ? "text-right" : "text-left"
+							APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
+							"min-w-0 text-center hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:outline-offset-2"
 						)}
+						onClick={input.onOpenDetails}
+						type="button"
 					>
-						<span className="block max-w-full max-sm:break-words sm:truncate">
-							<SpaceMessageReferenceText
-								referencesById={spaceReferencesById}
-								text={input.text}
-							/>
-						</span>
-					</MarkerContent>
-				</Marker>
-				{renderSpaceOutcomeAction(input)}
-			</div>
-		</div>
+						<SpaceMessageReferenceText
+							referencesById={spaceReferencesById}
+							text={input.text}
+						/>
+					</button>
+				) : (
+					<SpaceMessageReferenceText
+						referencesById={spaceReferencesById}
+						text={input.text}
+					/>
+				)}
+				{input.tone !== "muted" && renderSpaceOutcomeAction(input)}
+			</MarkerContent>
+		</Marker>
 	);
-}
-
-function resolveSpaceOutcomeRowIcon(tone: SpaceOutcomeRowTone) {
-	if (tone === "muted") {
-		return <StopCircleIcon aria-hidden="true" />;
-	}
-	return <WarningCircleIcon aria-hidden="true" />;
 }
 
 function resolveSpaceOutcomeRowToneClassName(
@@ -224,8 +199,8 @@ export function groupAnchoredOutcomeNotices(
 
 // A terminal failure inside a message bubble is only a pointer to Message
 // details. Keep it calm and consistent: name the Agent that could not reply,
-// but leave the actual reason, recovery guidance, and diagnostics in Message
-// details. Wake stops are not failures, so their existing outcome copy remains
+// and surface a known quota limit inline. Recovery guidance and diagnostics stay
+// in Message details. Wake stops are not failures, so their existing outcome copy remains
 // visible. `resolveTargetLabel` is a callback because the main conversation and
 // Thread callers resolve member names from different projections.
 export function resolveGroupedOutcomeRowText(input: {
@@ -238,7 +213,9 @@ export function resolveGroupedOutcomeRowText(input: {
 		const targetLabel = targetProfileId
 			? input.resolveTargetLabel(targetProfileId)
 			: null;
-		return `${targetLabel ?? "Agent"} couldn’t reply`;
+		return isQuotaWakeFailure(input.notices[0]?.systemNoticeReasonCode)
+			? `${targetLabel ?? "Agent"} reached its provider usage limit`
+			: `${targetLabel ?? "Agent"} couldn’t reply`;
 	}
 
 	if (input.notices.length === 1) {

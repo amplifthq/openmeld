@@ -10,6 +10,7 @@ export const centerAgentRouteSearchSchema = z.object({
 	group: z.string().uuid().optional(),
 	session: centerAgentSessionSelectorSchema.shape.spaceId.optional(),
 	focusSignalId: z.string().trim().min(1).max(256).optional(),
+	focusThreadRootSignalId: z.string().trim().min(1).max(256).optional(),
 	view: z.enum(["messages", "graph", "files"]).optional(),
 	slack_oauth: z.enum(["connected", "error", "move_required"]).optional(),
 	slack_oauth_error: slackOAuthErrorCodeSchema.optional(),

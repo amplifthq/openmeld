@@ -1,6 +1,9 @@
 declare module "cloudflare:test" {
   type ProvidedEnv = {
     OPENMELD_DB: D1Database;
+    OPENMELD_LARK_CHANNEL_CONNECTOR: DurableObjectNamespace<
+      import("../src/remote-agent/transport/lark/lark-channel-connector").LarkChannelConnector
+    >;
     OPENMELD_ORGANIZATION_SKILLS: R2Bucket;
     OPENMELD_SPACES: unknown;
     TEST_MIGRATIONS: D1Migration[];

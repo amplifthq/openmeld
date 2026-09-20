@@ -8,17 +8,11 @@ import {
 } from "@openmeld/ui/components/magnifying-dock";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { cn } from "@openmeld/ui/lib/utils";
-import {
-	CheckIcon,
-	CloudIcon,
-	DesktopTowerIcon,
-	RobotIcon,
-} from "@phosphor-icons/react";
+import { CheckIcon, RobotIcon } from "@phosphor-icons/react";
 import { type ReactNode, useId } from "react";
 import { ComputerSetupChoiceCard } from "#/components/connect/computer-setup-choice-card";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
 import type { AgentProfileLocalAgentEmptyState } from "./create-profile-form";
-import { LocalAgentLogoStack } from "./local-agent-logo-stack";
 
 export type LocalAgentSelectorProps = {
 	choices: readonly AgentProfileBindingChoice[];
@@ -60,57 +54,13 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 			<legend
 				className={cn(
 					"w-full text-left font-medium text-base",
-					choices.length > 0 ? "mb-1" : "mb-4"
+					choices.length > 0 ? "mb-1" : "mb-4",
+					heading === "Choose a local agent" && "sr-only"
 				)}
 				id={headingId}
 			>
-				{input.surface === "page" ? (
-					<div className="grid gap-2">
-						<h1 className="font-medium text-2xl tracking-tight">
-							Create Agent
-						</h1>
-						<p className="font-normal text-muted-foreground text-sm">
-							Choose where your Agent runs.
-						</p>
-					</div>
-				) : (
-					heading
-				)}
+				{heading}
 			</legend>
-			<div className="grid gap-2 sm:grid-cols-2">
-				<div className="flex items-start gap-3 rounded-lg border border-border bg-muted/25 p-3">
-					<DesktopTowerIcon
-						aria-hidden="true"
-						className="mt-0.5 size-5 shrink-0"
-					/>
-					<div className="space-y-1">
-						<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-							<p className="font-medium text-sm">Choose a Local Agent</p>
-							<LocalAgentLogoStack compact />
-						</div>
-						<p className="text-muted-foreground text-xs">
-							Runs on a connected computer with an agent harness like Codex or
-							Claude Code.
-						</p>
-					</div>
-				</div>
-				<button
-					className="flex items-start gap-3 rounded-lg border border-border p-3 text-left text-muted-foreground"
-					disabled
-					type="button"
-				>
-					<CloudIcon aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
-					<span className="space-y-1">
-						<span className="flex flex-wrap items-center gap-2 text-sm">
-							<span className="font-medium">Remote Agent</span>
-							<span className="text-xs">Coming soon</span>
-						</span>
-						<span className="block text-xs">
-							Runs in the cloud without a connected computer.
-						</span>
-					</span>
-				</button>
-			</div>
 			{input.computerSlot}
 			{input.locked ? (
 				<p className="text-pretty text-muted-foreground text-sm leading-5">
@@ -134,7 +84,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 					aria-labelledby={headingId}
 					className="-mx-3 min-h-24 justify-start gap-2 overflow-x-auto overflow-y-hidden px-3 pt-5 pb-1"
 				>
-					{choices.map((choice) => {
+					{choices.map((choice, index) => {
 						const selected = choice.value === input.value;
 						return (
 							<MagnifyingDockItem
@@ -144,6 +94,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 									selected && "font-medium text-foreground"
 								)}
 								key={choice.value}
+								style={{ zIndex: choices.length - index }}
 							>
 								<label
 									className={cn(
@@ -249,11 +200,16 @@ function LocalAgentSelectorEmptyState(input: {
 	if (emptyState?.kind === "connect_computer") {
 		return (
 			<ComputerSetupChoiceCard
-				actionHref={emptyState.primaryActionHref ?? undefined}
+				actionHref={
+					emptyState.onConnectComputer
+						? undefined
+						: (emptyState.primaryActionHref ?? undefined)
+				}
 				actionLabel="Connect Computer"
 				centerAgentHref={emptyState.centerAgentHref}
 				className={className}
-				descriptionLead="Connect a computer so OpenMeld can check its local agents. Then return to finish creating your Agent."
+				descriptionLead="Connect a computer to choose a local agent."
+				onAction={emptyState.onConnectComputer}
 			/>
 		);
 	}

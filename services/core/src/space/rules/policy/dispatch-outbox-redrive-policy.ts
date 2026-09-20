@@ -1,3 +1,4 @@
+import { RUNTIME_COORDINATOR_DEVICE_WAITING_REASON_CODE } from "@openmeld/schemas";
 import type { OpenMeldDaemonDispatchQueueRecoveryReason } from "@openmeld/schemas/types";
 import {
   isActiveDispatchAttemptState,
@@ -161,6 +162,14 @@ export const resolveHandedOffOutboxCandidatePolicyDecision = (input: {
     return { kind: "delete" };
   }
   if (input.ledgerRow.latestAttemptStatus === "profile_queue_waiting") {
+    return { kind: "skip" };
+  }
+  if (
+    input.ledgerRow.latestAttemptErrorCode ===
+    RUNTIME_COORDINATOR_DEVICE_WAITING_REASON_CODE
+  ) {
+    // RuntimeCoordinator has accepted responsibility. Keep the payload for its
+    // exact route/heartbeat redrive; an ordinary conveyor alarm cannot start it.
     return { kind: "skip" };
   }
   const hostedHandoffState =

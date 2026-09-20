@@ -3,6 +3,7 @@ import { chmod, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { buildDispatchSpaceActionMcpToolIds } from "@openmeld/adapter-core";
 
 const AUTH_RE = /not logged in|login required|unauthorized|credentials/i;
 const BAD_GATEWAY_RE = /Bad Gateway/i;
@@ -11,6 +12,7 @@ const INSUFFICIENT_BALANCE_RE = /insufficient balance/i;
 const PERMISSION_REQUESTED_RE = /permission requested/i;
 const RUNTIME_PERMISSION_DENIAL_COPY =
   "The requested action was blocked by the Agent Profile’s permission settings. Review its permissions and choose a less restrictive mode only if you trust the access it grants, then wake the agent again.";
+const DISPATCH_TOOL_IDS = buildDispatchSpaceActionMcpToolIds("_");
 const createRuntimeContext = (
   providerRuntimeWorkingDirectory = process.cwd()
 ) => ({
@@ -261,7 +263,7 @@ test("opencode cli transport passes cwd, prompt, model, variant, and session fla
   }
 });
 
-test("opencode adapter dispatch returns canonical session conversation", async () => {
+test("opencode adapter dispatch launches the task directly without a version probe", async () => {
   const { createOpenCodeAdapter } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "opencode-cli-fixture-"));
   const fixturePath = join(fixtureDir, "opencode-fixture-dispatch.mjs");
@@ -270,6 +272,7 @@ test("opencode adapter dispatch returns canonical session conversation", async (
     fixturePath,
     [
       "#!/usr/bin/env node",
+      "if (process.argv[2] !== 'run') throw new Error('Wake must launch the task, not probe the CLI');",
       "console.log(JSON.stringify({ type: 'text', sessionID: 'opencode-session-1', part: { text: 'hello from opencode' } }));",
       "process.exit(0);",
     ].join("\n"),
@@ -389,17 +392,15 @@ test("opencode adapter dispatch passes official OpenCode permission env", async 
             type: "local",
           },
         },
-        tools: {
-          openmeld_internal_dispatch_space_action_reply: true,
-          openmeld_internal_dispatch_space_action_status: true,
-          openmeld_internal_dispatch_space_action_stay_silent: true,
-        },
+        tools: Object.fromEntries(
+          DISPATCH_TOOL_IDS.map((toolId) => [toolId, true])
+        ),
       }),
       permission: JSON.stringify({
         ...openCodePermission,
-        openmeld_internal_dispatch_space_action_reply: "allow",
-        openmeld_internal_dispatch_space_action_status: "allow",
-        openmeld_internal_dispatch_space_action_stay_silent: "allow",
+        ...Object.fromEntries(
+          DISPATCH_TOOL_IDS.map((toolId) => [toolId, "allow"])
+        ),
       }),
       passthrough: "kept",
     });

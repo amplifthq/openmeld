@@ -11,8 +11,11 @@ import type {
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
-import { Card, CardContent, CardFooter } from "@openmeld/ui/components/card";
+import { CardFooter } from "@openmeld/ui/components/card";
 import { Input } from "@openmeld/ui/components/input";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { SkeletonRegion } from "@openmeld/ui/components/skeleton-content";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import {
 	resolveStatusToneBadgeClassName,
@@ -26,18 +29,24 @@ import {
 	CheckCircleIcon,
 	ClockCountdownIcon,
 	DesktopTowerIcon,
-	HashIcon,
 	PencilSimpleIcon,
 	ProhibitIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
+import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import type {
 	AgentProfileActivityDestination,
 	AgentProfileActivityNavigation,
 } from "#/components/agents/agent-profile-activity-preview";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
+import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
+import { AgentProfileConversationsSection } from "#/components/directory/agent-conversations-section";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
+import {
+	AgentTaskActivityTime,
+	useAgentTaskActivity,
+} from "./agent-task-activity";
 import { formatAgentWakeAvailabilityCheckedAt } from "./agents-page-agent-profile-helpers";
 
 export function AgentProfileWorkspaceDetail(input: {
@@ -46,12 +55,6 @@ export function AgentProfileWorkspaceDetail(input: {
 	canEdit: boolean;
 	controllerModelSummary: string;
 	configurationContent?: ReactNode;
-	currentSession?: {
-		computerName: string;
-		href: string;
-		nativeSessionId: string;
-		title: string;
-	};
 	details: ProfileDetailsSnapshot;
 	isDirectMessagePending: boolean;
 	isRecoveryActionPending: boolean;
@@ -62,6 +65,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	overflowActions: ReactNode;
 	profile: AuthProfileView;
 	supportingContent?: ReactNode;
+	conversationViewerProfileId?: string | null;
 	wakeAvailability: AgentWakeAvailability | null;
 	wakeAvailabilityCheckedAt: string | null;
 	wakeAvailabilityErrorMessage: string | null;
@@ -70,6 +74,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	wakeAvailabilityNowMs: number;
 	headerRecoveryActions?: ReactNode;
 }) {
+	const taskActivity = useAgentTaskActivity(input.profile.openMeldProfileId);
 	const displayedWakeAvailability = input.wakeAvailability;
 	const showOwnerOperationalContext =
 		input.details.viewerScope === "owner_self";
@@ -83,7 +88,7 @@ export function AgentProfileWorkspaceDetail(input: {
 		availabilityCategory === "offline" ||
 		availabilityCategory === "unavailable";
 	const visibleActivityNavigation = showOwnerOperationalContext
-		? input.activityNavigation
+		? (input.activityNavigation ?? taskActivity.navigation)
 		: null;
 	let operationalRecoveryAction: ReactNode = null;
 	if (
@@ -93,7 +98,9 @@ export function AgentProfileWorkspaceDetail(input: {
 	) {
 		operationalRecoveryAction = (
 			<ProfileDetailsRecoveryActionButton
-				compact={projectedRecoveryAction.kind === "skip_interrupted_work"}
+				compact={isInterruptedWorkRecoveryActionKind(
+					projectedRecoveryAction.kind
+				)}
 				isPending={input.isRecoveryActionPending}
 				onRecoveryAction={input.onRecoveryAction}
 				recoveryAction={projectedRecoveryAction}
@@ -114,15 +121,24 @@ export function AgentProfileWorkspaceDetail(input: {
 							hasReducedProminence ? "opacity-55 grayscale" : null
 						)}
 						profileId={input.profile.openMeldProfileId}
+						profileName={input.profile.profileName}
 						size={96}
+						working={input.operationalContext?.status === "working"}
 					/>
-					<div className="flex @[42rem]/agent-detail:h-24 min-w-0 flex-1 flex-col pt-1">
-						<AgentProfileNameEditor
-							canEdit={input.canEdit}
-							hasReducedProminence={hasReducedProminence}
-							onRenameProfile={input.onRenameProfile}
-							profileName={input.profile.profileName}
-						/>
+					<div className="flex @[42rem]/agent-detail:min-h-24 min-w-0 flex-1 flex-col pt-1">
+						<div className="flex min-w-0 items-center gap-2">
+							<AgentProfileNameEditor
+								adornment={
+									<RemoteAgentIndicator
+										agentControllerRef={input.agentControllerRef}
+									/>
+								}
+								canEdit={input.canEdit}
+								hasReducedProminence={hasReducedProminence}
+								onRenameProfile={input.onRenameProfile}
+								profileName={input.profile.profileName}
+							/>
+						</div>
 						<p className="mt-1 break-words text-muted-foreground text-sm">
 							{input.controllerModelSummary}
 						</p>
@@ -157,7 +173,17 @@ export function AgentProfileWorkspaceDetail(input: {
 			</div>
 			<AgentProfileCurrentActivity
 				activityNavigation={visibleActivityNavigation}
-				currentSession={input.currentSession}
+				isLoading={
+					taskActivity.enabled &&
+					taskActivity.isPending &&
+					!input.operationalContext
+				}
+				isUnavailable={
+					taskActivity.enabled &&
+					taskActivity.isError &&
+					!input.operationalContext
+				}
+				lastTaskActivityAt={taskActivity.activity?.lastTaskActivityAt}
 				operationalContext={input.operationalContext}
 				recoveryAction={operationalRecoveryAction}
 				recoveryActionKind={projectedRecoveryAction?.kind ?? null}
@@ -165,6 +191,17 @@ export function AgentProfileWorkspaceDetail(input: {
 			{input.configurationContent}
 			{input.supportingContent ? (
 				<div className="max-w-3xl">{input.supportingContent}</div>
+			) : null}
+			{showOwnerOperationalContext && input.conversationViewerProfileId ? (
+				<AgentProfileConversationsSection
+					agent={{
+						id: input.profile.openMeldProfileId,
+						name: input.profile.profileName,
+						agentControllerRef: input.agentControllerRef,
+					}}
+					key={input.profile.openMeldProfileId}
+					viewerProfileId={input.conversationViewerProfileId}
+				/>
 			) : null}
 		</div>
 	);
@@ -186,6 +223,13 @@ function AgentProfilePresence(input: {
 	wakeAvailabilityIsRefreshing: boolean;
 	wakeAvailabilityNowMs: number;
 }) {
+	if (input.wakeAvailabilityIsPending && !input.wakeAvailability) {
+		return (
+			<SkeletonRegion className="mt-3" label="Loading Agent availability">
+				<Skeleton className="h-5 w-36" />
+			</SkeletonRegion>
+		);
+	}
 	const presentation = resolveAgentProfilePresence(input);
 	const checkedAt = input.wakeAvailability
 		? formatAgentWakeAvailabilityCheckedAt(
@@ -222,45 +266,49 @@ function AgentProfilePresence(input: {
 		</span>
 	);
 	return (
-		<div
-			aria-live="polite"
-			className="@[42rem]/agent-detail:mt-auto mt-3 flex min-h-5 min-w-0 flex-wrap items-center gap-x-2 gap-y-1"
-			data-agent-presence-status={presentation.status}
-			data-testid="agent-profile-presence"
-			title={presentation.tooltip}
-		>
-			{presenceIcon}
-			{presenceLabel}
-			{checkedAt ? (
-				<span className="text-muted-foreground text-xs leading-5">
-					· {checkedAt}
-				</span>
-			) : null}
-			{input.wakeAvailability && input.wakeAvailabilityIsRefreshing ? (
-				<span className="text-muted-foreground text-xs leading-5">
-					Refreshing…
-				</span>
-			) : null}
-			{presentation.reason ? (
-				<span className="text-muted-foreground text-xs leading-5">
-					{presentation.reason}
-				</span>
-			) : null}
-			{input.headerRecoveryActions ? (
-				<div
-					className="flex max-w-full flex-wrap items-center gap-2"
-					data-testid="agent-profile-header-recovery-actions"
-				>
-					{input.headerRecoveryActions}
-				</div>
-			) : null}
-			{input.wakeAvailabilityErrorMessage && input.wakeAvailability ? (
-				<span className="text-muted-foreground text-xs" role="alert">
-					Couldn’t refresh availability.
-					<span className="sr-only"> {input.wakeAvailabilityErrorMessage}</span>
-				</span>
-			) : null}
-		</div>
+		<TooltipHint content={presentation.tooltip}>
+			<div
+				aria-live="polite"
+				className="@[42rem]/agent-detail:mt-auto mt-3 flex min-h-5 min-w-0 flex-wrap items-center gap-x-2 gap-y-1"
+				data-agent-presence-status={presentation.status}
+				data-testid="agent-profile-presence"
+			>
+				{presenceIcon}
+				{presenceLabel}
+				{checkedAt ? (
+					<span className="text-muted-foreground text-xs leading-5">
+						· {checkedAt}
+					</span>
+				) : null}
+				{input.wakeAvailability && input.wakeAvailabilityIsRefreshing ? (
+					<span className="text-muted-foreground text-xs leading-5">
+						Refreshing…
+					</span>
+				) : null}
+				{presentation.reason ? (
+					<span className="text-muted-foreground text-xs leading-5">
+						{presentation.reason}
+					</span>
+				) : null}
+				{input.headerRecoveryActions ? (
+					<div
+						className="flex max-w-full flex-wrap items-center gap-2"
+						data-testid="agent-profile-header-recovery-actions"
+					>
+						{input.headerRecoveryActions}
+					</div>
+				) : null}
+				{input.wakeAvailabilityErrorMessage && input.wakeAvailability ? (
+					<span className="text-muted-foreground text-xs" role="alert">
+						Couldn’t refresh availability.
+						<span className="sr-only">
+							{" "}
+							{input.wakeAvailabilityErrorMessage}
+						</span>
+					</span>
+				) : null}
+			</div>
+		</TooltipHint>
 	);
 }
 
@@ -356,18 +404,31 @@ function AgentProfilePresenceIcon(input: {
 }
 
 function AgentProfileCurrentActivity(input: {
+	isLoading?: boolean;
+	isUnavailable?: boolean;
 	activityNavigation: AgentProfileActivityNavigation | null;
-	currentSession?: {
-		computerName: string;
-		href: string;
-		nativeSessionId: string;
-		title: string;
-	};
+	lastTaskActivityAt?: string | null;
 	operationalContext: AgentProfileOperationalContextInput | null;
 	recoveryAction: ReactNode;
 	recoveryActionKind: ProfileDetailsRecoveryAction["kind"] | null;
 }) {
-	const currentDestination = resolveCurrentActivityDestination(input);
+	if (input.isLoading || input.isUnavailable) {
+		return (
+			<section className="space-y-3">
+				<h2 className="font-medium text-sm">Current activity</h2>
+				{input.isLoading ? (
+					<SkeletonRegion label="Loading Agent activity">
+						<Skeleton className="h-4 w-48" />
+					</SkeletonRegion>
+				) : (
+					<p className="text-muted-foreground text-sm">
+						Current activity unavailable.
+					</p>
+				)}
+			</section>
+		);
+	}
+	const currentDestination = input.activityNavigation?.current ?? null;
 	const queuedDestinations = input.activityNavigation?.queued ?? [];
 	const { footerRecoveryAction, interruptedRecoveryAction } =
 		resolveActivityRecoveryActions(input);
@@ -382,7 +443,8 @@ function AgentProfileCurrentActivity(input: {
 			hasActivityDestinations ||
 			interruptedRecoveryAction ||
 			footerRecoveryAction ||
-			neutralActivitySummary
+			neutralActivitySummary ||
+			input.lastTaskActivityAt
 		)
 	) {
 		return null;
@@ -390,7 +452,7 @@ function AgentProfileCurrentActivity(input: {
 	let activityContent: ReactNode = null;
 	if (hasActivityDestinations || interruptedRecoveryAction) {
 		activityContent = (
-			<CardContent className="min-w-0 py-4">
+			<div className="min-w-0">
 				<ActivityDestinationsPanel
 					currentDestination={currentDestination}
 					currentWorkLocation={
@@ -400,30 +462,10 @@ function AgentProfileCurrentActivity(input: {
 					isWorking={input.operationalContext?.status === "working"}
 					queuedDestinations={queuedDestinations}
 				/>
-			</CardContent>
+			</div>
 		);
 	} else if (neutralActivitySummary) {
-		activityContent = (
-			<CardContent className="min-w-0 py-4">
-				<FluidCardGroup aria-label="Current activity" role="list">
-					<FluidCardItem
-						className="border border-border/70"
-						itemId="activity-summary"
-						role="listitem"
-					>
-						<div className="flex min-w-0 items-center gap-3 px-4 py-3">
-							<DesktopTowerIcon
-								aria-hidden="true"
-								className="size-5 shrink-0 text-muted-foreground"
-							/>
-							<span className="truncate font-medium text-sm">
-								{neutralActivitySummary}
-							</span>
-						</div>
-					</FluidCardItem>
-				</FluidCardGroup>
-			</CardContent>
-		);
+		activityContent = <p className="text-sm">{neutralActivitySummary}</p>;
 	}
 	return (
 		<section
@@ -435,19 +477,25 @@ function AgentProfileCurrentActivity(input: {
 					Current activity
 				</h2>
 			</div>
-			<Card
-				className="gap-0 overflow-hidden py-0"
-				data-testid="agent-current-activity"
-			>
+			<div className="grid gap-2" data-testid="agent-current-activity">
 				{activityContent}
+				<AgentTaskActivityTime timestamp={input.lastTaskActivityAt} />
 				{footerRecoveryAction ? (
 					<CardFooter className="flex-col items-start gap-3 border-border/70">
 						{footerRecoveryAction}
 					</CardFooter>
 				) : null}
-			</Card>
+			</div>
 		</section>
 	);
+}
+
+// Both of these decide the fate of the interrupted Wake itself, so they belong
+// beside it rather than in the card footer that starts queued work.
+function isInterruptedWorkRecoveryActionKind(
+	kind: ProfileDetailsRecoveryAction["kind"]
+): boolean {
+	return kind === "skip_interrupted_work" || kind === "fork_interrupted_work";
 }
 
 function resolveActivityRecoveryActions(input: {
@@ -457,7 +505,10 @@ function resolveActivityRecoveryActions(input: {
 	footerRecoveryAction: ReactNode;
 	interruptedRecoveryAction: ReactNode;
 } {
-	if (input.recoveryActionKind === "skip_interrupted_work") {
+	if (
+		input.recoveryActionKind &&
+		isInterruptedWorkRecoveryActionKind(input.recoveryActionKind)
+	) {
 		return {
 			footerRecoveryAction: null,
 			interruptedRecoveryAction: input.recoveryAction,
@@ -486,32 +537,8 @@ function resolveNeutralActivitySummary(
 			? ` · ${operationalContext.waitingCount} queued`
 			: "";
 	return operationalContext.status === "working"
-		? `Working${waitingSuffix}`
+		? `Active task${waitingSuffix}`
 		: `Waiting to continue${waitingSuffix}`;
-}
-
-function resolveCurrentActivityDestination(input: {
-	activityNavigation: AgentProfileActivityNavigation | null;
-	currentSession?: {
-		computerName: string;
-		href: string;
-		nativeSessionId: string;
-		title: string;
-	};
-	operationalContext: AgentProfileOperationalContextInput | null;
-}): AgentProfileActivityDestination | null {
-	if (input.activityNavigation?.current) {
-		return input.activityNavigation.current;
-	}
-	return input.operationalContext?.status === "working" && input.currentSession
-		? {
-				computerName: input.currentSession.computerName,
-				conversationId: input.currentSession.nativeSessionId,
-				href: input.currentSession.href,
-				source: "computer",
-				title: input.currentSession.title,
-			}
-		: null;
 }
 
 function ActivityDestinationsPanel(input: {
@@ -632,17 +659,18 @@ function ActivityDestinationLink(input: {
 		resolveActivitySourceLabel(input.destination.source);
 	const isInterrupted = input.state === "interrupted";
 	let icon = <DesktopTowerIcon aria-hidden="true" className="size-4" />;
-	if (input.destination.source === "space") {
-		icon = <HashIcon aria-hidden="true" className="size-4" />;
-	} else if (input.destination.source === "direct_message") {
+	if (
+		input.destination.source === "space" ||
+		input.destination.source === "direct_message"
+	) {
 		icon = <ChatCircleTextIcon aria-hidden="true" className="size-4" />;
 	}
 	return (
 		<div className="flex min-w-0 items-center">
-			<a
+			<Link
 				aria-label={resolveActivityDestinationAriaLabel(input.destination)}
 				className="group flex min-h-14 min-w-0 flex-1 items-center gap-3 rounded-md bg-transparent px-3 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-				href={input.destination.href}
+				to={input.destination.href}
 			>
 				<span className="shrink-0 text-muted-foreground">{icon}</span>
 				<span className="min-w-0 flex-1">
@@ -669,7 +697,7 @@ function ActivityDestinationLink(input: {
 					aria-hidden="true"
 					className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
 				/>
-			</a>
+			</Link>
 			{input.trailingAction ? (
 				<div className="shrink-0 pe-3">{input.trailingAction}</div>
 			) : null}
@@ -681,7 +709,7 @@ function resolveActivityDestinationStateLabel(
 	state: ActivityDestinationState
 ): string {
 	if (state === "working") {
-		return "Working";
+		return "Active task";
 	}
 	if (state === "up_next") {
 		return "Up next";
@@ -760,6 +788,7 @@ function resolveActivitySourceLabel(
 }
 
 function AgentProfileNameEditor(input: {
+	adornment?: ReactNode;
 	canEdit: boolean;
 	hasReducedProminence: boolean;
 	onRenameProfile: (profileName: string) => Promise<void>;
@@ -790,7 +819,12 @@ function AgentProfileNameEditor(input: {
 		</h1>
 	);
 	if (!input.canEdit) {
-		return heading;
+		return (
+			<div className="flex min-w-0 items-center gap-1.5">
+				{heading}
+				{input.adornment}
+			</div>
+		);
 	}
 	return (
 		<Popover.Root
@@ -804,6 +838,7 @@ function AgentProfileNameEditor(input: {
 		>
 			<div className="group/name flex min-w-0 items-center gap-1.5">
 				{heading}
+				{input.adornment}
 				<Popover.Trigger
 					render={
 						<Button

@@ -1,9 +1,11 @@
 import { env as workerEnv } from "cloudflare:workers";
+import { executePluginRuntime } from "../connectors/plugin-runtime";
 
+// biome-ignore lint/performance/noBarrelFile: Native browser code execution uses a Durable Object facet.
+export { CodemodeRuntime } from "@cloudflare/codemode";
 // The Center Agent's computer: org-level durable workspace DO, the
 // loopback WorkerEntrypoint its worker-shell isolate dials back through,
 // and the WorkspaceProxy that carries the container's /ws egress home.
-// biome-ignore lint/performance/noBarrelFile: Cloudflare requires the Worker entrypoint to export the WorkspaceServiceProxy WorkerEntrypoint class.
 export { WorkspaceProxy, WorkspaceServiceProxy } from "@cloudflare/computer";
 export { AgentComputer } from "../flue-adapter/computer-workspace";
 
@@ -36,6 +38,12 @@ import {
 const env = workerEnv as unknown as CloudflareBindings;
 
 export default {
+  async pluginRuntime(input: unknown) {
+    return await executePluginRuntime(input, {
+      baseUrl: env.OPENMELD_CONNECTORS_BASE_URL,
+      runtimeToken: env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
+    });
+  },
   async receiveExecutionInput(input: unknown) {
     const request = remoteAgentWorkerExecutionInputRequestSchema.parse(input);
     return await observeRemoteAgentRpc({

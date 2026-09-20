@@ -22,8 +22,8 @@ import {
 import { resolveDaemonServiceArtifact } from "./daemon-service-artifact";
 import {
   readDaemonActiveBundleState,
-  resolveCurrentDaemonSourceDistFingerprint,
   resolveDaemonBundleEntryPathFromState,
+  resolveInstalledDaemonBundleFingerprint,
 } from "./daemon-service-bundle";
 import { normalizeDaemonCommandPath } from "./daemon-service-command-path";
 import {
@@ -33,6 +33,7 @@ import {
 import {
   type DaemonServiceManager,
   type DaemonServiceManagerRuntimeStatus,
+  readDaemonServiceStartupPolicyCurrent,
   resolveDaemonServiceManager,
 } from "./daemon-service-manager";
 import { matchesExpectedDaemonServiceManagerDefinition } from "./daemon-service-manager-command-match";
@@ -74,6 +75,7 @@ export type DaemonServiceAnomalyCode =
   | "bundle_path_invalid"
   | "service_manager_path_drift"
   | "service_manager_environment_drift"
+  | "service_manager_startup_policy_drift"
   | "duplicate_owned_processes"
   | "foreground_background_conflict"
   | "background_foreground_conflict"
@@ -108,7 +110,6 @@ export async function inspectDaemonServiceInventory(input: {
   expectedVersion: string;
   intendedMode?: DaemonRunMode;
   intent?: DaemonLifecycleIntent;
-  cliScriptPath?: string;
   readDaemonStatus?: typeof getDaemonStatus;
   resolveServiceManager?: typeof resolveDaemonServiceManager;
   listOwnedProcesses?: typeof listDaemonOwnedProcesses;
@@ -164,12 +165,9 @@ export async function inspectDaemonServiceInventory(input: {
   const runtimeCommandPathExists = runtimeCommandEntryPath
     ? await pathExists(runtimeCommandEntryPath).catch(() => null)
     : null;
-  const currentSourceDistFingerprint =
-    activeBundle?.bundleFormat === "self_contained_v1"
-      ? await resolveCurrentDaemonSourceDistFingerprint({
-          cliScriptPath: input.cliScriptPath,
-        }).catch(() => null)
-      : null;
+  const installedBundleFingerprint = activeBundleEntryPath
+    ? await resolveInstalledDaemonBundleFingerprint(activeBundle)
+    : null;
   const resolvedArtifact = resolveDaemonServiceArtifact({
     expectedVersion: input.expectedVersion,
     installStatus,
@@ -177,7 +175,7 @@ export async function inspectDaemonServiceInventory(input: {
     activeBundle,
     activeBundleSourceAvailable,
     activeBundleEntryPath,
-    currentSourceDistFingerprint,
+    installedBundleFingerprint,
   });
   const mergedOwnedProcesses = mergeOwnedProcesses(
     ownedProcesses,
@@ -242,6 +240,20 @@ export async function inspectDaemonServiceInventory(input: {
     serviceManagerDefinitionMatchesCurrentRoot:
       scopedServiceManager.serviceManagerDefinitionMatchesCurrentRoot,
   });
+
+  if (
+    installStatus.installed &&
+    (await readDaemonServiceStartupPolicyCurrent({
+      controller: scopedServiceManager.serviceManager?.controller ?? null,
+      status: scopedServiceManager.serviceManagerStatus,
+    })) === false
+  ) {
+    anomalies.push({
+      code: "service_manager_startup_policy_drift",
+      message:
+        "The installed macOS Service still uses an outdated scheduling policy.",
+    });
+  }
 
   return {
     expectedVersion: input.expectedVersion,
@@ -619,7 +631,7 @@ function buildBundleAnomaly(input: {
       return {
         code: "bundle_content_drift",
         message:
-          "OpenMeld Service is using older local service files than this lane expects, so OpenMeld needs to update the service.",
+          "OpenMeld could not verify the installed Service files. The Service needs repair.",
       };
     case "bundle_lane_drift":
       return {

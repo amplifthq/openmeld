@@ -21,6 +21,31 @@ const useRouterStateMock = vi.hoisted(() => vi.fn());
 const useNavigateMock = vi.hoisted(() => vi.fn());
 const listStartProfilesMock = vi.hoisted(() => vi.fn());
 const listAccountSpaceItemsMock = vi.hoisted(() => vi.fn());
+vi.mock("#/components/inbox/inbox-browser-notification-prompt", () => ({
+	InboxBrowserNotificationPrompt: () => (
+		<div data-testid="notification-introduction" />
+	),
+}));
+vi.mock("#/components/inbox/inbox-notification-listener", async () => {
+	const { useCurrentComputer } = await import("./current-computer");
+	return {
+		InboxNotificationListener: () => (
+			<div data-testid="native-menu-computer-context">
+				{useCurrentComputer() ? "provided" : "missing"}
+			</div>
+		),
+	};
+});
+vi.mock("#/components/settings/app-settings-dialog", async () => {
+	const { useCurrentComputer } = await import("./current-computer");
+	return {
+		default: () => (
+			<div data-testid="settings-computer-context">
+				{useCurrentComputer() ? "provided" : "missing"}
+			</div>
+		),
+	};
+});
 
 const SPACES_TAB_NAME = /Spaces/;
 const SPACE_OR_SPACES_TAB_NAME = /^Spaces?$/;
@@ -60,7 +85,13 @@ vi.mock("@tanstack/react-router", () => ({
 		<a href={to}>{children}</a>
 	),
 	Outlet: () => <div>outlet</div>,
-	useLocation: () => ({ pathname: useRouterStateMock() }),
+	useLocation: (input?: {
+		select?: (location: { pathname: string }) => unknown;
+	}) => {
+		const location = { pathname: useRouterStateMock() };
+		return input?.select ? input.select(location) : location;
+	},
+	useSearch: () => ({}),
 	useNavigate: () => useNavigateMock,
 	useMatches: (input?: {
 		select?: (
@@ -70,9 +101,12 @@ vi.mock("@tanstack/react-router", () => ({
 		input?.select
 			? input.select(
 					routerMatchesMock().map(
-						(match: { staticData: { appShellSection?: AppShellSection } }) => ({
+						(match: {
+							staticData: { appShellSection?: AppShellSection };
+							params?: { spaceId?: string };
+						}) => ({
 							...match,
-							params: {},
+							params: match.params ?? {},
 						})
 					)
 				)
@@ -145,6 +179,39 @@ describe("AppShell", () => {
 		cleanup();
 		window.localStorage.clear();
 		window.sessionStorage.clear();
+	});
+
+	it.each([
+		"home",
+		"spaces",
+		"directMessages",
+		"space",
+	] as const)("introduces notifications only inside a Space, not on %s landing", (section) => {
+		routerMatchesMock.mockReturnValue([
+			{ staticData: { appShellSection: section }, params: {} },
+		]);
+		renderAppShell();
+		expect(screen.queryByTestId("notification-introduction")).toBeNull();
+	});
+	it("shares the real Computer context with the native menu and Settings consumers", () => {
+		renderAppShell();
+
+		expect(screen.getByTestId("native-menu-computer-context").textContent).toBe(
+			"provided"
+		);
+		expect(screen.getByTestId("settings-computer-context").textContent).toBe(
+			"provided"
+		);
+	});
+	it("introduces notifications on the first actual Space entry after onboarding", () => {
+		routerMatchesMock.mockReturnValue([
+			{
+				staticData: { appShellSection: "space" },
+				params: { spaceId: "space-123" },
+			},
+		]);
+		renderAppShell();
+		expect(screen.getByTestId("notification-introduction")).toBeTruthy();
 	});
 
 	it("does not show profile or computer context in the header on start routes", () => {

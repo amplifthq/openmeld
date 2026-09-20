@@ -18,12 +18,10 @@ import {
   type RuntimeAgentControllerLaunchContract,
   resolveBuiltinAdapterConversationBridgeSpec,
   resolveDispatchSpaceActionMcpServer,
+  verifyLaunchContractFiles,
   type WaitForMs,
 } from "@openmeld/adapter-core";
-import {
-  resolveOpenCodeTimeoutMs as resolveOpenCodeTimeoutMsLocal,
-  verifyOpenCodeLaunchContract as verifyOpenCodeLaunchContractLocal,
-} from "./config/opencode-runtime-config.js";
+import { resolveOpenCodeTimeoutMs as resolveOpenCodeTimeoutMsLocal } from "./config/opencode-runtime-config.js";
 import { invokeOpenCodeWithSingleContextHeal as invokeOpenCodeWithSingleContextHealLocal } from "./invoke/opencode-invoke.js";
 
 export type OpenCodeInvokeResult = {
@@ -298,7 +296,9 @@ const resolveOpenCodeDispatchLaunchContract = async (input: {
     });
   }
 
-  const verification = await verifyOpenCodeLaunchContractLocal({
+  // Discovery probes CLI capabilities. A Wake validates the selected files and
+  // launches the actual task; a second version process must not gate execution.
+  const verification = await verifyLaunchContractFiles({
     launchContract,
   });
   if (!verification.ok) {

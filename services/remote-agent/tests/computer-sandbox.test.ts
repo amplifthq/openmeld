@@ -244,6 +244,17 @@ describe("Agent computer identity", () => {
     expect(buildAgentComputerName("agt_123")).toBe("agent-computer:agt_123");
   });
 
+  it("keeps personal DM and Space files in different durable workspaces", () => {
+    const directMessage = buildAgentComputerName("agt_123", "dm_1");
+    expect(buildAgentComputerName("agt_123", "dm_1")).toBe(directMessage);
+    expect(buildAgentComputerName("agt_123", "space_1")).not.toBe(
+      directMessage
+    );
+    expect(buildAgentComputerName("agt_456", "dm_1")).not.toBe(directMessage);
+    expect(buildAgentComputerName("agt_123")).not.toBe(directMessage);
+    expect(() => buildAgentComputerName("agt_123", " ")).toThrow();
+  });
+
   it("rejects an empty agent profile id", () => {
     expect(() => buildAgentComputerName("  ")).toThrow(EMPTY_PROFILE_ID_RE);
   });
@@ -356,25 +367,6 @@ describe("Agent computer layout", () => {
     expect(workingDirectory).toBe("/computer/home");
   });
 
-  it("keeps each Center Agent Task in its own durable working directory", async () => {
-    const { directories, workspace } = createWorkspaceFake();
-
-    const firstAttempt = await ensureAgentComputerLayout(workspace, {
-      conversationId: "center-agent-task:task 123/launch",
-      spaceId: "space-1",
-    });
-    const retryAttempt = await ensureAgentComputerLayout(workspace, {
-      conversationId: "center-agent-task:task 123/launch",
-      spaceId: "space-2",
-    });
-
-    expect(firstAttempt.workingDirectory).toBe(
-      "/computer/tasks/task%20123%2Flaunch"
-    );
-    expect(retryAttempt.workingDirectory).toBe(firstAttempt.workingDirectory);
-    expect(directories.has(firstAttempt.workingDirectory)).toBe(true);
-  });
-
   it("keeps Routine runs together without mixing them into the destination Space", () => {
     expect(
       resolveAgentComputerWorkingDirectory({
@@ -388,7 +380,7 @@ describe("Agent computer layout", () => {
         routineId: "routine-weekly",
         spaceId: "space-reports",
       })
-    ).toBe("/computer/tasks/task-one");
+    ).toBe("/computer/routines/routine-weekly");
   });
 });
 

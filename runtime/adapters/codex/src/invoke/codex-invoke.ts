@@ -2,6 +2,7 @@ import type {
   AdapterAgentControllerConversationOccupancy,
   AdapterComputerFileAccessBoundary,
   AdapterDispatchExecutionMode,
+  AdapterDispatchRequest,
   AdapterDispatchTelemetry,
   AdapterErrorType,
   AdapterInstructionPrompt,
@@ -81,7 +82,11 @@ export async function invokeCodexWithSingleContextHeal(input: {
 }> {
   const result = await invokeWithSingleContextHeal({
     contextId: input.threadId,
-    contextLossPolicy: input.executionMode === "repair" ? "fail" : "rebuild",
+    contextLossPolicy:
+      input.computerFileAccessBoundary?.executionContextAccess ||
+      input.executionMode === "repair"
+        ? "fail"
+        : "rebuild",
     createRebuildFailedError: (error) =>
       new CodexRuntimeError({
         code: "context.rebuild_failed",
@@ -140,6 +145,7 @@ export async function invokeCodexAppServer(input: {
   env?: Record<string, string | undefined>;
   executionMode?: AdapterDispatchExecutionMode;
   instructionPrompt?: AdapterInstructionPrompt;
+  newSessionTitle?: AdapterDispatchRequest["newSessionTitle"];
   onActiveTurn?: CodexAppServerActiveTurnRegistrar;
   onInteractionRequest?: AdapterInteractionCallback;
   onPreview?: AdapterPreviewCallback;
@@ -153,7 +159,11 @@ export async function invokeCodexAppServer(input: {
 }): Promise<CodexInvokeResult> {
   const result = await invokeWithSingleContextHeal({
     contextId: input.threadId,
-    contextLossPolicy: input.executionMode === "repair" ? "fail" : "rebuild",
+    contextLossPolicy:
+      input.computerFileAccessBoundary?.executionContextAccess ||
+      input.executionMode === "repair"
+        ? "fail"
+        : "rebuild",
     createRebuildFailedError: (error) =>
       new CodexRuntimeError({
         code: "context.rebuild_failed",
@@ -183,8 +193,7 @@ export async function invokeCodexAppServer(input: {
 async function invokeCodexAppServerOnceWithAdmissionRetry(
   input: Parameters<typeof invokeCodexAppServerTransport>[0]
 ): Promise<CodexInvokeResult> {
-  let startupRetried = false;
-  let freshThreadAdmissionRetried = false;
+  let firstStartupFailure: CodexAppServerTransportError | null = null;
   while (true) {
     try {
       return await invokeCodexAppServerTransport(input);
@@ -193,32 +202,28 @@ async function invokeCodexAppServerOnceWithAdmissionRetry(
         error instanceof CodexAppServerTransportError &&
         error.code === "runtime.startup_timeout"
       ) {
-        if (!startupRetried) {
-          startupRetried = true;
+        if (!firstStartupFailure) {
+          firstStartupFailure = error;
           continue;
         }
         throw new CodexRuntimeError({
           code: error.code,
           errorType: error.errorType,
           message: `${error.message} after one automatic retry`,
+          originalError: firstStartupFailure.message,
         });
       }
-      if (
-        input.threadId === null &&
-        error instanceof CodexAppServerTransportError &&
-        error.code === "runtime.thread_start_timeout"
-      ) {
-        if (!freshThreadAdmissionRetried) {
-          freshThreadAdmissionRetried = true;
-          continue;
-        }
+      // A timed-out thread/start may have allocated a thread. Unlike the
+      // initialize handshake, it has no retry-safe allocation contract.
+      const failure = toCodexRuntimeError(error);
+      if (firstStartupFailure) {
         throw new CodexRuntimeError({
-          code: error.code,
-          errorType: error.errorType,
-          message: `${error.message} after one automatic fresh-thread admission retry`,
+          ...failure,
+          message: failure.message,
+          originalError: firstStartupFailure.message,
         });
       }
-      throw toCodexRuntimeError(error);
+      throw failure;
     }
   }
 }

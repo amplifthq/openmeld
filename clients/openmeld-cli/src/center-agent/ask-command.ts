@@ -4,7 +4,6 @@ import {
 } from "@openmeld/api-client";
 import type {
   CenterAgentInteractionSource,
-  CenterAgentTaskReference,
   DispatchResult,
 } from "@openmeld/schemas/types";
 import { resolveBaseUrl } from "../config/base-url";
@@ -15,7 +14,6 @@ import type { Presenter } from "../runtime/presenter/types";
 import type { RuntimeContext } from "../runtime/types";
 import { createCliSpaceApi } from "../space/cli-space-api";
 import { resolveSpaceSendText } from "../space/send-input";
-import { resolveGatewayWebOrigin } from "../space/web-url";
 import { renderInfoCard } from "../ui/info-card";
 import {
   DEFAULT_CENTER_AGENT_ASK_POLL_INTERVAL_MS,
@@ -30,11 +28,6 @@ import {
 import { emitCenterAgentApiError, emitCenterAgentCommandError } from "./errors";
 import { resolveCenterAgentLocalSource } from "./interaction-source";
 import { formatOrganizationLabel } from "./presentation";
-
-type CenterAgentTaskLink = {
-  taskId: string;
-  url: string;
-};
 
 const DEFAULT_CENTER_AGENT_ASK_TIMEOUT_SECONDS = 600;
 const MAX_CENTER_AGENT_ASK_TIMEOUT_SECONDS = 3600;
@@ -309,11 +302,6 @@ export async function runCenterAgentAsk(input: {
       result: null,
       runtime: context.runtime,
       status: "completed",
-      taskReferences: buildCenterAgentTaskLinks({
-        baseUrl,
-        organizationSlug: context.organizationScope.target.slug,
-        references: visibleReply.taskReferences,
-      }),
     });
   } catch (error) {
     emitCenterAgentApiError({
@@ -365,16 +353,13 @@ function emitCenterAgentAskSuccess(input: {
     | "pending"
     | "submission_unknown"
     | "submitted";
-  taskReferences?: readonly CenterAgentTaskLink[];
 }): void {
-  const taskReferences = input.taskReferences ?? [];
   const payload = {
     answer: input.answer,
     interaction: input.interaction,
     organization: input.organizationScope,
     result: input.result,
     status: input.status,
-    taskReferences,
   };
   if (input.runtime.resolvedView === "agent") {
     input.presenter.data({
@@ -399,10 +384,6 @@ function emitCenterAgentAskSuccess(input: {
         value: formatCenterAgentAskStatus(input.status),
       },
       ...(input.answer ? [{ label: "Answer", value: input.answer }] : []),
-      ...taskReferences.map((reference) => ({
-        label: "Task",
-        value: reference.url,
-      })),
       ...(input.status === "needs_input"
         ? [
             {
@@ -442,25 +423,6 @@ function emitCenterAgentAskSuccess(input: {
     ],
     sanitize: true,
     title: "Center Agent",
-  });
-}
-
-function buildCenterAgentTaskLinks(input: {
-  baseUrl: string;
-  organizationSlug: string;
-  references: readonly CenterAgentTaskReference[];
-}): CenterAgentTaskLink[] {
-  const webOrigin = resolveGatewayWebOrigin(input.baseUrl);
-  const seenTaskIds = new Set<string>();
-  return input.references.flatMap((reference) => {
-    const taskId = reference.taskId.trim();
-    if (!taskId || seenTaskIds.has(taskId)) {
-      return [];
-    }
-    seenTaskIds.add(taskId);
-    const url = new URL(webOrigin);
-    url.pathname = `/o/${encodeURIComponent(input.organizationSlug)}/center-agent/tasks/${encodeURIComponent(taskId)}`;
-    return [{ taskId, url: url.toString() }];
   });
 }
 

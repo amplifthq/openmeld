@@ -2,12 +2,12 @@ import type {
 	CurrentLocalRuntimeReplyReadinessResponse,
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
-	LocalRuntimesResponse,
 } from "@openmeld/schemas/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PeopleComputerInventory } from "#/lib/connect/local-runtimes";
 import { useProjectDiscovery } from "./use-project-discovery";
 
 const api = vi.hoisted(() => ({
@@ -21,10 +21,19 @@ vi.mock("#/components/app/start-flow-state", () => ({
 	useStartFlowState: () => ({ storageScope: "owner-1" }),
 }));
 
-vi.mock("#/lib/connect/local-runtimes", () => ({
+vi.mock("#/lib/connect/local-runtimes", async (original) => ({
+	...(await original<typeof import("#/lib/connect/local-runtimes")>()),
 	readCurrentLocalRuntimeReplyReadiness:
 		api.readCurrentLocalRuntimeReplyReadiness,
 	readLocalRuntimes: api.readLocalRuntimes,
+}));
+
+vi.mock("#/lib/connect/current-device-target", () => ({
+	resolveCurrentDeviceTarget: vi.fn(async () => ({
+		availability: "resolved",
+		deviceId: "device-live",
+		runtimeLane: "prod",
+	})),
 }));
 
 vi.mock(
@@ -226,6 +235,10 @@ describe("useProjectDiscovery", () => {
 		api.readLocalRuntimes.mockResolvedValueOnce({
 			...localRuntimes(),
 			localRuntimes: [],
+			peopleComputers: {
+				generatedAt: "2026-09-07T00:00:00.000Z",
+				computers: [],
+			},
 		});
 		act(() => result.current.refresh());
 
@@ -241,6 +254,10 @@ describe("useProjectDiscovery", () => {
 		api.readLocalRuntimes.mockResolvedValue({
 			...localRuntimes(),
 			localRuntimes: [],
+			peopleComputers: {
+				generatedAt: "2026-09-07T00:00:00.000Z",
+				computers: [],
+			},
 		});
 		api.readCurrentLocalRuntimeReplyReadiness.mockResolvedValue(
 			replyReadinessMissing()
@@ -254,11 +271,15 @@ describe("useProjectDiscovery", () => {
 	});
 
 	it("shows a Service retry as an active refresh", async () => {
-		const serviceRetry = deferred<LocalRuntimesResponse>();
+		const serviceRetry = deferred<PeopleComputerInventory>();
 		api.readLocalRuntimes
 			.mockResolvedValueOnce({
 				...localRuntimes(),
 				localRuntimes: [],
+				peopleComputers: {
+					generatedAt: "2026-09-07T00:00:00.000Z",
+					computers: [],
+				},
 			})
 			.mockImplementationOnce(async () => await serviceRetry.promise);
 		api.readCurrentLocalRuntimeReplyReadiness.mockResolvedValue(
@@ -277,6 +298,10 @@ describe("useProjectDiscovery", () => {
 			serviceRetry.resolve({
 				...localRuntimes(),
 				localRuntimes: [],
+				peopleComputers: {
+					generatedAt: "2026-09-07T00:00:00.000Z",
+					computers: [],
+				},
 			})
 		);
 		await waitFor(() => expect(result.current.isRefreshing).toBe(false));
@@ -374,7 +399,7 @@ function createWrapper(queryClient: QueryClient) {
 function localRuntimes(input?: {
 	bound?: boolean;
 	capabilityState?: "false" | "missing";
-}): LocalRuntimesResponse {
+}): PeopleComputerInventory {
 	const target: LocalRuntimeExecutionTarget = {
 		capabilities: [],
 		deviceId: "device-live",
@@ -437,6 +462,16 @@ function localRuntimes(input?: {
 		currentRuntimeLane: input?.bound ? "prod" : null,
 		legacyDeviceEvidence: [],
 		localRuntimes: [computer],
+		peopleComputers: {
+			generatedAt: "2026-09-07T00:00:00.000Z",
+			computers: [
+				{
+					...computer,
+					identityStatus: "enrolled",
+					connection: { status: "connected", reasonCodes: [], sessions: [] },
+				},
+			],
+		},
 	};
 }
 

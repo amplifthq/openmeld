@@ -48,7 +48,7 @@ export async function runRepairLocalState(input: {
     input.includeDaemonService === false
       ? null
       : await runDaemonStartupPreflight({
-          expectedVersion: resolveCurrentDaemonExpectedVersion(),
+          expectedVersion: await resolveCurrentDaemonExpectedVersion(),
           progress: createDaemonServiceAlignmentProgressUi({
             view: runtime.resolvedView,
           }),

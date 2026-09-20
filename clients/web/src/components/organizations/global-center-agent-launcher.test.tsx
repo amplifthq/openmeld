@@ -1,4 +1,3 @@
-import type { CenterAgentTaskDetail } from "@openmeld/schemas/types";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -6,7 +5,6 @@ import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GlobalCenterAgentLauncher } from "./global-center-agent-launcher";
 
-const getCurrentCenterAgentTaskMock = vi.hoisted(() => vi.fn());
 const prefetchCenterAgentConversationMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@tanstack/react-router", () => ({
@@ -41,11 +39,6 @@ vi.mock("./use-center-agent-conversation-intent-prefetch", () => ({
 		prefetchCenterAgentConversationMock,
 }));
 
-vi.mock("#/lib/organizations/center-agent-tasks", async (importOriginal) => ({
-	...(await importOriginal()),
-	getCurrentCenterAgentTask: getCurrentCenterAgentTaskMock,
-}));
-
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useOptionalAppOrganization: () => ({
 		currentOrganization: {
@@ -56,41 +49,8 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 	}),
 }));
 
-const TASK_DETAIL: CenterAgentTaskDetail = {
-	attempts: [],
-	events: [
-		{
-			actor: "center_agent",
-			attemptGeneration: 1,
-			id: "event-1",
-			kind: "center_agent_update",
-			occurredAt: "2026-08-08T01:02:00.000Z",
-			taskId: "task-1",
-			text: "I finished the first comparison.",
-		},
-	],
-	task: {
-		outcome: null,
-		phase: "working",
-		state: "active",
-		activeAttemptGeneration: 1,
-		createdAt: "2026-08-08T01:00:00.000Z",
-		finishedAt: null,
-		goal: "Compare onboarding flows.",
-		id: "task-1",
-		organizationId: "organization-1",
-		origin: { kind: "open_meld" },
-		requesterUserId: "user-1",
-		status: "running",
-		title: "Research onboarding flows",
-		updatedAt: "2026-08-08T01:02:00.000Z",
-		version: 1,
-	},
-};
-
 describe("GlobalCenterAgentLauncher", () => {
 	beforeEach(() => {
-		getCurrentCenterAgentTaskMock.mockReset().mockResolvedValue(TASK_DETAIL);
 		prefetchCenterAgentConversationMock.mockReset();
 	});
 
@@ -126,18 +86,6 @@ describe("GlobalCenterAgentLauncher", () => {
 		);
 
 		expect(prefetchCenterAgentConversationMock).toHaveBeenCalledOnce();
-	});
-
-	it("keeps the Center Agent shortcut available from a Task", async () => {
-		renderLauncher("/o/amplift/center-agent/tasks/task-1");
-
-		fireEvent.click(screen.getByRole("button", { name: "Open Center Agent" }));
-
-		expect(
-			await screen.findByRole("region", {
-				name: "Compact Center Agent conversation",
-			})
-		).toBeTruthy();
 	});
 
 	it.each([

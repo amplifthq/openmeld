@@ -319,6 +319,11 @@ const AGENT_WORK_COPY = {
 		"Created a GitHub ref",
 		"Couldn't create the GitHub ref"
 	),
+	"github.releases.read": workCopy(
+		"Checking a GitHub Release…",
+		"Checked a GitHub Release",
+		"Couldn't check the GitHub Release"
+	),
 	"github.repositories.read": workCopy(
 		"Reviewing GitHub repositories…",
 		"Reviewed GitHub repositories",
@@ -328,6 +333,11 @@ const AGENT_WORK_COPY = {
 		"Reviewing a GitHub repository…",
 		"Reviewed a GitHub repository",
 		"Couldn't review the GitHub repository"
+	),
+	"github.workflow.dispatch": workCopy(
+		"Submitting a GitHub workflow run request…",
+		"Submitted a GitHub workflow run request",
+		"Couldn't submit the GitHub workflow run request"
 	),
 	"github.workflow.rerun": workCopy(
 		"Rerunning a GitHub workflow…",
@@ -519,6 +529,16 @@ const AGENT_WORK_COPY = {
 		"Read a Slack file",
 		"Couldn't read the Slack file"
 	),
+	"message_channel.file.read": workCopy(
+		"Reading a conversation attachment…",
+		"Read a conversation attachment",
+		"Couldn't read the conversation attachment"
+	),
+	"message_channel.file.send": workCopy(
+		"Sending a conversation attachment…",
+		"Sent a conversation attachment",
+		"Couldn't send the conversation attachment"
+	),
 	"slack.file.send": workCopy(
 		"Sending a Slack file…",
 		"Sent a Slack file",
@@ -603,6 +623,11 @@ const AGENT_WORK_COPY = {
 		"Updating Space settings…",
 		"Updated Space settings",
 		"Couldn't update Space settings"
+	),
+	"space.tasks.manage": workCopy(
+		"Coordinating Space Tasks…",
+		"Coordinated Space Tasks",
+		"Couldn't coordinate Space Tasks"
 	),
 	"spaces.read": workCopy(
 		"Checking available Spaces…",

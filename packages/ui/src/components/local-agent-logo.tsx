@@ -56,7 +56,7 @@ export function LocalAgentLogo({
         "pointer-events-none inline-flex shrink-0 items-center justify-center",
         variant !== "plain" && "text-foreground",
         variant === "tile" &&
-          "relative overflow-hidden rounded-lg bg-surface-2 shadow-surface-4 after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-surface-4",
+          "relative overflow-hidden rounded-lg bg-surface-2 shadow-surface-3 after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-surface-3",
         LOCAL_AGENT_LOGO_SIZE_CLASS_NAMES[size],
         className
       )}

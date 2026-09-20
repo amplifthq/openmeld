@@ -2,10 +2,10 @@ import { buildAgentFacingPublicationModeGuideLines } from "@openmeld/space-mesh"
 import { describe, expect, it, vi } from "vitest";
 import { runPrompt } from "../src/commands/prompt";
 import { readBundledOpenMeldCliSkillDocumentByPath } from "../src/skills/bundled-assets";
-import { withCapturedStdio } from "./helpers/fs";
+import { withCapturedStdio, withTempHome } from "./helpers/fs";
 
-const HUMAN_MENTION_LITERAL_GUIDANCE_PATTERN =
-  /`@Name\(wake\)`, `@Name\(reference\)`, or\s+`@Name\(mention\)`/;
+const EXPLICIT_RECIPIENT_GUIDANCE_PATTERN =
+  /`--wake <agent-profile-id>`, `--reference <agent-profile-id>`, or `--mention <human-profile-id>`/;
 
 vi.mock("../src/skills/installation-inventory", () => ({
   collectSkillsReadinessSnapshot: vi.fn(async () => ({
@@ -36,15 +36,17 @@ describe("prompt command", () => {
     const expected = await readBundledOpenMeldCliSkillDocumentByPath(
       "references/commands.md"
     );
-    const { stdout } = await withCapturedStdio(async () => {
-      await runPrompt({
-        topic: "commands",
-        raw: true,
-      });
-    });
+    const { stdout } = await withTempHome(() =>
+      withCapturedStdio(async () => {
+        await runPrompt({
+          topic: "commands",
+          raw: true,
+        });
+      })
+    );
 
     expect(stdout).toBe(expected);
-    expect(stdout).toMatch(HUMAN_MENTION_LITERAL_GUIDANCE_PATTERN);
+    expect(stdout).toMatch(EXPLICIT_RECIPIENT_GUIDANCE_PATTERN);
   });
 
   it("emits canonical StructuredGuidePayload JSON with --json", async () => {

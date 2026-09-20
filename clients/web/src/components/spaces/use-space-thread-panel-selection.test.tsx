@@ -8,8 +8,13 @@ afterEach(() => {
 	window.localStorage.clear();
 });
 
-function ThreadPanelSelectionHarness() {
+function ThreadPanelSelectionHarness({
+	initialFocusSignalId,
+}: {
+	initialFocusSignalId?: string;
+}) {
 	const selection = useSpaceThreadPanelSelection({
+		initialFocusSignalId,
 		availableThreadIds: new Set(["thread-1"]),
 		availableThreadsReady: true,
 		profileId: "profile-1",
@@ -32,6 +37,97 @@ function ThreadPanelSelectionHarness() {
 }
 
 describe("useSpaceThreadPanelSelection", () => {
+	it.each([
+		"same Space",
+		"return to Space",
+	])("prioritizes a main-message link over the previous Thread on %s", (navigation) => {
+		const view = render(<ThreadPanelSelectionHarness />);
+		fireEvent.click(screen.getByRole("button", { name: "Open Thread" }));
+		expect(screen.getByLabelText("Active Thread").textContent).toBe("thread-1");
+		if (navigation === "return to Space") {
+			view.unmount();
+			render(
+				<ThreadPanelSelectionHarness initialFocusSignalId="main-message" />
+			);
+		} else {
+			view.rerender(
+				<ThreadPanelSelectionHarness initialFocusSignalId="main-message" />
+			);
+		}
+		expect(screen.getByLabelText("Active Thread").textContent).toBe("closed");
+		fireEvent.click(screen.getByRole("button", { name: "Open Thread" }));
+		expect(screen.getByLabelText("Active Thread").textContent).toBe("thread-1");
+	});
+	it.each([
+		"close",
+		"switch",
+		"reactivate",
+	] as const)("opens a pending linked Thread immediately and respects %s before its catalog arrives", (action) => {
+		function Harness({
+			ready,
+			requestId,
+		}: {
+			ready: boolean;
+			requestId: string;
+		}) {
+			const selection = useSpaceThreadPanelSelection({
+				profileId: "profile-1",
+				spaceId: "space-1",
+				availableThreadIds: new Set(
+					ready ? ["thread-1", "thread-2"] : ["thread-2"]
+				),
+				availableThreadsReady: ready,
+				initialFocusRequestId: requestId,
+				threadIdsByRootSignalId: new Map(
+					ready
+						? [
+								["root-1", "thread-1"],
+								["root-2", "thread-2"],
+							]
+						: [["root-2", "thread-2"]]
+				),
+				initialFocusThreadRootSignalId: "root-1",
+				initialFocusSignalId: "reply-1",
+			});
+			return (
+				<>
+					<output aria-label="Panel">
+						{selection.isOpen
+							? (selection.activeThreadId ?? "loading")
+							: "closed"}
+					</output>
+					<button
+						onClick={() =>
+							action === "close" || action === "reactivate"
+								? selection.close()
+								: selection.open("thread-2")
+						}
+						type="button"
+					>
+						Leave target
+					</button>
+				</>
+			);
+		}
+		const view = render(<Harness ready={false} requestId="visit-1" />);
+		expect(screen.getByLabelText("Panel").textContent).toBe("loading");
+		fireEvent.click(screen.getByRole("button", { name: "Leave target" }));
+		view.rerender(
+			<Harness
+				ready={true}
+				requestId={action === "reactivate" ? "visit-2" : "visit-1"}
+			/>
+		);
+		const expectedPanelByAction = {
+			close: "closed",
+			reactivate: "thread-1",
+			switch: "thread-2",
+		} as const;
+		expect(screen.getByLabelText("Panel").textContent).toBe(
+			expectedPanelByAction[action]
+		);
+	});
+
 	it("opens and closes the Thread when browser storage is blocked", () => {
 		vi.spyOn(console, "warn").mockImplementation(() => undefined);
 		const blockedStorage = () => {

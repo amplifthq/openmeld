@@ -9,9 +9,14 @@ import {
 } from "./center-agent-repository";
 import type { CurrentDesignatedCenterAgentAuthorization } from "./current-designated-center-agent";
 
+type AgentAuditAuthorization = Pick<
+  CurrentDesignatedCenterAgentAuthorization,
+  "actorProfileId" | "db"
+> & { activeOrganization: { organizationId: string } };
+
 export async function writeCenterAgentAuditEntry(input: {
   action: CenterAgentAction;
-  authorization: CurrentDesignatedCenterAgentAuthorization;
+  authorization: AgentAuditAuthorization;
   onBehalfOfProfileId: string | null;
   resource: { id: string; type: string } | null;
   sourceNativeDeliveryId?: string | null;
@@ -37,7 +42,7 @@ export async function writeCenterAgentAuditEntry(input: {
 }
 
 export async function resolveCenterAgentAuditAttribution(input: {
-  authorization: CurrentDesignatedCenterAgentAuthorization;
+  authorization: AgentAuditAuthorization;
   onBehalfOfProfileId: string | null;
 }): Promise<CenterAgentAttribution> {
   return await resolveCenterAgentAttribution({

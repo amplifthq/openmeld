@@ -5,25 +5,25 @@ import type {
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
 import { emitCoreCloudflareRuntimeEvidence } from "../../shared/observability/cloudflare-runtime-evidence";
-import {
-  buildDispatchAttemptKey,
-  type PendingDispatchState,
-  type RuntimeTransportMutableState,
+import type {
+  PendingDispatchState,
+  RuntimeTransportMutableState,
 } from "./runtime-transport-state";
 
 export function validateDaemonDispatchRuntimeEvidence(input: {
   evidence: RuntimeTransportDispatchRuntimeEvidenceRequest;
-  state: RuntimeTransportMutableState;
+  pending: PendingDispatchState | null;
 }): ReturnType<typeof validateDaemonDispatchProgressIdentity> {
   return validateDaemonDispatchProgressIdentity({
     connectionGenerationPolicy: "allow_owned_reconnect",
     progress: input.evidence,
-    state: input.state,
+    pending: input.pending,
   });
 }
 
 export function validateDaemonDispatchToolActivityIdentity(input: {
-  activity: RuntimeTransportDispatchToolActivityRequest;
+  activity: Omit<RuntimeTransportDispatchToolActivityRequest, "part">;
+  pending: PendingDispatchState | null;
   state: RuntimeTransportMutableState;
   webSocket: WebSocket;
 }): ReturnType<typeof validateDaemonDispatchProgressIdentity> {
@@ -40,7 +40,7 @@ export function validateDaemonDispatchToolActivityIdentity(input: {
   return validateDaemonDispatchProgressIdentity({
     connectionGenerationPolicy: "allow_owned_reconnect",
     progress: input.activity,
-    state: input.state,
+    pending: input.pending,
   });
 }
 
@@ -48,8 +48,8 @@ function validateDaemonDispatchProgressIdentity(input: {
   connectionGenerationPolicy: "allow_owned_reconnect" | "require_current";
   progress:
     | RuntimeTransportDispatchRuntimeEvidenceRequest
-    | RuntimeTransportDispatchToolActivityRequest;
-  state: RuntimeTransportMutableState;
+    | Omit<RuntimeTransportDispatchToolActivityRequest, "part">;
+  pending: PendingDispatchState | null;
 }): {
   ok: boolean;
   reasonCode?:
@@ -58,9 +58,7 @@ function validateDaemonDispatchProgressIdentity(input: {
     | "daemon.session.stale_lease"
     | "schema.invalid";
 } {
-  const pending = input.state.pendingDispatches.get(
-    buildDispatchAttemptKey(input.progress.dispatchId, input.progress.attemptId)
-  );
+  const pending = input.pending;
   if (!pending) {
     return { ok: false, reasonCode: "daemon.session.not_found" };
   }

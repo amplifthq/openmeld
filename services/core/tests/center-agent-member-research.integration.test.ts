@@ -823,13 +823,12 @@ async function seedResearchFixture() {
           profile_id, profile_name, profile_handle, profile_kind,
           is_default, status, organization_id, owner_user_id,
           created_by_user_id, source, managed_role, created_at, updated_at
-        ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'cli_create', 'center_agent', ?, ?)
+        ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, 'cli_create', 'center_agent', ?, ?)
       `
     ).bind(
       centerAgentProfileId,
       `member-research-ca-${suffix}`,
       organizationId,
-      users[0].userId,
       users[0].userId,
       1000,
       1000
@@ -876,13 +875,12 @@ async function seedResearchDeliveryAuthority(
           space_id, profile_id, profile_kind_snapshot, profile_name_snapshot,
           owner_user_id_snapshot, controller_ref_snapshot, status, member_source,
           added_at_ms, source_updated_at_ms, projected_at_ms, projection_event_id
-        ) VALUES (?, ?, 'agent', 'Center Agent', ?, ?, 'active', 'member_add',
+        ) VALUES (?, ?, 'agent', 'Center Agent', NULL, ?, 'active', 'member_add',
           1000, 1000, 1000, ?)
       `
     ).bind(
       directMessageSpaceId,
       fixture.centerAgentProfileId,
-      fixture.requester.userId,
       HOSTED_CENTER_AGENT_CONTROLLER_REF,
       `member_research_membership_${fixture.suffix}`
     ),
@@ -893,12 +891,12 @@ async function seedResearchDeliveryAuthority(
           openmeld_service_runtime_id, runtime_kind, hosted_runtime_identity_json,
           agent_controller_ref, agent_controller_conversation_id, binding_state,
           model_id, created_at_ms, updated_at_ms
-        ) VALUES (?, 'owner_account', ?, ?, ?, 'hosted_center_agent', ?, ?,
+        ) VALUES (?, 'organization', ?, ?, ?, 'hosted_center_agent', ?, ?,
           NULL, 'enabled_primary', ?, 1000, 1000)
       `
     ).bind(
       bindingId,
-      fixture.requester.userId,
+      fixture.organizationId,
       fixture.centerAgentProfileId,
       HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       JSON.stringify(HOSTED_CENTER_AGENT_RUNTIME_IDENTITY),
@@ -1000,9 +998,8 @@ function hostedCenterAgentContext(
     activeOrganizationId: fixture.organizationId,
     actorContext: {
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      callerPrincipalId: fixture.requester.userId,
+      callerPrincipalId: fixture.centerAgentProfileId,
       openMeldProfileId: fixture.centerAgentProfileId,
-      ownerUserId: fixture.requester.userId,
       profileKind: "agent" as const,
       profileName: "Center Agent",
       requestId: `center-agent-learn-about-me-${fixture.suffix}`,

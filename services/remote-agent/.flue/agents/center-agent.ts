@@ -1,6 +1,6 @@
 "use agent";
 
-import { useModel, useSkill, useTool } from "@flue/runtime";
+import { useAgentFinish, useModel, useSkill, useTool } from "@flue/runtime";
 import { extend, getCloudflareContext } from "@flue/runtime/cloudflare";
 import {
   remoteAgentWorkerAdmissionRejectedResponseSchema,
@@ -24,6 +24,7 @@ import {
 } from "../../agent-core/callback-context";
 import { callCoreRpc } from "../../agent-core/core-rpc";
 import {
+  assertRemoteAgentExecutionCanContinue,
   buildRemoteAgentExecutionIdentity,
   markRemoteAgentExecutionProgress,
   readRemoteAgentExecutionState,
@@ -77,6 +78,7 @@ import {
   requireRemoteAgentExecutionResources,
   resolveRemoteAgentExecutionCallbackContext,
 } from "../../flue-adapter/execution-context";
+import { checkRemoteAgentExecutionFinish } from "../../flue-adapter/execution-finish";
 import {
   createRemoteAgentSteeringSource,
   readRemoteAgentExecutionInput,
@@ -129,13 +131,20 @@ async function prepareCenterAgentRender() {
         includeOrganizationDocuments: true,
         materializeOrganizationSkills: true,
       };
+  const personalAgent =
+    executionContext?.conversationIdentity?.kind === "personal_agent";
+  if (personalAgent) {
+    runtimeContextPlan.includeOrganizationDocuments = false;
+  }
   const coreWorker =
     env.OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding;
   const organizationSkillSelections =
     executionContext?.organizationSkillReleases ?? [];
   const materialization = await materializeCenterAgentRuntime({
     createSandbox: async () =>
-      executionContext && isRemoteAgentComputerEnabled(env)
+      executionContext &&
+      !executionContext.replyRecovery &&
+      isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
             context: executionContext,
             coreWorker,
@@ -153,6 +162,10 @@ async function prepareCenterAgentRender() {
     createTools: async (sandboxCapability) =>
       executionContext
         ? await getRemoteAgentFlueTools({
+            replyRecovery: Boolean(executionContext.replyRecovery),
+            personalAgent,
+            sharedSpaceContextEnabled:
+              executionContext.sharedSpaceContextEnabled,
             agentActivityReadEnabled:
               env.OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED === "true",
             connectorExecution: {
@@ -189,6 +202,7 @@ async function prepareCenterAgentRender() {
     },
     materializeSkills: async () =>
       executionContext &&
+      !executionContext.replyRecovery &&
       runtimeContextPlan.materializeOrganizationSkills &&
       organizationSkillSelections.length > 0
         ? await materializeOrganizationSkillFlueSkills({
@@ -203,6 +217,13 @@ async function prepareCenterAgentRender() {
                   `remote-agent-skills:${executionContext.submissionId}`
                 ),
                 releases: organizationSkillSelections,
+                ...(executionContext.conversationIdentity?.kind ===
+                "personal_agent"
+                  ? {
+                      preparationIdempotencyKey:
+                        executionContext.idempotencyKey,
+                    }
+                  : {}),
               },
               (binding, rpcInput) =>
                 binding.readOrganizationSkillRuntimeSnapshot?.(rpcInput)
@@ -261,6 +282,25 @@ async function prepareCenterAgentRender() {
   });
 
   return {
+    beforeModel: executionContext
+      ? () =>
+          assertRemoteAgentExecutionCanContinue({
+            identity: buildRemoteAgentExecutionIdentity(executionContext),
+            storage,
+          })
+      : undefined,
+    checkFinish: executionContext
+      ? (
+          finish: Parameters<
+            typeof checkRemoteAgentExecutionFinish
+          >[0]["finish"]
+        ) =>
+          checkRemoteAgentExecutionFinish({
+            context: executionContext,
+            storage,
+            finish,
+          })
+      : undefined,
     steeringSource: executionContext
       ? createRemoteAgentSteeringSource({ context: executionContext, storage })
       : null,
@@ -269,6 +309,7 @@ async function prepareCenterAgentRender() {
     model: materialization.model.modelSpecifier,
     thinkingLevel: executionContext?.modelRoute?.reasoningLevel ?? "high",
     instructions: buildRemoteAgentSystemPrompt({
+      personalAgent,
       modelDisplayName: resolveRemoteAgentModelDisplayName(
         env,
         executionContext?.modelRoute
@@ -291,6 +332,9 @@ export function CenterAgentV2() {
     requireRemoteAgentExecutionResources<
       Awaited<ReturnType<typeof prepareCenterAgentRender>>
     >();
+  if (resources.checkFinish) {
+    useAgentFinish(resources.checkFinish);
+  }
   useModel(resources.model, {
     compaction: resources.compaction,
     thinkingLevel: resources.thinkingLevel,
@@ -561,6 +605,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
         const storage = createRemoteAgentSqlStorage(this.ctx.storage.sql);
         const readSubmission = requireFlueSubmissionReader(this);
         await reconcileAndRedeliverRemoteAgentCallbacks({
+          env: this.env,
           coreWorker: this.env
             .OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding,
           readSubmission,
@@ -583,6 +628,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
         const storage = createRemoteAgentSqlStorage(this.ctx.storage.sql);
         const readSubmission = requireFlueSubmissionReader(this);
         const reconciled = await reconcileRemoteAgentExecution({
+          env: this.env,
           coreWorker: this.env
             .OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding,
           identity: request,

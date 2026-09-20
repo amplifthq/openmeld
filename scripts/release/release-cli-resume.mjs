@@ -9,6 +9,10 @@ import { gunzipSync } from "node:zlib";
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
 import { deriveCoreProjectionTag } from "./core-projection-tag.mjs";
 import {
+  readNpmPublicationReceipt,
+  recordNpmPublicationReceipt,
+} from "./npm-publication-receipt.mjs";
+import {
   classifyCliBinaryManifestVersion,
   decideChannelAlignmentStage,
   decideCliBinaryStage,
@@ -20,7 +24,12 @@ import {
 const CLI_BINARY_PLATFORM = "darwin-arm64";
 const ARTIFACT_PROBE_TIMEOUT_MS = 60_000;
 const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
-const NPM_PROPAGATION_DELAYS_MS = [10_000, 20_000, 30_000, 60_000];
+const NPM_PROPAGATION_DELAYS_MS = [
+  10_000,
+  20_000,
+  30_000,
+  ...new Array(19).fill(60_000),
+];
 const LINE_SPLIT_REGEX = /\r?\n/u;
 const WHITESPACE_SPLIT_REGEX = /\s+/u;
 const RELEASE_RESUME_COMMAND = "pnpm run release:deploy:local -- --scope cli";
@@ -46,6 +55,11 @@ export async function runResumableCliRelease(input) {
     readRemoteTagCommit:
       input.adapters?.readRemoteTagCommit ?? readRemoteTagCommit,
     sleep: input.adapters?.sleep ?? sleep,
+    readNpmPublicationReceipt:
+      input.adapters?.readNpmPublicationReceipt ?? readNpmPublicationReceipt,
+    recordNpmPublicationReceipt:
+      input.adapters?.recordNpmPublicationReceipt ??
+      recordNpmPublicationReceipt,
   };
 
   input.release.assertCleanWorktree({ cwd });
@@ -55,7 +69,7 @@ export async function runResumableCliRelease(input) {
     printStageDecision("Release tag", tag, write);
     throw new Error(tag.reason);
   }
-  const initial = await probeCliReleaseStages({
+  let initial = await probeCliReleaseStages({
     adapters,
     cwd,
     env,
@@ -74,6 +88,14 @@ export async function runResumableCliRelease(input) {
     printStageDecision("Final R2/npm/Core alignment", initial.alignment, write);
     throw new Error(initial.alignment.reason);
   }
+  initial = await resumeNpmVerification({
+    adapters,
+    cwd,
+    env,
+    initial,
+    target,
+    write,
+  });
   if (initial.alignment.action === "SKIP" && initial.tag.action === "SKIP") {
     printStageDecision(
       "Verify local-components release manifest",
@@ -85,10 +107,10 @@ export async function runResumableCliRelease(input) {
       write
     );
     printCliReleaseDecisions(initial, write);
-    return initial;
+    return { ...initial, sourceSha: target.headSha };
   }
 
-  return await executeIncompleteCliRelease({
+  const result = await executeIncompleteCliRelease({
     adapters,
     cwd,
     env,
@@ -98,6 +120,57 @@ export async function runResumableCliRelease(input) {
     withBinary,
     write,
   });
+  return { ...result, sourceSha: target.headSha };
+}
+
+// Reuse the CLI owner's immutable channel checks for receipt recovery without
+// entering any publisher, tag writer or deployment path.
+export async function readCompletedCliRelease(input = {}) {
+  const cwd = input.cwd ?? process.cwd();
+  const env = input.env ?? process.env;
+  const adapters = {
+    fetch: input.adapters?.fetch ?? fetch,
+    runCommand: input.adapters?.runCommand ?? runReadOnlyCommand,
+    readRemoteTagCommit:
+      input.adapters?.readRemoteTagCommit ?? readRemoteTagCommit,
+  };
+  const target = resolveCliReleaseTarget({ cwd });
+  const result = await probeCliReleaseStages({ cwd, env, adapters, target });
+  if (result.alignment.action !== "SKIP" || result.tag.action !== "SKIP") {
+    throw new Error(
+      "Retained CLI receipt is not fully aligned; reconcile its immutable stages before continuing."
+    );
+  }
+  return { ...result, sourceSha: target.headSha };
+}
+
+async function resumeNpmVerification(input) {
+  if (input.initial.npm.criterion !== "npm-target-version-missing") {
+    return input.initial;
+  }
+  const receipt = input.adapters.readNpmPublicationReceipt({
+    cwd: input.cwd,
+    env: input.env,
+    ...input.target,
+  });
+  // Older releases wrote the immutable version tag only after npm returned
+  // success. Retain that evidence when resuming a pre-receipt release.
+  const npmSubmission =
+    receipt ?? (input.initial.tag.action === "SKIP" ? "accepted" : null);
+  if (!npmSubmission) {
+    return input.initial;
+  }
+  const result = await waitForNpmPropagation({
+    final: input.initial,
+    npmSubmission,
+    probeNpm: () => probeNpmPublishStage(input),
+    sleep: input.adapters.sleep,
+    write: input.write,
+  });
+  if (result.npm.action !== "SKIP") {
+    throw new Error(formatFinalAlignmentFailure(result));
+  }
+  return result;
 }
 
 export function resolveCoreProjectionTag(input = {}) {
@@ -114,11 +187,13 @@ export function resolveCoreProjectionTag(input = {}) {
 }
 
 export async function probeCliReleaseStages(input) {
-  const [binary, npm, core] = await Promise.all([
-    probeCliBinaryStage(input),
+  const [npm, core] = await Promise.all([
     probeNpmPublishStage(input),
     probeCoreProjectionStage(input),
   ]);
+  // Command adapters may block the event loop; do not consume HTTP deadlines
+  // while synchronous npm/Wrangler probes prevent network progress.
+  const binary = await probeCliBinaryStage(input);
   const tag = input.tag ?? probeReleaseTagStage(input);
   return {
     alignment: decideChannelAlignmentStage({ binary, core, npm }),
@@ -188,7 +263,7 @@ async function executeIncompleteCliRelease(input) {
   });
   final = await waitForNpmPropagation({
     final,
-    npmPublishedThisRun,
+    npmSubmission: npmPublishedThisRun ? "accepted" : null,
     probeNpm: () =>
       probeNpmPublishStage({
         adapters: input.adapters,
@@ -249,11 +324,20 @@ function runNpmReleaseStage(input) {
   );
   printStageDecision("npm publish", input.initial.npm, input.write);
   if (input.initial.npm.action === "RUN") {
+    const receiptInput = { cwd: input.cwd, env: input.env, ...input.target };
+    input.adapters.recordNpmPublicationReceipt({
+      ...receiptInput,
+      state: "attempted",
+    });
     runReleaseStep({
       ...input,
       failureContext:
         "npm publish may be incomplete or may already have succeeded.",
       step: npmStep,
+    });
+    input.adapters.recordNpmPublicationReceipt({
+      ...receiptInput,
+      state: "accepted",
     });
     return true;
   }
@@ -263,19 +347,16 @@ function runNpmReleaseStage(input) {
 export async function waitForNpmPropagation(input) {
   let final = input.final;
   if (
-    !input.npmPublishedThisRun ||
+    !input.npmSubmission ||
     final.npm.action !== "RUN" ||
-    final.npm.criterion !== "npm-target-version-missing" ||
-    final.binary.action !== "SKIP" ||
-    final.core.action !== "SKIP" ||
-    final.tag.action !== "SKIP"
+    final.npm.criterion !== "npm-target-version-missing"
   ) {
     return final;
   }
 
   for (const delayMs of input.delays ?? NPM_PROPAGATION_DELAYS_MS) {
     input.write(
-      `\n[release:cli] npm registry propagation — WAIT ${delayMs / 1000}s: npm accepted the immutable publish but does not expose the exact version yet.\n`
+      `\n[release:cli] npm availability — WAIT ${delayMs / 1000}s: ${input.npmSubmission === "accepted" ? "npm accepted the publish" : "an earlier publish was attempted; its result is unconfirmed"}. The exact version is not visible yet; no package will be republished.\n`
     );
     await input.sleep(delayMs);
     const npm = await input.probeNpm();
@@ -296,6 +377,25 @@ export async function waitForNpmPropagation(input) {
     ) {
       break;
     }
+  }
+  if (final.npm.criterion === "npm-target-version-missing") {
+    final = {
+      ...final,
+      npm: {
+        ...final.npm,
+        action: "FAIL",
+        criterion: "npm-publication-pending",
+        reason:
+          input.npmSubmission === "accepted"
+            ? "npm accepted this version, but it is not available yet. Release verification is pending, not complete."
+            : "An earlier npm publish was attempted, but acceptance is unconfirmed and the version is not visible. Inspect the original publish log before deciding whether another submission is safe.",
+      },
+      alignment: {
+        action: "FAIL",
+        reason:
+          "npm availability remains unconfirmed; completed stages are preserved",
+      },
+    };
   }
   return final;
 }
@@ -344,6 +444,9 @@ function resolveCliReleaseTarget(input) {
   const packageJson = JSON.parse(
     readFileSync(join(input.cwd, "clients/openmeld-cli/package.json"), "utf8")
   );
+  const releaseManifest = JSON.parse(
+    readFileSync(join(input.cwd, "release/local-components.json"), "utf8")
+  );
   const headSha = execFileSync(gitBinary(), ["rev-parse", "HEAD"], {
     cwd: input.cwd,
     encoding: "utf8",
@@ -352,6 +455,9 @@ function resolveCliReleaseTarget(input) {
     coreTag: resolveCoreProjectionTag(input),
     headSha,
     minRequiredCliVersion: packageJson.openmeld?.minRequiredCliVersion ?? null,
+    serviceVersion:
+      releaseManifest?.components?.service?.bundleVersion ??
+      packageJson.version,
     tagName: `v${packageJson.version}`,
     version: packageJson.version,
   };
@@ -371,12 +477,18 @@ async function probeCliBinaryStage(input) {
         manifest,
         platform: CLI_BINARY_PLATFORM,
         targetMinRequiredCliVersion: input.target.minRequiredCliVersion,
+        targetServiceVersion: input.target.serviceVersion,
         targetVersion: input.target.version,
       });
     }
     const artifact =
       manifest?.channels?.stable?.platforms?.[CLI_BINARY_PLATFORM];
-    const probeArtifact = async ({ archive, url }) => {
+    const selectedService = manifest.channels.stable.service ?? {
+      platforms: manifest.channels.stable.platforms,
+      version: manifest.channels.stable.version,
+    };
+    const serviceArtifact = selectedService.platforms?.[CLI_BINARY_PLATFORM];
+    const probeArtifact = async ({ archive, expectedSizeBytes, url }) => {
       if (typeof url !== "string" || url.length === 0) {
         return null;
       }
@@ -400,7 +512,7 @@ async function probeCliBinaryStage(input) {
           }
           const compressed = Buffer.from(await response.arrayBuffer());
           const reconstructed = gunzipSync(compressed, {
-            maxOutputLength: artifact.sizeBytes,
+            maxOutputLength: expectedSizeBytes,
           });
           return {
             contentLength: compressed.byteLength,
@@ -428,16 +540,46 @@ async function probeCliBinaryStage(input) {
         clearTimeout(timeout);
       }
     };
-    const [artifactProbe, archiveProbe] = await Promise.all([
-      probeArtifact({ archive: false, url: artifact?.url }),
-      probeArtifact({ archive: true, url: artifact?.archiveUrl }),
+    const [
+      artifactProbe,
+      archiveProbe,
+      serviceArtifactProbe,
+      serviceArchiveProbe,
+    ] = await Promise.all([
+      probeArtifact({
+        archive: false,
+        expectedSizeBytes: artifact?.sizeBytes,
+        url: artifact?.url,
+      }),
+      probeArtifact({
+        archive: true,
+        expectedSizeBytes: artifact?.sizeBytes,
+        url: artifact?.archiveUrl,
+      }),
+      input.target.serviceVersion === input.target.version
+        ? Promise.resolve(null)
+        : probeArtifact({
+            archive: false,
+            expectedSizeBytes: serviceArtifact?.sizeBytes,
+            url: serviceArtifact?.url,
+          }),
+      input.target.serviceVersion === input.target.version
+        ? Promise.resolve(null)
+        : probeArtifact({
+            archive: true,
+            expectedSizeBytes: serviceArtifact?.sizeBytes,
+            url: serviceArtifact?.archiveUrl,
+          }),
     ]);
     return decideCliBinaryStage({
       archiveProbe,
       artifactProbe,
       manifest,
       platform: CLI_BINARY_PLATFORM,
+      serviceArchiveProbe,
+      serviceArtifactProbe,
       targetMinRequiredCliVersion: input.target.minRequiredCliVersion,
+      targetServiceVersion: input.target.serviceVersion,
       targetVersion: input.target.version,
     });
   } catch (error) {
@@ -445,6 +587,7 @@ async function probeCliBinaryStage(input) {
       platform: CLI_BINARY_PLATFORM,
       probeError: error instanceof Error ? error.message : String(error),
       targetMinRequiredCliVersion: input.target.minRequiredCliVersion,
+      targetServiceVersion: input.target.serviceVersion,
       targetVersion: input.target.version,
     });
   }
@@ -459,6 +602,8 @@ async function probeNpmPublishStage(input) {
         "version",
         "openmeld.minRequiredCliVersion",
         "--json",
+        "--registry=https://registry.npmjs.org/",
+        "--prefer-online",
       ],
       command: "npm",
       cwd: input.cwd,
@@ -674,13 +819,18 @@ function printStageDecision(label, decision, write) {
 
 function formatFinalAlignmentFailure(result) {
   return [
-    `Final CLI channel alignment failed: ${result.alignment.reason}.`,
+    `Final CLI channel alignment ${result.npm.criterion === "npm-publication-pending" ? "pending" : "failed"}: ${result.alignment.reason}.`,
     `R2: ${result.binary.reason}`,
     `npm: ${result.npm.reason}`,
     `tag: ${result.tag.reason}`,
     `Core: ${result.core.reason}`,
     "Next command:",
     RELEASE_RESUME_COMMAND,
+    ...(result.npm.criterion === "npm-publication-pending"
+      ? [
+          "Use the original release SHA. This resumes verification without republishing. If npm remains unavailable, inspect the original publish log and npm status; do not bump the version just to retry.",
+        ]
+      : []),
   ].join("\n");
 }
 

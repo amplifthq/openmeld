@@ -10,10 +10,15 @@ import {
 	resolveWakeProgressThinkingEntry,
 	type SpaceMessageWakeThinkingEntry,
 } from "#/lib/spaces/wake-progress-presentation";
+import { SpaceAgentReasoning } from "./space-agent-reasoning";
 import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
 import { hasLiveSpaceAgentToolActivity } from "./space-agent-tool-activity-state";
 import { SpaceMessageDeliveryStatus } from "./space-message-delivery-status";
 import { SpaceMessageWakeThinkingIndicator } from "./space-message-wake-thinking-indicator";
+import {
+	SpacePendingSendFeedback,
+	useSpaceSendFailure,
+} from "./space-pending-send";
 import { SpaceWakeBookmarkAnchor } from "./space-wake-bookmarks";
 
 export function SpaceMessageProgressStatus(input: {
@@ -24,6 +29,7 @@ export function SpaceMessageProgressStatus(input: {
 	item: SpaceTimelineItem;
 	onOpenMessageDetails?: () => void;
 }) {
+	const sendFailure = useSpaceSendFailure(input.item.id);
 	const shouldTick = input.item.deliveryState === "pending";
 	const nowMs = useNowMs(shouldTick ? 1000 : null);
 	const deliveryPresentation = resolveSpaceMessageDeliveryPresentation({
@@ -36,17 +42,27 @@ export function SpaceMessageProgressStatus(input: {
 		hasControl: input.control != null,
 		item: input.item,
 	});
+	if (sendFailure) {
+		return wrapProgressStatus(
+			<SpacePendingSendFeedback align={input.align} signalId={input.item.id} />,
+			input.containerClassName,
+			input.item.activeWakeProgress
+		);
+	}
 	if (!content) {
 		return null;
 	}
 	if (content.kind === "tool") {
 		return wrapProgressStatus(
-			<SpaceAgentToolActivity
-				align={input.align}
-				control={input.control}
-				item={input.item}
-				onOpenMessageDetails={input.onOpenMessageDetails}
-			/>,
+			<div className="flex min-w-0 flex-col gap-1">
+				<SpaceAgentToolActivity
+					align={input.align}
+					control={input.control}
+					item={input.item}
+					onOpenMessageDetails={input.onOpenMessageDetails}
+				/>
+				<SpaceAgentReasoning item={input.item} />
+			</div>,
 			input.containerClassName,
 			input.item.activeWakeProgress
 		);
@@ -69,6 +85,7 @@ export function SpaceMessageProgressStatus(input: {
 					showAgentWorkingState={content.showAgentWorkingState}
 				/>
 			) : null}
+			<SpaceAgentReasoning item={input.item} />
 		</>,
 		input.containerClassName,
 		input.item.activeWakeProgress

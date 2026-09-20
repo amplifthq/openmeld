@@ -381,8 +381,17 @@ describe("weekly Organization eval metrics", () => {
     expect(evidence.signals).toHaveLength(1);
     const reportSignal = JSON.parse(
       evidence.signals[0]?.payload_json ?? "null"
-    ) as { data?: { text?: string }; type?: string };
+    ) as {
+      data?: { text?: string };
+      profile?: { profileId?: string; owner?: string; ownerName?: string };
+      type?: string;
+    };
     expect(reportSignal.type).toBe("signal.text");
+    expect(reportSignal.profile).toMatchObject({
+      profileId: fixture.profileId,
+    });
+    expect(reportSignal.profile?.owner).toBeUndefined();
+    expect(reportSignal.profile?.ownerName).toBeUndefined();
     expect(reportSignal.data?.text).toContain("# Weekly Quality Report");
     expect(reportSignal.data?.text).toContain("| Wakes | 1 | +1 |");
     expect(reportSignal.data?.text).not.toContain("| Wakes | 2 |");
@@ -500,6 +509,7 @@ async function seedOrganization(organizationId: string): Promise<void> {
 
 async function seedOfficialOrganizationCenterAgent(): Promise<{
   organizationId: string;
+  profileId: string;
 }> {
   const organizationId = `org-official-eval-${randomUUID()}`;
   const ownerUserId = `user-official-eval-${randomUUID()}`;
@@ -550,13 +560,12 @@ async function seedOfficialOrganizationCenterAgent(): Promise<{
           created_at,
           updated_at
         )
-        VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, ?, ?, NULL, 'auth_bootstrap', 'center_agent', NULL, ?, ?)
+        VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, NULL, 'auth_bootstrap', 'center_agent', NULL, ?, ?)
       `
     ).bind(
       profileId,
       `quality-center-agent-${randomUUID()}`,
       organizationId,
-      ownerUserId,
       ownerUserId,
       nowMs,
       nowMs
@@ -574,7 +583,7 @@ async function seedOfficialOrganizationCenterAgent(): Promise<{
       `
     ).bind(organizationId, profileId, ownerUserId, nowMs),
   ]);
-  return { organizationId };
+  return { organizationId, profileId };
 }
 
 async function seedSpaceIndex(input: {

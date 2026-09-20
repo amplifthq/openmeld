@@ -80,6 +80,17 @@ describe("Organization Skills", () => {
     });
     expect(updated.activeRelease.id).not.toBe(created.activeRelease.id);
     await expect(
+      service.getEnabledRelease(
+        fixture.member,
+        created.id,
+        created.activeRelease.id
+      )
+    ).resolves.toMatchObject({
+      bundle: { instructions: "Check the release evidence." },
+      releaseId: created.activeRelease.id,
+      digest: created.activeRelease.digest,
+    });
+    await expect(
       service.readRuntimeSnapshot(fixture.organizationId, frozenSelection)
     ).resolves.toMatchObject({
       organizationId: fixture.organizationId,
@@ -139,6 +150,15 @@ describe("Organization Skills", () => {
       false,
       updated.version
     );
+    await expect(
+      service.getEnabledRelease(
+        fixture.owner,
+        created.id,
+        created.activeRelease.id
+      )
+    ).rejects.toMatchObject({
+      cause: { code: "organization_skill.disabled", status: 403 },
+    });
     await expect(
       service.readRuntimeSnapshot(fixture.organizationId)
     ).resolves.toEqual({
@@ -972,8 +992,7 @@ function centerAgentRequestContext(
     activeOrganizationId: fixture.organizationId,
     actorContext: {
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      callerPrincipalId: fixture.owner.userId,
-      ownerUserId: fixture.owner.userId,
+      callerPrincipalId: fixture.centerAgentProfileId,
       profileKind: "agent" as const,
       profileName: "Center Agent",
       requestId: `skill-request-${crypto.randomUUID()}`,
@@ -1070,14 +1089,13 @@ async function seedFixture(): Promise<{
         managed_role,
         created_at,
         updated_at
-      ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'cli_create', 'center_agent', ?, ?)
+      ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, 'cli_create', 'center_agent', ?, ?)
     `
   )
     .bind(
       centerAgentProfileId,
       `skill-center-${suffix}`,
       organizationId,
-      users[0].id,
       users[0].id,
       1000,
       1000

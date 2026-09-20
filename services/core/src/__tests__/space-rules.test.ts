@@ -13,7 +13,6 @@ import {
   buildMentionFailureHintText,
   isSpaceHistoryEligibleMentionFailureDecision,
   resolveDispatchPlannerDecisionsForSignal,
-  stripDispatchTargetMentionsFromText,
 } from "../space/rules/mention/mention-dispatch-rules";
 import { shouldEmitRetentionWarning } from "../space/rules/policy/retention-warning-policy";
 
@@ -846,9 +845,7 @@ describe("mention dispatch rules", () => {
     });
 
     expect(hint).not.toContain("You mentioned yourself");
-    expect(hint).toContain(
-      'Mention label "my-codex" matches multiple profiles'
-    );
+    expect(hint).toContain("use --wake with its full Profile ID");
   });
 
   it("does not emit mention-skipped hint for known human mention tokens", () => {
@@ -872,19 +869,6 @@ describe("mention dispatch rules", () => {
     });
 
     expect(hint).toBeNull();
-  });
-
-  it("strips only target mentions while keeping others", () => {
-    const stripped = stripDispatchTargetMentionsFromText({
-      mentionTargetAliases: new Map([
-        ["my-codex", new Set(["agt-my-codex"])],
-        ["other-agent", new Set(["agt-other-agent"])],
-      ]),
-      targetProfileId: "agt-my-codex",
-      text: "ping @my-codex(wake) and keep @other-agent(wake)",
-    });
-
-    expect(stripped).toBe("ping and keep @other-agent(wake)");
   });
 
   it("marks only shared-semantic mention failures as space-history eligible", () => {

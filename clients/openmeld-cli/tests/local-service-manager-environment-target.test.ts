@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
-import type { DaemonServiceCommandSpec } from "../src/local-service/lifecycle/daemon-service-manager";
+import { describe, expect, it, vi } from "vitest";
+import type {
+  DaemonServiceCommandSpec,
+  DaemonServiceManager,
+} from "../src/local-service/lifecycle/daemon-service-manager";
 import {
   buildLaunchdPlist,
   buildSystemdUnitFile,
+  guardDaemonServiceManagerMutations,
   parseDaemonServiceEnvironmentTargetFromDefinition,
 } from "../src/local-service/lifecycle/daemon-service-manager";
 
@@ -23,6 +27,59 @@ const expectedTarget = {
   authBaseUrl: "http://localhost:31026",
   userFacingCommand: "openmeld-dev",
 } as const;
+
+it("refuses every development service mutation when the registration belongs to another home", async () => {
+  const mutate = vi.fn(async () => undefined);
+  const manager: DaemonServiceManager = {
+    controller: "launchd",
+    install: mutate,
+    uninstall: mutate,
+    start: mutate,
+    stop: mutate,
+    deactivate: mutate,
+    enableAutostart: mutate,
+    disableAutostart: mutate,
+    waitUntilAbsent: mutate,
+    waitUntilStopped: mutate,
+    waitUntilRunning: mutate,
+    status: async () => ({
+      installed: true,
+      running: true,
+      enabled: true,
+      commandSpec: {
+        ...commandSpec,
+        env: { ...commandSpec.env, OPENMELD_HOME: "/worktree/b/home" },
+      },
+    }),
+  };
+  const guarded = guardDaemonServiceManagerMutations(manager, {
+    env: {
+      OPENMELD_ENV_PRESET: "dev-local",
+      OPENMELD_HOME: "/worktree/a/home",
+    },
+  });
+  for (const operation of [
+    () => guarded.install(commandSpec),
+    guarded.uninstall,
+    guarded.start,
+    guarded.stop,
+    guarded.deactivate,
+    guarded.enableAutostart,
+    guarded.disableAutostart,
+  ]) {
+    await expect(operation()).rejects.toThrow(
+      "registered development home does not match"
+    );
+  }
+  expect(mutate).not.toHaveBeenCalled();
+  await guardDaemonServiceManagerMutations(manager, {
+    env: {
+      OPENMELD_ENV_PRESET: "dev-local",
+      OPENMELD_HOME: "/worktree/b/home",
+    },
+  }).stop();
+  expect(mutate).toHaveBeenCalledTimes(1);
+});
 
 describe("local service manager environment target", () => {
   it("reads the target from a generated launchd definition", () => {

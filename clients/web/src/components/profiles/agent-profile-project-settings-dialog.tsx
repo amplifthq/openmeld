@@ -3,6 +3,7 @@
 import type {
 	AuthProfileView,
 	LocalProjectControlConnection,
+	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
@@ -27,6 +28,7 @@ import {
 } from "./agent-profile-project-settings";
 
 type SettingsInput = {
+	target?: PeopleComputerTarget;
 	actorProfileId: string | null;
 	agentControllerRef: string | null;
 	executionTargetChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
@@ -50,7 +52,7 @@ export function AgentProfileProjectSettingsDialog(input: SettingsInput) {
 	return (
 		<LocalAgentProfileProjectSettingsDialog
 			{...input}
-			key={`${input.organizationId}:${input.profile.openMeldProfileId}:${input.open}:${input.profile.defaultProjectId === undefined}`}
+			key={`${input.organizationId}:${input.profile.openMeldProfileId}:${input.target?.deviceId}:${input.target?.runtimeLane}:${input.open}:${input.profile.defaultProjectId === undefined}`}
 		/>
 	);
 }
@@ -81,11 +83,6 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 		pending ||
 		input.profile.defaultProjectId === undefined ||
 		input.executionTargetChangeEligibilityStatus !== "allowed";
-	const changed =
-		projectId !== initialProjectId ||
-		(!projectId &&
-			(fallback !== initialFallback ||
-				(fallback === "advanced" && path.trim() !== initialPath)));
 	const valid = isWorkingFolderDraftValid({
 		projectId,
 		connection,
@@ -93,7 +90,9 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 		path,
 	});
 	const save = async () => {
-		if (disabled || !changed || !valid) {
+		// The displayed choice does not prove that the Service has a usable
+		// workspace. Explicit Save may reapply it to initialize or repair it.
+		if (disabled || !valid) {
 			return;
 		}
 		setPending(true);
@@ -109,6 +108,7 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 			if (!projectId) {
 				await updateAgentProfileWorkspace({
 					...context,
+					target: input.target,
 					workspaceMode:
 						fallback === "advanced" ? "custom" : "openmeld_managed",
 					...(fallback === "advanced" ? { workspacePath: path } : {}),
@@ -183,6 +183,7 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 						projectId={projectId}
 						projects={projectsQuery.data?.projects ?? []}
 						selectedBindingGeneration={connection?.bindingGeneration ?? null}
+						target={input.target}
 						workspaceFallbackMode={fallback}
 					/>
 					{projectsQuery.isPending ? (
@@ -231,7 +232,7 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 					>
 						Cancel
 					</Button>
-					<Button disabled={disabled || !changed || !valid} onClick={save}>
+					<Button disabled={disabled || !valid} onClick={save}>
 						{pending ? "Saving…" : "Save changes"}
 					</Button>
 				</DialogFooter>

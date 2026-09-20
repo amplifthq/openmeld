@@ -19,23 +19,23 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 	useOptionalAppOrganization: useOptionalAppOrganizationMock,
 }));
 
-vi.mock("#/lib/inbox/browser-notifications", () => {
+vi.mock("#/lib/inbox/client-notifications", () => {
 	return {
-		disableInboxBrowserNotifications: disableMock,
-		enableInboxBrowserNotifications: enableMock,
-		readInboxBrowserNotificationSettings: readSettingsMock,
-		resolveBrowserNotificationDescription: (permission: string) =>
+		disableInboxNotifications: disableMock,
+		enableInboxNotifications: enableMock,
+		readInboxNotificationSettings: readSettingsMock,
+		resolveClientNotificationDescription: (permission: string) =>
 			permission === "denied"
 				? "Notifications are blocked. Allow them in your browser’s site settings, then return here."
 				: "Notification permission is not available.",
-		setInboxBrowserNotificationSoundEnabled: setSoundEnabledMock,
-		subscribeInboxBrowserNotificationSettings: (...args: unknown[]) =>
+		setInboxNotificationSoundEnabled: setSoundEnabledMock,
+		subscribeInboxNotificationSettings: (...args: unknown[]) =>
 			subscribeMock(...args),
 	};
 });
 
-vi.mock("#/components/inbox/browser-notification-toggle", () => ({
-	BrowserNotificationControl: (input: {
+vi.mock("#/components/inbox/client-notification-control", () => ({
+	ClientNotificationControl: (input: {
 		onChange: (enabled: boolean) => Promise<void>;
 		settings: { enabled: boolean };
 	}) => (
@@ -48,7 +48,7 @@ vi.mock("#/components/inbox/browser-notification-toggle", () => ({
 	),
 }));
 
-const GLOBAL_SCOPE_TEXT_PATTERN = /every Space and Direct Message/i;
+const GLOBAL_SCOPE_TEXT_PATTERN = /all your Spaces and chats/i;
 const BLOCKED_PERMISSION_GUIDANCE_PATTERN =
 	/allow them in your browser’s site settings/i;
 
@@ -89,7 +89,7 @@ describe("SpaceInfoNotificationsSection", () => {
 		render(<SpaceInfoNotificationsSection />);
 
 		const description = screen.getByText(GLOBAL_SCOPE_TEXT_PATTERN);
-		expect(description.textContent).toContain("not just this one");
+		expect(description.textContent).toContain("Settings > Notifications");
 		expect(screen.getByText("Browser notifications")).toBeTruthy();
 
 		fireEvent.click(screen.getByText("toggle-control"));

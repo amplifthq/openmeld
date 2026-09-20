@@ -109,7 +109,15 @@ describe("Remote Agent submission execution context", () => {
     }
     expect(routineToolNames).toContain("browser_screenshot");
     expect(routineToolNames).toContain("codemode");
-    expect(routineToolNames).toEqual(
+    expect(routineToolNames).toContain("openmeld_set_final_reply_mentions");
+    expect(ordinaryToolNames).not.toContain(
+      "openmeld_set_final_reply_mentions"
+    );
+    expect(
+      routineToolNames.filter(
+        (name) => name !== "openmeld_set_final_reply_mentions"
+      )
+    ).toEqual(
       ordinaryToolNames.filter(
         (name) =>
           !REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES.some(
@@ -119,7 +127,11 @@ describe("Remote Agent submission execution context", () => {
     );
     for (const hiddenName of REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES) {
       expect(routineToolNames).not.toContain(hiddenName);
-      if (hiddenName === "openmeld_remember_for_organization") {
+      if (
+        hiddenName === "openmeld_remember_for_organization" ||
+        hiddenName ===
+          "openmeld_set_agent_profile_creation_approval_preferences"
+      ) {
         expect(ordinaryToolNames).not.toContain(hiddenName);
       } else {
         expect(ordinaryToolNames).toContain(hiddenName);
@@ -196,7 +208,9 @@ describe("Remote Agent submission execution context", () => {
       ])
     );
     expect(toolNames).toEqual([
-      ...CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES,
+      ...CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES.filter(
+        (name) => name !== "openmeld_read_channel_file"
+      ),
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
     ]);

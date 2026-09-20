@@ -100,6 +100,7 @@ import {
   spaceRouteParamsSchema,
   spaceSignalAuthoringPolicySchema,
   spaceStorageUsageSchema,
+  spaceTaskSchema,
   updateProfileResponseSchema,
   upsertProfileSpaceHistoryBodySchema,
   upsertProfileSpaceHistoryResponseSchema,
@@ -1058,7 +1059,7 @@ describe("http schemas", () => {
     });
 
     it("uses one shared policy for a newly created Space's initial access", () => {
-      expect(resolveInitialSpaceAccessMode("public")).toBe("public");
+      expect(resolveInitialSpaceAccessMode("public")).toBe("members_only");
       expect(resolveInitialSpaceAccessMode("private")).toBe("members_only");
     });
 
@@ -1539,6 +1540,21 @@ describe("http schemas", () => {
   });
 
   describe("listSignalsQuerySchema", () => {
+    it("accepts literal message search and rejects incompatible timeline filters and unsafe cursors", () => {
+      const read = (query: string) =>
+        listSignalsQuerySchema.safeParse(
+          readListSignalsQueryRawValues(new URLSearchParams(query))
+        );
+      expect(read("q=invoice&limit=30").success).toBe(true);
+      for (const query of [
+        "q=invoice&recent=true",
+        "q=invoice&aroundSignalId=message",
+        "q=invoice&cursor=9007199254740992",
+        "q=&limit=30",
+      ]) {
+        expect(read(query).success).toBe(false);
+      }
+    });
     it("reads raw query values from URLSearchParams", () => {
       const params = new URLSearchParams(
         "afterTs=1&cursor=cursor-1&limit=&recent=true&afterSignalId=sig-after&aroundSignalId=sig-around&beforeCount=2&afterCount=3&fromProfileId=human-1&fromProfileId=agent-1&signalType=signal.text&signalType=signal.status"
@@ -2240,11 +2256,15 @@ describe("http schemas", () => {
 
       const lockNewPasswordMode = setSpaceAccessModeBodySchema.safeParse({
         accessMode: "protected",
+        allowGuests: true,
         password: "  abc123  ",
+        visibility: "public",
       });
       expect(lockNewPasswordMode.success).toBe(true);
       if (lockNewPasswordMode.success) {
         expect(lockNewPasswordMode.data.password).toBe("abc123");
+        expect(lockNewPasswordMode.data.allowGuests).toBe(true);
+        expect(lockNewPasswordMode.data.visibility).toBe("public");
       }
     });
 
@@ -2292,6 +2312,28 @@ describe("http schemas", () => {
         "a".repeat(SPACE_PASSWORD_MIN_LENGTH - 1)
       );
       expect(parsed.success).toBe(false);
+    });
+
+    it("preserves the UTF-16 password length contract for emoji", () => {
+      for (const password of ["😀😀😀", "abc😀😀"]) {
+        expect(
+          createSpacePasswordBodySchema.safeParse({ password }).success
+        ).toBe(true);
+        expect(
+          upsertSpacePasswordBodySchema.safeParse({ password }).success
+        ).toBe(true);
+      }
+
+      const tooShort = spacePasswordSchema.safeParse("  😀😀  ");
+      expect(tooShort.success).toBe(false);
+      if (!tooShort.success) {
+        expect(tooShort.error.issues[0]).toMatchObject({
+          code: "too_small",
+          origin: "string",
+          minimum: SPACE_PASSWORD_MIN_LENGTH,
+          inclusive: true,
+        });
+      }
     });
 
     it("rejects non-string password", () => {
@@ -2968,6 +3010,58 @@ describe("http schemas", () => {
       expect(
         gatewayErrorCodeSchema.safeParse("center_agent.dm_open_failed").success
       ).toBe(true);
+      expect(
+        gatewayErrorCodeSchema.safeParse("space_task.revision_conflict").success
+      ).toBe(true);
+      expect(
+        gatewayErrorCodeSchema.safeParse("space_task.operation_conflict")
+          .success
+      ).toBe(true);
+      expect(
+        gatewayErrorCodeSchema.safeParse("space_task.external_work_item_limit")
+          .success
+      ).toBe(true);
+      expect(
+        gatewayErrorCodeSchema.safeParse(
+          "space_task.external_work_item_not_found"
+        ).success
+      ).toBe(true);
+
+      const storedTaskWithoutLinks = spaceTaskSchema.safeParse({
+        assignee: null,
+        automaticReworkRounds: 0,
+        completionConditions: [],
+        createdAt: "2026-09-20T00:00:00.000Z",
+        createdBy: {
+          ownerUserId: "user-avery",
+          profileId: HUMAN_PROFILE_ID,
+          profileKind: "human",
+          profileName: "Avery",
+        },
+        description: null,
+        needsHumanDecision: false,
+        phase: "to_do",
+        requestedBy: {
+          ownerUserId: "user-avery",
+          profileId: HUMAN_PROFILE_ID,
+          profileKind: "human",
+          profileName: "Avery",
+        },
+        result: null,
+        review: null,
+        reviewer: null,
+        revision: 1,
+        sourceSignalId: null,
+        spaceId: SPACE_ID,
+        taskId: "tsk_55555555-5555-4555-8555-555555555555",
+        threadId: null,
+        title: "Ship Tasks",
+        updatedAt: "2026-09-20T00:00:00.000Z",
+      });
+      expect(storedTaskWithoutLinks.success).toBe(true);
+      if (storedTaskWithoutLinks.success) {
+        expect(storedTaskWithoutLinks.data.externalWorkItems).toEqual([]);
+      }
 
       const resolved = postResolvedSpaceMembersBodySchema.safeParse({
         members: [

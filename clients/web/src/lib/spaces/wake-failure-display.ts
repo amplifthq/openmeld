@@ -24,6 +24,14 @@ export type WakeFailureTargetContext = {
 const MENTION_PREFIX_PATTERN = /^@+/u;
 const POSSESSIVE_SUFFIX_PATTERN = /s$/iu;
 
+export function isQuotaWakeFailure(reason: string | null | undefined): boolean {
+	return (
+		reason === "usage_exhausted" ||
+		reason === "provider_account.capacity_exhausted" ||
+		reason === "cursor.plan_upgrade_required"
+	);
+}
+
 export function resolveWakeFailureDisplay(input: {
 	failureReasonCode: string | null | undefined;
 	isPersonalContext?: boolean;
@@ -75,6 +83,10 @@ export function resolveHistoricalWakeFailureBody(input: {
 		input.failureReasonCode
 	)?.toLowerCase();
 	const targetName = formatTargetName(input.targetLabel);
+
+	if (reasonCode === "wake.device_wait.expired") {
+		return "Wait expired. Task did not run.";
+	}
 
 	if (reasonCode === "cursor.plan_upgrade_required") {
 		return `${targetName} stopped this Wake because the Cursor plan had reached its usage limit.`;

@@ -19,6 +19,7 @@ import type {
   UpdateSpaceFileEntryBody,
 } from "@openmeld/schemas/types";
 import { SpaceFileAuditRepository } from "./space-file-audit-repo";
+import { SpaceFileUpdateRepository } from "./space-file-update-repo";
 import { timestampMsToIso } from "./space-schema-repo";
 
 type SpaceFileEntryRow = {
@@ -618,6 +619,7 @@ export class SpaceFileRepository {
         input.write.clientMutationId
       );
       const file = this.getFile(input.write.fileId);
+      new SpaceFileUpdateRepository(this.sql).enqueue(file, input.nowMs);
       this.recordMutation({
         action: "commit_write",
         clientMutationId: input.write.clientMutationId,

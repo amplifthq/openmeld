@@ -6,10 +6,8 @@ import type {
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
-	DropdownMenuCheckboxItem,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
-import { Input } from "@openmeld/ui/components/input";
 import {
 	Popover,
 	PopoverContent,
@@ -24,44 +22,25 @@ import {
 	TableHeader,
 	TableRow,
 } from "@openmeld/ui/components/table";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@openmeld/ui/components/tooltip";
-import {
-	FluidDropdownMenuContent,
-	FluidDropdownMenuItem,
-} from "@openmeld/ui/fluid/dropdown-menu";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
+import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
-import { cn } from "@openmeld/ui/lib/utils";
 import {
-	DotsThreeIcon,
-	HashIcon,
-	LockKeyIcon,
-	MagnifyingGlassIcon,
-	PushPinIcon,
-	SlidersHorizontalIcon,
+	ChatCircleTextIcon,
+	FunnelSimpleIcon,
 	UsersThreeIcon,
-	XIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import {
-	useCallback,
-	useDeferredValue,
-	useLayoutEffect,
-	useRef,
-	useState,
-} from "react";
+import { useDeferredValue, useLayoutEffect, useRef, useState } from "react";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { buildProfilePath } from "#/lib/profile-routes";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { AppSidebarGroup } from "../app/app-sidebar-group";
-import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
-import { useSidebarGroupFilter } from "../app/sidebar-group-filter";
+import { DirectoryRowActions } from "../app/directory-row-actions";
+import { DirectorySearch } from "../app/directory-search";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
 import {
@@ -74,22 +53,19 @@ import {
 	type SpaceSidebarActiveWakeSummary,
 } from "./space-active-wake-presentation";
 import { SpaceAgentOrb } from "./space-agent-orb";
+import { spaceDirectoryGroups } from "./space-directory-groups";
 import { SpaceDirectoryPreview } from "./space-directory-preview";
+import { SpaceDirectorySummary } from "./space-directory-summary";
 import {
 	resolveSpaceMemberAppearances,
 	type SpaceMemberAppearance,
 	SpaceMemberAvatars,
 } from "./space-member-avatars";
+import { useSpaceDirectoryFilters } from "./use-space-directory-filters";
 import { useSpaceListIndicators } from "./use-space-list-indicators";
+import { WelcomeSpaceLabel } from "./welcome-space-guide";
 
 type DirectorySpace = OrganizationSpaceDirectoryWithMemberCountsItem;
-type StatusFilter = "unread" | "needs_input" | "working";
-const FILTERS: readonly [StatusFilter, string][] = [
-	["unread", "Unread"],
-	["needs_input", "Needs your input"],
-	["working", "Working"],
-];
-
 export function SpaceDirectory(input: {
 	accountProfiles: readonly AuthProfileView[];
 	tab: number;
@@ -113,7 +89,6 @@ export function SpaceDirectory(input: {
 	const preferences = sidebar.preferences;
 	const [searches, setSearches] = useState(["", ""]);
 	const [searchOpen, setSearchOpen] = useState([false, false]);
-	const [statusFilters, setStatusFilters] = useState<StatusFilter[]>([]);
 	const [preview, setPreview] = useState<DirectorySpace | null>(null);
 	const viewportRef = useRef<HTMLDivElement>(null);
 	const scrollPositions = useRef([0, 0]);
@@ -122,18 +97,11 @@ export function SpaceDirectory(input: {
 			viewportRef.current.scrollTop = scrollPositions.current[input.tab] ?? 0;
 		}
 	}, [input.tab]);
-	const focusSearch = useCallback(
-		(node: HTMLInputElement | null) => node?.focus(),
-		[]
-	);
 	const search = searches[input.tab] ?? "";
 	const searchTerm = useDeferredValue(search.trim().toLowerCase());
-	const joinedIds = new Set(
-		input.spaces.filter((space) => space.joined).map((space) => space.spaceId)
-	);
-	const items = [...input.accountSpaceItemsById.values()].filter((item) =>
-		joinedIds.has(item.spaceId)
-	);
+	// The account index already contains the viewer's active memberships. The
+	// discovery snapshot can be older and must not hide a newly joined Space.
+	const items = [...input.accountSpaceItemsById.values()];
 	const sections = {
 		pinnedItems: items.filter((item) => item.pinnedAt !== null),
 		spaceItems: items.filter((item) => item.pinnedAt === null),
@@ -183,15 +151,15 @@ export function SpaceDirectory(input: {
 			.filter(([, value]) => value.activeWakeCount > 0)
 			.map(([id]) => id)
 	);
-	const groups = [
-		{ id: "pinned", label: "Pinned" },
-		...(preferences?.groups ?? []).map((group) => ({
-			id: group.id,
-			label: group.name,
-		})),
-		{ id: "spaces", label: "Spaces" },
-	];
-	const groupFilter = useSidebarGroupFilter(groups);
+	const groups = spaceDirectoryGroups(items, preferences);
+	const grouped =
+		(preferences?.groups.length ?? 0) > 0 || sections.pinnedItems.length > 0;
+	const groupFilter = useSpaceDirectoryFilters(groups, () =>
+		setSearchOpen((current) =>
+			current.map((value, index) => (index === input.tab ? true : value))
+		)
+	);
+	const statusFilters = groupFilter.statuses;
 	const unindexed = input.spaces.filter(
 		(space) =>
 			space.joined &&
@@ -199,39 +167,21 @@ export function SpaceDirectory(input: {
 			space.name.toLowerCase().includes(searchTerm) &&
 			statusFilters.length === 0
 	);
-	const groupedIds = new Set(
-		preferences?.groups.flatMap((group) => group.spaceIds)
-	);
-	const statusSets = {
-		unread: unreadActivity,
-		needs_input: attention,
-		working,
-	};
 	const matches = (item: AccountSpaceItem) =>
 		item.spaceName.toLowerCase().includes(searchTerm) &&
-		statusFilters.every((filter) => statusSets[filter].has(item.spaceId));
+		groupFilter.matchesStatus(
+			indicators.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0,
+			indicators.activeWakeSummaryBySpaceId.get(item.spaceId)
+		);
 	const entries = groups
 		.map((group) => {
-			const section =
-				group.id === "pinned" || group.id === "spaces"
-					? preferences?.[group.id]
-					: preferences?.groups.find((entry) => entry.id === group.id);
-			let members = sections.pinnedItems;
-			if (group.id === "spaces") {
-				members = sections.spaceItems.filter(
-					(item) => !groupedIds.has(item.spaceId)
-				);
-			} else if (group.id !== "pinned") {
-				members = sections.spaceItems.filter((item) =>
-					section?.spaceIds.includes(item.spaceId)
-				);
-			}
+			const { section } = group;
 			return {
 				...group,
 				section,
 				unindexed: group.id === "spaces" ? unindexed : [],
 				items: sortSidebarSpaces(
-					members.filter(matches),
+					group.items.filter(matches),
 					section ?? { sort: "priority", spaceIds: [] },
 					attention,
 					unreadActivity,
@@ -273,87 +223,35 @@ export function SpaceDirectory(input: {
 			});
 		}
 	};
-	const toggleStatus = (filter: StatusFilter) =>
-		setStatusFilters((current) =>
-			current.includes(filter)
-				? current.filter((item) => item !== filter)
-				: [...current, filter]
-		);
 	return (
 		<div
 			aria-label={discovering ? "Discover" : "Your Spaces"}
-			aria-labelledby={`spaces-directory-tab-${input.tab}`}
+			aria-labelledby={`spaces-directory-tab-${input.tab === 1 ? 2 : 0}`}
 			className="flex h-full min-h-0 flex-col"
-			id={`spaces-directory-panel-${input.tab}`}
+			id={`spaces-directory-panel-${input.tab === 1 ? 2 : 0}`}
 			role="tabpanel"
 		>
-			<div className="flex h-16 shrink-0 items-center justify-between gap-3 px-[var(--app-page-inline-padding)]">
-				<p className="min-w-0 truncate text-muted-foreground text-xs">
-					{discovering
-						? ""
-						: `${joinedIds.size} ${joinedIds.size === 1 ? "Space" : "Spaces"}`}
-				</p>
+			<div className="flex h-16 shrink-0 items-center justify-end gap-3 px-[var(--app-page-inline-padding)]">
 				<div className="flex h-11 min-w-0 items-center justify-end gap-1">
-					{searchOpen[input.tab] || search ? (
-						<div className="flex min-w-0 items-center gap-1">
-							<Input
-								aria-label="Search Spaces"
-								className="h-8 w-52 max-w-full"
-								onChange={(event) =>
-									setSearches((current) =>
-										current.map((value, index) =>
-											index === input.tab ? event.target.value : value
-										)
-									)
-								}
-								onKeyDown={(event) => {
-									if (event.key === "Escape" && !search) {
-										setSearchOpen((current) =>
-											current.map((value, index) =>
-												index === input.tab ? false : value
-											)
-										);
-									}
-								}}
-								placeholder="Search Spaces…"
-								ref={focusSearch}
-								type="search"
-								value={search}
-							/>
-							<Button
-								aria-label="Close search"
-								onClick={() => {
-									setSearches((current) =>
-										current.map((value, index) =>
-											index === input.tab ? "" : value
-										)
-									);
-									setSearchOpen((current) =>
-										current.map((value, index) =>
-											index === input.tab ? false : value
-										)
-									);
-								}}
-								size="icon-sm"
-								variant="ghost"
-							>
-								<XIcon />
-							</Button>
-						</div>
-					) : (
-						<DirectoryIcon
-							label="Search Spaces"
-							onClick={() =>
-								setSearchOpen((current) =>
-									current.map((value, index) =>
-										index === input.tab ? true : value
-									)
+					<DirectorySearch
+						label="Search Spaces"
+						onChange={(next) =>
+							setSearches((current) =>
+								current.map((value, index) =>
+									index === input.tab ? next : value
 								)
-							}
-						>
-							<MagnifyingGlassIcon />
-						</DirectoryIcon>
-					)}
+							)
+						}
+						onOpenChange={(next) =>
+							setSearchOpen((current) =>
+								current.map((value, index) =>
+									index === input.tab ? next : value
+								)
+							)
+						}
+						open={searchOpen[input.tab] ?? false}
+						value={search}
+					/>
 					{!discovering && (
 						<DropdownMenu>
 							<DropdownMenuTrigger
@@ -365,22 +263,24 @@ export function SpaceDirectory(input: {
 									/>
 								}
 							>
-								<SlidersHorizontalIcon />
+								<FunnelSimpleIcon />
 							</DropdownMenuTrigger>
 							<FluidDropdownMenuContent align="end" className="w-56">
 								{groupFilter.menu}
-								{FILTERS.map(([id, label]) => (
-									<DropdownMenuCheckboxItem
-										checked={statusFilters.includes(id)}
-										closeOnClick={false}
-										key={id}
-										onCheckedChange={() => toggleStatus(id)}
-									>
-										{label}
-									</DropdownMenuCheckboxItem>
-								))}
 							</FluidDropdownMenuContent>
 						</DropdownMenu>
+					)}
+					{!(discovering || grouped) && (
+						<DirectoryGroupActions
+							alwaysVisible
+							group={{
+								id: "spaces",
+								label: "Spaces",
+								section: preferences?.spaces,
+							}}
+							onSort={(sort) => changeSection("spaces", { sort })}
+							sidebar={sidebar}
+						/>
 					)}
 				</div>
 			</div>
@@ -388,15 +288,6 @@ export function SpaceDirectory(input: {
 				(groupFilter.selected.length > 0 || statusFilters.length > 0) && (
 					<div className="flex flex-wrap items-center gap-1 px-[var(--app-page-inline-padding)] pb-3">
 						{groupFilter.badges}
-						{FILTERS.filter(([id]) => statusFilters.includes(id)).map(
-							([id, label]) => (
-								<SidebarFilterBadge
-									key={id}
-									label={label}
-									onRemove={() => toggleStatus(id)}
-								/>
-							)
-						)}
 					</div>
 				)}
 			{input.savedViewWarning && (
@@ -468,17 +359,11 @@ export function SpaceDirectory(input: {
 							)
 							.map((group) => (
 								<AppSidebarGroup
+									contentOnly={!grouped}
 									groupClassName="p-0"
 									groupId={`directory-${group.id}`}
 									key={group.id}
-									label={
-										<span>
-											{group.label}
-											<span className="ml-2 text-muted-foreground/60">
-												{group.items.length + group.unindexed.length}
-											</span>
-										</span>
-									}
+									label={<span>{group.label}</span>}
 									labelAccessory={
 										<DirectoryGroupActions
 											group={group}
@@ -581,10 +466,12 @@ function resolveDirectoryLoadingState(
 }
 
 function DirectoryGroupActions({
+	alwaysVisible,
 	group,
 	sidebar,
 	onSort,
 }: {
+	alwaysVisible?: boolean;
 	group: {
 		id: string;
 		label: string;
@@ -616,6 +503,7 @@ function DirectoryGroupActions({
 	};
 	return (
 		<SidebarSectionActions
+			alwaysVisible={alwaysVisible}
 			disabled={sidebar.disabled}
 			label={group.label}
 			onDelete={custom ? removeGroup : undefined}
@@ -644,8 +532,9 @@ function UnindexedJoinedRow(input: {
 						search: { profileId: input.profileId },
 					})}
 				>
-					<HashIcon className="size-4 shrink-0 text-muted-foreground" />
+					<ChatCircleTextIcon className="size-4 shrink-0 text-muted-foreground" />
 					{input.space.name}
+					<WelcomeSpaceLabel spaceId={input.space.spaceId} />
 				</Link>
 			</TableCell>
 			<TableCell className="hidden lg:table-cell" />
@@ -655,32 +544,6 @@ function UnindexedJoinedRow(input: {
 			<TableCell />
 			<TableCell />
 		</TableRow>
-	);
-}
-
-function DirectoryIcon(input: {
-	label: string;
-	children: React.ReactNode;
-	onClick: () => void;
-	disabled?: boolean;
-}) {
-	return (
-		<Tooltip>
-			<TooltipTrigger
-				render={
-					<Button
-						aria-label={input.label}
-						disabled={input.disabled}
-						onClick={input.onClick}
-						size="icon-sm"
-						variant="ghost"
-					/>
-				}
-			>
-				{input.children}
-			</TooltipTrigger>
-			<TooltipContent side="top">{input.label}</TooltipContent>
-		</Tooltip>
 	);
 }
 
@@ -710,10 +573,9 @@ function JoinedRow(input: {
 		input.preview?.timestamp,
 		item.spaceCreatedAt
 	);
-	const [menuOpen, setMenuOpen] = useState(false);
 	return (
 		<TableRow
-			className="group/space-directory-row border-0"
+			className="group/directory-row border-0"
 			data-space-id={item.spaceId}
 			index={input.index}
 		>
@@ -723,26 +585,11 @@ function JoinedRow(input: {
 					className="block min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
 					to={href}
 				>
-					<span
-						className={cn(
-							"flex items-center gap-2 text-sm",
-							input.unread ? "font-semibold text-foreground" : "font-medium"
-						)}
-					>
-						<HashIcon className="size-4 shrink-0 text-muted-foreground" />
-						<span className="truncate">{item.spaceName}</span>
-						{item.visibility === "private" && (
-							<LockKeyIcon
-								aria-label="Invite-only in this organization"
-								className="size-3 shrink-0 text-muted-foreground"
-							/>
-						)}
-					</span>
-					<span className="mt-1 block truncate pl-6 text-muted-foreground text-xs">
-						{input.preview === undefined
-							? "Message preview unavailable"
-							: (input.preview?.text ?? item.spacePurpose ?? "No messages yet")}
-					</span>
+					<SpaceDirectorySummary
+						item={item}
+						preview={input.preview}
+						unread={input.unread > 0}
+					/>
 				</Link>
 				<div className="mt-1 pl-6 lg:hidden">
 					<RowStatus href={href} status={status} unread={input.unread} />
@@ -764,71 +611,42 @@ function JoinedRow(input: {
 				)}
 			</TableCell>
 			<TableCell>
-				<div
-					className={cn(
-						"flex items-center opacity-0 group-focus-within/space-directory-row:opacity-100 group-hover/space-directory-row:opacity-100 [@media(hover:none)]:opacity-100",
-						menuOpen && "opacity-100"
-					)}
-				>
-					<DirectoryIcon
-						disabled={input.input.pinActionsPending}
-						label={`${item.pinnedAt ? "Unpin" : "Pin"} ${item.spaceName}`}
-						onClick={() => input.input.onTogglePinned(item)}
-					>
-						<PushPinIcon weight={item.pinnedAt ? "fill" : "regular"} />
-					</DirectoryIcon>
-					<DropdownMenu onOpenChange={setMenuOpen} open={menuOpen}>
-						<DropdownMenuTrigger
-							render={
-								<Button
-									aria-label={`Move ${item.spaceName} to group`}
-									size="icon-sm"
-									variant="ghost"
-								/>
-							}
-						>
-							<DotsThreeIcon />
-						</DropdownMenuTrigger>
-						<FluidDropdownMenuContent align="end" className="w-56">
-							<p className="px-2 py-1 text-muted-foreground text-xs">
-								Move to group
-							</p>
-							{[
-								{ id: "spaces", name: "Spaces" },
-								...(input.preferences?.groups ?? []),
-							].map((group, index) => (
-								<FluidDropdownMenuItem
-									disabled={input.disabled || item.pinnedAt !== null}
-									index={index}
-									key={group.id}
-									onClick={() => {
-										const preferences = input.preferences;
-										if (!preferences) {
-											return;
-										}
-										input.save({
-											...preferences,
-											groups: preferences.groups.map((entry) => ({
-												...entry,
-												spaceIds: [
-													...entry.spaceIds.filter((id) => id !== item.spaceId),
-													...(entry.id === group.id ? [item.spaceId] : []),
-												],
-											})),
-										});
-									}}
-								>
-									{group.name}
-								</FluidDropdownMenuItem>
-							))}
-							{item.pinnedAt && (
-								<p className="px-2 py-1 text-muted-foreground text-xs">
-									Unpin this Space to move it to a group.
-								</p>
-							)}
-						</FluidDropdownMenuContent>
-					</DropdownMenu>
-				</div>
+				<DirectoryRowActions
+					disabled={input.disabled || input.input.pinActionsPending}
+					groupId={
+						input.preferences?.groups.find((group) =>
+							group.spaceIds.includes(item.spaceId)
+						)?.id ?? "spaces"
+					}
+					groups={[
+						{ id: "spaces", name: "Spaces" },
+						...(input.preferences?.groups ?? []),
+					]}
+					moveDisabledReason={
+						item.pinnedAt !== null
+							? "Unpin this Space to move it to a group."
+							: undefined
+					}
+					name={item.spaceName}
+					onMove={(groupId) => {
+						const preferences = input.preferences;
+						if (!preferences) {
+							return;
+						}
+						input.save({
+							...preferences,
+							groups: preferences.groups.map((entry) => ({
+								...entry,
+								spaceIds: [
+									...entry.spaceIds.filter((id) => id !== item.spaceId),
+									...(entry.id === groupId ? [item.spaceId] : []),
+								],
+							})),
+						});
+					}}
+					onTogglePinned={() => input.input.onTogglePinned(item)}
+					pinned={item.pinnedAt !== null}
+				/>
 			</TableCell>
 		</TableRow>
 	);
@@ -842,16 +660,14 @@ function RowStatus(input: {
 	return (
 		<div className="flex flex-col gap-1 text-xs">
 			{input.status && (
-				<Link
-					className="flex items-center gap-2"
-					title={input.status.label}
-					to={input.href}
-				>
-					{input.status.orbState && (
-						<SpaceAgentOrb state={input.status.orbState} />
-					)}
-					<span className="truncate">{input.status.label}</span>
-				</Link>
+				<TooltipHint content={input.status.label}>
+					<Link className="flex items-center gap-2" to={input.href}>
+						{input.status.orbState && (
+							<SpaceAgentOrb state={input.status.orbState} />
+						)}
+						<span className="truncate">{input.status.label}</span>
+					</Link>
+				</TooltipHint>
 			)}
 			{input.unread > 0 && (
 				<span className="flex items-center gap-2 text-muted-foreground">
@@ -969,7 +785,7 @@ function DiscoverList({
 								onClick={() => onPreview(space)}
 								type="button"
 							>
-								<HashIcon className="size-4 shrink-0 text-muted-foreground" />
+								<ChatCircleTextIcon className="size-4 shrink-0 text-muted-foreground" />
 								{space.name}
 							</button>
 							{input.joinError?.spaceId === space.spaceId && (

@@ -1,14 +1,147 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES } from "@openmeld/adapter-core";
 import { buildCodexExecArgs } from "../dist/transport/codex-cli-transport.js";
+import {
+  buildCodexFileAccessBoundaryGlobalArgs,
+  isCodexExecutionContextFileAccessConfirmed,
+} from "../dist/transport/codex-file-access-boundary.js";
 import { buildCodexSpaceActionMcpGlobalArgs } from "../dist/transport/codex-space-action-mcp-config.js";
 
 const DANGEROUS_BYPASS_FLAG = "--dangerously-bypass-approvals-and-sandbox";
+const DISPATCH_TOOL_NAMES = OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES;
 
 const countDangerousBypassFlags = (args) =>
   args.filter((arg) => arg === DANGEROUS_BYPASS_FLAG).length;
 
 describe("Codex CLI transport args", () => {
+  it("requires native permission-profile evidence before an isolated task can run", () => {
+    const boundary = {
+      mode: "only_selected_folders",
+      folders: ["/work/task"],
+      revision: 1,
+      updatedAtMs: 1,
+      executionContextAccess: "workspace",
+    };
+    // ThreadStartResponse permission fields from Codex 0.154.0-alpha.6.2;
+    // the generated native JSON Schema defines activePermissionProfile.
+    const response = {
+      runtimeWorkspaceRoots: ["/work/task"],
+      cwd: "/work/task",
+      approvalPolicy: "never",
+      activePermissionProfile: {
+        id: "openmeld_computer_boundary",
+        extends: null,
+      },
+      sandbox: {
+        type: "workspaceWrite",
+        writableRoots: [],
+        networkAccess: false,
+        excludeTmpdirEnvVar: true,
+        excludeSlashTmp: true,
+      },
+    };
+    assert.equal(
+      isCodexExecutionContextFileAccessConfirmed(
+        response,
+        boundary,
+        "/work/task"
+      ),
+      true
+    );
+    assert.equal(
+      isCodexExecutionContextFileAccessConfirmed(
+        { ...response, sandbox: { type: "readOnly" } },
+        boundary,
+        "/work/task",
+        "repair"
+      ),
+      true
+    );
+    assert.equal(
+      isCodexExecutionContextFileAccessConfirmed(
+        response,
+        boundary,
+        "/work/task",
+        "repair"
+      ),
+      false
+    );
+    for (const invalid of [
+      undefined,
+      { ...response, activePermissionProfile: { id: ":workspace" } },
+      { ...response, approvalPolicy: "on-request" },
+      {
+        ...response,
+        sandbox: { ...response.sandbox, writableRoots: ["/other"] },
+      },
+      { ...response, sandbox: { type: "dangerFullAccess" } },
+    ]) {
+      assert.equal(
+        isCodexExecutionContextFileAccessConfirmed(
+          invalid,
+          boundary,
+          "/work/task"
+        ),
+        false
+      );
+    }
+    const args = buildCodexFileAccessBoundaryGlobalArgs({
+      boundary,
+      permissionMode: "codex:askForApproval",
+    });
+    assert.equal(args.includes("features.hooks=false"), true);
+    assert.equal(args.includes("features.plugins=false"), true);
+    assert.equal(args.includes("mcp_servers={}"), false);
+    assert.equal(args[args.indexOf("-a") + 1], "never");
+    const handoff = {
+      ...boundary,
+      executionContextAccess: "space_context",
+      workingCopyId: "11111111-1111-4111-8111-111111111111",
+    };
+    assert.equal(
+      isCodexExecutionContextFileAccessConfirmed(
+        response,
+        handoff,
+        "/work/task"
+      ),
+      true
+    );
+    assert.equal(
+      isCodexExecutionContextFileAccessConfirmed(
+        { ...response, sandbox: { type: "readOnly" } },
+        handoff,
+        "/work/task"
+      ),
+      false
+    );
+    const handoffArgs = buildCodexFileAccessBoundaryGlobalArgs({
+      boundary: handoff,
+    });
+    assert.equal(handoffArgs.includes("project_root_markers=[]"), true);
+    assert.ok(
+      handoffArgs.some((arg) => arg.includes('"/work/task" = "write"'))
+    );
+    assert.equal(
+      isCodexExecutionContextFileAccessConfirmed(
+        response,
+        { ...handoff, workingCopyId: undefined },
+        "/work/task"
+      ),
+      false
+    );
+    for (const access of ["space_context", "read_only", "workspace"]) {
+      const scopedArgs = buildCodexFileAccessBoundaryGlobalArgs({
+        boundary: { ...boundary, executionContextAccess: access },
+        permissionMode: "codex:askForApproval",
+      });
+      assert.equal(
+        scopedArgs.includes("project_root_markers=[]"),
+        access === "space_context"
+      );
+      assert.equal(scopedArgs.includes("project_doc_max_bytes=0"), false);
+    }
+  });
   it("keeps cwd write inherited while selected parent and additional roots stay read-only", () => {
     for (const agentControllerPermissionMode of [
       "codex:askForApproval",
@@ -38,6 +171,32 @@ describe("Codex CLI transport args", () => {
         args.includes('default_permissions="openmeld_computer_boundary"'),
         true
       );
+    }
+  });
+
+  it("uses supported human approval with the same Computer boundary for probes and execution", () => {
+    // Captured Codex 0.155.0-alpha.9 CLI and App Server contracts accept
+    // on-request/never; approvals_reviewer explicitly selects user/auto_review.
+    for (const executionMode of ["normal", "repair"]) {
+      const args = buildCodexFileAccessBoundaryGlobalArgs({
+        boundary: {
+          mode: "only_selected_folders",
+          folders: ["/work/task"],
+          revision: 1,
+          updatedAtMs: 1,
+        },
+        permissionMode: "codex:askForApproval",
+        executionMode,
+      });
+      assert.equal(args[args.indexOf("-a") + 1], "on-request");
+      assert.equal(args.includes('approvals_reviewer="user"'), true);
+      assert.equal(args.includes("--strict-config"), true);
+      assert.equal(
+        args.includes('default_permissions="openmeld_computer_boundary"'),
+        true
+      );
+      assert.equal(args.includes('approvals_reviewer="auto_review"'), false);
+      assert.equal(countDangerousBypassFlags(args), 0);
     }
   });
 
@@ -119,7 +278,9 @@ describe("Codex CLI transport args", () => {
         "-s",
         "workspace-write",
         "-a",
-        "untrusted",
+        "on-request",
+        "-c",
+        'approvals_reviewer="user"',
         "exec",
         "--json",
         "--skip-git-repo-check",
@@ -169,7 +330,9 @@ describe("Codex CLI transport args", () => {
         "-s",
         "workspace-write",
         "-a",
-        "untrusted",
+        "on-request",
+        "-c",
+        'approvals_reviewer="user"',
         "exec",
         "resume",
         "--json",
@@ -226,7 +389,9 @@ describe("Codex CLI transport args", () => {
         "-s",
         "workspace-write",
         "-a",
-        "untrusted",
+        "on-request",
+        "-c",
+        'approvals_reviewer="user"',
         "exec",
         "resume",
         "--json",
@@ -274,7 +439,9 @@ describe("Codex CLI transport args", () => {
         "-s",
         "read-only",
         "-a",
-        "untrusted",
+        "on-request",
+        "-c",
+        'approvals_reviewer="user"',
         "exec",
         "resume",
         "--json",
@@ -295,6 +462,7 @@ describe("Codex Space Action MCP config", () => {
         OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH:
           "/tmp/openmeld dispatch/bin/openmeld-dev",
         OPENMELD_USER_FACING_CLI_COMMAND: "openmeld-dev",
+        OPENMELD_HOME: "/tmp/isolated OpenMeld home",
       }),
       [
         "-c",
@@ -302,13 +470,13 @@ describe("Codex Space Action MCP config", () => {
         "-c",
         'mcp_servers.openmeld_internal_dispatch_space_action.args=["space","action","tool-server"]',
         "-c",
-        'mcp_servers.openmeld_internal_dispatch_space_action.env_vars=["OPENMELD_SPACE_ACTION_CONTEXT_PATH","OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH","OPENMELD_USER_FACING_CLI_COMMAND"]',
+        'mcp_servers.openmeld_internal_dispatch_space_action.env_vars=["OPENMELD_SPACE_ACTION_CONTEXT_PATH","OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH","OPENMELD_USER_FACING_CLI_COMMAND","OPENMELD_HOME"]',
         "-c",
         "mcp_servers.openmeld_internal_dispatch_space_action.enabled=true",
         "-c",
         "mcp_servers.openmeld_internal_dispatch_space_action.required=true",
         "-c",
-        'mcp_servers.openmeld_internal_dispatch_space_action.enabled_tools=["reply","status","stay_silent"]',
+        `mcp_servers.openmeld_internal_dispatch_space_action.enabled_tools=${JSON.stringify(DISPATCH_TOOL_NAMES)}`,
         "-c",
         "mcp_servers.openmeld_internal_dispatch_space_action.disabled_tools=[]",
         "-c",

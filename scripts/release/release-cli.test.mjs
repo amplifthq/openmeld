@@ -6,11 +6,15 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { gzipSync } from "node:zlib";
 
 import { createTrustedGitEnvironment } from "../ci/trusted-git-network.mjs";
-
+import {
+  readNpmPublicationReceipt,
+  recordNpmPublicationReceipt,
+} from "./npm-publication-receipt.mjs";
 import {
   assertChannelReadyForVersionOnlyRelease,
   assertCliReleaseVersionTarget,
@@ -26,12 +30,19 @@ import {
 } from "./release-cli.mjs";
 import {
   probeCliReleaseStages,
+  readCompletedCliRelease,
   resolveCoreProjectionTag,
   waitForNpmPropagation,
 } from "./release-cli-resume.mjs";
 import { decideNpmPublishStage } from "./release-stage-probes.mjs";
 
 const execFileAsync = promisify(execFile);
+const PENDING_ALIGNMENT_RE = /Final CLI channel alignment pending/u;
+const VERIFICATION_ONLY_RE = /resumes verification without republishing/u;
+const RECEIPT_CONFLICT_RE = /conflicts with source/u;
+const RECEIPT_SAVE_RE = /Could not save/u;
+const UNCONFIRMED_ACCEPTANCE_RE = /acceptance is unconfirmed/u;
+const INTERRUPTED_PUBLISH_RE = /publish connection interrupted/u;
 
 const CLI_RELEASE_REFUSED_RE = /CLI release refused/u;
 const DEPLOYS_CORE_RE = /deploys Core/u;
@@ -249,6 +260,32 @@ test("requires the selected release version to match package and manifest truth"
     );
 
     assert.doesNotThrow(() =>
+      assertCliReleaseVersionTarget({
+        cwd: repoRoot,
+        targetVersion: "0.7.96",
+      })
+    );
+    const releaseManifestPath = join(repoRoot, "release/local-components.json");
+    const retainedServiceManifest = JSON.parse(
+      readFileSync(releaseManifestPath, "utf8")
+    );
+    retainedServiceManifest.components.service.bundleVersion = "0.7.95";
+    await writeFile(
+      releaseManifestPath,
+      `${JSON.stringify(retainedServiceManifest, null, 2)}\n`
+    );
+    assert.doesNotThrow(() =>
+      assertCliReleaseVersionTarget({
+        cwd: repoRoot,
+        targetVersion: "0.7.96",
+      })
+    );
+    retainedServiceManifest.components.service.bundleVersion = "0.7.97";
+    await writeFile(
+      releaseManifestPath,
+      `${JSON.stringify(retainedServiceManifest, null, 2)}\n`
+    );
+    assert.throws(() =>
       assertCliReleaseVersionTarget({
         cwd: repoRoot,
         targetVersion: "0.7.96",
@@ -480,25 +517,28 @@ test("fails a conflicting release tag before starting network probes", async () 
   }
 });
 
-test("routes the Core deploy step through deploy:core:local-components so it inherits the channel-sync gate", () => {
+test("uses the current release control guard and preserves the channel-sync gate", () => {
   assert.deepEqual(buildCoreDeployStepSpec(), {
-    args: ["run", "deploy:core:local-components"],
-    command: "pnpm",
+    args: [
+      fileURLToPath(new URL("./deploy-core-worker.mjs", import.meta.url)),
+      "--verify-local-components",
+    ],
+    command: "node",
     label: "Deploy Core with the published local-components manifest",
   });
 });
 
-test("passes the Core release tag through pnpm run so Wrangler receives it", () => {
+test("passes the immutable release tag to the current control guard", () => {
   assert.deepEqual(
     buildCoreDeployStepSpec({ targetTag: "openmeld-release-target" }),
     {
       args: [
-        "run",
-        "deploy:core:local-components",
+        fileURLToPath(new URL("./deploy-core-worker.mjs", import.meta.url)),
+        "--verify-local-components",
         "--tag",
         "openmeld-release-target",
       ],
-      command: "pnpm",
+      command: "node",
       label: "Deploy Core with the published local-components manifest",
     }
   );
@@ -607,6 +647,7 @@ test("preserves a failed stage error and prints the canonical resume command", a
     await writeFile(join(repoRoot, "release/local-components.json"), "{}\n");
     await git("add", "release/local-components.json");
     await git("commit", "-m", "add release manifest");
+    await configureTestOrigin({ git, repoRoot });
     const coreTag = resolveCoreProjectionTag({ cwd: repoRoot });
     await assert.rejects(
       runCliRelease({
@@ -669,7 +710,7 @@ test("preserves a failed stage error and prints the canonical resume command", a
           },
         },
         cwd: repoRoot,
-        env: {},
+        env: { PATH: process.env.PATH },
         withBinary: true,
       }),
       (error) => {
@@ -690,6 +731,7 @@ test("stops before binary, npm, tag, and Core when the Queue gate fails", async 
     await writeFile(join(repoRoot, "release/local-components.json"), "{}\n");
     await git("add", "release/local-components.json");
     await git("commit", "-m", "add release manifest");
+    await configureTestOrigin({ git, repoRoot });
     const coreTag = resolveCoreProjectionTag({ cwd: repoRoot });
     const sideEffects = [];
 
@@ -758,7 +800,7 @@ test("stops before binary, npm, tag, and Core when the Queue gate fails", async 
           publishCliReleaseTag: () => sideEffects.push("tag"),
         },
         cwd: repoRoot,
-        env: {},
+        env: { PATH: process.env.PATH },
         withBinary: true,
       }),
       (error) => {
@@ -876,7 +918,7 @@ test("a fully completed CLI release rerun skips every stage without side effects
   const sideEffects = [];
   const output = [];
   try {
-    const result = await runCliRelease({
+    const input = {
       adapters: {
         fetch: (url, options) => {
           const manifest = buildTestCliManifest("0.7.96");
@@ -899,7 +941,7 @@ test("a fully completed CLI release rerun skips every stage without side effects
           const key = [command, ...args].join(" ");
           if (
             key ===
-            "npm view openmeld@0.7.96 version openmeld.minRequiredCliVersion --json"
+            "npm view openmeld@0.7.96 version openmeld.minRequiredCliVersion --json --registry=https://registry.npmjs.org/ --prefer-online"
           ) {
             return {
               status: 0,
@@ -938,7 +980,15 @@ test("a fully completed CLI release rerun skips every stage without side effects
       env: {},
       withBinary: true,
       write: (value) => output.push(value),
-    });
+    };
+    const completion = await readCompletedCliRelease(input);
+    assert.equal(completion.sourceSha, head);
+    assert.equal(completion.core.targetTag, coreTag);
+    assert.equal(
+      completion.core.deploymentId,
+      WRANGLER_RELEASE_STATE.deployments[0].id
+    );
+    const result = await runCliRelease(input);
 
     assert.equal(result.alignment.action, "SKIP");
     assert.deepEqual(sideEffects, []);
@@ -1291,7 +1341,9 @@ test("stops before every release mutation when the stable CLI channel is ahead",
   }
 });
 
-test("resumes a newer CLI target without probing artifacts from an older manifest", async () => {
+// biome-ignore lint/style/noDoneCallback: Node's test context restores timers; this is not a completion callback.
+test("resumes a newer CLI target after slow command probes without reading old artifacts", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
   const artifactRequests = [];
   const target = {
     coreTag: "openmeld-release-target",
@@ -1301,7 +1353,10 @@ test("resumes a newer CLI target without probing artifacts from an older manifes
 
   const result = await probeCliReleaseStages({
     adapters: {
-      fetch: (url, options) => {
+      fetch: async (url, options) => {
+        // HTTP progress resumes only after synchronous subprocesses yield.
+        await Promise.resolve();
+        options?.signal?.throwIfAborted();
         if (options?.method) {
           artifactRequests.push({ method: options.method, url: String(url) });
           return Promise.reject(
@@ -1315,6 +1370,7 @@ test("resumes a newer CLI target without probing artifacts from an older manifes
         );
       },
       runCommand: ({ args, command }) => {
+        context.mock.timers.tick(11_000);
         const key = [command, ...args].join(" ");
         if (key.startsWith("npm view")) {
           return { status: 1, stderr: "npm error code E404", stdout: "" };
@@ -1354,7 +1410,7 @@ test("resumes a newer CLI target without probing artifacts from an older manifes
   assert.deepEqual(artifactRequests, []);
 });
 
-test("waits for npm propagation only after this run published the package", async () => {
+test("waits for npm availability after an accepted submission", async () => {
   const waits = [];
   const missingNpmVersion = decideNpmPublishStage({
     status: 1,
@@ -1385,7 +1441,7 @@ test("waits for npm propagation only after this run published the package", asyn
   const result = await waitForNpmPropagation({
     delays: [10_000, 20_000],
     final,
-    npmPublishedThisRun: true,
+    npmSubmission: "accepted",
     probeNpm: () => Promise.resolve(npmDecisions.shift()),
     sleep: (delayMs) => {
       waits.push(delayMs);
@@ -1399,7 +1455,7 @@ test("waits for npm propagation only after this run published the package", asyn
   assert.equal(result.alignment.action, "SKIP");
 });
 
-test("does not wait for npm on a resume or an inconclusive probe", async () => {
+test("does not wait without a submission or on an inconclusive probe", async () => {
   const inconclusiveNpmProbe = decideNpmPublishStage({
     status: 1,
     stderr: "npm error code ETIMEDOUT",
@@ -1413,7 +1469,7 @@ test("does not wait for npm on a resume or an inconclusive probe", async () => {
   });
   for (const releaseCase of [
     {
-      npmPublishedThisRun: false,
+      npmSubmission: null,
       npm: decideNpmPublishStage({
         status: 1,
         stderr: "npm error code E404",
@@ -1422,7 +1478,7 @@ test("does not wait for npm on a resume or an inconclusive probe", async () => {
       }),
     },
     {
-      npmPublishedThisRun: true,
+      npmSubmission: "accepted",
       npm: inconclusiveNpmProbe,
     },
   ]) {
@@ -1439,7 +1495,7 @@ test("does not wait for npm on a resume or an inconclusive probe", async () => {
     const result = await waitForNpmPropagation({
       delays: [10_000],
       final,
-      npmPublishedThisRun: releaseCase.npmPublishedThisRun,
+      npmSubmission: releaseCase.npmSubmission,
       probeNpm: () => {
         probed = true;
         return Promise.resolve({ action: "SKIP" });
@@ -1481,7 +1537,7 @@ test("stops propagation waits when a follow-up npm probe is inconclusive", async
       npm: missingNpmVersion,
       tag: { action: "SKIP" },
     },
-    npmPublishedThisRun: true,
+    npmSubmission: "accepted",
     probeNpm: () => Promise.resolve(inconclusiveNpmProbe),
     sleep: (delayMs) => {
       waits.push(delayMs);
@@ -1492,6 +1548,204 @@ test("stops propagation waits when a follow-up npm probe is inconclusive", async
 
   assert.deepEqual(waits, [10_000]);
   assert.equal(result.npm.probeFailure, true);
+  assert.equal(result.alignment.action, "FAIL");
+});
+
+for (const interrupted of [false, true]) {
+  test(`a ${interrupted ? "result-unknown" : "pending"} npm publication survives a new release invocation without republishing`, async () => {
+    const { git, repoRoot } = await createReleaseRepo("0.7.96");
+    try {
+      await mkdir(join(repoRoot, "release"), { recursive: true });
+      await writeFile(join(repoRoot, "release/local-components.json"), "{}\n");
+      await git("add", "release/local-components.json");
+      await git("commit", "-m", "add release manifest");
+      await configureTestOrigin({ git, repoRoot });
+      const headSha = (await git("rev-parse", "HEAD")).stdout.trim();
+      const receipt = { cwd: repoRoot, headSha, version: "0.7.96" };
+      const coreTag = resolveCoreProjectionTag({ cwd: repoRoot });
+      let published = 0;
+      let visible = false;
+      let coreDeployed = false;
+      const steps = [];
+      const waits = [];
+      const output = [];
+      const adapters = {
+        fetch: (url, options) => {
+          if (options?.method === "HEAD") {
+            return new Response(null, {
+              status: 200,
+              headers: { "content-length": String(TEST_CLI_BINARY.byteLength) },
+            });
+          }
+          return String(url).endsWith(".gz")
+            ? new Response(TEST_CLI_ARCHIVE)
+            : Response.json(buildTestCliManifest("0.7.96"));
+        },
+        runCommand: ({ args, command }) => {
+          const key = [command, ...args].join(" ");
+          if (command === "npm") {
+            assert.ok(args.includes("--registry=https://registry.npmjs.org/"));
+            assert.ok(args.includes("--prefer-online"));
+            return visible
+              ? {
+                  status: 0,
+                  stdout: buildCapturedNpmVersionFloorStdout({
+                    version: "0.7.96",
+                    minRequiredCliVersion: "0.7.96",
+                  }),
+                  stderr: "",
+                }
+              : { status: 1, stdout: "", stderr: "npm error code E404" };
+          }
+          if (key.includes("deployments list")) {
+            return {
+              status: 0,
+              stdout: JSON.stringify(WRANGLER_RELEASE_STATE.deployments),
+            };
+          }
+          if (key.includes("versions list")) {
+            return {
+              status: 0,
+              stdout: JSON.stringify(
+                WRANGLER_RELEASE_STATE.versions.map((version) => ({
+                  ...version,
+                  annotations: {
+                    "workers/tag": coreDeployed ? coreTag : "older-release",
+                  },
+                }))
+              ),
+            };
+          }
+          throw new Error(`Unexpected command: ${key}`);
+        },
+        runStep: (step) => {
+          steps.push(step.label);
+          if (step.label === "Publish OpenMeld CLI to npm") {
+            assert.equal(readNpmPublicationReceipt(receipt), "attempted");
+            published += 1;
+            if (interrupted) {
+              throw new Error("publish connection interrupted");
+            }
+          }
+          if (
+            step.label ===
+            "Deploy Core with the published local-components manifest"
+          ) {
+            coreDeployed = true;
+          }
+        },
+        sleep: (delay) => {
+          waits.push(delay);
+        },
+      };
+      const run = () =>
+        runCliRelease({
+          cwd: repoRoot,
+          withBinary: true,
+          adapters,
+          write: (text) => output.push(text),
+        });
+      await assert.rejects(
+        run(),
+        interrupted ? INTERRUPTED_PUBLISH_RE : PENDING_ALIGNMENT_RE
+      );
+      assert.equal(published, 1);
+      assert.equal(
+        readNpmPublicationReceipt(receipt),
+        interrupted ? "attempted" : "accepted"
+      );
+      assert.equal(
+        waits.reduce((sum, delay) => sum + delay, 0),
+        interrupted ? 0 : 20 * 60_000
+      );
+      const completedSteps = [...steps];
+
+      // A fresh invocation uses the real Git receipt, not an in-memory flag.
+      await assert.rejects(run(), VERIFICATION_ONLY_RE);
+      assert.ok(output.join("").includes("no package will be republished"));
+      assert.deepEqual(steps, completedSteps);
+      assert.equal(published, 1);
+      adapters.sleep = () => {
+        visible = true;
+      };
+      const final = await run();
+      assert.equal(final.alignment.action, "SKIP");
+      if (interrupted) {
+        assert.deepEqual(steps.slice(completedSteps.length), [
+          "Verify local-components release manifest",
+          "Verify production Core Queue resources",
+          "Deploy Core with the published local-components manifest",
+        ]);
+      } else {
+        assert.deepEqual(steps, completedSteps);
+      }
+      assert.equal(published, 1);
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+}
+
+test("npm receipt survives a fresh clone and rejects a different release source", async () => {
+  const { git, repoRoot } = await createReleaseRepo("0.7.96");
+  try {
+    await configureTestOrigin({ git, repoRoot });
+    const headSha = (await git("rev-parse", "HEAD")).stdout.trim();
+    const input = { cwd: repoRoot, version: "0.7.96", headSha };
+    assert.equal(readNpmPublicationReceipt(input), null);
+    recordNpmPublicationReceipt({ ...input, state: "attempted" });
+    const clone = join(repoRoot, ".git", "fresh-runner");
+    await git("clone", join(repoRoot, ".git", "test-origin.git"), clone);
+    assert.equal(
+      readNpmPublicationReceipt({ ...input, cwd: clone }),
+      "attempted"
+    );
+    recordNpmPublicationReceipt({ ...input, state: "accepted" });
+    assert.equal(
+      readNpmPublicationReceipt({ ...input, cwd: clone }),
+      "accepted"
+    );
+    await git("commit", "--allow-empty", "-m", "different source");
+    const differentSha = (await git("rev-parse", "HEAD")).stdout.trim();
+    assert.throws(
+      () => readNpmPublicationReceipt({ ...input, headSha: differentSha }),
+      RECEIPT_CONFLICT_RE
+    );
+    assert.throws(
+      () =>
+        recordNpmPublicationReceipt({
+          ...input,
+          headSha: differentSha,
+          state: "attempted",
+        }),
+      RECEIPT_SAVE_RE
+    );
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("unconfirmed submissions remain unconfirmed after bounded verification", async () => {
+  const missing = decideNpmPublishStage({
+    status: 1,
+    stderr: "npm error code E404",
+    targetVersion: "0.7.96",
+  });
+  const result = await waitForNpmPropagation({
+    final: {
+      npm: missing,
+      binary: { action: "SKIP" },
+      core: { action: "RUN" },
+      tag: { action: "RUN" },
+    },
+    npmSubmission: "attempted",
+    delays: [1],
+    probeNpm: () => missing,
+    sleep: () => undefined,
+    write: () => undefined,
+  });
+  assert.equal(result.npm.criterion, "npm-publication-pending");
+  assert.match(result.npm.reason, UNCONFIRMED_ACCEPTANCE_RE);
   assert.equal(result.alignment.action, "FAIL");
 });
 

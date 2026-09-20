@@ -47,6 +47,7 @@
     "OPENMELD_WORKER_ENVIRONMENT": "local",
     "OPENMELD_GATEWAY_URL": "http://localhost:8080",
     "WEB_APP_URL": "http://localhost:3000",
+    "AUTH_DESKTOP_DEVELOPMENT_TARGET": "",
     "BETTER_AUTH_URL": "http://localhost:8788",
     "VITE_BETTER_AUTH_URL": "http://localhost:8788",
     "VITE_APP_TITLE": "OpenMeld Web"
@@ -88,6 +89,7 @@
         "OPENMELD_WORKER_ENVIRONMENT": "stg",
         "OPENMELD_GATEWAY_URL": "https://gateway.staging.openmeld.ai",
         "WEB_APP_URL": "https://staging.openmeld.ai",
+        "AUTH_DESKTOP_DEVELOPMENT_TARGET": "",
         "BETTER_AUTH_URL": "https://auth.staging.openmeld.ai",
         "VITE_BETTER_AUTH_URL": "https://auth.staging.openmeld.ai",
         "VITE_APP_TITLE": "OpenMeld Staging",
@@ -126,6 +128,7 @@
         "OPENMELD_WORKER_ENVIRONMENT": "prod",
         "OPENMELD_GATEWAY_URL": "https://gateway.openmeld.ai",
         "WEB_APP_URL": "https://openmeld.ai",
+        "AUTH_DESKTOP_DEVELOPMENT_TARGET": "",
         "BETTER_AUTH_URL": "https://auth.openmeld.ai",
         "VITE_BETTER_AUTH_URL": "https://auth.openmeld.ai",
         "VITE_APP_TITLE": "OpenMeld Web"

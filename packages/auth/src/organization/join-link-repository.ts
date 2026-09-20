@@ -4,7 +4,7 @@ import {
   organizations,
 } from "@openmeld/db/auth";
 import type { InferSelectModel } from "drizzle-orm";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, lte, sql } from "drizzle-orm";
 import type { createD1Db } from "../db";
 
 export type OrganizationJoinLinkRecord = InferSelectModel<
@@ -28,7 +28,8 @@ export type ActiveOrganizationJoinLinkRecord = OrganizationJoinLinkRecord & {
 export type OrganizationJoinLinkRepository = {
   findActiveByOrganizationId: (
     organizationId: string,
-    spaceId?: string
+    spaceId?: string,
+    mode?: "direct" | "request"
   ) => Promise<OrganizationJoinLinkRecord | null>;
   findActiveByToken: (
     token: string
@@ -41,20 +42,29 @@ export type OrganizationJoinLinkRepository = {
     organizationId: string
   ) => Promise<OrganizationJoinLinkOrganizationRecord | null>;
   ensureActive: (input: {
+    initialOnly?: boolean;
+    mode: "direct" | "request";
+    expiresAt: Date;
     spaceId?: string;
     createdBy: string;
     id: string;
     organizationId: string;
     token: string;
-  }) => Promise<OrganizationJoinLinkRecord>;
+  }) => Promise<OrganizationJoinLinkRecord | null>;
   resetActive: (input: {
+    mode: "direct" | "request";
+    expiresAt: Date;
     spaceId?: string;
     createdBy: string;
     id: string;
     organizationId: string;
     token: string;
   }) => Promise<OrganizationJoinLinkRecord>;
-  revokeActive: (organizationId: string, spaceId?: string) => Promise<boolean>;
+  revokeActive: (
+    organizationId: string,
+    spaceId?: string,
+    mode?: "direct" | "request"
+  ) => Promise<boolean>;
 };
 
 type OrganizationJoinLinkDatabase = ReturnType<typeof createD1Db>;
@@ -63,13 +73,18 @@ export function createDrizzleOrganizationJoinLinkRepository(
   db: OrganizationJoinLinkDatabase
 ): OrganizationJoinLinkRepository {
   return {
-    async findActiveByOrganizationId(organizationId, spaceId) {
+    async findActiveByOrganizationId(
+      organizationId,
+      spaceId,
+      mode = "request"
+    ) {
       const rows = await db
         .select()
         .from(organizationJoinLinks)
         .where(
           and(
             eq(organizationJoinLinks.organizationId, organizationId),
+            eq(organizationJoinLinks.mode, mode),
             spaceId
               ? eq(organizationJoinLinks.spaceId, spaceId)
               : isNull(organizationJoinLinks.spaceId),
@@ -85,6 +100,8 @@ export function createDrizzleOrganizationJoinLinkRepository(
           id: organizationJoinLinks.id,
           organizationId: organizationJoinLinks.organizationId,
           token: organizationJoinLinks.token,
+          mode: organizationJoinLinks.mode,
+          expiresAt: organizationJoinLinks.expiresAt,
           spaceId: organizationJoinLinks.spaceId,
           role: organizationJoinLinks.role,
           createdBy: organizationJoinLinks.createdBy,
@@ -138,11 +155,53 @@ export function createDrizzleOrganizationJoinLinkRepository(
       return rows[0] ?? null;
     },
     async ensureActive(input) {
-      const [createdRows, activeRows] = await db.batch([
+      if (input.initialOnly) {
+        // The history check and insertion are one statement: opening Share
+        // cannot undo a revocation, even when another request races it.
+        await db.run(sql`INSERT OR IGNORE INTO organization_join_links
+          (id, organization_id, space_id, mode, token, role, created_by, expires_at)
+          SELECT ${input.id}, ${input.organizationId}, ${input.spaceId ?? null},
+            ${input.mode}, ${input.token}, 'member', ${input.createdBy}, ${input.expiresAt.getTime()}
+          WHERE NOT EXISTS (SELECT 1 FROM organization_join_links
+            WHERE organization_id = ${input.organizationId}
+              AND space_id IS ${input.spaceId ?? null} AND mode = ${input.mode})`);
+        const rows = await db
+          .select()
+          .from(organizationJoinLinks)
+          .where(
+            and(
+              eq(organizationJoinLinks.organizationId, input.organizationId),
+              eq(organizationJoinLinks.mode, input.mode),
+              input.spaceId
+                ? eq(organizationJoinLinks.spaceId, input.spaceId)
+                : isNull(organizationJoinLinks.spaceId),
+              isNull(organizationJoinLinks.revokedAt)
+            )
+          )
+          .limit(1);
+        return rows[0] ?? null;
+      }
+      const [, createdRows, activeRows] = await db.batch([
+        db
+          .update(organizationJoinLinks)
+          .set({ revokedAt: new Date() })
+          .where(
+            and(
+              eq(organizationJoinLinks.organizationId, input.organizationId),
+              eq(organizationJoinLinks.mode, input.mode),
+              input.spaceId
+                ? eq(organizationJoinLinks.spaceId, input.spaceId)
+                : isNull(organizationJoinLinks.spaceId),
+              isNull(organizationJoinLinks.revokedAt),
+              lte(organizationJoinLinks.expiresAt, new Date())
+            )
+          ),
         db
           .insert(organizationJoinLinks)
           .values({
             id: input.id,
+            mode: input.mode,
+            expiresAt: input.expiresAt,
             spaceId: input.spaceId ?? null,
             organizationId: input.organizationId,
             token: input.token,
@@ -157,6 +216,7 @@ export function createDrizzleOrganizationJoinLinkRepository(
           .where(
             and(
               eq(organizationJoinLinks.organizationId, input.organizationId),
+              eq(organizationJoinLinks.mode, input.mode),
               input.spaceId
                 ? eq(organizationJoinLinks.spaceId, input.spaceId)
                 : isNull(organizationJoinLinks.spaceId),
@@ -182,6 +242,7 @@ export function createDrizzleOrganizationJoinLinkRepository(
           .where(
             and(
               eq(organizationJoinLinks.organizationId, input.organizationId),
+              eq(organizationJoinLinks.mode, input.mode),
               input.spaceId
                 ? eq(organizationJoinLinks.spaceId, input.spaceId)
                 : isNull(organizationJoinLinks.spaceId),
@@ -192,6 +253,8 @@ export function createDrizzleOrganizationJoinLinkRepository(
           .insert(organizationJoinLinks)
           .values({
             id: input.id,
+            mode: input.mode,
+            expiresAt: input.expiresAt,
             spaceId: input.spaceId ?? null,
             organizationId: input.organizationId,
             token: input.token,
@@ -207,13 +270,14 @@ export function createDrizzleOrganizationJoinLinkRepository(
       }
       return created;
     },
-    async revokeActive(organizationId, spaceId) {
+    async revokeActive(organizationId, spaceId, mode = "request") {
       const rows = await db
         .update(organizationJoinLinks)
         .set({ revokedAt: new Date() })
         .where(
           and(
             eq(organizationJoinLinks.organizationId, organizationId),
+            eq(organizationJoinLinks.mode, mode),
             spaceId
               ? eq(organizationJoinLinks.spaceId, spaceId)
               : isNull(organizationJoinLinks.spaceId),

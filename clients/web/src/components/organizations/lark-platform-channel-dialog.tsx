@@ -16,10 +16,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
-import {
-	resolveStatusToneProminentBadgeClassName,
-	resolveStatusToneSoftTextClassName,
-} from "@openmeld/ui/lib/status-tone";
+import { resolveStatusToneSoftTextClassName } from "@openmeld/ui/lib/status-tone";
 import {
 	ArrowSquareOutIcon,
 	CheckCircleIcon,
@@ -28,6 +25,8 @@ import {
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
+import { AuthorizationLink } from "#/desktop/authorization-link";
+import { requiresLarkPlatformSetupAuthorization } from "./lark-platform-setup-authorization";
 
 export function LarkPlatformChannelDialog(input: {
 	canManage: boolean;
@@ -38,6 +37,7 @@ export function LarkPlatformChannelDialog(input: {
 	onDisconnect: () => void;
 	onOpenChange: (open: boolean) => void;
 	onRepair: () => void;
+	onReauthorize: () => void;
 	onRetryPoll: () => void;
 	onStartOver: () => void;
 	open: boolean;
@@ -70,6 +70,11 @@ export function LarkPlatformChannelDialog(input: {
 			});
 	const canDisconnect =
 		connection !== null && connection.status !== "disconnected";
+	const showAuthorizationAction =
+		!(input.registration || input.cleanupOnly) &&
+		input.canManage &&
+		connection?.reasonCode ===
+			`${connection?.provider}.authorization_update_required`;
 	const registrationInProgress =
 		input.registration !== null &&
 		(input.registration.attempt.status === "pending_registration" ||
@@ -88,7 +93,7 @@ export function LarkPlatformChannelDialog(input: {
 
 	return (
 		<Dialog onOpenChange={handleOpenChange} open={input.open}>
-			<DialogContent className="sm:max-w-lg">
+			<DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
 				<DialogHeader>
 					<DialogTitle>{dialogTitle}</DialogTitle>
 					<DialogDescription>{dialogDescription}</DialogDescription>
@@ -96,6 +101,7 @@ export function LarkPlatformChannelDialog(input: {
 				{input.registration && !needsRepair ? (
 					<RegistrationProgress
 						errorMessage={input.errorMessage}
+						onReauthorize={input.onReauthorize}
 						onRetryPoll={input.onRetryPoll}
 						onStartOver={input.onStartOver}
 						pollPending={input.pollPending}
@@ -120,20 +126,38 @@ export function LarkPlatformChannelDialog(input: {
 						startOverPending={input.startOverPending}
 					/>
 				)}
-				{canDisconnect && input.canManage ? (
-					<DisconnectControl
-						confirming={confirmingDisconnect}
-						disabled={input.repairPending}
-						disconnectPending={input.disconnectPending}
-						onCancel={() => setConfirmingDisconnect(false)}
-						onConfirm={input.onDisconnect}
-						onStart={() => setConfirmingDisconnect(true)}
-						providerLabel={providerLabel}
-					/>
-				) : null}
-				{registrationInProgress || confirmingDisconnect ? null : (
-					<DialogFooter showCloseButton />
-				)}
+				<DialogFooter className="items-stretch border-t pt-4 empty:hidden sm:items-center sm:justify-between">
+					{canDisconnect && input.canManage ? (
+						<DisconnectControl
+							confirming={confirmingDisconnect}
+							disabled={input.repairPending}
+							disconnectPending={input.disconnectPending}
+							onCancel={() => setConfirmingDisconnect(false)}
+							onConfirm={input.onDisconnect}
+							onStart={() => setConfirmingDisconnect(true)}
+							providerLabel={providerLabel}
+						/>
+					) : null}
+					{registrationInProgress || confirmingDisconnect ? null : (
+						<div className="flex justify-end gap-2 sm:ml-auto">
+							<Button onClick={() => handleOpenChange(false)} variant="outline">
+								Close
+							</Button>
+							{showAuthorizationAction ? (
+								<Button
+									disabled={input.disconnectPending || input.repairPending}
+									onClick={input.onReauthorize}
+								>
+									Update permissions
+									<ArrowSquareOutIcon
+										aria-hidden="true"
+										data-icon="inline-end"
+									/>
+								</Button>
+							) : null}
+						</div>
+					)}
+				</DialogFooter>
 			</DialogContent>
 		</Dialog>
 	);
@@ -158,14 +182,15 @@ function resolveDialogDescription(input: {
 	providerLabel: string;
 }): string {
 	if (input.connected) {
-		return `This organization can reach its Center Agent from ${input.providerLabel}.`;
+		return "Manage your organization’s Center Agent connection.";
 	}
 	return input.needsRepair
 		? `Retry the existing ${input.providerLabel} app without creating another one.`
-		: `Connect ${input.providerLabel} with its official Personal Agent setup flow.`;
+		: `Connect your Center Agent to ${input.providerLabel}.`;
 }
 
 function RegistrationProgress(input: {
+	onReauthorize: () => void;
 	errorMessage: string | null;
 	onRetryPoll: () => void;
 	onStartOver: () => void;
@@ -183,18 +208,17 @@ function RegistrationProgress(input: {
 			LARK_PLATFORM_REGISTRATION_DOMAINS[attempt.provider].launcherHost;
 		return (
 			<div className="space-y-4">
-				<div className="border border-border/70 bg-card/30 p-4">
+				<div className="rounded-md bg-muted/40 p-3">
 					<p className="font-medium text-foreground text-sm">
 						Open the official {input.providerLabel} setup page
 					</p>
-					<p className="mt-1 text-muted-foreground text-sm leading-6">
-						Sign in with your {input.providerLabel} account. This setup is for{" "}
-						{input.providerLabel} only. Create a new {input.providerLabel} app,
-						review the requested Channel permissions, and keep this window open
-						while OpenMeld finishes the connection.
+					<p className="mt-1 text-muted-foreground text-xs/relaxed">
+						Sign in to {input.providerLabel}, create a bot, and approve its
+						messaging and configuration permissions. OpenMeld will finish
+						connecting automatically.
 					</p>
 					<div className="mt-4 flex flex-wrap gap-2">
-						<a
+						<AuthorizationLink
 							className={buttonVariants({ size: "default" })}
 							href={launcherUrl.toString()}
 							rel="noreferrer"
@@ -202,7 +226,7 @@ function RegistrationProgress(input: {
 						>
 							<ArrowSquareOutIcon aria-hidden="true" data-icon="inline-start" />
 							Open {input.providerLabel} setup
-						</a>
+						</AuthorizationLink>
 						<Button
 							disabled={input.startOverPending}
 							onClick={input.onStartOver}
@@ -226,51 +250,48 @@ function RegistrationProgress(input: {
 			</div>
 		);
 	}
+	if (requiresLarkPlatformSetupAuthorization(attempt)) {
+		return (
+			<div className="space-y-3 rounded-md bg-muted/40 p-3">
+				<p className="font-medium text-sm">Authorization required</p>
+				<p className="text-muted-foreground text-xs/relaxed">
+					Approve the updated permissions in {input.providerLabel} so OpenMeld
+					can finish connecting. You’ll keep the same bot.
+				</p>
+				<div className="flex flex-wrap gap-2">
+					<Button onClick={input.onReauthorize} type="button">
+						<ArrowSquareOutIcon aria-hidden="true" data-icon="inline-start" />
+						Reauthorize {input.providerLabel}
+					</Button>
+					<Button
+						disabled={input.pollPending}
+						onClick={input.onRetryPoll}
+						type="button"
+						variant="outline"
+					>
+						{input.pollPending
+							? "Checking authorization…"
+							: "I've authorized, check again"}
+					</Button>
+				</div>
+				{input.errorMessage ? (
+					<p className="text-destructive text-sm" role="alert">
+						{input.errorMessage}
+					</p>
+				) : null}
+			</div>
+		);
+	}
 	if (
 		attempt.status === "credentials_received" ||
 		attempt.status === "configuring"
 	) {
-		if (
-			attempt.reasonCode?.endsWith(".application_config_permission_required")
-		) {
-			return (
-				<div className="space-y-3 border border-border/70 bg-card/30 p-4">
-					<p className="font-medium text-sm">
-						Allow OpenMeld to configure the app
-					</p>
-					<p className="text-muted-foreground text-sm">
-						Open the app in {input.providerLabel} Developer Console and grant
-						the application:application:patch permission. This lets OpenMeld
-						configure the app’s message delivery. OpenMeld will check again
-						automatically after you grant access.
-					</p>
-					<a
-						className={buttonVariants({ size: "sm", variant: "outline" })}
-						href={
-							attempt.provider === "lark"
-								? "https://open.larksuite.com/app"
-								: "https://open.feishu.cn/app"
-						}
-						rel="noreferrer"
-						target="_blank"
-					>
-						<ArrowSquareOutIcon aria-hidden="true" data-icon="inline-start" />
-						Open {input.providerLabel} Developer Console
-					</a>
-					{input.errorMessage ? (
-						<p className="text-destructive text-sm" role="alert">
-							{input.errorMessage}
-						</p>
-					) : null}
-				</div>
-			);
-		}
 		return (
 			<WaitingStatus
 				errorMessage={input.errorMessage}
 				label={
 					attempt.status === "configuring"
-						? "Verifying permissions and Webhook delivery"
+						? "Checking permissions and connecting your bot"
 						: "Securing the new app credentials"
 				}
 				onRetryPoll={input.onRetryPoll}
@@ -285,17 +306,17 @@ function RegistrationProgress(input: {
 	}
 	if (attempt.status === "connected") {
 		return (
-			<div className="flex items-start gap-3 border border-border/70 bg-card/30 p-4">
+			<div className="flex items-start gap-3 rounded-md bg-muted/40 p-3">
 				<CheckCircleIcon
 					aria-hidden="true"
-					className={resolveStatusToneSoftTextClassName("ready")}
+					className={`mt-0.5 size-4 shrink-0 ${resolveStatusToneSoftTextClassName("ready")}`}
 					weight="fill"
 				/>
 				<div>
 					<p className="font-medium text-foreground text-sm">
 						{input.providerLabel} connected
 					</p>
-					<p className="mt-1 text-muted-foreground text-sm">
+					<p className="mt-1 text-muted-foreground text-xs/relaxed">
 						Members can now message the Center Agent from this organization’s{" "}
 						{input.providerLabel} workspace.
 					</p>
@@ -372,7 +393,7 @@ function WaitingStatus(input: {
 	statusMessage?: string | null;
 }) {
 	return (
-		<div className="space-y-3 border border-border/70 bg-card/30 p-4">
+		<div className="space-y-3 rounded-md bg-muted/40 p-3">
 			<div className="flex items-center gap-2">
 				<CircleNotchIcon
 					aria-hidden="true"
@@ -380,7 +401,7 @@ function WaitingStatus(input: {
 				/>
 				<p className="font-medium text-foreground text-sm">{input.label}</p>
 			</div>
-			<p className="text-muted-foreground text-sm">
+			<p className="text-muted-foreground text-xs/relaxed">
 				This window updates automatically. You can close it and continue setup
 				later.
 			</p>
@@ -416,8 +437,23 @@ function resolveConfigurationRetryMessage(input: {
 	if (!input.reasonCode) {
 		return null;
 	}
+	if (input.reasonCode.endsWith(".application_publication_pending")) {
+		return `${input.providerLabel} is reviewing the app update. The connection will be ready after approval. OpenMeld will check automatically.`;
+	}
+	if (input.reasonCode.endsWith(".application_publication_rejected")) {
+		return `${input.providerLabel} did not approve the app update. The bot is not connected. Contact your workspace administrator to review the rejection.`;
+	}
+	if (input.reasonCode.endsWith(".application_publish_failed")) {
+		return `OpenMeld could not publish the app update to ${input.providerLabel}. The bot is not connected yet. OpenMeld will retry automatically.`;
+	}
 	if (input.reasonCode.endsWith(".application_config_failed")) {
-		return `${input.providerLabel} did not accept the latest app configuration. OpenMeld will retry automatically.`;
+		return `OpenMeld could not finish configuring the ${input.providerLabel} app. It will retry automatically.`;
+	}
+	if (
+		input.reasonCode.endsWith(".persistent_connection_failed") ||
+		input.reasonCode.endsWith(".persistent_connector_unavailable")
+	) {
+		return `OpenMeld could not connect to ${input.providerLabel}. It will retry automatically.`;
 	}
 	if (
 		input.reasonCode.endsWith(".registration_transport_failed") ||
@@ -481,36 +517,52 @@ function ConnectionSummary(input: {
 		) : null;
 	}
 	const connected = input.connection.status === "connected";
+	const needsAuthorization =
+		input.connection.reasonCode ===
+		`${input.connection.provider}.authorization_update_required`;
+	const needsPublication =
+		input.connection.reasonCode ===
+		`${input.connection.provider}.application_publication_required`;
+	const repairLabel = needsPublication
+		? `Reconnect ${input.providerLabel}`
+		: `Repair ${input.providerLabel}`;
 	const needsRepair =
 		input.connection.status === "repair_required" ||
 		input.connection.status === "revoked";
 	return (
 		<div className="space-y-3">
-			<div className="flex items-start justify-between gap-4 border border-border/70 bg-card/30 p-4">
+			<div className="flex items-center justify-between gap-3 rounded-md bg-muted/40 p-3">
 				<div className="min-w-0">
-					<p className="font-medium text-foreground text-sm">
+					<p className="break-words font-medium text-foreground text-sm">
 						{input.connection.externalAccountName ??
 							`${input.providerLabel} workspace`}
-					</p>
-					<p className="mt-1 text-muted-foreground text-xs">
-						{input.connection.transport === "websocket"
-							? "Long-lived WebSocket"
-							: "Webhook delivery"}
 					</p>
 				</div>
 				<Badge
 					className={
 						connected
-							? `${resolveStatusToneProminentBadgeClassName("ready")} h-8 px-2.5`
-							: "h-8 border-border bg-muted/40 px-2.5 text-muted-foreground"
+							? `${resolveStatusToneSoftTextClassName("ready")} shrink-0 border-transparent bg-transparent`
+							: "shrink-0 border-transparent bg-transparent text-muted-foreground"
 					}
 				>
-					{connected ? "Connected" : "Needs Attention"}
+					{connected ? "Connected" : "Needs attention"}
 				</Badge>
 			</div>
+			{needsAuthorization ? (
+				<div className="space-y-1 py-1 text-sm">
+					<p className="font-medium">Permission update available</p>
+					<p className="text-muted-foreground text-xs leading-relaxed">
+						Review the updated permissions in {input.providerLabel} to enable
+						the latest features. You’ll keep the same bot.
+					</p>
+					{input.canManage ? null : (
+						<p>Ask an organization owner or admin to update permissions.</p>
+					)}
+				</div>
+			) : null}
 			{needsRepair ? (
-				<div className="space-y-3 border border-border/70 bg-card/20 p-4">
-					<p className="text-muted-foreground text-sm leading-6">
+				<div className="space-y-3 rounded-md bg-muted/40 p-3">
+					<p className="text-muted-foreground text-xs/relaxed">
 						{resolveRepairExplanation(input.connection, input.providerLabel)}
 					</p>
 					{input.canManage ? (
@@ -521,7 +573,7 @@ function ConnectionSummary(input: {
 						>
 							{input.repairPending
 								? `Repairing ${input.providerLabel}`
-								: `Repair ${input.providerLabel}`}
+								: repairLabel}
 						</Button>
 					) : null}
 				</div>
@@ -539,8 +591,14 @@ function resolveRepairExplanation(
 	connection: MessageChannelConnectionProjection,
 	providerLabel: string
 ): string {
+	if (
+		connection.reasonCode ===
+		`${connection.provider}.application_publication_required`
+	) {
+		return `Reconnect this bot and approve the updated permissions in ${providerLabel}. OpenMeld needs to publish its message-delivery settings before you can use the Center Agent here.`;
+	}
 	if (connection.reasonCode === `${connection.provider}.registration_expired`) {
-		return "Setup expired before OpenMeld could verify this app’s permissions and Webhook delivery. Repair retries the existing app; it does not create another one.";
+		return "Setup expired before OpenMeld could verify this app’s permissions and establish a connection. Repair retries the existing app; it does not create another one.";
 	}
 	if (connection.status === "revoked") {
 		return `${providerLabel} stopped authorizing this app. Repair checks the existing app again; if access was permanently revoked, disconnect it and connect a new app.`;
@@ -559,21 +617,20 @@ function DisconnectControl(input: {
 }) {
 	if (!input.confirming) {
 		return (
-			<DialogFooter>
-				<Button
-					disabled={input.disabled || input.disconnectPending}
-					onClick={input.onStart}
-					type="button"
-					variant="destructive"
-				>
-					<SignOutIcon aria-hidden="true" data-icon="inline-start" />
-					Disconnect {input.providerLabel}
-				</Button>
-			</DialogFooter>
+			<Button
+				className="text-muted-foreground hover:text-destructive"
+				disabled={input.disabled || input.disconnectPending}
+				onClick={input.onStart}
+				type="button"
+				variant="ghost"
+			>
+				<SignOutIcon aria-hidden="true" data-icon="inline-start" />
+				Disconnect {input.providerLabel}
+			</Button>
 		);
 	}
 	return (
-		<div className="space-y-3 rounded-md border border-destructive/30 bg-destructive/5 p-4">
+		<div className="w-full space-y-3 rounded-md border border-destructive/30 bg-destructive/5 p-4">
 			<div>
 				<p className="font-medium text-destructive text-sm">
 					Disconnect {input.providerLabel}?

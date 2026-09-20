@@ -1,5 +1,6 @@
 import { peopleComputerCliCommand } from "@openmeld/agent-runtime";
 import {
+  findOpenMeldToolsUpdateFailureCode,
   formatLocalSetupActionDescription,
   formatLocalSetupActionLabel,
   LOCAL_COMPONENTS_SCHEMA_VERSION,
@@ -39,7 +40,9 @@ const NUMERIC_SEMVER_IDENTIFIER_RE = /^\d+$/u;
 // Core owns this monotonic compatibility floor separately from the latest
 // release's advisory policy, so a later optional release can never make an
 // older unsafe Service eligible for new Wake work again.
-const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.168";
+// 0.3.214 also confirms current Coordinator authority at provider admission;
+// an older Host can start a delivery after Core has already expired it.
+const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.214";
 
 type ServiceUpdateDecision = {
   reasonCodes: string[];
@@ -58,6 +61,8 @@ export function resolveLocalComponentUpdateProjection(input: {
   const manifest = resolveRequestedReleaseManifest(input.releaseManifest);
   const maintenance = input.localComponentsStatus?.maintenance ?? null;
   const updateOperation = input.localComponentsStatus?.updateOperation ?? null;
+  const serviceCliReasonCodes =
+    input.localComponentsStatus?.cli.reasonCodes ?? [];
   if (!manifest) {
     const service = buildServiceUpdateProjection({
       installedVersion: input.serviceVersion,
@@ -68,16 +73,20 @@ export function resolveLocalComponentUpdateProjection(input: {
       updatePolicy: "required",
       wakeBlocked: true,
     });
-    const cli = buildCliUpdateProjection({
-      commandContractVersion:
-        input.localComponentsStatus?.cli.commandContractVersion ?? null,
-      installedPackageVersion:
-        input.localComponentsStatus?.cli.packageVersion ?? null,
-      latestPackageVersion: null,
-      reasonCodes: ["local_components.release_manifest_invalid"],
-      requiredCommandContractVersion: null,
-      status: "unknown",
-      updatePolicy: "required",
+    const cli = mergeOpenMeldToolsUpdateFailureReasonCode({
+      projection: buildCliUpdateProjection({
+        commandContractVersion:
+          input.localComponentsStatus?.cli.commandContractVersion ?? null,
+        installedPackageVersion:
+          input.localComponentsStatus?.cli.packageVersion ?? null,
+        latestPackageVersion: null,
+        reasonCodes: ["local_components.release_manifest_invalid"],
+        requiredCommandContractVersion: null,
+        status: "unknown",
+        updatePolicy: "required",
+      }),
+      serviceReasonCodes: serviceCliReasonCodes,
+      updateOperation,
     });
     const skills = buildSkillsUpdateProjection({
       expectedBundleHash: null,
@@ -104,9 +113,13 @@ export function resolveLocalComponentUpdateProjection(input: {
   const servicePolicy = manifest.components.service;
   const cliPolicy = manifest.components.cli;
   const skillsPolicy = manifest.components.skills;
-  const cli = resolveCliUpdateProjection({
-    policy: cliPolicy,
-    status: input.localComponentsStatus?.cli ?? null,
+  const cli = mergeOpenMeldToolsUpdateFailureReasonCode({
+    projection: resolveCliUpdateProjection({
+      policy: cliPolicy,
+      status: input.localComponentsStatus?.cli ?? null,
+    }),
+    serviceReasonCodes: serviceCliReasonCodes,
+    updateOperation,
   });
   const skills = resolveSkillsUpdateProjection({
     cliVersion: input.localComponentsStatus?.cli.packageVersion ?? null,
@@ -404,6 +417,29 @@ function resolveCliUpdateProjection(input: {
     }),
     updatePolicy: input.policy.updatePolicy,
   });
+}
+
+function mergeOpenMeldToolsUpdateFailureReasonCode(input: {
+  projection: LocalCliComponentUpdateProjection;
+  serviceReasonCodes: readonly string[];
+  updateOperation: OpenMeldToolsUpdateOperation | null;
+}): LocalCliComponentUpdateProjection {
+  if (
+    input.updateOperation?.phase !== "restored" &&
+    input.updateOperation?.phase !== "needs_help"
+  ) {
+    return input.projection;
+  }
+  const failureCode = findOpenMeldToolsUpdateFailureCode(
+    input.serviceReasonCodes
+  );
+  if (!failureCode || input.projection.reasonCodes.includes(failureCode)) {
+    return input.projection;
+  }
+  return {
+    ...input.projection,
+    reasonCodes: [...input.projection.reasonCodes, failureCode],
+  };
 }
 
 function resolveSkillsUpdateProjection(input: {

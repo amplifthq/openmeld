@@ -14,7 +14,8 @@ export type WakeProgressStatusKind =
 	| "retrying"
 	| "needs_input"
 	| "waiting_for_owner"
-	| "waiting_for_controller";
+	| "waiting_for_controller"
+	| "waiting_for_device";
 
 export type WakeProgressStatusPresentation = {
 	description: string;
@@ -35,12 +36,17 @@ export const WAKE_PROGRESS_STATUS_PRIORITY = {
 	retrying: 2,
 	queued: 3,
 	waiting_for_controller: 3,
+	waiting_for_device: 3,
 	waiting_for_owner: 3,
 } as const satisfies Record<WakeProgressStatusKind, number>;
 
 type PresentableWakeProgress = Pick<
 	WakeProgressItem,
-	"pendingInteraction" | "phase" | "targetLabel" | "waitReasonCode"
+	| "pendingInteraction"
+	| "phase"
+	| "targetLabel"
+	| "waitReasonCode"
+	| "deviceWait"
 >;
 
 /**
@@ -61,6 +67,12 @@ export function resolveWakeProgressStatus(
 		return null;
 	}
 	const targetName = formatWakeTargetName(item.targetLabel);
+	if (
+		item.deviceWait &&
+		(item.phase === "request_sent" || item.phase === "queued")
+	) {
+		return resolveDeviceWaitStatus(item.deviceWait, targetName);
+	}
 	if (item.pendingInteraction) {
 		return item.pendingInteraction.canRespond
 			? {
@@ -82,10 +94,9 @@ export function resolveWakeProgressStatus(
 		WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
 	) {
 		return {
-			description:
-				"This Wake will start when the Agent’s current task finishes.",
+			description: "Another app is using this conversation.",
 			kind: "waiting_for_controller",
-			label: `Waiting for ${targetName}’s current task`,
+			label: `Waiting for ${targetName}`,
 			status: "active",
 		};
 	}
@@ -109,7 +120,7 @@ export function resolveWakeProgressStatus(
 			return {
 				description: "This Wake will start when the Agent is available.",
 				kind: "queued",
-				label: `${targetName} is queued`,
+				label: `${targetName} is queued · Waiting for earlier tasks`,
 				status: "active",
 			};
 		case "connecting":
@@ -160,4 +171,33 @@ function formatWakeTargetName(targetLabel: string): string {
 		.trim()
 		.replace(LEADING_MENTION_MARKER_PATTERN, "");
 	return normalized && !normalized.startsWith("agt_") ? normalized : "Agent";
+}
+
+function resolveDeviceWaitStatus(
+	wait: NonNullable<WakeProgressItem["deviceWait"]>,
+	targetName: string
+): WakeProgressStatusPresentation {
+	let label = `${targetName} is queued · Waiting for earlier tasks`;
+	let reason = "Earlier work must finish first.";
+	if (wait.reason === "device_offline") {
+		label = `Waiting for ${targetName}’s computer to come online`;
+		reason = "The computer is offline.";
+	} else if (wait.reason === "agent_not_ready") {
+		label = `Waiting for ${targetName} to become ready`;
+		reason = "OpenMeld has not confirmed that the Agent is ready to run.";
+	} else if (wait.reason === "access_check_unavailable") {
+		label = `Waiting to verify access for ${targetName}`;
+		reason =
+			"OpenMeld could not verify current Space access. It will check again before starting.";
+	} else if (wait.reason === "service_draining") {
+		label = `Waiting for ${targetName} to accept new work`;
+		reason =
+			"OpenMeld on this computer is finishing existing work and is not accepting new tasks yet.";
+	}
+	return {
+		kind: wait.reason === "earlier_work" ? "queued" : "waiting_for_device",
+		label,
+		description: `${reason} No work has started. Waiting expires ${new Date(wait.deadlineAtMs).toLocaleString()}.`,
+		status: "pending",
+	};
 }

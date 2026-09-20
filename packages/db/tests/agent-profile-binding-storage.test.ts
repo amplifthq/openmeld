@@ -9,16 +9,20 @@ const repoRootDirectoryPath = path.resolve(
   "../../.."
 );
 const OWNER_KIND_ERROR_PATTERN = /owner_kind/;
+const HOSTED_IDENTITY_ERROR_PATTERN = /hosted_identity/;
 const LIFECYCLE_ERROR_PATTERN = /lifecycle/;
 const CANONICAL_ENABLED_ERROR_PATTERN =
   /agent_profile_binding_canonical_enabled_check/;
 const CANONICAL_ENABLED_TRIGGER_MARKER =
   "openMeldDaemon_agent_profile_bindings_canonical_enabled_";
+const CREATE_TRIGGER_NAME_PATTERN = /CREATE TRIGGER `([^`]+)`/;
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const SECOND_AGENT_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
 const THIRD_AGENT_PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
 
-const readSharedMigrationStatements = (): readonly string[] => {
+const readSharedMigrationStatements = (
+  beforePersonalRemote = false
+): readonly string[] => {
   const migrationDirectoryPath = path.resolve(
     repoRootDirectoryPath,
     "packages/db/drizzle"
@@ -26,6 +30,7 @@ const readSharedMigrationStatements = (): readonly string[] => {
   return fs
     .readdirSync(migrationDirectoryPath)
     .filter((entry) => entry.endsWith(".sql"))
+    .filter((entry) => !beforePersonalRemote || entry < "0159_")
     .sort((left, right) => left.localeCompare(right))
     .map((entry) =>
       fs.readFileSync(path.resolve(migrationDirectoryPath, entry), "utf8")
@@ -52,14 +57,85 @@ const applySharedMigrations = (
 };
 
 const applyCanonicalEnabledBindingTriggers = (database: DatabaseSync) => {
+  const currentTriggers = new Map<string, string>();
   for (const statement of readSharedMigrationStatements().filter((candidate) =>
     candidate.includes(CANONICAL_ENABLED_TRIGGER_MARKER)
   )) {
+    const name = CREATE_TRIGGER_NAME_PATTERN.exec(statement)?.[1];
+    if (name) {
+      currentTriggers.set(name, statement);
+    }
+  }
+  // Table rebuilds replace earlier triggers. Install only their current definitions.
+  for (const statement of currentTriggers.values()) {
     database.exec(statement);
   }
 };
 
 describe("Agent Profile Binding storage schema", () => {
+  it("preserves existing Local and Center Bindings and ownership guards when enabling personal Remote Agents", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      for (const statement of readSharedMigrationStatements(true)) {
+        database.exec(statement);
+      }
+      insertBinding(database, {
+        bindingId: "local",
+        agentControllerConversationId: "existing-local-session",
+      });
+      insertBinding(database, {
+        bindingId: "center",
+        agentProfileId: SECOND_AGENT_PROFILE_ID,
+      });
+      database.exec(
+        `UPDATE openMeldDaemon_agent_profile_bindings SET runtime_kind = 'hosted_center_agent', hosted_runtime_identity_json = '{"kind":"hosted_center_agent"}', agent_controller_ref = 'hosted:center-agent' WHERE binding_id = 'center'`
+      );
+      const before = database
+        .prepare(
+          "SELECT * FROM openMeldDaemon_agent_profile_bindings ORDER BY binding_id"
+        )
+        .all();
+      const migration = fs.readFileSync(
+        path.join(
+          repoRootDirectoryPath,
+          "packages/db/drizzle/0159_lazy_ma_gnuci.sql"
+        ),
+        "utf8"
+      );
+      database.exec(migration);
+      expect(
+        database
+          .prepare(
+            "SELECT * FROM openMeldDaemon_agent_profile_bindings ORDER BY binding_id"
+          )
+          .all()
+      ).toEqual(before);
+      insertBinding(database, {
+        bindingId: "personal",
+        agentProfileId: THIRD_AGENT_PROFILE_ID,
+      });
+      database.exec(
+        `UPDATE openMeldDaemon_agent_profile_bindings SET runtime_kind = 'hosted_remote_agent', hosted_runtime_identity_json = '{"kind":"hosted_remote_agent"}', agent_controller_ref = 'hosted:remote-agent' WHERE binding_id = 'personal'`
+      );
+      expect(() =>
+        database.exec(
+          "UPDATE openMeldDaemon_agent_profile_bindings SET hosted_runtime_identity_json = NULL WHERE binding_id = 'personal'"
+        )
+      ).toThrow(HOSTED_IDENTITY_ERROR_PATTERN);
+      expect(() =>
+        database.exec(
+          "UPDATE openMeldDaemon_agent_profile_bindings SET owner_id = 'another-owner' WHERE binding_id = 'personal'"
+        )
+      ).toThrow(CANONICAL_ENABLED_ERROR_PATTERN);
+      expect(() =>
+        database.exec(
+          "UPDATE openMeldDaemon_agent_profile_bindings SET runtime_kind = 'unknown' WHERE binding_id = 'personal'"
+        )
+      ).toThrow();
+    } finally {
+      database.close();
+    }
+  });
   it("creates a dedicated Binding truth table with active-primary uniqueness and read indexes", () => {
     const database = new DatabaseSync(":memory:");
     try {
@@ -69,29 +145,31 @@ describe("Agent Profile Binding storage schema", () => {
         .prepare("PRAGMA table_info('openMeldDaemon_agent_profile_bindings')")
         .all()
         .map((column) => column.name);
-      expect(columns).toEqual([
-        "binding_id",
-        "owner_kind",
-        "owner_id",
-        "agent_profile_id",
-        "openmeld_service_runtime_id",
-        "agent_controller_ref",
-        "agent_controller_conversation_id",
-        "model_id",
-        "reasoning_level",
-        "agent_controller_permission_mode",
-        "binding_state",
-        "created_at_ms",
-        "updated_at_ms",
-        "disabled_at_ms",
-        "created_by_profile_id",
-        "reason_code",
-        "opencode_permission",
-        "runtime_kind",
-        "hosted_runtime_identity_json",
-        "agent_controller_collaboration_mode",
-        "configuration_revision",
-      ]);
+      expect(columns.toSorted()).toEqual(
+        [
+          "binding_id",
+          "owner_kind",
+          "owner_id",
+          "agent_profile_id",
+          "openmeld_service_runtime_id",
+          "agent_controller_ref",
+          "agent_controller_conversation_id",
+          "model_id",
+          "reasoning_level",
+          "agent_controller_permission_mode",
+          "binding_state",
+          "created_at_ms",
+          "updated_at_ms",
+          "disabled_at_ms",
+          "created_by_profile_id",
+          "reason_code",
+          "opencode_permission",
+          "runtime_kind",
+          "hosted_runtime_identity_json",
+          "agent_controller_collaboration_mode",
+          "configuration_revision",
+        ].toSorted()
+      );
 
       const indexes = database
         .prepare("PRAGMA index_list('openMeldDaemon_agent_profile_bindings')")

@@ -1,3 +1,4 @@
+import { HOSTED_REMOTE_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
 import {
 	Avatar,
 	AvatarFallback,
@@ -6,6 +7,7 @@ import {
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
 import { RobotIcon } from "@phosphor-icons/react";
+import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 
 type SpaceMessageProfileAvatarProps = {
@@ -14,6 +16,7 @@ type SpaceMessageProfileAvatarProps = {
 	avatarImageUrl?: string | null;
 	displayName: string;
 	isCenterAgent?: boolean;
+	working?: boolean;
 	profileId: string;
 	profileKind: "agent" | "human" | "system";
 };
@@ -26,13 +29,13 @@ export function SpaceMessageProfileAvatar(
 	if (input.profileKind === "agent") {
 		if (input.isCenterAgent) {
 			return (
-				<DitherProfileAvatar
+				<RemoteAgentAvatar
 					className="size-6"
 					data-testid={`space-center-agent-profile-avatar-${input.profileId}`}
-					profileId={input.profileId}
-					profileKind="center-agent"
 					profileName={input.displayName}
+					shape="circle"
 					size={24}
+					working={input.working}
 				/>
 			);
 		}
@@ -47,6 +50,15 @@ export function SpaceMessageProfileAvatar(
 			);
 		}
 
+		if (input.agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF) {
+			return (
+				<RemoteAgentAvatar
+					profileName={input.displayName}
+					size={24}
+					working={input.working}
+				/>
+			);
+		}
 		const agentControllerRef = input.agentControllerRef;
 		if (agentControllerRef !== null && hasLocalAgentLogo(agentControllerRef)) {
 			return (

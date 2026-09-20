@@ -1,6 +1,7 @@
 import type {
   DaemonServiceUpdateJob,
   OpenMeldToolsUpdateAttempt,
+  OpenMeldToolsUpdateFailureCode,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { createOpenMeldToolsUpdateCoordinator } from "../src/local-service/maintenance/openmeld-tools-update-coordinator";
@@ -11,7 +12,13 @@ const NOW = "2026-08-25T08:00:00.000Z";
 function createDependencies(input?: {
   automaticUpdatesEnabled?: boolean;
   updateAvailable?: boolean;
+  serviceNeedsAlignment?: boolean;
+  serviceVersion?: string;
   upgradeExitCode?: number;
+  upgradeFailure?: {
+    detail: string;
+    failureCode: OpenMeldToolsUpdateFailureCode;
+  };
   serviceJobAfterUpgrade?: DaemonServiceUpdateJob | null;
 }) {
   let pendingAttempt: OpenMeldToolsUpdateAttempt | null = null;
@@ -19,7 +26,12 @@ function createDependencies(input?: {
   let pendingServiceJob: DaemonServiceUpdateJob | null = null;
   const runUpgrade = vi.fn(() => {
     pendingServiceJob = input?.serviceJobAfterUpgrade ?? null;
-    return Promise.resolve({ exitCode: input?.upgradeExitCode ?? 0 });
+    return Promise.resolve({
+      exitCode: input?.upgradeExitCode ?? 0,
+      ...(input?.upgradeFailure
+        ? { processFailure: input.upgradeFailure }
+        : {}),
+    });
   });
   const assessUpdate = vi.fn(async () => ({
     checked: true,
@@ -28,12 +40,16 @@ function createDependencies(input?: {
     requiredFloor: null,
     updateAvailable: input?.updateAvailable !== false,
     floorBreached: false,
+    ...(input?.serviceVersion ? { serviceVersion: input.serviceVersion } : {}),
   }));
 
   return {
     withCoordinationLock: async <T>(run: () => Promise<T>) => await run(),
     wakeWorker: vi.fn(async () => undefined),
     assessUpdate,
+    serviceNeedsAlignment: vi.fn(
+      async () => input?.serviceNeedsAlignment ?? false
+    ),
     completeAttempt: vi.fn((attempt: OpenMeldToolsUpdateAttempt) => {
       lastAttempt = attempt;
       pendingAttempt = null;
@@ -126,9 +142,17 @@ describe("OpenMeld Tools update coordinator", () => {
     expect(dependencies.assessUpdate).toHaveBeenCalledWith({
       forceRefresh: true,
     });
-    expect(dependencies.runUpgrade).toHaveBeenCalledTimes(1);
+    expect(dependencies.runUpgrade).toHaveBeenCalledWith({
+      operationId: "update-1",
+      requestedAt: NOW,
+      requestSource: "web",
+      targetCliVersion: "0.3.105",
+      targetServiceVersion: "0.3.105",
+    });
     expect(dependencies.state.lastAttempt?.operation).toMatchObject({
       phase: "updated",
+      targetCliVersion: "0.3.105",
+      targetServiceVersion: "0.3.105",
     });
   });
 
@@ -177,6 +201,8 @@ describe("OpenMeld Tools update coordinator", () => {
       operationId: "update-1",
       requestedAt: NOW,
       requestSource: "automatic",
+      targetCliVersion: "0.3.105",
+      targetServiceVersion: "0.3.105",
     });
   });
 
@@ -221,6 +247,59 @@ describe("OpenMeld Tools update coordinator", () => {
     });
   });
 
+  it("persists the typed process failure without adding it to attempt v1", async () => {
+    const dependencies = createDependencies({
+      upgradeExitCode: 1,
+      upgradeFailure: {
+        detail: "binary download stopped after /private/local/path",
+        failureCode: "cli.update.download_stalled",
+      },
+    });
+    const coordinator = createOpenMeldToolsUpdateCoordinator(dependencies);
+
+    await coordinator.requestUpdate({ requestSource: "web" });
+    await coordinator.waitForIdle();
+
+    expect(dependencies.state.lastAttempt?.errorMessage).toBe(
+      "openmeld.tools.update.failure=cli.update.download_stalled\nbinary download stopped after /private/local/path"
+    );
+    expect(dependencies.state.lastAttempt?.operation).not.toHaveProperty(
+      "failure"
+    );
+  });
+
+  it.each([
+    undefined,
+    "0.3.100",
+  ])("aligns the selected Service through the same operation when the CLI is current (target=%s)", async (serviceVersion) => {
+    const dependencies = createDependencies({
+      updateAvailable: false,
+      serviceNeedsAlignment: true,
+      serviceVersion,
+    });
+    const coordinator = createOpenMeldToolsUpdateCoordinator(dependencies, {
+      executeUpdates: false,
+    });
+    const first = await coordinator.requestUpdate({ requestSource: "cli" });
+    const second = await coordinator.requestUpdate({ requestSource: "web" });
+    expect(first).toMatchObject({
+      status: "started",
+      operation: {
+        operationId: "update-1",
+        targetVersion: serviceVersion ?? "0.3.104",
+      },
+    });
+    expect(second).toMatchObject({
+      status: "already_running",
+      operation: { operationId: "update-1" },
+    });
+    expect(dependencies.persistAttempt).toHaveBeenCalledOnce();
+    expect(dependencies.serviceNeedsAlignment).toHaveBeenCalledWith(
+      serviceVersion ?? "0.3.104"
+    );
+    expect(dependencies.runUpgrade).not.toHaveBeenCalled();
+  });
+
   it("stays quiet when this computer already has the latest version", async () => {
     const dependencies = createDependencies({ updateAvailable: false });
     const coordinator = createOpenMeldToolsUpdateCoordinator(dependencies);
@@ -236,6 +315,28 @@ describe("OpenMeld Tools update coordinator", () => {
     });
     expect(dependencies.persistAttempt).not.toHaveBeenCalled();
     expect(dependencies.runUpgrade).not.toHaveBeenCalled();
+  });
+
+  it("records separate CLI and retained Service targets", async () => {
+    const dependencies = createDependencies({ serviceVersion: "0.3.104" });
+    const coordinator = createOpenMeldToolsUpdateCoordinator(dependencies);
+
+    const result = await coordinator.requestUpdate({ requestSource: "web" });
+    expect(result).toMatchObject({
+      status: "started",
+      operation: {
+        targetCliVersion: "0.3.105",
+        targetServiceVersion: "0.3.104",
+        targetVersion: "0.3.105",
+      },
+    });
+    await coordinator.waitForIdle();
+    expect(dependencies.runUpgrade).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetCliVersion: "0.3.105",
+        targetServiceVersion: "0.3.104",
+      })
+    );
   });
 
   it("executes the protected npm carrier without loading business bundle state", () => {

@@ -38,7 +38,13 @@ type AgentStreamDeltaProjection = Omit<
 
 type AgentStreamIdentity = Pick<
   SpaceAgentStreamSnapshot,
-  "dispatchId" | "profileId" | "spaceId" | "streamId" | "triggerMessageId" | "v"
+  | "dispatchId"
+  | "profileId"
+  | "spaceId"
+  | "streamId"
+  | "triggerMessageId"
+  | "v"
+  | "replyThreadRootSignalId"
 >;
 
 type AgentStreamPartProjection = AgentStreamIdentity & {
@@ -342,6 +348,7 @@ export async function closeAgentStreamProjection(input: {
           sequence: cursor.sequence,
           profileId: cursor.profileId,
           triggerMessageId: cursor.triggerMessageId,
+          replyThreadRootSignalId: cursor.replyThreadRootSignalId,
           dispatchId: cursor.dispatchId,
         },
         terminal,
@@ -1203,6 +1210,10 @@ async function advanceAgentStreamSequence(input: {
     streamId: input.event.streamId,
     profileId: input.event.profileId,
     triggerMessageId: input.event.triggerMessageId,
+    replyThreadRootSignalId:
+      input.event.replyThreadRootSignalId !== undefined
+        ? input.event.replyThreadRootSignalId
+        : currentCursor?.replyThreadRootSignalId,
     dispatchId: input.event.dispatchId,
     sequence: input.event.sequence,
     gapDetected:
@@ -1225,6 +1236,7 @@ function createCursorFromSnapshot(
     streamId: snapshot.streamId,
     profileId: snapshot.profileId,
     triggerMessageId: snapshot.triggerMessageId,
+    replyThreadRootSignalId: snapshot.replyThreadRootSignalId,
     dispatchId: snapshot.dispatchId,
     sequence: snapshot.sequence,
     gapDetected: snapshot.gapDetected,

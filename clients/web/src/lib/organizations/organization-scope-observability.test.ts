@@ -29,50 +29,27 @@ describe("organization scope observability", () => {
 		).toHaveLength(512);
 	});
 
-	it("records the existing serial scope stages and one total outcome", async () => {
-		const times = [0, 5, 12, 15, 20, 22, 27, 30];
+	it("records the context read and its total outcome", async () => {
+		const times = [0, 5, 12, 30];
 		const timing = createOrganizationScopeTimingCollector({
 			nowMs: () => times.shift() ?? 30,
 		});
-
 		await expect(
-			timing.measure("auth_session", async () => "session")
-		).resolves.toBe("session");
-		await expect(
-			timing.measure("organization_list", async () => ["organization"])
-		).resolves.toEqual(["organization"]);
-		expect(timing.measureSync("scope_resolution", () => "authorized")).toBe(
-			"authorized"
-		);
-
+			timing.measure("account_organization_context", () => "context")
+		).resolves.toBe("context");
 		expect(
-			timing.finish({
-				reasonCode: "total_activation_required",
-				status: "succeeded",
-			})
+			timing.finish({ reasonCode: "total_context_read", status: "succeeded" })
 		).toEqual([
 			{
 				durationMs: 7,
 				errorName: null,
-				reasonCode: "auth_session",
-				status: "succeeded",
-			},
-			{
-				durationMs: 5,
-				errorName: null,
-				reasonCode: "organization_list",
-				status: "succeeded",
-			},
-			{
-				durationMs: 5,
-				errorName: null,
-				reasonCode: "scope_resolution",
+				reasonCode: "account_organization_context",
 				status: "succeeded",
 			},
 			{
 				durationMs: 30,
 				errorName: null,
-				reasonCode: "total_activation_required",
+				reasonCode: "total_context_read",
 				status: "succeeded",
 			},
 		]);
@@ -86,7 +63,7 @@ describe("organization scope observability", () => {
 		const failure = new TypeError("session unavailable");
 
 		await expect(
-			timing.measure("auth_session", () => {
+			timing.measure("account_organization_context", () => {
 				throw failure;
 			})
 		).rejects.toBe(failure);
@@ -94,20 +71,20 @@ describe("organization scope observability", () => {
 		expect(
 			timing.finish({
 				error: failure,
-				reasonCode: "total_failed_after_auth_session",
+				reasonCode: "total_failed_after_account_organization_context",
 				status: "failed",
 			})
 		).toEqual([
 			{
 				durationMs: 10,
 				errorName: "TypeError",
-				reasonCode: "auth_session",
+				reasonCode: "account_organization_context",
 				status: "failed",
 			},
 			{
 				durationMs: 40,
 				errorName: "TypeError",
-				reasonCode: "total_failed_after_auth_session",
+				reasonCode: "total_failed_after_account_organization_context",
 				status: "failed",
 			},
 		]);

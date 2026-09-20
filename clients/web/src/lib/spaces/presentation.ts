@@ -15,6 +15,7 @@ import { AVAILABILITY_DISPLAY_LABELS } from "#/lib/availability-display";
 import {
 	isSpaceExecutionRecoveryNoticeItem,
 	isSpaceOutcomeNoticeItem,
+	resolveSpaceConversationItemKey,
 	type SpaceTimelineItem,
 } from "./timeline";
 
@@ -91,7 +92,13 @@ export function buildSpaceConversationEntries(input: {
 	);
 
 	for (const item of timelineItems) {
-		if (item.signalType !== "signal.text") {
+		if (
+			item.signalType !== "signal.text" &&
+			!(
+				item.actorProfileKind === "agent" &&
+				item.systemNoticeType === "execution_recovery_completed"
+			)
+		) {
 			entries.push({
 				item,
 				kind: "system_event",
@@ -119,6 +126,8 @@ export function buildSpaceConversationEntries(input: {
 			previousItem !== null &&
 			!item.activeWakeProgress &&
 			!previousItem.activeWakeProgress &&
+			!item.wakeDispatchId &&
+			!previousItem.wakeDispatchId &&
 			item.agentStreamState?.status !== "streaming" &&
 			previousItem.agentStreamState?.status !== "streaming" &&
 			!input.groupBoundarySignalIds?.has(item.id) &&
@@ -136,7 +145,7 @@ export function buildSpaceConversationEntries(input: {
 		entries.push({
 			kind: "bubble_run",
 			run: {
-				id: item.id,
+				id: resolveSpaceConversationItemKey(item),
 				isSelf: item.actorProfileId === input.selfProfileId,
 				items: [item],
 				speaker: {
@@ -188,7 +197,10 @@ export function orderSpaceTimelineItemsForConversation(
 			item,
 			loadedSignalIds,
 		});
-		if (!sourceSignalId) {
+		if (
+			!sourceSignalId ||
+			item.systemNoticeType === "execution_recovery_completed"
+		) {
 			rootItems.push(item);
 			continue;
 		}

@@ -6,9 +6,13 @@ import type {
   SpaceMembersSnapshot,
   SpaceStatusMembersSummary,
 } from "@openmeld/schemas/types";
+import type { AuthProfileFacts } from "../../auth/application/profile-facts-reader";
 import { readCenterAgentDesignationRecord } from "../../center-agent/center-agent-repository";
 import { type CoreBindings, identityDb } from "../../lib/bindings";
-import type { SpaceMetaRecord } from "../infrastructure/sql/space-meta-repo";
+import {
+  resolveSpaceMetaLinkJoinPolicy,
+  type SpaceMetaRecord,
+} from "../infrastructure/sql/space-meta-repo";
 import type { SpaceBootstrapTimingCollector } from "./space-bootstrap-timing";
 import { readSpaceContractOrDefaultUseCase } from "./space-contract-service";
 import { readLatestVisibleFormalUpdate } from "./space-latest-visible-update-service";
@@ -29,6 +33,7 @@ type SpaceStatusSummaryTiming = {
 };
 
 export async function readSpaceStatusSummaryUseCase(input: {
+  profileFacts?: AuthProfileFacts | null;
   sql: SqlStorage;
   env: CoreBindings;
   spaceId: string;
@@ -63,6 +68,7 @@ export async function readSpaceStatusSummaryUseCase(input: {
     "read members summary",
     () =>
       readSpaceStatusMembersSummaryUseCase({
+        profileFacts: input.profileFacts,
         sql: input.sql,
         env: input.env,
         spaceId: input.spaceId,
@@ -82,21 +88,21 @@ export async function readSpaceStatusSummaryUseCase(input: {
           : {}),
       })
   );
-  const latestVisibleUpdate = await measureSpaceStatusSummaryTimingAsync(
+  const latestVisibleUpdate = measureSpaceStatusSummaryTiming(
     input.timing,
     "latest_visible_update",
     "read latest visible update",
     () =>
       readLatestVisibleFormalUpdate({
         sql: input.sql,
-        env: input.env,
-        viewerOwnerUserId: input.viewerOwnerUserId,
-        viewerProfileId: input.viewerProfileId,
       })
   );
 
   return buildSpaceStatusSummaryResponse({
     accessMode: input.metaRecord.accessMode,
+    linkJoinPolicy: resolveSpaceMetaLinkJoinPolicy(input.metaRecord),
+    ownerUserIds: input.metaRecord.ownerUserIds ?? [],
+    allowGuests: input.metaRecord.allowGuests === true,
     organizationVisibility: input.metaRecord.visibility,
     centerAgentProfileId: await centerAgentProfileIdPromise,
     contract,
@@ -116,19 +122,11 @@ export async function readSpaceStatusSummaryFromMembersSnapshotUseCase(input: {
   spaceId: string;
   metaRecord: SpaceMetaRecord;
   membersSnapshot: SpaceMembersSnapshot;
-  viewerOwnerUserId?: string;
-  viewerProfileId?: string;
   nowIso?: string;
   timing?: SpaceStatusSummaryTiming;
   contractStore: {
     readSpaceContract: () => SpaceContract | null;
   };
-  // Optional pre-started read: bootstrap kicks this off in parallel with the
-  // members branch (it never depended on members), so awaiting it here no
-  // longer serializes it behind the members snapshot.
-  latestVisibleUpdate?: Promise<
-    GetSpaceStatusResponse["latestVisibleUpdate"] | undefined
-  >;
 }): Promise<GetSpaceStatusResponse> {
   const generatedAt = input.nowIso ?? input.membersSnapshot.generatedAt;
   const centerAgentProfileIdPromise = readCenterAgentProfileId({
@@ -151,23 +149,18 @@ export async function readSpaceStatusSummaryFromMembersSnapshotUseCase(input: {
     "derive members summary from bootstrap members snapshot",
     () => buildSpaceStatusMembersSummaryFromSnapshot(input.membersSnapshot)
   );
-  const latestVisibleUpdate = input.latestVisibleUpdate
-    ? await input.latestVisibleUpdate
-    : await measureSpaceStatusSummaryTimingAsync(
-        input.timing,
-        "latest_visible_update",
-        "read latest visible update",
-        () =>
-          readLatestVisibleFormalUpdate({
-            sql: input.sql,
-            env: input.env,
-            viewerOwnerUserId: input.viewerOwnerUserId,
-            viewerProfileId: input.viewerProfileId,
-          })
-      );
+  const latestVisibleUpdate = measureSpaceStatusSummaryTiming(
+    input.timing,
+    "latest_visible_update",
+    "read latest visible update",
+    () => readLatestVisibleFormalUpdate({ sql: input.sql })
+  );
 
   return buildSpaceStatusSummaryResponse({
     accessMode: input.metaRecord.accessMode,
+    linkJoinPolicy: resolveSpaceMetaLinkJoinPolicy(input.metaRecord),
+    ownerUserIds: input.metaRecord.ownerUserIds ?? [],
+    allowGuests: input.metaRecord.allowGuests === true,
     organizationVisibility: input.metaRecord.visibility,
     centerAgentProfileId: await centerAgentProfileIdPromise,
     contract,
@@ -182,7 +175,10 @@ export async function readSpaceStatusSummaryFromMembersSnapshotUseCase(input: {
 }
 
 function buildSpaceStatusSummaryResponse(input: {
+  ownerUserIds: string[];
+  allowGuests: boolean;
   accessMode: SpaceMetaRecord["accessMode"];
+  linkJoinPolicy: NonNullable<SpaceMetaRecord["linkJoinPolicy"]>;
   organizationVisibility: SpaceMetaRecord["visibility"];
   centerAgentProfileId: GetSpaceStatusResponse["centerAgentProfileId"];
   contract: SpaceContract;
@@ -206,7 +202,10 @@ function buildSpaceStatusSummaryResponse(input: {
       ? { directMessageConvertedAt: input.directMessageConvertedAt }
       : {}),
     organizationVisibility: input.organizationVisibility,
+    ownerUserIds: input.ownerUserIds,
+    allowGuests: input.allowGuests,
     accessMode: input.accessMode,
+    linkJoinPolicy: input.linkJoinPolicy,
     passwordProtected: input.accessMode === "protected",
     dispatchPolicy: input.contract.dispatchPolicy,
     publicationMode: input.contract.publicationMode,

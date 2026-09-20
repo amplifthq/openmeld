@@ -6,9 +6,11 @@ import type {
 import { buildPublicSpaceEntryUrl } from "@openmeld/space";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import {
 	Tooltip,
 	TooltipContent,
+	TooltipHint,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
@@ -28,12 +30,14 @@ import type { CSSProperties } from "react";
 import { type ReactNode, useId, useState } from "react";
 import { toast } from "sonner";
 import { Drawer } from "vaul";
+import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { copyTextToClipboard } from "#/lib/clipboard";
 import {
 	isSpaceOutcomeNoticeItem,
 	type SpaceTimelineItem,
 } from "#/lib/spaces/timeline";
 import {
+	isQuotaWakeFailure,
 	resolveHistoricalWakeFailureBody,
 	type WakeFailureTargetContext,
 } from "#/lib/spaces/wake-failure-display";
@@ -343,9 +347,7 @@ function MessageDetailsBody(input: {
 		return (
 			<div className="flex flex-col gap-5">
 				<MessageLinkSection messageLink={input.messageLink} />
-				<p className="text-muted-foreground text-sm">
-					Loading message details...
-				</p>
+				<SkeletonRows label="Loading message details" />
 			</div>
 		);
 	}
@@ -391,6 +393,7 @@ function MessageDetailsBody(input: {
 	});
 	return (
 		<div className="flex flex-col gap-5">
+			<OriginalErrorsSection wakeContext={data.wakeContext} />
 			<ActivitySection
 				actionNotices={actionNotices}
 				agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
@@ -619,6 +622,10 @@ function ActivityItemRow(input: {
 						spaceReferencesById={activity.spaceReferencesById}
 					/>
 				) : null}
+				<WakeQuotaReset
+					profileId={item.targetProfileId}
+					reasonCode={outcomeNotice?.systemNoticeReasonCode}
+				/>
 				<WakeFailureActions
 					action={wakeFailureAction}
 					isAgentRecoveryPending={activity.isAgentRecoveryPending}
@@ -755,13 +762,16 @@ function ActivityTime(input: { occurredAtMs: number | null }) {
 		return null;
 	}
 	return (
-		<time
-			className="shrink-0 text-muted-foreground text-xs"
-			dateTime={new Date(input.occurredAtMs).toISOString()}
-			title={MESSAGE_DETAILS_TIME_FORMATTER.format(input.occurredAtMs)}
+		<TooltipHint
+			content={MESSAGE_DETAILS_TIME_FORMATTER.format(input.occurredAtMs)}
 		>
-			{MESSAGE_ACTIVITY_TIME_FORMATTER.format(input.occurredAtMs)}
-		</time>
+			<time
+				className="shrink-0 text-muted-foreground text-xs"
+				dateTime={new Date(input.occurredAtMs).toISOString()}
+			>
+				{MESSAGE_ACTIVITY_TIME_FORMATTER.format(input.occurredAtMs)}
+			</time>
+		</TooltipHint>
 	);
 }
 
@@ -886,7 +896,10 @@ function resolveActivityOutcomeNotice(input: {
 	if (bySignal) {
 		return bySignal;
 	}
-	if (!input.item.targetProfileId) {
+	if (
+		!input.item.targetProfileId ||
+		(input.item.status !== "failed" && input.item.status !== "stopped")
+	) {
 		return null;
 	}
 	return (
@@ -986,6 +999,21 @@ function resolveNoticeRecoveryPresentation(input: {
 			targetLabel,
 		});
 	return { action: currentAction, body };
+}
+
+function WakeQuotaReset(input: {
+	profileId: string | null;
+	reasonCode: string | null | undefined;
+}) {
+	if (!(input.profileId && isQuotaWakeFailure(input.reasonCode))) {
+		return null;
+	}
+	return (
+		<div className="my-2 text-muted-foreground text-xs">
+			Current provider report:{" "}
+			<AgentProfileUsage profileId={input.profileId} variant="reset" />
+		</div>
+	);
 }
 
 function WakeFailureActions(input: {
@@ -1189,6 +1217,40 @@ function buildTechnicalDetailFields(input: {
 	return dedupeTechnicalDetailFields(candidates);
 }
 
+function OriginalErrorsSection(input: {
+	wakeContext: GetSpaceMessageDetailsResponse["wakeContext"];
+}) {
+	if (input.wakeContext.state !== "recorded") {
+		return null;
+	}
+	const targets = input.wakeContext.targets.filter(
+		(target) => target.originalError
+	);
+	if (targets.length === 0) {
+		return null;
+	}
+	return (
+		<DetailsSection
+			title={targets.length === 1 ? "Original error" : "Original errors"}
+		>
+			<div className="flex min-w-0 flex-col gap-4">
+				{targets.map((target) => (
+					<div className="min-w-0" key={target.targetProfileId}>
+						<p className="mb-2 font-medium text-sm">
+							{target.agentContext?.profileName.value ??
+								target.targetLabel ??
+								"Agent"}
+						</p>
+						<pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-3 font-mono text-foreground text-xs leading-5">
+							{target.originalError}
+						</pre>
+					</div>
+				))}
+			</div>
+		</DetailsSection>
+	);
+}
+
 function buildWakeTargetTechnicalDetailFields(
 	wakeContext: GetSpaceMessageDetailsResponse["wakeContext"]
 ): (TechnicalDetailField | null)[] {
@@ -1215,15 +1277,6 @@ function buildWakeTargetTechnicalDetailFields(
 			{ label: `${labelPrefix} profile ID`, value: target.targetProfileId },
 			target.reasonCode
 				? { label: `${labelPrefix} reason code`, value: target.reasonCode }
-				: null,
-			target.originalError
-				? {
-						label:
-							wakeContext.targets.length === 1
-								? "Original error"
-								: `${labelPrefix} original error`,
-						value: target.originalError,
-					}
 				: null,
 		];
 	});
@@ -1372,9 +1425,8 @@ function DiagnosticReportSection(input: {
 		<DetailsSection title="Report issue">
 			<div className="flex flex-col items-start gap-3 text-sm">
 				<p className="text-muted-foreground leading-6">
-					OpenMeld will save a diagnostic pointer for this message so you can
-					trace what happened later. The report sends message IDs and system
-					trace pointers, not the message text.
+					Send a report to help investigate this problem. Message text is not
+					included.
 				</p>
 				<Button
 					disabled={input.isPending || input.isSent}

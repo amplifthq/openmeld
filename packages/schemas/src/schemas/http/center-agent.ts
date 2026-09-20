@@ -2,6 +2,7 @@ import * as z from "../../lazy-zod";
 import { computerSetupModeSchema } from "../../navigation-action";
 import { DISPATCH_ERROR_SUMMARY_MAX_LENGTH } from "../../public-agent-failure-reason";
 import { agentControllerRefSchema } from "../daemon/agent-controller-ref";
+import { computerCareObservationSchema } from "../daemon/computer-care";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { MAX_TEXT_LENGTH } from "../protocol/constants";
 import {
@@ -61,6 +62,7 @@ import { organizationComputersResponseSchema } from "./organization-computers";
 import {
   computerFileAccessSummarySchema,
   ownerComputerDiagnosticsSchema,
+  ownerComputerLocalRuntimesSchema,
 } from "./owner-computer-diagnostics";
 import {
   peopleComputersResponseSchema,
@@ -148,6 +150,8 @@ export const centerAgentActionSchema = z.enum([
   "read_slack_channel_members",
   "read_slack_channel_history",
   "read_slack_file",
+  "read_channel_file",
+  "post_channel_file",
   "search_slack_messages",
   "post_space_message",
   "remove_agent_profiles_from_space",
@@ -202,6 +206,7 @@ export const centerAgentConnectorActionAuditOutcomeSchema = z.enum([
 ]);
 
 export const centerAgentRecordConnectorActionAuditBodySchema = z.strictObject({
+  connectionName: connectorConnectionNameSchema.optional(),
   actionId: trimmedNonEmptyStringSchema.max(160),
   operationId: trimmedNonEmptyStringSchema.max(256),
   outcome: centerAgentConnectorActionAuditOutcomeSchema,
@@ -294,6 +299,7 @@ export const centerAgentReadConnectorActionOperationResponseSchema =
 export const centerAgentRecordConnectorActionOperationBodySchema = z
   .strictObject({
     actionId: trimmedNonEmptyStringSchema.max(160),
+    effect: z.enum(["read", "write", "destructive", "unspecified"]).optional(),
     connectionName: connectorConnectionNameSchema,
     operationId: trimmedNonEmptyStringSchema.max(256),
     outcome: centerAgentConnectorActionAuditOutcomeSchema,
@@ -330,7 +336,7 @@ export const centerAgentDesignationSchema = z.strictObject({
   organizationId: trimmedNonEmptyStringSchema,
   agentProfileId: agentProfileIdSchema,
   duty: z.null(),
-  designatedBy: trimmedNonEmptyStringSchema,
+  designatedBy: trimmedNonEmptyStringSchema.nullable(),
   createdAt: ISO_DATE_TIME_SCHEMA,
 });
 
@@ -602,6 +608,7 @@ export const listCenterAgentAuditJournalQuerySchema = z.strictObject({
       "v19",
       "v20",
       "v21",
+      "v22",
     ])
     .optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -993,12 +1000,14 @@ export const centerAgentWakePublicationCommandSchema = z
   });
 
 export const centerAgentWatchAgentTaskBodySchema = z.strictObject({
+  speakerMember: centerAgentToolSpeakerSchema.optional(),
   completionCondition: agentTaskCompletionConditionSchema,
   instruction: z.string().trim().min(1).max(4000),
   task: agentTaskHandleSchema,
 });
 
 export const centerAgentListAgentTasksBodySchema = z.strictObject({
+  speakerMember: centerAgentToolSpeakerSchema.optional(),
   agentControllerRef: agentControllerRefSchema.optional(),
   limit: z.int().min(1).max(20).optional(),
 });
@@ -1163,6 +1172,8 @@ export const centerAgentReadPeopleComputersResponseSchema = z.lazySchema(() =>
         target: peopleComputerTargetSchema,
         readiness: currentLocalRuntimeReplyReadinessResponseSchema,
         fileAccess: computerFileAccessSummarySchema,
+        care: computerCareObservationSchema.optional(),
+        localRuntimes: ownerComputerLocalRuntimesSchema.optional(),
       })
       .nullable(),
   })

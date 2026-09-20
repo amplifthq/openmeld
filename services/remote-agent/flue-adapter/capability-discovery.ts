@@ -65,7 +65,7 @@ export function createRemoteAgentCapabilityDiscoveryDefinitions(
   return [
     {
       description:
-        "Search the current Center Agent capability catalog by goal. Returns a small ranked list grouped by stable namespace; call openmeld_describe_capabilities for the model-visible input schema before using an unfamiliar capability through Code Mode. A match proves that the capability exists in this turn, not that the current requester is authorized or that execution will succeed; trust the capability's structured result for those facts.",
+        "Search this Agent's current capability catalog by goal. Returns a small ranked list grouped by stable namespace; call openmeld_describe_capabilities for the model-visible input schema before using an unfamiliar capability through Code Mode. A match proves that the capability exists in this turn, not that the current requester is authorized or that execution will succeed; trust the capability's structured result for those facts.",
       execute: async (input) => {
         const query = String(input.query ?? "").trim();
         const limit =

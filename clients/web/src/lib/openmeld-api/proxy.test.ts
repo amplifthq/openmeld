@@ -1,12 +1,10 @@
 import {
 	OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION,
 	OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
+	OPENMELD_HEADER_INBOX_SUMMARY_VERSION,
 	OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
 } from "@openmeld/gateway-contract";
-import {
-	CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION_HEADER,
-	OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS,
-} from "@openmeld/schemas";
+import { OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import { encodeProtectedSpaceAccessCookieValue } from "#/lib/spaces/protected-space-access.server";
 import {
@@ -99,6 +97,26 @@ describe("OpenMeld gateway proxy", () => {
 		});
 
 		expect(response.status).toBe(200);
+	});
+
+	it("forwards the Inbox summary version while retaining the request header allowlist", async () => {
+		const fetchMock = vi.fn<typeof fetch>((_input, init) => {
+			const headers = init?.headers as Headers;
+			expect(headers.get(OPENMELD_HEADER_INBOX_SUMMARY_VERSION)).toBe("1");
+			expect(headers.has("x-openmeld-untrusted")).toBe(false);
+			return Promise.resolve(new Response("ok", { status: 200 }));
+		});
+		await proxyOpenMeldGatewayRequest({
+			request: new Request("https://openmeld.test/v1/inbox/summary", {
+				headers: {
+					[OPENMELD_HEADER_INBOX_SUMMARY_VERSION]: "1",
+					"x-openmeld-untrusted": "blocked",
+				},
+			}),
+			gatewayUrl: "https://gateway.openmeld.test",
+			webAppUrl: "https://openmeld.test",
+			fetchImpl: fetchMock,
+		});
 	});
 
 	it("forwards the current Space Addressing version to Gateway", async () => {
@@ -265,10 +283,10 @@ describe("OpenMeld gateway proxy", () => {
 				cookie: "session=abc",
 				"if-none-match": '"etag-123"',
 				host: "web.openmeld.test",
-				[CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION_HEADER]: "3",
 				[OPENMELD_HEADER_SPACE_PASSWORD]: "  pw-123  ",
 				"x-openmeld-active-organization-id": "forged-authority",
 				"x-openmeld-unknown-client-contract": "forged-contract",
+				"x-openmeld-space-access-version": "1",
 				"x-openmeld-profile-id": "forged-profile",
 				"x-openmeld-requested-organization-slug": "amplift",
 				"x-forwarded-for": "203.0.113.1",
@@ -283,13 +301,11 @@ describe("OpenMeld gateway proxy", () => {
 		expect(headers.get("authorization")).toBeNull();
 		expect(headers.get("host")).toBeNull();
 		expect(headers.get("cookie")).toBe("session=abc");
-		expect(
-			headers.get(CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION_HEADER)
-		).toBe("3");
 		expect(headers.get(OPENMELD_HEADER_SPACE_PASSWORD)).toBe("pw-123");
 		expect(headers.get("x-openmeld-profile-id")).toBe("forged-profile");
 		expect(headers.get("x-openmeld-active-organization-id")).toBeNull();
 		expect(headers.get("x-openmeld-unknown-client-contract")).toBeNull();
+		expect(headers.get("x-openmeld-space-access-version")).toBe("1");
 		expect(headers.get("x-openmeld-requested-organization-slug")).toBe(
 			"amplift"
 		);

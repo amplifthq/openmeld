@@ -158,6 +158,98 @@ environment callback, or no coordination best fits the actual work.
 
 ### Resource Discipline
 
+For a new worktree, use Node from `.nvmrc`, pnpm from `packageManager`, and
+`pnpm install --frozen-lockfile`. Run `pnpm dev:doctor`, then
+`pnpm dev:worktree`. Once its readiness message appears, run
+`pnpm dev:web:worktree` in a second terminal **in the same worktree**. Use the
+printed lane-specific URL. Docker is needed only for
+`pnpm dev:worktree:sandbox`. `pnpm check` checks installed dependencies; it no
+longer installs them implicitly. Install again after a lockfile change.
+
+The isolated launchers reserve local capacity before starting processes.
+Worktrees of the same Git checkout share the registry in the Git common
+directory; separate clones do not. Reading and editing code needs no slot.
+Root `build`, `check`, `test`, `test:integration`, `test:runtime`, and affected
+validation commands share one broad-work slot by default. Nested commands
+inherit their live ancestor's reservation instead of waiting on themselves.
+For another expensive local command, use `pnpm dev:run -- <command> [args]`.
+Direct package commands, `dev:raw`, and the legacy fixed-port server bypass
+this admission policy. Keep those focused and inspect machine facts first.
+Hosted GitHub jobs retain their independent runner limits.
+
+Startup budgets are estimates: 6 GiB for a Worker stack, 2 GiB for Web and
+2 GiB for broad verification. Admission keeps 10% of effective memory on macOS,
+where the operating system also blocks new work when it reports memory
+pressure. Other platforms keep 15%; all platforms keep at least 1 GiB and
+account for reservations that have not yet materialized as resident memory.
+These checks reduce overlapping peaks; they are not OS-enforced memory caps and
+cannot prevent another application from growing.
+
+After the Worker stack's existing readiness probes pass, its reservation keeps
+growth room of 25% of current process-tree RSS (at least 1 GiB), instead of
+reserving the unused startup budget indefinitely. Machine headroom and OS
+pressure checks still apply. Unready or older stacks retain the full startup
+budget; missing process metrics do not release it. Web retains its startup
+budget because compilation is request-driven. Restart owned environments with
+the updated launchers to benefit; never rewrite another task's reservation.
+Waiting messages show available memory, machine headroom, new startup budget,
+and existing growth reservations separately.
+
+Desktop development uses the same resource registry, not a second scheduler.
+`pnpm desktop:dev` reserves heavy capacity only while preparing the native build,
+then releases it and reserves the `desktop` memory class (default 1 GiB) for the
+GUI. Actual process RSS is included in the machine snapshot. The existing pressure
+and headroom guards still apply; `OPENMELD_LOCAL_DESKTOP_GIB` is an explicit measured
+workload tuning option, not a way to make memory appear free. Run `desktop:doctor`,
+`desktop:status` or `desktop:stop` in the owning worktree. See
+[Desktop development lanes](../clients/desktop.md#development-lanes) for the complete
+command contract. Repeated starts do not duplicate a GUI or rebuild underneath it.
+
+`pnpm dev:status` reports process trees, summed RSS and machine memory
+separately from disk space. RSS can count shared pages more than once. macOS
+memory availability includes free, inactive and speculative pages and is
+explicitly an estimate; Node's free-page count alone is insufficient there.
+New lane records include process start identities. Older running lanes without
+those identities can only be attributed through recognizable commands and
+their descendants; restarting them through the current entrypoint improves
+ownership evidence. Do not infer ownership from a PID or port alone.
+
+When capacity is unavailable, the command prints the reason and registered
+owners, waits without starting workers, and can be cancelled with Ctrl+C.
+Stop an environment you own and no longer need, or wait for its owner to finish;
+do not kill another agent's processes. For measured workloads on another
+machine, explicitly configure `OPENMELD_LOCAL_HEAVY_SLOTS` (positive integer),
+`OPENMELD_LOCAL_MEMORY_HEADROOM_GIB`, `OPENMELD_LOCAL_STACK_GIB`,
+`OPENMELD_LOCAL_WEB_GIB`, or `OPENMELD_LOCAL_HEAVY_GIB` (positive numbers).
+Keep limits consistent between terminals. Increasing slots does not increase
+available memory. Existing processes are never terminated to admit new work.
+
+Each isolated environment owns its descendant cleanup. Ctrl+C and
+`pnpm dev:stop` request graceful exit, verify process identities, and reclaim
+remaining owned descendants. Start, failure and cancellation must release
+their resource reservations. Hard-killing an owner cannot execute its cleanup;
+inspect and stop confirmed worktree leftovers before starting again. Preserve
+lane-specific secrets, state directories and `OPENMELD_HOME` across this work.
+
+Registry recovery uses Node 24's built-in SQLite OS lock at the permanent
+`<registry>.lock.reclaim` file. A process exit releases the OS lock; the file
+itself is not a stale lock and must not be removed while worktrees are running.
+Registry JSON and live-owner PID checks remain unchanged. Older worktrees can
+still acquire a free registry lock, but need the updated recovery code to reclaim
+a dead owner after this file exists.
+
+An old `.reclaim` **directory** has no owner identity. Startup waits for it and
+reports its exact path on timeout instead of deleting a possibly active guard.
+Before removing an old empty directory, verify the originating development
+processes have exited; age alone and the main lock's PID do not prove that its
+recovery process has exited. Do not reset the registry or stop unrelated lanes.
+
+Run `pnpm verify:dev-lifecycle` after changing these contracts. The narrow
+`Dev lifecycle` PR workflow exercises disposable subprocess trees on macOS,
+Linux and Windows without installing dependencies or starting cloud services.
+It supplements normal Final Candidate certification. Full OpenMeld startup,
+hot reload and two-lane isolation still require a real development smoke.
+
 - A background command attached to Codex must redirect standard input explicitly
   with `< /dev/null` so it cannot wait on the agent session.
 - Before starting a heavy local fallback, handing off a worktree, or leaving a
@@ -168,6 +260,30 @@ environment callback, or no coordination best fits the actual work.
   owned processes with `pnpm dev:stop -- --dry-run`, then run `pnpm dev:stop`.
   The command is worktree-scoped. Never stop another worktree merely to create
   headroom; contact its owner only when measured pressure blocks useful work.
+- `pnpm dev:stop` also stops the worktree's isolated OpenMeld Service and
+  removes its maintenance worker registration. It preserves account data and
+  source files. Stop succeeds only after owned processes exit; failures keep
+  the environment available for diagnosis. Resume local Agent validation through
+  the same lane's setup/start entry, which restores maintenance registration.
+- Use `pnpm dev:clean -- --dry-run`, then `pnpm dev:clean` to retire an isolated
+  environment: uninstall its Service and maintenance worker, stop its dev stack,
+  then remove only its isolated OpenMeld home and Wrangler data. Do not remove
+  directories while a supervisor or owned execution can still use them.
+- After merge and completion of acceptance/release dependencies, remove a
+  task-created temporary worktree from a retained checkout with
+  `pnpm dev:clean -- --worktree /absolute/worktree/path --remove-worktree`.
+  This is authorized task closeout for that agent's own temporary environment;
+  it does not authorize deleting pre-existing or another task's worktree.
+  The command refuses primary, main, locked, dirty, unmerged, or in-use
+  worktrees and never forces Git removal or deletes branches. The caller must
+  also establish that no review, task, acceptance, or release still needs it.
+  Process-directory verification must be supported on the current platform;
+  otherwise preserve the stopped worktree and report the limitation.
+- Stop resources as soon as they are no longer needed, including while a PR
+  waits for review. A handoff requiring a live localhost environment must name
+  its URL, owner, reason for retention, and cleanup responsibility. Closeout
+  reports whether the environment was stopped, cleaned, removed, or retained
+  for a concrete dependency. Inactivity alone never authorizes deletion.
 - Do not ask unrelated agents to freeze `main` while one Final Candidate runs.
   A successful exact PR candidate keeps its immutable evidence. Merge queue owns
   the latest-main combination when available; strict up-to-date protection owns
@@ -199,11 +315,12 @@ matters before publishing. Use published `openmeld` only when the question is wh
 real users get from the published package.
 
 The persistent Cloudflare staging environment is not a fourth local CLI lane.
-It is a remote internal environment deployed with `pnpm staging:deploy`. A
-staging-aligned CLI and Service lane is a separate release layer and must use
-its own `OPENMELD_HOME`; until that layer exists, do not point a development or
-production Service at staging by hand. See
-`developing/engineering/staging-environment.md`.
+It is a remote internal environment deployed with `pnpm staging:deploy`.
+Staging Computer Setup uses the Canary binary, Canary OS-service identity,
+and `~/.openmeld-canary`, with the Staging CLI manifest as its update source.
+Use `pnpm staging:smoke:computer -- plan` and the official Staging Setup
+runner documented in `developing/engineering/staging-environment.md`.
+Do not substitute a Production binary with hand-written endpoint overrides.
 
 ## Local Worker Persistence
 
@@ -282,6 +399,13 @@ commands when multiple worktrees need live localhost stacks at the same time:
 | `pnpm dev:isolated --test-scheduled` | Legacy isolated stack that also prints its loopback-only Routine scheduler trigger. |
 | `pnpm dev:web:isolated` | Legacy low-level Web attachment for checkouts that still use local environment files. |
 
+For isolated Plugin UI acceptance, `OPENMELD_DEV_PLUGIN_FIXTURE_URL` can point
+Gateway at a compatible local provider simulator. It accepts only an
+`http://127.0.0.1` origin and uses the fixed non-secret `local-plugin-fixture`
+token, never the real OpenConnector administration credential. Keep simulator
+state disposable and make simulated authorization explicit. This option does
+not simulate Remote Agent tool execution or establish a real provider connection.
+
 For normal localhost development, use two terminals in the same worktree:
 
 ```bash
@@ -300,7 +424,7 @@ compile. Keep the page open; later loads should be fast. This message is also
 printed by the launcher so a newcomer does not mistake first compilation for a
 failed start.
 
-For real CLI/Service Setup smoke, run `pnpm cli:binary:serve` in the same
+For real CLI/Service Setup smoke, run `pnpm cli:binary:serve:worktree` in the same
 worktree and use the Web-generated lane command. On macOS, when testing real
 Keychain access across CLI and Service copies, an already provisioned signing
 identity can be selected with `OPENMELD_CLI_BINARY_DEV_SIGNING_IDENTITY`.
@@ -308,6 +432,39 @@ The binary server signs with the normal release entitlements, verifies the
 signature, then computes the served checksum. Without this option it retains
 the normal ad-hoc development build. This is local test packaging, not a release
 or notarization; never replace production binaries or credentials to run it.
+Ad-hoc signatures identify the exact build by its code hash. Copying identical
+bytes into the Service carrier preserves that identity; rebuilding the binary
+does not. A rebuilt ad-hoc CLI can therefore receive Keychain access denied
+(`OSStatus -25293`) for a previous build's saved sign-in while that previous
+build still works. This is not evidence that the account expired, nor a reason
+to keep retrying. Use normal setup or login through the current packaged build
+in the isolated lane to issue a new credential. Do not copy tokens, edit Keychain
+ACLs, force private-file storage, or use release signing credentials to bypass
+this boundary. If the lane's normal login entry is unavailable, retain the
+existing login and report authentication smoke as blocked. Cross-version
+credential continuity for a signed release requires a separate test with an
+authorized stable signing identity; ad-hoc rebuilds cannot certify it.
+The isolated Web launcher uses this worktree's reserved binary-server port.
+It must never download another worktree's build from the shared fixed-port
+server. Restart the binary server after changing CLI source; `dev:stop` includes
+that server. `cli:binary:serve` without the worktree suffix remains the fixed-port
+development entry only.
+
+### Local macOS CLI/Service sign-in
+
+New sign-ins automatically use the existing private-file token store when
+`dev-local` has an explicit isolated `OPENMELD_HOME` and both Auth and Gateway
+use loopback URLs. No extra setup flag is needed. Credentials are unencrypted,
+protected by directory `0700` / file `0600` permissions; use test accounts only.
+CLI rebuilds and Service restarts reuse the same login. Existing Keychain
+sessions are not migrated: sign in normally once with the current build.
+
+For real-Keychain acceptance, set `OPENMELD_DEV_CREDENTIAL_STORE=system` on the
+setup/login command and use a separate fresh Home. Check that the saved
+`tokenRef.provider` is `macos-keychain`; disabling the development mode does not
+convert an existing file credential. Production, canary, remote endpoints,
+default user-state directories and other operating systems retain their normal
+storage behavior. This mode does not change provider credentials or permissions.
 
 For a localhost Routine smoke, start the Worker stack with
 `pnpm dev:worktree -- --test-scheduled`, create an enabled Routine through Web,
@@ -432,6 +589,13 @@ Each isolated lane owns all of the following:
   `.wrangler-dev-state/isolated/<lane-id>/`
 - one lane-specific `OPENMELD_HOME` under
   `.turbo/dev/isolated/<lane-id>/openmeld-home/`
+- one Service and maintenance registration, lifecycle lock, and repair marker
+  per development home. Their OS-safe suffix is derived from the absolute home
+  already carried by setup and service registration; it does not depend on cwd,
+  current port allocation, or a transient environment variable. Production and
+  canary keep their fixed identities. Old unsuffixed development registrations
+  are not automatically adopted or removed; retire them separately after
+  identifying their owner and finishing its work.
 
 The shared lane registry lives under the repository's Git common directory so
 all worktrees coordinate allocation. A live owner is never stopped or reclaimed.
@@ -461,17 +625,62 @@ rerun `pnpm dev:desktop`; do not reattach Desktop to root `pnpm dev`.
 
 | Script                          | Lane                                     | Behavior                                                                                                                                     |
 | ------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm dev:desktop`              | `openmeld-dev` / `~/.openmeld-dev`       | Alias for `pnpm run desktop:dev`; builds and installs the repo-local CLI wrapper, then starts Electron against local Gateway/Auth/Web.       |
-| `pnpm run desktop:dev`          | `openmeld-dev` / `~/.openmeld-dev`       | Builds and installs the repo-local CLI wrapper, then starts Electron against local Gateway/Auth/Web.                                         |
-| `pnpm run desktop:start:dev`    | `openmeld-dev` / `~/.openmeld-dev`       | Starts Electron against an already-installed `openmeld-dev` wrapper.                                                                         |
-| `pnpm run desktop:canary`       | `openmeld-canary` / `~/.openmeld-canary` | Installs the packaged candidate wrapper, then starts Electron against local Gateway/Auth/Web. This can run package release-readiness checks. |
-| `pnpm run desktop:start:canary` | `openmeld-canary` / `~/.openmeld-canary` | Starts Electron against an already-installed `openmeld-canary` wrapper.                                                                      |
+| `pnpm dev:desktop`              | Current registered worktree lane | Alias for `pnpm desktop:start:dev`. |
+| `pnpm run desktop:dev`          | Current registered worktree lane | Builds and launches the Desktop pilot with the lane-local CLI and dev-local preset. |
+| `pnpm run desktop:start:dev`    | Current registered worktree lane | Uses the existing lane CLI, home and endpoints; no global installation or production fallback. |
+| `pnpm run desktop:canary`       | Current registered worktree lane | Alias for `pnpm desktop:start:canary`. |
+| `pnpm run desktop:start:canary` | Current registered worktree lane | Uses the same guarded lane launcher with an explicit canary preset. |
+| `pnpm desktop:package:private` | Build only | Packages the matching prebuilt pilot Web assets into a private unsigned macOS arm64 app/DMG; no Service or upload. |
+| `pnpm desktop:start:package "/path/to/private.app" [canary]` | Current registered worktree lane | Launches that private app through the same CLI, endpoint and GUI-data guards without rebuilding it. |
 | `pnpm run desktop:start:prod`   | `openmeld` / `~/.openmeld`               | Starts Electron against the published production lane for explicit production reproduction only.                                             |
 
 These scripts align `OPENMELD_BIN`, `OPENMELD_ENV_PRESET`,
 `OPENMELD_USER_FACING_CLI_COMMAND`, `OPENMELD_GATEWAY_URL`, `OPENMELD_AUTH_URL`, and
 `WEB_APP_URL`. Do not validate Desktop lane behavior with a mixed CLI/Web/Auth
 environment.
+
+The pilot requires an existing Worker lane and the CLI installed through its
+normal Web setup. Its launcher reuses `readCurrentIsolatedDevLane` and
+`buildIsolatedDevEnvironment`; it does not maintain another port map or registry.
+It requires `<OPENMELD_HOME>/bin/openmeld` to be executable and resolve within
+the lane home. On macOS, the normal source and Private package pilot launchers
+use Chromium's mock Keychain before authentication storage initializes and keep
+its lower-protection test credentials under the stable lane-owned
+`desktop/mock-keychain-user-data` directory. The first launch after switching to
+this directory needs one test login; later builds and restarts reuse it. Do not
+store production credentials in this test profile. Installed production,
+staging, and disposable acceptance builds keep the real system Keychain. Use
+`pnpm desktop:package:acceptance` for explicit real-Keychain acceptance.
+
+Serve matching compiled Web assets with
+`OPENMELD_DESKTOP_PILOT=1 pnpm dev:web:worktree`, then launch Desktop with
+`pnpm desktop:start:dev`. The Web supervisor retains normal reservation,
+Doppler, and cleanup ownership, but runs build plus Vite preview for this opt-in
+mode. Preview binds loopback for TanStack shell prerender; configured account
+and service endpoints retain the actual worktree hostname and ports. Stop the
+owned old Web process before switching modes. A Vite dev server is not a matching
+Desktop RPC registry. See [Desktop](../clients/desktop.md) for identity checks.
+For private packaging, use this guarded Web build path rather than only setting
+the pilot flag on a package-local build. The client requires the lane's compiled
+`VITE_BETTER_AUTH_URL`; pilot builds reject missing or invalid values after Vite
+loads its environment. The native launch environment cannot supply that value
+retroactively to an already built renderer.
+
+The same worktree producer declares `VITE_OPENMELD_SETUP_USER_FACING_COMMAND`,
+`VITE_OPENMELD_DEV_LANE_ID`, the public Auth/Gateway/Web endpoints, isolated Home,
+and the client/server CLI manifest. The compiled renderer and installer must
+agree on that target. Missing or conflicting isolation fields fail closed;
+production-mode compilation is never permission to select the published lane.
+The unnamed Wrangler environment declares local development, `stg` declares
+Canary, and `prod` (including an installed production Desktop target) declares
+the published lane. Build-time public command endpoints are projected from the
+selected existing Web Wrangler vars, not a second environment registry.
+
+All dynamic Web setup, repair, login, start/stop, Space join, Skill guidance and
+Agent-prompt command prefixes use `resolveWebCliTarget`. Follow-up commands keep
+the isolated Home and endpoints. After installation, `setup.complete` remains
+the authority for the installed command; this build target does not invent an
+installed binary path or certify clean-install acceptance.
 
 ## `OPENMELD_HOME` And Production-State Safety
 
@@ -493,6 +702,12 @@ local-state repair/reset, Prepare runtime reporting, or service state must use:
 Tests that mutate service state must assert the effective lane root before
 mutation and fail immediately if it resolves to the production lane
 unexpectedly.
+
+An independent `OPENMELD_HOME` isolates files, not every operating-system or
+remote resource. Service smoke must also align the CLI entry, environment
+preset, system-service identity, endpoints, and update manifest through the
+official development or Canary entry point. A Production executable with a
+temporary home is not the supported isolated Service smoke entry point.
 
 Fixture identities must stay inside isolated test stores.
 
@@ -584,6 +799,36 @@ blocker-capable review are stable, run the selected broad gates once for the
 exact candidate. This is scheduling guidance, not an additional gate or an
 approval requirement.
 
+### PostHog Test Skills
+
+The three test skills under `.agents/skills/` are pinned upstream copies;
+each `UPSTREAM.json` records its source and revision. Update them deliberately
+and review the upstream diff. Keep OpenMeld adaptations here, not in copied
+skill bodies. Claude Code already routes through `AGENTS.md`; other agents
+can follow its explicit file links without a global installation.
+
+Use their judgment, not PostHog's toolchain: run the owning package's Vitest
+or Node tests instead of `hogli`, Django, or Jest commands. For CI evidence use
+`gh run view <run-id> --log-failed` and the relevant run attempt; PostHog's
+insights and Trunk services are not configured here. Repository contracts and
+the user's authorized scope take precedence over upstream approval steps.
+Do not require a written questionnaire, repetition quota, or extra approval
+for an ordinary authorized change.
+
+Keep assertions tied to independent behavior. In PR #883, replacing an SQL
+interpreter mock with SQLite made harmless SQL formatting changes pass while
+detecting swapped persisted identifiers the mock missed. Use real persistence
+when SQL semantics are the risk, with focused local D1 tests for D1-specific
+behavior. The skills' no-network advice applies to isolated unit tests, not
+to explicitly selected integration or real-user smoke.
+
+When cleaning substantial coverage, establish what still catches the important
+failure. A focused temporary fault can demonstrate this when useful; mutation
+testing is not mandatory for every PR. Control time when dates are fixtures,
+and avoid asserting source text or incidental query formatting. Diagnose
+deterministic failures before calling them flaky; do not use retries, skips,
+or larger timeouts to hide an unexplained failure.
+
 ### Validation Commands
 
 The Final Candidate, merge, release, health, smoke, evidence, and fallback
@@ -610,53 +855,29 @@ when upgrading either build, and remove them when the build versions converge.
 Do not widen a runtime upgrade into a Web/Desktop build migration merely to
 make independently deployed build tools use one version.
 
-`verify:pre-push:checks` covers dependency consistency, static workflow and
-environment contracts, Changelog and documentation contracts, formatting
-support contracts, and retired identifiers. It does not replace workspace type
-checks, unit tests, integration tests, or release-ready verification.
+The CI/CD procedure and its rationale have one owner:
+[Agent-Native Delivery](agent-native-delivery.md#daily-workflow). It applies to
+engineers and every coding agent. Read it before pushing a candidate or merging.
 
-`verify:pr` runs changed-workspace checks and unit tests. Agents use this lane
-when changed-workspace validation has practical defect-finding value during
-development or review; standard Final Candidate does not repeat it. Checks and
-unit tests run as two explicit phases: packages
-may still run in parallel within one phase, but a memory-heavy package never
-runs its type-check and unit-test processes at the same time on one runner. The
-isolated Final Candidate wrapper also gives Node processes one explicit 6 GiB
-heap ceiling so Core type-checking is not constrained by Node's smaller default
-heap on a hosted runner.
+- Commit hook: staged-file checks.
+- Development push hook: mandatory focused checks on the exact clean commit.
+- Draft PR: focused remote feedback; keep work draft until ready to merge.
+- Standard FC: exact identity, trusted control, static contracts, and path-owned
+  database/release readiness. No blanket unit or integration rerun.
+- The owner validates changed behavior and downstream risks before marking ready.
 
-`test:integration:affected` is an agent-chosen development or review lane when
-a shared package, service, runtime, or persistence interaction cannot be proved
-more cheaply. Standard Final Candidate does not repeat it. `db:check` remains a
-standard candidate check for database owner paths. Local-component paths select
-strict release-ready verification on an exact versioned release branch and
-deferred base-aware verification on an ordinary feature branch. These
-selections are implemented and behavior-tested in
-`scripts/ci/final-candidate-policy.mjs`; do not copy the path policy into
-another workflow or document.
+Use `pnpm run verify:pr -- --feedback --plan` to inspect focused selection;
+remove `--plan` to execute it. `verify:pr` remains the explicit affected-workspace
+code/type-check and unit-test command, including downstream consumers.
+`test:integration:affected` validates affected integration boundaries;
+`verify:pr:full` requests whole-repository confidence. Do not use broad commands
+as an automatic iteration loop. Fetch missing base history instead of ignoring
+it; `OPENMELD_AFFECTED_BASE` chooses an explicit available base.
 
-`verify:pr:full` is the explicit stronger Final Candidate confidence lane.
-Manually dispatched Deep Confidence remains the exhaustive diagnostic lane for
-risk that warrants broad Worker, CLI, or runtime integration coverage. Neither
-is a default paid gate.
-
-Inspect the exact plan with:
-
-```sh
-git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
-```
-
-Run any printed command independently to diagnose it. Add `--full` only when
-the agent judges the broader confidence worth the time. The plan must state
-what it selected, what it skipped, and why.
-
-The Git pre-push hook does not repeat candidate checks for ordinary development
-branches. It retains strict release-ready enforcement for direct `main`, tags,
-and exact versioned release branches. The authoritative final candidate is
-explicit and runs once through the normal hosted lane or guarded local fallback.
-
-If affected scripts need a base ref, fetch it or set
-`OPENMELD_AFFECTED_BASE` explicitly. Do not ignore a missing-base result.
+`verify:pre-push:checks` retains the static repository contract suite. It is not
+a substitute for behavior tests or release readiness. Desktop dependency builds
+use Turbo's cache so its package hooks do not rebuild unchanged contracts after
+Turbo has already built them.
 
 When a package-level script needs repo-root Turbo behavior from another working
 directory, use the repo-root form with
@@ -991,6 +1212,35 @@ Prepare Session, dispatch-owned Space Action, diagnostic, or D1 schemas.
   already-running interaction must be stopped or allowed to reach an explicit
   terminal outcome; rollback must not strand a provider waiter or rewrite
   RuntimeCoordinator state.
+
+### Explicit Space Recipients Contract Impact Audit
+
+Space authoring uses selected Profile IDs and relations. CLI command behavior
+changes: generic sends and dispatch actions accept full Profile IDs through
+explicit recipient options, while old inline relation syntax is literal text.
+The CLI command and official Skill contracts advance together so a new CLI
+does not install old inline-authoring instructions from the signed Skill
+channel. Old CLIs keep their compatible Skill release; new CLIs use their
+bundled matching instructions until a matching signed release is published.
+
+The HTTP/WS message envelope, membership checks, Core Wakeability, dispatch
+authority, Service execution epoch, and final-result protocol do not change.
+Old clients already send structured targets, so new Core can continue existing
+setup, Wake, actions, status, trace, and recovery. New clients also send the same
+envelope to old cloud code. Deploy Core's source-text preservation before the
+new CLI/Web so literal examples are never stripped from a dispatched prompt.
+No running Wake or historical message is rewritten.
+
+Keep CLI and local-component manifests unchanged on this feature branch and
+use deferred release verification. The final clean-main release must stamp the
+new CLI/Skill contracts, publish the matching signed Skill channel with the new
+CLI version as its minimum, and preserve the previous signed contract release.
+The CLI and Skills updates are required because their command and Skill contracts
+advance. The Service update remains available because its execution contract is
+unchanged. Wire compatibility preserves accepted work during rollout; it does
+not waive the required update policy for changed contracts or force a Service
+restart. Scripts moving to the new CLI must migrate inline syntax to explicit
+recipient flags.
 
 ### Agent Reply Context Review Contract Impact Audit
 
@@ -1532,65 +1782,131 @@ feature/docs branch that will not publish.
 
 ## Desktop Preview Release Workflow
 
-The current Desktop preview release is a production Web download plus a private
-R2 artifact:
+Authorized production previews use a shareable public page at
+`/desktop?candidate=<dmg-sha256>` and an immutable candidate download URL without
+changing the default update channel. The plain `/desktop` page is the stable
+account-free entry linked from the Web avatar menu. It shows an unavailable
+state until a reviewed release is explicitly promoted.
+Local private and disposable acceptance packages
+retain their existing commands and must never be uploaded as production candidates.
 
-1. Build the unsigned Apple silicon DMG:
+After review, protected merge, and selection of the exact release SHA:
 
-```text
-pnpm run release:desktop-preview:build
-```
+1. Use a clean checkout at that merged SHA and fetch `origin/main`. Export
+   `OPENMELD_DESKTOP_RELEASE_SHA` as that full commit hash.
+2. Build Web through the scoped Web environment entry with
+   `OPENMELD_DESKTOP_TARGET=production`. This emits the production installed
+   renderer marker. Do not reuse a disposable marker or edit generated metadata.
+3. Run `pnpm desktop:package:production-preview` once. The installed pipeline
+   validates the production target, rejects test settings and mixed signing
+   credentials, and uses the existing company Developer ID and
+   `openmeld-notary` Keychain profile. It requires the exact clean merged source.
+   The signed App includes `desktop-production-source.json` with its source SHA,
+   renderer fingerprint, and production target.
+4. Verify the signed App, DMG copy and update ZIP: strict signature, stapled ticket,
+   macOS trust, identity, resource equality, final hash and size. Review the
+   artifact before the authorized publisher runs
+   `pnpm release:desktop-preview:upload-candidate` from the same release checkout.
+5. Deploy the additive Web candidate/feed readers before uploading a candidate
+   with ZIP metadata; older strict metadata readers cannot read the new field.
+   The uploader verifies the actual DMG's production identity, ticket, version
+   and signed source record, and checks that the ZIP seals the same signed App.
+   It uploads both artifacts before their immutable candidate manifest. Existing
+   public candidates cannot be overwritten. It never promotes a release.
+6. Verify public GET and HEAD, full download hash/size, and normal macOS install
+   and production smoke through user-facing entrypoints. An upload alone does
+   not prove availability or application behavior.
+7. Separately authorize promotion. Deploy the Web feed/download readers first,
+   then run from the same clean approved checkout:
+   `OPENMELD_DESKTOP_RELEASE_SHA=<sha> node scripts/release/desktop-preview.mjs promote <candidate-hash> <current-version-or-none>`.
+   The command verifies remote candidate metadata and hashes both public artifacts.
+   It then acquires the existing Git-backed `web` production scope lease across
+   local and hosted runners. While holding that lease, it reads the authoritative
+   R2 pointer and candidate directly through Wrangler, checks the expected current
+   version and strict version increase, and writes `desktop/promoted.json`
+   last. This one atomic object replacement selects the public download, legacy
+   JSON and generated `latest-mac.yml` together. Never upload builder-generated
+   latest metadata or edit a parallel default manifest. Verify all three public
+   projections after promotion. Public page/JSON/feed caches never authorize a
+   promotion. Lease contention fails without writing; release and expired-lease
+   recovery follow the existing production scope rules (never steal a live lease).
+   A rollback is a reviewed forward release with
+   a newer app version; do not downgrade the channel under installed clients.
 
-2. Upload the production artifact to R2:
+The fixed storage contract in `packages/schemas/src/desktop-release.ts` uses:
 
-```text
-pnpm run release:desktop-preview:upload
-```
+- URL: `https://openmeld.ai/desktop/download?candidate=<dmg-sha256>`
+- Metadata: `desktop/candidates/<dmg-sha256>/manifest.json`
+- Artifact: `desktop/candidates/<dmg-sha256>/OpenMeld-Desktop-<version>-macos-arm64.dmg`
+- Update artifact: the same candidate directory with a `.zip` extension
+- Sole promoted pointer: `desktop/promoted.json`
+- Generated updater feed: `/desktop/updates/latest-mac.yml`
 
-The upload command uses the bucket `openmeld-desktop-downloads` unless
-`OPENMELD_DESKTOP_R2_BUCKET` overrides it. It uploads:
+Only a lowercase 64-character SHA-256 selects a candidate. Metadata must match
+that hash and declares the production target, platform, version, merged release
+SHA, and positive byte length. Artifact names and object keys are derived rather
+than accepted from a request or stored arbitrary path. The content hash names
+immutable bytes; retries may upload only that same verified artifact and record.
+The Worker streams through its existing private `OPENMELD_DESKTOP_DOWNLOADS`
+binding; no public bucket or additional access gate is introduced.
 
-- `desktop/OpenMeld-Desktop-<version>-macos-arm64-unsigned.dmg`
-- `desktop/update.json`
+The legacy unsigned build can still be used locally, but its upload command is
+disabled. Candidate publication does not change the promoted selection. The
+old editable `desktop/update.json` storage object is no longer read; its public
+URL is a compatibility projection of the promoted candidate. Existing DMG-only
+candidate URLs remain valid but cannot be promoted into the updater channel.
+Production deployment and ordering still follow
+[Production Release](production-release.md); this workflow grants no independent
+permission to deploy or publish.
 
-`desktop/update.json` is the Desktop preview release metadata source. Production
-Web reads this R2 projection for `/desktop/update.json` and for the
-`/desktop/download` artifact object key. Do not duplicate the preview version or
-artifact key in Web checked-in constants.
+### Native Windows Desktop candidates
 
-3. Deploy Web through the guarded deploy entrypoint after Web code or Worker
-   bindings changed:
+The approval, clean merged source, scoped Web build, immutable upload, public
+verification, explicit promotion and production-scope lease rules above also
+apply to Windows. Mac pointers/projections remain unchanged. Windows uses one
+reviewed pointer per `windows-x64` or `windows-arm64`, never a Mac fallback.
 
-```text
-pnpm run deploy
-```
+Use `pnpm desktop:package:production-preview` on native Windows with
+`OPENMELD_DESKTOP_RELEASE_SHA` set to the full approved merged SHA and
+`OPENMELD_DESKTOP_WINDOWS_PUBLISHER` set to the actual certificate's publisher
+name or full subject DN. Supply operator-owned credentials through supported
+electron-builder Windows signing mechanisms. Optional
+`OPENMELD_DESKTOP_WINDOWS_CERTIFICATE_SHA1` selects an exact installed certificate;
+`OPENMELD_DESKTOP_ARCH` selects `x64` or `arm64`. The script does not create a
+certificate, guess identity or bypass signature checks. The signed source record
+additionally binds platform and publisher.
 
-The user-facing download URL is `https://openmeld.ai/desktop/download`. Production Web
-streams the DMG through the `OPENMELD_DESKTOP_DOWNLOADS` R2 binding; do not make the
-bucket public or switch to an `r2.dev` URL for the production download page.
+The package is `clients/desktop/dist/production-preview/OpenMeld-Desktop-<version>-windows-<arch>.exe`.
+Inspection requires full 7-Zip (`7z.exe`, including NSIS support), discovered
+under Program Files or selected with the absolute `OPENMELD_DESKTOP_7ZIP` path.
+The release owner verifies the installer and its embedded signed application
+without executing installation; sidecars are not proof of signed source.
+Unsigned disposable acceptance uses the existing disposable target and
+`pnpm desktop:package:installed`. It cannot exercise production auto-update or
+be published. Preinstall the fixed candidate CLI for pre-release Computer smoke;
+production bootstrap intentionally targets the published npm stable channel.
 
-If `pnpm run release:desktop-preview:upload` fails with a long-running Wrangler
-`fetch failed`, treat it as a network/upload blocker. Do not deploy the Web
-download page as release-ready until the R2 bucket reports the DMG object and a
-download round trip matches the build SHA-256. Use a more stable network or an
-R2 S3-compatible Object Read & Write token with multipart-capable tooling; R2
-S3 credentials are secrets and must not be committed or left in shell history.
+After separate publication authorization, use the existing root
+`pnpm release:desktop-preview:upload-candidate`. After review, installed Windows
+acceptance, additive Web deployment and separate promotion authorization, use
+`pnpm release:desktop-preview:promote -- <candidate-sha256> <expected-current-version-or-none>`.
+Windows root pnpm invocations preserve the exact pnpm JS entry; a direct release
+script call without that entry fails instead of executing shell text. The shared
+Git-backed `web` production lease and monotonic version check remain mandatory.
 
-Validation floor for this workflow:
+Windows metadata and installer share `desktop/candidates/<installer-sha256>/`.
+The sole platform pointer is `desktop/promoted-windows-<arch>.json`. The page and
+default download take `?platform=windows-<arch>`; immutable candidate links remain
+hash-selected. The feed is `/desktop/updates/windows-<arch>/latest.yml` and its
+payload is `/desktop/updates/<installer-sha256>/windows-<arch>.exe`.
 
-```text
-pnpm -C clients/desktop check
-pnpm -C clients/desktop test
-pnpm -C clients/desktop build
-pnpm -C clients/web check
-pnpm -C clients/web test
-node --test scripts/release/desktop-preview.test.mjs
-pnpm run verify:cloudflare:env-contract
-pnpm run release:desktop-preview:build
-```
-
-Real-user smoke must still happen on a Mac through the installed app, not only
-through the package build output.
+Deploy platform-aware Web readers before these manifests. Verify page, GET,
+HEAD, complete digest/size, platform feed and installed A-to-B behavior separately.
+Real signed NSIS extraction, normal-user installation, ARM64 execution and the
+actual OpenMeld signature/SmartScreen outcome remain native release acceptance,
+not facts established by plan/PE tests or process-contract CI. GUI update/uninstall
+must leave independently running Service and Wake work untouched. No feature PR
+validation grants release authorization.
 
 ## Local Components Release Tool
 
@@ -1627,6 +1943,16 @@ the files it wrote and never overwrites a concurrent edit. Do not hand-edit
 bundle hashes, run a separate build after stamping, or pass `--current` to a
 stamp command. After a merge, rebase, or later local-component change, rerun the
 same stamp command against the final source before committing.
+
+The release path classifies Service ownership separately from the CLI artifact.
+When no Service-owned input changed since the selected base manifest, stamping a
+CLI-only release retains that base Service version, bundle hash, and contract
+versions. The production publisher then selects the same immutable Service raw
+and gzip artifacts and verifies them before changing the mutable channel
+manifest. Changes to Service lifecycle/runtime sources, shared Service schemas
+or runtime dependencies, the packaged-build inputs, or the lockfile remain
+Service changes and keep the stamp coupled. This conservative allowlist is the
+only release-side eligibility decision; compatibility alone is insufficient.
 
 `--next` reads npm `latest` and the R2 stable CLI manifest, selects the higher
 stable version, and increments its patch. It prints both channel facts and warns
@@ -1666,8 +1992,9 @@ policy script owns this classification; ordinary feature branches remain
 deferred and cannot carry a release stamp, while a malformed or mixed-scope
 release branch fails closed.
 
-The pre-push hook skips ordinary non-`main` development updates. It parses Git's
-pushed-ref lines and remains strict when a push includes `refs/heads/main`, a
+The pre-push release check defers ordinary development builds to FC; the
+focused-check hook still runs on development pushes. Release checking remains
+strict when a push includes `refs/heads/main`, a
 versioned release branch, a tag, malformed input, or no input. A strict push
 requires every non-deletion object to resolve to checked-out `HEAD` and rejects
 uncommitted release-relevant or gate-control paths. Final Candidate passes the
@@ -1708,8 +2035,10 @@ pnpm run verify:release-ready -- --current
 
 Current early-release policy:
 
-- Any CLI, Service carrier, or Skills artifact change must be stamped as
+- Any changed CLI, Service carrier, or Skills artifact must be stamped as
   `available` or `required`.
+- An eligible CLI-only release may advance the CLI while retaining the exact
+  selected base Service. It does not restamp newer CLI bytes as Service bytes.
 - Service bundle changes can be advisory unless the Service runtime contract
   changes.
 - Skills bundle changes can be advisory unless the skills contract changes.

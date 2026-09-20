@@ -1,5 +1,10 @@
 import { readFile } from "node:fs/promises";
 import {
+  buildTargetWakeLifecycleId,
+  executionContextSelectionSchema,
+} from "@openmeld/schemas";
+import type { ExecutionContextSelection } from "@openmeld/schemas/types";
+import {
   createSpaceSendInputConflictGuideError,
   createSpaceSendInputEmptyGuideError,
   createSpaceSendInputFileReadFailedGuideError,
@@ -14,6 +19,65 @@ type ResolveSpaceSendTextInput = {
   readFromStdin?: () => Promise<string>;
   readFromFile?: (path: string) => Promise<string>;
 };
+
+export function resolveSpaceTaskSelection(input: {
+  space: string;
+  wakeTargets?: readonly string[];
+  newTask?: boolean;
+  forkFrom?: string;
+  continueFrom?: string;
+  taskAccess?: string;
+  taskWorkspace?: string;
+}): ExecutionContextSelection | undefined {
+  const modes =
+    Number(input.newTask === true) +
+    Number(Boolean(input.forkFrom)) +
+    Number(Boolean(input.continueFrom));
+  if (modes === 0 && !input.taskAccess && !input.taskWorkspace) {
+    return undefined;
+  }
+  if (modes > 1) {
+    throw new Error(
+      "Choose only one of --new-task, --fork-from, or --continue-from."
+    );
+  }
+  const targetProfileId = input.wakeTargets?.[0];
+  if (!targetProfileId || input.wakeTargets?.length !== 1) {
+    throw new Error("Task selection requires exactly one --wake <profile-id>.");
+  }
+  if (input.continueFrom && (input.taskAccess || input.taskWorkspace)) {
+    throw new Error(
+      "A continued task keeps its original file access and workspace. Start a new task to change them."
+    );
+  }
+  const sourceSignalId = input.forkFrom ?? input.continueFrom;
+  const sourceWakeId = sourceSignalId
+    ? buildTargetWakeLifecycleId({
+        spaceId: input.space,
+        sourceSignalId,
+        targetProfileId,
+      })
+    : undefined;
+  const preferences = {
+    access: input.taskAccess,
+    workspace: input.taskWorkspace,
+  };
+  let value: unknown;
+  if (input.continueFrom) {
+    value = { mode: "resume", sourceWakeId };
+  } else if (input.forkFrom) {
+    value = { mode: "fork", sourceWakeId, ...preferences };
+  } else {
+    value = { mode: input.newTask ? "new" : "auto", ...preferences };
+  }
+  const parsed = executionContextSelectionSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error(
+      parsed.error.issues[0]?.message ?? "Invalid task selection."
+    );
+  }
+  return parsed.data;
+}
 
 export async function resolveSpaceSendText(
   input: ResolveSpaceSendTextInput

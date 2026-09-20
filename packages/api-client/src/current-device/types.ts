@@ -51,6 +51,7 @@ export type SelectCurrentLocalAgentInstallationInput = {
 export type SetCurrentAgentProfileWorkspaceInput =
   SetCurrentAgentProfileWorkspaceBody & {
     agentProfileId: string;
+    target?: PeopleComputerTarget;
   };
 export type WriteCurrentDeviceObservedMetadataInput = {
   deviceId: string;

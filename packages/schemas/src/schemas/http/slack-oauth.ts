@@ -3,6 +3,39 @@ import * as z from "zod/v4";
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 const timestampMsSchema = z.number().int().nonnegative();
 
+export const SLACK_BOT_SCOPES = [
+  "app_mentions:read",
+  "assistant:write",
+  "bookmarks:read",
+  "bookmarks:write",
+  "canvases:read",
+  "canvases:write",
+  "channels:history",
+  "channels:join",
+  "channels:read",
+  "chat:write",
+  "commands",
+  "files:read",
+  "files:write",
+  "groups:history",
+  "groups:read",
+  "groups:write",
+  "im:history",
+  "im:read",
+  "im:write",
+  "links:read",
+  "links:write",
+  "pins:read",
+  "pins:write",
+  "reactions:read",
+  "reactions:write",
+  "search:read.files",
+  "search:read.public",
+  "usergroups:read",
+  "users:read",
+  "users:read.email",
+] as const;
+
 export const SLACK_DIRECT_MESSAGE_REQUIRED_BOT_SCOPES = [
   "im:history",
   "im:read",

@@ -560,8 +560,14 @@ function buildSpaceHistoryBriefMessage(input: {
       profileKind: input.event.profile?.kind ?? null,
     },
     text: briefText.text,
+    ...(messageReadProjection?.reactions
+      ? { reactions: messageReadProjection.reactions }
+      : {}),
     textOriginalCharacters: briefText.originalCharacters,
     textTruncated: briefText.truncated,
+    ...(input.event.type === "signal.text" && input.event.data.files?.length
+      ? { files: input.event.data.files }
+      : {}),
     ...(briefText.truncated
       ? {
           fullTextCommand: formatOpenMeldCliCommand(

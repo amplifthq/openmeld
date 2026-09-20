@@ -105,12 +105,25 @@ export async function stageSpaceComposerUpload(input: {
   return existing.descriptor;
 }
 
-export async function readSpaceComposerUpload(input: {
+export async function readSpaceComposerUpload(
+  input: Parameters<typeof readSpaceComposerUploadStream>[0]
+) {
+  const result = await readSpaceComposerUploadStream(input);
+  return {
+    descriptor: result.descriptor,
+    bytes: await new Response(result.body).arrayBuffer(),
+  };
+}
+
+export async function readSpaceComposerUploadStream(input: {
   bucket: R2Bucket;
   nowMs: number;
   scope: SpaceComposerUploadScope;
   uploadId: string;
-}): Promise<{ bytes: ArrayBuffer; descriptor: SpaceComposerUploadDescriptor }> {
+}): Promise<{
+  body: ReadableStream<Uint8Array>;
+  descriptor: SpaceComposerUploadDescriptor;
+}> {
   const objectKey = buildScopedObjectKey(input.scope, input.uploadId);
   let object: R2ObjectBody | null;
   try {
@@ -144,24 +157,14 @@ export async function readSpaceComposerUpload(input: {
       message: "This upload expired. Add the file again.",
     });
   }
-  let bytes: ArrayBuffer;
-  try {
-    bytes = await object.arrayBuffer();
-  } catch (error) {
-    throw new SpaceComposerUploadStorageError({
-      cause: error,
-      kind: "storage_failed",
-      message: "This upload could not be read right now.",
-    });
-  }
-  if (bytes.byteLength !== metadata.sizeBytes) {
+  if (object.size !== metadata.sizeBytes) {
     throw new SpaceComposerUploadStorageError({
       kind: "invalid",
       message: "This upload is incomplete. Add the file again.",
     });
   }
   return {
-    bytes,
+    body: object.body,
     descriptor: spaceComposerUploadDescriptorSchema.parse({
       expiresAt: new Date(metadata.expiresAtMs).toISOString(),
       id: metadata.uploadId,

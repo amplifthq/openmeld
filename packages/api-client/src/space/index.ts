@@ -36,6 +36,12 @@ export {
   buildSpaceSignalsReadPath,
   buildSpaceSignalsReadSearchParams,
 } from "./signals";
+export {
+  createSpaceTask,
+  getSpaceTask,
+  listSpaceTasks,
+  mutateSpaceTask,
+} from "./tasks";
 export type {
   AddSpaceMembersInput,
   CreateSpaceApi,
@@ -53,3 +59,4 @@ export type {
 } from "./types";
 export { buildSpaceUpdatesReadPath } from "./updates";
 export { postSpaceWakeStop } from "./wake-stop";
+export { postSpaceWorkHandoff } from "./work-handoff";

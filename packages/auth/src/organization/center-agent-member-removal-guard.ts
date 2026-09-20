@@ -1,23 +1,20 @@
 import { APIError } from "better-auth";
 
-const CENTER_AGENT_HOST_REMOVAL_BLOCKED = {
-  code: "organization.center_agent_host_removal_blocked",
-  message:
-    "This member activated the organization's Center Agent. Revoke or re-designate the Center Agent before removing them.",
-} as const;
-
-const CENTER_AGENT_HOST_GUARD_FAILED = {
-  code: "organization.center_agent_host_guard_failed",
+const CENTER_AGENT_MEMBER_REMOVAL_GUARD_FAILED = {
+  code: "organization.center_agent_member_removal_guard_failed",
   message:
     "OpenMeld couldn't verify that this member can be removed. The member was not removed.",
 } as const;
 
-type CenterAgentHostRow = {
-  agent_profile_id: string;
+type CenterAgentIdentityRow = {
+  profile_id: string | null;
+  organization_id: string | null;
+  profile_kind: string | null;
+  managed_role: string | null;
   owner_user_id: string | null;
 };
 
-export async function assertMemberDoesNotHostCenterAgent(input: {
+export async function assertCenterAgentIdentityBeforeMemberRemoval(input: {
   db?: D1Database;
   organizationId: string;
   userId: string;
@@ -30,13 +27,16 @@ export async function assertMemberDoesNotHostCenterAgent(input: {
     });
   }
 
-  let host: CenterAgentHostRow | null;
+  let identity: CenterAgentIdentityRow | null;
   try {
-    host = await input.db
+    identity = await input.db
       .prepare(
         `
           SELECT
-            designations.agent_profile_id,
+            profiles.profile_id,
+            profiles.organization_id,
+            profiles.profile_kind,
+            profiles.managed_role,
             profiles.owner_user_id
           FROM center_agent_designations AS designations
           LEFT JOIN openmeld_profiles AS profiles
@@ -46,28 +46,37 @@ export async function assertMemberDoesNotHostCenterAgent(input: {
         `
       )
       .bind(input.organizationId)
-      .first<CenterAgentHostRow>();
+      .first<CenterAgentIdentityRow>();
   } catch (error) {
     failClosed({
       error,
       organizationId: input.organizationId,
-      reason: "center_agent_host_query_failed",
+      reason: "center_agent_identity_query_failed",
       userId: input.userId,
     });
   }
 
-  if (!host) {
+  if (!identity) {
     return;
   }
-  if (!host.owner_user_id) {
+  if (!identity.profile_id) {
     failClosed({
       organizationId: input.organizationId,
-      reason: "center_agent_host_profile_missing",
+      reason: "center_agent_profile_missing",
       userId: input.userId,
     });
   }
-  if (host.owner_user_id === input.userId) {
-    throw new APIError("BAD_REQUEST", CENTER_AGENT_HOST_REMOVAL_BLOCKED);
+  if (
+    identity.organization_id !== input.organizationId ||
+    identity.profile_kind !== "agent" ||
+    identity.managed_role !== "center_agent" ||
+    identity.owner_user_id !== null
+  ) {
+    failClosed({
+      organizationId: input.organizationId,
+      reason: "center_agent_identity_mismatch",
+      userId: input.userId,
+    });
   }
 }
 
@@ -91,5 +100,8 @@ function failClosed(input: {
     reason: input.reason,
     userId: input.userId,
   });
-  throw new APIError("SERVICE_UNAVAILABLE", CENTER_AGENT_HOST_GUARD_FAILED);
+  throw new APIError(
+    "SERVICE_UNAVAILABLE",
+    CENTER_AGENT_MEMBER_REMOVAL_GUARD_FAILED
+  );
 }

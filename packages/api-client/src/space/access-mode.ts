@@ -13,7 +13,14 @@ export async function setSpaceAccessMode(
 ): Promise<SpaceAccessModeState> {
   const parsedBody = setSpaceAccessModeBodySchema.safeParse({
     accessMode: input.accessMode,
+    ...(input.allowGuests === undefined
+      ? {}
+      : { allowGuests: input.allowGuests }),
+    ...(input.linkJoinPolicy === undefined
+      ? {}
+      : { linkJoinPolicy: input.linkJoinPolicy }),
     ...(input.password === undefined ? {} : { password: input.password }),
+    ...(input.visibility === undefined ? {} : { visibility: input.visibility }),
   });
 
   if (!parsedBody.success) {

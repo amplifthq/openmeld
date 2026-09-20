@@ -80,7 +80,7 @@ describe("buildReplyReadinessGuidance", () => {
 
     expect(guidance.nextSteps).toEqual([
       "openmeld space join YOUR_SPACE_ID",
-      'Send a message with an exact mention like "@Name(wake)".',
+      "Choose Wake in the Space, or send with --wake <agent-profile-id>.",
     ]);
   });
 

@@ -11,12 +11,19 @@ import {
   runCoreStartupAdmission,
 } from "../cloudflare/core-startup-admission.mjs";
 import { buildCoreVersionReleaseStepSpecs } from "../cloudflare/core-version-deployment.mjs";
+import { resolveCoreProjectionTag } from "./release-cli-resume.mjs";
+import { recordCoreDeploymentOutput } from "./worker-deployment-evidence.mjs";
 
 const FULL_COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 
 export function deployCoreWorker(input = {}) {
   const cwd = input.cwd ?? process.cwd();
-  const env = input.env ?? process.env;
+  const env = {
+    ...(input.env ?? process.env),
+    ...(input.verifyLocalComponents
+      ? { OPENMELD_RELEASE_CHANNEL_SYNC_CHECK: "1" }
+      : {}),
+  };
   const adapters = {
     readCoreWranglerConfig:
       input.adapters?.readCoreWranglerConfig ??
@@ -45,25 +52,44 @@ export function deployCoreWorker(input = {}) {
     );
   }
 
+  if (input.verifyLocalComponents) {
+    adapters.runStep({
+      args: ["run", "deploy:release-ready"],
+      command: "pnpm",
+      label: "Verify published local-components channel alignment",
+    });
+  }
   adapters.runStep({
     args: ["--dir", "services/core", "run", "build:workspace-dependencies"],
     command: "pnpm",
     label: "Build Core receiver dependencies",
   });
   adapters.runStep(buildCoreBundleEvidenceStepSpec());
+  const projectionTag =
+    input.tag ??
+    (env.OPENMELD_RELEASE_RECEIPT_CONTEXT
+      ? resolveCoreProjectionTag({ cwd })
+      : undefined);
   const evidence = adapters.runStartupAdmission({
     cwd,
     env,
     releaseSha,
-    tag: input.tag,
+    tag: projectionTag,
   });
   const releaseSteps = buildCoreVersionReleaseStepSpecs({
+    trafficPercent: evidence.trafficPercent,
     versionId: evidence.versionId,
     wranglerConfigSource: adapters.readCoreWranglerConfig(),
   });
   for (const step of releaseSteps) {
     adapters.runStep(step);
   }
+  recordCoreDeploymentOutput({
+    env,
+    sourceSha: releaseSha,
+    evidence,
+    projectionTag,
+  });
 }
 
 function runStep(input) {
@@ -101,7 +127,9 @@ function parseArguments(argumentsList) {
   for (let index = 0; index < argumentsList.length; index += 1) {
     const argument = argumentsList[index];
     const value = argumentsList[index + 1];
-    if (argument === "--release-sha") {
+    if (argument === "--verify-local-components") {
+      options.verifyLocalComponents = true;
+    } else if (argument === "--release-sha") {
       options.releaseSha = requireArgumentValue(argument, value);
       index += 1;
     } else if (argument === "--tag") {

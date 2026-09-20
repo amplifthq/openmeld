@@ -5989,7 +5989,7 @@ type OrganizationDirectoryCandidateProfile = {
   profileKind: SpaceMembershipProfileKind;
   profileName: string;
   status: "active" | "disabled";
-  ownerUserId: string;
+  ownerUserId: string | null;
   ownerName?: string;
   isOrganizationCenterAgent: boolean;
 };
@@ -6104,7 +6104,7 @@ function resolveExplicitOrganizationDirectoryCandidates(input: {
       profileHandle: directoryProfile.profileHandle,
       profileName: directoryProfile.profileName,
       profileKind: directoryProfile.profileKind,
-      ownerUserId: directoryProfile.ownerUserId,
+      ownerUserId: directoryProfile.ownerUserId ?? undefined,
       ownerName: directoryProfile.ownerName,
       alreadyJoined: input.memberProfileIds.has(directoryProfile.profileId),
       needsActivation: false,
@@ -8408,6 +8408,10 @@ async function syncKnownSpacePasswordProtectionCache(input: {
 }
 
 export async function runSpaceSend(input: {
+  contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
+  wakeTargets?: readonly string[];
+  referenceTargets?: readonly string[];
+  mentionTargets?: readonly string[];
   profile?: string;
   baseUrl?: string;
   space: string;
@@ -8477,6 +8481,10 @@ export async function runSpaceSend(input: {
   }
   try {
     await runSend({
+      contextSelection: input.contextSelection,
+      wakeTargets: input.wakeTargets,
+      referenceTargets: input.referenceTargets,
+      mentionTargets: input.mentionTargets,
       profile: openMeldProfile.openMeldProfileId,
       baseUrl,
       space: normalizedSpace,

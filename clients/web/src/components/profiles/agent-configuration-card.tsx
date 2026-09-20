@@ -1,7 +1,18 @@
 "use client";
 
-import { Popover } from "@base-ui/react/popover";
+import {
+	MorphingDialog,
+	MorphingDialogClose,
+	MorphingDialogContainer,
+	MorphingDialogContent,
+	MorphingDialogSubtitle,
+	MorphingDialogTitle,
+	MorphingDialogTrigger,
+} from "@openmeld/ui/components/morphing-dialog";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
+import { SurfaceProvider, useSurface } from "@openmeld/ui/lib/surface-context";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CheckCircleIcon, PencilSimpleIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
@@ -26,28 +37,32 @@ export function AgentConfigurationEditorCard(input: {
 	icon: ReactNode;
 	label: string;
 }) {
+	const surface = useSurface() + 2;
 	return (
-		<section
-			className={cn(
-				"grid min-w-0 content-start gap-4 rounded-2xl border border-border/65 bg-card/35 p-4",
-				input.className
-			)}
-		>
-			<div className="flex items-start gap-3">
-				<span className="grid size-8 shrink-0 place-items-center rounded-lg border border-border/60 bg-background/80 text-muted-foreground shadow-sm [&_svg]:size-4">
-					{input.icon}
-				</span>
-				<div className="min-w-0">
-					<h3 className="font-medium text-sm">{input.label}</h3>
-					{input.description ? (
-						<p className="mt-0.5 text-muted-foreground text-xs leading-4.5">
-							{input.description}
-						</p>
-					) : null}
+		<SurfaceProvider value={surface}>
+			<section
+				className={cn(
+					"grid min-w-0 content-start gap-4 rounded-md p-4",
+					surfaceClasses(surface),
+					input.className
+				)}
+			>
+				<div className="flex items-start gap-3">
+					<span className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground [&_svg]:size-4">
+						{input.icon}
+					</span>
+					<div className="min-w-0">
+						<h3 className="font-medium text-sm">{input.label}</h3>
+						{input.description ? (
+							<p className="mt-0.5 text-muted-foreground text-xs leading-4.5">
+								{input.description}
+							</p>
+						) : null}
+					</div>
 				</div>
-			</div>
-			<div className="min-w-0">{input.children}</div>
-		</section>
+				<div className="min-w-0">{input.children}</div>
+			</section>
+		</SurfaceProvider>
 	);
 }
 
@@ -72,17 +87,17 @@ export function AgentConfigurationCard(input: {
 	summaryClassName?: string;
 	summaryTitle?: string;
 }) {
+	const surface = useSurface() + 2;
 	const card = (
 		<div
 			className={cn(
-				"group flex h-full min-h-28 w-full min-w-0 items-start gap-3 rounded-2xl border border-border/65 bg-transparent p-4 text-left shadow-[0_1px_0_rgb(255_255_255/0.025)_inset] transition-colors duration-150 data-[attention=true]:border-primary/45 data-[attention=true]:bg-primary/[0.045]",
-				!(input.readOnly || input.disabled) && "hover:border-border",
+				"group flex h-full min-h-28 w-full min-w-0 items-start gap-3 rounded-md border border-transparent bg-transparent p-4 text-left data-[attention=true]:ring-1 data-[attention=true]:ring-primary/45",
 				input.disabled && "cursor-not-allowed opacity-55",
 				input.className
 			)}
 			data-attention={input.attention}
 		>
-			<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border/60 bg-background/80 text-muted-foreground shadow-sm [&_svg]:size-4.5">
+			<span className="grid size-9 shrink-0 place-items-center rounded-md text-muted-foreground [&_svg]:size-4.5">
 				{input.icon}
 			</span>
 			<div className="min-w-0 flex-1">
@@ -92,15 +107,16 @@ export function AgentConfigurationCard(input: {
 					</span>
 					{resolveConfigurationStatus(input.status)}
 				</span>
-				<span
-					className={cn(
-						"mt-1 block break-words font-medium text-sm leading-5",
-						input.summaryClassName
-					)}
-					title={input.summaryTitle}
-				>
-					{input.summary}
-				</span>
+				<TooltipHint content={input.summaryTitle}>
+					<span
+						className={cn(
+							"mt-1 block break-words font-medium text-sm leading-5",
+							input.summaryClassName
+						)}
+					>
+						{input.summary}
+					</span>
+				</TooltipHint>
 				{input.description ? (
 					<span className="mt-1 block text-muted-foreground text-xs leading-4.5">
 						{input.description}
@@ -121,91 +137,118 @@ export function AgentConfigurationCard(input: {
 
 	if (input.readOnly || !(input.children || input.onClick)) {
 		return (
-			<FluidCardItem
-				className="w-full rounded-2xl bg-card"
-				indicatorClassName="rounded-2xl bg-muted/35"
-				itemId={input.itemId}
-			>
+			<AgentConfigurationSurface itemId={input.itemId}>
 				{card}
-			</FluidCardItem>
+			</AgentConfigurationSurface>
 		);
 	}
 	if (!input.children && input.onClick) {
 		return (
-			<FluidCardItem
-				className="w-full rounded-2xl bg-card"
-				indicatorClassName="rounded-2xl bg-muted/35"
-				itemId={input.itemId}
-			>
+			<AgentConfigurationSurface itemId={input.itemId}>
 				<button
 					aria-label={input.actionLabel ?? `Edit ${input.label}`}
-					className="h-full w-full min-w-0 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+					className="h-full w-full min-w-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
 					disabled={input.disabled}
 					onClick={input.onClick}
 					type="button"
 				>
 					{card}
 				</button>
-			</FluidCardItem>
+			</AgentConfigurationSurface>
 		);
 	}
 
 	return (
-		<Popover.Root onOpenChange={input.onOpenChange} open={input.open}>
-			<FluidCardItem
-				className="w-full rounded-2xl bg-card"
-				indicatorClassName="rounded-2xl bg-muted/35"
+		<MorphingDialog onOpenChange={input.onOpenChange} open={input.open}>
+			<AgentConfigurationSurface
+				className="has-[[data-popup-open]]:opacity-0"
 				itemId={input.itemId}
 			>
-				<Popover.Trigger
+				<MorphingDialogTrigger
+					aria-label={input.actionLabel ?? `Edit ${input.label}`}
+					className="h-full w-full min-w-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
 					disabled={input.disabled}
-					render={
-						<button
-							aria-label={input.actionLabel ?? `Edit ${input.label}`}
-							className="h-full w-full min-w-0 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-							type="button"
-						/>
-					}
+					type="button"
 				>
 					{card}
-				</Popover.Trigger>
-			</FluidCardItem>
-			<Popover.Portal>
-				<Popover.Positioner
-					align="start"
-					className="z-50"
-					collisionAvoidance={{
-						align: "shift",
-						fallbackAxisSide: "end",
-						side: "flip",
-					}}
-					collisionPadding={12}
-					side="bottom"
-					sideOffset={8}
+				</MorphingDialogTrigger>
+			</AgentConfigurationSurface>
+			<MorphingDialogContainer>
+				<MorphingDialogContent
+					className={cn(
+						surfaceClasses(surface + 1),
+						"w-full max-w-md rounded-md p-4 text-popover-foreground"
+					)}
+					initialFocus={input.initialFocus}
 				>
-					<Popover.Popup
-						className="w-[min(25rem,calc(100vw-1.5rem))] origin-[var(--transform-origin)] rounded-2xl border border-border/75 bg-popover p-4 text-popover-foreground shadow-xl outline-none transition-[opacity,transform] duration-180 ease-[cubic-bezier(0.19,1,0.22,1)] data-[starting-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 data-[ending-style]:duration-100 motion-reduce:transform-none motion-reduce:transition-opacity"
-						finalFocus={false}
-						initialFocus={input.initialFocus}
-					>
-						<div className="mb-4 flex items-start gap-3">
-							<span className="grid size-8 shrink-0 place-items-center rounded-lg border border-border/60 bg-background/75 text-muted-foreground [&_svg]:size-4">
+					<SurfaceProvider value={surface + 1}>
+						<div className="mb-4 flex items-start gap-3 pr-8">
+							<span className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground [&_svg]:size-4">
 								{input.icon}
 							</span>
 							<div className="min-w-0">
-								<p className="font-medium text-sm">{input.label}</p>
+								<MorphingDialogTitle className="font-medium text-sm">
+									{input.label}
+								</MorphingDialogTitle>
 								{input.description ? (
-									<p className="mt-0.5 text-muted-foreground text-xs leading-4.5">
+									<MorphingDialogSubtitle className="mt-0.5 text-muted-foreground text-xs leading-4.5">
 										{input.description}
-									</p>
+									</MorphingDialogSubtitle>
 								) : null}
 							</div>
 						</div>
-						{input.children}
-					</Popover.Popup>
-				</Popover.Positioner>
-			</Popover.Portal>
-		</Popover.Root>
+						<div className="max-h-[calc(100dvh-10rem)] overflow-y-auto">
+							{input.children}
+						</div>
+						<MorphingDialogClose />
+					</SurfaceProvider>
+				</MorphingDialogContent>
+			</MorphingDialogContainer>
+		</MorphingDialog>
+	);
+}
+
+/** A measured/read-only fact shares the dashboard surface, not its edit affordance. */
+export function AgentConfigurationReadoutCard(input: {
+	itemId: string;
+	label: string;
+	children: ReactNode;
+}) {
+	return (
+		<AgentConfigurationSurface itemId={input.itemId}>
+			<section
+				aria-label={input.label}
+				className="h-full min-h-28 min-w-0 rounded-md p-4"
+			>
+				<h3 className="font-medium text-muted-foreground text-xs">
+					{input.label}
+				</h3>
+				<div className="mt-3 min-w-0">{input.children}</div>
+			</section>
+		</AgentConfigurationSurface>
+	);
+}
+
+function AgentConfigurationSurface(input: {
+	itemId: string;
+	children: ReactNode;
+	className?: string;
+}) {
+	const surface = useSurface() + 2;
+	return (
+		<SurfaceProvider value={surface}>
+			<FluidCardItem
+				className={cn(
+					"w-full rounded-md",
+					surfaceClasses(surface),
+					input.className
+				)}
+				indicatorClassName="rounded-md bg-interaction-hover"
+				itemId={input.itemId}
+			>
+				{input.children}
+			</FluidCardItem>
+		</SurfaceProvider>
 	);
 }
 

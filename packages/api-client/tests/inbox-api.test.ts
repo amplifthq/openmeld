@@ -1,10 +1,17 @@
+import {
+  OPENMELD_INBOX_ITEM_KIND_VERSION,
+  OPENMELD_INBOX_SOURCE_TARGET_VERSION,
+  OPENMELD_INBOX_SUMMARY_VERSION,
+} from "@openmeld/gateway-contract";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildCenterAgentInboxReadThroughPath,
   buildCenterAgentInboxSummaryPath,
   buildInboxItemPath,
   buildInboxItemReadPath,
+  buildInboxMarkAllReadPath,
   buildInboxPath,
+  buildInboxSummaryPath,
   buildSpaceInboxReadThroughPath,
   buildSpaceInboxSummaryPath,
   buildSpaceInboxUnreadTargetsPath,
@@ -32,10 +39,162 @@ const ITEM = {
 };
 
 describe("api-client Inbox API", () => {
+  it("sends full-dataset filters and frozen mutations through strict shared contracts", async () => {
+    const page = {
+      organizationId: "org-1",
+      snapshotId: "snapshot",
+      snapshotExpiresAt: "2026-09-19T00:15:00Z",
+      nextCursor: "next-page",
+      counts: {
+        all: 4,
+        mentions: 2,
+        needsAction: 1,
+        needsReview: 0,
+        unread: 3,
+        priority: 1,
+      },
+      rows: [
+        {
+          item: ITEM,
+          itemCount: 4,
+          unreadCount: 3,
+          groupKey: "Z3JvdXA",
+          latestOccurredAt: ITEM.occurredAt,
+          section: "activity",
+          requestCategory: null,
+          dot: "blue",
+        },
+      ],
+    };
+    const transport = vi.fn<OpenMeldApiClientTransport>(() =>
+      Promise.resolve(jsonResponse(page))
+    );
+    const api = createInboxApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    expect(
+      await api.feed({
+        category: "mentions",
+        unreadOnly: "false",
+        agentsOnly: "true",
+        peopleOnly: "false",
+        conversationType: "direct_messages",
+        includeSelectionUnreadCount: "true",
+        cursor: "cursor",
+        limit: 20,
+      })
+    ).toEqual(page);
+    const url = new URL(transport.mock.calls[0]?.[0].url ?? "");
+    expect(url.pathname).toBe("/v1/inbox/feed");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      category: "mentions",
+      unreadOnly: "false",
+      agentsOnly: "true",
+      peopleOnly: "false",
+      conversationType: "direct_messages",
+      includeSelectionUnreadCount: "true",
+      cursor: "cursor",
+      limit: "20",
+    });
+    transport.mockResolvedValueOnce(jsonResponse({ changedCount: 4 }));
+    expect(
+      await api.mutateFeed({
+        snapshotId: page.snapshotId,
+        groupKey: "Z3JvdXA",
+        operation: "read",
+      })
+    ).toEqual({ changedCount: 4 });
+    expect(transport.mock.calls[1]?.[0].url).toContain("/v1/inbox/feed/state");
+    expect(JSON.parse(String(transport.mock.calls[1]?.[0].init?.body))).toEqual(
+      { snapshotId: page.snapshotId, groupKey: "Z3JvdXA", operation: "read" }
+    );
+    transport.mockResolvedValueOnce(
+      jsonResponse({ ...page, rows: [{ ...page.rows[0], dot: "red" }] })
+    );
+    await expect(api.feed()).rejects.toThrow();
+  });
+
+  it("requests and preserves recipient-specific Human reply facts", async () => {
+    const reply = {
+      ...ITEM,
+      sourceTarget: {
+        ...ITEM.sourceTarget,
+        threadRootSignalId: "root",
+        replyToRecipient: true,
+      },
+    };
+    const transport = vi.fn<OpenMeldApiClientTransport>(async () =>
+      jsonResponse({ item: reply })
+    );
+    const api = createInboxApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    expect((await api.get({ itemId: ITEM.id })).item.sourceTarget).toEqual(
+      reply.sourceTarget
+    );
+    const headers = new Headers(transport.mock.calls[0]?.[0].init?.headers);
+    expect(headers.get("x-openmeld-inbox-source-target-version")).toBe(
+      OPENMELD_INBOX_SOURCE_TARGET_VERSION
+    );
+  });
+  it("reads and writes message preferences with a separate strict contract", async () => {
+    const response = {
+      organizationId: "org-1",
+      spaceId: "space/1",
+      defaultMode: "mentions_and_replies",
+      overrideMode: "all_messages",
+      effectiveMode: "all_messages",
+    };
+    const transport = vi.fn<OpenMeldApiClientTransport>(async () =>
+      jsonResponse(response)
+    );
+    const api = createInboxApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    expect(
+      await api.getMessageNotificationPreferences({ spaceId: "space/1" })
+    ).toEqual(response);
+    expect(transport.mock.calls[0]?.[0].url).toContain(
+      "message-notification-preferences?spaceId=space%2F1"
+    );
+    await api.updateMessageNotificationPreferences({
+      preference: { scope: "conversation", spaceId: "space/1", mode: null },
+    });
+    expect(JSON.parse(String(transport.mock.calls[1]?.[0].init?.body))).toEqual(
+      { scope: "conversation", spaceId: "space/1", mode: null }
+    );
+    transport.mockResolvedValueOnce(
+      jsonResponse({ ...response, effectiveMode: "unknown" })
+    );
+    await expect(api.getMessageNotificationPreferences()).rejects.toThrow();
+  });
   it("builds encoded list and item routes", () => {
     expect(
-      buildInboxPath({ cursor: "cursor value", limit: 25, view: "unread" })
-    ).toBe("/v1/inbox?cursor=cursor+value&limit=25&view=unread");
+      buildInboxPath({
+        cursor: "cursor value",
+        limit: 25,
+        notificationPreview: "true",
+        presentation: "attention",
+        view: "unread",
+      })
+    ).toBe(
+      "/v1/inbox?cursor=cursor+value&limit=25&presentation=attention&notificationPreview=true&view=unread"
+    );
+    expect(buildInboxSummaryPath("attention")).toBe(
+      "/v1/inbox/summary?presentation=attention"
+    );
+    expect(buildInboxMarkAllReadPath("attention")).toBe(
+      "/v1/inbox/mark-all-read?presentation=attention"
+    );
     expect(buildInboxItemReadPath("inbox/item 1")).toBe(
       "/v1/inbox/items/inbox%2Fitem%201/read"
     );
@@ -163,13 +322,17 @@ describe("api-client Inbox API", () => {
       })
     );
 
-    await expect(api.list({ view: "all" })).resolves.toMatchObject({
+    await expect(
+      api.list({ presentation: "attention", view: "all" })
+    ).resolves.toMatchObject({
       items: [{ id: ITEM.id }],
     });
     await expect(api.get({ itemId: ITEM.id })).resolves.toMatchObject({
       item: { id: ITEM.id },
     });
-    await expect(api.summary()).resolves.toMatchObject({ totalUnreadCount: 1 });
+    await expect(
+      api.summary({ presentation: "attention" })
+    ).resolves.toMatchObject({ totalUnreadCount: 1 });
     await expect(api.centerAgentSummary()).resolves.toEqual({
       organizationId: "org-1",
       unreadCount: 1,
@@ -215,7 +378,9 @@ describe("api-client Inbox API", () => {
     await expect(api.dismiss({ itemId: ITEM.id })).resolves.toEqual({
       dismissedItemId: ITEM.id,
     });
-    await expect(api.markAllRead()).resolves.toEqual({ markedReadCount: 1 });
+    await expect(
+      api.markAllRead({ presentation: "attention" })
+    ).resolves.toEqual({ markedReadCount: 1 });
     await expect(api.getPreferences()).resolves.toMatchObject({
       urgentEmailEnabled: true,
     });
@@ -223,6 +388,31 @@ describe("api-client Inbox API", () => {
       api.updatePreferences({ urgentEmailEnabled: false })
     ).resolves.toMatchObject({ urgentEmailEnabled: false });
     expect(transport).toHaveBeenCalledTimes(13);
+    expect(
+      transport.mock.calls.find(
+        ([call]) => call.operation === "inbox.list"
+      )?.[0].url
+    ).toContain("presentation=attention");
+    expect(
+      transport.mock.calls.find(
+        ([call]) => call.operation === "inbox.summary"
+      )?.[0].url
+    ).toContain("presentation=attention");
+    expect(
+      transport.mock.calls.find(
+        ([call]) => call.operation === "inbox.mark_all_read"
+      )?.[0].url
+    ).toContain("presentation=attention");
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "inbox.summary",
+        init: expect.objectContaining({
+          headers: expect.objectContaining({
+            "x-openmeld-inbox-summary-version": OPENMELD_INBOX_SUMMARY_VERSION,
+          }),
+        }),
+      })
+    );
     for (const operation of [
       "inbox.list",
       "inbox.item.get",
@@ -232,8 +422,10 @@ describe("api-client Inbox API", () => {
         expect.objectContaining({
           init: expect.objectContaining({
             headers: expect.objectContaining({
-              "x-openmeld-inbox-item-kind-version": "1",
-              "x-openmeld-inbox-source-target-version": "4",
+              "x-openmeld-inbox-item-kind-version":
+                OPENMELD_INBOX_ITEM_KIND_VERSION,
+              "x-openmeld-inbox-source-target-version":
+                OPENMELD_INBOX_SOURCE_TARGET_VERSION,
             }),
           }),
           operation,

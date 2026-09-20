@@ -30,20 +30,44 @@ vi.mock("../src/local-service/projects/local-project-control-handler", () => ({
     handleLocalProjectControlFrameMock(...args),
 }));
 
+vi.mock(
+  "../src/local-service/routing/route-catalog-state",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../src/local-service/routing/route-catalog-state")
+    >()),
+    createRouteCatalogFromMutableState: (state: {
+      profileIds: string[];
+      routeByProfileId: Map<string, unknown>;
+      skippedProfiles: unknown[];
+    }) => ({
+      profileIds: [...state.profileIds],
+      routeByProfileId: new Map(state.routeByProfileId),
+      skippedProfiles: [...state.skippedProfiles],
+    }),
+    loadDaemonRouteCatalog: (...args: unknown[]) =>
+      loadDaemonRouteCatalogMock(...args),
+    syncDaemonRouteCatalogState: (...args: unknown[]) =>
+      syncDaemonRouteCatalogStateMock(...args),
+  })
+);
+
 vi.mock("../src/local-service/routing/route-catalog", () => ({
-  createRouteCatalogFromMutableState: (state: {
-    profileIds: string[];
-    routeByProfileId: Map<string, unknown>;
-    skippedProfiles: unknown[];
-  }) => ({
-    profileIds: [...state.profileIds],
-    routeByProfileId: new Map(state.routeByProfileId),
-    skippedProfiles: [...state.skippedProfiles],
-  }),
   loadDaemonRouteCatalog: (...args: unknown[]) =>
     loadDaemonRouteCatalogMock(...args),
-  syncDaemonRouteCatalogState: (...args: unknown[]) =>
-    syncDaemonRouteCatalogStateMock(...args),
+}));
+// Provider installation/history is an external boundary, not fixture state.
+vi.mock("../src/agent-activity/integration-refresh", () => ({
+  createManagedAgentActivityIntegrationRefreshScheduler: () => ({
+    request: () => undefined,
+    stop: async () => undefined,
+  }),
+}));
+vi.mock("../src/agent-activity/local-sync", () => ({
+  startLocalAgentActivitySyncLoop: () => ({
+    requestSync: () => undefined,
+    stop: async () => undefined,
+  }),
 }));
 
 vi.mock("../src/local-service/state/catalog-sync-signal", () => ({
@@ -83,7 +107,6 @@ import type { RuntimeAdapter } from "@openmeld/adapter-core";
 import {
   createInflightTaskControlRegistry,
   createLocalAdapterContainer,
-  createLocalExecutionSlots,
   createPendingAgentInteractionRegistry,
 } from "@openmeld/local-service";
 import {
@@ -91,29 +114,95 @@ import {
   DAEMON_STREAM_KEEPALIVE_PONG,
 } from "@openmeld/protocol";
 import { RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION } from "@openmeld/schemas";
+import type { RuntimeTransportStopCause } from "@openmeld/schemas/types";
 import { runDaemonSocketSession as runDaemonSocketSessionInternal } from "../src/local-service/carrier/run-socket-session";
+import { createServiceLocalComponentsObservation } from "../src/local-service/carrier/service-local-components-observation";
+import { createControlledShutdownCoordinator } from "../src/local-service/carrier/service-runner";
+import { requestLocalDaemonShutdown } from "../src/local-service/control-plane/client";
+import { startLocalDaemonControlPlaneServer } from "../src/local-service/control-plane/server";
 import { DAEMON_STREAM_KEEPALIVE_INTERVAL_MS } from "../src/local-service/core/constants";
 import type {
   CurrentDaemonSocketRef,
-  DaemonDispatchLimits,
   LedgerPaths,
 } from "../src/local-service/core/types";
+import { loadExecutionHostCatalog } from "../src/local-service/execution-host/catalog";
+import type { ExecutionHostResources } from "../src/local-service/execution-host/runtime";
+import { createInProcessExecutionHost } from "./helpers/execution-host";
 
 type RunTestDaemonSocketSessionInput = Omit<
   Parameters<typeof runDaemonSocketSessionInternal>[0],
-  "localExecutionSlots"
-> & { dispatchLimits: DaemonDispatchLimits };
+  "executionHost" | "localComponentsObservation" | "loadRouteCatalog"
+> &
+  Omit<ExecutionHostResources, "initialCatalog"> & {
+    profileOwnerName: string | null;
+    loadRouteCatalog?: () => Promise<ExecutionHostResources["initialCatalog"]>;
+  };
 
-function runDaemonSocketSession(
+async function runDaemonSocketSession(
   input: RunTestDaemonSocketSessionInput
 ): Promise<void> {
-  const { dispatchLimits, ...sessionInput } = input;
-  return runDaemonSocketSessionInternal({
-    ...sessionInput,
-    localExecutionSlots: createLocalExecutionSlots({ limits: dispatchLimits }),
+  const {
+    dispatchLimits,
+    contextStore,
+    inflightDispatchMetaByTaskId,
+    inflightTaskControlRegistry,
+    pendingAgentInteractionRegistry,
+    localAdapterContainer,
+    ledgerPaths,
+    profileOwnerName,
+    ...sessionInput
+  } = input;
+  const isolatedLedger =
+    ledgerPaths.rootDirPath === "/tmp/ledger"
+      ? createLedgerPaths()
+      : ledgerPaths;
+  const host = await createInProcessExecutionHost({
+    stateRoot: isolatedLedger.rootDirPath,
+    daemonSessionId: input.daemonSessionId,
+    deviceId: input.deviceId,
+    ownerUserId: input.ownerUserId,
+    profileOwnerName,
+    presenter: input.presenter,
+    resources: {
+      dispatchLimits,
+      contextStore,
+      inflightDispatchMetaByTaskId,
+      inflightTaskControlRegistry,
+      pendingAgentInteractionRegistry,
+      localAdapterContainer,
+      ledgerPaths: isolatedLedger,
+      initialCatalog: input.routeCatalogState,
+    },
   });
+  const localComponentsObservation = createServiceLocalComponentsObservation({
+    onError: () => undefined,
+  });
+  try {
+    await runDaemonSocketSessionInternal({
+      ...sessionInput,
+      loadRouteCatalog:
+        input.loadRouteCatalog ??
+        (() =>
+          loadExecutionHostCatalog(
+            {
+              lane: input.lane,
+              ownerUserId: input.ownerUserId,
+              localAdapterContainer,
+              presenter: input.presenter,
+              serviceBundleId: null,
+            },
+            false
+          )),
+      localComponentsObservation,
+      executionHost: host.port,
+    });
+  } finally {
+    localComponentsObservation.dispose();
+    await host.close();
+  }
 }
 
+import { ensureDaemonControlPlaneToken } from "../src/config/daemon-state";
 import {
   acknowledgeDispatchResultOutboxRecord,
   enqueueDispatchResultOutboxRecord,
@@ -157,6 +246,117 @@ describe("local service run catalog signal", () => {
     for (const dir of tempDirs.splice(0)) {
       rmSync(dir, { force: true, recursive: true });
     }
+  });
+
+  it("stops an admitted idle session without waiting for held bootstrap cache persistence", async () => {
+    await withTempHome(async () => {
+      readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+      const cachePersistenceStarted = Promise.withResolvers<void>();
+      const releaseCachePersistence = Promise.withResolvers<void>();
+      let cachePersistenceSettled = false;
+      const lines: Array<{ code: string; text: string }> = [];
+      const socket = createMockSocket();
+      let stopping = false;
+      const coordinator = createControlledShutdownCoordinator({
+        hasUndrainedWork: () => false,
+        isStopRequested: () => stopping,
+        markStopping: () => {
+          stopping = true;
+        },
+      });
+      const sessionShutdown =
+        Promise.withResolvers<RuntimeTransportStopCause>();
+      coordinator.attachSession(sessionShutdown.resolve);
+      const sessionPromise = runDaemonSocketSession({
+        ...buildKeepaliveSessionInput(socket, lines),
+        persistRouteCatalogCache: async () => {
+          cachePersistenceStarted.resolve();
+          await releaseCachePersistence.promise;
+          cachePersistenceSettled = true;
+        },
+        shutdownRequested: sessionShutdown.promise,
+      })
+        .then(() => {
+          coordinator.handleSessionCompleted();
+        })
+        .catch((error: unknown) => {
+          coordinator.handleSessionFailure(error);
+          throw error;
+        })
+        .finally(() => {
+          coordinator.detachSession(sessionShutdown.resolve);
+        });
+
+      await cachePersistenceStarted.promise;
+      const phases: string[] = [];
+      const server = await startLocalDaemonControlPlaneServer({
+        expectedToken: await ensureDaemonControlPlaneToken(),
+        getContext: () => ({
+          healthPayload: {
+            checkedAt: new Date().toISOString(),
+            reasonCode: "ok",
+            runtimeState: "healthy",
+            state: "ok",
+          },
+          historyEntries: [],
+          shutdownHandler: (payload, lifecycle) =>
+            coordinator.request({
+              ...payload,
+              onAdmission: (commit) => {
+                commit();
+                lifecycle?.onAdmitted();
+                return Promise.resolve();
+              },
+            }),
+          statusPayload: {
+            checkedAt: new Date().toISOString(),
+            daemonVersion: "0.4.0",
+            installed: true,
+            running: true,
+            runtimeRoot: "/tmp/daemon-runtime",
+          },
+        }),
+        onRequestPhase: (event) => phases.push(event.phase),
+      });
+
+      const shutdown = requestLocalDaemonShutdown({
+        endpoint: server.endpoint,
+        payload: { gracePeriodMs: 5000, mode: "graceful" },
+        timeoutMs: 1500,
+      });
+      const observedShutdown = shutdown.then(
+        (value) => ({ status: "resolved" as const, value }),
+        (error: unknown) => ({ error, status: "rejected" as const })
+      );
+      try {
+        const outcome = await Promise.race([
+          observedShutdown,
+          new Promise<{ status: "pending" }>((resolve) => {
+            setTimeout(() => resolve({ status: "pending" }), 750);
+          }),
+        ]);
+        expect(outcome).toEqual({
+          status: "resolved",
+          value: {
+            accepted: true,
+            gracePeriodMs: 5000,
+            mode: "graceful",
+          },
+        });
+        await expect(sessionPromise).resolves.toBeUndefined();
+        expect(cachePersistenceSettled).toBe(false);
+        expect(phases).toEqual([
+          "received",
+          "authenticated",
+          "shutdown_admitted",
+        ]);
+        expect(socket.closeCount).toBe(1);
+      } finally {
+        releaseCachePersistence.resolve();
+        await observedShutdown;
+        await server.close();
+      }
+    });
   });
 
   it("keeps the controlled drain socket open until a durable result is acknowledged", async () => {
@@ -347,6 +547,16 @@ describe("local service run catalog signal", () => {
 
     await expect(sessionPromise).resolves.toBeUndefined();
     expect(socket.closeCount).toBe(1);
+    expect(
+      lines
+        .map((line) => line.code)
+        .filter((code) => code.startsWith("daemon.run.controlled_shutdown_"))
+    ).toEqual([
+      "daemon.run.controlled_shutdown_started",
+      "daemon.run.controlled_shutdown_inflight_heartbeat_completed",
+      "daemon.run.controlled_shutdown_final_heartbeat_completed",
+      "daemon.run.controlled_shutdown_draining",
+    ]);
   });
 
   it("terminates a half-open socket instead of hanging controlled shutdown", async () => {
@@ -717,6 +927,7 @@ describe("local service run catalog signal", () => {
 
   it("retries runtime agent controller report sync quickly after write failures", async () => {
     vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
     const lines: Array<{ code: string; text: string }> = [];
 
     syncDaemonRouteCatalogStateMock.mockResolvedValue({
@@ -1695,7 +1906,7 @@ describe("local service run catalog signal", () => {
     await sessionPromise;
   });
 
-  it("runs pending local execution evidence refresh after an in-flight heartbeat finishes", async () => {
+  it("registers a changed catalog without waiting for an in-flight heartbeat", async () => {
     vi.useFakeTimers();
     let syncRouteCatalog: ((reason: string) => Promise<unknown>) | null = null;
 
@@ -1784,7 +1995,10 @@ describe("local service run catalog signal", () => {
 
     const syncPromise = attachedSyncRouteCatalog("profile_updated");
     await vi.advanceTimersByTimeAsync(0);
-    expect(syncDaemonRouteCatalogStateMock).not.toHaveBeenCalled();
+    expect(syncDaemonRouteCatalogStateMock).toHaveBeenCalledTimes(1);
+    await expect(syncPromise).resolves.toMatchObject({
+      status: "changed",
+    });
 
     socket.emitServerFrame({
       v: 1,
@@ -2010,6 +2224,7 @@ describe("local service run catalog signal", () => {
 
 describe("daemon stream keepalive", () => {
   beforeEach(() => {
+    resolveLocalComponentsStatusMock.mockResolvedValue(null);
     loadDaemonRouteCatalogMock.mockResolvedValue({
       profileIds: ["agt-1"],
       routeByProfileId: new Map(),
@@ -2051,6 +2266,25 @@ describe("daemon stream keepalive", () => {
     // PING is not a heartbeat side-effect.
     expect(socket.heartbeatSendCount).toBe(heartbeatsAfterStartup);
 
+    socket.close(1000, "shutdown");
+    await sessionPromise;
+  });
+
+  it("keeps registration and heartbeat live when component inspection stalls", async () => {
+    vi.useFakeTimers();
+    resolveLocalComponentsStatusMock.mockImplementation(
+      () => new Promise(() => undefined)
+    );
+    const socket = createMockSocket();
+    const sessionPromise = runDaemonSocketSession(
+      buildKeepaliveSessionInput(socket, [], 5000)
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    await flushMicrotasks(() => socket.heartbeatSendCount > 0);
+    expect(socket.heartbeatSendCount).toBeGreaterThan(0);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(socket.heartbeatSendCount).toBeGreaterThan(1);
+    expect(resolveLocalComponentsStatusMock).toHaveBeenCalledOnce();
     socket.close(1000, "shutdown");
     await sessionPromise;
   });

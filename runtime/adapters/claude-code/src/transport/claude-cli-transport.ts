@@ -547,6 +547,12 @@ export const classifyClaudeFailure = (input: {
     ...extractErrorMessagesFromStdout(input.stdoutText),
   ]);
   const providerMessage = resolveProviderFailureMessage(input);
+  // Retaining a structured provider error does not depend on recognizing its
+  // category. stderr remains diagnostic-only, even when it supplied the match.
+  const originalError =
+    providerMessage && trustedProviderMessages.has(providerMessage)
+      ? (createProviderOriginalError(providerMessage) ?? undefined)
+      : undefined;
   if (providerMessage) {
     const classified = classifyProviderMessageFailure(
       providerMessage,
@@ -562,6 +568,7 @@ export const classifyClaudeFailure = (input: {
       code: "provider.process_terminated",
       errorType: "adapter",
       message: `provider.process_terminated: claude process was terminated by ${input.exitSignal} before returning a result`,
+      originalError,
     };
   }
 
@@ -571,6 +578,7 @@ export const classifyClaudeFailure = (input: {
       code: "upstream_unreachable",
       errorType: "adapter",
       message: `upstream_unreachable: ${stderrText}`,
+      originalError,
     };
   }
 
@@ -578,6 +586,7 @@ export const classifyClaudeFailure = (input: {
     ...buildProviderExitError({
       providerLabel: "claude",
     }),
+    originalError,
   };
 };
 

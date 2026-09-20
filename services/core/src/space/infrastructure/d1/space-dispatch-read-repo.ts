@@ -1094,33 +1094,19 @@ function projectRuntimeCoordinatorHeadWaitingBoundary(
   if (!source) {
     return null;
   }
-  const common = {
-    deadlineAt: toIsoDateTime(source.deadlineAtMs),
-    deadlineOutcome: source.deadlineOutcome,
-    observedAt: toIsoDateTime(source.observedAtMs),
-    softDeadlineAt: toIsoDateTime(source.softDeadlineAtMs),
-    triggerOwner: source.triggerOwner,
-    waitingSince: toIsoDateTime(source.waitingSinceMs),
-  };
-  if (source.reasonCode === "daemon.profile.pending_first_report") {
-    return {
-      ...common,
-      reasonCode: source.reasonCode,
-      trigger: source.trigger,
-      userRecoveryAction: source.userRecoveryAction,
-      userVisibleState: source.userVisibleState,
-      waitingCategory: source.waitingCategory,
-      waitingFor: source.waitingFor,
-    };
-  }
+  const {
+    deadlineAtMs,
+    observedAtMs,
+    softDeadlineAtMs,
+    waitingSinceMs,
+    ...policy
+  } = source;
   return {
-    ...common,
-    reasonCode: source.reasonCode,
-    trigger: source.trigger,
-    userRecoveryAction: source.userRecoveryAction,
-    userVisibleState: source.userVisibleState,
-    waitingCategory: source.waitingCategory,
-    waitingFor: source.waitingFor,
+    ...policy,
+    deadlineAt: toIsoDateTime(deadlineAtMs),
+    observedAt: toIsoDateTime(observedAtMs),
+    softDeadlineAt: toIsoDateTime(softDeadlineAtMs),
+    waitingSince: toIsoDateTime(waitingSinceMs),
   };
 }
 
@@ -1176,16 +1162,83 @@ function projectSpaceDispatchTraceResponseForContractVersion(input: {
 }): SpaceDispatchTraceResponse {
   if (
     input.responseContractVersion ===
-      SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION ||
-    input.responseContractVersion ===
-      SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS
+    SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
   ) {
     return input.response;
   }
-  if (input.responseContractVersion === 2) {
-    return projectSpaceDispatchTraceResponseV2(input.response);
+  let response = input.response;
+  const head = response.trace?.runtimeCoordinatorHeadLifecycle;
+  if (
+    response.trace &&
+    head?.readStatus === "found" &&
+    (head.waitingBoundary || head.noExecutionDecision || head.publicationIntent)
+  ) {
+    response = {
+      ...response,
+      trace: {
+        ...response.trace,
+        runtimeCoordinatorHeadLifecycle: {
+          ...head,
+          waitingBoundary:
+            head.waitingBoundary &&
+            head.waitingBoundary.reasonCode !== "daemon.profile.offline" &&
+            head.waitingBoundary.reasonCode !==
+              "daemon.profile.pending_first_report"
+              ? null
+              : head.waitingBoundary,
+          noExecutionDecision: head.noExecutionDecision
+            ? {
+                ...head.noExecutionDecision,
+                ...projectPreV5HeadDecision(head.noExecutionDecision),
+              }
+            : head.noExecutionDecision,
+          publicationIntent:
+            head.publicationIntent?.kind === "no_execution_failure"
+              ? {
+                  ...head.publicationIntent,
+                  ...projectPreV5HeadDecision(head.publicationIntent),
+                }
+              : head.publicationIntent,
+        },
+      },
+    };
   }
-  return projectSpaceDispatchTraceResponseV1(input.response);
+  if (
+    input.responseContractVersion ===
+      SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS ||
+    input.responseContractVersion === 3
+  ) {
+    return response;
+  }
+  if (input.responseContractVersion === 2) {
+    return projectSpaceDispatchTraceResponseV2(response);
+  }
+  return projectSpaceDispatchTraceResponseV1(response);
+}
+
+type PublishedHeadDecision = Pick<
+  NonNullable<
+    Extract<
+      DispatchTraceRuntimeCoordinatorHeadLifecycleRecord,
+      { readStatus: "found" }
+    >["noExecutionDecision"]
+  >,
+  "publicationCategory" | "userRecoveryAction"
+>;
+
+function projectPreV5HeadDecision(
+  decision: PublishedHeadDecision
+): PublishedHeadDecision {
+  return {
+    publicationCategory:
+      decision.publicationCategory === "space_access_unavailable"
+        ? "local_agent_unavailable"
+        : decision.publicationCategory,
+    userRecoveryAction:
+      decision.userRecoveryAction === "send_new_wake"
+        ? "check_status"
+        : decision.userRecoveryAction,
+  };
 }
 
 function projectSpaceDispatchTraceResponseV2(

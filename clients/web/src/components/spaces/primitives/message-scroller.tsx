@@ -10,6 +10,9 @@ import { ArrowDownIcon } from "@phosphor-icons/react";
 import { MessageScroller as MessageScrollerPrimitive } from "@shadcn/react/message-scroller";
 import type { ComponentProps } from "react";
 
+export const MESSAGE_SCROLLER_BUTTON_MOTION_CLASS_NAME =
+	"transition-[translate,scale,opacity,filter] duration-200 data-[direction=end]:data-[active=false]:translate-y-full data-[direction=start]:data-[active=false]:-translate-y-full data-[active=false]:pointer-events-none data-[active=true]:translate-y-0 data-[active=false]:scale-95 data-[active=true]:scale-100 data-[active=false]:opacity-0 data-[active=true]:opacity-100 data-[active=false]:blur-[6px] data-[active=true]:blur-none data-[active=false]:duration-150 data-[active=false]:ease-[cubic-bezier(0.7,0,0.84,0)] data-[active=true]:ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none motion-reduce:data-[active=false]:blur-none";
+
 // Source-adapted from shadcn/ui base-lyra message-scroller, shadcn CLI 3.8.5.
 // Wraps @shadcn/react@0.2.1 while keeping the Spaces class and DOM contract local.
 function MessageScrollerProvider(
@@ -110,7 +113,8 @@ function MessageScrollerButton({
 	return (
 		<MessageScrollerPrimitive.Button
 			className={cn(
-				"absolute inset-s-1/2 -translate-x-1/2 border-border bg-background text-foreground transition-[translate,scale,opacity,filter] duration-200 hover:bg-muted hover:text-foreground data-[direction=end]:data-[active=false]:translate-y-full data-[direction=start]:data-[active=false]:-translate-y-full data-[active=false]:pointer-events-none data-[direction=start]:top-4 data-[direction=end]:bottom-4 data-[active=true]:translate-y-0 data-[active=false]:scale-95 data-[active=true]:scale-100 data-[active=false]:opacity-0 data-[active=true]:opacity-100 data-[active=false]:blur-[6px] data-[active=true]:blur-none data-[active=false]:duration-150 data-[active=false]:ease-[cubic-bezier(0.7,0,0.84,0)] data-[active=true]:ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none motion-reduce:data-[active=false]:blur-none rtl:translate-x-1/2 data-[direction=start]:[&_svg]:rotate-180",
+				"absolute inset-s-1/2 -translate-x-1/2 border-border bg-background text-foreground hover:bg-muted hover:text-foreground data-[direction=start]:top-4 data-[direction=end]:bottom-4 rtl:translate-x-1/2 data-[direction=start]:[&_svg]:rotate-180",
+				MESSAGE_SCROLLER_BUTTON_MOTION_CLASS_NAME,
 				className
 			)}
 			data-direction={direction}

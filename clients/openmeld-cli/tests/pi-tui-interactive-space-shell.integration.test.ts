@@ -245,7 +245,7 @@ describe("PiTuiInteractiveSpaceShell", () => {
     shell.stop();
   });
 
-  it("opens a nested mention picker and inserts a canonical literal after relation selection", async () => {
+  it("opens a nested mention picker and retains a selected identity separately from visible text", async () => {
     Object.defineProperty(process.stdout, "columns", {
       configurable: true,
       value: 120,
@@ -305,7 +305,15 @@ describe("PiTuiInteractiveSpaceShell", () => {
     fakeTerminal.emit("\r");
     await waitForPiTuiRender();
 
-    expect(state.composer.bufferText).toBe("@Ops Bot(wake) ");
+    expect(state.composer.bufferText).toBe("@Ops Bot ");
+    expect(shell.getAuthoredMentions(state.composer.bufferText)).toEqual([
+      expect.objectContaining({
+        text: "@Ops Bot",
+        relation: "wake",
+        profileId: expect.any(String),
+        start: 0,
+      }),
+    ]);
     shell.stop();
   });
 
@@ -1042,7 +1050,7 @@ describe("PiTuiInteractiveSpaceShell", () => {
     expect(plainOutput).not.toContain("📣 System");
     expect(plainOutput).not.toContain("15:42 · 👤 Mengyao Li · left");
     expect(plainOutput).toContain("15:42–15:43 · 👤 Felix · added 2 members");
-    expect(plainOutput).toContain("@Ops Bot(wake) · Amy Helper");
+    expect(plainOutput).toContain("@Ops Bot · Amy Helper");
     expect(output).not.toContain("* 📣 system: 👤 Mengyao Li left the space.");
     expect(output).not.toContain("Wake with `@ops-bot`");
     expect(output).not.toContain("added 🤖 Ops Bot to this space.");

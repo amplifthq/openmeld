@@ -126,13 +126,13 @@ export function createReacquiringAgentComputerFileHandoff(input: {
             workingDirectory: input.workingDirectory,
           }).readTextFiles(paths)
       ),
-    writeSlackFile: async (file) =>
+    writeChannelFile: async (file) =>
       await input.workspaceAccess.withWorkspace(
         async (workspace) =>
           await createAgentComputerFileHandoff({
             workspace,
             workingDirectory: input.workingDirectory,
-          }).writeSlackFile(file)
+          }).writeChannelFile(file)
       ),
   };
 }

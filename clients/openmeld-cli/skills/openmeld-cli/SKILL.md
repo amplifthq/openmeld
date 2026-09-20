@@ -31,6 +31,7 @@ explicit opt-in.
   `playbooks/space-ops.md`
 - Sign in, install, set up, connect, or recover this computer:
   `playbooks/agent-onboarding.md`
+- Discover or invoke an authorized plugin account: `playbooks/plugins.md`
 - Look up exact public command syntax: `references/commands.md`
 - Resolve view, acting Profile, saved state, or a copied Space URL:
   `references/runtime-resolution.md`
@@ -152,7 +153,9 @@ normal recovery path for Web setup, Agent-led setup, or local component drift.
 ## Wake Publication Safety
 
 There is no separate Wake command. A normal Space message Wakes an available
-Agent Profile only through canonical `@Agent Name(wake)` addressing.
+Agent Profile only through an explicit `--wake <agent-profile-id>` recipient.
+Message text is literal and never creates Wake, Reference, or Human Mention.
+Use full Profile IDs from `openmeld space members`; names are display text.
 
 Inside a Wake dispatch, do not publish the final answer with `openmeld space
 send`. Prefer the dispatch-scoped OpenMeld Space

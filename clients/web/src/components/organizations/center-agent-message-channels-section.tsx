@@ -17,14 +17,18 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@openmeld/ui/components/card";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { SkeletonRegion } from "@openmeld/ui/components/skeleton-content";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
 import { LinkIcon, SignOutIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { AppLogo } from "./app-logo";
 import { CenterAgentSlackConnectionDialog } from "./center-agent-slack-connection-dialog";
+import { requiresLarkPlatformSetupAuthorization } from "./lark-platform-setup-authorization";
 import {
 	FEISHU_CHANNEL_IDENTITY,
 	LARK_CHANNEL_IDENTITY,
@@ -36,6 +40,8 @@ export type CenterAgentSlackConnection = NonNullable<
 >;
 
 export function CenterAgentMessageChannelsSection(input: {
+	slackDetailsState?: "loading" | "unavailable";
+	onRetrySlackDetails?: () => void;
 	activeRegistrations?: readonly LarkPlatformActiveRegistrationProjection[];
 	activeRegistrationsChecking?: boolean;
 	activeRegistrationsUnavailable?: boolean;
@@ -52,6 +58,7 @@ export function CenterAgentMessageChannelsSection(input: {
 	onConnectSlackWorkspace: (input: { slackTeamId: string }) => void;
 	onDisconnectSlackWorkspace: () => void;
 	onManageLarkPlatform?: (provider: LarkPlatformProvider) => void;
+	onCancelLarkPlatformSetup?: (provider: LarkPlatformProvider) => void;
 	slackConnection?: CenterAgentSlackConnection;
 }) {
 	const slackProjection = input.connections?.find(
@@ -61,7 +68,9 @@ export function CenterAgentMessageChannelsSection(input: {
 		? slackProjection.status === "connected"
 		: input.slackConnection?.connected === true;
 	const slackReconnectRequired =
-		slackConnected && input.slackConnection?.directMessagesReady !== true;
+		slackConnected &&
+		(input.slackConnection?.directMessagesReady !== true ||
+			slackProjection?.reasonCode === "slack.authorization_update_required");
 	const managementMode = input.managementMode ?? "inline";
 	const availableProviders = new Set(
 		input.availableProviders ?? (["lark", "feishu"] as const)
@@ -92,6 +101,7 @@ export function CenterAgentMessageChannelsSection(input: {
 				onConnectSlackWorkspace={input.onConnectSlackWorkspace}
 				onDisconnectSlackWorkspace={input.onDisconnectSlackWorkspace}
 				organizationSlug={input.organizationSlug}
+				reauthorizationRequired={slackReconnectRequired}
 				slackConnection={input.slackConnection}
 				trigger={
 					<Button size="sm" type="button" variant="outline">
@@ -112,23 +122,30 @@ export function CenterAgentMessageChannelsSection(input: {
 				className="grid items-stretch gap-3 xl:grid-cols-2"
 				role="list"
 			>
-				<ChannelCard
-					connected={input.organizationRequired ? false : slackConnected}
-					description={
-						slackReconnectRequired && !input.organizationRequired
-							? "Reconnect Slack once so people can message the Center Agent directly."
-							: resolveChannelDescription({
-									connected: slackConnected,
-									name: "Slack",
-									organizationRequired: input.organizationRequired === true,
-								})
-					}
-					logo={SLACK_CHANNEL_IDENTITY}
-					managementControl={slackManagementControl}
-					name="Slack"
-					needsAttention={slackReconnectRequired}
-					statusLabel={slackStatusLabel}
-				/>
+				{input.slackDetailsState ? (
+					<SlackChannelPendingCard
+						onRetry={input.onRetrySlackDetails}
+						state={input.slackDetailsState}
+					/>
+				) : (
+					<ChannelCard
+						connected={input.organizationRequired ? false : slackConnected}
+						description={
+							slackReconnectRequired && !input.organizationRequired
+								? "Reconnect Slack to approve updated permissions for the Center Agent."
+								: resolveChannelDescription({
+										connected: slackConnected,
+										name: "Slack",
+										organizationRequired: input.organizationRequired === true,
+									})
+						}
+						logo={SLACK_CHANNEL_IDENTITY}
+						managementControl={slackManagementControl}
+						name="Slack"
+						needsAttention={slackReconnectRequired}
+						statusLabel={slackStatusLabel}
+					/>
+				)}
 				{(["lark", "feishu"] as const).map((provider) => {
 					const connection = input.connections?.find(
 						(candidate) => candidate.provider === provider
@@ -152,6 +169,7 @@ export function CenterAgentMessageChannelsSection(input: {
 							disabled={input.larkPlatformPendingProvider != null}
 							key={provider}
 							managementMode={managementMode}
+							onCancelSetup={input.onCancelLarkPlatformSetup}
 							onManage={input.onManageLarkPlatform}
 							organizationRequired={input.organizationRequired === true}
 							provider={provider}
@@ -160,6 +178,65 @@ export function CenterAgentMessageChannelsSection(input: {
 				})}
 			</FluidCardGroup>
 		</section>
+	);
+}
+
+function SlackChannelPendingCard(input: {
+	state: "loading" | "unavailable";
+	onRetry?: () => void;
+}) {
+	return (
+		<FluidCardItem className={surfaceClasses(2)} itemId="slack" role="listitem">
+			<Card className="h-full bg-transparent shadow-none" size="sm">
+				<CardHeader>
+					<div className="flex items-center gap-4">
+						<AppLogo app={SLACK_CHANNEL_IDENTITY} size="lg" surfaceLevel={3} />
+						<CardTitle className="text-base">
+							<h2>Slack</h2>
+						</CardTitle>
+					</div>
+				</CardHeader>
+				<CardContent className="flex flex-1 flex-col justify-center gap-4 py-3">
+					{input.state === "loading" ? (
+						<SkeletonRegion label="Loading Slack connection">
+							<Skeleton className="h-4 w-3/4" />
+							<Skeleton className="mt-3 h-3 w-1/2" />
+							<Skeleton className="mt-4 h-8 w-28" />
+						</SkeletonRegion>
+					) : (
+						<div className="space-y-3">
+							<p className="text-muted-foreground text-sm" role="alert">
+								Slack connection details are unavailable.
+							</p>
+							{input.onRetry ? (
+								<Button onClick={input.onRetry} size="sm" variant="outline">
+									Try again
+								</Button>
+							) : null}
+						</div>
+					)}
+				</CardContent>
+			</Card>
+		</FluidCardItem>
+	);
+}
+
+export function ChannelsSkeleton() {
+	return (
+		<SkeletonRegion label="Loading channels">
+			<div className="grid gap-3 xl:grid-cols-2">
+				{["first", "second", "third"].map((id) => (
+					<div className="space-y-5 rounded-md bg-card p-5" key={id}>
+						<div className="flex items-center gap-4">
+							<Skeleton className="size-12" />
+							<Skeleton className="h-5 w-24" />
+						</div>
+						<Skeleton className="h-4 w-3/4" />
+						<Skeleton className="h-8 w-28" />
+					</div>
+				))}
+			</div>
+		</SkeletonRegion>
 	);
 }
 
@@ -172,6 +249,7 @@ function LarkPlatformCard(input: {
 	disabled: boolean;
 	managementMode: "cleanup" | "inline" | "read-only";
 	onManage?: (provider: LarkPlatformProvider) => void;
+	onCancelSetup?: (provider: LarkPlatformProvider) => void;
 	organizationRequired: boolean;
 	provider: LarkPlatformProvider;
 }) {
@@ -191,6 +269,12 @@ function LarkPlatformCard(input: {
 		status === "pending_registration" ||
 		status === "credentials_received" ||
 		status === "configuring";
+	const authorizationRequired = requiresLarkPlatformSetupAuthorization({
+		provider: input.provider,
+		reasonCode:
+			input.connection?.reasonCode ?? input.activeRegistration?.reasonCode,
+		status,
+	});
 	const needsRepair = status === "repair_required" || status === "revoked";
 	const canResume = input.activeRegistration?.canResume ?? true;
 	const accountName =
@@ -200,12 +284,14 @@ function LarkPlatformCard(input: {
 			? FEISHU_CHANNEL_IDENTITY
 			: LARK_CHANNEL_IDENTITY;
 	const actionLabel = resolveLarkPlatformActionLabel({
+		authorizationRequired,
 		connected,
 		needsRepair,
 		providerLabel,
 		setupInProgress,
 	});
 	const defaultOperationalSummary = resolveLarkPlatformOperationalSummary({
+		authorizationRequired,
 		activeRegistrationUnavailable,
 		canManage: input.canManage,
 		canResume,
@@ -222,6 +308,7 @@ function LarkPlatformCard(input: {
 				}
 			: defaultOperationalSummary;
 	const statusLabel = resolveLarkPlatformStatusLabel({
+		authorizationRequired,
 		checkingSetup,
 		connected,
 		hasExistingConnection,
@@ -280,10 +367,56 @@ function LarkPlatformCard(input: {
 			details={operationalSummary.details}
 			guidance={operationalSummary.guidance}
 			logo={logo}
-			managementControl={control}
+			managementControl={
+				<LarkPlatformSetupControls
+					canManage={input.canManage}
+					control={control}
+					disabled={input.disabled}
+					managementMode={input.managementMode}
+					onCancelSetup={input.onCancelSetup}
+					provider={input.provider}
+					setupInProgress={setupInProgress}
+				/>
+			}
 			name={providerLabel}
+			needsAttention={authorizationRequired && !input.organizationRequired}
 			statusLabel={statusLabel}
 		/>
+	);
+}
+
+function LarkPlatformSetupControls(input: {
+	canManage: boolean;
+	control: ReactNode;
+	disabled: boolean;
+	managementMode: "cleanup" | "inline" | "read-only";
+	onCancelSetup?: (provider: LarkPlatformProvider) => void;
+	provider: LarkPlatformProvider;
+	setupInProgress: boolean;
+}) {
+	if (
+		!(
+			input.managementMode === "inline" &&
+			input.canManage &&
+			input.setupInProgress &&
+			input.onCancelSetup
+		)
+	) {
+		return input.control;
+	}
+	return (
+		<div className="flex items-center gap-2">
+			{input.control}
+			<Button
+				disabled={input.disabled}
+				onClick={() => input.onCancelSetup?.(input.provider)}
+				size="sm"
+				type="button"
+				variant="outline"
+			>
+				Cancel setup
+			</Button>
+		</div>
 	);
 }
 
@@ -311,11 +444,15 @@ function ChannelCard(input: {
 	});
 
 	return (
-		<FluidCardItem itemId={input.name.toLowerCase()} role="listitem">
-			<Card className="h-full bg-transparent" size="sm">
+		<FluidCardItem
+			className={surfaceClasses(2)}
+			itemId={input.name.toLowerCase()}
+			role="listitem"
+		>
+			<Card className="h-full bg-transparent shadow-none" size="sm">
 				<CardHeader>
 					<div className="flex min-w-0 items-center gap-4">
-						<AppLogo app={input.logo} size="lg" />
+						<AppLogo app={input.logo} size="lg" surfaceLevel={3} />
 						<div className="min-w-0">
 							<CardTitle className="text-base">
 								<h2>{input.name}</h2>
@@ -418,6 +555,7 @@ function resolveOrganizationRequiredStatusLabel(input: {
 }
 
 function resolveLarkPlatformStatusLabel(input: {
+	authorizationRequired: boolean;
 	checkingSetup: boolean;
 	connected: boolean;
 	hasExistingConnection: boolean;
@@ -437,10 +575,14 @@ function resolveLarkPlatformStatusLabel(input: {
 	if (input.checkingSetup) {
 		return "Checking";
 	}
+	if (input.authorizationRequired) {
+		return "Authorization required";
+	}
 	return resolveConnectionStatusLabel(input.status);
 }
 
 type LarkPlatformOperationalInput = {
+	authorizationRequired: boolean;
 	activeRegistrationUnavailable: boolean;
 	canManage: boolean;
 	canResume: boolean;
@@ -465,7 +607,7 @@ function resolveLarkPlatformOperationalSummary(
 		input.checkingSetup ||
 		input.status !== undefined;
 	return {
-		details,
+		details: input.authorizationRequired ? undefined : details,
 		guidance: hasOperationalState
 			? resolveLarkPlatformOperationalGuidance(input)
 			: undefined,
@@ -481,6 +623,9 @@ function resolveLarkPlatformOperationalGuidance(
 	}
 	if (input.checkingSetup) {
 		return "OpenMeld is checking whether setup is already in progress.";
+	}
+	if (input.authorizationRequired) {
+		return resolveLarkPlatformAuthorizationGuidance(input);
 	}
 	if (input.status === "repair_required" && connection) {
 		return connection.reasonCode ===
@@ -499,7 +644,7 @@ function resolveLarkPlatformOperationalGuidance(
 			return "An organization manager is finishing this setup.";
 		}
 		if (!input.canResume) {
-			return "Setup is in progress. The person who started it can continue.";
+			return "Another manager started this setup. You can cancel it and connect again.";
 		}
 		return `Finish setup on the official ${input.providerLabel} page in this browser.`;
 	}
@@ -512,14 +657,33 @@ function resolveLarkPlatformOperationalGuidance(
 	return `Select Connect ${input.providerLabel} to open the official setup flow.`;
 }
 
+function resolveLarkPlatformAuthorizationGuidance(
+	input: LarkPlatformOperationalInput
+): string {
+	if (input.status === "connected") {
+		return input.canManage
+			? `Approve updated permissions to enable the latest ${input.providerLabel} features. Your existing bot will be kept.`
+			: `Ask an organization owner or admin to update ${input.providerLabel} permissions.`;
+	}
+	return input.canManage && input.canResume
+		? `${input.providerLabel} needs your approval to let OpenMeld configure message delivery. Select Review authorization to finish connecting.`
+		: `An organization manager needs to approve app configuration in ${input.providerLabel} before this connection can finish.`;
+}
+
 function resolveLarkPlatformActionLabel(input: {
+	authorizationRequired: boolean;
 	connected: boolean;
 	needsRepair: boolean;
 	providerLabel: string;
 	setupInProgress: boolean;
 }): string {
 	if (input.connected) {
-		return `Manage ${input.providerLabel}`;
+		return input.authorizationRequired
+			? "Review authorization"
+			: `Manage ${input.providerLabel}`;
+	}
+	if (input.authorizationRequired) {
+		return "Review authorization";
 	}
 	if (input.needsRepair) {
 		return `Repair ${input.providerLabel}`;

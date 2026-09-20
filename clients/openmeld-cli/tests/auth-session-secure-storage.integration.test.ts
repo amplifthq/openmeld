@@ -19,6 +19,7 @@ vi.mock("../src/config/token-store", () => ({
 
 import {
   beginAuthSessionTransition,
+  clearAuthSession,
   getAuthSession,
   getAuthSessionMetadata,
   getAuthSessionState,
@@ -173,23 +174,87 @@ describe("auth session secure storage boundary", () => {
     expect(secureStorage.deleteAccessToken).toHaveBeenCalledWith(TOKEN_REF);
   });
 
-  it("reuses a verified token while the persisted session is unchanged", async () => {
-    await withTempHome(async () => {
+  it.each([
+    false,
+    true,
+  ])("reuses a verified token across presentation changes: %s", async (changeContext) => {
+    await withTempHome(async (home) => {
+      await setAuthSession({
+        accessToken: secureStorage.accessToken,
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "owner", name: "Original name" },
+      });
+
+      await expect(getAuthSession()).resolves.toMatchObject({
+        accessToken: secureStorage.accessToken,
+      });
+      secureStorage.readAccessToken.mockResolvedValue({
+        errorMessage: "Keychain temporarily unavailable",
+        status: "unavailable",
+      });
+      if (changeContext) {
+        const path = join(home, ".openmeld", "auth", "session.json");
+        const payload = JSON.parse(await readFile(path, "utf8"));
+        payload.user.name = "Updated name";
+        payload.activeOrganization = {
+          id: "org-new",
+          name: "New organization",
+          slug: "new",
+        };
+        await writeFile(path, JSON.stringify(payload));
+      }
+      await expect(getAuthSession()).resolves.toMatchObject({
+        accessToken: secureStorage.accessToken,
+        user: {
+          id: "owner",
+          name: changeContext ? "Updated name" : "Original name",
+        },
+        ...(changeContext ? { activeOrganization: { id: "org-new" } } : {}),
+      });
+    });
+
+    expect(secureStorage.readAccessToken).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not restore a signed-out session when a slow credential read finishes", async () => {
+    await withTempHome(async (home) => {
       await setAuthSession({
         accessToken: secureStorage.accessToken,
         authBaseUrl: "https://auth.openmeld.invalid",
         clientId: "openmeld-cli",
       });
-
-      await expect(getAuthSession()).resolves.toMatchObject({
-        accessToken: secureStorage.accessToken,
+      const path = join(home, ".openmeld", "auth", "session.json");
+      const payload = JSON.parse(await readFile(path, "utf8"));
+      payload.createdAt = "2026-01-01T00:00:00.000Z";
+      await writeFile(path, JSON.stringify(payload));
+      let finishRead!: (value: {
+        status: "found";
+        accessToken: string;
+      }) => void;
+      let signalStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        signalStarted = resolve;
       });
-      await expect(getAuthSession()).resolves.toMatchObject({
-        accessToken: secureStorage.accessToken,
+      secureStorage.readAccessToken.mockImplementation(() => {
+        signalStarted();
+        return new Promise((resolve) => {
+          finishRead = resolve;
+        });
+      });
+      const pending = getAuthSessionState();
+      await started;
+      await clearAuthSession();
+      finishRead({ status: "found", accessToken: secureStorage.accessToken });
+      await expect(pending).resolves.toMatchObject({
+        state: "missing",
+        session: null,
+      });
+      await expect(getAuthSessionState()).resolves.toMatchObject({
+        state: "missing",
+        session: null,
       });
     });
-
-    expect(secureStorage.readAccessToken).toHaveBeenCalledTimes(1);
   });
 
   it("removes a private fallback after a later login succeeds in Keychain", async () => {

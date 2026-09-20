@@ -198,6 +198,7 @@ describe("ledger-recovery+mention-dispatch runtime orchestration", () => {
         },
         mentioned: true,
         prompt: "complete fallback prompt",
+        newSessionTitle: "OpenMeld · Monica · Adjust the close button",
         sequence: 1,
         sourceEventId: "evt-native-instructions",
         spaceId: "space-1",
@@ -214,6 +215,7 @@ describe("ledger-recovery+mention-dispatch runtime orchestration", () => {
           userPrompt: "current Wake only",
         },
         prompt: "complete fallback prompt",
+        newSessionTitle: "OpenMeld · Monica · Adjust the close button",
       })
     );
   });

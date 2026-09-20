@@ -115,7 +115,8 @@ describe("Center Agent Computer file handoff", () => {
     });
     const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
 
-    const saved = await handoff.writeSlackFile({
+    const saved = await handoff.writeChannelFile({
+      provider: "slack",
       bytes,
       fileId: "F_IMAGE",
       fileName: "../launch.png",

@@ -1,5 +1,4 @@
 import { stripVTControlCharacters } from "node:util";
-import { formatCanonicalMentionLiteral } from "@openmeld/schemas";
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import pc from "picocolors";
 import stringWidth from "string-width";
@@ -2312,10 +2311,7 @@ function renderMembershipTraceTargetLabel(
   _spaceMembersSnapshot: SpaceMembersSnapshot | null
 ): string {
   if (target.kind === "agent" && target.mentionLabel) {
-    return formatCanonicalMentionLiteral({
-      name: target.mentionLabel,
-      type: "wake",
-    });
+    return `@${target.label}`;
   }
 
   return target.label;

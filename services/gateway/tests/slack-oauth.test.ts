@@ -1,7 +1,7 @@
+import { SLACK_BOT_SCOPES } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import slackAppManifestTemplate from "../slack-app-manifest.template.yaml?raw";
 import app from "../src/index";
-import { SLACK_BOT_SCOPES } from "../src/routes/slack-oauth";
 
 const HUMAN_PROFILE_ID = "11111111-1111-4111-8111-111111111111";
 const OAUTH_STATE = `slackoauth_${"a".repeat(64)}`;

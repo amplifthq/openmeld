@@ -38,6 +38,7 @@ import type {
   RuntimeTransportRuntimeCoordinatorDecisionRequest,
   RuntimeTransportRuntimeCoordinatorDecisionResponse,
   RuntimeTransportRuntimeCoordinatorHeadAcceptRequest,
+  RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceResponse,
   RuntimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategory,
   RuntimeTransportRuntimeCoordinatorHeadNoExecutionReasonCode,
   RuntimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryAction,
@@ -287,18 +288,32 @@ export const RUNTIME_COORDINATOR_MAX_PRE_ACCEPT_REDELIVERIES = 2;
 export const RUNTIME_COORDINATOR_PRE_ACCEPT_REDELIVERY_WINDOW_MS = 30_000;
 export const RUNTIME_COORDINATOR_PROGRESS_EVIDENCE_STALE_TERMINAL_AFTER_MS =
   5 * 60_000;
+export const RUNTIME_COORDINATOR_COMMUNICATION_RECOVERY_WINDOW_MS = 30 * 60_000;
 export const RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE =
   "runtime_coordinator.delivery_expired" as const;
 export const RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE =
   "runtime.progress_stale" as const;
 export const RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE =
   "runtime.local_runtime_lost" as const;
+// The same stale-progress watchdog fires, but the cause is not a lost computer:
+// another app holds the native conversation's writer lock, so the dispatch never
+// produced a second piece of lifecycle evidence. It needs its own code so the
+// notice can name the real cause and the work can settle into a decision gate.
+export const RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE =
+  "runtime.controller_conversation_occupied" as const;
 export const RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE =
   "runtime_coordinator.wake_stop_requested" as const;
 export const RUNTIME_COORDINATOR_WAKE_STOP_LOCAL_CONTROL_ACCEPTED_REASON_CODE =
   "runtime_coordinator.wake_stop_local_control_accepted" as const;
 export const RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE =
   "runtime_coordinator.pre_agent_stop_requested" as const;
+// Why Core asked the computer to withdraw an attempt it had already closed.
+export const RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_OCCUPANCY_TERMINAL_REASON_CODE =
+  "runtime_coordinator.local_attempt_withdrawal_occupancy_terminal" as const;
+export const RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_SUPERSEDED_REASON_CODE =
+  "runtime_coordinator.local_attempt_withdrawal_superseded_by_continuation" as const;
+export const RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_SERVICE_AWAY_REASON_CODE =
+  "runtime_coordinator.local_attempt_withdrawal_service_away" as const;
 
 export const isRuntimeCoordinatorLateResultRecoverable = (input: {
   executionStatus: RuntimeCoordinatorExecutionStatus | null;
@@ -313,7 +328,9 @@ export const isRuntimeCoordinatorLateResultRecoverable = (input: {
   (input.terminalReasonCode ===
     RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE ||
     input.terminalReasonCode ===
-      RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE) &&
+      RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE ||
+    input.terminalReasonCode ===
+      RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE) &&
   (input.taskResultStatus === "success" ||
     input.taskResultStatus === "partial_success");
 
@@ -323,6 +340,7 @@ export type RuntimeCoordinatorPreAcceptRedeliveryExpiryCause =
 
 export type RuntimeCoordinatorRunExpiryCause =
   | RuntimeCoordinatorPreAcceptRedeliveryExpiryCause
+  | "controller_conversation_occupied"
   | "local_runtime_lost"
   | "local_progress_stale";
 
@@ -372,6 +390,24 @@ export type RuntimeCoordinatorPendingAgentInteractionState = {
   response: AgentInteractionResponse | null;
 };
 
+/**
+ * Whether the attempt on the user's computer has been withdrawn.
+ *
+ * Core reaching a terminal decision is not proof that the local Agent stopped:
+ * a stale-evidence terminal is a decision made from missing evidence, and the
+ * local task can still be queued or running. Only the Service's own
+ * acknowledgement for this exact run proves the attempt is gone, so work that
+ * replaces this one has something trustworthy to wait for.
+ */
+export type RuntimeCoordinatorLocalAttemptWithdrawal = {
+  acknowledgedAtMs: number | null;
+  reasonCode: string | null;
+  requestedAtMs: number;
+  /** Pins the evidence to one run so a stale acknowledgement cannot satisfy a newer one. */
+  runId: string;
+  status: "requested" | "withdrawn";
+};
+
 export type RuntimeCoordinatorRunCommandState = {
   activeRunId: string;
   attemptId: string;
@@ -380,6 +416,9 @@ export type RuntimeCoordinatorRunCommandState = {
   lastCommandReasonCode: string | null;
   lastDeliveryProvenance: RuntimeCoordinatorDeliveryProvenanceSnapshot;
   lastWatchdogCheckAtMs?: number | null;
+  /** Last accepted progress for which transport recovery was required. */
+  communicationRecoveryBaselineAtMs?: number | null;
+  localAttemptWithdrawal?: RuntimeCoordinatorLocalAttemptWithdrawal | null;
   localProgress: RuntimeCoordinatorRunLocalProgressState;
   modelVersion: typeof RUNTIME_COORDINATOR_RUN_COMMAND_STATE_MODEL_VERSION;
   ownerUserId: string;
@@ -479,62 +518,48 @@ type RuntimeCoordinatorHeadWaitingBoundaryCommon = {
   waitingSinceMs: number;
 };
 
-export type RuntimeCoordinatorHeadWaitingBoundary =
-  | (RuntimeCoordinatorHeadWaitingBoundaryCommon & {
-      reasonCode: "daemon.profile.offline";
-      trigger: "openmeld_service_route_connected";
-      userRecoveryAction: "start_or_restart_openmeld_service";
-      userVisibleState: "waiting_for_openmeld_service";
-      waitingCategory: "service_not_connected";
-      waitingFor: "openmeld_service_route_connection";
-    })
-  | (RuntimeCoordinatorHeadWaitingBoundaryCommon & {
-      reasonCode: "daemon.profile.pending_first_report";
-      trigger: "wake_route_reported";
-      userRecoveryAction: "wait_for_wake_route_report";
-      userVisibleState: "waiting_for_wake_route_report";
-      waitingCategory: "wake_route_registration_pending";
-      waitingFor: "wake_route_report";
-    });
+export type RuntimeCoordinatorHeadWaitingBoundary = NonNullable<
+  Extract<
+    RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceResponse,
+    { readStatus: "found" }
+  >["lifecycle"]["waitingBoundary"]
+>;
+
+type WaitingPolicy<T> = T extends RuntimeCoordinatorHeadWaitingBoundaryCommon
+  ? Omit<T, keyof RuntimeCoordinatorHeadWaitingBoundaryCommon>
+  : never;
 
 export type RuntimeCoordinatorHeadWaitingPolicy =
-  | {
-      reasonCode: "daemon.profile.offline";
-      trigger: "openmeld_service_route_connected";
-      userRecoveryAction: "start_or_restart_openmeld_service";
-      userVisibleState: "waiting_for_openmeld_service";
-      waitingCategory: "service_not_connected";
-      waitingFor: "openmeld_service_route_connection";
-    }
-  | {
-      reasonCode: "daemon.profile.pending_first_report";
-      trigger: "wake_route_reported";
-      userRecoveryAction: "wait_for_wake_route_report";
-      userVisibleState: "waiting_for_wake_route_report";
-      waitingCategory: "wake_route_registration_pending";
-      waitingFor: "wake_route_report";
-    };
+  WaitingPolicy<RuntimeCoordinatorHeadWaitingBoundary>;
+
+type WaitingDecision<T> = T extends RuntimeCoordinatorHeadWaitingPolicy
+  ? Pick<T, "reasonCode" | "userRecoveryAction" | "waitingCategory">
+  : never;
 
 export type RuntimeCoordinatorHeadWaitingDecision =
-  | Pick<
-      Extract<
-        RuntimeCoordinatorHeadWaitingPolicy,
-        { reasonCode: "daemon.profile.offline" }
-      >,
-      "reasonCode" | "userRecoveryAction" | "waitingCategory"
-    >
-  | Pick<
-      Extract<
-        RuntimeCoordinatorHeadWaitingPolicy,
-        { reasonCode: "daemon.profile.pending_first_report" }
-      >,
-      "reasonCode" | "userRecoveryAction" | "waitingCategory"
-    >;
+  WaitingDecision<RuntimeCoordinatorHeadWaitingPolicy>;
 
 export const resolveRuntimeCoordinatorHeadWaitingDecision = (
   reasonCode: RuntimeCoordinatorHeadWaitingBoundary["reasonCode"]
-): RuntimeCoordinatorHeadWaitingDecision =>
-  reasonCode === "daemon.profile.pending_first_report"
+): RuntimeCoordinatorHeadWaitingDecision => {
+  if (reasonCode === "wake.device_wait.access_check_unavailable") {
+    return {
+      reasonCode,
+      userRecoveryAction: "check_status",
+      waitingCategory: "space_access_unavailable",
+    };
+  }
+  if (
+    reasonCode === "wake.device_wait.readiness_checking" ||
+    reasonCode === "daemon.service.draining"
+  ) {
+    return {
+      reasonCode,
+      userRecoveryAction: "check_status",
+      waitingCategory: "local_agent_unavailable",
+    };
+  }
+  return reasonCode === "daemon.profile.pending_first_report"
     ? {
         reasonCode,
         userRecoveryAction: "wait_for_wake_route_report",
@@ -545,11 +570,35 @@ export const resolveRuntimeCoordinatorHeadWaitingDecision = (
         userRecoveryAction: "start_or_restart_openmeld_service",
         waitingCategory: "service_not_connected",
       };
+};
 
 export const resolveRuntimeCoordinatorHeadWaitingPolicy = (
   reasonCode: RuntimeCoordinatorHeadWaitingBoundary["reasonCode"]
-): RuntimeCoordinatorHeadWaitingPolicy =>
-  reasonCode === "daemon.profile.pending_first_report"
+): RuntimeCoordinatorHeadWaitingPolicy => {
+  if (reasonCode === "wake.device_wait.access_check_unavailable") {
+    return {
+      reasonCode,
+      trigger: "space_access_rechecked",
+      userRecoveryAction: "check_status",
+      userVisibleState: "waiting_for_space_access",
+      waitingCategory: "space_access_unavailable",
+      waitingFor: "space_access_check",
+    };
+  }
+  if (
+    reasonCode === "wake.device_wait.readiness_checking" ||
+    reasonCode === "daemon.service.draining"
+  ) {
+    return {
+      reasonCode,
+      trigger: "agent_readiness_reported",
+      userRecoveryAction: "check_status",
+      userVisibleState: "waiting_for_agent_readiness",
+      waitingCategory: "local_agent_unavailable",
+      waitingFor: "agent_readiness_report",
+    };
+  }
+  return reasonCode === "daemon.profile.pending_first_report"
     ? {
         reasonCode,
         trigger: "wake_route_reported",
@@ -566,6 +615,7 @@ export const resolveRuntimeCoordinatorHeadWaitingPolicy = (
         waitingCategory: "service_not_connected",
         waitingFor: "openmeld_service_route_connection",
       };
+};
 
 export type RuntimeCoordinatorHeadLifecycleRecord = {
   /**
@@ -602,6 +652,21 @@ export type RuntimeCoordinatorHeadLifecycleRecord = {
   updatedAtMs: number;
   waitingBoundary?: RuntimeCoordinatorHeadWaitingBoundary;
 };
+
+export function isRuntimeCoordinatorHeadWaitingForDevice(
+  record: RuntimeCoordinatorHeadLifecycleRecord
+): boolean {
+  return (
+    record.acceptedDispatchSnapshot?.deviceWait !== undefined &&
+    (record.status === "accepted" ||
+      record.status === "queued" ||
+      record.status === "waiting") &&
+    record.runtimeCoordinatorExecutionId === null &&
+    record.executionLinkedAtMs === null &&
+    !record.noExecutionDecision &&
+    !record.publicationIntent
+  );
+}
 
 export type RuntimeCoordinatorAcceptedDispatchPayloadFingerprintRecord = {
   acceptedDispatchPayloadFingerprint: string;
@@ -791,12 +856,18 @@ export const resolveNextRuntimeCoordinatorHeadWaitingAlarmAtMsFromRecords =
   }): number | null => {
     let nextAlarmAtMs: number | null = null;
     for (const record of input.records) {
-      if (record.status !== "waiting" || !record.waitingBoundary) {
+      const deviceWait = isRuntimeCoordinatorHeadWaitingForDevice(record)
+        ? record.acceptedDispatchSnapshot?.deviceWait
+        : undefined;
+      if (
+        !deviceWait &&
+        (record.status !== "waiting" || !record.waitingBoundary)
+      ) {
         continue;
       }
       nextAlarmAtMs = minNullableTimestamp(
         nextAlarmAtMs,
-        record.waitingBoundary.deadlineAtMs
+        deviceWait?.deadlineAtMs ?? record.waitingBoundary?.deadlineAtMs ?? null
       );
     }
     return nextAlarmAtMs;
@@ -859,19 +930,35 @@ export const resolveNextRuntimeCoordinatorFinalizationRetryAlarmAtMsFromEntries 
 
 export type RuntimeCoordinatorHeadWaitingAlarmWorkItem =
   RuntimeCoordinatorHeadLifecycleRecord & {
-    status: "waiting";
-    waitingBoundary: RuntimeCoordinatorHeadWaitingBoundary;
+    status: "waiting" | "queued" | "accepted";
   };
 
 export const planRuntimeCoordinatorHeadWaitingAlarmWork = (input: {
   nowMs: number;
   records: RuntimeCoordinatorHeadLifecycleRecord[];
 }): RuntimeCoordinatorHeadWaitingAlarmWorkItem[] =>
-  input.records.filter(
-    (record): record is RuntimeCoordinatorHeadWaitingAlarmWorkItem =>
-      record.status === "waiting" &&
-      record.waitingBoundary != null &&
-      record.waitingBoundary.deadlineAtMs <= input.nowMs
+  input.records.flatMap(
+    (record): RuntimeCoordinatorHeadWaitingAlarmWorkItem[] => {
+      if (
+        record.status !== "waiting" &&
+        !isRuntimeCoordinatorHeadWaitingForDevice(record)
+      ) {
+        return [];
+      }
+      if (
+        record.status !== "waiting" &&
+        record.status !== "queued" &&
+        record.status !== "accepted"
+      ) {
+        return [];
+      }
+      const deadlineAtMs =
+        record.acceptedDispatchSnapshot?.deviceWait?.deadlineAtMs ??
+        record.waitingBoundary?.deadlineAtMs;
+      return deadlineAtMs !== undefined && deadlineAtMs <= input.nowMs
+        ? [{ ...record, status: record.status }]
+        : [];
+    }
   );
 
 export const planRuntimeCoordinatorHeadAcceptedHandoffAlarmWork = (input: {
@@ -1001,6 +1088,25 @@ export const resolveRuntimeCoordinatorRunCommandStateWatchdogAtMs = (
   );
 };
 
+export const resolveRuntimeCoordinatorExecutionAdmissionValidityMs = (input: {
+  commandState: RuntimeCoordinatorRunCommandState;
+  tokenExpiresAtMs: number | null;
+  nowMs: number;
+}): number => {
+  const nextObservationAtMs =
+    resolveRuntimeCoordinatorRunCommandStateWatchdogAtMs(input.commandState);
+  if (nextObservationAtMs === null) {
+    return 0;
+  }
+  return Math.max(
+    0,
+    Math.min(
+      nextObservationAtMs,
+      input.tokenExpiresAtMs ?? Number.POSITIVE_INFINITY
+    ) - input.nowMs
+  );
+};
+
 export const hasRuntimeCoordinatorProgressAdvancedSinceLastWatchdogCheck = (
   commandState: RuntimeCoordinatorRunCommandState
 ): boolean => {
@@ -1044,11 +1150,14 @@ export const hasRuntimeCoordinatorLocalProgressStaleTerminalExpired = (input: {
   }
   return (
     input.nowMs - lastLocalProgressAtMs >=
-    RUNTIME_COORDINATOR_PROGRESS_EVIDENCE_STALE_TERMINAL_AFTER_MS
+    (input.commandState.communicationRecoveryBaselineAtMs ===
+    lastLocalProgressAtMs
+      ? RUNTIME_COORDINATOR_COMMUNICATION_RECOVERY_WINDOW_MS
+      : RUNTIME_COORDINATOR_PROGRESS_EVIDENCE_STALE_TERMINAL_AFTER_MS)
   );
 };
 
-const resolveRuntimeCoordinatorWatchdogProgressBaselineAtMs = (
+export const resolveRuntimeCoordinatorWatchdogProgressBaselineAtMs = (
   commandState: RuntimeCoordinatorRunCommandState
 ): number => {
   const observedLocalProgressAtMs =
@@ -1098,6 +1207,24 @@ export const buildRuntimeCoordinatorRunExpiryEventPayload = (input: {
   if (input.expiryCause === "local_progress_stale") {
     return {
       progressStale: {
+        ...common,
+        communicationRecoveryBaselineAtMs:
+          input.commandState.communicationRecoveryBaselineAtMs ?? null,
+        communicationRecoveryWindowMs:
+          RUNTIME_COORDINATOR_COMMUNICATION_RECOVERY_WINDOW_MS,
+        progressEvidenceStaleTerminalAfterMs:
+          input.commandState.communicationRecoveryBaselineAtMs ===
+          resolveRuntimeCoordinatorWatchdogProgressBaselineAtMs(
+            input.commandState
+          )
+            ? RUNTIME_COORDINATOR_COMMUNICATION_RECOVERY_WINDOW_MS
+            : RUNTIME_COORDINATOR_PROGRESS_EVIDENCE_STALE_TERMINAL_AFTER_MS,
+      },
+    };
+  }
+  if (input.expiryCause === "controller_conversation_occupied") {
+    return {
+      controllerConversationOccupied: {
         ...common,
         progressEvidenceStaleTerminalAfterMs:
           RUNTIME_COORDINATOR_PROGRESS_EVIDENCE_STALE_TERMINAL_AFTER_MS,
@@ -1176,6 +1303,17 @@ export const buildRuntimeCoordinatorProgressStaleTerminalPlan =
     action: "timeout_terminal",
     eventType: "runtime_coordinator_timeout_terminal",
     reasonCode: RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE,
+    retiredReasonCode: "execution_token_expired",
+    terminalOutcomeKind: "timed_out",
+    tokenStatus: "expired",
+  });
+
+export const buildRuntimeCoordinatorControllerConversationOccupiedTerminalPlan =
+  (): RuntimeCoordinatorTerminalDecisionPlan => ({
+    action: "timeout_terminal",
+    eventType: "runtime_coordinator_timeout_terminal",
+    reasonCode:
+      RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
     retiredReasonCode: "execution_token_expired",
     terminalOutcomeKind: "timed_out",
     tokenStatus: "expired",
@@ -1450,6 +1588,9 @@ export const isRuntimeCoordinatorRunCommandState = (
     typeof record.targetProfileId !== "string" ||
     typeof record.updatedAtMs !== "number" ||
     !isOptionalNullableNonNegativeNumber(record.lastWatchdogCheckAtMs) ||
+    !isOptionalNullableNonNegativeNumber(
+      record.communicationRecoveryBaselineAtMs
+    ) ||
     !isOptionalNullableString(record.stopReason) ||
     !isRuntimeCoordinatorRunLocalProgressState(record.localProgress) ||
     !record.lastDeliveryProvenance ||
@@ -1485,10 +1626,104 @@ export const isRuntimeCoordinatorRunCommandState = (
       return false;
     }
   }
+  if (
+    record.localAttemptWithdrawal !== undefined &&
+    record.localAttemptWithdrawal !== null &&
+    !isRuntimeCoordinatorLocalAttemptWithdrawal(record.localAttemptWithdrawal)
+  ) {
+    return false;
+  }
   return runtimeTransportDeliverDispatchRequestSchema.safeParse(
     record.sanitizedDeliveryRequest
   ).success;
 };
+
+const isRuntimeCoordinatorLocalAttemptWithdrawal = (
+  value: unknown
+): value is RuntimeCoordinatorLocalAttemptWithdrawal => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Partial<RuntimeCoordinatorLocalAttemptWithdrawal>;
+  return (
+    (record.status === "requested" || record.status === "withdrawn") &&
+    typeof record.runId === "string" &&
+    record.runId.length > 0 &&
+    typeof record.requestedAtMs === "number" &&
+    record.requestedAtMs >= 0 &&
+    isOptionalNullableNonNegativeNumber(record.acknowledgedAtMs) &&
+    isOptionalNullableString(record.reasonCode) &&
+    (record.status === "requested") === (record.acknowledgedAtMs == null)
+  );
+};
+
+/**
+ * Records that Core asked the computer to withdraw this attempt.
+ *
+ * Re-requesting is normal: the first control frame can be lost, refused, or
+ * sent while the Service is away. An existing acknowledgement for the same run
+ * is kept, because proof of withdrawal does not expire when someone asks again.
+ */
+export const withRuntimeCoordinatorLocalAttemptWithdrawalRequest = (input: {
+  commandState: RuntimeCoordinatorRunCommandState;
+  nowMs: number;
+  reasonCode: string | null;
+}): RuntimeCoordinatorRunCommandState => {
+  const current = input.commandState.localAttemptWithdrawal;
+  if (isRuntimeCoordinatorLocalAttemptWithdrawn(input.commandState)) {
+    return input.commandState;
+  }
+  return {
+    ...input.commandState,
+    localAttemptWithdrawal: {
+      acknowledgedAtMs: null,
+      reasonCode: input.reasonCode,
+      requestedAtMs:
+        current?.runId === input.commandState.activeRunId
+          ? current.requestedAtMs
+          : input.nowMs,
+      runId: input.commandState.activeRunId,
+      status: "requested",
+    },
+    updatedAtMs: input.nowMs,
+  };
+};
+
+/**
+ * Records the Service's own acknowledgement that this attempt is gone.
+ *
+ * Callers own the identity match. This is deliberately separate from the Wake
+ * Stop lifecycle: an execution Core already closed on stale evidence can still
+ * receive a truthful withdrawal acknowledgement, and discarding it would leave
+ * replacement work with nothing to verify.
+ */
+export const withRuntimeCoordinatorLocalAttemptWithdrawn = (input: {
+  commandState: RuntimeCoordinatorRunCommandState;
+  nowMs: number;
+  reasonCode: string | null;
+}): RuntimeCoordinatorRunCommandState => {
+  const current = input.commandState.localAttemptWithdrawal;
+  return {
+    ...input.commandState,
+    localAttemptWithdrawal: {
+      acknowledgedAtMs: input.nowMs,
+      reasonCode: input.reasonCode,
+      requestedAtMs:
+        current?.runId === input.commandState.activeRunId
+          ? current.requestedAtMs
+          : input.nowMs,
+      runId: input.commandState.activeRunId,
+      status: "withdrawn",
+    },
+    updatedAtMs: input.nowMs,
+  };
+};
+
+export const isRuntimeCoordinatorLocalAttemptWithdrawn = (
+  commandState: RuntimeCoordinatorRunCommandState
+): boolean =>
+  commandState.localAttemptWithdrawal?.status === "withdrawn" &&
+  commandState.localAttemptWithdrawal.runId === commandState.activeRunId;
 
 export const normalizeRuntimeCoordinatorFinalizationRetryEntry = (
   value: unknown
@@ -1957,6 +2192,17 @@ export const buildRuntimeCoordinatorHeadPublicationIntentReadyRecord = (input: {
   reasonCode: RuntimeTransportRuntimeCoordinatorHeadNoExecutionReasonCode;
   userRecoveryAction: RuntimeCoordinatorHeadNoExecutionDecision["userRecoveryAction"];
 }): RuntimeCoordinatorHeadLifecycleRecord => {
+  // Expiry ends this request. Its recovery action must never inherit a
+  // previous offline, draining, or readiness boundary's repair guidance.
+  const decision =
+    input.decisionSource === "runtime_coordinator_head_waiting_deadline" &&
+    input.existing.acceptedDispatchSnapshot?.deviceWait
+      ? {
+          publicationCategory: "local_agent_unavailable" as const,
+          reasonCode: "wake.device_wait.expired",
+          userRecoveryAction: "send_new_wake" as const,
+        }
+      : input;
   const publicationIntentId = buildRuntimeCoordinatorHeadPublicationIntentId(
     input.existing.targetWakeLifecycleId
   );
@@ -1964,19 +2210,19 @@ export const buildRuntimeCoordinatorHeadPublicationIntentReadyRecord = (input: {
     ...input.existing,
     noExecutionDecision: {
       decidedAtMs: input.nowMs,
-      publicationCategory: input.publicationCategory,
-      reasonCode: input.reasonCode,
+      publicationCategory: decision.publicationCategory,
+      reasonCode: decision.reasonCode,
       source: input.decisionSource,
-      userRecoveryAction: input.userRecoveryAction,
+      userRecoveryAction: decision.userRecoveryAction,
     },
     publicationIntent: {
       intentId: publicationIntentId,
       kind: "no_execution_failure",
-      publicationCategory: input.publicationCategory,
+      publicationCategory: decision.publicationCategory,
       readyAtMs: input.nowMs,
-      reasonCode: input.reasonCode,
+      reasonCode: decision.reasonCode,
       status: "ready_for_phase_6",
-      userRecoveryAction: input.userRecoveryAction,
+      userRecoveryAction: decision.userRecoveryAction,
     },
     runtimeCoordinatorExecutionId: null,
     status: "publication_intent_ready",
@@ -2428,6 +2674,12 @@ const isAcceptedDispatchSnapshot = (
   const snapshot = value as OpenMeldDaemonAcceptedDispatchSnapshot;
   const controller = snapshot.controllerSnapshot;
   return (
+    (snapshot.deviceWait === undefined ||
+      (Number.isInteger(snapshot.deviceWait.deadlineAtMs) &&
+        snapshot.deviceWait.deadlineAtMs >= 0 &&
+        snapshot.deviceWait.bindingId === controller?.bindingId &&
+        snapshot.deviceWait.openMeldServiceRuntimeId ===
+          snapshot.openMeldServiceRuntimeId)) &&
     typeof snapshot.payloadFingerprint === "string" &&
     ACCEPTED_DISPATCH_PAYLOAD_FINGERPRINT_PATTERN.test(
       snapshot.payloadFingerprint

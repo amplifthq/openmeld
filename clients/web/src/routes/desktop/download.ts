@@ -1,13 +1,34 @@
 import { env as cloudflareEnv } from "cloudflare:workers";
+import type { DesktopReleasePlatform } from "@openmeld/schemas";
 import { createFileRoute } from "@tanstack/react-router";
 import {
 	buildDesktopDownloadHeaders,
-	readDesktopPreviewReleaseManifest,
+	parseDesktopCandidateSelector,
+	parseDesktopPlatformSelector,
+	readDesktopCandidateArtifact,
+	readPromotedDesktopRelease,
 } from "#/lib/desktop-release";
 
-async function downloadDesktopPreview(input: {
+export async function downloadDesktopPreview(input: {
 	includeBody: boolean;
+	request: Request;
 }): Promise<Response> {
+	const selectors = new URL(input.request.url).searchParams.getAll("candidate");
+	const platforms = new URL(input.request.url).searchParams.getAll("platform");
+	let platform: DesktopReleasePlatform | undefined;
+	try {
+		parseDesktopCandidateSelector(
+			selectors.length > 1 ? selectors : selectors[0]
+		);
+		platform = parseDesktopPlatformSelector(
+			platforms.length > 1 ? platforms : platforms[0]
+		);
+	} catch {
+		return new Response("Invalid Desktop candidate.", {
+			status: 400,
+			headers: { "cache-control": "no-store" },
+		});
+	}
 	const bucket = cloudflareEnv.OPENMELD_DESKTOP_DOWNLOADS;
 	if (!bucket) {
 		return new Response("OpenMeld Desktop downloads are not configured.", {
@@ -18,14 +39,71 @@ async function downloadDesktopPreview(input: {
 			status: 503,
 		});
 	}
+	if (selectors.length === 1) {
+		return await downloadCandidate(
+			bucket,
+			selectors[0],
+			input.includeBody,
+			platform
+		);
+	}
+	return await downloadDefault(bucket, input.includeBody, platform);
+}
 
-	let releaseManifest: Awaited<
-		ReturnType<typeof readDesktopPreviewReleaseManifest>
-	>;
+async function downloadCandidate(
+	bucket: R2Bucket,
+	id: string,
+	includeBody: boolean,
+	platform?: DesktopReleasePlatform
+) {
 	try {
-		releaseManifest = await readDesktopPreviewReleaseManifest({
-			store: bucket,
+		let body: ReadableStream | null = null;
+		const available = await readDesktopCandidateArtifact(
+			bucket,
+			id,
+			async (key) => {
+				if (!includeBody) {
+					return bucket.head(key);
+				}
+				const loaded = await bucket.get(key);
+				body = loaded?.body ?? null;
+				return loaded;
+			},
+			platform
+		);
+		if (!available) {
+			return new Response("Desktop candidate not found.", {
+				status: 404,
+				headers: { "cache-control": "no-store" },
+			});
+		}
+		const { candidate, artifact: object } = available;
+		const headers = buildDesktopDownloadHeaders({
+			artifactName: candidate.artifactName,
+			etag: object.httpEtag,
+			sizeBytes: object.size,
 		});
+		headers.set("cache-control", "public, max-age=31536000, immutable");
+		return new Response(body, {
+			headers,
+		});
+	} catch (error) {
+		console.error("Desktop candidate download failed.", error);
+		return new Response("Desktop candidate metadata is invalid.", {
+			status: 500,
+			headers: { "cache-control": "no-store" },
+		});
+	}
+}
+
+async function downloadDefault(
+	bucket: R2Bucket,
+	includeBody: boolean,
+	platform?: DesktopReleasePlatform
+) {
+	let releaseManifest: Awaited<ReturnType<typeof readPromotedDesktopRelease>>;
+	try {
+		releaseManifest = await readPromotedDesktopRelease(bucket, platform);
 	} catch (error) {
 		console.error("Invalid OpenMeld Desktop preview release manifest.", error);
 		return new Response("OpenMeld Desktop release metadata is invalid.", {
@@ -49,7 +127,13 @@ async function downloadDesktopPreview(input: {
 		});
 	}
 
-	const object = await bucket.get(releaseManifest.macosArm64.objectKey);
+	let body: ReadableStream | null = null;
+	const object = includeBody
+		? await bucket.get(releaseManifest.objectKey).then((loaded) => {
+				body = loaded?.body ?? null;
+				return loaded;
+			})
+		: await bucket.head(releaseManifest.objectKey);
 	if (!object) {
 		return new Response("OpenMeld Desktop preview artifact is missing.", {
 			headers: {
@@ -61,20 +145,28 @@ async function downloadDesktopPreview(input: {
 		});
 	}
 
-	return new Response(input.includeBody ? object.body : null, {
-		headers: buildDesktopDownloadHeaders({
-			artifactName: releaseManifest.macosArm64.artifactName,
-			etag: object.httpEtag,
-			sizeBytes: object.size,
-		}),
+	if (object.size !== releaseManifest.sizeBytes) {
+		return new Response("Desktop artifact size mismatch.", {
+			status: 503,
+			headers: { "cache-control": "no-store" },
+		});
+	}
+	const headers = buildDesktopDownloadHeaders({
+		artifactName: releaseManifest.artifactName,
+		etag: object.httpEtag,
+		sizeBytes: object.size,
 	});
+	headers.set("cache-control", "no-store");
+	return new Response(body, { headers });
 }
 
 export const Route = createFileRoute("/desktop/download")({
 	server: {
 		handlers: {
-			GET: () => downloadDesktopPreview({ includeBody: true }),
-			HEAD: () => downloadDesktopPreview({ includeBody: false }),
+			GET: ({ request }) =>
+				downloadDesktopPreview({ includeBody: true, request }),
+			HEAD: ({ request }) =>
+				downloadDesktopPreview({ includeBody: false, request }),
 		},
 	},
 });

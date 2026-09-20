@@ -1,12 +1,17 @@
 import type {
+  AgentProfileCreationExecutionMessage,
   AgentTaskContinuationQueueMessage,
   AgentTaskObservationRedriveQueueMessage,
+  AuthProfileView,
   AuthRpcResolveOrganizationAccountIdentityInput,
   AuthRpcResolveOrganizationAccountIdentityResult,
   AuthRpcResolveOrganizationDirectoryAgentProfilesInput,
   AuthRpcResolveOrganizationDirectoryAgentProfilesResult,
   AuthRpcResolveOrganizationDirectoryMembersInput,
   AuthRpcResolveOrganizationDirectoryMembersResult,
+  AuthRpcResolveProfileByIdResult,
+  AuthRpcResolveProfilesByIdsInput,
+  AuthRpcResolveProfilesByIdsResult,
   AuthRpcResolveUserDisplayNameInput,
   AuthRpcResolveUserDisplayNameResult,
   AuthRpcSendInboxUrgentEmailInput,
@@ -28,34 +33,14 @@ import type {
   SummarizeAgentActivityDigestRpcResponse,
 } from "@openmeld/schemas/types";
 import type { PrepareSessionHub } from "../prepare-session/transport/do/prepare-session-hub";
+import type { LarkChannelConnector } from "../remote-agent/transport/lark/lark-channel-connector";
 import type { RuntimeTransportHub } from "../runtime-transport/transport/do/runtime-transport-hub";
 import type { Space } from "../space/transport/do/space";
-
-type AuthAgentProfileRpcItem = {
-  openMeldProfileId: string;
-  profileName: string;
-  profileHandle: string;
-  profileKind: "human" | "agent";
-  isDefault: boolean;
-  status: "active" | "disabled";
-  ownerUserId: string;
-  ownerName?: string;
-  avatarUrl?: string;
-  source: string;
-  managedRole: "openmeld_assistant" | "center_agent" | null;
-  defaultProjectId?: string | null;
-  createdByUserId: string | null;
-  creationActorProfileId?: string | null;
-  creatorProfileId: string | null;
-  lastUsedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
 
 type AuthAgentProfileRpcResult =
   | {
       ok: true;
-      profile: AuthAgentProfileRpcItem;
+      profile: AuthProfileView;
     }
   | {
       ok: false;
@@ -106,7 +91,7 @@ type CoreAuthDispatchBindingRpc = {
   }): Promise<AuthAgentProfileRpcResult>;
   ensureCenterAgentProfileInOrganization?(input: {
     organizationId?: string | null;
-    ownerUserId?: string | null;
+    createdByUserId?: string | null;
   }): Promise<AuthAgentProfileRpcResult>;
   updateCenterAgentProfileInOrganization?(input: {
     organizationId?: string | null;
@@ -133,29 +118,18 @@ type CoreAuthDispatchBindingRpc = {
         message: string;
       }
   >;
-  resolveProfileById?(input: { openMeldProfileId?: string | null }): Promise<
-    | {
-        ok: true;
-        profile: {
-          profileId: string;
-          profileName: string;
-          profileHandle: string;
-          profileKind: "human" | "agent" | "system";
-          status: "active" | "disabled";
-          ownerUserId: string;
-          organizationId?: string | null;
-          defaultProjectId?: string | null;
-        };
-      }
-    | {
-        ok: false;
-        code: string;
-        message: string;
-      }
-  >;
+  resolveProfileById?(input: {
+    openMeldProfileId?: string | null;
+  }): Promise<AuthRpcResolveProfileByIdResult>;
+  resolveProfilesByIds?(
+    input: AuthRpcResolveProfilesByIdsInput
+  ): Promise<AuthRpcResolveProfilesByIdsResult>;
 };
 
 export type RemoteAgentWorkerBindingRpc = {
+  pluginRuntime?(
+    input: import("@openmeld/schemas/types").PluginRuntimeRequest
+  ): Promise<import("@openmeld/schemas/types").PluginRuntimeResponse>;
   receiveExecutionInput?(
     input: import("@openmeld/schemas/types").RemoteAgentWorkerExecutionInputRequest
   ): Promise<
@@ -202,6 +176,7 @@ export type RemoteAgentWorkerBindingRpc = {
 // CloudflareBindings. Gateway typegen imports core source for service RPC
 // typing; using a global env type here causes cross-worker type collisions.
 export type CoreBindings = {
+  OPENMELD_LARK_CHANNEL_CONNECTOR?: DurableObjectNamespace<LarkChannelConnector>;
   OPENMELD_SPACES: DurableObjectNamespace<Space>;
   OPENMELD_RUNTIME_TRANSPORT?: DurableObjectNamespace<RuntimeTransportHub>;
   OPENMELD_PREPARE_SESSION_HUB?: DurableObjectNamespace<PrepareSessionHub>;
@@ -228,6 +203,7 @@ export type CoreBindings = {
   OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED?: string;
   OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS?: string;
   OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT?: string;
+  OPENMELD_SLACK_RICH_CONTEXT_REPRO_ENABLED?: string;
   OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED?: string;
   OPENMELD_LARK_CHANNEL_ENABLED?: string;
   OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS?: string;
@@ -241,6 +217,7 @@ export type CoreBindings = {
   WEB_APP_URL?: string;
   ZEP_OPENMELD_API_KEY?: string;
   OPENMELD_DAEMON_DISPATCH_QUEUE?: Queue<
+    | AgentProfileCreationExecutionMessage
     | AgentTaskContinuationQueueMessage
     | AgentTaskObservationRedriveQueueMessage
     | RemoteAgentNativeDeliveryDeadlineProbeQueueMessage

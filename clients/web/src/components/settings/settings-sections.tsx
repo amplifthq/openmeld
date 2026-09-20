@@ -1,15 +1,53 @@
+import { TEAMMATE_AGENT_REQUESTS_ENABLED } from "@openmeld/schemas";
 import type { SettingsSectionDef } from "@openmeld/ui/lib/settings-contract";
-import type { ReactNode } from "react";
+import { lazy, type ReactNode } from "react";
 import { APP_CONTEXTUAL_MAIN_TEXT_BASE_START_CLASS_NAME } from "#/components/app/app-contextual-layout-style";
-import { CenterAgentPrivacyPage } from "#/components/organizations/center-agent-privacy-page";
-import { OrganizationSettingsPage } from "#/components/organizations/organization-settings-page";
+import { getDesktopPlatform } from "#/desktop/platform";
+import { DesktopUpdatesSection } from "#/desktop/updater";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildSettingsRoutes } from "#/lib/settings-routes";
-import { AccountSection } from "./account-section";
-import { AgentProfileCreationApprovalSettings } from "./agent-profile-creation-approval-settings";
-import { AppearanceSection } from "./appearance-section";
-import { NotificationsSection } from "./notifications-section";
 import { SettingsPlaceholderSection } from "./settings-placeholder-section";
+
+const AccountSection = lazy(() =>
+	import("./account-section").then((module) => ({
+		default: module.AccountSection,
+	}))
+);
+const AppearanceSection = lazy(() =>
+	import("./appearance-section").then((module) => ({
+		default: module.AppearanceSection,
+	}))
+);
+const NotificationsSection = lazy(() =>
+	import("./notifications-section").then((module) => ({
+		default: module.NotificationsSection,
+	}))
+);
+const ReasoningStreamSetting = lazy(() =>
+	import("./reasoning-stream-setting").then((module) => ({
+		default: module.ReasoningStreamSetting,
+	}))
+);
+const AgentProfileCreationApprovalSettings = lazy(() =>
+	import("./agent-profile-creation-approval-settings").then((module) => ({
+		default: module.AgentProfileCreationApprovalSettings,
+	}))
+);
+const CenterAgentPrivacyPage = lazy(() =>
+	import("#/components/organizations/center-agent-privacy-page").then(
+		(module) => ({ default: module.CenterAgentPrivacyPage })
+	)
+);
+const CenterAgentSettingsPage = lazy(() =>
+	import("#/components/organizations/center-agent-settings-page").then(
+		(module) => ({ default: module.CenterAgentSettingsPage })
+	)
+);
+const OrganizationSettingsPage = lazy(() =>
+	import("#/components/organizations/organization-settings-page").then(
+		(module) => ({ default: module.OrganizationSettingsPage })
+	)
+);
 
 /**
  * The Web Settings section registry. Account-scoped pages live under Personal;
@@ -23,8 +61,9 @@ import { SettingsPlaceholderSection } from "./settings-placeholder-section";
  *   is gated out on Web today; a CLI-driven or Desktop host would surface it.
  *
  * Service still renders a placeholder panel until a later phase fills it.
- * Center Agent-owned configuration lives in the Center Agent product home,
- * outside this global Settings registry.
+ * Center Agent configuration is a real Settings leaf here: it is grouped under
+ * the current Organization, or under Personal in a Personal Workspace. The
+ * Center Agent product home no longer owns a second entry for it.
  */
 export function buildSettingsSections(
 	orgSlug: string
@@ -85,7 +124,33 @@ export function buildSettingsSections(
 			render: () => (
 				<SettingsLeafLayout>
 					<CenterAgentPrivacyPage />
+					<ReasoningStreamSetting />
 					<PersonalAgentPermissions />
+				</SettingsLeafLayout>
+			),
+		},
+		...(getDesktopPlatform()
+			? [
+					{
+						id: "updates",
+						title: "Updates",
+						to: settingsRoutes.updates,
+						render: () => (
+							<SettingsLeafLayout>
+								<DesktopUpdatesSection presentation="settings" />
+							</SettingsLeafLayout>
+						),
+					},
+				]
+			: []),
+		{
+			id: "center-agent",
+			title: "Center Agent",
+			to: settingsRoutes["center-agent"],
+			requires: ["CLOUD_ACCOUNT"],
+			render: () => (
+				<SettingsLeafLayout>
+					<CenterAgentSettingsPage />
 				</SettingsLeafLayout>
 			),
 		},
@@ -118,9 +183,12 @@ export function buildSettingsSections(
 	] as const;
 }
 
+// Launch hold, not legacy. Keep the settings implementation and saved policies
+// for Request an Agent; see agent-profiles.md#teammate-request-launch-hold.
 function PersonalAgentPermissions() {
 	const { currentOrganization } = useAppOrganization();
-	return currentOrganization.isPersonal ? null : (
+	return !TEAMMATE_AGENT_REQUESTS_ENABLED ||
+		currentOrganization.isPersonal ? null : (
 		<AgentProfileCreationApprovalSettings
 			organizationId={currentOrganization.id}
 			organizationName={currentOrganization.name}

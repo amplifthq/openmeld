@@ -95,7 +95,7 @@ describe("AcceptInvitationPage", () => {
 
 		await waitFor(() => {
 			expect(navigateMock).toHaveBeenCalledWith({
-				to: "/o/acme",
+				to: "/o/acme/spaces",
 			});
 		});
 		expect(acceptOrganizationInvitationMock).toHaveBeenCalledWith({
@@ -218,7 +218,7 @@ describe("AcceptInvitationPage", () => {
 		const organizationLink = await screen.findByRole("link", {
 			name: "Go to Acme",
 		});
-		expect(organizationLink.getAttribute("href")).toBe("/o/acme");
+		expect(organizationLink.getAttribute("href")).toBe("/o/acme/spaces");
 	});
 
 	it("reports an expired or revoked invitation when membership is absent", async () => {

@@ -10,6 +10,7 @@ import {
   decryptLarkPlatformCredential,
   LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION,
 } from "./lark-platform-credential-crypto";
+import { publishLarkPlatformFile } from "./lark-platform-file-publication";
 import {
   createLarkPlatformStreamingCard,
   downloadLarkPlatformMessageResource,
@@ -131,6 +132,7 @@ export function createLarkPlatformMessageChannelAdapter(input: {
         };
       }
       return await createLarkPlatformStreamingCard({
+        stopDeliveryId: publication.stopDeliveryId,
         appId: publication.connection.appId,
         appSecret,
         fetchImpl: input.fetchImpl,
@@ -144,7 +146,11 @@ export function createLarkPlatformMessageChannelAdapter(input: {
         locator: download.locator,
         provider: input.provider,
       });
-      if (!locator || download.resource.type !== "image") {
+      if (
+        !locator ||
+        (download.resource.type !== "image" &&
+          download.resource.type !== "file")
+      ) {
         return {
           reasonCode: `${input.provider}.message_resource_unsupported`,
           status: "failed",
@@ -165,7 +171,7 @@ export function createLarkPlatformMessageChannelAdapter(input: {
         maxBytes: download.maxBytes,
         messageId: download.messageId,
         provider: input.provider,
-        resourceType: "image",
+        resourceType: download.resource.type,
       });
     },
     async publishIdentityLinkGuidance(publication) {
@@ -241,6 +247,38 @@ export function createLarkPlatformMessageChannelAdapter(input: {
         };
       }
       return await publishText(publication);
+    },
+    async publishFile(publication) {
+      const locator = requireMatchingLocator({
+        connection: publication.connection,
+        locator: publication.locator,
+        provider: input.provider,
+      });
+      if (!locator) {
+        return {
+          status: "failed",
+          reasonCode: `${input.provider}.publication_target_mismatch`,
+        };
+      }
+      const appSecret = await readAppSecret(publication.connection);
+      if (!appSecret) {
+        return {
+          status: "failed",
+          reasonCode: `${input.provider}.connection_credentials_unavailable`,
+        };
+      }
+      return publishLarkPlatformFile({
+        appId: publication.connection.appId,
+        appSecret,
+        bytes: publication.bytes,
+        fileName: publication.fileName,
+        messageId: locator.rootMessageId,
+        provider: input.provider,
+        providerPublicationIdempotencyKey:
+          publication.providerPublicationIdempotencyKey,
+        replyInThread: locator.threadId !== null,
+        fetchImpl: input.fetchImpl,
+      });
     },
     async publishWorkingCard(publication) {
       const locator = requireMatchingLocator({
@@ -355,6 +393,7 @@ export function createLarkPlatformMessageChannelAdapter(input: {
         };
       }
       return await finalizeLarkPlatformStreamingCard({
+        replyDeliveryId: publication.replyDeliveryId,
         appId: publication.connection.appId,
         appSecret,
         cardId: publication.cardId,
@@ -363,6 +402,7 @@ export function createLarkPlatformMessageChannelAdapter(input: {
         providerPublicationIdempotencyKey:
           publication.providerPublicationIdempotencyKey,
         sequence: publication.sequence,
+        outcome: publication.outcome,
         text: publication.text,
       });
     },

@@ -39,6 +39,42 @@ const item = {
 } as const;
 
 describe("Inbox HTTP contracts", () => {
+  it("carries source-owned relevance separately from urgency and business state", () => {
+    const sourceFacts = {
+      version: 1,
+      agentProfileIds: ["personal-agent"],
+      personalAgentProfileIds: ["personal-agent"],
+      mentionedAgentProfileIds: ["personal-agent"],
+      firstContactAgentProfileIds: ["personal-agent"],
+      recipientReasons: ["human_mention", "agent_owner"],
+    };
+    const awareness = {
+      ...item,
+      attention: "update",
+      importance: "normal",
+      kind: "space_mention",
+      resolutionStatus: "not_applicable",
+      sourceFacts,
+      sourceTarget: { kind: "space", spaceId: "space_1", signalId: "signal_1" },
+    };
+    expect(inboxItemSchema.parse(awareness)).toEqual(awareness);
+    expect(
+      inboxItemSchema.safeParse({
+        ...awareness,
+        sourceFacts: {
+          ...sourceFacts,
+          firstContactAgentProfileIds: ["unrelated"],
+        },
+      }).success
+    ).toBe(false);
+    expect(
+      inboxItemSchema.safeParse({
+        ...awareness,
+        sourceFacts: { ...sourceFacts, arbitraryRecipient: "another-user" },
+      }).success
+    ).toBe(false);
+  });
+
   it("accepts the canonical member-private item shape", () => {
     expect(inboxItemSchema.parse(item)).toEqual(item);
   });
@@ -97,21 +133,6 @@ describe("Inbox HTTP contracts", () => {
         },
       }).success
     ).toBe(true);
-  });
-
-  it("targets an exact Center Agent Task without copying its state", () => {
-    expect(
-      inboxItemSchema.parse({
-        ...item,
-        kind: "center_agent_update",
-        sourceTarget: {
-          kind: "center_agent_task",
-          taskId: "task_1",
-        },
-      })
-    ).toMatchObject({
-      sourceTarget: { kind: "center_agent_task", taskId: "task_1" },
-    });
   });
 
   it("accepts the minimal Agent Profile recovery target without copying work details", () => {
@@ -253,7 +274,16 @@ describe("Inbox HTTP contracts", () => {
       view: "needs_action",
     });
     expect(
-      listInboxItemsQuerySchema.safeParse({ view: "mentions" }).success
+      listInboxItemsQuerySchema.parse({ notificationPreview: "true" })
+    ).toEqual({ notificationPreview: "true" });
+    expect(
+      listInboxItemsQuerySchema.parse({
+        presentation: "attention",
+        view: "mentions",
+      })
+    ).toEqual({ presentation: "attention", view: "mentions" });
+    expect(
+      listInboxItemsQuerySchema.safeParse({ presentation: "unknown" }).success
     ).toBe(false);
     expect(markInboxItemReadBodySchema.safeParse({ read: true }).success).toBe(
       true
@@ -407,25 +437,6 @@ describe("Inbox producer and email contracts", () => {
         title: "Approval required",
       })
     ).toMatchObject({ sourceKey: "runtime_1:interaction_1" });
-  });
-
-  it("accepts a canonical Center Agent Task event as an Inbox source", () => {
-    expect(
-      inboxSourceCandidateSchema.parse({
-        attention: "update",
-        contextLabel: "Center Agent Task",
-        importance: "normal",
-        kind: "center_agent_update",
-        occurredAtMs: 1_722_736_800_000,
-        organizationId: "org_1",
-        preview: "The research is ready to review.",
-        recipientUserId: "user_1",
-        sourceKey: "task_1:event_4",
-        sourceKind: "center_agent_task_event",
-        sourceTarget: { kind: "center_agent_task", taskId: "task_1" },
-        title: "Research competitors",
-      })
-    ).toMatchObject({ sourceKind: "center_agent_task_event" });
   });
 
   it("keeps Auth email input limited to safe template variables", () => {

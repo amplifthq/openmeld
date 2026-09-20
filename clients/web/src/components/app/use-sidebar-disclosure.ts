@@ -1,7 +1,11 @@
 import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 
 const CHANGE_EVENT = "openmeld-sidebar-disclosure";
-const SIDEBAR_PREFIXES = { space: /^Spaces:/, people: /^People:/ };
+const SIDEBAR_PREFIXES = {
+	space: /^Spaces:/,
+	people: /^People:/,
+	chat: /^Chats:/,
+};
 
 export function parseSidebarDisclosure(
 	raw: string | null
@@ -37,11 +41,12 @@ function subscribe(listener: () => void) {
 }
 
 export function useSidebarDisclosure(
-	destination: "space" | "people",
+	destination: "space" | "people" | "chat",
 	profileId: string,
 	organizationId: string,
 	activeGroupId: string | null,
-	currentItemId: string = activeGroupId ?? ""
+	currentItemId: string = activeGroupId ?? "",
+	defaultOpenGroupIds: readonly string[] = []
 ) {
 	const prefix = SIDEBAR_PREFIXES[destination];
 	const key = `openmeld:${destination}-sidebar-disclosure:${encodeURIComponent(profileId)}:${encodeURIComponent(organizationId)}`;
@@ -60,7 +65,16 @@ export function useSidebarDisclosure(
 	return {
 		isOpen: (id: string) =>
 			visitChoices[id.replace(prefix, "")] ??
-			resolveSidebarGroupOpen(choices, id.replace(prefix, ""), activeGroupId),
+			resolveSidebarGroupOpen(
+				{
+					...Object.fromEntries(
+						defaultOpenGroupIds.map((groupId) => [groupId, true])
+					),
+					...choices,
+				},
+				id.replace(prefix, ""),
+				activeGroupId
+			),
 		setOpen: (id: string, open: boolean) => {
 			const groupId = id.replace(prefix, "");
 			setVisit((current) => ({

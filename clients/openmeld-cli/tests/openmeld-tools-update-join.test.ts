@@ -1,12 +1,14 @@
 import type { OpenMeldToolsUpdateAttempt } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import {
+  completeOpenMeldToolsUpdateAttempt,
   discardPendingOpenMeldToolsUpdateAttempt,
   persistOpenMeldToolsUpdateAttempt,
 } from "../src/local-service/maintenance/openmeld-tools-update-attempt-state";
 import {
   resolveExternalOpenMeldToolsUpdate,
   waitForExternalOpenMeldToolsUpdate,
+  waitForOpenMeldToolsUpdateCompletion,
 } from "../src/local-service/maintenance/openmeld-tools-update-join";
 import { withTempHome } from "./helpers/fs";
 
@@ -26,6 +28,51 @@ const attempt: OpenMeldToolsUpdateAttempt = {
 };
 
 describe("OpenMeld Tools update join", () => {
+  it.each([
+    "updated",
+    "restored",
+    "needs_help",
+    "missing",
+    "another_operation",
+  ] as const)("accepts only the joined operation's successful durable completion: %s", async (outcome) => {
+    await withTempHome(async () => {
+      const now = new Date().toISOString();
+      const pending = {
+        ...attempt,
+        operation: { ...attempt.operation, requestedAt: now, updatedAt: now },
+      };
+      await persistOpenMeldToolsUpdateAttempt(pending);
+      const waiting = waitForOpenMeldToolsUpdateCompletion({
+        operationId: pending.operation.operationId,
+        pollIntervalMs: 1,
+        onWaiting: async () => {
+          if (outcome === "missing") {
+            await discardPendingOpenMeldToolsUpdateAttempt();
+            return;
+          }
+          await completeOpenMeldToolsUpdateAttempt({
+            ...pending,
+            operation: {
+              ...pending.operation,
+              operationId:
+                outcome === "another_operation"
+                  ? "different-update"
+                  : pending.operation.operationId,
+              phase: outcome === "another_operation" ? "updated" : outcome,
+            },
+          });
+        },
+      });
+      if (outcome === "updated") {
+        await expect(waiting).resolves.toMatchObject({
+          operationId: pending.operation.operationId,
+          phase: "updated",
+        });
+      } else {
+        await expect(waiting).rejects.toThrow("did not finish successfully");
+      }
+    });
+  });
   it("joins an update waiting for work instead of racing its worker", async () => {
     await withTempHome(async () => {
       const waiting = {

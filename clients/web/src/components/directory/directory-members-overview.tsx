@@ -4,7 +4,6 @@ import type {
 	CenterAgentMemberResearchBatch,
 	MessageChannelProvider,
 	ModelCatalog,
-	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationDirectoryResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
@@ -38,6 +37,7 @@ import {
 	type ComponentProps,
 	type FormEvent,
 	useEffect,
+	useId,
 	useRef,
 	useState,
 } from "react";
@@ -49,6 +49,7 @@ import {
 	resolveOrganizationComputerGroups,
 } from "#/components/computers/organization-computers";
 import {
+	buildDirectoryAgentProfilesByOwner,
 	buildOrganizationHumanProfileRows,
 	buildPersonalHumanProfileRows,
 	type DirectoryDocumentsStatus,
@@ -141,6 +142,7 @@ type LocalAgentRecoveryController = ReturnType<
 >;
 
 type DirectoryMembersOverviewProps = {
+	presentation?: "page" | "sidebar";
 	account: AppShellAccount;
 	currentOrganization: OrganizationSummary;
 	currentUserId: string;
@@ -151,7 +153,6 @@ type DirectoryMembersOverviewProps = {
 	onCreateProfile: () => void;
 	onFocusConsumed?: () => void;
 	recovery: LocalAgentRecoveryController;
-	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
 	storageScope: string;
 };
 
@@ -165,17 +166,18 @@ type DirectoryInvitationAccess =
 const PROFILE_REPORT_DOCUMENTS_ERROR_MESSAGE =
 	"Report links are unavailable because Documents could not be loaded.";
 
-function useDirectoryMemberResearch(organizationId: string) {
+function useDirectoryMemberResearch(organizationId: string, enabled = true) {
 	const queryClient = useQueryClient();
-	const memberResearchQuery = useQuery(
-		centerAgentMemberResearchStatusQueryOptions({ organizationId })
-	);
+	const memberResearchQuery = useQuery({
+		...centerAgentMemberResearchStatusQueryOptions({ organizationId }),
+		enabled,
+	});
 	const activeResearchBatch = resolveActiveResearchBatch(
 		memberResearchQuery.data?.latestBatch ?? null
 	);
 	const documentsQuery = useQuery({
 		...organizationDocumentsQueryOptions({
-			enabled: true,
+			enabled,
 			organizationId,
 		}),
 		refetchInterval: activeResearchBatch ? 2000 : false,
@@ -275,6 +277,14 @@ function resolveHumanProfilesViewState(input: {
 
 export function DirectoryMembersOverview(input: DirectoryMembersOverviewProps) {
 	const model = useDirectoryMembersOverviewModel(input);
+	if (input.presentation === "sidebar") {
+		return (
+			<DirectoryHumanProfilesWorkspace
+				{...model.workspaceProps}
+				presentation="sidebar"
+			/>
+		);
+	}
 	return <DirectoryMembersOverviewView model={model} />;
 }
 
@@ -355,7 +365,7 @@ function useDirectoryMembersOverviewModel(
 		...messageChannelListQueryOptions({
 			organizationId: input.currentOrganization.id,
 		}),
-		enabled: !isPersonalWorkspace,
+		enabled: !isPersonalWorkspace && input.presentation !== "sidebar",
 	});
 	const disconnectConnectedAccountMutation = useMutation({
 		mutationFn: async (identityLinkId: string) =>
@@ -423,7 +433,10 @@ function useDirectoryMembersOverviewModel(
 		latestResearchBatch,
 		memberResearchQuery,
 		researchMutation,
-	} = useDirectoryMemberResearch(input.currentOrganization.id);
+	} = useDirectoryMemberResearch(
+		input.currentOrganization.id,
+		input.presentation !== "sidebar"
+	);
 	const researchErrors = resolveMemberResearchErrors({
 		mutationError: researchMutation.error,
 		mutationFailed: researchMutation.isError,
@@ -461,6 +474,11 @@ function useDirectoryMembersOverviewModel(
 	});
 	const memberRows = isPersonalWorkspace
 		? buildPersonalHumanProfileRows({
+				agentProfileSummaries: buildDirectoryAgentProfilesByOwner({
+					members: input.directoryQuery.data?.members ?? [],
+					agentProfiles: input.directoryQuery.data?.agentProfiles ?? [],
+					orgSlug: input.currentOrganization.slug,
+				}).get(input.currentUserId),
 				account: input.account,
 				canCreateHumanProfile,
 				computers: computersQuery.data ?? null,
@@ -485,7 +503,6 @@ function useDirectoryMembersOverviewModel(
 				messageChannelsStatus,
 				members: input.directoryQuery.data?.members ?? [],
 				orgSlug: input.currentOrganization.slug,
-				runtimeOverview: input.runtimeOverview,
 			});
 	const profilesArePending = isPersonalWorkspace
 		? personalProfilesQuery.isPending
@@ -715,6 +732,8 @@ function DirectoryInvitePanel(input: {
 }
 
 export function InvitationForm(input: { organizationId: string }) {
+	const emailId = useId();
+	const roleId = useId();
 	const queryClient = useQueryClient();
 	const [email, setEmail] = useState("");
 	const [role, setRole] = useState<OrganizationInviteRole>("member");
@@ -731,6 +750,9 @@ export function InvitationForm(input: { organizationId: string }) {
 			setEmail("");
 			setRole("member");
 			Promise.all([
+				queryClient.invalidateQueries({
+					queryKey: organizationQueryKeys.invitations(input.organizationId),
+				}),
 				queryClient.invalidateQueries({
 					queryKey: organizationQueryKeys.directory(input.organizationId),
 				}),
@@ -763,17 +785,17 @@ export function InvitationForm(input: { organizationId: string }) {
 					Spaces.
 				</CardDescription>
 			</CardHeader>
-			<CardContent>
+			<CardContent className="@container">
 				<form
-					className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem_auto] sm:items-end"
+					className="grid @sm:grid-cols-2 @xl:grid-cols-[minmax(0,1fr)_8rem_auto] @sm:items-end gap-3"
 					onSubmit={handleSubmit}
 				>
-					<div className="grid gap-2">
-						<Label htmlFor="organization-invite-email">Email</Label>
+					<div className="@sm:col-span-2 @xl:col-span-1 grid gap-2">
+						<Label htmlFor={emailId}>Email</Label>
 						<Input
 							autoComplete="email"
 							disabled={inviteMutation.isPending}
-							id="organization-invite-email"
+							id={emailId}
 							onChange={(event) => setEmail(event.target.value)}
 							placeholder="teammate@example.com"
 							type="email"
@@ -781,7 +803,7 @@ export function InvitationForm(input: { organizationId: string }) {
 						/>
 					</div>
 					<div className="grid gap-2">
-						<Label htmlFor="organization-invite-role">Role</Label>
+						<Label htmlFor={roleId}>Role</Label>
 						<Select
 							disabled={inviteMutation.isPending}
 							onValueChange={(value) =>
@@ -790,11 +812,12 @@ export function InvitationForm(input: { organizationId: string }) {
 							value={role}
 						>
 							<SelectTrigger
+								className="w-full min-w-0"
 								displayValue={
 									INVITE_ROLE_OPTIONS.find((option) => option.value === role)
 										?.label
 								}
-								id="organization-invite-role"
+								id={roleId}
 							/>
 							<SelectContent>
 								{INVITE_ROLE_OPTIONS.map((option, index) => (

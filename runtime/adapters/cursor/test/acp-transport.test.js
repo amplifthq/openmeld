@@ -66,6 +66,7 @@ async function writeFakeCursorAcp(fixturePath) {
       "};",
       "const finishPrompt = () => {",
       "  const reply = process.env.OPENMELD_FAKE_CURSOR_ACP_REPLY ?? 'Cursor ACP reply';",
+      "  for (const sessionId of ['unrelated-session', activeSessionId]) write({ jsonrpc: '2.0', method: 'session/update', params: { sessionId, update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Checking the request' } } } });",
       "  write({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: activeSessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: reply } } } });",
       "  write({ jsonrpc: '2.0', id: pendingPromptId, result: { stopReason: 'end_turn' } });",
       "  pendingPromptId = null;",
@@ -199,6 +200,7 @@ test("Cursor ACP creates a session, applies mode and model, and returns structur
   const { invokeCursorAcpTransport } = await import("../dist/index.js");
   await withFixture(async ({ fixtureDir, fixturePath, logPath }) => {
     const model = "gpt-5.6-sol[context=272k,reasoning=medium,fast=false]";
+    const reasoning = [];
     const result = await invokeCursorAcpTransport({
       agentControllerPermissionMode: "cursor:plan",
       conversationPolicy: { model },
@@ -217,10 +219,16 @@ test("Cursor ACP creates a session, applies mode and model, and returns structur
       },
       launchContract: createNodeScriptLaunchContract(fixturePath),
       prompt: "complete Cursor fallback prompt",
+      onRuntimeEvent: (event) => {
+        if (event.phase === "reasoning") {
+          reasoning.push(event.text);
+        }
+      },
       taskId: "task-1",
     });
 
     assert.equal(result.output, "Cursor ACP reply");
+    assert.deepEqual(reasoning, ["Checking the request"]);
     assert.equal(result.sessionId, "cursor-session-new");
     const log = await readLog(logPath);
     assert.deepEqual(

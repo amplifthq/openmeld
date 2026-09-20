@@ -11,8 +11,8 @@ import {
   openMeldRootDir,
   resolveKnownOpenMeldEnvPresetFromArgv,
   resolveOpenMeldEnvPreset,
-  resolveOpenMeldPresetOwnedPathInput,
   resolveOpenMeldRootDir,
+  resolveOpenMeldServiceOwnedPathInput,
 } from "../src/config/paths";
 import { setConfiguredBaseUrl } from "../src/config/runtime-config";
 import {
@@ -87,7 +87,7 @@ describe("lane-aware OpenMeld home resolution", () => {
   });
 
   it("keeps preset-owned OS resource coordination canonical across OPENMELD_HOME overrides", () => {
-    const ownerInput = resolveOpenMeldPresetOwnedPathInput({
+    const ownerInput = resolveOpenMeldServiceOwnedPathInput({
       homeDir: "/tmp/openmeld-home",
       env: {
         OPENMELD_HOME: "/tmp/isolated-openmeld-home",

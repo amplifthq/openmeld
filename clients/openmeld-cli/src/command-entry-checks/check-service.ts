@@ -104,7 +104,7 @@ function shouldPromptHumanOptionalServiceStart(
 async function maybePromptHumanOptionalServiceStart(input: {
   context: CommandEntryContext;
 }): Promise<void> {
-  const expectedVersion = resolveCurrentDaemonExpectedVersion();
+  const expectedVersion = await resolveCurrentDaemonExpectedVersion();
   const preflight = await runDaemonStartupPreflight({
     expectedVersion,
     progress: createDaemonServiceAlignmentProgressUi({
@@ -130,7 +130,7 @@ async function maybePromptHumanOptionalServiceStart(input: {
 async function resolveServiceStatus(input: {
   view: "human" | "agent";
 }): Promise<ServiceStatus> {
-  const expectedVersion = resolveCurrentDaemonExpectedVersion();
+  const expectedVersion = await resolveCurrentDaemonExpectedVersion();
   try {
     return await resolveDaemonServiceParticipationStatus({
       expectedVersion,

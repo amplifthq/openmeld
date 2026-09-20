@@ -1,10 +1,17 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import type { SignalEnvelope } from "@openmeld/protocol";
+import type { SpaceThreadContext } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
   countPublicTextSignalsAfterDispatchAnchor,
   insertSignalRecord,
+  readAgentReplyObservationState,
 } from "../src/space/infrastructure/sql/space-signal-repo";
+import {
+  insertSpaceThread,
+  insertSpaceThreadSignalPlacement,
+  listSpaceThreadSignalPlacementsAfter,
+} from "../src/space/infrastructure/sql/space-thread-repo";
 import type { Space } from "../src/space/transport/do/space";
 
 function createSpaceShard(): DurableObjectStub<Space> {
@@ -40,6 +47,87 @@ function createTextSignal(input: {
 }
 
 describe("reply staleness SQL", () => {
+  it("keeps a main Wake on the main timeline when its source becomes a thread root", async () => {
+    const shard = createSpaceShard();
+    await runInDurableObject(shard, (instance, state) => {
+      const resolveScope = (id: string) =>
+        (
+          instance as unknown as {
+            resolveThreadContextForSignal(
+              id: string
+            ): SpaceThreadContext | null;
+          }
+        ).resolveThreadContextForSignal(id);
+      const source = createTextSignal({
+        id: "wake-main",
+        profileId: "human",
+        ts: 1000,
+      });
+      insertSignalRecord(state.storage.sql, source);
+      expect(resolveScope(source.id)).toBeNull();
+      const thread = {
+        threadId: "thr_11111111-1111-4111-8111-111111111111",
+        spaceId: source.spaceId,
+        rootSignalId: source.id,
+        createdByProfileId: "human",
+        createdAt: new Date(2000).toISOString(),
+        updatedAt: new Date(2000).toISOString(),
+      };
+      insertSpaceThread(state.storage.sql, thread);
+      insertSpaceThreadSignalPlacement(state.storage.sql, {
+        signalId: source.id,
+        threadId: thread.threadId,
+        placement: "root",
+        createdAt: thread.createdAt,
+      });
+      const laterMain = createTextSignal({
+        id: "later-main",
+        profileId: "human",
+        ts: 3000,
+      });
+      insertSignalRecord(state.storage.sql, laterMain);
+      expect(resolveScope(source.id)).toBeNull();
+      expect(
+        readAgentReplyObservationState(state.storage.sql, {
+          sourceSignalId: source.id,
+          observedThroughSignalId: laterMain.id,
+          threadId: resolveScope(source.id)?.threadId ?? null,
+        })
+      ).toBe("current");
+      expect(
+        listSpaceThreadSignalPlacementsAfter(state.storage.sql, {
+          afterSignalId: source.id,
+          threadId: thread.threadId,
+          limit: 20,
+        })
+      ).toEqual([]);
+      expect(
+        readAgentReplyObservationState(state.storage.sql, {
+          sourceSignalId: source.id,
+          observedThroughSignalId: source.id,
+          threadId: thread.threadId,
+        })
+      ).toBe("current");
+
+      const threadWake = createTextSignal({
+        id: "wake-in-thread",
+        profileId: "human",
+        ts: 4000,
+      });
+      insertSignalRecord(state.storage.sql, threadWake);
+      insertSpaceThreadSignalPlacement(state.storage.sql, {
+        signalId: threadWake.id,
+        threadId: thread.threadId,
+        placement: "thread",
+        createdAt: new Date(4000).toISOString(),
+      });
+      expect(resolveScope(threadWake.id)).toMatchObject({
+        rootSignalId: source.id,
+        threadId: thread.threadId,
+      });
+    });
+  });
+
   it("counts only newer public text from profiles other than the dispatch target", async () => {
     const shard = createSpaceShard();
     const targetProfileId = "agt_11111111-1111-4111-8111-111111111111";

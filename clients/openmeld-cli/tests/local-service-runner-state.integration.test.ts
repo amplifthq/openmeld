@@ -1,14 +1,60 @@
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   createManagedAgentActivityIntegrationRefreshScheduler,
   refreshManagedAgentActivityIntegrations,
 } from "../src/agent-activity/integration-refresh";
 import type { startLocalAgentActivitySyncLoop } from "../src/agent-activity/local-sync";
+import { defaultManagedIntegrationPaths } from "../src/agent-activity/managed-integrations";
+import { bindProject } from "../src/agent-activity/project-bindings";
+import {
+  isAgentActivityRouteRegistered,
+  registerAgentActivityRoute,
+} from "../src/agent-activity/route-registry";
 import type { StoredAuthSession } from "../src/config/auth-session";
-import { AuthRequestCredentialError } from "../src/config/request-headers";
-import { runDaemonServiceLoop } from "../src/local-service/carrier/service-runner";
+import {
+  AuthRequestCredentialError,
+  fingerprintRequestAuthorization,
+} from "../src/config/request-headers";
+import {
+  createControlledShutdownCoordinator,
+  runDaemonServiceLoop,
+} from "../src/local-service/carrier/service-runner";
 import { DAEMON_STREAM_CONNECT_TIMEOUT_MS } from "../src/local-service/core/constants";
+import type { RouteCatalog } from "../src/local-service/core/types";
+import type { launchExecutionHost } from "../src/local-service/execution-host/launch";
+import type {
+  ExecutionHostEvent,
+  ExecutionHostPort,
+} from "../src/local-service/execution-host/port";
 import { withTempHome } from "./helpers/fs";
+
+const DAEMON_STREAM_URL_PATTERN =
+  /^ws:\/\/localhost:8080\/v1\/daemon\/stream\?connectionId=/;
+
+function sourceCatalog(profileIds: string[]): RouteCatalog {
+  return {
+    profileIds,
+    routeByProfileId: new Map(
+      profileIds.map((profileId) => [
+        profileId,
+        {
+          profileId,
+          agentControllerRef: "builtin:codex",
+          contextIdMappingSpec: {
+            sourceField: "OPENMELD_CLI_CONTEXT_ID",
+            mappingVersion: 1,
+          },
+          streamingMode: "final",
+          transportMode: "local-cli",
+        },
+      ])
+    ),
+    skippedProfiles: [],
+  };
+}
 
 function createAuthSession(
   overrides: Partial<StoredAuthSession> = {}
@@ -28,6 +74,30 @@ function createAuthSession(
       ...overrides.user,
     },
   };
+}
+
+function createConnectedSocket(close = vi.fn()) {
+  return {
+    close,
+    onClose: vi.fn(),
+  };
+}
+
+function requestServiceSigterm(): void {
+  const listener = process
+    .listeners("SIGTERM")
+    .find((candidate) => candidate.name === "onSigterm");
+  if (!listener) {
+    throw new Error("expected the local Service SIGTERM handler to be active");
+  }
+  listener("SIGTERM");
+}
+
+async function stopServiceThroughSigterm(input: {
+  shutdownRequested?: Promise<unknown>;
+}): Promise<void> {
+  requestServiceSigterm();
+  await input.shutdownRequested;
 }
 
 const {
@@ -68,6 +138,7 @@ const {
   syncLocalServiceRuntimeAgentControllerReportsMock,
   writeDaemonRouteCatalogCacheMock,
   writeDaemonRuntimeLeaseMock,
+  evidenceFlushes,
 } = vi.hoisted(() => ({
   buildOpenMeldProfileRequestHeadersWithAuthMock: vi.fn(),
   buildRequestAuthHeadersMock: vi.fn(),
@@ -109,6 +180,7 @@ const {
   syncLocalServiceRuntimeAgentControllerReportsMock: vi.fn(),
   writeDaemonRouteCatalogCacheMock: vi.fn(),
   writeDaemonRuntimeLeaseMock: vi.fn(),
+  evidenceFlushes: [] as Array<() => Promise<void>>,
 }));
 
 vi.mock("../src/agent-activity/integration-refresh", () => ({
@@ -130,7 +202,8 @@ vi.mock("../src/agents/registry", () => ({
   setAgentRegistrationEnabled: setAgentRegistrationEnabledMock,
 }));
 
-vi.mock("../src/config/auth-session", () => ({
+vi.mock("../src/config/auth-session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/config/auth-session")>()),
   getAuthSessionState: getAuthSessionStateMock,
 }));
 
@@ -212,7 +285,8 @@ vi.mock(
   })
 );
 
-vi.mock("../src/transport/ws", () => ({
+vi.mock("../src/transport/ws", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/transport/ws")>()),
   connectWebSocket: connectWebSocketMock,
 }));
 
@@ -244,9 +318,114 @@ vi.mock("../src/local-service/state/route-catalog-cache", () => ({
   writeDaemonRouteCatalogCache: writeDaemonRouteCatalogCacheMock,
 }));
 
-vi.mock("../src/local-service/carrier/run-socket-session", () => ({
-  runDaemonSocketSession: runDaemonSocketSessionMock,
-}));
+vi.mock("../src/local-service/carrier/run-socket-session", async () => {
+  const { createExecutionHostSocketLink } = await import(
+    "../src/local-service/execution-host/socket-link"
+  );
+  const generations = new WeakMap<ExecutionHostPort, number>();
+  return {
+    runDaemonSocketSession: async (
+      input: Parameters<
+        typeof import("../src/local-service/carrier/run-socket-session").runDaemonSocketSession
+      >[0]
+    ) => {
+      const connectionGeneration =
+        (generations.get(input.executionHost) ?? 0) + 1;
+      generations.set(input.executionHost, connectionGeneration);
+      const link = createExecutionHostSocketLink({
+        host: input.executionHost,
+        socket: { send: () => undefined },
+        onAdmissionChanged: () => undefined,
+        onInvalidation: () => undefined,
+        onAuthenticationFailure: (failure) => {
+          input.onRuntimeReportingAuthenticationFailure?.(failure);
+        },
+        onError: (error) => {
+          throw error;
+        },
+      });
+      await link.configure({
+        executionAdmissionConfirmation: true,
+        connectionGeneration,
+        catalogRevision: 0,
+        leases: [],
+      });
+      try {
+        await runDaemonSocketSessionMock(input);
+      } finally {
+        await link.detach();
+      }
+    },
+  };
+});
+
+// Substitute only the OS process transport. Actual Host resource, catalog,
+// control and lifecycle handlers execute under isolated fixture state.
+vi.mock("../src/local-service/execution-host/launch", async () => {
+  const { createInProcessExecutionHost } = await import(
+    "./helpers/execution-host"
+  );
+  const { createExecutionHostResources } = await import(
+    "../src/local-service/execution-host/runtime"
+  );
+  return {
+    launchExecutionHost: (input: Parameters<typeof launchExecutionHost>[0]) => {
+      let current: Awaited<
+        ReturnType<typeof createInProcessExecutionHost>
+      > | null = null;
+      const listeners = new Set<(event: ExecutionHostEvent) => void>();
+      const ready = (async () => {
+        const presenter = {
+          view: "agent" as const,
+          line: () => undefined,
+          event: () => undefined,
+          data: () => undefined,
+        };
+        const resources = await createExecutionHostResources({
+          runtimePaths: await ensureDaemonRuntimePathsMock(),
+          presenter,
+        });
+        current = await createInProcessExecutionHost({
+          resources,
+          presenter,
+          stateRoot: input.identity.stateRoot,
+          ownerUserId: input.identity.ownerUserId,
+          deviceId: input.identity.deviceId,
+          daemonSessionId: input.identity.daemonSessionId,
+          profileOwnerName: "Felix",
+          serviceBundleId: "service-bundle-1",
+        });
+        current.port.onEvent((event) => {
+          for (const listener of listeners) {
+            listener(event);
+          }
+        });
+        return current;
+      })();
+      const port: ExecutionHostPort = {
+        call: async (method, payload, options) =>
+          (await ready).port.call(method, payload, options),
+        available: () => current !== null,
+        snapshot: () => current?.port.snapshot() ?? null,
+        onEvent: (listener) => {
+          listeners.add(listener);
+          return () => {
+            listeners.delete(listener);
+          };
+        },
+        onAvailabilityChanged: () => () => undefined,
+      };
+      return {
+        ...port,
+        initialized: ready.then((value) => value.port.call("health", {})),
+        close: async () => {
+          await (await ready).close();
+        },
+        hostInstanceId: "fixture-process",
+      };
+    },
+  };
+});
 
 vi.mock("../src/local-service/control-plane/server", () => ({
   startLocalDaemonControlPlaneServer: startLocalDaemonControlPlaneServerMock,
@@ -273,6 +452,30 @@ vi.mock("../src/local-service/state/runtime-contract-guard", () => ({
   ensureDaemonRuntimeContractState: ensureDaemonRuntimeContractStateMock,
 }));
 
+// Diagnostic disk writes intentionally outlive transport observations. Await
+// the real recorder's pending writes before removing this test's state root.
+vi.mock(
+  "../src/local-service/lifecycle/service-connection-evidence",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../src/local-service/lifecycle/service-connection-evidence")
+      >();
+    return {
+      ...actual,
+      createServiceConnectionEvidenceRecorder: (
+        input: Parameters<
+          typeof actual.createServiceConnectionEvidenceRecorder
+        >[0]
+      ) => {
+        const recorder = actual.createServiceConnectionEvidenceRecorder(input);
+        evidenceFlushes.push(() => recorder.flush());
+        return recorder;
+      },
+    };
+  }
+);
+
 async function flushPendingPromises(count = 20): Promise<void> {
   for (let index = 0; index < count; index += 1) {
     await Promise.resolve();
@@ -294,7 +497,11 @@ async function waitForFakeTimerCondition(
 }
 
 describe("local service runner dual-write", () => {
-  beforeEach(() => {
+  let isolatedHome: string;
+  beforeEach(async () => {
+    isolatedHome = await mkdtemp(join(tmpdir(), "openmeld-host-runner-"));
+    vi.stubEnv("OPENMELD_HOME", isolatedHome);
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
     resolveBaseUrlMock.mockReset().mockResolvedValue("http://localhost:8080");
     getAuthSessionStateMock.mockReset().mockResolvedValue({
       state: "valid",
@@ -307,7 +514,9 @@ describe("local service runner dual-write", () => {
     buildRequestAuthHeadersMock
       .mockReset()
       .mockResolvedValue({ Authorization: "Bearer test" });
-    getConfiguredDaemonDispatchLimitsMock.mockReset().mockResolvedValue({});
+    getConfiguredDaemonDispatchLimitsMock
+      .mockReset()
+      .mockResolvedValue({ globalConcurrency: 1, queueMax: 4 });
     readDaemonServiceContractMock.mockReset().mockResolvedValue({
       schema: "openmeld-daemon-service-contract-v1",
       v: 1,
@@ -322,6 +531,7 @@ describe("local service runner dual-write", () => {
       deviceId: "device_123",
       heartbeatMs: 5000,
       generation: 4,
+      ownerUserId: "usr_123",
       updatedAt: "2026-03-14T00:00:00.000Z",
     });
     resolveRecentDaemonSignalStopCauseMock
@@ -354,9 +564,7 @@ describe("local service runner dual-write", () => {
         status: "submitted",
         submittedCount: 1,
       });
-    connectWebSocketMock.mockReset().mockResolvedValue({
-      close: vi.fn(),
-    });
+    connectWebSocketMock.mockReset().mockResolvedValue(createConnectedSocket());
     createLocalAdapterEntriesMock.mockReset().mockReturnValue([
       {
         adapterId: "local-cli",
@@ -369,21 +577,21 @@ describe("local service runner dual-write", () => {
         },
       ],
     });
-    loadDaemonRouteCatalogMock.mockReset().mockResolvedValue({
-      profileIds: ["hum_felix"],
-      routeByProfileId: new Map(),
-      skippedProfiles: [],
-    });
+    loadDaemonRouteCatalogMock
+      .mockReset()
+      .mockResolvedValue(
+        sourceCatalog(["agt_11111111-1111-4111-8111-111111111111"])
+      );
     readDaemonRouteCatalogCacheMock.mockReset().mockResolvedValue(null);
     writeDaemonRouteCatalogCacheMock.mockReset().mockResolvedValue(undefined);
-    loadContextStoreMock.mockReset().mockResolvedValue({});
+    loadContextStoreMock.mockReset().mockResolvedValue(new Map());
     ensureDaemonRuntimePathsMock.mockReset().mockResolvedValue({
-      contractMetaPath: "/tmp/daemon/contract-meta.json",
-      contractRepairReportPath: "/tmp/daemon/repair-report.json",
-      contextStorePath: "/tmp/daemon/context-store.json",
-      dataRootPath: "/tmp/daemon/data",
-      deviceIdPath: "/tmp/daemon/device-id",
-      ledgerRootPath: "/tmp/daemon/ledger",
+      contractMetaPath: join(isolatedHome, "contract-meta.json"),
+      contractRepairReportPath: join(isolatedHome, "repair-report.json"),
+      contextStorePath: join(isolatedHome, "context-store.json"),
+      dataRootPath: join(isolatedHome, "data"),
+      deviceIdPath: join(isolatedHome, "device-id"),
+      ledgerRootPath: join(isolatedHome, "ledger"),
     });
     ensureDaemonRuntimeContractStateMock.mockReset().mockResolvedValue({
       action: "none",
@@ -401,6 +609,7 @@ describe("local service runner dual-write", () => {
       changed: false,
       displayName: "Codex",
       enabled: true,
+      status: "unchanged",
     });
     setDaemonServiceRuntimeStateMock.mockReset().mockResolvedValue(undefined);
     stopLocalAgentActivitySyncLoopMock.mockReset().mockResolvedValue(undefined);
@@ -434,14 +643,16 @@ describe("local service runner dual-write", () => {
           forcePersist: true,
         }
       );
-      process.emit("SIGTERM");
+      await stopServiceThroughSigterm(input);
     });
     emitDaemonLifecycleEventMock.mockReset().mockResolvedValue(undefined);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await Promise.all(evidenceFlushes.splice(0).map((flush) => flush()));
     vi.restoreAllMocks();
     vi.useRealTimers();
+    await rm(isolatedHome, { recursive: true, force: true });
   });
 
   it("writes running runtime state after the control plane without waiting for the catalog scan", async () => {
@@ -473,9 +684,10 @@ describe("local service runner dual-write", () => {
     // in-session sync resolves the real catalog.
     expect(loadDaemonRouteCatalogMock).not.toHaveBeenCalled();
     const sessionInput = runDaemonSocketSessionMock.mock.calls[0]?.[0];
+    // The fixture requests a Project refresh after the startup refresh.
     expect(
       requestManagedAgentActivityIntegrationRefreshMock
-    ).toHaveBeenCalledTimes(1);
+    ).toHaveBeenCalledTimes(2);
     expect(requestLocalAgentActivitySyncMock).toHaveBeenCalledWith({
       reconcile: true,
       refreshContext: true,
@@ -485,7 +697,7 @@ describe("local service runner dual-write", () => {
     expect(sessionInput?.isRouteCatalogResolved?.()).toBe(false);
     expect(syncDeviceRuntimeStateProjectionMock).not.toHaveBeenCalled();
     expect(connectWebSocketMock).toHaveBeenCalledWith(
-      "ws://localhost:8080/v1/daemon/stream",
+      expect.stringMatching(DAEMON_STREAM_URL_PATTERN),
       expect.objectContaining({
         headers: expect.objectContaining({
           "x-openmeld-local-folder-picker-capability": "local-folder-picker-v1",
@@ -509,6 +721,81 @@ describe("local service runner dual-write", () => {
       heartbeatAt: "2026-03-14T00:00:05.000Z",
     });
     expect(clearDaemonServiceRuntimeStateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("installs Activity observers when the first Project connects after an empty startup", async () => {
+    const actual = await vi.importActual<
+      typeof import("../src/agent-activity/integration-refresh")
+    >("../src/agent-activity/integration-refresh");
+    const initialRefresh = Promise.withResolvers<void>();
+    const route = {
+      globalRootDir: join(isolatedHome, "activity-registry"),
+      rootDir: isolatedHome,
+    };
+    const paths = defaultManagedIntegrationPaths(isolatedHome);
+    vi.stubEnv("OPENMELD_USER_FACING_CLI_COMMAND", "openmeld-dev");
+    createManagedAgentActivityIntegrationRefreshSchedulerMock.mockImplementation(
+      (options) =>
+        actual.createManagedAgentActivityIntegrationRefreshScheduler({
+          ...options,
+          refresh: () =>
+            actual.refreshManagedAgentActivityIntegrations({
+              homeDir: isolatedHome,
+              rootDir: isolatedHome,
+              register: () => registerAgentActivityRoute(route),
+            }),
+          onResult: (result) => {
+            options.onResult?.(result);
+            initialRefresh.resolve();
+          },
+        })
+    );
+    const connected = Promise.withResolvers<() => void>();
+    runDaemonSocketSessionMock.mockImplementation(async (input) => {
+      connected.resolve(() => input.onLocalProjectConnectionsChanged?.());
+      await input.shutdownRequested;
+    });
+    const loop = runDaemonServiceLoop({
+      baseUrl: "http://localhost:8080",
+      heartbeatIntervalMs: 5000,
+      mode: "background",
+      presenter: {
+        view: "agent",
+        event: vi.fn(),
+        line: vi.fn(),
+        data: vi.fn(),
+      },
+    });
+    try {
+      const projectChanged = await connected.promise;
+      await initialRefresh.promise;
+      await expect(isAgentActivityRouteRegistered(route)).resolves.toBe(false);
+      await expect(
+        readFile(paths.cursorHooksPath, "utf8")
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      const repositoryPath = join(isolatedHome, "first-project");
+      await mkdir(repositoryPath);
+      await bindProject({
+        organizationId: "org-1",
+        projectId: "project-1",
+        projectSlug: "first-project",
+        repositoryFingerprint: null,
+        repositoryPath,
+        rootDir: isolatedHome,
+      });
+      projectChanged();
+      // Assert the actual lane registration and managed configuration, not a
+      // scheduler call count. All integration writes stay in the disposable home.
+      await vi.waitFor(async () => {
+        expect(await isAgentActivityRouteRegistered(route)).toBe(true);
+        expect(await readFile(paths.cursorHooksPath, "utf8")).toContain(
+          "openmeld-dev activity hook --provider cursor"
+        );
+      });
+    } finally {
+      requestServiceSigterm();
+      await loop;
+    }
   });
 
   it("does not advertise Folder Picker when this Service has no system dialog provider", async () => {
@@ -560,7 +847,7 @@ describe("local service runner dual-write", () => {
     const serverInput =
       startLocalDaemonControlPlaneServerMock.mock.calls[0]?.[0];
     const context = await serverInput.getContext();
-    expect(context.serviceUpdateReadinessHandler?.()).toEqual({
+    expect(await context.serviceUpdateReadinessHandler?.()).toEqual({
       acceptedWakeCount: 0,
       safeToSwitch: true,
       unacknowledgedResultCount: 0,
@@ -578,6 +865,50 @@ describe("local service runner dual-write", () => {
       mode: "graceful",
     });
     expect(clearDaemonServiceRuntimeStateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("joins repeated controlled shutdown requests to the admitted drain", async () => {
+    let stopping = false;
+    let shutdownRequestCount = 0;
+    const shutdownAdmitted = Promise.withResolvers<void>();
+    const coordinator = createControlledShutdownCoordinator({
+      hasUndrainedWork: () => false,
+      isStopRequested: () => stopping,
+      markStopping: () => {
+        stopping = true;
+      },
+    });
+    coordinator.attachSession(() => {
+      shutdownRequestCount += 1;
+      shutdownAdmitted.resolve();
+    });
+    const initialStop = coordinator.request({
+      gracePeriodMs: 5000,
+      mode: "graceful",
+    });
+    await shutdownAdmitted.promise;
+    const recoveryStop = coordinator.request({
+      gracePeriodMs: 5000,
+      mode: "graceful",
+    });
+
+    expect(shutdownRequestCount).toBe(1);
+
+    coordinator.handleSessionCompleted();
+    await expect(Promise.all([initialStop, recoveryStop])).resolves.toEqual([
+      {
+        accepted: true,
+        gracePeriodMs: 5000,
+        mode: "graceful",
+      },
+      {
+        accepted: true,
+        gracePeriodMs: 5000,
+        mode: "graceful",
+      },
+    ]);
+
+    expect(shutdownRequestCount).toBe(2);
   });
 
   it("preserves an explicit user stop cause through the controlled shutdown handshake", async () => {
@@ -653,15 +984,16 @@ describe("local service runner dual-write", () => {
     ).rejects.toThrow("drain heartbeat failed");
     await secondSessionStarted.promise;
 
-    process.emit("SIGTERM");
+    requestServiceSigterm();
     await loop;
 
     expect(runDaemonSocketSessionMock).toHaveBeenCalledTimes(2);
     expect(clearDaemonServiceRuntimeStateMock).toHaveBeenCalledTimes(1);
   });
 
-  it("records a stable reason when immediate service reconnects are exhausted", async () => {
+  it("records continued recovery after repeated connection failures", async () => {
     vi.useFakeTimers();
+    const recoveredSessionStarted = Promise.withResolvers<void>();
     const presenter = {
       view: "agent" as const,
       event: vi.fn(),
@@ -671,7 +1003,12 @@ describe("local service runner dual-write", () => {
     connectWebSocketMock
       .mockRejectedValueOnce(new Error("daemon stream handshake timed out"))
       .mockRejectedValueOnce(new Error("daemon stream handshake timed out"))
-      .mockResolvedValueOnce({ close: vi.fn() });
+      .mockResolvedValueOnce(createConnectedSocket());
+    runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
+      await input.touchRuntimeState({ heartbeatAt: new Date().toISOString() });
+      recoveredSessionStarted.resolve();
+      await input.shutdownRequested;
+    });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
       // Keep test output focused on the structured reason assertion.
     });
@@ -689,20 +1026,82 @@ describe("local service runner dual-write", () => {
     await vi.advanceTimersByTimeAsync(1000);
     await waitForFakeTimerCondition("reconnect exhaustion diagnostic", () =>
       warnSpy.mock.calls.some((call) =>
-        String(call[0]).includes('"reasonCode":"service_reconnect_exhausted"')
+        String(call[0]).includes('"reasonCode":"service_reconnecting"')
       )
     );
     await vi.advanceTimersByTimeAsync(2000);
+    await recoveredSessionStarted.promise;
+    const serverInput =
+      startLocalDaemonControlPlaneServerMock.mock.calls[0]?.[0];
+    const context = await serverInput.getContext();
+    const shutdown = context.shutdownHandler({
+      gracePeriodMs: 5000,
+      mode: "graceful",
+    });
     await loop;
+    await shutdown;
 
     expect(connectWebSocketMock).toHaveBeenCalledTimes(3);
     expect(
       presenter.data.mock.calls.some(
         (call) =>
-          call[0]?.payload?.payload?.reasonCode ===
-          "service_reconnect_exhausted"
+          call[0]?.payload?.payload?.reasonCode === "service_reconnecting"
       )
     ).toBe(true);
+  });
+
+  it("starts each outage at the first retry and correlates its recovery after an acknowledged heartbeat", async () => {
+    vi.useFakeTimers();
+    let sessions = 0;
+    runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
+      sessions += 1;
+      await input.touchRuntimeState({ heartbeatAt: new Date().toISOString() });
+      if (sessions < 3) {
+        throw new Error("socket closed");
+      }
+      await stopServiceThroughSigterm(input);
+    });
+    const loop = runDaemonServiceLoop({
+      baseUrl: "http://localhost:8080",
+      heartbeatIntervalMs: 5000,
+      mode: "background",
+      presenter: {
+        view: "agent",
+        event: vi.fn(),
+        line: vi.fn(),
+        data: vi.fn(),
+      },
+    });
+    await waitForFakeTimerCondition("first outage", () => sessions === 1);
+    await vi.advanceTimersByTimeAsync(1000);
+    await waitForFakeTimerCondition("second outage", () => sessions === 2);
+    await vi.advanceTimersByTimeAsync(1000);
+    await loop;
+    expect(
+      runDaemonSocketSessionMock.mock.calls.map(
+        ([input]) => input.reconnectAttempt
+      )
+    ).toEqual([0, 1, 1]);
+    const events = emitDaemonLifecycleEventMock.mock.calls.map(
+      ([event]) => event
+    );
+    const scheduled = events.filter((event) => event.result === "degraded");
+    expect(scheduled).toHaveLength(2);
+    expect(scheduled.map((event) => event.metadata.attempt)).toEqual([1, 1]);
+    expect(
+      new Set(scheduled.map((event) => event.metadata.recoveryId)).size
+    ).toBe(2);
+    for (const event of scheduled) {
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          result: "online",
+          metadata: expect.objectContaining({
+            recoveryId: event.metadata.recoveryId,
+            elapsedMs: 1000,
+          }),
+        })
+      );
+    }
   });
 
   it("persists the first socket heartbeat without waiting for the runtime state throttle", async () => {
@@ -710,7 +1109,7 @@ describe("local service runner dual-write", () => {
       await input.touchRuntimeState({
         heartbeatAt: "2026-03-14T00:00:05.000Z",
       });
-      process.emit("SIGTERM");
+      await stopServiceThroughSigterm(input);
     });
 
     await runDaemonServiceLoop({
@@ -736,9 +1135,9 @@ describe("local service runner dual-write", () => {
 
   it("signals controlled shutdown to the socket session without closing its cloud connection first", async () => {
     const close = vi.fn();
-    connectWebSocketMock.mockResolvedValue({ close });
+    connectWebSocketMock.mockResolvedValue(createConnectedSocket(close));
     runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
-      process.emit("SIGTERM");
+      requestServiceSigterm();
       await expect(input.shutdownRequested).resolves.toBe(
         "controlled_service_update"
       );
@@ -761,15 +1160,16 @@ describe("local service runner dual-write", () => {
 
   it("requests one carrier handshake for repeated reporting authentication failures", async () => {
     const close = vi.fn();
-    connectWebSocketMock.mockResolvedValue({ close });
+    connectWebSocketMock.mockResolvedValue(createConnectedSocket(close));
     let sessionCount = 0;
     runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
       sessionCount += 1;
       if (sessionCount > 1) {
-        process.emit("SIGTERM");
+        await stopServiceThroughSigterm(input);
         return;
       }
       const failure = {
+        credentialFingerprint: fingerprintRequestAuthorization("Bearer test"),
         message: "authentication required",
         reasonCode: "runtime.reporting.authentication_required",
       };
@@ -797,12 +1197,12 @@ describe("local service runner dual-write", () => {
     ).toHaveLength(1);
     expect(connectWebSocketMock).toHaveBeenCalledTimes(2);
     expect(runDaemonSocketSessionMock).toHaveBeenCalledTimes(2);
-    const firstExecutionSlots =
-      runDaemonSocketSessionMock.mock.calls[0]?.[0]?.localExecutionSlots;
-    const replacementExecutionSlots =
-      runDaemonSocketSessionMock.mock.calls[1]?.[0]?.localExecutionSlots;
-    expect(firstExecutionSlots).toBeDefined();
-    expect(replacementExecutionSlots).toBe(firstExecutionSlots);
+    const firstExecutionHost =
+      runDaemonSocketSessionMock.mock.calls[0]?.[0]?.executionHost;
+    const replacementExecutionHost =
+      runDaemonSocketSessionMock.mock.calls[1]?.[0]?.executionHost;
+    expect(firstExecutionHost).toBeDefined();
+    expect(replacementExecutionHost).toBe(firstExecutionHost);
     expect(close).not.toHaveBeenCalledWith(1000, "shutdown");
   });
 
@@ -810,10 +1210,14 @@ describe("local service runner dual-write", () => {
     const firstSocketClose = vi.fn();
     const replacementSocketClose = vi.fn();
     connectWebSocketMock
-      .mockResolvedValueOnce({ close: firstSocketClose })
-      .mockResolvedValueOnce({ close: replacementSocketClose });
+      .mockResolvedValueOnce(createConnectedSocket(firstSocketClose))
+      .mockResolvedValueOnce(createConnectedSocket(replacementSocketClose));
     let staleAuthenticationFailureHandler:
-      | ((failure: { message: string; reasonCode: string }) => Promise<void>)
+      | ((failure: {
+          credentialFingerprint?: string;
+          message: string;
+          reasonCode: string;
+        }) => Promise<void>)
       | null = null;
     let sessionCount = 0;
     runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
@@ -824,10 +1228,11 @@ describe("local service runner dual-write", () => {
         return;
       }
       await staleAuthenticationFailureHandler?.({
+        credentialFingerprint: fingerprintRequestAuthorization("Bearer test"),
         message: "OpenMeld rejected the local authentication session.",
         reasonCode: "runtime.reporting.authentication_required",
       });
-      process.emit("SIGTERM");
+      await stopServiceThroughSigterm(input);
     });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
       // Keep test output focused on the stale-socket assertion.
@@ -861,16 +1266,20 @@ describe("local service runner dual-write", () => {
       const firstSocketClose = vi.fn();
       const replacementSocketClose = vi.fn();
       connectWebSocketMock
-        .mockResolvedValueOnce({ close: firstSocketClose })
-        .mockResolvedValueOnce({ close: replacementSocketClose });
+        .mockResolvedValueOnce(createConnectedSocket(firstSocketClose))
+        .mockResolvedValueOnce(createConnectedSocket(replacementSocketClose));
       let completeFreshReport: (() => Promise<void>) | null = null;
+      const reportStarted = Promise.withResolvers<void>();
       syncLocalServiceRuntimeAgentControllerReportsMock.mockImplementation(
         (input) =>
           new Promise((resolve) => {
+            reportStarted.resolve();
             completeFreshReport = async () => {
               await input.onAttempt({
                 authenticationRejected: true,
                 family: "runtime_agent_controller",
+                credentialFingerprint:
+                  fingerprintRequestAuthorization("Bearer test"),
                 message: "OpenMeld rejected the local authentication session.",
                 reasonCode: "runtime.reporting.authentication_required",
                 status: "failed",
@@ -887,26 +1296,28 @@ describe("local service runner dual-write", () => {
       );
       let controlRequest: Promise<unknown> | null = null;
       let sessionCount = 0;
-      runDaemonSocketSessionMock.mockReset().mockImplementation(async () => {
-        sessionCount += 1;
-        if (sessionCount === 1) {
-          const serverInput =
-            startLocalDaemonControlPlaneServerMock.mock.calls[0]?.[0];
-          const context = await serverInput.getContext();
-          controlRequest = context.setLocalAgentEnabledHandler({
-            agentId: "codex",
-            enabled: true,
-          });
-          await flushPendingPromises();
-          return;
-        }
-        if (!completeFreshReport) {
-          throw new Error("expected the fresh report request to be pending");
-        }
-        await completeFreshReport();
-        await controlRequest;
-        process.emit("SIGTERM");
-      });
+      runDaemonSocketSessionMock
+        .mockReset()
+        .mockImplementation(async (input) => {
+          sessionCount += 1;
+          if (sessionCount === 1) {
+            const serverInput =
+              startLocalDaemonControlPlaneServerMock.mock.calls[0]?.[0];
+            const context = await serverInput.getContext();
+            controlRequest = context.setLocalAgentEnabledHandler({
+              agentId: "codex",
+              enabled: true,
+            });
+            await reportStarted.promise;
+            return;
+          }
+          if (!completeFreshReport) {
+            throw new Error("expected the fresh report request to be pending");
+          }
+          await completeFreshReport();
+          await controlRequest;
+          await stopServiceThroughSigterm(input);
+        });
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
         // Keep test output focused on the bound-socket assertion.
       });
@@ -941,7 +1352,7 @@ describe("local service runner dual-write", () => {
     let firstResolvedCatalog: unknown = null;
     runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
       firstResolvedCatalog = await input.loadRouteCatalog();
-      process.emit("SIGTERM");
+      await stopServiceThroughSigterm(input);
     });
 
     await runDaemonServiceLoop({
@@ -978,18 +1389,16 @@ describe("local service runner dual-write", () => {
     loadDaemonRouteCatalogMock.mockRejectedValueOnce(
       new Error("binding lookup unavailable")
     );
-    readDaemonRouteCatalogCacheMock.mockResolvedValueOnce({
-      profileIds: ["hum_felix"],
-      routeByProfileId: new Map(),
-      skippedProfiles: [],
-    });
+    readDaemonRouteCatalogCacheMock.mockResolvedValueOnce(
+      sourceCatalog(["agt_11111111-1111-4111-8111-111111111111"])
+    );
     let firstResolvedCatalog: unknown = null;
     let resolvedAfterLoad: boolean | null = null;
     runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
       expect(input.isRouteCatalogResolved()).toBe(false);
       firstResolvedCatalog = await input.loadRouteCatalog();
       resolvedAfterLoad = input.isRouteCatalogResolved();
-      process.emit("SIGTERM");
+      await stopServiceThroughSigterm(input);
     });
 
     await runDaemonServiceLoop({
@@ -1009,7 +1418,9 @@ describe("local service runner dual-write", () => {
       ownerUserId: "usr_123",
       serviceBundleId: "service-bundle-1",
     });
-    expect(firstResolvedCatalog).toMatchObject({ profileIds: ["hum_felix"] });
+    expect(firstResolvedCatalog).toMatchObject({
+      profileIds: ["agt_11111111-1111-4111-8111-111111111111"],
+    });
     expect(resolvedAfterLoad).toBe(true);
     expect(startLocalDaemonControlPlaneServerMock).toHaveBeenCalledTimes(1);
     expect(runDaemonSocketSessionMock).toHaveBeenCalledTimes(1);
@@ -1017,7 +1428,28 @@ describe("local service runner dual-write", () => {
     expect(writeDaemonRuntimeLeaseMock).toHaveBeenCalled();
   });
 
-  it("slows auth-required reconnects and reconnects after sign-in without restart", async () => {
+  it.each([
+    {
+      reason: "session_expired" as const,
+      authState: "expired",
+      state: "authentication_required",
+      failureReason: "auth_rejected",
+      delayMs: 60_000,
+    },
+    {
+      reason: "session_token_unavailable" as const,
+      authState: null,
+      state: "degraded",
+      failureReason: "auth_unavailable",
+      delayMs: 30_000,
+    },
+  ])("recovers $reason on its own retry schedule without restarting", async ({
+    reason,
+    authState,
+    state,
+    failureReason,
+    delayMs,
+  }) => {
     vi.useFakeTimers();
     const presenter = {
       view: "agent" as const,
@@ -1039,16 +1471,17 @@ describe("local service runner dual-write", () => {
         new AuthRequestCredentialError({
           authHost: "localhost:8080",
           expectedGatewayHost: null,
-          reason: "session_expired",
+          reason,
+          ...(reason === "session_token_unavailable"
+            ? { retryAfterMs: delayMs }
+            : {}),
           requestHost: "localhost:8080",
         })
       )
       .mockResolvedValue({ Authorization: "Bearer valid-token" });
-    connectWebSocketMock.mockReset().mockResolvedValue({
-      close: vi.fn(),
-    });
-    runDaemonSocketSessionMock.mockReset().mockImplementation(() => {
-      process.emit("SIGTERM");
+    connectWebSocketMock.mockReset().mockResolvedValue(createConnectedSocket());
+    runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
+      await stopServiceThroughSigterm(input);
     });
 
     const loopPromise = runDaemonServiceLoop({
@@ -1071,19 +1504,19 @@ describe("local service runner dual-write", () => {
             | undefined;
           return (
             lifecycleEvent?.type === "connection.state" &&
-            lifecycleEvent.result === "authentication_required" &&
-            lifecycleEvent.metadata?.authState === "expired" &&
-            lifecycleEvent.metadata?.reason === "auth_rejected"
+            lifecycleEvent.result === state &&
+            lifecycleEvent.metadata?.authState === authState &&
+            lifecycleEvent.metadata?.reason === failureReason
           );
         })
     );
     expect(emitDaemonLifecycleEventMock).toHaveBeenCalledWith(
       expect.objectContaining({
         metadata: expect.objectContaining({
-          authState: "expired",
-          reason: "auth_rejected",
+          authState,
+          reason: failureReason,
         }),
-        result: "authentication_required",
+        result: state,
         type: "connection.state",
       })
     );
@@ -1093,15 +1526,15 @@ describe("local service runner dual-write", () => {
       presenter.data.mock.calls.some(
         (call) =>
           String(call[0]?.payload?.message ?? "").includes(
-            "daemon stream reconnect scheduled in 60000ms"
+            `daemon stream reconnect scheduled in ${delayMs}ms`
           ) &&
-          call[0]?.payload?.payload?.backoffMs === 60_000 &&
-          call[0]?.payload?.payload?.authState === "expired" &&
-          call[0]?.payload?.payload?.reason === "auth_rejected"
+          call[0]?.payload?.payload?.backoffMs === delayMs &&
+          call[0]?.payload?.payload?.authState === authState &&
+          call[0]?.payload?.payload?.reason === failureReason
       )
     );
 
-    await vi.advanceTimersByTimeAsync(59_999);
+    await vi.advanceTimersByTimeAsync(delayMs - 1);
     expect(connectWebSocketMock).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1);
@@ -1115,12 +1548,12 @@ describe("local service runner dual-write", () => {
     });
     expect(stopLocalAgentActivitySyncLoopMock).toHaveBeenCalledTimes(1);
     expect(buildRequestAuthHeadersMock).toHaveBeenCalledWith({
-      requestUrl: "ws://localhost:8080/v1/daemon/stream",
+      requestUrl: expect.stringMatching(DAEMON_STREAM_URL_PATTERN),
     });
     expect(
       presenter.data.mock.calls.some((call) =>
         String(call[0]?.payload?.message ?? "").includes(
-          "daemon stream reconnect scheduled in 60000ms"
+          `daemon stream reconnect scheduled in ${delayMs}ms`
         )
       )
     ).toBe(true);

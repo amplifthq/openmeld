@@ -4,6 +4,7 @@ import type { Project } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import {
 	ADD_CARD_PICKER_CLASS_NAME,
@@ -264,9 +265,9 @@ function ProjectCard(input: {
 				{defaultConnection ? (
 					<div className="grid gap-1 border-t pt-2">
 						<dt className="text-muted-foreground">Default folder</dt>
-						<dd className="truncate font-mono" title={defaultConnection.path}>
-							{defaultConnection.path}
-						</dd>
+						<TooltipHint content={defaultConnection.path}>
+							<dd className="truncate font-mono">{defaultConnection.path}</dd>
+						</TooltipHint>
 					</div>
 				) : null}
 			</dl>
