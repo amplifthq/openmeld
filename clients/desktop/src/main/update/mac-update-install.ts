@@ -22,7 +22,7 @@ target_version=$6
 expected_sha512=$7
 receipt=$8
 stage=""
-target_backup="$target.openmeld-update-backup.$"
+target_backup="$target.openmeld-update-backup.$pid"
 target_placed=0
 target_mutation_started=0
 had_target=0
@@ -30,7 +30,7 @@ step="waiting_for_exit"
 
 write_receipt() {
   state=$1
-  receipt_tmp="$receipt.tmp.$"
+  receipt_tmp="$receipt.tmp.$pid"
   /usr/bin/printf 'state=%s\\nsourceVersion=%s\\ntargetVersion=%s\\nsourceBundle=%s\\ntargetBundle=%s\\n' \
     "$state" "$source_version" "$target_version" \
     "$(/usr/bin/basename "$current")" "$(/usr/bin/basename "$target")" > "$receipt_tmp"
