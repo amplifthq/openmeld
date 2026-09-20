@@ -54,25 +54,26 @@ export function InboxFeedView(input: FeedViewProps) {
 	}
 	return (
 		<div className="flex min-w-0 flex-col gap-5">
-			{groups.length > 0 ? (
-				<Button
-					className="self-start"
-					onClick={() => expansion.setAll(!allExpanded)}
-					size="sm"
-					variant="secondary"
-				>
-					{allExpanded ? "Collapse all updates" : "Expand all updates"}
-				</Button>
-			) : null}
-			{[...sections].map(([section, rows]) => (
+			{[...sections].map(([section, rows], index) => (
 				<section
 					aria-label={SECTION_LABELS[section]}
 					className="min-w-0"
 					key={section}
 				>
-					<h2 className="mb-2 px-1 font-medium text-muted-foreground text-xs">
-						{SECTION_LABELS[section]}
-					</h2>
+					<div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+						<h2 className="px-1 font-medium text-muted-foreground text-xs">
+							{SECTION_LABELS[section]}
+						</h2>
+						{index === 0 && groups.length > 0 ? (
+							<Button
+								onClick={() => expansion.setAll(!allExpanded)}
+								size="sm"
+								variant="secondary"
+							>
+								{allExpanded ? "Collapse all updates" : "Expand all updates"}
+							</Button>
+						) : null}
+					</div>
 					<SharedLayoutGroup>
 						<ul
 							aria-label={SECTION_LABELS[section]}
