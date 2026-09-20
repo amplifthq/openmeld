@@ -590,10 +590,10 @@ post-promotion release-acceptance gate, not a pre-promotion gate.
 Use the lightweight helper around the real in-app update:
 
 ```sh
-pnpm release:desktop:smoke:macos-update -- before <A-version> <B-version>
+node scripts/e2e/desktop-macos-production-update-smoke.mjs before <A-version> <B-version>
 # separately authorize/promote B
 # in the already-running A: Settings -> Updates -> Check -> Download -> Restart
-pnpm release:desktop:smoke:macos-update -- after <B-version>
+node scripts/e2e/desktop-macos-production-update-smoke.mjs after <B-version>
 ```
 
 The `before` phase opens A only when it is not already running and verifies the
