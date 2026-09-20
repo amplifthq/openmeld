@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-18T12:17:09.549Z",
+  "updatedAt": "2026-09-20T03:05:17.690Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.213",
+      "packageVersion": "0.3.214",
       "updatePolicy": "available",
-      "reason": "Advisory connection recovery and split update targets preserve existing setup and update contracts; publish only after cloud receivers are deployed."
+      "reason": "The rollout installs cloud receivers before publication; existing CLI commands remain compatible and older CLIs simply lack the new handoff and Windows controls."
     },
     "service": {
-      "bundleHash": "448d205e5f151ed60aef4deee63adbbd105a43f8d21bc864ff31ba2646f0d5da",
-      "bundleVersion": "0.3.213",
+      "bundleHash": "15b4595bff28e3b4e0ec9c3f24d70e5035cc5e08d9ea63f10d5648c78acf68ad",
+      "bundleVersion": "0.3.214",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Advisory keepalive and controlled-stop fixes preserve accepted work and existing update recovery; new runtime receivers deploy before this Service."
+      "reason": "Existing Services remain compatible with the additive cloud contracts; older Services continue supported work and simply lack the new handoff and Windows supervision capabilities."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
