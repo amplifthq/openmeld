@@ -284,7 +284,7 @@ describe("Desktop update consent", () => {
     await guarded.act("restart");
     expect(guarded.snapshot()).toMatchObject({
       status: "error",
-      errorStage: "install",
+      errorStage: "restart",
     });
     expect(driver.quitAndInstall).not.toHaveBeenCalled();
   });

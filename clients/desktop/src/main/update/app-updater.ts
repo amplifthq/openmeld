@@ -128,8 +128,6 @@ export function createAppUpdater(input: {
     if (!(await input.prepareRestart())) {
       throw new Error("Desktop restart blocked by unsaved work.");
     }
-    publish({ status: "installing" });
-    input.setInstalling(true);
     if (platform === "macos-arm64") {
       assertMacUpdateBundlePath(input.currentAppBundle ?? null);
       const targetVersion = state.version ?? downloadedVersion;
@@ -138,8 +136,12 @@ export function createAppUpdater(input: {
           "Desktop cannot preserve the macOS update installation receipt."
         );
       }
+      // Keep compatibility/receipt failures recoverable. Only freeze editing
+      // once every precondition for the irreversible native handoff is satisfied.
       input.recordMacInstallRequested(targetVersion);
     }
+    publish({ status: "installing" });
+    input.setInstalling(true);
     updater.quitAndInstall();
   };
   return {
