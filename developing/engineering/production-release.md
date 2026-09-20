@@ -128,14 +128,21 @@ original release source, the retained failed attempt and its start event, the
 original operation key, and exact Cloudflare Worker/container selectors. Under
 the existing Remote Agent lease, it checks that one Worker deployment appeared
 inside the failed command window while the old container image remained active.
-That observation does not prove the first Worker's source. The command appends a
-linked version 4 recovery event, runs the normal Remote Agent deploy from the
-original source, and records a new command-correlated Worker identity only after
-the image tag, container version/digest, healthy rollout and active Worker are
-verified. A failure appends another failed event with the observed Worker and
-container state when Cloudflare can be read; further recovery remains blocked
-for manual reconciliation. The original failed record stays in the evidence
-history. This technical verification does not replace product Smoke.
+That observation does not prove the first Worker's source. The command runs the
+normal Remote Agent deploy from the original source. It resolves the new image
+tag through Cloudflare's registry manifest to an immutable digest and requires
+the container application to report that digest, a newer version, no active
+rollout, healthy aggregate counts and complete instance pagination without an
+active old version. It rechecks the new command-correlated Worker afterward.
+Only then does it append a version 3 verified receipt for the original attempt.
+The receipt's first parent retains the original failed event; its second parent
+is a version 4 recovery proof with the baseline and completion observations.
+Old release tooling continues to read the version 3 receipt. On failure, the
+canonical receipt remains `failed/unknown`; a linked diagnostic proof records
+the observed Worker and container state when Cloudflare can be read. Further
+recovery remains blocked for manual reconciliation. Aggregate health and an
+idle instance list do not prove that every dormant instance ran the new image;
+authenticated product Smoke remains a separate acceptance step.
 Version 1 successes and version 2 observations remain readable at their original
 evidence strength; they are not upgraded into correlated identities. Older
 writers cannot downgrade a retained record. All events remain append-only with

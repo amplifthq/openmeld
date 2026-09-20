@@ -33,6 +33,9 @@ const REMOTE_AGENT = "remote-agent";
 const WORKER_NAME = "openmeld-remote-agent-prod";
 const CONTAINER_NAME = "openmeld-agent-computer";
 const ROLLOUT_TIMEOUT_MS = 10 * 60 * 1000;
+const IMAGE_DIGEST = /^sha256:[0-9a-f]{64}$/u;
+const CLOUDFLARE_IMAGE_REF =
+  /^registry\.cloudflare\.com\/([0-9a-f]{32})\/openmeld-agent-computer@sha256:[0-9a-f]{64}$/u;
 
 export function assessRemoteAgentPartialRecovery(input) {
   const { current, started, deployments, container, images } = input;
@@ -99,9 +102,15 @@ export function assessRemoteAgentPartialRecovery(input) {
     container?.name !== CONTAINER_NAME ||
     container.version !== input.expectedContainerVersion ||
     container.configuration?.image !== input.expectedContainerImage ||
+    !Number.isFinite(Date.parse(container.updated_at)) ||
     Date.parse(container.updated_at) >= start ||
-    container.health?.errors?.length ||
-    container.health?.instances?.healthy < 1
+    !Array.isArray(container.health?.errors) ||
+    container.health.errors.length !== 0 ||
+    !Number.isInteger(container.instances) ||
+    container.instances < 1 ||
+    container.health?.instances?.healthy !== container.instances ||
+    container.health.instances.failed !== 0 ||
+    container.health.instances.starting !== 0
   ) {
     throw new Error(
       "The live container no longer matches the pre-attempt target."
@@ -126,24 +135,49 @@ export function assessRemoteAgentPartialRecovery(input) {
 }
 
 export function verifyRecoveredRemoteAgentTarget(input) {
-  const { baseline, container, images, instances, workerVersionId } = input;
+  const {
+    baseline,
+    container,
+    images,
+    instancesPage,
+    workerVersionId,
+    imageDigest,
+  } = input;
   const image = images.find((item) => item.name === CONTAINER_NAME);
+  const health = container?.health?.instances;
+  const listed = instancesPage?.instances;
+  const page = instancesPage?.result_info;
+  const activeInstances = Array.isArray(listed)
+    ? listed.filter((instance) => instance.state !== "inactive")
+    : [];
+  const imagePrefix = baseline.containerImage.split("@")[0];
   if (
     container?.id !== baseline.containerId ||
     container.name !== CONTAINER_NAME ||
     container.version <= baseline.containerVersion ||
-    container.configuration?.image === baseline.containerImage ||
+    !IMAGE_DIGEST.test(imageDigest) ||
+    container.configuration?.image !== `${imagePrefix}@${imageDigest}` ||
+    container.active_rollout_id != null ||
     !image?.tags?.includes(workerVersionId.slice(0, 8)) ||
     container.health?.errors?.length ||
-    !Array.isArray(instances) ||
-    container.health?.instances?.healthy < 1 ||
-    container.health?.instances?.failed !== 0 ||
-    container.health?.instances?.starting !== 0 ||
-    instances.some(
+    !Array.isArray(listed) ||
+    listed.length === 0 ||
+    page?.next_page_token !== null ||
+    page?.page_token !== null ||
+    !Number.isInteger(page?.per_page) ||
+    page.per_page < listed.length ||
+    health?.healthy !== container.instances ||
+    health?.healthy < 1 ||
+    health?.failed !== 0 ||
+    health?.starting !== 0 ||
+    health?.stopped !== 0 ||
+    health?.scheduling !== 0 ||
+    health?.assigned !== 0 ||
+    health?.active !== activeInstances.length ||
+    activeInstances.some(
       (instance) =>
-        instance.state !== "inactive" &&
-        (instance.version !== container.version ||
-          !["running", "healthy"].includes(instance.state))
+        instance.version !== container.version ||
+        !["running", "healthy"].includes(instance.state)
     )
   ) {
     throw new Error(
@@ -153,7 +187,71 @@ export function verifyRecoveredRemoteAgentTarget(input) {
   return {
     containerVersion: container.version,
     containerImage: container.configuration.image,
+    observedAt: new Date().toISOString(),
+    activeRolloutId: null,
+    healthyInstances: health.healthy,
+    activeInstances: health.active,
   };
+}
+
+async function readImageDigest(cwd, imageRef, workerVersionId) {
+  const match = CLOUDFLARE_IMAGE_REF.exec(imageRef);
+  if (!match) {
+    throw new Error(
+      "The container image is not the expected Cloudflare registry target."
+    );
+  }
+  const serviceDir = path.join(cwd, "services/remote-agent");
+  const credentials = JSON.parse(
+    run(
+      "pnpm",
+      [
+        "exec",
+        "dotenv",
+        "-e",
+        "../../.env",
+        "-o",
+        "--",
+        "wrangler",
+        "containers",
+        "registries",
+        "credentials",
+        "--pull",
+        "--json",
+      ],
+      serviceDir
+    )
+  );
+  if (typeof credentials.password !== "string" || !credentials.password) {
+    throw new Error(
+      "Cloudflare did not issue a temporary registry pull credential."
+    );
+  }
+  const tag = workerVersionId.slice(0, 8);
+  const response = await fetch(
+    `https://registry.cloudflare.com/v2/${match[1]}/${CONTAINER_NAME}/manifests/${tag}`,
+    {
+      method: "HEAD",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`v1:${credentials.password}`).toString("base64")}`,
+        Accept:
+          "application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json",
+      },
+      signal: AbortSignal.timeout(60_000),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Cloudflare registry could not resolve the release image tag: HTTP ${response.status}.`
+    );
+  }
+  const digest = response.headers.get("docker-content-digest");
+  if (!IMAGE_DIGEST.test(digest ?? "")) {
+    throw new Error(
+      "Cloudflare registry did not return an immutable image digest."
+    );
+  }
+  return digest;
 }
 
 function run(command, args, cwd, options = {}) {
@@ -278,17 +376,25 @@ async function waitForContainer(cwd, baseline, workerVersionId) {
   while (Date.now() < deadline) {
     try {
       const state = readState(cwd, baseline.containerId);
-      const instances = readCloudflare(cwd, [
+      const imageDigest = await readImageDigest(
+        cwd,
+        baseline.containerImage,
+        workerVersionId
+      );
+      const instancesPage = readCloudflare(cwd, [
         "containers",
         "instances",
         baseline.containerId,
+        "--per-page",
+        "100",
         "--json",
       ]);
       return verifyRecoveredRemoteAgentTarget({
         baseline,
         container: state.container,
         images: state.images,
-        instances,
+        instancesPage,
+        imageDigest,
         workerVersionId,
       });
     } catch (error) {
@@ -299,6 +405,26 @@ async function waitForContainer(cwd, baseline, workerVersionId) {
   throw new Error(
     `Container rollout did not complete: ${lastError?.message ?? "unknown state"}`
   );
+}
+
+export async function executeRemoteAgentRecovery(input) {
+  try {
+    await input.runDeploy();
+    const identity = await input.verifyWorker();
+    const completed = await input.verifyContainer(identity.versionId);
+    await input.verifyWorker(identity);
+    input.recovery.completed = completed;
+    input.record("verified", "applied", identity);
+    return { identity, completed };
+  } catch (error) {
+    try {
+      input.recovery.observedAfterFailure = await input.observeFailure();
+    } catch {
+      // The canonical failed/unknown receipt remains the release authority.
+    }
+    input.record("failed", "unknown");
+    throw error;
+  }
 }
 
 function parseArgs(argv) {
@@ -425,118 +551,96 @@ async function main(argv) {
         startedAt: new Date().toISOString(),
         baseline,
       };
-      const record = (status, application, identity) =>
-        publishGuardedLocalReleaseEvidence({
+      const record = (status, application, identity) => {
+        const receipt = {
+          ...latest.receipt,
+          status,
+          application,
+          ...(identity ? { identity } : {}),
+        };
+        return publishGuardedLocalReleaseEvidence({
           cwd: sourceDir,
           sourceSha,
           scopes: [REMOTE_AGENT],
-          receipts: {
-            [REMOTE_AGENT]: {
-              ...latest.receipt,
-              status,
-              application,
-              ...(identity ? { identity } : {}),
-              recovery,
-            },
+          receipts: { [REMOTE_AGENT]: receipt },
+          recoveryProof: {
+            [REMOTE_AGENT]: { ...receipt, recovery },
           },
         });
+      };
       const capture = createWorkerDeploymentCapture({
         sourceSha,
         operationKey,
         target,
       });
-      let startedRecorded = false;
-      let appliedIdentity;
       try {
-        record("started", "unknown");
-        startedRecorded = true;
-        await executeProductionDeploySteps({
-          cwd: sourceDir,
-          env: capture.env,
-          steps: steps.slice(0, 1),
-          adapters: {
-            runCommand: (input) => readWorkerCommand(sourceDir, input),
-          },
-          beforeStep: (_step, state) => {
-            if (state) {
-              const fresh = readState(sourceDir, baseline.containerId);
-              const freshBaseline = assessRemoteAgentPartialRecovery({
-                current: latest,
-                started,
-                ...fresh,
-                sourceSha,
-                attemptId: options["--attempt"],
-                operationKey,
-                expectedDeploymentId: baseline.workerDeploymentId,
-                expectedWorkerVersionId: baseline.workerVersionId,
-                expectedContainerId: baseline.containerId,
-                expectedContainerVersion: baseline.containerVersion,
-                expectedContainerImage: baseline.containerImage,
-              });
-              if (JSON.stringify(freshBaseline) !== JSON.stringify(baseline)) {
-                throw new Error(
-                  "Remote Agent state drifted after the recovery lease was acquired."
-                );
-              }
-              capture.recordDeploymentBaseline(state);
-            }
-            assertCleanSource(sourceDir, sourceSha);
-          },
-          afterStep: () => assertCleanSource(sourceDir, sourceSha),
-        });
-        const identity = await verifyWorkerDeployment({
-          cwd: sourceDir,
-          sourceSha,
-          target,
-          expected: capture.read(),
-          runCommand: (input) => readWorkerCommand(sourceDir, input),
-        });
-        recovery.completed = await waitForContainer(
-          sourceDir,
-          baseline,
-          identity.versionId
-        );
-        await verifyWorkerDeployment({
-          cwd: sourceDir,
-          sourceSha,
-          target,
-          expected: {
-            versionId: identity.versionId,
-            deploymentId: identity.deploymentId,
-            proof: identity.proof,
-          },
-          runCommand: (input) => readWorkerCommand(sourceDir, input),
-        });
-        appliedIdentity = identity;
-        record("applied", "applied", identity);
-        record("verified", "applied", identity);
-        process.stdout.write(
-          `Remote Agent recovery verified: Worker ${identity.versionId}, container version ${recovery.completed.containerVersion}.\n`
-        );
-      } catch (error) {
-        if (startedRecorded) {
-          try {
+        const result = await executeRemoteAgentRecovery({
+          recovery,
+          record,
+          runDeploy: () =>
+            executeProductionDeploySteps({
+              cwd: sourceDir,
+              env: capture.env,
+              steps: steps.slice(0, 1),
+              adapters: {
+                runCommand: (input) => readWorkerCommand(sourceDir, input),
+              },
+              beforeStep: (_step, state) => {
+                if (state) {
+                  const fresh = readState(sourceDir, baseline.containerId);
+                  const freshBaseline = assessRemoteAgentPartialRecovery({
+                    current: latest,
+                    started,
+                    ...fresh,
+                    sourceSha,
+                    attemptId: options["--attempt"],
+                    operationKey,
+                    expectedDeploymentId: baseline.workerDeploymentId,
+                    expectedWorkerVersionId: baseline.workerVersionId,
+                    expectedContainerId: baseline.containerId,
+                    expectedContainerVersion: baseline.containerVersion,
+                    expectedContainerImage: baseline.containerImage,
+                  });
+                  if (
+                    JSON.stringify(freshBaseline) !== JSON.stringify(baseline)
+                  ) {
+                    throw new Error(
+                      "Remote Agent state drifted after the recovery lease was acquired."
+                    );
+                  }
+                  capture.recordDeploymentBaseline(state);
+                }
+                assertCleanSource(sourceDir, sourceSha);
+              },
+              afterStep: () => assertCleanSource(sourceDir, sourceSha),
+            }),
+          verifyWorker: (identity) =>
+            verifyWorkerDeployment({
+              cwd: sourceDir,
+              sourceSha,
+              target,
+              expected: identity ?? capture.read(),
+              runCommand: (input) => readWorkerCommand(sourceDir, input),
+            }),
+          verifyContainer: (workerVersionId) =>
+            waitForContainer(sourceDir, baseline, workerVersionId),
+          observeFailure: () => {
             const observed = readState(sourceDir, baseline.containerId);
             const active = observed.deployments.toSorted(
               (a, b) => Date.parse(b.created_on) - Date.parse(a.created_on)
             )[0];
-            recovery.observedAfterFailure = {
+            return {
               workerDeploymentId: active.id,
               workerVersionId: active.versions[0].version_id,
               containerVersion: observed.container.version,
               containerImage: observed.container.configuration.image,
               observedAt: new Date().toISOString(),
             };
-          } catch {
-            // Cloudflare observation can be unavailable during the failure.
-          }
-          record(
-            "failed",
-            appliedIdentity ? "applied" : "unknown",
-            appliedIdentity
-          );
-        }
-        throw error;
+          },
+        });
+        process.stdout.write(
+          `Remote Agent recovery verified: Worker ${result.identity.versionId}, container version ${result.completed.containerVersion}.\n`
+        );
       } finally {
         capture.close();
       }

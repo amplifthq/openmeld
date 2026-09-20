@@ -46,14 +46,22 @@ export function publishGuardedLocalReleaseEvidence(input) {
       context,
       scope,
       sourceSha,
-      input.receipts?.[scope],
-      current?.metadata.schemaVersion
+      input.receipts?.[scope]
     );
-    if (isRecordedReceipt(current?.metadata, metadata, current?.evidenceSha)) {
+    const recoveryProof = input.recoveryProof?.[scope];
+    const proofMetadata = recoveryProof
+      ? createRecoveryProofMetadata(context, current, metadata, recoveryProof)
+      : undefined;
+    if (
+      isRecordedReceipt(current?.metadata, metadata, Boolean(proofMetadata))
+    ) {
       continue;
     }
+    const proofSha = proofMetadata
+      ? createEvidenceCommit(context, current, proofMetadata)
+      : undefined;
     pending.push({
-      evidenceSha: createEvidenceCommit(context, current, metadata),
+      evidenceSha: createEvidenceCommit(context, current, metadata, proofSha),
       expectedSha: current?.evidenceSha ?? "",
       metadata,
       ref: evidenceRef(scope),
@@ -184,22 +192,10 @@ function evidenceRef(scope) {
   return `${EVIDENCE_REF_PREFIX}/${scope}`;
 }
 
-function createEvidenceMetadata(
-  context,
-  scope,
-  sourceSha,
-  receipt,
-  previousVersion
-) {
+function createEvidenceMetadata(context, scope, sourceSha, receipt) {
   let schemaVersion = receipt ? 2 : 1;
   if (receipt?.operationKey) {
     schemaVersion = 3;
-  }
-  if (
-    receipt?.recovery ||
-    (scope === "remote-agent" && previousVersion === 4)
-  ) {
-    schemaVersion = 4;
   }
   return productionReleaseEvidenceSchema.parse({
     evidenceId: randomUUID(),
@@ -212,7 +208,46 @@ function createEvidenceMetadata(
   });
 }
 
-function isRecordedReceipt(current, next, currentEvidenceSha) {
+function createRecoveryProofMetadata(context, current, next, receipt) {
+  if (
+    next.scope !== "remote-agent" ||
+    current?.metadata.schemaVersion !== 3 ||
+    current.metadata.receipt?.status !== "failed" ||
+    current.metadata.receipt.application !== "unknown" ||
+    next.schemaVersion !== 3 ||
+    !["verified", "failed"].includes(next.receipt?.status) ||
+    receipt.recovery?.originalEvidenceSha !== current.evidenceSha ||
+    receipt.attemptId !== next.receipt.attemptId ||
+    receipt.operationKey !== next.receipt.operationKey ||
+    receipt.startedAt !== next.receipt.startedAt ||
+    receipt.componentIndex !== next.receipt.componentIndex ||
+    receipt.status !== next.receipt.status ||
+    receipt.application !== next.receipt.application ||
+    JSON.stringify(receipt.identity) !==
+      JSON.stringify(next.receipt.identity) ||
+    (next.receipt.status === "failed" &&
+      (next.receipt.application !== "unknown" || next.receipt.identity)) ||
+    (next.receipt.status === "verified" &&
+      (next.receipt.application !== "applied" ||
+        receipt.identity?.kind !== "worker-deployment" ||
+        receipt.identity.workerName !== "openmeld-remote-agent-prod"))
+  ) {
+    throw new Error(
+      "Recovery proof must match the exact retained failed Remote Agent attempt and completion."
+    );
+  }
+  return productionReleaseEvidenceSchema.parse({
+    evidenceId: randomUUID(),
+    kind: EVIDENCE_KIND,
+    recordedAt: context.now.toISOString(),
+    schemaVersion: 4,
+    scope: next.scope,
+    sourceSha: next.sourceSha,
+    receipt,
+  });
+}
+
+function isRecordedReceipt(current, next, recoveryProved = false) {
   if (!current) {
     return false;
   }
@@ -253,7 +288,7 @@ function isRecordedReceipt(current, next, currentEvidenceSha) {
         "An existing component event cannot be rewritten with different evidence."
       );
     }
-    return true;
+    return !recoveryProved;
   }
   if (Date.parse(next.recordedAt) < Date.parse(current.recordedAt)) {
     throw new Error(
@@ -263,7 +298,7 @@ function isRecordedReceipt(current, next, currentEvidenceSha) {
   const recovered = validateCorrelationTransition(
     current,
     next,
-    currentEvidenceSha
+    recoveryProved
   );
   if (previous?.attemptId === next.receipt.attemptId) {
     const order = { started: 0, applied: 1, verified: 2, failed: 2 };
@@ -281,10 +316,10 @@ function isRecordedReceipt(current, next, currentEvidenceSha) {
   return false;
 }
 
-function validateCorrelationTransition(current, next, currentEvidenceSha) {
+function validateCorrelationTransition(current, next, recoveryProved) {
   const previous = current.receipt;
   if (
-    ![3, 4].includes(current.schemaVersion) ||
+    current.schemaVersion !== 3 ||
     previous?.attemptId !== next.receipt.attemptId ||
     previous.componentIndex !== next.receipt.componentIndex
   ) {
@@ -301,8 +336,8 @@ function validateCorrelationTransition(current, next, currentEvidenceSha) {
       "A correlated component attempt cannot change its target or applied identity."
     );
   }
-  if (next.receipt.recovery || previous.recovery) {
-    return validateRecoveryTransition(current, next, currentEvidenceSha);
+  if (recoveryProved) {
+    return previous.status === "failed" && previous.application === "unknown";
   }
   return (
     previous.status === "failed" &&
@@ -312,52 +347,17 @@ function validateCorrelationTransition(current, next, currentEvidenceSha) {
   );
 }
 
-function validateRecoveryTransition(current, next, currentEvidenceSha) {
-  const previous = current.receipt;
-  const recovery = next.receipt.recovery;
-  if (!recovery) {
-    throw new Error("A recovery cannot lose its original evidence link.");
-  }
-  if (current.schemaVersion === 3) {
-    if (
-      previous.status !== "failed" ||
-      previous.application !== "unknown" ||
-      recovery.originalEvidenceSha !== currentEvidenceSha ||
-      next.receipt.status !== "started" ||
-      next.receipt.application !== "unknown"
-    ) {
-      throw new Error(
-        "Only an exact failed partial attempt can start recovery."
-      );
-    }
-    return true;
-  }
-  if (
-    !previous.recovery ||
-    previous.recovery.id !== recovery.id ||
-    previous.recovery.originalEvidenceSha !== recovery.originalEvidenceSha ||
-    previous.recovery.startedAt !== recovery.startedAt ||
-    JSON.stringify(previous.recovery.baseline) !==
-      JSON.stringify(recovery.baseline) ||
-    (previous.recovery.completed &&
-      JSON.stringify(previous.recovery.completed) !==
-        JSON.stringify(recovery.completed)) ||
-    (previous.recovery.observedAfterFailure &&
-      JSON.stringify(previous.recovery.observedAfterFailure) !==
-        JSON.stringify(recovery.observedAfterFailure))
-  ) {
-    throw new Error(
-      "A recovery cannot change its original attempt or baseline."
-    );
-  }
-  return false;
-}
-
-function createEvidenceCommit(context, current, metadata) {
+function createEvidenceCommit(context, current, metadata, proofSha) {
   const parentSha = current?.evidenceSha ?? metadata.sourceSha;
   const result = spawnSync(
     "git",
-    ["commit-tree", `${metadata.sourceSha}^{tree}`, "-p", parentSha],
+    [
+      "commit-tree",
+      `${metadata.sourceSha}^{tree}`,
+      "-p",
+      parentSha,
+      ...(proofSha ? ["-p", proofSha] : []),
+    ],
     {
       cwd: context.cwd,
       encoding: "utf8",

@@ -147,6 +147,10 @@ const remoteAgentRecoverySchema = z.strictObject({
     .strictObject({
       containerVersion: z.number().int().nonnegative(),
       containerImage: z.string().min(1).max(500),
+      observedAt: z.iso.datetime(),
+      activeRolloutId: z.null(),
+      healthyInstances: z.number().int().positive(),
+      activeInstances: z.number().int().nonnegative(),
     })
     .optional(),
   observedAfterFailure: z
@@ -160,29 +164,28 @@ const remoteAgentRecoverySchema = z.strictObject({
     .optional(),
 });
 
-// A recovery remains linked to the original attempt and preserves its failed
-// event in the evidence ref's parent history. Its baseline is an observation,
-// never proof that the partial Worker belongs to the failed command.
+// The canonical receipt stays v3 for older release readers. This v4 proof is
+// its second Git parent; the first parent preserves the original failed event.
+// The baseline never attributes the partial Worker to the failed command.
 export const recoveredComponentReceiptSchema = z
   .strictObject({
     attemptId: z.uuid(),
     componentIndex: z.number().int().nonnegative(),
     operationKey: z.string().regex(/^[0-9a-f]{64}$/u),
     startedAt: z.iso.datetime(),
-    status: z.enum(["started", "applied", "verified", "failed"]),
+    status: z.enum(["verified", "failed"]),
     application: z.enum(["unknown", "applied"]),
     identity: productionWorkerDeploymentIdentitySchema.optional(),
     recovery: remoteAgentRecoverySchema,
   })
   .superRefine((receipt, context) => {
     if (
-      ((receipt.status === "applied" || receipt.status === "verified") &&
+      (receipt.status === "verified" &&
         (receipt.application !== "applied" ||
           !receipt.identity ||
           !receipt.recovery.completed)) ||
-      (receipt.application === "unknown" &&
-        (receipt.identity || receipt.recovery.completed)) ||
-      (receipt.status === "started" && receipt.application !== "unknown")
+      (receipt.status === "failed" &&
+        (receipt.application !== "unknown" || receipt.identity))
     ) {
       context.addIssue({
         code: "custom",
@@ -221,10 +224,7 @@ export const productionReleaseEvidenceSchema = z
     z.strictObject({
       ...commonEvidenceFields,
       schemaVersion: z.literal(4),
-      receipt: z.union([
-        recoveredComponentReceiptSchema,
-        correlatedComponentReceiptSchema,
-      ]),
+      receipt: recoveredComponentReceiptSchema,
     }),
   ])
   .superRefine((evidence, context) => {
