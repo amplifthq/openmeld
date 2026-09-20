@@ -6,6 +6,7 @@ import {
   desktopUpdaterFeedSchemaForPlatform,
 } from "@openmeld/schemas";
 import type { MacUpdater, NsisUpdater, UpdateInfo } from "electron-updater";
+import { assertMacUpdateBundlePath } from "./mac-bundle-path";
 
 export function assertDesktopUpdateFiles(
   info: UpdateInfo,
@@ -14,11 +15,38 @@ export function assertDesktopUpdateFiles(
   desktopUpdaterFeedSchemaForPlatform(platform).parse(info);
 }
 
+function recordMacInstallEvidence(input: {
+  platform: DesktopReleasePlatform;
+  currentAppBundle?: string | null;
+  targetVersion: string | null;
+  recordMacInstallRequested?: (targetVersion: string) => void;
+}): void {
+  if (input.platform !== "macos-arm64") {
+    return;
+  }
+  assertMacUpdateBundlePath(input.currentAppBundle ?? null);
+  if (!(input.targetVersion && input.recordMacInstallRequested)) {
+    return;
+  }
+  try {
+    input.recordMacInstallRequested(input.targetVersion);
+  } catch (error) {
+    // The receipt is bounded diagnostic evidence, not installation authority.
+    // Never turn an observability write into a new updater outage after the
+    // signed bundle path itself was verified.
+    console.warn("[openmeld.desktop.update_install_receipt_write_failed]", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+  }
+}
+
 /** Application policy around electron-updater; no Service or account dependency. */
 export function createAppUpdater(input: {
   updater: MacUpdater | NsisUpdater;
   platform?: DesktopReleasePlatform;
   currentVersion: string;
+  currentAppBundle?: string | null;
+  recordMacInstallRequested?: (targetVersion: string) => void;
   publish: (state: DesktopUpdaterState) => void;
   prepareRestart: () => Promise<boolean>;
   setInstalling: (value: boolean) => void;
@@ -43,6 +71,7 @@ export function createAppUpdater(input: {
   };
   let operation: Promise<void> | null = null;
   let verifiedDownload = false;
+  let downloadedVersion: string | null = null;
   const publish = (patch: Partial<DesktopUpdaterState>) => {
     state = { ...state, ...patch };
     input.publish(state);
@@ -74,11 +103,13 @@ export function createAppUpdater(input: {
       publish({ percent: Math.min(100, Math.max(0, percent)) });
     }
   });
-  updater.on("update-downloaded", () => {
+  updater.on("update-downloaded", (event) => {
     if (state.status === "installing" || state.errorStage === "install") {
       return;
     }
     verifiedDownload = true;
+    downloadedVersion =
+      event && typeof event.version === "string" ? event.version : null;
     publish({ status: "downloaded", percent: 100, errorStage: null });
   });
   const check = async () => {
@@ -122,6 +153,12 @@ export function createAppUpdater(input: {
     if (!(await input.prepareRestart())) {
       throw new Error("Desktop restart blocked by unsaved work.");
     }
+    recordMacInstallEvidence({
+      platform,
+      currentAppBundle: input.currentAppBundle,
+      targetVersion: state.version ?? downloadedVersion,
+      recordMacInstallRequested: input.recordMacInstallRequested,
+    });
     publish({ status: "installing" });
     input.setInstalling(true);
     updater.quitAndInstall();
