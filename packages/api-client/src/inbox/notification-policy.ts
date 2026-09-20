@@ -66,7 +66,36 @@ export function isInboxNotificationEligible(
   item: InboxItem,
   mode: InboxConversationNotificationMode = "mentions_and_replies"
 ): boolean {
-  if (item.resolutionStatus === "resolved") {
+  if (
+    item.resolutionStatus === "resolved" ||
+    item.sourceTarget.kind === "desktop_update"
+  ) {
+    return false;
+  }
+  // Pre-facts owner observations may arrive from a delayed old outbox. The
+  // retired urgent flag and directMessage marker do not make them direct alerts.
+  if (
+    !item.sourceFacts &&
+    item.attention === "update" &&
+    item.sourceTarget.kind === "space" &&
+    item.sourceTarget.agentOwnerActivity === true &&
+    item.sourceTarget.replyToRecipient !== true &&
+    (item.kind === "space_message" || item.kind === "agent_reply")
+  ) {
+    return false;
+  }
+  const ownerOnly =
+    item.sourceFacts?.recipientReasons.every(
+      (reason) => reason === "agent_owner"
+    ) === true;
+  const firstContact =
+    (item.sourceFacts?.firstContactAgentProfileIds?.length ?? 0) > 0;
+  if (
+    ownerOnly &&
+    item.attention === "update" &&
+    !firstContact &&
+    item.importance !== "urgent"
+  ) {
     return false;
   }
   if (inboxMessageNotificationSpaceId(item)) {
@@ -78,6 +107,9 @@ export function isInboxNotificationEligible(
     }
   }
   if (item.importance === "urgent") {
+    return true;
+  }
+  if (firstContact) {
     return true;
   }
   if (

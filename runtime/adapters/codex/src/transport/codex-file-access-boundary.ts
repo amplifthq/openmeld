@@ -137,10 +137,14 @@ export function resolveCodexExecutionContextAccess(
   boundary: AdapterComputerFileAccessBoundary,
   executionMode?: AdapterDispatchExecutionMode
 ): AdapterComputerFileAccessBoundary["executionContextAccess"] {
-  return executionMode === "repair" &&
-    boundary.executionContextAccess === "workspace"
+  const access =
+    boundary.executionContextAccess === "space_context" &&
+    boundary.workingCopyId
+      ? "workspace"
+      : boundary.executionContextAccess;
+  return executionMode === "repair" && access === "workspace"
     ? "read_only"
-    : boundary.executionContextAccess;
+    : access;
 }
 
 function recordValue(value: unknown): Record<string, unknown> | null {

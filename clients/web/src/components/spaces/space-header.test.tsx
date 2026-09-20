@@ -24,6 +24,13 @@ import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import { SpaceHeader, SpaceWindowHeader } from "./space-header";
 import { SetupRecallButton } from "./space-onboarding-banner";
 
+vi.hoisted(() => {
+	// This existing header fixture describes the production product. Compiled
+	// isolation and its Home are covered by compiled-cli-target.test.mjs.
+	vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld");
+	vi.stubEnv("VITE_OPENMELD_HOME", "");
+});
+
 const JOINED_AS_LABEL_TEXT = /Joined as/;
 const DELETE_CONFIRMATION_LABEL_TEXT = /Type DELETE to confirm/i;
 const PUBLIC_READING_EXPOSURE_TEXT =
@@ -441,8 +448,8 @@ describe("SpaceHeader", () => {
 				menuItems: [
 					{
 						icon: SparkleIcon,
-						label: "Skills",
-						to: "/o/acme/center-agent/skills",
+						label: "Memory",
+						to: "/o/acme/center-agent/memory",
 					},
 				],
 			})
@@ -451,7 +458,7 @@ describe("SpaceHeader", () => {
 		expect(screen.queryByRole("button", { name: "Space settings" })).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Center Agent menu" }));
 		expect(
-			await screen.findByRole("menuitem", { name: "Skills" })
+			await screen.findByRole("menuitem", { name: "Memory" })
 		).toBeTruthy();
 		fireEvent.click(screen.getByRole("menuitem", { name: "Chat settings" }));
 

@@ -4,6 +4,7 @@ import type {
 	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
@@ -63,12 +64,20 @@ function ResolvedComputerConnectionHistory(input: {
 						computer reconnects.
 					</p>
 					{history.isPending ? (
-						<p className="text-muted-foreground">
-							Loading connection history...
-						</p>
+						<SkeletonRows label="Loading connection history" />
 					) : null}
 					{history.isError ? (
-						<p>Connection history could not be loaded.</p>
+						<div className="flex items-center gap-3">
+							<p role="alert">Connection history could not be loaded.</p>
+							<Button
+								disabled={history.isFetching}
+								onClick={() => history.refetch().catch(console.error)}
+								size="sm"
+								variant="ghost"
+							>
+								Try again
+							</Button>
+						</div>
 					) : null}
 					{history.data?.incidents.length === 0 ? (
 						<p className="text-muted-foreground">

@@ -18,6 +18,10 @@ import { TeamPeopleSidebar } from "#/components/directory/team-people-sidebar";
 import type { OptimisticAgentProfileCreation } from "#/lib/profiles/agent-profile-creation-requests";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { AgentDirectoryLists } from "./agent-directory-lists";
+import {
+	AgentDetailSkeleton,
+	AgentListSkeleton,
+} from "./agent-profile-skeleton";
 
 const AGENT_REQUESTS_DESCRIPTION =
 	"Review Agents you created and finish any setup that needs attention.";
@@ -110,10 +114,10 @@ function AgentProfilesWorkspaceContent(input: {
 		return <AgentRequestsWorkspace input={input.input} />;
 	}
 	if (input.input.profilesStatus === "loading") {
-		return (
-			<output className="grid min-h-full place-items-center px-6 py-12 text-center text-muted-foreground text-sm">
-				Loading Agents…
-			</output>
+		return input.input.selectedProfileId ? (
+			<AgentDetailSkeleton />
+		) : (
+			<AgentListSkeleton />
 		);
 	}
 	if (input.input.profilesStatus === "error") {

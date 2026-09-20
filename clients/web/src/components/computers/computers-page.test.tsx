@@ -294,6 +294,9 @@ function buildRecoveryControllerStub(input: {
 					}
 				: { availability: "missing" },
 			isPending: false,
+			isSuccess: true,
+			isError: false,
+			error: null,
 		},
 		currentLocalRuntimeReplyReadinessQuery: {
 			data: input.currentReadiness ?? undefined,
@@ -642,6 +645,7 @@ describe("ComputersPage", () => {
 		expect(useLocalAgentRecoveryControllerMock).toHaveBeenCalledWith({
 			agentExecutionReadinessScope: "bound_runtime",
 			currentLocalRuntimeReplyReadinessRefetchIntervalMs: 10_000,
+			loadAgentExecutionReadiness: false,
 			loadSetupState: false,
 		});
 	});

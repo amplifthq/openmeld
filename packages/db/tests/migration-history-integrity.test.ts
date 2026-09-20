@@ -134,6 +134,49 @@ const toSnapshotFileName = (entry: DrizzleJournalEntry): string => {
 };
 
 describe("shared drizzle migration history integrity", () => {
+  it("preserves Inbox identities, frozen selections and email receipts through the account-scope rebuild with enforced foreign keys", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      const files = listSqlMigrationFiles();
+      const migration = "0177_jittery_white_tiger.sql";
+      applyMigrationFiles(database, files.slice(0, files.indexOf(migration)));
+      database.exec(`
+        PRAGMA foreign_keys=ON;
+        INSERT INTO users (id, name, email) VALUES ('inbox-owner', 'Inbox owner', 'inbox-migration@example.test');
+        INSERT INTO organizations (id, name, slug, created_at) VALUES ('inbox-org', 'Inbox', 'inbox-migration', 1);
+        INSERT INTO inbox_items (rowid, id, organization_id, recipient_user_id, kind, attention, importance, title, preview, source_kind, source_key, source_target_json, resolution_status, read_at_ms, cleared_at_ms, resolved_at_ms, occurred_at_ms, created_at_ms, updated_at_ms)
+        VALUES (719, 'retained-item', 'inbox-org', 'inbox-owner', 'system_issue', 'action_required', 'urgent', 'Retained request', 'Source ended this request.', 'system_attention_event', 'retained-source', '{"kind":"settings","section":"computers"}', 'resolved', 2, 3, 4, 1, 1, 4);
+        INSERT INTO inbox_email_deliveries (id, inbox_item_id, state, attempt_count, next_attempt_at_ms, message_id, sent_at_ms, created_at_ms, updated_at_ms)
+        VALUES ('retained-receipt', 'retained-item', 'sent', 2, 1, 'provider-accepted-id', 2, 1, 2);
+        INSERT INTO inbox_feed_snapshots (id, organization_id, recipient_user_id, category, unread_only, agents_only, through_row_id, created_at_ms, expires_at_ms)
+        VALUES ('retained-snapshot', 'inbox-org', 'inbox-owner', 'all', 0, 0, 719, 1, 9999);
+        INSERT INTO inbox_feed_snapshot_members VALUES ('retained-snapshot', 'retained-item');
+      `);
+      const items = database.prepare("SELECT rowid, * FROM inbox_items").all();
+      const receipts = database
+        .prepare("SELECT * FROM inbox_email_deliveries")
+        .all();
+      const members = database
+        .prepare("SELECT * FROM inbox_feed_snapshot_members")
+        .all();
+      database.exec("BEGIN");
+      applyMigrationFiles(database, [migration]);
+      database.exec("COMMIT");
+      expect(
+        database.prepare("SELECT rowid, * FROM inbox_items").all()
+      ).toEqual(items);
+      expect(
+        database.prepare("SELECT * FROM inbox_email_deliveries").all()
+      ).toEqual(receipts);
+      expect(
+        database.prepare("SELECT * FROM inbox_feed_snapshot_members").all()
+      ).toEqual(members);
+      expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    } finally {
+      database.close();
+    }
+  });
+
   it("enforces one personal Organization per creator from canonical metadata", () => {
     const database = new DatabaseSync(":memory:");
     try {

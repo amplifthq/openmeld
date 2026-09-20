@@ -27,6 +27,12 @@ import {
 } from "@openmeld/space";
 import { isReadPositionWithinAllowedFutureSkew } from "../../shared/read-position";
 import { personalAgentOwnerAccessSql } from "./inbox-agent-owner-access";
+import {
+  INBOX_OPEN_REVIEW,
+  INBOX_PRIORITY,
+  INBOX_UNREAD_PRIORITY_UPDATE,
+} from "./inbox-attention-predicates";
+import { currentInboxSourceFactsSql } from "./inbox-current-source-facts";
 import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
 
 const INBOX_ITEM_NOT_FOUND_CODE = "inbox.item_not_found";
@@ -47,11 +53,13 @@ const INBOX_SPACE_MESSAGE_FILTER = `
   AND attention = 'update'
   AND ${INBOX_SPACE_TARGET_FILTER}
 `;
-const INBOX_ATTENTION_PRESENTATION_FILTER = `
+export const INBOX_ATTENTION_PRESENTATION_FILTER = `
   NOT (
     attention = 'update'
     AND importance = 'normal'
     AND kind NOT IN ('space_mention', 'space_reference')
+    AND coalesce(json_array_length(${currentInboxSourceFactsSql("inbox_items")}, '$.firstContactAgentProfileIds'), 0) = 0
+    AND coalesce(json_array_length(${currentInboxSourceFactsSql("inbox_items")}, '$.mentionedAgentProfileIds'), 0) = 0
     AND ${INBOX_SPACE_TARGET_FILTER}
     AND EXISTS (
       SELECT 1
@@ -156,7 +164,7 @@ const INBOX_ORDINARY_SPACE_FILTER = `
   )
 `;
 
-type InboxItemRow = {
+export type InboxItemRow = {
   attention: InboxItem["attention"];
   context_label: string | null;
   created_at_ms: number;
@@ -164,12 +172,13 @@ type InboxItemRow = {
   importance: InboxItem["importance"];
   kind: InboxItem["kind"];
   occurred_at_ms: number;
-  organization_id: string;
+  organization_id: string | null;
   preview: string;
   read_at_ms: number | null;
   recipient_user_id: string;
   resolution_status: InboxItem["resolutionStatus"];
   source_target_json: string;
+  source_facts_json: string | null;
   title: string;
   updated_at_ms: number;
 };
@@ -193,10 +202,12 @@ export class InboxServiceError extends Error {
 
 export function createInboxService(input: {
   db: D1Database;
+  includeAccountItems?: boolean;
   nowMs?: () => number;
   canManageOrganization?: boolean;
 }) {
   const nowMs = input.nowMs ?? Date.now;
+  const ITEM_SCOPE_FILTER = inboxItemScopeSql(input.includeAccountItems);
   const CURRENT_SOURCE_ACCESS_FILTER = buildCurrentInboxSourceAccessSql(
     "inbox_items",
     input.canManageOrganization === true
@@ -452,7 +463,7 @@ export function createInboxService(input: {
                 cleared_at_ms = coalesce(cleared_at_ms, ?),
                 updated_at_ms = max(updated_at_ms, ?)
               WHERE id = ?
-                AND organization_id = ?
+                AND ${ITEM_SCOPE_FILTER}
                 AND recipient_user_id = ?
                 AND cleared_at_ms IS NULL
                 AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -482,7 +493,7 @@ export function createInboxService(input: {
                   SELECT 1
                   FROM inbox_items
                   WHERE id = ?
-                    AND organization_id = ?
+                    AND ${ITEM_SCOPE_FILTER}
                     AND recipient_user_id = ?
                     AND cleared_at_ms IS NOT NULL
                     AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -504,6 +515,7 @@ export function createInboxService(input: {
       if (changedRows(itemResult) === 0) {
         const existing = await hasAccessibleInboxItem({
           canManageOrganization: input.canManageOrganization,
+          includeAccountItems: input.includeAccountItems,
           db: input.db,
           itemId: dismissInput.itemId,
           organizationId: dismissInput.organizationId,
@@ -530,6 +542,7 @@ export function createInboxService(input: {
       requireIdentifier(getInput.recipientUserId, "recipientUserId");
       const item = await readInboxItem({
         canManageOrganization: input.canManageOrganization,
+        includeAccountItems: input.includeAccountItems,
         db: input.db,
         itemId: getInput.itemId,
         organizationId: getInput.organizationId,
@@ -587,7 +600,7 @@ export function createInboxService(input: {
       const limit = normalizeLimit(listInput.limit);
       const cursor = decodeCursor(listInput.cursor);
       const filters = [
-        "organization_id = ?",
+        ITEM_SCOPE_FILTER,
         "recipient_user_id = ?",
         "cleared_at_ms IS NULL",
         CURRENT_SOURCE_ACCESS_FILTER,
@@ -622,6 +635,7 @@ export function createInboxService(input: {
               preview,
               context_label,
               source_target_json,
+              ${currentInboxSourceFactsSql("inbox_items")} AS source_facts_json,
               resolution_status,
               read_at_ms,
               occurred_at_ms,
@@ -745,7 +759,7 @@ export function createInboxService(input: {
               END,
               updated_at_ms = max(updated_at_ms, ?)
             WHERE id = ?
-              AND organization_id = ?
+              AND ${ITEM_SCOPE_FILTER}
               AND recipient_user_id = ?
               AND cleared_at_ms IS NULL
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -763,6 +777,7 @@ export function createInboxService(input: {
       if (changedRows(result) === 0) {
         const existing = await readInboxItem({
           canManageOrganization: input.canManageOrganization,
+          includeAccountItems: input.includeAccountItems,
           db: input.db,
           itemId: markInput.itemId,
           organizationId: markInput.organizationId,
@@ -779,6 +794,7 @@ export function createInboxService(input: {
       }
       const item = await readInboxItem({
         canManageOrganization: input.canManageOrganization,
+        includeAccountItems: input.includeAccountItems,
         db: input.db,
         itemId: markInput.itemId,
         organizationId: markInput.organizationId,
@@ -803,6 +819,9 @@ export function createInboxService(input: {
             SELECT
               coalesce(sum(CASE WHEN read_at_ms IS NULL THEN 1 ELSE 0 END), 0)
                 AS unread_count,
+              coalesce(sum(CASE WHEN ${INBOX_PRIORITY} THEN 1 ELSE 0 END), 0) AS priority_count,
+              coalesce(sum(CASE WHEN ${INBOX_OPEN_REVIEW} THEN 1 ELSE 0 END), 0) AS review_count,
+              coalesce(sum(CASE WHEN ${INBOX_UNREAD_PRIORITY_UPDATE} THEN 1 ELSE 0 END), 0) AS priority_update_count,
               coalesce(sum(CASE
                 WHEN attention = 'action_required' AND resolution_status = 'open'
                 THEN 1 ELSE 0 END), 0) AS action_count,
@@ -813,7 +832,7 @@ export function createInboxService(input: {
               coalesce(sum(CASE WHEN ${ORDINARY_UNREAD_ATTENTION_FILTER}
                 THEN 1 ELSE 0 END), 0) AS ordinary_unread_count
             FROM inbox_items
-            WHERE organization_id = ?
+            WHERE ${ITEM_SCOPE_FILTER}
               AND recipient_user_id = ?
               AND cleared_at_ms IS NULL
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -827,6 +846,9 @@ export function createInboxService(input: {
         .bind(summaryInput.organizationId, summaryInput.recipientUserId)
         .first<{
           action_count: number;
+          priority_count: number;
+          review_count: number;
+          priority_update_count: number;
           mention_count: number;
           ordinary_unread_count: number;
           unread_count: number;
@@ -836,6 +858,16 @@ export function createInboxService(input: {
         organizationId: summaryInput.organizationId,
         totalUnreadCount: countValue(row?.unread_count),
         unresolvedActionCount: countValue(row?.action_count),
+        ...(input.includeAccountItems &&
+        summaryInput.presentation === "attention"
+          ? {
+              priorityCount: countValue(row?.priority_count),
+              needsReviewCount: countValue(row?.review_count),
+              needsActionCount:
+                countValue(row?.action_count) - countValue(row?.review_count),
+              unreadPriorityUpdateCount: countValue(row?.priority_update_count),
+            }
+          : {}),
         unreadUrgentUpdateCount: countValue(row?.urgent_update_count),
         ...(summaryInput.presentation === "attention"
           ? {
@@ -1099,6 +1131,7 @@ async function markSpaceInboxReadThrough(input: {
 
 async function hasAccessibleInboxItem(input: {
   canManageOrganization?: boolean;
+  includeAccountItems?: boolean;
   db: D1Database;
   itemId: string;
   organizationId: string;
@@ -1114,7 +1147,7 @@ async function hasAccessibleInboxItem(input: {
         SELECT id
         FROM inbox_items
         WHERE id = ?
-          AND organization_id = ?
+          AND ${inboxItemScopeSql(input.includeAccountItems)}
           AND recipient_user_id = ?
           AND ${CURRENT_SOURCE_ACCESS_FILTER}
         LIMIT 1
@@ -1127,6 +1160,7 @@ async function hasAccessibleInboxItem(input: {
 
 async function readInboxItem(input: {
   canManageOrganization?: boolean;
+  includeAccountItems?: boolean;
   db: D1Database;
   itemId: string;
   organizationId: string;
@@ -1150,6 +1184,7 @@ async function readInboxItem(input: {
           preview,
           context_label,
           source_target_json,
+          ${currentInboxSourceFactsSql("inbox_items")} AS source_facts_json,
           resolution_status,
           read_at_ms,
           occurred_at_ms,
@@ -1157,7 +1192,7 @@ async function readInboxItem(input: {
           updated_at_ms
         FROM inbox_items
         WHERE id = ?
-          AND organization_id = ?
+          AND ${inboxItemScopeSql(input.includeAccountItems)}
           AND recipient_user_id = ?
           AND cleared_at_ms IS NULL
           AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -1169,7 +1204,13 @@ async function readInboxItem(input: {
   return row ? mapInboxItemRow(row) : null;
 }
 
-function mapInboxItemRow(row: InboxItemRow): InboxItem {
+function inboxItemScopeSql(includeAccountItems = false): string {
+  return includeAccountItems
+    ? "(organization_id = ? OR organization_id IS NULL)"
+    : "organization_id = ?";
+}
+
+export function mapInboxItemRow(row: InboxItemRow): InboxItem {
   let sourceTargetValue: unknown;
   try {
     sourceTargetValue = JSON.parse(row.source_target_json);
@@ -1183,6 +1224,18 @@ function mapInboxItemRow(row: InboxItemRow): InboxItem {
     throw new Error(`Inbox item ${row.id} has an invalid source target`, {
       cause: sourceTarget.error,
     });
+  }
+  const sourceFacts = row.source_facts_json
+    ? JSON.parse(row.source_facts_json)
+    : undefined;
+  let target = sourceTarget.data;
+  if (
+    sourceFacts &&
+    target.kind === "space" &&
+    !sourceFacts.personalAgentProfileIds?.length
+  ) {
+    const { agentOwnerActivity: _ownerActivity, ...currentTarget } = target;
+    target = currentTarget;
   }
   return inboxItemSchema.parse({
     attention: row.attention,
@@ -1200,7 +1253,8 @@ function mapInboxItemRow(row: InboxItemRow): InboxItem {
         : toIsoTimestamp(row.read_at_ms, "read_at_ms"),
     recipientUserId: row.recipient_user_id,
     resolutionStatus: row.resolution_status,
-    sourceTarget: sourceTarget.data,
+    ...(sourceFacts ? { sourceFacts } : {}),
+    sourceTarget: target,
     title: row.title,
     updatedAt: toIsoTimestamp(row.updated_at_ms, "updated_at_ms"),
   });

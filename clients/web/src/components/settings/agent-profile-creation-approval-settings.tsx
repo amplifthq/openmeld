@@ -1,7 +1,10 @@
 "use client";
 
 import type { AgentProfileCreationApprovalPolicy } from "@openmeld/schemas/types";
+import { Button } from "@openmeld/ui/components/button";
 import { SettingsSection } from "@openmeld/ui/components/settings-section";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { SkeletonRegion } from "@openmeld/ui/components/skeleton-content";
 import {
 	Select,
 	SelectContent,
@@ -56,8 +59,9 @@ export function AgentProfileCreationApprovalSettings(input: {
 	});
 
 	const preference = preferenceQuery.data;
-	const isDisabled =
-		!preference || preferenceQuery.isError || mutation.isPending;
+	const readUnavailable =
+		preferenceQuery.isError || preferenceQuery.fetchStatus === "paused";
+	const isDisabled = !preference || readUnavailable || mutation.isPending;
 
 	return (
 		<SettingsSection
@@ -70,6 +74,7 @@ export function AgentProfileCreationApprovalSettings(input: {
 					description="Create an Agent with a new conversation, without inheriting an existing conversation’s history."
 					disabled={isDisabled}
 					label="Start new conversations"
+					loading={!readUnavailable && preferenceQuery.isPending}
 					onChange={(newSessionPolicy) => {
 						if (preference) {
 							mutation.mutate({
@@ -78,12 +83,13 @@ export function AgentProfileCreationApprovalSettings(input: {
 							});
 						}
 					}}
-					value={preference?.newSessionPolicy ?? "ask_every_time"}
+					value={preference?.newSessionPolicy}
 				/>
 				<ApprovalPolicyRow
 					description="Create an Agent that continues an existing conversation or uses a copy of its history."
 					disabled={isDisabled}
 					label="Continue or copy existing conversations"
+					loading={!readUnavailable && preferenceQuery.isPending}
 					onChange={(existingSessionPolicy) => {
 						if (preference) {
 							mutation.mutate({
@@ -92,7 +98,7 @@ export function AgentProfileCreationApprovalSettings(input: {
 							});
 						}
 					}}
-					value={preference?.existingSessionPolicy ?? "ask_every_time"}
+					value={preference?.existingSessionPolicy}
 				/>
 			</div>
 			<p className="text-muted-foreground text-xs">
@@ -100,13 +106,20 @@ export function AgentProfileCreationApprovalSettings(input: {
 				conversations on your computer. They don’t change Agents already
 				created.
 			</p>
-			{preferenceQuery.isPending ? (
-				<p className="text-muted-foreground text-xs">Loading settings…</p>
-			) : null}
-			{preferenceQuery.isError ? (
-				<p className="text-destructive text-xs">
-					{preferenceQuery.error.message}
-				</p>
+			{readUnavailable ? (
+				<div className="flex items-center justify-between gap-3">
+					<p className="text-destructive text-xs" role="alert">
+						{preferenceQuery.error?.message ??
+							"Your approval preferences are unavailable while offline."}
+					</p>
+					<Button
+						onClick={() => preferenceQuery.refetch()}
+						size="sm"
+						variant="outline"
+					>
+						Try again
+					</Button>
+				</div>
 			) : null}
 		</SettingsSection>
 	);
@@ -115,12 +128,23 @@ export function AgentProfileCreationApprovalSettings(input: {
 function ApprovalPolicyRow(input: {
 	description: string;
 	disabled: boolean;
+	loading: boolean;
 	label: string;
 	onChange: (policy: AgentProfileCreationApprovalPolicy) => void;
-	value: AgentProfileCreationApprovalPolicy;
+	value?: AgentProfileCreationApprovalPolicy;
 }) {
 	const selected = POLICY_OPTIONS.find(
 		(option) => option.value === input.value
+	);
+	const missingControl = input.loading ? (
+		<SkeletonRegion
+			className="w-full shrink-0 sm:w-48"
+			label={`Loading ${input.label} approval policy`}
+		>
+			<Skeleton className="h-9 w-full" />
+		</SkeletonRegion>
+	) : (
+		<span className="text-muted-foreground text-xs">Unavailable</span>
 	);
 	return (
 		<div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -130,26 +154,30 @@ function ApprovalPolicyRow(input: {
 					{input.description}
 				</p>
 			</div>
-			<Select
-				disabled={input.disabled}
-				onValueChange={(value) =>
-					input.onChange(value as AgentProfileCreationApprovalPolicy)
-				}
-				value={input.value}
-			>
-				<SelectTrigger
-					aria-label={`${input.label} approval policy`}
-					className="w-full sm:w-48"
-					displayValue={selected?.label ?? "Ask me each time"}
-				/>
-				<SelectContent>
-					{POLICY_OPTIONS.map((option, index) => (
-						<SelectItem index={index} key={option.value} value={option.value}>
-							{option.label}
-						</SelectItem>
-					))}
-				</SelectContent>
-			</Select>
+			{input.value === undefined ? (
+				missingControl
+			) : (
+				<Select
+					disabled={input.disabled}
+					onValueChange={(value) =>
+						input.onChange(value as AgentProfileCreationApprovalPolicy)
+					}
+					value={input.value}
+				>
+					<SelectTrigger
+						aria-label={`${input.label} approval policy`}
+						className="w-full sm:w-48"
+						displayValue={selected?.label ?? "Ask me each time"}
+					/>
+					<SelectContent>
+						{POLICY_OPTIONS.map((option, index) => (
+							<SelectItem index={index} key={option.value} value={option.value}>
+								{option.label}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+			)}
 		</div>
 	);
 }

@@ -35,6 +35,11 @@ import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
 import { SendFeedbackDialog } from "#/components/feedback/send-feedback-dialog";
+import {
+	DESKTOP_UPDATE_ATTENTION_LABEL,
+	DesktopUpdateIndicator,
+	useDesktopUpdateAttention,
+} from "#/desktop/updater";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationAccountSettingsPath } from "#/lib/organizations/organization-routes";
 import type {
@@ -278,7 +283,9 @@ export function SettingsInnerSidebar(input: {
 	organizationName: string;
 	organizationRole: SettingsOrganizationRole | null;
 }) {
+	const desktopUpdateAttention = useDesktopUpdateAttention();
 	const groups = toContextualSettingsNavGroups({
+		desktopUpdateAttention,
 		isPersonalWorkspace: input.isPersonalWorkspace,
 		items: input.items,
 		organizationName: input.organizationName,
@@ -342,6 +349,7 @@ function resolveSettingsNavIcon(sectionId: string): Icon {
 }
 
 function toContextualSettingsNavGroups(input: {
+	desktopUpdateAttention: boolean;
 	isPersonalWorkspace: boolean;
 	items: readonly SettingsNavItem[];
 	organizationName: string;
@@ -351,7 +359,13 @@ function toContextualSettingsNavGroups(input: {
 		if (!item.to) {
 			throw new Error(`Settings sidebar item is missing a route: ${item.id}`);
 		}
+		const updateAttention =
+			item.id === "updates" && input.desktopUpdateAttention;
 		return {
+			accessory: updateAttention ? <DesktopUpdateIndicator /> : undefined,
+			ariaLabel: updateAttention
+				? `${item.title}, ${DESKTOP_UPDATE_ATTENTION_LABEL}`
+				: undefined,
 			icon: resolveSettingsNavIcon(item.id),
 			id: item.id,
 			label: item.title,

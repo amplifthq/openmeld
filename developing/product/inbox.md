@@ -10,10 +10,113 @@
 - Update this when: Inbox scope, classification, lifecycle, delivery policy,
   source coverage, navigation, or ownership changes.
 - Do not use this for: Source-domain business truth, Agent Task execution,
- Feedback Issue storage, Space message storage, or
-  provider-specific messaging.
+  Feedback Issue storage, Space message storage, or provider-specific messaging.
 - Source of truth: This file owns the Inbox product model. Source owner documents
   remain authoritative for the work or event represented by an Inbox item.
+
+## Attention feed and frozen selections
+
+Permission and plan-review requests are ordinary Needs review items; questions
+are ordinary Needs action items. The RuntimeCoordinator source supplies that
+classification and does not infer urgency from local execution or request kind.
+Recovery remains source-prioritized, with queue approval classified as review.
+An exact legacy source replay can enrich missing classification and correct old
+forced urgency without reopening, clearing, or re-notifying the item. Generic
+Inbox source conflict checks remain strict; real explicit priority from another
+source is not globally downgraded.
+
+Version-9 summary receivers get priority, open-action and open-review counts from
+the same full authorized dataset as the feed. Ordinary open work remains visible
+without a red alarm. First personal-Agent contact participates in yellow priority
+presentation without acquiring urgent email eligibility. Owner-only follow-up
+chat is ordinary unread history, not repeated notifications; explicit Human
+mentions, replies and requester relations survive owner-observer noise controls.
+Structured source facts use per-item delivery identities rather than the retired
+minute-bucket observer coalescing. Existing browser/native acknowledgement and
+visibility boundaries remain separate; no cross-device delivery lock is added.
+
+Typed Computer connection and Desktop update events have account scope in the
+same Inbox table (`organization_id IS NULL`), never an arbitrary Organization
+or one copy per Organization. Authorized Organization views may include the
+current account's items; read and Dismiss target the same canonical id. Other
+Organizations' private records never enter that view. Version 9 source-target
+receivers opt in; older HTTP and RPC receivers retain their Organization-only
+shape and cannot accidentally mutate account records. Computer access also
+rechecks current device ownership and forgetting. Device sources do not enqueue
+email merely because a connection action has yellow priority.
+
+RuntimeTransportHub owns Computer incident facts beside its existing registration,
+heartbeat and alarm owner. A compatible, dispatch-accepting live session first
+establishes expected availability. The existing lease TTL is the reconnect grace;
+initial registration, explicit unknown state, user stop and controlled update do
+not establish a fault. One durable incident and a bounded projection retry slice
+survive Hub restart and D1 failure. A ready heartbeat ends the same item; read and
+Dismiss never end it. Device re-enrollment is rechecked on registration generation
+change. The source does not write any Wake result or RuntimeCoordinator decision.
+
+Desktop Main observes the existing native updater and reports installed/applicable
+release facts through the session-bound account endpoint. It retains one local
+installation id and a monotonic source sequence, not a notification lock. Core
+atomically advances that sequence and projects one ordinary Inbox item per
+account, installation, lane and offered release. Checking, download progress and
+Later are not new events. A reported installed app version can mark an offer
+installed; opening and Dismiss cannot. A newer verified feed supersedes obsolete
+offers without asserting installation. Source retries preserve item identity,
+read/Dismiss and occurrence time, and never enqueue email. Only the matching
+native installation can open its Updates controls; Web shows device-specific
+guidance. Native observation failure never blocks the updater. This is trusted
+first-party client observation under the current account, not cryptographic
+device attestation or proof that a person saw a notification.
+
+The canonical attention feed is `GET /v1/inbox/feed`. All, Mentions, Needs action
+and Needs review combine independently with unread, activity and conversation
+filters. The activity menu selects All activity, Agents or People; People means
+conversation messages without Agent relevance, not device or system events.
+The conversation menu selects all types, Direct messages or Spaces, using the
+current Space Index DM classification (converted DMs are Spaces). Both groups
+can be combined and persist in the URL; Unread only stays beside the tabs.
+The existing `agentsOnly` query remains supported; `peopleOnly` and
+`conversationType` are additive. Every filter is applied before grouping,
+counts, pagination and frozen bulk operations.
+Mentions includes structured Human mentions and current personal-Agent mentions
+through history, not unmentioned DMs. This does not change the older unread-only
+`view=mentions` API. Agents filters actual interaction/author/recipient facts, not
+the presence of an Agent somewhere in a Space.
+
+Core applies current membership, personal ownership, conversation visibility,
+mute presentation and filters before counts, grouping or pagination. A direct
+Human mention survives an Agent transfer; an owner-only relationship does not
+survive merely because a different owned Agent remains in that Space. All is
+ordered across the accessible dataset: priority attention, other open requests,
+then ordinary activity/history. Normal open requests lose their blue unread dot
+when read but remain pending; priority open requests stay yellow until resolved.
+First-contact information is yellow only while unread. Ended requests are
+history, never persistent priority.
+
+Legacy owner-observer items without exact personal-Agent source facts cannot
+establish derived owner access, even if one or more owned Agents remain in the
+Space. Their rows, read/Dismiss state and receipts stay intact; current Human
+membership remains an independent access path. Only reliable source-owned repair
+may restore an exact Agent relationship, never the current roster or preview text.
+Old owner-only message/reply items also remain quiet under both message modes,
+including delayed outbox arrivals and retired urgent awareness. Genuine Human
+mentions, explicit replies to the recipient and non-observer DMs retain their
+normal notification policy.
+
+Conversation grouping shares the canonical message items and read state. It
+never joins different Organizations, main timelines, Threads or target scopes,
+and never absorbs an open request or critical execution outcome. The oldest
+priority signal can remain a group's visible anchor while newer chat arrives.
+Expanding a group performs no read mutation.
+
+A feed snapshot records a short-lived, account-and-Organization-bound set of
+eligible canonical item ids, not message contents or a second read ledger.
+Snapshots expire after fifteen minutes; cursors include the exact filters and
+expanded group. Explicit group/view read or Dismiss uses that frozen membership
+and rechecks current authorization. Later messages, delayed outbox deliveries,
+and formerly hidden muted history cannot be accidentally cleared. These bulk
+operations do not advance a conversation viewport watermark or close a request.
+Counts describe canonical items rather than the number of grouped rows.
 
 ## Product promise
 
@@ -436,20 +539,37 @@ reserves room for each group; full Inbox remains the complete list. It may say
 
 ### Space message unread behavior
 
-New Human-authored messages in conversations containing an ordinary personal
-Agent also address that Agent's current owner, even without Human membership.
-Self-authored messages do not generate this owner alert. Core validates current
-personal ownership and excludes managed Agents and the designated Center Agent.
-The owner receives one urgent `space_message` update per source message with
-`sourceTarget.agentOwnerActivity: true`; overlapping member delivery is deduplicated.
-This marker describes owner awareness, not an action request. It counts in the
-existing Inbox urgent badge, but contributes only ordinary unread state to
-Chats/Spaces navigation. Owner reads use the existing Space read watermark.
-Current ownership and membership are rechecked on delivery and reads; alerts
-never add Human membership or grant write access. No historical backfill occurs.
-Browser delivery retains its permission/visible-conversation gates and groups
-owner alerts by conversation and source minute. These awareness updates do not
-generate urgent email.
+An Agent's presence alone never makes a message relevant to its owner. Personal
+owner awareness requires actual structured Agent addressing, a Human message
+in that Agent's DM, or that Agent's own published reply. Activation and Reference
+both carry mention relevance; Reference never starts work. A Human message in a
+current Agent DM establishes contact even when it references the recipient Agent;
+a Reference alone in an ordinary Space does not. Retained-history scanning uses
+the same contact rule, without replaying an old reminder or altering Wake targets.
+Automatic Thread Wake continuation is not an explicit new contact. Center Agent
+and other managed Agents have no personal owner for Inbox purposes. Local/Remote
+placement changes none of these rules.
+
+Space freezes first-contact identity in the publication transaction using the
+Organization, exact main/DM or Thread-root scope, initiating Human **account**,
+recipient account, and personal Agent. Only that first source signal carries
+`sourceFacts.firstContactAgentProfileIds`; later messages and retries preserve
+the original identity. A second Human Profile of the same account cannot create
+a self reminder. Long-running main/DM scopes conservatively have one contact
+boundary: no topic inference, model turn, cooldown, read or Dismiss resets it.
+Retained structured history seeds existing contacts without replaying awareness;
+an unavailable/pruned prefix is conservatively not treated as a provable first.
+
+The underlying update remains `importance: normal`, so first-contact awareness
+does not create an urgent email. Source facts distinguish Agent activity,
+personal-Agent mentions and merged Human mention/reply/requester/owner reasons.
+An explicitly addressed Agent's owner can receive the exact Thread item without
+subscribing to the entire Space or gaining Human membership/write permission.
+Current ownership and membership remain read/delivery authorities. Recipient
+selection is frozen before a fallible Inbox write, while current eligibility is
+checked independently on retries. The bounded rollout repair preserves item ids,
+occurrence/read/Dismiss/resolution state and terminal email receipts; it only
+downgrades the retired owner-observer writer and suppresses pending urgent mail.
 
 Authorship does not establish reading. Web composer sends confirm only their
 exact authored message with `authorHasRead: true`; Core omits that author's

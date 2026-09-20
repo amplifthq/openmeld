@@ -17,6 +17,7 @@ import { registerCurrentDeviceTargetRoutes } from "./rpc-http.current-device";
 import { registerCursorRoutes } from "./rpc-http.cursors";
 import { registerDaemonRouteObservationRoutes } from "./rpc-http.daemon-routes";
 import { registerDeleteSpaceRoute } from "./rpc-http.delete-space";
+import { registerDesktopUpdateObservationRoutes } from "./rpc-http.desktop-update-observations";
 import { registerDiagnosticsRoute } from "./rpc-http.diagnostics";
 import { registerDispatchLookupRoutes } from "./rpc-http.dispatch-lookup";
 import { registerDispatchTraceRoutes } from "./rpc-http.dispatch-trace";
@@ -69,6 +70,7 @@ export function registerRpcHttpRoutes(app: Hono<HonoBindings>): void {
   registerAgentInteractionRoutes(app);
   registerExecutionRecoveryRoutes(app);
   registerInboxRoutes(app);
+  registerDesktopUpdateObservationRoutes(app);
   registerReasoningRoutes(app);
   registerProjectRoutes(app);
   registerCenterAgentRoutes(app);

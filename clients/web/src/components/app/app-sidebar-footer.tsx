@@ -30,7 +30,6 @@ import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar
 import { useAppSettings } from "#/components/settings/use-app-settings";
 import { DesktopSignOutMenuItem } from "#/desktop/desktop-account-actions";
 import { getDesktopPlatform, openDesktopWeb } from "#/desktop/platform";
-import { useDesktopUpdater } from "#/desktop/updater";
 import { useLogoutAction } from "#/hooks/auth-form.hooks";
 import {
 	AccountsSwitcherView,
@@ -38,6 +37,7 @@ import {
 } from "./app-account-switcher";
 import { useAppNavigationPresentation } from "./app-navigation-presentation";
 import { CollapsedRailTooltip } from "./app-rail-navigation";
+import { AppSettingsButton } from "./app-settings-button";
 import type {
 	AppOuterRailAccount,
 	HumanProfileAvatarIdentity,
@@ -47,24 +47,6 @@ import {
 	useCurrentComputer,
 } from "./current-computer";
 
-function DesktopUpdateDot() {
-	const state = useDesktopUpdater();
-	if (
-		!(
-			getDesktopPlatform() &&
-			(state?.status === "available" || state?.status === "downloaded")
-		)
-	) {
-		return null;
-	}
-	return (
-		<span
-			aria-label="Desktop update available"
-			className="absolute top-1 right-1 size-1.5 rounded-full bg-primary"
-			role="img"
-		/>
-	);
-}
 function PlatformAppMenuItem(input: { index: number; webPath: string }) {
 	const desktop = getDesktopPlatform();
 	return (
@@ -177,16 +159,11 @@ export function AppSidebarFooter({
 					label={settingsLabel}
 					side={iconOnly ? "right" : "top"}
 				>
-					<button
-						aria-current={isSettingsActive ? "page" : undefined}
-						aria-label={settingsLabel}
-						className={cn(actionClass, "relative")}
+					<AppSettingsButton
+						className={actionClass}
+						isActive={isSettingsActive}
 						onClick={openAccount}
-						type="button"
-					>
-						<GearSixIcon className="size-4" />
-						<DesktopUpdateDot />
-					</button>
+					/>
 				</CollapsedRailTooltip>
 				<CollapsedRailTooltip
 					label={dark ? "Switch to light mode" : "Switch to dark mode"}

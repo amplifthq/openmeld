@@ -735,6 +735,7 @@ export {
   openMeldDaemonTaskResultStatusSchema,
   openMeldDaemonTaskResultTelemetrySchema,
 } from "./daemon/task-result";
+export { windowsProcessJobRequestSchema } from "./daemon/windows-process-job";
 export {
   type WindowsUserTaskRequest,
   windowsUserTaskActionSchema,
@@ -1495,6 +1496,8 @@ export {
   identityImageMimeTypeSchema,
 } from "./http/identity-image";
 export * from "./http/inbox";
+export * from "./http/inbox-desktop-updates";
+export * from "./http/inbox-feed";
 export {
   listSignalsQuerySchema,
   normalizeListSignalsReadQuerySemantics,

@@ -1527,6 +1527,8 @@ test("routes a local Core release through startup admission at the exact source 
     ],
     command: "node",
     label: "Deploy Core Worker",
+    releaseScope: "core",
+    completesReleaseScope: false,
     workerDeploymentArgs: [
       "--config",
       "services/core/wrangler.jsonc",

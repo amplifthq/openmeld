@@ -682,8 +682,11 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			{ presentation: "detail" }
 		);
 
-		const presence = screen.getByTestId("agent-profile-presence");
-		expect(within(presence).getByText("Checking…")).toBeTruthy();
+		const presence = screen.getByRole("status", {
+			name: "Loading Agent availability",
+		});
+		expect(presence.querySelector('[data-slot="skeleton"]')).toBeTruthy();
+		expect(within(presence).queryByText("Available")).toBeNull();
 		expect(
 			within(presence).queryByRole("link", {
 				name: WAKEABILITY_LINK_ACTION_PATTERN,
@@ -893,6 +896,12 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			return cards.indexOf(card);
 		});
 		expect(cardOrder).toEqual([0, 1, 2, 3, 4, 5]);
+		expect(
+			within(overview).getByRole("region", { name: "Usage limits" })
+		).toBeTruthy();
+		expect(
+			screen.getAllByRole("region", { name: "Usage limits" })
+		).toHaveLength(1);
 	});
 
 	it("shows a missing working folder with one direct recovery action", () => {
@@ -1451,6 +1460,13 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeTruthy();
 		expect(screen.getAllByText("Codex · GPT-5.5 · high")).toHaveLength(2);
 		expect(screen.getByText("Approve for me")).toBeTruthy();
+		const usage = within(
+			screen.getByTestId("agent-configuration-overview")
+		).getByRole("region", { name: "Usage limits" });
+		expect(usage.closest("[data-fluid-card-item]")).toBeTruthy();
+		expect(
+			within(usage).queryByRole("button", { name: "Edit Usage limits" })
+		).toBeNull();
 		expect(
 			document.querySelector('img[src="https://example.com/felix-avatar.png"]')
 		).toBeTruthy();
@@ -1790,8 +1806,9 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 
 		expect(readCurrentAgentActivitySessionsMock).not.toHaveBeenCalled();
 		expect(
-			screen.queryByRole("heading", { name: "Current activity" })
-		).toBeNull();
+			screen.getByRole("status", { name: "Loading Agent activity" })
+		).toBeTruthy();
+		expect(screen.queryByTestId("agent-current-activity")).toBeNull();
 		expect(screen.queryByText("Ship the Agent Profile upgrade")).toBeNull();
 	});
 

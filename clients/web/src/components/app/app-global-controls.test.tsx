@@ -86,6 +86,8 @@ describe("AppGlobalControls", () => {
 		).toEqual(["Open Center Agent panel", "Open Inbox panel"]);
 		expect(toolbar.classList.contains("lg:ps-0")).toBe(true);
 		expect(toolbar.classList.contains("lg:pe-2")).toBe(true);
+		expect(toolbar.classList.contains("hidden")).toBe(true);
+		expect(toolbar.classList.contains("lg:flex")).toBe(true);
 	});
 
 	it("hides a shortcut without opening its panel and remembers the choice", () => {

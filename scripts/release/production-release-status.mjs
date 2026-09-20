@@ -7,6 +7,12 @@ import { promisify } from "node:util";
 
 import { buildProductionReleasePlan } from "./production-release.mjs";
 import { readGuardedLocalReleaseSources } from "./production-release-evidence.mjs";
+import {
+  RELEASE_SCOPES,
+  readGithubReleaseJobs,
+  readGithubReleaseRuns,
+  releaseWorkflowScopes,
+} from "./production-release-history.mjs";
 
 const DEFAULT_REF = "origin/main";
 const execFileAsync = promisify(execFile);
@@ -16,21 +22,7 @@ const LINE_SPLIT_REGEX = /\r?\n/u;
 const RELEASE_JOB_BATCH_SIZE = 6;
 const RELEASE_TITLE_SOURCE_REGEX = /@ ([0-9a-f]{40})$/u;
 const SCOPED_RELEASE_WORKFLOW_REGEX = /Scoped Production Release/u;
-const RELEASE_SCOPES = [
-  "db",
-  "web",
-  "gateway",
-  "auth",
-  "cli",
-  "core",
-  "remote-agent",
-];
-const RELEASE_WORKFLOW_PATTERNS = [
-  SCOPED_RELEASE_WORKFLOW_REGEX,
-  /CLI Release/u,
-  /Deploy (?:Auth|Core|Gateway|Remote Agent) Worker/u,
-  /Deploy Web/u,
-];
+const EXACT_SOURCE_SHA = /^[0-9a-f]{40}$/u;
 const SUCCESSFUL_JOB_SCOPES = [
   {
     patterns: [
@@ -128,23 +120,24 @@ export async function runProductionReleaseStatus(input = {}) {
     changeBase: options.changeBase,
     sourceSha,
   });
-  const runs = (await adapters.readReleaseRuns(repo)).filter((run) =>
-    RELEASE_WORKFLOW_PATTERNS.some((pattern) => pattern.test(run.workflowName))
-  );
-  const sources = await readLatestSuccessfulReleaseSources({
-    readJobReleaseSha: adapters.readJobReleaseSha,
-    readReleaseJobs: adapters.readReleaseJobs,
+  const { sources, history } = await readHostedReleaseState(
+    adapters,
     repo,
-    runs,
-    sourceIsAncestor: (candidateSha) =>
-      adapters.sourceIsAncestor(candidateSha, sourceSha),
-  });
-  mergeGuardedLocalReleaseSources({
-    localSources: await adapters.readLocalReleaseSources(repo),
-    sourceIsAncestor: adapters.sourceIsAncestor,
-    sourceSha,
-    sources,
-  });
+    sourceSha
+  );
+  try {
+    mergeGuardedLocalReleaseSources({
+      localSources: await adapters.readLocalReleaseSources(repo),
+      sourceIsAncestor: adapters.sourceIsAncestor,
+      sourceSha,
+      sources,
+    });
+  } catch (error) {
+    history.issues.push({
+      scopes: RELEASE_SCOPES,
+      detail: `Local deployment evidence unavailable: ${error.message}`,
+    });
+  }
   applyDeployedOverrides({
     deployed: options.deployed,
     sourceIsAncestor: adapters.sourceIsAncestor,
@@ -158,34 +151,35 @@ export async function runProductionReleaseStatus(input = {}) {
   const pendingScopes = [];
   for (const scope of RELEASE_SCOPES) {
     const releaseSource = sources.get(scope);
-    if (!releaseSource) {
-      missingSources.push(scope);
-      pendingScopes.push(scope);
-      components.push({ scope, state: "unknown" });
-      continue;
-    }
-    let plan = plansByBase.get(releaseSource.sha);
-    if (!plan) {
-      plan = adapters.buildPlan({
-        base: releaseSource.sha,
-        sourceSha,
-      });
-      plansByBase.set(releaseSource.sha, plan);
-    }
-    const pending = plan.scopes.includes(scope);
-    if (pending) {
-      pendingScopes.push(scope);
-    }
-    components.push({
-      ...releaseSource,
+    const component = describeReleaseComponent({
+      releaseSource,
       scope,
-      state: pending ? "pending" : "current",
+      history,
+      plansByBase,
+      adapters,
+      sourceSha,
     });
+    if (component.state === "unknown") {
+      missingSources.push(scope);
+    }
+    if (component.state !== "current") {
+      pendingScopes.push(scope);
+    }
+    components.push(component);
   }
 
-  const pushChecks = latestPushCheckPerWorkflow(
-    await adapters.readPushChecks(repo, sourceSha)
-  );
+  let pushReadError;
+  let pushChecks = [];
+  try {
+    pushChecks = latestPushCheckPerWorkflow(
+      await adapters.readPushChecks(repo, sourceSha)
+    );
+  } catch (error) {
+    pushReadError = {
+      name: "Source validation",
+      detail: `Unable to read push checks: ${error.message}`,
+    };
+  }
   const pushCheckBlockers = pushChecks
     .filter((check) => !pushCheckPassed(check))
     .map((check) => ({
@@ -205,16 +199,27 @@ export async function runProductionReleaseStatus(input = {}) {
         sourceSha,
       })
     : null;
+  if (pushReadError) {
+    pushCheckBlockers.push(pushReadError);
+  }
+  if (currentChange?.error) {
+    pushCheckBlockers.push({
+      name: "Current-change plan",
+      detail: currentChange.error,
+    });
+  }
   const scopeBasis = currentChange ? "current-change" : "global-backlog";
   const relevantMissingSources = currentChange
     ? missingSources.filter((scope) => currentChange.scopes.includes(scope))
     : missingSources;
   const blockers = buildReleaseStatusBlockers({
     missingSources: relevantMissingSources,
+    components,
     pushCheckBlockers,
   });
   const globalBlockers = buildReleaseStatusBlockers({
     missingSources,
+    components,
     pushCheckBlockers,
   });
   const scopedPendingScopes = currentChange?.pendingScopes ?? pendingScopes;
@@ -222,6 +227,10 @@ export async function runProductionReleaseStatus(input = {}) {
 
   const result = {
     blockers,
+    history: {
+      ...history,
+      complete: history.complete && history.issues.length === 0,
+    },
     components,
     currentChange,
     globalBlockers,
@@ -255,15 +264,7 @@ function mergeGuardedLocalReleaseSources(input) {
     ) {
       continue;
     }
-    const current = input.sources.get(scope);
-    if (
-      current &&
-      readRecordedAt(localSource, "guarded local release evidence") <=
-        readRecordedAt(current, "hosted release evidence")
-    ) {
-      continue;
-    }
-    input.sources.set(scope, localSource);
+    selectLatestSource(input.sources, scope, localSource);
   }
 }
 
@@ -284,6 +285,14 @@ function buildReleaseStatusBlockers(input) {
       url: undefined,
     });
   }
+  for (const component of input.components ?? []) {
+    if (input.missingSources.includes(component.scope) && component.reason) {
+      blockers.push({
+        name: `${component.scope} deployment evidence`,
+        detail: component.reason,
+      });
+    }
+  }
   return blockers;
 }
 
@@ -301,10 +310,19 @@ function resolveChangeBaseSha(input) {
 }
 
 function buildCurrentChangeFacts(input) {
-  const plan = input.buildPlan({
-    base: input.baseSha,
-    sourceSha: input.sourceSha,
-  });
+  let plan;
+  try {
+    plan = input.buildPlan({ base: input.baseSha, sourceSha: input.sourceSha });
+  } catch (error) {
+    return {
+      baseRef: input.baseRef,
+      baseSha: input.baseSha,
+      changedPaths: [],
+      scopes: [],
+      pendingScopes: [],
+      error: error.message,
+    };
+  }
   return {
     baseRef: input.baseRef,
     baseSha: input.baseSha,
@@ -313,6 +331,98 @@ function buildCurrentChangeFacts(input) {
       input.globalPendingScopes.includes(scope)
     ),
     scopes: plan.scopes,
+  };
+}
+
+async function readHostedReleaseState(adapters, repo, sourceSha) {
+  let response;
+  try {
+    response = await adapters.readReleaseRuns(repo);
+  } catch (error) {
+    response = {
+      runs: [],
+      complete: false,
+      issues: [
+        {
+          scopes: RELEASE_SCOPES,
+          detail: `Hosted release history unavailable: ${error.message}`,
+        },
+      ],
+    };
+  }
+  const runs = (Array.isArray(response) ? response : response.runs).filter(
+    (run) => releaseWorkflowScopes(run.workflowName).length > 0
+  );
+  const history = {
+    complete: Array.isArray(response) || response.complete,
+    runCount: runs.length,
+    pagesRead: response.pagesRead ?? null,
+    issues: [...(response.issues ?? [])],
+  };
+  const sources = await readLatestSuccessfulReleaseSources({
+    ...adapters,
+    runs,
+    repo,
+    issues: history.issues,
+    sourceIsAncestor: (sha) => adapters.sourceIsAncestor(sha, sourceSha),
+  });
+  return { sources, history };
+}
+
+function describeReleaseComponent(input) {
+  const { releaseSource, scope, history, plansByBase, adapters, sourceSha } =
+    input;
+  const unknown = (reason) => ({
+    ...releaseSource,
+    scope,
+    state: "unknown",
+    reason,
+  });
+  const latestTime = releaseSource
+    ? Date.parse(releaseSource.recordedAt)
+    : Number.NaN;
+  const unresolved = history.issues.find(
+    (issue) =>
+      issue.scopes.includes(scope) &&
+      (!(issue.recordedAt && Number.isFinite(latestTime)) ||
+        Date.parse(issue.recordedAt) >= latestTime)
+  );
+  if (unresolved) {
+    return unknown(unresolved.detail);
+  }
+  if (!releaseSource) {
+    return unknown("No successful deployment history was found.");
+  }
+  if (releaseSource.conflict) {
+    return unknown(
+      "Conflicting deployment events have the same completion time; reconcile their actual activation order."
+    );
+  }
+  if (releaseSource.receipt && releaseSource.receipt.status !== "verified") {
+    return unknown(
+      `Local release is ${releaseSource.receipt.status}; reconcile the recorded component before releasing again.`
+    );
+  }
+  let entry = plansByBase.get(releaseSource.sha);
+  if (!entry) {
+    try {
+      entry = {
+        plan: adapters.buildPlan({ base: releaseSource.sha, sourceSha }),
+      };
+    } catch (error) {
+      entry = {
+        error: `Historical plan from ${releaseSource.sha} failed: ${error.message}`,
+      };
+    }
+    plansByBase.set(releaseSource.sha, entry);
+  }
+  if (entry.error) {
+    return unknown(entry.error);
+  }
+  return {
+    ...releaseSource,
+    scope,
+    state: entry.plan.scopes.includes(scope) ? "pending" : "current",
   };
 }
 
@@ -325,71 +435,123 @@ async function readLatestSuccessfulReleaseSources(input) {
   ) {
     const runs = input.runs.slice(offset, offset + RELEASE_JOB_BATCH_SIZE);
     const jobsByRun = await Promise.all(
-      runs.map((run) => input.readReleaseJobs(run.databaseId, input.repo))
+      runs.map(async (run) => {
+        try {
+          return await input.readReleaseJobs(run.databaseId, input.repo);
+        } catch (error) {
+          return { jobs: [], complete: false, reason: error.message };
+        }
+      })
     );
     for (const [index, run] of runs.entries()) {
+      const response = jobsByRun[index];
+      if (!(Array.isArray(response) || response.complete)) {
+        input.issues.push({
+          scopes: releaseWorkflowScopes(run.workflowName),
+          detail: `Jobs for run ${run.databaseId} are incomplete: ${response.reason}`,
+          url: run.url,
+        });
+      }
+      const jobs = Array.isArray(response) ? response : response.jobs;
       const jobsWithSources = [];
-      for (const job of jobsByRun[index]) {
-        if (jobCanFillReleaseSource(job, sources)) {
-          jobsWithSources.push({
-            ...job,
-            releaseSha: await input.readJobReleaseSha(job, input.repo, run),
-          });
+      for (const job of jobs) {
+        if (job.conclusion !== "success" || !releaseJobScopes(job).length) {
+          continue;
         }
+        jobsWithSources.push(await readReleaseJobSource(job, run, input));
       }
       addSuccessfulReleaseSources({
         jobs: jobsWithSources,
         run,
         sourceIsAncestor: input.sourceIsAncestor,
         sources,
+        issues: input.issues,
       });
-      if (sources.size === RELEASE_SCOPES.length) {
-        break;
-      }
-    }
-    if (sources.size === RELEASE_SCOPES.length) {
-      break;
     }
   }
   return sources;
 }
 
+async function readReleaseJobSource(job, run, input) {
+  try {
+    return {
+      ...job,
+      releaseSha: await input.readJobReleaseSha(job, input.repo, run),
+    };
+  } catch (error) {
+    return { ...job, releaseSha: undefined, sourceError: error.message };
+  }
+}
+
+function releaseJobScopes(job) {
+  return SUCCESSFUL_JOB_SCOPES.filter((mapping) =>
+    mapping.patterns.some((pattern) => pattern.test(job.name))
+  ).map((mapping) => mapping.scope);
+}
+
 function addSuccessfulReleaseSources(input) {
   for (const job of input.jobs) {
-    if (
-      job.conclusion !== "success" ||
-      !job.releaseSha ||
-      !input.sourceIsAncestor(job.releaseSha)
-    ) {
+    if (job.conclusion !== "success") {
       continue;
     }
-    for (const mapping of SUCCESSFUL_JOB_SCOPES) {
-      if (
-        !input.sources.has(mapping.scope) &&
-        mapping.patterns.some((pattern) => pattern.test(job.name))
-      ) {
-        input.sources.set(mapping.scope, {
-          recordedAt:
-            job.completedAt ?? job.completed_at ?? input.run.createdAt,
+    const scopes = releaseJobScopes(job);
+    const recordedAt = job.completedAt ?? job.completed_at;
+    try {
+      readRecordedAt({ recordedAt }, "Hosted deployment completion");
+      if (!EXACT_SOURCE_SHA.test(job.releaseSha ?? "")) {
+        throw new Error(
+          `Successful deployment source unavailable for run ${input.run.databaseId}: ${job.sourceError ?? "no exact checkout SHA"}`
+        );
+      }
+      if (!input.sourceIsAncestor(job.releaseSha)) {
+        continue;
+      }
+      for (const scope of scopes) {
+        selectLatestSource(input.sources, scope, {
+          recordedAt,
           runId: input.run.databaseId,
+          jobId: job.id,
+          attempt: job.run_attempt ?? input.run.attempt,
           sha: job.releaseSha,
           source: "github",
           url: input.run.url,
         });
       }
+    } catch (error) {
+      input.issues?.push({
+        scopes,
+        detail: error.message,
+        recordedAt: Number.isFinite(Date.parse(recordedAt))
+          ? recordedAt
+          : undefined,
+        url: input.run.url,
+      });
     }
   }
 }
 
-function jobCanFillReleaseSource(job, sources) {
-  return (
-    job.conclusion === "success" &&
-    SUCCESSFUL_JOB_SCOPES.some(
-      (mapping) =>
-        !sources.has(mapping.scope) &&
-        mapping.patterns.some((pattern) => pattern.test(job.name))
-    )
-  );
+function selectLatestSource(sources, scope, candidate) {
+  const time = readRecordedAt(candidate, "Deployment evidence");
+  const current = sources.get(scope);
+  if (!current || time > readRecordedAt(current, "Deployment evidence")) {
+    sources.set(scope, candidate);
+    return;
+  }
+  if (time !== readRecordedAt(current, "Deployment evidence")) {
+    return;
+  }
+  if (candidate.sha !== current.sha) {
+    sources.set(scope, {
+      ...(candidate.sha < current.sha ? candidate : current),
+      conflict: true,
+    });
+  } else if (
+    !current.conflict &&
+    candidate.receipt &&
+    (!current.receipt || candidate.receipt.status !== "verified")
+  ) {
+    sources.set(scope, candidate);
+  }
 }
 
 function applyDeployedOverrides(input) {
@@ -491,28 +653,21 @@ function defaultAdapters() {
           "--log",
         ]);
         return CHECKOUT_SOURCE_REGEX.exec(log)?.[1];
-      } catch {
-        return undefined;
+      } catch (error) {
+        throw new Error(
+          `Cannot read checkout evidence for job ${job.id}: ${error.message}`,
+          { cause: error }
+        );
       }
     },
     readReleaseJobs: (runId, repo) =>
-      runGhJsonAsync([
-        "api",
-        `repos/${repo}/actions/runs/${String(runId)}/jobs?per_page=100`,
-        "--jq",
-        ".jobs",
-      ]),
+      readGithubReleaseJobs(runId, repo, (endpoint) =>
+        runGhJsonAsync(["api", endpoint])
+      ),
     readReleaseRuns: (repo) =>
-      runGhJsonAsync([
-        "run",
-        "list",
-        "--repo",
-        repo,
-        "--limit",
-        "250",
-        "--json",
-        "databaseId,headSha,createdAt,conclusion,workflowName,displayTitle,url",
-      ]),
+      readGithubReleaseRuns(repo, (endpoint) =>
+        runGhJsonAsync(["api", endpoint])
+      ),
     resolveRef: (ref) =>
       runGit(["rev-parse", "--verify", `${ref}^{commit}`]).trim(),
     resolveRepo: resolveCheckoutRepository,
@@ -621,6 +776,7 @@ function formatReleaseStatus(result) {
     `Global deployment backlog state: ${result.globalState}`,
     `Source validation: ${result.sourceValidation}`,
     `Scope basis: ${result.scopeBasis}`,
+    `History coverage: ${result.history.complete ? "complete available history" : "incomplete; see evidence issues"}`,
     ...(result.currentChange
       ? [
           `Current change: ${result.currentChange.baseSha}...${result.sourceSha}`,
@@ -637,12 +793,17 @@ function formatReleaseStatus(result) {
   ];
   for (const component of result.components) {
     if (component.state === "unknown") {
-      lines.push(`- ${component.scope}: deployment history not found`);
+      lines.push(
+        `- ${component.scope}: unknown — ${component.reason ?? "deployment history not found"}`
+      );
       continue;
     }
     lines.push(
       `- ${component.scope}: ${component.state} since ${component.sha.slice(0, 12)}${component.source === "override" ? " (local override)" : ""}`
     );
+  }
+  for (const issue of result.history.issues) {
+    lines.push(`- History issue (${issue.scopes.join(", ")}): ${issue.detail}`);
   }
   lines.push("", "Blockers:");
   lines.push(
@@ -674,6 +835,7 @@ function runGh(args) {
 async function runGhAsync(args) {
   const result = await execFileAsync(resolveCommandBinary("gh"), args, {
     encoding: "utf8",
+    timeout: 30_000,
     maxBuffer: 1024 * 1024 * 10,
   });
   return result.stdout;

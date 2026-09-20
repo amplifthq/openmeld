@@ -2,16 +2,22 @@ import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import {
   DESKTOP_APP_ORIGIN,
-  DESKTOP_AUTH_SCHEME,
+  DESKTOP_CONTRACT_HEADER,
+  DESKTOP_CONTRACT_VERSION,
+  DESKTOP_UPDATE_OBSERVATION_PATH,
+  DESKTOP_WEB_BUILD_HEADER,
   type DesktopComputerConnectionProgress,
   type DesktopComputerDisconnectResult,
   type DesktopComputerOperation,
   type DesktopInboxAttention,
   type DesktopInstalledTarget,
+  desktopAuthIdentity,
   desktopComputerConnectionRequestSchema,
   desktopComputerDisconnectRequestSchema,
   desktopInstalledTargetSchema,
   desktopPlatformSchema,
+  desktopUpdateObservationResponseSchema,
+  desktopUpdateObservationSchema,
 } from "@openmeld/schemas";
 import {
   app,
@@ -34,6 +40,7 @@ import {
   resolveDesktopEnvPreset,
   resolveDesktopWebUrl,
 } from "./desktop-environment";
+import { applyDesktopDevelopmentContext } from "./development-context";
 import { installedCommandEnvironment } from "./installed-environment";
 import { createLocalComputerReader } from "./local-computer";
 import { resolvePilotAssets } from "./pilot-assets";
@@ -43,13 +50,19 @@ import { createPilotNotifications } from "./pilot-notifications";
 import { createPilotSpaceStreams } from "./pilot-space-stream";
 import { installPilotTransport } from "./pilot-transport";
 import {
+  configureDesktopCredentialStorage,
   configureInstalledUserData,
   configurePilotUserData,
 } from "./pilot-user-data";
 
 declare const __OPENMELD_DESKTOP_WEB_BUILD__: string;
+declare const __OPENMELD_DESKTOP_DEVELOPMENT_CONTEXT__: unknown;
 declare const __OPENMELD_DESKTOP_PRIVATE_PACKAGE__: boolean;
 declare const __OPENMELD_DESKTOP_INSTALLED_TARGET__: DesktopInstalledTarget | null;
+const developmentContext =
+  typeof __OPENMELD_DESKTOP_DEVELOPMENT_CONTEXT__ === "undefined"
+    ? null
+    : __OPENMELD_DESKTOP_DEVELOPMENT_CONTEXT__;
 
 export function initializeDesktopPilot(
   getWindow: () => BrowserWindow | null,
@@ -67,6 +80,9 @@ export function initializeDesktopPilot(
   const installedTarget = __OPENMELD_DESKTOP_INSTALLED_TARGET__
     ? desktopInstalledTargetSchema.parse(__OPENMELD_DESKTOP_INSTALLED_TARGET__)
     : undefined;
+  if (!installedTarget) {
+    applyDesktopDevelopmentContext(developmentContext, process.env);
+  }
   const sharedAssets = resolvePilotAssets({
     privatePackage: __OPENMELD_DESKTOP_PRIVATE_PACKAGE__,
     resourcesPath: process.resourcesPath,
@@ -118,7 +134,9 @@ export function initializeDesktopPilot(
   };
   protocol.registerSchemesAsPrivileged([
     {
-      scheme: installedTarget?.authScheme ?? DESKTOP_AUTH_SCHEME,
+      scheme:
+        installedTarget?.authScheme ??
+        desktopAuthIdentity(false, undefined, webOrigin).authScheme,
       privileges: { standard: false, secure: true },
     },
     {
@@ -136,12 +154,20 @@ export function initializeDesktopPilot(
   } else {
     configurePilotUserData(app, process.env);
   }
+  configureDesktopCredentialStorage(app, {
+    installed: Boolean(installedTarget),
+    lane,
+    platform: process.platform,
+    webOrigin,
+  });
   let sessionRevision = 0;
+  let desktopUpdateAccountChanged: (() => void) | null = null;
   const auth = createPilotAuth(
     webOrigin,
     getWindow,
     () => {
       sessionRevision += 1;
+      desktopUpdateAccountChanged?.();
       streams.closeAll();
       notifications.clear();
       const owner = getWindow()?.webContents;
@@ -178,9 +204,42 @@ export function initializeDesktopPilot(
   let disposeTransport: (() => void) | undefined;
   let notificationPoll: ReturnType<typeof setInterval> | undefined;
   const diagnosticsEnabled =
-    !app.isPackaged && process.env.OPENMELD_DESKTOP_DIAGNOSTICS === "1";
+    (!app.isPackaged || Boolean(developmentContext)) &&
+    !installedTarget &&
+    process.env.OPENMELD_DESKTOP_DIAGNOSTICS === "1";
   return {
     activateNotification: notifications.activate,
+    setDesktopUpdateAccountListener(listener: () => void) {
+      desktopUpdateAccountChanged = listener;
+    },
+    async reportDesktopUpdateObservation(
+      raw: import("@openmeld/schemas/types").DesktopUpdateObservation
+    ) {
+      const observation = desktopUpdateObservationSchema.parse(raw);
+      await ensureCompatible();
+      const response = await auth.cloudRequest(
+        DESKTOP_UPDATE_OBSERVATION_PATH,
+        {
+          method: "PUT",
+          headers: new Headers({
+            "content-type": "application/json",
+            origin: DESKTOP_APP_ORIGIN,
+            [installedTarget
+              ? DESKTOP_CONTRACT_HEADER
+              : DESKTOP_WEB_BUILD_HEADER]: installedTarget
+              ? DESKTOP_CONTRACT_VERSION
+              : platform.webBuild,
+          }),
+          body: new TextEncoder().encode(JSON.stringify(observation)).buffer,
+        }
+      );
+      if (!response.ok) {
+        throw new Error(`Desktop observation rejected (${response.status})`);
+      }
+      return desktopUpdateObservationResponseSchema.parse(
+        await response.json()
+      );
+    },
     auth,
     installedTarget,
     diagnosticsEnabled,
@@ -191,6 +250,7 @@ export function initializeDesktopPilot(
       return transportSession;
     },
     dispose() {
+      desktopUpdateAccountChanged = null;
       clearInterval(notificationPoll);
       notifications.clear();
       disposeTransport?.();

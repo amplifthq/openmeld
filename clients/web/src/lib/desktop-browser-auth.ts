@@ -11,7 +11,11 @@ export function resolveDesktopBrowserIdentity(input: {
 		(url.hostname === "localhost" ||
 			url.hostname === "127.0.0.1" ||
 			url.hostname.endsWith(".localhost"));
-	const identity = desktopAuthIdentity(!development, input.developmentTarget);
+	const identity = desktopAuthIdentity(
+		!development,
+		input.developmentTarget,
+		input.webOrigin
+	);
 	if (input.clientId !== identity.clientId) {
 		throw new Error(
 			"This sign-in belongs to a different Desktop app. Start sign-in again from your app."

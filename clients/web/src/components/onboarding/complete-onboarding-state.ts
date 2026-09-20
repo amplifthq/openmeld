@@ -1,11 +1,16 @@
 "use client";
 
+import { projectPeopleComputersToLegacyLocalRuntimes } from "@openmeld/agent-runtime";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { readCompletedPrepareSessionPointer } from "#/components/connect/prepare-session-pointer";
 import { findPluginDefinition } from "#/components/organizations/plugin-catalog";
 import { resolveCurrentLocalRuntime } from "#/lib/connect/current-local-runtime";
+import { selectPeopleComputerTarget } from "#/lib/connect/people-computer-selection";
 import { listOrganizationInvitations } from "#/lib/organizations/auth-organizations";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
+import { findActiveProfileById } from "#/lib/profiles/human-profiles";
+import { currentDeviceTargetQueryOptions } from "#/query/connect/current-device-target";
 import { localRuntimesQueryOptions } from "#/query/connect/local-runtimes";
 import {
 	centerAgentDesignationQueryOptions,
@@ -17,6 +22,7 @@ import {
 	organizationQueryKeys,
 } from "#/query/organizations/organization-directory";
 import { organizationPluginConnectionCatalogQueryOptions } from "#/query/organizations/plugin-connections";
+import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 
 export type CompleteOnboardingState = {
 	appNames: string[];
@@ -73,12 +79,11 @@ export function useCompleteOnboardingState(input: {
 			organizationId: currentOrganization.id,
 		})
 	);
-	const localRuntimesQuery = useQuery(
-		localRuntimesQueryOptions({
-			enabled: input.enabled,
-			storageScope,
-		})
-	);
+	const currentComputer = useCompletionComputer({
+		enabled: input.enabled,
+		currentUserId,
+		storageScope,
+	});
 	const canReadInvitations =
 		loadTeamState &&
 		canManageOrganizationArea(roleQuery.data, {
@@ -112,19 +117,20 @@ export function useCompleteOnboardingState(input: {
 				)
 		),
 	];
-	const currentComputer = resolveCurrentLocalRuntime(localRuntimesQuery.data);
 	const localAgentNames = [
 		...new Set(
-			(currentComputer?.executionTargets ?? []).flatMap((target) =>
-				target.localAgentCatalog.entries
-					.filter(
-						(entry) =>
-							entry.detected &&
-							entry.enabled &&
-							entry.lifecycleStatus === "active"
-					)
-					.map((entry) => entry.displayName)
-			)
+			(currentComputer?.executionTargets ?? [])
+				.filter((target) => target.isCurrent)
+				.flatMap((target) =>
+					target.localAgentCatalog.entries
+						.filter(
+							(entry) =>
+								entry.detected &&
+								entry.enabled &&
+								entry.lifecycleStatus === "active"
+						)
+						.map((entry) => entry.displayName)
+				)
 		),
 	];
 
@@ -141,6 +147,52 @@ export function useCompleteOnboardingState(input: {
 		organizationId: currentOrganization.id,
 		organizationName: currentOrganization.name,
 	};
+}
+
+/** Compose display selection here; the shared inventory cache stays target-free. */
+function useCompletionComputer(input: {
+	enabled: boolean;
+	currentUserId: string;
+	storageScope: string;
+}) {
+	const inventory = useQuery(localRuntimesQueryOptions(input));
+	const preference = useQuery(currentDeviceTargetQueryOptions(input));
+	const completedSetup = readCompletedPrepareSessionPointer();
+	const profiles = useQuery(
+		buildStartProfilesQueryOptions({
+			enabled: input.enabled && completedSetup !== null,
+			storageScope: input.storageScope,
+		})
+	);
+	// A browser-local pointer chooses a subject only after its Human Profile and
+	// Computer are confirmed in current-account reads. It never proves readiness.
+	const setupProfile =
+		completedSetup && profiles.isSuccess
+			? findActiveProfileById(profiles.data, {
+					profileId: completedSetup.humanProfileId,
+					profileKind: "human",
+				})
+			: null;
+	const snapshot =
+		input.enabled && inventory.isSuccess
+			? inventory.data.peopleComputers
+			: undefined;
+	const target = selectPeopleComputerTarget({
+		inventory: snapshot,
+		routingPreference: preference.isSuccess ? preference.data : undefined,
+		routingPreferenceUnavailable: !preference.isSuccess,
+		completedSetup,
+		selectedHumanProfileId:
+			setupProfile?.ownerUserId === input.currentUserId
+				? setupProfile.openMeldProfileId
+				: null,
+		selection: "browser",
+	});
+	return snapshot && target
+		? resolveCurrentLocalRuntime(
+				projectPeopleComputersToLegacyLocalRuntimes(snapshot, target)
+			)
+		: null;
 }
 
 export function shouldLoadTeamOnboardingState(input: {

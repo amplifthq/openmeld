@@ -298,7 +298,7 @@ export function buildOrganizationCenterAgentChatPath(
 }
 
 export function buildOrganizationSkillsPath(orgSlug: string): string {
-	return `${buildOrganizationCenterAgentRootPath(orgSlug)}/skills`;
+	return `${buildOrganizationRootPath(orgSlug)}/skills`;
 }
 
 export function buildOrganizationSkillPath(input: {
@@ -513,6 +513,8 @@ function resolveProductHomeSwitchPath(input: {
 }): string | null {
 	const [section, subsection] = input.pathSegments;
 	switch (section) {
+		case "skills":
+			return buildOrganizationSkillsPath(input.nextOrgSlug);
 		case "plugins":
 			return subsection
 				? buildOrganizationPluginPath({

@@ -1,6 +1,7 @@
 "use client";
 import {
 	inboxMessageNotificationSpaceId,
+	isInboxItemInOrganizationScope,
 	isInboxNotificationEligible,
 } from "@openmeld/api-client";
 
@@ -129,6 +130,15 @@ export function InboxNotificationListener(input: {
 						unreadMentionCount: attentionSummary.unreadMentionCount,
 						unreadUrgentUpdateCount: attentionSummary.unreadUrgentUpdateCount,
 						unresolvedActionCount: attentionSummary.unresolvedActionCount,
+						...(attentionSummary.priorityCount === undefined
+							? {}
+							: {
+									priorityCount: attentionSummary.priorityCount,
+									needsActionCount: attentionSummary.needsActionCount,
+									needsReviewCount: attentionSummary.needsReviewCount,
+									unreadPriorityUpdateCount:
+										attentionSummary.unreadPriorityUpdateCount,
+								}),
 					},
 		[attentionSummary, summaryQuery.isError]
 	);
@@ -670,6 +680,7 @@ function processInboxNotificationItems(input: {
 			input.deliveryContextRef.current.feedIdentity === input.feedIdentity;
 		showInboxNotification({
 			item,
+			organizationId: input.organizationId,
 			onActivate: (currentItem) => {
 				if (input.deliveryContextRef.current.userId !== input.userId) {
 					return;
@@ -819,7 +830,7 @@ async function resolveCurrentInboxNotificationReadiness(input: {
 	if (
 		currentItem.id !== input.itemId ||
 		currentItem.recipientUserId !== current.userId ||
-		currentItem.organizationId !== current.organizationId ||
+		!isInboxItemInOrganizationScope(currentItem, current.organizationId) ||
 		!shouldDeliverInboxNotification(currentItem)
 	) {
 		return { status: "ineligible" };
@@ -872,7 +883,7 @@ function handleInboxNotificationDeliveryResult(input: {
 			const currentItem = current.itemsById.get(input.item.id);
 			if (
 				currentItem &&
-				(currentItem.organizationId !== current.organizationId ||
+				(!isInboxItemInOrganizationScope(currentItem, current.organizationId) ||
 					currentItem.recipientUserId !== current.userId ||
 					!shouldDeliverInboxNotification(currentItem))
 			) {

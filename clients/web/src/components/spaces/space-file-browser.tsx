@@ -15,7 +15,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
@@ -53,6 +52,7 @@ import {
 	formatShortDate,
 	resolveSpaceFileErrorMessage,
 } from "./space-file-utils";
+import { SpaceFilesSkeleton } from "./space-panel-skeletons";
 import { useSpaceFilePinAction } from "./space-pins";
 import { useSpaceFileImageSource } from "./use-space-file-image-source";
 
@@ -70,6 +70,7 @@ export function SpaceFileBrowser(input: {
 	onDismissError: () => void;
 	onMove: (entry: SpaceFileEntry) => void;
 	onNewFolder: () => void;
+	onHandOff?: () => void;
 	onNewMarkdownFile: () => void;
 	onOpen: (entry: SpaceFileEntry) => void;
 	onOpenBreadcrumb: (folderId: string | null, name: string) => void;
@@ -199,6 +200,16 @@ export function SpaceFileBrowser(input: {
 								<UploadSimpleIcon aria-hidden="true" />
 								Upload
 							</Button>
+							{input.onHandOff ? (
+								<Button
+									disabled={input.busy}
+									onClick={input.onHandOff}
+									size="sm"
+									variant="outline"
+								>
+									Hand off
+								</Button>
+							) : null}
 							<DropdownMenu>
 								<DropdownMenuTrigger
 									render={<Button disabled={input.busy} size="sm" />}
@@ -300,17 +311,7 @@ function SpaceFileBrowserContent(input: {
 	view: "active" | "trash";
 }) {
 	if (input.isPending) {
-		return (
-			<output
-				aria-busy="true"
-				aria-label="Loading files"
-				className="grid gap-2"
-			>
-				<Skeleton className="h-14 w-full rounded-md" />
-				<Skeleton className="h-14 w-full rounded-md" />
-				<Skeleton className="h-14 w-full rounded-md" />
-			</output>
-		);
+		return <SpaceFilesSkeleton />;
 	}
 	if (input.error) {
 		return (

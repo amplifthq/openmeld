@@ -107,6 +107,9 @@ describe("TabsSubtle", () => {
     expect(tabList.className).toContain("bg-transparent");
     expect(tabList.className).toContain("overflow-visible");
     expect(selectedTab.className).not.toContain("rounded-md");
+    expect(selectedTab.className).toContain("h-full");
+    expect(selectedTab.className).toContain("min-h-0");
+    expect(selectedTab.className).not.toContain("max-lg:min-h-11");
     expect(
       selectedTab.querySelector('[data-slot="tabs-subtle-underline"]')
     ).not.toBeNull();

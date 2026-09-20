@@ -17,6 +17,8 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@openmeld/ui/components/card";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { SkeletonRegion } from "@openmeld/ui/components/skeleton-content";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
@@ -38,6 +40,8 @@ export type CenterAgentSlackConnection = NonNullable<
 >;
 
 export function CenterAgentMessageChannelsSection(input: {
+	slackDetailsState?: "loading" | "unavailable";
+	onRetrySlackDetails?: () => void;
 	activeRegistrations?: readonly LarkPlatformActiveRegistrationProjection[];
 	activeRegistrationsChecking?: boolean;
 	activeRegistrationsUnavailable?: boolean;
@@ -118,23 +122,30 @@ export function CenterAgentMessageChannelsSection(input: {
 				className="grid items-stretch gap-3 xl:grid-cols-2"
 				role="list"
 			>
-				<ChannelCard
-					connected={input.organizationRequired ? false : slackConnected}
-					description={
-						slackReconnectRequired && !input.organizationRequired
-							? "Reconnect Slack to approve updated permissions for the Center Agent."
-							: resolveChannelDescription({
-									connected: slackConnected,
-									name: "Slack",
-									organizationRequired: input.organizationRequired === true,
-								})
-					}
-					logo={SLACK_CHANNEL_IDENTITY}
-					managementControl={slackManagementControl}
-					name="Slack"
-					needsAttention={slackReconnectRequired}
-					statusLabel={slackStatusLabel}
-				/>
+				{input.slackDetailsState ? (
+					<SlackChannelPendingCard
+						onRetry={input.onRetrySlackDetails}
+						state={input.slackDetailsState}
+					/>
+				) : (
+					<ChannelCard
+						connected={input.organizationRequired ? false : slackConnected}
+						description={
+							slackReconnectRequired && !input.organizationRequired
+								? "Reconnect Slack to approve updated permissions for the Center Agent."
+								: resolveChannelDescription({
+										connected: slackConnected,
+										name: "Slack",
+										organizationRequired: input.organizationRequired === true,
+									})
+						}
+						logo={SLACK_CHANNEL_IDENTITY}
+						managementControl={slackManagementControl}
+						name="Slack"
+						needsAttention={slackReconnectRequired}
+						statusLabel={slackStatusLabel}
+					/>
+				)}
 				{(["lark", "feishu"] as const).map((provider) => {
 					const connection = input.connections?.find(
 						(candidate) => candidate.provider === provider
@@ -167,6 +178,65 @@ export function CenterAgentMessageChannelsSection(input: {
 				})}
 			</FluidCardGroup>
 		</section>
+	);
+}
+
+function SlackChannelPendingCard(input: {
+	state: "loading" | "unavailable";
+	onRetry?: () => void;
+}) {
+	return (
+		<FluidCardItem className={surfaceClasses(2)} itemId="slack" role="listitem">
+			<Card className="h-full bg-transparent shadow-none" size="sm">
+				<CardHeader>
+					<div className="flex items-center gap-4">
+						<AppLogo app={SLACK_CHANNEL_IDENTITY} size="lg" surfaceLevel={3} />
+						<CardTitle className="text-base">
+							<h2>Slack</h2>
+						</CardTitle>
+					</div>
+				</CardHeader>
+				<CardContent className="flex flex-1 flex-col justify-center gap-4 py-3">
+					{input.state === "loading" ? (
+						<SkeletonRegion label="Loading Slack connection">
+							<Skeleton className="h-4 w-3/4" />
+							<Skeleton className="mt-3 h-3 w-1/2" />
+							<Skeleton className="mt-4 h-8 w-28" />
+						</SkeletonRegion>
+					) : (
+						<div className="space-y-3">
+							<p className="text-muted-foreground text-sm" role="alert">
+								Slack connection details are unavailable.
+							</p>
+							{input.onRetry ? (
+								<Button onClick={input.onRetry} size="sm" variant="outline">
+									Try again
+								</Button>
+							) : null}
+						</div>
+					)}
+				</CardContent>
+			</Card>
+		</FluidCardItem>
+	);
+}
+
+export function ChannelsSkeleton() {
+	return (
+		<SkeletonRegion label="Loading channels">
+			<div className="grid gap-3 xl:grid-cols-2">
+				{["first", "second", "third"].map((id) => (
+					<div className="space-y-5 rounded-md bg-card p-5" key={id}>
+						<div className="flex items-center gap-4">
+							<Skeleton className="size-12" />
+							<Skeleton className="h-5 w-24" />
+						</div>
+						<Skeleton className="h-4 w-3/4" />
+						<Skeleton className="h-8 w-28" />
+					</div>
+				))}
+			</div>
+		</SkeletonRegion>
 	);
 }
 

@@ -506,6 +506,18 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     cliUpdateAction: "leaving a space",
     serviceAction: null,
   },
+  "space.files.handoff": {
+    signInAction: "handing off Space files",
+    profileAction: "handing off Space files",
+    cliUpdateAction: "handing off Space files",
+    serviceAction: null,
+  },
+  "space.files.working-copy": {
+    signInAction: "working on Space files locally",
+    profileAction: "working on Space files locally",
+    cliUpdateAction: "working on Space files locally",
+    serviceAction: null,
+  },
   "space.files.list": {
     signInAction: "listing Space files",
     profileAction: "listing Space files",

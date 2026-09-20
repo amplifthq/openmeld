@@ -128,6 +128,10 @@ export {
   verifyCliLaunchContract,
   verifyLaunchContractFiles,
 } from "./launch-contract.js";
+export {
+  normalizeCommandEnvironment,
+  WINDOWS_RUNTIME_ENV_KEYS,
+} from "./process-environment.js";
 export { createProviderOriginalError } from "./provider-original-error.js";
 export {
   type AdapterProviderUsageLimit,
@@ -170,7 +174,9 @@ export type AdapterDispatchExecutionMode = "normal" | "repair";
 export type AdapterComputerFileAccessBoundary = Extract<
   ComputerFileAccessPolicy,
   { mode: "block_selected_folders" | "only_selected_folders" }
-> & { executionContextAccess?: ExecutionContextTask["access"] };
+> & {
+  executionContextAccess?: ExecutionContextTask["access"];
+} & import("@openmeld/schemas").SpaceWorkingCopyAccess;
 export type AdapterComputerFileAccessVerificationRequest = {
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   boundary: AdapterComputerFileAccessBoundary;

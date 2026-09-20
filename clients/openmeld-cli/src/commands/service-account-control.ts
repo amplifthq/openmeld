@@ -62,12 +62,6 @@ export async function runServiceAccountControl(
     );
   }
   const input = parsed.data;
-  if (process.platform === "win32") {
-    refused(
-      "unsupported_platform",
-      "Account-checked Service control is not available on Windows yet."
-    );
-  }
   const auth = await getAuthSessionState();
   if (auth.state !== "valid" || !auth.session) {
     refused(

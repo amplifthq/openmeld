@@ -43,6 +43,7 @@ test("dispatch Space Action MCP config forwards only its bounded authority", asy
     },
     id: "openmeld_internal_dispatch_space_action",
     toolNames: [
+      "working_copy",
       "read_file",
       "read_history",
       "list_tasks",

@@ -12,6 +12,7 @@ import { cn } from "#lib/utils";
 export function SettingsRow({
   label,
   description,
+  className,
   status = "idle",
   layout = "inline",
   showDivider = true,
@@ -33,7 +34,8 @@ export function SettingsRow({
         layout === "inline"
           ? "gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-6"
           : "gap-3",
-        showDivider && "border-border border-b last:border-b-0"
+        showDivider && "border-border border-b last:border-b-0",
+        className
       )}
       data-layout={layout}
       data-slot="settings-row"
