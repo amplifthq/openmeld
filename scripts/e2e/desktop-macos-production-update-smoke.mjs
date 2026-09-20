@@ -1,11 +1,19 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 
 export const PRODUCTION_APP_PATH = "/Applications/OpenMeld.app";
 export const LEGACY_APP_PATH = "/Applications/OpenMeld Desktop.app";
@@ -22,6 +30,10 @@ export const PRODUCTION_INFO_PLIST = path.join(
 export const INSTALL_RECEIPT_PATH = path.join(
   homedir(),
   "Library/Application Support/OpenMeld Desktop/desktop-update-install-receipt.txt"
+);
+export const SMOKE_STATE_PATH = path.join(
+  REPO_ROOT,
+  "dev-tmp/desktop-macos-update-smoke-state.json"
 );
 
 const STABLE_VERSION = /^\d+\.\d+\.\d+$/u;
@@ -92,15 +104,43 @@ export function assertProductionSignatureDetails(details) {
   }
 }
 
+export function productionProcessPids(output) {
+  const pids = [];
+  for (const rawLine of output.split(LINE_SPLIT)) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+    const match = /^(\d+)\s+(.+)$/u.exec(line);
+    if (!match) {
+      continue;
+    }
+    const [, pidText, command] = match;
+    if (
+      command === PRODUCTION_EXECUTABLE ||
+      command.startsWith(`${PRODUCTION_EXECUTABLE} `)
+    ) {
+      pids.push(Number(pidText));
+    }
+  }
+  return pids;
+}
+
 export function processListHasProductionApp(output) {
-  return output
-    .split(LINE_SPLIT)
-    .map((line) => line.trim())
-    .some(
-      (line) =>
-        line === PRODUCTION_EXECUTABLE ||
-        line.startsWith(`${PRODUCTION_EXECUTABLE} `)
+  return productionProcessPids(output).length > 0;
+}
+
+export function assertProcessRestarted(beforePids, afterPids) {
+  if (afterPids.length === 0) {
+    throw new Error("OpenMeld.app is not running after the update.");
+  }
+  const before = new Set(beforePids);
+  const reused = afterPids.filter((pid) => before.has(pid));
+  if (reused.length > 0) {
+    throw new Error(
+      `The pre-update OpenMeld process is still running after the update (PID ${reused.join(", ")}).`
     );
+  }
 }
 
 export function parseInstallReceipt(content) {
@@ -168,18 +208,45 @@ function readPlistValue(key) {
 }
 
 function readProcessList() {
-  return run("/bin/ps", ["-axo", "command="]);
+  return run("/bin/ps", ["-axo", "pid=,command="]);
 }
 
 async function waitForProductionProcess(timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() <= deadline) {
-    if (processListHasProductionApp(readProcessList())) {
-      return true;
+    const pids = productionProcessPids(readProcessList());
+    if (pids.length > 0) {
+      return pids;
     }
     await sleep(250);
   }
-  return false;
+  return [];
+}
+
+function writeSmokeState(state) {
+  mkdirSync(path.dirname(SMOKE_STATE_PATH), { recursive: true });
+  writeFileSync(SMOKE_STATE_PATH, `${JSON.stringify(state, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+}
+
+function readSmokeState() {
+  if (!existsSync(SMOKE_STATE_PATH)) {
+    throw new Error(
+      "Missing the paired before-smoke state. Run the before phase on this release Mac first."
+    );
+  }
+  const state = JSON.parse(readFileSync(SMOKE_STATE_PATH, "utf8"));
+  if (
+    state?.schemaVersion !== 1 ||
+    !Array.isArray(state.beforePids) ||
+    typeof state.currentVersion !== "string" ||
+    typeof state.targetVersion !== "string"
+  ) {
+    throw new Error("The local Desktop A-to-B smoke state is malformed.");
+  }
+  return state;
 }
 
 function readReceiptIfPresent() {
@@ -262,49 +329,76 @@ function inspectInstalledProductionApp(expectedVersion) {
 
 async function runBefore(input) {
   const app = inspectInstalledProductionApp(input.currentVersion);
-  let running = processListHasProductionApp(readProcessList());
-  if (!running) {
+  let pids = productionProcessPids(readProcessList());
+  if (pids.length === 0) {
     run("/usr/bin/open", [PRODUCTION_APP_PATH]);
-    running = await waitForProductionProcess(15_000);
+    pids = await waitForProductionProcess(15_000);
   }
-  if (!running) {
+  if (pids.length === 0) {
     throw new Error("OpenMeld.app did not start from its production executable.");
   }
+
+  writeSmokeState({
+    schemaVersion: 1,
+    currentVersion: input.currentVersion,
+    targetVersion: input.targetVersion,
+    beforePids: pids,
+    appPath: PRODUCTION_APP_PATH,
+    recordedAt: new Date().toISOString(),
+  });
 
   return {
     phase: "before",
     currentVersion: input.currentVersion,
     targetVersion: input.targetVersion,
     app,
+    beforePids: pids,
     processRunningFromProductionPath: true,
     previousReceipt: readReceiptIfPresent(),
+    statePath: SMOKE_STATE_PATH,
     next:
       "After the separately authorized promotion, use this running production A to Check, Download, and Restart to update. Do not manually reopen B before the after check.",
   };
 }
 
 async function runAfter(input) {
-  const app = inspectInstalledProductionApp(input.targetVersion);
-  const running = await waitForProductionProcess(20_000);
-  if (!running) {
+  const state = readSmokeState();
+  if (state.targetVersion !== input.targetVersion) {
     throw new Error(
-      "The target OpenMeld.app is installed but did not auto-relaunch from the production path. Do not mask this by opening it manually."
+      `The paired before-smoke expected ${state.targetVersion}, not ${input.targetVersion}.`
     );
   }
+
+  const app = inspectInstalledProductionApp(input.targetVersion);
+  const afterPids = await waitForProductionProcess(20_000);
+  assertProcessRestarted(state.beforePids, afterPids);
+
   const receipt = readReceiptIfPresent();
   if (receipt) {
     assertReceiptMatchesTarget(receipt, input.targetVersion);
   }
 
+  const completedState = {
+    ...state,
+    afterPids,
+    completedAt: new Date().toISOString(),
+    result: "pass",
+  };
+  writeSmokeState(completedState);
+
   return {
     phase: "after",
     targetVersion: input.targetVersion,
     app,
+    beforePids: state.beforePids,
+    afterPids,
     processRunningFromProductionPath: true,
+    processRestarted: true,
     receipt,
+    statePath: SMOKE_STATE_PATH,
     receiptNote: receipt
       ? "The updater receipt confirms the target Main process started."
-      : "No receipt exists. This is acceptable only when production A predates receipt instrumentation; the executable-path relaunch check remains authoritative for this run.",
+      : "No receipt exists. This is acceptable only when production A predates receipt instrumentation; PID replacement plus the executable-path relaunch check remains authoritative for this run.",
   };
 }
 

@@ -4,9 +4,11 @@ import {
   assertProductionSignatureDetails,
   assertReceiptMatchesTarget,
   compareStableVersions,
+  assertProcessRestarted,
   parseInstallReceipt,
   parseSmokeArgs,
   processListHasProductionApp,
+  productionProcessPids,
   PRODUCTION_EXECUTABLE,
 } from "./desktop-macos-production-update-smoke.mjs";
 
@@ -50,18 +52,25 @@ test("requires the production Apple signing identity", () => {
 });
 
 test("matches only a process running from the production app executable", () => {
+  const output = [
+    "101 /bin/zsh",
+    `202 ${PRODUCTION_EXECUTABLE}`,
+    "303 /usr/bin/open /tmp/Other.app",
+  ].join("\n");
+  assert.deepEqual(productionProcessPids(output), [202]);
+  assert.equal(processListHasProductionApp(output), true);
   assert.equal(
     processListHasProductionApp(
-      `/bin/zsh\n${PRODUCTION_EXECUTABLE}\n/usr/bin/open /tmp/Other.app\n`
-    ),
-    true
-  );
-  assert.equal(
-    processListHasProductionApp(
-      "/Applications/OpenMeld Desktop.app/Contents/MacOS/OpenMeld\n"
+      "404 /Applications/OpenMeld Desktop.app/Contents/MacOS/OpenMeld\n"
     ),
     false
   );
+});
+
+test("requires the updater to replace the pre-update process", () => {
+  assert.doesNotThrow(() => assertProcessRestarted([101], [202]));
+  assert.throws(() => assertProcessRestarted([101], [101]), /still running/u);
+  assert.throws(() => assertProcessRestarted([101], []), /not running/u);
 });
 
 test("validates bounded updater receipt evidence when it exists", () => {

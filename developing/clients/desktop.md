@@ -603,12 +603,15 @@ exact production executable. It also refuses a stale
 `/Applications/OpenMeld Desktop.app` so the release Mac has one unambiguous
 production app.
 
-The `after` phase **never opens B**. It waits for the production executable that
-the updater should have relaunched, then verifies B's version and the same native
-trust facts. If the bounded updater receipt exists, it must confirm the expected
-target version and `application_started`; absence is tolerated for a production
-A that predates receipt instrumentation. This keeps the recurring release smoke
-short while still proving the failure boundary that this incident exposed.
+The `before` phase also records A's exact production-process PID(s) in ignored
+`dev-tmp` smoke state. The `after` phase **never opens B**: it requires the
+production PID(s) to be replaced, then verifies B's version and the same native
+trust facts. This prevents a surviving A process from being mistaken for a
+successful B relaunch merely because the on-disk bundle changed. If the bounded
+updater receipt exists, it must confirm the expected target version and
+`application_started`; absence is tolerated for a production A that predates
+receipt instrumentation. This keeps the recurring release smoke short while
+still proving the failure boundary that this incident exposed.
 
 Record the exact A and B versions, release SHA/candidate, promotion evidence, and
 the helper's before/after result. A release is not considered accepted until the
