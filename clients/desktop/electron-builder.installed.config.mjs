@@ -12,9 +12,7 @@ import {
   DEFAULT_APPLE_TEAM_ID,
   DEFAULT_NOTARY_KEYCHAIN_PROFILE,
 } from "../../scripts/release/macos-cli-signing.mjs";
-import {
-  assertMacProductionBundleIdentity,
-} from "./src/main/update/mac-bundle-path.ts";
+import { assertMacProductionBundleIdentity } from "./src/main/update/mac-bundle-path.ts";
 
 const target = readInstalledDesktopTarget(process.env);
 const signedMode = readDesktopSignedPackageMode(process.env);

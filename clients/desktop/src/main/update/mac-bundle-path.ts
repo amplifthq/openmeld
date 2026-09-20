@@ -48,9 +48,7 @@ export function assertMacUpdateBundlePath(
   if (name === MAC_PRODUCTION_APP_BUNDLE_NAME) {
     return currentBundle;
   }
-  if (
-    (MAC_LEGACY_APP_BUNDLE_NAMES as readonly string[]).includes(name)
-  ) {
+  if ((MAC_LEGACY_APP_BUNDLE_NAMES as readonly string[]).includes(name)) {
     throw new Error(
       "This legacy OpenMeld Desktop.app installation cannot update safely in place. Install or open the current signed OpenMeld.app first."
     );

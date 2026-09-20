@@ -2,12 +2,7 @@
 
 import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -36,6 +31,7 @@ export const SMOKE_STATE_PATH = path.join(
 
 const STABLE_VERSION = /^\d+\.\d+\.\d+$/u;
 const LINE_SPLIT = /\r?\n/u;
+const PROCESS_LINE = /^(\d+)\s+(.+)$/u;
 const RECEIPT_KEYS = new Set([
   "state",
   "sourceVersion",
@@ -74,7 +70,7 @@ export function parseSmokeArgs(argv) {
   if (phase === "before") {
     if (values.length !== 2) {
       throw new Error(
-        "Usage: pnpm release:desktop:smoke:macos-update -- before <current-version> <target-version>"
+        "Usage: node scripts/e2e/desktop-macos-production-update-smoke.mjs before <current-version> <target-version>"
       );
     }
     const [currentVersion, targetVersion] = values;
@@ -86,7 +82,7 @@ export function parseSmokeArgs(argv) {
   if (phase === "after") {
     if (values.length !== 1) {
       throw new Error(
-        "Usage: pnpm release:desktop:smoke:macos-update -- after <target-version>"
+        "Usage: node scripts/e2e/desktop-macos-production-update-smoke.mjs after <target-version>"
       );
     }
     const [targetVersion] = values;
@@ -111,7 +107,9 @@ export function assertProductionSignatureDetails(details) {
       line.startsWith("Authority=Developer ID Application:")
     )
   ) {
-    throw new Error("OpenMeld.app is not signed by a Developer ID Application.");
+    throw new Error(
+      "OpenMeld.app is not signed by a Developer ID Application."
+    );
   }
 }
 
@@ -122,7 +120,7 @@ export function productionProcessPids(output) {
     if (!line) {
       continue;
     }
-    const match = /^(\d+)\s+(.+)$/u.exec(line);
+    const match = PROCESS_LINE.exec(line);
     if (!match) {
       continue;
     }
@@ -170,8 +168,7 @@ export function parseInstallReceipt(content) {
     const key = line.slice(0, separator);
     const value = line.slice(separator + 1);
     if (
-      !RECEIPT_KEYS.has(key) ||
-      !value ||
+      !(RECEIPT_KEYS.has(key) && value) ||
       value.length > MAX_RECEIPT_VALUE_LENGTH ||
       Object.hasOwn(result, key)
     ) {
@@ -262,9 +259,7 @@ function readSmokeState() {
     state.appPath !== PRODUCTION_APP_PATH ||
     !Array.isArray(state.beforePids) ||
     state.beforePids.length === 0 ||
-    !state.beforePids.every(
-      (pid) => Number.isInteger(pid) && pid > 0
-    ) ||
+    !state.beforePids.every((pid) => Number.isInteger(pid) && pid > 0) ||
     typeof state.currentVersion !== "string" ||
     typeof state.targetVersion !== "string" ||
     compareStableVersions(state.currentVersion, state.targetVersion) >= 0
@@ -360,7 +355,9 @@ async function runBefore(input) {
     pids = await waitForProductionProcess(15_000);
   }
   if (pids.length === 0) {
-    throw new Error("OpenMeld.app did not start from its production executable.");
+    throw new Error(
+      "OpenMeld.app did not start from its production executable."
+    );
   }
 
   writeSmokeState({
@@ -381,8 +378,7 @@ async function runBefore(input) {
     processRunningFromProductionPath: true,
     previousReceipt: readReceiptIfPresent(),
     statePath: SMOKE_STATE_PATH,
-    next:
-      "After the separately authorized promotion, use this running production A to Check, Download, and Restart to update. Do not manually reopen B before the after check.",
+    next: "After the separately authorized promotion, use this running production A to Check, Download, and Restart to update. Do not manually reopen B before the after check.",
   };
 }
 

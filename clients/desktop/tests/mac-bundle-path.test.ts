@@ -8,9 +8,7 @@ import {
 describe("macOS Desktop bundle path", () => {
   it("reads the installed application folder from the packaged executable", () => {
     expect(
-      readMacAppBundlePath(
-        "/Applications/OpenMeld.app/Contents/MacOS/OpenMeld"
-      )
+      readMacAppBundlePath("/Applications/OpenMeld.app/Contents/MacOS/OpenMeld")
     ).toBe("/Applications/OpenMeld.app");
   });
 

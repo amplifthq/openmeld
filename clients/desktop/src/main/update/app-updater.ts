@@ -15,6 +15,34 @@ export function assertDesktopUpdateFiles(
   desktopUpdaterFeedSchemaForPlatform(platform).parse(info);
 }
 
+function recordMacInstallEvidence(input: {
+  platform: DesktopReleasePlatform;
+  currentAppBundle?: string | null;
+  targetVersion: string | null;
+  recordMacInstallRequested?: (targetVersion: string) => void;
+}): void {
+  if (input.platform !== "macos-arm64") {
+    return;
+  }
+  assertMacUpdateBundlePath(input.currentAppBundle ?? null);
+  if (!(input.targetVersion && input.recordMacInstallRequested)) {
+    return;
+  }
+  try {
+    input.recordMacInstallRequested(input.targetVersion);
+  } catch (error) {
+    // The receipt is bounded diagnostic evidence, not installation authority.
+    // Never turn an observability write into a new updater outage after the
+    // signed bundle path itself was verified.
+    console.warn(
+      "[openmeld.desktop.update_install_receipt_write_failed]",
+      {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      }
+    );
+  }
+}
+
 /** Application policy around electron-updater; no Service or account dependency. */
 export function createAppUpdater(input: {
   updater: MacUpdater | NsisUpdater;
@@ -128,22 +156,12 @@ export function createAppUpdater(input: {
     if (!(await input.prepareRestart())) {
       throw new Error("Desktop restart blocked by unsaved work.");
     }
-    if (platform === "macos-arm64") {
-      assertMacUpdateBundlePath(input.currentAppBundle ?? null);
-      const targetVersion = state.version ?? downloadedVersion;
-      if (targetVersion && input.recordMacInstallRequested) {
-        try {
-          input.recordMacInstallRequested(targetVersion);
-        } catch (error) {
-          // The receipt is bounded diagnostic evidence, not installation
-          // authority. Never turn an observability write into a new updater
-          // outage after the signed bundle path itself was verified.
-          console.warn("[openmeld.desktop.update_install_receipt_write_failed]", {
-            errorName: error instanceof Error ? error.name : "UnknownError",
-          });
-        }
-      }
-    }
+    recordMacInstallEvidence({
+      platform,
+      currentAppBundle: input.currentAppBundle,
+      targetVersion: state.version ?? downloadedVersion,
+      recordMacInstallRequested: input.recordMacInstallRequested,
+    });
     publish({ status: "installing" });
     input.setInstalling(true);
     updater.quitAndInstall();
