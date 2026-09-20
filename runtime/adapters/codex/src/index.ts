@@ -268,6 +268,10 @@ export const createCodexAdapter = (
       return {
         accepted: true,
         deliveryPath: "cancel",
+        // The wait was aborted with no turn running, so nothing can start for
+        // this task any more. That is the one answer here strong enough for
+        // work that replaces this attempt.
+        localAttemptOutcome: "withdrawn_before_start",
         reasonCode: "accepted",
         signalDelivery: "sent",
         taskId: request.taskId,
@@ -289,7 +293,15 @@ export const createCodexAdapter = (
         turnWasRunning,
       });
     }
-    return result;
+    // A turn that had already started keeps its own result and effects. The
+    // interrupt is a request, not a completion barrier, so this says what was
+    // asked for rather than claiming the attempt is gone.
+    return turnWasRunning && result.accepted
+      ? {
+          ...result,
+          localAttemptOutcome: "stop_requested_after_start" as const,
+        }
+      : result;
   };
   const interrupt: RuntimeAdapter["interrupt"] = async (request) => {
     const occupiedDispatchAborted = abortOccupiedCodexDispatch({

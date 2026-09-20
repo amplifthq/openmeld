@@ -1557,6 +1557,55 @@ Execution Recovery action. It uses the owner-only continuation path described
 above, so closing the public action cannot disable deterministic Usage
 recovery.
 
+Storing the owner's continuation decision and holding a safe permit to start
+the replacement work are separate facts. A Core terminal decision is not the
+permit: a stale-evidence terminal is a decision made from missing evidence, so
+the local Agent may still be queued on the conversation the interrupted work
+was waiting for, and starting a replacement on that basis is what produces two
+attempts at one instruction.
+
+Accepting a cancellation is not the permit either. Control acceptance says the
+request was taken: an adapter can register a stop signal before the provider
+turn is acknowledged, and interrupting a started turn is a request, not a
+completion barrier. The permit is the adapter's own statement that it withdrew
+the attempt before any provider turn began. A stop requested after a turn
+started is a different outcome: that turn keeps its result and whatever effects
+it already produced, so it must not be replayed as never-executed work. An
+adapter that cannot tell the two apart says nothing, and silence stays unproven
+rather than becoming permission.
+
+That statement is carried on the existing local control result, correlated with
+the exact execution, dispatch, task, and delivery session, and kept as durable
+per-execution evidence pinned to the run it answers for. A late acknowledgement
+cannot retire a run that a newer one superseded, and the evidence must be
+accepted even when the Wake Stop lifecycle cannot advance a terminal execution,
+because it is the only fact replacement work can verify. A head that never
+linked an execution never reached a computer and needs no withdrawal.
+
+Accepting a withdrawal removes the Service's inflight record, so the Service
+keeps a bounded receipt of what that withdrawal established and answers a repeat
+request from it. Without that, a lost response would downgrade a proven fact to
+"no such task", which cannot be turned back into proof and would block the
+owner's choice on evidence that merely went missing in transit. Absence from an
+inflight registry is never itself proof: it does not establish that no provider
+work or side effect remains. A Service restart before the proof reaches Core
+leaves the attempt unproven, which keeps the replacement withheld.
+
+Every continuation attempt rereads that prerequisite, including a retry that
+reuses a stored authorization, and re-requests the withdrawal instead of
+assuming an earlier cancellation landed. An unproven withdrawal withholds the
+replacement and reports an explicit awaiting-stop stage with the owner's
+decision retained; it is never an unexplained stall, a silent permission to
+start, or a claim that the attempt stopped. Skip promises only that OpenMeld
+will not continue the work, which Core decides on its own; it requests the same
+withdrawal but does not wait on it, and its copy must not imply that the local
+attempt has stopped or that completed side effects are undone.
+
+An owner shard that predates this prerequisite cannot answer it. Durable Object
+code propagates after a Worker deploy, so an unanswered prerequisite is "not yet
+known": it withholds the replacement and stays retryable. It is never read as
+permission to start a second attempt at the same instruction.
+
 An explicit user Stop is not automatically recoverable. A process crash with
 no result must not fabricate completion. An external-side-effect outcome that
 cannot be proven remains outcome-unknown and must not be automatically rerun.
