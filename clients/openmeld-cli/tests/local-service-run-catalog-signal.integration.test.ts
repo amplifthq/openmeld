@@ -30,20 +30,44 @@ vi.mock("../src/local-service/projects/local-project-control-handler", () => ({
     handleLocalProjectControlFrameMock(...args),
 }));
 
+vi.mock(
+  "../src/local-service/routing/route-catalog-state",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../src/local-service/routing/route-catalog-state")
+    >()),
+    createRouteCatalogFromMutableState: (state: {
+      profileIds: string[];
+      routeByProfileId: Map<string, unknown>;
+      skippedProfiles: unknown[];
+    }) => ({
+      profileIds: [...state.profileIds],
+      routeByProfileId: new Map(state.routeByProfileId),
+      skippedProfiles: [...state.skippedProfiles],
+    }),
+    loadDaemonRouteCatalog: (...args: unknown[]) =>
+      loadDaemonRouteCatalogMock(...args),
+    syncDaemonRouteCatalogState: (...args: unknown[]) =>
+      syncDaemonRouteCatalogStateMock(...args),
+  })
+);
+
 vi.mock("../src/local-service/routing/route-catalog", () => ({
-  createRouteCatalogFromMutableState: (state: {
-    profileIds: string[];
-    routeByProfileId: Map<string, unknown>;
-    skippedProfiles: unknown[];
-  }) => ({
-    profileIds: [...state.profileIds],
-    routeByProfileId: new Map(state.routeByProfileId),
-    skippedProfiles: [...state.skippedProfiles],
-  }),
   loadDaemonRouteCatalog: (...args: unknown[]) =>
     loadDaemonRouteCatalogMock(...args),
-  syncDaemonRouteCatalogState: (...args: unknown[]) =>
-    syncDaemonRouteCatalogStateMock(...args),
+}));
+// Provider installation/history is an external boundary, not fixture state.
+vi.mock("../src/agent-activity/integration-refresh", () => ({
+  createManagedAgentActivityIntegrationRefreshScheduler: () => ({
+    request: () => undefined,
+    stop: async () => undefined,
+  }),
+}));
+vi.mock("../src/agent-activity/local-sync", () => ({
+  startLocalAgentActivitySyncLoop: () => ({
+    requestSync: () => undefined,
+    stop: async () => undefined,
+  }),
 }));
 
 vi.mock("../src/local-service/state/catalog-sync-signal", () => ({
@@ -83,7 +107,6 @@ import type { RuntimeAdapter } from "@openmeld/adapter-core";
 import {
   createInflightTaskControlRegistry,
   createLocalAdapterContainer,
-  createLocalExecutionSlots,
   createPendingAgentInteractionRegistry,
 } from "@openmeld/local-service";
 import {
@@ -100,26 +123,83 @@ import { startLocalDaemonControlPlaneServer } from "../src/local-service/control
 import { DAEMON_STREAM_KEEPALIVE_INTERVAL_MS } from "../src/local-service/core/constants";
 import type {
   CurrentDaemonSocketRef,
-  DaemonDispatchLimits,
   LedgerPaths,
 } from "../src/local-service/core/types";
+import { loadExecutionHostCatalog } from "../src/local-service/execution-host/catalog";
+import type { ExecutionHostResources } from "../src/local-service/execution-host/runtime";
+import { createInProcessExecutionHost } from "./helpers/execution-host";
 
 type RunTestDaemonSocketSessionInput = Omit<
   Parameters<typeof runDaemonSocketSessionInternal>[0],
-  "localExecutionSlots" | "localComponentsObservation"
-> & { dispatchLimits: DaemonDispatchLimits };
+  "executionHost" | "localComponentsObservation" | "loadRouteCatalog"
+> &
+  Omit<ExecutionHostResources, "initialCatalog"> & {
+    profileOwnerName: string | null;
+    loadRouteCatalog?: () => Promise<ExecutionHostResources["initialCatalog"]>;
+  };
 
-function runDaemonSocketSession(
+async function runDaemonSocketSession(
   input: RunTestDaemonSocketSessionInput
 ): Promise<void> {
-  const { dispatchLimits, ...sessionInput } = input;
-  return runDaemonSocketSessionInternal({
-    ...sessionInput,
-    localComponentsObservation: createServiceLocalComponentsObservation({
-      onError: () => undefined,
-    }),
-    localExecutionSlots: createLocalExecutionSlots({ limits: dispatchLimits }),
+  const {
+    dispatchLimits,
+    contextStore,
+    inflightDispatchMetaByTaskId,
+    inflightTaskControlRegistry,
+    pendingAgentInteractionRegistry,
+    localAdapterContainer,
+    ledgerPaths,
+    profileOwnerName,
+    ...sessionInput
+  } = input;
+  const isolatedLedger =
+    ledgerPaths.rootDirPath === "/tmp/ledger"
+      ? createLedgerPaths()
+      : ledgerPaths;
+  const host = await createInProcessExecutionHost({
+    stateRoot: isolatedLedger.rootDirPath,
+    daemonSessionId: input.daemonSessionId,
+    deviceId: input.deviceId,
+    ownerUserId: input.ownerUserId,
+    profileOwnerName,
+    presenter: input.presenter,
+    resources: {
+      dispatchLimits,
+      contextStore,
+      inflightDispatchMetaByTaskId,
+      inflightTaskControlRegistry,
+      pendingAgentInteractionRegistry,
+      localAdapterContainer,
+      ledgerPaths: isolatedLedger,
+      initialCatalog: input.routeCatalogState,
+    },
   });
+  const localComponentsObservation = createServiceLocalComponentsObservation({
+    onError: () => undefined,
+  });
+  try {
+    await runDaemonSocketSessionInternal({
+      ...sessionInput,
+      loadRouteCatalog:
+        input.loadRouteCatalog ??
+        (() =>
+          loadExecutionHostCatalog(
+            {
+              lane: input.lane,
+              ownerUserId: input.ownerUserId,
+              localAdapterContainer,
+              presenter: input.presenter,
+              serviceBundleId: null,
+            },
+            false
+          )),
+      localComponentsObservation,
+      executionHost: host.port,
+    });
+  } finally {
+    localComponentsObservation.dispose();
+    await host.close();
+  }
 }
 
 import { ensureDaemonControlPlaneToken } from "../src/config/daemon-state";
@@ -847,6 +927,7 @@ describe("local service run catalog signal", () => {
 
   it("retries runtime agent controller report sync quickly after write failures", async () => {
     vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
     const lines: Array<{ code: string; text: string }> = [];
 
     syncDaemonRouteCatalogStateMock.mockResolvedValue({

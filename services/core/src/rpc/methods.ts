@@ -3906,6 +3906,44 @@ async function getCurrentLocalRuntimeReplyReadinessForOwnerUser(input: {
   return validated.data;
 }
 
+async function readOwnerComputerCareObservation(input: {
+  env: CoreBindings;
+  target: PeopleComputerTarget;
+  userId: string;
+}) {
+  const observedAtMs = Date.now();
+  try {
+    const ownerService = await lookupRuntimeTransportOwnerService({
+      blockForgottenDevices: true,
+      env: input.env,
+      ownerUserId: input.userId,
+    });
+    const session = ownerService.online
+      ? selectCurrentOwnerServiceSessionsByDeviceLane(ownerService).find(
+          (entry) =>
+            entry.deviceId === input.target.deviceId &&
+            entry.lane === input.target.runtimeLane
+        )
+      : undefined;
+    return {
+      observedAtMs,
+      connection: session ? ("connected" as const) : ("unavailable" as const),
+      supervisor: session ? ("responding" as const) : ("unknown" as const),
+      lastHeartbeatAtMs: session?.lastHeartbeatMs ?? null,
+      executionHost: session?.capabilities.executionHost ?? null,
+    };
+  } catch {
+    // A failed read is unknown, not proof that the Computer is offline.
+    return {
+      observedAtMs,
+      connection: "unknown" as const,
+      supervisor: "unknown" as const,
+      lastHeartbeatAtMs: null,
+      executionHost: null,
+    };
+  }
+}
+
 async function buildOwnerComputerDiagnostics(input: {
   env: CoreBindings;
   includeUsageLimits: boolean;
@@ -11813,6 +11851,12 @@ export async function rpcCenterAgentReadPeopleComputers(
       target,
       readiness: diagnostics.currentLocalRuntimeReplyReadiness,
       fileAccess: diagnostics.currentComputerFileAccess,
+      localRuntimes: diagnostics.localRuntimes,
+      care: await readOwnerComputerCareObservation({
+        env,
+        target,
+        userId: representedHuman.userId,
+      }),
     };
   }
   return centerAgentReadPeopleComputersResponseSchema.parse({
@@ -14233,6 +14277,9 @@ export async function rpcCenterAgentReadSpaceWakeProgress(
   const prepared = await prepareCenterAgentOrganizationMemberRead(env, input);
   const { authorization } = prepared;
   const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
+    includeDeviceWait: true,
+    includePageInfo: true,
+    includeWakeStopEligibility: true,
     includeSourceContext: true,
     includeTiming: true,
     includeWaitReason: true,
@@ -14260,6 +14307,9 @@ export async function rpcCenterAgentReadSpaceWakeProgress(
   });
   const response = await rpcGetActiveSpaceWakeProgress(env, {
     context: authorization.context,
+    includeDeviceWait: true,
+    includePageInfo: true,
+    includeWakeStopEligibility: true,
     includeSourceContext: true,
     includeTiming: true,
     includeWaitReason: true,

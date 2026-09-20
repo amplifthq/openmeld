@@ -1613,6 +1613,7 @@ const createHarness = (input?: {
     socket,
     spaceStub,
     state,
+    storageDelete,
     storageGet,
     storageList,
     storageSetAlarm,
@@ -9319,7 +9320,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       socket,
       state,
       storageRecords,
-      storageTransaction,
+      storageDelete,
     } = createHarness({
       interactionInboxResolveFailures: 1,
       interactionInboxWriteFailures: 1,
@@ -9421,10 +9422,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(storageRecords.has(recoveryProjectionKey)).toBe(true);
     expect(storageRecords.has(interruptedHeadKey)).toBe(true);
 
-    storageTransaction.mockRejectedValueOnce(
-      new Error("recovery projection transaction unavailable")
-    );
+    const deleteRecord = storageDelete.getMockImplementation();
+    if (!deleteRecord) {
+      throw new Error("Missing storage delete fixture");
+    }
+    let rejectedProjectionDelete = false;
+    storageDelete.mockImplementation(async (key) => {
+      if (key === recoveryProjectionKey && !rejectedProjectionDelete) {
+        rejectedProjectionDelete = true;
+        throw new Error("recovery projection transaction unavailable");
+      }
+      return await deleteRecord(key);
+    });
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect(rejectedProjectionDelete).toBe(true);
     expect([...recordingD1.interactionInboxRows.values()]).toEqual([
       expect.objectContaining({ resolution_status: "resolved" }),
     ]);
@@ -14833,6 +14844,125 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it.each([
+    false,
+    true,
+  ])("settles an accepted file-access refusal through existing Stop publication (first publication unavailable: %s)", async (unavailable) => {
+    const harness = createHarness();
+    const {
+      hub,
+      recordingD1,
+      socket,
+      spaceStub,
+      storageRecords,
+      waitUntilTasks,
+    } = harness;
+    const token = await issueDeliveryToken(harness);
+    if (unavailable) {
+      spaceStub.rpcApplyRuntimeCoordinatorWakeStopCommand.mockRejectedValueOnce(
+        new Error("Space unavailable")
+      );
+    }
+    const successful = buildSuccessfulPostMessageTaskResult();
+    const request = buildResultRequest({
+      executionTokenEcho: buildExecutionTokenEcho(token),
+      runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      taskResult: {
+        code: "service.task_result",
+        v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+        payload: {
+          agentId: successful.payload.agentId,
+          attemptId: "attempt-1",
+          taskId: successful.payload.taskId,
+          sourceEventId: successful.payload.sourceEventId,
+          deduped: false,
+          status: "failed",
+          errorType: "policy",
+          errorCode: "computer.file_access.owner_declined",
+          errorMessage: "Computer owner declined the boundary bypass",
+        },
+      },
+    });
+    const submit = () =>
+      (
+        hub as unknown as {
+          handleDispatchResultFrame(
+            socket: WebSocket,
+            payload: unknown
+          ): Promise<void>;
+        }
+      ).handleDispatchResultFrame(socket, request);
+    await submit();
+    await Promise.all(waitUntilTasks.splice(0));
+    if (unavailable) {
+      expect(
+        findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
+          ?.terminalOutcome
+      ).toBeNull();
+      expect(
+        findRuntimeCoordinatorWakeStoppedNoticePublicationRecord(storageRecords)
+      ).toBeUndefined();
+      const inbox = recordingD1.inboxRows.get("dispatch-1::attempt-1");
+      if (!inbox) {
+        throw new Error("Expected the accepted result receipt");
+      }
+      const originalFingerprint = inbox.execution_token_fingerprint;
+      inbox.execution_token_fingerprint =
+        "etfp_v1_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+      const retryAt = Date.now() + 10_000;
+      const nowSpy = vi.spyOn(Date, "now").mockReturnValue(retryAt);
+      try {
+        await (hub as unknown as { alarm(): Promise<void> }).alarm();
+        await Promise.all(waitUntilTasks.splice(0));
+        expect(
+          findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
+            ?.terminalOutcome
+        ).toBeNull();
+        expect(
+          findRuntimeCoordinatorWakeStoppedNoticePublicationRecord(
+            storageRecords
+          )
+        ).toBeUndefined();
+        inbox.execution_token_fingerprint = originalFingerprint;
+        nowSpy.mockReturnValue(retryAt + 30_000);
+        await (hub as unknown as { alarm(): Promise<void> }).alarm();
+        await Promise.all(waitUntilTasks.splice(0));
+      } finally {
+        nowSpy.mockRestore();
+      }
+    }
+    expect(
+      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+    ).toMatchObject({ status: "cancelled" });
+    expect(
+      recordingD1.inboxRows.get("dispatch-1::attempt-1")?.publish_state
+    ).toBe("reply_suppressed_stopped");
+    expect(
+      findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
+        ?.terminalOutcome
+    ).toMatchObject({
+      status: "cancelled",
+      reasonCode: "computer.file_access.owner_declined",
+    });
+    expect(
+      findRuntimeCoordinatorWakeStoppedNoticePublicationRecord(storageRecords)
+    ).toMatchObject({
+      status: "published",
+      reasonCode: "computer.file_access.owner_declined",
+    });
+    expect(
+      spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand
+    ).not.toHaveBeenCalled();
+    await submit();
+    await Promise.all(waitUntilTasks.splice(0));
+    expect(
+      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+    ).toMatchObject({ status: "cancelled" });
+    expect(
+      spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand
+    ).not.toHaveBeenCalled();
+  });
+
+  it.each([
     [false, "none"],
     [true, "none"],
     [true, "unavailable"],
@@ -15260,7 +15390,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
 
-  it("advances lifecycle only after validating the echoed execution token", async () => {
+  it.each([
+    false,
+    true,
+  ])("advances lifecycle only after validating the echoed execution token (acknowledgement: %s)", async (acknowledged) => {
     const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
       createHarness();
     const publishAgentReadinessInvalidated = vi.fn();
@@ -15298,6 +15431,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).handleDispatchLifecycleFrame(
       socket,
       buildLifecycleRequest({
+        ...(acknowledged
+          ? { acknowledgementId: "09ea9be9-3a69-4c95-81ed-0236f56efddd" }
+          : {}),
         executionTokenEcho: buildExecutionTokenEcho(executionToken),
         runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
       })
@@ -15307,7 +15443,25 @@ describe("runtime transport runtime coordinator transport contract", () => {
       buildDispatchAttemptKey("dispatch-1", "attempt-1")
     );
     expect(pending?.phase).toBe("running");
-    expect(sentFrames).toEqual([]);
+    expect(sentFrames).toEqual(
+      acknowledged
+        ? [
+            {
+              code: "daemon.dispatch.lifecycle_acknowledged",
+              payload: {
+                acknowledgementId: "09ea9be9-3a69-4c95-81ed-0236f56efddd",
+                dispatchId: "dispatch-1",
+                attemptId: "attempt-1",
+                connectionGeneration: 1,
+                accepted: true,
+                validForMs: expect.any(Number),
+                reasonCode: null,
+              },
+              v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+            },
+          ]
+        : []
+    );
     expect(
       getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
         (call) => call.params[2] === "lifecycle_running"
@@ -15550,7 +15704,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(sentFrames).toEqual([]);
   });
 
-  it("projects and resolves one urgent Inbox action for the interaction owner", async () => {
+  it("projects and resolves one normal-priority Inbox review for the interaction owner", async () => {
     const { hub, recordingD1, sentFrames, socket, state } = createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
@@ -15579,7 +15733,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect([...recordingD1.interactionInboxRows.values()]).toEqual([
       expect.objectContaining({
         attention: "action_required",
-        importance: "urgent",
+        importance: "normal",
         kind: "agent_interaction",
         organization_id: "org-one",
         recipient_user_id: "owner-1",
@@ -26796,7 +26950,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
   });
 
-  it("classifies late lifecycle after accepted result as terminal token progress", async () => {
+  it("refuses execution admission after the Coordinator has terminalized the execution", async () => {
     const { hub, recordingD1, sentFrames, socket, state } = createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
@@ -26832,11 +26986,22 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).handleDispatchLifecycleFrame(
       socket,
       buildLifecycleRequest({
+        acknowledgementId: "c0a68f0f-d591-4d8d-9000-f2f7f036363d",
         executionTokenEcho: buildExecutionTokenEcho(executionToken),
         runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
       })
     );
 
+    expect(sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.dispatch.lifecycle_acknowledged",
+        payload: expect.objectContaining({
+          acknowledgementId: "c0a68f0f-d591-4d8d-9000-f2f7f036363d",
+          accepted: false,
+          reasonCode: "execution_token_terminal_late",
+        }),
+      })
+    );
     expect(sentFrames).toContainEqual(
       expect.objectContaining({
         code: "daemon.error",
@@ -26859,7 +27024,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
 
-  it("rejects an expired token result before result inbox acceptance", async () => {
+  it("rejects expired execution admission and result before result inbox acceptance", async () => {
     const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
       createHarness();
     const executionToken = await issueDeliveryToken({
@@ -26891,6 +27056,32 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
     recordingD1.calls.length = 0;
     sentFrames.length = 0;
+
+    await (
+      hub as unknown as {
+        handleDispatchLifecycleFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchLifecycleFrame(
+      socket,
+      buildLifecycleRequest({
+        acknowledgementId: "13610bed-8453-4d6d-bbef-8f0b2545a3a0",
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      })
+    );
+    expect(sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.dispatch.lifecycle_acknowledged",
+        payload: expect.objectContaining({
+          acknowledgementId: "13610bed-8453-4d6d-bbef-8f0b2545a3a0",
+          accepted: false,
+          reasonCode: "execution_token_expired",
+        }),
+      })
+    );
 
     await (
       hub as unknown as {

@@ -1088,6 +1088,25 @@ export const resolveRuntimeCoordinatorRunCommandStateWatchdogAtMs = (
   );
 };
 
+export const resolveRuntimeCoordinatorExecutionAdmissionValidityMs = (input: {
+  commandState: RuntimeCoordinatorRunCommandState;
+  tokenExpiresAtMs: number | null;
+  nowMs: number;
+}): number => {
+  const nextObservationAtMs =
+    resolveRuntimeCoordinatorRunCommandStateWatchdogAtMs(input.commandState);
+  if (nextObservationAtMs === null) {
+    return 0;
+  }
+  return Math.max(
+    0,
+    Math.min(
+      nextObservationAtMs,
+      input.tokenExpiresAtMs ?? Number.POSITIVE_INFINITY
+    ) - input.nowMs
+  );
+};
+
 export const hasRuntimeCoordinatorProgressAdvancedSinceLastWatchdogCheck = (
   commandState: RuntimeCoordinatorRunCommandState
 ): boolean => {

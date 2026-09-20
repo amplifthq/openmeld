@@ -67,17 +67,77 @@ the bound `agentControllerConversationId` when present, otherwise the target
 Agent Profile for an unbound first run. Controller counts may still be logged as
 diagnostics, but they are not the scheduling authority.
 
-The service runner owns one local-execution-slot registry for its process
-lifetime and injects that same registry into every replacement Runtime
-Transport socket session. A WebSocket reconnect must not create a second empty
-registry while an earlier socket's provider turn is still running; otherwise a
-new Wake can bypass the local execution lane and collide with the same Agent
-Controller conversation. Process restart may create a new registry because
-RuntimeCoordinator separately reconciles the lost process owner.
+The Service's separately supervised Execution Host owns one local-execution-slot
+registry across replacement Runtime Transport sockets. Reconnecting the
+connector never creates a new Host, empty slots, approval registry, or result
+store. A Host process loss is different from socket loss: unconfirmed local work
+must remain fenced before a replacement Host can admit anything, while
+RuntimeCoordinator independently reconciles execution and final outcomes.
 
 It does not own the product outcome by itself. A running service is useful
 evidence, but the product question is whether the intended Agent Profile can
 reply in the intended Space through the intended local execution path.
+
+## Connector and Execution Host
+
+One installation and updater deliver two processes. The Service runner owns the
+cloud socket, heartbeat, reconnect, and existing lifecycle/control endpoint. Its
+Execution Host assembles the existing adapters, execution slots, pending human
+interactions, route discovery, controller reporting, and durable result outbox.
+The Host never owns Core readiness, authorization, scheduling, or Space history.
+
+The runner starts its control endpoint and registers without waiting for Agent
+inventory. Host initialization, reporting, and execution cross bounded inherited
+IPC; they cannot block the connector's event loop. Host admission is closed until
+its current-generation response confirms it is ready, and closes when that
+observation fails. A shared Host failure may affect all its Agents, not the
+independent connector. Last-known Host observations are not fresh health.
+
+Before local preparation and again immediately before each native provider turn,
+the Host waits for a correlated acknowledgment of its existing lifecycle report
+from RuntimeCoordinator. Core validates the execution token and records lifecycle
+progress before acknowledging. A terminal refusal prevents provider invocation;
+missing acknowledgment does not authorize execution or imply an execution failure.
+Reconnect resends only the outstanding confirmation, never a provider invocation,
+and acknowledgments from a retired connection cannot release the waiter.
+The Service negotiates this capability before enabling Host admission. Older
+servers leave new execution unavailable while connection and local control remain
+usable; older clients do not receive unsolicited acknowledgment frames.
+
+Only one Host may own an installation's execution resources. Before provider
+work starts, a private process-incarnation receipt records non-quiescence. A clean
+local drain clears that fence. After an unconfirmed owner loss, PID disappearance
+alone does not prove that its children or side effects ended. Replacement needs
+confirmed quiescence or trustworthy operating-system restart evidence; unknown
+or corrupt evidence remains an explicit recovery blocker. This receipt contains
+no task results or approvals and does not authorize replay. It is not a second
+execution ledger. There is no automatic hot adoption or restart of unknown work.
+
+Cloud-result acknowledgment is separate from local quiescence. Stop and update
+readiness query the Host; they do not inspect another socket's private execution
+maps. Long accepted work retains its existing no-total-timeout drain. The current
+account-checked Stop coordinator still owns admission, confirmation, desired
+state, and credential cleanup. This extraction does not authorize offline
+Disconnect or change old-account result delivery during an account switch.
+
+A normal Host stop is complete only after actual child-process exit. Connector
+loss withdraws the transport sink and closes new admission; the Host retains safe
+local drain and stored results. A subsequent socket reuses the same Host and
+result identities rather than sending prompts again. Existing provider-specific
+permission, launch, model, and cancellation contracts stay in their adapters.
+
+The private Host entry is part of the same verified CLI/Service artifact. It
+accepts only inherited IPC with the current parent, account/session, installation,
+device, lane, and contract generation. It is not a public local server. Ordinary
+Web/Desktop controls retain their existing interfaces. AHP, arbitrary preview
+routing, new notification policy, and independent Host release channels are not
+part of this replacement.
+
+Cutover and rollback must quiesce both processes through the existing lifecycle
+owner. An older binary does not understand the Host-incarnation receipt: never
+roll back over uncertain new-Host work. Packaged/signed installation, platform
+file-access behavior, and an actual old-to-new migration require separate
+artifact acceptance; source or IPC fixture success is not that evidence.
 
 ## Ownership Boundary
 
@@ -157,6 +217,13 @@ or target Agent Profile is known, the service contract should carry that
 evidence so setup, repair, reconnect, and current-device checks can reject stale
 or cross-account service reuse. Existing device or connected-computer evidence
 must not be reused unless the owner account and profile evidence are trusted.
+
+First enrollment may attach the Core-owned connected Computer ID to an already
+owned runtime without advancing its Service generation, only when every other
+contract field is unchanged. This records the existing account/device/lane
+association rather than replacing the carrier. Replacing an existing enrollment
+or changing any other contract field still advances the generation. Stop continues
+to require the running lease and current contract generations to match.
 
 Agent Controller availability reporting depends on a valid service contract. If
 required owner account, Agent Profile, device, or lane evidence is missing or
@@ -675,6 +742,21 @@ attempt to inspect every tool call or reimplement Codex filesystem policy. The
 Agent receives one path-free awareness instruction so it understands that the
 run is intentionally bounded, but prompt text is guidance and never proof of
 enforcement.
+
+Codex boundary probes, CLI launches, and App Server thread/turn requests use
+`on-request` with an explicit `user` approval reviewer for Ask for approval.
+Approve for me alone selects `auto_review`. This aligns the boundary probe with
+the existing native App Server policy; it does not promise a prompt for every
+operation already allowed by the native sandbox. Explicit `untrusted` is no
+longer accepted by current Codex versions. Repair remains read-only with human
+approval, and isolated Execution Contexts retain their separate no-escalation
+`never` policy. No fallback to Full access or boundary bypass is permitted when
+an executable rejects these arguments.
+A completed negative boundary launch check retains the path-free
+`computer.file_access.launch_rejected` diagnosis. The owner decision explains
+that the selected Agent's version/configuration needs checking, rather than
+mistaking a launch rejection for missing consent. Unknown checks keep generic
+verification guidance; raw controller diagnostics and folder paths stay private.
 
 An active policy whose working folder is deterministically outside the boundary
 rejects before controller launch without asking the user. If the selected
@@ -2036,7 +2118,16 @@ registration is removed, so migration cannot create two execution owners. Task
 Scheduler's registered action is the source for command and environment diagnostics;
 new installs do not maintain a parallel batch-file configuration.
 
-On macOS, the managed LaunchAgent uses `RunAtLoad=true` and `KeepAlive=true`.
+On macOS, the managed LaunchAgent uses `RunAtLoad=true` and
+`KeepAlive.SuccessfulExit=false`: an abnormal exit is restarted, but a successful
+controlled drain must not spawn a replacement before the authorized Stop caller
+unloads the job. `launchctl disable` changes future loading eligibility; it does
+not cancel an already loaded job's unconditional keepalive. Account/PID checks
+remain mandatory, and Stop still requires actual Host exit and manager teardown.
+Normal update and explicit Start paths load/start the registered job themselves;
+they do not depend on respawn after a successful drain. Existing unconditional
+keepalive definitions are detected as startup-policy drift and reconciled through
+the existing guarded lifecycle path, never rewritten underneath a live process.
 It declares `ProcessType=Interactive` because people are waiting for its Wake
 execution and replies. Omitting that classification allows macOS to throttle
 the carrier's CPU and I/O as background work; child controller processes can
@@ -3005,6 +3096,12 @@ The marker means the code is part of one of these explicitly scoped groups:
 | Legacy Proof Logic | Existing code that still speaks in Prepare, readiness, route, Binding, or service-health terms while helping setup or execution. This code is not automatically wrong, but it must be treated as a candidate for extraction, rename, demotion to diagnostics, or deletion. | `clients/openmeld-cli/src/start-local/*`, `clients/openmeld-cli/src/system/reply-readiness.ts`, `clients/openmeld-cli/src/system/current-reply-readiness-snapshot.ts`, `clients/openmeld-cli/src/system/action-participation-planner.ts`, `clients/openmeld-cli/src/local-service/routing/route-catalog.ts`                                                                                                                                                                                                                                                                            |
 
 The current codebase has one local-service implementation layout:
+
+`carrier/daemon-frame-transport.ts` owns frame parsing, registration and
+heartbeat acknowledgments, and transport-error correlation without importing
+the dispatch/adapter graph. Execution frame handling remains a separate
+consumer. This module boundary alone is not process isolation or a change to
+execution ownership.
 
 ```text
 clients/openmeld-cli/src/local-service/  host-bound service loop, lifecycle, inventory, reporting, diagnostics, status, and execution

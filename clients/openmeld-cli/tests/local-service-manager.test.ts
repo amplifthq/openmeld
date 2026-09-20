@@ -102,11 +102,20 @@ describe("launchd job diagnostics parsing", () => {
       <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
     </dict></plist>`;
     expect(matchesLaunchdServiceStartupPolicy(oldDefinition)).toBe(false);
+    const interactiveDefinition = oldDefinition.replace(
+      "</dict>",
+      "<key>ProcessType</key><string>Interactive</string></dict>"
+    );
+    // Updating the executable alone must not preserve unconditional respawn
+    // after an account-admitted, successfully drained Stop.
+    expect(matchesLaunchdServiceStartupPolicy(interactiveDefinition)).toBe(
+      false
+    );
     expect(
       matchesLaunchdServiceStartupPolicy(
-        oldDefinition.replace(
-          "</dict>",
-          "<key>ProcessType</key><string>Interactive</string></dict>"
+        interactiveDefinition.replace(
+          "<key>KeepAlive</key><true/>",
+          "<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>"
         )
       )
     ).toBe(true);
@@ -397,7 +406,9 @@ describe("local service manager helpers", () => {
     );
     expect(plist).not.toContain(`<string>${process.execPath}</string>`);
     expect(plist).toContain("<key>RunAtLoad</key>\n  <true/>");
-    expect(plist).toContain("<key>KeepAlive</key>\n  <true/>");
+    expect(plist).toContain(
+      "<key>KeepAlive</key>\n  <dict>\n    <key>SuccessfulExit</key>\n    <false/>\n  </dict>"
+    );
     // A Space user is waiting on this process; macOS must not classify its
     // execution carrier as discretionary background maintenance.
     expect(plist).toContain(
@@ -406,7 +417,6 @@ describe("local service manager helpers", () => {
     expect(plist).toContain(
       "<key>ThrottleInterval</key>\n  <integer>60</integer>"
     );
-    expect(plist).not.toContain("<key>SuccessfulExit</key>");
     expect(plist).not.toContain("<key>Crashed</key>");
   });
 

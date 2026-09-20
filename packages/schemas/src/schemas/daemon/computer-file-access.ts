@@ -3,6 +3,23 @@ import { localFolderPathSchema } from "./local-folder-path";
 import { openMeldRequestContextSchema } from "./profile-identity";
 import { daemonServiceLaneSchema } from "./service-contract";
 
+// Retain the existing Service result envelope for older readers. This exact
+// reason is emitted only for an explicit permission denial. Legacy
+// owner_cancelled also included expired/interrupted waiters, so it cannot
+// establish owner consent and must not be reinterpreted as a stopped result.
+export const COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE =
+  "computer.file_access.owner_declined" as const;
+
+export function isComputerFileAccessOwnerCancellation(payload: {
+  status: string;
+  errorCode?: string | null;
+}): boolean {
+  return (
+    payload.status === "failed" &&
+    payload.errorCode === COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE
+  );
+}
+
 const boundedIdentifierSchema = z.string().trim().min(1).max(512);
 
 export const OPENMELD_RUNTIME_CAPABILITIES_HEADER =

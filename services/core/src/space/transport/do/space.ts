@@ -32,6 +32,7 @@ import {
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdFromDigest,
+  COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   clearSpaceReasoningReplaySchema,
   commitSpaceFileWriteInputSchema,
@@ -54,6 +55,7 @@ import {
   getSpaceUpdatesInputSchema,
   getSpaceWakeProgressInputSchema,
   getSpaceWakeTraceWaterfallInputSchema,
+  isComputerFileAccessOwnerCancellation,
   isHostedAgentRuntimeKind,
   listSignalsQuerySchema,
   listSpaceThreadSignalsQuerySchema,
@@ -4061,6 +4063,29 @@ export class Space extends DurableObject<CoreBindings> {
     const threadContext = this.resolveThreadContextForSignal(
       command.dispatchFact.sourceEventId
     );
+    const ownerCancellation =
+      noticeType === "wake_stopped" &&
+      isComputerFileAccessOwnerCancellation(
+        command.acceptedResult.taskResult.payload
+      );
+    let reasonCode: string;
+    let text: string;
+    if (ownerCancellation) {
+      reasonCode = COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE;
+      text =
+        "Stopped before the Agent started because the Computer owner declined the file access request.";
+    } else if (noticeType === "wake_stopped") {
+      reasonCode = "runtime_coordinator.wake_stop_requested";
+      text = buildSystemNoticeText({
+        ...resolveRuntimeCoordinatorPublicationExhaustionActorName({ command }),
+        noticeType: "wake_stopped",
+      });
+    } else {
+      reasonCode = RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE;
+      text = buildRuntimeCoordinatorPublicationExhaustionNoticeText({
+        command,
+      });
+    }
     const signalContext = {
       finalOutcomeAuthority:
         noticeType === "wake_stopped"
@@ -4083,26 +4108,10 @@ export class Space extends DurableObject<CoreBindings> {
           : {}),
         generatedBy: "openmeld",
         noticeType,
-        reason:
-          noticeType === "wake_stopped"
-            ? "runtime_coordinator.wake_stop_requested"
-            : RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE,
-        reasonCode:
-          noticeType === "wake_stopped"
-            ? "runtime_coordinator.wake_stop_requested"
-            : RUNTIME_COORDINATOR_PUBLICATION_RETRY_EXHAUSTED_REASON_CODE,
+        reason: reasonCode,
+        reasonCode,
         ...(replyTo ? { replyTo } : {}),
-        text:
-          noticeType === "wake_stopped"
-            ? buildSystemNoticeText({
-                ...resolveRuntimeCoordinatorPublicationExhaustionActorName({
-                  command,
-                }),
-                noticeType: "wake_stopped",
-              })
-            : buildRuntimeCoordinatorPublicationExhaustionNoticeText({
-                command,
-              }),
+        text,
       }
     );
     await armSpaceInboxProjectionRecoveryAlarm({

@@ -174,6 +174,32 @@ describe("Codex CLI transport args", () => {
     }
   });
 
+  it("uses supported human approval with the same Computer boundary for probes and execution", () => {
+    // Captured Codex 0.155.0-alpha.9 CLI and App Server contracts accept
+    // on-request/never; approvals_reviewer explicitly selects user/auto_review.
+    for (const executionMode of ["normal", "repair"]) {
+      const args = buildCodexFileAccessBoundaryGlobalArgs({
+        boundary: {
+          mode: "only_selected_folders",
+          folders: ["/work/task"],
+          revision: 1,
+          updatedAtMs: 1,
+        },
+        permissionMode: "codex:askForApproval",
+        executionMode,
+      });
+      assert.equal(args[args.indexOf("-a") + 1], "on-request");
+      assert.equal(args.includes('approvals_reviewer="user"'), true);
+      assert.equal(args.includes("--strict-config"), true);
+      assert.equal(
+        args.includes('default_permissions="openmeld_computer_boundary"'),
+        true
+      );
+      assert.equal(args.includes('approvals_reviewer="auto_review"'), false);
+      assert.equal(countDangerousBypassFlags(args), 0);
+    }
+  });
+
   it("keeps selected folders writable when native Codex access is unrestricted", () => {
     const args = buildCodexExecArgs({
       agentControllerPermissionMode: "codex:fullAccess",
@@ -252,7 +278,9 @@ describe("Codex CLI transport args", () => {
         "-s",
         "workspace-write",
         "-a",
-        "untrusted",
+        "on-request",
+        "-c",
+        'approvals_reviewer="user"',
         "exec",
         "--json",
         "--skip-git-repo-check",
@@ -302,7 +330,9 @@ describe("Codex CLI transport args", () => {
         "-s",
         "workspace-write",
         "-a",
-        "untrusted",
+        "on-request",
+        "-c",
+        'approvals_reviewer="user"',
         "exec",
         "resume",
         "--json",
@@ -359,7 +389,9 @@ describe("Codex CLI transport args", () => {
         "-s",
         "workspace-write",
         "-a",
-        "untrusted",
+        "on-request",
+        "-c",
+        'approvals_reviewer="user"',
         "exec",
         "resume",
         "--json",
@@ -407,7 +439,9 @@ describe("Codex CLI transport args", () => {
         "-s",
         "read-only",
         "-a",
-        "untrusted",
+        "on-request",
+        "-c",
+        'approvals_reviewer="user"',
         "exec",
         "resume",
         "--json",

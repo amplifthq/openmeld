@@ -319,6 +319,125 @@ pilot limitation, not a durable API contract. See
 transport and account boundaries. Old production clients remain on their
 existing paths; the pilot cannot target production or a Vite dev registry.
 
+## Service Execution Host IPC
+
+Provider admission uses an optional correlated acknowledgment on the existing
+RuntimeCoordinator lifecycle report. The shared lifecycle acknowledgment schema
+binds request ID, dispatch, attempt and connection generation; only Core emits it.
+The `x-openmeld-execution-admission: 1` handshake negotiates the corresponding
+registration response field. New Hosts fail closed with older servers that do
+not acknowledge this capability. Old clients receive the previous response shape.
+This adds no execution authority, task-state owner, or automatic provider retry.
+Positive acknowledgments include `validForMs`, bounded by the Coordinator's
+existing next watchdog observation and token expiry. The Host measures the
+entire request round trip with its monotonic clock, beginning before send, so
+network or IPC delay cannot extend that bound and wall-clock skew is irrelevant.
+Each confirmation retry has a new correlation ID; a delayed old reply cannot
+borrow the new request's freshness. An expired positive reply leaves the same
+execution waiting for fresh confirmation, not failed or restarted.
+
+This admission check does not promise transactional exactly-once effects in an
+external provider or atomic revocation of an already-started OS process. Unknown
+outcomes retain the existing recovery fence; they do not authorize replay.
+
+Reference boundaries: [Ray actor fault tolerance](https://docs.ray.io/en/latest/ray-core/fault_tolerance/actors.html)
+distinguishes at-most-once invocation from a known outcome and quarantines
+unavailable actors. [Temporal Activity execution](https://docs.temporal.io/activity-execution)
+uses task-scoped tokens and cooperative cancellation; a server timeout is not
+proof that the worker stopped. These principles support the existing Coordinator
+and Host owners; neither framework is an additional runtime dependency here.
+Unlike a [resource-enforced fencing token](https://docs.hazelcast.com/hazelcast/5.0/data-structures/fencedlock),
+our admission acknowledgment cannot fence arbitrary external filesystem/API
+effects after provider start. Do not describe it as that stronger guarantee.
+
+`service-execution-host.ts` owns the strict, versioned supervisor/Host protocol,
+method-specific inputs and outputs, bounded frames, Host-incarnation identity,
+health observations, and private process-recovery receipt. Both processes ship
+in one CLI/Service artifact. An inherited pipe is necessary but not sufficient:
+initialization also checks the current parent, account/session, installation,
+device, lane, endpoints, and Service contract generation. No bearer credential
+or arbitrary executable is supplied through this protocol.
+Requests and replies are validated against their fixed method schemas. Methods
+cannot select arbitrary paths, commands, ports or URLs, and Host execution
+frames cannot register or heartbeat a Computer. Matching supervisor and Host
+artifacts are required; they are not independently upgraded.
+
+Execution frames retain their original RuntimeCoordinator, lease, attempt, and
+Space identities. Host request timeout is an observation failure, never proof
+that accepted work was cancelled or safe to repeat. Socket generations fence
+late frames and authentication failures; a reconnect does not create new work.
+Health and control capacity are bounded independently of normal requests. Host
+snapshots report local facts only; the connector continues to publish the
+existing `acceptingDispatches` and runtime capability contracts.
+Long drain observation may have no total deadline. Process/channel loss is
+unconfirmed execution, not an empty registry or permission to replay prompts.
+The live route shape retains working-folder facts rather than relying on a
+lossy persisted route cache.
+
+Only a Project-connection change opts into `syncActivity.refreshIntegrations`.
+The Host reuses its existing coalescing integration scheduler to register the
+lane and install managed observers after a zero-Project startup. Ordinary `{}`
+Activity sync remains sync-only. This private optional flag adds no public
+control field, caller-selected installation path, or new installer/lifecycle
+owner. Integration refresh errors retain their existing diagnostics and do not
+block connector control.
+
+Contract Impact Audit: existing Core/Gateway/Web/Desktop, Prepare, CLI control,
+Service v1 file, and cloud execution payloads are unchanged. No cloud epoch or
+minimum-version increase follows from this internal split. The new private
+Host-owner receipt is not written into old strict files. CLI and Service still
+ship together through the verified local-component pipeline; development defers
+publication metadata, not packaged-build validation. Rollback requires both
+processes quiescent because older binaries cannot enforce the new private
+recovery fence. Signed/platform/cutover acceptance remains required before
+release. No AHP, new browser capability, or second lifecycle writer is introduced.
+
+### Center Agent Computer care observations
+
+The optional `executionHost` runtime capability carries a bounded, path-free
+supervisor observation. It is diagnostics only, never a scheduling grant or
+proof of cancellation. Existing ServiceRuntime records retain it; there is no
+new database, polling loop, or recovery owner.
+
+Contract Impact Audit: the CLI requests Computer-care negotiation in the
+`x-openmeld-computer-care: 1` stream header. Gateway forwards that recognized
+header; Core acknowledges `computerCare: true` only to opted-in clients.
+The CLI sends the optional observation only in subsequent heartbeats after
+that acknowledgement. Old Gateway/Core omit the acknowledgement, so the new
+CLI keeps sending the old strict payload. Old CLI registration responses stay
+unchanged. New Core accepts missing observations as unknown. CLI command,
+execution epoch, Skills, and Service file contracts do not change.
+
+The owner-private Center Agent response adds optional `care` and filtered
+`localRuntimes` fields. Deploy the new Remote Agent receiver before enabling
+the new Core response; an older strict Remote Agent receiver cannot consume
+the added response fields. Existing Web/CLI payloads and team-safe Computer
+projections are unchanged. No production release is implied by local testing.
+
+### Explicit Computer file-access refusal
+
+The Service emits `computer.file_access.owner_declined` only when its pending
+permission request receives the exact Cancel run option. Expired or interrupted
+waiters and invalid responses retain distinct failure reasons. The older
+`owner_cancelled` reason included ambiguous cancellations; Core never upgrades
+those retained results into evidence of an explicit user decision.
+
+After normal token-fenced durable result acceptance, RuntimeCoordinator routes
+an explicit refusal through its existing accepted-result Stop publication. It
+verifies the receipt, attempt, run, token, Space and target before Space elects
+the existing atomic final claim. The existing stopped notice, cancellation
+projection, task outcome, result acknowledgement and replay owners are reused.
+No additional task-result variant, Stop RPC, outcome enum or D1 migration is
+introduced; a failed publication stays retryable, not falsely completed.
+
+Contract impact: deploy the matching Core behavior before distributing the new
+Service to obtain stopped semantics. Old Core can still read the new string
+reason and fails closed using its legacy failure presentation; new Core does
+not reinterpret ambiguous old-Service records. Core's own Space/Hub versions
+use the unchanged Stop RPC, so mixed-version rollout can temporarily show the
+older stopped wording without changing authority. Gateway, Web, Desktop,
+Skills, Prepare, public control contracts and version floors are unchanged.
+
 ## Local Service account admission
 
 `computer-connection.ts` owns the opt-in CLI review/intent and fixed Desktop

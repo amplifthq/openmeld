@@ -1,4 +1,7 @@
-import { spaceAgentStreamTerminalSchema } from "@openmeld/schemas";
+import {
+  COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
+  spaceAgentStreamTerminalSchema,
+} from "@openmeld/schemas";
 import type {
   RuntimeCoordinatorFinalizationCommand,
   RuntimeCoordinatorFinalizationOutcome,
@@ -114,7 +117,10 @@ export function buildStoppedLocalAgentStreamTerminal(
 ): SpaceAgentStreamTerminal {
   return {
     kind: "stopped",
-    noticeText: "The Agent stopped this reply.",
+    noticeText:
+      reasonCode === COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE
+        ? "The Computer owner cancelled this task before the Agent started."
+        : "The Agent stopped this reply.",
     reasonCode,
   };
 }
