@@ -4,12 +4,15 @@ import { chmodSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { betterAuthSessionSnapshotResponseSchema } from "@openmeld/schemas";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { disconnectComputer } from "../src/commands/computer-disconnect";
 import {
   requestAccountCheckedServiceStop,
   runServiceAccountControl,
 } from "../src/commands/service-account-control";
 import {
+  buildStoredAuthSessionIdentity,
   clearAuthSession,
   getAuthSession,
   setAuthSession,
@@ -153,6 +156,79 @@ function launch(script: string) {
 }
 
 describe("Service account admission across processes", () => {
+  it.each([
+    "A",
+    "B",
+  ])("rejects a reviewed Stop after a new %s session before admission", async (nextAccount) => {
+    await withTempHome(async () => {
+      const { contract, session } = await connectedService();
+      const reviewedIdentity = buildStoredAuthSessionIdentity(session);
+      await writeDaemonRuntimeLease({
+        schema: "openmeld-daemon-runtime-lease-v1",
+        v: 1,
+        generation: contract.generation,
+        bundleId: contract.bundleId,
+        pid: process.pid,
+        mode: "background",
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        heartbeatAt: null,
+        serviceController: "legacy-detached",
+        managedBySystemService: false,
+      });
+      // Hold the real auth response while another sign-in replaces the reviewed
+      // session. This exercises the admission boundary, not a private comparator.
+      const requested = Promise.withResolvers<void>();
+      const response = Promise.withResolvers<Response>();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => {
+          requested.resolve();
+          return response.promise;
+        })
+      );
+      const stopped = runServiceAccountControl(
+        { operation: "stop", expectedAccount: "A" },
+        reviewedIdentity
+      );
+      const assertion = expect(stopped).rejects.toMatchObject({
+        code: "service.account_admission.account_changed",
+      });
+      try {
+        await requested.promise;
+        await signIn(nextAccount);
+        expect(buildStoredAuthSessionIdentity(await getAuthSession())).not.toBe(
+          reviewedIdentity
+        );
+        response.resolve(
+          Response.json(
+            betterAuthSessionSnapshotResponseSchema.parse({
+              session: { id: "reviewed-session" },
+              user: { id: "A" },
+            })
+          )
+        );
+        await assertion;
+        expect(await readServiceAccountAdmission()).toBeNull();
+        expect(await readDaemonServiceContract()).toEqual(contract);
+        expect((await getAuthSession())?.user?.id).toBe(nextAccount);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
+
+  it("finishes Disconnect from the owner's stopped state without deleting the computer record", async () => {
+    await withTempHome(async () => {
+      const { contract, session } = await connectedService();
+      await disconnectComputer({
+        expectedAccount: "A",
+        previousSessionIdentity: buildStoredAuthSessionIdentity(session),
+      });
+      expect(await getAuthSession()).toBeNull();
+      expect(await readDaemonServiceContract()).toEqual(contract);
+    });
+  });
   it.each([
     false,
     true,

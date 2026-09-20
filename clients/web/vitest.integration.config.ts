@@ -28,9 +28,25 @@ export default defineConfig({
 				import.meta.dirname,
 				"../../packages/auth/src/server.ts"
 			),
+			"@openmeld/auth/organization-policy": path.resolve(
+				import.meta.dirname,
+				"../../packages/auth/src/organization-policy.ts"
+			),
 			"@openmeld/auth": path.resolve(
 				import.meta.dirname,
 				"../../packages/auth/src/index.ts"
+			),
+			"@openmeld/db/auth": path.resolve(
+				import.meta.dirname,
+				"../../packages/db/src/auth.ts"
+			),
+			"@openmeld/projects": path.resolve(
+				import.meta.dirname,
+				"../../packages/projects/src/index.ts"
+			),
+			"@openmeld/routine-schedule": path.resolve(
+				import.meta.dirname,
+				"../../packages/routine-schedule/src/index.ts"
 			),
 			"@openmeld/gateway-contract": path.resolve(
 				import.meta.dirname,
@@ -79,6 +95,7 @@ export default defineConfig({
 		},
 	},
 	test: {
+		env: { VITE_OPENMELD_SETUP_USER_FACING_COMMAND: "openmeld-dev" },
 		environment: "jsdom",
 		include: ["src/**/*.integration.test.{ts,tsx}"],
 		maxWorkers: 2,

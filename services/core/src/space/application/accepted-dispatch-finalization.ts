@@ -145,6 +145,9 @@ function buildSourceSignalSnapshot(
         }
       : {}),
     text,
+    ...(sourceSignal.data.meta?.workHandoff
+      ? { workHandoff: sourceSignal.data.meta.workHandoff }
+      : {}),
     ...(sourceSignal.data.files && sourceSignal.data.files.length > 0
       ? { files: sourceSignal.data.files }
       : {}),

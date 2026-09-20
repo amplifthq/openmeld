@@ -618,6 +618,15 @@ conveyor, Local OpenMeld Service remains the local carrier, Space remains the
 visible result surface, and Agent Activity remains evidence rather than
 execution or readiness authority.
 
+An explicitly selected independent local project task uses this same confirmed
+working-folder resolution. It must not discover another repository or fall back
+when the connection fails. The local Service validates the selected Git root and
+Computer file policy, freezes its committed HEAD at first local preparation, and
+creates a task-owned repository and worktree. The source connection is unchanged;
+the generated task folder does not become another Local Project Connection or
+change Default Project. Dirty source files and ignored local configuration are
+not copied. Continuation retains the generated task folder and its changes.
+
 ## Agent Activity Consumption
 
 Agent Activity references canonical Project IDs and may filter or group its

@@ -126,7 +126,7 @@ export async function runOrganizationSkillsShow(
 }
 
 export async function runOrganizationSkillsLoad(
-  input: OrganizationSkillsCommandInput & { skill: string },
+  input: OrganizationSkillsCommandInput & { skill: string; releaseId?: string },
   dependencyOverrides: Partial<OrganizationSkillsCommandDependencies> = {}
 ): Promise<void> {
   await runOrganizationSkillsCommand(
@@ -139,14 +139,33 @@ export async function runOrganizationSkillsLoad(
           `Organization Skill "${skill.name}" is disabled. Ask an Organization owner or admin to enable it before loading.`
         );
       }
+      const selected =
+        input.releaseId === undefined
+          ? {
+              bundle: skill.bundle,
+              digest: skill.activeRelease.digest,
+              releaseId: skill.activeRelease.id,
+              skillId: skill.id,
+            }
+          : await readSelectedRelease(context, skill.id, input.releaseId);
+      if (
+        !selected ||
+        selected.skillId !== skill.id ||
+        (input.releaseId !== undefined &&
+          selected.releaseId !== input.releaseId)
+      ) {
+        throw new Error(
+          "The requested Skill release was not returned. Update the server before loading an exact release."
+        );
+      }
       const materialized = await dependencies.materialize({
-        bundle: skill.bundle,
-        digest: skill.activeRelease.digest,
+        bundle: selected.bundle,
+        digest: selected.digest,
         organizationId: context.organization.id,
-        releaseId: skill.activeRelease.id,
+        releaseId: selected.releaseId,
         skillId: skill.id,
       });
-      const payload = buildLoadPayload(context, skill, materialized);
+      const payload = buildLoadPayload(context, skill, materialized, selected);
       if (context.json) {
         emitCliJsonEnvelope(
           cliJsonSkillsLoadEnvelopeSchema.parse({
@@ -167,6 +186,23 @@ export async function runOrganizationSkillsLoad(
       renderLoadedSkill(context, payload);
     }
   );
+}
+
+async function readSelectedRelease(
+  context: OrganizationSkillsCommandContext,
+  skillId: string,
+  releaseId: string
+) {
+  const response = await context.api.get({
+    requestContext: context.requestContext,
+    skillId,
+    releaseId,
+  });
+  requireOrganizationIdentity(context, response.skill.organizationId);
+  if (!response.skill.enabled) {
+    throw new Error("This Organization Skill is disabled.");
+  }
+  return response.selectedRelease;
 }
 
 async function runOrganizationSkillsCommand(
@@ -374,13 +410,14 @@ function renderSkill(
 function buildLoadPayload(
   context: OrganizationSkillsCommandContext,
   skill: OrganizationSkill,
-  materialized: MaterializedOrganizationSkillRelease
+  materialized: MaterializedOrganizationSkillRelease,
+  selected: { digest: string; releaseId: string }
 ) {
   return {
     cachePath: materialized.cachePath,
-    digest: skill.activeRelease.digest,
+    digest: selected.digest,
     organizationId: context.organization.id,
-    releaseId: skill.activeRelease.id,
+    releaseId: selected.releaseId,
     resourcePaths: materialized.resourcePaths,
     reused: materialized.reused,
     skillId: skill.id,

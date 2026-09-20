@@ -11,6 +11,7 @@ import type {
 
 export type SpaceComposerSendOptions = {
 	deviceWait?: WakeDeviceWait;
+	contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
 	/** Local UI notification after the exact outgoing message has been staged. */
 	onMessageStaged?: (clientMessageId: string) => void;
 };

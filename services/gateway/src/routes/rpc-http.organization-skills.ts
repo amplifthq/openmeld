@@ -136,6 +136,9 @@ export function registerOrganizationSkillRoutes(app: Hono<HonoBindings>): void {
         await c.var.coreRpc.getOrganizationSkill({
           context: buildCoreRpcContext(c),
           skillId: params.data.skillId,
+          ...(c.req.query("releaseId") === undefined
+            ? {}
+            : { releaseId: c.req.query("releaseId") }),
         }),
       method: "GET",
       responseSchema: getOrganizationSkillResponseSchema,

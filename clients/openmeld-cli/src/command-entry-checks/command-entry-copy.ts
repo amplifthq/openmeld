@@ -373,6 +373,12 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     cliUpdateAction: "listing computers",
     serviceAction: null,
   },
+  "computer.disconnect": {
+    signInAction: "disconnecting this computer",
+    profileAction: null,
+    cliUpdateAction: "disconnecting this computer",
+    serviceAction: null,
+  },
   "computer.current": {
     signInAction: "showing this computer",
     profileAction: null,
@@ -498,6 +504,18 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     signInAction: "leaving a space",
     profileAction: "leaving a space",
     cliUpdateAction: "leaving a space",
+    serviceAction: null,
+  },
+  "space.files.handoff": {
+    signInAction: "handing off Space files",
+    profileAction: "handing off Space files",
+    cliUpdateAction: "handing off Space files",
+    serviceAction: null,
+  },
+  "space.files.working-copy": {
+    signInAction: "working on Space files locally",
+    profileAction: "working on Space files locally",
+    cliUpdateAction: "working on Space files locally",
     serviceAction: null,
   },
   "space.files.list": {
@@ -756,6 +774,12 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     signInAction: "updating a profile",
     profileAction: null,
     cliUpdateAction: "updating a profile",
+    serviceAction: null,
+  },
+  "profile.execution-mode": {
+    signInAction: "managing independent-task admission",
+    profileAction: null,
+    cliUpdateAction: "managing independent-task admission",
     serviceAction: null,
   },
   "profile.delete": {

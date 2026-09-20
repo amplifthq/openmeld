@@ -1,23 +1,38 @@
-import { execFile, spawn } from "node:child_process";
-import { mkdtemp, open, readFile, rm } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { unwatchFile, watchFile } from "node:fs";
+import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { normalizeCommandEnvironment } from "@openmeld/adapter-core/process-environment";
+import {
+  execPlatformFile as execFile,
+  resolvePlatformCommand,
+} from "@openmeld/adapter-core/process-launch";
 import { createComputerAuthorizationGrant } from "@openmeld/api-client";
 import {
+  type ComputerSetupOutput,
   computerConnectionReviewSchema,
+  computerSetupOutputSchema,
   DESKTOP_APP_ORIGIN,
   DESKTOP_CONTRACT_HEADER,
   DESKTOP_CONTRACT_VERSION,
   DESKTOP_WEB_BUILD_HEADER,
+  type DesktopComputerConnectionProgress,
   type DesktopComputerConnectionResult,
+  type DesktopComputerDisconnectPhase,
+  type DesktopComputerDisconnectResult,
   desktopComputerConnectionRequestSchema,
+  desktopComputerDisconnectRequestSchema,
   localMachineIssueAgentEventSchema,
   prepareSessionResponseSchema,
   prepareSessionWithTokenResponseSchema,
+  redactPrepareStepDiagnosticsText,
+  SERVICE_ACCOUNT_STOP_REFUSED_CODE,
 } from "@openmeld/schemas";
 import type { CommandDeps } from "./cli/commands";
-import { installManagedBinary } from "./cli/managed-binary";
+import { installComputerTools } from "./cli/computer-tools";
 import { resolveOpenMeldBin } from "./cli/resolve-openmeld";
 import type { PilotAuth } from "./pilot-auth";
 
@@ -29,6 +44,8 @@ export function createComputerConnection(input: {
   installed: boolean;
   ensureCompatible(): Promise<void>;
   confirmSwitch(previousAccount: string, nextAccount: string): Promise<boolean>;
+  sessionRevision?(): number;
+  onProgress?(progress: DesktopComputerConnectionProgress): void;
 }) {
   let pending = false;
   return async (request: unknown): Promise<DesktopComputerConnectionResult> => {
@@ -37,7 +54,15 @@ export function createComputerConnection(input: {
       throw new Error("A computer connection is already in progress.");
     }
     pending = true;
+    let prepareSessionId: string | null = null;
+    const observe = createConnectionProgressObserver({
+      expectedAccount: intent.expectedAccount,
+      onProgress: input.onProgress,
+      prepareSessionId: () => prepareSessionId,
+    });
     try {
+      const sessionRevision = input.sessionRevision?.();
+      observe("checking", "desktop.connection.checking");
       await input.ensureCompatible();
       const assertAccount = async () => {
         const session = await input.auth.session();
@@ -51,11 +76,23 @@ export function createComputerConnection(input: {
       const account = await assertAccount();
       const deps = input.commandDeps;
       assertConnectionEnvironment(deps.env);
-      const bin = resolveOpenMeldBin({
+      const selectedBin = resolveOpenMeldBin({
         env: deps.env,
         override: deps.openMeldBin,
       });
-      const review = await reviewComputerConnection(bin, input.webOrigin, deps);
+      const { bin, review } = await reviewComputerConnection(
+        selectedBin,
+        input.webOrigin,
+        deps,
+        observe
+      );
+      const switchingAccount = isSwitchingAccount(review.account, account.id);
+      if (switchingAccount) {
+        observe(
+          "waiting_for_confirmation",
+          "desktop.connection.waiting_for_confirmation"
+        );
+      }
       if (
         !(await approveAccountSwitch(
           review.account,
@@ -63,6 +100,11 @@ export function createComputerConnection(input: {
           input.confirmSwitch
         ))
       ) {
+        observe(
+          "waiting_for_confirmation",
+          "desktop.connection.switch_cancelled",
+          { state: "completed" }
+        );
         return { status: "cancelled" };
       }
       const canReuse = !(
@@ -76,6 +118,9 @@ export function createComputerConnection(input: {
         review.existingConnection
       ) {
         await assertAccount();
+        observe("connected", "desktop.connection.reused", {
+          state: "completed",
+        });
         return { status: "reused", connection: review.existingConnection };
       }
       const cloud = async (
@@ -116,7 +161,14 @@ export function createComputerConnection(input: {
           connectedComputerId: intent.connectedComputerId,
         })
       );
-      return await withPrepareDiagnostics(
+      prepareSessionId = prepare.snapshot.prepareSessionId;
+      observe(
+        switchingAccount ? "switching_account" : "connecting_service",
+        switchingAccount
+          ? "desktop.connection.switching_account"
+          : "desktop.connection.connecting_service"
+      );
+      const result = await withPrepareDiagnostics(
         prepare.snapshot.diagnosticCorrelationId,
         async () => {
           if (prepare.snapshot.ownerUserId !== account.id) {
@@ -128,56 +180,308 @@ export function createComputerConnection(input: {
             (path, method, body) => cloud(`/api/auth${path}`, method, body)
           );
           await assertAccount();
-          let setupFailure: string | null = null;
-          try {
-            await runConnectionSetup(
-              bin,
-              [
-                "setup",
-                "--view",
-                "agent",
-                "--start-session",
-                prepare.opaqueToken,
-                "--device-code",
-                grant.deviceCode,
-                "--local-agents",
-                "none",
-                "--connection-intent",
-                JSON.stringify({
-                  expectedAccount: account.id,
-                  previousSessionIdentity: review.previousSessionIdentity,
-                }),
-              ],
-              deps.env
-            );
-          } catch (error) {
-            setupFailure =
-              error instanceof Error
-                ? error.message
-                : "This computer could not connect. Try again.";
-          }
-          const result = prepareSessionResponseSchema.parse(
-            await cloud(
-              `/v1/prepare/sessions/${encodeURIComponent(prepare.snapshot.prepareSessionId)}`,
-              "GET"
-            )
-          );
-          if (result.snapshot.lifecycleStatus !== "completed") {
-            setupFailure ??=
-              "This computer has not finished connecting. Try again to check its progress.";
-          }
-          if (setupFailure) {
-            return {
-              status: "failed",
-              message: setupFailure,
-              diagnosticId: result.snapshot.diagnosticCorrelationId,
-            };
-          }
-          return { status: "completed", snapshot: result.snapshot };
+          return await finishConnectionSetup({
+            diagnosticId: prepare.snapshot.diagnosticCorrelationId,
+            setup: () =>
+              runConnectionSetup(
+                bin,
+                [
+                  "setup",
+                  "--view",
+                  "agent",
+                  "--start-session",
+                  prepare.opaqueToken,
+                  "--device-code",
+                  grant.deviceCode,
+                  "--local-agents",
+                  "none",
+                  "--connection-intent",
+                  JSON.stringify({
+                    expectedAccount: account.id,
+                    previousSessionIdentity: review.previousSessionIdentity,
+                  }),
+                ],
+                deps.env,
+                {
+                  onProgress: (event) => {
+                    if (input.sessionRevision?.() !== sessionRevision) {
+                      return;
+                    }
+                    const phase = phaseForSetupEvent(event);
+                    observe(phase, event.code, {
+                      detail: event.message,
+                      state: event.state,
+                    });
+                  },
+                }
+              ),
+            readSnapshot: () =>
+              cloud(
+                `/v1/prepare/sessions/${encodeURIComponent(prepare.snapshot.prepareSessionId)}`,
+                "GET"
+              ),
+          });
         }
       );
+      observeConnectionResult(result, observe);
+      return result;
+    } catch (error) {
+      observe("needs_attention", "desktop.connection.failed", {
+        detail: error instanceof Error ? error.message : undefined,
+        state: "failed",
+      });
+      throw error;
     } finally {
       pending = false;
+    }
+  };
+}
+
+function isSwitchingAccount(
+  previous: { id: string } | null,
+  nextAccountId: string
+) {
+  return previous !== null && previous.id !== nextAccountId;
+}
+
+function observeConnectionResult(
+  result: DesktopComputerConnectionResult,
+  observe: ReturnType<typeof createConnectionProgressObserver>
+) {
+  if (result.status === "completed") {
+    observe("connected", "desktop.connection.connected", {
+      state: "completed",
+    });
+  } else if (result.status === "failed") {
+    observe("needs_attention", "desktop.connection.failed", {
+      detail: result.message,
+      state: "failed",
+    });
+  }
+}
+
+function createConnectionProgressObserver(input: {
+  expectedAccount: string;
+  onProgress?: (progress: DesktopComputerConnectionProgress) => void;
+  prepareSessionId(): string | null;
+}) {
+  const operationId = randomUUID();
+  const startedAt = new Date().toISOString();
+  let sequence = 0;
+  return (
+    phase: DesktopComputerConnectionProgress["phase"],
+    code: string,
+    options: {
+      detail?: string;
+      measurement?: DesktopComputerConnectionProgress["measurement"];
+      state?: DesktopComputerConnectionProgress["state"];
+    } = {}
+  ) => {
+    const progress: DesktopComputerConnectionProgress = {
+      schemaVersion: 1,
+      expectedAccount: input.expectedAccount,
+      operationId,
+      attemptId: operationId,
+      prepareSessionId: input.prepareSessionId(),
+      sequence: sequence++,
+      startedAt,
+      observedAt: new Date().toISOString(),
+      phase,
+      state: options.state ?? "active",
+      code,
+      ...(options.measurement ? { measurement: options.measurement } : {}),
+      ...(options.detail ? { detail: options.detail } : {}),
+    };
+    // Observation must never control or interrupt the connection operation.
+    try {
+      input.onProgress?.(progress);
+    } catch {
+      // The authoritative setup path continues without an observer.
+    }
+  };
+}
+
+async function finishConnectionSetup(input: {
+  diagnosticId: string;
+  setup(): Promise<void>;
+  readSnapshot(): Promise<unknown>;
+}): Promise<DesktopComputerConnectionResult> {
+  let failure: string | null = null;
+  let diagnosticsPath: string | undefined;
+  try {
+    await input.setup();
+  } catch (error) {
+    failure =
+      error instanceof Error
+        ? error.message
+        : "This computer could not connect. Try again.";
+    if (error instanceof ComputerOperationError) {
+      diagnosticsPath = error.diagnosticsPath;
+    }
+  }
+  try {
+    const { snapshot } = prepareSessionResponseSchema.parse(
+      await input.readSnapshot()
+    );
+    if (snapshot.lifecycleStatus === "completed" && !failure) {
+      return { status: "completed", snapshot };
+    }
+    const step = snapshot.steps.find((entry) => entry.state === "blocked");
+    if (step?.summary && failure && !failure.includes(step.summary)) {
+      failure = `${step.summary} ${failure}`;
+    }
+    failure ??=
+      step?.summary ??
+      "This computer has not finished connecting. Try again to check its progress.";
+  } catch (error) {
+    failure ??=
+      error instanceof Error
+        ? error.message
+        : "Could not check the connection. Try again.";
+  }
+  return {
+    status: "failed",
+    message: redactPrepareStepDiagnosticsText(failure),
+    diagnosticId: input.diagnosticId,
+    ...(diagnosticsPath ? { diagnosticsPath } : {}),
+  };
+}
+
+const DISCONNECT_CONNECTION_CHANGED = {
+  status: "connection_changed",
+  code: "desktop.disconnect.connection_changed",
+  message:
+    "The account or this Mac’s connection changed. Disconnect was not started. Check the connection again.",
+} as const satisfies DesktopComputerDisconnectResult;
+
+function presentDisconnectFailure(
+  error: unknown,
+  commandRequested: boolean,
+  commandStarted: boolean
+): DesktopComputerDisconnectResult {
+  const unconfirmed = {
+    status: "unconfirmed",
+    code: "desktop.disconnect.unconfirmed",
+    message:
+      "Disconnect may have been accepted, but its final result could not be confirmed. Check the connection before trying again.",
+  } as const;
+  if (error instanceof ComputerOperationError) {
+    const diagnostics = { diagnosticsPath: error.diagnosticsPath };
+    if (
+      error.code === "service.account_admission.account_changed" ||
+      error.code === "service.account_admission.account_mismatch"
+    ) {
+      return {
+        ...DISCONNECT_CONNECTION_CHANGED,
+        code: error.code,
+        ...diagnostics,
+      };
+    }
+    if (error.code === SERVICE_ACCOUNT_STOP_REFUSED_CODE) {
+      return {
+        status: "failed",
+        code: error.code,
+        message:
+          "The Service did not accept Disconnect. Check its status before trying again.",
+        ...diagnostics,
+      };
+    }
+    return { ...unconfirmed, ...diagnostics };
+  }
+  if (commandStarted) {
+    return unconfirmed;
+  }
+  return {
+    status: "failed",
+    code: commandRequested
+      ? "desktop.disconnect.start_failed"
+      : "desktop.disconnect.check_failed",
+    message:
+      "Disconnect was not started. Check your sign-in and OpenMeld Tools, then check the connection again.",
+  };
+}
+
+export function createComputerDisconnection(input: {
+  auth: Pick<PilotAuth, "session">;
+  commandDeps: CommandDeps;
+  confirmDisconnect(): Promise<boolean>;
+  sessionRevision?(): number;
+  onPhase?(phase: DesktopComputerDisconnectPhase): void;
+}) {
+  return async (request: unknown): Promise<DesktopComputerDisconnectResult> => {
+    const intent = desktopComputerDisconnectRequestSchema.parse(request);
+    const revision = input.sessionRevision?.();
+    const accountMatches = async () =>
+      (await input.auth.session()).user?.id === intent.expectedAccount &&
+      input.sessionRevision?.() === revision;
+    const changed = DISCONNECT_CONNECTION_CHANGED;
+    const reportPhase = (phase: DesktopComputerDisconnectPhase) => {
+      try {
+        input.onPhase?.(phase);
+      } catch {
+        // UI observation cannot cancel or change the native operation.
+      }
+    };
+    let commandRequested = false;
+    let commandStarted = false;
+    try {
+      reportPhase("checking");
+      assertConnectionEnvironment(input.commandDeps.env);
+      const bin = resolveOpenMeldBin({
+        env: input.commandDeps.env,
+        override: input.commandDeps.openMeldBin,
+      });
+      // These are independent reads, not permission to mutate. The CLI still
+      // rechecks the exact reviewed session and Service ownership under its lock.
+      const [sameAccount, review] = await Promise.all([
+        accountMatches(),
+        readComputerConnection(bin, input.commandDeps),
+      ]);
+      if (
+        !sameAccount ||
+        input.sessionRevision?.() !== revision ||
+        review.account?.id !== intent.expectedAccount ||
+        (intent.expectedConnection &&
+          (review.existingConnection?.deviceId !==
+            intent.expectedConnection.deviceId ||
+            review.existingConnection.runtimeLane !==
+              intent.expectedConnection.runtimeLane))
+      ) {
+        return changed;
+      }
+      reportPhase("waiting_for_confirmation");
+      if (!(await input.confirmDisconnect())) {
+        return { status: "cancelled" };
+      }
+      if (!(await accountMatches())) {
+        return changed;
+      }
+      reportPhase("disconnecting");
+      commandRequested = true;
+      await runConnectionSetup(
+        bin,
+        [
+          "computer",
+          "disconnect",
+          "--connection-intent",
+          JSON.stringify({
+            expectedAccount: intent.expectedAccount,
+            previousSessionIdentity: review.previousSessionIdentity,
+          }),
+          "--view",
+          "agent",
+        ],
+        input.commandDeps.env,
+        {
+          completedEvent: "computer.disconnected",
+          onStarted: () => {
+            commandStarted = true;
+          },
+        }
+      );
+      return { status: "disconnected" };
+    } catch (error) {
+      return presentDisconnectFailure(error, commandRequested, commandStarted);
     }
   };
 }
@@ -224,87 +528,322 @@ function assertConnectionEnvironment(env?: NodeJS.ProcessEnv) {
 
 const UNSUPPORTED_CONNECTION_COMMAND =
   /error: unknown command '(?:computer|connection-review)'/;
+
+// Shared by the read-only projection and the explicit Connect bootstrap. Do not
+// interpret authentication failures or malformed review output as missing tools.
+export function isComputerConnectionBootstrapError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const failure = error as { code?: unknown; stderr?: unknown };
+  return (
+    failure.code === "ENOENT" ||
+    (failure.code === 1 &&
+      typeof failure.stderr === "string" &&
+      UNSUPPORTED_CONNECTION_COMMAND.test(failure.stderr))
+  );
+}
+
+export async function readComputerConnection(bin: string, deps: CommandDeps) {
+  const result = await promisify(execFile)(
+    bin,
+    ["computer", "connection-review", "--json"],
+    { env: deps.env, timeout: 10_000, maxBuffer: 16_384 }
+  );
+  return computerConnectionReviewSchema.parse(JSON.parse(result.stdout));
+}
+
 async function reviewComputerConnection(
   bin: string,
   webOrigin: string,
-  deps: CommandDeps
+  deps: CommandDeps,
+  observe: (
+    phase: DesktopComputerConnectionProgress["phase"],
+    code: string,
+    options?: {
+      measurement?: DesktopComputerConnectionProgress["measurement"];
+    }
+  ) => void
 ) {
-  const read = async () => {
-    const result = await promisify(execFile)(
-      bin,
-      ["computer", "connection-review", "--json"],
-      { env: deps.env, timeout: 10_000, maxBuffer: 16_384 }
-    );
-    return computerConnectionReviewSchema.parse(JSON.parse(result.stdout));
-  };
   try {
-    return await read();
+    return { bin, review: await readComputerConnection(bin, deps) };
   } catch (error) {
-    const failure = error as { code?: string | number; stderr?: string };
-    const unsupported =
-      failure.code === 1 &&
-      UNSUPPORTED_CONNECTION_COMMAND.test(failure.stderr ?? "");
-    if (failure.code !== "ENOENT" && !unsupported) {
+    if (!isComputerConnectionBootstrapError(error)) {
       throw error;
     }
-    await installManagedBinary(webOrigin, deps);
-    return await read();
+    const installedBin = await installComputerTools(webOrigin, deps, {
+      onDownloadProgress: (progress) =>
+        observe("downloading", "desktop.tools.download", {
+          measurement: {
+            unit: "bytes",
+            value: progress.receivedBytes,
+            total: progress.totalBytes,
+            transferAttempt: progress.transferAttempt,
+          },
+        }),
+      onStage: (stage) => observe(stage, `desktop.tools.${stage}`),
+    });
+    return {
+      bin: installedBin,
+      review: await readComputerConnection(installedBin, deps),
+    };
   }
+}
+
+function phaseForSetupEvent(event: {
+  code: string;
+  phase?: DesktopComputerConnectionProgress["phase"];
+}): DesktopComputerConnectionProgress["phase"] {
+  if (event.phase) {
+    return event.phase;
+  }
+  const legacyPhaseByCode: Record<
+    string,
+    DesktopComputerConnectionProgress["phase"]
+  > = {
+    "prepare.session.progress.refresh_service": "connecting_service",
+    "prepare.session.progress.report_runtime": "confirming",
+    "prepare.session.progress.verify_setup": "confirming",
+  };
+  return legacyPhaseByCode[event.code] ?? "connecting_service";
 }
 
 export async function runConnectionSetup(
   bin: string,
   args: string[],
-  env?: NodeJS.ProcessEnv
+  env?: NodeJS.ProcessEnv,
+  options: {
+    completedEvent?: "setup.complete" | "computer.disconnected";
+    onStarted?(): void;
+    onProgress?(progress: {
+      code: string;
+      message: string;
+      phase?: DesktopComputerConnectionProgress["phase"];
+      state?: DesktopComputerConnectionProgress["state"];
+    }): void | Promise<void>;
+  } = {}
 ) {
   const directory = await mkdtemp(join(tmpdir(), "openmeld-desktop-connect-"));
   const output = join(directory, "setup.log");
   const log = await open(output, "wx", 0o600);
+  let preserve = false;
+  let lastSize = 0;
+  let reading: Promise<void> = Promise.resolve();
+  const secrets = args
+    .flatMap((arg, index) =>
+      ["--start-session", "--device-code"].includes(arg)
+        ? [args[index + 1] ?? ""]
+        : []
+    )
+    .filter(Boolean);
+  const redact = (value: string) =>
+    redactPrepareStepDiagnosticsText(
+      secrets.reduce(
+        (text, secret) => text.split(secret).join("[redacted]"),
+        value
+      )
+    ).slice(0, 4096);
+  const events: { code: string; message: string }[] = [];
+  const remember = (event: { code: string; message: string }) => {
+    if (!event.message) {
+      return;
+    }
+    events.push(event);
+    if (events.length > 100) {
+      events.shift();
+    }
+  };
+  let completed = false;
+  let failure: string | null = null;
+  let failureCode: string | null = null;
+  const acceptLine = (line: string) => {
+    const parsedLine = parseComputerSetupOutputLine(line);
+    if (parsedLine.kind === "unstructured") {
+      // Native startup failures can precede the CLI's structured presenter.
+      // Preserve their redacted text as diagnostics, never as progress/state.
+      remember({ code: "process.output", message: redact(line.trim()) });
+      return;
+    }
+    if (parsedLine.kind === "ignored") {
+      return;
+    }
+    const { event, raw } = parsedLine;
+    const issue = localMachineIssueAgentEventSchema.safeParse(raw);
+    const failed = isSetupFailure(event, issue.success);
+    if (failed) {
+      completed = false;
+      failureCode = event.code;
+    } else if (event.code === (options.completedEvent ?? "setup.complete")) {
+      completed = true;
+    }
+    const message = redact(resolveSetupEventMessage(event, issue));
+    if (!message) {
+      return;
+    }
+    const progressState = resolveSetupProgressState(event.data?.state);
+    const item = {
+      code: event.code,
+      message,
+      ...(event.data?.phase ? { phase: event.data.phase } : {}),
+      ...(progressState ? { state: progressState } : {}),
+    };
+    remember(item);
+    if (failed) {
+      failure = message;
+    }
+    if (isObservableSetupEvent(event)) {
+      // A slow or failed observer cannot consume output or change CLI success.
+      Promise.resolve()
+        .then(() => options.onProgress?.(item))
+        .catch(() => undefined);
+    }
+  };
+  const readOutput = async () => {
+    const file = await open(output, "r");
+    try {
+      const { size } = await file.stat();
+      if (size === lastSize) {
+        return;
+      }
+      const start = Math.max(lastSize, size - 65_536);
+      const buffer = Buffer.alloc(size - start);
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, start);
+      const content = buffer.subarray(0, bytesRead);
+      const end = content.lastIndexOf(10);
+      if (end < 0) {
+        return;
+      }
+      lastSize = start + end + 1;
+      for (const line of content
+        .subarray(0, end)
+        .toString("utf8")
+        .split("\n")) {
+        acceptLine(line);
+      }
+    } finally {
+      await file.close();
+    }
+  };
+  const refresh = () => {
+    reading = reading.then(readOutput).catch(() => undefined);
+  };
   try {
-    const child = spawn(bin, args, {
-      env,
+    const commandEnv = normalizeCommandEnvironment(env ?? process.env);
+    const invocation = resolvePlatformCommand(bin, args, commandEnv);
+    const child = spawn(invocation.bin, invocation.args, {
+      env: commandEnv,
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+      windowsHide: true,
       detached: true,
       stdio: ["ignore", log.fd, log.fd],
+    });
+    child.once("spawn", () => {
+      try {
+        options.onStarted?.();
+      } catch {
+        // Starting a UI observer is not part of command success.
+      }
     });
     // The CLI's existing Prepare continuation and OS-managed Service survive
     // GUI exit. A regular file keeps output independent of the GUI's pipes.
     const completion = new Promise<number | null>((resolve, reject) => {
-      child.once("error", () =>
+      child.once("error", (error) =>
         reject(
-          new Error("OpenMeld Tools could not start. Try connecting again.")
+          new Error(
+            `OpenMeld Tools could not start. ${redact(error.message)} Try connecting again.`
+          )
         )
       );
       child.once("exit", resolve);
     });
     child.unref();
+    watchFile(output, { interval: 250, persistent: false }, refresh);
     const [code] = await Promise.all([completion, log.close()]);
-    const lines = (await readFile(output, "utf8")).split("\n");
-    const completed = lines.some((line) => {
-      try {
-        return JSON.parse(line).code === "setup.complete";
-      } catch {
-        return false;
-      }
-    });
+    unwatchFile(output, refresh);
+    await reading;
+    await readOutput();
     if (code !== 0 || !completed) {
-      for (const line of lines) {
-        let event: unknown;
-        try {
-          event = JSON.parse(line);
-        } catch {
-          continue;
-        }
-        const issue = localMachineIssueAgentEventSchema.safeParse(event);
-        if (issue.success) {
-          throw new Error(issue.data.message);
-        }
-      }
-      throw new Error(
-        "OpenMeld could not finish connecting this computer. Review its connection status and try again."
+      const diagnosticsPath = join(directory, "connection-diagnostics.json");
+      await writeFile(
+        diagnosticsPath,
+        JSON.stringify({ exitCode: code, events }, null, 2),
+        { mode: 0o600 }
+      );
+      await rm(output);
+      preserve = true;
+      throw new ComputerOperationError(
+        failure ??
+          (options.completedEvent === "computer.disconnected"
+            ? "This Mac could not disconnect. Update OpenMeld Tools, then try again."
+            : "OpenMeld could not finish connecting this computer. Review its connection details and try again."),
+        diagnosticsPath,
+        failureCode
       );
     }
   } finally {
+    unwatchFile(output, refresh);
     await log.close();
-    await rm(directory, { recursive: true, force: true });
+    if (!preserve) {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+}
+
+function resolveSetupEventMessage(
+  event: ComputerSetupOutput,
+  issue: ReturnType<typeof localMachineIssueAgentEventSchema.safeParse>
+) {
+  return issue.success
+    ? issue.data.message
+    : (event.message ?? event.text ?? "");
+}
+
+function isSetupFailure(event: ComputerSetupOutput, isMachineIssue: boolean) {
+  return (
+    isMachineIssue || event.type === "error" || event.data?.state === "failed"
+  );
+}
+
+function isObservableSetupEvent(event: ComputerSetupOutput) {
+  return Boolean(event.data?.state) || event.type === "error";
+}
+
+function parseComputerSetupOutputLine(
+  line: string
+):
+  | { kind: "event"; event: ComputerSetupOutput; raw: unknown }
+  | { kind: "ignored" }
+  | { kind: "unstructured" } {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(line);
+  } catch {
+    return { kind: "unstructured" };
+  }
+  const parsed = computerSetupOutputSchema.safeParse(raw);
+  return parsed.success
+    ? { kind: "event", event: parsed.data, raw }
+    : { kind: "ignored" };
+}
+
+function resolveSetupProgressState(
+  state: string | undefined
+): DesktopComputerConnectionProgress["state"] | undefined {
+  if (state === "started" || state === "active") {
+    return "active";
+  }
+  if (state === "completed" || state === "failed") {
+    return state;
+  }
+  return undefined;
+}
+
+class ComputerOperationError extends Error {
+  readonly diagnosticsPath: string;
+  readonly code: string | null;
+  constructor(message: string, diagnosticsPath: string, code: string | null) {
+    super(message);
+    this.diagnosticsPath = diagnosticsPath;
+    this.code = code;
   }
 }

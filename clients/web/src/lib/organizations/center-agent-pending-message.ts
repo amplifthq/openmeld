@@ -3,6 +3,19 @@ import type { PendingSpaceMessage } from "#/lib/spaces/pending-message";
 
 export type PendingCenterAgentMessage = PendingSpaceMessage;
 
+export function centerAgentPendingAttachmentScope(input: {
+	ownerAccountId: string;
+	organizationId: string;
+	sessionId?: string;
+}) {
+	return JSON.stringify([
+		"center-agent-attachments",
+		input.ownerAccountId,
+		input.organizationId,
+		input.sessionId ?? "default",
+	]);
+}
+
 export type CenterAgentPendingMessageScope = {
 	sessionId?: string;
 	organizationId?: string;
@@ -33,6 +46,16 @@ export function createPendingCenterAgentMessage(
 		createdAtMs: Date.now(),
 		text,
 	};
+}
+
+export function hasPendingCenterAgentMessages(
+	queryClient: QueryClient
+): boolean {
+	return queryClient
+		.getQueriesData<PendingCenterAgentMessage>({
+			queryKey: centerAgentPendingMessageKeys.all,
+		})
+		.some(([, message]) => !!message);
 }
 
 export function activateCenterAgentPendingMessageScope(

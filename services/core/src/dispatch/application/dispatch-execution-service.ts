@@ -129,8 +129,10 @@ import {
   waitRuntimeTransportDispatchResult,
 } from "../infrastructure/runtime-transport/runtime-coordinator-client";
 import {
+  acquireRuntimeTransportAgentProfileLegacyConversationMutation,
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoute,
+  releaseRuntimeTransportAgentProfileExecutionTargetMutation,
 } from "../infrastructure/runtime-transport/runtime-transport-client";
 import { RUNTIME_TASK_DEDUPED_ERROR_CODE } from "../rules/dispatch-error-policy";
 import {
@@ -264,6 +266,7 @@ export type EffectiveTargetBindingSnapshot = {
 export type TargetBindingSource = "core_primary_binding";
 
 type RuntimeDispatchSuccessResult = {
+  executionContextId?: string;
   agentControllerConversationId: string | null;
   bootstrapTemplateFacts?: BootstrapTemplateFacts;
   dispatchExecution?: DispatchExecution;
@@ -693,6 +696,11 @@ export const deliverDispatchMessageToDaemon = async (input: {
           executionContext: routeExecutionContext,
           executionLogBase,
           route,
+        });
+        assertDaemonRouteExecutionContextCapable({
+          message: input.message,
+          route,
+          executionContext: routeExecutionContext,
         });
       },
       timing: input.timing,
@@ -1239,6 +1247,47 @@ const assertDaemonRouteHasLiveBindingCapability = (input: {
     executionContext: input.executionContext,
   });
 };
+
+function assertDaemonRouteExecutionContextCapable(input: {
+  message: OpenMeldDaemonDispatchQueueMessage;
+  route: OnlineRuntimeTransportRoute;
+  executionContext: DispatchExecutionContext;
+}): void {
+  if (
+    input.message.sourceSignalSnapshot?.workHandoff &&
+    input.route.capabilities.spaceWorkHandoff !== true
+  ) {
+    throw buildDispatchExecutionValidationError({
+      code: "service.update_required",
+      message:
+        "Update this Computer's OpenMeld Service before handing off selected files.",
+      executionContext: input.executionContext,
+      waitReasonCode: "space_work_handoff_unsupported",
+    });
+  }
+  if (!input.message.executionContext) {
+    return;
+  }
+  const adapterId = parseAgentControllerRef(
+    input.message.controllerSnapshot.agentControllerRef
+  )?.id;
+  if (
+    input.route.capabilities.runtimeAdapters?.some(
+      (adapter) =>
+        adapter.adapterId === adapterId &&
+        (adapter.capabilityDeclaration.executionContextVersion ?? 0) >=
+          (input.message.executionContext?.legacyAssociation ? 2 : 1)
+    )
+  ) {
+    return;
+  }
+  throw buildDispatchExecutionValidationError({
+    code: "service.update_required",
+    message: "Update OpenMeld Service to run independent tasks.",
+    executionContext: input.executionContext,
+    waitReasonCode: "execution_context.service_update_required",
+  });
+}
 
 const assertDaemonRouteExecutionCompatible = (input: {
   executionContext: DispatchExecutionContext;
@@ -3563,6 +3612,7 @@ const prepareSuccessfulDispatchReply = async (input: {
     runtimeResult,
   });
   const persistedConversationId = await persistAgentControllerConversationId({
+    env: input.env,
     agentControllerConversationId: resolvedAgentControllerConversationId,
     agentControllerRef: resolvedAgentControllerRef,
     db: input.localStateDb,
@@ -3806,6 +3856,9 @@ const parseSuccessfulRuntimeTransportTaskResult = (
   });
 
   return {
+    ...("executionContextId" in payload && payload.executionContextId
+      ? { executionContextId: payload.executionContextId }
+      : {}),
     agentControllerConversationId,
     agentControllerRef,
     output,
@@ -4612,6 +4665,7 @@ const buildConversationContinuityWarningText = (input: {
 };
 
 const persistAgentControllerConversationId = async (input: {
+  env: CoreBindings;
   agentControllerConversationId: string | null;
   agentControllerRef: string;
   db: D1Database;
@@ -4621,6 +4675,9 @@ const persistAgentControllerConversationId = async (input: {
   runtimeResult: RuntimeDispatchSuccessResult;
   targetOwnerUserId: string;
 }): Promise<PersistAgentControllerConversationIdResult> => {
+  if (input.runtimeResult.executionContextId) {
+    return { bindingSource: null, updateApplied: false };
+  }
   const nextConversationId = normalizeOptionalText(
     input.runtimeResult.agentControllerConversation
       ?.agentControllerConversationId ?? input.agentControllerConversationId
@@ -4646,6 +4703,21 @@ const persistAgentControllerConversationId = async (input: {
     };
   }
 
+  const operationId = `legacy-conversation:${crypto.randomUUID()}`;
+  const mutation =
+    await acquireRuntimeTransportAgentProfileLegacyConversationMutation({
+      env: input.env,
+      operationId,
+      ownerUserId: input.targetOwnerUserId,
+      targetProfileId: input.dispatchMessage.targetProfileId,
+    });
+  if (mutation.status !== "acquired") {
+    console.warn("[core.legacy_conversation.write_fenced]", {
+      reasonCode: mutation.reasonCode,
+      targetProfileId: input.dispatchMessage.targetProfileId,
+    });
+    return { bindingSource: null, updateApplied: false };
+  }
   try {
     const currentBinding = await readPrimaryAgentProfileBindingRecord({
       agentProfileId: input.dispatchMessage.targetProfileId,
@@ -4764,6 +4836,13 @@ const persistAgentControllerConversationId = async (input: {
       bindingSource: null,
       updateApplied: false,
     };
+  } finally {
+    await releaseRuntimeTransportAgentProfileExecutionTargetMutation({
+      env: input.env,
+      operationId,
+      ownerUserId: input.targetOwnerUserId,
+      targetProfileId: input.dispatchMessage.targetProfileId,
+    });
   }
 };
 

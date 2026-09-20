@@ -1,5 +1,6 @@
 "use client";
 
+import { sanitizeSignalTextPreview } from "@openmeld/schemas";
 import type { OrganizationProfileDirectoryResponse } from "@openmeld/schemas/types";
 import {
 	Dialog,
@@ -27,6 +28,10 @@ import { useMatches, useNavigate } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import {
+	messageSearchHref,
+	useMessageSearch,
+} from "#/components/search/message-search";
 import { useAppSettings } from "#/components/settings/use-app-settings";
 import {
 	isDirectMessageItem,
@@ -171,6 +176,12 @@ function CommandCenterContents(input: {
 }) {
 	const { currentOrganization } = useAppOrganization();
 	const orgSlug = currentOrganization.slug;
+	const [isComposing, setIsComposing] = useState(false);
+	const messageSearch = useMessageSearch({
+		draft: input.query,
+		isComposing,
+		profileId: input.profileId,
+	});
 	const navigate = useNavigate();
 	const openSettings = useAppSettings();
 	const { resolvedTheme, setTheme } = useTheme();
@@ -386,9 +397,16 @@ function CommandCenterContents(input: {
 			},
 		});
 	}
+	const messageCommands = buildMessageCommands(messageSearch, {
+		query: input.query,
+		isComposing,
+		orgSlug,
+		profileId: input.profileId,
+		go,
+	});
 	return (
 		<CommandCenterList
-			entries={entries}
+			entries={[...messageCommands.entries, ...entries]}
 			error={
 				spaces.isError ||
 				directory.isError ||
@@ -401,10 +419,67 @@ function CommandCenterContents(input: {
 				model.directMessages.sessions.isPending ||
 				model.directMessages.store.isPending
 			}
+			onCompositionChange={setIsComposing}
 			onQueryChange={input.onQueryChange}
 			query={input.query}
+			searchStatus={messageCommands.status}
 		/>
 	);
+}
+
+function buildMessageCommands(
+	messageSearch: ReturnType<typeof useMessageSearch>,
+	input: {
+		query: string;
+		isComposing: boolean;
+		orgSlug: string;
+		profileId: string;
+		go: (to: string) => void;
+	}
+) {
+	const messageEntries: CommandEntry[] = messageSearch.matches.map((match) => ({
+		id: `message:${match.signal.spaceId}:${match.signal.id}`,
+		label: sanitizeSignalTextPreview(match.signal.data.text) ?? "Message",
+		description: `${match.spaceName ?? "Conversation"} · ${match.signal.profile.profileName}`,
+		group: "Search",
+		keywords: input.query,
+		actionLabel: "Open message",
+		run: () =>
+			input.go(messageSearchHref(match, input.orgSlug, input.profileId)),
+	}));
+	if (
+		messageSearch.results.hasNextPage &&
+		!messageSearch.continueAutomatically &&
+		!messageSearch.searching
+	) {
+		messageEntries.push({
+			id: "more-message-results",
+			label: "Show more results",
+			group: "Search",
+			keywords: input.query,
+			run: () => messageSearch.results.fetchNextPage(),
+		});
+	}
+	let searchStatus: string | undefined;
+	if (!input.isComposing && input.query.trim()) {
+		if ([...input.query.trim()].length < 3) {
+			searchStatus = "Use at least 3 characters to search messages.";
+		} else if (messageSearch.results.isError) {
+			searchStatus = "Unable to finish searching. Try again.";
+			messageEntries.push({
+				id: "retry-message-search",
+				label: "Try again",
+				group: "Search",
+				keywords: input.query,
+				run: () => messageSearch.results.refetch(),
+			});
+		} else if (messageSearch.searching) {
+			searchStatus = "Searching…";
+		} else if (!messageEntries.length) {
+			searchStatus = "No matching messages.";
+		}
+	}
+	return { entries: messageEntries, status: searchStatus };
 }
 
 function spaceCommandEntry(

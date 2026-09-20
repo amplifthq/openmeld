@@ -1,3 +1,4 @@
+import { Dialog } from "@openmeld/ui/components/dialog";
 import {
 	resolveHostCapabilities,
 	resolveSettingsSections,
@@ -30,6 +31,7 @@ const testSettingsSections = buildSettingsSections(TEST_ORG_SLUG);
 const getActiveOrganizationMemberRoleMock = vi.hoisted(() =>
 	vi.fn().mockResolvedValue("owner")
 );
+const getDesktopPlatformMock = vi.hoisted(() => vi.fn());
 let currentOrganization: OrganizationSummary = {
 	id: "org-acme",
 	name: "Acme",
@@ -52,6 +54,10 @@ vi.mock("@tanstack/react-router", async () => {
 		),
 	};
 });
+
+vi.mock("#/desktop/platform", () => ({
+	getDesktopPlatform: getDesktopPlatformMock,
+}));
 
 vi.mock("#/query/organizations/invitation-requests", () => ({
 	useInvitationReviewCount: () => ({ data: 0 }),
@@ -125,6 +131,7 @@ vi.mock("./account-section", () => ({
 
 afterEach(() => {
 	cleanup();
+	getDesktopPlatformMock.mockReset();
 	currentOrganization = {
 		id: "org-acme",
 		name: "Acme",
@@ -133,6 +140,26 @@ afterEach(() => {
 });
 
 describe("Web Settings capability gating", () => {
+	it("keeps one dialog and real navigation through the cold panel load", async () => {
+		render(
+			<TestQueryClientProvider>
+				<Dialog open>
+					<SettingsPage
+						activeSectionId="account"
+						onNavigate={vi.fn()}
+						presentation="dialog"
+					/>
+				</Dialog>
+			</TestQueryClientProvider>
+		);
+		const dialog = screen.getByRole("dialog", { name: "App settings" });
+		expect(screen.getByRole("button", { name: "Appearance" })).toBeTruthy();
+		expect(
+			screen.getByRole("status", { name: "Loading settings" })
+		).toBeTruthy();
+		await screen.findByText("Account settings content");
+		expect(screen.getByRole("dialog", { name: "App settings" })).toBe(dialog);
+	});
 	it("drops the local-service Service section on a plain Web (cloud) host", () => {
 		const sections = resolveSettingsSections(
 			testSettingsSections,
@@ -145,6 +172,7 @@ describe("Web Settings capability gating", () => {
 			"appearance",
 			"notifications",
 			"privacy",
+			"center-agent",
 			"general",
 			"members",
 			"invitations",
@@ -163,6 +191,7 @@ describe("Web Settings capability gating", () => {
 			"appearance",
 			"notifications",
 			"privacy",
+			"center-agent",
 			"general",
 			"members",
 			"invitations",
@@ -173,6 +202,7 @@ describe("Web Settings capability gating", () => {
 			testSettingsRoutes.appearance,
 			testSettingsRoutes.notifications,
 			testSettingsRoutes.privacy,
+			testSettingsRoutes["center-agent"],
 			testSettingsRoutes.general,
 			testSettingsRoutes.members,
 			testSettingsRoutes.invitations,
@@ -191,6 +221,7 @@ describe("Web Settings capability gating", () => {
 			"appearance",
 			"notifications",
 			"privacy",
+			"center-agent",
 			"general",
 			"members",
 			"invitations",
@@ -200,6 +231,43 @@ describe("Web Settings capability gating", () => {
 });
 
 describe("Settings grouped navigation", () => {
+	it("places Desktop Updates after Privacy and before Send feedback", () => {
+		getDesktopPlatformMock.mockReturnValue({});
+		const navItems = toSettingsNavItems(
+			resolveSettingsSections(
+				buildSettingsSections(TEST_ORG_SLUG),
+				CLOUD_CAPABILITIES
+			)
+		);
+
+		render(
+			<SettingsInnerSidebar
+				activeSectionId="updates"
+				isPersonalWorkspace={false}
+				items={navItems}
+				onSendFeedback={vi.fn()}
+				organizationName="Acme"
+				organizationRole="owner"
+			/>
+		);
+
+		const personalNavigation = screen.getByRole("navigation", {
+			name: "Personal settings",
+		});
+		expect(
+			Array.from(personalNavigation.querySelectorAll("a, button")).map(
+				(item) => item.textContent
+			)
+		).toEqual([
+			"Account",
+			"Appearance",
+			"Notifications",
+			"Privacy & Safety",
+			"Updates",
+			"Send feedback",
+		]);
+	});
+
 	it("uses section actions instead of full-page links inside the dialog", () => {
 		const onNavigate = vi.fn();
 		render(
@@ -292,7 +360,13 @@ describe("Settings grouped navigation", () => {
 					.getByRole("navigation", { name: "Acme settings" })
 					.querySelectorAll("a")
 			).map((link) => link.textContent)
-		).toEqual(["General", "Members", "Invitations", "Security"]);
+		).toEqual([
+			"General",
+			"Center Agent",
+			"Members",
+			"Invitations",
+			"Security",
+		]);
 	});
 
 	it("uses the shared compact app-nav scale for labels and items", () => {
@@ -400,11 +474,24 @@ describe("Settings grouped navigation", () => {
 			slug: "felix",
 		});
 
-		expect(personalItems.personal).toEqual(organizationItems.personal);
+		expect(personalItems.personal).toEqual([
+			"Account",
+			"Appearance",
+			"Notifications",
+			"Privacy & Safety",
+			"Center Agent",
+			"Send feedback",
+		]);
 		expect(personalItems.organization).toEqual(["General"]);
 		expect(organizationItems).toEqual({
 			badges: [],
-			organization: ["General", "Members", "Invitations", "Security"],
+			organization: [
+				"General",
+				"Center Agent",
+				"Members",
+				"Invitations",
+				"Security",
+			],
 			organizationLabel: "Acme",
 			personal: [
 				"Account",
@@ -424,6 +511,7 @@ describe("Settings grouped navigation", () => {
 				"Appearance",
 				"Notifications",
 				"Privacy & Safety",
+				"Center Agent",
 				"Send feedback",
 			],
 			storedOrganizationNameVisible: true,

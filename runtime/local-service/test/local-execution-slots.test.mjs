@@ -142,6 +142,30 @@ test("local execution slots run one task per execution lane", async () => {
   assert.deepEqual(startedTaskIds, ["task-a", "task-b"]);
 });
 
+test("local execution slots include adapter maintenance in quiescence and draining", async () => {
+  const queue = createLocalExecutionSlots({
+    limits: { globalConcurrency: 1, queueMax: 10 },
+  });
+  const operation = createDeferred();
+  const selected = queue.runAdapterOperationIfIdle("codex", async () => {
+    await operation.promise;
+    return "selected";
+  });
+  assert.deepEqual(queue.getDrainState(), { activeGlobal: 0, pendingCount: 0 });
+  assert.equal(queue.isQuiescent(), false);
+  queue.beginDrain();
+  let drained = false;
+  const drain = queue.drain().then(() => {
+    drained = true;
+  });
+  await Promise.resolve();
+  assert.equal(drained, false);
+  operation.resolve();
+  assert.deepEqual(await selected, { accepted: true, value: "selected" });
+  await drain;
+  assert.equal(queue.isQuiescent(), true);
+});
+
 test("local execution slots stop accepting new work while controlled shutdown drains accepted work", async () => {
   const startedTaskIds = [];
   const queue = createLocalExecutionSlots({

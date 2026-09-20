@@ -304,6 +304,7 @@ export function AppearanceSection() {
 					showDivider={false}
 				/>
 				<SettingsRow
+					className="hidden lg:flex"
 					control={
 						<div className="flex flex-wrap items-center gap-x-8 gap-y-3">
 							{TOOLBAR_SHORTCUTS.map((item) => (

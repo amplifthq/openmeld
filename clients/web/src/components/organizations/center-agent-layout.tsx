@@ -6,6 +6,7 @@ import { AppGlobalControls } from "#/components/app/app-global-controls";
 import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
+import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import type { SidebarPersistedState } from "#/lib/sidebar-width-cookie";
 import { APP_APPLICATION_RAIL_CLASS_NAME } from "../app/app-nav-item-style";
 import { SidebarListSkeleton } from "../app/sidebar-list-skeleton";
@@ -42,6 +43,10 @@ export function CenterAgentPendingLayout(input: {
 	children: ReactNode;
 	initialOuterSidebarState?: SidebarPersistedState;
 }) {
+	const organization = useOptionalAppOrganization();
+	if (organization) {
+		return <CenterAgentLayout {...input} />;
+	}
 	return (
 		<AppSurfaceLayout
 			frameSlotName="center-agent-pending-layout"

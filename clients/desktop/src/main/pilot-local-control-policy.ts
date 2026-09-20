@@ -1,7 +1,8 @@
-// Exact Gateway route families. The pilot permits local Start/Stop only through
-// account-checked IPC; shared Web continues to use these management APIs.
+// Local Computer configuration remains Web-only. Forget uses cloud account
+// authorization, not the local Service proxy. Working-folder operations use
+// exact native account/device/lane admission; Start/Stop use protected IPC.
 const LOCAL_CONTROL_ROUTES = [
-  ["POST", "/v1/devices/:deviceId/forget"],
+  ["POST", "/v1/devices/current/forget"],
   ["PUT", "/v1/devices/:deviceId/observed-metadata"],
   ["POST", "/v1/local-runtimes/:deviceId/enrollment"],
   ["PUT", "/v1/local-runtimes/:deviceId/display-name"],
@@ -28,11 +29,6 @@ const LOCAL_CONTROL_ROUTES = [
     ["PUT", `${base}/openmeld-tools/maintenance`],
   ]),
   ["PUT", "/v1/people-computers/:deviceId/lanes/:runtimeLane/file-access"],
-  ["POST", "/v1/people-computers/:deviceId/lanes/:runtimeLane/folders/select"],
-  [
-    "POST",
-    "/v1/people-computers/:deviceId/lanes/:runtimeLane/projects/discover",
-  ],
   ["POST", "/v1/prepare/sessions"],
   ["POST", "/v1/prepare/sessions/:sessionId/token"],
   ["POST", "/v1/prepare/sessions/resolve-token"],
@@ -40,6 +36,37 @@ const LOCAL_CONTROL_ROUTES = [
   ["PATCH", "/v1/prepare/sessions/:sessionId/setup-bootstrap"],
   ["PUT", "/v1/prepare/sessions/:sessionId/terminal-step"],
 ] as const;
+
+export function desktopWorkingFolderTarget(url: URL, method: string) {
+  const segments = url.pathname.split("/").map(decodeURIComponent);
+  if (
+    segments.length < 7 ||
+    segments[1] !== "v1" ||
+    segments[2] !== "people-computers" ||
+    segments[4] !== "lanes"
+  ) {
+    return null;
+  }
+  const action = segments.slice(6).join("/");
+  const permitted =
+    method === "POST" &&
+    [
+      "folders/select",
+      "projects/discover",
+      "projects/connect-candidate",
+      "projects/connect-declared-path",
+      "projects/connections/set-default",
+    ].includes(action);
+  const workspace =
+    method === "PUT" &&
+    segments.length === 9 &&
+    segments[6] === "agent-profiles" &&
+    Boolean(segments[7]) &&
+    segments[8] === "workspace";
+  return permitted || workspace
+    ? { deviceId: segments[3], runtimeLane: segments[5] }
+    : null;
+}
 
 export function isPilotLocalControlRequest(url: URL, method: string): boolean {
   // Match decoded segments individually so encoded static route names cannot

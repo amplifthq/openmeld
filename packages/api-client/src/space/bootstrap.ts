@@ -9,6 +9,7 @@ import type { SpaceRequestInput, SpaceSignalsReadQuery } from "./types";
 export async function getSpaceBootstrap(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput & {
+    includeAgentReadiness?: boolean;
     historyQuery?: SpaceSignalsReadQuery;
     includeAgentStreamPresence?: boolean;
   }
@@ -17,7 +18,8 @@ export async function getSpaceBootstrap(
     url: buildSpaceBootstrapReadPath(
       input.spaceId,
       input.historyQuery,
-      input.includeAgentStreamPresence
+      input.includeAgentStreamPresence,
+      input.includeAgentReadiness
     ),
     operation: "space.bootstrap.read",
     headers: {
@@ -38,7 +40,8 @@ export async function getSpaceBootstrap(
 export function buildSpaceBootstrapReadPath(
   spaceId: string,
   historyQuery?: SpaceSignalsReadQuery,
-  includeAgentStreamPresence?: boolean
+  includeAgentStreamPresence?: boolean,
+  includeAgentReadiness?: boolean
 ): string {
   const url = new URL(
     buildSpaceBootstrapPath(spaceId),
@@ -49,6 +52,9 @@ export function buildSpaceBootstrapReadPath(
   }
   if (includeAgentStreamPresence === true) {
     url.searchParams.set("includeAgentStreamPresence", "true");
+  }
+  if (includeAgentReadiness === false) {
+    url.searchParams.set("includeAgentReadiness", "false");
   }
   return `${url.pathname}${url.search}`;
 }

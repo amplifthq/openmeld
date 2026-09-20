@@ -63,6 +63,7 @@ const navigateMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() =>
 	Object.assign(vi.fn(), {
 		error: vi.fn(),
+		info: vi.fn(),
 		success: vi.fn(),
 		warning: vi.fn(),
 	})
@@ -326,6 +327,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		navigateMock.mockReset();
 		toastMock.mockReset();
 		toastMock.error.mockReset();
+		toastMock.info.mockReset();
 		toastMock.success.mockReset();
 		toastMock.warning.mockReset();
 	});
@@ -680,8 +682,11 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			{ presentation: "detail" }
 		);
 
-		const presence = screen.getByTestId("agent-profile-presence");
-		expect(within(presence).getByText("Checking…")).toBeTruthy();
+		const presence = screen.getByRole("status", {
+			name: "Loading Agent availability",
+		});
+		expect(presence.querySelector('[data-slot="skeleton"]')).toBeTruthy();
+		expect(within(presence).queryByText("Available")).toBeNull();
 		expect(
 			within(presence).queryByRole("link", {
 				name: WAKEABILITY_LINK_ACTION_PATTERN,
@@ -891,6 +896,12 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			return cards.indexOf(card);
 		});
 		expect(cardOrder).toEqual([0, 1, 2, 3, 4, 5]);
+		expect(
+			within(overview).getByRole("region", { name: "Usage limits" })
+		).toBeTruthy();
+		expect(
+			screen.getAllByRole("region", { name: "Usage limits" })
+		).toHaveLength(1);
 	});
 
 	it("shows a missing working folder with one direct recovery action", () => {
@@ -1211,6 +1222,44 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 	});
 
+	it("tells the owner their choice was kept while the original request is still being checked", async () => {
+		executeAgentProfileWorkRecoveryMock.mockRejectedValueOnce(
+			Object.assign(new Error("awaiting original stop"), {
+				code: "agent_profile_work_recovery.awaiting_original_stop",
+			})
+		);
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: "Launch planning",
+							queuedWorkLocations: [],
+							recoveryAction: { kind: "continue_interrupted_work" },
+							status: "paused",
+							waitingCount: 0,
+						},
+					],
+				]),
+				presentation: "detail",
+			}
+		);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Continue interrupted work" })
+		);
+
+		await waitFor(() => {
+			expect(toastMock.info).toHaveBeenCalledWith(
+				"OpenMeld kept your choice for Research Agent and is checking whether the original request stopped on your computer. Nothing new has started yet."
+			);
+		});
+		expect(toastMock.error).not.toHaveBeenCalled();
+	});
+
 	it("lets the owner skip interrupted work before queued work can continue", async () => {
 		executeAgentProfileWorkRecoveryMock.mockResolvedValueOnce({
 			action: "skip_interrupted_work",
@@ -1268,7 +1317,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 		expect(
 			within(confirmation).getByText(
-				"This work will not continue. Any queued work can start after you skip it."
+				"OpenMeld will not continue this work, and it asks your computer to stop the original attempt. Anything the work already changed stays as it is. Any queued work can start after you skip it."
 			)
 		).toBeTruthy();
 		fireEvent.click(
@@ -1411,6 +1460,13 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeTruthy();
 		expect(screen.getAllByText("Codex · GPT-5.5 · high")).toHaveLength(2);
 		expect(screen.getByText("Approve for me")).toBeTruthy();
+		const usage = within(
+			screen.getByTestId("agent-configuration-overview")
+		).getByRole("region", { name: "Usage limits" });
+		expect(usage.closest("[data-fluid-card-item]")).toBeTruthy();
+		expect(
+			within(usage).queryByRole("button", { name: "Edit Usage limits" })
+		).toBeNull();
 		expect(
 			document.querySelector('img[src="https://example.com/felix-avatar.png"]')
 		).toBeTruthy();
@@ -1750,8 +1806,9 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 
 		expect(readCurrentAgentActivitySessionsMock).not.toHaveBeenCalled();
 		expect(
-			screen.queryByRole("heading", { name: "Current activity" })
-		).toBeNull();
+			screen.getByRole("status", { name: "Loading Agent activity" })
+		).toBeTruthy();
+		expect(screen.queryByTestId("agent-current-activity")).toBeNull();
 		expect(screen.queryByText("Ship the Agent Profile upgrade")).toBeNull();
 	});
 

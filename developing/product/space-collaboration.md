@@ -102,6 +102,48 @@ semantics for listing, addressing, Wake, removal, and degraded Direct Message
 behavior. This does not create another Space kind or apply the locked Center
 Agent Direct Message mutation rules to an ordinary Space.
 
+## Space Tasks
+
+An ordinary shared Space may own **Tasks** as durable collaboration
+commitments. Messages remains the default place to ask, discuss, and complete
+small work. A Task records a clear deliverable that needs continuing ownership,
+progress, review, or later closure. Direct Messages and specialized private
+Center Agent sessions do not expose or accept Space Tasks.
+
+A Task preserves the trusted requester and creator, one optional assignee, one
+optional independent reviewer, its source message and Thread, completion
+conditions, current result, current review, revision, and append-only activity.
+The active phases are **To do**, **In progress**, and **In review**. **Done**
+means the declared completion boundary was met; **Canceled** means the accepted
+commitment is no longer being pursued. Reopening is explicit. Assignment alone
+does not start an Agent or claim that work is running.
+
+The source Message or Thread remains the collaboration surface. **Add to
+Tasks** captures one message explicitly. Agents create a Task automatically
+only when the current request is a clear, discrete deliverable; questions,
+exploration, acknowledgements, and tiny same-turn actions stay in Messages.
+Several Tasks may share one Thread, but a mutation must identify one exact Task.
+
+The requester, assignee, reviewer, and Space owner have action-specific
+permissions. The assignee starts work and submits results. With no reviewer,
+submission completes the Task against its stated conditions. With a reviewer,
+submission enters review. Accepted review completes the Task; requested changes
+return it to the assignee. Agent-to-Agent handoffs use normal Space Wake
+admission and stop after two automatic rework rounds, then require a human
+requester or Space owner to authorize more work. Task state never substitutes
+for RuntimeCoordinator or native-delivery execution truth.
+
+Task transition messages are idempotent and return to the source Thread when
+one exists. They mention a human reviewer through normal Inbox delivery or
+Wake an Agent reviewer through the existing Space path. Completion posts the
+result back to the original request. Canceling fences later Task mutations and
+requests an authorized Stop for a linked active Agent Wake; an unavailable or
+failed Stop does not undo the Task cancellation or claim that execution ended.
+
+GitHub and Linear objects are links in the initial release. Automatic provider
+event observation, source reconciliation, and status transitions are follow-up
+work and must not be implied by a linked URL.
+
 ## Editing and Recalling Messages
 
 An active Human member can edit or recall their own sent messages, without a
@@ -169,7 +211,14 @@ never create Organization membership. Guests use the existing conversation
 and cannot open Organization directories or manage the Space. Disabling guest
 access blocks existing external guests and closes their live connections;
 re-enabling it restores their existing memberships. Removing a guest from the
-Space remains permanent until a new invitation is accepted.
+Space remains effective until a new invitation is accepted or the person
+explicitly rejoins under a currently enabled link-join policy. Link self-join
+admits only the caller's verified Human Profile as a Space Guest, never an
+Organization member; it requires guest access to be enabled separately.
+When an owner submits the first guest invitation while guest access is off,
+Share confirms the exposure once, enables guest access, and continues that
+same invitation. It does not make the owner enable a duplicate setting before
+inviting the guest.
 
 Discover includes Organization-open Spaces and the signed-in recipient's
 pending invitations, labeled **Invited**. A private invitation exposes its
@@ -364,6 +413,36 @@ fallback is `An agent is working`, not a guessed participant.
 
 ## Space Files
 
+### Selected work handoffs
+
+A selected work handoff is an ordinary Space Message or Thread reply with one
+Wake target, exact file revisions, optional immutable Organization Skill
+releases, a goal, completed work, next steps, and requirements. The containing
+message owns its origin and result placement. The manifest cannot choose a
+different author, source Space, account, or reply destination. Reusing a message
+identity with different work fails; posting successfully does not mean the Wake
+started or succeeded.
+
+The first slice supports up to ten files, each at most 10 MiB, with safe unique
+relative paths. The recipient prepares the complete selected set before starting
+execution. Missing files or Skills fail explicitly; neither current revisions
+nor latest Skill releases silently replace the selection. Files remain owned by
+the Space, and ordinary Space membership and Wake admission still apply.
+
+Hosted Agents use their existing Computer identity. Workstation continuation
+requires the macOS Codex App Server Space-only execution boundary. Other
+controllers/platforms are not advertised as supporting this handoff. This is
+not a user-owned private Computer, cross-device process migration, background
+file synchronization, or generic Git repository transfer.
+
+Saving an existing file creates a revision through its existing writer and
+expected base, retaining its file ID. Saving and selecting final reply
+attachments are separate actions. Conflicts preserve local work. The final
+reply references explicitly selected acknowledged revisions in the originating
+conversation, using the existing execution/finalization owner.
+
+### Shared file ownership
+
 Space Files are the shared working files of one Space. Humans, the hosted Center
 Agent, and authorized workstation Agents use the same Space-owned file contract;
 none receives a private or privileged copy of the file tree.
@@ -432,7 +511,7 @@ Center Agent Computer. A later explicit **Copy to Organization Files** action
 may create a new Organization-owned file with clear provenance; it must not
 create bidirectional synchronization, shared identity, or hidden write-through.
 
-Web presents **Messages | Graph | Files** in one Space. Files opens at the Space
+Web presents **Messages | Tasks | Files** in an ordinary shared Space. Files opens at the Space
 root and supports folder navigation, picker or whole-surface drag-and-drop
 upload, download, Markdown creation and editing, source editing for other
 supported text formats, rename, move, recoverable Trash, a compact version
@@ -491,12 +570,24 @@ does not redirect an in-flight upload or submission to the new conversation.
 Removing the selection discards that upload; abandoned uploads expire after
 24 hours and Core removes expired objects.
 
+Attachment-draft storage treats its IndexedDB connection as replaceable. A
+closed or invalid handle is reopened within a bounded wait, and only transaction
+creation may retry once before any file mutation begins. Operations for one
+attachment ID remain ordered so a delayed save cannot recreate a removed draft.
+Failed removal stays visible and retryable in the same account and conversation
+scope after the Composer remounts.
+
 Send immediately stages the message with local attachment previews and frees
 the Composer, including when uploads are still running. In the background it
 waits for the captured attachment batch, publishes every upload as a canonical
 root-level Space File, and posts the immutable revision references. A failed
 attachment is never silently omitted. A failure before publication keeps the
-message unsent with an explicit recovery path. File publication and message
+message unsent with an explicit recovery path. Retry keeps the original file,
+attachment ID, selection order, expiry, and publication identity. When remote
+staging succeeded but saving that descriptor locally failed, retry persists the
+existing descriptor instead of staging another upload. A descriptor alone is
+not publication readiness: the matching local draft write must also be
+confirmed. Recovery never sends automatically. File publication and message
 publication remain separate operations.
 
 Composer image attachments use compact, edge-to-edge thumbnails on surface 3,
@@ -717,10 +808,19 @@ Space from the directory or its destination link, independently of external
 link access. Core verifies current Organization membership and canonical Space
 policy; this grant admits only the caller's own Human Profile. It cannot add
 someone else, an Agent, or members to an unconverted Direct Message.
-The common UI asks **Who can join this Space**, with **Invited people** or
-**Everyone at [Organization]**. External guest invitations appear separately,
-only to owners. Existing public/password link policies are shown explicitly
-when present; they are not implied by Organization visibility.
+The common UI asks **Who can read this Space?** and **Who can join this Space?**
+and derives each selected audience from link joining, Organization visibility,
+and guest participation together. It never presents a broad main label and
+then retracts that promise in helper text. Invitation-only joining places the
+invitation action beside the relevant selector rather than in the dialog
+footer. Password controls follow the reading or joining rule they govern. The
+URL is recovery information after clipboard failure, not permanent form
+content. Organization visibility and guest participation remain in Share &
+Access settings. Membership and ownership use a separate Members settings page
+that directly shows its controls and reuses the shared invitation view. Owners
+can explicitly configure public/password link access in Share or invite or
+Share & Access; neither Organization visibility nor enabling guests publishes a
+Space.
 
 New Web Spaces explicitly request `members_only` with either private (default)
 or public Organization visibility. The common form has one General access
@@ -735,11 +835,29 @@ OpenMeld has four access modes:
 - `members_only`: only an active member or another active Profile
   owned by the same account can view the Space. New participants must be added
   explicitly or self-join under the Organization-public policy above.
-- `public`: anyone with the link can view the Space and join.
+- `public`: anyone with the link can view the Space. Signed-in external visitors
+  can explicitly join only while external guest access is enabled.
 - `public_view_join_password`: anyone with the link can view the Space, but
   joining requires the Space password unless the Organization-public grant applies.
+  External joining also requires guest access to be enabled.
 - `protected`: viewing and joining require the Space password unless an existing
   membership or Organization-public self-join grant admits the caller.
+  External joining also requires guest access to be enabled.
+
+`linkJoinPolicy` independently restricts the link-derived join grant. The
+legacy-compatible `access_mode` value retains the behavior above;
+`invite_only` lets `public` or `protected` reading remain available while the
+link grants no new membership. Organization-public joining, direct additions,
+accepted invitations, and current members retain their independent grants. A
+missing stored value resolves to `access_mode`; new Spaces start with
+`invite_only`, and an older writer that omits the field preserves its current
+value.
+
+Public reading includes retained messages, Threads, files, shared guide, pins,
+and Tasks from the same Space. It creates no account or membership. Login does
+not join automatically. Every content request rechecks current access; closing
+link access blocks subsequent anonymous reads. Previously copied content cannot
+be recalled. Private linked Spaces and unpublished Agent internals stay private.
 
 There is one Space password. OpenMeld must not maintain a separate password for
 viewing, joining, sharing, or any other Space access mode. When an owner turns
@@ -764,10 +882,25 @@ Before Organization departure or account removal, the departing person must
 hand over every owned Space and become a Member. Organization deletion requires
 its ordinary Spaces to be deleted first; it cannot strand their history.
 
-Share and Settings compose the same access panel and Fluid Dialog, Select,
-and Accordion primitives. Members are collapsed, searchable, and paged in
-the UI. Invitation-link state comes from persisted server state. Anonymous
-reading, posting, and Agent invocation remain outside this batch.
+Share or invite and Settings compose different task-focused views from one
+canonical snapshot and one local draft. Link reading, Organization visibility,
+joining, and guest access commit together so the UI never reports a partially
+saved policy. Moving between Share or invite and Share & Access preserves that
+draft; closing either surface requires one explicit discard decision. Members
+are directly visible on their settings page, searchable, and paged in the UI.
+Invitation-link state comes from persisted server state. Anonymous readers
+never post or invoke Agents.
+
+Unsent email invitations belong to the current open dialog and its account,
+Organization, Space, and audience. Share-tab and Guest/Teammate switches retain
+separate drafts and pending operations; closing the dialog or changing identity
+starts a new invitation session. A successful create/request clears only the
+unchanged revision it submitted. Resending or revoking an existing invitation
+never edits the compose draft. Membership loading, read failure, and confirmed
+denial are different UI states: a failed read offers retry, preserves any
+existing draft, and disables invitation actions until the read recovers. Server
+membership and invitation authorization remain authoritative.
+
 
 Profile participation remains explicit. Same-account access does not silently
 turn every profile under that account into a Space member. If a specific Human
@@ -808,6 +941,31 @@ It has three relations:
 | Human Mention | Human Profile only | No                      |
 
 Wake asks an Agent Profile to do work.
+
+A message containing only selected mentions can bring an Agent into the preceding
+conversation. Space captures bounded context from the same conversation: an
+explicitly referenced message takes priority; otherwise it selects the sender's
+latest substantive message among at most 20 recent messages from that sender,
+plus the thread root. Recalled messages are excluded. The trigger identity and
+reply placement remain unchanged. This context helps interpret the request; it
+does not create additional authorization or Wake targets. A substantive new
+request does not receive this inferred context.
+
+The dispatch snapshot's optional `contextMessages` preserves source IDs, authors,
+bounded text, and exact file/attachment references. Shared rendering supplies the
+same explanation to workstation and native Agents. Native delivery rereads those
+Space messages for current image references and excludes recalled messages;
+workstation delivery reuses existing file/image inputs and capability gating.
+Existing input count limits still apply.
+
+Contract Impact Audit: Core owns the new persisted snapshot field and its readers.
+Core producers and consumers must be rolled out together; an older strict Core
+reader cannot accept a snapshot containing the new field. Do not roll back those
+readers while such snapshots are pending. At the installed Service boundary,
+Core removes the new field and renders context into the existing text and
+file/attachment fields. Native workers likewise receive existing message and
+attachment inputs. CLI, Service, Skills, Gateway, setup, authorization, and
+execution ownership gain no new required fields or minimum versions.
 
 Reference includes an Agent Profile as message context without assigning work.
 Web labels this relation `Mention only`. The Composer relation menu explains it
@@ -916,6 +1074,20 @@ Detailed Wake execution ownership belongs in
 `developing/architecture/agent-transport-contract.md`.
 
 ## Continuing A Main Conversation And Editing Messages
+
+Local Agents support explicit New task, continuation from an exact source, and
+completed-history fork. On supported harnesses, separate discussion scopes may
+use independent Execution Contexts under the same Profile, with up to five
+reservations. Follow-ups within one Context remain serial. Replies, Stop,
+interaction requests, and failure evidence stay attached to the originating
+Wake. Migrated Profiles use Context continuity instead of the old Profile-wide
+conversation; legacy Wakes retain their original drain and recovery behavior.
+Context assignment does not grant access to another member's native history.
+
+An MCP Space Action receipt confirms only a local proposal, explicit local
+rejection, or an unknown local outcome. It does not confirm Core acceptance or
+Space publication. Those outcomes continue to come from the existing execution
+and Space authorities. This version adds no separate Late reply affordance.
 
 An ordinary Space's main composer may recommend the single Agent the current
 Human last explicitly woke after that Agent replies. The suggestion is not an

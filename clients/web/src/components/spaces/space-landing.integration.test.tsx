@@ -1,10 +1,13 @@
 import { resolveAgentWakeAvailability } from "@openmeld/agent-runtime";
 import {
 	createFetchTransport,
+	createOpenMeldApiClient,
+	createSpaceApi,
 	OpenMeldApiClientHttpError,
 } from "@openmeld/api-client";
 import { SPACE_STREAM_KEEPALIVE_PING } from "@openmeld/protocol";
 import {
+	type AccountSidebarSnapshot,
 	AGENT_REPLY_FINAL_PURPOSE,
 	AGENT_REPLYING_PURPOSE,
 	CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
@@ -18,7 +21,9 @@ import type {
 	AgentProfileCreationRequest,
 	AuthProfileView,
 	CreateAgentProfileCreationRequestResponse,
+	CreateSpaceThreadResponse,
 	GetSpaceStatusResponse,
+	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationDirectoryResponse,
 	SignalEnvelope,
 	SpaceAgentStreamSnapshot,
@@ -44,11 +49,58 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // These submission tests start with an empty draft store; browser reload
 // persistence is outside this component/API integration boundary.
+const composerDraftRead = vi.hoisted(() => ({
+	error: null as Error | null,
+	task: null as Promise<[]> | null,
+}));
+const composerDiscoveryWait = vi.hoisted(() => ({
+	task: null as Promise<void> | null,
+	onEntered: null as (() => void) | null,
+}));
 vi.mock("#/lib/spaces/composer-file-drafts", () => ({
-	readComposerFileDrafts: async () => [],
+	isComposerFileDraftRetired: () => false,
+	readComposerFileDraftCleanup: () => [],
+	retryComposerFileDraftCleanup: async () => undefined,
+	subscribeComposerFileDrafts: () => () => undefined,
+	readComposerFileDrafts: () => {
+		if (composerDraftRead.task) {
+			return composerDraftRead.task;
+		}
+		if (composerDraftRead.error) {
+			return Promise.reject(composerDraftRead.error);
+		}
+		return Promise.resolve([]);
+	},
+	readComposerFileDraftsByIds: async () => [],
 	removeComposerFileDraft: async () => undefined,
 	saveComposerFileDraft: async () => undefined,
+	saveComposerFileDraftUpload: async () => undefined,
 }));
+vi.mock("./use-space-composer-session", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("./use-space-composer-session")>();
+	return {
+		...actual,
+		useSpaceComposerSession: (
+			input: Parameters<typeof actual.useSpaceComposerSession>[0]
+		) => {
+			const session = actual.useSpaceComposerSession(input);
+			return {
+				...session,
+				files: {
+					...session.files,
+					waitForDiscovery: async () => {
+						await session.files.waitForDiscovery();
+						if (composerDiscoveryWait.task) {
+							composerDiscoveryWait.onEntered?.();
+							await composerDiscoveryWait.task;
+						}
+					},
+				},
+			};
+		},
+	};
+});
 
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
@@ -301,6 +353,9 @@ vi.mock("@tanstack/react-query", async () => {
 						}) as Parameters<typeof actual.useQuery>[0]
 			);
 			const queryMock = useQueryMock;
+			if (options.queryKey?.[0] === "message-notification-preferences") {
+				return createQueryResult({ isPending: true });
+			}
 			if (options.queryKey?.[3] === "history-navigation") {
 				return createQueryResult({
 					isSuccess: true,
@@ -327,6 +382,12 @@ vi.mock("@tanstack/react-query", async () => {
 				) as (queryKey: readonly unknown[], update: unknown) => unknown;
 				return new Proxy(mockedQueryClient, {
 					get(target, property, receiver) {
+						if (!(property in target)) {
+							const actualValue = Reflect.get(actualQueryClient, property);
+							return typeof actualValue === "function"
+								? actualValue.bind(actualQueryClient)
+								: actualValue;
+						}
 						if (property === "setQueryData") {
 							return (queryKey: readonly unknown[], update: unknown) => {
 								if (usesRealQuery(queryKey)) {
@@ -361,6 +422,12 @@ vi.mock("@tanstack/react-router", () => ({
 	useBlocker: () => ({ status: "unblocked" as const }),
 	useElementScrollRestoration: () => undefined,
 	useNavigate: () => useNavigateMock,
+	useLocation: (options?: {
+		select?: (location: { pathname: string }) => unknown;
+	}) => {
+		const location = { pathname: "/o/acme/spaces/space-123" };
+		return options?.select ? options.select(location) : location;
+	},
 	useRouterState: (input: {
 		select?: (state: { location: { pathname: string } }) => unknown;
 	}) => {
@@ -547,6 +614,7 @@ import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
 import { hardRefreshSpaceStatusAndMembers } from "./use-space-landing-controller";
 
 const DEFAULT_SPACE_PROFILE_ID = "11111111-1111-1111-1111-111111111111";
+const REMOVE_ATTACHMENT_NAME = /^Remove /;
 const DEFAULT_AGENT_PROFILE_ID = "agt_22222222-2222-2222-2222-222222222222";
 const SECOND_AGENT_PROFILE_ID = "agt_33333333-3333-3333-3333-333333333333";
 const HISTORY_BOOTSTRAP_ERROR_TEXT = /Couldn't load recent history\./;
@@ -563,6 +631,7 @@ const PREPARE_TEXT = /prepare/i;
 const DELETE_CONFIRMATION_LABEL_TEXT = /Type DELETE to confirm/i;
 const RECENT_ACTIVITY_TS = Date.now();
 const TEST_FILE_EXTENSION_PATTERN = /\.[^.]+$/u;
+const THREAD_REPLY_LINK_PATTERN = /^Open reply from /;
 const MESSAGE_DETAILS_ACTION_NAME_PATTERN =
 	/^(?:Message details$|View error details:)/;
 const SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY =
@@ -603,6 +672,7 @@ function renderSpaceLanding(
 		accountProfiles?: readonly AuthProfileView[];
 		currentUserAvatarImageUrl?: string | null;
 		initialFocusInteractionId?: string;
+		initialFocusRequestId?: string;
 		initialFocusSignalId?: string;
 		initialFocusThreadRootSignalId?: string;
 		initialPendingMessage?: {
@@ -660,6 +730,7 @@ function renderSpaceLanding(
 				accountProfiles={input.accountProfiles}
 				currentUserAvatarImageUrl={input.currentUserAvatarImageUrl}
 				initialFocusInteractionId={input.initialFocusInteractionId}
+				initialFocusRequestId={input.initialFocusRequestId}
 				initialFocusSignalId={input.initialFocusSignalId}
 				initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 				initialPendingMessage={input.initialPendingMessage}
@@ -785,6 +856,10 @@ function buildLocalRuntimeCacheInvalidations(
 
 describe("SpaceLanding", () => {
 	beforeEach(() => {
+		composerDraftRead.task = null;
+		composerDraftRead.error = null;
+		composerDiscoveryWait.task = null;
+		composerDiscoveryWait.onEntered = null;
 		vi.stubGlobal(
 			"IntersectionObserver",
 			class {
@@ -1068,6 +1143,210 @@ describe("SpaceLanding", () => {
 		expect(
 			document.querySelector('[data-space-conversation-presentation="compact"]')
 		).toBeTruthy();
+	});
+
+	it.each([
+		"button",
+		"keyboard",
+	] as const)("keeps the Space draft when attachment discovery fails from the %s submit path", async (method) => {
+		composerDraftRead.error = new Error("database connection is closing");
+		const postNormalMessageMock = vi.fn().mockResolvedValue(
+			createTextSignal({
+				id: "signal-after-recovery",
+				text: "Draft survives",
+			})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+		});
+		renderSpaceLanding();
+		const textarea = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		await setComposerValue(textarea, "Draft survives");
+		await screen.findByText("Couldn't restore your attachment drafts.");
+
+		if (method === "button") {
+			fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		} else {
+			fireEvent.keyDown(textarea, { key: "Enter" });
+		}
+
+		await waitFor(() =>
+			expect(textarea.textContent).toContain("Draft survives")
+		);
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		composerDraftRead.error = null;
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		await waitFor(() =>
+			expect(
+				screen.queryByText("Couldn't restore your attachment drafts.")
+			).toBeNull()
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledTimes(1));
+	});
+
+	it("admits one Space submission when button and Enter join attachment discovery", async () => {
+		let releaseDiscovery: (drafts: []) => void = () => undefined;
+		composerDraftRead.task = new Promise<[]>((resolve) => {
+			releaseDiscovery = resolve;
+		});
+		const postNormalMessageMock = vi
+			.fn()
+			.mockResolvedValue(
+				createTextSignal({ id: "signal-single-admission", text: "Send once" })
+			);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+		});
+		renderSpaceLanding();
+		const editor = screen.getByRole("textbox", { name: "Message this space" });
+		await setComposerValue(editor, "Send once");
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		fireEvent.keyDown(editor, { key: "Enter" });
+		releaseDiscovery([]);
+		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledTimes(1));
+		expect(postNormalMessageMock).toHaveBeenCalledWith(
+			expect.objectContaining({ text: "Send once" })
+		);
+	});
+
+	it("does not release the next submission admission when a previous send settles", async () => {
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "text/plain",
+			name: "second.txt",
+		});
+		const postResolvers: Array<
+			(signal: ReturnType<typeof createTextSignal>) => void
+		> = [];
+		const postNormalMessageMock = vi.fn().mockImplementation(
+			() =>
+				new Promise<ReturnType<typeof createTextSignal>>((resolve) => {
+					postResolvers.push(resolve);
+				})
+		);
+		const stageComposerUploadMock = vi.fn().mockImplementation(async (input) =>
+			createSpaceComposerUpload({
+				id: input.uploadId,
+				mimeType: input.mimeType,
+				name: input.name,
+				sizeBytes: input.bytes.size,
+			})
+		);
+		const publishComposerUploadMock = vi.fn().mockResolvedValue(descriptor);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: stageComposerUploadMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		const editor = screen.getByRole("textbox", { name: "Message this space" });
+		const send = screen.getByRole("button", { name: "Send message" });
+		await setComposerValue(editor, "First message");
+		fireEvent.click(send);
+		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledTimes(1));
+
+		let releaseSecondDiscovery: () => void = () => undefined;
+		composerDiscoveryWait.task = new Promise<void>((resolve) => {
+			releaseSecondDiscovery = resolve;
+		});
+		let secondDiscoveryEntered: () => void = () => undefined;
+		const secondDiscoveryStarted = new Promise<void>((resolve) => {
+			secondDiscoveryEntered = resolve;
+		});
+		composerDiscoveryWait.onEntered = secondDiscoveryEntered;
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["second"], "second.txt", { type: "text/plain" })],
+			},
+		});
+		await waitFor(() =>
+			expect(stageComposerUploadMock).toHaveBeenCalledTimes(1)
+		);
+		await setComposerValue(editor, "Second message");
+		fireEvent.click(send);
+		await secondDiscoveryStarted;
+		expect(postNormalMessageMock).toHaveBeenCalledTimes(1);
+
+		await act(async () => {
+			postResolvers[0]?.(
+				createTextSignal({ id: "signal-first", text: "First message" })
+			);
+			await Promise.resolve();
+		});
+		await waitFor(() =>
+			expect(
+				document.querySelector('[data-signal-id="signal-first"]')
+			).toBeTruthy()
+		);
+		fireEvent.click(send);
+		await act(async () => {
+			releaseSecondDiscovery();
+			await Promise.resolve();
+		});
+
+		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledTimes(2));
+		expect(
+			screen.getAllByText("Second message", { selector: "p" })
+		).toHaveLength(1);
+		const [firstInput, secondInput] = postNormalMessageMock.mock.calls.map(
+			([input]) => input
+		);
+		expect(firstInput.text).toBe("First message");
+		expect(secondInput.text).toBe("Second message");
+		expect(secondInput.files).toEqual([
+			createSpaceMessageFileReference(descriptor),
+		]);
+		expect(secondInput.meta.clientMessageId).not.toBe(
+			firstInput.meta.clientMessageId
+		);
+		expect(
+			postNormalMessageMock.mock.calls.filter(
+				([input]) => input.text === "Second message"
+			)
+		).toHaveLength(1);
+		expect(publishComposerUploadMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("hard-refreshes Space members while a previous members query is waiting to retry", async () => {
@@ -3331,6 +3610,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
+				signal: expect.any(AbortSignal),
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
 				includeSourceContext: true,
@@ -3722,6 +4002,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
+				signal: expect.any(AbortSignal),
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
 				includeSourceContext: true,
@@ -3750,7 +4031,32 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("does not restore stale running Wake progress after the final reply is visible", async () => {
+	it.each([
+		false,
+		true,
+	])("does not restore stale running Wake progress after the final reply is visible (Thread: %s)", async (replyInThread) => {
+		const finalReply = createTextSignal({
+			id: "sig-reply",
+			text: "Done.",
+			ts: RECENT_ACTIVITY_TS + 20,
+			meta: {
+				dispatchId: "dispatch-1",
+				purpose: AGENT_REPLY_FINAL_PURPOSE,
+				targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+			},
+			profile: {
+				kind: "agent",
+				profileId: DEFAULT_AGENT_PROFILE_ID,
+				profileName: "Runner",
+			},
+			replyTo: {
+				previewText: "@runner(wake) status check",
+				profileId: DEFAULT_SPACE_PROFILE_ID,
+				profileKind: "human",
+				profileName: "Mira",
+				signalId: "sig-user",
+			},
+		});
 		const getWakeProgressMock = vi.fn().mockResolvedValue({
 			items: [
 				{
@@ -3806,54 +4112,60 @@ describe("SpaceLanding", () => {
 							text: "@runner(wake) status check",
 							ts: RECENT_ACTIVITY_TS,
 						}),
-						createTextSignal({
-							id: "sig-reply",
-							messageEnvelope: {
-								activationTargets: [],
-								referenceTargets: [],
-								text: "Done.",
-							},
-							meta: {
-								dispatchId: "dispatch-1",
-								purpose: AGENT_REPLY_FINAL_PURPOSE,
-								targetProfileId: DEFAULT_AGENT_PROFILE_ID,
-							},
-							profile: {
-								kind: "agent",
-								profileId: DEFAULT_AGENT_PROFILE_ID,
-								profileName: "Runner",
-							},
-							replyTo: {
-								previewText: "@runner(wake) status check",
-								profileId: DEFAULT_SPACE_PROFILE_ID,
-								profileKind: "human",
-								profileName: "Mira",
-								signalId: "sig-user",
-							},
-							text: "Done.",
-							ts: RECENT_ACTIVITY_TS + 20,
-						}),
+						...(replyInThread ? [] : [finalReply]),
 					],
 					nextCursor: null,
+				},
+			}),
+			threads: createQueryResult({
+				isSuccess: true,
+				data: {
+					threads: replyInThread
+						? [
+								{
+									threadId: "thread-1",
+									spaceId: "space-123",
+									rootSignalId: "sig-user",
+									createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
+									createdAt: "2026-04-11T00:00:00.000Z",
+									updatedAt: "2026-04-11T00:00:00.000Z",
+								},
+							]
+						: [],
+					previews: replyInThread
+						? [
+								{
+									threadId: "thread-1",
+									replyCount: 1,
+									signals: [finalReply],
+									placements: [],
+								},
+							]
+						: [],
 				},
 			}),
 		});
 
 		renderSpaceLanding({ observeVisibleWakeProgress: true });
 
-		await waitFor(() => {
-			expect(getWakeProgressMock).toHaveBeenCalledWith({
-				clientMessageId: "client-message-1",
-				includePreviewText: true,
-				includeSourceContext: true,
-				includeTiming: true,
-				includeWaitReason: true,
-				includeDeviceWait: true,
-				includeWakeStopEligibility: true,
-				spaceId: "space-123",
-				timeoutMs: 15_000,
+		if (replyInThread) {
+			await waitFor(() => {
+				expect(getWakeProgressMock).toHaveBeenCalledWith({
+					signal: expect.any(AbortSignal),
+					clientMessageId: "client-message-1",
+					includePreviewText: true,
+					includeSourceContext: true,
+					includeTiming: true,
+					includeWaitReason: true,
+					includeDeviceWait: true,
+					includeWakeStopEligibility: true,
+					spaceId: "space-123",
+					timeoutMs: 15_000,
+				});
 			});
-		});
+		} else {
+			expect(getWakeProgressMock).not.toHaveBeenCalled();
+		}
 		expect(screen.getByText("Done.")).toBeTruthy();
 		expect(screen.queryByText("Runner replied")).toBeNull();
 		expect(screen.queryByText("Agent is working")).toBeNull();
@@ -3936,6 +4248,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
+				signal: expect.any(AbortSignal),
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
 				includeSourceContext: true,
@@ -4048,6 +4361,7 @@ describe("SpaceLanding", () => {
 		expect(screen.getByText("@runner(wake) old status check")).toBeTruthy();
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
+				signal: expect.any(AbortSignal),
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
 				includeSourceContext: true,
@@ -4374,6 +4688,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
+				signal: expect.any(AbortSignal),
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
 				includeSourceContext: true,
@@ -4405,6 +4720,7 @@ describe("SpaceLanding", () => {
 			).toBeTruthy();
 		});
 		expect(screen.queryByTestId("space-wake-thinking-indicator")).toBeNull();
+		expect(getWakeProgressMock.mock.calls[0]?.[0].signal.aborted).toBe(true);
 		getWakeProgressMock.mockImplementation(() => new Promise(() => undefined));
 
 		view.rerender(
@@ -4486,6 +4802,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
+				signal: expect.any(AbortSignal),
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
 				includeSourceContext: true,
@@ -8382,6 +8699,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
+				signal: expect.any(AbortSignal),
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
 				includeSourceContext: true,
@@ -10516,9 +10834,9 @@ describe("SpaceLanding", () => {
 			screen.getByRole("button", { name: "Open thread (7 replies)" })
 		).toBeTruthy();
 		expect(
-			within(screen.getByRole("region", { name: "Thread preview" })).getByText(
-				"Saved reply preview"
-			)
+			within(
+				screen.getByRole("link", { name: THREAD_REPLY_LINK_PATTERN })
+			).getByText("Saved reply preview")
 		).toBeTruthy();
 		expect(
 			screen
@@ -10652,12 +10970,7 @@ describe("SpaceLanding", () => {
 	});
 
 	it("keeps thread Wake progress out of the main transcript when the final reply arrives in a thread", async () => {
-		const setQueryDataMock = vi.fn();
 		const threadId = "thr_11111111-1111-4111-8111-111111111111";
-		useQueryClientMock.mockReturnValue({
-			invalidateQueries: vi.fn().mockResolvedValue(undefined),
-			setQueryData: setQueryDataMock,
-		});
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
@@ -13286,12 +13599,14 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(textarea, "Optimistic hello");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-		expect(readComposerValue(textarea)).toBe("");
-		expect(
-			within(
-				screen.getByRole("log", { name: "Conversation history" })
-			).getByText("Optimistic hello")
-		).toBeTruthy();
+		await waitFor(() => {
+			expect(readComposerValue(textarea)).toBe("");
+			expect(
+				within(
+					screen.getByRole("log", { name: "Conversation history" })
+				).getByText("Optimistic hello")
+			).toBeTruthy();
+		});
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 		await waitFor(() => expect(statusRefetch).toHaveBeenCalled());
 		await act(async () => releaseStatus?.());
@@ -13328,6 +13643,42 @@ describe("SpaceLanding", () => {
 	});
 
 	it("stages a selected image and publishes it as a Space File only on Send", async () => {
+		vi.stubGlobal(
+			"IntersectionObserver",
+			class implements IntersectionObserver {
+				readonly root = null;
+				readonly rootMargin = "0px";
+				readonly thresholds = [0];
+				private readonly callback: IntersectionObserverCallback;
+				constructor(callback: IntersectionObserverCallback) {
+					this.callback = callback;
+				}
+				observe(target: Element) {
+					const rect = target.getBoundingClientRect();
+					queueMicrotask(() =>
+						this.callback(
+							[
+								{
+									target,
+									time: 0,
+									isIntersecting: true,
+									intersectionRatio: 1,
+									boundingClientRect: rect,
+									intersectionRect: rect,
+									rootBounds: null,
+								},
+							],
+							this
+						)
+					);
+				}
+				unobserve = vi.fn();
+				disconnect = vi.fn();
+				takeRecords(): IntersectionObserverEntry[] {
+					return [];
+				}
+			}
+		);
 		const descriptor = createSpaceFileDescriptor();
 		const messageFile = createSpaceMessageFileReference(descriptor);
 		const stageComposerUploadMock = vi.fn().mockImplementation((input) =>
@@ -13399,7 +13750,7 @@ describe("SpaceLanding", () => {
 				spaceId: "space-123",
 				uploadId: expect.any(String),
 			});
-			expect(screen.getByText("Ready")).toBeTruthy();
+			expect(screen.getByRole("group", { name: "Files to send" })).toBeTruthy();
 		});
 		expect(publishComposerUploadMock).not.toHaveBeenCalled();
 		createWebSpaceApiMock.mockClear();
@@ -13429,6 +13780,7 @@ describe("SpaceLanding", () => {
 		expect(publishComposerUploadMock).toHaveBeenCalledWith({
 			clientMutationId: expect.any(String),
 			spaceId: "space-123",
+			timeoutMs: 30_000,
 			uploadId: expect.any(String),
 		});
 		const optimisticImage = document.querySelector(
@@ -13511,10 +13863,17 @@ describe("SpaceLanding", () => {
 			},
 		});
 
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 		expect(stageComposerUploadMock).toHaveBeenCalledTimes(2);
-		expect(stageComposerUploadMock.mock.calls[1]?.[0]).toEqual(
-			stageComposerUploadMock.mock.calls[0]?.[0]
+		expect(stageComposerUploadMock.mock.calls[1]?.[0]).toMatchObject({
+			bytes: stageComposerUploadMock.mock.calls[0]?.[0].bytes,
+			mimeType: stageComposerUploadMock.mock.calls[0]?.[0].mimeType,
+			name: stageComposerUploadMock.mock.calls[0]?.[0].name,
+			spaceId: stageComposerUploadMock.mock.calls[0]?.[0].spaceId,
+			uploadId: stageComposerUploadMock.mock.calls[0]?.[0].uploadId,
+		});
+		expect(stageComposerUploadMock.mock.calls[1]?.[0].signal).toBe(
+			stageComposerUploadMock.mock.calls[0]?.[0].signal
 		);
 	});
 
@@ -13574,14 +13933,16 @@ describe("SpaceLanding", () => {
 			},
 		});
 
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
 			"disabled",
 			false
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 		const log = screen.getByRole("log", { name: "Conversation history" });
-		expect(within(log).getByText("brief.pdf")).toBeTruthy();
+		await waitFor(() =>
+			expect(within(log).getByText("brief.pdf")).toBeTruthy()
+		);
 		expect(within(log).queryByText("Open in Files")).toBeNull();
 		expect(
 			within(log).getByRole("button", { name: "Copy message" })
@@ -13668,7 +14029,7 @@ describe("SpaceLanding", () => {
 		});
 
 		await screen.findByText("The Space does not belong to this Organization.");
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 		expect(screen.getByText("Request ID: request-upload-403")).toBeTruthy();
 		await setComposerValue(
 			screen.getByRole("textbox", { name: "Message this space" }),
@@ -13679,7 +14040,7 @@ describe("SpaceLanding", () => {
 			true
 		);
 		expect(
-			screen.getByText("Remove the failed file to continue.")
+			screen.getByText("Retry or remove the failed attachment to continue.")
 		).toBeTruthy();
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 
@@ -13762,7 +14123,11 @@ describe("SpaceLanding", () => {
 			},
 		});
 		await waitFor(() => {
-			expect(screen.getAllByText("Ready")).toHaveLength(2);
+			expect(
+				within(
+					screen.getByRole("group", { name: "Files to send" })
+				).getAllByRole("button", { name: REMOVE_ATTACHMENT_NAME })
+			).toHaveLength(2);
 		});
 		await setComposerValue(
 			screen.getByRole("textbox", { name: "Message this space" }),
@@ -13839,7 +14204,7 @@ describe("SpaceLanding", () => {
 				files: [new File(["retry"], "retriable.txt", { type: "text/plain" })],
 			},
 		});
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 		await setComposerValue(
 			screen.getByRole("textbox", { name: "Message this space" }),
 			"Send this with the file"
@@ -13901,7 +14266,7 @@ describe("SpaceLanding", () => {
 				files: [new File(["notes"], "notes.txt", { type: "text/plain" })],
 			},
 		});
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
@@ -13936,7 +14301,7 @@ describe("SpaceLanding", () => {
 			true
 		);
 		expect(publishComposerUploadMock).not.toHaveBeenCalled();
-		expect(screen.getByText("Ready")).toBeTruthy();
+		expect(screen.getByRole("group", { name: "Files to send" })).toBeTruthy();
 		expect(readComposerValue(textarea)).toBe("@Runner review these notes");
 	});
 
@@ -14001,7 +14366,7 @@ describe("SpaceLanding", () => {
 				files: [new File(["notes"], "notes.txt", { type: "text/plain" })],
 			},
 		});
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
@@ -14076,7 +14441,7 @@ describe("SpaceLanding", () => {
 				files: [new File(["broken"], "broken.png", { type: "image/png" })],
 			},
 		});
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
@@ -14153,7 +14518,11 @@ describe("SpaceLanding", () => {
 		});
 
 		await waitFor(() => {
-			expect(screen.getAllByText("Ready")).toHaveLength(10);
+			expect(
+				within(
+					screen.getByRole("group", { name: "Files to send" })
+				).getAllByRole("button", { name: REMOVE_ATTACHMENT_NAME })
+			).toHaveLength(10);
 		});
 		expect(screen.getByRole("button", { name: "Add" })).toHaveProperty(
 			"disabled",
@@ -14165,7 +14534,7 @@ describe("SpaceLanding", () => {
 	it.each([
 		"Review this file",
 		"",
-	])("uploads first-chat draft files before sending once (text: %s)", async (text) => {
+	])("sends queued files once without consuming a newer draft (text: %s)", async (text) => {
 		const descriptor = createSpaceFileDescriptor();
 		const messageFile = createSpaceMessageFileReference(descriptor);
 		const postNormalMessage = vi.fn().mockResolvedValue(
@@ -14175,16 +14544,21 @@ describe("SpaceLanding", () => {
 				files: [messageFile],
 			})
 		);
-		const stageComposerUpload = vi.fn().mockImplementation((input) =>
-			Promise.resolve(
-				createSpaceComposerUpload({
-					id: input.uploadId,
-					mimeType: input.mimeType,
-					name: input.name,
-					sizeBytes: input.bytes.size,
-				})
-			)
-		);
+		let releaseUpload: () => void = () => undefined;
+		const uploadGate = new Promise<void>((resolve) => {
+			releaseUpload = resolve;
+		});
+		const stageComposerUpload = vi.fn().mockImplementation(async (input) => {
+			if (input.name === "launch.txt") {
+				await uploadGate;
+			}
+			return createSpaceComposerUpload({
+				id: input.uploadId,
+				mimeType: input.mimeType,
+				name: input.name,
+				sizeBytes: input.bytes.size,
+			});
+		});
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage,
 			stageComposerUpload,
@@ -14210,12 +14584,29 @@ describe("SpaceLanding", () => {
 				files: [new File(["launch"], "launch.txt", { type: "text/plain" })],
 			},
 		});
+		await waitFor(() => expect(stageComposerUpload).toHaveBeenCalledTimes(1));
+		const composer = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		await setComposerValue(composer, "My next draft");
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["next"], "next.txt", { type: "text/plain" })],
+			},
+		});
+		await waitFor(() => expect(stageComposerUpload).toHaveBeenCalledTimes(2));
+		act(() => {
+			releaseUpload();
+		});
 		await waitFor(() =>
 			expect(postNormalMessage).toHaveBeenCalledWith(
 				expect.objectContaining({ files: [messageFile], text })
 			)
 		);
-		expect(stageComposerUpload).toHaveBeenCalledTimes(1);
+		expect(readComposerValue(composer)).toBe("My next draft");
+		expect(
+			screen.getByRole("button", { name: "Remove next.txt" })
+		).toBeTruthy();
 		expect(postNormalMessage).toHaveBeenCalledTimes(1);
 	});
 
@@ -14821,7 +15212,11 @@ describe("SpaceLanding", () => {
 			).disabled
 		).toBe(false);
 		fireEvent.keyDown(textarea, { key: "Enter" });
-		expect(screen.getByText("My next message", { selector: "p" })).toBeTruthy();
+		await waitFor(() =>
+			expect(
+				screen.getByText("My next message", { selector: "p" })
+			).toBeTruthy()
+		);
 		await waitFor(() => expect(readComposerValue(textarea)).toBe(""));
 		await setComposerValue(textarea, "Third draft");
 		expect(postNormalMessageMock).toHaveBeenCalledTimes(1);
@@ -14848,6 +15243,121 @@ describe("SpaceLanding", () => {
 			await Promise.resolve();
 		});
 		expect(textarea.getAttribute("contenteditable")).toBe("true");
+	});
+
+	it.each([
+		"automatic",
+		"manual",
+	] as const)("recovers a stalled file publication through %s retry without blocking later text", async (recovery) => {
+		const hanging = createHangingFetchRequest();
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "text/plain",
+			name: "progress.txt",
+		});
+		const publicationApi = createSpaceApi(
+			createOpenMeldApiClient({
+				baseUrl: "https://gateway.openmeld.invalid",
+				transport: createFetchTransport({
+					fetch: hanging.fetchMock as typeof fetch,
+				}),
+			})
+		);
+		const publish = vi.fn(publicationApi.publishComposerUpload);
+		const post = vi.fn().mockImplementation(async (input) =>
+			createTextSignal({
+				id: input.meta.clientMessageId,
+				text: input.text,
+				files: input.files,
+			})
+		);
+		const stage = vi.fn().mockImplementation(async (input) =>
+			createSpaceComposerUpload({
+				id: input.uploadId,
+				mimeType: input.mimeType,
+				name: input.name,
+				sizeBytes: input.bytes.size,
+			})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: post,
+			publishComposerUpload: publish,
+			stageComposerUpload: stage,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+		renderSpaceLanding();
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["progress"], "progress.txt", { type: "text/plain" })],
+			},
+		});
+		const send = screen.getByRole("button", { name: "Send message" });
+		await waitFor(() => expect(send).toHaveProperty("disabled", false));
+		const editor = screen.getByRole("textbox", { name: "Message this space" });
+		await setComposerValue(editor, "Progress with attachment");
+		fireEvent.click(send);
+		await waitFor(() => expect(hanging.fetchMock).toHaveBeenCalledTimes(1));
+		// This assertion fails before the fix: the stalled fetch has no deadline.
+		expect(hanging.timeoutSpy).toHaveBeenCalledWith(30_000);
+		await setComposerValue(editor, "Following text");
+		fireEvent.keyDown(editor, { key: "Enter" });
+		await waitFor(() => expect(readComposerValue(editor)).toBe(""));
+		await setComposerValue(editor, "Next draft");
+		expect(post).not.toHaveBeenCalled();
+		const recover = () =>
+			hanging.fetchMock.mockImplementation(async () =>
+				Response.json({ file: descriptor })
+			);
+		if (recovery === "automatic") {
+			recover();
+		}
+		await act(async () => hanging.abortForTimeout());
+		await waitFor(() => expect(publish).toHaveBeenCalledTimes(2));
+		if (recovery === "manual") {
+			await act(async () => hanging.abortForTimeout());
+			await screen.findByText(
+				"A file couldn't be attached. Your message wasn't sent."
+			);
+			await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+			expect(post.mock.calls[0]?.[0].text).toBe("Following text");
+			expect(
+				screen.getByText("Progress with attachment", { selector: "p" })
+			).toBeTruthy();
+			recover();
+			fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		}
+		await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+		const original = post.mock.calls.find(
+			([input]) => input.text === "Progress with attachment"
+		)?.[0];
+		expect(original?.files).toEqual([
+			createSpaceMessageFileReference(descriptor),
+		]);
+		expect(post.mock.calls.map(([input]) => input.text)).toEqual(
+			recovery === "automatic"
+				? ["Progress with attachment", "Following text"]
+				: ["Following text", "Progress with attachment"]
+		);
+		expect(
+			publish.mock.calls.every(
+				([input]) =>
+					input.clientMutationId ===
+						publish.mock.calls[0]?.[0].clientMutationId &&
+					input.uploadId === stage.mock.calls[0]?.[0].uploadId
+			)
+		).toBe(true);
+		expect(stage).toHaveBeenCalledTimes(1);
+		expect(readComposerValue(editor)).toBe("Next draft");
+		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
 	});
 
 	it("preserves both the failed submission and a next draft written during sending", async () => {
@@ -14957,7 +15467,7 @@ describe("SpaceLanding", () => {
 				],
 			},
 		});
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
@@ -15005,7 +15515,7 @@ describe("SpaceLanding", () => {
 		expect(postNormalMessageMock.mock.calls[1]?.[0]).toEqual(
 			postNormalMessageMock.mock.calls[0]?.[0]
 		);
-		expect(screen.queryByText("Ready")).toBeNull();
+		expect(screen.queryByRole("group", { name: "Files to send" })).toBeNull();
 		expect((sendButton as HTMLButtonElement).disabled).toBe(true);
 		fireEvent.click(sendButton);
 		expect(postNormalMessageMock).toHaveBeenCalledTimes(2);
@@ -15435,7 +15945,7 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 	});
 
-	it("opens an Inbox source at the highlighted message", () => {
+	it("opens an Inbox source at the highlighted message", async () => {
 		const offsetHeightSpy = vi
 			.spyOn(HTMLElement.prototype, "offsetHeight", "get")
 			.mockReturnValue(500);
@@ -15478,7 +15988,10 @@ describe("SpaceLanding", () => {
 			}),
 		});
 
-		renderSpaceLanding({ initialFocusSignalId: "sig-inbox-target" });
+		const view = renderSpaceLanding({
+			initialFocusRequestId: "visit-1",
+			initialFocusSignalId: "sig-inbox-target",
+		});
 
 		const target = document.querySelector(
 			'[data-signal-id="sig-inbox-target"]'
@@ -15489,6 +16002,29 @@ describe("SpaceLanding", () => {
 			screen.getByRole("log", { name: "Conversation history" }).scrollTop
 		).toBe(480);
 		expect(document.activeElement).toBe(target);
+		(target as HTMLElement | null)?.blur();
+		expect(document.activeElement).not.toBe(target);
+		(
+			screen.getByRole("log", { name: "Conversation history" }) as HTMLElement
+		).scrollTop = 0;
+		view.rerender(
+			<SpaceLanding
+				initialFocusRequestId="visit-2"
+				initialFocusSignalId="sig-inbox-target"
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
+		await waitFor(() => {
+			const refocusedTarget = document.querySelector(
+				'[data-signal-id="sig-inbox-target"]'
+			);
+			expect(
+				screen.getByRole("log", { name: "Conversation history" }).scrollTop
+			).toBe(480);
+			expect(document.activeElement).toBe(refocusedTarget);
+		});
 		rectSpy.mockRestore();
 		offsetHeightSpy.mockRestore();
 	});
@@ -15640,7 +16176,10 @@ describe("SpaceLanding", () => {
 		).toBeTruthy();
 	});
 
-	it("opens the linked thread shell before its catalog and replies load, then focuses the exact Inbox reply", async () => {
+	it.each([
+		false,
+		true,
+	])("opens the exact Inbox reply while unrelated bootstrap is pending: %s", async (bootstrapPending) => {
 		const rootSignal = createTextSignal({
 			id: "sig-linked-thread-root",
 			text: "Thread root",
@@ -15653,24 +16192,57 @@ describe("SpaceLanding", () => {
 		});
 		const threadSignals = createQueryResult({ isPending: true });
 		const threads = createQueryResult({ isPending: true, isFetching: true });
+		const status = bootstrapPending
+			? createQueryResult({ isPending: true })
+			: createQueryResult({ isSuccess: true, data: createSpaceStatus() });
 		mockSpaceQueries({
-			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
-			members: createQueryResult({
-				isSuccess: true,
-				data: createMembersSnapshot(),
-			}),
-			history: createQueryResult({
-				isSuccess: true,
-				data: { envelopes: [rootSignal], nextCursor: null },
-			}),
+			...(bootstrapPending
+				? { bootstrap: createQueryResult({ isPending: true }) }
+				: {}),
+			status,
+			members: bootstrapPending
+				? createQueryResult({ isPending: true })
+				: createQueryResult({
+						isSuccess: true,
+						data: createMembersSnapshot(),
+					}),
+			history: bootstrapPending
+				? createQueryResult({ isPending: true })
+				: createQueryResult({
+						isSuccess: true,
+						data: { envelopes: [rootSignal], nextCursor: null },
+					}),
 			threads,
 			threadSignals,
 		});
 
 		const view = renderSpaceLanding({
+			initialFocusRequestId: "visit-1",
 			initialFocusSignalId: replySignal.id,
 			initialFocusThreadRootSignalId: rootSignal.id,
 		});
+		if (bootstrapPending) {
+			expect(
+				useQueryMock.mock.calls.some(
+					([options]) =>
+						options.queryKey[1] === "status" && options.enabled === true
+				)
+			).toBe(true);
+			Object.assign(
+				status,
+				createQueryResult({ isSuccess: true, data: createSpaceStatus() })
+			);
+			view.rerender(
+				<SpaceLanding
+					initialFocusRequestId="visit-1"
+					initialFocusSignalId={replySignal.id}
+					initialFocusThreadRootSignalId={rootSignal.id}
+					orgSlug="acme"
+					profileId={DEFAULT_SPACE_PROFILE_ID}
+					spaceId="space-123"
+				/>
+			);
+		}
 
 		const threadPanel = await screen.findByRole("complementary", {
 			name: "Thread",
@@ -15678,7 +16250,9 @@ describe("SpaceLanding", () => {
 		expect(
 			within(threadPanel).getByText("Thread", { exact: true })
 		).toBeTruthy();
-		expect(within(threadPanel).getByRole("textbox")).toBeTruthy();
+		if (!bootstrapPending) {
+			expect(within(threadPanel).getByRole("textbox")).toBeTruthy();
+		}
 		expect(within(threadPanel).queryByText("Exact linked reply")).toBeNull();
 		Object.assign(
 			threads,
@@ -15701,6 +16275,7 @@ describe("SpaceLanding", () => {
 		);
 		view.rerender(
 			<SpaceLanding
+				initialFocusRequestId="visit-1"
 				initialFocusSignalId={replySignal.id}
 				initialFocusThreadRootSignalId={rootSignal.id}
 				orgSlug="acme"
@@ -15708,13 +16283,14 @@ describe("SpaceLanding", () => {
 				spaceId="space-123"
 			/>
 		);
-		expect(within(threadPanel).getByText("Loading thread…")).toBeTruthy();
+		expect(within(threadPanel).getByText("Loading messages…")).toBeTruthy();
 		Object.assign(
 			threadSignals,
 			createQueryResult({ isSuccess: true, data: { signals: [replySignal] } })
 		);
 		view.rerender(
 			<SpaceLanding
+				initialFocusRequestId="visit-1"
 				initialFocusSignalId={replySignal.id}
 				initialFocusThreadRootSignalId={rootSignal.id}
 				orgSlug="acme"
@@ -15732,6 +16308,30 @@ describe("SpaceLanding", () => {
 		expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
 			replySignal.id
 		);
+		fireEvent.click(
+			within(threadPanel).getByRole("button", { name: "Close thread" })
+		);
+		expect(screen.queryByRole("complementary", { name: "Thread" })).toBeNull();
+		view.rerender(
+			<SpaceLanding
+				initialFocusRequestId="visit-2"
+				initialFocusSignalId={replySignal.id}
+				initialFocusThreadRootSignalId={rootSignal.id}
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
+		const reopenedThreadPanel = await screen.findByRole("complementary", {
+			name: "Thread",
+		});
+		await waitFor(() => {
+			const target = reopenedThreadPanel.querySelector(
+				`[data-signal-id="${replySignal.id}"]`
+			);
+			expect(target?.getAttribute("data-highlighted")).toBe("true");
+			expect(document.activeElement).toBe(target);
+		});
 	});
 
 	it("prefills a Wake mention when replying directly to an agent message", async () => {
@@ -15790,6 +16390,98 @@ describe("SpaceLanding", () => {
 				})
 			).toBeTruthy();
 		});
+	});
+
+	it.each([
+		"stay",
+		"close",
+		"failure",
+	])("opens a new Thread before creation finishes and handles %s", async (action) => {
+		const rootSignal = createTextSignal({
+			id: "new-thread-root",
+			text: "Start a thread here.",
+		});
+		let resolveCreation!: (response: CreateSpaceThreadResponse) => void;
+		let rejectCreation!: (error: Error) => void;
+		const pending = new Promise<CreateSpaceThreadResponse>(
+			(resolve, reject) => {
+				resolveCreation = resolve;
+				rejectCreation = reject;
+			}
+		);
+		const createThread = vi.fn(() => pending);
+		createWebSpaceApiMock.mockReturnValue({ createThread });
+		const threads = createQueryResult({
+			isSuccess: true,
+			data: { threads: [], previews: [] },
+		});
+		mockSpaceQueries({
+			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [rootSignal], nextCursor: null },
+			}),
+			threads,
+			threadSignals: createQueryResult({ isPending: true }),
+		});
+		const view = renderSpaceLanding();
+		fireEvent.click(screen.getByRole("button", { name: "Reply in thread" }));
+		const panel = screen.getByRole("complementary", { name: "Thread" });
+		expect(within(panel).getByText("Loading messages…")).toBeTruthy();
+		expect(createThread).toHaveBeenCalledTimes(1);
+		if (action === "close") {
+			fireEvent.click(
+				within(panel).getByRole("button", { name: "Close thread" })
+			);
+		}
+		if (action === "failure") {
+			await act(async () =>
+				rejectCreation(new Error("Thread creation failed."))
+			);
+			expect(
+				within(panel).getAllByText("Thread creation failed.").length
+			).toBeGreaterThan(0);
+			return;
+		}
+		const response: CreateSpaceThreadResponse = {
+			thread: {
+				threadId: "new-thread",
+				spaceId: "space-123",
+				rootSignalId: rootSignal.id,
+				createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
+				createdAt: "2026-04-11T00:00:00.000Z",
+				updatedAt: "2026-04-11T00:00:00.000Z",
+			},
+			rootSignal: rootSignal as SignalEnvelope,
+			placement: {
+				threadId: "new-thread",
+				signalId: rootSignal.id,
+				placement: "root",
+				createdAt: "2026-04-11T00:00:00.000Z",
+			},
+		};
+		await act(async () => resolveCreation(response));
+		Object.assign(
+			threads,
+			createQueryResult({
+				isSuccess: true,
+				data: { threads: [response.thread], previews: [] },
+			})
+		);
+		view.rerender(
+			<SpaceLanding
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
+		expect(
+			screen.queryByRole("complementary", { name: "Thread" }) !== null
+		).toBe(action === "stay");
 	});
 
 	it("adds tooltips to the main message action buttons", () => {
@@ -15878,6 +16570,12 @@ describe("SpaceLanding", () => {
 		});
 
 		mockSpaceQueries({
+			threadSignals: createQueryResult({
+				isSuccess: true,
+				data: {
+					signals: [firstThreadReply, secondThreadReply, hiddenThreadReply],
+				},
+			}),
 			status: createQueryResult({
 				isSuccess: true,
 				data: createSpaceStatus(),
@@ -15915,7 +16613,7 @@ describe("SpaceLanding", () => {
 						{
 							threadId: "thread-1",
 							replyCount: 3,
-							signals: [firstThreadReply, secondThreadReply],
+							signals: [secondThreadReply, hiddenThreadReply],
 							placements: [
 								{
 									threadId: "thread-1",
@@ -15947,22 +16645,19 @@ describe("SpaceLanding", () => {
 		expect(
 			screen.getByText("Can someone check the privacy page?")
 		).toBeTruthy();
-		const preview = screen.getByRole("region", { name: "Thread preview" });
-		expect(preview.className).toContain("min-w-0");
-		expect(preview.className).toContain("w-full");
-		expect(preview.className).toContain("max-w-full");
-		expect(preview.className).toContain("overflow-hidden");
-		expect(preview.className).toContain("pe-2");
-		expect(preview.parentElement?.className).toContain("w-full");
-		expect(preview.parentElement?.className).toContain("max-w-full");
-		expect(preview.parentElement?.className).toContain("overflow-hidden");
-		expect(within(preview).getByText("I'll check it.")).toBeTruthy();
-		const secondPreviewMessage = within(preview).getByText("Filed the issue.");
-		expect(secondPreviewMessage.className).toContain("flex-1");
-		expect(secondPreviewMessage.className).toContain("truncate");
+		const previews = screen.getAllByRole("link", {
+			name: THREAD_REPLY_LINK_PATTERN,
+		});
+		expect(previews).toHaveLength(2);
 		expect(
-			screen.queryByText("Third reply that should stay inside the thread.")
-		).toBeNull();
+			within(previews[0] as HTMLElement).getByText("Filed the issue.")
+		).toBeTruthy();
+		expect(
+			within(previews[1] as HTMLElement).getByText(
+				"Third reply that should stay inside the thread."
+			)
+		).toBeTruthy();
+		expect(screen.queryByText("I'll check it.")).toBeNull();
 		expect(
 			screen.getByRole("button", { name: "Open thread (3 replies)" })
 		).toBeTruthy();
@@ -15973,6 +16668,18 @@ describe("SpaceLanding", () => {
 		// The fixed footer always mounts so keyboard and screen-reader users can
 		// reach the action without a hover-only DOM change.
 		expect(screen.getByRole("button", { name: "Open thread" })).toBeTruthy();
+		const focus = vi.spyOn(HTMLElement.prototype, "focus");
+		for (const index of [0, 1, 1]) {
+			focus.mockClear();
+			fireEvent.click(previews[index] as HTMLElement);
+			const panel = screen.getByRole("complementary", { name: "Thread" });
+			const highlighted = panel.querySelector('[data-highlighted="true"]');
+			expect(highlighted?.getAttribute("data-signal-id")).toBe(
+				index === 0 ? secondThreadReply.id : hiddenThreadReply.id
+			);
+			expect(focus.mock.instances).toContain(highlighted);
+		}
+		focus.mockRestore();
 	});
 
 	it("restores the active Thread panel across a reload until the user closes it", async () => {
@@ -17111,7 +17818,9 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(threadComposer, "Thread text can still be sent");
 		expect(
-			within(threadPanel).getByText("Remove the failed file to continue.")
+			within(threadPanel).getByText(
+				"Retry or remove the failed attachment to continue."
+			)
 		).toBeTruthy();
 		expect(
 			within(threadPanel).getByRole("button", { name: "Send reply" })
@@ -17218,7 +17927,7 @@ describe("SpaceLanding", () => {
 				},
 			}
 		);
-		await within(threadPanel).findByText("Ready");
+		await within(threadPanel).findByRole("group", { name: "Files to send" });
 		const threadComposer = within(threadPanel).getByRole("textbox", {
 			name: "Reply in thread",
 		});
@@ -17254,7 +17963,9 @@ describe("SpaceLanding", () => {
 			within(threadPanel).getByRole("button", { name: "Send reply" })
 		).toHaveProperty("disabled", true);
 		expect(publishComposerUploadMock).not.toHaveBeenCalled();
-		expect(within(threadPanel).getByText("Ready")).toBeTruthy();
+		expect(
+			within(threadPanel).getByRole("group", { name: "Files to send" })
+		).toBeTruthy();
 		expect(
 			readComposerValue(
 				within(threadPanel).getByRole("textbox", {
@@ -17373,7 +18084,7 @@ describe("SpaceLanding", () => {
 				},
 			}
 		);
-		await within(threadPanel).findByText("Ready");
+		await within(threadPanel).findByRole("group", { name: "Files to send" });
 		const threadComposer = within(threadPanel).getByRole("textbox", {
 			name: "Reply in thread",
 		});
@@ -17425,7 +18136,9 @@ describe("SpaceLanding", () => {
 		expect(postThreadSignalMock.mock.calls[1]?.[0]).toEqual(
 			postThreadSignalMock.mock.calls[0]?.[0]
 		);
-		expect(within(threadPanel).queryByText("Ready")).toBeNull();
+		expect(
+			within(threadPanel).queryByRole("group", { name: "Files to send" })
+		).toBeNull();
 		expect((sendButton as HTMLButtonElement).disabled).toBe(true);
 		fireEvent.click(sendButton);
 		expect(postThreadSignalMock).toHaveBeenCalledTimes(2);
@@ -18621,6 +19334,32 @@ function mockSpaceQueries(input: {
 					);
 				}
 				return createQueryResult({ isPending: true });
+			}
+			if (
+				options.queryKey[0] === "organizations" &&
+				options.queryKey[2] === "agent-runtime-overview"
+			) {
+				return createQueryResult({
+					isSuccess: true,
+					data: {
+						organizationId: "org-acme",
+						generatedAt: "2026-07-16T00:00:00.000Z",
+						agentProfiles: [],
+					} satisfies OrganizationAgentRuntimeOverviewResponse,
+				});
+			}
+			if (options.queryKey[0] === "account-sidebar") {
+				return createQueryResult({
+					isSuccess: true,
+					data: {
+						revision: 0,
+						preferences: {
+							pinned: { sort: "manual", spaceIds: [] },
+							spaces: { sort: "recent", spaceIds: [] },
+							groups: [],
+						},
+					} satisfies AccountSidebarSnapshot,
+				});
 			}
 			throw new Error(`Unexpected query key: ${queryKey}`);
 		}
@@ -20400,7 +21139,7 @@ function createSpaceComposerUpload(input: {
 	sizeBytes: number;
 }) {
 	return {
-		expiresAt: "2026-07-12T00:00:00.000Z",
+		expiresAt: "2099-07-12T00:00:00.000Z",
 		...input,
 	};
 }

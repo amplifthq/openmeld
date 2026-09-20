@@ -17,6 +17,24 @@
   conflicts with an owner doc means one of the two must be fixed in the same
   PR.
 
+2026-09-18: Organization Skills management belongs to Team, after People,
+Agents, and Plugins, at `/o/{orgSlug}/skills` and its Skill detail route. This
+supersedes the older Center Agent Skills navigation entries below: legacy
+Skills URLs redirect with replacement rather than being removed. Center Agent
+conversational tools, the single Organization Skill model, Core authority,
+maintainer limits, CLI contracts, and runtime consumption remain unchanged.
+See `product/organization-skills.md` and `clients/web.md`.
+
+2026-09-14: Context-enabled Local Agent Profiles use one Work Coordinator with
+up to five independent reservations and one writer per Execution Context.
+This supersedes the one-slot FIFO and Profile-wide native conversation as the
+execution model for migrated Profiles. Binding remains the connection/settings
+owner; RuntimeCoordinator remains execution authority. Legacy work drains under
+its original identity, and serial rollback preserves Context ownership. Local
+Space Action receipts confirm local storage only. See
+`product/agent-profiles.md`, `architecture/agent-transport-contract.md`, and
+`architecture/local-openmeld-service.md`.
+
 2026-09-09: Every managed Center Agent, including Personal Workspace Center
 Agents, belongs to its Organization. Creating members are audit actors, and
 current owner/admin permissions govern configuration and Pause/Resume. This

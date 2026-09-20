@@ -1,11 +1,42 @@
 const LOCAL_EXECUTION_LANE_CONCURRENCY_LIMIT = 1;
 
+function resourcesConflict(
+  left: LocalExecutionSlotTask["resourceScope"],
+  right: LocalExecutionSlotTask["resourceScope"]
+): boolean {
+  // Preserve legacy-to-legacy scheduling, but never overlap unverified legacy
+  // work with a new context that promises isolation.
+  if (left === undefined && right === undefined) {
+    return false;
+  }
+  if (left === undefined || right === undefined) {
+    return true;
+  }
+  if (left === "exclusive" || right === "exclusive") {
+    return true;
+  }
+  if (left === "none" || right === "none") {
+    return false;
+  }
+  return (
+    (left === "read_only" && right === "isolated") ||
+    (right === "read_only" && left === "isolated")
+  );
+}
+
 export type LocalServiceDispatchLimits = {
+  contextConcurrency?: number;
   globalConcurrency: number;
   queueMax: number;
 };
 
 export type LocalExecutionSlotTask = {
+  resourceScope?:
+    | "none"
+    | "isolated"
+    | "isolated_read"
+    | "read_only"
+    | "exclusive";
   adapterId: string | null;
   attemptId: string;
   controllerKey: string;
@@ -38,6 +69,8 @@ export type LocalExecutionSlotSnapshot = {
 };
 
 export type LocalExecutionSlotWaitReason =
+  | "workspace_conflict"
+  | "agent_profile_concurrency"
   | "agent_controller_maintenance"
   | "global_concurrency"
   | "local_execution_lane_concurrency"
@@ -118,6 +151,9 @@ export type LocalExecutionSlots = ReturnType<typeof createLocalExecutionSlots>;
 
 export function createLocalExecutionSlots(input: {
   limits: LocalServiceDispatchLimits;
+  // Observe ownership after mutation, including release. Completion events are
+  // emitted while the task still owns its slot and cannot prove quiescence.
+  onChanged?: () => void;
   onTaskCompleted?: (event: LocalExecutionSlotCompletionEvent) => void;
   onTaskDropped?: (event: LocalExecutionSlotDropEvent) => void;
   onTaskStarted?: (event: LocalExecutionSlotLifecycleEvent) => void;
@@ -128,6 +164,11 @@ export function createLocalExecutionSlots(input: {
   }> = [];
   const activeCountByAdapterId = new Map<string, number>();
   const activeCountByLaneKey = new Map<string, number>();
+  const activeCountByProfileId = new Map<string, number>();
+  const activeResources = new Map<
+    string,
+    LocalExecutionSlotTask["resourceScope"]
+  >();
   const adapterOperationIds = new Set<string>();
   const ownedAttemptKeys = new Set<string>();
   const ownedTaskIds = new Map<
@@ -175,6 +216,8 @@ export function createLocalExecutionSlots(input: {
   };
 
   const resolveWaitReason = (inputWait: {
+    profileId?: string;
+    resourceScope?: LocalExecutionSlotTask["resourceScope"];
     adapterId: string | null;
     localExecutionLaneKey: string;
   }): LocalExecutionSlotWaitReason => {
@@ -183,6 +226,20 @@ export function createLocalExecutionSlots(input: {
     }
     if (activeGlobal >= input.limits.globalConcurrency) {
       return "global_concurrency";
+    }
+    if (
+      inputWait.resourceScope !== undefined &&
+      (activeCountByProfileId.get(inputWait.profileId ?? "") ?? 0) >=
+        (input.limits.contextConcurrency ?? 0)
+    ) {
+      return "agent_profile_concurrency";
+    }
+    if (
+      [...activeResources.values()].some((active) =>
+        resourcesConflict(active, inputWait.resourceScope)
+      )
+    ) {
+      return "workspace_conflict";
     }
     if (
       resolveActiveForLane(inputWait.localExecutionLaneKey) >=
@@ -194,6 +251,8 @@ export function createLocalExecutionSlots(input: {
   };
 
   const buildLocalQueueDiagnostics = (inputDiagnostics: {
+    profileId?: string;
+    resourceScope?: LocalExecutionSlotTask["resourceScope"];
     adapterId: string | null;
     localExecutionLaneKey: string;
     queuePosition: number | null;
@@ -203,6 +262,8 @@ export function createLocalExecutionSlots(input: {
     const waitReason =
       inputDiagnostics.waitReason ??
       resolveWaitReason({
+        profileId: inputDiagnostics.profileId,
+        resourceScope: inputDiagnostics.resourceScope,
         adapterId: inputDiagnostics.adapterId,
         localExecutionLaneKey: inputDiagnostics.localExecutionLaneKey,
       });
@@ -233,6 +294,8 @@ export function createLocalExecutionSlots(input: {
       dispatchId: task.dispatchId,
       localExecutionLaneKey: task.localExecutionLaneKey,
       localQueue: buildLocalQueueDiagnostics({
+        profileId: task.profileId,
+        resourceScope: task.resourceScope,
         adapterId: task.adapterId,
         localExecutionLaneKey: task.localExecutionLaneKey,
         queuePosition: inputEvent.queuePosition,
@@ -294,12 +357,13 @@ export function createLocalExecutionSlots(input: {
     }
   };
 
+  const isQuiescent = (): boolean =>
+    pendingTasks.length === 0 &&
+    activeGlobal === 0 &&
+    adapterOperationIds.size === 0;
+
   const notifyDrainWaitersIfIdle = (): void => {
-    if (
-      pendingTasks.length > 0 ||
-      activeGlobal > 0 ||
-      adapterOperationIds.size > 0
-    ) {
+    if (!isQuiescent()) {
       return;
     }
     while (drainWaiters.length > 0) {
@@ -314,16 +378,9 @@ export function createLocalExecutionSlots(input: {
       // One local execution lane owns at most one active execution on this
       // service. A lane is the bound Agent Controller conversation when present;
       // otherwise it falls back to the Agent Profile identity.
-      const nextTaskIndex = pendingTasks.findIndex((candidate) => {
-        return (
-          !(
-            candidate.task.adapterId &&
-            adapterOperationIds.has(candidate.task.adapterId)
-          ) &&
-          resolveActiveForLane(candidate.task.localExecutionLaneKey) <
-            LOCAL_EXECUTION_LANE_CONCURRENCY_LIMIT
-        );
-      });
+      const nextTaskIndex = pendingTasks.findIndex(
+        (candidate) => resolveWaitReason(candidate.task) === "none"
+      );
       if (nextTaskIndex < 0) {
         break;
       }
@@ -335,6 +392,11 @@ export function createLocalExecutionSlots(input: {
       const selectedTask = selectedPendingTask.task;
 
       activeGlobal += 1;
+      activeResources.set(selectedTask.taskId, selectedTask.resourceScope);
+      activeCountByProfileId.set(
+        selectedTask.profileId,
+        (activeCountByProfileId.get(selectedTask.profileId) ?? 0) + 1
+      );
       if (selectedTask.adapterId) {
         activeCountByAdapterId.set(
           selectedTask.adapterId,
@@ -386,6 +448,14 @@ export function createLocalExecutionSlots(input: {
         .finally(() => {
           releaseTaskOwnership(selectedTask);
           activeGlobal = Math.max(0, activeGlobal - 1);
+          activeResources.delete(selectedTask.taskId);
+          activeCountByProfileId.set(
+            selectedTask.profileId,
+            Math.max(
+              0,
+              (activeCountByProfileId.get(selectedTask.profileId) ?? 0) - 1
+            )
+          );
           if (selectedTask.adapterId) {
             const remainingActiveForAdapter = Math.max(
               0,
@@ -412,6 +482,7 @@ export function createLocalExecutionSlots(input: {
               remainingActiveForLane
             );
           }
+          input.onChanged?.();
           notifyDrainWaitersIfIdle();
           pump();
         });
@@ -419,6 +490,7 @@ export function createLocalExecutionSlots(input: {
   };
 
   return {
+    isQuiescent,
     getAdapterOperationStatus(
       adapterId: string
     ): LocalExecutionSlotAdapterOperationStatus {
@@ -437,12 +509,14 @@ export function createLocalExecutionSlots(input: {
       }
       adapterOperationIds.add(adapterId);
       try {
+        input.onChanged?.();
         return {
           accepted: true,
           value: await operation(),
         };
       } finally {
         adapterOperationIds.delete(adapterId);
+        input.onChanged?.();
         notifyDrainWaitersIfIdle();
         pump();
       }
@@ -497,6 +571,7 @@ export function createLocalExecutionSlots(input: {
         task,
       };
       pendingTasks.push(pendingTask);
+      input.onChanged?.();
       const snapshot = buildSnapshot(task.localExecutionLaneKey);
       if (task.onQueued) {
         try {
@@ -513,6 +588,7 @@ export function createLocalExecutionSlots(input: {
         } catch (error) {
           pendingTasks.pop();
           releaseTaskOwnership(task);
+          input.onChanged?.();
           throw error;
         }
       }
@@ -555,17 +631,14 @@ export function createLocalExecutionSlots(input: {
           reason,
         });
       }
+      input.onChanged?.();
       notifyDrainWaitersIfIdle();
       return {
         droppedCount,
       };
     },
     drain(): Promise<void> {
-      if (
-        pendingTasks.length === 0 &&
-        activeGlobal === 0 &&
-        adapterOperationIds.size === 0
-      ) {
+      if (isQuiescent()) {
         return Promise.resolve();
       }
       return new Promise<void>((resolve) => {

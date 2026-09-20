@@ -4,6 +4,7 @@ import { createCoreRpcHttpError } from "../../core/src/rpc/errors";
 import app from "../src/index";
 
 type CoreRpcMock = {
+  agentProfileExecutionMode: ReturnType<typeof vi.fn>;
   disableAgentProfilePrimaryBinding: ReturnType<typeof vi.fn>;
   ensureAgentProfilePrimaryBinding: ReturnType<typeof vi.fn>;
   executeAgentProfileWorkRecovery: ReturnType<typeof vi.fn>;
@@ -42,6 +43,12 @@ function makeEnv(input?: {
   coreOverrides?: Partial<CoreRpcMock>;
 }) {
   const coreRpc: CoreRpcMock = {
+    agentProfileExecutionMode: vi.fn(async (input) => ({
+      agentProfileId: AGENT_PROFILE_ID,
+      mode: input.body?.mode ?? "parallel",
+      migration: "contexts",
+      revision: 4,
+    })),
     disableAgentProfilePrimaryBinding: vi.fn(async () => ({
       agentProfileId: AGENT_PROFILE_ID,
       disabled: true,
@@ -291,6 +298,40 @@ function readyWakeRouteStatus() {
 }
 
 describe("agent profile binding routes", () => {
+  it("reads execution mode and forwards serial rollback while rejecting unknown policy fields", async () => {
+    const { coreRpc, env } = makeEnv();
+    const url = `http://local/v1/agent-profiles/${AGENT_PROFILE_ID}/execution-mode`;
+    const read = await app.fetch(new Request(url), env, TEST_EXECUTION_CONTEXT);
+    expect(read.status).toBe(200);
+    expect(await read.json()).toMatchObject({ mode: "parallel" });
+    const update = await app.fetch(
+      new Request(url, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode: "serial" }),
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(update.status).toBe(200);
+    expect(coreRpc.agentProfileExecutionMode).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        agentProfileId: AGENT_PROFILE_ID,
+        body: { mode: "serial" },
+      })
+    );
+    const invalid = await app.fetch(
+      new Request(url, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode: "serial", dropWaiting: true }),
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(invalid.status).toBe(400);
+    expect(coreRpc.agentProfileExecutionMode).toHaveBeenCalledTimes(2);
+  });
   it("forwards work recovery body and canonical Organization context to Core", async () => {
     const { coreRpc, env } = makeEnv({
       authOverrides: {

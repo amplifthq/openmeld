@@ -190,6 +190,12 @@ export {
   parseAgentControllerRef,
 } from "./daemon/agent-controller-ref";
 export {
+  computerCareObservationSchema,
+  executionHostObservationSchema,
+  OPENMELD_COMPUTER_CARE_HEADER,
+} from "./daemon/computer-care";
+export {
+  COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   computerFileAccessAbsolutePathSchema,
   computerFileAccessDaemonFrameSchema,
@@ -208,6 +214,7 @@ export {
   computerFileAccessUpdateRequestSchema,
   computerFileAccessUpdateResultFrameSchema,
   computerFileAccessUpdateRpcInputSchema,
+  isComputerFileAccessOwnerCancellation,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
   runtimeTransportComputerFileAccessReadRequestSchema,
   runtimeTransportComputerFileAccessUpdateRequestSchema,
@@ -216,6 +223,8 @@ export {
   DAEMON_PROFILE_SKIP_REASON_VALUES,
   daemonProfileSkipReasonSchema,
   localAgentInstallationOptionSchema,
+  OPENMELD_DAEMON_CANCEL_STOP_REQUESTED_AFTER_START_REASON_CODE,
+  OPENMELD_DAEMON_CANCEL_WITHDRAWN_BEFORE_START_REASON_CODE,
   OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,
   openMeldDaemonCancelPayloadSchema,
   openMeldDaemonCancelRequestPayloadSchema,
@@ -558,6 +567,7 @@ export {
   localWakeRouteWorkingFolderObservationSchema,
   localWakeRouteWorkingFolderReasonCodeSchema,
   MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS,
+  OPENMELD_EXECUTION_ADMISSION_HEADER,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportAgentControllerConversationOccupancySchema,
   runtimeTransportAgentProfileExecutionStateRequestSchema,
@@ -572,6 +582,10 @@ export {
   runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema,
   runtimeTransportAgentProfileWorkContinuationNeedsAttentionRequestSchema,
   runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseSchema,
+  runtimeTransportAgentProfileWorkHandoffRequestSchema,
+  runtimeTransportAgentProfileWorkHandoffResponseSchema,
+  runtimeTransportAgentProfileWorkLocalAttemptWithdrawalRequestSchema,
+  runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema,
   runtimeTransportAgentProfileWorkQueueApproveRequestSchema,
   runtimeTransportAgentProfileWorkQueueApproveResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryActionSchema,
@@ -592,6 +606,7 @@ export {
   runtimeTransportDispatchInteractionDeliveredRequestSchema,
   runtimeTransportDispatchInteractionRequestSchema,
   runtimeTransportDispatchInteractionResponseFramePayloadSchema,
+  runtimeTransportDispatchLifecycleAcknowledgementSchema,
   runtimeTransportDispatchLifecyclePhaseSchema,
   runtimeTransportDispatchLifecycleRequestSchema,
   runtimeTransportDispatchLifecycleSnapshotSchema,
@@ -729,6 +744,7 @@ export {
   openMeldDaemonTaskResultStatusSchema,
   openMeldDaemonTaskResultTelemetrySchema,
 } from "./daemon/task-result";
+export { windowsProcessJobRequestSchema } from "./daemon/windows-process-job";
 export {
   type WindowsUserTaskRequest,
   windowsUserTaskActionSchema,
@@ -960,6 +976,12 @@ export {
   setAgentProfileCreationApprovalPreferenceResponseSchema,
   TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "./http/agent-profile-creation-request";
+export {
+  agentProfileExecutionModeResponseSchema,
+  agentProfileExecutionModeSchema,
+  runtimeTransportAgentProfileExecutionModeRequestSchema,
+  updateAgentProfileExecutionModeBodySchema,
+} from "./http/agent-profile-execution-mode";
 export {
   RECONCILE_DELETED_AGENT_PROFILE_MAX_SPACES,
   reconcileDeletedAgentProfileRequestSchema,
@@ -1483,6 +1505,8 @@ export {
   identityImageMimeTypeSchema,
 } from "./http/identity-image";
 export * from "./http/inbox";
+export * from "./http/inbox-desktop-updates";
+export * from "./http/inbox-feed";
 export {
   listSignalsQuerySchema,
   normalizeListSignalsReadQuerySemantics,
@@ -2018,10 +2042,12 @@ export {
 } from "./http/slack-workspace-directory";
 export {
   SPACE_ACCESS_MODES,
+  SPACE_LINK_JOIN_POLICIES,
   setSpaceAccessModeBodySchema,
   spaceAccessModeSchema,
   spaceAccessModeStateSchema,
   spaceAccessModeUsesPassword,
+  spaceLinkJoinPolicySchema,
 } from "./http/space-access-mode";
 export {
   respondToSpaceAgentInteractionBodySchema,
@@ -2104,6 +2130,7 @@ export {
   listSpaceDispatchTraceFinalVisibleSignalCandidates,
   projectSpaceDispatchTraceFinalVisibleOutcome,
   projectSpaceDispatchTraceRootCause,
+  resolveRuntimeCoordinatorHeadStatusRootCause,
   resolveSpaceDispatchTraceRootCause,
   SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
@@ -2325,6 +2352,7 @@ export {
   spacePasswordStateSchema,
   upsertSpacePasswordBodySchema,
 } from "./http/space-password";
+export { spaceReadContextSchema } from "./http/space-read-context";
 export {
   getSpaceDispatchResultInputSchema,
   getSpaceDispatchResultResponseSchema,
@@ -2350,6 +2378,30 @@ export {
   spaceStatusLatestVisibleUpdateSchema,
   spaceStatusMembersSummarySchema,
 } from "./http/space-status";
+export {
+  createSpaceTaskBodySchema,
+  listSpaceTasksQuerySchema,
+  listSpaceTasksResponseSchema,
+  mutateSpaceTaskBodySchema,
+  SPACE_TASK_COMPLETION_CONDITION_MAX_CHARS,
+  SPACE_TASK_COMPLETION_CONDITION_MAX_ITEMS,
+  SPACE_TASK_DESCRIPTION_MAX_CHARS,
+  SPACE_TASK_LIST_MAX_ITEMS,
+  SPACE_TASK_OPERATION_ID_MAX_CHARS,
+  SPACE_TASK_RESULT_SUMMARY_MAX_CHARS,
+  SPACE_TASK_REVIEW_FEEDBACK_MAX_CHARS,
+  SPACE_TASK_TITLE_MAX_CHARS,
+  spaceTaskActorSchema,
+  spaceTaskEventSchema,
+  spaceTaskEventTypeSchema,
+  spaceTaskIdSchema,
+  spaceTaskMutationReceiptSchema,
+  spaceTaskPhaseSchema,
+  spaceTaskResponseSchema,
+  spaceTaskResultSchema,
+  spaceTaskReviewSchema,
+  spaceTaskSchema,
+} from "./http/space-tasks";
 export {
   createSpaceThreadBodySchema,
   createSpaceThreadResponseSchema,
@@ -2408,10 +2460,12 @@ export {
 } from "./http/waitlist";
 export { wakeFailureListSchema } from "./http/wake-failure-list";
 export {
+  findOpenMeldToolsUpdateFailureCode,
   formatLocalComponentsSummaryDescription,
   formatLocalComponentsSummaryLabel,
   formatLocalSetupActionDescription,
   formatLocalSetupActionLabel,
+  formatOpenMeldToolsUpdateFailureMessage,
   installedLocalComponentsSnapshotSchema,
   LOCAL_COMPONENTS_SCHEMA_VERSION,
   localCliComponentProjectionSchema,
@@ -2430,16 +2484,20 @@ export {
   localSetupEntrypointSchema,
   localSkillsComponentProjectionSchema,
   localSkillsComponentUpdateProjectionSchema,
+  OPEN_MELD_TOOLS_UPDATE_FAILURE_DETAIL_MAX_CHARS,
   openMeldToolsControlCapabilitySchema,
   openMeldToolsControlRequestSchema,
   openMeldToolsControlResultSchema,
   openMeldToolsMaintenanceMutationResultSchema,
   openMeldToolsMaintenanceProjectionSchema,
   openMeldToolsUpdateAttemptSchema,
+  openMeldToolsUpdateFailureCodeSchema,
   openMeldToolsUpdateOperationPhaseSchema,
   openMeldToolsUpdateOperationSchema,
+  openMeldToolsUpdateProcessFailureFrameSchema,
   openMeldToolsUpdateRequestResultSchema,
   openMeldToolsUpdateRequestSourceSchema,
+  resolveOpenMeldToolsUpdateTargetVersions,
 } from "./local-components";
 export {
   MAC_OS_KEYCHAIN_AUTHENTICATION_INTERACTION,
@@ -2479,6 +2537,7 @@ export {
   prepareBlockerRetryActionSchema,
   prepareBlockerSchema,
   prepareBlockerSeveritySchema,
+  prepareConnectionProgressWriteSchema,
   prepareDiagnosticResponseSchema,
   prepareLocalAgentCatalogSchema,
   prepareLocalAgentIdsSchema,
@@ -2587,6 +2646,15 @@ export {
   spaceLiveInvalidationFrameSchema,
   spaceLiveSignalFrameSchema,
 } from "./protocol/envelope";
+export {
+  executionContextAssignmentSchema,
+  executionContextCompletionSchema,
+  executionContextLegacyAssociationSchema,
+  executionContextRequestSchema,
+  executionContextScopeSchema,
+  executionContextSelectionSchema,
+  executionContextTaskSchema,
+} from "./protocol/execution-context";
 export {
   helloAckSchema,
   helloCapabilitiesSchema,
@@ -2903,6 +2971,15 @@ export {
   dispatchResultPublicOutcomeSchema,
   dispatchResultSchema,
 } from "./space-mesh/dispatch-result";
+export {
+  dispatchSpaceActionClosedReasonCodeSchema,
+  dispatchSpaceActionReceiptSchema,
+  dispatchSpaceActionToolResultSchema,
+} from "./space-mesh/dispatch-space-action-receipt";
+export {
+  dispatchSpaceHistoryRequestSchema,
+  dispatchSpaceHistoryResultSchema,
+} from "./space-mesh/dispatch-space-history";
 export { entryBriefSchema } from "./space-mesh/entry-brief";
 export {
   getSpaceMessageReactionsInputSchema,

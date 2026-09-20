@@ -3,6 +3,7 @@
 import { SettingsAddComputerCardContent } from "@openmeld/ui/components/settings-computers";
 import { ADD_CARD_PICKER_CLASS_NAME } from "@openmeld/ui/lib/card-picker-contract";
 import { cn } from "@openmeld/ui/lib/utils";
+import { DesktopAwareLink } from "#/desktop/desktop-aware-link";
 
 export function ComputerSetupChoiceCard(input: {
 	actionHref?: string;
@@ -35,12 +36,12 @@ export function ComputerSetupChoiceCard(input: {
 							{input.centerAgentHref ? (
 								<>
 									Or ask a{" "}
-									<a
+									<DesktopAwareLink
 										className="pointer-events-auto underline decoration-muted-foreground/70 underline-offset-4 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
 										href={input.centerAgentHref}
 									>
 										Center Agent
-									</a>{" "}
+									</DesktopAwareLink>{" "}
 									to walk you through.
 								</>
 							) : null}
@@ -65,9 +66,9 @@ function ComputerSetupPrimaryAction(input: {
 }) {
 	if (input.actionHref) {
 		return (
-			<a className={input.className} href={input.actionHref}>
+			<DesktopAwareLink className={input.className} href={input.actionHref}>
 				<span className="sr-only">{input.actionLabel}</span>
-			</a>
+			</DesktopAwareLink>
 		);
 	}
 	if (input.onAction) {

@@ -1,16 +1,28 @@
-export const AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING = 50;
+import {
+  AGENT_PROFILE_WORK_CONCURRENCY_LIMIT,
+  AGENT_PROFILE_WORK_MAX_WAITING,
+} from "@openmeld/agent-runtime";
+
+// Core owns reservations; the Service can further constrain local admission.
+export const AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING =
+  AGENT_PROFILE_WORK_MAX_WAITING;
 
 export type AgentProfileWorkCoordinatorItem = {
   dispatchId: string;
   enqueuedAtMs: number;
   targetWakeLifecycleId: string;
+  executionContextId?: string;
+  reservationState?: "reserved" | "waiting";
   waitReason?: "controller_conversation_occupied";
 };
 
 export type AgentProfileWorkRecoveryGate = {
   continuationClientMessageId: string | null;
+  forkInterruptedConversation?: boolean;
   interruptedWork: AgentProfileWorkCoordinatorItem;
+  additionalInterruptedWork?: AgentProfileWorkCoordinatorItem[];
   status:
+    | "awaiting_occupancy_decision"
     | "awaiting_usage"
     | "continuation_pending"
     | "continuation_authorized"
@@ -21,17 +33,19 @@ export type AgentProfileWorkRecoveryGate = {
 };
 
 export type AgentProfileWorkCoordinator = {
+  admissionMode?: "parallel" | "serial" | "draining";
   recoveryGate: AgentProfileWorkRecoveryGate | null;
   revision: number;
   targetProfileId: string;
   updatedAtMs: number;
-  /** Index zero owns the execution slot. Every later item waits in FIFO order. */
+  /** Scoped work has explicit reservations; legacy work retains one exclusive slot. */
   workItems: AgentProfileWorkCoordinatorItem[];
 };
 
 export type AgentProfileWorkCoordinatorSummary = {
   currentWaitReason?: "controller_conversation_occupied";
   currentWork: AgentProfileWorkCoordinatorItem | null;
+  currentWorks: readonly AgentProfileWorkCoordinatorItem[];
   queuedWork: readonly AgentProfileWorkCoordinatorItem[];
   status: "idle" | "paused" | "working";
   waitingCount: number;
@@ -43,8 +57,10 @@ export function markAgentProfileWorkControllerConversationOccupancy(input: {
   nowMs: number;
   state: "available" | "occupied";
 }): { coordinator: AgentProfileWorkCoordinator; changed: boolean } {
-  const currentWork = input.coordinator.workItems[0];
-  if (!currentWork || currentWork.dispatchId !== input.dispatchId) {
+  const currentWork = reservedAgentProfileWork(input.coordinator).find(
+    (item) => item.dispatchId === input.dispatchId
+  );
+  if (!currentWork) {
     return { coordinator: input.coordinator, changed: false };
   }
   const currentlyOccupied =
@@ -66,9 +82,108 @@ export function markAgentProfileWorkControllerConversationOccupancy(input: {
       ...input.coordinator,
       revision: input.coordinator.revision + 1,
       updatedAtMs: input.nowMs,
-      workItems: [nextCurrentWork, ...input.coordinator.workItems.slice(1)],
+      workItems: input.coordinator.workItems.map((item) =>
+        item === currentWork ? nextCurrentWork : item
+      ),
     },
   };
+}
+
+export type AgentProfileWorkHandoffStatus =
+  | "already_handed_off"
+  | "handed_off"
+  | "source_not_occupied"
+  | "successor_conflict";
+
+/**
+ * Moves one occupied reservation to the work that continues it, in place.
+ *
+ * The successor takes over the source's slot instead of waiting for its turn,
+ * so the reservation is never released: no gap opens for a following legacy
+ * item to start ahead of it, and the concurrency ceiling, serial mode, and
+ * draining all keep holding because the reserved count does not change. A
+ * successor that was already waiting in this queue has that entry consumed,
+ * leaving exactly one entry for the work. Callers own the evidence that the
+ * source execution has stopped; this transition only requires that Core still
+ * sees the source as reserved and occupied, which is what distinguishes a
+ * blocked wait from a turn that is already running.
+ */
+export function handOffOccupiedAgentProfileWork(input: {
+  coordinator: AgentProfileWorkCoordinator;
+  nowMs: number;
+  sourceTargetWakeLifecycleId: string;
+  successor: AgentProfileWorkCoordinatorItem;
+}): {
+  coordinator: AgentProfileWorkCoordinator;
+  status: AgentProfileWorkHandoffStatus;
+} {
+  const sourceIndex = input.coordinator.workItems.findIndex(
+    (item) => item.targetWakeLifecycleId === input.sourceTargetWakeLifecycleId
+  );
+  const source = input.coordinator.workItems[sourceIndex];
+  if (!source) {
+    // A repeated request finds the successor already holding the slot.
+    return {
+      coordinator: input.coordinator,
+      status: input.coordinator.workItems.some(
+        (item) =>
+          item.targetWakeLifecycleId === input.successor.targetWakeLifecycleId
+      )
+        ? "already_handed_off"
+        : "source_not_occupied",
+    };
+  }
+  if (
+    source.waitReason !== "controller_conversation_occupied" ||
+    !reservedAgentProfileWork(input.coordinator).includes(source)
+  ) {
+    return { coordinator: input.coordinator, status: "source_not_occupied" };
+  }
+  // Accepting the successor Wake is what creates it, so it is normally already
+  // waiting in this queue. Taking over the source's slot consumes that entry
+  // instead of leaving a second entry behind for the same piece of work.
+  const queuedSuccessor = input.coordinator.workItems.find(
+    (item) =>
+      item !== source &&
+      item.targetWakeLifecycleId === input.successor.targetWakeLifecycleId
+  );
+  if (
+    queuedSuccessor &&
+    (reservedAgentProfileWork(input.coordinator).includes(queuedSuccessor) ||
+      queuedSuccessor.executionContextId !== input.successor.executionContextId)
+  ) {
+    // An already reserved successor is running work of its own, and a context
+    // the caller states wrongly must be refused rather than quietly corrected.
+    return { coordinator: input.coordinator, status: "successor_conflict" };
+  }
+
+  const { waitReason: _waitReason, ...successor } = input.successor;
+  const placed: AgentProfileWorkCoordinatorItem = successor.executionContextId
+    ? { ...successor, reservationState: "reserved" }
+    : successor;
+  const workItems = input.coordinator.workItems
+    .map((item, index) => (index === sourceIndex ? placed : item))
+    .filter((item) => item !== queuedSuccessor);
+  const coordinator = {
+    ...input.coordinator,
+    revision: input.coordinator.revision + 1,
+    updatedAtMs: input.nowMs,
+    workItems,
+  } satisfies AgentProfileWorkCoordinator;
+
+  const reserved = reservedAgentProfileWork(coordinator);
+  const sameContextConflict =
+    placed.executionContextId !== undefined &&
+    reserved.some(
+      (item) =>
+        item !== placed && item.executionContextId === placed.executionContextId
+    );
+  // A successor that would not hold the slot, or would break a context's
+  // serial guarantee, must leave the source untouched rather than half move.
+  if (!reserved.includes(placed) || sameContextConflict) {
+    return { coordinator: input.coordinator, status: "successor_conflict" };
+  }
+  return { coordinator, status: "handed_off" };
 }
 
 type AgentProfileWorkAcceptance = {
@@ -113,11 +228,14 @@ export function acceptAgentProfileWork(input: {
   }
 
   const continuationAuthorized = isAuthorizedContinuation(input);
-  const maxWorkItems =
-    input.coordinator.recoveryGate && !continuationAuthorized
-      ? AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING
-      : AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING + 1;
-  if (input.coordinator.workItems.length >= maxWorkItems) {
+  const canStart =
+    continuationAuthorized ||
+    canReserveAgentProfileWork(input.coordinator, input.item);
+  if (
+    !canStart &&
+    waitingCount(input.coordinator) >=
+      AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING
+  ) {
     return {
       coordinator: input.coordinator,
       queuePosition: null,
@@ -126,13 +244,18 @@ export function acceptAgentProfileWork(input: {
     };
   }
 
-  const queuePosition = continuationAuthorized
-    ? 0
-    : input.coordinator.workItems.length +
-      (isAgentProfileWorkPaused(input.coordinator) ? 1 : 0);
+  const item = input.item.executionContextId
+    ? {
+        ...input.item,
+        reservationState: canStart
+          ? ("reserved" as const)
+          : ("waiting" as const),
+      }
+    : input.item;
+  const queuePosition = canStart ? 0 : waitingCount(input.coordinator) + 1;
   const workItems = continuationAuthorized
-    ? [input.item, ...input.coordinator.workItems]
-    : [...input.coordinator.workItems, input.item];
+    ? [item, ...input.coordinator.workItems]
+    : [...input.coordinator.workItems, item];
   const recoveryGate = input.coordinator.recoveryGate;
   const coordinator = {
     ...input.coordinator,
@@ -152,7 +275,7 @@ export function acceptAgentProfileWork(input: {
   return {
     coordinator,
     queuePosition,
-    status: continuationAuthorized || queuePosition === 0 ? "start" : "queued",
+    status: canStart ? "start" : "queued",
     waitingCount: waitingCount(coordinator),
   };
 }
@@ -164,6 +287,7 @@ export function removeAgentProfileWork(input: {
 }): {
   coordinator: AgentProfileWorkCoordinator;
   promotedItem: AgentProfileWorkCoordinatorItem | null;
+  promotedItems: AgentProfileWorkCoordinatorItem[];
   removed: boolean;
 } {
   const removedIndex = input.coordinator.workItems.findIndex(
@@ -173,6 +297,7 @@ export function removeAgentProfileWork(input: {
     return {
       coordinator: input.coordinator,
       promotedItem: null,
+      promotedItems: [],
       removed: false,
     };
   }
@@ -183,9 +308,9 @@ export function removeAgentProfileWork(input: {
   const recoveryGate =
     input.coordinator.recoveryGate?.status === "awaiting_owner_approval" &&
     workItems.length === 0
-      ? null
+      ? nextInterruptedWorkGate(input.coordinator.recoveryGate, input.nowMs)
       : input.coordinator.recoveryGate;
-  return {
+  const next = refillAgentProfileWork({
     coordinator: {
       ...input.coordinator,
       recoveryGate,
@@ -193,28 +318,79 @@ export function removeAgentProfileWork(input: {
       updatedAtMs: input.nowMs,
       workItems,
     },
-    promotedItem:
-      removedIndex === 0 && !isAgentProfileWorkPaused(input.coordinator)
-        ? (workItems[0] ?? null)
-        : null,
+    previouslyReserved: reservedAgentProfileWork(input.coordinator),
+  });
+  return {
+    ...next,
+    promotedItem: next.promotedItems[0] ?? null,
     removed: true,
   };
+}
+
+/**
+ * Drops work whose Wake can no longer reach this queue, then refills.
+ *
+ * A work item is only a scheduling claim over one Wake head. Once that head is
+ * gone or already settled, the entry can never be promoted and can never be
+ * settled again, so it holds its reservation permanently and every later Wake
+ * waits behind work that will never run. The whole retired set has to leave in
+ * one transition: refilling between removals would promote a successor that is
+ * itself retired. Callers own the evidence that each named Wake is retired.
+ */
+export function dropRetiredAgentProfileWork(input: {
+  coordinator: AgentProfileWorkCoordinator;
+  nowMs: number;
+  retiredTargetWakeLifecycleIds: ReadonlySet<string>;
+}): {
+  coordinator: AgentProfileWorkCoordinator;
+  promotedItems: AgentProfileWorkCoordinatorItem[];
+  removedItems: AgentProfileWorkCoordinatorItem[];
+} {
+  const removedItems = input.coordinator.workItems.filter((item) =>
+    input.retiredTargetWakeLifecycleIds.has(item.targetWakeLifecycleId)
+  );
+  if (removedItems.length === 0) {
+    return { coordinator: input.coordinator, promotedItems: [], removedItems };
+  }
+  const next = refillAgentProfileWork({
+    coordinator: {
+      ...input.coordinator,
+      revision: input.coordinator.revision + 1,
+      updatedAtMs: input.nowMs,
+      workItems: input.coordinator.workItems.filter(
+        (item) =>
+          !input.retiredTargetWakeLifecycleIds.has(item.targetWakeLifecycleId)
+      ),
+    },
+    previouslyReserved: reservedAgentProfileWork(input.coordinator),
+  });
+  return { ...next, removedItems };
 }
 
 export function settleAgentProfileWork(input: {
   coordinator: AgentProfileWorkCoordinator;
   nowMs: number;
-  outcome: "failed" | "stopped" | "succeeded" | "usage_exhausted";
+  outcome:
+    | "controller_conversation_occupied"
+    | "failed"
+    | "stopped"
+    | "succeeded"
+    | "usage_exhausted";
   targetWakeLifecycleId: string;
 }): {
   coordinator: AgentProfileWorkCoordinator;
   promotedItem: AgentProfileWorkCoordinatorItem | null;
+  promotedItems: AgentProfileWorkCoordinatorItem[];
   removed: boolean;
 } {
   const removedIndex = input.coordinator.workItems.findIndex(
     (item) => item.targetWakeLifecycleId === input.targetWakeLifecycleId
   );
-  if (removedIndex !== 0) {
+  if (
+    !reservedAgentProfileWork(input.coordinator).some(
+      (item) => item.targetWakeLifecycleId === input.targetWakeLifecycleId
+    )
+  ) {
     return removeAgentProfileWork({
       coordinator: input.coordinator,
       nowMs: input.nowMs,
@@ -222,16 +398,20 @@ export function settleAgentProfileWork(input: {
     });
   }
 
-  const interruptedWork = input.coordinator.workItems[0];
+  const interruptedWork = input.coordinator.workItems[removedIndex];
   if (!interruptedWork) {
     return {
       coordinator: input.coordinator,
       promotedItem: null,
+      promotedItems: [],
       removed: false,
     };
   }
-  const queuedWork = input.coordinator.workItems.slice(1);
+  const queuedWork = input.coordinator.workItems.filter(
+    (_, index) => index !== removedIndex
+  );
   const continuationRunning =
+    removedIndex === 0 &&
     input.coordinator.recoveryGate?.status === "continuation_running";
   if (continuationRunning) {
     const interruptedContinuationWork =
@@ -243,8 +423,12 @@ export function settleAgentProfileWork(input: {
         ...input.coordinator,
         recoveryGate:
           awaitingOwnerApproval && queuedWork.length === 0
-            ? null
+            ? nextInterruptedWorkGate(
+                input.coordinator.recoveryGate,
+                input.nowMs
+              )
             : {
+                ...input.coordinator.recoveryGate,
                 continuationClientMessageId: null,
                 interruptedWork: interruptedContinuationWork,
                 status: awaitingOwnerApproval
@@ -257,25 +441,71 @@ export function settleAgentProfileWork(input: {
         workItems: queuedWork,
       },
       promotedItem: null,
+      promotedItems: [],
       removed: true,
     };
+  }
+
+  if (input.outcome === "controller_conversation_occupied") {
+    // The work stopped because another app owns the native conversation, so the
+    // only honest continuation is a new branch off its verified history. That is
+    // a decision the owner has to make, and it cannot be queued behind an
+    // existing gate: a second interrupted item would come back as an
+    // `awaiting_usage` resume, which would land in the same occupied thread.
+    // With a gate already open this settles plainly and the notice carries the
+    // cause instead.
+    if (!input.coordinator.recoveryGate) {
+      return {
+        coordinator: {
+          ...input.coordinator,
+          recoveryGate: {
+            continuationClientMessageId: null,
+            interruptedWork,
+            status: "awaiting_occupancy_decision",
+            updatedAtMs: input.nowMs,
+          },
+          revision: input.coordinator.revision + 1,
+          updatedAtMs: input.nowMs,
+          workItems: queuedWork,
+        },
+        promotedItem: null,
+        promotedItems: [],
+        removed: true,
+      };
+    }
+    return removeAgentProfileWork({
+      coordinator: input.coordinator,
+      nowMs: input.nowMs,
+      targetWakeLifecycleId: input.targetWakeLifecycleId,
+    });
   }
 
   if (input.outcome === "usage_exhausted") {
     return {
       coordinator: {
         ...input.coordinator,
-        recoveryGate: {
-          continuationClientMessageId: null,
-          interruptedWork,
-          status: "awaiting_usage",
-          updatedAtMs: input.nowMs,
-        },
+        recoveryGate: input.coordinator.recoveryGate
+          ? {
+              ...input.coordinator.recoveryGate,
+              additionalInterruptedWork: [
+                ...(input.coordinator.recoveryGate.additionalInterruptedWork ??
+                  []),
+                interruptedWork,
+              ],
+              updatedAtMs: input.nowMs,
+            }
+          : {
+              continuationClientMessageId: null,
+              interruptedWork,
+              status: "awaiting_usage",
+              updatedAtMs: input.nowMs,
+            },
         revision: input.coordinator.revision + 1,
         updatedAtMs: input.nowMs,
         workItems: queuedWork,
       },
       promotedItem: null,
+      promotedItems: [],
       removed: true,
     };
   }
@@ -317,7 +547,12 @@ export function markAgentProfileWorkContinuationNeedsAttention(input: {
   if (
     !recoveryGate ||
     (recoveryGate.status !== "continuation_pending" &&
-      recoveryGate.status !== "continuation_authorized")
+      recoveryGate.status !== "continuation_authorized" &&
+      // An occupancy decision is still a decision the owner has to make, so a
+      // moved execution target has to hand it to them as attention rather than
+      // answer that nothing is pending: the fork would otherwise be branched
+      // from a conversation the current controller does not own.
+      recoveryGate.status !== "awaiting_occupancy_decision")
   ) {
     return { coordinator: input.coordinator, changed: false };
   }
@@ -339,22 +574,31 @@ export function markAgentProfileWorkContinuationNeedsAttention(input: {
 export function authorizeAgentProfileWorkContinuation(input: {
   continuationClientMessageId: string;
   coordinator: AgentProfileWorkCoordinator;
+  forkInterruptedConversation?: boolean;
   nowMs: number;
 }): { coordinator: AgentProfileWorkCoordinator; changed: boolean } {
   const continuationClientMessageId = input.continuationClientMessageId.trim();
-  if (
-    !continuationClientMessageId ||
-    input.coordinator.recoveryGate?.status !== "continuation_pending"
-  ) {
+  const recoveryGate = input.coordinator.recoveryGate;
+  const authorizable =
+    recoveryGate?.status === "continuation_pending" ||
+    recoveryGate?.status === "awaiting_occupancy_decision";
+  if (!(continuationClientMessageId && recoveryGate && authorizable)) {
     return { coordinator: input.coordinator, changed: false };
   }
+  const forkInterruptedConversation =
+    input.forkInterruptedConversation ??
+    recoveryGate.forkInterruptedConversation ??
+    (recoveryGate.status === "awaiting_occupancy_decision" ? true : undefined);
   return {
     changed: true,
     coordinator: {
       ...input.coordinator,
       recoveryGate: {
-        ...input.coordinator.recoveryGate,
+        ...recoveryGate,
         continuationClientMessageId,
+        ...(forkInterruptedConversation !== undefined
+          ? { forkInterruptedConversation }
+          : {}),
         status: "continuation_authorized",
         updatedAtMs: input.nowMs,
       },
@@ -370,19 +614,28 @@ export function approveAgentProfileWorkQueue(input: {
 }): {
   coordinator: AgentProfileWorkCoordinator;
   promotedItem: AgentProfileWorkCoordinatorItem | null;
+  promotedItems: AgentProfileWorkCoordinatorItem[];
 } {
   if (input.coordinator.recoveryGate?.status !== "awaiting_owner_approval") {
-    return { coordinator: input.coordinator, promotedItem: null };
+    return {
+      coordinator: input.coordinator,
+      promotedItem: null,
+      promotedItems: [],
+    };
   }
-  return {
+  const next = refillAgentProfileWork({
     coordinator: {
       ...input.coordinator,
-      recoveryGate: null,
+      recoveryGate: nextInterruptedWorkGate(
+        input.coordinator.recoveryGate,
+        input.nowMs
+      ),
       revision: input.coordinator.revision + 1,
       updatedAtMs: input.nowMs,
     },
-    promotedItem: input.coordinator.workItems[0] ?? null,
-  };
+    previouslyReserved: reservedAgentProfileWork(input.coordinator),
+  });
+  return { ...next, promotedItem: next.promotedItems[0] ?? null };
 }
 
 export function skipAgentProfileInterruptedWork(input: {
@@ -391,40 +644,56 @@ export function skipAgentProfileInterruptedWork(input: {
 }): {
   coordinator: AgentProfileWorkCoordinator;
   promotedItem: AgentProfileWorkCoordinatorItem | null;
+  promotedItems: AgentProfileWorkCoordinatorItem[];
 } {
   if (
-    input.coordinator.recoveryGate?.status !== "continuation_needs_attention"
+    input.coordinator.recoveryGate?.status !== "continuation_needs_attention" &&
+    input.coordinator.recoveryGate?.status !== "awaiting_occupancy_decision"
   ) {
-    return { coordinator: input.coordinator, promotedItem: null };
+    return {
+      coordinator: input.coordinator,
+      promotedItem: null,
+      promotedItems: [],
+    };
   }
-  return {
+  const next = refillAgentProfileWork({
     coordinator: {
       ...input.coordinator,
-      recoveryGate: null,
+      recoveryGate: nextInterruptedWorkGate(
+        input.coordinator.recoveryGate,
+        input.nowMs
+      ),
       revision: input.coordinator.revision + 1,
       updatedAtMs: input.nowMs,
     },
-    promotedItem: input.coordinator.workItems[0] ?? null,
-  };
+    previouslyReserved: reservedAgentProfileWork(input.coordinator),
+  });
+  return { ...next, promotedItem: next.promotedItems[0] ?? null };
 }
 
 export function summarizeAgentProfileWorkCoordinator(
   coordinator: AgentProfileWorkCoordinator
 ): AgentProfileWorkCoordinatorSummary {
-  if (isAgentProfileWorkPaused(coordinator)) {
+  const currentWorks = reservedAgentProfileWork(coordinator);
+  if (isAgentProfileWorkPaused(coordinator) && currentWorks.length === 0) {
     return {
       currentWork: null,
+      currentWorks,
       queuedWork: coordinator.workItems,
       status: "paused",
       waitingCount: coordinator.workItems.length,
     };
   }
-  const [currentWork = null, ...queuedWork] = coordinator.workItems;
+  const currentWork = currentWorks[0] ?? null;
+  const queuedWork = coordinator.workItems.filter(
+    (item) => !currentWorks.includes(item)
+  );
   return {
     ...(currentWork?.waitReason
       ? { currentWaitReason: currentWork.waitReason }
       : {}),
     currentWork,
+    currentWorks,
     queuedWork,
     status: currentWork ? "working" : "idle",
     waitingCount: queuedWork.length,
@@ -460,5 +729,105 @@ function queuePositionForWorkIndex(
   coordinator: AgentProfileWorkCoordinator,
   workIndex: number
 ): number {
-  return workIndex + (isAgentProfileWorkPaused(coordinator) ? 1 : 0);
+  const summary = summarizeAgentProfileWorkCoordinator(coordinator);
+  const item = coordinator.workItems[workIndex];
+  if (!item) {
+    return 0;
+  }
+  return summary.currentWorks.includes(item)
+    ? 0
+    : summary.queuedWork.indexOf(item) + 1;
+}
+
+export function reservedAgentProfileWork(
+  coordinator: AgentProfileWorkCoordinator
+): AgentProfileWorkCoordinatorItem[] {
+  return coordinator.workItems.filter((item, index) =>
+    item.executionContextId
+      ? item.reservationState === "reserved"
+      : index === 0 && !isAgentProfileWorkPaused(coordinator)
+  );
+}
+
+function canReserveAgentProfileWork(
+  coordinator: AgentProfileWorkCoordinator,
+  item: AgentProfileWorkCoordinatorItem
+): boolean {
+  if (coordinator.recoveryGate) {
+    return false;
+  }
+  const reserved = reservedAgentProfileWork(coordinator);
+  if (!item.executionContextId) {
+    return (
+      reserved.length === 0 &&
+      (coordinator.workItems[0] === item || coordinator.workItems.length === 0)
+    );
+  }
+  if (
+    coordinator.admissionMode === "draining" ||
+    reserved.length >=
+      (coordinator.admissionMode === "serial"
+        ? 1
+        : AGENT_PROFILE_WORK_CONCURRENCY_LIMIT) ||
+    reserved.some(
+      (active) =>
+        !active.executionContextId ||
+        active.executionContextId === item.executionContextId
+    )
+  ) {
+    return false;
+  }
+  const index = coordinator.workItems.indexOf(item);
+  return !coordinator.workItems
+    .slice(0, index < 0 ? undefined : index)
+    .some((waiter) => !waiter.executionContextId);
+}
+
+export function refillAgentProfileWork(input: {
+  coordinator: AgentProfileWorkCoordinator;
+  previouslyReserved: readonly AgentProfileWorkCoordinatorItem[];
+}): {
+  coordinator: AgentProfileWorkCoordinator;
+  promotedItems: AgentProfileWorkCoordinatorItem[];
+} {
+  const coordinator = {
+    ...input.coordinator,
+    workItems: [...input.coordinator.workItems],
+  };
+  for (let index = 0; index < coordinator.workItems.length; index += 1) {
+    const item = coordinator.workItems[index];
+    if (
+      item?.executionContextId &&
+      item.reservationState !== "reserved" &&
+      canReserveAgentProfileWork(coordinator, item)
+    ) {
+      coordinator.workItems[index] = { ...item, reservationState: "reserved" };
+    }
+  }
+  const priorIds = new Set(
+    input.previouslyReserved.map((item) => item.targetWakeLifecycleId)
+  );
+  return {
+    coordinator,
+    promotedItems: reservedAgentProfileWork(coordinator).filter(
+      (item) => !priorIds.has(item.targetWakeLifecycleId)
+    ),
+  };
+}
+
+function nextInterruptedWorkGate(
+  gate: AgentProfileWorkRecoveryGate | null,
+  nowMs: number
+): AgentProfileWorkRecoveryGate | null {
+  const [interruptedWork, ...additionalInterruptedWork] =
+    gate?.additionalInterruptedWork ?? [];
+  return interruptedWork
+    ? {
+        interruptedWork,
+        additionalInterruptedWork,
+        continuationClientMessageId: null,
+        status: "awaiting_usage",
+        updatedAtMs: nowMs,
+      }
+    : null;
 }

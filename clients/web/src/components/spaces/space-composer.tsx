@@ -5,18 +5,23 @@ import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowUpIcon } from "@phosphor-icons/react";
 import type { ComponentProps, ReactNode } from "react";
+import { useState } from "react";
 import {
 	PromptInput,
 	PromptInputAction,
 	PromptInputActions,
 } from "#/components/ibelick/prompt-input";
+import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import {
 	isSpaceComposerFileFailed,
 	type SpaceComposerFile,
 } from "#/lib/spaces/composer-attachment";
+import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
+import { isQuotaWakeFailure } from "#/lib/spaces/wake-failure-display";
 import {
 	SpaceComposerAddMenu,
+	SpaceComposerAttachmentRecovery,
 	SpaceComposerFileTray,
 	useSpaceComposerFileInput,
 } from "./space-composer-attachments";
@@ -36,6 +41,11 @@ import {
 	type SpaceComposerEditorChange,
 	type SpaceComposerInputRef,
 } from "./space-composer-editor";
+import {
+	type SpaceComposerTaskChoice,
+	SpaceComposerTaskMenu,
+	type SpaceTaskSource,
+} from "./space-composer-task-menu";
 import { useSpaceWakeRecommendation } from "./space-wake-recommendation";
 import type {
 	SpaceComposerAddressingTarget,
@@ -43,6 +53,7 @@ import type {
 } from "./use-space-mention-authoring";
 
 export type SpaceComposerProps = {
+	taskSources?: readonly SpaceTaskSource[];
 	members?: { state: "loading" | "error"; onRetry: () => void };
 	recovery?: Omit<
 		ComponentProps<typeof SpaceComposerBlockedWakeRecoveryAction>,
@@ -54,6 +65,9 @@ export type SpaceComposerProps = {
 		onEditorChange: (change: SpaceComposerEditorChange) => void;
 		onMentionButtonClick?: () => void;
 		onRemoveFile?: (localId: string) => void;
+		onRetryFile?: (localId: string) => void;
+		onRetryFileCleanup?: (localId: string) => void;
+		onRetryFileRestoration?: () => void;
 		onSubmit: (options?: SpaceComposerSendOptions) => void;
 		onBlur?: () => void;
 		onFocus?: () => void;
@@ -70,6 +84,8 @@ export type SpaceComposerProps = {
 		addressingTargets: readonly SpaceComposerAddressingTarget[];
 		authoredMentions: readonly ComposerDraftAuthoredMention[];
 		files: readonly SpaceComposerFile[];
+		fileCleanup?: readonly ComposerFileDraftCleanup[];
+		fileRestorationError?: unknown | null;
 		hasAuthoredMentions?: boolean;
 		mentionPickerItems: readonly SpaceMentionPickerItem[];
 		mentionEmptyMessage?: string;
@@ -105,6 +121,32 @@ export type SpaceComposerProps = {
 const ignoreFiles = (_files: readonly File[]): Promise<void> =>
 	Promise.resolve();
 const ignoreFileRemoval = (_localId: string): void => undefined;
+const ignoreFileRestoration = (): void => undefined;
+
+function SpaceComposerAttachmentState({
+	input,
+}: {
+	input: SpaceComposerProps;
+}) {
+	return (
+		<>
+			<SpaceComposerFileTray
+				disabled={input.availability.isSendingMessage}
+				files={input.content.files}
+				onRemove={input.actions.onRemoveFile ?? ignoreFileRemoval}
+				onRetry={input.actions.onRetryFile}
+			/>
+			<SpaceComposerAttachmentRecovery
+				cleanup={input.content.fileCleanup ?? []}
+				onRetryCleanup={input.actions.onRetryFileCleanup ?? ignoreFileRemoval}
+				onRetryRestoration={
+					input.actions.onRetryFileRestoration ?? ignoreFileRestoration
+				}
+				restorationError={input.content.fileRestorationError ?? null}
+			/>
+		</>
+	);
+}
 
 function useComposerWakeSuggestion(input: SpaceComposerProps) {
 	const recommendations = useSpaceWakeRecommendation();
@@ -135,7 +177,52 @@ function useComposerWakeSuggestion(input: SpaceComposerProps) {
 	return { recommendations, recommended, acceptRecommendation };
 }
 
+function useComposerTaskChoice(input: SpaceComposerProps) {
+	const [choice, setChoice] = useState<SpaceComposerTaskChoice>();
+	const targets = input.content.addressingTargets.filter(
+		(target) => target.relation === "wake"
+	);
+	const target =
+		targets.length === 1 &&
+		["builtin:codex", "builtin:claude-code"].includes(
+			targets[0]?.agentControllerRef ?? ""
+		)
+			? targets[0]
+			: undefined;
+	const active =
+		choice?.targetProfileId === target?.profileId ? choice : undefined;
+	return {
+		menu: target ? (
+			<SpaceComposerTaskMenu
+				choice={active}
+				disabled={
+					hasPendingComposerMembers(input) ||
+					input.availability.isSendingMessage
+				}
+				onChange={setChoice}
+				sources={input.taskSources ?? []}
+				supportsLocalFiles={target.agentControllerRef === "builtin:codex"}
+				targetProfileId={target.profileId}
+			/>
+		) : null,
+		prepare: (options: SpaceComposerSendOptions): SpaceComposerSendOptions => {
+			if (!active) {
+				return options;
+			}
+			return {
+				...options,
+				contextSelection: active.selection,
+				onMessageStaged: (id) => {
+					setChoice(undefined);
+					options.onMessageStaged?.(id);
+				},
+			};
+		},
+	};
+}
+
 export function SpaceComposer(input: SpaceComposerProps) {
+	const taskContext = useComposerTaskChoice(input);
 	const membersPending = hasPendingComposerMembers(input);
 	const { recommendations, recommended, acceptRecommendation } =
 		useComposerWakeSuggestion(input);
@@ -151,7 +238,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		if (deviceWaitPresentation.target && !deviceWait) {
 			return;
 		}
-		const options: SpaceComposerSendOptions = {
+		const options = taskContext.prepare({
 			...(deviceWait ? { deviceWait } : {}),
 			...(recommendations &&
 			(recommendations.candidate || recommendations.nudge)
@@ -163,8 +250,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 							),
 					}
 				: {}),
-		};
-		// Consume the recommendation only after admission stages this exact message.
+		});
 		// Return focus within the gesture; network completion must not steal it.
 		input.composerRef.current?.focus();
 		if (options.deviceWait || options.onMessageStaged) {
@@ -249,11 +335,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 					value={input.content.text}
 				>
 					{input.slots?.beforeInput}
-					<SpaceComposerFileTray
-						disabled={input.availability.isSendingMessage}
-						files={input.content.files}
-						onRemove={input.actions.onRemoveFile ?? ignoreFileRemoval}
-					/>
+					<SpaceComposerAttachmentState input={input} />
 					<SpaceComposerEditor
 						addressingTargets={input.content.addressingTargets}
 						ariaLabel={policy.accessibleName}
@@ -286,6 +368,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 					/>
 					<PromptInputActions className="min-w-0 justify-between gap-3 pt-2">
 						<div className="flex flex-1 items-center gap-0">
+							{taskContext.menu}
 							{input.capabilities?.attachments !== false ? (
 								<SpaceComposerAddMenu
 									addFiles={addFiles}
@@ -329,6 +412,24 @@ export function SpaceComposer(input: SpaceComposerProps) {
 								recovery={input.recovery}
 								target={blockedWakeTarget}
 							/>
+							{input.content.addressingTargets
+								.filter(
+									(target) =>
+										target.relation === "wake" &&
+										target.wakeAvailability.reasonCodes.some(isQuotaWakeFailure)
+								)
+								.map((target) => (
+									<span
+										className="text-muted-foreground text-xs"
+										key={target.profileId}
+									>
+										{target.profileName}:{" "}
+										<AgentProfileUsage
+											profileId={target.profileId}
+											variant="reset"
+										/>
+									</span>
+								))}
 						</div>
 						<div className="flex min-w-0 items-center justify-end gap-2">
 							{input.slots?.profileControl}
@@ -577,9 +678,17 @@ export function resolveSpaceComposerFileHint(input: {
 }): string | null {
 	const failedCount = input.files.filter(isSpaceComposerFileFailed).length;
 	if (failedCount > 0) {
+		const retryableCount = input.files.filter(
+			(file) => file.status === "failed" && file.failurePhase !== "validation"
+		).length;
+		if (retryableCount > 0) {
+			return failedCount === 1
+				? "Retry or remove the failed attachment to continue."
+				: "Retry or remove the failed attachments to continue.";
+		}
 		return failedCount === 1
-			? "Remove the failed file to continue."
-			: "Remove the failed files to continue.";
+			? "Remove the failed attachment to continue."
+			: "Remove the failed attachments to continue.";
 	}
 	if (input.fileLimitReached) {
 		return "You can add up to 10 files.";

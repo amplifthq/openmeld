@@ -350,6 +350,9 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     OPTIONAL_CLI_UPDATE,
     REQUIRED_SIGN_IN
   ),
+  // Disconnect validates the reviewed account itself. Entry checks must not
+  // sign in, repair, update, or start anything before that admission.
+  "computer.disconnect": buildCommandChecks(),
   "computer.current": buildCommandChecks(
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,
@@ -472,6 +475,18 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,
     AUTO_FIX_LOCAL_RUNTIME,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.files.handoff": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.files.working-copy": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
     REQUIRED_SIGN_IN,
     CONFIRM_SELECTED_PROFILE
   ),
@@ -730,6 +745,11 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,
     AUTO_FIX_LOCAL_RUNTIME,
+    REQUIRED_SIGN_IN
+  ),
+  "profile.execution-mode": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
     REQUIRED_SIGN_IN
   ),
   "profile.update": buildCommandChecks(

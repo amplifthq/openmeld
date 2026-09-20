@@ -15,7 +15,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
@@ -40,13 +39,20 @@ import {
 	UploadSimpleIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
-import { type DragEvent, type RefObject, useState } from "react";
+import {
+	type DragEvent,
+	type RefObject,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { SpaceFileHtmlBadge } from "./space-file-html-badge";
 import {
 	formatFileSize,
 	formatShortDate,
 	resolveSpaceFileErrorMessage,
 } from "./space-file-utils";
+import { SpaceFilesSkeleton } from "./space-panel-skeletons";
 import { useSpaceFilePinAction } from "./space-pins";
 import { useSpaceFileImageSource } from "./use-space-file-image-source";
 
@@ -64,6 +70,7 @@ export function SpaceFileBrowser(input: {
 	onDismissError: () => void;
 	onMove: (entry: SpaceFileEntry) => void;
 	onNewFolder: () => void;
+	onHandOff?: () => void;
 	onNewMarkdownFile: () => void;
 	onOpen: (entry: SpaceFileEntry) => void;
 	onOpenBreadcrumb: (folderId: string | null, name: string) => void;
@@ -193,6 +200,16 @@ export function SpaceFileBrowser(input: {
 								<UploadSimpleIcon aria-hidden="true" />
 								Upload
 							</Button>
+							{input.onHandOff ? (
+								<Button
+									disabled={input.busy}
+									onClick={input.onHandOff}
+									size="sm"
+									variant="outline"
+								>
+									Hand off
+								</Button>
+							) : null}
 							<DropdownMenu>
 								<DropdownMenuTrigger
 									render={<Button disabled={input.busy} size="sm" />}
@@ -294,17 +311,7 @@ function SpaceFileBrowserContent(input: {
 	view: "active" | "trash";
 }) {
 	if (input.isPending) {
-		return (
-			<output
-				aria-busy="true"
-				aria-label="Loading files"
-				className="grid gap-2"
-			>
-				<Skeleton className="h-14 w-full rounded-md" />
-				<Skeleton className="h-14 w-full rounded-md" />
-				<Skeleton className="h-14 w-full rounded-md" />
-			</output>
-		);
+		return <SpaceFilesSkeleton />;
 	}
 	if (input.error) {
 		return (
@@ -586,44 +593,67 @@ function SpaceFileImageThumbnail(input: {
 	entry: Extract<SpaceFileEntry, { kind: "file" }>;
 	spaceId: string;
 }) {
+	const root = useRef<HTMLSpanElement>(null);
+	const [visible, setVisible] = useState(false);
+	useEffect(() => {
+		const element = root.current;
+		if (!element) {
+			return;
+		}
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((entry) => entry.isIntersecting)) {
+					setVisible(true);
+					observer.disconnect();
+				}
+			},
+			{ rootMargin: "100px" }
+		);
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, []);
 	const imageSource = useSpaceFileImageSource({
 		api: input.api,
+		enabled: visible,
 		fileId: input.entry.id,
 		mimeType: input.entry.latestRevision.mimeType,
 		revision: input.entry.latestRevision.revision,
 		spaceId: input.spaceId,
 	});
 
-	if (imageSource.sourceUrl) {
-		return (
-			<img
-				alt=""
-				className="h-11 w-16 shrink-0 rounded-md border border-border/70 bg-muted object-contain"
-				data-slot="space-file-image-thumbnail"
-				decoding="async"
-				height={44}
-				loading="lazy"
-				src={imageSource.sourceUrl}
-				width={64}
-			/>
-		);
-	}
 	return (
-		<output
-			aria-label={
-				imageSource.error
-					? `Preview unavailable for ${input.entry.name}`
-					: `Loading preview for ${input.entry.name}`
-			}
-			className={cn(
-				"grid h-11 w-16 shrink-0 place-items-center rounded-md border border-border/70 bg-muted text-muted-foreground",
-				imageSource.isLoading && "animate-pulse motion-reduce:animate-none"
+		<span className="inline-flex h-11 w-16 shrink-0" ref={root}>
+			{imageSource.sourceUrl ? (
+				<img
+					alt=""
+					className="h-11 w-16 shrink-0 rounded-md border border-border/70 bg-muted object-contain"
+					data-slot="space-file-image-thumbnail"
+					decoding="async"
+					height={44}
+					loading="lazy"
+					src={imageSource.sourceUrl}
+					width={64}
+				/>
+			) : (
+				<output
+					aria-label={
+						imageSource.error
+							? `Preview unavailable for ${input.entry.name}`
+							: `Loading preview for ${input.entry.name}`
+					}
+					className={cn(
+						"grid h-11 w-16 shrink-0 place-items-center rounded-md border border-border/70 bg-muted text-muted-foreground",
+						visible &&
+							imageSource.isLoading &&
+							"animate-pulse motion-reduce:animate-none"
+					)}
+				>
+					{imageSource.error ? (
+						<ImageIcon aria-hidden="true" className="size-4.5" />
+					) : null}
+				</output>
 			)}
-		>
-			{imageSource.error ? (
-				<ImageIcon aria-hidden="true" className="size-4.5" />
-			) : null}
-		</output>
+		</span>
 	);
 }
 

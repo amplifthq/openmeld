@@ -5,7 +5,7 @@ import {
   isAgentContextCompatibleWithScopeInput,
   listCompatibleAgentContextLookupKeys,
   type OpenMeldDaemonAgentContextState,
-  type OpenMeldDaemonLedgerStateV1,
+  type OpenMeldDaemonLedgerState,
   resolveAgentContextByLookupKey,
   resolveConversationExecutionStateByLookupKey,
 } from "@openmeld/local-execution";
@@ -37,7 +37,7 @@ const listOrderedCompatibleLookupKeys = (input: {
 
 const listCompatibleAgentContextMatches = (input: {
   key: AgentContextLookupKeyInput;
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
 }): CompatibleAgentContextMatch[] =>
   Object.values(input.state.agentContextByLookupKey)
     .filter(
@@ -69,7 +69,7 @@ const listCompatibleAgentContextMatches = (input: {
 
 export const resolveCompatibleAgentContextMatch = (input: {
   key: AgentContextLookupKeyInput;
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
 }): CompatibleAgentContextMatch | null => {
   for (const agentContextLookupKey of listCompatibleAgentContextLookupKeys(
     input.key
@@ -100,7 +100,7 @@ export const resolveCompatibleAgentContextMatch = (input: {
 export const resolveCompatibleConversationExecutionState = (input: {
   key: AgentContextLookupKeyInput;
   preferredLookupKey?: string | null;
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
 }): ConversationExecutionState | null => {
   for (const agentContextLookupKey of listOrderedCompatibleLookupKeys(input)) {
     const agentContext = resolveAgentContextByLookupKey({
@@ -138,7 +138,7 @@ export const resolveCompatibleConversationExecutionState = (input: {
 
 export const resolveLatestScopedConversationExecutionState = (input: {
   scope: AgentContextScopeInput;
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
 }): ScopedConversationExecutionStateMatch | null => {
   const scopedAgentContexts = Object.values(input.state.agentContextByLookupKey)
     .filter((agentContext) =>

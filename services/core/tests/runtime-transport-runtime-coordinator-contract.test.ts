@@ -5,6 +5,7 @@ import {
   buildRuntimeCoordinatorFinalizationCommandId,
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+  openMeldDaemonTaskResultEnvelopeSchema,
   projectTargetWakeLifecycleIdentity,
   RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE,
   RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION,
@@ -17,6 +18,7 @@ import {
 import type {
   AgentControllerInterfaceSnapshot,
   DaemonRuntimeAdapterCapabilitySnapshot,
+  ExecutionContextTask,
   LocalComponentsStatus,
   OpenMeldDaemonAcceptedDispatchSnapshot,
   OpenMeldToolsControlResult,
@@ -51,6 +53,7 @@ import {
   advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair,
   rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission,
   runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys,
+  writeRuntimeCoordinatorHeadLifecycleWithAdmission,
 } from "../src/runtime-transport/application/agent-profile-execution-admission";
 import type {
   AgentProfileWorkCoordinatorItem,
@@ -62,6 +65,11 @@ import {
   buildAgentProfileWorkRecoveryInboxProjectionStorageKey,
   parseAgentProfileWorkRecoveryInboxProjectionIntent,
 } from "../src/runtime-transport/application/agent-profile-work-recovery-inbox-projection";
+import {
+  prepareExecutionContextAssignment,
+  recordExecutionContextCandidate,
+  recordExecutionContextCompletion,
+} from "../src/runtime-transport/application/execution-context-authority";
 import { upsertRuntimeCoordinatorAgentTaskObservationDelivery } from "../src/runtime-transport/application/runtime-coordinator-agent-task-observation-delivery";
 import {
   buildRuntimeCoordinatorFinalizationOutcomeStorageKey,
@@ -248,6 +256,10 @@ const buildResolvedAgentProfileAuthScope = (input?: {
 });
 
 const createRecordingD1 = (input?: {
+  bindingReadGate?: Promise<void>;
+  onBindingRead?: () => void;
+  bindingControllerRef?: string;
+  bindingConversationId?: string | null;
   agentProfileRow?: RecordingAgentProfileRow | null;
   agentControllerReportRow?: RecordingRuntimeAgentControllerReportRow | null;
   agentControllerReportReadGate?: Promise<void>;
@@ -378,6 +390,32 @@ const createRecordingD1 = (input?: {
             ) {
               const key = params.map(String).join("::");
               return interactionInboxRows.get(key) ?? null;
+            }
+            if (query.includes("FROM openMeldDaemon_agent_profile_bindings")) {
+              input?.onBindingRead?.();
+              await input?.bindingReadGate;
+              if (query.includes("agent_profile_id !=")) {
+                return null;
+              }
+              return {
+                agent_profile_id: TARGET_AGENT_PROFILE_ID,
+                binding_id: "binding-accepted-1",
+                binding_state: "enabled_primary",
+                agent_controller_ref:
+                  input?.bindingControllerRef ?? "builtin:codex",
+                agent_controller_conversation_id:
+                  input?.bindingConversationId ?? null,
+                configuration_revision: 7,
+                created_at_ms: 1_700_000_000_000,
+                updated_at_ms: 1_700_000_000_000,
+                disabled_at_ms: null,
+                owner_kind: "owner_account",
+                owner_id: "owner-1",
+                openmeld_service_runtime_id: "runtime-accepted-1",
+                runtime_kind: "openmeld_service",
+                model_id: null,
+                opencode_permission: null,
+              };
             }
             if (
               query.includes("FROM agent_task_needs_attention_observations")
@@ -548,6 +586,7 @@ const createRecordingD1 = (input?: {
                 sourceKind,
                 sourceKey,
                 sourceTargetJson,
+                sourceFactsJson,
                 resolutionStatus,
                 occurredAtMs,
                 createdAtMs,
@@ -575,6 +614,7 @@ const createRecordingD1 = (input?: {
                 recipient_user_id: recipientUserId,
                 resolution_status:
                   existing?.resolution_status ?? resolutionStatus,
+                source_facts_json: sourceFactsJson,
                 source_key: sourceKey,
                 source_kind: sourceKind,
                 source_target_json: sourceTargetJson,
@@ -954,6 +994,10 @@ const createRecordingD1 = (input?: {
 };
 
 const createHarness = (input?: {
+  bindingReadGate?: Promise<void>;
+  onBindingRead?: () => void;
+  bindingControllerRef?: string;
+  bindingConversationId?: string | null;
   agentProfileRow?: RecordingAgentProfileRow | null;
   agentControllerReportRow?: RecordingRuntimeAgentControllerReportRow | null;
   agentControllerReportReadGate?: Promise<void>;
@@ -990,6 +1034,10 @@ const createHarness = (input?: {
   );
 
   const recordingD1 = createRecordingD1({
+    bindingReadGate: input?.bindingReadGate,
+    onBindingRead: input?.onBindingRead,
+    bindingControllerRef: input?.bindingControllerRef,
+    bindingConversationId: input?.bindingConversationId,
     agentProfileRow: input?.agentProfileRow ?? null,
     agentControllerReportRow: input?.agentControllerReportRow ?? null,
     agentControllerReportReadGate: input?.agentControllerReportReadGate,
@@ -1274,11 +1322,13 @@ const createHarness = (input?: {
     return Promise.resolve();
   });
   let remainingStorageSetAlarmFailures = input?.storageSetAlarmFailures ?? 0;
-  const storageSetAlarm = vi.fn(() => {
+  let scheduledAlarmAtMs: number | null = null;
+  const storageSetAlarm = vi.fn((scheduledTime: number) => {
     if (remainingStorageSetAlarmFailures > 0) {
       remainingStorageSetAlarmFailures -= 1;
       return Promise.reject(new Error("durable object alarm unavailable"));
     }
+    scheduledAlarmAtMs = scheduledTime;
     return Promise.resolve();
   });
   let maxStorageGetKeys = input?.maxStorageGetKeys;
@@ -1329,6 +1379,7 @@ const createHarness = (input?: {
         limit?: number;
         prefix?: string;
         startAfter?: string;
+        reverse?: boolean;
       } = {}
     ) =>
       new Map(
@@ -1340,7 +1391,11 @@ const createHarness = (input?: {
             options.startAfter ? key > options.startAfter : true
           )
           .filter(([key]) => (options.end ? key < options.end : true))
-          .sort(([left], [right]) => left.localeCompare(right))
+          .sort(([left], [right]) =>
+            options.reverse
+              ? right.localeCompare(left)
+              : left.localeCompare(right)
+          )
           .slice(0, options.limit)
       )
   );
@@ -1448,9 +1503,12 @@ const createHarness = (input?: {
     value: {
       storage: {
         delete: storageDelete,
-        deleteAlarm: vi.fn(async () => undefined),
+        deleteAlarm: vi.fn(() => {
+          scheduledAlarmAtMs = null;
+          return Promise.resolve();
+        }),
         get: storageGet,
-        getAlarm: vi.fn(async () => null),
+        getAlarm: vi.fn(async () => scheduledAlarmAtMs),
         list: storageList,
         put: storagePut,
         setAlarm: storageSetAlarm,
@@ -1555,6 +1613,7 @@ const createHarness = (input?: {
     socket,
     spaceStub,
     state,
+    storageDelete,
     storageGet,
     storageList,
     storageSetAlarm,
@@ -1564,6 +1623,16 @@ const createHarness = (input?: {
     waitUntilTasks,
   };
 };
+
+function readHousekeepingAlarm(
+  hub: RuntimeTransportHub
+): Promise<number | null> {
+  return (
+    hub as unknown as {
+      ctx: { storage: { getAlarm(): Promise<number | null> } };
+    }
+  ).ctx.storage.getAlarm();
+}
 
 const beginExecutionIndexGenerationRepair = (
   storageRecords: Map<string, unknown>,
@@ -2099,6 +2168,39 @@ const buildRuntimeCoordinatorHeadNoExecutionRequest = (
   };
 };
 
+const contextMigrationRequest = (
+  id: string
+): RuntimeTransportRuntimeCoordinatorHeadAcceptRequest =>
+  buildRuntimeCoordinatorHeadAcceptRequest({
+    dispatchId: id,
+    idempotencyKey: id,
+    targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+      clientMessageId: id,
+      dispatchId: id,
+      sourceSignalId: id,
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    }),
+    acceptedDispatchSnapshot: {
+      ...buildAcceptedDispatchSnapshot({ fingerprint: "c" }),
+      contextRequest: {
+        required: true,
+        scope: {
+          organizationId: "org-1",
+          requesterProfileId: "requester-1",
+          spaceId: HEX_SPACE_ID,
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+          threadId: null,
+        },
+        selection: {
+          mode: "new",
+          access: "space_context",
+          workspace: "isolated",
+        },
+      },
+    },
+  });
+
 const buildRuntimeCoordinatorHeadPreAgentStopRequest = (
   overrides: Partial<RuntimeTransportRuntimeCoordinatorHeadPreAgentStopRequest> = {}
 ): RuntimeTransportRuntimeCoordinatorHeadPreAgentStopRequest => {
@@ -2265,6 +2367,41 @@ const registerCompatibleRoute = (input: {
   });
 };
 
+const createContextHarness = (
+  input?: Parameters<typeof createHarness>[0] & {
+    contextVersion?: 1 | 2 | null;
+  }
+) => {
+  const harness = createHarness(input);
+  registerCompatibleRoute({
+    state: harness.state,
+    socket: harness.socket,
+    runtimeAdapters: [
+      {
+        ...codexRuntimeAdapterCapability,
+        adapterId: input?.bindingControllerRef?.split(":").at(-1) ?? "codex",
+        capabilityDeclaration: {
+          ...codexRuntimeAdapterCapability.capabilityDeclaration,
+          ...(input?.contextVersion === null
+            ? {}
+            : { executionContextVersion: input?.contextVersion ?? 2 }),
+        },
+      },
+    ],
+  });
+  const session = harness.state.sessionsById.get("daemon-session-1");
+  const lease = harness.state.profileLeasesByProfileId.get(
+    TARGET_AGENT_PROFILE_ID
+  );
+  if (session) {
+    session.lastHeartbeatMs = Date.now();
+  }
+  if (lease) {
+    lease.lastHeartbeatMs = Date.now();
+  }
+  return harness;
+};
+
 const buildRuntimeCoordinatorDecisionInput = (
   overrides: Partial<RuntimeTransportRuntimeCoordinatorDecisionRequest> = {}
 ): RuntimeTransportRuntimeCoordinatorDecisionRequest => ({
@@ -2338,6 +2475,7 @@ const classifyPublicationClosureDiagnostics = (
 
 const issueDeliveryToken = async (input: {
   hub: RuntimeTransportHub;
+  headRequest?: RuntimeTransportRuntimeCoordinatorHeadAcceptRequest;
   defaultProjectId?: string;
   profileConfigurationRevision?: number;
   replyToSnapshot?: {
@@ -2355,7 +2493,10 @@ const issueDeliveryToken = async (input: {
     threadId: string;
   };
 }): Promise<RuntimeCoordinatorExecutionTokenEnvelope> => {
-  if (input.profileConfigurationRevision === undefined) {
+  if (input.headRequest) {
+    // Scoped fixtures register the currently negotiated Context-capable route.
+    input.state.pendingDispatches.clear();
+  } else if (input.profileConfigurationRevision === undefined) {
     configureCompatibleRoute({
       socket: input.socket,
       state: input.state,
@@ -2367,7 +2508,51 @@ const issueDeliveryToken = async (input: {
       state: input.state,
     });
   }
-  await acceptDefaultRuntimeCoordinatorHead(input.hub);
+  let executionContext: ExecutionContextTask | undefined;
+  if (input.headRequest) {
+    const accepted = await fetchRuntimeTransportJson(
+      input.hub,
+      "/runtime-coordinator/head/accept",
+      input.headRequest
+    );
+    executionContext = (
+      (await accepted.json()) as { executionContext?: ExecutionContextTask }
+    ).executionContext;
+    if (!executionContext) {
+      throw new Error("Expected scoped Head acceptance");
+    }
+  } else {
+    await acceptDefaultRuntimeCoordinatorHead(input.hub);
+  }
+  const delivery = buildDeliverRequest({
+    ...(input.defaultProjectId
+      ? { defaultProjectId: input.defaultProjectId }
+      : {}),
+    ...(input.replyToSnapshot
+      ? { replyToSnapshot: input.replyToSnapshot }
+      : {}),
+    ...(input.threadContext ? { threadContext: input.threadContext } : {}),
+  });
+  const snapshot = input.headRequest?.acceptedDispatchSnapshot;
+  const deliveryPayload =
+    executionContext && snapshot
+      ? {
+          ...delivery.payload,
+          executionContext,
+          controllerSnapshot: snapshot.controllerSnapshot,
+          executionIdentity: {
+            ...delivery.payload.executionIdentity,
+            core: {
+              ...delivery.payload.executionIdentity.core,
+              bindingId: snapshot.controllerSnapshot.bindingId,
+              openMeldServiceRuntimeId: {
+                source: "runtime_registry_authority" as const,
+                value: snapshot.openMeldServiceRuntimeId,
+              },
+            },
+          },
+        }
+      : delivery.payload;
 
   await (
     input.hub as unknown as {
@@ -2375,19 +2560,7 @@ const issueDeliveryToken = async (input: {
     }
   ).handleDeliverDispatchRequest(
     new Request("https://runtime-transport.test/deliver-dispatch", {
-      body: JSON.stringify(
-        buildDeliverRequest({
-          ...(input.defaultProjectId
-            ? { defaultProjectId: input.defaultProjectId }
-            : {}),
-          ...(input.replyToSnapshot
-            ? { replyToSnapshot: input.replyToSnapshot }
-            : {}),
-          ...(input.threadContext
-            ? { threadContext: input.threadContext }
-            : {}),
-        })
-      ),
+      body: JSON.stringify({ ...delivery, payload: deliveryPayload }),
       method: "POST",
     })
   );
@@ -2437,6 +2610,28 @@ const acceptDefaultRuntimeCoordinatorHead = (
     "/runtime-coordinator/head/accept",
     buildRuntimeCoordinatorHeadAcceptRequest()
   );
+
+const storageRecordsAdmission = (
+  storageRecords: Map<string, unknown>,
+  admissionKey: string
+): {
+  revision: number;
+  updatedAtMs: number;
+  workItems: Array<{
+    dispatchId: string;
+    enqueuedAtMs: number;
+    executionContextId?: string;
+    reservationState?: "reserved" | "waiting";
+    targetWakeLifecycleId: string;
+    waitReason?: "controller_conversation_occupied";
+  }>;
+} => {
+  const admission = storageRecords.get(admissionKey);
+  if (!admission) {
+    throw new Error(`Expected an admission record at ${admissionKey}.`);
+  }
+  return admission as ReturnType<typeof storageRecordsAdmission>;
+};
 
 const prepareRunningContinuationWithQueuedWork = async (input: {
   defaultProjectId?: string;
@@ -3603,6 +3798,516 @@ const completeLatestAutomaticUpdateRequest = async (input: {
 };
 
 describe("runtime transport runtime coordinator transport contract", () => {
+  it.each([
+    "builtin:cursor",
+    "builtin:grok-build",
+    "builtin:opencode",
+    "builtin:openclaw",
+    "custom:reviewer",
+  ])("keeps ordinary thread Wakes serial for %s and refuses explicit context requests", async (agentControllerRef) => {
+    const { hub, storageRecords } = createHarness();
+    const replies: Array<{ status: string; executionContext?: unknown }> = [];
+    let firstHead: RuntimeCoordinatorHeadLifecycleRecord | undefined;
+    for (let index = 0; index < 2; index += 1) {
+      const dispatchId = `dispatch-thread-legacy-${index}`;
+      const identity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: `client-thread-legacy-${index}`,
+        dispatchId,
+        sourceSignalId: `signal-thread-legacy-${index}`,
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      });
+      const request = buildRuntimeCoordinatorHeadAcceptRequest({
+        dispatchId,
+        idempotencyKey: `thread-legacy-${index}`,
+        targetWakeLifecycleIdentity: identity,
+        acceptedDispatchSnapshot: {
+          ...buildAcceptedDispatchSnapshot({
+            agentControllerRef,
+            fingerprint: String(index + 1),
+          }),
+          contextRequest: {
+            required: false,
+            scope: {
+              organizationId: "org",
+              requesterProfileId: "human",
+              spaceId: HEX_SPACE_ID,
+              targetProfileId: TARGET_AGENT_PROFILE_ID,
+              threadId: `thread-${index}`,
+            },
+            selection: { mode: "auto" },
+          },
+        },
+      });
+      replies.push(
+        (await (
+          await fetchRuntimeTransportJson(
+            hub,
+            "/runtime-coordinator/head/accept",
+            request
+          )
+        ).json()) as { status: string; executionContext?: unknown }
+      );
+      if (index === 0) {
+        firstHead = storageRecords.get(
+          buildRuntimeCoordinatorHeadLifecycleStorageKey(
+            identity.targetWakeLifecycleId
+          )
+        ) as RuntimeCoordinatorHeadLifecycleRecord;
+      }
+    }
+    expect(replies.map((reply) => reply.status)).toEqual([
+      "accepted",
+      "queued",
+    ]);
+    expect(replies.every((reply) => reply.executionContext === undefined)).toBe(
+      true
+    );
+    if (!firstHead?.acceptedDispatchSnapshot?.contextRequest) {
+      throw new Error("Expected the accepted legacy head");
+    }
+    expect(firstHead.acceptedDispatchSnapshot.executionContext).toBeUndefined();
+    const snapshot = firstHead.acceptedDispatchSnapshot;
+    const head = firstHead;
+    const request = firstHead.acceptedDispatchSnapshot.contextRequest;
+    const storage = (
+      hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    for (const mode of ["new", "auto"] as const) {
+      const dispatchId = `dispatch-explicit-${mode}`;
+      const identity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: `client-explicit-${mode}`,
+        dispatchId: `dispatch-explicit-${mode}`,
+        sourceSignalId: `signal-explicit-${mode}`,
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      });
+      await expect(
+        storage.transaction((transaction) =>
+          prepareExecutionContextAssignment({
+            storage: transaction,
+            record: {
+              ...head,
+              primaryDispatchId: dispatchId,
+              targetWakeLifecycleId: identity.targetWakeLifecycleId,
+              targetWakeLifecycleIdentity: identity,
+              acceptedDispatchSnapshot: {
+                ...snapshot,
+                contextRequest: {
+                  ...request,
+                  required: true,
+                  selection: { mode },
+                },
+              },
+            },
+          })
+        )
+      ).rejects.toThrow("controller_access_unsupported");
+    }
+  });
+
+  it("keeps the accepted context through linking and retains its fork checkpoint after Head retirement", async () => {
+    const { hub, storageRecords } = createContextHarness();
+    const request = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({ fingerprint: "7" }),
+        contextRequest: {
+          required: true,
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "human",
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            threadId: null,
+          },
+          selection: { mode: "new" },
+        },
+      },
+    });
+    const response = (await (
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        request
+      )
+    ).json()) as { executionContext: { id: string; access: string } };
+    expect(response.executionContext.access).toBe("space_context");
+    const key = buildRuntimeCoordinatorHeadLifecycleStorageKey(
+      request.targetWakeLifecycleIdentity.targetWakeLifecycleId
+    );
+    const original = storageRecords.get(
+      key
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    expect(original.acceptedDispatchSnapshot?.executionContext?.id).toBe(
+      response.executionContext.id
+    );
+    const storage = (
+      hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    await writeRuntimeCoordinatorHeadLifecycleWithAdmission({
+      blockForExecutionTargetMutation: false,
+      nowMs: Date.now(),
+      storage,
+      record: {
+        ...original,
+        executionLinkedAtMs: Date.now(),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        status: "execution_linked",
+      },
+    });
+    expect(storageRecords.get(key)).toMatchObject({
+      runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      acceptedDispatchSnapshot: {
+        executionContext: { id: response.executionContext.id },
+      },
+    });
+    expect(
+      [...storageRecords.keys()].filter((value) =>
+        value.startsWith("runtime-coordinator:execution-context:v1:")
+      )
+    ).toHaveLength(1);
+    await recordExecutionContextCompletion({
+      storage,
+      headId: original.targetWakeLifecycleId,
+      dispatchId: original.primaryDispatchId,
+      runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      contextId: response.executionContext.id,
+      completion: {
+        contextId: response.executionContext.id,
+        nativeConversationId: "native-parent",
+        runtimeWorkspaceFingerprint: "sha256:workspace",
+        completedHistoryId: "completed-turn-1",
+      },
+    });
+    storageRecords.delete(key);
+    const originalSnapshot = request.acceptedDispatchSnapshot;
+    if (!originalSnapshot?.contextRequest) {
+      throw new Error("Expected source context request");
+    }
+    const sourceRequest = originalSnapshot.contextRequest;
+    const forkIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-fork",
+      dispatchId: "dispatch-fork",
+      sourceSignalId: "source-fork",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const planFork = (requesterProfileId: string) =>
+      storage.transaction((transaction) =>
+        prepareExecutionContextAssignment({
+          storage: transaction,
+          record: {
+            ...original,
+            primaryDispatchId: "dispatch-fork",
+            targetWakeLifecycleId: forkIdentity.targetWakeLifecycleId,
+            targetWakeLifecycleIdentity: forkIdentity,
+            acceptedDispatchSnapshot: {
+              ...originalSnapshot,
+              contextRequest: {
+                ...sourceRequest,
+                scope: { ...sourceRequest.scope, requesterProfileId },
+                selection: {
+                  mode: "fork",
+                  sourceWakeId: original.targetWakeLifecycleId,
+                },
+              },
+            },
+          },
+        })
+      );
+    const fork = await planFork("human");
+    expect(
+      fork.record.acceptedDispatchSnapshot?.executionContext
+    ).toMatchObject({
+      forkSource: {
+        contextId: response.executionContext.id,
+        nativeConversationId: "native-parent",
+        completedHistoryId: "completed-turn-1",
+      },
+    });
+    await expect(planFork("another-human")).rejects.toThrow(
+      "source_scope_mismatch"
+    );
+    await expect(
+      recordExecutionContextCompletion({
+        storage,
+        headId: original.targetWakeLifecycleId,
+        dispatchId: "wrong-dispatch",
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        contextId: response.executionContext.id,
+        completion: undefined,
+      })
+    ).rejects.toThrow("result_mismatch");
+  });
+  it.each([
+    { agentControllerRef: "builtin:codex", confirmsOwnBoundary: true },
+    { agentControllerRef: "builtin:claude-code", confirmsOwnBoundary: false },
+  ])("forks $agentControllerRef from a source that never froze a completed prefix only when the harness can confirm the boundary itself", async ({
+    agentControllerRef,
+    confirmsOwnBoundary,
+  }) => {
+    const { hub, storageRecords } = createContextHarness({
+      bindingControllerRef: agentControllerRef,
+    });
+    const request = buildRuntimeCoordinatorHeadAcceptRequest({
+      dispatchId: "dispatch-occupied-source",
+      idempotencyKey: "occupied-source",
+      targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+        clientMessageId: "client-occupied-source",
+        dispatchId: "dispatch-occupied-source",
+        sourceSignalId: "signal-occupied-source",
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      }),
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({
+          agentControllerRef,
+          fingerprint: "8",
+        }),
+        contextRequest: {
+          required: true,
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "human",
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            threadId: null,
+          },
+          selection: { mode: "new" },
+        },
+      },
+    });
+    const accepted = (await (
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        request
+      )
+    ).json()) as { executionContext: { id: string } };
+    const original = storageRecords.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        request.targetWakeLifecycleIdentity.targetWakeLifecycleId
+      )
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    const storage = (
+      hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    await writeRuntimeCoordinatorHeadLifecycleWithAdmission({
+      blockForExecutionTargetMutation: false,
+      nowMs: Date.now(),
+      storage,
+      record: {
+        ...original,
+        executionLinkedAtMs: Date.now(),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        status: "execution_linked",
+      },
+    });
+    // An interrupted or occupied dispatch reports the native conversation it
+    // reached without ever proving a completed prefix, so the source keeps its
+    // association and the Wake stays without a frozen checkpoint.
+    await recordExecutionContextCandidate({
+      storage,
+      headId: original.targetWakeLifecycleId,
+      dispatchId: original.primaryDispatchId,
+      runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      contextId: accepted.executionContext.id,
+      completion: {
+        contextId: accepted.executionContext.id,
+        nativeConversationId: "native-occupied",
+        runtimeWorkspaceFingerprint: "sha256:workspace",
+      },
+    });
+    const sourceSnapshot = request.acceptedDispatchSnapshot;
+    if (!sourceSnapshot?.contextRequest) {
+      throw new Error("Expected source context request");
+    }
+    const sourceRequest = sourceSnapshot.contextRequest;
+    const forkIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-occupied-fork",
+      dispatchId: "dispatch-occupied-fork",
+      sourceSignalId: "signal-occupied-fork",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const planFork = () =>
+      storage.transaction((transaction) =>
+        prepareExecutionContextAssignment({
+          storage: transaction,
+          record: {
+            ...original,
+            primaryDispatchId: "dispatch-occupied-fork",
+            targetWakeLifecycleId: forkIdentity.targetWakeLifecycleId,
+            targetWakeLifecycleIdentity: forkIdentity,
+            acceptedDispatchSnapshot: {
+              ...sourceSnapshot,
+              contextRequest: {
+                ...sourceRequest,
+                selection: {
+                  mode: "fork",
+                  sourceWakeId: original.targetWakeLifecycleId,
+                },
+              },
+            },
+          },
+        })
+      );
+    if (!confirmsOwnBoundary) {
+      // Claude Code needs the exact boundary message named up front, so a
+      // source with no frozen prefix has no point a fork could be cut at.
+      await expect(planFork()).rejects.toThrow("fork_checkpoint_unavailable");
+      return;
+    }
+    const forkSource = (await planFork()).record.acceptedDispatchSnapshot
+      ?.executionContext?.forkSource;
+    // Core still names the exact source the fork must inherit; only the cutoff
+    // inside that history is left for read-only preparation to confirm.
+    expect(forkSource).toMatchObject({
+      contextId: accepted.executionContext.id,
+      nativeConversationId: "native-occupied",
+      runtimeWorkspaceFingerprint: "sha256:workspace",
+      sourceWakeId: original.targetWakeLifecycleId,
+    });
+    expect(forkSource?.completedHistoryId).toBeUndefined();
+  });
+  it.each([
+    { mode: "new", agentControllerRef: "builtin:codex", access: "workspace" },
+    {
+      mode: "threads",
+      agentControllerRef: "builtin:codex",
+      access: "space_context",
+    },
+    {
+      mode: "threads",
+      agentControllerRef: "builtin:claude-code",
+      access: "space_context",
+    },
+  ] as const)("admits five independent $agentControllerRef $mode contexts and queues a sixth and same-context continuation", async ({
+    mode,
+    agentControllerRef,
+    access,
+  }) => {
+    const { hub } = createContextHarness({
+      bindingControllerRef: agentControllerRef,
+    });
+    const requests = Array.from({ length: 6 }, (_, index) =>
+      buildRuntimeCoordinatorHeadAcceptRequest({
+        dispatchId: `dispatch-parallel-${index}`,
+        idempotencyKey: `parallel-${index}`,
+        targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+          clientMessageId: `client-parallel-${index}`,
+          dispatchId: `dispatch-parallel-${index}`,
+          sourceSignalId: `signal-parallel-${index}`,
+          spaceId: HEX_SPACE_ID,
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        }),
+        acceptedDispatchSnapshot: {
+          ...buildAcceptedDispatchSnapshot({
+            agentControllerRef,
+            fingerprint: String(index + 1),
+          }),
+          contextRequest: {
+            required: mode === "new",
+            scope: {
+              organizationId: "org-1",
+              requesterProfileId: "requester-1",
+              spaceId: HEX_SPACE_ID,
+              targetProfileId: TARGET_AGENT_PROFILE_ID,
+              threadId: mode === "threads" ? `thread-${index}` : null,
+            },
+            selection: {
+              mode: mode === "new" ? "new" : "auto",
+              access,
+              workspace: "isolated",
+            },
+          },
+        },
+      })
+    );
+    const replies: Array<{
+      status: string;
+      executionContext?: { id: string };
+      acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
+    }> = [];
+    for (const request of requests) {
+      replies.push(
+        (await (
+          await fetchRuntimeTransportJson(
+            hub,
+            "/runtime-coordinator/head/accept",
+            request
+          )
+        ).json()) as {
+          status: string;
+          executionContext?: { id: string };
+          acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
+        }
+      );
+    }
+    expect(replies.map((reply) => reply.status)).toEqual([
+      "accepted",
+      "accepted",
+      "accepted",
+      "accepted",
+      "accepted",
+      "queued",
+    ]);
+    expect(
+      new Set(replies.slice(0, 5).map((reply) => reply.executionContext?.id))
+        .size
+    ).toBe(5);
+    const first = requests[0];
+    if (!first?.acceptedDispatchSnapshot?.contextRequest) {
+      throw new Error("Expected the first accepted context fixture");
+    }
+    const continuation = buildRuntimeCoordinatorHeadAcceptRequest({
+      dispatchId: "dispatch-continuation",
+      idempotencyKey: "continuation",
+      targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+        clientMessageId: "client-continuation",
+        dispatchId: "dispatch-continuation",
+        sourceSignalId: "signal-continuation",
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      }),
+      acceptedDispatchSnapshot: {
+        ...first.acceptedDispatchSnapshot,
+        payloadFingerprint: `sha256:${"5".repeat(64)}`,
+        contextRequest: {
+          ...first.acceptedDispatchSnapshot.contextRequest,
+          selection: {
+            mode: "resume",
+            sourceWakeId:
+              first.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+          },
+        },
+      },
+    });
+    const continued = await (
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        continuation
+      )
+    ).json();
+    expect(continued).toMatchObject({
+      status: "queued",
+      acceptedDispatchSnapshot: {
+        executionContext: { id: replies[0]?.executionContext?.id },
+      },
+    });
+    const replay = await (
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        first
+      )
+    ).json();
+    expect(replay).toMatchObject({
+      status: "already_accepted",
+      executionContext: { id: replies[0]?.executionContext?.id },
+    });
+  });
   it.each([
     true,
     false,
@@ -5814,7 +6519,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
     const pendingPromotionKey =
       runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.pendingPromotion(
-        TARGET_AGENT_PROFILE_ID
+        TARGET_AGENT_PROFILE_ID,
+        successorIdentity.targetWakeLifecycleId
       );
     expect(storageRecords.get(pendingPromotionKey)).toMatchObject({
       dispatchId: "dispatch-promoted-legacy",
@@ -6029,6 +6735,210 @@ describe("runtime transport runtime coordinator transport contract", () => {
           request.path === "/internal/dispatches/dispatch-repair-2/redrive"
       )
     ).toHaveLength(promotionRedriveCount);
+  });
+
+  it("drops retired queue entries so a new Wake is not queued behind work that can never run", async () => {
+    const { hub, socket, spaceFetchRequests, state, storageRecords } =
+      createHarness();
+    configureCompatibleRoute({ socket, state });
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+
+    const queuedIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-message-retired-2",
+      dispatchId: "dispatch-retired-2",
+      sourceSignalId: "signal-retired-2",
+      spaceId: "b".repeat(64),
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest({
+            dispatchId: "dispatch-retired-2",
+            idempotencyKey: "idempotency-retired-2",
+            targetWakeLifecycleIdentity: queuedIdentity,
+          })
+        )
+      ).json()
+    ).resolves.toMatchObject({
+      action: "wait_in_queue",
+      queuePosition: 1,
+      status: "queued",
+    });
+
+    // The reserved Wake's canonical head is gone, so nothing can promote its
+    // queue entry and no terminal transition can settle it again.
+    const reservedIdentity =
+      buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity;
+    storageRecords.delete(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        reservedIdentity.targetWakeLifecycleId
+      )
+    );
+
+    const newIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-message-retired-3",
+      dispatchId: "dispatch-retired-3",
+      sourceSignalId: "signal-retired-3",
+      spaceId: "c".repeat(64),
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest({
+            dispatchId: "dispatch-retired-3",
+            idempotencyKey: "idempotency-retired-3",
+            targetWakeLifecycleIdentity: newIdentity,
+          })
+        )
+      ).json()
+    ).resolves.toMatchObject({
+      action: "wait_in_queue",
+      queuePosition: 1,
+      status: "queued",
+      waitingCount: 1,
+    });
+
+    expect(
+      (
+        storageRecords.get(
+          runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+            TARGET_AGENT_PROFILE_ID
+          )
+        ) as
+          | {
+              activeHeadLifecycleIds?: string[];
+              workItems?: Array<{ dispatchId: string }>;
+            }
+          | undefined
+      )?.workItems?.map((item) => item.dispatchId)
+    ).toEqual(["dispatch-retired-2", "dispatch-retired-3"]);
+    expect(
+      (
+        storageRecords.get(
+          runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+            TARGET_AGENT_PROFILE_ID
+          )
+        ) as { activeHeadLifecycleIds?: string[] } | undefined
+      )?.activeHeadLifecycleIds
+    ).not.toContain(reservedIdentity.targetWakeLifecycleId);
+    expect(
+      storageRecords.get(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          queuedIdentity.targetWakeLifecycleId
+        )
+      )
+    ).toMatchObject({
+      primaryDispatchId: "dispatch-retired-2",
+      status: "accepted",
+    });
+    expect(spaceFetchRequests).toContainEqual({
+      body: {
+        reason: "agent_profile_work_coordinator_promotion",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+        targetWakeLifecycleId: queuedIdentity.targetWakeLifecycleId,
+      },
+      path: "/internal/dispatches/dispatch-retired-2/redrive",
+    });
+
+    await expect(
+      (
+        hub as unknown as {
+          rpcReadAgentProfileOperationalContexts: (input: {
+            includeWorkReferences: boolean;
+            ownerUserId: string;
+            targetProfileIds: string[];
+          }) => Promise<unknown>;
+        }
+      ).rpcReadAgentProfileOperationalContexts({
+        includeWorkReferences: true,
+        ownerUserId: "owner-1",
+        targetProfileIds: [TARGET_AGENT_PROFILE_ID],
+      })
+    ).resolves.toEqual({
+      contexts: [
+        {
+          operationalContext: {
+            currentWorkReference: {
+              sourceSignalId: "signal-retired-2",
+              spaceId: "b".repeat(64),
+            },
+            queuedWorkReferences: [
+              {
+                sourceSignalId: "signal-retired-3",
+                spaceId: "c".repeat(64),
+              },
+            ],
+            status: "working",
+            waitingCount: 1,
+          },
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        },
+      ],
+    });
+  });
+
+  it("keeps a running Wake's reservation when its execution authority cannot be read", async () => {
+    const { hub, socket, state, storageRecords } = createHarness();
+    configureCompatibleRoute({ socket, state });
+    await acceptDefaultRuntimeCoordinatorHead(hub);
+    const deliveryResponse = await (
+      hub as unknown as {
+        handleDeliverDispatchRequest: (request: Request) => Promise<Response>;
+      }
+    ).handleDeliverDispatchRequest(
+      new Request("https://runtime-transport.test/deliver-dispatch", {
+        body: JSON.stringify(buildDeliverRequest()),
+        method: "POST",
+      })
+    );
+    expect(deliveryResponse.status).toBe(200);
+    const [tokenAuthorityKey] =
+      findRuntimeCoordinatorExecutionTokenAuthorityEntry(storageRecords) ?? [];
+    if (!tokenAuthorityKey) {
+      throw new Error("Expected stored token authority.");
+    }
+    storageRecords.delete(tokenAuthorityKey);
+
+    const newIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-message-unreadable-authority",
+      dispatchId: "dispatch-unreadable-authority",
+      sourceSignalId: "signal-unreadable-authority",
+      spaceId: "b".repeat(64),
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+
+    await expect(
+      (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest({
+            dispatchId: "dispatch-unreadable-authority",
+            idempotencyKey: "idempotency-unreadable-authority",
+            targetWakeLifecycleIdentity: newIdentity,
+          })
+        )
+      ).json()
+    ).resolves.toMatchObject({
+      action: "wait_in_queue",
+      queuePosition: 1,
+      status: "queued",
+    });
+    expect(
+      (
+        storageRecords.get(
+          runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+            TARGET_AGENT_PROFILE_ID
+          )
+        ) as { workItems?: Array<{ dispatchId: string }> } | undefined
+      )?.workItems?.map((item) => item.dispatchId)
+    ).toEqual(["dispatch-1", "dispatch-unreadable-authority"]);
   });
 
   it("promotes the FIFO successor when completion lands during an execution-index generation repair", async () => {
@@ -6429,6 +7339,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       authorizedContinuationClientMessageId: null,
       interruptedClientMessageId: "client-message-1",
       interruptedDispatchId: "dispatch-1",
+      // The computer never acknowledged that the interrupted attempt is gone,
+      // so replacement work has nothing to verify yet.
+      interruptedLocalAttempt: "awaiting_withdrawal",
       interruptedSourceSignalId: "signal-1",
       interruptedTargetWakeLifecycleId:
         buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity
@@ -6924,6 +7837,497 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect([...recordingD1.interactionInboxRows.values()]).toEqual([
       expect.objectContaining({ resolution_status: "resolved" }),
     ]);
+  });
+
+  it("offers one occupancy decision and closes it whichever way the owner answers", async () => {
+    const seedOccupancyGate = (
+      storageRecords: Map<string, unknown>,
+      admissionKey: string,
+      queuedDispatchId: string | null
+    ): { interruptedTargetWakeLifecycleId: string } => {
+      const admission = storageRecords.get(admissionKey) as {
+        recoveryGate: {
+          interruptedWork: {
+            dispatchId: string;
+            targetWakeLifecycleId: string;
+          };
+        };
+        revision: number;
+        workItems: Array<{
+          dispatchId: string;
+          enqueuedAtMs: number;
+          targetWakeLifecycleId: string;
+        }>;
+      };
+      const queuedWork = admission.workItems.find(
+        (item) => item.dispatchId === queuedDispatchId
+      );
+      if (!queuedWork) {
+        throw new Error("Expected queued work behind the occupied Wake.");
+      }
+      storageRecords.set(admissionKey, {
+        ...admission,
+        recoveryGate: {
+          continuationClientMessageId: null,
+          interruptedWork: admission.recoveryGate.interruptedWork,
+          status: "awaiting_occupancy_decision",
+          updatedAtMs: Date.now(),
+        },
+        revision: admission.revision + 1,
+        updatedAtMs: Date.now(),
+        workItems: [queuedWork],
+      });
+      // The 5-minute occupancy terminal writes this alongside the gate; the
+      // fixture seeds both so the two exits are the only thing under test.
+      storageRecords.set(
+        buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+          TARGET_AGENT_PROFILE_ID
+        ),
+        buildAgentProfileWorkRecoveryInboxProjectionIntent({
+          desiredStatus: "open",
+          occurredAtMs: Date.now(),
+          stage: "resolve_occupied_conversation",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+          targetWakeLifecycleId:
+            admission.recoveryGate.interruptedWork.targetWakeLifecycleId,
+          updatedAtMs: Date.now(),
+        })
+      );
+      return {
+        interruptedTargetWakeLifecycleId:
+          admission.recoveryGate.interruptedWork.targetWakeLifecycleId,
+      };
+    };
+
+    const forked = createHarness();
+    const forkedPrepared = await prepareRunningContinuationWithQueuedWork({
+      hub: forked.hub,
+      profileConfigurationRevision: 1,
+      queuedWorkName: "occupancy-successor",
+      sentFrames: forked.sentFrames,
+      socket: forked.socket,
+      state: forked.state,
+      storageRecords: forked.storageRecords,
+    });
+    const forkedGate = seedOccupancyGate(
+      forked.storageRecords,
+      forkedPrepared.admissionKey,
+      forkedPrepared.queuedIdentity.dispatchId
+    );
+    const forkedHub = forked.hub as unknown as {
+      rpcAuthorizeAgentProfileWorkContinuation: (input: {
+        continuationClientMessageId: string;
+        currentAgentControllerRef: string;
+        currentBindingId: string;
+        currentConfigurationRevision: number;
+        currentDefaultProjectId: string | null;
+        expectedInterruptedTargetWakeLifecycleId: string;
+        ownerUserId: string;
+        requireAcceptedExecutionTargetRevision: true;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+      rpcReadAgentProfileWorkRecovery: (input: {
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+
+    // The owner is asked to choose, not told to reconnect a computer.
+    await expect(
+      forkedHub.rpcReadAgentProfileWorkRecovery({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toMatchObject({
+      action: "fork_interrupted_work",
+      interruptedDispatchId: "dispatch-1",
+      status: "available",
+    });
+    await (forked.hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect([...forked.recordingD1.interactionInboxRows.values()]).toEqual([
+      expect.objectContaining({
+        resolution_status: "open",
+        title: "Choose how to continue work for Codex Agent",
+      }),
+    ]);
+
+    await expect(
+      forkedHub.rpcAuthorizeAgentProfileWorkContinuation({
+        continuationClientMessageId: "client-message-occupancy-fork",
+        currentAgentControllerRef: "builtin:codex",
+        currentBindingId: "binding-1",
+        currentConfigurationRevision: 1,
+        currentDefaultProjectId: null,
+        expectedInterruptedTargetWakeLifecycleId:
+          forkedGate.interruptedTargetWakeLifecycleId,
+        ownerUserId: "owner-1",
+        requireAcceptedExecutionTargetRevision: true,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "authorized" });
+    expect(
+      forked.storageRecords.get(forkedPrepared.admissionKey)
+    ).toMatchObject({
+      recoveryGate: {
+        continuationClientMessageId: "client-message-occupancy-fork",
+        status: "continuation_authorized",
+      },
+    });
+    // A stale window that still shows both buttons cannot answer the decision a
+    // second time. Disabling a button is usability; this is the guarantee.
+    await expect(
+      (
+        forked.hub as unknown as {
+          rpcSkipAgentProfileInterruptedWork: (input: {
+            expectedInterruptedTargetWakeLifecycleId: string;
+            ownerUserId: string;
+            targetProfileId: string;
+          }) => Promise<unknown>;
+        }
+      ).rpcSkipAgentProfileInterruptedWork({
+        expectedInterruptedTargetWakeLifecycleId:
+          forkedGate.interruptedTargetWakeLifecycleId,
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "not_pending" });
+    expect(
+      forked.storageRecords.get(forkedPrepared.admissionKey)
+    ).toMatchObject({
+      recoveryGate: {
+        continuationClientMessageId: "client-message-occupancy-fork",
+        status: "continuation_authorized",
+      },
+    });
+    await (forked.hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect([...forked.recordingD1.interactionInboxRows.values()]).toEqual([
+      expect.objectContaining({ resolution_status: "resolved" }),
+    ]);
+
+    const skipped = createHarness();
+    const skippedPrepared = await prepareRunningContinuationWithQueuedWork({
+      hub: skipped.hub,
+      queuedWorkName: "occupancy-skip-successor",
+      sentFrames: skipped.sentFrames,
+      socket: skipped.socket,
+      state: skipped.state,
+      storageRecords: skipped.storageRecords,
+    });
+    const skippedGate = seedOccupancyGate(
+      skipped.storageRecords,
+      skippedPrepared.admissionKey,
+      skippedPrepared.queuedIdentity.dispatchId
+    );
+    const skippedHub = skipped.hub as unknown as {
+      rpcSkipAgentProfileInterruptedWork: (input: {
+        expectedInterruptedTargetWakeLifecycleId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+    await (skipped.hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect([...skipped.recordingD1.interactionInboxRows.values()]).toEqual([
+      expect.objectContaining({ resolution_status: "open" }),
+    ]);
+
+    await expect(
+      skippedHub.rpcSkipAgentProfileInterruptedWork({
+        expectedInterruptedTargetWakeLifecycleId:
+          skippedGate.interruptedTargetWakeLifecycleId,
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "skipped" });
+    expect(
+      skipped.storageRecords.get(skippedPrepared.admissionKey)
+    ).toMatchObject({ recoveryGate: null });
+    await (skipped.hub as unknown as { alarm: () => Promise<void> }).alarm();
+    // The resolve has to name the stage the open item was written under, or
+    // skipping leaves the owner's decision sitting in the Inbox.
+    expect([...skipped.recordingD1.interactionInboxRows.values()]).toEqual([
+      expect.objectContaining({ resolution_status: "resolved" }),
+    ]);
+    expect(
+      skipped.storageRecords.get(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          skippedPrepared.queuedIdentity.targetWakeLifecycleId
+        )
+      )
+    ).toMatchObject({ status: "accepted" });
+
+    // A branch cannot be taken off a conversation the current execution target
+    // does not own, so the decision has to become attention rather than answer
+    // that nothing is pending.
+    const moved = createHarness();
+    const movedPrepared = await prepareRunningContinuationWithQueuedWork({
+      hub: moved.hub,
+      profileConfigurationRevision: 1,
+      queuedWorkName: "occupancy-moved-successor",
+      sentFrames: moved.sentFrames,
+      socket: moved.socket,
+      state: moved.state,
+      storageRecords: moved.storageRecords,
+    });
+    const movedGate = seedOccupancyGate(
+      moved.storageRecords,
+      movedPrepared.admissionKey,
+      movedPrepared.queuedIdentity.dispatchId
+    );
+    // The decision has to be in the Inbox before the owner takes it, or nothing
+    // proves the stage it left gets closed.
+    await (moved.hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect([...moved.recordingD1.interactionInboxRows.values()]).toEqual([
+      expect.objectContaining({
+        resolution_status: "open",
+        title: "Choose how to continue work for Codex Agent",
+      }),
+    ]);
+    await expect(
+      (
+        moved.hub as unknown as {
+          rpcAuthorizeAgentProfileWorkContinuation: (input: {
+            continuationClientMessageId: string;
+            currentAgentControllerRef: string;
+            currentBindingId: string;
+            currentConfigurationRevision: number;
+            currentDefaultProjectId: string | null;
+            expectedInterruptedTargetWakeLifecycleId: string;
+            ownerUserId: string;
+            requireAcceptedExecutionTargetRevision: true;
+            targetProfileId: string;
+          }) => Promise<unknown>;
+        }
+      ).rpcAuthorizeAgentProfileWorkContinuation({
+        continuationClientMessageId: "client-message-occupancy-moved",
+        currentAgentControllerRef: "builtin:claude-code",
+        currentBindingId: "binding-2",
+        currentConfigurationRevision: 2,
+        currentDefaultProjectId: null,
+        expectedInterruptedTargetWakeLifecycleId:
+          movedGate.interruptedTargetWakeLifecycleId,
+        ownerUserId: "owner-1",
+        requireAcceptedExecutionTargetRevision: true,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "needs_attention" });
+    expect(moved.storageRecords.get(movedPrepared.admissionKey)).toMatchObject({
+      recoveryGate: { status: "continuation_needs_attention" },
+    });
+    await (moved.hub as unknown as { alarm: () => Promise<void> }).alarm();
+    // One intent slot per profile means the review item has to carry the close
+    // of the occupancy stage; two intents would overwrite each other and leave
+    // the owner two open items for one Wake.
+    const movedRows = [...moved.recordingD1.interactionInboxRows.values()];
+    expect(movedRows).toHaveLength(2);
+    expect(movedRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          resolution_status: "open",
+          title: "Review interrupted work for Codex Agent",
+        }),
+        expect.objectContaining({
+          resolution_status: "resolved",
+          title: "Choose how to continue work for Codex Agent",
+        }),
+      ])
+    );
+  });
+
+  const prepareOccupiedWorkWithSuccessorWake = async (input: {
+    hub: RuntimeTransportHub;
+    sentFrames: unknown[];
+    socket: WebSocket;
+    state: RuntimeTransportMutableState;
+    storageRecords: Map<string, unknown>;
+  }): Promise<{
+    admissionKey: string;
+    sourceTargetWakeLifecycleId: string;
+    successorTargetWakeLifecycleId: string;
+  }> => {
+    await issueDeliveryToken({
+      hub: input.hub,
+      sentFrames: input.sentFrames,
+      socket: input.socket,
+      state: input.state,
+    });
+    await fetchRuntimeTransportJson(
+      input.hub,
+      "/runtime-coordinator/head/accept",
+      buildRuntimeCoordinatorHeadAcceptRequest({
+        dispatchId: "dispatch-fork",
+        idempotencyKey: "idempotency-fork",
+        targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+          clientMessageId: "client-message-fork",
+          dispatchId: "dispatch-fork",
+          sourceSignalId: "signal-fork",
+          spaceId: HEX_SPACE_ID,
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        }),
+      })
+    );
+    const admissionKey =
+      runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+        TARGET_AGENT_PROFILE_ID
+      );
+    const admission = storageRecordsAdmission(
+      input.storageRecords,
+      admissionKey
+    );
+    const source = admission.workItems.find(
+      (item) => item.dispatchId === "dispatch-1"
+    );
+    const successor = admission.workItems.find(
+      (item) => item.dispatchId === "dispatch-fork"
+    );
+    if (!(source && successor)) {
+      throw new Error("Expected the occupied Wake and its successor Wake.");
+    }
+    // The Adapter's occupancy report is what marks the blocked wait; this
+    // fixture writes the same state directly so the handoff contract is the
+    // only thing under test.
+    input.storageRecords.set(admissionKey, {
+      ...admission,
+      workItems: admission.workItems.map((item) =>
+        item === source
+          ? { ...item, waitReason: "controller_conversation_occupied" }
+          : item
+      ),
+    });
+    return {
+      admissionKey,
+      sourceTargetWakeLifecycleId: source.targetWakeLifecycleId,
+      successorTargetWakeLifecycleId: successor.targetWakeLifecycleId,
+    };
+  };
+
+  const asHandoffHub = (hub: RuntimeTransportHub) =>
+    hub as unknown as {
+      rpcHandOffOccupiedAgentProfileWork: (input: {
+        ownerUserId: string;
+        sourceDispatchId: string;
+        sourceTargetWakeLifecycleId: string;
+        successorDispatchId: string;
+        successorExecutionContextId?: string;
+        successorTargetWakeLifecycleId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+
+  it("hands the occupied reservation to the successor Wake and answers a replay without moving it again", async () => {
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const {
+      admissionKey,
+      sourceTargetWakeLifecycleId,
+      successorTargetWakeLifecycleId,
+    } = await prepareOccupiedWorkWithSuccessorWake({
+      hub,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    });
+    const request = {
+      ownerUserId: "owner-1",
+      sourceDispatchId: "dispatch-1",
+      sourceTargetWakeLifecycleId,
+      successorDispatchId: "dispatch-fork",
+      successorTargetWakeLifecycleId,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+
+    await expect(
+      asHandoffHub(hub).rpcHandOffOccupiedAgentProfileWork(request)
+    ).resolves.toEqual({ status: "handed_off" });
+
+    const handedOff = storageRecordsAdmission(storageRecords, admissionKey);
+    // One entry for the work, still holding the reservation it never released.
+    expect(handedOff.workItems).toEqual([
+      expect.objectContaining({
+        dispatchId: "dispatch-fork",
+        targetWakeLifecycleId: successorTargetWakeLifecycleId,
+      }),
+    ]);
+    expect(handedOff.workItems[0]?.waitReason).toBeUndefined();
+
+    await expect(
+      asHandoffHub(hub).rpcHandOffOccupiedAgentProfileWork(request)
+    ).resolves.toEqual({ status: "already_handed_off" });
+    expect(storageRecordsAdmission(storageRecords, admissionKey).revision).toBe(
+      handedOff.revision
+    );
+  });
+
+  it("refuses a successor Wake this owner and Profile do not actually have", async () => {
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { admissionKey, sourceTargetWakeLifecycleId } =
+      await prepareOccupiedWorkWithSuccessorWake({
+        hub,
+        sentFrames,
+        socket,
+        state,
+        storageRecords,
+      });
+    const before = storageRecordsAdmission(storageRecords, admissionKey);
+    const request = {
+      ownerUserId: "owner-1",
+      sourceDispatchId: "dispatch-1",
+      sourceTargetWakeLifecycleId,
+      successorDispatchId: "dispatch-fork",
+      successorTargetWakeLifecycleId: "twl_not-a-real-successor",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+
+    await expect(
+      asHandoffHub(hub).rpcHandOffOccupiedAgentProfileWork(request)
+    ).resolves.toEqual({ status: "successor_conflict" });
+    // A named Wake whose head record does not match cannot mint a reservation.
+    await expect(
+      asHandoffHub(hub).rpcHandOffOccupiedAgentProfileWork({
+        ...request,
+        successorDispatchId: "dispatch-not-the-successor",
+        successorTargetWakeLifecycleId: request.sourceTargetWakeLifecycleId,
+      })
+    ).resolves.toEqual({ status: "successor_conflict" });
+    expect(storageRecordsAdmission(storageRecords, admissionKey)).toEqual(
+      before
+    );
+  });
+
+  it("refuses to hand off work that is not blocked on the occupied conversation", async () => {
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const {
+      admissionKey,
+      sourceTargetWakeLifecycleId,
+      successorTargetWakeLifecycleId,
+    } = await prepareOccupiedWorkWithSuccessorWake({
+      hub,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    });
+    const occupied = storageRecordsAdmission(storageRecords, admissionKey);
+    storageRecords.set(admissionKey, {
+      ...occupied,
+      workItems: occupied.workItems.map(
+        ({ waitReason: _waitReason, ...item }) => item
+      ),
+    });
+    const running = storageRecordsAdmission(storageRecords, admissionKey);
+
+    await expect(
+      asHandoffHub(hub).rpcHandOffOccupiedAgentProfileWork({
+        ownerUserId: "owner-1",
+        sourceDispatchId: "dispatch-1",
+        sourceTargetWakeLifecycleId,
+        successorDispatchId: "dispatch-fork",
+        successorTargetWakeLifecycleId,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "source_not_occupied" });
+    expect(storageRecordsAdmission(storageRecords, admissionKey)).toEqual(
+      running
+    );
   });
 
   it("does not let a stale Skip action clear a later interrupted-work gate", async () => {
@@ -7916,7 +9320,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       socket,
       state,
       storageRecords,
-      storageTransaction,
+      storageDelete,
     } = createHarness({
       interactionInboxResolveFailures: 1,
       interactionInboxWriteFailures: 1,
@@ -8018,10 +9422,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(storageRecords.has(recoveryProjectionKey)).toBe(true);
     expect(storageRecords.has(interruptedHeadKey)).toBe(true);
 
-    storageTransaction.mockRejectedValueOnce(
-      new Error("recovery projection transaction unavailable")
-    );
+    const deleteRecord = storageDelete.getMockImplementation();
+    if (!deleteRecord) {
+      throw new Error("Missing storage delete fixture");
+    }
+    let rejectedProjectionDelete = false;
+    storageDelete.mockImplementation(async (key) => {
+      if (key === recoveryProjectionKey && !rejectedProjectionDelete) {
+        rejectedProjectionDelete = true;
+        throw new Error("recovery projection transaction unavailable");
+      }
+      return await deleteRecord(key);
+    });
     await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect(rejectedProjectionDelete).toBe(true);
     expect([...recordingD1.interactionInboxRows.values()]).toEqual([
       expect.objectContaining({ resolution_status: "resolved" }),
     ]);
@@ -9079,7 +10493,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
       const pendingPromotionKey =
         runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.pendingPromotion(
-          TARGET_AGENT_PROFILE_ID
+          TARGET_AGENT_PROFILE_ID,
+          successorIdentity.targetWakeLifecycleId
         );
       const pendingPromotion = storageRecords.get(pendingPromotionKey);
       expect(pendingPromotion).toMatchObject({
@@ -9153,7 +10568,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
       expect(
         storageRecords.get(
           runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.pendingPromotion(
-            TARGET_AGENT_PROFILE_ID
+            TARGET_AGENT_PROFILE_ID,
+            successorIdentity.targetWakeLifecycleId
           )
         )
       ).toMatchObject({
@@ -9534,6 +10950,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       authorizedContinuationClientMessageId: null,
       interruptedClientMessageId: "client-message-1",
       interruptedDispatchId: "dispatch-1",
+      // The computer never acknowledged that the interrupted attempt is gone,
+      // so replacement work has nothing to verify yet.
+      interruptedLocalAttempt: "awaiting_withdrawal",
       interruptedSourceSignalId: "signal-1",
       interruptedTargetWakeLifecycleId:
         buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity
@@ -9981,43 +11400,682 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
-  it("keeps per-profile execution references within the fifty-item waiting limit", async () => {
-    const { hub, storageRecords } = createHarness();
-    for (let index = 0; index < 51; index += 1) {
-      const dispatchId = `bounded-dispatch-${index}`;
-      const response = await fetchRuntimeTransportJson(
-        hub,
-        "/runtime-coordinator/head/accept",
-        buildRuntimeCoordinatorHeadAcceptRequest({
-          dispatchId,
-          idempotencyKey: `bounded-idempotency-${index}`,
-          targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
-            clientMessageId: `bounded-client-message-${index}`,
-            dispatchId,
-            sourceSignalId: `bounded-signal-${index}`,
-            spaceId: HEX_SPACE_ID,
-            targetProfileId: TARGET_AGENT_PROFILE_ID,
-          }),
-        })
-      );
-      expect(response.status).toBe(200);
-    }
-
-    const rejectedDispatchId = "bounded-dispatch-51";
+  it.each([
+    null,
+    1,
+  ] as const)("rejects a first explicit Context on Service capability %s without disabling ordinary legacy Wakes", async (contextVersion) => {
+    const { hub, storageRecords } = createContextHarness({ contextVersion });
     const rejected = await fetchRuntimeTransportJson(
       hub,
       "/runtime-coordinator/head/accept",
-      buildRuntimeCoordinatorHeadAcceptRequest({
-        dispatchId: rejectedDispatchId,
-        idempotencyKey: "bounded-idempotency-51",
+      contextMigrationRequest("unsupported-first-context")
+    );
+    expect(await rejected.json()).toMatchObject({
+      ok: false,
+      reasonCode: "service.update_required",
+    });
+    expect(
+      [...storageRecords.keys()].some((key) =>
+        key.startsWith("runtime-coordinator:execution-context:")
+      )
+    ).toBe(false);
+    expect(
+      await (
+        hub as unknown as RuntimeTransportHub
+      ).rpcAgentProfileExecutionMode({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).toMatchObject({ migration: "legacy" });
+    const ordinary = contextMigrationRequest("ordinary-after-unsupported");
+    if (!ordinary.acceptedDispatchSnapshot?.contextRequest) {
+      throw new Error("Expected context request fixture");
+    }
+    ordinary.acceptedDispatchSnapshot.contextRequest.required = false;
+    ordinary.acceptedDispatchSnapshot.contextRequest.selection = {
+      mode: "auto",
+    };
+    ordinary.acceptedDispatchSnapshot.contextRequest.scope.threadId =
+      "ordinary-existing-thread";
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          ordinary
+        )
+      ).json()
+    ).toMatchObject({ status: "accepted" });
+    expect(
+      await (
+        hub as unknown as RuntimeTransportHub
+      ).rpcAgentProfileExecutionMode({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).toMatchObject({ migration: "legacy" });
+  });
+
+  it("keeps a first scoped device-wait intent pending without activating until a compatible Service returns", async () => {
+    const { hub, storageRecords } = createHarness();
+    const request = contextMigrationRequest("offline-first-context");
+    if (!request.acceptedDispatchSnapshot) {
+      throw new Error("Expected accepted snapshot fixture");
+    }
+    request.acceptedDispatchSnapshot.deviceWait = {
+      bindingId: "binding-accepted-1",
+      openMeldServiceRuntimeId: "runtime-accepted-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+      deadlineAtMs: Date.now() + 60_000,
+    };
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          request
+        )
+      ).json()
+    ).toMatchObject({ status: "queued" });
+    const modeRequest = {
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+    expect(
+      await (
+        hub as unknown as RuntimeTransportHub
+      ).rpcAgentProfileExecutionMode(modeRequest)
+    ).toMatchObject({ migration: "draining" });
+    const headKey = buildRuntimeCoordinatorHeadLifecycleStorageKey(
+      request.targetWakeLifecycleIdentity.targetWakeLifecycleId
+    );
+    const original = storageRecords.get(
+      headKey
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    expect(original.acceptedDispatchSnapshot?.deviceWait).toEqual(
+      request.acceptedDispatchSnapshot.deviceWait
+    );
+    expect(original.status).toBe("queued");
+    expect(
+      await (
+        hub as unknown as {
+          resolveNextRuntimeCoordinatorHeadWaitingAlarmAtMs(): Promise<
+            number | null
+          >;
+        }
+      ).resolveNextRuntimeCoordinatorHeadWaitingAlarmAtMs()
+    ).toBe(request.acceptedDispatchSnapshot.deviceWait.deadlineAtMs);
+    const restarted = createContextHarness({ storageRecords });
+    await (
+      restarted.hub as unknown as {
+        processAgentProfileWorkPromotionAlarm(nowMs: number): Promise<void>;
+      }
+    ).processAgentProfileWorkPromotionAlarm(Date.now());
+    expect(
+      await (
+        restarted.hub as unknown as RuntimeTransportHub
+      ).rpcAgentProfileExecutionMode(modeRequest)
+    ).toMatchObject({ migration: "contexts" });
+    expect(storageRecords.get(headKey)).toMatchObject({
+      status: "accepted",
+      acceptedDispatchSnapshot: {
+        executionContext: original.acceptedDispatchSnapshot?.executionContext,
+        deviceWait: request.acceptedDispatchSnapshot.deviceWait,
+      },
+    });
+  });
+
+  it("rechecks Service capability after Binding reread before activating Context mode", async () => {
+    let release!: () => void;
+    let entered!: () => void;
+    const bindingReadGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const readEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const { hub, state } = createContextHarness({
+      bindingReadGate,
+      onBindingRead: entered,
+    });
+    const request = fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      contextMigrationRequest("service-capability-race")
+    );
+    await readEntered;
+    const lease = state.profileLeasesByProfileId.get(TARGET_AGENT_PROFILE_ID);
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!(lease && session)) {
+      throw new Error("Expected active route fixture");
+    }
+    lease.capabilities.runtimeAdapters = [
+      {
+        ...codexRuntimeAdapterCapability,
+        capabilityDeclaration: {
+          ...codexRuntimeAdapterCapability.capabilityDeclaration,
+          executionContextVersion: 1,
+        },
+      },
+    ];
+    session.capabilities.runtimeAdapters = lease.capabilities.runtimeAdapters;
+    release();
+    expect(await (await request).json()).toMatchObject({ status: "queued" });
+    expect(
+      await (
+        hub as unknown as RuntimeTransportHub
+      ).rpcAgentProfileExecutionMode({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).toMatchObject({ migration: "draining" });
+  });
+
+  it("keeps pre-marker Context history scoped after its old admission record is pruned", async () => {
+    const { hub, storageRecords } = createContextHarness();
+    const prior = contextMigrationRequest("pre-marker-context");
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      prior
+    );
+    const key =
+      runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+        TARGET_AGENT_PROFILE_ID
+      );
+    const previous = storageRecords.get(key) as Record<string, unknown>;
+    const { contextMigration: _migration, ...oldVersion } = previous;
+    storageRecords.set(key, {
+      ...oldVersion,
+      modelVersion:
+        "openmeld.runtime_coordinator.agent_profile_work_coordinator.v2",
+    });
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/pre-agent-stop",
+      buildRuntimeCoordinatorHeadPreAgentStopRequest({
+        dispatchId: prior.dispatchId,
+        targetWakeLifecycleIdentity: prior.targetWakeLifecycleIdentity,
+      })
+    );
+    await (
+      hub as unknown as RuntimeTransportHub
+    ).rpcReadAgentProfileExecutionState({
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    expect(storageRecords.has(key)).toBe(false);
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          buildRuntimeCoordinatorHeadAcceptRequest()
+        )
+      ).json()
+    ).toMatchObject({
+      ok: false,
+      reasonCode: "execution_context.legacy_acceptance_closed",
+    });
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          contextMigrationRequest("after-marker-upgrade")
+        )
+      ).json()
+    ).toMatchObject({ status: "accepted" });
+    expect(storageRecords.get(key)).toMatchObject({
+      contextMigration: { status: "contexts", legacyWakeIds: [] },
+    });
+  });
+
+  it("schedules migration after an abandoned mutation lease and recovers without unrelated traffic", async () => {
+    const first = createContextHarness({
+      onBindingRead: () => {
+        throw new Error("binding temporarily unavailable");
+      },
+    });
+    await fetchRuntimeTransportJson(
+      first.hub,
+      "/runtime-coordinator/head/accept",
+      contextMigrationRequest("abandoned-migration")
+    );
+    const key =
+      runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+        TARGET_AGENT_PROFILE_ID
+      );
+    const nowMs = Date.now();
+    const expiresAtMs = nowMs + 10_000;
+    first.storageRecords.set(key, {
+      ...(first.storageRecords.get(key) as object),
+      executionTargetMutation: {
+        operationId: "crashed-migration",
+        startedAtMs: nowMs,
+        expiresAtMs,
+      },
+    });
+    const restarted = createContextHarness({
+      storageRecords: first.storageRecords,
+    });
+    const storage = (restarted.hub as unknown as { ctx: DurableObjectState })
+      .ctx.storage;
+    expect(
+      await executionAdmission.resolveNextAgentProfileContextMigrationAlarmAtMs(
+        { storage, nowMs }
+      )
+    ).toBe(expiresAtMs);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(expiresAtMs + 1);
+    try {
+      await (
+        restarted.hub as unknown as {
+          processAgentProfileWorkPromotionAlarm(now: number): Promise<void>;
+        }
+      ).processAgentProfileWorkPromotionAlarm(expiresAtMs + 1);
+      expect(
+        await (
+          restarted.hub as unknown as RuntimeTransportHub
+        ).rpcAgentProfileExecutionMode({
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).toMatchObject({ migration: "contexts" });
+      expect(
+        await executionAdmission.resolveNextAgentProfileContextMigrationAlarmAtMs(
+          { storage, nowMs: expiresAtMs + 1 }
+        )
+      ).toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("does not rewind admission ownership when index generation advances during a rollback request", async () => {
+    const { hub, storageRecords, storageTransaction } = createContextHarness();
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      contextMigrationRequest("generation-race")
+    );
+    const key =
+      runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+        TARGET_AGENT_PROFILE_ID
+      );
+    const originalAdmission = structuredClone(storageRecords.get(key));
+    const originalTransaction = storageTransaction.getMockImplementation();
+    let release!: () => void;
+    let notifyEntered!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      notifyEntered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    storageTransaction.mockImplementationOnce(
+      async (
+        operation: (transaction: DurableObjectTransaction) => Promise<unknown>
+      ) => {
+        notifyEntered();
+        await gate;
+        return await originalTransaction?.(operation);
+      }
+    );
+    const update = (
+      hub as unknown as RuntimeTransportHub
+    ).rpcAgentProfileExecutionMode({
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+      mode: "serial",
+    });
+    const result = expect(update).rejects.toThrow(
+      "runtime_coordinator.execution_state_rebuilding"
+    );
+    await entered;
+    const indexKey = "runtime-coordinator:agent-profile-execution-index:v1";
+    const index = storageRecords.get(indexKey) as { generation: number };
+    storageRecords.set(indexKey, {
+      ...index,
+      generation: index.generation + 1,
+    });
+    release();
+    await result;
+    expect(storageRecords.get(key)).toEqual(originalAdmission);
+  });
+
+  it("fences Binding changes during automatic migration and applies the latest rollback policy at activation", async () => {
+    let releaseRead!: () => void;
+    let readEntered!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      readEntered = resolve;
+    });
+    const bindingReadGate = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    const { hub } = createContextHarness({
+      bindingReadGate,
+      onBindingRead: readEntered,
+    });
+    const first = fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      contextMigrationRequest("migration-race-first")
+    );
+    await entered;
+    const scopedHub = hub as unknown as RuntimeTransportHub;
+    const owner = {
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+    await expect(
+      scopedHub.rpcAcquireAgentProfileControllerMutation({
+        ...owner,
+        operationId: "race-controller",
+      })
+    ).resolves.toMatchObject({ status: "unavailable" });
+    await expect(
+      scopedHub.rpcAgentProfileExecutionMode({ ...owner, mode: "serial" })
+    ).resolves.toMatchObject({ mode: "serial", migration: "draining" });
+    releaseRead();
+    expect(await (await first).json()).toMatchObject({ status: "accepted" });
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          contextMigrationRequest("migration-race-second")
+        )
+      ).json()
+    ).toMatchObject({ status: "queued" });
+    expect(await scopedHub.rpcAgentProfileExecutionMode(owner)).toMatchObject({
+      mode: "serial",
+      migration: "contexts",
+    });
+  });
+
+  it("freezes legacy admission, drains accepted legacy work, and preserves the current unclassified Binding claim across restart", async () => {
+    const { hub, storageRecords } = createContextHarness({
+      bindingConversationId: "legacy-mixed-spaces",
+    });
+    const legacy = buildRuntimeCoordinatorHeadAcceptRequest();
+    const legacyQueued = buildRuntimeCoordinatorHeadAcceptRequest({
+      dispatchId: "legacy-queued",
+      idempotencyKey: "legacy-queued",
+      targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+        clientMessageId: "legacy-queued",
+        dispatchId: "legacy-queued",
+        sourceSignalId: "legacy-queued",
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      }),
+    });
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      legacy
+    );
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      legacyQueued
+    );
+    const independent = contextMigrationRequest("independent");
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          independent
+        )
+      ).json()
+    ).toMatchObject({ status: "queued" });
+    const modeRequest = {
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+    expect(
+      await (
+        hub as unknown as RuntimeTransportHub
+      ).rpcAgentProfileExecutionMode(modeRequest)
+    ).toMatchObject({ migration: "draining" });
+    const laterLegacy = {
+      ...buildRuntimeCoordinatorHeadAcceptRequest(),
+      dispatchId: "too-late",
+      idempotencyKey: "too-late",
+      targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+        clientMessageId: "too-late",
+        dispatchId: "too-late",
+        sourceSignalId: "too-late",
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      }),
+    };
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          laterLegacy
+        )
+      ).json()
+    ).toMatchObject({
+      ok: false,
+      reasonCode: "execution_context.legacy_acceptance_closed",
+    });
+    for (const request of [legacy, legacyQueued]) {
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/pre-agent-stop",
+        buildRuntimeCoordinatorHeadPreAgentStopRequest({
+          dispatchId: request.dispatchId,
+          targetWakeLifecycleIdentity: request.targetWakeLifecycleIdentity,
+        })
+      );
+    }
+    const restarted = createContextHarness({
+      storageRecords,
+      bindingConversationId: "legacy-mixed-spaces",
+    });
+    await (
+      restarted.hub as unknown as {
+        processAgentProfileWorkPromotionAlarm(nowMs: number): Promise<void>;
+      }
+    ).processAgentProfileWorkPromotionAlarm(Date.now());
+    expect(
+      await (
+        restarted.hub as unknown as RuntimeTransportHub
+      ).rpcAgentProfileExecutionMode(modeRequest)
+    ).toMatchObject({ migration: "contexts" });
+    const admission = [...storageRecords.entries()].find(([key]) =>
+      key.startsWith(
+        "runtime-coordinator:agent-profile-execution-admission:v1:"
+      )
+    )?.[1] as { contextMigration: unknown };
+    expect(admission.contextMigration).toMatchObject({
+      status: "contexts",
+      legacyWakeIds: [
+        legacy.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+        legacyQueued.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+      ],
+      legacyAssociation: {
+        scope: "legacy_unclassified",
+        nativeConversationId: "legacy-mixed-spaces",
+        configurationRevision: 7,
+      },
+    });
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          restarted.hub,
+          "/runtime-coordinator/head/accept",
+          independent
+        )
+      ).json()
+    ).toMatchObject({ status: "already_accepted", action: "create_execution" });
+    expect(
+      await (
+        restarted.hub as unknown as RuntimeTransportHub
+      ).rpcAcquireAgentProfileLegacyConversationMutation({
+        ...modeRequest,
+        operationId: "late-result",
+      })
+    ).toMatchObject({
+      status: "blocked",
+      reasonCode: "execution_context.legacy_association_frozen",
+    });
+  });
+
+  it("persists serial rollback without revoking reservations and keeps Context mode after idle pruning", async () => {
+    const { hub, storageRecords } = createContextHarness();
+    const requests = [0, 1, 2, 3, 4, 5].map((index) =>
+      contextMigrationRequest(`rollback-${index}`)
+    );
+    for (const request of requests) {
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        request
+      );
+    }
+    const modeRequest = {
+      ownerUserId: "owner-1",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+    expect(
+      await (
+        hub as unknown as RuntimeTransportHub
+      ).rpcAgentProfileExecutionMode({ ...modeRequest, mode: "serial" })
+    ).toMatchObject({ mode: "serial", migration: "contexts" });
+    const restarted = createHarness({ storageRecords });
+    expect(
+      await (
+        restarted.hub as unknown as RuntimeTransportHub
+      ).rpcAgentProfileExecutionMode(modeRequest)
+    ).toMatchObject({ mode: "serial", migration: "contexts" });
+    const admissionKey = [...storageRecords.keys()].find((key) =>
+      key.startsWith(
+        "runtime-coordinator:agent-profile-execution-admission:v1:"
+      )
+    );
+    if (!admissionKey) {
+      throw new Error("Expected admission fixture");
+    }
+    const reservedCount = () =>
+      (
+        storageRecords.get(admissionKey) as {
+          workItems: Array<{ reservationState: string }>;
+        }
+      ).workItems.filter((item) => item.reservationState === "reserved").length;
+    expect(reservedCount()).toBe(5);
+    for (const [index, request] of requests.entries()) {
+      await fetchRuntimeTransportJson(
+        restarted.hub,
+        "/runtime-coordinator/head/pre-agent-stop",
+        buildRuntimeCoordinatorHeadPreAgentStopRequest({
+          dispatchId: request.dispatchId,
+          targetWakeLifecycleIdentity: request.targetWakeLifecycleIdentity,
+        })
+      );
+      expect(reservedCount()).toBe([4, 3, 2, 1, 1, 0][index]);
+    }
+    await (
+      restarted.hub as unknown as RuntimeTransportHub
+    ).rpcReadAgentProfileExecutionState(modeRequest);
+    expect(
+      await (
+        restarted.hub as unknown as RuntimeTransportHub
+      ).rpcAgentProfileExecutionMode(modeRequest)
+    ).toMatchObject({ mode: "serial", migration: "contexts" });
+  });
+
+  it.each([
+    1, 5,
+  ])("persists %i reservations with fifty waiting Wakes and rejects overflow", async (reservations) => {
+    const { hub, storageRecords } = createContextHarness();
+    const requestFor = (index: number) => {
+      const dispatchId = `bounded-dispatch-${index}`;
+      return buildRuntimeCoordinatorHeadAcceptRequest({
+        dispatchId,
+        idempotencyKey: `bounded-idempotency-${index}`,
         targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
-          clientMessageId: "bounded-client-message-51",
-          dispatchId: rejectedDispatchId,
-          sourceSignalId: "bounded-signal-51",
+          clientMessageId: `bounded-client-message-${index}`,
+          dispatchId,
+          sourceSignalId: `bounded-signal-${index}`,
           spaceId: HEX_SPACE_ID,
           targetProfileId: TARGET_AGENT_PROFILE_ID,
         }),
-      })
+        ...(reservations > 1
+          ? {
+              acceptedDispatchSnapshot: {
+                ...buildAcceptedDispatchSnapshot({
+                  agentControllerRef: "builtin:codex",
+                  fingerprint: "b",
+                }),
+                contextRequest: {
+                  required: true,
+                  scope: {
+                    organizationId: "org-1",
+                    requesterProfileId: "requester-1",
+                    spaceId: HEX_SPACE_ID,
+                    targetProfileId: TARGET_AGENT_PROFILE_ID,
+                    threadId: null,
+                  },
+                  selection: {
+                    mode: "new",
+                    access: "space_context",
+                    workspace: "isolated",
+                  },
+                },
+              },
+            }
+          : {}),
+      });
+    };
+    for (let index = 0; index < reservations + 50; index += 1) {
+      const response = await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        requestFor(index)
+      );
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        status: index < reservations ? "accepted" : "queued",
+      });
+      if (reservations === 5 && index === 4) {
+        // Read the five accepted reservations through the prior v2 format.
+        const key = [...storageRecords.keys()].find((candidate) =>
+          candidate.startsWith(
+            "runtime-coordinator:agent-profile-execution-admission:v1:"
+          )
+        );
+        if (!key) {
+          throw new Error("Expected admission fixture");
+        }
+        const stored = storageRecords.get(key) as {
+          modelVersion: string;
+          contextMigration?: unknown;
+        };
+        stored.modelVersion =
+          "openmeld.runtime_coordinator.agent_profile_work_coordinator.v2";
+        stored.contextMigration = undefined;
+      }
+    }
+
+    const restarted = createHarness({ storageRecords });
+    const replay = await fetchRuntimeTransportJson(
+      restarted.hub,
+      "/runtime-coordinator/head/accept",
+      requestFor(0)
+    );
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toMatchObject({
+      status: "already_accepted",
+    });
+
+    const rejected = await fetchRuntimeTransportJson(
+      restarted.hub,
+      "/runtime-coordinator/head/accept",
+      requestFor(reservations + 50)
     );
     expect(rejected.status).toBe(503);
     await expect(rejected.json()).resolves.toMatchObject({
@@ -10038,9 +12096,44 @@ describe("runtime transport runtime coordinator transport contract", () => {
           workItems?: unknown[];
         }
       | undefined;
-    expect(admission?.activeHeadLifecycleIds).toHaveLength(1);
-    expect(admission?.workItems).toHaveLength(51);
+    expect(admission?.activeHeadLifecycleIds).toHaveLength(reservations);
+    expect(admission?.workItems).toHaveLength(reservations + 50);
     expect(admission?.referencesOverflowed).toBe(false);
+  });
+
+  it("rejects three reserved plus fifty-two waiting records despite the readable total ceiling of fifty-five", async () => {
+    const { hub, storageRecords } = createContextHarness();
+    await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/accept",
+      contextMigrationRequest("wait-bound")
+    );
+    const key =
+      runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+        TARGET_AGENT_PROFILE_ID
+      );
+    const admission = storageRecords.get(key) as {
+      workItems: Record<string, unknown>[];
+    };
+    const prototype = admission.workItems[0];
+    storageRecords.set(key, {
+      ...admission,
+      workItems: Array.from({ length: 55 }, (_, index) => ({
+        ...prototype,
+        dispatchId: `wait-bound-${index}`,
+        targetWakeLifecycleId: `wait-bound-${index}`,
+        executionContextId: `context-${index}`,
+        reservationState: index < 3 ? "reserved" : "waiting",
+      })),
+    });
+    expect(
+      await (
+        hub as unknown as RuntimeTransportHub
+      ).rpcReadAgentProfileExecutionState({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).toMatchObject({ status: "unavailable" });
   });
 
   it("fails closed without batch-reading corrupted over-limit execution references", async () => {
@@ -10644,7 +12737,6 @@ describe("runtime transport runtime coordinator transport contract", () => {
         hub,
         spaceStub,
         storageRecords,
-        storageSetAlarm,
         waitUntilTasks,
       } = createHarness();
       let applyCount = 0;
@@ -10698,7 +12790,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
           status: "retry_scheduled",
         },
       });
-      expect(storageSetAlarm).toHaveBeenCalledWith(1_700_000_005_000);
+      const scheduledAlarmAtMs = await readHousekeepingAlarm(hub);
+      expect(scheduledAlarmAtMs).toEqual(expect.any(Number));
+      expect(scheduledAlarmAtMs).toBeGreaterThanOrEqual(Date.now());
+      expect(scheduledAlarmAtMs).toBeLessThanOrEqual(1_700_000_005_000);
 
       nowSpy.mockReturnValue(1_700_000_006_000);
       await (
@@ -10836,7 +12931,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("keeps service-offline head waiting under RuntimeCoordinator ownership until the hard deadline", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
-      const { hub, state, storageRecords, storageSetAlarm } = createHarness();
+      const { hub, state, storageRecords } = createHarness();
       state.pendingDispatches.clear();
       await fetchRuntimeTransportJson(
         hub,
@@ -10860,7 +12955,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
         softDeadlineAtMs: 1_700_000_030_000,
         status: "waiting",
       });
-      expect(storageSetAlarm).toHaveBeenCalledWith(1_700_000_030_000);
+      const scheduledAlarmAtMs = await readHousekeepingAlarm(hub);
+      expect(scheduledAlarmAtMs).toEqual(expect.any(Number));
+      // The test advanced time without firing the earlier scheduled alarm.
+      expect(scheduledAlarmAtMs).toBeGreaterThanOrEqual(1_700_000_000_000);
+      expect(scheduledAlarmAtMs).toBeLessThanOrEqual(1_700_000_030_000);
       expect(
         findRuntimeCoordinatorHeadLifecycleRecord(storageRecords)
       ).toMatchObject({
@@ -10880,13 +12979,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("keeps a connected Service pending its first route report recoverable until the hard deadline", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
-      const {
-        appliedFailurePublicationCommands,
-        hub,
-        state,
-        storageRecords,
-        storageSetAlarm,
-      } = createHarness();
+      const { appliedFailurePublicationCommands, hub, state, storageRecords } =
+        createHarness();
       state.pendingDispatches.clear();
       const acceptRequest = buildRuntimeCoordinatorHeadAcceptRequest();
       await fetchRuntimeTransportJson(
@@ -10924,7 +13018,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
         userRecoveryAction: "wait_for_wake_route_report",
         waitingCategory: "wake_route_registration_pending",
       });
-      expect(storageSetAlarm).toHaveBeenCalledWith(1_700_000_030_000);
+      const scheduledAlarmAtMs = await readHousekeepingAlarm(hub);
+      expect(scheduledAlarmAtMs).toEqual(expect.any(Number));
+      // The test advanced time without firing the earlier scheduled alarm.
+      expect(scheduledAlarmAtMs).toBeGreaterThanOrEqual(1_700_000_000_000);
+      expect(scheduledAlarmAtMs).toBeLessThanOrEqual(1_700_000_030_000);
       expect(
         findRuntimeCoordinatorHeadLifecycleRecord(storageRecords)
       ).toMatchObject({
@@ -10981,7 +13079,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
       await acceptDefaultRuntimeCoordinatorHead(hub);
 
-      expect(storageSetAlarm).toHaveBeenCalledWith(1_700_000_030_000);
+      const scheduledAlarmAtMs = await readHousekeepingAlarm(hub);
+      expect(scheduledAlarmAtMs).toEqual(expect.any(Number));
+      expect(scheduledAlarmAtMs).toBeGreaterThanOrEqual(Date.now());
+      expect(scheduledAlarmAtMs).toBeLessThanOrEqual(1_700_000_030_000);
       storageSetAlarm.mockClear();
       nowSpy.mockReturnValue(1_700_000_031_000);
 
@@ -12743,6 +14844,125 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it.each([
+    false,
+    true,
+  ])("settles an accepted file-access refusal through existing Stop publication (first publication unavailable: %s)", async (unavailable) => {
+    const harness = createHarness();
+    const {
+      hub,
+      recordingD1,
+      socket,
+      spaceStub,
+      storageRecords,
+      waitUntilTasks,
+    } = harness;
+    const token = await issueDeliveryToken(harness);
+    if (unavailable) {
+      spaceStub.rpcApplyRuntimeCoordinatorWakeStopCommand.mockRejectedValueOnce(
+        new Error("Space unavailable")
+      );
+    }
+    const successful = buildSuccessfulPostMessageTaskResult();
+    const request = buildResultRequest({
+      executionTokenEcho: buildExecutionTokenEcho(token),
+      runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      taskResult: {
+        code: "service.task_result",
+        v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+        payload: {
+          agentId: successful.payload.agentId,
+          attemptId: "attempt-1",
+          taskId: successful.payload.taskId,
+          sourceEventId: successful.payload.sourceEventId,
+          deduped: false,
+          status: "failed",
+          errorType: "policy",
+          errorCode: "computer.file_access.owner_declined",
+          errorMessage: "Computer owner declined the boundary bypass",
+        },
+      },
+    });
+    const submit = () =>
+      (
+        hub as unknown as {
+          handleDispatchResultFrame(
+            socket: WebSocket,
+            payload: unknown
+          ): Promise<void>;
+        }
+      ).handleDispatchResultFrame(socket, request);
+    await submit();
+    await Promise.all(waitUntilTasks.splice(0));
+    if (unavailable) {
+      expect(
+        findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
+          ?.terminalOutcome
+      ).toBeNull();
+      expect(
+        findRuntimeCoordinatorWakeStoppedNoticePublicationRecord(storageRecords)
+      ).toBeUndefined();
+      const inbox = recordingD1.inboxRows.get("dispatch-1::attempt-1");
+      if (!inbox) {
+        throw new Error("Expected the accepted result receipt");
+      }
+      const originalFingerprint = inbox.execution_token_fingerprint;
+      inbox.execution_token_fingerprint =
+        "etfp_v1_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+      const retryAt = Date.now() + 10_000;
+      const nowSpy = vi.spyOn(Date, "now").mockReturnValue(retryAt);
+      try {
+        await (hub as unknown as { alarm(): Promise<void> }).alarm();
+        await Promise.all(waitUntilTasks.splice(0));
+        expect(
+          findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
+            ?.terminalOutcome
+        ).toBeNull();
+        expect(
+          findRuntimeCoordinatorWakeStoppedNoticePublicationRecord(
+            storageRecords
+          )
+        ).toBeUndefined();
+        inbox.execution_token_fingerprint = originalFingerprint;
+        nowSpy.mockReturnValue(retryAt + 30_000);
+        await (hub as unknown as { alarm(): Promise<void> }).alarm();
+        await Promise.all(waitUntilTasks.splice(0));
+      } finally {
+        nowSpy.mockRestore();
+      }
+    }
+    expect(
+      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+    ).toMatchObject({ status: "cancelled" });
+    expect(
+      recordingD1.inboxRows.get("dispatch-1::attempt-1")?.publish_state
+    ).toBe("reply_suppressed_stopped");
+    expect(
+      findRuntimeCoordinatorExecutionTokenAuthorityRecord(storageRecords)
+        ?.terminalOutcome
+    ).toMatchObject({
+      status: "cancelled",
+      reasonCode: "computer.file_access.owner_declined",
+    });
+    expect(
+      findRuntimeCoordinatorWakeStoppedNoticePublicationRecord(storageRecords)
+    ).toMatchObject({
+      status: "published",
+      reasonCode: "computer.file_access.owner_declined",
+    });
+    expect(
+      spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand
+    ).not.toHaveBeenCalled();
+    await submit();
+    await Promise.all(waitUntilTasks.splice(0));
+    expect(
+      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+    ).toMatchObject({ status: "cancelled" });
+    expect(
+      spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand
+    ).not.toHaveBeenCalled();
+  });
+
+  it.each([
     [false, "none"],
     [true, "none"],
     [true, "unavailable"],
@@ -13170,7 +15390,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
 
-  it("advances lifecycle only after validating the echoed execution token", async () => {
+  it.each([
+    false,
+    true,
+  ])("advances lifecycle only after validating the echoed execution token (acknowledgement: %s)", async (acknowledged) => {
     const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
       createHarness();
     const publishAgentReadinessInvalidated = vi.fn();
@@ -13208,6 +15431,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).handleDispatchLifecycleFrame(
       socket,
       buildLifecycleRequest({
+        ...(acknowledged
+          ? { acknowledgementId: "09ea9be9-3a69-4c95-81ed-0236f56efddd" }
+          : {}),
         executionTokenEcho: buildExecutionTokenEcho(executionToken),
         runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
       })
@@ -13217,7 +15443,25 @@ describe("runtime transport runtime coordinator transport contract", () => {
       buildDispatchAttemptKey("dispatch-1", "attempt-1")
     );
     expect(pending?.phase).toBe("running");
-    expect(sentFrames).toEqual([]);
+    expect(sentFrames).toEqual(
+      acknowledged
+        ? [
+            {
+              code: "daemon.dispatch.lifecycle_acknowledged",
+              payload: {
+                acknowledgementId: "09ea9be9-3a69-4c95-81ed-0236f56efddd",
+                dispatchId: "dispatch-1",
+                attemptId: "attempt-1",
+                connectionGeneration: 1,
+                accepted: true,
+                validForMs: expect.any(Number),
+                reasonCode: null,
+              },
+              v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+            },
+          ]
+        : []
+    );
     expect(
       getRuntimeCoordinatorEventCalls(recordingD1.calls).some(
         (call) => call.params[2] === "lifecycle_running"
@@ -13460,7 +15704,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(sentFrames).toEqual([]);
   });
 
-  it("projects and resolves one urgent Inbox action for the interaction owner", async () => {
+  it("projects and resolves one normal-priority Inbox review for the interaction owner", async () => {
     const { hub, recordingD1, sentFrames, socket, state } = createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
@@ -13489,7 +15733,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect([...recordingD1.interactionInboxRows.values()]).toEqual([
       expect.objectContaining({
         attention: "action_required",
-        importance: "urgent",
+        importance: "normal",
         kind: "agent_interaction",
         organization_id: "org-one",
         recipient_user_id: "owner-1",
@@ -16427,7 +18671,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
           }
         ).ctx.storage.setAlarm
       );
-      expect(setAlarm).toHaveBeenCalledWith(1_700_000_030_000);
+      const scheduledAlarmAtMs = await readHousekeepingAlarm(hub);
+      expect(scheduledAlarmAtMs).toEqual(expect.any(Number));
+      expect(scheduledAlarmAtMs).toBeGreaterThanOrEqual(Date.now());
+      expect(scheduledAlarmAtMs).toBeLessThanOrEqual(1_700_000_030_000);
       state.pendingDispatches.clear();
       nowSpy.mockReturnValue(1_700_000_030_000);
       await (
@@ -16494,8 +18741,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   it("keeps legacy pre-execution handoff as evidence instead of publishing final Space failure", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_005_000);
     try {
-      const { hub, spaceFetchRequests, storageRecords, storageSetAlarm } =
-        createHarness();
+      const { hub, spaceFetchRequests, storageRecords } = createHarness();
       const requestBody = {
         v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
         attemptId: "attempt-preexec-1",
@@ -16529,7 +18775,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
         reasonCode: "daemon.profile.offline",
         status: "waiting_for_recovery",
       });
-      expect(storageSetAlarm).toHaveBeenCalledWith(1_700_000_030_000);
+      const scheduledAlarmAtMs = await readHousekeepingAlarm(hub);
+      expect(scheduledAlarmAtMs).toEqual(expect.any(Number));
+      expect(scheduledAlarmAtMs).toBeGreaterThanOrEqual(Date.now());
+      expect(scheduledAlarmAtMs).toBeLessThanOrEqual(1_700_000_030_000);
 
       nowSpy.mockReturnValue(1_700_000_020_000);
       const redeliveryResponse = await fetchRuntimeTransportJson(
@@ -16802,7 +19051,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
         expect(commandState).toMatchObject({
           runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
         });
-        expect(setAlarm).toHaveBeenCalledWith(1_700_000_030_000);
+        expect(
+          setAlarm.mock.calls.some(
+            ([scheduledAtMs]) =>
+              scheduledAtMs >= Date.now() && scheduledAtMs <= 1_700_000_030_000
+          )
+        ).toBe(true);
         sentFrames.push(JSON.parse(String(message)));
       });
 
@@ -17483,6 +19737,492 @@ describe("runtime transport runtime coordinator transport contract", () => {
             call.query.includes("openMeldDaemon_runtime_coordinator_executions")
         )
       ).toBe(false);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("fails an occupied native conversation with its real cause and opens an owner decision", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const {
+        hub,
+        recordingD1,
+        sentFrames,
+        socket,
+        spaceFetchRequests,
+        state,
+        storageRecords,
+        waitUntilTasks,
+      } = createHarness();
+      const executionToken = await issueDeliveryToken({
+        hub,
+        sentFrames,
+        socket,
+        state,
+      });
+      state.pendingDispatches.clear();
+
+      await (
+        hub as unknown as {
+          handleDispatchLifecycleFrame: (
+            webSocket: WebSocket,
+            payload: unknown
+          ) => Promise<void>;
+        }
+      ).handleDispatchLifecycleFrame(
+        socket,
+        buildLifecycleRequest({
+          executionTokenEcho: buildExecutionTokenEcho(executionToken),
+          lifecycleAtMs: 1_700_000_000_300,
+          phase: "running",
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        })
+      );
+
+      // The Adapter reports the occupancy exactly once and then goes quiet, so
+      // the watchdog sees the same stale progress a lost computer produces.
+      // This fixture writes that one report directly.
+      const admissionKey =
+        runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+          TARGET_AGENT_PROFILE_ID
+        );
+      const admission = storageRecordsAdmission(storageRecords, admissionKey);
+      storageRecords.set(admissionKey, {
+        ...admission,
+        workItems: admission.workItems.map((item) =>
+          item.dispatchId === "dispatch-1"
+            ? { ...item, waitReason: "controller_conversation_occupied" }
+            : item
+        ),
+      });
+      const occupiedTargetWakeLifecycleId =
+        admission.workItems.find((item) => item.dispatchId === "dispatch-1")
+          ?.targetWakeLifecycleId ?? null;
+      expect(occupiedTargetWakeLifecycleId).not.toBeNull();
+
+      // The computer is fine in this case, so the Service stays connected and
+      // heartbeats through the wait. Without that the watchdog would keep the
+      // longer communication-recovery grace instead of deciding at five
+      // minutes.
+      const liveSession = state.sessionsById.get("daemon-session-1");
+      if (!liveSession) {
+        throw new Error("Expected the registered daemon session.");
+      }
+      // The watchdog needs an earlier check to compare against before the
+      // stale-progress policy can decide anything.
+      for (const checkAtMs of [1_700_000_031_000, 1_700_000_061_000]) {
+        liveSession.lastHeartbeatMs = checkAtMs;
+        nowSpy.mockReturnValue(checkAtMs);
+        await (
+          hub as unknown as {
+            alarm: () => Promise<void>;
+          }
+        ).alarm();
+      }
+      liveSession.lastHeartbeatMs = 1_700_000_300_300;
+
+      recordingD1.calls.length = 0;
+      sentFrames.length = 0;
+      spaceFetchRequests.length = 0;
+      nowSpy.mockReturnValue(1_700_000_300_300);
+      await (
+        hub as unknown as {
+          alarm: () => Promise<void>;
+        }
+      ).alarm();
+
+      // The terminal outcome also withdraws the local attempt, so the replacement
+      // branch the owner may choose does not race a wait that is still queued on
+      // the occupied conversation.
+      expect(sentFrames).toEqual([
+        expect.objectContaining({
+          code: "daemon.local_agent_control.cancel",
+          payload: {
+            requestId: `wake-stop:${RUNTIME_COORDINATOR_EXECUTION_ID}`,
+            payload: {
+              reason: "controller_conversation_occupied_timeout",
+              runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+              target: {
+                by: "task",
+                taskId: "task-1",
+              },
+            },
+          },
+        }),
+      ]);
+      expect(spaceFetchRequests).toHaveLength(1);
+      expect(spaceFetchRequests[0]?.body).toMatchObject({
+        data: {
+          noticeType: "terminal_failure",
+          reason: "runtime.controller_conversation_occupied",
+          reasonCode: "runtime.controller_conversation_occupied",
+          text: "Codex Agent could not use this conversation because another app has it open. Continue on a new branch of it, or skip the work.",
+        },
+      });
+      const occupiedTerminalEvent = getRuntimeCoordinatorEventCalls(
+        recordingD1.calls
+      ).find(
+        (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
+      );
+      expect(
+        JSON.parse(String(occupiedTerminalEvent?.params[7]))
+      ).toMatchObject({
+        action: "timeout_terminal",
+        controllerConversationOccupied: {
+          expiryCause: "controller_conversation_occupied",
+          progressEvidenceStaleTerminalAfterMs: 300_000,
+        },
+        reasonCode: "runtime.controller_conversation_occupied",
+        trigger: "alarm",
+      });
+      expect(storageRecords.get(admissionKey)).toMatchObject({
+        recoveryGate: {
+          interruptedWork: { dispatchId: "dispatch-1" },
+          status: "awaiting_occupancy_decision",
+        },
+      });
+      expect(
+        storageRecords.get(
+          buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+            TARGET_AGENT_PROFILE_ID
+          )
+        )
+      ).toMatchObject({
+        desiredStatus: "open",
+        stage: "resolve_occupied_conversation",
+        targetWakeLifecycleId: occupiedTargetWakeLifecycleId,
+      });
+      // Core closed this execution on stale evidence, so nothing yet proves the
+      // attempt on the computer is gone.
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorRunCommandStateStorageKey(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )
+      ).toMatchObject({
+        localAttemptWithdrawal: { status: "requested" },
+      });
+      await expect(
+        (
+          hub as unknown as {
+            rpcReadAgentProfileWorkRecovery: (input: {
+              ownerUserId: string;
+              targetProfileId: string;
+            }) => Promise<unknown>;
+          }
+        ).rpcReadAgentProfileWorkRecovery({
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toMatchObject({
+        interruptedLocalAttempt: "awaiting_withdrawal",
+      });
+
+      // Accepting the request is not the same fact as the attempt being gone,
+      // so an older Service that can only say `accepted` proves nothing.
+      await submitWakeStopLocalControlResult({
+        hub,
+        socket,
+        state,
+        waitUntilTasks,
+      });
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorRunCommandStateStorageKey(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )
+      ).toMatchObject({
+        localAttemptWithdrawal: { status: "requested" },
+      });
+
+      // The Service states it withdrew the attempt before any turn began. The
+      // Wake Stop lifecycle cannot advance a terminal execution, but that is
+      // the only proof replacement work has, so it must be kept.
+      await submitWakeStopLocalControlResult({
+        hub,
+        reasonCode: "adapter.cancel.withdrawn_before_start",
+        socket,
+        state,
+        waitUntilTasks,
+      });
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorRunCommandStateStorageKey(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )
+      ).toMatchObject({
+        localAttemptWithdrawal: {
+          reasonCode: "adapter.cancel.withdrawn_before_start",
+          status: "withdrawn",
+        },
+      });
+      await expect(
+        (
+          hub as unknown as {
+            rpcReadAgentProfileWorkRecovery: (input: {
+              ownerUserId: string;
+              targetProfileId: string;
+            }) => Promise<unknown>;
+          }
+        ).rpcReadAgentProfileWorkRecovery({
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toMatchObject({
+        interruptedLocalAttempt: "withdrawn",
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("keeps a failed head reread unknown instead of reporting that nothing started", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const { hub, sentFrames, socket, state, storageRecords } = createHarness({
+        agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+      });
+      await issueDeliveryToken({ hub, sentFrames, socket, state });
+      const admissionKey =
+        runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+          TARGET_AGENT_PROFILE_ID
+        );
+      const admission = storageRecordsAdmission(storageRecords, admissionKey);
+      const interrupted = admission.workItems[0];
+      if (!interrupted) {
+        throw new Error("Expected the delivered Wake to hold the work slot.");
+      }
+      storageRecords.set(admissionKey, {
+        ...admission,
+        recoveryGate: {
+          continuationClientMessageId: null,
+          interruptedWork: interrupted,
+          status: "awaiting_occupancy_decision",
+          updatedAtMs: 1_700_000_000_000,
+        },
+        workItems: [],
+      });
+
+      const withdrawalHub = hub as unknown as {
+        readRuntimeCoordinatorHeadLifecycleRecord: (
+          targetWakeLifecycleId: string
+        ) => Promise<unknown>;
+        rpcRequestAgentProfileWorkLocalAttemptWithdrawal: (input: {
+          expectedInterruptedTargetWakeLifecycleId: string;
+          ownerUserId: string;
+          targetProfileId: string;
+        }) => Promise<unknown>;
+      };
+      // The recovery read resolves the head from admission storage and still
+      // reports `awaiting_withdrawal`; only this call's own reread fails.
+      withdrawalHub.readRuntimeCoordinatorHeadLifecycleRecord = () =>
+        Promise.reject(new Error("storage unavailable"));
+
+      await expect(
+        withdrawalHub.rpcRequestAgentProfileWorkLocalAttemptWithdrawal({
+          expectedInterruptedTargetWakeLifecycleId:
+            interrupted.targetWakeLifecycleId,
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toEqual({ status: "unavailable" });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("refuses a stop requested after the turn started as proof the attempt is gone", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const { hub, sentFrames, socket, state, storageRecords, waitUntilTasks } =
+        createHarness({
+          agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+        });
+      await issueDeliveryToken({ hub, sentFrames, socket, state });
+      enableWakeStopControl(state);
+      await requestRuntimeCoordinatorWakeStop(hub);
+
+      await submitWakeStopLocalControlResult({
+        hub,
+        reasonCode: "adapter.cancel.stop_requested_after_start",
+        socket,
+        state,
+        waitUntilTasks,
+      });
+
+      // The turn had already started, so its result and effects still stand.
+      // Interrupting asks for a stop; it does not prove one happened.
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorRunCommandStateStorageKey(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )
+      ).not.toMatchObject({
+        localAttemptWithdrawal: { status: "withdrawn" },
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("refuses a withdrawal acknowledgement that names a different task", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const { hub, sentFrames, socket, state, storageRecords, waitUntilTasks } =
+        createHarness({
+          agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+        });
+      await issueDeliveryToken({ hub, sentFrames, socket, state });
+      enableWakeStopControl(state);
+      await requestRuntimeCoordinatorWakeStop(hub);
+
+      await submitWakeStopLocalControlResult({
+        hub,
+        reasonCode: "adapter.cancel.withdrawn_before_start",
+        resolvedTaskId: "task-from-another-run",
+        socket,
+        state,
+        waitUntilTasks,
+      });
+
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorRunCommandStateStorageKey(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )
+      ).not.toMatchObject({
+        localAttemptWithdrawal: { status: "withdrawn" },
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("keeps a released conversation on the honest stall cause with no owner decision", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const {
+        hub,
+        recordingD1,
+        sentFrames,
+        socket,
+        spaceFetchRequests,
+        state,
+        storageRecords,
+      } = createHarness();
+      const executionToken = await issueDeliveryToken({
+        hub,
+        sentFrames,
+        socket,
+        state,
+      });
+      state.pendingDispatches.clear();
+      const lifecycleHub = hub as unknown as {
+        handleDispatchLifecycleFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      };
+      const reportOccupancy = async (
+        occupancyState: "available" | "occupied",
+        atMs: number
+      ) => {
+        nowSpy.mockReturnValue(atMs);
+        await lifecycleHub.handleDispatchLifecycleFrame(
+          socket,
+          buildLifecycleRequest({
+            agentControllerConversationOccupancy: {
+              agentControllerConversationId: "conversation-1",
+              contractVersion: 1,
+              state: occupancyState,
+            },
+            executionTokenEcho: buildExecutionTokenEcho(executionToken),
+            lifecycleAtMs: atMs,
+            phase: "running",
+            runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          })
+        );
+      };
+      const admissionKey =
+        runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+          TARGET_AGENT_PROFILE_ID
+        );
+      const readHeadWorkItem = () =>
+        storageRecordsAdmission(storageRecords, admissionKey).workItems.find(
+          (item) => item.dispatchId === "dispatch-1"
+        );
+
+      await reportOccupancy("occupied", 1_700_000_000_200);
+      expect(readHeadWorkItem()).toMatchObject({
+        waitReason: "controller_conversation_occupied",
+      });
+      // Codex Desktop lets go of the thread before the deadline. The wait
+      // reason is what the terminal reads, so releasing it has to put the run
+      // back on the ordinary stall path instead of accusing another app.
+      await reportOccupancy("available", 1_700_000_000_300);
+      expect(readHeadWorkItem()).not.toHaveProperty("waitReason");
+
+      const liveSession = state.sessionsById.get("daemon-session-1");
+      if (!liveSession) {
+        throw new Error("Expected the registered daemon session.");
+      }
+      for (const checkAtMs of [1_700_000_031_000, 1_700_000_061_000]) {
+        liveSession.lastHeartbeatMs = checkAtMs;
+        nowSpy.mockReturnValue(checkAtMs);
+        await (
+          hub as unknown as {
+            alarm: () => Promise<void>;
+          }
+        ).alarm();
+      }
+      liveSession.lastHeartbeatMs = 1_700_000_300_300;
+
+      recordingD1.calls.length = 0;
+      spaceFetchRequests.length = 0;
+      nowSpy.mockReturnValue(1_700_000_300_300);
+      await (
+        hub as unknown as {
+          alarm: () => Promise<void>;
+        }
+      ).alarm();
+
+      expect(spaceFetchRequests).toHaveLength(1);
+      expect(spaceFetchRequests[0]?.body).toMatchObject({
+        data: {
+          noticeType: "terminal_failure",
+          reason: "runtime.progress_stale",
+          reasonCode: "runtime.progress_stale",
+        },
+      });
+      const staleTerminalEvent = getRuntimeCoordinatorEventCalls(
+        recordingD1.calls
+      ).find(
+        (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
+      );
+      expect(JSON.parse(String(staleTerminalEvent?.params[7]))).toMatchObject({
+        action: "timeout_terminal",
+        progressStale: { expiryCause: "local_progress_stale" },
+        reasonCode: "runtime.progress_stale",
+      });
+      const releasedAdmission = storageRecords.get(admissionKey) as
+        | { recoveryGate: unknown }
+        | undefined;
+      // The stall retires the work and, with nothing queued behind it, the
+      // admission record goes too. Either way the owner is left no decision.
+      expect(releasedAdmission?.recoveryGate ?? null).toBeNull();
+      expect(
+        storageRecords.get(
+          buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+            TARGET_AGENT_PROFILE_ID
+          )
+        )
+      ).toBeUndefined();
     } finally {
       nowSpy.mockRestore();
     }
@@ -19826,7 +22566,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
       expect(success.appliedFinalizationCommands).toHaveLength(1);
       expect(success.spaceStub.rpcCloseAgentStream).not.toHaveBeenCalled();
-      expect(success.storageSetAlarm).toHaveBeenCalledWith(1_700_000_005_000);
+      const scheduledAlarmAtMs = await readHousekeepingAlarm(success.hub);
+      expect(scheduledAlarmAtMs).toEqual(expect.any(Number));
+      expect(scheduledAlarmAtMs).toBeGreaterThanOrEqual(Date.now());
+      expect(scheduledAlarmAtMs).toBeLessThanOrEqual(1_700_000_005_000);
       expect(
         success.storageRecords.get(
           "runtime-coordinator:finalization-retry:index"
@@ -19881,7 +22624,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
       await Promise.all(failure.waitUntilTasks);
 
       expect(failure.appliedFailurePublicationCommands).toHaveLength(1);
-      expect(failure.storageSetAlarm).toHaveBeenCalledWith(1_700_000_005_000);
+      const failureAlarmAtMs = await readHousekeepingAlarm(failure.hub);
+      expect(failureAlarmAtMs).toEqual(expect.any(Number));
+      expect(failureAlarmAtMs).toBeGreaterThanOrEqual(Date.now());
+      expect(failureAlarmAtMs).toBeLessThanOrEqual(1_700_000_005_000);
       expect(
         findRuntimeCoordinatorHeadLifecycleRecord(failure.storageRecords)
       ).toMatchObject({
@@ -19986,7 +22732,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ).toBe("reply_publication_failed");
       expect(waitUntilTasks.length).toBeGreaterThan(0);
       await Promise.all(waitUntilTasks);
-      expect(storageSetAlarm).toHaveBeenCalledWith(1_700_000_005_000);
+      const scheduledAlarmAtMs = await readHousekeepingAlarm(hub);
+      expect(scheduledAlarmAtMs).toEqual(expect.any(Number));
+      expect(scheduledAlarmAtMs).toBeGreaterThanOrEqual(Date.now());
+      expect(scheduledAlarmAtMs).toBeLessThanOrEqual(1_700_000_005_000);
 
       recordingD1.inboxRows.delete("dispatch-1::attempt-1");
       recordingD1.calls.length = 0;
@@ -23631,6 +26380,172 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toEqual([]);
   });
 
+  it("freezes the corrected reply checkpoint only after review acceptance and rejects old result replays", async () => {
+    const {
+      hub,
+      recordingD1,
+      sentFrames,
+      socket,
+      spaceStub,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = createContextHarness();
+    const headRequest = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({ fingerprint: "c" }),
+        contextRequest: {
+          required: true,
+          scope: {
+            organizationId: "org-1",
+            requesterProfileId: "requester-1",
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            threadId: null,
+          },
+          selection: {
+            mode: "new",
+            access: "space_context",
+            workspace: "isolated",
+          },
+        },
+      },
+    });
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+      headRequest,
+    });
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("Expected session");
+    }
+    session.capabilities.agentReplyContextReview = true;
+    const contextRecord = [...storageRecords.entries()].find(([key]) =>
+      key.startsWith("runtime-coordinator:execution-context:v1:")
+    )?.[1] as { assignment: { id: string } };
+    const contextId = contextRecord.assignment.id;
+    const publish =
+      spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand as ReturnType<
+        typeof vi.fn
+      >;
+    publish.mockImplementationOnce(
+      async (command: RuntimeCoordinatorFinalizationCommand) => ({
+        finalizationCommandId: command.finalizationCommandId,
+        ok: false,
+        publicationErrorCode: "space.agent_reply.context_changed",
+        publishedSignalId: null,
+        publishState: "reply_review_required",
+        status: "review_required",
+      })
+    );
+    const resultFor = (turn: string) => {
+      const taskResult = buildSuccessfulPostMessageTaskResult();
+      return buildResultRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        executionIdentityEcho: {
+          echoSource: "daemon_delivery_context",
+          core: {
+            ...deliveryExecutionIdentity.core,
+            bindingId: "binding-accepted-1",
+            openMeldServiceRuntimeId: {
+              source: "runtime_registry_authority",
+              value: "runtime-accepted-1",
+            },
+          },
+        },
+        taskResult: openMeldDaemonTaskResultEnvelopeSchema.parse({
+          ...taskResult,
+          payload: {
+            ...taskResult.payload,
+            executionContextId: contextId,
+            executionContextCompletion: {
+              contextId,
+              nativeConversationId: "native-corrected",
+              runtimeWorkspaceFingerprint: "sha256:workspace",
+              completedHistoryId: turn,
+            },
+            output: turn,
+          },
+        }),
+      });
+    };
+    const submit = (request: RuntimeTransportSubmitTaskResultRequest) =>
+      (
+        hub as unknown as {
+          handleDispatchResultFrame(
+            socket: WebSocket,
+            request: unknown
+          ): Promise<void>;
+        }
+      ).handleDispatchResultFrame(socket, request);
+    await submit(resultFor("initial-turn"));
+    const wakeKey = [...storageRecords.keys()].find((key) =>
+      key.startsWith("runtime-coordinator:execution-context-wake:v1:")
+    );
+    if (!wakeKey) {
+      throw new Error("Expected Wake association");
+    }
+    expect(storageRecords.get(wakeKey)).not.toHaveProperty("completion");
+    expect(recordingD1.inboxRows.has("dispatch-1::attempt-1")).toBe(false);
+    expect(publish).toHaveBeenCalledOnce();
+    await submit(resultFor("corrected-turn"));
+    await Promise.all(waitUntilTasks.splice(0));
+    expect(storageRecords.get(wakeKey)).toMatchObject({
+      completion: { completedHistoryId: "corrected-turn" },
+    });
+    const acceptedCommand = [...storageRecords.entries()].find(([key]) =>
+      key.startsWith(
+        RUNTIME_COORDINATOR_FINALIZATION_COMMAND_STORAGE_KEY_PREFIX
+      )
+    )?.[1];
+    expect(acceptedCommand).toMatchObject({
+      acceptedResult: {
+        taskResult: {
+          payload: {
+            output: "corrected-turn",
+            executionContextCompletion: {
+              completedHistoryId: "corrected-turn",
+            },
+          },
+        },
+      },
+    });
+    await submit(resultFor("initial-turn"));
+    expect(storageRecords.get(wakeKey)).toMatchObject({
+      completion: { completedHistoryId: "corrected-turn" },
+    });
+    const fork = contextMigrationRequest("fork-corrected");
+    if (!fork.acceptedDispatchSnapshot?.contextRequest) {
+      throw new Error("Expected fork request");
+    }
+    fork.acceptedDispatchSnapshot.contextRequest.selection = {
+      mode: "fork",
+      sourceWakeId:
+        headRequest.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+      access: "space_context",
+      workspace: "isolated",
+    };
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          hub,
+          "/runtime-coordinator/head/accept",
+          fork
+        )
+      ).json()
+    ).toMatchObject({
+      acceptedDispatchSnapshot: {
+        executionContext: {
+          forkSource: { completedHistoryId: "corrected-turn" },
+        },
+      },
+    });
+  });
+
   it("returns review_required without accepting the result when a capable Service proposed a stale reply", async () => {
     const {
       hub,
@@ -24035,7 +26950,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
   });
 
-  it("classifies late lifecycle after accepted result as terminal token progress", async () => {
+  it("refuses execution admission after the Coordinator has terminalized the execution", async () => {
     const { hub, recordingD1, sentFrames, socket, state } = createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
@@ -24071,11 +26986,22 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).handleDispatchLifecycleFrame(
       socket,
       buildLifecycleRequest({
+        acknowledgementId: "c0a68f0f-d591-4d8d-9000-f2f7f036363d",
         executionTokenEcho: buildExecutionTokenEcho(executionToken),
         runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
       })
     );
 
+    expect(sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.dispatch.lifecycle_acknowledged",
+        payload: expect.objectContaining({
+          acknowledgementId: "c0a68f0f-d591-4d8d-9000-f2f7f036363d",
+          accepted: false,
+          reasonCode: "execution_token_terminal_late",
+        }),
+      })
+    );
     expect(sentFrames).toContainEqual(
       expect.objectContaining({
         code: "daemon.error",
@@ -24098,7 +27024,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
 
-  it("rejects an expired token result before result inbox acceptance", async () => {
+  it("rejects expired execution admission and result before result inbox acceptance", async () => {
     const { hub, recordingD1, sentFrames, socket, state, storageRecords } =
       createHarness();
     const executionToken = await issueDeliveryToken({
@@ -24130,6 +27056,32 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
     recordingD1.calls.length = 0;
     sentFrames.length = 0;
+
+    await (
+      hub as unknown as {
+        handleDispatchLifecycleFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchLifecycleFrame(
+      socket,
+      buildLifecycleRequest({
+        acknowledgementId: "13610bed-8453-4d6d-bbef-8f0b2545a3a0",
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      })
+    );
+    expect(sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.dispatch.lifecycle_acknowledged",
+        payload: expect.objectContaining({
+          acknowledgementId: "13610bed-8453-4d6d-bbef-8f0b2545a3a0",
+          accepted: false,
+          reasonCode: "execution_token_expired",
+        }),
+      })
+    );
 
     await (
       hub as unknown as {

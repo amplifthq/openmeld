@@ -12,28 +12,83 @@ import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { SessionExpiredCard } from "#/components/auth/session-expired-card";
 import { toSessionExpiredState } from "#/lib/session-expired";
+import { readSpaceMembersPanelOpen } from "#/lib/spaces/members-panel-storage";
+import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
+import { SpaceConversationSkeleton } from "./space-conversation-skeleton";
+import { SpaceWindowHeader } from "./space-header";
+import { SpaceThreadLoadingPanel } from "./space-thread-loading";
 
-export function SpaceLandingLoadingShell(input: { composer?: ReactNode } = {}) {
+export function SpaceLandingLoadingShell(
+	input: {
+		composer?: ReactNode;
+		membersPanelWidth?: string;
+		membersOpen?: boolean;
+		spaceId?: string;
+		threadOpen?: boolean;
+		title?: string;
+	} = {}
+) {
+	const membersOpen =
+		input.membersOpen ??
+		(input.spaceId
+			? readSpaceMembersPanelOpen({ spaceId: input.spaceId }) === true
+			: false);
 	return (
-		<section className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
-			<header className="flex h-[var(--space-conversation-header-height)] shrink-0 items-center border-border border-b px-4">
-				<div className="flex min-w-0 items-center gap-4">
-					<span className="font-medium text-sm">Messages</span>
-					<Skeleton className="h-5 w-40 max-w-full motion-reduce:animate-none" />
-				</div>
-			</header>
-			<div aria-busy="true" className="min-h-0 flex-1 overflow-hidden">
-				<output className="sr-only">Loading messages…</output>
+		<div
+			className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col"
+			data-space-members-panel-open={membersOpen}
+			data-space-thread-panel-open={input.threadOpen}
+			style={
+				{
+					"--space-members-panel-width":
+						input.membersPanelWidth ??
+						SPACE_PANEL_WIDTH_METRICS.members.defaultWidth,
+				} as CSSProperties
+			}
+		>
+			<SpaceWindowHeader
+				navigation={<span className="text-sm">Messages</span>}
+				title={input.title ?? ""}
+				titleAdornment={
+					input.title ? undefined : (
+						<Skeleton className="h-5 w-40 motion-reduce:animate-none" />
+					)
+				}
+			/>
+			<div className="flex min-h-0 flex-1 overflow-hidden">
+				<section className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
+					<div aria-busy="true" className="min-h-0 flex-1 overflow-hidden">
+						<output className="sr-only">Loading messages…</output>
+						<div className="py-4" data-space-conversation-content-width="">
+							<SpaceConversationSkeleton />
+						</div>
+					</div>
+					<footer className="shrink-0 bg-background">
+						<div className="py-4" data-space-conversation-content-width="">
+							{input.composer ?? (
+								<Skeleton className="h-[102px] w-full rounded-2xl motion-reduce:animate-none" />
+							)}
+						</div>
+					</footer>
+				</section>
+				{input.threadOpen ? <SpaceThreadLoadingPanel /> : null}
+				{membersOpen ? (
+					<aside
+						aria-busy="true"
+						aria-label="Members"
+						className="hidden h-full shrink-0 flex-col gap-4 border-l p-4 xl:flex"
+						style={{ width: "min(var(--space-members-panel-width), 100vw)" }}
+					>
+						<span className="font-medium text-base">Members</span>
+						<Skeleton className="h-10 w-full motion-reduce:animate-none" />
+						<Skeleton className="h-10 w-full motion-reduce:animate-none" />
+					</aside>
+				) : null}
 			</div>
-			<footer className="shrink-0 border-border border-t p-4">
-				{input.composer ?? (
-					<Skeleton className="h-28 w-full motion-reduce:animate-none" />
-				)}
-			</footer>
-		</section>
+		</div>
 	);
 }
 

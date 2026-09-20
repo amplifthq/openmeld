@@ -291,6 +291,7 @@ const resolveDefaultClaudeCodeInvoke = (input: {
         }
       : undefined;
     const result = await invokeClaudeWithSingleContextHealLocal({
+      executionContext: dispatchInput.executionContext,
       agentControllerPermissionMode:
         dispatchInput.agentControllerPermissionMode,
       launchContract,

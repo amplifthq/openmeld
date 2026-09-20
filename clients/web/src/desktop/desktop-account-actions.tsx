@@ -25,7 +25,7 @@ export function DesktopSignOutMenuItem({ index }: { index: number }) {
 			}
 		>
 			<SignOutIcon />
-			Sign out of Desktop
+			Sign out
 		</FluidDropdownMenuItem>
 	);
 }
@@ -39,8 +39,9 @@ export function DesktopAccountActions() {
 		<section className="space-y-3">
 			<h2 className="font-medium text-sm">Desktop sign-in</h2>
 			<p className="text-muted-foreground text-sm">
-				Manage sign-in security, CLI access, and other sessions in OpenMeld Web.
-				To use another account here, sign out and sign in with your browser.
+				Manage sign-in security, CLI access, and other sessions in the OpenMeld
+				web app. To use another account here, sign out and sign in with your
+				browser.
 			</p>
 			<p className="text-muted-foreground text-sm">
 				Signing out of Desktop leaves this computer’s OpenMeld Service running.
@@ -81,7 +82,7 @@ export function DesktopAccountActions() {
 				}
 				variant="outline"
 			>
-				{signOut.isPending ? "Signing out…" : "Sign out of Desktop"}
+				{signOut.isPending ? "Signing out…" : "Sign out"}
 			</Button>
 		</section>
 	);

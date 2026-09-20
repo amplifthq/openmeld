@@ -126,6 +126,7 @@ export {
   type SpaceDispatchHistoryState,
 } from "./read-projection/dispatch-history";
 export {
+  buildBareMentionContext,
   buildDispatchQuotedMessage,
   renderDispatchSourceText,
 } from "./read-projection/dispatch-source-context";
@@ -200,11 +201,13 @@ export {
   buildWakeProgressMessage,
   clearWakeProgressItemsForSignal,
   createWakeProgressItem,
+  doWakeProgressItemsMatch,
   filterVisibleWakeProgressItems,
   hasVisibleActiveWakeProgress,
   isActiveWakeProgressItem,
   isWakeClosingSystemNoticeType,
   isWakeProgressSourceSignalRecoverable,
   mergeWakeProgressItems,
+  readWakeProgressTerminalSignalEvidence,
   type WakeProgressDraft,
 } from "./wake-progress/wake-progress-projection";

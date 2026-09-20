@@ -32,6 +32,7 @@ import {
   addOrganizationDirectoryProfilesToSpaceBodySchema,
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
+  agentProfileExecutionModeResponseSchema,
   authRpcResolveUserDisplayNameResultSchema,
   buildAgentTaskKey,
   buildSpaceComposerPublishedFileId,
@@ -272,6 +273,7 @@ import {
   resolveSpaceComposerUploadScopeResponseSchema,
   respondToSpaceAgentInteractionInputSchema,
   runtimeReportingRouteParamsSchema,
+  runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
   SPACE_FILE_MAX_SIZE_BYTES,
@@ -320,6 +322,7 @@ import {
   submitRuntimeRegistrationResponseSchema,
   summarizeComputerFileAccessPolicy,
   updateAgentProfileDefaultProjectRpcInputSchema,
+  updateAgentProfileExecutionModeBodySchema,
   updateAgentProfilePrimaryBindingAgentControllerCollaborationModeBodySchema,
   updateAgentProfilePrimaryBindingAgentControllerPermissionModeBodySchema,
   updateAgentProfilePrimaryBindingModelSelectionBodySchema,
@@ -347,6 +350,7 @@ import type {
   AgentExecutionReadinessTargetRuntime,
   AgentProfileBindingOpenCodePermission,
   AgentProfileBindingProjection,
+  AgentProfileExecutionModeResponse,
   AgentStreamToolPart,
   AgentTaskCompletionCondition,
   ArchiveProjectRpcInput,
@@ -491,6 +495,7 @@ import type {
   CreateSpaceDiagnosticReportResponse,
   CreateSpaceFolderBody,
   CreateSpaceFolderResponse,
+  CreateSpaceTaskBody,
   CurrentAgentProfileSessionLookupResponse,
   CurrentDeviceTargetResponse,
   CurrentLocalAgentInstallationsResponse,
@@ -551,6 +556,7 @@ import type {
   ListSpaceFileRevisionsResponse,
   ListSpaceFilesQuery,
   ListSpaceFilesResponse,
+  ListSpaceTasksResponse,
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsQuery,
   ListSpaceThreadSignalsResponse,
@@ -576,6 +582,7 @@ import type {
   MessageChannelProvider,
   MessageChannelSetupRequestBody,
   MessageChannelSetupRequestResponse,
+  MutateSpaceTaskBody,
   NotifyAgentProfileRouteCatalogChangedBody,
   NotifyAgentProfileRouteCatalogChangedResponse,
   NotifyAgentProfilesRouteCatalogChangedBody,
@@ -670,12 +677,16 @@ import type {
   SpaceHistoryNavigation,
   SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
+  SpaceLinkJoinPolicy,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceMessageAttachment,
   SpaceMessagePinMutation,
   SpaceMessagePinsResponse,
   SpaceSignalAuthoringPolicy,
+  SpaceTaskMutationReceipt,
+  SpaceTaskPhase,
+  SpaceTaskResponse,
   SpaceThreadContext,
   SpaceViewerMembershipResponse,
   StartCenterAgentMemberResearchResponse,
@@ -738,6 +749,7 @@ import {
   readPreloadedRuntimeDeviceDisplayName,
   resolveCoreAgentExecutionReadinessForProfile,
 } from "../agent-execution/application/agent-execution-readiness-service";
+import { readAgentProfileUsage } from "../agent-execution/application/agent-profile-usage";
 import { acceptProviderConversationProofRecord } from "../agent-execution/infrastructure/d1/provider-conversation-proof-repo";
 import { projectOrganizationDirectoryAgentProfileOperationalContext } from "../agent-profile/application/agent-profile-operational-context";
 import { resolveAgentProfileWorkRecoveryAuthScope } from "../agent-profile/application/agent-profile-work-recovery-auth-scope";
@@ -1404,9 +1416,15 @@ export function rpcDiscoverPeopleComputerProjects(
     });
   }
   const { deviceId, runtimeLane, ...request } = parsed.data;
-  const target = { deviceId, runtimeLane };
+  return buildPeopleComputerProjectControlRpc({
+    deviceId,
+    runtimeLane,
+  }).discoverProjects(env, request);
+}
+
+function buildPeopleComputerProjectControlRpc(target: PeopleComputerTarget) {
   return createLocalProjectControlRpc({
-    resolveCurrentTarget: async ({ env: targetEnv, userId }) => {
+    resolveCurrentTarget: async ({ capability, env: targetEnv, userId }) => {
       const { localRuntimes, ownerService } =
         await resolveCurrentLocalServiceContext({
           env: targetEnv,
@@ -1419,19 +1437,52 @@ export function rpcDiscoverPeopleComputerProjects(
         ownerService,
       });
       if (
-        !projectPeopleComputerControls(session).localProjectControl
-          .discoverProjects
+        session.executionCompatibility.status !== "compatible" ||
+        session.capabilities.localProjectControl?.[capability] !== true
       ) {
         throw createCoreRpcHttpError({
           status: 409,
           code: "service_update_required",
           reason:
-            "Update OpenMeld Service in this environment before checking Project folders.",
+            "Update OpenMeld Service in this environment before managing Project folders.",
         });
       }
       return target;
     },
-  }).discoverProjects(env, request);
+  });
+}
+
+export function rpcConnectPeopleComputerProjectCandidate(
+  env: CoreBindings,
+  input: ConnectCandidateInput & PeopleComputerTarget
+) {
+  const { deviceId, runtimeLane, ...request } = input;
+  return buildPeopleComputerProjectControlRpc({
+    deviceId,
+    runtimeLane,
+  }).connectCandidate(env, request);
+}
+
+export function rpcConnectPeopleComputerProjectPath(
+  env: CoreBindings,
+  input: ConnectDeclaredPathInput & PeopleComputerTarget
+) {
+  const { deviceId, runtimeLane, ...request } = input;
+  return buildPeopleComputerProjectControlRpc({
+    deviceId,
+    runtimeLane,
+  }).connectDeclaredPath(env, request);
+}
+
+export function rpcSetPeopleComputerProjectDefaultConnection(
+  env: CoreBindings,
+  input: SetDefaultConnectionInput & PeopleComputerTarget
+) {
+  const { deviceId, runtimeLane, ...request } = input;
+  return buildPeopleComputerProjectControlRpc({
+    deviceId,
+    runtimeLane,
+  }).setDefaultConnection(env, request);
 }
 
 function buildComputerFileAccessRpc(target?: PeopleComputerTarget) {
@@ -1893,6 +1944,10 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   rpcMessagePins(
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse>;
+  rpcListTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse>;
+  rpcGetTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse>;
+  rpcCreateTask(input: CreateSpaceTaskInput): Promise<SpaceTaskMutationReceipt>;
+  rpcMutateTask(input: MutateSpaceTaskInput): Promise<SpaceTaskMutationReceipt>;
   rpcGetBoard(input: GetSpaceBoardInput): Promise<SpaceBoardRoomProjection>;
   rpcGetBoardResult(
     input: GetSpaceBoardInput
@@ -2218,6 +2273,7 @@ export type CreateSpaceResult = {
 };
 
 export type ListSignalsInput = {
+  q?: string;
   spaceId: string;
   afterTs?: number;
   cursor?: string;
@@ -2239,6 +2295,7 @@ export type ListSignalsInput = {
 };
 
 export type ListSignalsResult = {
+  searchIndexing?: boolean;
   signals: SignalEnvelope[];
   nextCursor: string | null;
 };
@@ -2261,6 +2318,7 @@ export async function rpcMutateSpaceMessage(
 }
 
 export type PostSignalInput = {
+  contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
   deviceWait?: SignalText["data"]["deviceWait"];
   agentStreamId?: string;
   spaceId: string;
@@ -2354,6 +2412,12 @@ export type ExecuteExecutionRecoveryInput = {
 
 export type StartUsageExhaustedContinuationInput = {
   continuationClientMessageId: string;
+  /**
+   * Set only when the continuation cannot reuse the interrupted conversation.
+   * An occupied native conversation is the case: the re-post has to name the
+   * branch explicitly, because `auto` would resolve back to the same context.
+   */
+  contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
   interruptedClientMessageId: string;
   interruptedDispatchId: string;
   interruptedSourceSignalId: string;
@@ -2464,6 +2528,7 @@ export type CloseSpaceAgentStreamInput = {
 };
 
 export type GetSpaceBootstrapInput = ListSignalsInput & {
+  includeAgentReadiness?: boolean;
   includeAgentStreamPresence?: boolean;
 };
 
@@ -2717,7 +2782,10 @@ export type ClearSpacePasswordInput = {
 export type SetSpaceAccessModeInput = {
   spaceId: string;
   accessMode: SpaceAccessMode;
+  allowGuests?: boolean;
+  linkJoinPolicy?: SpaceLinkJoinPolicy;
   password?: string;
+  visibility?: "public" | "private";
   context?: CoreRpcContextInput;
 };
 
@@ -3069,6 +3137,12 @@ export type ExecuteAgentProfileWorkRecoveryInput = {
   context?: CoreRpcContextInput;
 };
 
+export type AgentProfileExecutionModeInput = {
+  agentProfileId: string;
+  body?: { mode: "parallel" | "serial" };
+  context?: CoreRpcContextInput;
+};
+
 export type GetAgentProfileControllerChangeEligibilityInput = {
   agentProfileId: string;
   context?: CoreRpcContextInput;
@@ -3109,6 +3183,7 @@ export type GetCurrentOrganizationProfileDirectoryInput =
   };
 
 export type GetCurrentOrganizationAgentRuntimeOverviewInput = {
+  includeUsageLimits?: boolean;
   agentProfileWorkRecoveryVersion?: 2;
   includeTaskActivity?: boolean;
   context?: CoreRpcContextInput;
@@ -3831,6 +3906,44 @@ async function getCurrentLocalRuntimeReplyReadinessForOwnerUser(input: {
   return validated.data;
 }
 
+async function readOwnerComputerCareObservation(input: {
+  env: CoreBindings;
+  target: PeopleComputerTarget;
+  userId: string;
+}) {
+  const observedAtMs = Date.now();
+  try {
+    const ownerService = await lookupRuntimeTransportOwnerService({
+      blockForgottenDevices: true,
+      env: input.env,
+      ownerUserId: input.userId,
+    });
+    const session = ownerService.online
+      ? selectCurrentOwnerServiceSessionsByDeviceLane(ownerService).find(
+          (entry) =>
+            entry.deviceId === input.target.deviceId &&
+            entry.lane === input.target.runtimeLane
+        )
+      : undefined;
+    return {
+      observedAtMs,
+      connection: session ? ("connected" as const) : ("unavailable" as const),
+      supervisor: session ? ("responding" as const) : ("unknown" as const),
+      lastHeartbeatAtMs: session?.lastHeartbeatMs ?? null,
+      executionHost: session?.capabilities.executionHost ?? null,
+    };
+  } catch {
+    // A failed read is unknown, not proof that the Computer is offline.
+    return {
+      observedAtMs,
+      connection: "unknown" as const,
+      supervisor: "unknown" as const,
+      lastHeartbeatAtMs: null,
+      executionHost: null,
+    };
+  }
+}
+
 async function buildOwnerComputerDiagnostics(input: {
   env: CoreBindings;
   includeUsageLimits: boolean;
@@ -4515,7 +4628,8 @@ function requireLocalAgentInstallationSelectionStatus(
 
 export async function rpcSetCurrentAgentProfileWorkspace(
   env: CoreBindings,
-  input: SetCurrentAgentProfileWorkspaceInput
+  input: SetCurrentAgentProfileWorkspaceInput,
+  target?: PeopleComputerTarget
 ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
   const routeParams =
     setCurrentAgentProfileWorkspaceRouteParamsSchema.safeParse({
@@ -4546,6 +4660,7 @@ export async function rpcSetCurrentAgentProfileWorkspace(
   const { currentTarget } = await resolveCurrentLocalAgentControlTarget({
     capability: "setProfileWorkspace",
     env,
+    target,
     unsupportedCode: "local_agent_control.profile_workspace_unsupported",
     unsupportedReason:
       "The current local OpenMeld Service does not support Project folder changes from OpenMeld Web.",
@@ -5458,10 +5573,17 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       status: 503,
     });
   }
-  if (
-    recovery.status !== "available" ||
-    recovery.action !== parsedBody.data.action
-  ) {
+  const isAllowedAction =
+    recovery.status === "available" &&
+    (recovery.action === parsedBody.data.action ||
+      (recovery.action === "fork_interrupted_work" &&
+        (parsedBody.data.action === "skip_interrupted_work" ||
+          parsedBody.data.action === "continue_interrupted_work")) ||
+      (recovery.action === "continue_interrupted_work" &&
+        Boolean(recovery.forkInterruptedConversation) &&
+        parsedBody.data.action === "fork_interrupted_work"));
+
+  if (!isAllowedAction) {
     throw createCoreRpcHttpError({
       code: "agent_profile_work_recovery.not_pending",
       reason: "This recovery action is no longer needed.",
@@ -5475,6 +5597,19 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       ownerUserId: request.owner.id,
       targetProfileId: request.agentProfileId,
     });
+  } else if (parsedBody.data.action === "fork_interrupted_work") {
+    const continuation = await executeAgentProfileWorkContinuation({
+      context: request.context,
+      env,
+      expectedInterruptedTargetWakeLifecycleId:
+        parsedBody.data.expectedInterruptedTargetWakeLifecycleId,
+      forkInterruptedConversation: true,
+      ownerShard,
+      ownerUserId: request.owner.id,
+      recovery,
+      targetProfileId: request.agentProfileId,
+    });
+    throwUnstartedAgentProfileWorkContinuationError(continuation);
   } else if (parsedBody.data.action === "skip_interrupted_work") {
     await executeAgentProfileInterruptedWorkSkip({
       expectedInterruptedTargetWakeLifecycleId:
@@ -5492,18 +5627,38 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       recovery,
       targetProfileId: request.agentProfileId,
     });
-    if (continuation === "deferred") {
-      throw createCoreRpcHttpError({
-        code: "agent_profile_work_recovery.temporarily_unavailable",
-        reason: "OpenMeld is checking this Agent’s paused work. Try again.",
-        status: 503,
-      });
-    }
+    throwUnstartedAgentProfileWorkContinuationError(continuation);
   }
   return executeAgentProfileWorkRecoveryResponseSchema.parse({
-    action: recovery.action,
+    action: parsedBody.data.action,
     status: "accepted",
   });
+}
+
+export async function rpcAgentProfileExecutionMode(
+  env: CoreBindings,
+  input: AgentProfileExecutionModeInput
+): Promise<AgentProfileExecutionModeResponse> {
+  const request = await requireAgentProfileWorkRecoveryScope(env, input);
+  const body =
+    input.body === undefined
+      ? undefined
+      : updateAgentProfileExecutionModeBodySchema.safeParse(input.body);
+  if (body && !body.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: "Execution mode must be parallel or serial.",
+      status: 400,
+    });
+  }
+  const ownerShard = resolveRuntimeTransportOwnerShard(env, request.owner.id);
+  return agentProfileExecutionModeResponseSchema.parse(
+    await ownerShard.rpcAgentProfileExecutionMode({
+      ownerUserId: request.owner.id,
+      targetProfileId: request.agentProfileId,
+      ...(body?.success ? { mode: body.data.mode } : {}),
+    })
+  );
 }
 
 async function executeAgentProfileInterruptedWorkSkip(input: {
@@ -5512,6 +5667,24 @@ async function executeAgentProfileInterruptedWorkSkip(input: {
   ownerUserId: string;
   targetProfileId: string;
 }): Promise<void> {
+  // Skip promises that OpenMeld will not continue this work, which is Core's
+  // own decision and cannot fail here. Asking the computer to withdraw the
+  // original attempt is the part OpenMeld cannot guarantee, so it is requested
+  // while the gate still names the work and does not hold up the decision.
+  await input.ownerShard
+    .rpcRequestAgentProfileWorkLocalAttemptWithdrawal({
+      expectedInterruptedTargetWakeLifecycleId:
+        input.expectedInterruptedTargetWakeLifecycleId,
+      ownerUserId: input.ownerUserId,
+      targetProfileId: input.targetProfileId,
+    })
+    .catch((error: unknown) => {
+      console.warn("[core.agent_profile_work.skip_withdrawal_request_failed]", {
+        error,
+        targetProfileId: input.targetProfileId,
+      });
+      return null;
+    });
   const skipped = await input.ownerShard.rpcSkipAgentProfileInterruptedWork({
     expectedInterruptedTargetWakeLifecycleId:
       input.expectedInterruptedTargetWakeLifecycleId,
@@ -5658,6 +5831,8 @@ function shouldMarkUsageContinuationNeedsAttention(error: unknown): boolean {
 async function executeAgentProfileWorkContinuation(input: {
   context: CoreRpcContextInput;
   env: CoreBindings;
+  expectedInterruptedTargetWakeLifecycleId?: string;
+  forkInterruptedConversation?: boolean;
   ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
   ownerUserId: string;
   recovery: Extract<
@@ -5665,7 +5840,7 @@ async function executeAgentProfileWorkContinuation(input: {
     { status: "available" }
   >;
   targetProfileId: string;
-}): Promise<"deferred" | "started"> {
+}): Promise<"awaiting_original_stop" | "deferred" | "started"> {
   if (
     !(
       input.recovery.interruptedSourceSignalId &&
@@ -5673,6 +5848,17 @@ async function executeAgentProfileWorkContinuation(input: {
     )
   ) {
     return "deferred";
+  }
+  if (
+    input.expectedInterruptedTargetWakeLifecycleId !== undefined &&
+    input.expectedInterruptedTargetWakeLifecycleId !==
+      input.recovery.interruptedTargetWakeLifecycleId
+  ) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.not_pending",
+      reason: "This recovery action is no longer needed.",
+      status: 409,
+    });
   }
   const deterministicIdentity = await buildAgentProfileWorkContinuationIdentity(
     {
@@ -5694,6 +5880,10 @@ async function executeAgentProfileWorkContinuation(input: {
     spaceId,
     targetProfileId: input.targetProfileId,
   });
+  const forkInterruptedConversation = Boolean(
+    input.forkInterruptedConversation ||
+      input.recovery.forkInterruptedConversation
+  );
   if (input.recovery.authorizedContinuationClientMessageId === null) {
     const currentTarget =
       await requireCurrentAgentProfileWorkContinuationTarget({
@@ -5710,6 +5900,9 @@ async function executeAgentProfileWorkContinuation(input: {
         currentDefaultProjectId: currentTarget.defaultProjectId,
         expectedInterruptedTargetWakeLifecycleId:
           input.recovery.interruptedTargetWakeLifecycleId,
+        ...(forkInterruptedConversation
+          ? { forkInterruptedConversation: true }
+          : {}),
         ownerUserId: input.ownerUserId,
         requireAcceptedExecutionTargetRevision: true,
         targetProfileId: input.targetProfileId,
@@ -5718,9 +5911,40 @@ async function executeAgentProfileWorkContinuation(input: {
       throwAgentProfileWorkContinuationAuthorizationError(authorized.status);
     }
   }
+  // Saving the owner's decision and having a safe permit to start replacement
+  // work are different facts. This is asked on every attempt, including a retry
+  // that reuses a stored authorization, because the cancellation sent with the
+  // first one may never have reached the computer.
+  const withdrawal = await resolveAgentProfileWorkLocalAttemptWithdrawal({
+    expectedInterruptedTargetWakeLifecycleId:
+      input.recovery.interruptedTargetWakeLifecycleId,
+    ownerShard: input.ownerShard,
+    ownerUserId: input.ownerUserId,
+    targetProfileId: input.targetProfileId,
+  });
+  if (withdrawal.status === "requested") {
+    return "awaiting_original_stop";
+  }
+  if (
+    withdrawal.status !== "not_started" &&
+    withdrawal.status !== "withdrawn"
+  ) {
+    return "deferred";
+  }
   await stub.rpcStartUsageExhaustedContinuation({
     continuationClientMessageId,
     context: input.context,
+    // The interrupted Wake is the fork source: §4C resolves and verifies the
+    // boundary from the source's own history, so the branch never inherits a
+    // turn the provider had not settled.
+    ...(forkInterruptedConversation
+      ? {
+          contextSelection: {
+            mode: "fork" as const,
+            sourceWakeId: input.recovery.interruptedTargetWakeLifecycleId,
+          },
+        }
+      : {}),
     interruptedClientMessageId: input.recovery.interruptedClientMessageId,
     interruptedDispatchId: input.recovery.interruptedDispatchId,
     interruptedSourceSignalId: input.recovery.interruptedSourceSignalId,
@@ -5730,6 +5954,67 @@ async function executeAgentProfileWorkContinuation(input: {
     targetProfileId: input.targetProfileId,
   });
   return "started";
+}
+
+/**
+ * Asks the owner shard whether the original attempt is out of the way.
+ *
+ * Durable Object code propagates after a Worker deploy, so a shard that predates
+ * this prerequisite cannot answer it. That is treated as "not yet known", which
+ * withholds the replacement and stays retryable, rather than as permission to
+ * start a second attempt at the same instruction.
+ */
+async function resolveAgentProfileWorkLocalAttemptWithdrawal(input: {
+  expectedInterruptedTargetWakeLifecycleId: string;
+  ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
+  ownerUserId: string;
+  targetProfileId: string;
+}): Promise<
+  import("@openmeld/schemas/types").RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalResponse
+> {
+  try {
+    return runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema.parse(
+      await input.ownerShard.rpcRequestAgentProfileWorkLocalAttemptWithdrawal({
+        expectedInterruptedTargetWakeLifecycleId:
+          input.expectedInterruptedTargetWakeLifecycleId,
+        ownerUserId: input.ownerUserId,
+        targetProfileId: input.targetProfileId,
+      })
+    );
+  } catch (error) {
+    console.warn(
+      "[core.agent_profile_work.local_attempt_withdrawal_unanswered]",
+      { error, targetProfileId: input.targetProfileId }
+    );
+    return { status: "unavailable" };
+  }
+}
+
+/**
+ * Reports the stage a continuation actually reached.
+ *
+ * The owner's decision is kept either way, so an unstarted attempt is a
+ * retryable stage rather than a lost choice. Waiting on the original request is
+ * named separately from ordinary unavailability, because "nothing new has
+ * started" is the fact the owner needs in order to trust the next click.
+ */
+function throwUnstartedAgentProfileWorkContinuationError(
+  continuation: "awaiting_original_stop" | "deferred" | "started"
+): void {
+  if (continuation === "started") {
+    return;
+  }
+  throw createCoreRpcHttpError({
+    code:
+      continuation === "awaiting_original_stop"
+        ? "agent_profile_work_recovery.awaiting_original_stop"
+        : "agent_profile_work_recovery.temporarily_unavailable",
+    reason:
+      continuation === "awaiting_original_stop"
+        ? "OpenMeld is checking whether the original request stopped on your computer. Nothing new has started yet. Try again in a moment."
+        : "OpenMeld is checking this Agent’s paused work. Try again.",
+    status: 503,
+  });
 }
 
 function throwAgentProfileWorkContinuationAuthorizationError(
@@ -6346,6 +6631,7 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
     requestId: context.actorContext.requestId,
   });
   const response = await resolveOrganizationAgentRuntimeOverview({
+    includeUsageLimits: input.includeUsageLimits,
     agentProfileWorkRecoveryVersion: input.agentProfileWorkRecoveryVersion,
     eligibleAgentProfiles,
     env,
@@ -6486,6 +6772,7 @@ const ORGANIZATION_AGENT_RUNTIME_OWNER_CONCURRENCY = 4;
 const ORGANIZATION_AGENT_RUNTIME_PROFILE_CONCURRENCY = 8;
 
 async function resolveOrganizationAgentRuntimeOverview(input: {
+  includeUsageLimits?: boolean;
   agentProfileWorkRecoveryVersion?: 2;
   eligibleAgentProfiles: readonly EligibleOrganizationAgentProfile[];
   env: CoreBindings;
@@ -6587,6 +6874,7 @@ async function resolveOrganizationAgentRuntimeOverview(input: {
 }
 
 async function resolveOrganizationAgentReadinessByProfileId(input: {
+  includeUsageLimits?: boolean;
   eligibleAgentProfiles: readonly EligibleOrganizationAgentProfile[];
   env: CoreBindings;
   generatedAt: string;
@@ -6681,16 +6969,27 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
               : {}),
             profileId: agent.profileId,
           });
-          return [
-            agent.profileId,
+          const projectedReadiness =
             buildOrganizationDirectoryAgentExecutionReadinessResponse({
               generatedAt: input.generatedAt,
-              isOwner:
-                input.viewerUserId !== null &&
-                agent.ownerUserId === input.viewerUserId,
+              isOwner: agent.ownerUserId === input.viewerUserId,
               readiness,
-            }),
-          ] as const;
+            });
+          if (input.includeUsageLimits) {
+            projectedReadiness.usageLimits = await readAgentProfileUsage({
+              db: localStateDb(input.env),
+              binding: readiness.primaryBinding,
+              reads,
+              nowMs: Date.parse(input.generatedAt),
+            }).catch((error) => {
+              console.warn("[core.agent_profile.usage_unavailable]", {
+                profileId: agent.profileId,
+                error,
+              });
+              return [];
+            });
+          }
+          return [agent.profileId, projectedReadiness] as const;
         }
       );
     }
@@ -11552,6 +11851,12 @@ export async function rpcCenterAgentReadPeopleComputers(
       target,
       readiness: diagnostics.currentLocalRuntimeReplyReadiness,
       fileAccess: diagnostics.currentComputerFileAccess,
+      localRuntimes: diagnostics.localRuntimes,
+      care: await readOwnerComputerCareObservation({
+        env,
+        target,
+        userId: representedHuman.userId,
+      }),
     };
   }
   return centerAgentReadPeopleComputersResponseSchema.parse({
@@ -13972,6 +14277,9 @@ export async function rpcCenterAgentReadSpaceWakeProgress(
   const prepared = await prepareCenterAgentOrganizationMemberRead(env, input);
   const { authorization } = prepared;
   const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
+    includeDeviceWait: true,
+    includePageInfo: true,
+    includeWakeStopEligibility: true,
     includeSourceContext: true,
     includeTiming: true,
     includeWaitReason: true,
@@ -13999,6 +14307,9 @@ export async function rpcCenterAgentReadSpaceWakeProgress(
   });
   const response = await rpcGetActiveSpaceWakeProgress(env, {
     context: authorization.context,
+    includeDeviceWait: true,
+    includePageInfo: true,
+    includeWakeStopEligibility: true,
     includeSourceContext: true,
     includeTiming: true,
     includeWaitReason: true,
@@ -17560,6 +17871,20 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
           }
           controllerMutationOperationId =
             controllerMutationAdmission.operationId;
+          if (body.data.agentControllerConversationId) {
+            const mode = await resolveRuntimeTransportOwnerShard(
+              env,
+              request.owner.id
+            ).rpcAgentProfileExecutionMode({
+              ownerUserId: request.owner.id,
+              targetProfileId: request.agentProfileId,
+            });
+            if (mode.migration !== "legacy") {
+              throw new AgentProfileExecutionTargetMutationAdmissionError(
+                "execution_context.legacy_association_frozen"
+              );
+            }
+          }
         },
         db,
         ...(body.data.sessionInventorySelection
@@ -18133,6 +18458,7 @@ export async function rpcListSignals(
   return unwrapSpaceRpcJsonResult(
     await stub.rpcListSignalsResult({
       spaceId,
+      ...(input.q ? { q: input.q } : {}),
       ...buildListSignalsNumberFilters(input),
       ...(cursor ? { cursor } : {}),
       ...(input.recent === true ? { recent: true } : {}),
@@ -18215,6 +18541,9 @@ export async function rpcPostSignal(
     profile: input.profile,
     text: normalizedText,
     ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
+    ...(input.contextSelection
+      ? { contextSelection: input.contextSelection }
+      : {}),
     authoringPolicy: input.authoringPolicy,
     ...(attachments ? { attachments } : {}),
     ...(input.files ? { files: input.files } : {}),
@@ -18264,6 +18593,9 @@ export async function rpcPostSignalOnceByClientMessageId(
   });
 
   return await stub.rpcPostSignalOnceByClientMessageId({
+    ...(input.contextSelection
+      ? { contextSelection: input.contextSelection }
+      : {}),
     ...(input.agentStreamId === undefined
       ? {}
       : { agentStreamId: input.agentStreamId }),
@@ -18629,7 +18961,7 @@ export async function rpcGetSpaceEntryResolution(
       : false;
   if (
     access.kind === "allowed" &&
-    access.status.accessMode === "members_only" &&
+    access.meta.accessMode === "members_only" &&
     !organizationMember &&
     !guest
   ) {
@@ -18665,6 +18997,13 @@ export async function rpcGetSpaceEntryResolution(
   });
   if (guest && response.view.state === "allowed") {
     response.view.experience = "guest";
+  }
+  if (response.view.state === "allowed" && target.signalId) {
+    const { stub } = resolveRpcSpaceStubOrThrow(env, target.spaceId);
+    response.target = await stub.rpcResolveReadTarget({
+      ...target,
+      spaceAccess,
+    });
   }
   return getSpaceEntryResolutionResponseSchema.parse(response);
 }
@@ -18720,9 +19059,12 @@ async function resolveSpaceEntryAccess(input: {
   spaceAccess: SpaceAccessContext;
   spaceId: string;
 }): Promise<SpaceEntryAccessResult> {
-  let status: GetSpaceStatusResponse;
+  let meta: SpaceMeta;
   try {
-    status = await rpcGetSpaceStatus(input.env, {
+    const { stub } = resolveRpcSpaceStubOrThrow(input.env, input.spaceId);
+    // The metadata read uses the same Space access policy as status, without
+    // reading member presentation, runtime routes, or Service health.
+    meta = await stub.rpcGetMeta({
       spaceId: input.spaceId,
       spaceAccess: input.spaceAccess,
     });
@@ -18737,6 +19079,13 @@ async function resolveSpaceEntryAccess(input: {
     }
     throw error;
   }
+  if (!meta.accessMode) {
+    throw createCoreRpcHttpError({
+      status: 503,
+      code: "space.access_unavailable",
+      reason: "The Space access mode could not be resolved.",
+    });
+  }
   const activeMember = input.context
     ? (
         await rpcGetSpaceViewerMembership(input.env, {
@@ -18746,7 +19095,16 @@ async function resolveSpaceEntryAccess(input: {
         })
       ).activeMemberProfiles.length > 0
     : false;
-  return { activeMember, kind: "allowed", status };
+  return {
+    activeMember,
+    kind: "allowed",
+    meta: {
+      name: meta.name,
+      accessMode: meta.accessMode,
+      allowGuests: meta.allowGuests === true,
+      linkJoinPolicy: meta.linkJoinPolicy,
+    },
+  };
 }
 
 export async function rpcGetSpaceConversationState(
@@ -18823,6 +19181,9 @@ function resolveSpaceBootstrapRpcTarget(
       ...(aroundSignalId ? { aroundSignalId } : {}),
       ...(input.includeAgentStreamPresence === true
         ? { includeAgentStreamPresence: true }
+        : {}),
+      ...(input.includeAgentReadiness === false
+        ? { includeAgentReadiness: false }
         : {}),
       ...(fromProfileIds.length > 0 ? { fromProfileIds } : {}),
       ...buildListSignalsTypeFilter(signalTypes),
@@ -19408,10 +19769,12 @@ export async function rpcResolveSpaceAttachmentForDownload(
   env: CoreBindings,
   input: ResolveSpaceAttachmentForDownloadInput
 ): Promise<SpaceAttachmentDescriptor> {
-  const access = await requireSpaceAttachmentAccess(env, input);
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const meta = await stub.rpcGetMeta({ spaceId, spaceAccess });
   const payload = resolveSpaceAttachmentForDownloadPayloadSchema.safeParse({
     attachmentId: input.attachmentId,
-    spaceId: access.spaceId,
+    spaceId,
   });
   if (!payload.success) {
     throwAttachmentNotFound();
@@ -19419,9 +19782,9 @@ export async function rpcResolveSpaceAttachmentForDownload(
 
   const attachment = await readSpaceAttachmentRecord({
     attachmentId: payload.data.attachmentId,
-    db: access.db,
-    organizationId: access.organizationId,
-    spaceId: access.spaceId,
+    db: requireSpaceAttachmentDb(env),
+    organizationId: meta.organizationId,
+    spaceId,
   });
   if (!attachment) {
     throwAttachmentNotFound();
@@ -21199,7 +21562,14 @@ export async function rpcSetSpaceAccessMode(
   return await stub.rpcSetAccessMode({
     spaceId,
     accessMode: input.accessMode,
+    ...(input.allowGuests === undefined
+      ? {}
+      : { allowGuests: input.allowGuests }),
+    ...(input.linkJoinPolicy === undefined
+      ? {}
+      : { linkJoinPolicy: input.linkJoinPolicy }),
     ...(input.password === undefined ? {} : { password: input.password }),
+    ...(input.visibility === undefined ? {} : { visibility: input.visibility }),
     context,
   });
 }
@@ -24764,22 +25134,147 @@ export type SpaceFilePinsInput = GetSpaceMetaInput & {
   mutation?: SpaceFilePinMutation;
 };
 
+export type ListSpaceTasksInput = GetSpaceMetaInput & {
+  phase?: SpaceTaskPhase;
+};
+
+export type GetSpaceTaskInput = GetSpaceMetaInput & {
+  taskId: string;
+};
+
+export type CreateSpaceTaskInput = GetSpaceMetaInput & {
+  body: CreateSpaceTaskBody;
+};
+
+export type MutateSpaceTaskInput = GetSpaceTaskInput & {
+  body: MutateSpaceTaskBody;
+};
+
 export async function rpcSpaceFilePins(
   env: CoreBindings,
   input: SpaceFilePinsInput
 ): Promise<SpaceFilePinsResponse> {
-  const context = requireRpcContext(input.context);
+  const context = input.mutation
+    ? requireRpcContext(input.context)
+    : input.context;
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  return await stub.rpcFilePins({ ...input, spaceId, context });
+  return await stub.rpcFilePins({
+    ...input,
+    spaceId,
+    context,
+    spaceAccess: resolveRpcSpaceAccess(input),
+  });
 }
 
 export async function rpcSpaceMessagePins(
   env: CoreBindings,
   input: SpaceMessagePinsInput
 ): Promise<SpaceMessagePinsResponse> {
-  const context = requireRpcContext(input.context);
+  const context = input.mutation
+    ? requireRpcContext(input.context)
+    : input.context;
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  return await stub.rpcMessagePins({ ...input, spaceId, context });
+  return await stub.rpcMessagePins({
+    ...input,
+    spaceId,
+    context,
+    spaceAccess: resolveRpcSpaceAccess(input),
+  });
+}
+
+export async function rpcListSpaceTasks(
+  env: CoreBindings,
+  input: ListSpaceTasksInput
+): Promise<ListSpaceTasksResponse> {
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const context = input.context
+    ? await authorizeSpaceTaskRpcContext(env, spaceId, input.context)
+    : undefined;
+  return await stub.rpcListTasks({
+    ...input,
+    spaceId,
+    context,
+    spaceAccess: resolveRpcSpaceAccess({ ...input, context }),
+  });
+}
+
+export async function rpcGetSpaceTask(
+  env: CoreBindings,
+  input: GetSpaceTaskInput
+): Promise<SpaceTaskResponse> {
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const context = input.context
+    ? await authorizeSpaceTaskRpcContext(env, spaceId, input.context)
+    : undefined;
+  return await stub.rpcGetTask({
+    ...input,
+    spaceId,
+    context,
+    spaceAccess: resolveRpcSpaceAccess({ ...input, context }),
+  });
+}
+
+export async function rpcCreateSpaceTask(
+  env: CoreBindings,
+  input: CreateSpaceTaskInput
+): Promise<SpaceTaskMutationReceipt> {
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const context = await authorizeSpaceTaskRpcContext(
+    env,
+    spaceId,
+    requireRpcContext(input.context)
+  );
+  let body = input.body;
+  const submissionId = context.agentControllerConversationId?.trim();
+  const db = wakeEvidenceDb(env);
+  if (!body.sourceSignalId && submissionId && db) {
+    const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+      db,
+      submissionId,
+    });
+    if (
+      delivery?.conversationKind === "space" &&
+      delivery.spaceId === spaceId &&
+      delivery.profileId === context.actorContext.openMeldProfileId
+    ) {
+      body = {
+        ...body,
+        sourceSignalId: delivery.triggerMessageId,
+        threadId: body.threadId ?? delivery.threadContext?.threadId ?? null,
+      };
+    }
+  }
+  return await stub.rpcCreateTask({ ...input, body, spaceId, context });
+}
+
+export async function rpcMutateSpaceTask(
+  env: CoreBindings,
+  input: MutateSpaceTaskInput
+): Promise<SpaceTaskMutationReceipt> {
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const context = await authorizeSpaceTaskRpcContext(
+    env,
+    spaceId,
+    requireRpcContext(input.context)
+  );
+  return await stub.rpcMutateTask({ ...input, spaceId, context });
+}
+
+async function authorizeSpaceTaskRpcContext(
+  env: CoreBindings,
+  spaceId: string,
+  context: CoreRpcContextInput
+): Promise<CoreRpcContextInput> {
+  if (!isHostedAgentControllerRef(context.actorContext.agentControllerRef)) {
+    return context;
+  }
+  const authorization = await requireRemoteAgentToolCaller({ context, env });
+  await requireCenterAgentSpaceInActiveOrganization({
+    authorization,
+    env,
+    spaceId,
+  });
+  return authorization.context;
 }
 
 import { centerAgentSetReplyPlacementInputSchema } from "@openmeld/schemas";

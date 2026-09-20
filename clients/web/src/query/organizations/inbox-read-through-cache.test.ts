@@ -45,7 +45,7 @@ describe("optimisticallyMarkSpaceInboxReadThrough", () => {
 				},
 			],
 		});
-		expect(readInboxSummary(queryClient).totalUnreadCount).toBe(4);
+		expect(readInboxSummary(queryClient).totalUnreadCount).toBe(5);
 		expect(readCenterAgentSummary(queryClient).unreadCount).toBe(2);
 	});
 

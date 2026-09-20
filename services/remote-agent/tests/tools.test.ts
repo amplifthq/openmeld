@@ -115,6 +115,15 @@ type ToolPayloadScenario = {
 
 describe("remote agent OpenMeld tool catalog", () => {
   it("pages a large authorized directory without losing member or Agent fields", async () => {
+    // Captured Core team-safe contract: null is redacted/unknown, while the
+    // binding source remains not_checked. Pagination must retain that evidence.
+    const teamReadiness = readinessResponse(AGENT_PROFILE_ID);
+    teamReadiness.agentExecutionReadiness.facts.binding = {
+      reasonCodes: [],
+      routable: false,
+      source: "not_checked",
+    };
+    teamReadiness.primaryBinding = null;
     const directory = organizationDirectoryResponseSchema.parse({
       ...organizationDirectoryResponse(),
       members: Array.from({ length: 19 }, (_, index) => ({
@@ -145,7 +154,7 @@ describe("remote agent OpenMeld tool catalog", () => {
           lastUsedAt: null,
           createdAt: ISO_NOW,
           updatedAt: ISO_NOW,
-          readiness: readinessResponse(AGENT_PROFILE_ID),
+          readiness: teamReadiness,
         },
       ],
     });
@@ -4772,6 +4781,41 @@ describe("remote agent OpenMeld tool catalog", () => {
     }
     expect(centerAgentReadSpaceAuthoringContract).toHaveBeenCalledOnce();
     expect(centerAgentPostSpaceMessage).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    "wake",
+    "routine",
+  ])("prepares and replaces %s final reply mentions without publishing early", async (kind) => {
+    const request =
+      kind === "routine"
+        ? createRoutineSubmitTurnRequest("routine_run_1")
+        : createSubmitTurnRequest({
+            turnEnvelope: {
+              ...createSubmitTurnRequest().turnEnvelope,
+              trigger: { source: "space_wake" },
+            },
+          });
+    const storage = await createStorageWithPendingContext(request);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {},
+      storage,
+      turnEnvelope: request.turnEnvelope,
+    });
+    await executeTool(tools, "openmeld_set_final_reply_mentions", {
+      mentionProfileIds: [HUMAN_PROFILE_ID, HUMAN_PROFILE_ID],
+    });
+    expect(
+      (await readRemoteAgentCallbackContext(storage, ACK.submissionId))
+        ?.mentionTargets
+    ).toEqual([HUMAN_PROFILE_ID]);
+    await executeTool(tools, "openmeld_set_final_reply_mentions", {
+      mentionProfileIds: [],
+    });
+    expect(
+      (await readRemoteAgentCallbackContext(storage, ACK.submissionId))
+        ?.mentionTargets
+    ).toEqual([]);
   });
 
   it("publishes Human Mentions separately from Agent References", async () => {

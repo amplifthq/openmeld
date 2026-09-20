@@ -29,6 +29,7 @@ import {
 	useId,
 	useState,
 } from "react";
+import { AuthorizationLink } from "#/desktop/authorization-link";
 import { buildSlackOAuthStartPath } from "#/lib/slack-oauth-start";
 
 type CenterAgentSlackConnectionDialogBaseInput = {
@@ -330,14 +331,14 @@ function ConnectedSlackDialogContent(input: {
 							Close
 						</DialogClose>
 						{input.canManage && reconnectRequired ? (
-							<a
+							<AuthorizationLink
 								className={buttonVariants()}
 								href={buildSlackOAuthStartPath({
 									organizationSlug: input.organizationSlug,
 								})}
 							>
 								Reconnect Slack
-							</a>
+							</AuthorizationLink>
 						) : null}
 					</div>
 				)}
@@ -435,7 +436,7 @@ function DisconnectedSlackDialogContent(input: {
 								OpenMeld app. Approval installs the app and connects it here.
 							</p>
 						</div>
-						<a
+						<AuthorizationLink
 							className={buttonVariants({ size: "default" })}
 							href={buildSlackOAuthStartPath({
 								organizationSlug: input.organizationSlug,
@@ -443,7 +444,7 @@ function DisconnectedSlackDialogContent(input: {
 						>
 							<LinkIcon aria-hidden="true" data-icon="inline-start" />
 							Add to Slack
-						</a>
+						</AuthorizationLink>
 					</div>
 					<details className="rounded-md border border-border/70">
 						<summary className="cursor-pointer px-4 py-3 font-medium text-foreground text-sm marker:text-muted-foreground">

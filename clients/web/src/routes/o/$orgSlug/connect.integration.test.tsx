@@ -7,6 +7,11 @@ const useSelectedHumanProfileMock = vi.hoisted(() => vi.fn());
 const bringAgentsSetupProviderMock = vi.hoisted(() => vi.fn());
 const startBringAgentsSetupPageMock = vi.hoisted(() => vi.fn());
 const appFullWidthLayoutMock = vi.hoisted(() => vi.fn());
+const desktopPlatformMock = vi.hoisted(() => vi.fn().mockReturnValue(null));
+
+vi.mock("#/desktop/platform", () => ({
+	getDesktopPlatform: desktopPlatformMock,
+}));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
 	const actual =
@@ -79,6 +84,7 @@ describe("/o/$orgSlug/connect route", () => {
 		bringAgentsSetupProviderMock.mockReset();
 		startBringAgentsSetupPageMock.mockReset();
 		appFullWidthLayoutMock.mockReset();
+		desktopPlatformMock.mockReset().mockReturnValue(null);
 	});
 
 	afterEach(() => {
@@ -88,6 +94,55 @@ describe("/o/$orgSlug/connect route", () => {
 
 	it("renders inside the connect app-shell section", () => {
 		expect(Route.options.staticData).toEqual({ appShellSection: "connect" });
+	});
+
+	it("uses a square circular icon Back button and the existing content-height layout for standalone Desktop", () => {
+		desktopPlatformMock.mockReturnValue({});
+		renderRoute();
+		const back = screen.getByRole("link", { name: "Back" });
+		expect(back.classList.contains("size-7")).toBe(true);
+		expect(back.classList.contains("aspect-square")).toBe(true);
+		expect(back.classList.contains("rounded-full")).toBe(true);
+		expect(back.classList.contains("rounded-md")).toBe(false);
+		expect(back.classList.contains("w-fit")).toBe(false);
+		expect(back.classList.contains("max-lg:min-h-11")).toBe(true);
+		expect(back.classList.contains("max-lg:min-w-11")).toBe(true);
+		expect(appFullWidthLayoutMock).toHaveBeenCalledWith(
+			expect.objectContaining({ contentLayout: "flush" })
+		);
+		expect(
+			screen
+				.getByTestId("setup-page")
+				.parentElement?.classList.contains("justify-center")
+		).toBe(true);
+	});
+
+	it.each([
+		"web",
+		"space",
+		"update",
+		"agent",
+		"observer",
+	])("preserves the non-centered setup context for %s", (context) => {
+		if (context !== "web") {
+			desktopPlatformMock.mockReturnValue({});
+		}
+		const searches: Record<string, Record<string, unknown>> = {
+			web: {},
+			space: { returnTo: "space", spaceId: "space-123" },
+			update: { serviceAction: "update_service" },
+			agent: { returnTo: "agent_creation" },
+			observer: { observePrepareSessionId: "prepare-a" },
+		};
+		renderRoute(searches[context]);
+		expect(appFullWidthLayoutMock).toHaveBeenCalledWith(
+			expect.objectContaining({ contentLayout: "centered" })
+		);
+		if (context === "agent") {
+			const back = screen.getByRole("link", { name: "Back to creating Agent" });
+			expect(back.classList.contains("w-fit")).toBe(true);
+			expect(back.classList.contains("rounded-full")).toBe(false);
+		}
 	});
 
 	it("parses reset and the space-recovery search params, ignoring corridor-only keys", () => {

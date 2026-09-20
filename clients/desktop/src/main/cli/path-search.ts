@@ -1,6 +1,7 @@
 import { accessSync, constants } from "node:fs";
 import { delimiter, join } from "node:path";
 import process from "node:process";
+import { normalizeCommandEnvironment } from "@openmeld/adapter-core/process-environment";
 
 const DARWIN_GUI_PATH_DIRS = [
   "/opt/homebrew/bin",
@@ -14,7 +15,7 @@ const DARWIN_GUI_PATH_DIRS = [
 export function buildDesktopCommandEnv(
   env: NodeJS.ProcessEnv | undefined
 ): NodeJS.ProcessEnv {
-  const source = env ?? process.env;
+  const source = normalizeCommandEnvironment(env ?? process.env);
   const path = searchDirs(source).join(delimiter);
   return { ...source, PATH: path };
 }
@@ -23,7 +24,7 @@ export function resolveExecutableOnPath(input: {
   env?: NodeJS.ProcessEnv;
   names: readonly string[];
 }): string | null {
-  const env = input.env ?? process.env;
+  const env = normalizeCommandEnvironment(input.env ?? process.env);
   for (const directory of searchDirs(env)) {
     for (const name of input.names) {
       const candidate = join(directory, name);
@@ -42,19 +43,24 @@ export function executableNamesForPlatform(
   if (process.platform !== "win32") {
     return [baseName];
   }
-  const extensions = normalizeOptionalText(env.PATHEXT)
+  const extensions = normalizeOptionalText(
+    normalizeCommandEnvironment(env).PATHEXT
+  )
     ?.split(";")
     .map((extension) => extension.trim().toLowerCase())
     .filter(Boolean) ?? [".exe", ".cmd", ".bat", ".com"];
   return [
-    baseName,
     ...extensions.map((extension) => `${baseName}${extension}`),
+    baseName,
   ];
 }
 
 export function canExecute(path: string): boolean {
   try {
-    accessSync(path, constants.X_OK);
+    accessSync(
+      path,
+      process.platform === "win32" ? constants.F_OK : constants.X_OK
+    );
     return true;
   } catch {
     return false;

@@ -11,6 +11,7 @@ import {
   observabilityWakeTraceSelectorSchema,
   projectObservabilityWakeCorrelation,
   projectSpaceDispatchTraceFinalVisibleOutcome,
+  resolveRuntimeCoordinatorHeadStatusRootCause,
   resolveSpaceDispatchTraceRootCause,
 } from "@openmeld/schemas";
 import type {
@@ -2605,6 +2606,24 @@ function buildAgentTraceCompactSummary(input: {
 
   if (
     finalVisibleOutcome.status === "not_applicable" &&
+    !trace.runtimeCoordinatorExecution &&
+    headLifecycle?.readStatus === "found" &&
+    headLifecycle.status === "queued" &&
+    !headLifecycle.runtimeCoordinatorExecutionId
+  ) {
+    return {
+      ...nativeDeliveryEvidence,
+      currentState: headLifecycle.status,
+      delivered: false,
+      nextAction:
+        "wait for the Agent's execution slot, then rerun trace with the same selector",
+      reasonCode: resolveTraceRootCause(trace),
+      visibleOutcome: finalVisibleOutcome.status,
+    };
+  }
+
+  if (
+    finalVisibleOutcome.status === "not_applicable" &&
     trace.finalVisibleMessageLinkage?.status === "projection_pending"
   ) {
     return {
@@ -2708,19 +2727,6 @@ function resolveTraceRootCause(
   trace: NonNullable<DispatchTraceSnapshot>
 ): string {
   return resolveSpaceDispatchTraceRootCause(trace);
-}
-
-function resolveRuntimeCoordinatorHeadStatusRootCause(status: string): string {
-  if (status === "accepted") {
-    return "runtime_coordinator.head_accepted";
-  }
-  if (status === "execution_linked") {
-    return "runtime_coordinator.head_execution_linked";
-  }
-  if (status === "waiting") {
-    return "runtime_coordinator.head_waiting";
-  }
-  return "runtime_coordinator.head_publication_intent_ready";
 }
 
 const PRE_EXECUTION_NO_EXECUTION_EVIDENCE_REASON_CODES = new Set([

@@ -11,12 +11,16 @@ import {
 	type ReactNode,
 	type Ref,
 	useCallback,
+	useEffect,
 	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
+import { toast } from "sonner";
 import { MessageResponse } from "#/components/ai/message-response";
+import { DesktopAwareLink } from "#/desktop/desktop-aware-link";
+import { getDesktopPlatform } from "#/desktop/platform";
 import {
 	createOrganizationScopedWebSpaceApi,
 	createUnscopedWebSpaceApi,
@@ -31,6 +35,7 @@ import {
 import { Marker, MarkerContent } from "./primitives/marker";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import { SpaceFileHtmlBadge } from "./space-file-html-badge";
+import { downloadUrlContent } from "./space-file-utils";
 import { SpaceImagePreview } from "./space-image-preview";
 import { SpaceInlineMessageEditor } from "./space-inline-message-editor";
 import { collapseSpaceMessage } from "./space-message-collapse";
@@ -43,8 +48,12 @@ import {
 	renderSpaceMessageProfileMentionInternalLink,
 	type SpaceMessageProfileMentionProfilesById,
 	type SpaceProfileTriggerRenderer,
+	splitSpaceMessageProfileMentionText,
 } from "./space-message-profile-mention";
-import { SpaceMessageProfileMentionText } from "./space-message-profile-mention-view";
+import {
+	SpaceMessageProfileMention,
+	SpaceMessageProfileMentionText,
+} from "./space-message-profile-mention-view";
 import {
 	createSpaceMessageReferenceRemarkPlugin,
 	EMPTY_SPACE_MESSAGE_REFERENCES,
@@ -337,8 +346,8 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 	});
 	const attachments = input.item.attachments ?? [];
 	const files = input.item.files ?? [];
-	const spaceApi = useMemo(
-		() =>
+	const spaceApi = useMemo(() => {
+		const createApi = () =>
 			input.orgSlug
 				? createOrganizationScopedWebSpaceApi({
 						openMeldProfileId: input.openMeldProfileId,
@@ -346,9 +355,15 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 					})
 				: createUnscopedWebSpaceApi({
 						openMeldProfileId: input.openMeldProfileId,
-					}),
-		[input.openMeldProfileId, input.orgSlug]
-	);
+					});
+		return {
+			downloadFileContent: (
+				...args: Parameters<SpaceApi["downloadFileContent"]>
+			) => createApi().downloadFileContent(...args),
+			getLinkPreviews: (...args: Parameters<SpaceApi["getLinkPreviews"]>) =>
+				createApi().getLinkPreviews(...args),
+		};
+	}, [input.openMeldProfileId, input.orgSlug]);
 	const body = renderSpaceMessageTextContent({
 		additionalRemarkPlugins: references.additionalRemarkPlugins,
 		profileMentionProfilesById: references.profileMentionProfilesById,
@@ -361,8 +376,39 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 		renderedText: text.renderedText,
 		shouldRenderMarkdown,
 	});
+	const inlineTargetIds = new Set(
+		splitSpaceMessageProfileMentionText(
+			text.renderedText,
+			references.profileMentionProfilesById
+		).flatMap((segment) =>
+			segment.kind === "profile_mention" ? [segment.profile.profileId] : []
+		)
+	);
+	const remainingTargets = [
+		...references.profileMentionProfilesById.values(),
+	].filter((profile) => !inlineTargetIds.has(profile.profileId));
+	const addressedBody = remainingTargets.length ? (
+		<>
+			<div
+				className="mb-1 flex flex-wrap items-center gap-1"
+				data-slot="space-message-addressing"
+			>
+				{remainingTargets.map((profile) => (
+					<SpaceMessageProfileMention
+						key={profile.profileId}
+						onOpenProfile={input.onOpenProfile}
+						profile={profile}
+						renderProfileTrigger={input.renderProfileTrigger}
+					/>
+				))}
+			</div>
+			{body}
+		</>
+	) : (
+		body
+	);
 	const hasVisibleContent =
-		body !== null ||
+		addressedBody !== null ||
 		Boolean(navigationActionContent) ||
 		attachments.length > 0 ||
 		files.length > 0 ||
@@ -375,7 +421,7 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 		<SpaceMessageBodyContent
 			api={spaceApi}
 			attachments={attachments}
-			body={body}
+			body={addressedBody}
 			bodyRef={input.bodyRef}
 			containerClassName={input.containerClassName}
 			edited={Boolean(input.item.editedAt)}
@@ -570,7 +616,7 @@ function renderSpaceMessageNavigationAction(input: {
 		);
 	}
 	return (
-		<a
+		<DesktopAwareLink
 			className={cn(
 				buttonVariants({ size: "sm", variant: "outline" }),
 				"w-fit"
@@ -579,7 +625,7 @@ function renderSpaceMessageNavigationAction(input: {
 			href={input.action.url}
 		>
 			{input.action.label}
-		</a>
+		</DesktopAwareLink>
 	);
 }
 
@@ -714,9 +760,29 @@ function SpaceMessageFileImage(input: {
 	onOpenSpaceFile?: (fileId: string, revision: number) => void;
 	spaceId: string;
 }) {
+	const placeholder = useRef<HTMLOutputElement>(null);
+	const [visible, setVisible] = useState(false);
+	useEffect(() => {
+		const element = placeholder.current;
+		if (!element) {
+			return;
+		}
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((entry) => entry.isIntersecting)) {
+					setVisible(true);
+					observer.disconnect();
+				}
+			},
+			{ rootMargin: "100px" }
+		);
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, []);
 	const [isBroken, setIsBroken] = useState(false);
 	const imageSource = useSpaceFileImageSource({
 		api: input.api,
+		enabled: visible,
 		fileId: input.file.fileId,
 		isLocal: input.file.isLocal,
 		localPreviewUrl: input.file.localPreviewUrl,
@@ -733,6 +799,7 @@ function SpaceMessageFileImage(input: {
 					"animate-pulse bg-muted motion-reduce:animate-none",
 					input.isSingle ? "h-48 w-72 max-w-full" : "aspect-square w-full"
 				)}
+				ref={placeholder}
 			/>
 		);
 	}
@@ -816,10 +883,23 @@ function SpaceMessageAttachmentImage(input: {
 	return (
 		<SpaceImagePreview
 			altText={altText}
-			focusedAction={{
-				href: downloadPath,
-				label: "Open original",
-			}}
+			focusedAction={
+				getDesktopPlatform()
+					? {
+							label: "Download original",
+							onSelect: () => {
+								downloadUrlContent(altText, downloadPath).catch(
+									(error: unknown) =>
+										toast.error(
+											error instanceof Error
+												? error.message
+												: "Could not download this image. Try again."
+										)
+								);
+							},
+						}
+					: { href: downloadPath, label: "Open original" }
+			}
 			height={input.attachment.height}
 			imageSource={imageSource}
 			isSingle={input.isSingle}

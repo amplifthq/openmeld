@@ -23,6 +23,7 @@ import {
 	buildOrganizationDirectoryRootPath,
 	buildOrganizationInboxItemPath,
 	buildOrganizationInboxPath,
+	buildOrganizationLegacyCenterAgentSettingsPath,
 	buildOrganizationMemoryPath,
 	buildOrganizationNotificationsSettingsPath,
 	buildOrganizationOrganizationsPath,
@@ -76,6 +77,9 @@ describe("integration management routes", () => {
 			"/o/acme/center-agent/memory"
 		);
 		expect(buildOrganizationCenterAgentSettingsPath("acme")).toBe(
+			"/o/acme/settings/center-agent"
+		);
+		expect(buildOrganizationLegacyCenterAgentSettingsPath("acme")).toBe(
 			"/o/acme/center-agent/settings"
 		);
 	});
@@ -166,16 +170,17 @@ describe("primary organization routes", () => {
 		);
 	});
 
-	it("keeps Organization Skills inside the Center Agent route family", () => {
-		expect(buildOrganizationSkillsPath("acme")).toBe(
-			"/o/acme/center-agent/skills"
-		);
+	it("builds organization-level Skill routes with encoded identity segments", () => {
+		expect(buildOrganizationSkillsPath("acme")).toBe("/o/acme/skills");
 		expect(
 			buildOrganizationSkillPath({
 				orgSlug: "acme",
 				skillId: "skill/one",
 			})
-		).toBe("/o/acme/center-agent/skills/skill%2Fone");
+		).toBe("/o/acme/skills/skill%2Fone");
+		expect(
+			buildOrganizationSkillPath({ orgSlug: "team one", skillId: "skill %/#?" })
+		).toBe("/o/team%20one/skills/skill%20%25%2F%23%3F");
 	});
 
 	it("uses immutable Project ids for the Projects route family", () => {
@@ -209,15 +214,19 @@ describe("resolveOrganizationSwitchPath", () => {
 			"/o/acme/center-agent/routines",
 			"/o/beta/center-agent/routines",
 		],
-		[
-			"Center Agent Skills",
-			"/o/acme/center-agent/skills",
-			"/o/beta/center-agent/skills",
-		],
+		["Center Agent Skills", "/o/acme/center-agent/skills", "/o/beta/skills"],
 		[
 			"Center Agent Skill detail",
 			"/o/acme/center-agent/skills/skill-acme",
-			"/o/beta/center-agent/skills",
+			"/o/beta/skills",
+		],
+		["Skills", "/o/acme/skills", "/o/beta/skills"],
+		["Skill detail", "/o/acme/skills/skill-acme", "/o/beta/skills"],
+		["Trailing Skill slash", "/o/acme/skills/skill%2Fone/", "/o/beta/skills"],
+		[
+			"Legacy trailing Skill slash",
+			"/o/acme/center-agent/skills/skill%2Fone/",
+			"/o/beta/skills",
 		],
 		["Spaces", "/o/acme/spaces", "/o/beta/spaces"],
 		["Space detail", "/o/acme/spaces/space-acme", "/o/beta/spaces"],
@@ -248,8 +257,8 @@ describe("resolveOrganizationSwitchPath", () => {
 		],
 		[
 			"Center Agent settings",
-			"/o/acme/center-agent/settings",
-			"/o/beta/center-agent/settings",
+			"/o/acme/settings/center-agent",
+			"/o/beta/settings/center-agent",
 		],
 		["Projects", "/o/acme/projects", "/o/beta/projects"],
 		["Project detail", "/o/acme/projects/project-acme", "/o/beta/projects"],

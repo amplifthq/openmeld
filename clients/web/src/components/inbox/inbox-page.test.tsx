@@ -1,7 +1,7 @@
 import type {
+	InboxFeedResponse,
+	InboxFeedRow,
 	InboxItem,
-	InboxView,
-	ListInboxItemsResponse,
 } from "@openmeld/schemas/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -13,191 +13,221 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
-import type {
-	AnchorHTMLAttributes,
-	MouseEvent as ReactMouseEvent,
-	ReactNode,
-} from "react";
+import type { AnchorHTMLAttributes, ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { inboxQueryKeys } from "#/query/organizations/inbox";
+import { resolveInboxItemIndicator } from "#/lib/inbox/attention";
+import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
+import { organizationInboxFeedQueryOptions } from "#/query/organizations/inbox-feed";
 import { InboxPage } from "./inbox-page";
 
-const listCurrentInboxItemsMock = vi.hoisted(() => vi.fn());
-const getCurrentInboxItemMock = vi.hoisted(() => vi.fn());
-const getCurrentInboxSummaryMock = vi.hoisted(() => vi.fn());
-const markAllCurrentInboxItemsReadMock = vi.hoisted(() => vi.fn());
-const markCurrentInboxItemReadMock = vi.hoisted(() => vi.fn());
-const dismissCurrentInboxItemMock = vi.hoisted(() => vi.fn());
-const DEEP_LINKED_APPROVAL_NAME_PATTERN = /Deep-linked approval/;
-const INBOX_ITEM_UNAVAILABLE_NAME_PATTERN = /Inbox item isn't available/;
-const NEW_SPACE_MESSAGE_LINK_NAME_PATTERN = /New Space message/;
-const SLACK_REPLY_LINK_NAME_PATTERN = /Center Agent replied in Slack/;
-const APPROVAL_COMMAND_LINK_NAME_PATTERN = /Approve the production command/;
-const ALREADY_READ_UPDATE_LINK_NAME_PATTERN = /Already-read update/;
-const APPROVAL_REQUIRED_LINK_NAME_PATTERN = /Approval required/;
-const COULD_NOT_REFRESH_PATTERN = /Couldn’t refresh/;
-const OLDER_INBOX_UPDATE_LINK_NAME_PATTERN = /Older Inbox update/;
-const RECOVERED_INBOX_UPDATE_LINK_NAME_PATTERN = /Recovered Inbox update/;
-const VISIBLE_INBOX_UPDATE_LINK_NAME_PATTERN = /Visible Inbox update/;
-const observeIntersectionTargetMock = vi.fn();
-const SPACE_UNREAD_CONFIRMATION_PATTERN = /unread indicators in Spaces/;
-let intersectionObserverCallback: IntersectionObserverCallback | null = null;
-
-vi.mock("@tanstack/react-router", () => ({
+const mocks = vi.hoisted(() => ({
+	feed: vi.fn(),
+	item: vi.fn(),
+	read: vi.fn(),
+	dismiss: vi.fn(),
+	selection: vi.fn(),
+	legacyReadAll: vi.fn(),
+	navigate: vi.fn(),
+}));
+const testOrganization = {
+	id: "organization-123",
+	isPersonal: false,
+	name: "Amplift",
+	slug: "amplift",
+};
+const EXACT_MESSAGE_LABEL = /Open exact message/u;
+const SLACK_REPLY_LABEL = /Slack reply/u;
+const OLD_REQUEST_LABEL = /Old request/u;
+const UNAVAILABLE_LABEL = /This Inbox item isn’t available/u;
+const SOURCE_PRESERVED = /Original messages and documents won’t be deleted/u;
+const FROZEN_SELECTION_DESCRIPTION =
+	/New messages and items outside this selection stay unread/u;
+vi.mock("#/lib/organizations/organization-context", () => ({
+	useOptionalAppOrganization: () => ({
+		currentOrganization: testOrganization,
+		currentUserId: "user-123",
+	}),
+	useAppOrganization: () => ({
+		currentOrganization: testOrganization,
+		currentUserId: "user-123",
+	}),
+}));
+vi.mock("#/lib/organizations/inbox", async () => ({
+	...(await vi.importActual<typeof import("#/lib/organizations/inbox")>(
+		"#/lib/organizations/inbox"
+	)),
+	listCurrentInboxFeed: mocks.feed,
+	getCurrentInboxItem: mocks.item,
+	markCurrentInboxItemRead: mocks.read,
+	dismissCurrentInboxItem: mocks.dismiss,
+	mutateCurrentInboxFeed: mocks.selection,
+	markAllCurrentInboxItemsRead: mocks.legacyReadAll,
+}));
+vi.mock("@tanstack/react-router", async () => ({
+	...(await vi.importActual<typeof import("@tanstack/react-router")>(
+		"@tanstack/react-router"
+	)),
+	useNavigate: () => mocks.navigate,
 	Link: ({
 		children,
-		onAuxClick,
-		onClick,
 		to,
 		...props
-	}: {
-		children: ReactNode;
-		onAuxClick?: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
-		onClick?: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
-		to: string;
-	} & AnchorHTMLAttributes<HTMLAnchorElement>) => (
-		<a
-			href={to}
-			onAuxClick={onAuxClick}
-			onClick={(event) => {
-				event.preventDefault();
-				onClick?.(event);
-			}}
-			{...props}
-		>
+	}: { to: string } & AnchorHTMLAttributes<HTMLAnchorElement>) => (
+		<a href={to} {...props}>
 			{children}
 		</a>
 	),
 }));
-
-vi.mock("#/lib/organizations/organization-context", () => ({
-	useAppOrganization: () => ({
-		currentOrganization: {
-			id: "organization-123",
-			isPersonal: false,
-			name: "Amplift",
-			slug: "amplift",
-		},
-	}),
+vi.mock("./invitation-review", () => ({
+	InvitationReview: ({ requestId }: { requestId: string }) => (
+		<div>Invitation {requestId}</div>
+	),
 }));
 
-vi.mock("#/lib/organizations/inbox", () => ({
-	dismissCurrentInboxItem: dismissCurrentInboxItemMock,
-	getCurrentInboxItem: getCurrentInboxItemMock,
-	getCurrentInboxNotificationPreferences: vi.fn(),
-	getCurrentInboxSummary: getCurrentInboxSummaryMock,
-	listCurrentInboxItems: listCurrentInboxItemsMock,
-	markAllCurrentInboxItemsRead: markAllCurrentInboxItemsReadMock,
-	markCurrentInboxItemRead: markCurrentInboxItemReadMock,
-	updateCurrentInboxNotificationPreferences: vi.fn(),
-}));
+let intersectionCallback: IntersectionObserverCallback | null = null;
+const observed = vi.fn();
+class TestIntersectionObserver implements IntersectionObserver {
+	readonly root = null;
+	readonly rootMargin = "0px";
+	readonly thresholds = [0];
+	constructor(callback: IntersectionObserverCallback) {
+		intersectionCallback = callback;
+	}
+	observe(target: Element): void {
+		observed(target);
+	}
+	unobserve(): void {
+		/* The test retains only the current sentinel. */
+	}
+	disconnect(): void {
+		/* Browser cleanup is exercised by React unmount. */
+	}
+	takeRecords(): IntersectionObserverEntry[] {
+		return [];
+	}
+}
 
-describe("InboxPage", () => {
-	beforeEach(() => {
-		HTMLElement.prototype.scrollIntoView = vi.fn();
-		intersectionObserverCallback = null;
-		observeIntersectionTargetMock.mockReset();
-		vi.stubGlobal(
-			"IntersectionObserver",
-			class {
-				readonly root = null;
-				readonly rootMargin = "0px";
-				readonly thresholds = [0];
+beforeEach(() => {
+	localStorage.clear();
+	vi.clearAllMocks();
+	intersectionCallback = null;
+	vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
+	HTMLElement.prototype.scrollIntoView = vi.fn();
+	mocks.navigate.mockResolvedValue(undefined);
+	mocks.selection.mockResolvedValue({ changedCount: 1 });
+});
+afterEach(() => {
+	cleanup();
+	vi.unstubAllGlobals();
+});
 
-				constructor(callback: IntersectionObserverCallback) {
-					intersectionObserverCallback = callback;
-				}
-
-				disconnect() {
-					// No browser resources exist in this test double.
-				}
-				observe(target: Element) {
-					observeIntersectionTargetMock(target);
-				}
-				takeRecords(): IntersectionObserverEntry[] {
-					return [];
-				}
-				unobserve() {
-					// No browser resources exist in this test double.
-				}
-			}
+describe("canonical Inbox attention page", () => {
+	it("renders four categories and independent server-side filters without an Agent tab or administrator gate", () => {
+		const onViewChange = vi.fn();
+		const onUnreadOnlyChange = vi.fn();
+		const onFiltersChange = vi.fn();
+		renderPage({
+			rows: [],
+			onViewChange,
+			onUnreadOnlyChange,
+			onFiltersChange,
+			peopleOnly: true,
+		});
+		expect(screen.getAllByRole("tab")).toHaveLength(4);
+		for (const name of ["All", "Mentions", "Needs action", "Needs review"]) {
+			expect(screen.getByRole("tab", { name })).toBeTruthy();
+		}
+		expect(screen.queryByRole("tab", { name: "Agents" })).toBeNull();
+		fireEvent.click(screen.getByRole("tab", { name: "Mentions" }));
+		fireEvent.click(screen.getByRole("switch", { name: "Unread only" }));
+		fireEvent.click(screen.getByRole("button", { name: "Filter Inbox" }));
+		fireEvent.click(screen.getByRole("menuitemradio", { name: "Agents" }));
+		expect(onViewChange).toHaveBeenCalledWith("mentions");
+		expect(onUnreadOnlyChange).toHaveBeenCalledWith(true);
+		expect(onFiltersChange).toHaveBeenCalledWith(
+			expect.objectContaining({ agentsOnly: true, peopleOnly: false })
 		);
-		getCurrentInboxItemMock.mockReset();
-		listCurrentInboxItemsMock.mockReset();
-		getCurrentInboxSummaryMock.mockReset().mockResolvedValue({
-			organizationId: "organization-123",
-			totalUnreadCount: 0,
-			unresolvedActionCount: 0,
+		fireEvent.click(screen.getByRole("menuitem", { name: "Clear filters" }));
+		expect(onFiltersChange).toHaveBeenCalledWith({
+			agentsOnly: false,
+			peopleOnly: false,
+			conversationType: "all",
 		});
-		markAllCurrentInboxItemsReadMock.mockReset().mockResolvedValue({
-			markedReadCount: 2,
-		});
-		markCurrentInboxItemReadMock.mockReset();
-		dismissCurrentInboxItemMock.mockReset();
+		expect(screen.queryByRole("button", { name: "All read" })).toBeNull();
 	});
 
-	afterEach(() => {
-		cleanup();
-		vi.restoreAllMocks();
-		vi.unstubAllGlobals();
+	it("keeps the page shell, categories and controls visible while only the feed is pending", () => {
+		mocks.feed.mockImplementation(
+			() =>
+				new Promise(() => {
+					/* Keep the feed pending while checking the page shell. */
+				})
+		);
+		renderPage({ rows: [], prime: false, preserveFeedMock: true });
+		expect(screen.getByRole("heading", { name: "Inbox" })).toBeTruthy();
+		expect(screen.getAllByRole("tab")).toHaveLength(4);
+		expect(screen.getByRole("switch", { name: "Unread only" })).toBeTruthy();
+		expect(
+			screen.getByText("Loading Inbox").parentElement?.getAttribute("aria-busy")
+		).toBe("true");
+		expect(screen.queryByText("Loading...")).toBeNull();
 	});
 
-	it("groups action items first and keeps unread state explicit", () => {
-		const urgentItem = createInboxItem({
+	it("renders full-dataset server sections, with quiet pending copy instead of repeated urgency pills", () => {
+		const priority = item({
+			id: "priority",
 			attention: "action_required",
-			id: "urgent-item",
 			importance: "urgent",
 			resolutionStatus: "open",
-			title: "Approve the production command",
+			title: "Reconnect the build computer",
+			readAt: "2026-09-18T00:00:00Z",
 		});
-		const updateItem = createInboxItem({
-			id: "update-item",
-			readAt: "2026-08-04T01:30:00.000Z",
-			title: "Agent finished the review",
+		const normal = item({
+			id: "normal",
+			attention: "action_required",
+			resolutionStatus: "open",
+			title: "Choose an output folder",
+			readAt: "2026-09-18T00:00:00Z",
 		});
-
-		renderInboxPage({ items: [updateItem, urgentItem] });
-
-		const attentionSection = screen
-			.getByRole("heading", { name: "Needs action" })
-			.closest("section");
-		const updatesSection = screen
-			.getByRole("heading", { name: "Updates" })
-			.closest("section");
-		expect(attentionSection).toBeInstanceOf(HTMLElement);
-		expect(updatesSection).toBeInstanceOf(HTMLElement);
+		renderPage({
+			rows: [
+				row(priority, {
+					section: "priority",
+					dot: "yellow",
+					requestCategory: "action",
+				}),
+				row(normal, { section: "open", dot: null, requestCategory: "action" }),
+				row(item({ id: "update", title: "A new reply" })),
+			],
+		});
 		expect(
-			within(attentionSection as HTMLElement).getByText(
-				"Approve the production command"
+			within(
+				screen.getByRole("region", { name: "Priority attention" })
+			).getByText(priority.title)
+		).toBeTruthy();
+		expect(
+			within(screen.getByRole("region", { name: "Waiting for you" })).getByText(
+				normal.title
 			)
 		).toBeTruthy();
+		expect(screen.getAllByText("Awaiting your action")).toHaveLength(2);
+		expect(screen.queryByText("Urgent")).toBeNull();
 		expect(
-			within(attentionSection as HTMLElement).getByText("Urgent")
-		).toBeTruthy();
-		expect(
-			within(attentionSection as HTMLElement).getByText("Unread.")
-		).toBeTruthy();
-		expect(
-			within(updatesSection as HTMLElement).getByText(
-				"Agent finished the review"
-			)
-		).toBeTruthy();
-		const urgentRow = screen
-			.getByRole("link", { name: APPROVAL_COMMAND_LINK_NAME_PATTERN })
-			.closest("li")
-			?.querySelector('[class*="group/inbox-row"]');
-		expect(urgentRow?.getAttribute("data-inbox-read-state")).toBe("unread");
-		expect(
-			urgentRow
+			screen
+				.getByText(priority.title)
+				.closest("li")
 				?.querySelector("[data-inbox-status-dot]")
 				?.getAttribute("data-inbox-status-dot")
-		).toBe("danger");
-		expect(urgentRow?.className).toContain("motion-reduce:transition-none");
+		).toBe("warning");
 		expect(
-			screen.getByRole("button", {
-				name: "Actions for Approve the production command",
-			}).className
-		).toContain("motion-reduce:transition-none");
+			screen
+				.getByText(normal.title)
+				.closest("li")
+				?.querySelector("[data-inbox-status-dot]")
+		).toBeNull();
+		expect(
+			screen.getByText(priority.title).querySelector("[data-inbox-status-dot]")
+		).toBeNull();
 	});
 
 	it.each([
@@ -224,10 +254,24 @@ describe("InboxPage", () => {
 		},
 		{
 			attention: "action_required",
+			importance: "normal",
+			resolutionStatus: "open",
+			read: false,
+			indicator: "unread",
+		},
+		{
+			attention: "action_required",
+			importance: "normal",
+			resolutionStatus: "open",
+			read: true,
+			indicator: null,
+		},
+		{
+			attention: "action_required",
 			importance: "urgent",
 			resolutionStatus: "open",
 			read: true,
-			indicator: "danger",
+			indicator: "warning",
 		},
 		{
 			attention: "action_required",
@@ -243,580 +287,530 @@ describe("InboxPage", () => {
 			read: true,
 			indicator: null,
 		},
-	] as const)("shows $indicator for $attention / $importance / $resolutionStatus / read=$read", (state) => {
-		const item = createInboxItem({
+	] as const)("keeps $attention / $importance / $resolutionStatus / read=$read distinct", (state) => {
+		const example = item({
 			attention: state.attention,
 			importance: state.importance,
 			resolutionStatus: state.resolutionStatus,
-			readAt: state.read ? "2026-08-04T01:30:00.000Z" : null,
-			title: "Indicator example",
+			readAt: state.read ? "2026-09-18T00:00:00Z" : null,
 		});
-		renderInboxPage({ items: [item] });
-		const dot = screen
-			.getByText("Indicator example")
-			.querySelector("[data-inbox-status-dot]");
-		expect(dot?.getAttribute("data-inbox-status-dot") ?? null).toBe(
-			state.indicator
-		);
+		expect(resolveInboxItemIndicator(example)).toBe(state.indicator);
 	});
 
-	it("does not keep a resolved action visually urgent", () => {
-		const resolvedApproval = createInboxItem({
+	it("shows first personal-Agent contact as unread information, not as a pending request", () => {
+		const contact = item({
+			sourceFacts: {
+				version: 1,
+				agentProfileIds: ["codex"],
+				personalAgentProfileIds: ["codex"],
+				firstContactAgentProfileIds: ["codex"],
+				recipientReasons: ["agent_owner"],
+			},
+		});
+		expect(resolveInboxItemIndicator(contact)).toBe("warning");
+		expect(
+			resolveInboxItemIndicator({ ...contact, readAt: "2026-09-18T00:00:00Z" })
+		).toBeNull();
+		renderPage({
+			rows: [row(contact, { dot: "yellow", section: "priority" })],
+		});
+		expect(screen.queryByText("Awaiting your action")).toBeNull();
+		expect(screen.queryByText("Urgent")).toBeNull();
+	});
+
+	it("keeps an ended request explicit and never makes it a persistent priority", () => {
+		const ended = item({
 			attention: "action_required",
-			id: "resolved-approval",
 			importance: "urgent",
 			resolutionStatus: "resolved",
-			title: "Approval required",
+			title: "Connection restored",
 		});
-
-		renderInboxPage({ items: [resolvedApproval] });
-
-		const updatesSection = screen
-			.getByRole("heading", { name: "Updates" })
-			.closest("section");
-		expect(updatesSection).toBeInstanceOf(HTMLElement);
+		renderPage({ rows: [row(ended)] });
 		expect(
-			within(updatesSection as HTMLElement).getByText("Approval required")
+			within(
+				screen.getByRole("region", { name: "Activity and history" })
+			).getByText("Connection restored")
 		).toBeTruthy();
+		expect(screen.getByText("Ended")).toBeTruthy();
 		expect(
-			within(updatesSection as HTMLElement).queryByText("Urgent")
+			screen.queryByRole("region", { name: "Priority attention" })
 		).toBeNull();
 	});
 
-	it("marks an unread item as read when the user opens its exact source", async () => {
-		const item = createInboxItem({ id: "source-item" });
-		markCurrentInboxItemReadMock.mockResolvedValue({
-			item: { ...item, readAt: "2026-08-04T02:00:00.000Z" },
-		});
-
-		renderInboxPage({ items: [item] });
-		const itemLink = screen.getByRole("link", {
-			name: NEW_SPACE_MESSAGE_LINK_NAME_PATTERN,
-		});
-		expect(itemLink.getAttribute("href")).toBe(
-			"/o/amplift/spaces/space-123?focusSignalId=signal-123"
-		);
-
-		fireEvent.click(itemLink);
-
-		await waitFor(() => {
-			expect(markCurrentInboxItemReadMock).toHaveBeenCalledWith({
-				itemId: "source-item",
-				organizationId: "organization-123",
-				read: true,
-			});
-		});
-	});
-
-	it("marks a Slack item read and opens its exact message in a new tab", async () => {
-		const item = createInboxItem({
-			id: "slack-source-item",
-			sourceTarget: {
-				channelId: "C0123456",
-				kind: "message_channel",
-				messageId: "1720000000.000200",
-				permalink:
-					"https://amplift.slack.com/archives/C0123456/p1720000000000200?thread_ts=1720000000.000100&cid=C0123456",
-				provider: "slack",
-				teamId: "T0123456",
-				threadRootMessageId: "1720000000.000100",
-			},
-			title: "Center Agent replied in Slack",
-		});
-		markCurrentInboxItemReadMock.mockResolvedValue({
-			item: { ...item, readAt: "2026-08-04T02:00:00.000Z" },
-		});
-
-		renderInboxPage({ items: [item] });
-		const itemLink = screen.getByRole("link", {
-			name: SLACK_REPLY_LINK_NAME_PATTERN,
-		});
-		expect(itemLink.getAttribute("href")).toBe(
-			"https://amplift.slack.com/archives/C0123456/p1720000000000200?thread_ts=1720000000.000100&cid=C0123456"
-		);
-		expect(itemLink.getAttribute("target")).toBe("_blank");
-		expect(itemLink.getAttribute("rel")).toBe("noopener noreferrer");
-
-		fireEvent.click(itemLink);
-
-		await waitFor(() => {
-			expect(markCurrentInboxItemReadMock).toHaveBeenCalledWith({
-				itemId: "slack-source-item",
-				organizationId: "organization-123",
-				read: true,
-			});
-		});
-	});
-
-	it("changes the URL-backed view from the tabs", () => {
-		const onViewChange = vi.fn();
-		renderInboxPage({ items: [], onViewChange });
-		expect(
-			screen.queryByRole("button", { name: "Mark all as read" })
-		).toBeNull();
-
-		fireEvent.click(screen.getByRole("tab", { name: "Needs action" }));
-
-		expect(onViewChange).toHaveBeenCalledWith("needs_action");
-	});
-
-	it("offers unread as an independent filter and keeps All groups", () => {
-		const onUnreadOnlyChange = vi.fn();
-		renderInboxPage({
+	it("passes every filter through paging instead of locally discarding an unrelated first page", async () => {
+		const first = row(item({ id: "first", title: "Mention one" }));
+		const next = row(item({ id: "next", title: "Older mention" }));
+		renderPage({
+			rows: [first],
+			nextRows: [next],
+			view: "mentions",
 			unreadOnly: true,
-			onUnreadOnlyChange,
-			items: [
-				createInboxItem({
-					id: "action",
-					title: "Unread action",
-					resolutionStatus: "open",
-					attention: "action_required",
-					kind: "system_issue",
-				}),
-				createInboxItem({ id: "update", title: "Unread update" }),
-				createInboxItem({
-					id: "read",
-					title: "Read update",
-					readAt: "2026-09-11T00:00:00Z",
-				}),
-			],
+			peopleOnly: true,
+			conversationType: "direct_messages",
 		});
-		expect(screen.queryByRole("tab", { name: "Unread" })).toBeNull();
-		expect(screen.getByRole("region", { name: "Needs action" })).toBeTruthy();
-		expect(screen.getByRole("region", { name: "Updates" })).toBeTruthy();
-		expect(screen.queryByText("Read update")).toBeNull();
-		fireEvent.click(screen.getByRole("switch", { name: "Unread only" }));
-		expect(onUnreadOnlyChange).toHaveBeenCalledWith(false);
-	});
-
-	it("continues past unrelated unread items before declaring a filtered view empty", async () => {
-		renderInboxPage({
-			unreadOnly: true,
-			view: "needs_action",
-			items: [createInboxItem({ title: "Unrelated update" })],
-			nextPageItems: [
-				createInboxItem({
-					id: "older-action",
-					title: "Older action",
-					resolutionStatus: "open",
-					attention: "action_required",
-					kind: "system_issue",
-				}),
-			],
-		});
-		expect(screen.queryByText("No unread actions")).toBeNull();
-		await waitFor(() =>
-			expect(observeIntersectionTargetMock).toHaveBeenCalled()
-		);
-		act(() => {
-			intersectionObserverCallback?.(
-				[{ isIntersecting: true } as IntersectionObserverEntry],
-				{} as IntersectionObserver
-			);
-		});
-		expect(await screen.findByText("Older action")).toBeTruthy();
-		expect(screen.queryByText("Unrelated update")).toBeNull();
-	});
-
-	it("loads the next page automatically when the list end enters view", async () => {
-		const nextPageItem = createInboxItem({
-			id: "next-page-item",
-			title: "Older Inbox update",
-		});
-		renderInboxPage({
-			items: [createInboxItem({ id: "first-page-item" })],
-			nextPageItems: [nextPageItem],
-		});
-
-		await waitFor(() => {
-			expect(observeIntersectionTargetMock).toHaveBeenCalledOnce();
-		});
-		expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
-
-		reportListEndIntersection(false);
-		expect(listCurrentInboxItemsMock).not.toHaveBeenCalledWith(
-			expect.objectContaining({ cursor: "next-page" })
-		);
-
-		reportListEndIntersection(true);
-
-		expect(
-			await screen.findByRole("link", {
-				name: OLDER_INBOX_UPDATE_LINK_NAME_PATTERN,
+		await waitFor(() => expect(observed).toHaveBeenCalled());
+		intersect();
+		expect(await screen.findByText("Older mention")).toBeTruthy();
+		expect(mocks.feed).toHaveBeenCalledWith(
+			expect.objectContaining({
+				category: "mentions",
+				unreadOnly: "true",
+				peopleOnly: "true",
+				conversationType: "direct_messages",
+				cursor: "next-page",
 			})
-		).toBeTruthy();
-		expect(listCurrentInboxItemsMock).toHaveBeenCalledWith(
-			expect.objectContaining({ cursor: "next-page" })
 		);
 	});
 
-	it("keeps loaded items visible and offers retry when automatic loading fails", async () => {
-		const firstPageItem = createInboxItem({
-			id: "kept-first-page-item",
-			title: "Visible Inbox update",
+	it("keeps loaded rows and a retry action when the next page fails", async () => {
+		const first = row(item({ id: "first", title: "Visible update" }));
+		const next = row(item({ id: "next", title: "Recovered update" }));
+		renderPage({
+			rows: [first],
+			nextRows: [next],
+			nextPageError: new Error("Connection lost"),
 		});
-		const nextPageItem = createInboxItem({
-			id: "recovered-next-page-item",
-			title: "Recovered Inbox update",
-		});
-		renderInboxPage({
-			items: [firstPageItem],
-			nextPageError: Object.assign(
-				new Error("Next Inbox page could not be loaded."),
-				{ code: "gateway.invalid_response" }
-			),
-			nextPageItems: [nextPageItem],
-		});
-		await waitFor(() => {
-			expect(observeIntersectionTargetMock).toHaveBeenCalledOnce();
-		});
-		reportListEndIntersection(true);
-
+		await waitFor(() => expect(observed).toHaveBeenCalled());
+		intersect();
 		expect(
 			await screen.findByText("Couldn’t load older Inbox items.")
 		).toBeTruthy();
-		expect(screen.queryByText(COULD_NOT_REFRESH_PATTERN)).toBeNull();
-		expect(
-			screen.getByRole("link", {
-				name: VISIBLE_INBOX_UPDATE_LINK_NAME_PATTERN,
-			})
-		).toBeTruthy();
-
-		listCurrentInboxItemsMock.mockImplementation(
-			(request: { cursor?: string }) =>
-				request.cursor === "next-page"
-					? Promise.resolve({
-							items: [nextPageItem],
-							nextCursor: null,
-							organizationId: "organization-123",
-						})
-					: Promise.resolve({
-							items: [firstPageItem],
-							nextCursor: "next-page",
-							organizationId: "organization-123",
-						})
-		);
+		expect(screen.getByText("Visible update")).toBeTruthy();
+		mocks.feed.mockResolvedValue(page([next]));
 		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-
-		expect(
-			await screen.findByRole("link", {
-				name: RECOVERED_INBOX_UPDATE_LINK_NAME_PATTERN,
-			})
-		).toBeTruthy();
+		expect(await screen.findByText("Recovered update")).toBeTruthy();
 	});
 
-	it("focuses an item even when it is more than 500 Inbox rows old", async () => {
-		const targetItem = createInboxItem({
-			id: "deep-linked-item",
-			title: "Deep-linked approval",
+	it("expands a conversation without reading unseen messages and batches only its frozen server group", async () => {
+		const first = item({ id: "first", title: "Monica contacted your Codex" });
+		const second = item({ id: "second", title: "Codex replied" });
+		renderPage({
+			rows: [
+				row(first, {
+					itemCount: 12,
+					unreadCount: 12,
+					groupKey: "Y29udmVyc2F0aW9u",
+					dot: "yellow",
+					section: "priority",
+				}),
+			],
+			expandedRows: [row(first), row(second)],
 		});
-		markCurrentInboxItemReadMock.mockResolvedValue({
-			item: { ...targetItem, readAt: "2026-08-04T02:00:00.000Z" },
-		});
-
-		renderInboxPage({
-			deepLinkedItem: targetItem,
-			itemId: targetItem.id,
-			items: [createInboxItem({ id: "first-page-item" })],
-		});
-
-		const targetLink = await screen.findByRole("link", {
-			name: DEEP_LINKED_APPROVAL_NAME_PATTERN,
-		});
-		await waitFor(() => {
-			expect(targetLink.closest('[data-inbox-focused="true"]')).toBeTruthy();
-		});
-		expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
-			block: "center",
-		});
-		expect(document.activeElement).toBe(targetLink);
-		expect(getCurrentInboxItemMock).toHaveBeenCalledWith({
-			itemId: targetItem.id,
-			organizationId: "organization-123",
-			signal: expect.any(AbortSignal),
-		});
-		expect(listCurrentInboxItemsMock).not.toHaveBeenCalledWith(
-			expect.objectContaining({ cursor: expect.anything() })
+		fireEvent.click(screen.getByRole("button", { name: "View 12 activities" }));
+		expect(await screen.findByText("Codex replied")).toBeTruthy();
+		expect(mocks.read).not.toHaveBeenCalled();
+		expect(mocks.selection).not.toHaveBeenCalled();
+		expect(mocks.feed).toHaveBeenCalledWith(
+			expect.objectContaining({
+				snapshotId: "snapshot",
+				groupKey: "Y29udmVyc2F0aW9u",
+			})
 		);
-		await waitFor(() => {
-			expect(markCurrentInboxItemReadMock).toHaveBeenCalledWith({
-				itemId: targetItem.id,
+		fireEvent.click(screen.getByRole("button", { name: "Mark these as read" }));
+		await waitFor(() =>
+			expect(mocks.selection).toHaveBeenCalledExactlyOnceWith({
 				organizationId: "organization-123",
+				snapshotId: "snapshot",
+				groupKey: "Y29udmVyc2F0aW9u",
+				operation: "read",
+			})
+		);
+		expect(mocks.legacyReadAll).not.toHaveBeenCalled();
+	});
+
+	it("opens an exact Space source, marks only that item, and preserves same-route focus navigation", async () => {
+		const source = item({ id: "source", title: "Open exact message" });
+		renderPage({ rows: [row(source, { itemCount: 4, unreadCount: 4 })] });
+		mocks.read.mockResolvedValue({
+			item: { ...source, readAt: "2026-09-18T01:00:00Z" },
+		});
+		const link = screen.getByRole("link", { name: EXACT_MESSAGE_LABEL });
+		expect(link.getAttribute("href")).toBe(
+			"/o/amplift/spaces/space-123?focusSignalId=signal-123"
+		);
+		fireEvent.click(link);
+		expect(mocks.navigate).toHaveBeenCalledWith({
+			state: requestInboxSourceFocus,
+			to: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
+		});
+		await waitFor(() =>
+			expect(mocks.read).toHaveBeenCalledWith({
+				organizationId: "organization-123",
+				itemId: "source",
 				read: true,
-			});
-		});
-		expect(markCurrentInboxItemReadMock).toHaveBeenCalledOnce();
-	});
-
-	it("does not rewrite an already-read deep-linked Inbox item", async () => {
-		const targetItem = createInboxItem({
-			id: "already-read-item",
-			readAt: "2026-08-04T02:00:00.000Z",
-			title: "Already-read update",
-		});
-
-		renderInboxPage({ itemId: targetItem.id, items: [targetItem] });
-
-		await waitFor(() => {
-			expect(
-				screen
-					.getByRole("link", { name: ALREADY_READ_UPDATE_LINK_NAME_PATTERN })
-					.closest('[data-inbox-focused="true"]')
-			).toBeTruthy();
-		});
-		expect(markCurrentInboxItemReadMock).not.toHaveBeenCalled();
-	});
-
-	it("explains when a deep-linked Inbox item is no longer available", async () => {
-		renderInboxPage({
-			deepLinkedItem: null,
-			itemId: "missing-item",
-			items: [],
-		});
-
-		expect(
-			await screen.findByRole("status", {
-				name: INBOX_ITEM_UNAVAILABLE_NAME_PATTERN,
 			})
-		).toBeTruthy();
-		expect(getCurrentInboxItemMock).toHaveBeenCalledWith({
-			itemId: "missing-item",
-			organizationId: "organization-123",
-			signal: expect.any(AbortSignal),
-		});
-		expect(getCurrentInboxItemMock).toHaveBeenCalledOnce();
-		expect(markCurrentInboxItemReadMock).not.toHaveBeenCalled();
+		);
+		expect(mocks.selection).not.toHaveBeenCalled();
 	});
 
-	it("requires confirmation before marking all unread items read and preserves action state", async () => {
-		const item = createInboxItem({
+	it("opens a Slack message in a separate tab without turning its permalink into an app route", async () => {
+		const source = item({
+			id: "slack",
+			title: "Slack reply",
+			sourceTarget: {
+				kind: "message_channel",
+				provider: "slack",
+				teamId: "T0123",
+				channelId: "C0123",
+				messageId: "1720000000.000200",
+				threadRootMessageId: "1720000000.000100",
+				permalink: "https://amplift.slack.com/archives/C0123/p1720000000000200",
+			},
+		});
+		renderPage({ rows: [row(source)] });
+		mocks.read.mockResolvedValue({
+			item: { ...source, readAt: "2026-09-18T01:00:00Z" },
+		});
+		const link = screen.getByRole("link", { name: SLACK_REPLY_LABEL });
+		expect(link.getAttribute("target")).toBe("_blank");
+		expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+		fireEvent.click(link);
+		await waitFor(() =>
+			expect(mocks.read).toHaveBeenCalledWith(
+				expect.objectContaining({ itemId: "slack" })
+			)
+		);
+	});
+
+	it("looks up an old exact deep link outside the active filter without scanning pages or hiding its conversation", async () => {
+		const source = item({
+			id: "old-priority",
+			title: "Old request",
 			attention: "action_required",
-			id: "action-item",
 			resolutionStatus: "open",
 		});
-		const { queryClient } = renderInboxPage({
-			items: [item],
-			unreadOnly: true,
-			totalUnreadCount: 1,
-			unresolvedActionCount: 1,
+		renderPage({
+			rows: [row(source, { itemCount: 3, unreadCount: 3 })],
+			deepLinkedItem: source,
+			itemId: source.id,
+			view: "mentions",
 		});
-		fireEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
+		mocks.read.mockResolvedValue({
+			item: { ...source, readAt: "2026-09-18T01:00:00Z" },
+		});
+		const selected = await screen.findByRole("region", {
+			name: "Selected update",
+		});
+		const link = within(selected).getByRole("link", {
+			name: OLD_REQUEST_LABEL,
+		});
+		await waitFor(() => expect(document.activeElement).toBe(link));
+		expect(
+			screen.getByRole("button", { name: "View 3 activities" })
+		).toBeTruthy();
+		expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+			behavior: "auto",
+			block: "nearest",
+		});
+		expect(mocks.item).toHaveBeenCalledWith(
+			expect.objectContaining({
+				itemId: source.id,
+				organizationId: "organization-123",
+			})
+		);
+		expect(mocks.feed).not.toHaveBeenCalledWith(
+			expect.objectContaining({ cursor: expect.any(String) })
+		);
+		await waitFor(() => expect(mocks.read).toHaveBeenCalledOnce());
+	});
+
+	it("does not rewrite an already-read deep link and explains an inaccessible one", async () => {
+		const source = item({ id: "read", readAt: "2026-09-18T00:00:00Z" });
+		const rendered = renderPage({
+			rows: [],
+			itemId: source.id,
+			deepLinkedItem: source,
+		});
+		expect(
+			await screen.findByRole("region", { name: "Selected update" })
+		).toBeTruthy();
+		expect(mocks.read).not.toHaveBeenCalled();
+		rendered.unmount();
+		renderPage({ rows: [], itemId: "missing" });
+		expect(await screen.findByText(UNAVAILABLE_LABEL)).toBeTruthy();
+		expect(mocks.read).not.toHaveBeenCalled();
+	});
+
+	it("freezes the selected view before confirmation and never invokes the legacy all-history mutation", async () => {
+		const pending = item({
+			id: "pending",
+			attention: "action_required",
+			resolutionStatus: "open",
+			title: "Choose a folder",
+		});
+		const { queryClient, queryKey } = renderPage({
+			rows: [row(pending, { section: "open", requestCategory: "action" })],
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Mark 1 item as read" })
+		);
 		const dialog = await screen.findByRole("alertdialog", {
-			name: "Mark all as read?",
+			name: "Mark 1 item as read?",
 		});
-		expect(
-			within(dialog).getByText(SPACE_UNREAD_CONFIRMATION_PATTERN)
-		).toBeTruthy();
-		expect(markAllCurrentInboxItemsReadMock).not.toHaveBeenCalled();
-		fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
-		expect(markAllCurrentInboxItemsReadMock).not.toHaveBeenCalled();
-		expect(
-			queryClient.getQueryData(inboxQueryKeys.summary("organization-123"))
-		).toMatchObject({ totalUnreadCount: 1 });
-		fireEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
-		fireEvent.click(
-			within(await screen.findByRole("alertdialog")).getByRole("button", {
-				name: "Mark all as read",
+		expect(within(dialog).getByText(FROZEN_SELECTION_DESCRIPTION)).toBeTruthy();
+		expect(mocks.selection).not.toHaveBeenCalled();
+		act(() =>
+			queryClient.setQueryData(queryKey, {
+				pageParams: [undefined],
+				pages: [
+					{
+						...page([row(pending)]),
+						selectionUnreadCount: 7,
+						snapshotId: "newer-snapshot",
+					},
+				],
 			})
 		);
-
-		await waitFor(() => {
-			expect(markAllCurrentInboxItemsReadMock).toHaveBeenCalledWith({
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Mark 1 item as read" })
+		);
+		await waitFor(() =>
+			expect(mocks.selection).toHaveBeenCalledExactlyOnceWith({
 				organizationId: "organization-123",
-			});
-		});
-		expect(
-			queryClient.getQueryData(inboxQueryKeys.summary("organization-123"))
-		).toMatchObject({ totalUnreadCount: 0, unresolvedActionCount: 1 });
+				snapshotId: "snapshot",
+				operation: "read",
+			})
+		);
+		expect(mocks.legacyReadAll).not.toHaveBeenCalled();
+		expect(screen.getByText("Awaiting your action")).toBeTruthy();
 	});
 
-	it("dismisses an action from Inbox without presenting that as source resolution", async () => {
-		const onItemDismissed = vi.fn();
-		const item = createInboxItem({
+	it("dismisses an individual request without claiming the source was resolved", async () => {
+		const pending = item({
+			id: "pending",
 			attention: "action_required",
-			id: "dismiss-action-item",
-			importance: "urgent",
 			resolutionStatus: "open",
-			title: "Approval required",
+			title: "Pending request",
 		});
-		dismissCurrentInboxItemMock.mockResolvedValue({
-			dismissedItemId: item.id,
-		});
-		const { queryClient } = renderInboxPage({
-			items: [item],
+		const onItemDismissed = vi.fn();
+		renderPage({
+			rows: [row(pending, { section: "open", requestCategory: "action" })],
 			onItemDismissed,
-			totalUnreadCount: 1,
-			unresolvedActionCount: 1,
 		});
-		listCurrentInboxItemsMock.mockResolvedValue({
-			items: [],
-			nextCursor: null,
-			organizationId: "organization-123",
-		});
-		getCurrentInboxSummaryMock.mockResolvedValue({
-			organizationId: "organization-123",
-			totalUnreadCount: 0,
-			unresolvedActionCount: 0,
-		});
-
+		mocks.dismiss.mockResolvedValue({ dismissedItemId: pending.id });
+		mocks.feed.mockResolvedValue(page([]));
 		fireEvent.click(
-			screen.getByRole("button", { name: "Actions for Approval required" })
+			screen.getByRole("button", { name: "Actions for Pending request" })
 		);
-		fireEvent.click(await screen.findByRole("menuitem", { name: "Dismiss" }));
-
-		await waitFor(() => {
-			expect(dismissCurrentInboxItemMock).toHaveBeenCalledWith({
-				itemId: item.id,
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Remove from Inbox" })
+		);
+		expect(mocks.dismiss).not.toHaveBeenCalled();
+		const dialog = screen.getByRole("alertdialog");
+		expect(within(dialog).getByText(SOURCE_PRESERVED)).toBeTruthy();
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Remove from Inbox" })
+		);
+		await waitFor(() =>
+			expect(mocks.dismiss).toHaveBeenCalledWith({
 				organizationId: "organization-123",
-			});
+				itemId: pending.id,
+			})
+		);
+		expect(onItemDismissed).toHaveBeenCalledWith(pending.id);
+		expect(pending.resolutionStatus).toBe("open");
+		expect(screen.queryByText("Ended")).toBeNull();
+	});
+
+	it("allows cancelling group removal and freezes the confirmed group before live refresh", async () => {
+		const first = item({ id: "first", title: "Conversation" });
+		const original = row(first, {
+			itemCount: 12,
+			unreadCount: 12,
+			groupKey: "frozen-group",
 		});
-		expect(onItemDismissed).toHaveBeenCalledWith(item.id);
-		await waitFor(() => {
-			expect(
-				queryClient.getQueryData<{ pages: ListInboxItemsResponse[] }>(
-					inboxQueryKeys.list("organization-123", "all")
-				)?.pages[0]?.items
-			).toEqual([]);
+		const { queryClient, queryKey } = renderPage({ rows: [original] });
+		fireEvent.click(screen.getByRole("button", { name: "Remove from Inbox" }));
+		fireEvent.click(
+			within(screen.getByRole("alertdialog")).getByRole("button", {
+				name: "Cancel",
+			})
+		);
+		expect(mocks.selection).not.toHaveBeenCalled();
+		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+		fireEvent.click(screen.getByRole("button", { name: "Remove from Inbox" }));
+		act(() =>
+			queryClient.setQueryData(queryKey, {
+				pageParams: [undefined],
+				pages: [{ ...page([original]), snapshotId: "newer-snapshot" }],
+			})
+		);
+		fireEvent.click(
+			within(screen.getByRole("alertdialog")).getByRole("button", {
+				name: "Remove from Inbox",
+			})
+		);
+		await waitFor(() =>
+			expect(mocks.selection).toHaveBeenCalledExactlyOnceWith({
+				organizationId: "organization-123",
+				snapshotId: "snapshot",
+				groupKey: "frozen-group",
+				operation: "dismiss",
+			})
+		);
+		expect(mocks.read).not.toHaveBeenCalled();
+	});
+
+	it("remembers expand-all and individual overrides without marking anything as read", async () => {
+		const first = item({ id: "first", title: "Conversation" });
+		const grouped = row(first, {
+			itemCount: 12,
+			unreadCount: 12,
+			groupKey: "group",
 		});
-		await waitFor(() => {
-			expect(
-				screen.queryByRole("link", {
-					name: APPROVAL_REQUIRED_LINK_NAME_PATTERN,
-				})
-			).toBeNull();
-		});
+		renderPage({ rows: [grouped], expandedRows: [row(first)] });
+		fireEvent.click(
+			screen.getByRole("button", { name: "Expand all activities" })
+		);
 		expect(
-			queryClient.getQueryData(inboxQueryKeys.summary("organization-123"))
-		).toEqual({
-			organizationId: "organization-123",
-			totalUnreadCount: 0,
-			unresolvedActionCount: 0,
-		});
+			screen
+				.getByRole("button", { name: "Collapse activities" })
+				.getAttribute("aria-expanded")
+		).toBe("true");
+		cleanup();
+		renderPage({ rows: [grouped], expandedRows: [row(first)] });
+		expect(
+			await screen.findByRole("button", { name: "Collapse activities" })
+		).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Collapse activities" })
+		);
+		cleanup();
+		renderPage({ rows: [grouped], expandedRows: [row(first)] });
+		expect(
+			screen
+				.getByRole("button", { name: "View 12 activities" })
+				.getAttribute("aria-expanded")
+		).toBe("false");
+		expect(mocks.read).not.toHaveBeenCalled();
+		expect(mocks.selection).not.toHaveBeenCalled();
 	});
 });
 
-function reportListEndIntersection(isIntersecting: boolean): void {
-	const target = observeIntersectionTargetMock.mock.calls.at(-1)?.[0] as
-		| Element
-		| undefined;
-	if (!(target && intersectionObserverCallback)) {
-		throw new Error("Inbox infinite-scroll sentinel was not observed.");
+function renderPage(
+	input: Partial<ComponentProps<typeof InboxPage>> & {
+		rows: InboxFeedRow[];
+		nextRows?: InboxFeedRow[];
+		nextPageError?: Error;
+		expandedRows?: InboxFeedRow[];
+		deepLinkedItem?: InboxItem;
+		prime?: boolean;
+		preserveFeedMock?: boolean;
 	}
-	act(() => {
-		intersectionObserverCallback?.(
-			[{ isIntersecting, target } as IntersectionObserverEntry],
-			{} as IntersectionObserver
-		);
-	});
-}
-
-function renderInboxPage(input: {
-	unreadOnly?: boolean;
-	view?: InboxView;
-	onUnreadOnlyChange?: (value: boolean) => void;
-	deepLinkedItem?: InboxItem | null;
-	itemId?: string;
-	items: InboxItem[];
-	nextPageError?: Error;
-	nextPageItems?: InboxItem[];
-	onViewChange?: (view: InboxView) => void;
-	onItemDismissed?: (itemId: string) => void;
-	totalUnreadCount?: number;
-	unresolvedActionCount?: number;
-}) {
+) {
 	const queryClient = new QueryClient({
-		defaultOptions: {
-			mutations: { retry: false },
-			queries: { retry: false },
-		},
+		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 	});
-	const response: ListInboxItemsResponse = {
-		items: input.items,
-		nextCursor: input.nextPageItems ? "next-page" : null,
+	const queryKey = organizationInboxFeedQueryOptions({
 		organizationId: "organization-123",
-	};
-	queryClient.setQueryData(
-		inboxQueryKeys.list(
-			"organization-123",
-			input.unreadOnly ? "unread" : (input.view ?? "all")
-		),
-		{
+		accountId: "user-123",
+		category: input.view ?? "all",
+		unreadOnly: input.unreadOnly ?? false,
+		agentsOnly: input.agentsOnly ?? false,
+		peopleOnly: input.peopleOnly,
+		conversationType: input.conversationType,
+	}).queryKey;
+	const first = page(input.rows, input.nextRows ? "next-page" : null);
+	if (input.prime !== false) {
+		queryClient.setQueryData(queryKey, {
 			pageParams: [undefined],
-			pages: [response],
-		}
-	);
-	queryClient.setQueryData(inboxQueryKeys.summary("organization-123"), {
-		organizationId: "organization-123",
-		totalUnreadCount:
-			input.totalUnreadCount ??
-			input.items.filter((item) => item.readAt === null).length,
-		unresolvedActionCount: input.unresolvedActionCount ?? 0,
-	});
-	listCurrentInboxItemsMock.mockImplementation(
-		(request: { cursor?: string }) => {
-			if (request.cursor === "next-page") {
-				if (input.nextPageError) {
-					return Promise.reject(input.nextPageError);
+			pages: [first],
+		});
+	}
+	if (!input.preserveFeedMock) {
+		mocks.feed.mockImplementation(
+			(query: { cursor?: string; groupKey?: string }) => {
+				if (query.groupKey) {
+					return Promise.resolve(page(input.expandedRows ?? []));
 				}
-				return Promise.resolve({
-					items: input.nextPageItems ?? [],
-					nextCursor: null,
-					organizationId: "organization-123",
-				});
+				if (query.cursor) {
+					return input.nextPageError
+						? Promise.reject(input.nextPageError)
+						: Promise.resolve(page(input.nextRows ?? []));
+				}
+				return Promise.resolve(first);
 			}
-			return Promise.resolve(response);
-		}
-	);
-	getCurrentInboxSummaryMock.mockResolvedValue({
-		organizationId: "organization-123",
-		totalUnreadCount: 0,
-		unresolvedActionCount: input.unresolvedActionCount ?? 0,
-	});
-	const deepLinkedItem =
-		input.deepLinkedItem === undefined
-			? [...input.items, ...(input.nextPageItems ?? [])].find(
-					(item) => item.id === input.itemId
-				)
-			: input.deepLinkedItem;
-	getCurrentInboxItemMock.mockImplementation(() => {
-		if (deepLinkedItem) {
-			return Promise.resolve({ item: deepLinkedItem });
-		}
-		return Promise.reject(
-			Object.assign(new Error("Inbox item was not found."), {
-				code: "gateway.http_error",
-				requestId: "request-inbox-item",
-				status: 404,
-				upstreamCode: "inbox.item_not_found",
-			})
 		);
-	});
-
-	render(
+	}
+	mocks.item.mockImplementation(() =>
+		input.deepLinkedItem
+			? Promise.resolve({ item: input.deepLinkedItem })
+			: Promise.reject(Object.assign(new Error("Not found"), { status: 404 }))
+	);
+	const rendered = render(
 		<QueryClientProvider client={queryClient}>
 			<InboxPage
+				agentsOnly={input.agentsOnly}
+				conversationType={input.conversationType}
 				itemId={input.itemId}
+				onFiltersChange={input.onFiltersChange}
 				onItemDismissed={input.onItemDismissed}
 				onUnreadOnlyChange={input.onUnreadOnlyChange}
 				onViewChange={input.onViewChange ?? vi.fn()}
+				peopleOnly={input.peopleOnly}
 				unreadOnly={input.unreadOnly}
 				view={input.view ?? "all"}
 			/>
 		</QueryClientProvider>
 	);
-	return { queryClient };
+	return { ...rendered, queryClient, queryKey };
 }
 
-function createInboxItem(overrides: Partial<InboxItem> = {}): InboxItem {
+function page(
+	rows: InboxFeedRow[],
+	nextCursor: string | null = null
+): InboxFeedResponse {
+	return {
+		organizationId: "organization-123",
+		snapshotId: "snapshot",
+		snapshotExpiresAt: "2026-09-18T02:00:00Z",
+		nextCursor,
+		selectionUnreadCount: rows.reduce(
+			(n, current) => n + current.unreadCount,
+			0
+		),
+		rows,
+		counts: {
+			all: rows.reduce((n, current) => n + current.itemCount, 0),
+			mentions: rows.length,
+			needsAction: rows.filter(
+				(current) => current.requestCategory === "action"
+			).length,
+			needsReview: rows.filter(
+				(current) => current.requestCategory === "review"
+			).length,
+			unread: rows.reduce((n, current) => n + current.unreadCount, 0),
+			priority: rows.filter((current) => current.section === "priority").length,
+		},
+	};
+}
+
+function row(
+	source: InboxItem,
+	changes: Partial<InboxFeedRow> = {}
+): InboxFeedRow {
+	return {
+		item: source,
+		groupKey: btoa(source.id).replaceAll("=", ""),
+		itemCount: 1,
+		unreadCount: source.readAt ? 0 : 1,
+		latestOccurredAt: source.occurredAt,
+		section: "activity",
+		requestCategory: null,
+		dot: source.readAt ? null : "blue",
+		...changes,
+	};
+}
+
+function item(changes: Partial<InboxItem> = {}): InboxItem {
 	return {
 		attention: "update",
 		contextLabel: "Design Room",
-		createdAt: "2026-08-04T01:00:00.000Z",
+		createdAt: "2026-09-18T01:00:00Z",
 		id: "item-123",
 		importance: "normal",
 		kind: "space_message",
-		occurredAt: "2026-08-04T01:00:00.000Z",
+		occurredAt: "2026-09-18T01:00:00Z",
 		organizationId: "organization-123",
 		preview: "Review the latest message.",
 		readAt: null,
@@ -824,11 +818,24 @@ function createInboxItem(overrides: Partial<InboxItem> = {}): InboxItem {
 		resolutionStatus: "not_applicable",
 		sourceTarget: {
 			kind: "space",
-			signalId: "signal-123",
 			spaceId: "space-123",
+			signalId: "signal-123",
 		},
 		title: "New Space message",
-		updatedAt: "2026-08-04T01:00:00.000Z",
-		...overrides,
+		updatedAt: "2026-09-18T01:00:00Z",
+		...changes,
 	};
+}
+
+function intersect(): void {
+	const target = observed.mock.calls.at(-1)?.[0] as Element | undefined;
+	if (!(target && intersectionCallback)) {
+		throw new Error("The list sentinel was not observed");
+	}
+	act(() =>
+		intersectionCallback?.(
+			[{ isIntersecting: true, target } as IntersectionObserverEntry],
+			{} as IntersectionObserver
+		)
+	);
 }

@@ -106,9 +106,13 @@ export const listSpaceThreadSignalsResponseSchema = z.strictObject({
 
 export const postSpaceThreadSignalBodySchema = z
   .strictObject({
+    workHandoff:
+      signalTextSchema.shape.data.shape.meta.unwrap().shape.workHandoff,
     threadWakeContinuation: z.literal(true).optional(),
     text: signalTextSchema.shape.data.shape.text,
     deviceWait: signalTextSchema.shape.data.shape.deviceWait.optional(),
+    contextSelection:
+      signalTextSchema.shape.data.shape.contextSelection.optional(),
     files: signalTextSchema.shape.data.shape.files.optional(),
     messageEnvelope: messageEnvelopeSchema.optional(),
     clientMessageId: clientMessageIdSchema,

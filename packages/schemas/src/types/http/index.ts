@@ -1,4 +1,8 @@
 export type {
+  AgentProfileExecutionModeResponse,
+  RuntimeTransportAgentProfileExecutionModeRequest,
+} from "../../schemas/http/agent-profile-execution-mode";
+export type {
   AccountDisplayName,
   SelectLastSelectedOrganizationBody,
   SelectLastSelectedOrganizationErrorCode,
@@ -536,6 +540,8 @@ export type {
 } from "./feedback";
 export type { GatewayErrorCode, GatewayErrorEnvelope } from "./gateway-error";
 export type * from "./inbox";
+export type * from "./inbox-desktop-updates";
+export type * from "./inbox-feed";
 export type { ListSignalsQuery } from "./list-signals-query";
 export type {
   GetLocalRuntimeExpectedRoutesQuery,
@@ -927,6 +933,7 @@ export type {
   SetSpaceAccessModeBody,
   SpaceAccessMode,
   SpaceAccessModeState,
+  SpaceLinkJoinPolicy,
 } from "./space-access-mode";
 export type {
   RespondToSpaceAgentInteractionBody,
@@ -1169,6 +1176,22 @@ export type {
   SpaceStatusLatestVisibleUpdate,
   SpaceStatusMembersSummary,
 } from "./space-status";
+export type {
+  CreateSpaceTaskBody,
+  ListSpaceTasksQuery,
+  ListSpaceTasksResponse,
+  MutateSpaceTaskBody,
+  SpaceTask,
+  SpaceTaskActor,
+  SpaceTaskEvent,
+  SpaceTaskEventType,
+  SpaceTaskId,
+  SpaceTaskMutationReceipt,
+  SpaceTaskPhase,
+  SpaceTaskResponse,
+  SpaceTaskResult,
+  SpaceTaskReview,
+} from "./space-tasks";
 export type {
   CreateSpaceThreadBody,
   CreateSpaceThreadResponse,

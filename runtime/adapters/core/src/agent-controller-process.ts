@@ -5,6 +5,9 @@ import {
 } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
+import { normalizeCommandEnvironment } from "./process-environment.js";
+import { resolvePlatformCommand } from "./process-launch.js";
+import { spawnWindowsJobProcess } from "./windows-process-job.js";
 
 const PROCESS_TABLE_COLUMN_SEPARATOR = /\s+/u;
 const PROCESS_TABLE_LINE_SEPARATOR = /\r?\n/u;
@@ -27,7 +30,9 @@ export type ListAgentControllerDescendantProcessIds = (
 ) => Promise<number[]>;
 
 export type ListAgentControllerSupervisedProcessIds = (input: {
-  processId: number;
+  fresh?: boolean;
+  // Null requests the whole marked invocation after its original owner exited.
+  processId: number | null;
   supervisionId: string;
 }) => Promise<number[]>;
 
@@ -35,16 +40,16 @@ export function createAgentControllerProcessTableSnapshotReader(input: {
   maxAgeMs: number;
   now?: () => number;
   readProcessTable: () => Promise<string>;
-}): () => Promise<string> {
+}): (options?: { fresh?: boolean }) => Promise<string> {
   if (!(Number.isFinite(input.maxAgeMs) && input.maxAgeMs > 0)) {
     throw new Error("process table snapshot max age must be positive");
   }
   const now = input.now ?? Date.now;
   let snapshot: AgentControllerProcessTableSnapshot | null = null;
 
-  return async () => {
+  return async (options) => {
     const readAtMs = now();
-    if (snapshot) {
+    if (snapshot && !options?.fresh) {
       const ageMs = readAtMs - snapshot.capturedAtMs;
       if (snapshot.pending || (ageMs >= 0 && ageMs < input.maxAgeMs)) {
         return await snapshot.processTable;
@@ -235,17 +240,36 @@ export function spawnAgentControllerProcess(input: {
   cwd: string;
   env: NodeJS.ProcessEnv;
   shell: boolean;
+  supervisionId?: string;
 }): SpawnedAgentControllerProcess {
   const signalTarget = resolveAgentControllerProcessSignalTarget();
-  const supervisionId = randomUUID();
-  const child = spawn(input.bin, input.args, {
+  const supervisionId = input.supervisionId ?? randomUUID();
+  const env = {
+    ...normalizeCommandEnvironment(input.env),
+    [PROCESS_SUPERVISION_ENV_KEY]: supervisionId,
+  };
+  const invocation = resolvePlatformCommand(input.bin, input.args, env);
+  if (process.platform === "win32") {
+    const job = spawnWindowsJobProcess({ invocation, env, cwd: input.cwd });
+    return {
+      child: job.child,
+      processId: job.child.pid ?? null,
+      signalTarget,
+      supervisionId,
+      terminate: job.terminate,
+      terminateRemainingDescendants: job.cleanup,
+    };
+  }
+  const child = spawn(invocation.bin, invocation.args, {
     cwd: input.cwd,
     detached: signalTarget === "process_group",
     env: {
-      ...input.env,
+      ...env,
       [PROCESS_SUPERVISION_ENV_KEY]: supervisionId,
     },
     shell: input.shell,
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+    windowsHide: true,
     stdio: ["pipe", "pipe", "pipe"],
   });
   const processId = typeof child.pid === "number" ? child.pid : null;
@@ -503,7 +527,9 @@ export const listAgentControllerSupervisedProcessIds: ListAgentControllerSupervi
         processTable,
       });
     }
-    const processTable = await readMacOsSupervisedProcessTable();
+    const processTable = await readMacOsSupervisedProcessTable({
+      fresh: input.fresh,
+    });
     processDiscoveryDiagnostics.recovered("supervision_marker");
     return resolveAgentControllerSupervisedProcessIds({
       ...input,
@@ -513,7 +539,7 @@ export const listAgentControllerSupervisedProcessIds: ListAgentControllerSupervi
 
 export function resolveAgentControllerSupervisedProcessIds(input: {
   markedProcessIds?: Iterable<number>;
-  processId: number;
+  processId: number | null;
   processTable: string;
   supervisionId: string;
 }): number[] {
@@ -525,7 +551,7 @@ export function resolveAgentControllerSupervisedProcessIds(input: {
 
 function resolveAgentControllerProcessIdsFromTable(input: {
   markedProcessIds?: Iterable<number>;
-  processId: number;
+  processId: number | null;
   processTable: string;
   supervisionMarker?: string;
 }): number[] {
@@ -562,6 +588,9 @@ function resolveAgentControllerProcessIdsFromTable(input: {
     ) {
       markedProcessIds.add(processId);
     }
+  }
+  if (input.processId === null) {
+    return [...markedProcessIds];
   }
   return resolveOutOfGroupAgentControllerProcessIds({
     childrenByParentProcessId,

@@ -6,6 +6,7 @@ import type {
 import { buildPublicSpaceEntryUrl } from "@openmeld/space";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import {
 	Tooltip,
 	TooltipContent,
@@ -29,12 +30,14 @@ import type { CSSProperties } from "react";
 import { type ReactNode, useId, useState } from "react";
 import { toast } from "sonner";
 import { Drawer } from "vaul";
+import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { copyTextToClipboard } from "#/lib/clipboard";
 import {
 	isSpaceOutcomeNoticeItem,
 	type SpaceTimelineItem,
 } from "#/lib/spaces/timeline";
 import {
+	isQuotaWakeFailure,
 	resolveHistoricalWakeFailureBody,
 	type WakeFailureTargetContext,
 } from "#/lib/spaces/wake-failure-display";
@@ -344,9 +347,7 @@ function MessageDetailsBody(input: {
 		return (
 			<div className="flex flex-col gap-5">
 				<MessageLinkSection messageLink={input.messageLink} />
-				<p className="text-muted-foreground text-sm">
-					Loading message details...
-				</p>
+				<SkeletonRows label="Loading message details" />
 			</div>
 		);
 	}
@@ -621,6 +622,10 @@ function ActivityItemRow(input: {
 						spaceReferencesById={activity.spaceReferencesById}
 					/>
 				) : null}
+				<WakeQuotaReset
+					profileId={item.targetProfileId}
+					reasonCode={outcomeNotice?.systemNoticeReasonCode}
+				/>
 				<WakeFailureActions
 					action={wakeFailureAction}
 					isAgentRecoveryPending={activity.isAgentRecoveryPending}
@@ -994,6 +999,21 @@ function resolveNoticeRecoveryPresentation(input: {
 			targetLabel,
 		});
 	return { action: currentAction, body };
+}
+
+function WakeQuotaReset(input: {
+	profileId: string | null;
+	reasonCode: string | null | undefined;
+}) {
+	if (!(input.profileId && isQuotaWakeFailure(input.reasonCode))) {
+		return null;
+	}
+	return (
+		<div className="my-2 text-muted-foreground text-xs">
+			Current provider report:{" "}
+			<AgentProfileUsage profileId={input.profileId} variant="reset" />
+		</div>
+	);
 }
 
 function WakeFailureActions(input: {

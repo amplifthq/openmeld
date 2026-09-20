@@ -41,7 +41,6 @@ describe("AgentCreationRequestCard", () => {
 	it("shows only locally known progress before the server accepts the request", () => {
 		render(
 			<AgentCreationRequestCard
-				onModify={vi.fn()}
 				onReview={vi.fn()}
 				request={{
 					configuration: request.configuration,
@@ -60,13 +59,7 @@ describe("AgentCreationRequestCard", () => {
 	});
 
 	it("shows accepted identity and setup progress without claiming Wake availability", () => {
-		render(
-			<AgentCreationRequestCard
-				onModify={vi.fn()}
-				onReview={vi.fn()}
-				request={request}
-			/>
-		);
+		render(<AgentCreationRequestCard onReview={vi.fn()} request={request} />);
 
 		expect(screen.getByText("Release Reviewer")).toBeTruthy();
 		expect(screen.getByText(CONTROLLER_AND_MODEL)).toBeTruthy();
@@ -76,11 +69,9 @@ describe("AgentCreationRequestCard", () => {
 	});
 
 	it("keeps a failed request actionable instead of leaving a ghost Agent", () => {
-		const onModify = vi.fn();
 		const onReview = vi.fn();
 		render(
 			<AgentCreationRequestCard
-				onModify={onModify}
 				onReview={onReview}
 				request={{
 					...request,
@@ -92,11 +83,12 @@ describe("AgentCreationRequestCard", () => {
 
 		expect(screen.getByText("Needs attention")).toBeTruthy();
 		expect(
-			screen.getByText("The selected local agent is not connected.")
+			screen.getByText(
+				"OpenMeld can no longer use the local agent selected for this setup. Choose a connected computer to try again, or cancel setup if you no longer need this Agent."
+			)
 		).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Review and retry" }));
-		fireEvent.click(screen.getByRole("button", { name: "Modify" }));
+		fireEvent.click(screen.getByRole("button", { name: "Review setup" }));
+		expect(screen.queryByRole("button", { name: "Modify" })).toBeNull();
 		expect(onReview).toHaveBeenCalledOnce();
-		expect(onModify).toHaveBeenCalledOnce();
 	});
 });

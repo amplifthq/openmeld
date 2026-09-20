@@ -12,6 +12,10 @@ export const verifyControlPlaneToken = (input: {
 export const buildAuthenticatedControlPlaneResponse = async (input: {
   context: OpenMeldDaemonControlPlaneContext;
   expectedToken: string;
+  lifecycle?: {
+    onAuthenticated?: () => void;
+    onShutdownAdmitted?: () => void;
+  };
   request: unknown;
 }) => {
   const request = parseControlPlaneRequest(input.request);
@@ -22,8 +26,10 @@ export const buildAuthenticatedControlPlaneResponse = async (input: {
   if (!authorized) {
     throw new Error("auth.unauthenticated");
   }
+  input.lifecycle?.onAuthenticated?.();
   return await buildControlPlaneResponse({
     context: input.context,
+    lifecycle: input.lifecycle,
     request,
   });
 };

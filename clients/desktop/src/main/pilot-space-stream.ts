@@ -64,8 +64,13 @@ export function createPilotSpaceStreams(input: {
           publish({ id: request.id, type: "message", data: data.toString() });
         });
         socket.on("error", () => publish({ id: request.id, type: "error" }));
-        socket.on("close", () => {
-          publish({ id: request.id, type: "close" });
+        socket.on("close", (code, reason) => {
+          publish({
+            id: request.id,
+            type: "close",
+            code,
+            reason: reason.toString(),
+          });
           if (sockets.get(request.id) === entry) {
             sockets.delete(request.id);
           }

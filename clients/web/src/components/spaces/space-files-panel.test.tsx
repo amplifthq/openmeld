@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -97,7 +98,10 @@ const FOLDER = {
 };
 
 describe("SpaceFilesPanel", () => {
-	afterEach(cleanup);
+	afterEach(() => {
+		cleanup();
+		vi.unstubAllGlobals();
+	});
 
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -214,6 +218,25 @@ describe("SpaceFilesPanel", () => {
 	});
 
 	it("shows image thumbnails instead of generic file icons in Files", async () => {
+		let reveal: (() => void) | undefined;
+		vi.stubGlobal(
+			"IntersectionObserver",
+			class {
+				constructor(callback: IntersectionObserverCallback) {
+					reveal = () =>
+						callback(
+							[{ isIntersecting: true } as IntersectionObserverEntry],
+							this as unknown as IntersectionObserver
+						);
+				}
+				observe() {
+					/* Visibility is explicitly controlled by the test. */
+				}
+				disconnect() {
+					/* No native observer is registered. */
+				}
+			}
+		);
 		spaceApiMocks.listFiles.mockResolvedValue({
 			spaceId: "space-1",
 			parentId: null,
@@ -231,6 +254,8 @@ describe("SpaceFilesPanel", () => {
 		const view = renderPanel();
 
 		await screen.findByText("launch-diagram.png");
+		expect(spaceApiMocks.downloadFileContent).not.toHaveBeenCalled();
+		act(() => reveal?.());
 		await waitFor(() => {
 			expect(
 				view.container.querySelector('[data-slot="space-file-image-thumbnail"]')

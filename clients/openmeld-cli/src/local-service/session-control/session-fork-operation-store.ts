@@ -5,8 +5,10 @@ import type {
   RuntimeTransportForkAgentSessionResult,
   RuntimeTransportLocalAgentControlForkSessionFramePayload,
 } from "@openmeld/schemas/types";
+import { z } from "zod/v4";
 
-const STORE_SCHEMA = "openmeld-agent-session-fork-operation-store-v1" as const;
+const STORE_SCHEMA = "openmeld-agent-session-fork-operation-store-v2" as const;
+const LEGACY_STORE_SCHEMA = "openmeld-agent-session-fork-operation-store-v1";
 const RECORD_SCHEMA =
   "openmeld-agent-session-fork-operation-record-v1" as const;
 const STORE_FILE_NAME = "agent-session-fork-operations.json";
@@ -16,11 +18,45 @@ const MAX_RETAINED_RECORDS = 256;
 type ForkRequest =
   RuntimeTransportLocalAgentControlForkSessionFramePayload["request"];
 
+const contextForkRequestSchema = z.strictObject({
+  kind: z.literal("execution_context"),
+  operationId: z.string().uuid(),
+  sourceNativeSessionId: z.string().min(1),
+  completedHistoryId: z.string().min(1),
+  workingDirectory: z.string().min(1),
+});
+export type ContextForkRequest = z.infer<typeof contextForkRequestSchema>;
+export type ContextForkRequestInput = {
+  kind: "execution_context";
+  operationId: string;
+  sourceNativeSessionId: string;
+  completedHistoryId?: string;
+  workingDirectory: string;
+};
+const contextForkResultSchema = z.discriminatedUnion("status", [
+  contextForkRequestSchema.extend({
+    status: z.literal("completed"),
+    childNativeSessionId: z.string().min(1),
+  }),
+  contextForkRequestSchema.extend({
+    status: z.enum(["rejected", "outcome_unknown"]),
+    reasonCode: z.string().min(1),
+    message: z.string().min(1),
+  }),
+]);
+type ContextForkResult = z.infer<typeof contextForkResultSchema>;
+type ForkOperationRequest = ForkRequest | ContextForkRequest;
+type ForkOperationResult =
+  | RuntimeTransportForkAgentSessionResult
+  | ContextForkResult;
+
 type StoredOperation = {
+  completedHistoryId?: string;
   operationId: string;
   requestFingerprint: string;
-  result: RuntimeTransportForkAgentSessionResult | null;
+  result: ForkOperationResult | null;
   schema: typeof RECORD_SCHEMA;
+  sourceNativeSessionId?: string;
   updatedAtMs: number;
 };
 
@@ -28,7 +64,7 @@ type OperationStore = {
   records: StoredOperation[];
   schema: typeof STORE_SCHEMA;
   updatedAtMs: number;
-  v: 1;
+  v: 2;
 };
 
 type ReadRecordsResult =
@@ -44,10 +80,28 @@ type ReadRecordsResult =
 const storeTails = new Map<string, Promise<void>>();
 
 export async function runAgentSessionForkOperation(input: {
-  execute: () => Promise<{ childNativeSessionId: string }>;
+  execute: (input?: {
+    completedHistoryId: string;
+  }) => Promise<{ childNativeSessionId: string }>;
   ledgerRootPath: string;
   request: ForkRequest;
-}): Promise<RuntimeTransportForkAgentSessionResult> {
+}): Promise<RuntimeTransportForkAgentSessionResult>;
+export async function runAgentSessionForkOperation(input: {
+  execute: (input?: {
+    completedHistoryId: string;
+  }) => Promise<{ childNativeSessionId: string }>;
+  ledgerRootPath: string;
+  request: ContextForkRequestInput;
+  resolveCompletedHistoryId?: () => Promise<string>;
+}): Promise<ContextForkResult>;
+export async function runAgentSessionForkOperation(input: {
+  execute: (input?: {
+    completedHistoryId: string;
+  }) => Promise<{ childNativeSessionId: string }>;
+  ledgerRootPath: string;
+  request: ForkRequest | ContextForkRequestInput;
+  resolveCompletedHistoryId?: () => Promise<string>;
+}): Promise<ForkOperationResult> {
   const previous = storeTails.get(input.ledgerRootPath) ?? Promise.resolve();
   let release!: () => void;
   const current = new Promise<void>((resolve) => {
@@ -66,38 +120,128 @@ export async function runAgentSessionForkOperation(input: {
   }
 }
 
-async function runSerialized(input: {
-  execute: () => Promise<{ childNativeSessionId: string }>;
-  ledgerRootPath: string;
-  request: ForkRequest;
-}): Promise<RuntimeTransportForkAgentSessionResult> {
-  const stored = await readRecords(input.ledgerRootPath);
-  if (!stored.ok) {
-    return rejected(input.request, stored.reasonCode, stored.reasonCode);
-  }
-  const records = stored.records;
-  const fingerprint = stableJson(input.request);
-  const existing = records.find(
-    (record) => record.operationId === input.request.operationId
-  );
-  if (existing) {
-    if (existing.requestFingerprint !== fingerprint) {
+function handleExistingOperation(
+  existing: StoredOperation,
+  request: ForkRequest | ContextForkRequestInput
+): ForkOperationResult {
+  let effectiveRequest: ForkOperationRequest;
+
+  if ("kind" in request && request.kind === "execution_context") {
+    const frozenCompletedHistoryId =
+      existing.completedHistoryId ??
+      (existing.result && "completedHistoryId" in existing.result
+        ? existing.result.completedHistoryId
+        : undefined);
+
+    const requestedCompletedHistoryId = request.completedHistoryId;
+
+    if (
+      requestedCompletedHistoryId &&
+      frozenCompletedHistoryId &&
+      requestedCompletedHistoryId !== frozenCompletedHistoryId
+    ) {
       return rejected(
-        input.request,
+        { ...request, completedHistoryId: requestedCompletedHistoryId },
         "agent_session_fork.operation_identity_conflict",
         "This Fork operation id was already used for a different Session."
       );
     }
-    return (
-      existing.result ??
-      outcomeUnknown(
-        input.request,
-        "The provider Fork started, but no authoritative child Session id was recorded."
-      )
+
+    effectiveRequest = {
+      ...request,
+      completedHistoryId:
+        requestedCompletedHistoryId ?? frozenCompletedHistoryId ?? "",
+    };
+  } else {
+    effectiveRequest = request as ForkRequest;
+  }
+
+  const fingerprint = stableJson(effectiveRequest);
+  if (existing.requestFingerprint !== fingerprint) {
+    return rejected(
+      effectiveRequest,
+      "agent_session_fork.operation_identity_conflict",
+      "This Fork operation id was already used for a different Session."
+    );
+  }
+  return (
+    existing.result ??
+    outcomeUnknown(
+      effectiveRequest,
+      "The provider Fork started, but no authoritative child Session id was recorded."
+    )
+  );
+}
+
+async function resolveEffectiveCreationRequest(
+  request: ForkRequest | ContextForkRequestInput,
+  resolveCompletedHistoryId?: () => Promise<string>
+): Promise<ForkOperationRequest> {
+  if (!("kind" in request && request.kind === "execution_context")) {
+    return request as ForkRequest;
+  }
+  let completedHistoryId = request.completedHistoryId;
+  if (!completedHistoryId && resolveCompletedHistoryId) {
+    completedHistoryId = await resolveCompletedHistoryId();
+  }
+  if (!completedHistoryId) {
+    throw new Error("execution_context.fork_checkpoint_unavailable");
+  }
+  return {
+    ...request,
+    completedHistoryId,
+  };
+}
+
+async function runSerialized(input: {
+  execute: (input?: {
+    completedHistoryId: string;
+  }) => Promise<{ childNativeSessionId: string }>;
+  ledgerRootPath: string;
+  request: ForkRequest | ContextForkRequestInput;
+  resolveCompletedHistoryId?: () => Promise<string>;
+}): Promise<ForkOperationResult> {
+  const stored = await readRecords(input.ledgerRootPath);
+  if (!stored.ok) {
+    return rejected(
+      input.request as ForkOperationRequest,
+      stored.reasonCode,
+      stored.reasonCode
+    );
+  }
+  const records = stored.records;
+  const existing = records.find(
+    (record) => record.operationId === input.request.operationId
+  );
+  if (existing) {
+    return handleExistingOperation(existing, input.request);
+  }
+
+  const effectiveRequest = await resolveEffectiveCreationRequest(
+    input.request,
+    input.resolveCompletedHistoryId
+  );
+  const fingerprint = stableJson(effectiveRequest);
+  if (
+    records.filter(
+      (record) =>
+        record.result === null || record.result.status === "outcome_unknown"
+    ).length >= MAX_RETAINED_RECORDS
+  ) {
+    return rejected(
+      effectiveRequest,
+      "agent_session_fork.unresolved_operation_limit",
+      "Resolve uncertain fork operations before starting another fork."
     );
   }
   const started: StoredOperation = {
-    operationId: input.request.operationId,
+    ...("completedHistoryId" in effectiveRequest
+      ? { completedHistoryId: effectiveRequest.completedHistoryId }
+      : {}),
+    ...("sourceNativeSessionId" in effectiveRequest
+      ? { sourceNativeSessionId: effectiveRequest.sourceNativeSessionId }
+      : {}),
+    operationId: effectiveRequest.operationId,
     requestFingerprint: fingerprint,
     result: null,
     schema: RECORD_SCHEMA,
@@ -107,24 +251,28 @@ async function runSerialized(input: {
     await writeRecords(input.ledgerRootPath, [...records, started]);
   } catch (error) {
     return rejected(
-      input.request,
+      effectiveRequest,
       "agent_session_fork.operation_store_unavailable",
       toErrorMessage(error)
     );
   }
-  let result: RuntimeTransportForkAgentSessionResult;
+  let result: ForkOperationResult;
   try {
-    const forked = await input.execute();
-    result = runtimeTransportForkAgentSessionResultSchema.parse({
-      ...input.request,
+    const forked = await input.execute(
+      "completedHistoryId" in effectiveRequest
+        ? { completedHistoryId: effectiveRequest.completedHistoryId }
+        : undefined
+    );
+    result = parseForkOperationResult({
+      ...effectiveRequest,
       childNativeSessionId: forked.childNativeSessionId,
       status: "completed",
     });
   } catch (error) {
     const reasonCode = readErrorCode(error);
     result = reasonCode
-      ? rejected(input.request, reasonCode, toErrorMessage(error))
-      : outcomeUnknown(input.request, toErrorMessage(error));
+      ? rejected(effectiveRequest, reasonCode, toErrorMessage(error))
+      : outcomeUnknown(effectiveRequest, toErrorMessage(error));
   }
   try {
     await writeRecords(input.ledgerRootPath, [
@@ -133,7 +281,7 @@ async function runSerialized(input: {
     ]);
   } catch (error) {
     return outcomeUnknown(
-      input.request,
+      effectiveRequest,
       `The provider Fork finished, but OpenMeld could not record its result: ${toErrorMessage(error)}`
     );
   }
@@ -169,8 +317,16 @@ async function readRecords(ledgerRootPath: string): Promise<ReadRecordsResult> {
       reasonCode: "agent_session_fork.operation_store_invalid",
     };
   }
+  if (
+    "schema" in parsed &&
+    parsed.schema === LEGACY_STORE_SCHEMA &&
+    "v" in parsed &&
+    parsed.v === 1
+  ) {
+    parsed = { ...parsed, schema: STORE_SCHEMA, v: 2 };
+  }
   const candidate = parsed as Partial<OperationStore>;
-  if (candidate.schema !== STORE_SCHEMA || candidate.v !== 1) {
+  if (candidate.schema !== STORE_SCHEMA || candidate.v !== 2) {
     return {
       ok: false,
       reasonCode: "agent_session_fork.operation_store_update_required",
@@ -192,9 +348,19 @@ async function writeRecords(
   const path = join(ledgerRootPath, STORE_FILE_NAME);
   const tempPath = join(ledgerRootPath, STORE_TEMP_FILE_NAME);
   await mkdir(dirname(path), { mode: 0o700, recursive: true });
-  const retained = [...records]
-    .sort((left, right) => right.updatedAtMs - left.updatedAtMs)
-    .slice(0, MAX_RETAINED_RECORDS);
+  const ordered = [...records].sort(
+    (left, right) => right.updatedAtMs - left.updatedAtMs
+  );
+  const unresolved = ordered.filter(
+    (record) =>
+      record.result === null || record.result.status === "outcome_unknown"
+  );
+  const retained = [
+    ...unresolved,
+    ...ordered
+      .filter((record) => !unresolved.includes(record))
+      .slice(0, Math.max(0, MAX_RETAINED_RECORDS - unresolved.length)),
+  ];
   await writeFile(
     tempPath,
     `${JSON.stringify(
@@ -202,7 +368,7 @@ async function writeRecords(
         records: retained,
         schema: STORE_SCHEMA,
         updatedAtMs: Date.now(),
-        v: 1,
+        v: 2,
       } satisfies OperationStore,
       null,
       2
@@ -219,7 +385,7 @@ function isOperationStore(value: unknown): value is OperationStore {
   const candidate = value as Partial<OperationStore>;
   return (
     candidate.schema === STORE_SCHEMA &&
-    candidate.v === 1 &&
+    candidate.v === 2 &&
     Array.isArray(candidate.records) &&
     candidate.records.every(isStoredOperation)
   );
@@ -237,16 +403,17 @@ function isStoredOperation(value: unknown): value is StoredOperation {
     typeof candidate.updatedAtMs === "number" &&
     (candidate.result === null ||
       runtimeTransportForkAgentSessionResultSchema.safeParse(candidate.result)
-        .success)
+        .success ||
+      contextForkResultSchema.safeParse(candidate.result).success)
   );
 }
 
 function rejected(
-  request: ForkRequest,
+  request: ForkOperationRequest,
   reasonCode: string,
   message: string
-): RuntimeTransportForkAgentSessionResult {
-  return runtimeTransportForkAgentSessionResultSchema.parse({
+): ForkOperationResult {
+  return parseForkOperationResult({
     ...request,
     message,
     reasonCode,
@@ -255,10 +422,10 @@ function rejected(
 }
 
 function outcomeUnknown(
-  request: ForkRequest,
+  request: ForkOperationRequest,
   message: string
-): RuntimeTransportForkAgentSessionResult {
-  return runtimeTransportForkAgentSessionResultSchema.parse({
+): ForkOperationResult {
+  return parseForkOperationResult({
     ...request,
     message,
     reasonCode: "agent_session_fork.provider_outcome_unknown",
@@ -270,6 +437,14 @@ function readErrorCode(error: unknown): string | null {
   return error && typeof error === "object" && "code" in error
     ? String(error.code).trim() || null
     : null;
+}
+
+function parseForkOperationResult(
+  value: Record<string, unknown>
+): ForkOperationResult {
+  return value.kind === "execution_context"
+    ? contextForkResultSchema.parse(value)
+    : runtimeTransportForkAgentSessionResultSchema.parse(value);
 }
 
 function toErrorMessage(error: unknown): string {

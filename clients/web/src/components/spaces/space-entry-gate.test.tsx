@@ -42,6 +42,37 @@ vi.mock("#/lib/spaces/protected-space-access", () => ({
 }));
 afterEach(cleanup);
 
+it("shows Thread loading while checking access and removes it on rejection without showing messages", async () => {
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	render(
+		<QueryClientProvider client={client}>
+			<SpaceEntryGate
+				pendingContent={<aside aria-label="Thread">Loading messages…</aside>}
+				renderFrame={(content) => <div>{content}</div>}
+				signInHref="/login"
+				spaceId="space-123"
+				threadRootSignalId="root"
+			>
+				{() => <p>Protected reply</p>}
+			</SpaceEntryGate>
+		</QueryClientProvider>
+	);
+	expect(screen.getByLabelText("Thread")).toBeTruthy();
+	expect(screen.queryByText("Protected reply")).toBeNull();
+	act(() =>
+		client.setQueryData(["entry"], {
+			target: { spaceId: "space-123" },
+			view: { state: "unavailable" },
+			safeContext: {},
+		})
+	);
+	await waitFor(() => expect(screen.queryByLabelText("Thread")).toBeNull());
+	expect(screen.queryByText("Protected reply")).toBeNull();
+	client.clear();
+});
+
 it("offers a colleague Join without exposing messages and preserves the server's rejection reason", async () => {
 	entryRequest.mockResolvedValue({
 		target: { spaceId: "space-123" },

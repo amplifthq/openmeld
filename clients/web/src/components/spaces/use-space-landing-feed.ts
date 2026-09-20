@@ -42,6 +42,7 @@ import {
 	spaceUpdatesQueryOptions,
 } from "#/query/spaces/history-sync";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
+import { spaceTaskQueryKeys } from "#/query/spaces/space-tasks";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import { messageReactionsKey } from "./space-message-reactions";
 import { useSpaceConversation } from "./use-space-conversation";
@@ -1190,6 +1191,18 @@ function handleLiveInvalidationMessage(
 	if (frame.type !== "wake.progress.changed") {
 		debounceRefetch(input.statusRefetchTimerRef, input.statusRefetch);
 	}
+	if (
+		frame.type === "space.meta.changed" ||
+		frame.type === "space.members.changed"
+	) {
+		input.queryClient
+			.invalidateQueries({
+				queryKey: ["spaces", "entry-resolution", input.spaceId],
+			})
+			.catch((error: unknown) =>
+				console.warn("Failed to refresh Space access.", error)
+			);
+	}
 	if (frame.type === "space.meta.changed") {
 		input.queryClient
 			.invalidateQueries({
@@ -1217,6 +1230,12 @@ function handleLiveInvalidationMessage(
 			.invalidateQueries({ queryKey: ["space-file-pins", input.spaceId] })
 			.catch((error) => console.warn("Failed to refresh pinned files.", error));
 		invalidateSpaceFiles(input.queryClient, input.spaceId, frame.reason);
+	} else if (frame.type === "space.tasks.changed") {
+		input.queryClient
+			.invalidateQueries({
+				queryKey: spaceTaskQueryKeys.space(input.spaceId),
+			})
+			.catch((error) => console.warn("Failed to refresh Space Tasks.", error));
 	} else if (
 		frame.type === "space.members.changed" ||
 		frame.type === "agent.readiness.invalidated"

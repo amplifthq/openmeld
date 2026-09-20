@@ -125,10 +125,8 @@ export function messageReactionsKey(spaceId: string, signalId?: string) {
 }
 export function useMessageReactions(input?: MessageReactionInput) {
 	const queryClient = useQueryClient();
-	const api = useMemo(
-		() => createUnscopedWebSpaceApi({ openMeldProfileId: input?.profileId }),
-		[input?.profileId]
-	);
+	const createReactionApi = () =>
+		createUnscopedWebSpaceApi({ openMeldProfileId: input?.profileId });
 	const key = useMemo(
 		() => [
 			...messageReactionsKey(input?.spaceId ?? "", input?.signalId ?? ""),
@@ -159,7 +157,7 @@ export function useMessageReactions(input?: MessageReactionInput) {
 			}
 			return saveHistoryReactions(
 				(
-					await api.getMessageReactions({
+					await createReactionApi().getMessageReactions({
 						spaceId: input.spaceId,
 						signalId: input.signalId,
 					})
@@ -231,7 +229,7 @@ export function useMessageReactions(input?: MessageReactionInput) {
 		}));
 		setError(null);
 		try {
-			const response = await api.setMessageReaction({
+			const response = await createReactionApi().setMessageReaction({
 				spaceId: input.spaceId,
 				signalId: input.signalId,
 				emoji: emoji.emoji,
@@ -417,15 +415,24 @@ function reactionLabel(
 	const remaining = Math.max(0, group.count - names.length);
 	return `${names.join(", ")}${remaining ? ` and ${remaining} others` : ""}${group.reactedByMe && !readOnly ? " (click to remove)" : ""}`;
 }
-export function MessageReactionRow({
-	state,
-	readOnly,
-	profileId,
-}: {
+type MessageReactionRowProps = {
 	state: MessageReactionsState;
 	readOnly?: boolean;
 	profileId: string;
-}) {
+};
+
+export function MessageReactionRow(props: MessageReactionRowProps) {
+	if (props.state.groups.length === 0) {
+		return null;
+	}
+	return <PopulatedMessageReactionRow {...props} />;
+}
+
+function PopulatedMessageReactionRow({
+	state,
+	readOnly,
+	profileId,
+}: MessageReactionRowProps) {
 	const measureRef = useRef<HTMLDivElement>(null);
 	const rowRef = useRef<HTMLDivElement>(null);
 	const [visibleCount, setVisibleCount] = useState(0);
@@ -493,13 +500,10 @@ export function MessageReactionRow({
 	const hidden = state.groups.slice(visibleCount);
 	return (
 		<div
-			className={cn(
-				"relative flex min-w-0 shrink items-center gap-1",
-				state.groups.length ? "max-w-full" : "hidden"
-			)}
+			className="relative flex min-w-0 max-w-full shrink items-center gap-1"
 			data-slot="message-reactions"
 			ref={rowRef}
-			style={{ width: naturalWidth, minWidth: state.groups.length ? 36 : 0 }}
+			style={{ width: naturalWidth, minWidth: 36 }}
 		>
 			<div
 				aria-hidden="true"
@@ -560,10 +564,6 @@ export function MessageReactionViewer({
 	const emoji = state.groups.some((group) => group.emoji === selected)
 		? (selected ?? undefined)
 		: state.groups[0]?.emoji;
-	const api = useMemo(
-		() => createUnscopedWebSpaceApi({ openMeldProfileId: input.profileId }),
-		[input.profileId]
-	);
 	const query = useInfiniteQuery({
 		queryKey: [
 			...messageReactionsKey(input.spaceId, input.signalId),
@@ -575,7 +575,9 @@ export function MessageReactionViewer({
 		enabled: state.viewerOpen && Boolean(emoji),
 		initialPageParam: undefined as string | undefined,
 		queryFn: ({ pageParam }) =>
-			api.getMessageReactions({
+			createUnscopedWebSpaceApi({
+				openMeldProfileId: input.profileId,
+			}).getMessageReactions({
 				spaceId: input.spaceId,
 				signalId: input.signalId,
 				emoji,

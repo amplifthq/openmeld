@@ -24,7 +24,9 @@ import { baseQueryOptions } from "#/query/query-config";
 import { spaceQueryKeys } from "./status";
 
 const ACCOUNT_SPACE_ACTIVE_WAKE_POLL_INTERVAL_MS = 15_000;
-export const ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS = 15_000;
+// Newly invited members have no live connection to that Space yet. Refresh
+// the shared directory every five seconds while the app is in the foreground.
+export const ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS = 5000;
 
 type AccountSpaceActiveWakePresentationSnapshot = {
 	browserRequestStartedAtMonotonicMs: number | null;

@@ -4,17 +4,76 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  currentDaemonServiceLifecycleLock,
+  withDaemonServiceRunLock,
+} from "../src/config/daemon-state";
+import { releaseLock } from "../src/config/lock";
+import {
   readWindowsTaskAction,
   runWindowsUserTask,
   windowsPowerShellPath,
   windowsTaskActionArguments,
 } from "../src/local-service/lifecycle/windows-user-task";
+import { withTempHome } from "./helpers/fs";
 
 // Runs against the real Task Scheduler, under a logged-in Windows test user.
 // It never uses an OpenMeld service name or the user's OpenMeld home directory.
 describe.skipIf(process.platform !== "win32")(
   "Windows user task native contract",
   () => {
+    it("does not register a native task after losing lifecycle ownership before the grant", async () => {
+      await withTempHome(async (home) => {
+        process.env.OPENMELD_ENV_PRESET = "dev-local";
+        const request = {
+          name: `OpenMeld-Test-${randomUUID()}`,
+          legacyScript: join(home, "never-installed.bat"),
+        };
+        const action = windowsTaskActionArguments({
+          executable: process.execPath,
+          args: ["-e", "process.exit(0)"],
+          env: {},
+          logPath: join(home, "process.log"),
+        });
+        try {
+          await withDaemonServiceRunLock(async () => {
+            const lock = currentDaemonServiceLifecycleLock();
+            if (!lock) {
+              throw new Error("missing isolated lifecycle owner");
+            }
+            await releaseLock(lock);
+            await expect(
+              runWindowsUserTask({
+                ...request,
+                operation: "install",
+                executable: windowsPowerShellPath(),
+                arguments: action,
+                workingDirectory: home,
+              })
+            ).rejects.toThrow();
+          });
+          expect(
+            (await runWindowsUserTask({ ...request, operation: "status" }))
+              .installed
+          ).toBe(false);
+          await withDaemonServiceRunLock(async () => {
+            expect(
+              (
+                await runWindowsUserTask({
+                  ...request,
+                  operation: "install",
+                  executable: windowsPowerShellPath(),
+                  arguments: action,
+                  workingDirectory: home,
+                })
+              ).installed
+            ).toBe(true);
+          });
+        } finally {
+          await runWindowsUserTask({ ...request, operation: "uninstall" });
+        }
+      });
+    }, 60_000);
+
     it("runs in the current account, preserves paths/environment, and obeys stop and disable", async () => {
       const root = await mkdtemp(join(tmpdir(), "OpenMeld user task 测试 "));
       const request = {

@@ -7,6 +7,7 @@ import {
 	summarizeApplicationError,
 	WEB_ERROR_BUILD,
 } from "./application-error";
+import { browserDiagnosticContext } from "./space-open";
 
 let readRouteId: () => string | null = () => null;
 export function setApplicationErrorRouteReader(
@@ -50,6 +51,7 @@ function createApplicationErrorReport(
 	return {
 		version: 1,
 		id: crypto.randomUUID(),
+		...browserDiagnosticContext(),
 		source,
 		buildId: WEB_ERROR_BUILD.id,
 		sourceSha: WEB_ERROR_BUILD.sha,

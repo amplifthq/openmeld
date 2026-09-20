@@ -1,152 +1,136 @@
+import {
+	DESKTOP_PROMOTED_RELEASE_KEY,
+	desktopCandidateManifestSchema,
+} from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
-	buildAbsoluteDesktopUrl,
-	buildDesktopDownloadHeaders,
-	buildDesktopReleaseOrigin,
 	buildDesktopUpdateManifest,
-	DESKTOP_RELEASE_MANIFEST_R2_OBJECT_KEY,
-	parseDesktopPreviewReleaseManifest,
+	buildDesktopUpdaterFeed,
 	readAvailableDesktopRelease,
 	readDesktopPreviewReleaseManifest,
+	readPromotedDesktopRelease,
 } from "./desktop-release";
 
-describe("desktop release metadata", () => {
-	it("builds production-safe absolute URLs from the request origin", () => {
-		expect(
-			buildAbsoluteDesktopUrl({
-				origin: "https://openmeld.invalid",
-				pathname: "/desktop/download",
-			})
-		).toBe("https://openmeld.invalid/desktop/download");
-		expect(
-			buildDesktopReleaseOrigin("https://openmeld.invalid/desktop/update.json")
-		).toBe("https://openmeld.invalid");
-	});
-
-	it("publishes the unsigned Apple silicon artifact in the update manifest", () => {
-		const releaseManifest = parseDesktopPreviewReleaseManifest({
-			latestVersion: "0.1.0-preview.1",
-			minimumSupportedVersion: "0.1.0-preview.0",
-			message: null,
-			macosArm64: {
-				artifactName:
-					"OpenMeld-Desktop-0.1.0-preview.1-macos-arm64-unsigned.dmg",
-				objectKey:
-					"desktop/OpenMeld-Desktop-0.1.0-preview.1-macos-arm64-unsigned.dmg",
-				version: "0.1.0-preview.1",
-				sha256: "abc123",
-				sizeBytes: 42,
+const id = "a".repeat(64);
+const candidate = desktopCandidateManifestSchema.parse({
+	schemaVersion: 1,
+	target: "production",
+	platform: "macos-arm64",
+	version: "0.1.1",
+	releaseSha: "b".repeat(40),
+	sha256: id,
+	sizeBytes: 123,
+	zip: {
+		sha256: "c".repeat(64),
+		sha512: `${"A".repeat(86)}==`,
+		sizeBytes: 456,
+	},
+});
+function storeWith(metadata: unknown = candidate, size: number | null = 123) {
+	return {
+		get: vi.fn((key: string) => {
+			if (key === DESKTOP_PROMOTED_RELEASE_KEY) {
+				return Promise.resolve({
+					json: async () => ({
+						schemaVersion: 1,
+						candidate: id,
+						promotedAt: "2026-01-01T00:00:00Z",
+					}),
+				});
+			}
+			if (key === `desktop/candidates/${id}/manifest.json`) {
+				return Promise.resolve({ json: async () => metadata });
+			}
+			return Promise.resolve(null);
+		}),
+		head: vi.fn(async () => (size === null ? null : { size })),
+	};
+}
+describe("Desktop promoted release", () => {
+	it("projects the same release into the public page, legacy JSON and updater feed", async () => {
+		const store = storeWith();
+		const page = await readAvailableDesktopRelease(store);
+		const release = await readDesktopPreviewReleaseManifest({ store });
+		const promoted = await readPromotedDesktopRelease(store);
+		if (!(release && promoted)) {
+			throw new Error("Missing fixture release");
+		}
+		const legacy = buildDesktopUpdateManifest({
+			origin: "https://openmeld.ai",
+			releaseManifest: release,
+		});
+		const feed = JSON.parse(buildDesktopUpdaterFeed(promoted));
+		expect([page?.version, legacy.latestVersion, feed.version]).toEqual([
+			"0.1.1",
+			"0.1.1",
+			"0.1.1",
+		]);
+		expect(legacy.macosArm64.sha256).toBe(id);
+		expect(feed.files).toEqual([
+			{
+				url: `/desktop/updates/${id}/desktop.zip`,
+				sha512: candidate.zip?.sha512,
+				size: 456,
 			},
-		});
-		const manifest = buildDesktopUpdateManifest({
-			origin: "https://openmeld.invalid",
-			releaseManifest,
-		});
-
-		expect(manifest.latestVersion).toBe("0.1.0-preview.1");
-		expect(manifest.minimumSupportedVersion).toBe("0.1.0-preview.0");
-		expect(manifest.downloadPageUrl).toBe("https://openmeld.invalid/desktop");
-		expect(manifest.macosArm64).toEqual({
-			url: "https://openmeld.invalid/desktop/download",
-			version: "0.1.0-preview.1",
-			sha256: "abc123",
-			sizeBytes: 42,
-		});
-		expect(releaseManifest.macosArm64.objectKey).toBe(
-			"desktop/OpenMeld-Desktop-0.1.0-preview.1-macos-arm64-unsigned.dmg"
-		);
+		]);
+		expect(
+			store.get.mock.calls.some(([key]) => key === "desktop/update.json")
+		).toBe(false);
 	});
-
-	it("reads the Desktop release manifest from the stable R2 projection key", async () => {
-		const store = {
-			get: vi.fn(async (key: string) =>
-				key === DESKTOP_RELEASE_MANIFEST_R2_OBJECT_KEY
-					? {
-							json: async () => ({
-								latestVersion: "0.1.0-preview.2",
-								macosArm64: {
-									artifactName:
-										"OpenMeld-Desktop-0.1.0-preview.2-macos-arm64-unsigned.dmg",
-									objectKey:
-										"desktop/OpenMeld-Desktop-0.1.0-preview.2-macos-arm64-unsigned.dmg",
-									version: "0.1.0-preview.2",
-								},
-							}),
-						}
-					: null
-			),
-		};
-
-		await expect(
-			readDesktopPreviewReleaseManifest({ store })
-		).resolves.toMatchObject({
-			latestVersion: "0.1.0-preview.2",
-			minimumSupportedVersion: "0.1.0-preview.2",
-			macosArm64: {
-				objectKey:
-					"desktop/OpenMeld-Desktop-0.1.0-preview.2-macos-arm64-unsigned.dmg",
-				sha256: null,
-				sizeBytes: null,
-			},
-		});
-		expect(store.get).toHaveBeenCalledWith(
-			DESKTOP_RELEASE_MANIFEST_R2_OBJECT_KEY
-		);
-	});
-
 	it.each([
 		null,
-		{ size: 0 },
-		{ size: 123 },
-	])("offers a download only when its artifact exists and is nonempty: %j", async (artifact) => {
-		const release = {
-			latestVersion: "1.0.0",
-			macosArm64: {
-				version: "1.0.0",
-				artifactName: "OpenMeld.dmg",
-				objectKey: "desktop/OpenMeld.dmg",
-			},
-		};
-		// R2 head's documented contract is object metadata or null.
-		const store = {
-			get: async () => ({ json: async () => release }),
-			head: async (key: string) =>
-				key === "desktop/OpenMeld.dmg" ? artifact : null,
-		};
-		const result = await readAvailableDesktopRelease(store);
-		expect(result).toEqual(
-			artifact?.size ? parseDesktopPreviewReleaseManifest(release) : null
+		122,
+		123,
+	])("uses the selected candidate without a default fallback: %s", async (size) => {
+		const store = storeWith(candidate, size);
+		if (size === 122) {
+			await expect(readAvailableDesktopRelease(store, id)).rejects.toThrow(
+				"size mismatch"
+			);
+		} else {
+			expect(
+				(await readAvailableDesktopRelease(store, id))?.version ?? null
+			).toBe(size === null ? null : "0.1.1");
+		}
+		expect(store.get).toHaveBeenCalledExactlyOnceWith(
+			`desktop/candidates/${id}/manifest.json`
 		);
 	});
-
-	it("keeps absent releases unavailable and rejects corrupt release metadata", async () => {
-		await expect(readAvailableDesktopRelease(undefined)).resolves.toBeNull();
+	it.each([
+		"",
+		"../promoted.json",
+		"A".repeat(64),
+	])("rejects malformed candidate selectors: %s", async (value) => {
+		const store = storeWith();
+		await expect(readAvailableDesktopRelease(store, value)).rejects.toThrow();
+		expect(store.get).not.toHaveBeenCalled();
+	});
+	it("does not fall back when a selected candidate is absent", async () => {
+		const store = storeWith();
+		expect(await readAvailableDesktopRelease(store, "d".repeat(64))).toBeNull();
+		expect(store.get).toHaveBeenCalledExactlyOnceWith(
+			`desktop/candidates/${"d".repeat(64)}/manifest.json`
+		);
+	});
+	it.each([
+		{ ...candidate, zip: undefined },
+		{ ...candidate, sha256: "d".repeat(64) },
+		{},
+	])("rejects incomplete or corrupt promoted candidates", async (metadata) => {
 		await expect(
-			readAvailableDesktopRelease({
+			readPromotedDesktopRelease(storeWith(metadata))
+		).rejects.toThrow();
+	});
+	it("keeps an absent or incomplete default download unavailable", async () => {
+		expect(await readAvailableDesktopRelease(undefined)).toBeNull();
+		expect(
+			await readAvailableDesktopRelease({
 				get: async () => null,
 				head: async () => null,
 			})
-		).resolves.toBeNull();
-		await expect(
-			readAvailableDesktopRelease({
-				get: async () => ({ json: async () => ({}) }),
-				head: async () => ({ size: 123 }),
-			})
-		).rejects.toThrow("Invalid OpenMeld Desktop preview release manifest");
-	});
-
-	it("sets download headers for the DMG stream", () => {
-		const headers = buildDesktopDownloadHeaders({
-			artifactName: "OpenMeld-Desktop-0.1.0-preview.1-macos-arm64-unsigned.dmg",
-			etag: '"etag-value"',
-			sizeBytes: 123,
-		});
-
-		expect(headers.get("content-type")).toBe("application/x-apple-diskimage");
-		expect(headers.get("content-length")).toBe("123");
-		expect(headers.get("etag")).toBe('"etag-value"');
-		expect(headers.get("content-disposition")).toContain(
-			"OpenMeld-Desktop-0.1.0-preview.1-macos-arm64-unsigned.dmg"
-		);
+		).toBeNull();
+		expect(
+			await readAvailableDesktopRelease(storeWith(candidate, 122))
+		).toBeNull();
 	});
 });

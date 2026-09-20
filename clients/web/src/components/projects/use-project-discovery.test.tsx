@@ -2,7 +2,6 @@ import type {
 	CurrentLocalRuntimeReplyReadinessResponse,
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
-	LocalRuntimesResponse,
 } from "@openmeld/schemas/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
@@ -22,10 +21,19 @@ vi.mock("#/components/app/start-flow-state", () => ({
 	useStartFlowState: () => ({ storageScope: "owner-1" }),
 }));
 
-vi.mock("#/lib/connect/local-runtimes", () => ({
+vi.mock("#/lib/connect/local-runtimes", async (original) => ({
+	...(await original<typeof import("#/lib/connect/local-runtimes")>()),
 	readCurrentLocalRuntimeReplyReadiness:
 		api.readCurrentLocalRuntimeReplyReadiness,
 	readLocalRuntimes: api.readLocalRuntimes,
+}));
+
+vi.mock("#/lib/connect/current-device-target", () => ({
+	resolveCurrentDeviceTarget: vi.fn(async () => ({
+		availability: "resolved",
+		deviceId: "device-live",
+		runtimeLane: "prod",
+	})),
 }));
 
 vi.mock(
@@ -227,6 +235,10 @@ describe("useProjectDiscovery", () => {
 		api.readLocalRuntimes.mockResolvedValueOnce({
 			...localRuntimes(),
 			localRuntimes: [],
+			peopleComputers: {
+				generatedAt: "2026-09-07T00:00:00.000Z",
+				computers: [],
+			},
 		});
 		act(() => result.current.refresh());
 
@@ -242,6 +254,10 @@ describe("useProjectDiscovery", () => {
 		api.readLocalRuntimes.mockResolvedValue({
 			...localRuntimes(),
 			localRuntimes: [],
+			peopleComputers: {
+				generatedAt: "2026-09-07T00:00:00.000Z",
+				computers: [],
+			},
 		});
 		api.readCurrentLocalRuntimeReplyReadiness.mockResolvedValue(
 			replyReadinessMissing()
@@ -255,11 +271,15 @@ describe("useProjectDiscovery", () => {
 	});
 
 	it("shows a Service retry as an active refresh", async () => {
-		const serviceRetry = deferred<LocalRuntimesResponse>();
+		const serviceRetry = deferred<PeopleComputerInventory>();
 		api.readLocalRuntimes
 			.mockResolvedValueOnce({
 				...localRuntimes(),
 				localRuntimes: [],
+				peopleComputers: {
+					generatedAt: "2026-09-07T00:00:00.000Z",
+					computers: [],
+				},
 			})
 			.mockImplementationOnce(async () => await serviceRetry.promise);
 		api.readCurrentLocalRuntimeReplyReadiness.mockResolvedValue(
@@ -278,6 +298,10 @@ describe("useProjectDiscovery", () => {
 			serviceRetry.resolve({
 				...localRuntimes(),
 				localRuntimes: [],
+				peopleComputers: {
+					generatedAt: "2026-09-07T00:00:00.000Z",
+					computers: [],
+				},
 			})
 		);
 		await waitFor(() => expect(result.current.isRefreshing).toBe(false));

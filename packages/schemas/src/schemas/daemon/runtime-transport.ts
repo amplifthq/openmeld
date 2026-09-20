@@ -1,4 +1,7 @@
 import * as z from "../../lazy-zod";
+export const OPENMELD_EXECUTION_ADMISSION_HEADER =
+  "x-openmeld-execution-admission";
+
 import { agentProfileWorkRecoveryActionKindSchema } from "../agent-profile-work-recovery";
 import {
   executionRecoveryDestinationSchema,
@@ -29,6 +32,7 @@ import {
   MAX_PROFILE_NAME_LENGTH,
   MAX_TEXT_LENGTH,
 } from "../protocol/constants";
+import { executionContextTaskSchema } from "../protocol/execution-context";
 import { messageEnvelopeSchema } from "../protocol/message-envelope";
 import {
   agentProfileIdSchema,
@@ -41,6 +45,7 @@ import { workingLanguageGuidanceSchema } from "../runtime/working-language";
 import { spaceContractSchema } from "../space-mesh/space-contract";
 import { spaceThreadContextSchema } from "../space-mesh/space-thread";
 import { agentControllerRefSchema } from "./agent-controller-ref";
+import { executionHostObservationSchema } from "./computer-care";
 import {
   openMeldDaemonCancelPayloadSchema,
   openMeldDaemonCancelRequestPayloadSchema,
@@ -143,6 +148,7 @@ export const runtimeTransportAgentProfileWorkRecoveryReadResponseSchema =
     z.strictObject({
       action: runtimeTransportAgentProfileWorkRecoveryActionSchema,
       authorizedContinuationClientMessageId: clientMessageIdSchema.nullable(),
+      forkInterruptedConversation: z.boolean().optional(),
       interruptedClientMessageId: clientMessageIdSchema,
       interruptedDispatchId: z.string().trim().min(1).max(512),
       // Older owner shards omit these exact-source fields during a rolling Core
@@ -155,6 +161,15 @@ export const runtimeTransportAgentProfileWorkRecoveryReadResponseSchema =
         .max(512)
         .optional(),
       interruptedSourceSignalId: z.string().trim().min(1).max(512).optional(),
+      // Whether the attempt this work would replace is safely out of the way.
+      // `not_started` means no execution was ever created for it, `withdrawn`
+      // means the computer acknowledged that its attempt is gone, and
+      // `awaiting_withdrawal` means Core cannot yet prove either. Older owner
+      // shards omit it during a rolling Core deployment, so callers must defer
+      // replacement work rather than assume the attempt was retired.
+      interruptedLocalAttempt: z
+        .enum(["awaiting_withdrawal", "not_started", "withdrawn"])
+        .optional(),
       spaceId: z.string().trim().min(1).max(512),
       status: z.literal("available"),
     }),
@@ -265,6 +280,7 @@ export const runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema 
     currentConfigurationRevision: z.number().int().positive(),
     currentDefaultProjectId: z.string().trim().min(1).nullable().optional(),
     expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+    forkInterruptedConversation: z.boolean().optional(),
     requireAcceptedExecutionTargetRevision: z.literal(true),
   });
 
@@ -288,6 +304,26 @@ export const runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseS
     status: z.enum(["marked", "not_pending", "unavailable"]),
   });
 
+export const runtimeTransportAgentProfileWorkHandoffRequestSchema =
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
+    sourceDispatchId: z.string().trim().min(1).max(512),
+    sourceTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+    successorDispatchId: z.string().trim().min(1).max(512),
+    successorExecutionContextId: z.string().trim().min(1).max(512).optional(),
+    successorTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+  });
+
+export const runtimeTransportAgentProfileWorkHandoffResponseSchema =
+  z.strictObject({
+    status: z.enum([
+      "already_handed_off",
+      "handed_off",
+      "source_not_occupied",
+      "successor_conflict",
+      "unavailable",
+    ]),
+  });
+
 export const runtimeTransportAgentProfileWorkQueueApproveRequestSchema =
   runtimeTransportAgentProfileWorkRecoveryTargetSchema;
 
@@ -304,6 +340,25 @@ export const runtimeTransportAgentProfileWorkSkipRequestSchema =
 export const runtimeTransportAgentProfileWorkSkipResponseSchema =
   z.strictObject({
     status: z.enum(["skipped", "not_pending", "unavailable"]),
+  });
+
+export const runtimeTransportAgentProfileWorkLocalAttemptWithdrawalRequestSchema =
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
+    expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+  });
+
+// `requested` means the withdrawal was asked for again and is still
+// unconfirmed; it is not a claim that the attempt stopped. `not_started` and
+// `withdrawn` are the two answers that leave nothing outstanding.
+export const runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema =
+  z.strictObject({
+    status: z.enum([
+      "not_pending",
+      "not_started",
+      "requested",
+      "unavailable",
+      "withdrawn",
+    ]),
   });
 
 export const runtimeTransportAgentProfileExecutionTargetMutationRequestSchema =
@@ -372,6 +427,8 @@ export const runtimeTransportErrorCodeSchema = z.enum([
   "runtime_coordinator.execution_token_authority_unavailable",
   "runtime_coordinator.execution_token_scope_mismatch",
   "runtime_coordinator.execution_token_unavailable",
+  "runtime_coordinator.execution_context_mismatch",
+  "runtime_coordinator.execution_context_unavailable",
 ]);
 
 export const runtimeTransportLeaseSchema = z.strictObject({
@@ -380,6 +437,7 @@ export const runtimeTransportLeaseSchema = z.strictObject({
 });
 
 export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
+  executionHost: executionHostObservationSchema.optional(),
   agentReplyContextReview: z.literal(true).optional(),
   informationProtectionPrompt: z.literal(true).optional(),
   workingLanguagePrompt: z.literal(true).optional(),
@@ -420,6 +478,7 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
 
 export const runtimeTransportCapabilitiesSchema =
   runtimeTransportBaseCapabilitiesSchema.extend({
+    spaceWorkHandoff: z.literal(true).optional(),
     computerFileAccess: z
       .strictObject({
         readPolicy: z.literal(true).optional(),
@@ -569,6 +628,8 @@ export const runtimeTransportRegisterSessionRequestSchema = z.strictObject({
 });
 
 export const runtimeTransportRegisterSessionResponseSchema = z.strictObject({
+  executionAdmissionConfirmation: z.literal(true).optional(),
+  computerCare: z.literal(true).optional(),
   ok: z.boolean(),
   connectionGeneration: z.number().int().positive(),
   acceptedLeases: z.array(runtimeTransportLeaseSchema),
@@ -1155,6 +1216,7 @@ export const runtimeTransportDeliverDispatchPayloadSchema = z.strictObject({
   targetProfileMentionLabel: spaceMentionLabelSchema.optional(),
   targetProfileIsCenterAgent: z.boolean().optional(),
   agentControllerConversationId: z.string().trim().min(1).optional(),
+  executionContext: executionContextTaskSchema.optional(),
   deliveryRecoveryReason:
     openMeldDaemonDispatchDeliveryRecoveryReasonSchema.optional(),
   dispatchChainId: z.string().min(1).optional(),
@@ -1402,6 +1464,7 @@ export const runtimeTransportRuntimeCoordinatorHeadAcceptRequestSchema =
 export const runtimeTransportRuntimeCoordinatorHeadAcceptResponseSchema =
   z.discriminatedUnion("status", [
     z.strictObject({
+      executionContext: executionContextTaskSchema.optional(),
       acceptedDispatchSnapshot:
         openMeldDaemonAcceptedDispatchSnapshotSchema.optional(),
       action: runtimeTransportRuntimeCoordinatorHeadAcceptActionSchema,
@@ -1934,6 +1997,8 @@ export const runtimeTransportAgentControllerConversationOccupancySchema =
   });
 
 export const runtimeTransportDispatchLocalQueueWaitReasonSchema = z.enum([
+  "workspace_conflict",
+  "agent_profile_concurrency",
   "agent_controller_maintenance",
   "global_concurrency",
   "local_execution_lane_concurrency",
@@ -1953,6 +2018,7 @@ export const runtimeTransportDispatchLocalQueueDiagnosticsSchema =
   });
 
 export const runtimeTransportDispatchLifecycleRequestSchema = z.strictObject({
+  acknowledgementId: z.string().uuid().optional(),
   v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
   runtimeCoordinatorExecutionId:
     runtimeCoordinatorExecutionRecordSchema.shape.runtimeCoordinatorExecutionId.optional(),
@@ -1968,6 +2034,17 @@ export const runtimeTransportDispatchLifecycleRequestSchema = z.strictObject({
     runtimeTransportAgentControllerConversationOccupancySchema.optional(),
   localQueue: runtimeTransportDispatchLocalQueueDiagnosticsSchema.optional(),
 });
+
+export const runtimeTransportDispatchLifecycleAcknowledgementSchema =
+  z.strictObject({
+    acknowledgementId: z.string().uuid(),
+    dispatchId: z.string().min(1),
+    attemptId: z.string().min(1),
+    connectionGeneration: z.number().int().positive(),
+    accepted: z.boolean(),
+    validForMs: z.number().int().nonnegative(),
+    reasonCode: z.string().min(1).nullable(),
+  });
 
 export const runtimeTransportDispatchRuntimeEvidencePhaseSchema = z.enum([
   "received",
@@ -2250,6 +2327,7 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.session.heartbeat",
   "daemon.dispatch.deliver",
   "daemon.dispatch.lifecycle",
+  "daemon.dispatch.lifecycle_acknowledged",
   "daemon.dispatch.runtime_evidence",
   "daemon.dispatch.tool_activity",
   "daemon.dispatch.reasoning",

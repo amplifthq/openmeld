@@ -11,6 +11,7 @@ import {
 } from "@phosphor-icons/react";
 import { type ReactNode, useState } from "react";
 import type { CompleteOnboardingState } from "./complete-onboarding-state";
+import { OnboardingStepLayout } from "./onboarding-step-layout";
 
 export function CompleteOnboardingStep(input: {
 	onContinue: () => Promise<void>;
@@ -30,54 +31,57 @@ export function CompleteOnboardingStep(input: {
 	});
 
 	return (
-		<div className="flex flex-1 flex-col">
-			<div className="space-y-2">
-				{outcomes.map((outcome) => (
-					<OutcomeRow
-						description={outcome.description}
-						icon={outcome.icon}
-						key={outcome.title}
-						title={outcome.title}
-					/>
-				))}
-			</div>
-
-			<div className="mt-auto flex items-end justify-between gap-4 pt-7">
-				<div>
-					<p className="text-muted-foreground text-xs">
-						Change any of these settings later.
-					</p>
-					{finishError ? (
-						<p className="mt-2 text-destructive text-xs" role="alert">
-							{finishError}
-						</p>
-					) : null}
+		<OnboardingStepLayout
+			body={
+				<div className="space-y-2">
+					{outcomes.map((outcome) => (
+						<OutcomeRow
+							description={outcome.description}
+							icon={outcome.icon}
+							key={outcome.title}
+							title={outcome.title}
+						/>
+					))}
 				</div>
-				<Button
-					disabled={isOpening}
-					onClick={async () => {
-						setFinishError(null);
-						setIsOpening(true);
-						try {
-							await input.onContinue();
-						} catch (error) {
-							console.error("OpenMeld could not finish onboarding.", {
-								error,
-								organizationId: input.state.organizationId,
-							});
-							setFinishError(
-								"OpenMeld couldn’t finish setting up your workspace. Try again."
-							);
-							setIsOpening(false);
-						}
-					}}
-					type="button"
-				>
-					{isOpening ? "Opening OpenMeld…" : "Open OpenMeld"}
-					<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
-				</Button>
-			</div>
-		</div>
+			}
+			footer={
+				<div className="flex items-end justify-between gap-4">
+					<div>
+						<p className="text-muted-foreground text-xs">
+							Change any of these settings later.
+						</p>
+						{finishError ? (
+							<p className="mt-2 text-destructive text-xs" role="alert">
+								{finishError}
+							</p>
+						) : null}
+					</div>
+					<Button
+						disabled={isOpening}
+						onClick={async () => {
+							setFinishError(null);
+							setIsOpening(true);
+							try {
+								await input.onContinue();
+							} catch (error) {
+								console.error("OpenMeld could not finish onboarding.", {
+									error,
+									organizationId: input.state.organizationId,
+								});
+								setFinishError(
+									"OpenMeld couldn’t finish setting up your workspace. Try again."
+								);
+								setIsOpening(false);
+							}
+						}}
+						type="button"
+					>
+						{isOpening ? "Opening OpenMeld…" : "Open OpenMeld"}
+						<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
+					</Button>
+				</div>
+			}
+		/>
 	);
 }
 

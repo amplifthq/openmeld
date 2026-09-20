@@ -9,7 +9,10 @@ import type {
 import type { AuthProfileFacts } from "../../auth/application/profile-facts-reader";
 import { readCenterAgentDesignationRecord } from "../../center-agent/center-agent-repository";
 import { type CoreBindings, identityDb } from "../../lib/bindings";
-import type { SpaceMetaRecord } from "../infrastructure/sql/space-meta-repo";
+import {
+  resolveSpaceMetaLinkJoinPolicy,
+  type SpaceMetaRecord,
+} from "../infrastructure/sql/space-meta-repo";
 import type { SpaceBootstrapTimingCollector } from "./space-bootstrap-timing";
 import { readSpaceContractOrDefaultUseCase } from "./space-contract-service";
 import { readLatestVisibleFormalUpdate } from "./space-latest-visible-update-service";
@@ -97,6 +100,7 @@ export async function readSpaceStatusSummaryUseCase(input: {
 
   return buildSpaceStatusSummaryResponse({
     accessMode: input.metaRecord.accessMode,
+    linkJoinPolicy: resolveSpaceMetaLinkJoinPolicy(input.metaRecord),
     ownerUserIds: input.metaRecord.ownerUserIds ?? [],
     allowGuests: input.metaRecord.allowGuests === true,
     organizationVisibility: input.metaRecord.visibility,
@@ -154,6 +158,7 @@ export async function readSpaceStatusSummaryFromMembersSnapshotUseCase(input: {
 
   return buildSpaceStatusSummaryResponse({
     accessMode: input.metaRecord.accessMode,
+    linkJoinPolicy: resolveSpaceMetaLinkJoinPolicy(input.metaRecord),
     ownerUserIds: input.metaRecord.ownerUserIds ?? [],
     allowGuests: input.metaRecord.allowGuests === true,
     organizationVisibility: input.metaRecord.visibility,
@@ -173,6 +178,7 @@ function buildSpaceStatusSummaryResponse(input: {
   ownerUserIds: string[];
   allowGuests: boolean;
   accessMode: SpaceMetaRecord["accessMode"];
+  linkJoinPolicy: NonNullable<SpaceMetaRecord["linkJoinPolicy"]>;
   organizationVisibility: SpaceMetaRecord["visibility"];
   centerAgentProfileId: GetSpaceStatusResponse["centerAgentProfileId"];
   contract: SpaceContract;
@@ -199,6 +205,7 @@ function buildSpaceStatusSummaryResponse(input: {
     ownerUserIds: input.ownerUserIds,
     allowGuests: input.allowGuests,
     accessMode: input.accessMode,
+    linkJoinPolicy: input.linkJoinPolicy,
     passwordProtected: input.accessMode === "protected",
     dispatchPolicy: input.contract.dispatchPolicy,
     publicationMode: input.contract.publicationMode,

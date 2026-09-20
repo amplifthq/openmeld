@@ -5,6 +5,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@openmeld/ui/components/card";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { useQuery } from "@tanstack/react-query";
 import {
 	createFileRoute,
@@ -101,7 +102,7 @@ function InvitationRequestsPage() {
 	]);
 	const content = () => {
 		if (session.isPending) {
-			return <p>Loading request…</p>;
+			return <SkeletonRows label="Loading request" rows={1} />;
 		}
 		if (!session.data) {
 			return (
@@ -120,7 +121,7 @@ function InvitationRequestsPage() {
 			);
 		}
 		if (query.isPending || memberships.isPending || organization) {
-			return <p>Loading request…</p>;
+			return <SkeletonRows label="Loading request" rows={1} />;
 		}
 		if (query.error) {
 			return <p role="alert">{query.error.message}</p>;

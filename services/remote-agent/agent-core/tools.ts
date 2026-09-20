@@ -106,6 +106,7 @@ import {
   changelogQueryResponseSchema,
   createAgentProfileCreationRequestResponseSchema,
   createCenterAgentRoutineResponseSchema,
+  createSpaceTaskBodySchema,
   daemonServiceLaneSchema,
   deleteCenterAgentRoutineResponseSchema,
   executeExecutionRecoveryBodySchema,
@@ -121,7 +122,9 @@ import {
   listCenterAgentRoutinesResponseSchema,
   listFeedbackIssuesForOrganizationRequestSchema,
   listFeedbackIssuesForOrganizationResponseSchema,
+  listSpaceTasksResponseSchema,
   MAX_TEXT_LENGTH,
+  mutateSpaceTaskBodySchema,
   nativeReplyPlacementSchema,
   OPPORTUNITY_DECISIONS,
   OPPORTUNITY_EVIDENCE_MAX_CHARS,
@@ -155,8 +158,15 @@ import {
   SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   SPACE_PASSWORD_MIN_LENGTH,
+  SPACE_TASK_COMPLETION_CONDITION_MAX_CHARS,
+  SPACE_TASK_COMPLETION_CONDITION_MAX_ITEMS,
+  SPACE_TASK_DESCRIPTION_MAX_CHARS,
+  SPACE_TASK_RESULT_SUMMARY_MAX_CHARS,
+  SPACE_TASK_REVIEW_FEEDBACK_MAX_CHARS,
+  SPACE_TASK_TITLE_MAX_CHARS,
   setAgentProfileCreationApprovalPreferenceResponseSchema,
   setOrganizationWorkingLanguagePreferenceBodySchema,
+  spaceTaskMutationReceiptSchema,
   startCenterAgentMemberResearchResponseSchema,
   submitFeedbackIssueRequestSchema,
   TEAMMATE_AGENT_REQUESTS_ENABLED,
@@ -216,6 +226,7 @@ import {
   readRemoteAgentCallbackContext,
   recordRemoteAgentAnonymousIdentityBoundary,
   recordRemoteAgentNavigationTarget,
+  recordRemoteAgentReplyMentions,
 } from "./callback-context";
 import {
   getRemoteAgentConnectorToolDefinitions,
@@ -483,6 +494,9 @@ const postSpaceMessageToolInputSchema = object({
   referenceProfileIds: referenceProfileIdsInputSchema,
   spaceId: nonEmptyStringSchema,
   text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
+});
+const finalReplyMentionsToolInputSchema = strictObject({
+  mentionProfileIds: mentionProfileIdsInputSchema,
 });
 const listSpaceFilesToolInputSchema = strictObject({
   parentId: optional(nullable(spaceFileIdToolInputSchema)),
@@ -1313,6 +1327,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_set_reply_placement",
   "openmeld_read_center_agent_turn_diagnostics",
   "openmeld_read_space_context",
+  "openmeld_manage_space_tasks",
   "openmeld_list_space_files",
   "openmeld_read_space_file",
   "openmeld_save_space_file",
@@ -1333,6 +1348,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_post_slack_channel_message",
   "openmeld_send_slack_file",
   "openmeld_post_space_message",
+  "openmeld_set_final_reply_mentions",
   "openmeld_wake_agent_profiles_in_space",
   "openmeld_list_agent_tasks",
   "openmeld_watch_agent_task",
@@ -1437,6 +1453,7 @@ export const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES = [
   "openmeld_respond_to_opportunity",
   "openmeld_learn_about_me",
   "openmeld_list_agent_tasks",
+  "openmeld_manage_space_tasks",
   "openmeld_watch_agent_task",
   "openmeld_inspect_execution_recovery",
   "openmeld_recover_execution_result",
@@ -1577,6 +1594,142 @@ const setOrganizationWorkingLanguageToolInputSchema = strictObject({
   ),
   mode: picklist(["automatic", "selected"]),
 });
+
+const manageSpaceTasksToolInputSchema = strictObject({
+  action: picklist([
+    "list",
+    "create",
+    "assign",
+    "update_brief",
+    "set_reviewer",
+    "mark_in_progress",
+    "submit_result",
+    "review",
+    "cancel",
+    "reopen",
+    "continue_rework",
+  ] as const),
+  assigneeProfileId: optional(nullable(nonEmptyStringSchema)),
+  completionConditions: optional(
+    pipe(
+      array(
+        pipe(
+          string(),
+          trim(),
+          minLength(1),
+          maxLength(SPACE_TASK_COMPLETION_CONDITION_MAX_CHARS)
+        )
+      ),
+      maxLength(SPACE_TASK_COMPLETION_CONDITION_MAX_ITEMS)
+    )
+  ),
+  decision: optional(picklist(["accepted", "changes_requested"] as const)),
+  description: optional(
+    nullable(
+      pipe(
+        string(),
+        trim(),
+        minLength(1),
+        maxLength(SPACE_TASK_DESCRIPTION_MAX_CHARS)
+      )
+    )
+  ),
+  expectedRevision: optional(pipe(number(), integer(), minValue(1))),
+  feedback: optional(
+    nullable(
+      pipe(
+        string(),
+        trim(),
+        minLength(1),
+        maxLength(SPACE_TASK_REVIEW_FEEDBACK_MAX_CHARS)
+      )
+    )
+  ),
+  reason: optional(pipe(string(), trim(), minLength(1), maxLength(1000))),
+  reviewerProfileId: optional(nullable(nonEmptyStringSchema)),
+  summary: optional(
+    pipe(
+      string(),
+      trim(),
+      minLength(1),
+      maxLength(SPACE_TASK_RESULT_SUMMARY_MAX_CHARS)
+    )
+  ),
+  taskId: optional(nonEmptyStringSchema),
+  title: optional(
+    pipe(string(), trim(), minLength(1), maxLength(SPACE_TASK_TITLE_MAX_CHARS))
+  ),
+});
+
+type ManageSpaceTasksToolInput = InferOutput<
+  typeof manageSpaceTasksToolInputSchema
+>;
+
+function buildSpaceTaskMutationFromTool(input: ManageSpaceTasksToolInput) {
+  if (!(input.taskId && input.expectedRevision)) {
+    throw new TypeError(
+      "Task changes require taskId and the latest expectedRevision."
+    );
+  }
+  const base = {
+    operationId: crypto.randomUUID(),
+    expectedRevision: input.expectedRevision,
+  };
+  switch (input.action) {
+    case "assign":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: input.action,
+        assigneeProfileId: input.assigneeProfileId ?? null,
+      });
+    case "update_brief":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: input.action,
+        ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.description === undefined
+          ? {}
+          : { description: input.description }),
+        ...(input.completionConditions === undefined
+          ? {}
+          : { completionConditions: input.completionConditions }),
+      });
+    case "set_reviewer":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: input.action,
+        reviewerProfileId: input.reviewerProfileId ?? null,
+      });
+    case "mark_in_progress":
+      return mutateSpaceTaskBodySchema.parse({ ...base, action: input.action });
+    case "submit_result":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: input.action,
+        summary: input.summary,
+      });
+    case "review":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: input.action,
+        decision: input.decision,
+        ...(input.feedback === undefined ? {} : { feedback: input.feedback }),
+      });
+    case "cancel":
+    case "reopen":
+    case "continue_rework":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: input.action,
+        reason: input.reason,
+      });
+    case "list":
+    case "create":
+      throw new TypeError(`${input.action} is not a Task mutation.`);
+    default:
+      throw new TypeError("Unsupported Space Task action.");
+  }
+}
 
 type RemoteAgentOpenMeldToolDefinitionsInput = {
   agentActivityReadEnabled?: boolean;
@@ -1751,7 +1904,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_read_organization_directory",
       description:
-        "Read one bounded page of the current OpenMeld Organization directory, including members, Human and Agent Profiles, roles, and the latest accepted Human activity that the Center Agent is allowed to see. Pass nextCursor back as cursor until it is null when you need the full directory or must establish that someone is absent or uniquely matched. A page may contain only members or only Agent Profiles; join ownership by exact ownerUserId across pages. totalMembers and totalAgentProfiles count the whole directory. limit caps the combined records (default 20, maximum 100); a byte limit may shorten a page without dropping any fields. Missing lastActiveAt means OpenMeld has no authoritative Organization activity for that member; Computer, session, and Agent Activity timestamps are never substitutes.",
+        "Read one bounded page of the current OpenMeld Organization directory, including members, Human and Agent Profiles, roles, and the latest accepted Human activity that the Center Agent is allowed to see. Readiness is a team-safe projection, including for the requester's own Agent: null Binding/route fields and false facts with source=not_checked or unavailable are withheld or unknown evidence, NOT proof of absence or failure. Only a current authoritative Binding fact with source=missing proves no Binding. Pass nextCursor back as cursor until it is null when you need the full directory or must establish that someone is absent or uniquely matched. A page may contain only members or only Agent Profiles; join ownership by exact ownerUserId across pages. totalMembers and totalAgentProfiles count the whole directory. limit caps the combined records (default 20, maximum 100); a byte limit may shorten a page without dropping any fields. Missing lastActiveAt means OpenMeld has no authoritative Organization activity for that member; Computer, session, and Agent Activity timestamps are never substitutes.",
       input: organizationReadPageToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
@@ -3191,6 +3344,77 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       },
     }),
     toolDefinition({
+      name: "openmeld_manage_space_tasks",
+      description:
+        "Manage durable commitments in the current shared OpenMeld Space. Create a Task when the current message asks for a clear, discrete deliverable that will outlive an immediate conversational answer or needs ownership, progress, review, or later closure. Do not create Tasks for questions, tiny same-turn actions, exploratory discussion, acknowledgements, or every Agent tool call. A created Task is assigned to you by default but remains To do; call mark_in_progress when work actually begins, then submit_result with the concrete result and verification. Assignment alone never starts execution. Use list before changing an existing Task so expectedRevision is current. When an Agent reviewer must act, wake that reviewer after submitting the result. When an Agent reviewer requests changes and the Task returns to In progress, wake the assignee with the review feedback. Do not wake more work when needsHumanDecision is true. Two automatic Agent rework rounds are allowed before a human must decide. This tool is limited to this conversation's shared Space and does not control Agent execution truth.",
+      input: manageSpaceTasksToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(manageSpaceTasksToolInputSchema, payload);
+        const toolContext = await buildOpenMeldToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_manage_space_tasks",
+        });
+        const space = toolContext.turnEnvelope?.space;
+        if (!space || space.kind !== "space") {
+          throw new Error(
+            "Space Tasks are available only in the current shared OpenMeld Space."
+          );
+        }
+        if (request.action === "list") {
+          const rpc = requireCoreRpc(
+            input.coreWorker.listSpaceTasks,
+            "listSpaceTasks"
+          );
+          return listSpaceTasksResponseSchema.parse(
+            await rpc({ context: toolContext.context, spaceId: space.id })
+          );
+        }
+        if (request.action === "create") {
+          const body = createSpaceTaskBodySchema.parse({
+            operationId: crypto.randomUUID(),
+            title: request.title,
+            ...(request.description === undefined
+              ? {}
+              : { description: request.description }),
+            ...(request.completionConditions === undefined
+              ? {}
+              : { completionConditions: request.completionConditions }),
+            assigneeProfileId:
+              request.assigneeProfileId === undefined
+                ? toolContext.context.actorContext.openMeldProfileId
+                : request.assigneeProfileId,
+            ...(request.reviewerProfileId === undefined
+              ? {}
+              : { reviewerProfileId: request.reviewerProfileId }),
+          });
+          const rpc = requireCoreRpc(
+            input.coreWorker.createSpaceTask,
+            "createSpaceTask"
+          );
+          return spaceTaskMutationReceiptSchema.parse(
+            await rpc({
+              body,
+              context: toolContext.context,
+              spaceId: space.id,
+            })
+          );
+        }
+        const rpc = requireCoreRpc(
+          input.coreWorker.mutateSpaceTask,
+          "mutateSpaceTask"
+        );
+        return spaceTaskMutationReceiptSchema.parse(
+          await rpc({
+            body: buildSpaceTaskMutationFromTool(request),
+            context: toolContext.context,
+            spaceId: space.id,
+            taskId: request.taskId,
+          })
+        );
+      },
+    }),
+    toolDefinition({
       name: "openmeld_list_space_files",
       description:
         "List files and folders in one OpenMeld Space. The Center Agent uses the same Space membership and public-view rules as every other participant; this tool does not read the Center Agent Computer or Organization Resources. Omit parentId, or pass null, for the root folder. Pass view=trash to list recoverable items. Use returned stable IDs for later reads and mutations.",
@@ -4089,6 +4313,32 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       },
     }),
     toolDefinition({
+      name: "openmeld_set_final_reply_mentions",
+      description:
+        "Set the exact Human Profile IDs to notify when your final reply is published in the current Space, including Routine reports. This replaces any earlier selection; [] clears it. Use IDs from current Space membership, never infer identities from names. This prepares the final reply and does not publish a message yet. Plain @Name text alone does not notify anyone. It never wakes Agents.",
+      input: finalReplyMentionsToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(
+          finalReplyMentionsToolInputSchema,
+          payload
+        );
+        await buildRepresentedMemberAttributionToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_set_final_reply_mentions",
+        });
+        await recordRemoteAgentReplyMentions({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          mentionTargets: request.mentionProfileIds,
+        });
+        return {
+          status: "prepared",
+          mentionProfileIds: request.mentionProfileIds,
+        };
+      },
+    }),
+    toolDefinition({
       name: "openmeld_wake_agent_profiles_in_space",
       description:
         "Wake one or more OpenMeld Agent Profiles in a Space by posting a Center Agent-authored Space message with activation targets. This starts real work and is an ordinary external write. The text must be a self-contained delegation brief for nontrivial work: goal; verified facts and source references; current product and execution environment; authority and safety constraints; unresolved questions; exact completion criteria; and every available evidence selector such as a trace ID, URL, path, version, or timestamp. Clearly separate facts from hypotheses, omit secrets and unrelated private transcript, and never assume the child can see this conversation. First decide that another Agent adds meaningful evidence or capability; never wake one merely to demonstrate delegation. Always pass mentionProfileIds with every exact Human Profile ID that should receive Inbox and browser attention, or []; always pass referenceProfileIds with every exact Agent Profile ID that is context only, or []. Human Mention never creates Agent work, and Agent Reference never creates child work. A profile cannot appear in more than one addressing relation. Always choose completionMode explicitly from the user's requested result ownership and continuation barrier. Use child_reports_directly when children publish their own final result and the Center Agent should not continue. Use resume_parent_when_all_terminal to synthesize every result, resume_parent_when_first_success to continue after the first success, resume_parent_on_failure to continue after the first authoritative failure, or resume_parent_on_each_terminal for one continuation per child completion. During a Routine, resume_parent_when_all_terminal is the only supported resume mode and may resume the Center Agent only once. Set fallbackAgentProfileId only when exactly one primary Agent should be tried first; the fallback is not woken unless that primary authoritatively fails. When Computer files are necessary, pass computerFilePaths to copy up to three bounded text files into this Wake as an explicit one-time snapshot; the Local Agent never receives filesystem access or live sync. A pending publicationStatus means Core durably queued the same Wake for event-driven retry; do not call this tool again or report failure.",
@@ -4567,7 +4817,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_computers",
       description:
-        "Read the verified requester's Computer inventory, exact connection environments, and dated local agent reports. No Computer is identified as the browser's physical computer. Supply an exact target from this inventory to read its OpenMeld Tools status and path-free File Access summary. Never treat a saved report as a live connection, or one Computer's status as an Agent Profile's Wakeability. Requires a private conversation with the verified requester. This read does not start setup or change any Computer.",
+        "Read the verified requester's Computer inventory, exact connection environments, and dated local agent reports. No Computer is identified as the browser's physical computer. Supply an exact target from this inventory to read connection/supervisor and Execution Host observations, local agent diagnostics, OpenMeld Tools status and the path-free File Access summary. This does not actively probe the Host: use its own observation time, and never treat retained admission=open as available when responsive=false. Never treat a saved report as a live connection, or one Computer's status as an Agent Profile's Wakeability. Requires a private conversation with the verified requester. This read does not start setup or change any Computer.",
       input: object({ target: optional(peopleComputerTargetToolInputSchema) }),
       execute: async (payload) => {
         const target =
@@ -4997,6 +5247,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     ) && hasFrozenOrganizationSharedInteractionEnvironment(input.turnEnvelope);
   const exposedDefinitions = definitions.filter(
     (definition) =>
+      (definition.name !== "openmeld_set_final_reply_mentions" ||
+        input.turnEnvelope?.trigger.source === "space_wake" ||
+        (input.turnEnvelope?.trigger.source === "routine" &&
+          input.turnEnvelope.trigger.destination?.kind === "space")) &&
       // Launch hold, not retired tools. Keep approval implementations for the
       // isolated Request an Agent follow-up; Core remains the mutation guard.
       (TEAMMATE_AGENT_REQUESTS_ENABLED ||

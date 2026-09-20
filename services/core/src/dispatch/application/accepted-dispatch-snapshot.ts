@@ -27,6 +27,26 @@ export async function buildAcceptedDispatchSnapshot(input: {
     return null;
   }
   return {
+    ...(input.message.organizationId &&
+    input.message.sourceSignalSnapshot?.profileId
+      ? {
+          contextRequest: {
+            // Explicit intent must never fall back to a Binding conversation.
+            // Core chooses implicit thread isolation only for supported harnesses.
+            required: Boolean(input.message.contextSelection),
+            scope: {
+              organizationId: input.message.organizationId,
+              requesterProfileId: input.message.sourceSignalSnapshot.profileId,
+              spaceId: input.message.spaceId,
+              targetProfileId: input.message.targetProfileId,
+              threadId: input.message.threadContext?.threadId ?? null,
+            },
+            selection: input.message.contextSelection ?? {
+              mode: "auto" as const,
+            },
+          },
+        }
+      : {}),
     ...(input.message.deviceWait
       ? { deviceWait: input.message.deviceWait }
       : {}),
@@ -46,8 +66,10 @@ export async function buildAcceptedDispatchSnapshot(input: {
 export function applyAcceptedDispatchSnapshotToMessage(input: {
   message: OpenMeldDaemonDispatchQueueMessage;
   snapshot: OpenMeldDaemonAcceptedDispatchSnapshot;
+  executionContext?: OpenMeldDaemonDispatchQueueMessage["executionContext"];
 }): OpenMeldDaemonDispatchQueueMessage {
   if (
+    !input.executionContext &&
     input.message.controllerSnapshot === input.snapshot.controllerSnapshot &&
     input.message.dispatchSnapshot.targetBindingState ===
       input.snapshot.controllerSnapshot.targetBindingState &&
@@ -58,6 +80,9 @@ export function applyAcceptedDispatchSnapshotToMessage(input: {
   }
   return {
     ...input.message,
+    ...(input.executionContext
+      ? { executionContext: input.executionContext }
+      : {}),
     controllerSnapshot: input.snapshot.controllerSnapshot,
     dispatchSnapshot: {
       ...input.message.dispatchSnapshot,

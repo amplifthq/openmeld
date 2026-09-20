@@ -1,8 +1,24 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import { AppPageHeader } from "./app-page-header";
 
+afterEach(cleanup);
+
 describe("AppPageHeader", () => {
+	it("omits the eyebrow when a compact page needs only a title and purpose", () => {
+		const { container } = render(
+			<AppPageHeader
+				action={<button type="button">Add skill</button>}
+				description="Reusable instructions."
+				title="Skills"
+			/>
+		);
+		expect(screen.getByRole("heading", { name: "Skills" })).toBeTruthy();
+		expect(container.querySelectorAll("p")).toHaveLength(1);
+		expect(
+			screen.getByRole("button", { name: "Add skill" }).parentElement?.className
+		).not.toContain("pt-5");
+	});
 	it("keeps app pages on one heading hierarchy and title size", () => {
 		render(
 			<AppPageHeader

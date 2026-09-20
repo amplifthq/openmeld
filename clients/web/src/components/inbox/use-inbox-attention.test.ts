@@ -2,6 +2,44 @@ import { describe, expect, it } from "vitest";
 import { resolveInboxAttention } from "./use-inbox-attention";
 
 describe("Inbox attention", () => {
+	it("uses canonical priority counts instead of turning every open request into an alarm", () => {
+		const summary = {
+			organizationId: "org",
+			totalUnreadCount: 0,
+			unresolvedActionCount: 4,
+			unreadUrgentUpdateCount: 0,
+			unreadMentionCount: 0,
+			ordinaryUnreadCount: 0,
+			priorityCount: 0,
+			needsActionCount: 2,
+			needsReviewCount: 2,
+			unreadPriorityUpdateCount: 0,
+		};
+		expect(
+			resolveInboxAttention({ summary, pending: false, unavailable: false })
+		).toMatchObject({
+			count: 0,
+			tone: null,
+			indicatorTone: null,
+			status: "4 pending items",
+		});
+		expect(
+			resolveInboxAttention({
+				summary: {
+					...summary,
+					priorityCount: 1,
+					unreadPriorityUpdateCount: 1,
+					totalUnreadCount: 1,
+				},
+				pending: false,
+				unavailable: false,
+			})
+		).toMatchObject({
+			count: 1,
+			tone: "warning",
+			tabLabel: "Priority attention (1)",
+		});
+	});
 	it.each([
 		[0, 0, 0, null, null],
 		[127, 0, 0, "unread", "127 unread"],
@@ -13,7 +51,9 @@ describe("Inbox attention", () => {
 			resolveInboxAttention({
 				summary: {
 					organizationId: "org",
+					ordinaryUnreadCount: Math.max(0, unread - urgent),
 					totalUnreadCount: unread,
+					unreadMentionCount: 0,
 					unresolvedActionCount: actions,
 					unreadUrgentUpdateCount: urgent,
 				},
@@ -33,7 +73,9 @@ describe("Inbox attention", () => {
 			resolveInboxAttention({
 				summary: {
 					organizationId: "org",
+					ordinaryUnreadCount: 197,
 					totalUnreadCount: 200,
+					unreadMentionCount: 0,
 					unresolvedActionCount: actions,
 					unreadUrgentUpdateCount: urgent,
 				},
@@ -53,7 +95,12 @@ describe("Inbox attention", () => {
 		).toMatchObject({ count: null, tone: null });
 		expect(
 			resolveInboxAttention({
-				summary: { ...summary, unreadUrgentUpdateCount: 4 },
+				summary: {
+					...summary,
+					ordinaryUnreadCount: 0,
+					unreadMentionCount: 0,
+					unreadUrgentUpdateCount: 4,
+				},
 				pending: false,
 				unavailable: true,
 			})
@@ -78,7 +125,9 @@ describe("Inbox attention", () => {
 			resolveInboxAttention({
 				summary: {
 					organizationId: "org",
+					ordinaryUnreadCount: 0,
 					totalUnreadCount: 4,
+					unreadMentionCount: 0,
 					unresolvedActionCount: 0,
 					unreadUrgentUpdateCount: 4,
 				},
@@ -96,7 +145,9 @@ describe("Inbox attention", () => {
 			resolveInboxAttention({
 				summary: {
 					organizationId: "org",
+					ordinaryUnreadCount: 15,
 					totalUnreadCount: 20,
+					unreadMentionCount: 0,
 					unresolvedActionCount: 2,
 					unreadUrgentUpdateCount: 3,
 				},

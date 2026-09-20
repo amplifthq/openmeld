@@ -32,6 +32,7 @@ import {
 	resolveInboxIndicatorClassName,
 } from "#/lib/inbox/attention";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
+import { ChatArchiveButton } from "./chat-archive-button";
 import { ChatIcon, resolvePreviewText } from "./conversation-sidebar-row";
 import { NewChatDialog } from "./new-chat-dialog";
 import { SidebarConversationTime } from "./sidebar-conversation-time";
@@ -322,31 +323,39 @@ export function ChatsDirectory() {
 												) : null}
 											</TableCell>
 											<TableCell>
-												<DirectoryRowActions
-													disabled={
-														model.store.disabled ||
-														model.pin.arePinActionsPending
-													}
-													groupId={
-														model.preferences.groups.find((group) =>
-															group.spaceIds.includes(chat.spaceId)
-														)?.id ?? "chats"
-													}
-													groups={[
-														{ id: "chats", name: "Direct messages" },
-														...model.preferences.groups,
-													]}
-													name={model.title(chat)}
-													onMove={(groupId) =>
-														model.move(groupId, chat.spaceId)
-													}
-													onTogglePinned={() =>
-														section.id === "pinned"
-															? model.unpin(chat.spaceId)
-															: model.move("pinned", chat.spaceId)
-													}
-													pinned={section.id === "pinned"}
-												/>
+												<div className="flex items-center">
+													<span className="opacity-0 group-focus-within/directory-row:opacity-100 group-hover/directory-row:opacity-100 [@media(hover:none)]:opacity-100">
+														<ChatArchiveButton
+															profileId={model.profileId}
+															spaceId={chat.spaceId}
+														/>
+													</span>
+													<DirectoryRowActions
+														disabled={
+															model.store.disabled ||
+															model.pin.arePinActionsPending
+														}
+														groupId={
+															model.preferences.groups.find((group) =>
+																group.spaceIds.includes(chat.spaceId)
+															)?.id ?? "chats"
+														}
+														groups={[
+															{ id: "chats", name: "Direct messages" },
+															...model.preferences.groups,
+														]}
+														name={model.title(chat)}
+														onMove={(groupId) =>
+															model.move(groupId, chat.spaceId)
+														}
+														onTogglePinned={() =>
+															section.id === "pinned"
+																? model.unpin(chat.spaceId)
+																: model.move("pinned", chat.spaceId)
+														}
+														pinned={section.id === "pinned"}
+													/>
+												</div>
 											</TableCell>
 										</TableRow>
 									);

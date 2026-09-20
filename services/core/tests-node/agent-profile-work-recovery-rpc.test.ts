@@ -1,7 +1,10 @@
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
-import { rpcExecuteAgentProfileWorkRecovery } from "../src/rpc/methods";
+import {
+  rpcAgentProfileExecutionMode,
+  rpcExecuteAgentProfileWorkRecovery,
+} from "../src/rpc/methods";
 import {
   applyDrizzleMigrationForTable as applyMigrationForTable,
   createSqliteD1Harness,
@@ -25,6 +28,47 @@ const CONTEXT: OpenMeldRequestContext = {
 };
 
 describe("Agent Profile work recovery Core RPC", () => {
+  it("applies serial admission only through current Organization owner authorization", async () => {
+    const harness = createRecoveryHarness();
+    const runtimeTransportStub = createRuntimeTransportStub();
+    const env = createEnv({ db: harness.db, runtimeTransportStub });
+    try {
+      for (const context of [
+        { ...CONTEXT, activeOrganizationId: "org-2" },
+        {
+          ...CONTEXT,
+          actorContext: { ...CONTEXT.actorContext, ownerUserId: "other-owner" },
+        },
+      ]) {
+        await expect(
+          rpcAgentProfileExecutionMode(env, {
+            agentProfileId: AGENT_PROFILE_ID,
+            body: { mode: "serial" },
+            context,
+          })
+        ).rejects.toThrow();
+      }
+      expect(
+        runtimeTransportStub.rpcAgentProfileExecutionMode
+      ).not.toHaveBeenCalled();
+      await expect(
+        rpcAgentProfileExecutionMode(env, {
+          agentProfileId: AGENT_PROFILE_ID,
+          body: { mode: "serial" },
+          context: CONTEXT,
+        })
+      ).resolves.toMatchObject({ mode: "serial", migration: "contexts" });
+      expect(
+        runtimeTransportStub.rpcAgentProfileExecutionMode
+      ).toHaveBeenCalledWith({
+        ownerUserId: "owner-1",
+        targetProfileId: AGENT_PROFILE_ID,
+        mode: "serial",
+      });
+    } finally {
+      harness.close();
+    }
+  });
   it("rejects requests outside the Profile's canonical Organization before reading recovery state", async () => {
     const harness = createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub();
@@ -430,6 +474,398 @@ describe("Agent Profile work recovery Core RPC", () => {
       harness.close();
     }
   });
+
+  it("skips occupied work when recovery action is fork_interrupted_work", async () => {
+    const harness = createRecoveryHarness();
+    const runtimeTransportStub = createRuntimeTransportStub({
+      recovery: buildAvailableRecovery({ action: "fork_interrupted_work" }),
+    });
+    try {
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(
+          createEnv({ db: harness.db, runtimeTransportStub }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            body: {
+              action: "skip_interrupted_work",
+              expectedInterruptedTargetWakeLifecycleId:
+                TARGET_WAKE_LIFECYCLE_ID,
+            },
+            context: CONTEXT,
+          }
+        )
+      ).resolves.toEqual({
+        action: "skip_interrupted_work",
+        status: "accepted",
+      });
+      expect(
+        runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
+      ).toHaveBeenCalledOnce();
+      expect(
+        runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
+      ).toHaveBeenCalledWith({
+        expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
+        ownerUserId: "owner-1",
+        targetProfileId: AGENT_PROFILE_ID,
+      });
+      // Skip tells the owner the work will not continue, so it also asks the
+      // computer to withdraw the attempt rather than leaving it able to start.
+      expect(
+        runtimeTransportStub.rpcRequestAgentProfileWorkLocalAttemptWithdrawal
+      ).toHaveBeenCalledWith({
+        expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
+        ownerUserId: "owner-1",
+        targetProfileId: AGENT_PROFILE_ID,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("still skips the work when the withdrawal request cannot be delivered", async () => {
+    const harness = createRecoveryHarness();
+    const runtimeTransportStub = createRuntimeTransportStub({
+      recovery: buildAvailableRecovery({ action: "fork_interrupted_work" }),
+    });
+    runtimeTransportStub.rpcRequestAgentProfileWorkLocalAttemptWithdrawal.mockRejectedValue(
+      new Error("owner shard unavailable")
+    );
+    try {
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(
+          createEnv({ db: harness.db, runtimeTransportStub }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            body: {
+              action: "skip_interrupted_work",
+              expectedInterruptedTargetWakeLifecycleId:
+                TARGET_WAKE_LIFECYCLE_ID,
+            },
+            context: CONTEXT,
+          }
+        )
+      ).resolves.toEqual({
+        action: "skip_interrupted_work",
+        status: "accepted",
+      });
+      expect(
+        runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
+      ).toHaveBeenCalledOnce();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("persists fork intent across continuation retry after initial Space creation failure", async () => {
+    const harness = createRecoveryHarness();
+    let currentRecovery = buildAvailableRecovery({
+      action: "fork_interrupted_work",
+    });
+    const runtimeTransportStub = createRuntimeTransportStub({
+      recovery: () => currentRecovery,
+    });
+    runtimeTransportStub.rpcAuthorizeAgentProfileWorkContinuation.mockImplementation(
+      (input) => {
+        currentRecovery = {
+          ...buildAvailableRecovery({
+            action: "fork_interrupted_work",
+            authorizedContinuationClientMessageId:
+              input.continuationClientMessageId,
+            forkInterruptedConversation: true,
+          }),
+        };
+        return Promise.resolve({ status: "authorized" as const });
+      }
+    );
+
+    let spaceCallCount = 0;
+    const startedContinuations: Record<string, unknown>[] = [];
+    const spaceStub = {
+      rpcExecuteExecutionRecovery: vi.fn(),
+      rpcInspectExecutionRecovery: vi.fn(),
+      rpcStartUsageExhaustedContinuation: vi.fn(
+        (continuation: Record<string, unknown>) => {
+          spaceCallCount++;
+          if (spaceCallCount === 1) {
+            return Promise.reject(new Error("temporary space failure"));
+          }
+          startedContinuations.push(continuation);
+          return Promise.resolve({
+            continuationClientMessageId: String(
+              continuation.continuationClientMessageId
+            ),
+            operationId: String(continuation.operationId),
+            status: "started" as const,
+          });
+        }
+      ),
+    };
+    const env = createEnv({ db: harness.db, runtimeTransportStub, spaceStub });
+
+    try {
+      // First attempt: user triggers fork, authorization succeeds on Hub, but Space start fails
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(env, {
+          agentProfileId: AGENT_PROFILE_ID,
+          body: {
+            action: "fork_interrupted_work",
+            expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
+          },
+          context: CONTEXT,
+        })
+      ).rejects.toThrow("temporary space failure");
+
+      expect(
+        runtimeTransportStub.rpcAuthorizeAgentProfileWorkContinuation
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          forkInterruptedConversation: true,
+        })
+      );
+
+      // Second attempt (retry / page refresh): client retries with continue_interrupted_work
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(env, {
+          agentProfileId: AGENT_PROFILE_ID,
+          body: { action: "continue_interrupted_work" },
+          context: CONTEXT,
+        })
+      ).resolves.toEqual({
+        action: "continue_interrupted_work",
+        status: "accepted",
+      });
+
+      // Assert Space received contextSelection mode: "fork" on retry
+      expect(startedContinuations).toHaveLength(1);
+      expect(startedContinuations[0]).toMatchObject({
+        contextSelection: {
+          mode: "fork",
+          sourceWakeId: TARGET_WAKE_LIFECYCLE_ID,
+        },
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("withholds the replacement branch until the original attempt is confirmed stopped", async () => {
+    const harness = createRecoveryHarness();
+    const runtimeTransportStub = createRuntimeTransportStub({
+      localAttemptWithdrawal: "requested",
+      recovery: buildAvailableRecovery({ action: "fork_interrupted_work" }),
+    });
+    const spaceStub = {
+      rpcExecuteExecutionRecovery: vi.fn(),
+      rpcInspectExecutionRecovery: vi.fn(),
+      rpcStartUsageExhaustedContinuation: vi.fn(),
+    };
+    try {
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(
+          createEnv({ db: harness.db, runtimeTransportStub, spaceStub }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            body: {
+              action: "fork_interrupted_work",
+              expectedInterruptedTargetWakeLifecycleId:
+                TARGET_WAKE_LIFECYCLE_ID,
+            },
+            context: CONTEXT,
+          }
+        )
+      ).rejects.toMatchObject({
+        code: "agent_profile_work_recovery.awaiting_original_stop",
+      });
+      // The owner's decision is kept, and nothing replaced the work yet.
+      expect(
+        runtimeTransportStub.rpcAuthorizeAgentProfileWorkContinuation
+      ).toHaveBeenCalledOnce();
+      expect(
+        runtimeTransportStub.rpcRequestAgentProfileWorkLocalAttemptWithdrawal
+      ).toHaveBeenCalledWith({
+        expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
+        ownerUserId: "owner-1",
+        targetProfileId: AGENT_PROFILE_ID,
+      });
+      expect(
+        spaceStub.rpcStartUsageExhaustedContinuation
+      ).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("re-asks for the withdrawal on a retry that reuses a stored authorization", async () => {
+    const harness = createRecoveryHarness();
+    const runtimeTransportStub = createRuntimeTransportStub({
+      localAttemptWithdrawal: "requested",
+      recovery: buildAvailableRecovery({
+        action: "fork_interrupted_work",
+        authorizedContinuationClientMessageId: "client-message-continuation",
+        forkInterruptedConversation: true,
+      }),
+    });
+    const spaceStub = {
+      rpcExecuteExecutionRecovery: vi.fn(),
+      rpcInspectExecutionRecovery: vi.fn(),
+      rpcStartUsageExhaustedContinuation: vi.fn(),
+    };
+    try {
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(
+          createEnv({ db: harness.db, runtimeTransportStub, spaceStub }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            body: {
+              action: "fork_interrupted_work",
+              expectedInterruptedTargetWakeLifecycleId:
+                TARGET_WAKE_LIFECYCLE_ID,
+            },
+            context: CONTEXT,
+          }
+        )
+      ).rejects.toMatchObject({
+        code: "agent_profile_work_recovery.awaiting_original_stop",
+      });
+      // A stored authorization is not evidence that the first cancellation
+      // landed, so the prerequisite is asked again rather than assumed.
+      expect(
+        runtimeTransportStub.rpcAuthorizeAgentProfileWorkContinuation
+      ).not.toHaveBeenCalled();
+      expect(
+        runtimeTransportStub.rpcRequestAgentProfileWorkLocalAttemptWithdrawal
+      ).toHaveBeenCalledOnce();
+      expect(
+        spaceStub.rpcStartUsageExhaustedContinuation
+      ).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("starts the replacement branch once the computer confirms the attempt is gone", async () => {
+    const harness = createRecoveryHarness();
+    const runtimeTransportStub = createRuntimeTransportStub({
+      localAttemptWithdrawal: "withdrawn",
+      recovery: buildAvailableRecovery({ action: "fork_interrupted_work" }),
+    });
+    const spaceStub = {
+      rpcExecuteExecutionRecovery: vi.fn(),
+      rpcInspectExecutionRecovery: vi.fn(),
+      rpcStartUsageExhaustedContinuation: vi.fn(
+        (continuation: Record<string, unknown>) =>
+          Promise.resolve({
+            continuationClientMessageId: String(
+              continuation.continuationClientMessageId
+            ),
+            operationId: String(continuation.operationId),
+            status: "started" as const,
+          })
+      ),
+    };
+    try {
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(
+          createEnv({ db: harness.db, runtimeTransportStub, spaceStub }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            body: {
+              action: "fork_interrupted_work",
+              expectedInterruptedTargetWakeLifecycleId:
+                TARGET_WAKE_LIFECYCLE_ID,
+            },
+            context: CONTEXT,
+          }
+        )
+      ).resolves.toEqual({
+        action: "fork_interrupted_work",
+        status: "accepted",
+      });
+      expect(
+        spaceStub.rpcStartUsageExhaustedContinuation
+      ).toHaveBeenCalledOnce();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("defers replacement work when an owner shard predates the prerequisite", async () => {
+    const harness = createRecoveryHarness();
+    const runtimeTransportStub = createRuntimeTransportStub({
+      recovery: buildAvailableRecovery({ action: "fork_interrupted_work" }),
+    });
+    // Durable Object code propagates after a Worker deploy, so a live shard can
+    // still be one that never learned this call.
+    runtimeTransportStub.rpcRequestAgentProfileWorkLocalAttemptWithdrawal.mockRejectedValue(
+      new Error(
+        "rpcRequestAgentProfileWorkLocalAttemptWithdrawal is not a function"
+      )
+    );
+    const spaceStub = {
+      rpcExecuteExecutionRecovery: vi.fn(),
+      rpcInspectExecutionRecovery: vi.fn(),
+      rpcStartUsageExhaustedContinuation: vi.fn(),
+    };
+    try {
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(
+          createEnv({ db: harness.db, runtimeTransportStub, spaceStub }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            body: {
+              action: "fork_interrupted_work",
+              expectedInterruptedTargetWakeLifecycleId:
+                TARGET_WAKE_LIFECYCLE_ID,
+            },
+            context: CONTEXT,
+          }
+        )
+      ).rejects.toMatchObject({
+        code: "agent_profile_work_recovery.temporarily_unavailable",
+      });
+      expect(
+        spaceStub.rpcStartUsageExhaustedContinuation
+      ).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("defers replacement work when the owner shard cannot answer the prerequisite", async () => {
+    const harness = createRecoveryHarness();
+    const runtimeTransportStub = createRuntimeTransportStub({
+      localAttemptWithdrawal: "unavailable",
+      recovery: buildAvailableRecovery({ action: "fork_interrupted_work" }),
+    });
+    const spaceStub = {
+      rpcExecuteExecutionRecovery: vi.fn(),
+      rpcInspectExecutionRecovery: vi.fn(),
+      rpcStartUsageExhaustedContinuation: vi.fn(),
+    };
+    try {
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(
+          createEnv({ db: harness.db, runtimeTransportStub, spaceStub }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            body: {
+              action: "fork_interrupted_work",
+              expectedInterruptedTargetWakeLifecycleId:
+                TARGET_WAKE_LIFECYCLE_ID,
+            },
+            context: CONTEXT,
+          }
+        )
+      ).rejects.toMatchObject({
+        code: "agent_profile_work_recovery.temporarily_unavailable",
+      });
+      expect(
+        spaceStub.rpcStartUsageExhaustedContinuation
+      ).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
 });
 
 function createRecoveryHarness() {
@@ -510,6 +946,12 @@ function createRecoveryHarness() {
 }
 
 function createRuntimeTransportStub(input?: {
+  localAttemptWithdrawal?:
+    | "not_pending"
+    | "not_started"
+    | "requested"
+    | "unavailable"
+    | "withdrawn";
   recovery?:
     | ReturnType<typeof buildAvailableRecovery>
     | Omit<
@@ -522,6 +964,14 @@ function createRuntimeTransportStub(input?: {
         | { status: "not_pending" });
 }) {
   return {
+    rpcAgentProfileExecutionMode: vi.fn(
+      async (request: { mode?: "parallel" | "serial" }) => ({
+        agentProfileId: AGENT_PROFILE_ID,
+        mode: request.mode ?? "parallel",
+        migration: "contexts" as const,
+        revision: 4,
+      })
+    ),
     rpcApproveAgentProfileWorkQueue: vi.fn(async () => ({
       status: "approved" as const,
     })),
@@ -546,6 +996,15 @@ function createRuntimeTransportStub(input?: {
           : (recovery ?? { status: "not_pending" as const })
       );
     }),
+    rpcRequestAgentProfileWorkLocalAttemptWithdrawal: vi.fn(
+      async (_input: {
+        expectedInterruptedTargetWakeLifecycleId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => ({
+        status: input?.localAttemptWithdrawal ?? ("withdrawn" as const),
+      })
+    ),
     rpcSkipAgentProfileInterruptedWork: vi.fn(
       async (_input: {
         expectedInterruptedTargetWakeLifecycleId: string;
@@ -598,13 +1057,18 @@ function buildAvailableRecovery(input: {
   action:
     | "approve_queued_work"
     | "continue_interrupted_work"
+    | "fork_interrupted_work"
     | "skip_interrupted_work";
   authorizedContinuationClientMessageId?: string | null;
+  forkInterruptedConversation?: boolean;
 }) {
   return {
     action: input.action,
     authorizedContinuationClientMessageId:
       input.authorizedContinuationClientMessageId ?? null,
+    ...(input.forkInterruptedConversation
+      ? { forkInterruptedConversation: true }
+      : {}),
     interruptedClientMessageId: "client-interrupted",
     interruptedDispatchId: "dispatch-interrupted",
     interruptedSourceSignalId: "signal-interrupted",

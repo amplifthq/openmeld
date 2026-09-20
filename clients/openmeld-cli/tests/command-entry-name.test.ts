@@ -13,6 +13,9 @@ describe("command entry name", () => {
   });
 
   it("normalizes route tokens for aliases and subcommands", () => {
+    expect(
+      resolveCommandEntryNameFromTokens(["profiles", "execution-mode"])
+    ).toBe("profile.execution-mode");
     expect(resolveCommandEntryNameFromTokens([])).toBe("root");
     expect(resolveCommandEntryNameFromTokens(["space", "join"])).toBe(
       "space.join"
@@ -95,6 +98,8 @@ describe("command entry name", () => {
       "space.leave"
     );
     for (const command of [
+      "handoff",
+      "working-copy",
       "list",
       "read",
       "upload",

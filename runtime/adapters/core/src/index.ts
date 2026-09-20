@@ -23,6 +23,7 @@ import type {
   AgentInteractionResponse,
   ComputerFileAccessPolicy,
   ConversationPolicy,
+  ExecutionContextTask,
   OpenCodePermissionConfig,
   OpenMeldDaemonProviderAccessEvidence,
   ProviderDispatchRuntimeContext,
@@ -127,6 +128,10 @@ export {
   verifyCliLaunchContract,
   verifyLaunchContractFiles,
 } from "./launch-contract.js";
+export {
+  normalizeCommandEnvironment,
+  WINDOWS_RUNTIME_ENV_KEYS,
+} from "./process-environment.js";
 export { createProviderOriginalError } from "./provider-original-error.js";
 export {
   type AdapterProviderUsageLimit,
@@ -169,7 +174,9 @@ export type AdapterDispatchExecutionMode = "normal" | "repair";
 export type AdapterComputerFileAccessBoundary = Extract<
   ComputerFileAccessPolicy,
   { mode: "block_selected_folders" | "only_selected_folders" }
->;
+> & {
+  executionContextAccess?: ExecutionContextTask["access"];
+} & import("@openmeld/schemas").SpaceWorkingCopyAccess;
 export type AdapterComputerFileAccessVerificationRequest = {
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   boundary: AdapterComputerFileAccessBoundary;
@@ -295,6 +302,7 @@ export type AdapterDispatchRequest = {
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   conversationPolicy?: ConversationPolicy;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary;
+  executionContext?: ExecutionContextTask;
   dispatchId?: string;
   env?: Record<string, string | undefined>;
   executionMode?: AdapterDispatchExecutionMode;
@@ -491,8 +499,27 @@ export type AdapterCancelRequest = {
   taskId: string;
 };
 
+/**
+ * What accepting a cancellation actually established about the attempt.
+ *
+ * `accepted` only says the control request was taken, which is a weaker fact
+ * than the caller usually wants: a signal can be registered before the provider
+ * turn has even been acknowledged, and sending an interrupt is not the same
+ * barrier as the turn completing. Work that replaces this attempt needs the
+ * distinction, so an adapter that knows it states it.
+ *
+ * `withdrawn_before_start` means no provider turn was running and none can now
+ * begin for this task. `stop_requested_after_start` means a turn had already
+ * started, so its result and any effects it produced still stand. An adapter
+ * that cannot tell leaves this unset, and callers must treat that as unproven.
+ */
+export type AdapterLocalAttemptOutcome =
+  | "stop_requested_after_start"
+  | "withdrawn_before_start";
+
 export type AdapterCancelResult = AdapterControlResultBase & {
   deliveryPath?: "cancel" | "force_interrupt_fallback";
+  localAttemptOutcome?: AdapterLocalAttemptOutcome;
   signalDelivery: "not_sent" | "sent";
 };
 

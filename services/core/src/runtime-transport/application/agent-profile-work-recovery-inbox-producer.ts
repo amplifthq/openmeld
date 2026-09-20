@@ -13,6 +13,7 @@ const AGENT_PROFILE_WORK_RECOVERY_SOURCE_KIND =
 
 export type AgentProfileWorkRecoveryInboxStage =
   | "approve_queued_work"
+  | "resolve_occupied_conversation"
   | "review_interrupted_work";
 
 type AgentProfileWorkRecoveryInboxIdentity = {
@@ -40,6 +41,7 @@ export async function projectAgentProfileWorkRecoveryInboxItem(
     stage: input.stage,
   });
   return await ensureInboxItem({
+    allowLegacySourceClassificationRepair: true,
     candidate: {
       attention: "action_required",
       contextLabel: truncateInboxText(
@@ -54,6 +56,13 @@ export async function projectAgentProfileWorkRecoveryInboxItem(
       recipientUserId: input.ownerUserId,
       sourceKey: await buildAgentProfileWorkRecoveryInboxSourceKey(input),
       sourceKind: AGENT_PROFILE_WORK_RECOVERY_SOURCE_KIND,
+      sourceFacts: {
+        version: 1,
+        recipientReasons: ["requester"],
+        agentProfileIds: [input.profileId],
+        requestCategory:
+          input.stage === "approve_queued_work" ? "review" : "action",
+      },
       sourceTarget: input.sourceTarget ?? {
         kind: "agent_profile",
         profileId: input.profileId,
@@ -111,6 +120,12 @@ function resolveRecoveryPresentation(input: {
           "The interrupted task finished. Approve the queued work before it starts.",
         title: `Start queued work for ${input.profileName}`,
       };
+    case "resolve_occupied_conversation":
+      return {
+        preview:
+          "Another app is using this conversation. Continue on a new branch of it, or skip the work. Queued work waits until you choose.",
+        title: `Choose how to continue work for ${input.profileName}`,
+      };
     case "review_interrupted_work":
       return {
         preview:
@@ -122,11 +137,22 @@ function resolveRecoveryPresentation(input: {
   }
 }
 
+export function isAgentProfileWorkRecoveryInboxStage(
+  value: unknown
+): value is AgentProfileWorkRecoveryInboxStage {
+  return (
+    value === "approve_queued_work" ||
+    value === "resolve_occupied_conversation" ||
+    value === "review_interrupted_work"
+  );
+}
+
 function requireRecoveryStage(
   stage: AgentProfileWorkRecoveryInboxStage
 ): AgentProfileWorkRecoveryInboxStage {
   switch (stage) {
     case "approve_queued_work":
+    case "resolve_occupied_conversation":
     case "review_interrupted_work":
       return stage;
     default:

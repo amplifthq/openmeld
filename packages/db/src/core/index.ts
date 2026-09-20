@@ -123,9 +123,14 @@ export {
 } from "./feedback.schema.ts";
 export { openMeldDaemonForgottenDevices } from "./forgotten-device.schema.ts";
 export {
+  desktopUpdateInstallations,
   inboxCenterAgentReadWatermarks,
+  inboxConversationNotificationPreferences,
   inboxEmailDeliveries,
+  inboxFeedSnapshotMembers,
+  inboxFeedSnapshots,
   inboxItems,
+  inboxMessageNotificationDefaults,
   inboxNotificationPreferences,
   inboxSpaceThreadReadWatermarks,
 } from "./inbox.schema.ts";

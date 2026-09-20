@@ -37,6 +37,7 @@ import {
   materializeCliLaunchCommand,
   resolveDispatchSpaceActionMcpServer,
 } from "@openmeld/adapter-core";
+import { resolvePlatformCommand } from "@openmeld/adapter-core/process-launch";
 import { createClaudeAgentSdkToolActivityTracker } from "../output/claude-tool-activity.js";
 import { projectClaudeCodeUsageLimits } from "../usage/claude-code-usage-limits.js";
 import {
@@ -50,6 +51,7 @@ import {
   resolveClaudePermissionMode,
 } from "./claude-permission-policy.js";
 import { createClaudePreviewEmitter } from "./claude-preview-emitter.js";
+import { createClaudeWindowsProcessLauncher } from "./claude-windows-process.js";
 
 export type ClaudeAgentSdkTransportResult = {
   output: string;
@@ -156,6 +158,7 @@ async function observeClaudeReasoning(
 }
 
 export async function invokeClaudeAgentSdkTransport(input: {
+  executionContext?: import("@openmeld/adapter-core").AdapterDispatchRequest["executionContext"];
   launchContract: RuntimeAgentControllerLaunchContract;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   claudeTimeoutMs: number | null;
@@ -222,6 +225,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
     const createQuery = input.createQuery ?? createDefaultClaudeAgentSdkQuery;
     queryRuntime = createQuery({
       options: buildClaudeAgentSdkOptions({
+        executionContext: input.executionContext,
         onRuntimeEvent: input.onRuntimeEvent,
         abortController,
         agentControllerPermissionMode: input.agentControllerPermissionMode,
@@ -242,6 +246,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
         },
         pathToClaudeCodeExecutable:
           resources.executable.pathToClaudeCodeExecutable,
+        spawnProcess: resources.executable.spawnProcess,
         planDirectory: resources.planCapture.directory,
         sessionId: normalizeOptionalText(input.sessionId),
         streamingMode: input.streamingMode,
@@ -540,10 +545,28 @@ export async function resolveClaudeAgentSdkExecutable(input: {
 }): Promise<{
   cleanup: () => Promise<void>;
   pathToClaudeCodeExecutable: string;
+  spawnProcess?: ReturnType<typeof createClaudeWindowsProcessLauncher>["spawn"];
 }> {
   const launchCommand = materializeCliLaunchCommand({
     launchContract: input.launchContract,
   });
+  if (process.platform === "win32") {
+    const invocation = resolvePlatformCommand(
+      launchCommand.bin,
+      launchCommand.argsPrefix
+    );
+    // A Node script must be exposed as Node + a prefix, not handed to the SDK
+    // as a script that it would independently reinterpret with another runtime.
+    const selected = invocation.windowsVerbatimArguments
+      ? launchCommand
+      : { bin: invocation.bin, argsPrefix: invocation.args };
+    const launcher = createClaudeWindowsProcessLauncher(selected);
+    return {
+      cleanup: launcher.cleanup,
+      pathToClaudeCodeExecutable: selected.bin,
+      spawnProcess: launcher.spawn,
+    };
+  }
   if (launchCommand.argsPrefix.length === 0 && launchCommand.shell !== true) {
     return {
       cleanup: async () => undefined,
@@ -552,26 +575,16 @@ export async function resolveClaudeAgentSdkExecutable(input: {
   }
 
   const wrapperDir = await mkdtemp(join(tmpdir(), "openmeld-claude-sdk-"));
-  const wrapperPath =
-    process.platform === "win32"
-      ? join(wrapperDir, "claude-code-wrapper.cmd")
-      : join(wrapperDir, "claude-code-wrapper");
+  const wrapperPath = join(wrapperDir, "claude-code-wrapper");
   await writeFile(
     wrapperPath,
-    process.platform === "win32"
-      ? buildWindowsWrapperScript({
-          argsPrefix: launchCommand.argsPrefix,
-          bin: launchCommand.bin,
-        })
-      : buildPosixWrapperScript({
-          argsPrefix: launchCommand.argsPrefix,
-          bin: launchCommand.bin,
-        }),
+    buildPosixWrapperScript({
+      argsPrefix: launchCommand.argsPrefix,
+      bin: launchCommand.bin,
+    }),
     "utf8"
   );
-  if (process.platform !== "win32") {
-    await chmod(wrapperPath, 0o755);
-  }
+  await chmod(wrapperPath, 0o755);
 
   return {
     cleanup: async () => {
@@ -582,6 +595,7 @@ export async function resolveClaudeAgentSdkExecutable(input: {
 }
 
 function buildClaudeAgentSdkOptions(input: {
+  executionContext?: import("@openmeld/adapter-core").AdapterDispatchRequest["executionContext"];
   onRuntimeEvent?: AdapterRuntimeEventCallback;
   abortController: AbortController;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
@@ -595,10 +609,18 @@ function buildClaudeAgentSdkOptions(input: {
   onStderr: (chunk: string) => void;
   pathToClaudeCodeExecutable: string;
   planDirectory: string | null;
+  spawnProcess?: ReturnType<typeof createClaudeWindowsProcessLauncher>["spawn"];
   sessionId: string | null;
   streamingMode?: AdapterStreamingMode;
 }): ClaudeAgentOptions {
+  const spawnProcess = input.spawnProcess;
   const spaceActionMcpServer = resolveDispatchSpaceActionMcpServer(input.env);
+  if (
+    input.executionContext &&
+    input.executionContext.access !== "space_context"
+  ) {
+    throw new Error("execution_context.file_access_unsupported");
+  }
   const permissionMode = resolveClaudePermissionMode({
     agentControllerPermissionMode: input.agentControllerPermissionMode,
     executionMode: input.executionMode,
@@ -625,6 +647,12 @@ function buildClaudeAgentSdkOptions(input: {
       input.streamingMode === "stream" ||
       input.onInteractionRequest !== undefined,
     pathToClaudeCodeExecutable: input.pathToClaudeCodeExecutable,
+    ...(spawnProcess
+      ? {
+          spawnClaudeCodeProcess: (options) =>
+            spawnProcess(options, input.onStderr),
+        }
+      : {}),
     ...(spaceActionMcpServer
       ? {
           mcpServers: {
@@ -669,6 +697,19 @@ function buildClaudeAgentSdkOptions(input: {
         }
       : {}),
   };
+
+  if (input.executionContext) {
+    options.tools = [];
+    options.strictMcpConfig = true;
+    options.settingSources = ["user"];
+    options.settings = { disableAllHooks: true };
+    options.additionalDirectories = [];
+    options.allowedTools = spaceActionMcpServer
+      ? buildDispatchSpaceActionMcpToolIds("__").map(
+          (toolId) => `mcp__${toolId}`
+        )
+      : [];
+  }
 
   const sessionId = normalizeOptionalText(input.sessionId);
   if (sessionId) {
@@ -1024,24 +1065,8 @@ function buildPosixWrapperScript(input: {
   return ["#!/bin/sh", `exec ${command}`, ""].join("\n");
 }
 
-function buildWindowsWrapperScript(input: {
-  argsPrefix: readonly string[];
-  bin: string;
-}): string {
-  const command = [
-    quoteWindowsArg(input.bin),
-    ...input.argsPrefix.map(quoteWindowsArg),
-    "%*",
-  ].join(" ");
-  return ["@echo off", command, ""].join("\r\n");
-}
-
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
-function quoteWindowsArg(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
 }
 
 function normalizeOptionalText(value: unknown): string | null {

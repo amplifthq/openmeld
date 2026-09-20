@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import type {
   OpenMeldSpaceEgressAction,
+  SpaceMessageFileReference,
   SpaceStatus,
 } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectorySendTargetEntry } from "@openmeld/space";
@@ -13,6 +14,7 @@ import {
   type DispatchSpaceActionContext,
   type DispatchSpaceActionRecord,
   type DispatchSpaceActionSendTargetReference,
+  readDispatchSpaceActionContextForReceiptFromEnv,
   readDispatchSpaceActionContextFromEnv,
   writeDispatchSpaceActionRecord,
 } from "../runtime/dispatch-space-action-context";
@@ -61,6 +63,7 @@ export function runSpaceActionReply(input: {
 }
 
 export function recordDispatchSpaceReply(input: {
+  files?: readonly SpaceMessageFileReference[];
   filePaths?: readonly string[];
   messagePartCount?: number;
   mentionTargets?: readonly string[];
@@ -78,7 +81,18 @@ export function recordDispatchSpaceReply(input: {
     referenceTargetCount: input.referenceTargets?.length ?? 0,
     wakeTargetCount: input.wakeTargets?.length ?? 0,
   });
-  const context = readDispatchSpaceActionContextFromEnv();
+  const filePaths = input.filePaths ?? [];
+  if (filePaths.length && input.files?.length) {
+    throw new Error(
+      "Choose uploaded paths or saved file revisions for this reply."
+    );
+  }
+  // Uploading a file is a new effect. Expired contexts may recover an exact
+  // already-recorded action, but never perform an upload to reconstruct one.
+  const context =
+    filePaths.length > 0
+      ? readDispatchSpaceActionContextFromEnv()
+      : readDispatchSpaceActionContextForReceiptFromEnv();
   timing.emit("context_ready", context);
   assertAllowedAction(context, "post_message");
   const text = normalizeRequiredText(input.text, "Reply message is required.");
@@ -94,11 +108,10 @@ export function recordDispatchSpaceReply(input: {
     mentionTargetCount: targetIds.mentionTargets.length,
     referenceTargetCount: targetIds.referenceTargets.length,
   });
-  const filePaths = input.filePaths ?? [];
   if (filePaths.length === 0) {
     return writeSpaceActionReplyRecord({
       context,
-      files: [],
+      files: input.files ? [...input.files] : [],
       targetIds,
       text,
       timing,
@@ -219,7 +232,7 @@ export function runSpaceActionWake(input: {
   messageParts: readonly string[];
   target: string;
 }): void {
-  const context = readDispatchSpaceActionContextFromEnv();
+  const context = readDispatchSpaceActionContextForReceiptFromEnv();
   assertAllowedAction(context, "post_message");
   const text = normalizeRequiredJoinedText(
     input.messageParts,
@@ -262,7 +275,7 @@ export function recordDispatchSpaceStatus(input: {
   status: string;
   text: string;
 }): DispatchSpaceActionRecord {
-  const context = readDispatchSpaceActionContextFromEnv();
+  const context = readDispatchSpaceActionContextForReceiptFromEnv();
   assertAllowedAction(context, "post_status");
   const status = normalizeStatus(input.status);
   const text = normalizeRequiredText(input.text, "Status text is required.");
@@ -282,7 +295,7 @@ export function runSpaceActionSilent(input: { reason?: string | null }): void {
 export function recordDispatchSpaceSilent(input: {
   reason?: string | null;
 }): DispatchSpaceActionRecord {
-  const context = readDispatchSpaceActionContextFromEnv();
+  const context = readDispatchSpaceActionContextForReceiptFromEnv();
   assertAllowedAction(context, "stay_silent");
   const reason = normalizeRequiredText(
     input.reason,

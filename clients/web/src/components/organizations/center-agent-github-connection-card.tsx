@@ -27,6 +27,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
+	type AuthorizationBrowser,
+	closeAuthorizationBrowser,
+	openAuthorizationBrowser,
+	prepareAuthorizationBrowser,
+} from "#/desktop/authorization-browser";
+import {
 	disconnectOrganizationGitHubConnection,
 	disconnectSharedOrganizationGitHubConnection,
 	resolveConnectorConnectionErrorMessage,
@@ -78,7 +84,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 		useState<WaitingAuthorization | null>(null);
 	const waitingScope = waitingAuthorization?.scope ?? null;
 	const [localError, setLocalError] = useState<string | null>(null);
-	const authorizationPopupRef = useRef<Window | null>(null);
+	const authorizationPopupRef = useRef<AuthorizationBrowser | null>(null);
 	const connectionsQuery = useQuery(
 		organizationPluginServiceConnectionsQueryOptions({
 			organizationId: input.organizationId,
@@ -127,7 +133,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 			setWaitingAuthorization(null);
 			setLocalError(null);
 			input.onAuthorizationStateChange?.(false);
-			popup?.close();
+			closeAuthorizationBrowser(popup);
 			toast.success(
 				waitingScope === "shared"
 					? `${sharedScopeName} GitHub access connected.`
@@ -155,7 +161,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 					"GitHub setup timed out. Start again when you are ready."
 				);
 				input.onAuthorizationStateChange?.(false);
-				popup?.close();
+				closeAuthorizationBrowser(popup);
 			},
 			Math.max(0, waitingAuthorization.expiresAtMs - Date.now())
 		);
@@ -164,7 +170,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 
 	useEffect(
 		() => () => {
-			authorizationPopupRef.current?.close();
+			closeAuthorizationBrowser(authorizationPopupRef.current);
 			authorizationPopupRef.current = null;
 			input.onAuthorizationStateChange?.(false);
 		},
@@ -190,7 +196,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 			} as const;
 		},
 		onError: (error) => {
-			authorizationPopupRef.current?.close();
+			closeAuthorizationBrowser(authorizationPopupRef.current);
 			authorizationPopupRef.current = null;
 			setWaitingAuthorization(null);
 			setLocalError(resolveConnectorConnectionErrorMessage(error, "GitHub"));
@@ -199,16 +205,27 @@ export function CenterAgentGitHubConnectionCard(input: {
 		onMutate: () => {
 			setLocalError(null);
 		},
-		onSuccess: (result) => {
+		onSuccess: async (result) => {
 			const popup = authorizationPopupRef.current;
-			if (!popup || popup.closed) {
+			if (!popup) {
 				setLocalError(
 					"The GitHub window closed before setup started. Try again."
 				);
 				input.onAuthorizationStateChange?.(false);
 				return;
 			}
-			popup.location.href = result.authorization.authorizationUrl;
+			try {
+				await openAuthorizationBrowser(
+					popup,
+					result.authorization.authorizationUrl
+				);
+			} catch (error) {
+				closeAuthorizationBrowser(popup);
+				authorizationPopupRef.current = null;
+				setLocalError(resolveConnectorConnectionErrorMessage(error, "GitHub"));
+				input.onAuthorizationStateChange?.(false);
+				return;
+			}
 			setWaitingAuthorization({
 				expiresAtMs:
 					result.scope === "shared"
@@ -216,7 +233,6 @@ export function CenterAgentGitHubConnectionCard(input: {
 						: Date.now() + MEMBER_AUTHORIZATION_TIMEOUT_MS,
 				scope: result.scope,
 			});
-			popup.focus();
 		},
 	});
 	const authorizationBusy =
@@ -228,8 +244,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 
 	const handleConnect = (scope: AuthorizationScope) => {
 		setLocalError(null);
-		const popup = window.open(
-			"about:blank",
+		const popup = prepareAuthorizationBrowser(
 			scope === "shared"
 				? "openmeld-github-app-installation"
 				: "openmeld-github-authorization",
@@ -241,13 +256,12 @@ export function CenterAgentGitHubConnectionCard(input: {
 			);
 			return;
 		}
-		popup.opener = null;
 		authorizationPopupRef.current = popup;
 		input.onAuthorizationStateChange?.(true);
 		authorizationMutation.mutate(scope);
 	};
 	const cancelAuthorization = () => {
-		authorizationPopupRef.current?.close();
+		closeAuthorizationBrowser(authorizationPopupRef.current);
 		authorizationPopupRef.current = null;
 		setWaitingAuthorization(null);
 		setLocalError(null);

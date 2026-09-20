@@ -56,20 +56,8 @@ export type CurrentEffectiveProfileWorkingFolderRuntimeResolution =
       workingFolderFact: ProfileWorkingFolderFact;
     });
 
-export type ProfileWorkingFolderFact = {
-  defaultProjectId: string | null;
-  localProjectBindingGeneration: string | null;
-  observedAtMs: number;
-  reasonCode:
-    | "profile.workspace.invalid"
-    | "profile.workspace.missing"
-    | "project.local_connection.folder_missing"
-    | "project.local_connection.invalid"
-    | "project.local_connection.missing"
-    | null;
-  source: "default_project" | "profile_workspace";
-  status: "invalid" | "missing" | "ready";
-};
+export type ProfileWorkingFolderFact =
+  import("@openmeld/schemas").ProfileWorkingFolderFact;
 
 export async function resolveEffectiveProfileWorkingFolderRuntime(input: {
   account?: OpenMeldAccountKey;

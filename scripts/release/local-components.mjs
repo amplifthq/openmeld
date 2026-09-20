@@ -252,6 +252,11 @@ export function resolveReleasePolicyVerificationErrors(input) {
     ];
   }
 
+  const selectedServiceFacts = resolveSelectedServiceReleaseFacts({
+    baseManifest: input.baseLocalComponentsManifest,
+    facts,
+    serviceTouched: (input.changedPaths ?? []).some(isServiceReleasePath),
+  });
   errors.push(
     ...compareCurrentFacts({
       actual: manifest.components.cli.packageVersion,
@@ -265,22 +270,22 @@ export function resolveReleasePolicyVerificationErrors(input) {
     }),
     ...compareCurrentFacts({
       actual: manifest.components.service.bundleVersion,
-      expected: facts.service.bundleVersion,
+      expected: selectedServiceFacts.bundleVersion,
       label: "service.bundleVersion",
     }),
     ...compareCurrentFacts({
       actual: manifest.components.service.bundleHash,
-      expected: facts.service.bundleHash,
+      expected: selectedServiceFacts.bundleHash,
       label: "service.bundleHash",
     }),
     ...compareCurrentFacts({
       actual: manifest.components.service.runtimeContractEpoch,
-      expected: facts.service.runtimeContractEpoch,
+      expected: selectedServiceFacts.runtimeContractEpoch,
       label: "service.runtimeContractEpoch",
     }),
     ...compareCurrentFacts({
       actual: manifest.components.service.serviceContractVersion,
-      expected: facts.service.serviceContractVersion,
+      expected: selectedServiceFacts.serviceContractVersion,
       label: "service.serviceContractVersion",
     }),
     ...compareCurrentFacts({
@@ -371,12 +376,25 @@ export function resolveReleasePolicyVerificationErrors(input) {
   errors.push(
     ...resolveServiceRequiredFloorVerificationErrors({
       baseFloor: input.baseServiceRequiredFloor,
-      bundleVersion: facts.service.bundleVersion,
+      bundleVersion: selectedServiceFacts.bundleVersion,
       floor: facts.serviceRequiredFloor,
       updatePolicy: manifest.components.service.updatePolicy,
     })
   );
   return errors;
+}
+
+export function resolveSelectedServiceReleaseFacts(input) {
+  const baseService = input.baseManifest?.components?.service;
+  if (input.serviceTouched || !baseService) {
+    return input.facts.service;
+  }
+  return {
+    bundleHash: baseService.bundleHash,
+    bundleVersion: baseService.bundleVersion,
+    runtimeContractEpoch: baseService.runtimeContractEpoch,
+    serviceContractVersion: baseService.serviceContractVersion,
+  };
 }
 
 function isUpdatePolicyAtLeastAvailable(policy) {
@@ -549,9 +567,17 @@ export async function runLocalComponentsReleaseTool(
           repoRoot,
           requireServiceBundle: !parsed.options.allowMissingServiceBundle,
         });
+        const selectedFacts = {
+          ...facts,
+          service: resolveSelectedServiceReleaseFacts({
+            baseManifest: decisionPlan.baseLocalComponentsManifest,
+            facts,
+            serviceTouched: decisionPlan.touchedComponents.includes("service"),
+          }),
+        };
         const previous = await readReleaseManifest(manifestPath);
         const manifest = buildReleasePolicyManifest({
-          facts,
+          facts: selectedFacts,
           now: stampedAt,
           policies: parsed.options.policies,
           previous,
@@ -559,7 +585,7 @@ export async function runLocalComponentsReleaseTool(
           reasons: parsed.options.reasons,
         });
         await assertReleaseManifestPolicy({
-          facts,
+          facts: selectedFacts,
           manifest,
           parsed,
           repoRoot,
@@ -648,6 +674,8 @@ async function collectLocalComponentReleaseDecisionPlan(input) {
   });
   return {
     base,
+    baseLocalComponentsManifest:
+      baseContracts.baseLocalComponentsManifest ?? null,
     changedPaths,
     currentPublic: {
       cliVersion:
@@ -678,6 +706,12 @@ async function collectLocalComponentReleaseDecisionPlan(input) {
       ])
     ),
     targetVersion: versionResolution?.targetVersion ?? facts.cli.packageVersion,
+    targetServiceVersion: touchedComponents.includes("service")
+      ? (versionResolution?.targetVersion ?? facts.cli.packageVersion)
+      : (baseContracts.baseLocalComponentsManifest?.components?.service
+          ?.bundleVersion ??
+        versionResolution?.targetVersion ??
+        facts.cli.packageVersion),
     touchedComponents,
     versionResolution,
   };
@@ -718,7 +752,8 @@ function formatLocalComponentDecisionPlan(plan) {
     `Current CLI required floor: ${plan.currentPublic.cliRequiredFloor ?? "none"}`,
     `Current public Service: ${plan.currentPublic.serviceVersion ?? "unknown"}`,
     `Current Service required floor: ${plan.currentPublic.serviceRequiredFloor ?? "none"}`,
-    `Target CLI/Service version: ${plan.targetVersion}`,
+    `Target CLI version: ${plan.targetVersion}`,
+    `Selected Service version: ${plan.targetServiceVersion}`,
     `Changed local components: ${touched}`,
   ];
   for (const component of plan.touchedComponents) {

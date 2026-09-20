@@ -9,12 +9,15 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { gunzipSync, gzipSync } from "node:zlib";
+import { WebSocketServer } from "ws";
 import { buildOpenMeldSetupBootstrapScript } from "../../clients/web/src/lib/setup-bootstrap-script.ts";
 import {
   betterAuthDeviceAuthorizationTokenRequestSchema,
   betterAuthDeviceAuthorizationTokenResponseSchema,
   betterAuthSessionSnapshotResponseSchema,
   prepareSessionResponseSchema,
+  prepareSessionStreamClientFrameSchema,
+  prepareSessionStreamServerFrameSchema,
 } from "../../packages/schemas/dist/index.js";
 import { buildCliBinary } from "../release/build-cli-binary.mjs";
 
@@ -188,6 +191,17 @@ async function main() {
       serverOrigin: server.origin,
       tempRoot,
     });
+    const prepareStreamFailure = await runPrepareStreamFailureSmoke({
+      env: buildManagedBinaryEnv({
+        managedBinaryPath,
+        serverOrigin: server.origin,
+        tempRoot,
+        openMeldHome,
+      }),
+      managedBinaryPath,
+      server,
+    });
+    assertPrepareStreamFailureOutput(prepareStreamFailure);
     const directAccountSwitchOutput = await runAccountSwitchPtySmoke({
       command: `'${managedBinaryPath}' setup --start-session fixture-prepare-session --device-code fixture-device-code-b --view human`,
       env: buildManagedBinaryEnv({
@@ -233,6 +247,8 @@ async function main() {
       });
     assertNonInteractiveAccountSwitchOutput(nonInteractiveAccountSwitchOutput);
     assertAccountSwitchRevocationCount(server.getRequestCounts());
+    assertPrepareStreamRequestCounts(server.getRequestCounts());
+    server.assertPrepareStreamHealthy();
 
     process.stdout.write(
       [
@@ -244,6 +260,11 @@ async function main() {
         `- archiveSizeBytes: ${server.archiveSizeBytes}`,
         `- displayedDownloadSizeMb: ${Math.max(1, Math.round(server.archiveSizeBytes / 1_048_576))}`,
         "- repeatedSetupArtifactDownloads: 0",
+        "- packagedPrepareStreamFailureExitCode: 1",
+        "- prepareStreamAcceptedConnections: 4",
+        "- prepareStreamRejectedConnections: 1",
+        "- prepareAccountSwitchCancelledWrites: 3",
+        "- prepareHandoffFailedWrites: 1",
         `- localhostManifestUrl: ${manifestUrl}`,
         `- openMeldHome: ${openMeldHome}`,
         `- managedBinaryPath: ${managedBinaryPath}`,
@@ -329,6 +350,33 @@ async function seedPreviousAccount(input) {
     expectedOutput: "Welcome account-a@example.invalid",
     label: "seed previous account through the real CLI login flow",
   });
+}
+
+async function runPrepareStreamFailureSmoke(input) {
+  process.stdout.write(
+    "[cli:binary:prod-smoke] packaged prepare-stream failure output smoke\n"
+  );
+  input.server.setPrepareStreamMode("reject");
+  try {
+    return await runCommandAsync({
+      args: [
+        "setup",
+        "--start-session",
+        "fixture-prepare-session",
+        "--device-code",
+        "fixture-device-code-b",
+        "--view",
+        "human",
+      ],
+      command: input.managedBinaryPath,
+      env: input.env,
+      expectedExitCode: 1,
+      label: "fail packaged CLI at the prepare-session WebSocket boundary",
+      timeoutMs: 5000,
+    });
+  } finally {
+    input.server.setPrepareStreamMode("accept");
+  }
 }
 
 async function runPipedAccountSwitchPtySmoke(input) {
@@ -455,6 +503,45 @@ function assertAccountSwitchRevocationCount(requestCounts) {
   if (requestCounts.authSignOut !== expectedRevocations) {
     throw new Error(
       `expected ${expectedRevocations} unused account-switch sessions to be revoked, received ${requestCounts.authSignOut}`
+    );
+  }
+}
+
+function assertPrepareStreamFailureOutput(result) {
+  if (result.exitCode !== 1) {
+    throw new Error(
+      `packaged prepare-stream failure exited ${String(result.exitCode)} instead of 1`
+    );
+  }
+  if (
+    !(
+      result.output.includes("WebSocket connection to") &&
+      result.output.includes("failed: Expected 101 status code")
+    )
+  ) {
+    throw new Error(
+      `packaged prepare-stream failure did not preserve the WebSocket error message:\n${result.output}`
+    );
+  }
+  if (
+    result.output.includes("[object ErrorEvent]") ||
+    result.output.includes("[object Object]")
+  ) {
+    throw new Error(
+      `packaged prepare-stream failure displayed an object placeholder:\n${result.output}`
+    );
+  }
+}
+
+function assertPrepareStreamRequestCounts(requestCounts) {
+  if (
+    requestCounts.prepareStreamAccepted !== 4 ||
+    requestCounts.prepareStreamRejected !== 1 ||
+    requestCounts.prepareAccountSwitchCancelled !== 3 ||
+    requestCounts.prepareHandoffFailed !== 1
+  ) {
+    throw new Error(
+      `unexpected prepare-stream request counts: ${JSON.stringify(requestCounts)}`
     );
   }
 }
@@ -726,6 +813,7 @@ async function startBinaryManifestServer(input) {
   const artifact = await readFile(input.artifactPath);
   const archive = gzipSync(artifact, { level: 9 });
   const archiveSha256 = createHash("sha256").update(archive).digest("hex");
+  const prepareStreamServer = new WebSocketServer({ noServer: true });
   const manifest = JSON.stringify(
     {
       schemaVersion: 1,
@@ -756,8 +844,14 @@ async function startBinaryManifestServer(input) {
     archive: 0,
     authSignOut: 0,
     manifest: 0,
+    prepareAccountSwitchCancelled: 0,
+    prepareHandoffFailed: 0,
+    prepareStreamAccepted: 0,
+    prepareStreamRejected: 0,
     raw: 0,
   };
+  const prepareStreamErrors = [];
+  let prepareStreamMode = "accept";
   let setupScript = "";
   const server = createServer(async (request, response) => {
     if (request.url === "/setup") {
@@ -875,6 +969,87 @@ async function startBinaryManifestServer(input) {
     response.end("not found");
   });
 
+  prepareStreamServer.on("connection", (webSocket) => {
+    let snapshot = buildPrepareSessionSnapshot();
+    webSocket.on("message", (rawFrame) => {
+      try {
+        const frame = prepareSessionStreamClientFrameSchema.parse(
+          JSON.parse(rawFrame.toString("utf8"))
+        );
+        if (frame.type === "client.hello") {
+          sendPrepareStreamFrame(webSocket, {
+            type: "snapshot",
+            payload: { snapshot },
+          });
+          return;
+        }
+        if (frame.type === "client.ping") {
+          sendPrepareStreamFrame(webSocket, {
+            type: "server.pong",
+            payload: { sentAt: frame.payload.sentAt },
+          });
+          return;
+        }
+        if (frame.type !== "terminal.step.write") {
+          throw new Error(`unexpected prepare stream frame: ${frame.type}`);
+        }
+        assertExpectedPrepareStopFrame(frame, snapshot);
+        if (frame.payload.reasonCode === "prepare.account_switch_cancelled") {
+          requestCounts.prepareAccountSwitchCancelled += 1;
+        } else {
+          requestCounts.prepareHandoffFailed += 1;
+        }
+        snapshot = buildStoppedPrepareSessionSnapshot(snapshot, frame.payload);
+        sendPrepareStreamFrame(webSocket, {
+          type: "snapshot_changed",
+          payload: { snapshot },
+        });
+      } catch (error) {
+        prepareStreamErrors.push(
+          error instanceof Error ? error : new Error(String(error))
+        );
+        webSocket.close(1011, "fixture contract mismatch");
+      }
+    });
+  });
+
+  server.on("upgrade", (request, socket, head) => {
+    const rejectingExpectedUpgrade = prepareStreamMode === "reject";
+    if (rejectingExpectedUpgrade) {
+      socket.on("error", () => undefined);
+    }
+    try {
+      const url = new URL(request.url ?? "", origin);
+      if (
+        url.pathname !==
+          "/v1/prepare/sessions/fixture-prepare-session/stream" ||
+        url.searchParams.get("role") !== "terminal" ||
+        request.headers["x-openmeld-prepare-token"] !==
+          "fixture-prepare-session"
+      ) {
+        throw new Error(
+          `unexpected prepare stream upgrade: ${request.url ?? "missing URL"}`
+        );
+      }
+      if (rejectingExpectedUpgrade) {
+        requestCounts.prepareStreamRejected += 1;
+        rejectPrepareStreamUpgrade(socket);
+        return;
+      }
+      requestCounts.prepareStreamAccepted += 1;
+      prepareStreamServer.handleUpgrade(request, socket, head, (webSocket) => {
+        prepareStreamServer.emit("connection", webSocket, request);
+      });
+    } catch (error) {
+      prepareStreamErrors.push(
+        error instanceof Error ? error : new Error(String(error))
+      );
+      socket.end(
+        "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+      );
+    }
+  });
+
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
@@ -888,14 +1063,107 @@ async function startBinaryManifestServer(input) {
     archiveSizeBytes: archive.byteLength,
     origin,
     getRequestCounts: () => ({ ...requestCounts }),
+    setPrepareStreamMode: (mode) => {
+      if (mode !== "accept" && mode !== "reject") {
+        throw new Error(`unsupported prepare stream mode: ${String(mode)}`);
+      }
+      prepareStreamMode = mode;
+    },
+    assertPrepareStreamHealthy: () => {
+      if (prepareStreamErrors[0]) {
+        throw prepareStreamErrors[0];
+      }
+    },
     setSetupScript: (script) => {
       setupScript = script;
     },
-    close: () =>
-      new Promise((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-      }),
+    close: async () => {
+      for (const webSocket of prepareStreamServer.clients) {
+        webSocket.terminate();
+      }
+      await Promise.all([
+        new Promise((resolve, reject) => {
+          prepareStreamServer.close((error) =>
+            error ? reject(error) : resolve()
+          );
+        }),
+        new Promise((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        }),
+      ]);
+    },
   };
+}
+
+function sendPrepareStreamFrame(webSocket, frame) {
+  webSocket.send(
+    JSON.stringify(prepareSessionStreamServerFrameSchema.parse(frame))
+  );
+}
+
+function assertExpectedPrepareStopFrame(frame, snapshot) {
+  if (
+    frame.payload.prepareSessionId !== snapshot.prepareSessionId ||
+    frame.payload.connectionEpoch !==
+      snapshot.terminalConnection.connectionEpoch ||
+    frame.payload.expectedRevision !== snapshot.sessionRevision ||
+    frame.payload.stepId !== "connect_terminal" ||
+    frame.payload.status !== "failed" ||
+    !["prepare.account_switch_cancelled", "prepare.handoff_failed"].includes(
+      frame.payload.reasonCode
+    ) ||
+    typeof frame.payload.message !== "string" ||
+    frame.payload.message.length === 0
+  ) {
+    throw new Error(`unexpected prepare stop frame: ${JSON.stringify(frame)}`);
+  }
+}
+
+function buildStoppedPrepareSessionSnapshot(snapshot, write) {
+  const updatedAt = snapshot.updatedAt;
+  return prepareSessionResponseSchema.parse({
+    snapshot: {
+      ...snapshot,
+      blockers: [
+        {
+          blockerId: `fixture-blocker-${String(snapshot.sessionRevision + 1)}`,
+          stepId: "connect_terminal",
+          reasonCode: write.reasonCode,
+          message: write.message,
+          severity: "user_action_required",
+          retryAction: "copy_fresh_command",
+          createdAt: updatedAt,
+        },
+      ],
+      phase: "blocked",
+      sessionRevision: snapshot.sessionRevision + 1,
+      steps: snapshot.steps.map((step) =>
+        step.id === "connect_terminal"
+          ? {
+              ...step,
+              state: "blocked",
+              blockerReasonCode: write.reasonCode,
+              startedAt: step.startedAt ?? updatedAt,
+              updatedAt,
+            }
+          : step
+      ),
+    },
+  }).snapshot;
+}
+
+function rejectPrepareStreamUpgrade(socket) {
+  const body = "fixture prepare stream unavailable";
+  socket.end(
+    [
+      "HTTP/1.1 503 Service Unavailable",
+      "Connection: close",
+      "Content-Type: text/plain; charset=utf-8",
+      `Content-Length: ${String(Buffer.byteLength(body))}`,
+      "",
+      body,
+    ].join("\r\n")
+  );
 }
 
 async function respondToValidatedJsonFixture(input) {

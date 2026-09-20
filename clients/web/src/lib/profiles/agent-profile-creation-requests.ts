@@ -33,6 +33,80 @@ function createApi(organizationId: string) {
 	);
 }
 
+// A failed request's intent is immutable. Cancel it through Core before
+// submitting the replacement, and reuse one key across tabs and lost responses.
+export async function restartAgentProfileCreationOnComputer(input: {
+	onAccepted?: (request: AgentProfileCreationRequest) => void;
+	organizationId: string;
+	requestId: string;
+	currentUserId: string;
+	computerId: string;
+}): Promise<CreateAgentProfileCreationRequestResponse> {
+	const api = createApi(input.organizationId);
+	const idempotencyKey = `recovery:${input.requestId}`;
+	const existing = await api.listAgentProfileCreationRequests({
+		organizationId: input.organizationId,
+		idempotencyKey,
+	});
+	const replacement = existing.requests[0];
+	if (replacement) {
+		if (
+			replacement.organizationId !== input.organizationId ||
+			replacement.requesterUserId !== input.currentUserId ||
+			replacement.targetOwnerUserId !== input.currentUserId
+		) {
+			throw new Error(
+				"You can only restart your own Agent setup in this organization."
+			);
+		}
+		input.onAccepted?.(replacement);
+		return { replayed: true, request: replacement };
+	}
+	const original = await api.listAgentProfileCreationRequests({
+		organizationId: input.organizationId,
+		requestId: input.requestId,
+	});
+	const request = original.requests.find((item) => item.id === input.requestId);
+	if (
+		!request ||
+		request.organizationId !== input.organizationId ||
+		request.requesterUserId !== input.currentUserId ||
+		request.targetOwnerUserId !== input.currentUserId ||
+		request.createdAgentProfileId ||
+		!["failed", "cancelled"].includes(request.status) ||
+		!request.configuration.targetComputerId ||
+		(request.sessionStrategy !== "new" &&
+			request.configuration.targetComputerId !== input.computerId)
+	) {
+		throw new Error(
+			"This setup has changed. Close this window and review its latest status before continuing."
+		);
+	}
+	if (request.status === "failed") {
+		await api.cancelAgentProfileCreationRequest({
+			organizationId: input.organizationId,
+			requestId: request.id,
+		});
+	}
+	return await createAgentProfileCreationRequest({
+		onAccepted: input.onAccepted,
+		configuration: {
+			...request.configuration,
+			targetComputerId: input.computerId,
+			// Public Computer/controller selection lets Core resolve and validate
+			// the current connection instead of replaying an obsolete runtime ID.
+			localAgentConnectionCandidateId: null,
+		},
+		idempotencyKey,
+		organizationId: input.organizationId,
+		profileName: request.profileName,
+		targetOwnerUserId: request.targetOwnerUserId,
+		nativeSessionId: request.nativeSessionId,
+		sessionStrategy: request.sessionStrategy,
+		requestedSpaceId: request.requestedSpaceId,
+	});
+}
+
 export async function createAgentProfileCreationRequest(input: {
 	configuration: AgentProfileCreationConfiguration;
 	idempotencyKey: string;

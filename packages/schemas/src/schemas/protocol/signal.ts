@@ -1,5 +1,6 @@
 import * as z from "zod/v4";
 import { isLegacyAgentActivityWorkCompatible } from "../../agent-work-activity";
+import { spaceWorkHandoffSchema } from "../../space-work-handoff";
 import { spaceMessageFileReferencesSchema } from "../http/space-files";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { signalStatusDataSchema as signalStatusPayloadSchema } from "../space-mesh/signal-status";
@@ -10,6 +11,7 @@ import { clientMessageIdSchema } from "./client-message-id";
 import { MAX_PROFILE_NAME_LENGTH, MAX_TEXT_LENGTH } from "./constants";
 import { conversationCompactionMarkerSchema } from "./conversation-compaction";
 import { coreReadinessFactsChangedSchema } from "./core-readiness-facts-changed";
+import { executionContextSelectionSchema } from "./execution-context";
 import { messageEnvelopeSchema } from "./message-envelope";
 import { openMeldRuntimeProfileIdSchema } from "./profile";
 import { trimmedStringFromUnknown } from "./shared";
@@ -102,6 +104,7 @@ const legacySpaceAgentActivitySchema = spaceAgentActivitySchema.superRefine(
 );
 
 const signalTextMetaSchema = z.object({
+  workHandoff: spaceWorkHandoffSchema.optional(),
   // The human accepted a suggested thread recipient, rather than selecting a new one.
   threadWakeContinuation: z.literal(true).optional(),
   // Read-only history compatibility mirror. Only data.deviceWait is authority.
@@ -332,6 +335,7 @@ const buildSignalTextDataSchema = <TMetaSchema extends z.ZodTypeAny>(
       // Canonical authoring/storage field. Public reads omit it and generate
       // meta.deviceWait only as a read-only compatibility mirror.
       deviceWait: wakeDeviceWaitSchema.optional(),
+      contextSelection: executionContextSelectionSchema.optional(),
       attachments: spaceMessageAttachmentsSchema.optional(),
       files: spaceMessageFileReferencesSchema.optional(),
       messageEnvelope: messageEnvelopeSchema.optional(),
