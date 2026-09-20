@@ -230,7 +230,7 @@ async function associateCreatedGitHubIssue(input: {
     created: !existing,
     githubClosePrompt: null,
     issueBodyAppendix: buildOpenMeldTaskIssueBodyAppendix({
-      organizationWebUrl: input.toolContext.turnEnvelope?.organization.webUrl,
+      organizationWebUrl: input.toolContext.turnEnvelope?.organization?.webUrl,
       spaceId: input.space.id,
       taskId: task.taskId,
     }),

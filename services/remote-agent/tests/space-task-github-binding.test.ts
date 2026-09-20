@@ -195,6 +195,7 @@ describe("GitHub issue Space Task binding", () => {
     );
     expect(summary).toMatchObject({
       created: false,
+      issueBodyAppendix: `OpenMeld Task: ${existing.taskId}`,
       task: { taskId: existing.taskId },
     });
   });
