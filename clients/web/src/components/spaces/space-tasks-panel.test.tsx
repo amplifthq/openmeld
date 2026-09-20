@@ -41,6 +41,17 @@ const task = spaceTaskSchema.parse({
 	threadId: "thread-1",
 	title: "Follow the GitHub issue linkage",
 	updatedAt: "2026-09-15T00:00:00.000Z",
+	externalWorkItems: [
+		{
+			lastObservedAt: "2026-09-15T00:00:00.000Z",
+			lastObservedState: "open",
+			number: 1143,
+			owner: "amplifthq",
+			provider: "github",
+			repo: "openmeld",
+			url: "https://github.com/amplifthq/openmeld/issues/1143",
+		},
+	],
 });
 
 vi.mock("./use-space-tasks-panel-controller", () => ({
@@ -82,6 +93,7 @@ describe("SpaceTasksPanel", () => {
 		expect(
 			screen.getByText("Waiting for Amplifth Center Agent to start")
 		).toBeTruthy();
+		expect(screen.getByText("amplifthq/openmeld#1143")).toBeTruthy();
 		expect(
 			screen.queryByText(
 				"This long brief should stay in the detail drawer until the card is opened."
@@ -105,6 +117,9 @@ describe("SpaceTasksPanel", () => {
 		expect(screen.getByText("Done when")).toBeTruthy();
 		expect(
 			screen.getByText("The issue is assessed on the product side")
+		).toBeTruthy();
+		expect(
+			screen.getByRole("link", { name: "amplifthq/openmeld#1143" })
 		).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Cancel Task" })).toBeTruthy();
 

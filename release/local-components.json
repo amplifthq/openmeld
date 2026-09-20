@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-20T03:05:17.690Z",
+  "updatedAt": "2026-09-20T17:50:17.776Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.214",
+      "packageVersion": "0.3.215",
       "updatePolicy": "available",
-      "reason": "The rollout installs cloud receivers before publication; existing CLI commands remain compatible and older CLIs simply lack the new handoff and Windows controls."
+      "reason": "The new Host remains behind Service and Core capability checks; older cloud receivers parse existing frames, older CLIs continue supported work, and Zod preserves public CLI inputs."
     },
     "service": {
-      "bundleHash": "15b4595bff28e3b4e0ec9c3f24d70e5035cc5e08d9ea63f10d5648c78acf68ad",
-      "bundleVersion": "0.3.214",
+      "bundleHash": "f7ce053a8c51ed4ca2b7da579a8ea2155993e70ce7deeb6b9d8b0db8ed47f308",
+      "bundleVersion": "0.3.215",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services remain compatible with the additive cloud contracts; older Services continue supported work and simply lack the new handoff and Windows supervision capabilities."
+      "reason": "Service and Host ship together; older Services continue supported Wake work after receiver rollout, missing withdrawal proof withholds unsafe replacement work, and Zod preserves accepted transport and password validation."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",

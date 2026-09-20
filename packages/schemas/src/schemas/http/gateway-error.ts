@@ -9,6 +9,7 @@ import { ORGANIZATION_SKILL_ERROR_CODES } from "./organization-skills";
 import { PLUGIN_ERROR_CODES } from "./plugin-access";
 import { SPACE_FILE_ERROR_CODES } from "./space-files";
 import { SPACE_PASSWORD_RATE_LIMITED_ERROR_CODE } from "./space-password";
+import { SPACE_TASK_ERROR_CODES } from "./space-tasks";
 
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 
@@ -116,6 +117,7 @@ export const gatewayErrorCodeSchema = z.enum([
   "space.publication_mode.owner_required",
   "space.publication_mode.password_not_configured",
   ...SPACE_FILE_ERROR_CODES,
+  ...SPACE_TASK_ERROR_CODES,
   "attachment_too_large",
   "attachment_type_unsupported",
   "attachment_content_mismatch",

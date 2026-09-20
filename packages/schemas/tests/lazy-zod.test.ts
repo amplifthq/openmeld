@@ -95,8 +95,13 @@ describe("lazy Zod facade", () => {
       id: "openmeld-lazy-zod-identity-test",
     });
     expect(identified.toJSONSchema()).toMatchObject({
-      description: "identified",
-      id: "openmeld-lazy-zod-identity-test",
+      $ref: "#/$defs/openmeld-lazy-zod-identity-test",
+      $defs: {
+        "openmeld-lazy-zod-identity-test": {
+          description: "identified",
+          type: "string",
+        },
+      },
     });
 
     const removedBeforeResolution = z.string().meta({
@@ -147,7 +152,8 @@ describe("lazy Zod facade", () => {
     expect(Object.getPrototypeOf(lazySchema)).toBe(
       Object.getPrototypeOf(actualSchema)
     );
-    expect(lazySchema.parse("OpenMeld")).toBe("OpenMeld");
+    expect(() => actualSchema.parse("OpenMeld")).toThrow(TypeError);
+    expect(() => lazySchema.parse("OpenMeld")).toThrow(TypeError);
 
     const actualFrozenSchema = actualZod.number().int();
     const lazyFrozenSchema = z.number().int();
@@ -158,7 +164,8 @@ describe("lazy Zod facade", () => {
     expect(Reflect.ownKeys(lazyFrozenSchema)).toEqual(
       Reflect.ownKeys(actualFrozenSchema)
     );
-    expect(lazyFrozenSchema.parse(1)).toBe(1);
+    expect(() => actualFrozenSchema.parse(1)).toThrow(TypeError);
+    expect(() => lazyFrozenSchema.parse(1)).toThrow(TypeError);
   });
 
   it("does not replay registry metadata after removal or clearing", () => {

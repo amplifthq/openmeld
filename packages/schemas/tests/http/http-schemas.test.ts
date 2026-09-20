@@ -100,6 +100,7 @@ import {
   spaceRouteParamsSchema,
   spaceSignalAuthoringPolicySchema,
   spaceStorageUsageSchema,
+  spaceTaskSchema,
   updateProfileResponseSchema,
   upsertProfileSpaceHistoryBodySchema,
   upsertProfileSpaceHistoryResponseSchema,
@@ -2313,6 +2314,28 @@ describe("http schemas", () => {
       expect(parsed.success).toBe(false);
     });
 
+    it("preserves the UTF-16 password length contract for emoji", () => {
+      for (const password of ["😀😀😀", "abc😀😀"]) {
+        expect(
+          createSpacePasswordBodySchema.safeParse({ password }).success
+        ).toBe(true);
+        expect(
+          upsertSpacePasswordBodySchema.safeParse({ password }).success
+        ).toBe(true);
+      }
+
+      const tooShort = spacePasswordSchema.safeParse("  😀😀  ");
+      expect(tooShort.success).toBe(false);
+      if (!tooShort.success) {
+        expect(tooShort.error.issues[0]).toMatchObject({
+          code: "too_small",
+          origin: "string",
+          minimum: SPACE_PASSWORD_MIN_LENGTH,
+          inclusive: true,
+        });
+      }
+    });
+
     it("rejects non-string password", () => {
       const parsed = upsertSpacePasswordBodySchema.safeParse({
         password: 123_456,
@@ -2987,6 +3010,58 @@ describe("http schemas", () => {
       expect(
         gatewayErrorCodeSchema.safeParse("center_agent.dm_open_failed").success
       ).toBe(true);
+      expect(
+        gatewayErrorCodeSchema.safeParse("space_task.revision_conflict").success
+      ).toBe(true);
+      expect(
+        gatewayErrorCodeSchema.safeParse("space_task.operation_conflict")
+          .success
+      ).toBe(true);
+      expect(
+        gatewayErrorCodeSchema.safeParse("space_task.external_work_item_limit")
+          .success
+      ).toBe(true);
+      expect(
+        gatewayErrorCodeSchema.safeParse(
+          "space_task.external_work_item_not_found"
+        ).success
+      ).toBe(true);
+
+      const storedTaskWithoutLinks = spaceTaskSchema.safeParse({
+        assignee: null,
+        automaticReworkRounds: 0,
+        completionConditions: [],
+        createdAt: "2026-09-20T00:00:00.000Z",
+        createdBy: {
+          ownerUserId: "user-avery",
+          profileId: HUMAN_PROFILE_ID,
+          profileKind: "human",
+          profileName: "Avery",
+        },
+        description: null,
+        needsHumanDecision: false,
+        phase: "to_do",
+        requestedBy: {
+          ownerUserId: "user-avery",
+          profileId: HUMAN_PROFILE_ID,
+          profileKind: "human",
+          profileName: "Avery",
+        },
+        result: null,
+        review: null,
+        reviewer: null,
+        revision: 1,
+        sourceSignalId: null,
+        spaceId: SPACE_ID,
+        taskId: "tsk_55555555-5555-4555-8555-555555555555",
+        threadId: null,
+        title: "Ship Tasks",
+        updatedAt: "2026-09-20T00:00:00.000Z",
+      });
+      expect(storedTaskWithoutLinks.success).toBe(true);
+      if (storedTaskWithoutLinks.success) {
+        expect(storedTaskWithoutLinks.data.externalWorkItems).toEqual([]);
+      }
 
       const resolved = postResolvedSpaceMembersBodySchema.safeParse({
         members: [
