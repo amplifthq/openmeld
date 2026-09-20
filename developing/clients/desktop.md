@@ -576,48 +576,82 @@ does not call, update, stop, or reconfigure CLI or OpenMeld Service.
 
 ### Installed A-to-B release acceptance
 
-Run this acceptance once for every macOS Desktop **production release** after
-its implementation and signed candidate are reviewed. It is a Desktop release
-acceptance gate, not a per-PR/per-commit test, and it is not required for Web-,
-Worker-, or CLI-only releases.
+Every macOS Desktop production release gets one **thin real A-to-B smoke** on
+the local release Mac. The release owner runs it; it is not a per-PR/per-commit
+test and it does not belong in GitHub Actions. The point is to exercise the same
+installed app, Launch Services, native updater, signature trust, and relaunch
+boundary that a real user receives.
 
-The current production app reads only the promoted updater feed, so the exact
-production-A -> production-B exercise happens immediately after the separately
-authorized promotion. Do not describe it as a pre-promotion gate until the
-repository has an explicit candidate-feed acceptance mechanism. A Desktop
-release is not considered accepted until this smoke passes; retain the exact
-promotion and installed-version evidence for rollback/incident decisions.
+The current production app reads only the promoted updater feed, so the real
+production-A -> production-B transition happens immediately after the separately
+authorized promotion. Until a candidate-feed updater path exists, this is a
+post-promotion release-acceptance gate, not a pre-promotion gate.
 
-The normal same-name `OpenMeld.app -> OpenMeld.app` case is the recurring
-release acceptance. While legacy `OpenMeld Desktop.app` installations still
-exist, release work that claims migration support must additionally exercise
-the rename case below.
+Use the lightweight helper around the real in-app update:
 
-1. Install signed A containing this updater. Record its version and existing
-   account, conversation, Service identity and an independently running Wake.
-   For the historical rename incident, reproduce the old
-   `OpenMeld Desktop.app -> OpenMeld.app` failure separately as regression
-   evidence; production rollout for already-installed legacy bundles remains a
-   manual recovery boundary because the old updater cannot receive this fix
-   before crossing the rename.
-2. Build a newer signed B from its exact merged SHA. Verify DMG and ZIP identity,
-   upload the immutable candidate, then explicitly promote B after review.
-3. Confirm `/desktop`, legacy `/desktop/update.json`, and `latest-mac.yml` select
-   B. Invalid and missing candidate overrides must never offer B as a fallback.
+```sh
+pnpm release:desktop:smoke:macos-update -- before <A-version> <B-version>
+# separately authorize/promote B
+# in the already-running A: Settings -> Updates -> Check -> Download -> Restart
+pnpm release:desktop:smoke:macos-update -- after <B-version>
+```
+
+The `before` phase opens A only when it is not already running and verifies the
+fixed production path, version, bundle ID, Apple Team ID, strict code signature,
+stapled notarization ticket, Gatekeeper assessment, Apple-silicon host, and the
+exact production executable. It also refuses a stale
+`/Applications/OpenMeld Desktop.app` so the release Mac has one unambiguous
+production app.
+
+The `after` phase **never opens B**. It waits for the production executable that
+the updater should have relaunched, then verifies B's version and the same native
+trust facts. If the bounded updater receipt exists, it must confirm the expected
+target version and `application_started`; absence is tolerated for a production
+A that predates receipt instrumentation. This keeps the recurring release smoke
+short while still proving the failure boundary that this incident exposed.
+
+Record the exact A and B versions, release SHA/candidate, promotion evidence, and
+the helper's before/after result. A release is not considered accepted until the
+thin smoke passes. Failure preserves the promoted/source evidence for the normal
+release recovery or rollback decision; do not hide it by manually reopening B.
+
+Run the **expanded updater acceptance** instead of only the thin smoke when the
+release changes any high-risk update boundary, including:
+
+- Desktop updater policy or native updater integration;
+- Electron, `electron-updater`, or `electron-builder`;
+- signing, notarization, Gatekeeper, or release packaging;
+- `productName`, app bundle name/path, app ID, or callback identity;
+- Restart-to-update preparation, draft/save/freeze behavior, or quit lifecycle;
+- updater feed/promotion semantics that change which B the installed A consumes.
+
+Expanded acceptance keeps the existing product matrix:
+
+1. Install signed A and record its version plus the existing account,
+   conversation, Service identity, and an independently running Wake.
+2. Build signed B from its exact merged SHA, verify DMG/ZIP identity, upload the
+   immutable candidate, and promote only through the separately authorized
+   release path.
+3. Confirm `/desktop`, legacy `/desktop/update.json`, and
+   `latest-mac.yml` select B. Invalid/missing candidate overrides must not offer
+   B as a fallback.
 4. In A, check while signed in, signed out, with an expired session, and with
-   cloud admission blocked. Confirm no download starts until requested; Settings
-   and the native menu show the same result. Interrupt the network and retry.
-5. Download B, choose Later, close the window, switch Organizations, and reopen
-   Settings. Quit and relaunch A normally: A must remain installed.
-6. Prepare unsent text in a Space, a Thread, and a Center Agent conversation,
-   plus a persisted attachment. Try restart during upload, pending send, and
-   storage failure: it must refuse without resending or losing content.
-7. Once work is durable, choose Restart to update. Confirm B, the same account
-   and conversation, preserved text and attachments, and unchanged Service/Wake.
-   Also exercise an installation error: editing must stay frozen (including
-   after reload), retries stay unavailable, and native menu Quit must exit.
-   Record the installed version after reopening, without assuming which version
-   won. Record actual observations separately from unit/build evidence.
+   cloud admission blocked. Confirm download still requires consent; interrupt
+   the network and retry.
+5. Download B, choose Later, close/reopen the window, switch Organizations, and
+   verify an ordinary Quit/relaunch leaves A installed.
+6. Exercise unsent Space/Thread/Center Agent text plus a persisted attachment.
+   Restart during upload, pending send, or storage failure must refuse without
+   resending or losing content.
+7. Once work is durable, choose Restart to update. Confirm B, preserved account
+   and conversation state, preserved text/attachments, unchanged Service/Wake,
+   and the documented installation-error behavior.
+
+The historical `OpenMeld Desktop.app -> OpenMeld.app` incident remains a
+separate regression/recovery scenario. New code cannot be delivered backward
+into an already-installed legacy updater before that updater crosses the rename,
+so the recurring production smoke uses the stable
+`OpenMeld.app -> OpenMeld.app` path.
 
 Production resolves the existing `~/.openmeld` managed installation. An installed
 disposable build must compile its already aligned test lane using

@@ -28,6 +28,13 @@ and Husky hooks. Keep `origin/main` available with `git fetch origin main`.
 | Merge | Require current-base `OpenMeld Final Candidate` success for the unchanged candidate. | Prevent stale or mismatched green results. |
 | Release | Follow [Production Release](production-release.md), then health and real-user smoke. | Merge success is not deployment or product success. |
 
+For a macOS Desktop production release, the release owner runs the thin native
+A-to-B smoke from [Desktop](../clients/desktop.md#installed-a-to-b-release-acceptance)
+on the local release Mac. GitHub Actions is not a substitute for the installed
+A, Launch Services, Squirrel/MacUpdater, and automatic relaunch boundary. Use the
+expanded Desktop acceptance only when that release changes a high-risk updater,
+packaging/signing, identity, or restart lifecycle boundary.
+
 Do not bypass hooks to ship a failed check. Diagnose with the smallest failing
 command, fix the cause, and push again. Hooks are local feedback, not remotely
 attested evidence; FC does not claim they ran or that every business test passed.
