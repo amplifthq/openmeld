@@ -49,6 +49,7 @@ import {
 	InboxRefreshWarning,
 } from "./inbox-page-presentation";
 import { INBOX_TABS } from "./inbox-page-tabs";
+import { useInboxRemoval } from "./inbox-removal-dialog";
 import { InvitationReview } from "./invitation-review";
 import { useInboxItemDismissMutation } from "./use-inbox-item-dismiss-mutation";
 import { useInboxItemReadMutation } from "./use-inbox-item-read-mutation";
@@ -125,6 +126,7 @@ export function InboxPage(input: {
 		})
 	);
 	const [announcement, setAnnouncement] = useState("");
+	const scope = `${currentUserId}:${currentOrganization.id}`;
 	const [confirmation, setConfirmation] = useState<{
 		snapshotId: string;
 		unreadCount: number;
@@ -133,7 +135,7 @@ export function InboxPage(input: {
 		organizationId: currentOrganization.id,
 		onAnnouncement: setAnnouncement,
 	});
-	const { dismiss } = useInboxItemDismissMutation({
+	const { dismiss, isPending: isRemoving } = useInboxItemDismissMutation({
 		organizationId: currentOrganization.id,
 		onAnnouncement: setAnnouncement,
 		onDismissed: input.onItemDismissed,
@@ -143,13 +145,24 @@ export function InboxPage(input: {
 		selection.mutate(body, {
 			onSuccess: (response) =>
 				setAnnouncement(
-					`${response.changedCount} updates ${body.operation === "read" ? "marked as read" : "dismissed"}. Pending requests remain open.`
+					`${response.changedCount} updates ${body.operation === "read" ? "marked as read" : "removed from Inbox"}. Pending requests remain open.`
 				),
 			onError: () =>
 				toast.error(
 					"This selection could not be updated. Refresh your Inbox and try again."
 				),
 		});
+	const {
+		requestRemoval,
+		requestSelection,
+		dialog: removalDialog,
+	} = useInboxRemoval({
+		scope,
+		removalPending: isRemoving,
+		selectionPending: selection.isPending,
+		onDismiss: dismiss,
+		onSelection: mutateSelection,
+	});
 	const sourceItem = deepLink.data?.item;
 	const itemElement = useRef<HTMLAnchorElement | null>(null);
 	const appliedItem = useRef<string | null>(null);
@@ -296,7 +309,7 @@ export function InboxPage(input: {
 						<InboxItemsList
 							focusedItemId={sourceItem.id}
 							items={[sourceItem]}
-							onDismiss={dismiss}
+							onDismiss={requestRemoval}
 							onOpenItem={openItem}
 							onSetRead={setRead}
 							organizationSlug={currentOrganization.slug}
@@ -338,9 +351,9 @@ export function InboxPage(input: {
 										accountId={currentUserId}
 										filters={filters}
 										isMutating={selection.isPending}
-										onDismiss={dismiss}
+										onDismiss={requestRemoval}
 										onOpenItem={openItem}
-										onSelection={mutateSelection}
+										onSelection={requestSelection}
 										onSetRead={setRead}
 										organizationId={currentOrganization.id}
 										organizationSlug={currentOrganization.slug}
@@ -369,6 +382,7 @@ export function InboxPage(input: {
 					</TabsSubtlePanel>
 				))}
 			</div>
+			{removalDialog}
 			<AlertDialog
 				onOpenChange={(open) => {
 					if (!open) {

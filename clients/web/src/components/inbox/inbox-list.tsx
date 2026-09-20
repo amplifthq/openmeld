@@ -344,7 +344,7 @@ function InboxItemActions(input: {
 							aria-label={`Actions for ${input.item.title}`}
 							className="size-10 opacity-100 transition-opacity motion-reduce:transition-none sm:opacity-0 sm:data-popup-open:opacity-100 sm:group-hover/inbox-row:opacity-100 sm:focus-visible:opacity-100"
 							size="icon-sm"
-							variant="ghost"
+							variant="secondary"
 						/>
 					}
 				>
@@ -360,7 +360,7 @@ function InboxItemActions(input: {
 					{input.onDismiss ? (
 						<DropdownMenuItem onClick={() => input.onDismiss?.(input.item)}>
 							<XIcon aria-hidden="true" />
-							Dismiss
+							Remove from Inbox
 						</DropdownMenuItem>
 					) : null}
 				</DropdownMenuContent>

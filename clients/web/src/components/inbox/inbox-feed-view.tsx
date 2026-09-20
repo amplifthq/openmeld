@@ -6,9 +6,10 @@ import type {
 	MutateInboxFeedBody,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { SharedLayoutGroup } from "@openmeld/ui/fluid/shared-layout-group";
 import { CaretDownIcon, CaretUpIcon } from "@phosphor-icons/react";
-import { useId, useState } from "react";
+import { useId } from "react";
 import {
 	type InboxFeedFilters,
 	useOrganizationInboxFeed,
@@ -19,6 +20,7 @@ import {
 	InboxListSkeleton,
 	InboxRefreshWarning,
 } from "./inbox-page-presentation";
+import { useInboxExpansion } from "./use-inbox-expansion";
 
 type FeedViewProps = {
 	accountId: string;
@@ -41,6 +43,9 @@ const SECTION_LABELS: Record<InboxFeedRow["section"], string> = {
 };
 
 export function InboxFeedView(input: FeedViewProps) {
+	const expansion = useInboxExpansion(input.accountId, input.organizationId);
+	const groups = input.rows.filter((row) => row.itemCount > 1);
+	const allExpanded = groups.every((row) => expansion.isExpanded(row.groupKey));
 	const sections = new Map<InboxFeedRow["section"], InboxFeedRow[]>();
 	for (const row of input.rows) {
 		const rows = sections.get(row.section) ?? [];
@@ -49,6 +54,16 @@ export function InboxFeedView(input: FeedViewProps) {
 	}
 	return (
 		<div className="flex min-w-0 flex-col gap-5">
+			{groups.length > 0 ? (
+				<Button
+					className="self-start"
+					onClick={() => expansion.setAll(!allExpanded)}
+					size="sm"
+					variant="secondary"
+				>
+					{allExpanded ? "Collapse all updates" : "Expand all updates"}
+				</Button>
+			) : null}
 			{[...sections].map(([section, rows]) => (
 				<section
 					aria-label={SECTION_LABELS[section]}
@@ -64,7 +79,13 @@ export function InboxFeedView(input: FeedViewProps) {
 							className="divide-y divide-border/70 overflow-hidden rounded-md border border-border/70 bg-card"
 						>
 							{rows.map((row) => (
-								<InboxFeedGroup {...input} key={row.groupKey} row={row} />
+								<InboxFeedGroup
+									{...input}
+									expanded={expansion.isExpanded(row.groupKey)}
+									key={row.groupKey}
+									onToggle={() => expansion.toggle(row.groupKey)}
+									row={row}
+								/>
 							))}
 						</ul>
 					</SharedLayoutGroup>
@@ -74,8 +95,14 @@ export function InboxFeedView(input: FeedViewProps) {
 	);
 }
 
-function InboxFeedGroup(input: FeedViewProps & { row: InboxFeedRow }) {
-	const [expanded, setExpanded] = useState(false);
+function InboxFeedGroup(
+	input: FeedViewProps & {
+		row: InboxFeedRow;
+		expanded: boolean;
+		onToggle: () => void;
+	}
+) {
+	const expanded = input.expanded;
 	const panelId = useId();
 	return (
 		<InboxItemRow
@@ -96,9 +123,9 @@ function InboxFeedGroup(input: FeedViewProps & { row: InboxFeedRow }) {
 							aria-controls={panelId}
 							aria-expanded={expanded}
 							className="h-7 px-2 text-xs"
-							onClick={() => setExpanded(!expanded)}
+							onClick={input.onToggle}
 							size="sm"
-							variant="ghost"
+							variant="secondary"
 						>
 							{expanded ? (
 								<CaretUpIcon aria-hidden="true" />
@@ -121,13 +148,13 @@ function InboxFeedGroup(input: FeedViewProps & { row: InboxFeedRow }) {
 									})
 								}
 								size="sm"
-								variant="ghost"
+								variant="secondary"
 							>
 								Mark these as read
 							</Button>
 						) : null}
 						<Button
-							className="h-7 px-2 text-muted-foreground text-xs"
+							className="h-7 px-2 text-xs"
 							disabled={input.isMutating}
 							onClick={() =>
 								input.onSelection({
@@ -137,9 +164,9 @@ function InboxFeedGroup(input: FeedViewProps & { row: InboxFeedRow }) {
 								})
 							}
 							size="sm"
-							variant="ghost"
+							variant="secondary"
 						>
-							Dismiss these updates
+							Remove from Inbox
 						</Button>
 					</div>
 					{expanded ? (
@@ -167,29 +194,35 @@ function ExpandedInboxGroup(
 			className="mt-3 flex min-w-0 flex-col gap-3"
 			id={input.panelId}
 		>
-			{members.isPending ? <InboxListSkeleton /> : null}
-			{members.isError ? (
-				<InboxRefreshWarning onRetry={() => members.refetch()} />
-			) : null}
-			{members.data ? (
-				<InboxItemsList
-					ariaLabel="Conversation updates"
-					density="compact"
-					items={members.data.pages.flatMap((page) =>
-						page.rows.map((row) => row.item)
-					)}
-					onDismiss={input.onDismiss}
-					onOpenItem={input.onOpenItem}
-					onSetRead={input.onSetRead}
-					organizationSlug={input.organizationSlug}
-				/>
-			) : null}
-			{members.hasNextPage || members.isFetchNextPageError ? (
-				<InboxInfiniteScrollTrigger
-					onLoadMore={() => members.fetchNextPage()}
-					state={resolveInboxFeedLoadMoreState(members) ?? "idle"}
-				/>
-			) : null}
+			<ScrollArea
+				contentClassName="flex flex-col gap-3"
+				viewportClassName="max-h-[min(24rem,60dvh)]"
+				viewportProps={{ "aria-label": "Conversation updates", tabIndex: 0 }}
+			>
+				{members.isPending ? <InboxListSkeleton /> : null}
+				{members.isError ? (
+					<InboxRefreshWarning onRetry={() => members.refetch()} />
+				) : null}
+				{members.data ? (
+					<InboxItemsList
+						ariaLabel="Conversation updates"
+						density="compact"
+						items={members.data.pages.flatMap((page) =>
+							page.rows.map((row) => row.item)
+						)}
+						onDismiss={input.onDismiss}
+						onOpenItem={input.onOpenItem}
+						onSetRead={input.onSetRead}
+						organizationSlug={input.organizationSlug}
+					/>
+				) : null}
+				{members.hasNextPage || members.isFetchNextPageError ? (
+					<InboxInfiniteScrollTrigger
+						onLoadMore={() => members.fetchNextPage()}
+						state={resolveInboxFeedLoadMoreState(members) ?? "idle"}
+					/>
+				) : null}
+			</ScrollArea>
 		</section>
 	);
 }

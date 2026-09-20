@@ -109,6 +109,20 @@ and never absorbs an open request or critical execution outcome. The oldest
 priority signal can remain a group's visible anchor while newer chat arrives.
 Expanding a group performs no read mutation.
 
+Expanded updates use a bounded, keyboard-scrollable area with the shared edge
+fades. Expand/collapse all and individual group overrides are browser preferences,
+scoped to the account and Organization. They persist only presentation state
+(at most 100 individual overrides), never message contents, access, or read state.
+Unavailable browser storage does not prevent using the controls for that visit.
+
+The Web action is labeled **Remove from Inbox**, not Delete. Single-item and
+group removal require confirmation. Removing an item excludes it from the
+personal Inbox and its unread count; it does not mark the source conversation
+read, delete source messages/documents, or resolve a pending request. The removed
+Inbox projection cannot currently be restored through the product. Confirmation
+retains the selected item or frozen group snapshot, rather than reselecting
+whatever happens to be visible after a live refresh.
+
 A feed snapshot records a short-lived, account-and-Organization-bound set of
 eligible canonical item ids, not message contents or a second read ledger.
 Snapshots expire after fifteen minutes; cursors include the exact filters and
