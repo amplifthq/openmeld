@@ -83,6 +83,13 @@ process started, stopped, or completed. Task handoff and completion messages are
 deterministic Space Signals, so retrying a Task operation cannot duplicate the
 visible transition or Agent Wake.
 
+Linked GitHub issues are references on the Task document. GitHub remains the
+only writer of issue state. `lastObservedState` is a Task-owned observation
+from an authorized GitHub tool result, not a second issue store and not
+webhook truth. Remote Agent may create or cancel Tasks after a GitHub tool
+succeeds; it does not write Task rows itself and does not PATCH GitHub when a
+Task closes.
+
 ## Space message previews and slow Web experiences
 
 Space member snapshots use the existing request-local D1 read batch for Agent

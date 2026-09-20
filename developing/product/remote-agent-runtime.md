@@ -1928,7 +1928,11 @@ surface adopts official features where they are free**:
   current ordinary shared Space, and Wake Agent Profiles in Spaces through
   Space activation targets. Space Task creation is reserved for clear delivery
   obligations; assignment, start, submission, review, and cancellation remain
-  distinct. Task review handoffs use the existing Space Wake path and stop after
+  distinct. GitHub issues created from that shared Space record a linked Task
+  with mutual references; closing the issue through GitHub tools closes
+  still-active linked Tasks, while completing a Task prompts the Agent to close
+  still-open linked issues instead of silently writing GitHub. Task review
+  handoffs use the existing Space Wake path and stop after
   two automatic rework rounds for a human decision. This Task surface does not
   replace Agent Task Handles or native-delivery execution truth. For an ordinary
   verified-member Slack turn, Core

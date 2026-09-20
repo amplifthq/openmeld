@@ -620,7 +620,9 @@ requires Core and Gateway before Web; no local component upgrade is required.
 ## Space Task contracts
 
 `@openmeld/schemas` owns the strict Space Task, actor, result, review, event,
-create, mutation, list, detail, and receipt contracts. Gateway authenticates
+create, mutation, list, detail, receipt, and GitHub `externalWorkItems`
+contracts. `externalWorkItems` defaults to `[]`, so stored Task JSON written
+before this field still parses. Gateway authenticates
 `GET/POST /v1/spaces/:spaceId/tasks` and
 `GET/PATCH /v1/spaces/:spaceId/tasks/:taskId`; Core RPC delegates to the owning
 Space Durable Object. Reads and writes require an active human or Agent member
@@ -640,6 +642,14 @@ rather than silently claiming complete history. The additive
 `space.tasks.changed` WebSocket
 frame is only a refresh signal. Web rereads the Task projection and never
 derives Task state from the frame.
+
+GitHub issue association is additive Remote Agent plus Space Task contract.
+Creating an issue from a shared Space records a linked Task through the
+existing create/mutate RPCs; the GitHub issue remains GitHub-owned. Closing
+the issue through `github_update_issue` cancels still-active linked Tasks
+through the Space writer. Completing or canceling a Task does not PATCH
+GitHub from Core. Old Remote Agent builds simply omit the association. Deploy
+schema consumers in Web, Gateway, and Core before the Remote Agent producer.
 
 The local Space Action MCP adds non-final Task tools alongside its one required
 final Space action. This is an additive CLI/OpenMeld Service/adapter contract

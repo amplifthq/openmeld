@@ -132,4 +132,44 @@ describe("Space Task service brief updates", () => {
       })
     );
   });
+
+  it("stores a GitHub issue on create so later readers can show the issue number", () => {
+    const { service } = createService();
+    const created = service.create(
+      {
+        assigneeProfileId: agent.profileId,
+        externalWorkItems: [
+          {
+            lastObservedAt: "2026-09-20T00:00:00.000Z",
+            lastObservedState: "open",
+            number: 1143,
+            owner: "amplifthq",
+            provider: "github",
+            repo: "openmeld",
+            url: "https://github.com/amplifthq/openmeld/issues/1143",
+          },
+        ],
+        operationId: "create-linked-task-1",
+        title: "Follow GitHub issue #1143",
+      },
+      {
+        actor: requester,
+        isSpaceOwner: true,
+        requestedBy: requester,
+        resolveMember: (profileId) => members.get(profileId) ?? null,
+      }
+    );
+
+    expect(spaceTaskSchema.parse(created.task).externalWorkItems).toEqual([
+      {
+        lastObservedAt: "2026-09-20T00:00:00.000Z",
+        lastObservedState: "open",
+        number: 1143,
+        owner: "amplifthq",
+        provider: "github",
+        repo: "openmeld",
+        url: "https://github.com/amplifthq/openmeld/issues/1143",
+      },
+    ]);
+  });
 });

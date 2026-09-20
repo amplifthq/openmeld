@@ -1186,6 +1186,7 @@ export type {
   SpaceTaskErrorCode,
   SpaceTaskEvent,
   SpaceTaskEventType,
+  SpaceTaskExternalWorkItem,
   SpaceTaskId,
   SpaceTaskMutationReceipt,
   SpaceTaskPhase,

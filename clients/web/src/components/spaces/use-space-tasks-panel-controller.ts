@@ -1,5 +1,6 @@
 "use client";
 
+import { describeLinkedGitHubIssueClosePrompt } from "@openmeld/schemas/schemas";
 import type {
 	MutateSpaceTaskBody,
 	SpaceMembersSnapshot,
@@ -66,7 +67,7 @@ export function useSpaceTasksPanelController(input: SpaceTasksPanelProps) {
 	): Promise<boolean> => {
 		setPendingTaskId(taskId);
 		try {
-			await mutateSpaceTaskRefreshingOnRevisionConflict({
+			const receipt = await mutateSpaceTaskRefreshingOnRevisionConflict({
 				mutate: (mutation) =>
 					api.mutateTask({
 						body: mutation,
@@ -85,6 +86,12 @@ export function useSpaceTasksPanelController(input: SpaceTasksPanelProps) {
 			await queryClient.invalidateQueries({
 				queryKey: spaceTaskQueryKeys.space(input.spaceId),
 			});
+			const githubClosePrompt = describeLinkedGitHubIssueClosePrompt(
+				receipt.task
+			);
+			if (githubClosePrompt) {
+				toast.message(githubClosePrompt);
+			}
 			return true;
 		} catch (error) {
 			toast.error(resolveSpaceTaskErrorMessage(error));

@@ -2380,6 +2380,8 @@ export {
 } from "./http/space-status";
 export {
   createSpaceTaskBodySchema,
+  describeLinkedGitHubIssueClosePrompt,
+  formatSpaceTaskGitHubIssueLabel,
   listSpaceTasksQuerySchema,
   listSpaceTasksResponseSchema,
   mutateSpaceTaskBodySchema,
@@ -2387,6 +2389,7 @@ export {
   SPACE_TASK_COMPLETION_CONDITION_MAX_ITEMS,
   SPACE_TASK_DESCRIPTION_MAX_CHARS,
   SPACE_TASK_ERROR_CODES,
+  SPACE_TASK_EXTERNAL_WORK_ITEM_MAX_ITEMS,
   SPACE_TASK_LIST_MAX_ITEMS,
   SPACE_TASK_OPERATION_CONFLICT_ERROR_CODE,
   SPACE_TASK_OPERATION_ID_MAX_CHARS,
@@ -2398,6 +2401,10 @@ export {
   spaceTaskErrorCodeSchema,
   spaceTaskEventSchema,
   spaceTaskEventTypeSchema,
+  spaceTaskExternalWorkItemIdentityKey,
+  spaceTaskExternalWorkItemObservedStateSchema,
+  spaceTaskExternalWorkItemProviderSchema,
+  spaceTaskExternalWorkItemSchema,
   spaceTaskIdSchema,
   spaceTaskMutationReceiptSchema,
   spaceTaskPhaseSchema,

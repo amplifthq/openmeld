@@ -3822,10 +3822,13 @@ changing file identity.
 Tasks opens one responsive board with **To do**, **In progress**, and **In
 review** as the active columns. Done and Canceled stay in collapsed history
 groups instead of creating a competing list view. Board cards stay compact:
-title, phase, assignee, requester, and one next-action or attention line.
+title, phase, assignee, requester, linked GitHub issue numbers when present,
+and one next-action or attention line.
 Opening a card reveals a right-side detail drawer with the brief, completion
-conditions, current result, people, and only the controls the current profile
-can plausibly use. Core remains authoritative and rejects stale or unauthorized
+conditions, linked GitHub issues, current result, people, and only the controls
+the current profile can plausibly use. Completing or canceling a Task that
+still has an open GitHub issue prompts the person to close that issue in
+GitHub. Core remains authoritative and rejects stale or unauthorized
 mutations. Empty state copy sends the user back to Messages. Direct Messages
 omit the tab and normalize stale `tasks` view state back to Messages.
 

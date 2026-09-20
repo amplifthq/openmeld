@@ -112,7 +112,8 @@ Center Agent sessions do not expose or accept Space Tasks.
 
 A Task preserves the trusted requester and creator, one optional assignee, one
 optional independent reviewer, its source message and Thread, completion
-conditions, current result, current review, revision, and append-only activity.
+conditions, linked GitHub issues, current result, current review, revision, and
+append-only activity.
 The active phases are **To do**, **In progress**, and **In review**. **Done**
 means the declared completion boundary was met; **Canceled** means the accepted
 commitment is no longer being pursued. Reopening is explicit. Assignment alone
@@ -140,9 +141,15 @@ result back to the original request. Canceling fences later Task mutations and
 requests an authorized Stop for a linked active Agent Wake; an unavailable or
 failed Stop does not undo the Task cancellation or claim that execution ended.
 
-GitHub and Linear objects are links in the initial release. Automatic provider
-event observation, source reconciliation, and status transitions are follow-up
-work and must not be implied by a linked URL.
+GitHub issues filed from a shared Space through OpenMeld's GitHub tools are
+associated with a Space Task. The issue body receives an OpenMeld Task
+reference, and the Task stores the repository and issue number. Closing that
+issue through those same GitHub tools closes still-active linked Tasks.
+Closing or completing a Task does not silently patch GitHub; the Task result
+prompts the Agent or person to close the linked issue when it is still open.
+This is authorized tool-path association, not an import of every GitHub issue
+and not provider-event observation. Linear objects remain links. Automatic
+webhook follow-up stays deferred and must not be implied by a linked URL.
 
 ## Editing and Recalling Messages
 
