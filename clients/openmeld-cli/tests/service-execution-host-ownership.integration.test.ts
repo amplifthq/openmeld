@@ -1,5 +1,8 @@
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -151,6 +154,65 @@ describe("execution Host durable process ownership", () => {
     expect(second).toBe(first);
     if (process.platform === "darwin" || process.platform === "linux") {
       expect(first?.startsWith(`${process.platform}:`)).toBe(true);
+    }
+  });
+
+  it("refuses takeover after an actual owner process dies with unconfirmed work", async () => {
+    const require = createRequire(import.meta.url);
+    const loader = join(
+      createRequire(require.resolve("vitest/package.json")).resolve(
+        "tsx/package.json"
+      ),
+      "..",
+      "dist/loader.mjs"
+    );
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        loader,
+        join(import.meta.dirname, "fixtures/service-execution-host-owner.ts"),
+        root,
+      ],
+      {
+        env: { ...process.env, OPENMELD_HOME: root },
+        stdio: ["ignore", "ignore", "pipe", "ipc"],
+      }
+    );
+    const exited = once(child, "exit");
+    let stderr = "";
+    child.stderr?.on("data", (chunk) => {
+      stderr = `${stderr}${String(chunk)}`.slice(-4096);
+    });
+    try {
+      const ready = await Promise.race([
+        once(child, "message"),
+        exited.then(() => {
+          throw new Error(`Owner fixture exited before readiness: ${stderr}`);
+        }),
+      ]);
+      expect(ready[0]).toEqual({ ready: true });
+      const retained = await readFile(receiptPath(), "utf8");
+      expect(JSON.parse(retained)).toMatchObject({
+        pid: child.pid,
+        localQuiescent: false,
+      });
+      child.kill("SIGKILL");
+      await exited;
+      // The real lock's orphan detection and durable unsafe receipt must not
+      // turn a vanished PID into permission to repeat an unknown operation.
+      await expect(
+        acquire(await readExecutionHostBootIdentity())
+      ).rejects.toThrow();
+      expect(await readFile(receiptPath(), "utf8")).toBe(retained);
+      expect(await readFile(join(root, "execution-started"), "utf8")).toBe(
+        "once"
+      );
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+      }
+      await exited;
     }
   });
 });

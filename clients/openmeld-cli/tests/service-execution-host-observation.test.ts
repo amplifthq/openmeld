@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { launchExecutionHost } from "../src/local-service/execution-host/launch";
+import { createExecutionHostSocketLink } from "../src/local-service/execution-host/socket-link";
 
 // Boundary test only: the live localhost smoke separately pauses a real Host.
 const fixture = vi.hoisted(() => ({
@@ -54,6 +55,22 @@ describe("Host responsiveness observations", () => {
       onFailure: failure,
     });
     await host.initialized;
+    const link = createExecutionHostSocketLink({
+      host,
+      socket: { send: () => undefined },
+      onAdmissionChanged: vi.fn(),
+      onInvalidation: vi.fn(),
+      onAuthenticationFailure: vi.fn(),
+      onError: vi.fn(),
+    });
+    fixture.call.mockResolvedValueOnce(snapshot);
+    await link.configure({
+      executionAdmissionConfirmation: true,
+      connectionGeneration: 1,
+      catalogRevision: 1,
+      leases: [],
+    });
+    expect(link.canAccept()).toBe(true);
     const previous = host.observation?.();
     expect(previous?.responsive).toBe(true);
     fixture.call.mockRejectedValueOnce(
@@ -63,15 +80,24 @@ describe("Host responsiveness observations", () => {
       host.call("heartbeat", { connectionGeneration: 1, staleProfileIds: [] })
     ).rejects.toThrow("heartbeat observation timeout");
     expect(host.available()).toBe(false);
+    expect(link.canAccept()).toBe(false);
+    expect(link.snapshot()).toBeNull();
     expect(host.observation?.()).toEqual({ ...previous, responsive: false });
     expect(failure).not.toHaveBeenCalled();
     expect(fixture.call.mock.calls.map(([method]) => method)).toEqual([
       "initialize",
+      "configureConnection",
       "heartbeat",
     ]);
     fixture.call.mockResolvedValueOnce(snapshot);
     await host.call("health", {});
     expect(host.available()).toBe(true);
+    // A fresh process observation alone cannot reopen the socket's admission;
+    // the socket owner must also obtain a current execution snapshot.
+    expect(link.canAccept()).toBe(false);
+    fixture.call.mockResolvedValueOnce(snapshot);
+    await link.observe();
+    expect(link.canAccept()).toBe(true);
     expect(host.observation?.()).toMatchObject({
       hostInstanceId: previous?.hostInstanceId,
       responsive: true,
@@ -79,5 +105,7 @@ describe("Host responsiveness observations", () => {
       pendingCount: 1,
       unacknowledgedResultCount: 1,
     });
+    fixture.call.mockResolvedValueOnce({});
+    await link.detach();
   });
 });
