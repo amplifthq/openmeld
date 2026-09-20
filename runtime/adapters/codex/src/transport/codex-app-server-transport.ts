@@ -46,6 +46,7 @@ import {
   buildCodexScopedMcpDisableArgs,
 } from "./codex-scoped-mcp.js";
 import { buildCodexSpaceActionMcpGlobalArgs } from "./codex-space-action-mcp-config.js";
+import { CodexStartupDiagnostics } from "./codex-startup-diagnostics.js";
 import { verifyCodexWorkspaceAccess } from "./codex-workspace-access-probe.js";
 
 const CODEX_APP_SERVER_VERSION_PATTERN = /\/([^\s]+)/u;
@@ -1248,6 +1249,7 @@ class CodexAppServerSession {
   readonly #startupTimeoutMs: number;
   #startupTimeout: NodeJS.Timeout | null = null;
   #settledFailure: unknown = null;
+  readonly #startupDiagnostics = new CodexStartupDiagnostics();
   readonly #waiters = new Set<{
     predicate: (message: JsonRpcMessage) => boolean;
     reject: (error: unknown) => void;
@@ -1378,7 +1380,8 @@ class CodexAppServerSession {
     });
 
     child.stderr.setEncoding("utf8");
-    child.stderr.on("data", () => {
+    child.stderr.on("data", (chunk) => {
+      this.#startupDiagnostics.observeStderr(String(chunk));
       if (this.#lifecycle.firstStderrAtMs !== null) {
         return;
       }
@@ -1454,7 +1457,7 @@ class CodexAppServerSession {
           new CodexAppServerTransportError({
             code: "upstream_unreachable",
             errorType: "adapter",
-            message: "upstream_unreachable: codex app-server exited early",
+            message: `upstream_unreachable: codex app-server exited early.${this.#startupDiagnostics.summary()}`,
           })
         );
       }
@@ -1496,7 +1499,7 @@ class CodexAppServerSession {
         new CodexAppServerTransportError({
           code: "runtime.startup_timeout",
           errorType: "timeout",
-          message: `runtime.startup_timeout: codex app-server did not initialize within ${this.#startupTimeoutMs}ms`,
+          message: `runtime.startup_timeout: codex app-server did not initialize within ${this.#startupTimeoutMs}ms.${this.#startupDiagnostics.summary()}`,
         })
       );
       this.#requestProcessTermination();
@@ -1574,14 +1577,27 @@ class CodexAppServerSession {
       return;
     }
     this.#requestProcessTermination();
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        resolve();
-      }, APP_SERVER_PROCESS_KILL_GRACE_MS * 2);
-      child.once("close", () => {
+    await new Promise<void>((resolve, reject) => {
+      const onClose = () => {
         clearTimeout(timeout);
         resolve();
-      });
+      };
+      const timeout = setTimeout(() => {
+        child.removeListener("close", onClose);
+        reject(
+          new CodexAppServerTransportError({
+            code: "runtime.process_exit_unconfirmed",
+            errorType: "adapter",
+            message:
+              "runtime.process_exit_unconfirmed: Codex process exit was not confirmed; automatic retry is unsafe",
+            originalError:
+              this.#settledFailure instanceof Error
+                ? this.#settledFailure.message
+                : undefined,
+          })
+        );
+      }, APP_SERVER_PROCESS_KILL_GRACE_MS * 2);
+      child.once("close", onClose);
     });
     await this.#processCleanup;
   }
@@ -1620,7 +1636,7 @@ class CodexAppServerSession {
           const error = new CodexAppServerTransportError({
             code: timeout.code,
             errorType: "timeout",
-            message: `${timeout.code}: codex app-server did not acknowledge ${timeout.operation} within ${timeout.timeoutMs}ms`,
+            message: `${timeout.code}: codex app-server did not acknowledge ${timeout.operation} within ${timeout.timeoutMs}ms.${this.#startupDiagnostics.summary()}`,
           });
           this.#failAll(error);
           this.#requestProcessTermination();
@@ -1877,6 +1893,10 @@ class CodexAppServerSession {
   }
 
   #handleNotification(message: JsonRpcMessage): void {
+    this.#startupDiagnostics.observeNotification(
+      message.method ?? "",
+      message.params
+    );
     if (message.method === "item/reasoning/summaryTextDelta") {
       this.#observeReasoningSummary(message.params);
       return;

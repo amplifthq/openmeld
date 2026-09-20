@@ -632,6 +632,12 @@ Important execution rules:
   user-visible side effect started. This startup boundary must be cleared as
   soon as initialization succeeds; it must never become a total Agent execution
   deadline or retry a turn whose outcome may be ambiguous.
+  A timed-out `thread/start` also has an unknown allocation outcome and must not
+  be automatically repeated. Confirm the owned process exited before a safe
+  handshake retry. Preserve the first handshake failure if the retry fails;
+  startup diagnostics may expose only bounded, allowlisted phase/status hints,
+  never raw stderr, private paths, MCP names, or credentials. These observations
+  are not execution authority or proof of the cause of a timeout.
 - `accepted_local` means OpenMeld Service has accepted the task on the user's
   computer. If the runtime has not started yet, the local service must attach
   queue diagnostics so Trace can explain whether the task is waiting for the

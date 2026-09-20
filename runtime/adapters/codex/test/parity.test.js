@@ -950,6 +950,10 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "  }",
       "  if (message.method === 'thread/start') {",
       "    const hangingThreadStartAttempts = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_HANG_THREAD_START_ATTEMPTS ?? '0');",
+      "    if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_DIAGNOSTICS === '1') {",
+      "      process.stderr.write('DEBUG session_init.mcp_manager_init: new secret=private-test-secret /private/customer-repo\\n');",
+      "      write({ method: 'mcpServer/startupStatus/updated', params: { threadId: 'thread-private', name: 'private-server', status: 'starting', error: null } });",
+      "    }",
       "    if (startupAttempt <= hangingThreadStartAttempts) return;",
       "    const model = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_OMIT_THREAD_MODEL === '1' ? {} : { model: 'gpt-5' };",
       "    write({ jsonrpc: '2.0', id: message.id, result: { thread: buildThread('thread-new-1', message.params.threadSource), ...model, modelProvider: 'openai', serviceTier: null, cwd: message.params.cwd, instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'client', sandbox: { mode: 'read-only' }, reasoningEffort: null } });",
@@ -3020,6 +3024,7 @@ test("invokeCodexAppServer stops after one automatic startup retry", async () =>
       (error) =>
         error.code === "runtime.startup_timeout" &&
         error.errorType === "timeout" &&
+        error.originalError.includes("did not initialize") &&
         STARTUP_RETRY_FAILURE_RE.test(error.message)
     );
     const methods = await readFakeAppServerMethods(logPath);
@@ -3071,6 +3076,83 @@ test("codex app-server admission budgets allow cold start and resume", async () 
     50
   );
 });
+
+for (const handshakeFailures of [0, 1]) {
+  test(`invokeCodexAppServer does not retry an unacknowledged thread creation after ${handshakeFailures} handshake failures`, async () => {
+    const { invokeCodexAppServer } = await import("../dist/index.js");
+    const fixtureDir = await mkdtemp(
+      join(tmpdir(), "codex-thread-create-timeout-")
+    );
+    const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+    const logPath = join(fixtureDir, "rpc-log.jsonl");
+    const processEvents = [];
+    await writeFakeCodexAppServerFixture(fixturePath);
+    await chmod(fixturePath, 0o755);
+    try {
+      await assert.rejects(
+        invokeCodexAppServer({
+          launchContract: createNodeScriptLaunchContract(fixturePath),
+          codexTimeoutMs: null,
+          codexWorkdir: fixtureDir,
+          controlRequestTimeoutMs: 100,
+          env: {
+            OPENMELD_FAKE_CODEX_APP_SERVER_HANG_STARTUP_ATTEMPTS:
+              String(handshakeFailures),
+            OPENMELD_FAKE_CODEX_APP_SERVER_HANG_THREAD_START_ATTEMPTS: String(
+              handshakeFailures + 1
+            ),
+            OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_ATTEMPT_PATH: join(
+              fixtureDir,
+              "attempt.txt"
+            ),
+            OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+            OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_DIAGNOSTICS: "1",
+          },
+          onProcessControlEvent: (event) => processEvents.push(event),
+          prompt:
+            "never allocate a second thread after an unknown create outcome",
+          startupTimeoutMs: 500,
+          taskId: "task-thread-create-timeout",
+          threadId: null,
+        }),
+        (error) => {
+          assert.equal(error.code, "runtime.thread_start_timeout");
+          assert.ok(error.message.includes("thread/start"));
+          assert.ok(error.message.includes("mcp_manager_init"));
+          assert.ok(error.message.includes("mcpStartupStatus=starting"));
+          assert.equal(
+            error.originalError?.includes("did not initialize") ?? false,
+            handshakeFailures === 1
+          );
+          for (const secret of [
+            "private-test-secret",
+            "customer-repo",
+            "private-server",
+            "thread-private",
+          ]) {
+            assert.equal(error.message.includes(secret), false);
+          }
+          return true;
+        }
+      );
+      assert.deepEqual(await readFakeAppServerMethods(logPath), [
+        ...new Array(handshakeFailures).fill("initialize"),
+        "initialize",
+        "initialized",
+        "thread/start",
+      ]);
+      assert.deepEqual(
+        processEvents.map((event) => event.phase),
+        Array.from({ length: handshakeFailures + 1 }, () => [
+          "process_spawned",
+          "process_exit",
+        ]).flat()
+      );
+    } finally {
+      await rm(fixtureDir, { force: true, recursive: true });
+    }
+  });
+}
 
 test("invokeCodexAppServer fails closed after an ambiguous resume timeout", async () => {
   const { invokeCodexAppServer } = await import("../dist/index.js");
