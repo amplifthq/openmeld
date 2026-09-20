@@ -9,7 +9,7 @@ import { Button } from "@openmeld/ui/components/button";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { SharedLayoutGroup } from "@openmeld/ui/fluid/shared-layout-group";
 import { CaretDownIcon, CaretUpIcon } from "@phosphor-icons/react";
-import { useId } from "react";
+import { type ReactNode, useId } from "react";
 import {
 	type InboxFeedFilters,
 	useOrganizationInboxFeed,
@@ -20,9 +20,11 @@ import {
 	InboxListSkeleton,
 	InboxRefreshWarning,
 } from "./inbox-page-presentation";
-import { useInboxExpansion } from "./use-inbox-expansion";
+import type { useInboxExpansion } from "./use-inbox-expansion";
 
 type FeedViewProps = {
+	expansion: ReturnType<typeof useInboxExpansion>;
+	sectionAction: ReactNode;
 	accountId: string;
 	organizationId: string;
 	organizationSlug: string;
@@ -43,9 +45,7 @@ const SECTION_LABELS: Record<InboxFeedRow["section"], string> = {
 };
 
 export function InboxFeedView(input: FeedViewProps) {
-	const expansion = useInboxExpansion(input.accountId, input.organizationId);
-	const groups = input.rows.filter((row) => row.itemCount > 1);
-	const allExpanded = groups.every((row) => expansion.isExpanded(row.groupKey));
+	const expansion = input.expansion;
 	const sections = new Map<InboxFeedRow["section"], InboxFeedRow[]>();
 	for (const row of input.rows) {
 		const rows = sections.get(row.section) ?? [];
@@ -64,15 +64,7 @@ export function InboxFeedView(input: FeedViewProps) {
 						<h2 className="px-1 font-medium text-muted-foreground text-xs">
 							{SECTION_LABELS[section]}
 						</h2>
-						{index === 0 && groups.length > 0 ? (
-							<Button
-								onClick={() => expansion.setAll(!allExpanded)}
-								size="sm"
-								variant="secondary"
-							>
-								{allExpanded ? "Collapse all updates" : "Expand all updates"}
-							</Button>
-						) : null}
+						{index === 0 ? input.sectionAction : null}
 					</div>
 					<SharedLayoutGroup>
 						<ul
@@ -134,8 +126,8 @@ function InboxFeedGroup(
 								<CaretDownIcon aria-hidden="true" />
 							)}
 							{expanded
-								? "Hide updates"
-								: `View ${input.row.itemCount} updates`}
+								? "Collapse activities"
+								: `View ${input.row.itemCount} activities`}
 						</Button>
 						{input.row.unreadCount > 0 ? (
 							<Button
@@ -191,14 +183,14 @@ function ExpandedInboxGroup(
 	});
 	return (
 		<section
-			aria-label="Conversation updates"
+			aria-label="Conversation activities"
 			className="mt-3 flex min-w-0 flex-col gap-3"
 			id={input.panelId}
 		>
 			<ScrollArea
 				contentClassName="flex flex-col gap-3"
 				viewportClassName="max-h-[min(24rem,60dvh)]"
-				viewportProps={{ "aria-label": "Conversation updates", tabIndex: 0 }}
+				viewportProps={{ "aria-label": "Conversation activities", tabIndex: 0 }}
 			>
 				{members.isPending ? <InboxListSkeleton /> : null}
 				{members.isError ? (
@@ -206,7 +198,7 @@ function ExpandedInboxGroup(
 				) : null}
 				{members.data ? (
 					<InboxItemsList
-						ariaLabel="Conversation updates"
+						ariaLabel="Conversation activities"
 						density="compact"
 						items={members.data.pages.flatMap((page) =>
 							page.rows.map((row) => row.item)

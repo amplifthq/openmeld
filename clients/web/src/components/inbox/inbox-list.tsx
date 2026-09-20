@@ -32,6 +32,7 @@ import {
 import { isInboxReview } from "#/lib/inbox/review";
 import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import { buildInboxItemSourceNavigation } from "#/lib/inbox/source-target";
+import { useInboxAvatar } from "./inbox-avatars";
 import { InvitationReview } from "./invitation-review";
 
 const INBOX_SHORT_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
@@ -39,6 +40,26 @@ const INBOX_SHORT_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	month: "short",
 	timeZone: "UTC",
 });
+
+function InboxLeadingAvatar(input: {
+	item: InboxItem;
+	compact: boolean;
+	inlineInvitation: boolean;
+}) {
+	const avatar = useInboxAvatar(input.item);
+	return (
+		<span
+			className={cn(
+				"relative grid shrink-0 place-items-center text-muted-foreground",
+				!avatar && "rounded-md border border-border/70 bg-background",
+				input.compact ? "size-8" : "size-9",
+				input.inlineInvitation && "size-5 border-0 bg-transparent"
+			)}
+		>
+			{avatar ?? <InboxKindIcon item={input.item} />}
+		</span>
+	);
+}
 
 const INBOX_TIMESTAMP_TITLE_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	day: "numeric",
@@ -160,15 +181,11 @@ export function InboxItemRow(input: {
 					>
 						<InboxItemStatusDot dot={input.feedRow?.dot} item={input.item} />
 					</span>
-					<span
-						className={cn(
-							"relative grid shrink-0 place-items-center rounded-md border border-border/70 bg-background text-muted-foreground",
-							input.density === "compact" ? "size-8" : "size-9",
-							inlineInvitation && "size-5 border-0 bg-transparent"
-						)}
-					>
-						<InboxKindIcon item={input.item} />
-					</span>
+					<InboxLeadingAvatar
+						compact={input.density === "compact"}
+						inlineInvitation={inlineInvitation}
+						item={input.item}
+					/>
 
 					<span className="min-w-0 flex-1">
 						<span className="flex min-w-0 flex-wrap items-center gap-2">
@@ -422,7 +439,7 @@ function InboxRowMetadata({
 					<span className="tabular-nums">
 						{feedRow.unreadCount > 0
 							? `${feedRow.unreadCount} unread`
-							: `${feedRow.itemCount} updates`}
+							: `${feedRow.itemCount} activities`}
 					</span>
 				</>
 			) : null}

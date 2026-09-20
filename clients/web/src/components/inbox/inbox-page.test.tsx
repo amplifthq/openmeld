@@ -149,9 +149,7 @@ describe("canonical Inbox attention page", () => {
 			peopleOnly: false,
 			conversationType: "all",
 		});
-		expect(
-			screen.getByRole("button", { name: "All read" }).hasAttribute("disabled")
-		).toBe(true);
+		expect(screen.queryByRole("button", { name: "All read" })).toBeNull();
 	});
 
 	it("keeps the page shell, categories and controls visible while only the feed is pending", () => {
@@ -394,7 +392,7 @@ describe("canonical Inbox attention page", () => {
 			],
 			expandedRows: [row(first), row(second)],
 		});
-		fireEvent.click(screen.getByRole("button", { name: "View 12 updates" }));
+		fireEvent.click(screen.getByRole("button", { name: "View 12 activities" }));
 		expect(await screen.findByText("Codex replied")).toBeTruthy();
 		expect(mocks.read).not.toHaveBeenCalled();
 		expect(mocks.selection).not.toHaveBeenCalled();
@@ -493,7 +491,9 @@ describe("canonical Inbox attention page", () => {
 			name: OLD_REQUEST_LABEL,
 		});
 		await waitFor(() => expect(document.activeElement).toBe(link));
-		expect(screen.getByRole("button", { name: "View 3 updates" })).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "View 3 activities" })
+		).toBeTruthy();
 		expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
 			behavior: "auto",
 			block: "nearest",
@@ -655,23 +655,27 @@ describe("canonical Inbox attention page", () => {
 			groupKey: "group",
 		});
 		renderPage({ rows: [grouped], expandedRows: [row(first)] });
-		fireEvent.click(screen.getByRole("button", { name: "Expand all updates" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Expand all activities" })
+		);
 		expect(
 			screen
-				.getByRole("button", { name: "Hide updates" })
+				.getByRole("button", { name: "Collapse activities" })
 				.getAttribute("aria-expanded")
 		).toBe("true");
 		cleanup();
 		renderPage({ rows: [grouped], expandedRows: [row(first)] });
 		expect(
-			await screen.findByRole("button", { name: "Hide updates" })
+			await screen.findByRole("button", { name: "Collapse activities" })
 		).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Hide updates" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Collapse activities" })
+		);
 		cleanup();
 		renderPage({ rows: [grouped], expandedRows: [row(first)] });
 		expect(
 			screen
-				.getByRole("button", { name: "View 12 updates" })
+				.getByRole("button", { name: "View 12 activities" })
 				.getAttribute("aria-expanded")
 		).toBe("false");
 		expect(mocks.read).not.toHaveBeenCalled();

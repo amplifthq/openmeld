@@ -3,6 +3,7 @@
 import type {
 	InboxFeedCategory,
 	InboxFeedQuery,
+	InboxFeedRow,
 	InboxItem,
 	MutateInboxFeedBody,
 } from "@openmeld/schemas/types";
@@ -51,6 +52,7 @@ import {
 import { INBOX_TABS } from "./inbox-page-tabs";
 import { useInboxRemoval } from "./inbox-removal-dialog";
 import { InvitationReview } from "./invitation-review";
+import { useInboxExpansion } from "./use-inbox-expansion";
 import { useInboxItemDismissMutation } from "./use-inbox-item-dismiss-mutation";
 import { useInboxItemReadMutation } from "./use-inbox-item-read-mutation";
 
@@ -84,6 +86,29 @@ function InboxSelectionActions(input: {
 	);
 }
 
+function InboxExpansionAction({
+	rows,
+	expansion,
+}: {
+	rows: readonly InboxFeedRow[];
+	expansion: ReturnType<typeof useInboxExpansion>;
+}) {
+	const groups = rows.filter((row) => row.itemCount > 1);
+	const allExpanded = groups.every((row) => expansion.isExpanded(row.groupKey));
+	if (!groups.length) {
+		return null;
+	}
+	return (
+		<Button
+			onClick={() => expansion.setAll(!allExpanded)}
+			size="sm"
+			variant="secondary"
+		>
+			{allExpanded ? "Collapse all activities" : "Expand all activities"}
+		</Button>
+	);
+}
+
 export function InboxPage(input: {
 	itemId?: string;
 	requestId?: string;
@@ -102,6 +127,7 @@ export function InboxPage(input: {
 	view: InboxFeedCategory;
 }) {
 	const { currentOrganization, currentUserId } = useAppOrganization();
+	const expansion = useInboxExpansion(currentUserId, currentOrganization.id);
 	const filters = {
 		category: input.view,
 		unreadOnly: input.unreadOnly ?? false,
@@ -145,7 +171,7 @@ export function InboxPage(input: {
 		selection.mutate(body, {
 			onSuccess: (response) =>
 				setAnnouncement(
-					`${response.changedCount} updates ${body.operation === "read" ? "marked as read" : "removed from Inbox"}. Pending requests remain open.`
+					`${response.changedCount} ${response.changedCount === 1 ? "activity" : "activities"} ${body.operation === "read" ? "marked as read" : "removed from Inbox"}. Pending requests remain open.`
 				),
 			onError: () =>
 				toast.error(
@@ -212,6 +238,20 @@ export function InboxPage(input: {
 	}, [feed.data, sourceItem?.id, input.requestId]);
 	const firstPage = feed.data?.pages[0];
 	const selectionUnreadCount = firstPage?.selectionUnreadCount ?? null;
+	const selectionAction = (
+		<InboxSelectionActions
+			onMarkRead={() => {
+				if (firstPage?.selectionUnreadCount !== undefined) {
+					setConfirmation({
+						snapshotId: firstPage.snapshotId,
+						unreadCount: firstPage.selectionUnreadCount,
+					});
+				}
+			}}
+			pending={selection.isPending}
+			unreadCount={selectionUnreadCount}
+		/>
+	);
 	const selectedIndex = Math.max(
 		0,
 		INBOX_TABS.findIndex((tab) => tab.view === input.view)
@@ -271,18 +311,7 @@ export function InboxPage(input: {
 							filters={filters}
 							onChange={input.onFiltersChange}
 						/>
-						<InboxSelectionActions
-							onMarkRead={() => {
-								if (firstPage?.selectionUnreadCount !== undefined) {
-									setConfirmation({
-										snapshotId: firstPage.snapshotId,
-										unreadCount: firstPage.selectionUnreadCount,
-									});
-								}
-							}}
-							pending={selection.isPending}
-							unreadCount={selectionUnreadCount}
-						/>
+						<InboxExpansionAction expansion={expansion} rows={rows} />
 					</div>
 				</div>
 				{input.requestId ? (
@@ -349,6 +378,7 @@ export function InboxPage(input: {
 								{firstPage && rows.length > 0 ? (
 									<InboxFeedView
 										accountId={currentUserId}
+										expansion={expansion}
 										filters={filters}
 										isMutating={selection.isPending}
 										onDismiss={requestRemoval}
@@ -358,6 +388,7 @@ export function InboxPage(input: {
 										organizationId={currentOrganization.id}
 										organizationSlug={currentOrganization.slug}
 										rows={rows}
+										sectionAction={selectionAction}
 										snapshotId={firstPage.snapshotId}
 									/>
 								) : null}

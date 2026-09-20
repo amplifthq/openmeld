@@ -115,6 +115,12 @@ scoped to the account and Organization. They persist only presentation state
 (at most 100 individual overrides), never message contents, access, or read state.
 Unavailable browser storage does not prevent using the controls for that visit.
 
+Expand/collapse all sits beside the filters; the frozen-selection mark-as-read
+action sits beside the first list section heading. Conversation avatars reuse
+the authorized Space index, Profile directory, and Center Agent session identity
+used by the sidebar. Missing source identity retains the Inbox kind icon;
+clients must not guess an avatar from message text or another Organization.
+
 The Web action is labeled **Remove from Inbox**, not Delete. Single-item and
 group removal require confirmation. Removing an item excludes it from the
 personal Inbox and its unread count; it does not mark the source conversation
