@@ -1,6 +1,6 @@
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type { WakeProgressItem } from "@openmeld/schemas/types";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCenterAgentAsk } from "../src/center-agent/ask-command";
 import {
   runCenterAgentContext,
@@ -23,6 +23,7 @@ import {
   createCapturedBetterAuthSessionResponse,
 } from "./fixtures/auth-organizations";
 import { withCapturedStdio, withTempHome } from "./helpers/fs";
+import { stubNoDetectedLocalAgentEnvironment } from "./helpers/local-agent-environment";
 
 type FetchCall = {
   pathname: string;
@@ -51,6 +52,10 @@ const CREATED_AT = "2026-07-05T01:02:03.000Z";
 const CENTER_AGENT_DM_SPACE_ID = "space-center-agent-dm-1";
 
 describe("center-agent commands", () => {
+  beforeEach(() => {
+    stubNoDetectedLocalAgentEnvironment();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();

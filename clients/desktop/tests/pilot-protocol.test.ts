@@ -15,6 +15,112 @@ import {
 import { expect, it, vi } from "vitest";
 import { createPilotProtocol } from "../src/main/pilot-protocol";
 
+it.each([
+  ["POST", "folders/select"],
+  ["POST", "projects/discover"],
+  ["POST", "projects/connect-candidate"],
+  ["POST", "projects/connect-declared-path"],
+  ["POST", "projects/connections/set-default"],
+  ["PUT", "agent-profiles/profile/workspace"],
+])("admits %s %s only for the native account-aligned device and lane", async (method, action) => {
+  const cloudRequest = vi.fn(async (_path: string) =>
+    Response.json({ status: "cancelled", deviceId: "mac-a" })
+  );
+  const readLocalComputer = vi.fn(async () => ({
+    status: "available" as const,
+    accountId: "owner-a",
+    target: { deviceId: "mac-a", runtimeLane: "dev-local" as const },
+  }));
+  const handle = createPilotProtocol({
+    assets: "/unused",
+    webOrigin: "https://web.example",
+    webBuild: "a".repeat(64),
+    cookie: () => "native-only",
+    fetch,
+    cloudRequest,
+    readLocalComputer,
+  });
+  const request = (device: string, lane: string) =>
+    new Request(
+      `${DESKTOP_APP_ORIGIN}/v1/people-computers/${device}/lanes/${lane}/${action}`,
+      { method }
+    );
+  for (const [device, lane] of [
+    ["mac-b", "dev-local"],
+    ["mac-a", "prod"],
+  ] as const) {
+    const response = await handle(request(device, lane));
+    expect(response.status).toBe(409);
+    expect(await response.text()).not.toContain("Service Start and Stop");
+  }
+  expect(cloudRequest).not.toHaveBeenCalled();
+  expect(await (await handle(request("mac-a", "dev-local"))).json()).toEqual({
+    status: "cancelled",
+    deviceId: "mac-a",
+  });
+  expect(cloudRequest.mock.calls[0]?.[0]).toBe(
+    `/v1/people-computers/mac-a/lanes/dev-local/${action}`
+  );
+});
+
+it("refuses a sign-in change while admitting a folder request", async () => {
+  let cookie = "session-a";
+  const cloudRequest = vi.fn();
+  const handle = createPilotProtocol({
+    assets: "/unused",
+    webOrigin: "https://web.example",
+    webBuild: "a".repeat(64),
+    fetch,
+    cookie: () => cookie,
+    cloudRequest,
+    readLocalComputer: () => {
+      cookie = "session-b";
+      return Promise.resolve({
+        status: "available",
+        accountId: "owner-b",
+        target: { deviceId: "mac-a", runtimeLane: "dev-local" },
+      });
+    },
+  });
+  const response = await handle(
+    new Request(
+      `${DESKTOP_APP_ORIGIN}/v1/people-computers/mac-a/lanes/dev-local/folders/select`,
+      { method: "POST" }
+    )
+  );
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({
+    code: "desktop.folder.account_changed",
+  });
+  expect(cloudRequest).not.toHaveBeenCalled();
+});
+
+it("refuses folder operations when native identity is unavailable before attaching credentials", async () => {
+  const cookie = vi.fn(() => "private");
+  const cloudRequest = vi.fn();
+  const handle = createPilotProtocol({
+    assets: "/unused",
+    webOrigin: "https://web.example",
+    webBuild: "a".repeat(64),
+    cookie,
+    fetch,
+    cloudRequest,
+    readLocalComputer: async () => ({
+      status: "unavailable",
+      message: "Desktop and this computer use different accounts.",
+    }),
+  });
+  const response = await handle(
+    new Request(
+      `${DESKTOP_APP_ORIGIN}/v1/people-computers/mac-a/lanes/dev-local/folders/select`,
+      { method: "POST" }
+    )
+  );
+  expect(response.status).toBe(409);
+  expect(cookie).toHaveBeenCalledTimes(1);
+  expect(cloudRequest).not.toHaveBeenCalled();
+});
+
 it("admits installed API requests before credentials and preserves SDK errors without exposing cookies", async () => {
   const cookie = vi.fn(() => "session=native-only");
   const compatibility = vi
@@ -32,6 +138,10 @@ it("admits installed API requests before credentials and preserves SDK errors wi
           headers: {
             "set-cookie": "session=native-renewal",
             "cache-control": "private, no-store",
+            "x-openmeld-request-id": "desktop-read-42",
+            "server-timing": "core;dur=17.5",
+            authorization: "must-not-reach-renderer",
+            "x-private-debug": "must-not-reach-renderer",
           },
         }
       )
@@ -83,6 +193,10 @@ it("admits installed API requests before credentials and preserves SDK errors wi
   expect(await response.json()).toEqual({ code: "business.denied" });
   expect(response.headers.get("cache-control")).toBe("private, no-store");
   expect(response.headers.has("set-cookie")).toBe(false);
+  expect(response.headers.get("x-openmeld-request-id")).toBe("desktop-read-42");
+  expect(response.headers.get("server-timing")).toBe("core;dur=17.5");
+  expect(response.headers.has("authorization")).toBe(false);
+  expect(response.headers.has("x-private-debug")).toBe(false);
   const call = cloudRequest.mock.calls[0];
   if (!call) {
     throw new Error("Expected SDK request");
@@ -94,6 +208,66 @@ it("admits installed API requests before credentials and preserves SDK errors wi
   expect(call[1].headers.get(SPACE_ACCESS_VERSION_HEADER)).toBe("1");
   expect(call[1].headers.get("cookie")).toBe("session=native-only");
   expect(call[1].headers.has("authorization")).toBe(false);
+});
+
+it.each([
+  false,
+  true,
+])("refuses renderer update observations before credentials in installed=%s", async (installed) => {
+  const cookie = vi.fn(() => "session=main-only");
+  const ensureCompatible = vi.fn(async () => undefined);
+  const cloudRequest = vi.fn(async () => Response.json({ accepted: true }));
+  const fetchCloud = vi.fn<typeof fetch>(async () =>
+    Response.json({ accepted: true })
+  );
+  const handle = createPilotProtocol({
+    assets: "/unused",
+    webOrigin: "https://in-memory.invalid",
+    webBuild: "a".repeat(64),
+    installed,
+    ensureCompatible,
+    cookie,
+    fetch: fetchCloud,
+    ...(installed ? { cloudRequest } : {}),
+  });
+  for (const path of [
+    "/v1/account/desktop-update-observations",
+    "/v1/account/desktop-update-observations?retry=1",
+    "/v1/account/desktop-update-observations/",
+    "/v1/%61ccount/desktop-update-observations",
+    "/v1/account/%64esktop-update-observations",
+  ]) {
+    const response = await handle(
+      new Request(`${DESKTOP_APP_ORIGIN}${path}`, {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          origin: DESKTOP_APP_ORIGIN,
+        },
+        body: JSON.stringify({
+          schemaVersion: 1,
+          expectedUserId: "owner",
+          installationId: "11111111-2222-4333-8444-555555555555",
+          sequence: 1,
+          lane: "prod",
+          platform: "darwin",
+          deviceName: "Forged device",
+          installedVersion: "99.0.0",
+          availableVersion: null,
+        }),
+      })
+    );
+    expect(response.status).toBe(403);
+  }
+  expect(cookie).not.toHaveBeenCalled();
+  expect(ensureCompatible).not.toHaveBeenCalled();
+  expect(cloudRequest).not.toHaveBeenCalled();
+  expect(fetchCloud).not.toHaveBeenCalled();
+  expect(
+    (await handle(new Request(`${DESKTOP_APP_ORIGIN}/v1/inbox/summary`))).status
+  ).toBe(200);
+  expect(cookie).toHaveBeenCalledTimes(1);
+  expect(installed ? cloudRequest : fetchCloud).toHaveBeenCalledTimes(1);
 });
 
 it("serves local page files and confines credentials to the configured cloud origin", async () => {
@@ -189,7 +363,6 @@ it("serves local page files and confines credentials to the configured cloud ori
       ],
       ["PUT", "/v1/local-runtimes/current/local-agents/codex/installations"],
       ["POST", "/v1/devices/current/forget"],
-      ["POST", "/v1/devices/device/forget"],
       ["PUT", "/v1/local-runtimes/current/openmeld-tools/maintenance"],
       ["POST", "/v1/prepare/sessions"],
       ["POST", "/v1/local-runtimes/current/openmeld-tools/%75pdate"],
@@ -207,13 +380,14 @@ it("serves local page files and confines credentials to the configured cloud ori
         "/v1/people-computers/device/lanes/dev-local/local-agents/codex/installations",
       ],
       ["POST", "/v1/spaces/space/messages"],
+      ["POST", "/v1/devices/device/forget"],
     ]) {
       expect(
         (await handle(new Request(`${DESKTOP_APP_ORIGIN}${path}`, { method })))
           .status
       ).toBe(200);
     }
-    expect(fetchCloud).toHaveBeenCalledTimes(3);
+    expect(fetchCloud).toHaveBeenCalledTimes(4);
   } finally {
     await rm(assets, { recursive: true, force: true });
   }

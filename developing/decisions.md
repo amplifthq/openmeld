@@ -17,6 +17,14 @@
   conflicts with an owner doc means one of the two must be fixed in the same
   PR.
 
+2026-09-18: Organization Skills management belongs to Team, after People,
+Agents, and Plugins, at `/o/{orgSlug}/skills` and its Skill detail route. This
+supersedes the older Center Agent Skills navigation entries below: legacy
+Skills URLs redirect with replacement rather than being removed. Center Agent
+conversational tools, the single Organization Skill model, Core authority,
+maintainer limits, CLI contracts, and runtime consumption remain unchanged.
+See `product/organization-skills.md` and `clients/web.md`.
+
 2026-09-14: Context-enabled Local Agent Profiles use one Work Coordinator with
 up to five independent reservations and one writer per Execution Context.
 This supersedes the one-slot FIFO and Profile-wide native conversation as the

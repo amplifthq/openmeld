@@ -1,11 +1,14 @@
 import { lstat, mkdir, realpath } from "node:fs/promises";
-import { isAbsolute, join, relative } from "node:path";
+import { join } from "node:path";
 import {
   forkSession,
   getSessionInfo,
   getSessionMessages,
 } from "@anthropic-ai/claude-agent-sdk";
-import { forkCodexAppServerThread } from "@openmeld/adapter-codex";
+import {
+  forkCodexAppServerThread,
+  resolveCodexAppServerCompletedTurn,
+} from "@openmeld/adapter-codex";
 import type {
   AdapterComputerFileAccessBoundary,
   AdapterRuntimeEventCallback,
@@ -17,6 +20,7 @@ import type {
   ExecutionContextCompletion,
   ExecutionContextTask,
 } from "@openmeld/schemas/types";
+import { isSameOrDescendantPath } from "../../lib/path-containment";
 import { runAgentSessionForkOperation } from "../session-control/session-fork-operation-store";
 import {
   type ExecutionContextWorkspace,
@@ -49,14 +53,9 @@ export function executionContextFileAccessBoundary(input: {
   workingDirectory: string;
   policy: ComputerFileAccessPolicy;
   taskWorkspace?: ExecutionContextWorkspace;
+  workingCopyId?: string;
 }): AdapterComputerFileAccessBoundary {
-  const within = (child: string, parent: string) => {
-    const path = relative(parent, child);
-    return (
-      path === "" ||
-      (path !== ".." && !path.startsWith("../") && !isAbsolute(path))
-    );
-  };
+  const within = isSameOrDescendantPath;
   const policy = input.policy;
   // Space-only work has no user-folder source. The native boundary still names
   // only its Service-owned scratch root, regardless of the user's folder policy.
@@ -80,10 +79,17 @@ export function executionContextFileAccessBoundary(input: {
   }
   return {
     mode: "only_selected_folders",
-    folders: [input.taskWorkspace?.boundaryRoot ?? input.workingDirectory],
+    folders: [
+      input.context.access === "space_context" && input.workingCopyId
+        ? input.workingDirectory
+        : (input.taskWorkspace?.boundaryRoot ?? input.workingDirectory),
+    ],
     revision: policy.revision,
     updatedAtMs: policy.updatedAtMs,
     executionContextAccess: input.context.access,
+    ...(input.context.access === "space_context" && input.workingCopyId
+      ? { workingCopyId: input.workingCopyId }
+      : {}),
   };
 }
 
@@ -178,30 +184,59 @@ export async function prepareExecutionContextConversation(input: {
   ) {
     throw new Error("execution_context.fork_source_workspace_changed");
   }
+  // A frozen checkpoint is authoritative when Core assigned one. Otherwise the
+  // boundary is resolved under the fork journal lock: the source may be a
+  // thread OpenMeld never finished a turn on, and reading its settled turns
+  // names a cutoff that is verified now rather than assumed. That read takes no
+  // writer lock, so it works while another App Server holds the thread. The
+  // journal records the exact boundary it forked at, so a lost response
+  // or subsequent replay restores that recorded cutoff instead of re-reading
+  // an advanced source history.
   const result = await runAgentSessionForkOperation({
     ledgerRootPath: input.ledgerRootPath,
     request: {
       kind: "execution_context",
       operationId: input.context.id,
       sourceNativeSessionId: source.nativeConversationId,
-      completedHistoryId: source.completedHistoryId,
+      ...(source.completedHistoryId
+        ? { completedHistoryId: source.completedHistoryId }
+        : {}),
       workingDirectory: input.workingDirectory,
     },
-    execute: async () => {
+    resolveCompletedHistoryId: async () => {
+      if (
+        input.agentControllerRef === "builtin:codex" &&
+        input.launchContract
+      ) {
+        const completed = await resolveCodexAppServerCompletedTurn({
+          codexTimeoutMs: 30_000,
+          codexWorkdir: sourceDirectory,
+          launchContract: input.launchContract,
+          threadId: source.nativeConversationId,
+        });
+        return completed.completedTurnId;
+      }
+      throw new Error("execution_context.fork_checkpoint_unavailable");
+    },
+    execute: async (forkInput) => {
+      const completedHistoryId = forkInput?.completedHistoryId;
+      if (!completedHistoryId) {
+        throw new Error("execution_context.fork_checkpoint_unavailable");
+      }
       if (input.agentControllerRef === "builtin:claude-code") {
         const messages = await readBoundedClaudeHistory(
           source.nativeConversationId
         );
         const boundary = messages.find(
           (message) =>
-            message.uuid === source.completedHistoryId &&
+            message.uuid === completedHistoryId &&
             isCompletedAssistantMessage(message)
         );
         if (!boundary) {
           throw new Error("execution_context.fork_checkpoint_unavailable");
         }
         const child = await forkSession(source.nativeConversationId, {
-          upToMessageId: source.completedHistoryId,
+          upToMessageId: completedHistoryId,
         });
         return { childNativeSessionId: child.sessionId };
       }
@@ -216,7 +251,7 @@ export async function prepareExecutionContextConversation(input: {
           codexWorkdir: sourceDirectory,
           launchContract: input.launchContract,
           sourceThreadId: source.nativeConversationId,
-          sourceCompletedTurnId: source.completedHistoryId,
+          sourceCompletedTurnId: completedHistoryId,
           targetWorkingDirectory: input.workingDirectory,
           onRuntimeEvent: input.onRuntimeEvent,
           env: { OPENMELD_PROCESS_SUPERVISION_ID: input.processSupervisionId },

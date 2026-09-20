@@ -20,6 +20,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
+  DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
   downloadCliBinaryUpdateArtifact,
   resolveCliBinaryUpdatePlan,
   verifyCliBinaryCodeSignature,
@@ -410,6 +411,16 @@ async function prepareNodeDaemonServiceBundle(input: {
   }
   const { sourceEntryScriptPath, sourceDistRootPath, sourcePackageRootPath } =
     sourceProvenance;
+  if (sourceProvenance.sourceKind !== DAEMON_BUNDLE_SOURCE_KIND_WORKSPACE) {
+    const sourcePackageVersion = await readDaemonSourcePackageVersion(
+      sourcePackageRootPath
+    );
+    if (sourcePackageVersion !== input.daemonVersion) {
+      throw new Error(
+        `Cannot prepare OpenMeld Service ${input.daemonVersion} from CLI source ${sourcePackageVersion} at ${sourcePackageRootPath}. Install openmeld@${input.daemonVersion} and rerun \`openmeld setup\`, or use a verified Service artifact for that version.`
+      );
+    }
+  }
   const sourceDistFingerprint =
     await computeDaemonSourceDistFingerprint(sourceDistRootPath);
   const entryScriptRelativePath = basename(sourceEntryScriptPath);
@@ -565,7 +576,7 @@ async function prepareSelectedBinaryDaemonServiceBundle(input: {
     release: input.release,
   });
   const bytes = await downloadCliBinaryUpdateArtifact({
-    downloadTimeoutMs: 60_000,
+    downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
     fetchImpl: fetch,
     onDeltaFallback,
     plan,
@@ -1068,6 +1079,44 @@ async function resolveDaemonBundleSourceProvenance(
     sourcePackageRootPath,
     sourceKind: inferDaemonBundleSourceKind(sourcePackageRootPath),
   };
+}
+
+async function readDaemonSourcePackageVersion(
+  sourcePackageRootPath: string
+): Promise<string> {
+  const packageManifestPath = join(sourcePackageRootPath, "package.json");
+  const packageManifestRaw = await readFile(packageManifestPath, "utf8").catch(
+    (error: unknown) => {
+      if (getErrorCode(error) === "ENOENT") {
+        throw new Error(
+          `OpenMeld could not verify the CLI source version because ${packageManifestPath} is missing.`
+        );
+      }
+      throw error;
+    }
+  );
+  let packageManifest: { name?: unknown; version?: unknown };
+  try {
+    packageManifest = JSON.parse(packageManifestRaw) as {
+      name?: unknown;
+      version?: unknown;
+    };
+  } catch {
+    throw new Error(
+      `OpenMeld could not verify the CLI source version because ${packageManifestPath} is not valid JSON.`
+    );
+  }
+  const version =
+    packageManifest.name === "openmeld" &&
+    typeof packageManifest.version === "string"
+      ? packageManifest.version.trim()
+      : "";
+  if (!version) {
+    throw new Error(
+      `OpenMeld could not verify the CLI source version from ${packageManifestPath}.`
+    );
+  }
+  return version;
 }
 
 async function resolveCliScriptPath(explicitPath?: string): Promise<string> {

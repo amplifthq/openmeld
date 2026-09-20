@@ -10,7 +10,96 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("RuntimeCoordinator interaction Inbox producer", () => {
-  it("creates one urgent action for the exact Binding owner", async () => {
+  it.each([
+    "permission",
+    "plan_review",
+    "question",
+  ] as const)("classifies %s from the source protocol, not the displayed title", async (kind) => {
+    const h = createInboxHarness();
+    try {
+      await projectRuntimeCoordinatorInteractionInboxItem({
+        inboxDb: h.db,
+        spaceIndexDb: h.db,
+        nowMs: 2100,
+        ownerUserId: "user_owner",
+        interaction: { interactionId: "request", requestedAtMs: 2000, kind },
+        runtimeCoordinatorExecutionId: "execution",
+        sourceSignalId: "signal_one",
+        spaceId: "space_one",
+        targetProfileName: "Agent",
+      });
+      expect(
+        h.queryFirst({
+          sql: "SELECT importance, source_facts_json FROM inbox_items",
+        })
+      ).toMatchObject({
+        importance: "normal",
+        source_facts_json: JSON.stringify({
+          version: 1,
+          recipientReasons: ["requester"],
+          requestCategory: kind === "question" ? "action" : "review",
+        }),
+      });
+      expect(
+        h.queryAll({ sql: "SELECT * FROM inbox_email_deliveries" })
+      ).toEqual([]);
+    } finally {
+      h.close();
+    }
+  });
+  it("repairs only an exact legacy source replay without resetting read, dismissal, end state or accepted email receipts", async () => {
+    const h = createInboxHarness();
+    try {
+      const source = {
+        inboxDb: h.db,
+        spaceIndexDb: h.db,
+        nowMs: 2100,
+        ownerUserId: "user_owner",
+        interaction: buildPermissionInteraction(),
+        runtimeCoordinatorExecutionId: "execution",
+        sourceSignalId: "signal_one",
+        spaceId: "space_one",
+        targetProfileName: "Agent",
+      };
+      await projectRuntimeCoordinatorInteractionInboxItem(source);
+      h.run({
+        sql: "UPDATE inbox_items SET importance = 'urgent', source_facts_json = NULL, read_at_ms = 2200, cleared_at_ms = 2300, resolution_status = 'resolved', resolved_at_ms = 2400",
+      });
+      h.run({
+        sql: "INSERT INTO inbox_email_deliveries (id, inbox_item_id, state, attempt_count, next_attempt_at_ms, created_at_ms, updated_at_ms, message_id, sent_at_ms) SELECT 'receipt', id, 'sent', 1, 2000, 2000, 2100, 'accepted-by-provider', 2100 FROM inbox_items",
+      });
+      const before = h.queryFirst({
+        sql: "SELECT id, created_at_ms, occurred_at_ms, read_at_ms, cleared_at_ms, resolved_at_ms, resolution_status FROM inbox_items",
+      });
+      const receipt = h.queryFirst({
+        sql: "SELECT * FROM inbox_email_deliveries",
+      });
+      await projectRuntimeCoordinatorInteractionInboxItem({
+        ...source,
+        nowMs: 2600,
+      });
+      expect(
+        h.queryFirst({
+          sql: "SELECT id, created_at_ms, occurred_at_ms, read_at_ms, cleared_at_ms, resolved_at_ms, resolution_status FROM inbox_items",
+        })
+      ).toEqual(before);
+      expect(
+        h.queryFirst({ sql: "SELECT * FROM inbox_email_deliveries" })
+      ).toEqual(receipt);
+      expect(
+        h.queryFirst({ sql: "SELECT importance FROM inbox_items" })
+      ).toEqual({ importance: "normal" });
+      await expect(
+        projectRuntimeCoordinatorInteractionInboxItem({
+          ...source,
+          sourceSignalId: "wrong-source",
+        })
+      ).rejects.toThrow();
+    } finally {
+      h.close();
+    }
+  });
+  it("creates one ordinary review for the exact Binding owner", async () => {
     const harness = createInboxHarness();
     try {
       await projectRuntimeCoordinatorInteractionInboxItem({
@@ -49,7 +138,12 @@ describe("RuntimeCoordinator interaction Inbox producer", () => {
           {
             attention: "action_required",
             contextLabel: "Codex Agent",
-            importance: "urgent",
+            importance: "normal",
+            sourceFacts: {
+              version: 1,
+              recipientReasons: ["requester"],
+              requestCategory: "review",
+            },
             kind: "agent_interaction",
             organizationId: "org_one",
             preview: "Codex Agent needs your approval before it can continue.",

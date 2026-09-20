@@ -4,8 +4,13 @@ import {
   dispatchSpaceActionToolResultSchema,
   dispatchSpaceHistoryRequestSchema,
   dispatchSpaceHistoryResultSchema,
+  listSpaceTasksResponseSchema,
+  openMeldRuntimeProfileIdSchema,
   spaceFileEntryIdSchema,
   spaceFileRevisionNumberSchema,
+  spaceMessageFileReferenceSchema,
+  spaceTaskIdSchema,
+  spaceTaskMutationReceiptSchema,
 } from "@openmeld/schemas";
 import { z } from "zod/v4";
 import type { DispatchSpaceActionRecord } from "../runtime/dispatch-space-action-context";
@@ -20,6 +25,12 @@ import {
 } from "./action-command";
 import { readDispatchSpaceFile } from "./dispatch-file-read";
 import { readDispatchSpaceHistory } from "./dispatch-history-read";
+import {
+  createDispatchSpaceTask,
+  listDispatchSpaceTasks,
+  mutateDispatchSpaceTask,
+} from "./dispatch-task";
+import { runDispatchWorkingCopy } from "./dispatch-working-copy";
 
 const FINAL_STATUS_SCHEMA = z.enum([
   "done",
@@ -36,7 +47,45 @@ export function createSpaceActionMcpServer(): McpServer {
     },
     {
       instructions:
-        "Use read_history for the bounded text history around the current Wake, and read_file for shared text files in the current Space. Then choose exactly one final OpenMeld Space Action: reply for the exact public message, status for a final visible status, or stay_silent when no public message is needed. Private assistant output is not posted to the Space.",
+        "Use read_history for the bounded text history around the current Wake, and read_file for shared text files in the current Space. Use Space Task tools only when a clear deliverable needs durable ownership, progress, review, or later closure; questions and tiny same-turn actions stay in Messages. Task operations are non-final. Then choose exactly one final OpenMeld Space Action: reply for the exact public message, status for a final visible status, or stay_silent when no public message is needed. Private assistant output is not posted to the Space.",
+    }
+  );
+
+  server.registerTool(
+    "working_copy",
+    {
+      title: "Save or inspect this handoff's files",
+      description:
+        "Inspect or commit this handoff's files; reconcile retries an unknown save. On conflict, refresh downloads the shared version, then status shows its path and revision. Merge it into the original working file, then resolve with fileId and incoming revision before committing again. No automatic merge or overwrite. Does not deliver or close the Wake. No Space, profile or path overrides.",
+      inputSchema: {
+        action: z.enum(["status", "commit", "reconcile", "refresh", "resolve"]),
+        fileId: z.string().optional(),
+        revision: z.number().int().positive().optional(),
+      },
+    },
+    async ({ action, fileId, revision }) => {
+      try {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                await runDispatchWorkingCopy(action, { fileId, revision })
+              ),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text" as const,
+              text: error instanceof Error ? error.message : String(error),
+            },
+          ],
+        };
+      }
     }
   );
 
@@ -114,6 +163,172 @@ export function createSpaceActionMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "list_tasks",
+    {
+      title: "List Tasks in the current OpenMeld Space",
+      description:
+        "Read durable collaboration Tasks for this Space. Use the returned revision before changing a Task. Task phase is collaboration state, not Agent execution truth.",
+      inputSchema: {
+        phase: z
+          .enum(["to_do", "in_progress", "in_review", "done", "canceled"])
+          .optional(),
+      },
+      outputSchema: listSpaceTasksResponseSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ phase }) => executeTaskAction(() => listDispatchSpaceTasks(phase))
+  );
+
+  server.registerTool(
+    "create_task",
+    {
+      title: "Create a Task from the current Space message",
+      description:
+        "Create a durable Task only for a clear deliverable that needs ownership, progress, review, or later closure. The source message and Space are fixed by this Wake. The Task is assigned to the current Agent by default and remains To do until start_task is called.",
+      inputSchema: {
+        title: z.string().trim().min(1).max(200),
+        description: z.string().trim().min(1).max(8000).nullable().optional(),
+        completionConditions: z
+          .array(z.string().trim().min(1).max(500))
+          .max(12)
+          .optional(),
+        assigneeProfileId: openMeldRuntimeProfileIdSchema.nullable().optional(),
+        reviewerProfileId: openMeldRuntimeProfileIdSchema.nullable().optional(),
+      },
+      outputSchema: spaceTaskMutationReceiptSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (body) => executeTaskAction(() => createDispatchSpaceTask(body))
+  );
+
+  server.registerTool(
+    "start_task",
+    {
+      title: "Mark a Space Task in progress",
+      description:
+        "Record that the current assigned Agent has begun advancing this Task. This changes collaboration state and does not start a separate Agent execution.",
+      inputSchema: {
+        taskId: spaceTaskIdSchema,
+        expectedRevision: z.number().int().min(1),
+      },
+      outputSchema: spaceTaskMutationReceiptSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ expectedRevision, taskId }) =>
+      executeTaskAction(() =>
+        mutateDispatchSpaceTask({
+          taskId,
+          body: { action: "mark_in_progress", expectedRevision },
+        })
+      )
+  );
+
+  server.registerTool(
+    "submit_task_result",
+    {
+      title: "Submit a result for a Space Task",
+      description:
+        "Submit the concrete result and verification for an in-progress Task. A Task with a reviewer moves to In review; otherwise the stated completion boundary moves it to Done. If the reviewer is an Agent, use your one final reply to wake that reviewer.",
+      inputSchema: {
+        taskId: spaceTaskIdSchema,
+        expectedRevision: z.number().int().min(1),
+        summary: z.string().trim().min(1).max(8000),
+      },
+      outputSchema: spaceTaskMutationReceiptSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ expectedRevision, summary, taskId }) =>
+      executeTaskAction(() =>
+        mutateDispatchSpaceTask({
+          taskId,
+          body: { action: "submit_result", expectedRevision, summary },
+        })
+      )
+  );
+
+  server.registerTool(
+    "review_task",
+    {
+      title: "Review a Space Task result",
+      description:
+        "Accept the current result or request specific changes as this Task's reviewer. Change requests require feedback. If the assignee is an Agent and the Task returns to In progress, use your one final reply to wake that assignee with the feedback. Do not wake more work when needsHumanDecision is true. Agent-to-Agent rework stops for a human decision after two automatic rounds.",
+      inputSchema: {
+        taskId: spaceTaskIdSchema,
+        expectedRevision: z.number().int().min(1),
+        decision: z.enum(["accepted", "changes_requested"]),
+        feedback: z.string().trim().min(1).max(8000).nullable().optional(),
+      },
+      outputSchema: spaceTaskMutationReceiptSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ decision, expectedRevision, feedback, taskId }) =>
+      executeTaskAction(() =>
+        mutateDispatchSpaceTask({
+          taskId,
+          body: {
+            action: "review",
+            expectedRevision,
+            decision,
+            ...(feedback === undefined ? {} : { feedback }),
+          },
+        })
+      )
+  );
+
+  server.registerTool(
+    "cancel_task",
+    {
+      title: "Cancel a Space Task",
+      description:
+        "Cancel a Task when its accepted commitment should no longer be done. Cancellation fences later Task progress; it does not by itself prove that an Agent execution stopped.",
+      inputSchema: {
+        taskId: spaceTaskIdSchema,
+        expectedRevision: z.number().int().min(1),
+        reason: z.string().trim().min(1).max(1000),
+      },
+      outputSchema: spaceTaskMutationReceiptSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ expectedRevision, reason, taskId }) =>
+      executeTaskAction(() =>
+        mutateDispatchSpaceTask({
+          taskId,
+          body: { action: "cancel", expectedRevision, reason },
+        })
+      )
+  );
+
+  server.registerTool(
     "reply",
     {
       title: "Reply in the current OpenMeld Space",
@@ -121,6 +336,7 @@ export function createSpaceActionMcpServer(): McpServer {
         "Record the exact final public reply for the active OpenMeld Wake. Use real newline characters for paragraph breaks. Optionally wake or reference an Agent, or mention a person, by mention label or profile ID.",
       inputSchema: {
         message: z.string().min(1),
+        files: z.array(spaceMessageFileReferenceSchema).max(10).optional(),
         mentionTargets: z.array(z.string().min(1)).optional(),
         referenceTargets: z.array(z.string().min(1)).optional(),
         wakeTargets: z.array(z.string().min(1)).optional(),
@@ -133,9 +349,10 @@ export function createSpaceActionMcpServer(): McpServer {
         readOnlyHint: false,
       },
     },
-    async ({ mentionTargets, message, referenceTargets, wakeTargets }) =>
+    async ({ files, mentionTargets, message, referenceTargets, wakeTargets }) =>
       executeSpaceAction(() =>
         recordDispatchSpaceReply({
+          files,
           mentionTargets,
           referenceTargets,
           text: message,
@@ -271,6 +488,28 @@ export async function executeSpaceAction(
         },
       ],
       isError: true,
+    };
+  }
+}
+
+async function executeTaskAction<T extends Record<string, unknown>>(
+  action: () => Promise<T>
+) {
+  try {
+    const result = await action();
+    return {
+      structuredContent: result,
+      content: [{ type: "text" as const, text: JSON.stringify(result) }],
+    };
+  } catch (error) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: "text" as const,
+          text: error instanceof Error ? error.message : String(error),
+        },
+      ],
     };
   }
 }

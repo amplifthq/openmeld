@@ -638,7 +638,7 @@ html[data-space-conversation-layout="centered"] [data-space-history-rail="true"]
   max-height: 60%;
 }
 .space-history-ticks { display: flex; flex-direction: column; height: 100%; }
-.space-history-ticks > button {
+.space-history-tick {
   display: flex; align-items: center; width: 100%; flex: 1; min-height: 0;
   padding: 0 .25rem; cursor: pointer; outline-offset: 2px;
 }
@@ -646,8 +646,8 @@ html[data-space-conversation-layout="centered"] [data-space-history-rail="true"]
   display: block; width: 2.25rem; height: 2px;
   background: var(--muted-foreground); opacity: .45; transform-origin: left; transform: scaleX(.25);
 }
-.space-history-ticks > button[data-hovered] .space-history-dash { background: var(--foreground); opacity: 1; }
-.space-history-ticks > button:focus-visible .space-history-dash { opacity: 1; }
+.space-history-tick[data-hovered] .space-history-dash { background: var(--foreground); opacity: 1; }
+.space-history-tick:focus-visible .space-history-dash { opacity: 1; }
 .space-history-preview { max-width: calc(100vw - 5rem); position: relative; }
 .space-history-touch-trigger { display: none; }
 @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {

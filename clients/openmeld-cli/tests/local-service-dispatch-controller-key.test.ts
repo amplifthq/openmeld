@@ -67,6 +67,7 @@ describe("enqueueDispatchDeliverFrame controllerKey", () => {
   it("canonicalizes builtin agentControllerRef before queue bucketing", () => {
     const capturedTasks: LocalExecutionSlotTask[] = [];
     const localExecutionSlots = {
+      isQuiescent: () => true,
       request: (task) => {
         capturedTasks.push(task);
         return {
@@ -223,6 +224,7 @@ describe("enqueueDispatchDeliverFrame controllerKey", () => {
   it("reports an invalid deliver payload instead of silently dropping it", () => {
     const sentFrames: string[] = [];
     const localExecutionSlots = {
+      isQuiescent: () => true,
       request: () => {
         throw new Error("invalid payload must not enter the dispatch queue");
       },
@@ -386,6 +388,7 @@ describe("enqueueDispatchDeliverFrame controllerKey", () => {
         activeGlobal: 1,
         pendingCount: 0,
       }),
+      isQuiescent: () => false,
       getSnapshot: () => ({
         activeForLane: 1,
         activeGlobal: 1,

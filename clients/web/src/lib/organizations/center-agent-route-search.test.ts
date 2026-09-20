@@ -29,10 +29,14 @@ describe("Center Agent route search", () => {
 		expect(search).toEqual({});
 	});
 
-	it("keeps a valid Center Agent conversation view", () => {
-		expect(parseCenterAgentRouteSearch({ view: "files" })).toEqual({
+	it("keeps a session's explicit Thread target when selecting a conversation view", () => {
+		const search = {
+			session: "session-2",
 			view: "files",
-		});
+			focusSignalId: "root-1",
+			focusThreadRootSignalId: "root-1",
+		};
+		expect(parseCenterAgentRouteSearch(search)).toEqual(search);
 	});
 
 	it("keeps the informed Slack workspace move context", () => {

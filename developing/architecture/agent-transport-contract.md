@@ -319,6 +319,23 @@ external redrive did not complete. A repeated terminal event is idempotent and
 cannot repeat a promotion. Route or Service `waiting` does not release a
 reservation.
 
+A Coordinator work item is only a scheduling claim over one Wake; the head
+lifecycle record and its execution token authority remain that Wake's truth. A
+claim whose head is missing or already terminal, or whose linked execution
+already holds a terminal outcome, is retired: nothing can promote it and no
+terminal transition can settle it again. Retired claims must not keep holding a
+reservation, because a `queued` head carries no deadline of its own, so every
+later Wake would accumulate behind work that can never run. New-Wake admission
+therefore reconciles that Profile's claims against canonical head truth inside
+the same owner-shard transaction, retires the whole proven-retired set in one
+transition, prunes the matching active references, and promotes eligible
+successors through the ordinary promotion marker and redrive path. Missing or
+unreadable execution authority keeps its claim; only proven-retired work is
+released. A paused Coordinator is left untouched, because its recovery gate
+holds the reservation for an owner decision. Active-reference repair does not
+replace this reconciliation: it rebuilds references from canonical storage keys
+and cannot reconstruct queue metadata.
+
 Independent workstation tasks use Core-assigned Execution Contexts. Core admits
 at most five contexts for one Agent Profile, with one writer per context and
 at most 50 waiting Wakes. Legacy work without a context drains exclusively.
@@ -339,6 +356,15 @@ with the accepted finalization command before terminal promotion, using the
 final repair or reconsideration turn when present. Accepted commands and their
 checkpoints remain immutable under replay. Scoped results never overwrite the
 Profile Binding's legacy native conversation.
+
+A fork whose source never froze a checkpoint still inherits the exact source
+context, Wake, native conversation, and workspace from that retained
+association; only its completed prefix is left unassigned. An interrupted or
+provider-occupied dispatch produces exactly that residue. Such a fork is
+admitted only for a harness whose retained history can name a settled boundary
+under read-only preparation, and the Service confirms and journals that exact
+cutoff before creating the child. A harness that needs its boundary identified
+up front is refused rather than forked at a guessed point.
 
 A structured `usage_exhausted` terminal outcome is the deliberate exception to
 ordinary promotion: the Coordinator retains the interrupted work identity and
@@ -493,6 +519,15 @@ Important execution rules:
   five-minute policy. Stop, revocation, confirmed failure, and replacement-process
   reconciliation take precedence. Window expiry retains `runtime.progress_stale`
   and the existing owner-mediated late-result recovery, never automatic rerun.
+- The five-minute policy names the cause it actually found. An occupied native
+  conversation reports its occupancy once and then goes quiet, so it reaches the
+  same threshold looking like a lost computer. When the blocked work item still
+  carries `waitReason = controller_conversation_occupied`, the terminal closes as
+  `runtime.controller_conversation_occupied` instead, on the same deadline and
+  with the same retained late-result recovery. Occupancy is read from the
+  Coordinator's own admission state, never from D1. A conversation released
+  before the threshold clears that wait reason, so an ordinary stall keeps
+  `runtime.progress_stale` and its "reconnect the computer" copy.
 - After transport hibernation, accepted runtime evidence and tool/reasoning
   progress read the durable command when its transient transport entry is gone.
   This read projection does not recreate execution authority. Lease, source
@@ -597,6 +632,12 @@ Important execution rules:
   user-visible side effect started. This startup boundary must be cleared as
   soon as initialization succeeds; it must never become a total Agent execution
   deadline or retry a turn whose outcome may be ambiguous.
+  A timed-out `thread/start` also has an unknown allocation outcome and must not
+  be automatically repeated. Confirm the owned process exited before a safe
+  handshake retry. Preserve the first handshake failure if the retry fails;
+  startup diagnostics may expose only bounded, allowlisted phase/status hints,
+  never raw stderr, private paths, MCP names, or credentials. These observations
+  are not execution authority or proof of the cause of a timeout.
 - `accepted_local` means OpenMeld Service has accepted the task on the user's
   computer. If the runtime has not started yet, the local service must attach
   queue diagnostics so Trace can explain whether the task is waiting for the
@@ -735,6 +776,13 @@ exact-execution exception or cancel. It must not become a stored approval, a
 profile override, or a reason to interrupt default-policy runs. A working
 folder that is provably outside the active boundary is a deterministic denied
 outcome and does not ask the owner to reconsider the policy on every Wake.
+
+An explicit decline of that exact permission request becomes a stopped outcome
+through RuntimeCoordinator's existing accepted-result Stop path. The Service
+reports `computer.file_access.owner_declined`; Core verifies its durable receipt
+and execution identity before Space elects the final claim. Retries reuse the
+same stopped publication and acknowledgement. An expired/interrupted waiter or
+legacy ambiguous `owner_cancelled` result is not evidence of explicit refusal.
 
 ### Runtime Transport And RuntimeCoordinator Boundary
 
@@ -1522,13 +1570,63 @@ Execution Recovery action. It uses the owner-only continuation path described
 above, so closing the public action cannot disable deterministic Usage
 recovery.
 
+Storing the owner's continuation decision and holding a safe permit to start
+the replacement work are separate facts. A Core terminal decision is not the
+permit: a stale-evidence terminal is a decision made from missing evidence, so
+the local Agent may still be queued on the conversation the interrupted work
+was waiting for, and starting a replacement on that basis is what produces two
+attempts at one instruction.
+
+Accepting a cancellation is not the permit either. Control acceptance says the
+request was taken: an adapter can register a stop signal before the provider
+turn is acknowledged, and interrupting a started turn is a request, not a
+completion barrier. The permit is the adapter's own statement that it withdrew
+the attempt before any provider turn began. A stop requested after a turn
+started is a different outcome: that turn keeps its result and whatever effects
+it already produced, so it must not be replayed as never-executed work. An
+adapter that cannot tell the two apart says nothing, and silence stays unproven
+rather than becoming permission.
+
+That statement is carried on the existing local control result, correlated with
+the exact execution, dispatch, task, and delivery session, and kept as durable
+per-execution evidence pinned to the run it answers for. A late acknowledgement
+cannot retire a run that a newer one superseded, and the evidence must be
+accepted even when the Wake Stop lifecycle cannot advance a terminal execution,
+because it is the only fact replacement work can verify. A head that never
+linked an execution never reached a computer and needs no withdrawal.
+
+Accepting a withdrawal removes the Service's inflight record, so the Service
+keeps a bounded receipt of what that withdrawal established and answers a repeat
+request from it. Without that, a lost response would downgrade a proven fact to
+"no such task", which cannot be turned back into proof and would block the
+owner's choice on evidence that merely went missing in transit. Absence from an
+inflight registry is never itself proof: it does not establish that no provider
+work or side effect remains. A Service restart before the proof reaches Core
+leaves the attempt unproven, which keeps the replacement withheld.
+
+Every continuation attempt rereads that prerequisite, including a retry that
+reuses a stored authorization, and re-requests the withdrawal instead of
+assuming an earlier cancellation landed. An unproven withdrawal withholds the
+replacement and reports an explicit awaiting-stop stage with the owner's
+decision retained; it is never an unexplained stall, a silent permission to
+start, or a claim that the attempt stopped. Skip promises only that OpenMeld
+will not continue the work, which Core decides on its own; it requests the same
+withdrawal but does not wait on it, and its copy must not imply that the local
+attempt has stopped or that completed side effects are undone.
+
+An owner shard that predates this prerequisite cannot answer it. Durable Object
+code propagates after a Worker deploy, so an unanswered prerequisite is "not yet
+known": it withholds the replacement and stays retryable. It is never read as
+permission to start a second attempt at the same instruction.
+
 An explicit user Stop is not automatically recoverable. A process crash with
 no result must not fabricate completion. An external-side-effect outcome that
 cannot be proven remains outcome-unknown and must not be automatically rerun.
 Transport reconnect/redrive preserves the same execution identity.
 
 If RuntimeCoordinator has already closed an execution as
-`runtime.progress_stale` or `runtime.local_runtime_lost`, an exact
+`runtime.progress_stale`, `runtime.controller_conversation_occupied` or
+`runtime.local_runtime_lost`, an exact
 token-run-matching successful result may be accepted into that same dispatch
 result inbox as `late_result_available`. Core publishes one idempotent recovery
 notice that references the retained result without rerunning the original Wake.

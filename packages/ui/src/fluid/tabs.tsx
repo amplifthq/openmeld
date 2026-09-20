@@ -281,7 +281,10 @@ const TabsList = forwardRef<HTMLDivElement, TabsListProps>(
           className={cn(
             "relative inline-flex select-none items-center gap-0.5",
             background ? "bg-muted p-0.5" : "bg-transparent p-0",
-            shape.container,
+            // This is a control group, not a large surface. The shape system
+            // gives those roles different radii while keeping both responsive
+            // to the user's rounded or square preference.
+            shape.controlGroup,
             className
           )}
           onBlur={(e) => {

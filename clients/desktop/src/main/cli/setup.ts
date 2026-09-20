@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execPlatformFile as execFile } from "@openmeld/adapter-core/process-launch";
 import {
   type LocalMachineIssueAgentEvent,
   localMachineIssueAgentEventSchema,

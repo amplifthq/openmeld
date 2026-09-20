@@ -13,10 +13,15 @@ import {
   DESKTOP_APP_ORIGIN,
   DESKTOP_CONTRACT_HEADER,
   DESKTOP_CONTRACT_VERSION,
+  DESKTOP_UPDATE_OBSERVATION_PATH,
   DESKTOP_WEB_BUILD_HEADER,
+  type DesktopLocalComputer,
   SPACE_ACCESS_VERSION_HEADER,
 } from "@openmeld/schemas";
-import { isPilotLocalControlRequest } from "./pilot-local-control-policy";
+import {
+  desktopWorkingFolderTarget,
+  isPilotLocalControlRequest,
+} from "./pilot-local-control-policy";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html",
@@ -56,6 +61,7 @@ type PilotProtocolOptions = {
     request: { method: string; headers: Headers; body?: ArrayBuffer }
   ) => Promise<Response>;
   ensureCompatible?: () => Promise<void>;
+  readLocalComputer?: () => Promise<DesktopLocalComputer>;
 };
 
 export function createPilotProtocol(input: PilotProtocolOptions) {
@@ -72,6 +78,10 @@ export function createPilotProtocol(input: PilotProtocolOptions) {
       url.pathname.startsWith("/_serverFn/") ||
       url.pathname.startsWith("/v1/")
     ) {
+      const sourceRefusal = admitRendererCloudPath(url);
+      if (sourceRefusal) {
+        return sourceRefusal;
+      }
       return await forwardCloud(request, url, input);
     }
     if (
@@ -85,6 +95,23 @@ export function createPilotProtocol(input: PilotProtocolOptions) {
     }
     return await readAsset(request, url, input.assets);
   };
+}
+
+const TRAILING_SLASHES = /\/+$/u;
+
+function admitRendererCloudPath(url: URL): Response | null {
+  // A trusted renderer is not the authority for Main's native updater facts.
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(url.pathname).replace(TRAILING_SLASHES, "");
+  } catch {
+    return new Response("Invalid Desktop request path", { status: 403 });
+  }
+  return pathname === DESKTOP_UPDATE_OBSERVATION_PATH
+    ? new Response("Only the native updater can report update observations.", {
+        status: 403,
+      })
+    : null;
 }
 
 async function forwardCloud(
@@ -112,6 +139,13 @@ async function forwardCloud(
       status: 403,
     });
   }
+  const folderCookie = desktopWorkingFolderTarget(url, request.method)
+    ? input.cookie()
+    : undefined;
+  const folderRefusal = await admitWorkingFolder(request, url, input);
+  if (folderRefusal) {
+    return folderRefusal;
+  }
   // The owning Session admits only the current native main frame before this
   // handler runs. Electron custom-protocol requests omit HTTP source metadata.
   const headers = new Headers();
@@ -133,11 +167,18 @@ async function forwardCloud(
   const cloudRequest = {
     method: request.method,
     headers,
-    body:
-      request.method === "GET" || request.method === "HEAD"
-        ? undefined
-        : await request.arrayBuffer(),
+    body: await readCloudBody(request),
   };
+  if (folderCookie !== undefined && input.cookie() !== folderCookie) {
+    return Response.json(
+      {
+        code: "desktop.folder.account_changed",
+        message:
+          "Your Desktop sign-in changed. Reopen the working folder settings and try again.",
+      },
+      { status: 409 }
+    );
+  }
   const upstream =
     url.pathname.startsWith("/v1/") && input.cloudRequest
       ? await input.cloudRequest(url.pathname + url.search, cloudRequest)
@@ -146,6 +187,49 @@ async function forwardCloud(
           redirect: "manual",
         });
   return sanitizeCloudResponse(upstream, Boolean(nativeAccountRead));
+}
+
+async function readCloudBody(request: Request) {
+  return request.method === "GET" || request.method === "HEAD"
+    ? undefined
+    : await request.arrayBuffer();
+}
+
+async function admitWorkingFolder(
+  request: Request,
+  url: URL,
+  input: PilotProtocolOptions
+): Promise<Response | null> {
+  const folderTarget = desktopWorkingFolderTarget(url, request.method);
+  if (folderTarget) {
+    const local = await input.readLocalComputer?.();
+    if (!local || local.status !== "available") {
+      return Response.json(
+        {
+          code: "desktop.folder.computer_unavailable",
+          message:
+            local?.status === "unavailable"
+              ? local.message
+              : "Couldn’t check this computer for folder selection. Reopen Desktop and try again.",
+        },
+        { status: 409 }
+      );
+    }
+    if (
+      folderTarget.deviceId !== local.target.deviceId ||
+      folderTarget.runtimeLane !== local.target.runtimeLane
+    ) {
+      return Response.json(
+        {
+          code: "desktop.folder.computer_mismatch",
+          message:
+            "Choose a folder on the computer running this Desktop app. The selected computer or environment is different.",
+        },
+        { status: 409 }
+      );
+    }
+  }
+  return null;
 }
 
 async function sanitizeCloudResponse(
@@ -173,6 +257,8 @@ async function sanitizeCloudResponse(
     "cache-control",
     "x-openmeld-file-revision",
     "x-request-id",
+    "x-openmeld-request-id",
+    "server-timing",
     "x-tss-serialized",
     "x-tss-raw",
   ]) {

@@ -138,6 +138,12 @@ export type {
   SubmitFeedbackIssueInput,
 } from "./feedback/types";
 export { createInboxApi } from "./inbox/api";
+export { isInboxItemInOrganizationScope } from "./inbox/item-scope";
+export {
+  inboxMessageNotificationSpaceId,
+  isInboxItemVisibleConversation,
+  isInboxNotificationEligible,
+} from "./inbox/notification-policy";
 export {
   buildCenterAgentInboxReadThroughPath,
   buildCenterAgentInboxSummaryPath,
@@ -357,6 +363,7 @@ export {
   getSpaceFile,
   listSpaceFileRevisions,
   listSpaceFiles,
+  postSpaceWorkHandoff,
   setSpaceAccessMode,
   trashSpaceFileEntry,
   updateSpaceFileContent,
@@ -369,6 +376,12 @@ export {
   readOrUpdateSpaceFilePins,
   readOrUpdateSpaceMessagePins,
 } from "./space/message-pins";
+export {
+  createSpaceTask,
+  getSpaceTask,
+  listSpaceTasks,
+  mutateSpaceTask,
+} from "./space/tasks";
 export type {
   OpenMeldApiClientStreamTransport,
   OpenMeldApiClientTransport,

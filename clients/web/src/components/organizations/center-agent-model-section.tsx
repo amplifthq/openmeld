@@ -9,6 +9,7 @@ import type {
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { Label } from "@openmeld/ui/components/label";
+import { SkeletonForm } from "@openmeld/ui/components/skeleton-content";
 import {
 	Tooltip,
 	TooltipContent,
@@ -135,9 +136,7 @@ export function CenterAgentModelSection(input: {
 			</div>
 			<div className="space-y-5 px-5 py-5">
 				{modelQuery.isPending ? (
-					<p className="text-muted-foreground text-sm">
-						Loading Center Agent model.
-					</p>
+					<SkeletonForm fields={1} label="Loading Center Agent model" />
 				) : null}
 				{modelQuery.isError ? (
 					<div className="space-y-3">

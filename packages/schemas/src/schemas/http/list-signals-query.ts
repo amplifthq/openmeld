@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { spaceMessageSearchQuerySchema } from "./space-message-search";
 
 const CATCHUP_DEFAULT_LIMIT = 200;
 const CATCHUP_MAX_LIMIT = 500;
@@ -12,6 +13,7 @@ const SIGNAL_TYPE_VALUES = [
 const SIGNAL_TYPE_SET = new Set<string>(SIGNAL_TYPE_VALUES);
 
 const listSignalsQueryInputSchema = z.strictObject({
+  q: spaceMessageSearchQuerySchema.shape.q.nullable().optional(),
   afterTs: z.string().nullable(),
   cursor: z.string().nullable(),
   limit: z.string().nullable(),
@@ -31,6 +33,7 @@ export function readListSignalsQueryRawValues(
   searchParams: URLSearchParams
 ): ListSignalsQueryRawValues {
   return {
+    ...(searchParams.has("q") ? { q: searchParams.get("q") } : {}),
     afterTs: searchParams.get("afterTs"),
     cursor: searchParams.get("cursor"),
     limit: searchParams.get("limit"),
@@ -347,6 +350,24 @@ const validateListSignalsQueryCombinations = (
  */
 export const listSignalsQuerySchema = listSignalsQueryInputSchema
   .superRefine((value, ctx) => {
+    if (
+      value.q &&
+      (value.afterTs ||
+        value.recent ||
+        value.afterSignalId ||
+        value.aroundSignalId ||
+        value.fromProfileIds.length ||
+        value.signalTypes.length ||
+        (value.cursor &&
+          !spaceMessageSearchQuerySchema.shape.cursor.safeParse(value.cursor)
+            .success))
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["q"],
+        message: "Message search cannot be combined with timeline filters.",
+      });
+    }
     const state = buildListSignalsQueryValidationState(value);
     validateListSignalsPrimitiveValues(value, state, ctx);
     validateListSignalsSignalTypes(value.signalTypes, ctx);
@@ -372,6 +393,7 @@ export const listSignalsQuerySchema = listSignalsQueryInputSchema
       afterTs !== null || cursor !== null || value.hasLimit;
 
     return {
+      ...(value.q ? { q: value.q } : {}),
       afterTs,
       cursor,
       limit: semantics.limit,

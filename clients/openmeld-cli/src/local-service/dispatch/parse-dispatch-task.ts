@@ -214,6 +214,7 @@ export function parseDispatchTask(
   return {
     ...requiredFields,
     executionContext: payload.executionContext,
+    workHandoff: payload.sourceSignalSnapshot?.workHandoff,
     agentControllerConversationId,
     ...resolveDispatchSourceFiles(payload),
     ...controllerSelection,

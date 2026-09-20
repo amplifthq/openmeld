@@ -509,7 +509,10 @@ describe("Center Agent stream observation", () => {
     expect(submitRemoteAgentStreamDelta).not.toHaveBeenCalled();
   });
 
-  it("keeps post-checkpoint stop prose out of the user-visible stream", async () => {
+  it.each([
+    "I stopped before testing.",
+    "",
+  ])("retains a legacy checkpoint through completion and replay (text=%j)", async (text) => {
     const storage = new InMemoryDurableObjectStorage();
     await putRemoteAgentCallbackContext(
       storage,
@@ -536,18 +539,42 @@ describe("Center Agent stream observation", () => {
       submissionId: SUBMISSION_ID,
     });
     const submitRemoteAgentStreamDelta = vi.fn();
+    const completeRemoteAgentSubmission = vi.fn(async (_body: unknown) => ({
+      status: "accepted" as const,
+    }));
+    const resolveDependencies = () => ({
+      coreWorker: {
+        submitRemoteAgentStreamDelta,
+        completeRemoteAgentSubmission,
+      },
+      env: {} as CloudflareBindings,
+      storage,
+    });
 
     await handleCenterAgentObservation({
       event: textDeltaObservation("I stopped before testing. ".repeat(10)),
-      resolveDependencies: () => ({
-        coreWorker: { submitRemoteAgentStreamDelta },
-        env: {} as CloudflareBindings,
-        storage,
-      }),
+      resolveDependencies,
       streamPublisher: createRemoteAgentStreamPublisher(),
     });
 
     expect(submitRemoteAgentStreamDelta).not.toHaveBeenCalled();
+    for (let replay = 0; replay < 2; replay += 1) {
+      await handleCenterAgentObservation({
+        event: completedPromptObservation(text),
+        resolveDependencies,
+        streamPublisher: createRemoteAgentStreamPublisher(),
+      });
+    }
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledTimes(1);
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "continuation_required",
+        submissionId: SUBMISSION_ID,
+      })
+    );
+    expect(completeRemoteAgentSubmission.mock.calls[0]?.[0]).not.toHaveProperty(
+      "text"
+    );
   });
 
   it("uses the immutable Flue execution identity when a live delta omits submissionId", async () => {

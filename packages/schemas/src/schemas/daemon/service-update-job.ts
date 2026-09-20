@@ -30,6 +30,8 @@ const daemonServiceUpdateJobBodySchema = z.strictObject({
   jobId: z.string().min(1),
   preparedBundle: daemonServiceUpdatePreparedBundleSchema,
   requestedAt: z.iso.datetime({ offset: true }),
+  targetCliVersion: z.string().min(1).optional(),
+  targetServiceVersion: z.string().min(1).optional(),
   targetVersion: z.string().min(1),
   updatedAt: z.iso.datetime({ offset: true }),
   urgency: z.enum(["available", "required"]),

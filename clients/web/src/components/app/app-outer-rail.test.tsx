@@ -574,6 +574,10 @@ describe("AppOuterRail", () => {
 	it("places Inbox in primary navigation and search in the footer", () => {
 		renderRail();
 		const rail = screen.getByTestId("app-outer-rail");
+		const footer = rail.querySelector('[data-sidebar="footer"]') as HTMLElement;
+		const utilityMenu = within(footer).getByRole("list", {
+			name: "App utilities",
+		});
 		expect(
 			within(
 				rail.querySelector(
@@ -585,13 +589,22 @@ describe("AppOuterRail", () => {
 		).toBe("/o/acme/inbox");
 		expect(
 			(
-				within(
-					rail.querySelector('[data-sidebar="footer"]') as HTMLElement
-				).getByRole("button", {
+				within(footer).getByRole("button", {
 					name: "Search or run a command",
 				}) as HTMLButtonElement
 			).disabled
 		).toBe(false);
+		expect(footer.querySelectorAll('[data-sidebar="menu"]')).toHaveLength(1);
+		for (const control of [
+			within(footer).getByRole("button", {
+				name: "Search or run a command",
+			}),
+			within(footer).getByRole("button", { name: "Settings" }),
+			within(footer).getByRole("button", { name: THEME_TOGGLE_PATTERN }),
+			within(footer).getByRole("button", { name: USER_MENU_PATTERN }),
+		]) {
+			expect(control.closest('[data-sidebar="menu"]')).toBe(utilityMenu);
+		}
 	});
 
 	it("separates fixed application navigation from the contextual list", () => {
@@ -625,10 +638,12 @@ describe("AppOuterRail", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Open app navigation" })
 		);
-		const drawer = screen.getByRole("dialog", { name: "Plugin navigation" });
+		const drawer = screen.getByRole("dialog", { name: "OpenMeld navigation" });
 		fireEvent.click(within(drawer).getByRole("link", { name: "Spaces" }));
 		await waitFor(() =>
-			expect(drawer.getAttribute("data-state")).toBe("closed")
+			expect(
+				screen.queryByRole("dialog", { name: "OpenMeld navigation" })
+			).toBeNull()
 		);
 		fireEvent.click(
 			screen.getByRole("button", {

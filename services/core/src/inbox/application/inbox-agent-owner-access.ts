@@ -2,7 +2,8 @@
 // Both delivery and subsequent reads use current identity plus Space membership.
 export function personalAgentOwnerAccessSql(
   spaceId: string,
-  userId: string
+  userId: string,
+  exactAgentIdsJson?: string
 ): string {
   return `EXISTS (
     SELECT 1 FROM space_index_memberships AS owned_member
@@ -18,6 +19,7 @@ export function personalAgentOwnerAccessSql(
     WHERE owned_member.space_id = ${spaceId}
       AND owned_member.status = 'active'
       AND owned_member.profile_kind_snapshot = 'agent'
+      ${exactAgentIdsJson ? `AND owned_agent.profile_id IN (SELECT value FROM json_each(${exactAgentIdsJson}))` : ""}
       AND ${personalAgentIdentitySql(userId)}
   )`;
 }
@@ -38,10 +40,14 @@ export async function canReceivePersonalAgentActivity(input: {
         ON designation.organization_id = owned_agent.organization_id
         AND designation.agent_profile_id = owned_agent.profile_id
       WHERE owned_agent.organization_id = ?
-        AND owned_agent.profile_id IN (${input.agentProfileIds.map(() => "?").join(",")})
+        AND owned_agent.profile_id IN (SELECT value FROM json_each(?))
         AND ${personalAgentIdentitySql("?")} LIMIT 1`
     )
-    .bind(input.organizationId, ...input.agentProfileIds, input.userId)
+    .bind(
+      input.organizationId,
+      JSON.stringify(input.agentProfileIds),
+      input.userId
+    )
     .first<{ allowed: number }>();
   return row?.allowed === 1;
 }

@@ -1,4 +1,4 @@
-import { desktopInstalledTargetSchema } from "../../packages/schemas/src/desktop-client.ts";
+import { desktopInstalledTargetSchema } from "../../packages/schemas/dist/desktop-client.js";
 
 /** Build-time only. Packaged apps never consult the launch environment. */
 export function readInstalledDesktopTarget(env: NodeJS.ProcessEnv) {

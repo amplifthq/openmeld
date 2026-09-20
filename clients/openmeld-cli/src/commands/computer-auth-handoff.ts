@@ -97,6 +97,7 @@ async function runPreparedComputerAuthHandoff(
   let failureReported = false;
   try {
     const recoveryOutcome = await recoverInterruptedComputerAuthHandoff({
+      onProgress: (progress) => stream.writeConnectionProgress?.(progress),
       presenter: input.presenter,
       runtime: input.runtime,
       view: input.view,
@@ -190,6 +191,7 @@ async function runPreparedComputerAuthHandoff(
           presenter: input.presenter,
           runtime: input.runtime,
           transition,
+          stream,
           view: input.view,
         });
         return sessionResult;
@@ -204,6 +206,7 @@ async function runPreparedComputerAuthHandoff(
           presenter: input.presenter,
           runtime: input.runtime,
           transition,
+          stream,
           view: input.view,
         });
       } catch (recoveryError) {
@@ -446,10 +449,12 @@ async function restorePreviousComputerAfterFailedHandoff(input: {
   presenter: Presenter;
   runtime: RuntimeContext;
   transition: Awaited<ReturnType<typeof beginAuthSessionTransition>>;
+  stream: Awaited<ReturnType<typeof connectPrepareSessionStream>>;
   view?: string;
 }): Promise<void> {
   await input.transition.rollback();
   const recovered = await recoverInterruptedComputerAuthHandoff({
+    onProgress: (progress) => input.stream.writeConnectionProgress?.(progress),
     presenter: input.presenter,
     runtime: input.runtime,
     view: input.view,

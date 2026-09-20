@@ -23,6 +23,7 @@ import {
 } from "@testing-library/react";
 import { type ComponentProps, type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeSpaceConversationPosition } from "#/lib/space-conversation-position";
 import {
 	buildSpaceTimelineItems,
 	type SpaceTimelineItem,
@@ -49,6 +50,7 @@ type SpaceConversationPanelOverrides = Partial<
 };
 
 const FAILED_TEXT_PATTERN = /failed/i;
+const THREAD_REPLY_PREVIEW_PATTERN = /^Open reply from Felix:/;
 const UNREAD_JUMP_PATTERN = /Jump to first unread/;
 const RETRY_BUTTON_NAME_PATTERN = /retry/i;
 const REFERENCED_SPACE_ID = "c".repeat(64);
@@ -58,6 +60,7 @@ const CONNECT_MY_COMPUTER_BUTTON_NAME_PATTERN = /Connect my computer/;
 const MESSAGES_FROM_DATE_MARKER_NAME_PATTERN = /Messages from/;
 const OPEN_DATE_NAVIGATION_NAME_PATTERN = /Open date navigation for/;
 const RUNNER_WORKING_NAME_PATTERN = /runner is working/u;
+const EARLIER_DECISION_PATTERN = /Earlier decision/;
 
 // The Message Details dialog fetches through `useQuery`. Every test in this
 // file except the ones that open that dialog only checks for the trigger
@@ -142,10 +145,56 @@ describe("SpaceConversationPanel", () => {
 
 	afterEach(() => {
 		cleanup();
+		sessionStorage.clear();
+		localStorage.clear();
 		Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
 		vi.useRealTimers();
 		vi.unstubAllGlobals();
 		useQueryMock.mockReset();
+	});
+
+	it("keeps the conversation interactive when a saved anchor is not cached", () => {
+		writeSpaceConversationPosition(
+			"human-profile-1:space-conversation:space-view-test",
+			{
+				anchorSignalId: "saved-anchor",
+				offsetFromVisibleTop: 20,
+			}
+		);
+		const onLoadHistoryAround = vi.fn(async () => true);
+		const historyNavigation = {
+			activeWindow: null,
+			directory: undefined,
+			directoryError: false,
+			directoryPending: false,
+			error: null,
+			hasHiddenLiveHistory: false,
+			latest: vi.fn(),
+			loadAfter: vi.fn(async () => false),
+			loadBefore: vi.fn(async () => false),
+			open: onLoadHistoryAround,
+			hrefForSignalId: undefined,
+			earlierHref: undefined,
+			latestHref: undefined,
+			newerHref: undefined,
+			pending: false,
+			retryDirectory: vi.fn(),
+			revealCachedBefore: vi.fn(),
+			visibleLiveEnvelopes: [],
+		};
+		renderSpaceConversationPanel({
+			historyNavigation,
+			timelineItems: [createTimelineItem({ text: "Temporary latest message" })],
+		});
+
+		expect(screen.queryByText("Restoring your reading position…")).toBeNull();
+		const history = document.querySelector<HTMLElement>(
+			"[data-scroll-restoration-id='space-conversation:space-view-test']"
+		);
+		expect(history?.getAttribute("aria-hidden")).toBeNull();
+		expect(history?.hasAttribute("inert")).toBe(false);
+		expect(history?.textContent).toContain("Temporary latest message");
+		expect(onLoadHistoryAround).not.toHaveBeenCalled();
 	});
 
 	it("returns from the retained Graph view to Messages with the draft intact", async () => {
@@ -941,11 +990,13 @@ describe("SpaceConversationPanel", () => {
 		const unreadBoundary = screen.getByRole("separator", {
 			name: "New messages",
 		});
-		for (const divider of [...dateLandmarks, unreadBoundary]) {
+		for (const divider of dateLandmarks) {
 			expect(divider.className).toContain("before:bg-border");
 			expect(divider.className).toContain("after:bg-border");
 		}
-		expect(unreadBoundary.className).toContain("text-foreground");
+		expect(unreadBoundary.className).toContain("before:bg-unread");
+		expect(unreadBoundary.className).toContain("after:bg-unread");
+		expect(unreadBoundary.className).toContain("text-unread");
 		const firstNewMessage = screen
 			.getByText("First new message")
 			.closest("[data-message-id='signal-new']");
@@ -958,7 +1009,7 @@ describe("SpaceConversationPanel", () => {
 		).toBeLessThan(conversationItems.indexOf(firstNewMessage as Element));
 	});
 
-	it("offers one chronological unread jump for updates above and below, then hides the navigation batch", async () => {
+	it("keeps the canonical unread total while viewport targets change, then hides the navigation batch", async () => {
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
 			.mockImplementation(function (this: HTMLElement) {
@@ -988,12 +1039,12 @@ describe("SpaceConversationPanel", () => {
 				{ occurredAtMs: 2, signalId: "signal-2", threadRootSignalId: null },
 				{ occurredAtMs: 3, signalId: "signal-3", threadRootSignalId: null },
 			],
-			unreadCount: 3,
+			unreadCount: 139,
 			unreadStateReady: true,
 		});
 
 		const jumpButton = await screen.findByRole("button", {
-			name: "3 unread updates. Jump to first unread",
+			name: "139 unread updates. Jump to first unread",
 		});
 		expect(
 			screen.getAllByRole("button", { name: UNREAD_JUMP_PATTERN })
@@ -1068,6 +1119,7 @@ describe("SpaceConversationPanel", () => {
 			});
 		renderSpaceConversationPanel({
 			timelineItems: [createTimelineItem({ id: "signal-1" })],
+			unreadBatchOccurredAtMs: 100,
 			unreadTargets: [
 				{ occurredAtMs: 1, signalId: "signal-1", threadRootSignalId: null },
 			],
@@ -1089,7 +1141,7 @@ describe("SpaceConversationPanel", () => {
 		rectSpy.mockRestore();
 	});
 
-	it("highlights the main thread root and opens its first unread reply only on explicit request", async () => {
+	it("opens the exact unread thread reply from the unread navigation", async () => {
 		Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
 			configurable: true,
 			value: vi.fn(),
@@ -1133,18 +1185,10 @@ describe("SpaceConversationPanel", () => {
 				screen.queryByRole("button", { name: UNREAD_JUMP_PATTERN })
 			).toBeNull()
 		);
-		expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
-			"thread-root"
-		);
-		expect(onOpenUnreadThread).not.toHaveBeenCalled();
-		fireEvent.click(
-			screen.getByRole("button", { name: "Open thread (1 unread)" })
-		);
 		await waitFor(() => {
 			expect(onOpenUnreadThread).toHaveBeenCalledWith({
 				rootSignalId: "thread-root",
 				signalId: "thread-reply",
-				threadId: thread.threadId,
 			});
 		});
 		rectSpy.mockRestore();
@@ -1299,8 +1343,10 @@ describe("SpaceConversationPanel", () => {
 	it("uses the shared Space reference renderer in a thread preview", () => {
 		const thread = createThread();
 		const onOpenThread = vi.fn();
+		const onOpenUnreadThread = vi.fn(() => true);
 		renderSpaceConversationPanel({
 			onOpenThread,
+			onOpenUnreadThread,
 			spaceReferencesById: createSpaceReferences(),
 			threadPreviews: [createThreadPreview(thread.threadId)],
 			threads: [thread],
@@ -1309,25 +1355,91 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		expect(
-			screen.getByRole("link", { name: "Open Space Launch Planning" })
-		).toBeTruthy();
-		fireEvent.click(
-			screen.getByRole("link", { name: "Open Space Launch Planning" })
-		);
+		const memberSpaceLink = screen.getByRole("link", {
+			name: "Open Space Launch Planning",
+		});
+		const memberExternalLink = screen.getByRole("link", {
+			name: "https://example.com",
+		});
+		fireEvent.click(memberSpaceLink);
+		fireEvent.click(memberExternalLink);
 		expect(onOpenThread).not.toHaveBeenCalled();
-		const preview = screen.getByRole("link", { name: "Thread preview" });
+		const preview = screen.getByLabelText(THREAD_REPLY_PREVIEW_PATTERN);
 		fireEvent.click(preview);
 		fireEvent.keyDown(preview, { key: "Enter" });
 		fireEvent.keyDown(preview, { key: " " });
-		expect(onOpenThread).toHaveBeenCalledTimes(3);
-		expect(onOpenThread).toHaveBeenLastCalledWith(thread.threadId);
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(3);
+		expect(onOpenUnreadThread).toHaveBeenLastCalledWith({
+			threadId: thread.threadId,
+			rootSignalId: thread.rootSignalId,
+			signalId: "sig-thread-preview",
+		});
 		const selection = vi
 			.spyOn(window, "getSelection")
 			.mockReturnValue({ toString: () => "selected reply" } as Selection);
 		fireEvent.click(preview);
-		expect(onOpenThread).toHaveBeenCalledTimes(3);
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(3);
 		selection.mockRestore();
+		fireEvent.pointerDown(preview, { clientX: 0, clientY: 0 });
+		fireEvent.click(preview, { clientX: 10, clientY: 0 });
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(3);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Open reply from Felix" })
+		);
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(4);
+
+		cleanup();
+		onOpenThread.mockClear();
+		onOpenUnreadThread.mockClear();
+		renderSpaceConversationPanel({
+			onOpenThread,
+			onOpenUnreadThread,
+			readOnly: true,
+			spaceId: "space-123",
+			spaceReferencesById: createSpaceReferences(),
+			threadPreviews: [createThreadPreview(thread.threadId)],
+			threads: [thread],
+			timelineItems: [
+				createTimelineItem({ id: thread.rootSignalId, text: "Root message" }),
+			],
+		});
+		const publicSpaceLink = screen.getByRole("link", {
+			name: "Open Space Launch Planning",
+		});
+		const externalLink = screen.getByRole("link", {
+			name: "https://example.com",
+		});
+		const replyLink = screen.getByRole("link", {
+			name: "Open reply from Felix",
+		});
+		const publicPreview = screen.getByLabelText(THREAD_REPLY_PREVIEW_PATTERN);
+		expect(publicSpaceLink.parentElement?.closest("a")).toBeNull();
+		expect(externalLink.parentElement?.closest("a")).toBeNull();
+		expect(replyLink.getAttribute("href")).toContain(
+			"threadRootSignalId=sig-root"
+		);
+		expect(replyLink.getAttribute("href")).toContain(
+			"signalId=sig-thread-preview"
+		);
+		fireEvent.click(publicSpaceLink);
+		fireEvent.click(externalLink);
+		expect(onOpenThread).not.toHaveBeenCalled();
+		fireEvent.click(publicPreview);
+		expect(onOpenUnreadThread).toHaveBeenLastCalledWith({
+			rootSignalId: thread.rootSignalId,
+			signalId: "sig-thread-preview",
+			threadId: thread.threadId,
+		});
+		fireEvent.click(replyLink);
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(2);
+		const modifiedReplyClick = new MouseEvent("click", {
+			bubbles: true,
+			button: 0,
+			cancelable: true,
+			metaKey: true,
+		});
+		expect(replyLink.dispatchEvent(modifiedReplyClick)).toBe(true);
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(2);
 	});
 
 	it("renders structured Wake targets as inline Agent identities in the read-only main timeline", () => {
@@ -2228,7 +2340,7 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			screen.getByText("Remove the failed file to continue.")
+			screen.getByText("Retry or remove the failed attachment to continue.")
 		).toBeTruthy();
 		const sendButton = screen.getByRole("button", { name: "Send message" });
 		expect(sendButton).toHaveProperty("disabled", true);
@@ -2931,6 +3043,291 @@ describe("SpaceConversationPanel", () => {
 				jumpButton.closest("[data-active]")?.getAttribute("data-active")
 			).toBe("false");
 		});
+	});
+
+	it("catches up unread main messages even when the short conversation is already at the latest position", async () => {
+		const commitCatchUpUnread = vi.fn(async () => undefined);
+		const onPrepareCatchUpUnread = vi.fn(async () => ({
+			abandon: vi.fn(),
+			commit: commitCatchUpUnread,
+		}));
+		renderSpaceConversationPanel({
+			onPrepareCatchUpUnread,
+			timelineItems: [createTimelineItem({ text: "Unread short message" })],
+			unreadCount: 1,
+			unreadStateReady: true,
+			unreadTargets: [
+				{
+					occurredAtMs: 10,
+					signalId: "signal-1",
+					threadRootSignalId: null,
+				},
+			],
+		});
+
+		const jumpButton = screen.getByRole("button", {
+			name: "Jump to latest and mark messages as read",
+		});
+		expect(
+			jumpButton.closest("[data-active]")?.getAttribute("data-active")
+		).toBe("true");
+
+		fireEvent.click(jumpButton);
+
+		await waitFor(() => expect(commitCatchUpUnread).toHaveBeenCalledOnce());
+		expect(onPrepareCatchUpUnread).toHaveBeenCalledOnce();
+	});
+
+	it("keeps catch-up retryable after reaching latest when the read write fails", async () => {
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		renderSpaceConversationPanel({
+			onPrepareCatchUpUnread: vi.fn(async () => ({
+				abandon: vi.fn(),
+				commit: () => Promise.reject(new Error("offline")),
+			})),
+			timelineItems: [createTimelineItem({ text: "Unread short message" })],
+			unreadCount: 1,
+			unreadStateReady: true,
+			unreadTargets: [
+				{
+					occurredAtMs: 10,
+					signalId: "signal-1",
+					threadRootSignalId: null,
+				},
+			],
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Jump to latest and mark messages as read",
+			})
+		);
+
+		expect(
+			await screen.findByText(
+				"You’re at the latest messages, but OpenMeld couldn’t mark them as read. Try again."
+			)
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", {
+				name: "Try again to mark the latest messages as read",
+			})
+		).toBeTruthy();
+		consoleError.mockRestore();
+	});
+
+	it("abandons catch-up when the reader navigates history during preparation", async () => {
+		vi.stubGlobal("CSS", {
+			...globalThis.CSS,
+			escape: (value: string) => value,
+		});
+		let resolvePreparation:
+			| ((prepared: {
+					abandon: () => void;
+					commit: () => Promise<void>;
+			  }) => void)
+			| undefined;
+		const abandon = vi.fn();
+		const commit = vi.fn(async () => undefined);
+		const latest = vi.fn();
+		const open = vi.fn(async () => true);
+		const onPrepareCatchUpUnread = vi.fn(
+			() =>
+				new Promise<{
+					abandon: () => void;
+					commit: () => Promise<void>;
+				}>((resolve) => {
+					resolvePreparation = resolve;
+				})
+		);
+		renderSpaceConversationPanel({
+			historyNavigation: {
+				activeWindow: null,
+				directory: {
+					entries: [
+						{
+							author: "Felix",
+							count: 1,
+							endAt: Date.UTC(2026, 4, 26),
+							endSignalId: "signal-history",
+							preview: "Earlier decision",
+							signalId: "signal-history",
+							startAt: Date.UTC(2026, 4, 26),
+						},
+					],
+					total: 61,
+				},
+				directoryError: false,
+				directoryPending: false,
+				error: null,
+				latest,
+				loadAfter: vi.fn(async () => false),
+				loadBefore: vi.fn(async () => false),
+				open,
+				hrefForSignalId: undefined,
+				earlierHref: undefined,
+				latestHref: undefined,
+				newerHref: undefined,
+				pending: false,
+				retryDirectory: vi.fn(),
+				revealCachedBefore: vi.fn(),
+				visibleLiveEnvelopes: [],
+				hasHiddenLiveHistory: false,
+			},
+			onPrepareCatchUpUnread,
+			timelineItems: [createTimelineItem({ text: "Current position" })],
+			unreadCount: 1,
+			unreadStateReady: true,
+			unreadTargets: [
+				{
+					occurredAtMs: 10,
+					signalId: "signal-1",
+					threadRootSignalId: null,
+				},
+			],
+		});
+		const conversationLog = screen.getByRole("log", {
+			name: "Conversation history",
+		});
+		const currentMessage = conversationLog.querySelector<HTMLElement>(
+			"[data-history-signal-id='signal-1']"
+		);
+		if (!currentMessage) {
+			throw new Error("Expected the current message position anchor");
+		}
+		vi.spyOn(currentMessage, "getBoundingClientRect").mockImplementation(() =>
+			createTestDomRect({ bottom: 180, height: 80, top: 100 })
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: EARLIER_DECISION_PATTERN })
+		);
+		await waitFor(() => expect(open).toHaveBeenCalledWith("signal-history"));
+		const back = await screen.findByRole("button", {
+			name: "Back to previous position",
+		});
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Jump to latest and mark messages as read",
+			})
+		);
+		expect(onPrepareCatchUpUnread).toHaveBeenCalledOnce();
+
+		fireEvent.click(back);
+		await waitFor(() => expect(open).toHaveBeenCalledTimes(2));
+		expect(open).toHaveBeenNthCalledWith(2, "signal-1");
+		act(() => {
+			resolvePreparation?.({ abandon, commit });
+		});
+
+		await waitFor(() => expect(abandon).toHaveBeenCalledOnce());
+		expect(latest).not.toHaveBeenCalled();
+		expect(commit).not.toHaveBeenCalled();
+	});
+
+	it("lets an anchored public history view navigate to the real latest URL", () => {
+		const latest = vi.fn();
+		const signal = {
+			...createThreadPreviewSignal(),
+			data: { text: "Old anchored message" },
+			id: "sig-old",
+		};
+		const historyNavigation = {
+			activeWindow: {
+				envelopes: [signal],
+				hasAfter: true,
+				hasBefore: true,
+				identity: "space-123:public",
+			},
+			directory: {
+				entries: [
+					{
+						author: "Felix",
+						count: 30,
+						endAt: 20,
+						endSignalId: signal.id,
+						preview: "Old anchored message",
+						signalId: signal.id,
+						startAt: 10,
+					},
+				],
+				total: 240,
+			},
+			directoryError: false,
+			directoryPending: false,
+			earlierHref: "/spaces/space-123?signalId=sig-earlier",
+			error: null,
+			hasHiddenLiveHistory: false,
+			hrefForSignalId: (signalId: string) =>
+				`/spaces/space-123?signalId=${signalId}`,
+			latest,
+			latestHref: "/spaces/space-123",
+			loadAfter: vi.fn(async () => false),
+			loadBefore: vi.fn(async () => false),
+			open: vi.fn(async () => true),
+			newerHref: "/spaces/space-123?signalId=sig-old",
+			pending: false,
+			retryDirectory: vi.fn(),
+			revealCachedBefore: vi.fn(),
+			visibleLiveEnvelopes: [signal],
+		} as NonNullable<SpaceConversationPanelInput["historyNavigation"]>;
+		renderSpaceConversationPanel({
+			historyNavigation,
+			timelineItems: buildSpaceTimelineItems({
+				envelopes: [signal],
+				membersSnapshot: null,
+			}),
+		});
+
+		const latestLink = screen.getByRole("button", {
+			name: "Jump to latest message",
+		});
+		expect(latestLink.getAttribute("href")).toBe("/spaces/space-123");
+		const click = new MouseEvent("click", {
+			bubbles: true,
+			button: 0,
+			cancelable: true,
+		});
+		expect(latestLink.dispatchEvent(click)).toBe(true);
+		expect(latest).not.toHaveBeenCalled();
+		expect(document.querySelector(".space-history-tick")?.tagName).toBe("A");
+		const newerLink = screen.getByRole("button", {
+			name: "Load newer messages",
+		});
+		expect(newerLink.tagName).toBe("A");
+		expect(newerLink.getAttribute("href")).toBe(
+			"/spaces/space-123?signalId=sig-old"
+		);
+		fireEvent.click(newerLink);
+		expect(historyNavigation.loadAfter).toHaveBeenCalledTimes(1);
+		const modifiedClick = new MouseEvent("click", {
+			bubbles: true,
+			button: 0,
+			cancelable: true,
+			ctrlKey: true,
+		});
+		expect(newerLink.dispatchEvent(modifiedClick)).toBe(true);
+		expect(historyNavigation.loadAfter).toHaveBeenCalledTimes(1);
+
+		cleanup();
+		renderSpaceConversationPanel({
+			historyNavigation: {
+				...historyNavigation,
+				earlierHref: undefined,
+				hrefForSignalId: undefined,
+				latestHref: undefined,
+				newerHref: undefined,
+			},
+			timelineItems: buildSpaceTimelineItems({
+				envelopes: [signal],
+				membersSnapshot: null,
+			}),
+		});
+		expect(document.querySelector(".space-history-tick")?.tagName).toBe(
+			"BUTTON"
+		);
 	});
 
 	it("renders profile avatars and keeps message time outside the bubble", () => {
@@ -4921,6 +5318,7 @@ function createReadyComposerFile() {
 		},
 		errorMessage: null,
 		errorRequestId: null,
+		failurePhase: null,
 		fileName: "launch-brief.pdf",
 		localId: "local-file-1",
 		mimeType: "application/pdf",
@@ -4950,6 +5348,7 @@ function createFailedComposerFile() {
 		upload: null,
 		errorMessage: "OpenMeld couldn't add this file. Try again.",
 		errorRequestId: "request-file-failed",
+		failurePhase: "stage" as const,
 		fileName: "broken.pdf",
 		localId: "local-file-failed",
 		mimeType: "application/pdf",
@@ -5078,9 +5477,14 @@ function createThreadPreview(threadId: string): SpaceThreadPreview {
 	};
 }
 
-function createThreadPreviewSignal(): SignalEnvelope {
+function createThreadPreviewSignal(): Extract<
+	SignalEnvelope,
+	{ type: "signal.text" }
+> {
 	return {
-		data: { text: `/spaces/${REFERENCED_SPACE_ID}` },
+		data: {
+			text: `https://example.com /spaces/${REFERENCED_SPACE_ID}`,
+		},
 		id: "sig-thread-preview",
 		profile: {
 			kind: "human",

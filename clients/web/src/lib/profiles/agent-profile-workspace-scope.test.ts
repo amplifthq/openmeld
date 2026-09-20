@@ -11,6 +11,8 @@ const getPrimaryBindingMock = vi.hoisted(() => vi.fn());
 const setCurrentAgentProfileWorkspaceMock = vi.hoisted(() => vi.fn());
 const updatePermissionModeMock = vi.hoisted(() => vi.fn());
 const createOrganizationScopedFoundationMock = vi.hoisted(() => vi.fn());
+const desktopMock = vi.hoisted(() => vi.fn());
+vi.mock("#/desktop/platform", () => ({ getDesktopPlatform: desktopMock }));
 
 vi.mock("@openmeld/api-client", async () => {
 	const actual = await vi.importActual<typeof import("@openmeld/api-client")>(
@@ -37,6 +39,7 @@ vi.mock("#/lib/openmeld-api/client", () => ({
 
 describe("Agent Profile Workspace-scoped Web clients", () => {
 	beforeEach(() => {
+		desktopMock.mockReset().mockReturnValue(null);
 		createOrganizationScopedFoundationMock
 			.mockReset()
 			.mockReturnValue({ requestJson: vi.fn() });
@@ -112,5 +115,42 @@ describe("Agent Profile Workspace-scoped Web clients", () => {
 			agentProfileId: "agt-profile",
 			workspaceMode: "openmeld_managed",
 		});
+	});
+
+	it("keeps Desktop workspace writes on the chosen native computer and preserves the full path", async () => {
+		const target = { deviceId: "mac-a", runtimeLane: "canary" as const };
+		desktopMock.mockReturnValue({
+			localComputer: async () => ({
+				status: "available",
+				accountId: "account-a",
+				target,
+			}),
+		});
+		const input = {
+			organizationId: "org-route",
+			profileId: "agt-profile",
+			workspaceMode: "custom" as const,
+			workspacePath: "/work/Design 中文 ",
+			target,
+		};
+		await updateAgentProfileWorkspace(input);
+		expect(setCurrentAgentProfileWorkspaceMock).toHaveBeenCalledExactlyOnceWith(
+			{
+				agentProfileId: input.profileId,
+				workspaceMode: "custom",
+				workspacePath: input.workspacePath,
+				target,
+			}
+		);
+		setCurrentAgentProfileWorkspaceMock.mockClear();
+		for (const wrongTarget of [
+			{ ...target, deviceId: "mac-b" },
+			{ ...target, runtimeLane: "prod" as const },
+		]) {
+			await expect(
+				updateAgentProfileWorkspace({ ...input, target: wrongTarget })
+			).rejects.toThrow();
+		}
+		expect(setCurrentAgentProfileWorkspaceMock).not.toHaveBeenCalled();
 	});
 });

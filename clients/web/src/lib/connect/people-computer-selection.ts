@@ -9,6 +9,8 @@ import type {
 export function selectPeopleComputerTarget(input: {
 	inventory?: PeopleComputersResponse;
 	routingPreference?: CurrentDeviceTargetResponse;
+	/** Pending/failed is not an authoritative absence; explicit/setup still work. */
+	routingPreferenceUnavailable?: boolean;
 	completedSetup: {
 		deviceId: string | null;
 		runtimeLane: string | null;
@@ -43,6 +45,9 @@ export function selectPeopleComputerTarget(input: {
 	}
 	// Account routing is not evidence that this browser completed a handoff.
 	if (input.selection === "setup") {
+		return null;
+	}
+	if (input.routingPreferenceUnavailable) {
 		return null;
 	}
 	const preference = input.routingPreference;

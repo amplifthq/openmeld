@@ -27,6 +27,7 @@ import {
 } from "#/lib/spaces/active-wake-conversation";
 import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-interactions";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
+import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
 import { isSpaceMessageAgentWorking } from "#/lib/spaces/message-state";
@@ -180,6 +181,7 @@ import type {
 } from "./use-space-mention-authoring";
 import { useSpacePanelWidth } from "./use-space-panel-width";
 import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
+import { useSpaceUnread } from "./use-space-unread";
 
 const SINGLE_MESSAGE_GROUP_POSITION = {
 	isFirstInGroup: true,
@@ -282,6 +284,7 @@ type SpaceThreadPanelProps = {
 	isDiagnosticReportSent: (signalId: string) => boolean;
 	isCenterAgentDirectMessage?: boolean;
 	isDirectMessage?: boolean;
+	initialFocusRequestId?: number | string;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 	actionableAgentInteractionPlacement?: SpaceAgentInteractionPlacement;
@@ -299,6 +302,11 @@ type SpaceThreadPanelProps = {
 	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 	onAddPeopleOrAgents?: () => void;
 	onRemoveComposerFile: (localId: string) => void;
+	onRetryComposerFile?: (localId: string) => Promise<void>;
+	onRetryComposerFileCleanup?: (localId: string) => Promise<void>;
+	onRetryComposerFileRestoration?: () => void;
+	composerFileCleanup?: readonly ComposerFileDraftCleanup[];
+	composerFileRestorationError?: unknown | null;
 	onMentionButtonClick: () => void;
 	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
@@ -324,6 +332,7 @@ type SpaceThreadPanelProps = {
 		SpaceWakeStopRequestStatus
 	>;
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
+	unreadStateReady?: boolean;
 };
 
 export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
@@ -363,6 +372,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 		useThreadInitialFocus({
 			signals: input.signals,
 			activeThread: input.activeThread,
+			initialFocusRequestId: input.initialFocusRequestId,
 			initialFocusSignalId: input.initialFocusSignalId,
 			initialFocusThreadRootSignalId: input.initialFocusThreadRootSignalId,
 		});
@@ -465,7 +475,17 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 			),
 		[activeThreadRootSignalId, input.unreadTargets]
 	);
-	const firstUnreadSignalId = activeUnreadTargets[0]?.signalId ?? null;
+	const unreadState = useSpaceUnread({
+		identity: [
+			input.activeThread?.spaceId ?? "pending",
+			input.selfProfileId,
+			activeThreadRootSignalId ?? "no-thread",
+		].join(":"),
+		isReady: input.unreadStateReady === true,
+		targets: input.unreadTargets ?? [],
+		threadRootSignalId: activeThreadRootSignalId,
+	});
+	const firstUnreadSignalId = unreadState.firstSignalId;
 
 	const focusStatusMessage = resolveThreadFocusStatusMessage({
 		activeThread: input.activeThread,
@@ -795,6 +815,7 @@ function useThreadMessageDetailsController(input: {
 }
 
 function useThreadInitialFocus(input: {
+	initialFocusRequestId?: number | string;
 	signals: SpaceThreadPanelProps["signals"];
 	activeThread: SpaceThread | null;
 	initialFocusSignalId?: string;
@@ -831,7 +852,7 @@ function useThreadInitialFocus(input: {
 			highlightedElementRef.current = null;
 			return;
 		}
-		const targetKey = `${input.activeThread.threadId}:${targetSignalId}`;
+		const targetKey = `${input.activeThread.threadId}:${targetSignalId}:${input.initialFocusRequestId ?? 0}`;
 		if (appliedInitialFocusRef.current === targetKey) {
 			return;
 		}
@@ -869,6 +890,7 @@ function useThreadInitialFocus(input: {
 		}, 1800);
 	}, [
 		input.activeThread,
+		input.initialFocusRequestId,
 		input.initialFocusSignalId,
 		input.initialFocusThreadRootSignalId,
 		input.signals,
@@ -1147,6 +1169,7 @@ function ThreadTimeline(input: {
 		[input.allItems, input.ephemeralActivityItems]
 	);
 	const messageGroupPositionBySignalId = buildThreadMessageGroupPositions({
+		firstUnreadSignalId: input.firstUnreadSignalId,
 		items: input.items,
 		selfProfileId: input.selfProfileId,
 	});
@@ -1214,7 +1237,7 @@ function ThreadTimeline(input: {
 							return (
 								<Fragment key={resolveSpaceConversationItemKey(item)}>
 									{item.id === input.firstUnreadSignalId ? (
-										<div className="my-2 flex items-center gap-3 text-foreground text-xs before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
+										<div className="my-2 flex items-center gap-3 text-unread text-xs before:h-px before:flex-1 before:bg-unread after:h-px after:flex-1 after:bg-unread">
 											<span>New messages</span>
 										</div>
 									) : null}
@@ -1701,6 +1724,7 @@ function useLatestCallback<Arguments extends unknown[], Result>(
 }
 
 function buildThreadMessageGroupPositions(input: {
+	firstUnreadSignalId: string | null;
 	items: readonly SpaceTimelineItem[];
 	selfProfileId: string;
 }): ReadonlyMap<string, { isFirstInGroup: boolean; isLastInGroup: boolean }> {
@@ -1709,6 +1733,9 @@ function buildThreadMessageGroupPositions(input: {
 		{ isFirstInGroup: boolean; isLastInGroup: boolean }
 	>();
 	const entries = buildSpaceConversationEntries({
+		groupBoundarySignalIds: input.firstUnreadSignalId
+			? new Set([input.firstUnreadSignalId])
+			: undefined,
 		selfProfileId: input.selfProfileId,
 		timelineItems: input.items,
 	});
@@ -1789,6 +1816,11 @@ function ThreadComposer(input: {
 	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 	onAddPeopleOrAgents?: () => void;
 	onRemoveComposerFile: (localId: string) => void;
+	onRetryComposerFile?: (localId: string) => Promise<void>;
+	onRetryComposerFileCleanup?: (localId: string) => Promise<void>;
+	onRetryComposerFileRestoration?: () => void;
+	composerFileCleanup?: readonly ComposerFileDraftCleanup[];
+	composerFileRestorationError?: unknown | null;
 	onMentionButtonClick: () => void;
 	onSend: (options?: SpaceComposerSendOptions) => Promise<void>;
 	orgSlug?: string;
@@ -1815,6 +1847,9 @@ function ThreadComposer(input: {
 				onEditorChange: input.onComposerEditorChange,
 				onMentionButtonClick: input.onMentionButtonClick,
 				onRemoveFile: input.onRemoveComposerFile,
+				onRetryFile: input.onRetryComposerFile,
+				onRetryFileCleanup: input.onRetryComposerFileCleanup,
+				onRetryFileRestoration: input.onRetryComposerFileRestoration,
 				onSubmit: submitComposer,
 			}}
 			availability={{
@@ -1829,6 +1864,8 @@ function ThreadComposer(input: {
 				addressingTargets: input.composerAddressingTargets,
 				authoredMentions: input.composerAuthoredMentions,
 				files: input.composerFiles,
+				fileCleanup: input.composerFileCleanup,
+				fileRestorationError: input.composerFileRestorationError,
 				hasAuthoredMentions: input.composerHasAuthoredMentions,
 				mentionPickerItems: input.composerMentionPickerItems,
 				mentionEmptyMessage: input.composerMentionEmptyMessage,

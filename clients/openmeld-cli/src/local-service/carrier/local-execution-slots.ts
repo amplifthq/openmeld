@@ -10,8 +10,10 @@ import type { DaemonDispatchLimits } from "../core/types";
 export function createDaemonLocalExecutionSlots(input: {
   limits: DaemonDispatchLimits;
   presenter: Presenter;
+  onChanged?: () => void;
 }): LocalExecutionSlots {
   return createLocalExecutionSlots({
+    onChanged: input.onChanged,
     limits: {
       ...input.limits,
       contextConcurrency: AGENT_PROFILE_WORK_CONCURRENCY_LIMIT,

@@ -4,14 +4,19 @@ import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-ton
 export function resolveInboxItemIndicator(item: InboxItem) {
 	if (
 		item.attention === "action_required" &&
-		item.resolutionStatus === "open"
+		item.resolutionStatus === "open" &&
+		item.importance === "urgent"
 	) {
-		return "danger";
+		return "warning";
 	}
 	if (item.readAt !== null) {
 		return null;
 	}
-	if (item.importance === "urgent" && item.resolutionStatus !== "resolved") {
+	if (
+		item.attention === "update" &&
+		(item.importance === "urgent" ||
+			(item.sourceFacts?.firstContactAgentProfileIds?.length ?? 0) > 0)
+	) {
 		return "warning";
 	}
 	return "unread";
@@ -24,7 +29,7 @@ export function resolveInboxAttentionLabel(
 		return "Needs action";
 	}
 	if (tone === "warning") {
-		return "Urgent updates";
+		return "Priority attention";
 	}
 	return null;
 }

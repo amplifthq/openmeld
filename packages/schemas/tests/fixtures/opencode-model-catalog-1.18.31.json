@@ -1,0 +1,48 @@
+{
+  "capture": {
+    "commands": [
+      "opencode models opencode-go --refresh --verbose",
+      "opencode models opencode --refresh --verbose"
+    ],
+    "harnessVersion": "1.18.31",
+    "observedAt": "2026-09-16T16:16:02Z",
+    "providerRoutes": [
+      "OpenCode Go API credential",
+      "OpenCode free route without a paid Zen credential"
+    ]
+  },
+  "models": [
+    {
+      "id": "deepseek-v4.1-flash",
+      "providerID": "opencode-go",
+      "name": "DeepSeek V4.1 Flash",
+      "status": "active",
+      "variants": {
+        "low": { "reasoningEffort": "low" },
+        "high": { "reasoningEffort": "high" },
+        "max": { "reasoningEffort": "max" }
+      }
+    },
+    {
+      "id": "hy4-preview",
+      "providerID": "opencode-go",
+      "name": "Hy4 preview",
+      "status": "active",
+      "variants": {
+        "none": { "reasoningEffort": "none" },
+        "high": { "reasoningEffort": "high" }
+      }
+    },
+    {
+      "id": "ling-3.0-flash-fin-free",
+      "providerID": "opencode",
+      "name": "Ling 3.0 Flash Fin Free",
+      "status": "active",
+      "variants": {
+        "low": { "reasoningEffort": "low" },
+        "medium": { "reasoningEffort": "medium" },
+        "high": { "reasoningEffort": "high" }
+      }
+    }
+  ]
+}

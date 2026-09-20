@@ -16,14 +16,24 @@ import {
 const POWERSHELL_ENCODED_COMMAND_RE =
 	/^powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ([A-Za-z0-9+/=]+)$/u;
 
-vi.hoisted(() => {
-	// Configuration is captured at module load. These formatting fixtures supply
-	// lane homes explicitly and must not inherit the focused runner's temp home.
-	vi.stubEnv("VITE_OPENMELD_HOME", "");
-});
+// The composed compiled-target tests cover the real environment loader. These
+// formatting fixtures supply explicit configuration and vary it per case.
+vi.mock("#/env", () => ({
+	env: {
+		get VITE_OPENMELD_HOME() {
+			return import.meta.env.VITE_OPENMELD_HOME;
+		},
+		get VITE_OPENMELD_SETUP_USER_FACING_COMMAND() {
+			return import.meta.env.VITE_OPENMELD_SETUP_USER_FACING_COMMAND;
+		},
+	},
+}));
 
 describe("cli-entry-command", () => {
-	beforeEach(() => vi.stubEnv("VITE_OPENMELD_HOME", ""));
+	beforeEach(() => {
+		vi.stubEnv("VITE_OPENMELD_HOME", "");
+		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld-dev");
+	});
 	afterEach(() => {
 		vi.unstubAllEnvs();
 		vi.unstubAllGlobals();
@@ -62,8 +72,7 @@ describe("cli-entry-command", () => {
 	});
 
 	it("uses readable npx commands for production Web handoff setup", () => {
-		vi.stubEnv("DEV", false);
-		vi.stubEnv("PROD", true);
+		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld");
 		vi.stubEnv("VITE_OPENMELD_HOME", "/tmp/openmeld-web-start-fresh");
 
 		expect(
@@ -110,8 +119,7 @@ describe("cli-entry-command", () => {
 	});
 
 	it("hands Connect Computer an approved device code instead of the browser session", () => {
-		vi.stubEnv("DEV", false);
-		vi.stubEnv("PROD", true);
+		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld");
 
 		expect(
 			buildWebSetupCommand({
@@ -154,8 +162,7 @@ describe("cli-entry-command", () => {
 	});
 
 	it("uses the production setup bootstrap for Prepare Session commands only", () => {
-		vi.stubEnv("DEV", false);
-		vi.stubEnv("PROD", true);
+		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld");
 
 		expect(
 			buildWebSetupCommand({
@@ -176,8 +183,7 @@ describe("cli-entry-command", () => {
 	});
 
 	it("builds an agent-view setup session command with local agent selection", () => {
-		vi.stubEnv("DEV", false);
-		vi.stubEnv("PROD", true);
+		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld");
 
 		expect(
 			buildWebSetupCommand({
@@ -202,8 +208,7 @@ describe("cli-entry-command", () => {
 	});
 
 	it("builds a Windows PowerShell bootstrap for Prepare Session commands", () => {
-		vi.stubEnv("DEV", false);
-		vi.stubEnv("PROD", true);
+		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld");
 
 		const command = buildWebSetupCommand({
 			oneTimeToken: "ott_demo",
@@ -249,8 +254,7 @@ describe("cli-entry-command", () => {
 	});
 
 	it("defaults fresh Staging computers to the canary binary channel", async () => {
-		vi.stubEnv("DEV", false);
-		vi.stubEnv("PROD", true);
+		// Staging is explicitly canary, regardless of build mode.
 		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld-canary");
 		vi.stubGlobal("window", {
 			location: { origin: "https://staging.openmeld.ai" },
@@ -309,8 +313,7 @@ describe("cli-entry-command", () => {
 	});
 
 	it("keeps npx for non-default production gateways", () => {
-		vi.stubEnv("DEV", false);
-		vi.stubEnv("PROD", true);
+		vi.stubEnv("VITE_OPENMELD_SETUP_USER_FACING_COMMAND", "openmeld");
 
 		expect(
 			buildWebSetupCommand({
@@ -411,7 +414,7 @@ describe("cli-entry-command", () => {
 		);
 	});
 
-	it("uses the selected dev execution target command without OPENMELD_HOME lane overrides", () => {
+	it("keeps the selected dev execution target on its configured OPENMELD_HOME", () => {
 		vi.stubEnv("VITE_OPENMELD_HOME", "/tmp/openmeld web start fresh");
 
 		expect(
@@ -422,7 +425,7 @@ describe("cli-entry-command", () => {
 				userFacingCommand: "openmeld-dev",
 			})
 		).toBe(
-			"OPENMELD_GATEWAY_URL=http://localhost:8080 openmeld-dev setup --agent codex --ott ott_demo --view human"
+			"OPENMELD_HOME='/tmp/openmeld web start fresh' OPENMELD_GATEWAY_URL=http://localhost:8080 openmeld-dev setup --agent codex --ott ott_demo --view human"
 		);
 	});
 

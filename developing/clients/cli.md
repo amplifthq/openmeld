@@ -276,14 +276,11 @@ ordinary message presentation. A Local Agent that needs more Organization
 context asks through this same command and receives only what the represented
 member and current environment authorize.
 
-When the Center Agent creates one or more canonical Tasks during that turn, the
-visible reply already carries typed Task references. Agent View preserves those
-references and adds Organization-scoped Web URLs instead of reducing the reply
-to text. The CLI still does not create a parallel Task API or decide that every
-request is a Task: quick answers and immediate safe actions stay in Chat, while
-the Center Agent may create durable, asynchronous, parallel, or recoverable
-work through the existing Task tool. A returned Task reference means the work
-already exists and must not be resubmitted.
+The private Center Agent Direct Message does not create Space Tasks or return a
+parallel Task reference. When the same Agent Profile participates in an
+ordinary shared Space, it may use the Space-owned Task contract described
+below. Quick answers and immediate safe actions stay in Messages on both
+surfaces.
 
 If the Center Agent needs human input, Human View points the member to the same
 Center Agent Chat. Agent View returns the structured pending interaction and
@@ -675,7 +672,11 @@ For an update, a handoff response says only that the update started in the
 background after the prepared replacement and durable job reached the operating
 system's update worker. It must not say updated, complete, or aligned. A terminal
 that remains attached may use those completion words only after the operation is
-`updated` and the exact target CLI and Service are observed. The user may close
+`updated` and the exact operation-scoped CLI and Service targets are observed.
+Older operations expose only one legacy target and readers apply it to both
+components. An eligible CLI-only release can explicitly retain an older healthy
+Service, so clients must not substitute the CLI target for a present Service
+target. The user may close
 the Terminal or Web Setup immediately after handoff. The worker waits for all
 accepted Wake work and durable result receipts, resumes after interruption or
 computer restart, verifies the replacement, and restores the previous verified
@@ -685,6 +686,13 @@ version change. Broken or ambiguous Service state remains an explicit repair.
 Core's update projection selects the job policy: `available` keeps admitting new
 Wake work while waiting for an idle switch; `required` stops new admission but
 still lets already accepted work finish safely.
+
+For npm installation or repair, the selected package root must identify the
+requested package name and version before its Service bundle can be prepared.
+An explicit CLI script path is not permission to relabel older package bytes as
+a newer Service. A mismatch fails actionably and leaves the current Service
+untouched. npm continues to source CLI and Service from the same actual package;
+the independent retained-Service selection is a managed-binary release feature.
 `openmeld uninstall` removes local OpenMeld data
 for this device as a whole, while `openmeld service uninstall` removes only the
 daemon registration and disposable Runtime state. The lane's stable local device
@@ -962,6 +970,52 @@ Deployment order and the separate W2/W5 Remote Agent windows live in
 
 ### Space File Commands
 
+Selected-file work uses these explicit boundaries:
+
+```text
+openmeld space files working-copy prepare <space-id> --selection <json> --directory <new-directory>
+openmeld space files working-copy status <space-id> <copy-id>
+openmeld space files working-copy resume <space-id> <copy-id>
+openmeld space files working-copy commit <space-id> <copy-id>
+openmeld space files working-copy reconcile <space-id> <copy-id>
+openmeld space files working-copy refresh <space-id> <copy-id>
+openmeld space files working-copy resolve <space-id> <copy-id> --file-id <file-id> --revision <incoming-revision>
+openmeld space files working-copy incoming <space-id> <copy-id> --directory <new-directory>
+openmeld space files handoff <space-id> --manifest <json> --target <profile-id> --client-message-id <stable-id> [--thread <thread-id>]
+```
+
+Selection JSON follows `spaceWorkSelectionSchema`; the handoff follows
+`spaceWorkHandoffSchema`. Prepare requires a fresh directory. Resume preserves
+edits to completed downloads. Commit freezes changed bytes and persists their
+mutation identities before upload. Reconcile retries those exact bytes after
+an unknown outcome, keeping subsequent local edits dirty. Incoming downloads
+the current shared versions to a separate directory for manual comparison;
+it never resets the existing copy. No background watcher uploads changes.
+
+A definite `space_file.conflict` stops retrying the rejected snapshot. For that
+same copy, `refresh` downloads the conflicting shared version alongside the
+working file; `status` returns its path and revision. Merge into the original
+working file, then explicitly `resolve` that file against the downloaded
+revision before committing. Identical local and incoming bytes can adopt that
+revision without another upload. Resolve rejects an unchanged rejected snapshot
+that differs from incoming, or
+an unprepared revision. It neither merges automatically nor selects latest
+silently. The server still rejects a base that advanced again. The original
+rejected snapshot and incoming content remain available; unknown upload outcomes
+continue to reconcile the same mutation instead of entering this flow.
+
+Use commit's returned exact references in a later handoff or final reply.
+Handoff posts one complete message through existing Wake admission. It does not
+upload an arbitrary directory or claim that the successor started. Account or
+Organization changes fence network work. Working copies are lane-, account-,
+Organization-, Space-, and Profile-scoped local bookkeeping, not permission.
+
+An admitted selected-work Wake prepares the same working copy before running.
+Its `working_copy` model tool exposes status, commit, reconcile, refresh, and
+resolve only for that Wake's copy; final `reply` can select returned exact file
+references. Managed-copy commands require macOS; automatic workstation execution
+requires the Codex App Server permission profile and actual access probe.
+
 `openmeld space files` is the canonical terminal and workstation-Agent entry to
 the current Space filesystem. The MVP commands are:
 
@@ -1008,6 +1062,21 @@ password without printing or embedding that password in output. Thread replies
 use the same message file contract.
 
 ### OpenMeld Space Action Commands
+
+The dispatch Space Action MCP also exposes non-final `list_tasks`,
+`create_task`, `start_task`, `submit_task_result`, `review_task`, and
+`cancel_task` tools in an eligible shared Space. Their Space, source Signal,
+and Agent actor are fixed by the active dispatch context. They call the shared
+Space Task API through normal CLI authentication and recheck that the context
+did not change before accepting the result. A Task tool does not consume or
+replace the Wake's one required final Space action.
+
+Agents create a Task only for a clear delivery obligation that needs durable
+ownership, progress, review, or later closure. Questions and tiny same-turn
+actions stay in Messages. Creating assigns the current Agent by default and
+leaves the Task in To do; starting, result submission, review, and cancellation
+are explicit revision-bound writes. Task cancellation may request the existing
+Wake Stop path, but the Task receipt never claims that a process stopped.
 
 An Agent chooses exactly one dispatch-scoped OpenMeld Space Action as a Wake's
 final outcome. A supported controller receives first-party `reply`, `status`,
@@ -1193,7 +1262,28 @@ remains a compatibility receiver for commands generated before this contract
 changed and uses the same fail-atomic Prepare handoff; it is not the
 Web-recommended handoff.
 
-The signed macOS binary stores new bearer sessions in the user's macOS
+`computer disconnect --connection-intent <json>` ends the explicitly reviewed
+local account connection while retaining its cloud Computer record. The intent
+uses the same expected account and stable previous-session identity as setup.
+The existing Service admission owner checks that identity under its auth lock
+before Stop, including same-account re-login. Controlled Stop must complete
+before the existing auth owner clears that exact session; lifecycle ownership
+covers both operations. A cleanup retry requires matching stopped Service intent,
+environment ownership, and verified runtime absence. Desktop sign-in is separate.
+Ordinary Service Stop keeps CLI credentials; cloud Forget removes the saved
+Computer record. Neither is an alias for Disconnect. Entry checks must not
+sign in, update, repair, or start the Service before reviewed admission.
+
+Isolated macOS `dev-local` sign-ins use the existing private-file store when
+Auth and Gateway are loopback endpoints and an explicit Home is outside the
+default user-state directories (including symlink targets). The CLI warns that
+this is unencrypted test storage. Existing token references are never migrated;
+Service reads use the same reference after restart. Set
+`OPENMELD_DEV_CREDENTIAL_STORE=system` at login to retain normal OS storage
+selection; use a fresh Home and verify the provider for Keychain acceptance.
+See [local development sign-in](../engineering/development-workflow.md#local-macos-cliservice-sign-in).
+
+The signed macOS binary otherwise stores new bearer sessions in the user's macOS
 Keychain through Security.framework. The bare Developer ID CLI must not request
 a restricted Keychain access-group entitlement, because it has no embedded
 provisioning profile and macOS would reject the executable before it starts.
@@ -1223,8 +1313,8 @@ one-off helper failures may recover through the single bounded retry. If the
 session is still unavailable, the command fails closed, preserves
 `session_token_unavailable` in Agent View, and tells the caller to retry from a
 fresh CLI process or inspect `openmeld auth status --view agent`. It must not
-misreport that unavailable state as an invalid sign-in or require a new login
-without that evidence. A later
+promise the condition is temporary, misreport it as an invalid sign-in, or
+require a new login without that evidence. A later
 login through a packaged CLI stores its newly issued replacement in Keychain
 only when that Keychain write succeeds, then removes the previous private file.
 A failed old credential deletion is retained as pending cleanup outside the

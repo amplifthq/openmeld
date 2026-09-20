@@ -3,19 +3,92 @@ import {
   check,
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { organizations, users } from "../auth/auth.schema.ts";
 
-export const inboxItems = sqliteTable(
-  "inbox_items",
+/** Monotonic native installation facts, not another notification/read ledger. */
+export const desktopUpdateInstallations = sqliteTable(
+  "desktop_update_installations",
+  {
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    installationId: text("installation_id").notNull(),
+    lane: text("lane").notNull(),
+    sequence: integer("sequence").notNull(),
+    observationJson: text("observation_json").notNull(),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.ownerUserId, table.installationId, table.lane],
+    }),
+    check(
+      "desktop_update_installations_sequence_check",
+      sql`"sequence" > 0 and "updated_at_ms" >= 0`
+    ),
+    check(
+      "desktop_update_installations_json_check",
+      sql`json_valid("observation_json") and json_type("observation_json") = 'object'`
+    ),
+    check(
+      "desktop_update_installations_lane_check",
+      sql`"lane" in ('prod', 'dev-local', 'canary')`
+    ),
+  ]
+);
+
+/** Short-lived query cutoffs, never copies of conversation or Inbox content. */
+export const inboxFeedSnapshots = sqliteTable(
+  "inbox_feed_snapshots",
   {
     id: text("id").primaryKey(),
     organizationId: text("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
+    recipientUserId: text("recipient_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    category: text("category").notNull(),
+    unreadOnly: integer("unread_only", { mode: "boolean" }).notNull(),
+    agentsOnly: integer("agents_only", { mode: "boolean" }).notNull(),
+    peopleOnly: integer("people_only", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    conversationType: text("conversation_type").notNull().default("all"),
+    throughRowId: integer("through_row_id").notNull(),
+    createdAtMs: integer("created_at_ms").notNull(),
+    expiresAtMs: integer("expires_at_ms").notNull(),
+  },
+  (table) => [
+    index("inbox_feed_snapshot_expiry_idx").on(table.expiresAtMs),
+    index("inbox_feed_snapshot_recipient_idx").on(
+      table.recipientUserId,
+      table.organizationId,
+      table.expiresAtMs
+    ),
+    check(
+      "inbox_feed_snapshot_category_check",
+      sql`"category" in ('all', 'mentions', 'needs_action', 'needs_review')`
+    ),
+    check(
+      "inbox_feed_snapshot_cutoff_check",
+      sql`"through_row_id" >= 0 and "created_at_ms" >= 0 and "expires_at_ms" > "created_at_ms"`
+    ),
+  ]
+);
+
+export const inboxItems = sqliteTable(
+  "inbox_items",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     recipientUserId: text("recipient_user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -28,6 +101,7 @@ export const inboxItems = sqliteTable(
     sourceKind: text("source_kind").notNull(),
     sourceKey: text("source_key").notNull(),
     sourceTargetJson: text("source_target_json").notNull(),
+    sourceFactsJson: text("source_facts_json"),
     resolutionStatus: text("resolution_status").notNull(),
     readAtMs: integer("read_at_ms"),
     clearedAtMs: integer("cleared_at_ms"),
@@ -37,6 +111,13 @@ export const inboxItems = sqliteTable(
     updatedAtMs: integer("updated_at_ms").notNull(),
   },
   (table) => [
+    uniqueIndex("inbox_items_account_source_unique")
+      .on(table.recipientUserId, table.sourceKind, table.sourceKey)
+      .where(sql`"organization_id" is null`),
+    check(
+      "inbox_items_account_scope_check",
+      sql`("organization_id" is not null and "source_kind" not in ('computer_connection', 'desktop_update')) or ("organization_id" is null and "source_kind" in ('computer_connection', 'desktop_update') and "kind" = "source_kind" and json_extract("source_target_json", '$.kind') = "source_kind")`
+    ),
     uniqueIndex("inbox_items_recipient_source_unique").on(
       table.organizationId,
       table.recipientUserId,
@@ -77,7 +158,7 @@ export const inboxItems = sqliteTable(
     ),
     check(
       "inbox_items_kind_check",
-      sql`"kind" in ('space_message', 'space_reference', 'space_mention', 'agent_reply', 'agent_interaction', 'wake_outcome', 'center_agent_update', 'center_agent_task', 'document_review', 'organization_request', 'system_issue')`
+      sql`"kind" in ('space_message', 'space_reference', 'space_mention', 'agent_reply', 'agent_interaction', 'wake_outcome', 'center_agent_update', 'center_agent_task', 'document_review', 'organization_request', 'system_issue', 'computer_connection', 'desktop_update')`
     ),
     check(
       "inbox_items_attention_check",
@@ -89,7 +170,7 @@ export const inboxItems = sqliteTable(
     ),
     check(
       "inbox_items_source_kind_check",
-      sql`"source_kind" in ('space_signal', 'runtime_coordinator_interaction', 'remote_agent_native_delivery', 'remote_agent_native_interaction', 'center_agent_task_event', 'organization_document_draft', 'organization_opportunity', 'organization_member_request', 'agent_profile_work_recovery', 'system_attention_event')`
+      sql`"source_kind" in ('space_signal', 'runtime_coordinator_interaction', 'remote_agent_native_delivery', 'remote_agent_native_interaction', 'center_agent_task_event', 'organization_document_draft', 'organization_opportunity', 'organization_member_request', 'agent_profile_work_recovery', 'system_attention_event', 'computer_connection', 'desktop_update')`
     ),
     check(
       "inbox_items_resolution_check",
@@ -118,6 +199,23 @@ export const inboxItems = sqliteTable(
   ]
 );
 
+/** Membership only: contents and read state stay in the canonical Inbox item. */
+export const inboxFeedSnapshotMembers = sqliteTable(
+  "inbox_feed_snapshot_members",
+  {
+    snapshotId: text("snapshot_id")
+      .notNull()
+      .references(() => inboxFeedSnapshots.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => inboxItems.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.snapshotId, table.itemId] }),
+    index("inbox_feed_snapshot_members_item_idx").on(table.itemId),
+  ]
+);
+
 export const inboxNotificationPreferences = sqliteTable(
   "inbox_notification_preferences",
   {
@@ -142,6 +240,49 @@ export const inboxNotificationPreferences = sqliteTable(
     check(
       "inbox_notification_preferences_timestamps_check",
       sql`"created_at_ms" >= 0 and "updated_at_ms" >= "created_at_ms"`
+    ),
+  ]
+);
+
+export const inboxMessageNotificationDefaults = sqliteTable(
+  "inbox_message_notification_defaults",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    mode: text("mode").notNull(),
+  },
+  (table) => [
+    check(
+      "inbox_message_notification_defaults_mode_check",
+      sql`${table.mode} in ('all_messages', 'mentions_and_replies')`
+    ),
+  ]
+);
+
+export const inboxConversationNotificationPreferences = sqliteTable(
+  "inbox_conversation_notification_preferences",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    spaceId: text("space_id").notNull(),
+    mode: text("mode").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.userId, table.organizationId, table.spaceId],
+    }),
+    check(
+      "inbox_conversation_notification_preferences_mode_check",
+      sql`${table.mode} in ('all_messages', 'mentions_and_replies', 'muted')`
+    ),
+    check(
+      "inbox_conversation_notification_preferences_space_check",
+      sql`length(trim(${table.spaceId})) > 0`
     ),
   ]
 );

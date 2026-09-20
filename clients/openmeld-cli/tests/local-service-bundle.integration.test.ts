@@ -93,11 +93,13 @@ type DaemonBundleFixture = {
   cliScriptPath: string;
   distRootPath: string;
   packageRootPath: string;
+  setPackageVersion: (version: string) => Promise<void>;
   cleanup: () => Promise<void>;
 };
 
 async function createDaemonBundleFixture(
-  layout: DaemonBundleFixtureLayout
+  layout: DaemonBundleFixtureLayout,
+  packageVersion = "1.2.3"
 ): Promise<DaemonBundleFixture> {
   const fixtureRoot = await mkdtemp(
     join(
@@ -122,22 +124,25 @@ async function createDaemonBundleFixture(
   await mkdir(distRootPath, { recursive: true });
   await mkdir(commanderRootPath, { recursive: true });
   await mkdir(kleurRootPath, { recursive: true });
-  await writeFile(
-    join(packageRootPath, "package.json"),
-    `${JSON.stringify(
-      {
-        name: "openmeld",
-        version: "0.1.9",
-        type: "module",
-        dependencies: {
-          commander: "^14.0.0",
+  const setPackageVersion = async (version: string): Promise<void> => {
+    await writeFile(
+      join(packageRootPath, "package.json"),
+      `${JSON.stringify(
+        {
+          name: "openmeld",
+          version,
+          type: "module",
+          dependencies: {
+            commander: "^14.0.0",
+          },
         },
-      },
-      null,
-      2
-    )}\n`,
-    "utf8"
-  );
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+  };
+  await setPackageVersion(packageVersion);
   await writeFile(
     join(distRootPath, "openmeld.js"),
     'import "commander";\nconsole.log("ok");\n',
@@ -189,6 +194,7 @@ async function createDaemonBundleFixture(
     cliScriptPath: join(distRootPath, "openmeld.js"),
     distRootPath,
     packageRootPath,
+    setPackageVersion,
     cleanup: async () => {
       await rm(fixtureRoot, { recursive: true, force: true });
     },
@@ -492,13 +498,17 @@ async function runNodeScript(
 describe("local service bundle", () => {
   it("stages and validates a replacement without changing the active service bundle", async () => {
     await withTempHome(async () => {
-      const fixture = await createDaemonBundleFixture("package_install");
+      const fixture = await createDaemonBundleFixture(
+        "package_install",
+        "1.2.2"
+      );
 
       try {
         const currentBundle = await prepareDaemonServiceBundle({
           daemonVersion: "1.2.2",
           cliScriptPath: fixture.cliScriptPath,
         });
+        await fixture.setPackageVersion("1.2.3");
         const replacementBundle = await prepareDaemonServiceBundle({
           activate: false,
           daemonVersion: "1.2.3",
@@ -547,6 +557,29 @@ describe("local service bundle", () => {
           bundleId: replacementBundle.bundleId,
           daemonVersion: "1.2.3",
         });
+      } finally {
+        await fixture.cleanup();
+      }
+    });
+  });
+
+  it("refuses to label an older npm CLI source as a newer Service", async () => {
+    await withTempHome(async () => {
+      const fixture = await createDaemonBundleFixture(
+        "package_install",
+        "1.2.2"
+      );
+
+      try {
+        await expect(
+          prepareDaemonServiceBundle({
+            daemonVersion: "1.2.3",
+            cliScriptPath: fixture.cliScriptPath,
+          })
+        ).rejects.toThrow(
+          "Cannot prepare OpenMeld Service 1.2.3 from CLI source 1.2.2"
+        );
+        await expect(readDaemonActiveBundleState()).resolves.toBeNull();
       } finally {
         await fixture.cleanup();
       }
@@ -1242,7 +1275,10 @@ describe("local service bundle", () => {
 
   it("bundles runtime dependencies from a package install with hoisted node_modules", async () => {
     await withTempHome(async () => {
-      const fixture = await createDaemonBundleFixture("package_install");
+      const fixture = await createDaemonBundleFixture(
+        "package_install",
+        "0.1.9"
+      );
 
       try {
         const bundleState = await prepareDaemonServiceBundle({

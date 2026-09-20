@@ -2,6 +2,8 @@
 
 import { ListIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
 import { type ReactNode, useRef, useState } from "react";
+import { useDesktopTitlebar } from "#/desktop/titlebar-context";
+import { DesktopTitlebarControls } from "#/desktop/titlebar-controls";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import type { SidebarPersistedState } from "#/lib/sidebar-width-cookie";
 import { AppMobileNavigationDrawer } from "./app-mobile-navigation";
@@ -25,6 +27,7 @@ export function AppSurfaceLayout(input: {
 	sidebar?: ReactNode;
 	testId?: string;
 }) {
+	const desktop = useDesktopTitlebar();
 	const organization = useOptionalAppOrganization();
 	const navigationScope = `${organization?.currentUserId ?? ""}:${organization?.currentOrganization.id ?? ""}:${input.moduleNavigationKey ?? "conversations"}`;
 	const [appNavigationOpen, setAppNavigationOpen] = useState(false);
@@ -62,6 +65,14 @@ export function AppSurfaceLayout(input: {
 			initialState={input.initialModuleSidebarState}
 			preferenceKey={input.moduleNavigationKey ?? "conversations"}
 		>
+			<DesktopTitlebarControls
+				available={!!input.moduleNavigation}
+				drawerOpen={contextualNavigationOpen}
+				toggleDrawer={() => {
+					setAppNavigationOpen(false);
+					setContextualNavigationOpen((open) => !open);
+				}}
+			/>
 			<div
 				aria-busy={input.ariaBusy || undefined}
 				className="group/app-surface relative flex h-dvh w-full overflow-hidden bg-[var(--app-canvas)] text-foreground [--app-toolbar-height:3rem]"
@@ -78,7 +89,7 @@ export function AppSurfaceLayout(input: {
 					data-slot="app-content-column"
 				>
 					<div
-						className="relative mb-[calc(3.5rem+env(safe-area-inset-bottom))] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background transition-[margin-bottom] duration-180 ease-out motion-reduce:transition-none lg:mt-2 lg:mr-2 lg:mb-[var(--app-toolbar-height)] lg:rounded-md lg:shadow-surface-2 lg:after:pointer-events-none lg:after:absolute lg:after:inset-0 lg:after:z-20 lg:after:rounded-[inherit] lg:after:[box-shadow:inherit]"
+						className="relative mb-[max(0.5rem,env(safe-area-inset-bottom))] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background transition-[margin-bottom] duration-180 ease-out motion-reduce:transition-none lg:mt-2 lg:mr-2 lg:mb-[var(--app-toolbar-height)] lg:rounded-md lg:shadow-surface-2 lg:after:pointer-events-none lg:after:absolute lg:after:inset-0 lg:after:z-20 lg:after:rounded-[inherit] lg:after:[box-shadow:inherit]"
 						data-slot="app-surface"
 					>
 						<header
@@ -97,7 +108,9 @@ export function AppSurfaceLayout(input: {
 									<ListIcon aria-hidden="true" className="size-5" />
 									<span>Menu</span>
 								</button>
-								{sidebar && sidebarTitle ? (
+								{sidebar &&
+								sidebarTitle &&
+								!(desktop && input.moduleNavigation) ? (
 									<button
 										aria-expanded={contextualNavigationOpen}
 										aria-label={`Open ${sidebarTitle} navigation`}
@@ -144,7 +157,8 @@ export function AppSurfaceLayout(input: {
 					onOpenChange={setAppNavigationOpen}
 					open={appNavigationOpen}
 					returnFocusRef={appNavigationTriggerRef}
-					title="Plugin navigation"
+					side="left"
+					title="OpenMeld navigation"
 				>
 					{input.outerRail}
 				</AppMobileNavigationDrawer>
@@ -156,6 +170,7 @@ export function AppSurfaceLayout(input: {
 						onOpenChange={setContextualNavigationOpen}
 						open={contextualNavigationOpen}
 						returnFocusRef={contextualNavigationTriggerRef}
+						side="right"
 						title={`${sidebarTitle} navigation`}
 					>
 						{sidebar}

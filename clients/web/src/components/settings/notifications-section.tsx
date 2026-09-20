@@ -1,15 +1,24 @@
 "use client";
 
 import type { InboxNotificationPreferencesResponse } from "@openmeld/schemas/types";
+import { Button } from "@openmeld/ui/components/button";
 import { SettingsRow } from "@openmeld/ui/components/settings-row";
 import { SettingsSection } from "@openmeld/ui/components/settings-section";
 import { Switch } from "@openmeld/ui/components/switch";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
-import { BrowserNotificationControl } from "#/components/inbox/browser-notification-toggle";
-import { useInboxBrowserNotificationSettings } from "#/components/inbox/use-inbox-browser-notification-settings";
-import { resolveBrowserNotificationDescription } from "#/lib/inbox/browser-notifications";
+import {
+	BrowserNotificationExample,
+	type BrowserNotificationExampleStatus,
+} from "#/components/inbox/browser-notification-example";
+import { ClientNotificationControl } from "#/components/inbox/client-notification-control";
+import { DefaultMessageNotificationSetting } from "#/components/inbox/default-message-notification-setting";
+import { useInboxNotificationSettings } from "#/components/inbox/use-inbox-notification-settings";
+import { getDesktopPlatform } from "#/desktop/platform";
+import { resolveClientNotificationDescription } from "#/lib/inbox/client-notifications";
+
 import { updateCurrentInboxNotificationPreferences } from "#/lib/organizations/inbox";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -18,17 +27,22 @@ import {
 } from "#/query/organizations/inbox";
 
 export function NotificationsSection() {
+	const [testStatus, setTestStatus] = useState<string | null>(null);
+	const [browserExample, setBrowserExample] = useState<{
+		userId: string;
+		status: BrowserNotificationExampleStatus;
+	} | null>(null);
 	const queryClient = useQueryClient();
 	const account = useAppShellAccount();
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const {
-		error: browserError,
-		isPending: browserPending,
-		setEnabled: updateBrowserNotifications,
-		setSoundEnabled: updateBrowserNotificationSounds,
+		error: notificationError,
+		isPending: notificationPending,
+		setEnabled: updateNotifications,
+		setSoundEnabled: updateNotificationSounds,
 		soundError,
-		settings: browserSettings,
-	} = useInboxBrowserNotificationSettings(currentUserId);
+		settings,
+	} = useInboxNotificationSettings(currentUserId);
 	const preferencesQuery = useQuery(
 		inboxNotificationPreferencesQueryOptions({
 			organizationId: currentOrganization.id,
@@ -71,25 +85,31 @@ export function NotificationsSection() {
 		},
 	});
 
-	if (!browserSettings) {
+	if (!settings) {
 		return null;
 	}
 
-	const browserDescription = resolveBrowserNotificationDescription(
-		browserSettings.permission
+	const notificationDescription = resolveClientNotificationDescription(
+		settings.permission
 	);
+	const exampleStatus =
+		browserExample?.userId === currentUserId &&
+		settings.enabled &&
+		settings.permission === "granted"
+			? browserExample.status
+			: null;
 
 	const emailDescription = account.email?.trim()
-		? `Send urgent Inbox items to ${account.email.trim()}. You can turn this off at any time.`
-		: "Send urgent Inbox items to your verified account email. You can turn this off at any time.";
+		? `Send urgent Inbox items to ${account.email.trim()}.`
+		: "Send urgent Inbox items to your verified email.";
 	const emailStatus = resolveSettingsRowStatus({
 		hasError: emailMutation.isError || preferencesQuery.isError,
 		isPending: emailMutation.isPending,
 		isSaved: emailMutation.isSuccess,
 	});
-	const browserStatus = resolveSettingsRowStatus({
-		hasError: browserError !== null,
-		isPending: browserPending,
+	const notificationStatus = resolveSettingsRowStatus({
+		hasError: notificationError !== null,
+		isPending: notificationPending,
 		isSaved: false,
 	});
 	const soundStatus = resolveSettingsRowStatus({
@@ -104,38 +124,91 @@ export function NotificationsSection() {
 	return (
 		<>
 			<AppPageHeader
-				description="Choose how OpenMeld alerts you when something needs your attention."
+				description="Choose when and how to be notified."
 				eyebrow="Personal"
 				id="notifications-heading"
 				title="Notifications"
 			/>
 			<SettingsSection
-				description="Your Inbox always stays available. These controls only change how new items reach you."
+				description="These settings don’t change what appears in your Inbox."
 				id="notification-delivery"
 				title="Delivery"
 			>
+				<DefaultMessageNotificationSetting key={currentUserId} />
 				<SettingsRow
 					control={
-						<BrowserNotificationControl
-							disabled={browserPending}
-							onChange={updateBrowserNotifications}
-							settings={browserSettings}
-						/>
+						<div className="flex items-center gap-3">
+							{settings.permission !== "unknown" && (
+								<BrowserNotificationExample
+									enabled={settings.enabled}
+									key={currentUserId}
+									onStatusChange={(status) =>
+										setBrowserExample({ userId: currentUserId, status })
+									}
+									status={exampleStatus}
+									userId={currentUserId}
+								/>
+							)}
+							<ClientNotificationControl
+								disabled={notificationPending}
+								onChange={(enabled) => {
+									setBrowserExample(null);
+									updateNotifications(enabled);
+								}}
+								settings={settings}
+							/>
+						</div>
 					}
-					description={browserDescription}
-					error={browserError ?? undefined}
-					label="Browser notifications"
-					status={browserStatus}
+					description={
+						<span className="grid">
+							<span
+								aria-hidden="true"
+								className="invisible col-start-1 row-start-1"
+							>
+								{notificationDescription}
+							</span>
+							{settings.permission !== "unknown" ? (
+								<span
+									aria-hidden="true"
+									className="invisible col-start-1 row-start-1"
+								>
+									Nothing appeared? Check notification permissions and Do Not
+									Disturb.
+								</span>
+							) : null}
+							<span
+								className={
+									exampleStatus?.error
+										? "col-start-1 row-start-1 text-destructive"
+										: "col-start-1 row-start-1"
+								}
+								role={exampleStatus?.error ? "alert" : "status"}
+							>
+								{exampleStatus?.message ?? notificationDescription}
+							</span>
+						</span>
+					}
+					error={notificationError ?? undefined}
+					label={
+						settings.permission === "unknown"
+							? "Desktop notifications"
+							: "Browser notifications"
+					}
+					status={notificationStatus}
 				/>
 				<SettingsRow
 					control={
 						<Switch
 							aria-label="Play OpenMeld sounds"
-							checked={browserSettings.soundEnabled}
-							onCheckedChange={updateBrowserNotificationSounds}
+							checked={settings.soundEnabled}
+							onCheckedChange={updateNotificationSounds}
 						/>
 					}
-					description="Play an OpenMeld sound when a browser notification appears on this device. Browser and system notification sounds are controlled separately."
+					description={
+						settings.permission === "unknown"
+							? "Play a sound with Desktop notifications."
+							: "Play a sound with browser notifications. System sounds are separate."
+					}
 					error={soundError ?? undefined}
 					label="Play OpenMeld sounds"
 					status={soundStatus}
@@ -160,6 +233,37 @@ export function NotificationsSection() {
 					status={emailStatus}
 				/>
 			</SettingsSection>
+			{settings.permission === "unknown" ? (
+				<div className="space-y-2">
+					<Button
+						disabled={!settings.enabled}
+						onClick={async () => {
+							try {
+								const result = await getDesktopPlatform()?.testNotification({
+									userId: currentUserId,
+									soundEnabled: settings.soundEnabled,
+								});
+								setTestStatus(
+									result === "delivered"
+										? "Test sent to macOS. Focus and notification settings control how it appears."
+										: "The test could not be delivered. Check OpenMeld in your Mac’s notification settings and try again."
+								);
+							} catch {
+								setTestStatus("The test could not be sent. Try again.");
+							}
+						}}
+						size="sm"
+						variant="outline"
+					>
+						Show an example
+					</Button>
+					{testStatus ? (
+						<output className="text-muted-foreground text-sm">
+							{testStatus}
+						</output>
+					) : null}
+				</div>
+			) : null}
 		</>
 	);
 }

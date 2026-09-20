@@ -8,7 +8,10 @@ const resizeObserverRecords = new Set<ResizeObserverRecord>();
 
 // jsdom has no Web Animations engine. Base UI checks for active viewport
 // animations before measuring; in this environment there are none.
-if (typeof Element.prototype.getAnimations === "undefined") {
+if (
+	typeof Element !== "undefined" &&
+	typeof Element.prototype.getAnimations === "undefined"
+) {
 	Element.prototype.getAnimations = () => [];
 }
 
@@ -42,7 +45,10 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 	globalThis.ResizeObserver = TestResizeObserver;
 }
 
-if (typeof HTMLElement.prototype.scrollTo === "undefined") {
+if (
+	typeof HTMLElement !== "undefined" &&
+	typeof HTMLElement.prototype.scrollTo === "undefined"
+) {
 	Object.defineProperty(HTMLElement.prototype, "scrollTo", {
 		configurable: true,
 		value(optionsOrX: ScrollToOptions | number, y?: number) {
@@ -63,11 +69,13 @@ if (typeof HTMLElement.prototype.scrollTo === "undefined") {
 	});
 }
 
-Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
-	configurable: true,
-	value: () => null,
-	writable: true,
-});
+if (typeof HTMLCanvasElement !== "undefined") {
+	Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+		configurable: true,
+		value: () => null,
+		writable: true,
+	});
+}
 
 export function notifyResizeObservers(target: Element) {
 	for (const record of resizeObserverRecords) {

@@ -1,7 +1,7 @@
 import {
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileRevisionIdForMutation,
-  SPACE_FILE_MAX_SIZE_BYTES,
+  SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
   spaceFileDescriptorSchema,
   spaceMessageFileReferenceSchema,
 } from "@openmeld/schemas";
@@ -25,7 +25,7 @@ export async function publishRemoteAgentOutputFile(input: {
   storage: RemoteAgentStorage;
   submissionId: string;
 }) {
-  if (input.bytes.byteLength > SPACE_FILE_MAX_SIZE_BYTES) {
+  if (input.bytes.byteLength > SPACE_FILE_RAW_UPLOAD_MAX_BYTES) {
     throw new Error("Space files must be 10 MiB or smaller.");
   }
   const fileId = await buildSpaceFileEntryIdForMutation(input.clientMutationId);
@@ -70,4 +70,43 @@ export async function publishRemoteAgentOutputFile(input: {
     submissionId: input.submissionId,
   });
   return { addedToSpaceFiles: true, attachedToFinalReply: true, file };
+}
+
+/** Save work without selecting it for final publication. */
+export async function saveRemoteAgentSpaceFile(input: {
+  baseRevision: number;
+  bytes: ArrayBuffer;
+  clientMutationId: string;
+  context: OpenMeldRequestContext;
+  coreWorker: RemoteAgentCoreWorkerBinding;
+  fileId: string;
+  mimeType: string;
+  spaceId: string;
+}) {
+  if (input.bytes.byteLength > SPACE_FILE_RAW_UPLOAD_MAX_BYTES) {
+    throw new Error("Space files must be 10 MiB or smaller.");
+  }
+  const revisionId = await buildSpaceFileRevisionIdForMutation(input);
+  const file = spaceFileDescriptorSchema.parse(
+    await callCoreRpc(
+      input.coreWorker,
+      "writeSpaceFileContent",
+      {
+        bytes: input.bytes,
+        context: input.context,
+        spaceId: input.spaceId,
+        write: {
+          baseRevision: input.baseRevision,
+          clientMutationId: input.clientMutationId,
+          fileId: input.fileId,
+          mimeType: input.mimeType,
+          revisionId,
+          sizeBytes: input.bytes.byteLength,
+          spaceId: input.spaceId,
+        },
+      },
+      (binding, request) => binding.writeSpaceFileContent?.(request)
+    )
+  );
+  return { file, attachedToFinalReply: false };
 }

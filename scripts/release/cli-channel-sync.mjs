@@ -40,6 +40,8 @@ export const SKIP_CHANNEL_SYNC_CHECK_ENV_VAR =
 
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 const TRUTHY_ENV_VALUES = new Set(["1", "true"]);
+const CANONICAL_RELEASE_VERSION_PATTERN =
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
 
 class CliChannelManifestValidationError extends Error {}
 
@@ -53,18 +55,22 @@ export function isEnvFlagEnabled(value) {
 
 /**
  * release/local-components.json declares cli.packageVersion and
- * service.bundleVersion separately, but the CLI binary IS the OpenMeld
- * Service runtime — they must always be stamped together. A mismatch here is
- * a local, network-free error and is checked before any fetch.
+ * service.bundleVersion separately. A retained Service may trail the CLI, but
+ * it must be an exact immutable release and can never be newer than the CLI
+ * that selects it.
  */
 export function resolveCliServiceVersionConsistencyErrors(components) {
   const cliVersion = components?.cli?.packageVersion;
   const serviceVersion = components?.service?.bundleVersion;
-  if (cliVersion === serviceVersion) {
+  if (
+    CANONICAL_RELEASE_VERSION_PATTERN.test(cliVersion) &&
+    CANONICAL_RELEASE_VERSION_PATTERN.test(serviceVersion) &&
+    compareSemverCore(serviceVersion, cliVersion) <= 0
+  ) {
     return [];
   }
   return [
-    `release/local-components.json is internally inconsistent: cli.packageVersion (${String(cliVersion)}) must equal service.bundleVersion (${String(serviceVersion)}) because the CLI binary is the OpenMeld Service runtime.`,
+    `release/local-components.json has an invalid selected pair: cli.packageVersion (${String(cliVersion)}) and service.bundleVersion (${String(serviceVersion)}) must be canonical versions with Service no newer than CLI.`,
   ];
 }
 
@@ -121,7 +127,7 @@ export async function probeChannelPlatformUrls(input = {}) {
   for (const [platform, meta] of Object.entries(platforms)) {
     results.push(
       await probeSinglePlatformUrl({
-        artifactKind: "binary",
+        artifactKind: `${input.artifactKindPrefix ?? ""}binary`,
         fetchImpl,
         platform,
         url: meta.url,
@@ -129,7 +135,7 @@ export async function probeChannelPlatformUrls(input = {}) {
     );
     if (!cliBinaryCompressedReleaseSchema.safeParse(meta).success) {
       results.push({
-        artifactKind: "archive",
+        artifactKind: `${input.artifactKindPrefix ?? ""}archive`,
         error: "the gzip archive manifest record is incomplete",
         ok: false,
         platform,
@@ -140,7 +146,7 @@ export async function probeChannelPlatformUrls(input = {}) {
     }
     results.push(
       await probeSinglePlatformUrl({
-        artifactKind: "archive",
+        artifactKind: `${input.artifactKindPrefix ?? ""}archive`,
         fetchImpl,
         platform,
         url: meta.archiveUrl,
@@ -149,7 +155,7 @@ export async function probeChannelPlatformUrls(input = {}) {
     for (const delta of meta.deltas ?? []) {
       results.push(
         await probeSinglePlatformUrl({
-          artifactKind: "delta",
+          artifactKind: `${input.artifactKindPrefix ?? ""}delta`,
           fetchImpl,
           platform,
           url: delta.patchUrl,
@@ -233,10 +239,30 @@ export async function evaluateChannelSync(input) {
     };
   }
 
-  const platformProbe = await probeChannelPlatformUrls({
-    fetch: input.fetch,
-    platforms: channelManifest.channels.stable.platforms ?? {},
-  });
+  const declaredServiceVersion =
+    input.manifestComponents?.service?.bundleVersion ?? null;
+  const channelService = channelManifest.channels.stable.service;
+  const selectedChannelServiceVersion =
+    channelService?.version ?? channelManifest.channels.stable.version;
+  if (selectedChannelServiceVersion !== declaredServiceVersion) {
+    consistencyErrors.push(
+      `Production CLI ${channelVersion} selects Service ${selectedChannelServiceVersion}, not declared Service ${String(declaredServiceVersion)}.`
+    );
+  }
+
+  const platformProbe = [
+    ...(await probeChannelPlatformUrls({
+      fetch: input.fetch,
+      platforms: channelManifest.channels.stable.platforms ?? {},
+    })),
+    ...(channelService
+      ? await probeChannelPlatformUrls({
+          artifactKindPrefix: "service-",
+          fetch: input.fetch,
+          platforms: channelService.platforms,
+        })
+      : []),
+  ];
   return {
     consistencyErrors,
     outcome: { ...comparison, kind: "match", platformProbe },

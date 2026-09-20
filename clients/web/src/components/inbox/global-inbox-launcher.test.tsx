@@ -15,12 +15,14 @@ import type {
 	ReactNode,
 } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import { GlobalInboxLauncher } from "./global-inbox-launcher";
 import { OrganizationInboxRecentItems } from "./organization-inbox-preview";
 
 const getCurrentInboxSummaryMock = vi.hoisted(() => vi.fn());
 const listCurrentInboxItemsMock = vi.hoisted(() => vi.fn());
 const markCurrentInboxItemReadMock = vi.hoisted(() => vi.fn());
+const navigateMock = vi.hoisted(() => vi.fn());
 const useOptionalAppOrganizationMock = vi.hoisted(() => vi.fn());
 const NEW_SPACE_MESSAGE_NAME_PATTERN = /New Space message/;
 const OPEN_INBOX_PREVIEW_NAME_PATTERN = /^Open Inbox/;
@@ -36,17 +38,11 @@ vi.mock("@tanstack/react-router", () => ({
 		onClick?: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
 		to: string;
 	} & AnchorHTMLAttributes<HTMLAnchorElement>) => (
-		<a
-			href={to}
-			onClick={(event) => {
-				event.preventDefault();
-				onClick?.(event);
-			}}
-			{...props}
-		>
+		<a href={to} onClick={onClick} {...props}>
 			{children}
 		</a>
 	),
+	useNavigate: () => navigateMock,
 }));
 
 vi.mock("#/lib/organizations/organization-context", () => ({
@@ -70,6 +66,7 @@ vi.mock("#/lib/organizations/inbox", () => ({
 
 describe("GlobalInboxLauncher", () => {
 	beforeEach(() => {
+		navigateMock.mockReset().mockResolvedValue(undefined);
 		useOptionalAppOrganizationMock.mockReset().mockReturnValue({
 			currentOrganization: {
 				id: "organization-123",
@@ -79,13 +76,17 @@ describe("GlobalInboxLauncher", () => {
 		});
 		getCurrentInboxSummaryMock.mockReset().mockResolvedValue({
 			organizationId: "organization-123",
+			ordinaryUnreadCount: 1,
 			totalUnreadCount: 3,
+			unreadMentionCount: 0,
 			unresolvedActionCount: 2,
 			unreadUrgentUpdateCount: 0,
 		});
 		listCurrentInboxItemsMock.mockReset().mockImplementation(async (input) => ({
 			items:
-				input.view === "urgent_updates" || input.view === "needs_review"
+				input.view === "urgent_updates" ||
+				input.view === "needs_review" ||
+				input.view === "mentions"
 					? []
 					: [
 							input.view === "needs_action"
@@ -250,7 +251,9 @@ describe("GlobalInboxLauncher", () => {
 	it("shows unresolved actions instead of claiming the Inbox is caught up", async () => {
 		getCurrentInboxSummaryMock.mockResolvedValue({
 			organizationId: "organization-123",
+			ordinaryUnreadCount: 0,
 			totalUnreadCount: 0,
+			unreadMentionCount: 0,
 			unresolvedActionCount: 6,
 			unreadUrgentUpdateCount: 0,
 		});
@@ -305,7 +308,9 @@ describe("GlobalInboxLauncher", () => {
 	it("colors urgent-only updates amber and includes older urgent items in their own section", async () => {
 		getCurrentInboxSummaryMock.mockResolvedValue({
 			organizationId: "organization-123",
+			ordinaryUnreadCount: 100,
 			totalUnreadCount: 101,
+			unreadMentionCount: 0,
 			unresolvedActionCount: 0,
 			unreadUrgentUpdateCount: 1,
 		});
@@ -340,7 +345,9 @@ describe("GlobalInboxLauncher", () => {
 	it("gives actions precedence while describing both kinds of attention", async () => {
 		getCurrentInboxSummaryMock.mockResolvedValue({
 			organizationId: "organization-123",
+			ordinaryUnreadCount: 3,
 			totalUnreadCount: 8,
+			unreadMentionCount: 0,
 			unresolvedActionCount: 2,
 			unreadUrgentUpdateCount: 3,
 		});
@@ -410,6 +417,10 @@ describe("GlobalInboxLauncher", () => {
 				organizationId: "organization-123",
 				read: true,
 			});
+		});
+		expect(navigateMock).toHaveBeenCalledExactlyOnceWith({
+			state: requestInboxSourceFocus,
+			to: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
 		});
 	});
 });

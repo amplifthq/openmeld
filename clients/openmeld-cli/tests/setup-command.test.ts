@@ -2,6 +2,7 @@ import { setupPlanAgentViewPayloadSchema } from "@openmeld/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  assertSetupServiceUpdateCompleteMock,
   collectStartLocalReadinessMock,
   createPresenterMock,
   notifyDaemonRouteCatalogChangedMock,
@@ -27,6 +28,7 @@ const {
   syncLocalSetupCurrentDeviceTargetFromServiceContractMock,
   resolveControllingTerminalSessionMock,
 } = vi.hoisted(() => ({
+  assertSetupServiceUpdateCompleteMock: vi.fn(),
   collectStartLocalReadinessMock: vi.fn(),
   createPresenterMock: vi.fn(),
   notifyDaemonRouteCatalogChangedMock: vi.fn(),
@@ -51,6 +53,10 @@ const {
   submitSelectedAgentControllerReportsMock: vi.fn(),
   syncLocalSetupCurrentDeviceTargetFromServiceContractMock: vi.fn(),
   resolveControllingTerminalSessionMock: vi.fn(),
+}));
+
+vi.mock("../src/commands/setup-service-update-truth", () => ({
+  assertSetupServiceUpdateComplete: assertSetupServiceUpdateCompleteMock,
 }));
 
 vi.mock("../src/config/base-url", () => ({
@@ -161,6 +167,7 @@ describe("setup command", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    assertSetupServiceUpdateCompleteMock.mockResolvedValue(undefined);
     Reflect.deleteProperty(process.env, "OPENMELD_SETUP_FORCE_SERVICE_REFRESH");
     resolveRuntimeContextMock.mockResolvedValue({
       resolvedView: "agent",

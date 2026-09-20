@@ -35,14 +35,10 @@ export function DesktopServiceControls({ deviceId }: { deviceId: string }) {
 	) : null;
 }
 
-function LocalServiceControls({ deviceId }: { deviceId: string }) {
+export function useDesktopServiceControlStatus() {
 	const { currentUserId } = useAppOrganization();
-	const queryClient = useQueryClient();
-	const [pending, setPending] = useState<"start" | "stop" | null>(null);
-	const [error, setError] = useState<string | null>(null);
-	const queryKey = ["desktop-service-control", currentUserId];
-	const query = useQuery({
-		queryKey,
+	return useQuery({
+		queryKey: ["desktop-service-control", currentUserId],
 		queryFn: async () => {
 			const bridge = getBridge();
 			const [service, auth] = await Promise.all([
@@ -53,6 +49,15 @@ function LocalServiceControls({ deviceId }: { deviceId: string }) {
 		},
 		refetchInterval: 5000,
 	});
+}
+
+function LocalServiceControls({ deviceId }: { deviceId: string }) {
+	const { currentUserId } = useAppOrganization();
+	const queryClient = useQueryClient();
+	const [pending, setPending] = useState<"start" | "stop" | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const queryKey = ["desktop-service-control", currentUserId];
+	const query = useDesktopServiceControlStatus();
 	const service = query.data?.service;
 	const capabilities = service?.controlCapabilities;
 	if (capabilities?.deviceId !== deviceId) {

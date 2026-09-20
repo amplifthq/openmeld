@@ -22,6 +22,63 @@ const TARGET_PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
 const OTHER_TARGET_PROFILE_ID = "agt_44444444-4444-4444-8444-444444444444";
 
 describe("Wake progress projection", () => {
+  it("keeps distinct executions on one source separate through merging and final cleanup", () => {
+    const a = createWakeProgressItem({
+      clientMessageId: "request",
+      dispatchId: "A",
+      sourceSignalId: "source",
+      targetProfileId: TARGET_PROFILE_ID,
+      targetLabel: "Agent",
+      phase: "running",
+      updatedAtMs: 100,
+    });
+    const b = { ...a, dispatchId: "B", updatedAtMs: 200 };
+    const merged = mergeWakeProgressItems({
+      currentItems: [a],
+      incomingItems: [b],
+    });
+    expect(merged.map((item) => item.dispatchId)).toEqual(["A", "B"]);
+    expect(
+      mergeWakeProgressItems({
+        currentItems: merged,
+        incomingItems: [
+          { ...a, phase: "replied", terminal: true, updatedAtMs: 300 },
+        ],
+      })
+    ).toEqual([b]);
+    const final = createTextSignal({
+      id: "final-A",
+      text: "Done",
+      ts: 300,
+      meta: {
+        purpose: AGENT_REPLY_FINAL_PURPOSE,
+        dispatchId: "A",
+        targetProfileId: TARGET_PROFILE_ID,
+      },
+      replyTo: {
+        signalId: "source",
+        profileId: "viewer",
+        profileKind: "human",
+        profileName: "Viewer",
+        previewText: "Request",
+      },
+    });
+    expect(
+      applyWakeProgressSignals({ currentItems: merged, signals: [final] })
+    ).toEqual([b]);
+    const pending = { ...a, dispatchId: null, phase: "sending" as const };
+    const upgraded = mergeWakeProgressItems({
+      currentItems: [pending],
+      incomingItems: [a],
+    });
+    expect(upgraded).toEqual([a]);
+    expect(
+      mergeWakeProgressItems({
+        currentItems: upgraded,
+        incomingItems: [{ ...a, dispatchId: null, updatedAtMs: 400 }],
+      })[0]?.dispatchId
+    ).toBe("A");
+  });
   it.each([
     AGENT_REPLYING_PURPOSE,
     AGENT_REPLY_PREVIEW_PURPOSE,

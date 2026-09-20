@@ -25,6 +25,7 @@ import {
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
+import { AuthorizationLink } from "#/desktop/authorization-link";
 import { requiresLarkPlatformSetupAuthorization } from "./lark-platform-setup-authorization";
 
 export function LarkPlatformChannelDialog(input: {
@@ -217,7 +218,7 @@ function RegistrationProgress(input: {
 						connecting automatically.
 					</p>
 					<div className="mt-4 flex flex-wrap gap-2">
-						<a
+						<AuthorizationLink
 							className={buttonVariants({ size: "default" })}
 							href={launcherUrl.toString()}
 							rel="noreferrer"
@@ -225,7 +226,7 @@ function RegistrationProgress(input: {
 						>
 							<ArrowSquareOutIcon aria-hidden="true" data-icon="inline-start" />
 							Open {input.providerLabel} setup
-						</a>
+						</AuthorizationLink>
 						<Button
 							disabled={input.startOverPending}
 							onClick={input.onStartOver}

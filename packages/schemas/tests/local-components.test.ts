@@ -1,16 +1,133 @@
 import { describe, expect, it } from "vitest";
 import {
+  findOpenMeldToolsUpdateFailureCode,
   formatLocalComponentsSummaryLabel,
   formatLocalSetupActionDescription,
   formatLocalSetupActionLabel,
+  formatOpenMeldToolsUpdateFailureMessage,
   localComponentsReleaseManifestSchema,
   localComponentsStatusSchema,
   localComponentUpdateProjectionSchema,
   openMeldToolsControlRequestSchema,
   openMeldToolsControlResultSchema,
+  openMeldToolsUpdateAttemptSchema,
+  openMeldToolsUpdateOperationSchema,
+  openMeldToolsUpdateProcessFailureFrameSchema,
+  resolveOpenMeldToolsUpdateTargetVersions,
 } from "../src/schemas";
 
+const baseUpdateOperation = {
+  operationId: "update-1",
+  phase: "needs_help",
+  requestSource: "web",
+  requestedAt: "2026-05-30T00:00:00.000Z",
+  targetVersion: "0.6.9",
+  updatedAt: "2026-05-30T00:01:00.000Z",
+  urgency: "available",
+} as const;
+
 describe("local components schema", () => {
+  it("finds only the first fully-prefixed update failure reason code", () => {
+    expect(
+      findOpenMeldToolsUpdateFailureCode([
+        "raw download detail",
+        "download_stalled",
+        "cli.update.download_stalled.detail",
+        "cli.update.download_stalled",
+        "cli.update.failed",
+      ])
+    ).toBe("cli.update.download_stalled");
+    expect(
+      findOpenMeldToolsUpdateFailureCode([
+        "download_stalled",
+        "cli.update.unknown_failure",
+        "OpenMeld update process exited with status 1",
+      ])
+    ).toBeNull();
+  });
+
+  it("keeps update operations on their existing strict wire shape", () => {
+    expect(
+      openMeldToolsUpdateOperationSchema.parse(baseUpdateOperation)
+    ).toEqual(baseUpdateOperation);
+    expect(
+      openMeldToolsUpdateOperationSchema.safeParse({
+        ...baseUpdateOperation,
+        failureCode: "cli.update.download_failed",
+      }).success
+    ).toBe(false);
+    expect(
+      openMeldToolsUpdateOperationSchema.parse({
+        ...baseUpdateOperation,
+        targetCliVersion: "0.7.0",
+        targetServiceVersion: "0.6.9",
+      })
+    ).toMatchObject({
+      targetCliVersion: "0.7.0",
+      targetServiceVersion: "0.6.9",
+    });
+    expect(
+      resolveOpenMeldToolsUpdateTargetVersions(baseUpdateOperation)
+    ).toEqual({
+      cliVersion: "0.6.9",
+      serviceVersion: "0.6.9",
+    });
+    expect(
+      resolveOpenMeldToolsUpdateTargetVersions({
+        ...baseUpdateOperation,
+        targetCliVersion: "0.7.0",
+        targetServiceVersion: "0.6.9",
+      })
+    ).toEqual({ cliVersion: "0.7.0", serviceVersion: "0.6.9" });
+  });
+
+  it("keeps the persisted attempt v1 rollback-compatible", () => {
+    expect(
+      openMeldToolsUpdateAttemptSchema.safeParse({
+        attempts: 1,
+        errorMessage:
+          "openmeld.tools.update.failure=cli.update.download_failed\nlocal diagnostic",
+        operation: baseUpdateOperation,
+        v: 1,
+      }).success
+    ).toBe(true);
+  });
+
+  it("owns the bounded child-process failure frame and safe product copy", () => {
+    const frame = {
+      detail: "local diagnostic at /private/path",
+      failureCode: "cli.update.download_stalled",
+      schema: "openmeld-tools-update-process-failure-v1",
+      v: 1,
+    } as const;
+    expect(openMeldToolsUpdateProcessFailureFrameSchema.parse(frame)).toEqual(
+      frame
+    );
+    expect(
+      openMeldToolsUpdateProcessFailureFrameSchema.safeParse({
+        ...frame,
+        detail: "x".repeat(2049),
+      }).success
+    ).toBe(false);
+    expect(
+      openMeldToolsUpdateProcessFailureFrameSchema.safeParse({
+        ...frame,
+        message: "untrusted public copy",
+      }).success
+    ).toBe(false);
+    expect(formatOpenMeldToolsUpdateFailureMessage(frame.failureCode)).toBe(
+      "The update download stopped making progress. Check this computer's connection and try again."
+    );
+    expect(
+      formatOpenMeldToolsUpdateFailureMessage(
+        "cli.update.service_alignment_failed"
+      )
+    ).toBe("OpenMeld Service could not finish updating.");
+    expect(
+      formatOpenMeldToolsUpdateFailureMessage("cli.update.install_failed")
+    ).toBe("The update could not be installed.");
+  });
+
   it("keeps Web and Center Agent maintenance requests on one contract", () => {
     expect(
       openMeldToolsControlRequestSchema.parse({

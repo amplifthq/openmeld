@@ -1,5 +1,9 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  normalizeCommandEnvironment,
+  WINDOWS_RUNTIME_ENV_KEYS,
+} from "@openmeld/adapter-core/process-environment";
 import type { DesktopInstalledTarget } from "@openmeld/schemas";
 import type { CommandDeps } from "./cli/commands";
 
@@ -15,6 +19,7 @@ export function installedCommandEnvironment(
   userData: string
 ): CommandDeps {
   const env: NodeJS.ProcessEnv = {};
+  const source = normalizeCommandEnvironment(process.env);
   const computer =
     typeof __OPENMELD_DESKTOP_COMPUTER_ENVIRONMENT__ === "undefined"
       ? null
@@ -28,9 +33,10 @@ export function installedCommandEnvironment(
     "TMPDIR",
     "LANG",
     "LC_ALL",
+    ...(process.platform === "win32" ? WINDOWS_RUNTIME_ENV_KEYS : []),
   ]) {
-    if (process.env[key]) {
-      env[key] = process.env[key];
+    if (source[key]) {
+      env[key] = source[key];
     }
   }
   const home =
@@ -38,7 +44,11 @@ export function installedCommandEnvironment(
       ? join(homedir(), ".openmeld")
       : (computer?.home ?? join(userData, "unconfigured-service"));
   return {
-    openMeldBin: join(home, "bin", "openmeld"),
+    // Windows uses the published npm distribution, discovered on PATH or from
+    // this lane's active Service bundle; no Mac binary path or Electron runtime.
+    ...(process.platform === "win32"
+      ? {}
+      : { openMeldBin: join(home, "bin", "openmeld") }),
     env: {
       ...env,
       OPENMELD_HOME: home,
@@ -56,10 +66,6 @@ export function installedCommandEnvironment(
         : {}),
       OPENMELD_DESKTOP_DOWNLOAD_PAGE_URL: new URL("/desktop", target.webOrigin)
         .href,
-      OPENMELD_DESKTOP_UPDATE_MANIFEST_URL: new URL(
-        "/desktop/update.json",
-        target.webOrigin
-      ).href,
     },
   };
 }

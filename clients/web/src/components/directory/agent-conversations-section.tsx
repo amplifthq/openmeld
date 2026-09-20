@@ -1,4 +1,5 @@
 import { Button } from "@openmeld/ui/components/button";
+import { SkeletonTable } from "@openmeld/ui/components/skeleton-content";
 import {
 	Table,
 	TableBody,
@@ -166,9 +167,10 @@ function OwnedAgentConversations(input: {
 				</div>
 			) : null}
 			{query.isPending ? (
-				<p className="py-4 text-muted-foreground text-sm">
-					Loading conversations…
-				</p>
+				<SkeletonTable
+					columns={input.singleAgent ? 2 : 3}
+					label="Loading conversations"
+				/>
 			) : null}
 			{query.isSuccess && visible.length === 0 ? (
 				<p className="rounded-md border border-border/60 px-4 py-5 text-muted-foreground text-sm">

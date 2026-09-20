@@ -175,7 +175,7 @@ describe("DesktopSettings", () => {
     expect(screen.getByRole("button", { name: "Open Account" })).toBeTruthy();
     expect(
       screen.getByRole("switch", {
-        name: "Disable Open OpenMeld Desktop at login",
+        name: "Disable OpenMeld at login",
       })
     ).toBeTruthy();
     expect(
@@ -197,7 +197,7 @@ describe("DesktopSettings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open Account" }));
     fireEvent.click(
       screen.getByRole("switch", {
-        name: "Disable Open OpenMeld Desktop at login",
+        name: "Disable OpenMeld at login",
       })
     );
 
@@ -206,17 +206,17 @@ describe("DesktopSettings", () => {
     expect(onSetOpenAtLogin).toHaveBeenCalledWith(false);
   });
 
-  it("shows the signed-in account and opens OpenMeld Web for account management", () => {
+  it("shows the signed-in account and opens the web app for account management", () => {
     const props = renderSettings({ activeSectionId: "account" });
 
     expect(screen.getByText("felix")).toBeTruthy();
     expect(screen.getByText("felix@openmeld.invalid")).toBeTruthy();
 
     const [openWebButton] = screen.getAllByRole("button", {
-      name: "Open OpenMeld Web",
+      name: "Open web app",
     });
     if (!openWebButton) {
-      throw new Error("Expected an Open OpenMeld Web button.");
+      throw new Error("Expected an Open web app button.");
     }
     fireEvent.click(openWebButton);
 

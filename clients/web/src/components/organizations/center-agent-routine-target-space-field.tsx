@@ -11,6 +11,7 @@ import {
 } from "@openmeld/ui/fluid/select";
 import { cn } from "@openmeld/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
+import { DesktopAwareLink } from "#/desktop/desktop-aware-link";
 import { resolveCenterAgentRoutineErrorMessage } from "#/lib/organizations/center-agent-routines";
 import { buildOrganizationSpacesPath } from "#/lib/organizations/organization-routes";
 import { centerAgentRoutineTargetSpacesQueryOptions } from "#/query/organizations/center-agent-routines";
@@ -176,7 +177,7 @@ export function CenterAgentRoutineTargetSpaceField(input: {
 					<p className="text-foreground text-xs">
 						{accessibility.emptyStateMessage}
 					</p>
-					<a
+					<DesktopAwareLink
 						className={cn(
 							buttonVariants({ size: "sm", variant: "outline" }),
 							"mt-3"
@@ -184,7 +185,7 @@ export function CenterAgentRoutineTargetSpaceField(input: {
 						href={buildOrganizationSpacesPath(input.orgSlug)}
 					>
 						Go to Spaces
-					</a>
+					</DesktopAwareLink>
 				</div>
 			) : null}
 		</div>

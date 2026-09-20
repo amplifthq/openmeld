@@ -10,7 +10,10 @@ export type SpaceEntryAccessResult =
   | {
       kind: "allowed";
       activeMember: boolean;
-      status: GetSpaceStatusResponse;
+      meta: Pick<
+        GetSpaceStatusResponse,
+        "name" | "accessMode" | "allowGuests" | "linkJoinPolicy"
+      >;
     }
   | {
       kind: "denied";
@@ -43,23 +46,30 @@ export function buildSpaceEntryResolution(input: {
     password: "missing",
   }).canJoin;
   if (input.access.kind === "allowed") {
+    let participation = resolveAllowedParticipation(input.access);
+    if (canJoinOrganizationSpace && !input.access.activeMember) {
+      participation = { state: "self_join_available" };
+    }
+    if (
+      !(input.organizationMember || input.access.activeMember) &&
+      input.access.meta.allowGuests !== true
+    ) {
+      participation = { state: "owner_add_required" };
+    }
     const memberExperience =
       input.access.activeMember ||
-      input.access.status.accessMode === "members_only";
+      input.access.meta.accessMode === "members_only";
     return {
       target: input.target,
       view: {
         state: "allowed",
         experience: memberExperience ? "member" : "public",
       },
-      participation:
-        canJoinOrganizationSpace && !input.access.activeMember
-          ? { state: "self_join_available" }
-          : resolveAllowedParticipation(input.access),
+      participation,
       safeContext: buildSafeContext({
         indexed: input.indexed,
         organizationMember: input.organizationMember,
-        publicSpaceName: input.access.status.name,
+        publicSpaceName: input.access.meta.name,
       }),
       recovery: null,
     };
@@ -138,10 +148,13 @@ function resolveAllowedParticipation(
   if (access.activeMember) {
     return { state: "active_member" };
   }
-  if (access.status.accessMode === "public_view_join_password") {
+  if (access.meta.linkJoinPolicy === "invite_only") {
+    return { state: "owner_add_required" };
+  }
+  if (access.meta.accessMode === "public_view_join_password") {
     return { state: "password_required" };
   }
-  if (access.status.accessMode === "members_only") {
+  if (access.meta.accessMode === "members_only") {
     return { state: "owner_add_required" };
   }
   return { state: "self_join_available" };

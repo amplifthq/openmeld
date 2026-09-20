@@ -8,7 +8,7 @@ const { getAuthSessionStateMock, runAuthLoginMock, selectPromptMock } =
     selectPromptMock: vi.fn(),
   }));
 const UNAVAILABLE_JSON_MESSAGE_RE =
-  /saved sign-in is temporarily unavailable.*macOS Keychain helper timed out after 5000ms/u;
+  /saved sign-in is unavailable.*macOS Keychain helper timed out after 5000ms/u;
 
 vi.mock("@clack/prompts", async () => {
   const actual =
@@ -52,12 +52,15 @@ describe("sign-in command entry check", () => {
     resetOpenMeldProfilesSessionCacheForTests();
   });
 
-  it("reports a retryable credential-read failure for Space file downloads", async () => {
+  it.each([
+    "macOS Keychain helper could not start",
+    "Read access token failed: macOS Keychain denied access (OSStatus -25293). OpenMeld did not open a background authorization window. Reconnect this computer from an interactive setup or login.",
+  ])("preserves an unavailable credential's diagnostic: %s", async (errorMessage) => {
     getAuthSessionStateMock.mockResolvedValue({
       state: "invalid",
       session: null,
       reasonCode: "session_token_unavailable",
-      errorMessage: "macOS Keychain helper could not start",
+      errorMessage,
     });
     const data = vi.fn();
 
@@ -76,9 +79,7 @@ describe("sign-in command entry check", () => {
       payload: expect.objectContaining({
         code: "auth.session_token_unavailable",
         status: "blocked",
-        reason: expect.stringContaining(
-          "saved sign-in is temporarily unavailable"
-        ),
+        reason: expect.stringContaining("saved sign-in is unavailable"),
         nextSteps: [
           "Retry the same command.",
           "If it still fails, run `openmeld auth status --view agent` for diagnostics.",
@@ -88,10 +89,11 @@ describe("sign-in command entry check", () => {
           guidanceReason: "unavailable",
           action: "downloading a Space file",
           authStateReasonCode: "session_token_unavailable",
-          authStateErrorMessage: "macOS Keychain helper could not start",
+          authStateErrorMessage: errorMessage,
         }),
       }),
     });
+    expect(runAuthLoginMock).not.toHaveBeenCalled();
   });
 
   it("continues a Space file download when the bounded credential reread recovers", async () => {

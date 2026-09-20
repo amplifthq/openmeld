@@ -20,6 +20,33 @@
 - Source of truth: This file owns the durable architecture boundary for data
   ownership and observability.
 
+## Message search ownership
+
+Each Space owns an FTS5 trigram index over its retained `signal.text` payloads.
+The index stores no attachment content, reasoning, or execution diagnostics.
+SQLite triggers update the index atomically with canonical message inserts,
+edits, recalls, and retention deletes. Historical indexing advances in batches
+of 500 rows on demand and exposes incompleteness instead of empty success.
+
+Core's shared search reader enumerates active member-owned Space candidates in
+the Organization directory, then calls the normal authorized Space reader for
+each candidate. Directory snapshots never grant access. A request visits at
+most four Spaces, with 30 matches per Space and an explicit continuation cursor;
+it does not use the sidebar's limited loaded list or build a second global
+message store. Results are newest-first within each Space, not globally ranked.
+Inbox search intersects message hits with current recipient/source permissions
+and uncleared canonical Inbox IDs. Non-message activities use a recipient-scoped
+literal title/preview query, paginated at 30 rows. This bounded response contract
+does not imply a measured latency guarantee for large activity histories.
+
+`GET /v1/messages/search` and optional `q` on signal reads are additive shared
+HTTP/RPC contracts. Existing signal reads keep their shape. Rollout must provide
+the Core receiver, then Gateway route, before exposing Web callers; an older
+backend fails visibly rather than silently searching loaded previews. Rollback
+removes callers first; persistent additive SQLite triggers remain compatible
+with older message writers. CLI, Service, setup, Wake, and diagnostics contracts
+are unchanged, so no local-component floor or forced update is required.
+
 ## Human Presence
 
 Core owns Organization-scoped Human presence independently of Computer connection,
@@ -65,6 +92,23 @@ file metadata, and file revisions remain authoritative; pin reads resolve them
 instead of persisting copied previews. Missing messages and trashed files are
 omitted. Retrying a pin preserves its original owner and timestamp, and unpin
 ownership is checked synchronously before deletion in the owning Space.
+
+## Space Task ownership
+
+The Space Durable Object is the only writer for Space Tasks. Its SQLite schema
+owns `space_tasks`, append-only `space_task_events`, and idempotent
+`space_task_operations`. The stored Task document is the current read model;
+phase and revision columns support bounded board reads and conflict-safe writes.
+Every mutation compares the expected Task revision inside the Space transaction.
+An operation id may replay only the exact same request and returns the retained
+receipt without appending another event.
+
+Task phase is collaboration truth. RuntimeCoordinator and Remote Agent native
+delivery continue to own execution state. Cancellation may call their existing
+Stop boundary after the Task transaction commits, but no Task row proves that a
+process started, stopped, or completed. Task handoff and completion messages are
+deterministic Space Signals, so retrying a Task operation cannot duplicate the
+visible transition or Agent Wake.
 
 ## Space message previews and slow Web experiences
 
@@ -327,6 +371,22 @@ Deleting a personal group removes its presentation association only.
 | Space Index                        | Cross-Space list projection.                                                                                                                                                                        | Rebuildable projection from Space truth.                                                                                                                                                                                                                                                                                                                               |
 | Ephemeral                          | Short-lived handoff/session state.                                                                                                                                                                  | Temporary state, not a permanent domain.                                                                                                                                                                                                                                                                                                                               |
 | Space Truth                        | Space collaboration truth.                                                                                                                                                                          | Space Durable Object source of truth.                                                                                                                                                                                                                                                                                                                                  |
+
+Inbox message notification preferences have two Core-owned D1 records:
+`inbox_message_notification_defaults` stores one mode per account, and
+`inbox_conversation_notification_preferences` stores explicit overrides per
+account, Organization, and Space. Absence of an override means live inheritance.
+These records never write Inbox read state, urgency, email deliveries, or Space
+membership. Core may use an explicit mute as a read-time filter for the opt-in
+Inbox attention presentation; the raw Inbox projection and delivery ledger stay
+unchanged. Core verifies active Organization membership and current conversation
+access before reading or changing a conversation preference. Browser delivery
+re-reads the authorized preference after its delivery lock; browser-local
+permission and sound settings remain local.
+Conversation preferences currently cascade on account or Organization deletion,
+but a deleted Space's override row remains inaccessible until that cascade.
+The active-Space access check excludes it from preference reads and writes;
+the row does not retain message content or grant Inbox visibility.
 
 Agent Profile Creation Requests keep the approval/update time, execution attempt
 number, and optional start time on the Core-owned request row. Recovery covers
@@ -2061,13 +2121,24 @@ text. Callback context receives the same answer as a recoverable delivery
 projection; an instance restart may repopulate it from the execution record and
 retry the ordinary Core callback. Partial stream text, failed execution,
 cancellation, and observability records cannot become this answer authority.
+That same execution record retains a requested failure while runtime settlement
+or Computer cleanup is pending. This fences new work without claiming terminal
+execution; progress updates preserve it and Stop remains available. Both the
+observer and recovery reconciler require settled runtime and confirmed command
+cleanup before terminal publication. Cancellation takes precedence over the
+requested failure, and successful-looking assistant text cannot erase it.
 Every observer and reconciliation path derives its callback from the terminal
 compare-and-set winner. A stale or conflicting callback-context answer is
 replaced by the execution record's exact normalized answer before publication;
 a legacy callback-only answer cannot repair a completed execution that has no
 owner answer. That invalid legacy owner state is durably changed to failure,
 and either side of a restart can repeat the same explicit-failure projection.
-One terminal-outcome projector maps completed, failed, aborted, and missing
+Previously persisted work-loop checkpoints are an explicit exception to the
+completed-answer invariant: the execution owner adopts that structured fact
+before projection, retains it with no completed answer, and replays the existing
+continuation callback. Assistant text cannot replace it, while an authoritative
+failure or Stop wins. Already finalized Core deliveries are not reopened.
+One terminal-outcome projector maps completed, legacy checkpoint, failed, aborted, and missing
 execution outcomes into callback payloads for both observation and
 reconciliation. If the callback projection itself is missing, reconciliation
 fails with `remote_agent.terminal_callback_projection_missing`, leaves the
@@ -2151,8 +2222,16 @@ per-turn evidence and expires it after seven days. It records only structured
 milestones and decisions: provider
 request preparation and response headers, first model event, first visible
 assistant content, model completion, model and tool counts, capability search
-and describe results, the source of each tool call, and whether the per-attempt
-tool budget was exhausted. It never records prompt text, reply text, model
+and describe results, the source of each tool call, and whether the
+assignment safety budget was exhausted. For current workers, `toolCallCount`
+is the aggregate charged attempt number across the same dispatch, including
+unchanged-observation refusals that do not execute another read, and
+`toolCallLimit` is its frozen configured limit; source counters and recent events
+remain submission-local. Legacy records retain their original per-submission
+meaning. Active accounting does not expire; after Core accepts a final callback,
+the matching last submission's accounting can expire after one hour. An older
+submission's callback cannot expire a newer submission's accounting. It never
+records prompt text, reply text, model
 reasoning, tool arguments, tool results, tokens, or provider payloads.
 
 Core reports runtime evidence as `available`, `not_recorded`, or `unavailable`.

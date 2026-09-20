@@ -1,4 +1,5 @@
 import { SettingsDialogContent } from "@openmeld/ui/components/settings-dialog-content";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	resolveHostCapabilities,
 	resolveSettingsSections,
@@ -7,6 +8,7 @@ import {
 	toSettingsNavItems,
 } from "@openmeld/ui/lib/settings-contract";
 import {
+	ArrowClockwiseIcon,
 	BellIcon,
 	BuildingsIcon,
 	EnvelopeSimpleIcon,
@@ -19,8 +21,8 @@ import {
 	UsersIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { redirect, useLocation } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { redirect } from "@tanstack/react-router";
+import { type ReactNode, Suspense, useEffect, useState } from "react";
 import {
 	AppContextualContentFrame,
 	type AppContextualNavGroup,
@@ -33,6 +35,11 @@ import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
 import { SendFeedbackDialog } from "#/components/feedback/send-feedback-dialog";
+import {
+	DESKTOP_UPDATE_ATTENTION_LABEL,
+	DesktopUpdateIndicator,
+	useDesktopUpdateAttention,
+} from "#/desktop/updater";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationAccountSettingsPath } from "#/lib/organizations/organization-routes";
 import type {
@@ -57,6 +64,7 @@ const PERSONAL_SETTINGS_SECTION_IDS = [
 	"notifications",
 	"service",
 	"privacy",
+	"updates",
 ] as const;
 const ORGANIZATION_SETTINGS_SECTION_IDS = [
 	"general",
@@ -96,7 +104,6 @@ export function SettingsPage(input: {
 	presentation?: "page" | "dialog";
 	onNavigate?: (section: string) => void;
 }) {
-	const pathname = useLocation({ select: (location) => location.pathname });
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const orgSlug = currentOrganization.slug;
 	const sections = resolveSettingsSections(
@@ -105,9 +112,19 @@ export function SettingsPage(input: {
 	);
 	const navItems = toSettingsNavItems(sections);
 
-	const activeSection = sections.find(
+	const requestedSection = sections.find(
 		(section) => section.id === input.activeSectionId
 	);
+	const activeSection =
+		requestedSection ??
+		(input.presentation === "dialog"
+			? sections.find((section) => section.id === "account")
+			: undefined);
+	useEffect(() => {
+		if (!requestedSection && input.presentation === "dialog") {
+			input.onNavigate?.("account");
+		}
+	}, [requestedSection, input.presentation, input.onNavigate]);
 
 	// Gated-route guard: if the active leaf's section was filtered out by host
 	// capability (e.g. /o/:orgSlug/settings/service on a plain Web host, which lacks
@@ -115,13 +132,6 @@ export function SettingsPage(input: {
 	// the requested URL. Redirect to the always-present Account leaf instead.
 	// This also protects any future gated leaf added to the registry.
 	if (!activeSection) {
-		if (input.presentation === "dialog") {
-			throw redirect({
-				to: pathname,
-				replace: true,
-				search: (previous) => ({ ...previous, appSettings: "account" }),
-			});
-		}
 		throw redirect({
 			replace: true,
 			to: buildOrganizationAccountSettingsPath(orgSlug),
@@ -131,7 +141,7 @@ export function SettingsPage(input: {
 	return (
 		<SettingsPageShell
 			activeSection={activeSection}
-			activeSectionId={input.activeSectionId}
+			activeSectionId={activeSection.id}
 			currentUserId={currentUserId}
 			initialSidebarStates={input.initialSidebarStates}
 			navItems={navItems}
@@ -177,9 +187,14 @@ function SettingsPageShell(input: {
 			presentation={input.presentation}
 		/>
 	);
-	const content = input.activeSection.render({
-		capabilities: WEB_HOST_CAPABILITIES,
-	});
+	const content = (
+		<Suspense
+			fallback={<SettingsContentSkeleton />}
+			key={input.activeSectionId}
+		>
+			{input.activeSection.render({ capabilities: WEB_HOST_CAPABILITIES })}
+		</Suspense>
+	);
 	if (input.presentation === "dialog") {
 		return (
 			<>
@@ -226,6 +241,26 @@ function SettingsPageShell(input: {
 	);
 }
 
+function SettingsContentSkeleton() {
+	return (
+		<output aria-label="Loading settings" className="block w-full space-y-8">
+			<div aria-hidden="true" className="space-y-3">
+				<Skeleton className="h-3 w-16 animate-none" />
+				<Skeleton className="h-7 w-40 animate-none" />
+				<Skeleton className="h-4 w-3/4 max-w-md animate-none" />
+			</div>
+			<div aria-hidden="true" className="space-y-6">
+				{[0, 1, 2].map((row) => (
+					<div className="space-y-3 border-border border-t pt-6" key={row}>
+						<Skeleton className="h-4 w-28 animate-none" />
+						<Skeleton className="h-9 w-full max-w-sm animate-none" />
+					</div>
+				))}
+			</div>
+		</output>
+	);
+}
+
 export function SettingsContentFrame(input: { children: ReactNode }) {
 	return (
 		<AppContextualContentFrame
@@ -248,7 +283,9 @@ export function SettingsInnerSidebar(input: {
 	organizationName: string;
 	organizationRole: SettingsOrganizationRole | null;
 }) {
+	const desktopUpdateAttention = useDesktopUpdateAttention();
 	const groups = toContextualSettingsNavGroups({
+		desktopUpdateAttention,
 		isPersonalWorkspace: input.isPersonalWorkspace,
 		items: input.items,
 		organizationName: input.organizationName,
@@ -292,6 +329,8 @@ function resolveSettingsNavIcon(sectionId: string): Icon {
 			return PaletteIcon;
 		case "notifications":
 			return BellIcon;
+		case "updates":
+			return ArrowClockwiseIcon;
 		case "privacy":
 			return ShieldCheckIcon;
 		case "center-agent":
@@ -310,6 +349,7 @@ function resolveSettingsNavIcon(sectionId: string): Icon {
 }
 
 function toContextualSettingsNavGroups(input: {
+	desktopUpdateAttention: boolean;
 	isPersonalWorkspace: boolean;
 	items: readonly SettingsNavItem[];
 	organizationName: string;
@@ -319,7 +359,13 @@ function toContextualSettingsNavGroups(input: {
 		if (!item.to) {
 			throw new Error(`Settings sidebar item is missing a route: ${item.id}`);
 		}
+		const updateAttention =
+			item.id === "updates" && input.desktopUpdateAttention;
 		return {
+			accessory: updateAttention ? <DesktopUpdateIndicator /> : undefined,
+			ariaLabel: updateAttention
+				? `${item.title}, ${DESKTOP_UPDATE_ATTENTION_LABEL}`
+				: undefined,
 			icon: resolveSettingsNavIcon(item.id),
 			id: item.id,
 			label: item.title,

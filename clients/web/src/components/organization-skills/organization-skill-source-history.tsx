@@ -1,4 +1,5 @@
 import type { OrganizationSkill } from "@openmeld/schemas/types";
+import { Badge } from "@openmeld/ui/components/badge";
 import { GithubLogoIcon } from "@phosphor-icons/react";
 
 export function OrganizationSkillSourceHistory(input: {
@@ -6,15 +7,9 @@ export function OrganizationSkillSourceHistory(input: {
 }) {
 	return (
 		<section aria-labelledby="skill-history-heading" className="grid gap-3">
-			<div>
-				<h2 className="font-medium text-lg" id="skill-history-heading">
-					Source and releases
-				</h2>
-				<p className="mt-1 text-muted-foreground text-sm">
-					Every Save creates an immutable release. Existing work keeps the
-					release it started with.
-				</p>
-			</div>
+			<h3 className="sr-only" id="skill-history-heading">
+				Saved versions
+			</h3>
 			{input.skill.source.kind === "github" ? (
 				<a
 					className="inline-flex items-center gap-2 justify-self-start text-sm underline underline-offset-4"
@@ -28,31 +23,44 @@ export function OrganizationSkillSourceHistory(input: {
 			) : (
 				<p className="text-muted-foreground text-sm">Created in OpenMeld.</p>
 			)}
-			<div className="grid overflow-hidden rounded-md border">
+			<ol className="divide-y border-y">
 				{input.skill.releases.map((release) => (
-					<div
-						className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 text-sm last:border-b-0"
-						key={release.id}
-					>
-						<div>
-							<p className="font-medium">
-								{release.id === input.skill.activeRelease.id
-									? "Current release"
-									: "Previous release"}
-							</p>
-							<p className="mt-1 text-muted-foreground text-xs">
+					<li className="grid gap-3 py-3 text-sm" key={release.id}>
+						<div className="flex flex-wrap items-center justify-between gap-2">
+							<time dateTime={release.createdAt}>
 								{new Intl.DateTimeFormat("en-US", {
 									dateStyle: "medium",
 									timeStyle: "short",
 								}).format(new Date(release.createdAt))}
-							</p>
+							</time>
+							{release.id === input.skill.activeRelease.id && (
+								<Badge variant="secondary">Current</Badge>
+							)}
 						</div>
-						<code className="text-muted-foreground text-xs">
-							{release.digest.slice(0, 12)}
-						</code>
-					</div>
+						<details>
+							<summary className="cursor-pointer text-muted-foreground text-xs">
+								Release details
+							</summary>
+							<dl className="mt-2 grid gap-2 break-all text-xs">
+								<div>
+									<dt className="text-muted-foreground">Release ID</dt>
+									<dd className="font-mono">{release.id}</dd>
+								</div>
+								<div>
+									<dt className="text-muted-foreground">Digest</dt>
+									<dd className="font-mono">{release.digest}</dd>
+								</div>
+								{release.source.kind === "github" && (
+									<div>
+										<dt className="text-muted-foreground">GitHub commit</dt>
+										<dd className="font-mono">{release.source.commitSha}</dd>
+									</div>
+								)}
+							</dl>
+						</details>
+					</li>
 				))}
-			</div>
+			</ol>
 		</section>
 	);
 }

@@ -6,6 +6,7 @@ import type {
 	AgentProfileBindingSessionInventorySelection,
 	AuthProfileView,
 	DaemonServiceLane,
+	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import {
 	ensureWebAgentProfileRuntimeBinding,
@@ -142,10 +143,15 @@ export async function setupNewAgentProfileLocalState(
 	);
 	const agentControllerRef =
 		input.boundAgentId.length > 0 ? `builtin:${input.boundAgentId}` : null;
+	const target =
+		input.deviceId && input.runtimeLane
+			? { deviceId: input.deviceId, runtimeLane: input.runtimeLane }
+			: undefined;
 
 	if (!agentControllerRef) {
 		if (input.currentServiceCanSetProfileWorkspace === true) {
 			await configureNewAgentProfileWorkspace({
+				target,
 				agentProfileId: input.profile.openMeldProfileId,
 				bindingEstablished: false,
 				organizationId,
@@ -182,6 +188,7 @@ export async function setupNewAgentProfileLocalState(
 	});
 	if (!input.defaultProjectId) {
 		await configureNewAgentProfileWorkspace({
+			target,
 			agentProfileId: input.profile.openMeldProfileId,
 			bindingEstablished: true,
 			organizationId,
@@ -265,6 +272,8 @@ async function bindNewAgentProfileToLocalAgent(input: {
 }
 
 export async function configureNewAgentProfileWorkspace(input: {
+	target?: PeopleComputerTarget;
+	expectedComputerId?: string | null;
 	agentProfileId: string;
 	bindingEstablished: boolean;
 	organizationId: string;
@@ -274,6 +283,8 @@ export async function configureNewAgentProfileWorkspace(input: {
 	const projectFolderPath = normalizeProjectFolderPath(input.projectFolderPath);
 	try {
 		await updateAgentProfileWorkspace({
+			target: input.target,
+			expectedComputerId: input.expectedComputerId,
 			actorProfileId: input.selectedHumanProfileId,
 			organizationId: input.organizationId,
 			profileId: input.agentProfileId,

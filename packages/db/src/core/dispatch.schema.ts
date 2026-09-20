@@ -80,9 +80,14 @@ import {
 } from "./feedback.schema.ts";
 import { openMeldDaemonForgottenDevices } from "./forgotten-device.schema.ts";
 import {
+  desktopUpdateInstallations,
   inboxCenterAgentReadWatermarks,
+  inboxConversationNotificationPreferences,
   inboxEmailDeliveries,
+  inboxFeedSnapshotMembers,
+  inboxFeedSnapshots,
   inboxItems,
+  inboxMessageNotificationDefaults,
   inboxNotificationPreferences,
   inboxSpaceThreadReadWatermarks,
 } from "./inbox.schema.ts";
@@ -1657,7 +1662,12 @@ export const coreSchema = {
   inboxCenterAgentReadWatermarks,
   inboxEmailDeliveries,
   inboxItems,
+  inboxFeedSnapshots,
+  inboxFeedSnapshotMembers,
+  desktopUpdateInstallations,
   inboxNotificationPreferences,
+  inboxMessageNotificationDefaults,
+  inboxConversationNotificationPreferences,
   inboxSpaceThreadReadWatermarks,
   agentActivityDailyAggregates,
   agentActivityDailySessionKeys,

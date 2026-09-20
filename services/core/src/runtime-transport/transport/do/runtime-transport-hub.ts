@@ -17,11 +17,13 @@ import {
   agentTaskObservationRedriveQueueMessageSchema,
   buildRuntimeCoordinatorExecutionId,
   buildRuntimeCoordinatorFinalizationCommandId,
+  COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   computerFileAccessDaemonFrameSchema,
   computerFileAccessPolicyResultSchema,
   daemonStreamFrameSchema,
+  isComputerFileAccessOwnerCancellation,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
   localAgentReasoningPreferencesSchema,
   localFolderPickerDaemonFrameSchema,
@@ -32,6 +34,9 @@ import {
   localProjectControlRemoveConnectionResultSchema,
   localProjectControlRemoveMissingConnectionsResultSchema,
   localProjectControlSetDefaultConnectionResultSchema,
+  OPENMELD_COMPUTER_CARE_HEADER,
+  OPENMELD_DAEMON_CANCEL_WITHDRAWN_BEFORE_START_REASON_CODE,
+  OPENMELD_EXECUTION_ADMISSION_HEADER,
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
@@ -61,6 +66,10 @@ import {
   runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema,
   runtimeTransportAgentProfileWorkContinuationNeedsAttentionRequestSchema,
   runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseSchema,
+  runtimeTransportAgentProfileWorkHandoffRequestSchema,
+  runtimeTransportAgentProfileWorkHandoffResponseSchema,
+  runtimeTransportAgentProfileWorkLocalAttemptWithdrawalRequestSchema,
+  runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema,
   runtimeTransportAgentProfileWorkQueueApproveRequestSchema,
   runtimeTransportAgentProfileWorkQueueApproveResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryReadRequestSchema,
@@ -79,6 +88,7 @@ import {
   runtimeTransportDispatchInteractionDeliveredRequestSchema,
   runtimeTransportDispatchInteractionRequestSchema,
   runtimeTransportDispatchInteractionResponseFramePayloadSchema,
+  runtimeTransportDispatchLifecycleAcknowledgementSchema,
   runtimeTransportDispatchLifecycleRequestSchema,
   runtimeTransportDispatchPreviewEndRequestSchema,
   runtimeTransportDispatchPreviewRequestSchema,
@@ -150,6 +160,7 @@ import {
   runtimeTransportSubmitTaskResultRequestSchema,
   runtimeTransportWaitDispatchResultRequestSchema,
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
   serviceConnectionDiagnosticIdSchema,
   toLegacySpaceAddressingWireValue,
   wakeStopEligibilityReadModelSchema,
@@ -201,6 +212,10 @@ import type {
   RuntimeTransportAgentProfileWorkContinuationAuthorizeResponse,
   RuntimeTransportAgentProfileWorkContinuationNeedsAttentionRequest,
   RuntimeTransportAgentProfileWorkContinuationNeedsAttentionResponse,
+  RuntimeTransportAgentProfileWorkHandoffRequest,
+  RuntimeTransportAgentProfileWorkHandoffResponse,
+  RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalRequest,
+  RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalResponse,
   RuntimeTransportAgentProfileWorkQueueApproveRequest,
   RuntimeTransportAgentProfileWorkQueueApproveResponse,
   RuntimeTransportAgentProfileWorkRecoveryReadRequest,
@@ -336,6 +351,7 @@ import {
   approveRuntimeCoordinatorAgentProfileWorkQueue,
   authorizeRuntimeCoordinatorAgentProfileWorkContinuation,
   completeRuntimeCoordinatorAgentProfileWorkRecoveryInboxProjection,
+  handOffRuntimeCoordinatorOccupiedAgentProfileWork,
   listDrainingAgentProfileContextMigrations,
   markRuntimeCoordinatorAgentProfileWorkContinuationNeedsAttention,
   markRuntimeCoordinatorAgentProfileWorkControllerConversationOccupancy,
@@ -345,6 +361,7 @@ import {
   readRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarmAtMs,
   readRuntimeCoordinatorAgentProfileExecutionStateFromAdmission,
   readRuntimeCoordinatorAgentProfileOperationalContextsFromAdmission,
+  readRuntimeCoordinatorAgentProfileWorkControllerConversationOccupied,
   readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmission,
   releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation,
   resolveNextAgentProfileContextMigrationAlarmAtMs,
@@ -375,6 +392,7 @@ import {
   publishAgentReadinessInvalidationToSpaces,
   resolveRouteCatalogChangedInvalidationProfileIds,
 } from "../../application/agent-readiness-invalidation-service";
+import { createComputerConnectionIncidents } from "../../application/computer-connection-incidents";
 import { isDaemonExecutionCompatible } from "../../application/daemon-execution-compatibility";
 import {
   emitDaemonDispatchRuntimeEvidence,
@@ -442,6 +460,7 @@ import {
   buildMissingPublicationFactsClosureDiagnostics,
   buildPreExecutionHandoffFailureResultRef,
   buildRuntimeCoordinatorCancelledExecutionRecord,
+  buildRuntimeCoordinatorControllerConversationOccupiedTerminalPlan,
   buildRuntimeCoordinatorDecisionId,
   buildRuntimeCoordinatorDeliveryExpiredTerminalPlan,
   buildRuntimeCoordinatorExecutionRecordFromAuthority,
@@ -478,6 +497,7 @@ import {
   isRuntimeCoordinatorHeadWaitingForDevice,
   isRuntimeCoordinatorHeadWaitingRecoveryCandidate,
   isRuntimeCoordinatorLateResultRecoverable,
+  isRuntimeCoordinatorLocalAttemptWithdrawn,
   isRuntimeCoordinatorPublicationProjectionSettled,
   isRuntimeCoordinatorPublicationRetryExhausted,
   isRuntimeCoordinatorReevaluatableDecisionAction,
@@ -487,6 +507,7 @@ import {
   normalizeRuntimeCoordinatorHeadWaitingBoundary,
   omitRuntimeCoordinatorHeadPublicationRetry,
   parkRuntimeCoordinatorFinalizationRetryEntry,
+  RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
   RUNTIME_COORDINATOR_DECISION_MODEL_VERSION,
   RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE,
   RUNTIME_COORDINATOR_FINALIZATION_RETRY_DELAY_MS,
@@ -496,6 +517,9 @@ import {
   RUNTIME_COORDINATOR_HEAD_WAITING_RECOVERY_REDRIVE_HEADER,
   RUNTIME_COORDINATOR_HEAD_WAITING_RECOVERY_REDRIVE_REASON,
   RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS,
+  RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_OCCUPANCY_TERMINAL_REASON_CODE,
+  RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_SERVICE_AWAY_REASON_CODE,
+  RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_SUPERSEDED_REASON_CODE,
   RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE,
   RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
   RUNTIME_COORDINATOR_PRE_EXECUTION_HANDOFF_DEADLINE_MS,
@@ -515,6 +539,7 @@ import {
   resolveNextRuntimeCoordinatorPreExecutionHandoffAlarmAtMsFromRecords,
   resolveRuntimeCoordinatorDecisionRun,
   resolveRuntimeCoordinatorDecisionScopeMismatchReason,
+  resolveRuntimeCoordinatorExecutionAdmissionValidityMs,
   resolveRuntimeCoordinatorFinalizationCommandIdFromClosureDiagnosticInput,
   resolveRuntimeCoordinatorHeadDuplicateReasonCode,
   resolveRuntimeCoordinatorHeadTargetDisplay,
@@ -570,7 +595,9 @@ import {
   readRuntimeCoordinatorRunCommandStateFromStorage,
   readRuntimeCoordinatorRunCommandStatesFromStorageIndex,
   readRuntimeCoordinatorTokenAuthorityFromStorage,
+  recordRuntimeCoordinatorLocalAttemptWithdrawnInStorage,
   removeRuntimeCoordinatorFinalizationRetryFromStorage,
+  requestRuntimeCoordinatorLocalAttemptWithdrawalInStorage,
   retainRuntimeCoordinatorCommunicationRecovery,
   upsertRuntimeCoordinatorFinalizationRetryEntryInStorage,
   writeRuntimeCoordinatorPreExecutionHandoffRecordToStorage,
@@ -1030,6 +1057,11 @@ type RouteCatalogReconciliationTrigger =
   | "daemon_session_heartbeat"
   | "daemon_session_registered";
 
+type AgentProfileWorkPromotionRedriveTrigger =
+  | "admission_reconciliation"
+  | "alarm_recovery"
+  | "terminal_transaction";
+
 type RouteCatalogReconciliationSignalState = {
   backoffLevel: number;
   missingProfileIdsKey: string;
@@ -1050,6 +1082,7 @@ type RuntimeCoordinatorWakeStopControlPayload =
   | OpenMeldDaemonCancelPayload
   | OpenMeldDaemonInterruptPayload;
 type RuntimeCoordinatorLostRunTerminalReasonCode =
+  | typeof RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
   | typeof RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE
   | typeof RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE
   | typeof RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE;
@@ -1057,6 +1090,9 @@ type RuntimeCoordinatorLostRunTerminalReasonCode =
 const resolveRuntimeCoordinatorLostRunTerminalPlan = (
   expiryCause: RuntimeCoordinatorRunExpiryCause
 ): RuntimeCoordinatorTerminalDecisionPlan => {
+  if (expiryCause === "controller_conversation_occupied") {
+    return buildRuntimeCoordinatorControllerConversationOccupiedTerminalPlan();
+  }
   if (expiryCause === "local_progress_stale") {
     return buildRuntimeCoordinatorProgressStaleTerminalPlan();
   }
@@ -1069,6 +1105,9 @@ const resolveRuntimeCoordinatorLostRunTerminalPlan = (
 const resolveRuntimeCoordinatorLostRunReasonCode = (
   expiryCause: RuntimeCoordinatorRunExpiryCause
 ): RuntimeCoordinatorLostRunTerminalReasonCode => {
+  if (expiryCause === "controller_conversation_occupied") {
+    return RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE;
+  }
   if (expiryCause === "local_progress_stale") {
     return RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE;
   }
@@ -1082,8 +1121,21 @@ const resolveRuntimeCoordinatorLostRunPublicationPresentation = (
   reasonCode: RuntimeCoordinatorLostRunTerminalReasonCode
 ): {
   blockerSlug: string;
-  noticeVariant: "delivery_expired" | "local_runtime_lost" | "progress_stale";
+  noticeVariant:
+    | "controller_conversation_occupied"
+    | "delivery_expired"
+    | "local_runtime_lost"
+    | "progress_stale";
 } => {
+  if (
+    reasonCode ===
+    RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
+  ) {
+    return {
+      blockerSlug: "controller-conversation-occupied",
+      noticeVariant: "controller_conversation_occupied",
+    };
+  }
   if (reasonCode === RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE) {
     return {
       blockerSlug: "progress-stale",
@@ -1582,6 +1634,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       const adoptedSockets = adoptHibernatedSockets(this.ctx, this.state, {
         closeSocket: safeCloseSocket,
       });
+      await this.observeComputerConnectionIncidents();
       this.reapExpiredLeases(Date.now());
       if (restoredRecords.needsPersist || adoptedSockets.needsPersist) {
         await persistServiceRuntimeRecordsNow(this.ctx, this.state);
@@ -1611,6 +1664,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const run = this.createHousekeepingAlarmRun(nowMs);
     this.scheduledHousekeepingAlarmAtMs = null;
     try {
+      await this.observeComputerConnectionIncidents();
       this.reapExpiredLeases(nowMs);
       await this.runHousekeepingAlarmPhase(
         run,
@@ -1875,6 +1929,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         currentDefaultProjectId: parsed.data.currentDefaultProjectId,
         expectedInterruptedTargetWakeLifecycleId:
           parsed.data.expectedInterruptedTargetWakeLifecycleId,
+        forkInterruptedConversation: parsed.data.forkInterruptedConversation,
         nowMs: Date.now(),
         ownerUserId: parsed.data.ownerUserId,
         storage: this.ctx.storage,
@@ -1894,8 +1949,161 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       if (response.status === "needs_attention") {
         this.scheduledHousekeepingAlarmAtMs = undefined;
       }
+      if (response.status === "authorized" && response.interruptedExecution) {
+        await this.stopSupersededInterruptedExecution({
+          interruptedExecution: response.interruptedExecution,
+          ownerUserId: parsed.data.ownerUserId,
+          targetProfileId: parsed.data.targetProfileId,
+        });
+      }
     }
+    // The stop target is Coordinator control state, not part of the public
+    // answer. Returning the whole internal result would fail this strict
+    // contract after the authorization has already been committed.
     return runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema.parse(
+      { status: response.status }
+    );
+  }
+
+  private async stopSupersededInterruptedExecution(input: {
+    interruptedExecution: {
+      dispatchId: string;
+      runtimeCoordinatorExecutionId: string;
+    };
+    ownerUserId: string;
+    targetProfileId: string;
+  }): Promise<void> {
+    const oldExecutionId =
+      input.interruptedExecution.runtimeCoordinatorExecutionId;
+    const oldCommandState = await this.readRuntimeCoordinatorRunCommandState(
+      oldExecutionId
+    ).catch(() => null);
+    if (!oldCommandState) {
+      return;
+    }
+    await this.requestRuntimeCoordinatorWakeStop({
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      ownerUserId: input.ownerUserId,
+      runtimeCoordinatorExecutionId: oldExecutionId,
+      dispatchId: oldCommandState.dispatchId,
+      spaceId: oldCommandState.sanitizedDeliveryRequest.payload.spaceId,
+      sourceClientMessageId: oldCommandState.sourceClientMessageId,
+      targetProfileId: input.targetProfileId,
+      reason: "superseded_by_continuation",
+    }).catch(() => null);
+    await this.requestRuntimeCoordinatorLocalAttemptWithdrawal({
+      commandState: oldCommandState,
+      controlReason: "superseded_by_continuation",
+      nowMs: Date.now(),
+      reasonCode:
+        RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_SUPERSEDED_REASON_CODE,
+    });
+  }
+
+  /**
+   * Asks the computer to withdraw one attempt and records that it was asked.
+   *
+   * The control frame is best effort, so the durable request is what lets a
+   * later acknowledgement be recognized and lets an unconfirmed withdrawal stay
+   * visible instead of being assumed successful. A Service that is away keeps
+   * its own reason rather than looking like a delivered request.
+   */
+  private async requestRuntimeCoordinatorLocalAttemptWithdrawal(input: {
+    commandState: RuntimeCoordinatorRunCommandState;
+    controlReason: string;
+    nowMs: number;
+    reasonCode: string;
+  }): Promise<void> {
+    const session = this.state.sessionsById.get(
+      input.commandState.sanitizedDeliveryRequest.daemonSessionId
+    );
+    let delivered = false;
+    if (session?.socket) {
+      try {
+        this.sendFrame(session.socket, {
+          code: "daemon.local_agent_control.cancel",
+          payload: {
+            requestId: buildRuntimeCoordinatorWakeStopControlRequestId(
+              input.commandState.runtimeCoordinatorExecutionId
+            ),
+            payload: {
+              runtimeCoordinatorExecutionId:
+                input.commandState.runtimeCoordinatorExecutionId,
+              target: {
+                by: "task",
+                taskId:
+                  input.commandState.sanitizedDeliveryRequest.payload.taskId,
+              },
+              reason: input.controlReason,
+            },
+          },
+        });
+        delivered = true;
+      } catch {
+        // Socket send failure is best effort; the durable request records it.
+      }
+    }
+    const requested =
+      await requestRuntimeCoordinatorLocalAttemptWithdrawalInStorage({
+        activeRunId: input.commandState.activeRunId,
+        nowMs: input.nowMs,
+        reasonCode: delivered
+          ? input.reasonCode
+          : RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_SERVICE_AWAY_REASON_CODE,
+        runtimeCoordinatorExecutionId:
+          input.commandState.runtimeCoordinatorExecutionId,
+        storage: this.ctx.storage,
+      }).catch((error) => {
+        console.warn(
+          "[core.runtime_transport.local_attempt_withdrawal_request_unrecorded]",
+          {
+            error: error instanceof Error ? error.message : String(error),
+            reasonCode: input.reasonCode,
+            runtimeCoordinatorExecutionId:
+              input.commandState.runtimeCoordinatorExecutionId,
+          }
+        );
+        return null;
+      });
+    if (requested) {
+      this.publishWakeProgressChanged({
+        agentProfileId: requested.targetProfileId,
+        clientMessageId: requested.sourceClientMessageId,
+        spaceId: requested.sanitizedDeliveryRequest.payload.spaceId,
+      });
+    }
+  }
+
+  async rpcHandOffOccupiedAgentProfileWork(
+    input: RuntimeTransportAgentProfileWorkHandoffRequest
+  ): Promise<RuntimeTransportAgentProfileWorkHandoffResponse> {
+    const parsed =
+      runtimeTransportAgentProfileWorkHandoffRequestSchema.safeParse(input);
+    if (!parsed.success) {
+      return { status: "unavailable" };
+    }
+    const response = await handOffRuntimeCoordinatorOccupiedAgentProfileWork({
+      nowMs: Date.now(),
+      ownerUserId: parsed.data.ownerUserId,
+      sourceDispatchId: parsed.data.sourceDispatchId,
+      sourceTargetWakeLifecycleId: parsed.data.sourceTargetWakeLifecycleId,
+      storage: this.ctx.storage,
+      successorDispatchId: parsed.data.successorDispatchId,
+      successorExecutionContextId: parsed.data.successorExecutionContextId,
+      successorTargetWakeLifecycleId:
+        parsed.data.successorTargetWakeLifecycleId,
+      targetProfileId: parsed.data.targetProfileId,
+    });
+    if (response.status === "unavailable") {
+      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+    }
+    if (response.status === "handed_off") {
+      this.publishAgentReadinessInvalidated({
+        profileIds: [parsed.data.targetProfileId],
+        reason: "agent_profile_work_coordinator.changed",
+      });
+    }
+    return runtimeTransportAgentProfileWorkHandoffResponseSchema.parse(
       response
     );
   }
@@ -1969,6 +2177,97 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     return runtimeTransportAgentProfileWorkQueueApproveResponseSchema.parse({
       status: response.status,
     });
+  }
+
+  /**
+   * Asks the computer again to withdraw the attempt a continuation replaces.
+   *
+   * Recovery consults this on every attempt instead of trusting that the
+   * cancellation sent with the first authorization landed. A stored decision is
+   * not evidence, and the honest answer while nothing has confirmed is
+   * `requested`, never a silent permission to start replacement work.
+   */
+  async rpcRequestAgentProfileWorkLocalAttemptWithdrawal(
+    input: RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalRequest
+  ): Promise<RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalResponse> {
+    const parsed =
+      runtimeTransportAgentProfileWorkLocalAttemptWithdrawalRequestSchema.safeParse(
+        input
+      );
+    if (!parsed.success) {
+      return { status: "unavailable" };
+    }
+    const recovery =
+      await readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmission({
+        nowMs: Date.now(),
+        ownerUserId: parsed.data.ownerUserId,
+        storage: this.ctx.storage,
+        targetProfileId: parsed.data.targetProfileId,
+      });
+    if (recovery.status === "unavailable") {
+      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+      return { status: "unavailable" };
+    }
+    const interruptedTargetWakeLifecycleId =
+      recovery.status === "available"
+        ? recovery.interruptedTargetWakeLifecycleId
+        : undefined;
+    if (
+      !interruptedTargetWakeLifecycleId ||
+      interruptedTargetWakeLifecycleId !==
+        parsed.data.expectedInterruptedTargetWakeLifecycleId
+    ) {
+      return { status: "not_pending" };
+    }
+    // The recovery read already resolved this from an authoritative head, so
+    // both settled answers come from there. Rereading the head is only how this
+    // call addresses the attempt it still has to ask about.
+    if (recovery.status === "available") {
+      if (recovery.interruptedLocalAttempt === "withdrawn") {
+        return { status: "withdrawn" };
+      }
+      if (recovery.interruptedLocalAttempt === "not_started") {
+        return { status: "not_started" };
+      }
+    }
+    const head = await this.readRuntimeCoordinatorHeadLifecycleRecord(
+      interruptedTargetWakeLifecycleId
+    ).catch((error: unknown) => {
+      console.warn(
+        "[core.runtime_transport.local_attempt_withdrawal_head_unreadable]",
+        { error, targetWakeLifecycleId: interruptedTargetWakeLifecycleId }
+      );
+      return null;
+    });
+    const executionId = head?.runtimeCoordinatorExecutionId;
+    if (!executionId) {
+      // A head that cannot be read is not a head that never started work.
+      // Answering `not_started` here would turn a read failure into permission
+      // to run the same instruction again.
+      return { status: "unavailable" };
+    }
+    const commandState = await this.readRuntimeCoordinatorRunCommandState(
+      executionId
+    ).catch(() => null);
+    if (!commandState) {
+      // Without the delivery record Core cannot address the attempt, so it
+      // reports the withdrawal as outstanding rather than assuming either way.
+      return { status: "requested" };
+    }
+    await this.requestRuntimeCoordinatorLocalAttemptWithdrawal({
+      commandState,
+      controlReason: "superseded_by_continuation",
+      nowMs: Date.now(),
+      reasonCode:
+        RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_SUPERSEDED_REASON_CODE,
+    });
+    return runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema.parse(
+      {
+        status: isRuntimeCoordinatorLocalAttemptWithdrawn(commandState)
+          ? "withdrawn"
+          : "requested",
+      }
+    );
   }
 
   async rpcSkipAgentProfileInterruptedWork(
@@ -3364,7 +3663,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
     this.sendFrame(webSocket, {
       code: "daemon.session.register",
-      payload: response,
+      payload: {
+        ...response,
+        ...(readRuntimeTransportSocketAttachment(webSocket)
+          .executionAdmissionConfirmation
+          ? { executionAdmissionConfirmation: true }
+          : {}),
+        ...(readRuntimeTransportSocketAttachment(webSocket).computerCare
+          ? { computerCare: true }
+          : {}),
+      },
     });
     if (response.ok) {
       this.sendReasoningPreference(webSocket);
@@ -5387,7 +5695,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         input.command.runtimeCoordinatorExecutionId
       ),
       publishedSignalId: claim.data.publishedSignalId,
-      reasonCode: RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+      reasonCode: isComputerFileAccessOwnerCancellation(
+        input.command.acceptedResult.taskResult.payload
+      )
+        ? COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE
+        : RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
       runtimeCoordinatorExecutionId:
         input.command.runtimeCoordinatorExecutionId,
       spaceId: input.command.spaceId,
@@ -5441,25 +5753,86 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
   }
 
-  private async suppressRuntimeCoordinatorFinalizationAfterWakeStop(input: {
+  private async verifyComputerFileAccessOwnerCancellation(input: {
+    command: RuntimeCoordinatorFinalizationCommand;
+    commandState: RuntimeCoordinatorRunCommandState | null;
+    db: D1Database;
+    projection: RuntimeCoordinatorExecutionRecord | null;
+  }): Promise<boolean> {
+    if (
+      !isComputerFileAccessOwnerCancellation(
+        input.command.acceptedResult.taskResult.payload
+      )
+    ) {
+      return false;
+    }
+    // The accepted receipt is durable before the lagging result_received
+    // progress update. A cancelled waiter or stale result grants no consent.
+    const result = await readDispatchResultInboxRecord(input.db, {
+      attemptId: input.command.acceptedResult.attemptId,
+      dispatchId: input.command.dispatchId,
+    });
+    const authority = await this.readRuntimeCoordinatorTokenAuthority(
+      input.command.runtimeCoordinatorExecutionId
+    );
+    const run = authority?.runsById[input.command.executionTokenRunId];
+    const state = input.commandState;
+    if (
+      !(
+        input.projection &&
+        state &&
+        result &&
+        run &&
+        state.activeRunId === input.command.executionTokenRunId &&
+        state.dispatchId === input.command.dispatchId &&
+        state.attemptId === result.attemptId &&
+        state.targetProfileId === input.command.targetProfileId &&
+        state.sanitizedDeliveryRequest.payload.spaceId ===
+          input.command.spaceId &&
+        result.runtimeCoordinatorExecutionId ===
+          input.command.runtimeCoordinatorExecutionId &&
+        result.executionTokenRunId === run.runId &&
+        result.executionTokenFingerprint === run.tokenFingerprint &&
+        result.executionTokenFingerprint ===
+          input.command.acceptedResult.executionTokenFingerprint &&
+        result.targetProfileId === input.command.targetProfileId &&
+        isComputerFileAccessOwnerCancellation(result.taskResult.payload)
+      )
+    ) {
+      throw new Error("runtime_coordinator.owner_cancellation_unverified");
+    }
+    return true;
+  }
+
+  private async readRuntimeCoordinatorFinalizationStopContext(input: {
     command: RuntimeCoordinatorFinalizationCommand;
     db: D1Database;
-  }): Promise<boolean> {
+  }) {
     const projection = await readRuntimeCoordinatorExecutionProjectionById({
       db: input.db,
       runtimeCoordinatorExecutionId:
         input.command.runtimeCoordinatorExecutionId,
     }).catch(() => null);
-    if (!projection) {
-      return false;
-    }
-    if (hasNonCancelledFinalOutcome(projection)) {
-      return false;
+    if (projection && hasNonCancelledFinalOutcome(projection)) {
+      return null;
     }
     const commandState = await this.readRuntimeCoordinatorRunCommandState(
       input.command.runtimeCoordinatorExecutionId
     );
+    const ownerCancellation =
+      await this.verifyComputerFileAccessOwnerCancellation({
+        ...input,
+        commandState,
+        projection,
+      });
+    if (!projection) {
+      return null;
+    }
+    const stopReasonCode = ownerCancellation
+      ? COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE
+      : RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE;
     const wakeStopRequested =
+      ownerCancellation ||
       commandState?.lastCommandReasonCode ===
         RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE ||
       projection.status === "cancellation_requested" ||
@@ -5471,12 +5844,27 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           input.command.runtimeCoordinatorExecutionId,
       }).catch(() => false));
     if (!wakeStopRequested) {
+      return null;
+    }
+    return { projection, commandState, ownerCancellation, stopReasonCode };
+  }
+
+  private async suppressRuntimeCoordinatorFinalizationAfterWakeStop(input: {
+    command: RuntimeCoordinatorFinalizationCommand;
+    db: D1Database;
+  }): Promise<boolean> {
+    const context =
+      await this.readRuntimeCoordinatorFinalizationStopContext(input);
+    if (!context) {
       return false;
     }
-
+    const { projection, commandState, ownerCancellation, stopReasonCode } =
+      context;
     const nowMs = Date.now();
     if (
-      commandState?.localProgress.phase === "result_received" &&
+      commandState &&
+      (ownerCancellation ||
+        commandState.localProgress.phase === "result_received") &&
       !(await this.claimAcceptedRuntimeCoordinatorWakeStop({
         ...input,
         commandState,
@@ -5496,7 +5884,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           settleRuntimeCoordinatorAuthorityForCancellationAccepted({
             authority,
             nowMs,
-            reasonCode: RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+            reasonCode: stopReasonCode,
           })
         );
       }
@@ -5504,7 +5892,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         db: input.db,
         record: buildRuntimeCoordinatorCancelledExecutionRecord({
           nowMs,
-          reasonCode: RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+          reasonCode: stopReasonCode,
           record: projection,
         }),
       });
@@ -5514,7 +5902,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         await this.publishRuntimeCoordinatorWakeStoppedNotice({
           commandState,
           nowMs,
-          reasonCode: RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+          reasonCode: stopReasonCode,
           stopReason: commandState.stopReason ?? null,
         });
       if (!stoppedNoticePublication.ok) {
@@ -5566,7 +5954,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     await updateDispatchResultInboxPublishState(input.db, {
       attemptId: input.command.acceptedResult.attemptId,
       dispatchId: input.command.dispatchId,
-      publicationErrorCode: RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+      publicationErrorCode: stopReasonCode,
       publishedSignalId: stoppedNoticePublication?.ok
         ? stoppedNoticePublication.publishedSignalId
         : null,
@@ -5623,7 +6011,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         }),
         stoppedNoticePublication: stoppedNoticePublicationPayload,
       },
-      reasonCode: RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+      reasonCode: stopReasonCode,
       runtimeCoordinatorExecutionId:
         input.command.runtimeCoordinatorExecutionId,
       statusAfter: "cancelled",
@@ -5645,9 +6033,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       runtimeCoordinatorExecutionId:
         input.command.runtimeCoordinatorExecutionId,
       spaceId: input.command.spaceId,
-      terminal: buildStoppedLocalAgentStreamTerminal(
-        RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE
-      ),
+      terminal: buildStoppedLocalAgentStreamTerminal(stopReasonCode),
     });
     if (stoppedNoticePublication?.ok) {
       await this.removeRuntimeCoordinatorFinalizationRetry(
@@ -8213,6 +8599,57 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
+    const acknowledge = async (
+      initiallyAccepted: boolean,
+      initialReasonCode: string | null
+    ) => {
+      if (!parsed.data.acknowledgementId) {
+        return;
+      }
+      let accepted = initiallyAccepted;
+      let reasonCode = initialReasonCode;
+      let validForMs = 0;
+      if (accepted) {
+        // Re-read after projection I/O. Neither a prior validation nor a
+        // delayed reply is an indefinitely valid permission to start work.
+        const latest = await this.readRuntimeCoordinatorRunCommandState(
+          parsed.data.runtimeCoordinatorExecutionId ?? ""
+        );
+        const validation =
+          await this.validateLateRuntimeCoordinatorProgressToken({
+            executionTokenEcho: parsed.data.executionTokenEcho ?? null,
+            frameKind: "lifecycle",
+            ignoredEventSummary: `admission:${parsed.data.dispatchId}:${parsed.data.attemptId}`,
+            runtimeCoordinatorExecutionId:
+              parsed.data.runtimeCoordinatorExecutionId ?? null,
+          });
+        if (validation?.ok && latest) {
+          validForMs = resolveRuntimeCoordinatorExecutionAdmissionValidityMs({
+            commandState: latest,
+            tokenExpiresAtMs: validation.run.expiresAtMs,
+            nowMs: Date.now(),
+          });
+        } else {
+          accepted = false;
+          reasonCode =
+            validation && !validation.ok
+              ? validation.reasonCode
+              : "runtime_coordinator.execution_token_authority_unavailable";
+        }
+      }
+      this.sendFrame(webSocket, {
+        code: "daemon.dispatch.lifecycle_acknowledged",
+        payload: runtimeTransportDispatchLifecycleAcknowledgementSchema.parse({
+          acknowledgementId: parsed.data.acknowledgementId,
+          dispatchId: parsed.data.dispatchId,
+          attemptId: parsed.data.attemptId,
+          connectionGeneration: parsed.data.connectionGeneration,
+          accepted,
+          validForMs,
+          reasonCode,
+        }),
+      });
+    };
     const pending = this.state.pendingDispatches.get(
       buildDispatchAttemptKey(parsed.data.dispatchId, parsed.data.attemptId)
     );
@@ -8226,6 +8663,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         parsed.data.runtimeCoordinatorExecutionId ?? null,
     });
     if (!coordinatorContract.ok) {
+      await acknowledge(false, coordinatorContract.reasonCode);
       this.sendErrorFrame(webSocket, {
         code: coordinatorContract.reasonCode,
         message: "dispatch lifecycle rejected",
@@ -8243,10 +8681,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         pending,
       });
     if (!tokenValidationContext) {
-      await this.rejectDispatchLifecycleWithoutTokenContext(
+      const reasonCode = await this.rejectDispatchLifecycleWithoutTokenContext(
         webSocket,
         parsed.data
       );
+      await acknowledge(false, reasonCode);
       return;
     }
     const tokenValidation = await this.validateRuntimeCoordinatorProgressToken({
@@ -8256,6 +8695,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ignoredEventSummary: `lifecycle:${parsed.data.dispatchId}:${parsed.data.attemptId}:${parsed.data.phase}`,
     });
     if (!tokenValidation.ok) {
+      await acknowledge(false, tokenValidation.reasonCode);
       this.sendErrorFrame(webSocket, {
         code: tokenValidation.reasonCode,
         message: "dispatch lifecycle rejected",
@@ -8284,10 +8724,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         tokenValidationContext,
       });
       this.queueHousekeepingAlarmSync();
+      await acknowledge(true, null);
       return;
     }
     const response = handleDispatchLifecycle(this.state, parsed.data);
     if (!response.ok) {
+      await acknowledge(
+        false,
+        response.reasonCode ?? "daemon.session.not_found"
+      );
       this.recordRuntimeCoordinatorDiagnosticEvent({
         attemptId: parsed.data.attemptId,
         eventType: "coordinator_pending_state_missing",
@@ -8316,6 +8761,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       tokenValidationContext,
     });
     this.queueHousekeepingAlarmSync();
+    await acknowledge(true, null);
   }
 
   private async clearReadinessImpactFromRunningLifecycle(input: {
@@ -8489,7 +8935,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private async rejectDispatchLifecycleWithoutTokenContext(
     webSocket: WebSocket,
     request: RuntimeTransportDispatchLifecycleRequest
-  ): Promise<void> {
+  ): Promise<string> {
     const lateTokenValidation =
       await this.validateLateRuntimeCoordinatorProgressToken({
         executionTokenEcho: request.executionTokenEcho ?? null,
@@ -8503,7 +8949,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         code: lateTokenValidation.reasonCode,
         message: "dispatch lifecycle rejected",
       });
-      return;
+      return lateTokenValidation.reasonCode;
     }
     this.recordRuntimeCoordinatorDiagnosticEvent({
       attemptId: request.attemptId,
@@ -8516,6 +8962,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       code: "daemon.session.not_found",
       message: "dispatch lifecycle rejected",
     });
+    return "daemon.session.not_found";
   }
 
   private async handleDispatchRuntimeEvidenceFrame(
@@ -10180,6 +10627,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.ctx.acceptWebSocket(server);
     this.state.sessionIdBySocket.set(server, null);
     writeRuntimeTransportSocketAttachment(server, {
+      executionAdmissionConfirmation:
+        request.headers.get(OPENMELD_EXECUTION_ADMISSION_HEADER) === "1",
+      computerCare: request.headers.get(OPENMELD_COMPUTER_CARE_HEADER) === "1",
+      spaceWorkHandoff:
+        request.headers.get(SPACE_WORK_HANDOFF_CAPABILITY_HEADER) === "1",
       connectionDiagnosticId: serviceConnectionDiagnosticIdSchema.safeParse(
         new URL(request.url).searchParams.get(
           SERVICE_CONNECTION_ID_QUERY_PARAMETER
@@ -11182,6 +11634,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       const profile = profileScopeResult.scope;
       const interruptedClientMessageId =
         interruptedHead.targetWakeLifecycleIdentity.clientMessageId;
+      for (const supersededStage of intent.supersededStages) {
+        // The decision the owner was asked to make has moved to another stage.
+        // Closing the stage it left has to happen here, because only one intent
+        // exists per profile and the source key digests the stage.
+        await resolveAgentProfileWorkRecoveryInboxItem({
+          db: targetInboxDb,
+          interruptedClientMessageId,
+          organizationId: profile.organizationId,
+          profileId: intent.targetProfileId,
+          resolvedAtMs: intent.updatedAtMs,
+          stage: supersededStage,
+        });
+      }
       if (intent.desiredStatus === "open") {
         await projectAgentProfileWorkRecoveryInboxItem({
           db: targetInboxDb,
@@ -11193,7 +11658,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           profileId: intent.targetProfileId,
           profileName: profile.profileName,
           sourceTarget:
-            intent.stage === "review_interrupted_work"
+            intent.stage === "review_interrupted_work" ||
+            intent.stage === "resolve_occupied_conversation"
               ? {
                   kind: "space",
                   signalId:
@@ -11749,6 +12215,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         profileIds: [identity.targetProfileId],
         reason: "agent_profile_work_coordinator.changed",
       });
+    }
+    // Retiring work this Profile could never run again can free the slot a
+    // waiting Wake was queued behind. That promotion takes the same exact
+    // redrive as a terminal transition instead of waiting for the alarm.
+    if (admission.pendingPromotion) {
+      await this.requestSpaceDispatchOutboxRedriveForPromotion(
+        admission.pendingPromotion,
+        "admission_reconciliation"
+      );
     }
     if (admission.status === "continuation_needs_attention") {
       this.scheduledHousekeepingAlarmAtMs = nowMs;
@@ -15114,6 +15589,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       reasonCode: terminalPlan.reasonCode,
     });
 
+    if (input.expiryCause === "controller_conversation_occupied") {
+      await this.requestRuntimeCoordinatorLocalAttemptWithdrawal({
+        commandState: input.commandState,
+        controlReason: "controller_conversation_occupied_timeout",
+        nowMs: input.nowMs,
+        reasonCode:
+          RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_OCCUPANCY_TERMINAL_REASON_CODE,
+      });
+    }
+
     const stopCause = this.state.sessionsById.get(
       input.commandState.sanitizedDeliveryRequest.daemonSessionId
     )?.stopCause;
@@ -15997,6 +16482,45 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
   }
 
+  /**
+   * Names the cause behind a stale-progress terminal.
+   *
+   * Same watchdog, different cause: an occupied native conversation produces
+   * exactly one lifecycle event and then nothing, so it reaches the stale
+   * threshold looking like a lost computer. Core still holds the occupancy flag
+   * the Adapter reported, and naming it here is what lets the Wake fail with
+   * its real reason and settle into an owner decision instead of a "reconnect
+   * the computer" dead end.
+   */
+  private async resolveRuntimeCoordinatorStaleProgressCause(input: {
+    dispatchId: string;
+    targetProfileId: string;
+  }): Promise<{
+    expiryCause: RuntimeCoordinatorRunExpiryCause;
+    reasonCode:
+      | typeof RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
+      | typeof RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE;
+  }> {
+    const occupied =
+      await readRuntimeCoordinatorAgentProfileWorkControllerConversationOccupied(
+        {
+          dispatchId: input.dispatchId,
+          storage: this.ctx.storage,
+          targetProfileId: input.targetProfileId,
+        }
+      );
+    return occupied
+      ? {
+          expiryCause: "controller_conversation_occupied",
+          reasonCode:
+            RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
+        }
+      : {
+          expiryCause: "local_progress_stale",
+          reasonCode: RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE,
+        };
+  }
+
   private async redeliverRuntimeCoordinatorCurrentRun(input: {
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
     decision: RuntimeTransportRuntimeCoordinatorDecisionRequest;
@@ -16014,6 +16538,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         commandState: RuntimeCoordinatorRunCommandState;
         expiryCause: RuntimeCoordinatorRunExpiryCause;
         reasonCode:
+          | typeof RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
           | typeof RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE
           | typeof RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE;
       }
@@ -16093,8 +16618,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           ok: false,
           terminal: true,
           commandState,
-          expiryCause: "local_progress_stale",
-          reasonCode: RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE,
+          ...(await this.resolveRuntimeCoordinatorStaleProgressCause({
+            dispatchId: commandState.dispatchId,
+            targetProfileId: commandState.targetProfileId,
+          })),
         };
       }
       return {
@@ -17678,7 +18205,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
 
   private async requestSpaceDispatchOutboxRedriveForPromotion(
     pendingPromotion: PendingAgentProfileWorkPromotion,
-    trigger: "alarm_recovery" | "terminal_transaction"
+    trigger: AgentProfileWorkPromotionRedriveTrigger
   ): Promise<void> {
     const nowMs = Date.now();
     try {
@@ -17793,7 +18320,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     pendingPromotion: PendingAgentProfileWorkPromotion;
     redriveStatus: "cancelled" | "enqueued" | "retry_scheduled" | "submitted";
     spaceId: string;
-    trigger: "alarm_recovery" | "terminal_transaction";
+    trigger: AgentProfileWorkPromotionRedriveTrigger;
   }): Promise<void> {
     const requiresIdentityReacceptance =
       (input.redriveStatus === "enqueued" ||
@@ -18396,7 +18923,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       )
     );
     const nextAlarmAtMs = minNullableTimestamp(
-      workAlarmAtMs,
+      minNullableTimestamp(
+        workAlarmAtMs,
+        (await this.getComputerConnectionIncidents()?.nextAlarmAtMs()) ?? null
+      ),
       await resolveNextAgentProfileContextMigrationAlarmAtMs({
         storage: this.ctx.storage,
         nowMs,
@@ -18519,7 +19049,40 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
 
   private readonly persistRuntimeRecords = (): void => {
     persistServiceRuntimeRecords(this.ctx, this.state);
+    this.ctx.waitUntil(
+      this.observeComputerConnectionIncidents().then(() =>
+        this.syncHousekeepingAlarm()
+      )
+    );
   };
+
+  private computerConnectionIncidents:
+    | ReturnType<typeof createComputerConnectionIncidents>
+    | undefined;
+
+  private getComputerConnectionIncidents() {
+    const db = inboxDb(this.env);
+    if (!db) {
+      return undefined;
+    }
+    this.computerConnectionIncidents ??= createComputerConnectionIncidents({
+      storage: this.ctx.storage,
+      db,
+    });
+    return this.computerConnectionIncidents;
+  }
+
+  private async observeComputerConnectionIncidents(): Promise<void> {
+    try {
+      await this.getComputerConnectionIncidents()?.observe(
+        this.state.sessionsById.values()
+      );
+    } catch (error) {
+      console.warn("[core.computer_connection.incident_observation_failed]", {
+        error,
+      });
+    }
+  }
 
   private readonly cleanupExpiredPendingDispatches = (nowMs: number): void => {
     cleanupExpiredPendingDispatches(this.state, nowMs);
@@ -18740,6 +19303,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return;
     }
 
+    // A truthful withdrawal acknowledgement is worth keeping even when the Wake
+    // Stop lifecycle cannot advance. Core may have already closed this
+    // execution on stale evidence, and discarding the one fact that proves the
+    // local attempt is gone would leave replacement work nothing to verify.
+    await this.recordRuntimeCoordinatorLocalAttemptWithdrawn({
+      daemonSessionId: input.daemonSessionId,
+      nowMs,
+      payload: effectivePayload,
+      runtimeCoordinatorExecutionId,
+    });
     const rejectionReasonCode =
       resolveRuntimeCoordinatorWakeStopAcceptedControlRejectionReason({
         authority,
@@ -18850,6 +19423,67 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       runtimeCoordinatorExecutionId,
       statusAfter: "cancelled",
     });
+  }
+
+  /**
+   * Keeps the Service's acknowledgement that one exact attempt is gone.
+   *
+   * Identity is checked against this run rather than the Wake Stop lifecycle:
+   * the same session that received the delivery, the same execution, dispatch
+   * and task, and the run the token authority still calls current. A stale
+   * acknowledgement from an earlier run therefore cannot retire a newer one.
+   */
+  private async recordRuntimeCoordinatorLocalAttemptWithdrawn(input: {
+    daemonSessionId: string;
+    nowMs: number;
+    payload: RuntimeCoordinatorWakeStopControlPayload;
+    runtimeCoordinatorExecutionId: string;
+  }): Promise<void> {
+    if (
+      input.payload.resolvedRuntimeCoordinatorExecutionId !==
+        input.runtimeCoordinatorExecutionId ||
+      !(input.payload.resolvedDispatchId && input.payload.resolvedTaskId)
+    ) {
+      return;
+    }
+    // Accepting a cancellation is not the same fact as the attempt being gone.
+    // A signal can be registered before the provider turn is acknowledged, and
+    // interrupting a started turn leaves its result and effects standing. Only
+    // an adapter that states it withdrew the attempt before any turn began has
+    // supplied what replacement work needs; a Service that predates this says
+    // only `accepted`, which stays unproven rather than becoming permission.
+    if (
+      input.payload.reasonCode !==
+      OPENMELD_DAEMON_CANCEL_WITHDRAWN_BEFORE_START_REASON_CODE
+    ) {
+      return;
+    }
+    const withdrawn =
+      await recordRuntimeCoordinatorLocalAttemptWithdrawnInStorage({
+        daemonSessionId: input.daemonSessionId,
+        nowMs: input.nowMs,
+        reasonCode: input.payload.reasonCode ?? null,
+        resolvedDispatchId: input.payload.resolvedDispatchId,
+        resolvedTaskId: input.payload.resolvedTaskId,
+        runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+        storage: this.ctx.storage,
+      }).catch((error) => {
+        console.warn(
+          "[core.runtime_transport.local_attempt_withdrawal_unrecorded]",
+          {
+            error: error instanceof Error ? error.message : String(error),
+            runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+          }
+        );
+        return null;
+      });
+    if (withdrawn) {
+      this.publishWakeProgressChanged({
+        agentProfileId: withdrawn.targetProfileId,
+        clientMessageId: withdrawn.sourceClientMessageId,
+        spaceId: withdrawn.sanitizedDeliveryRequest.payload.spaceId,
+      });
+    }
   }
 
   private async publishAlreadyCancelledRuntimeCoordinatorWakeStopNotice(input: {

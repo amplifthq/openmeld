@@ -212,3 +212,35 @@ test("focused tests build dependencies once through Turbo, not the changed app",
   ]);
   assert.ok(commands[2].includes("related"));
 });
+
+test("focused Node tests run after changed workspace dependencies are built", () => {
+  const commands = planPrChecks(
+    [
+      "clients/desktop/src/main/main.ts",
+      "scripts/release/desktop-preview.mjs",
+      "scripts/release/desktop-preview.test.mjs",
+    ],
+    {
+      feedback: true,
+      existingFiles: [
+        "clients/desktop/src/main/main.ts",
+        "clients/desktop/package.json",
+        "scripts/release/desktop-preview.mjs",
+        "scripts/release/desktop-preview.test.mjs",
+      ],
+      workspaces: [
+        {
+          directory: "clients/desktop",
+          name: "@openmeld/desktop",
+          test: "vitest run",
+        },
+      ],
+    }
+  );
+  const buildIndex = commands.findIndex((args) => args.includes("turbo"));
+  const nodeTestIndex = commands.findIndex(
+    (args) => args.includes("node") && args.includes("--test")
+  );
+  assert.ok(buildIndex >= 0);
+  assert.ok(nodeTestIndex > buildIndex);
+});

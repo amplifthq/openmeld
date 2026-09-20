@@ -92,31 +92,58 @@ export {
 export { toSpaceSignalReadWireValue } from "./compatibility/space-signal-read-wire";
 export {
   type ComputerConnectionIntent,
+  type ComputerSetupOutput,
   computerConnectionIntentSchema,
   computerConnectionReviewSchema,
+  computerSetupOutputSchema,
+  type DesktopComputerConnectionOperation,
+  type DesktopComputerConnectionProgress,
   type DesktopComputerConnectionRequest,
   type DesktopComputerConnectionResult,
+  type DesktopComputerDisconnectOperation,
+  type DesktopComputerDisconnectPhase,
+  type DesktopComputerDisconnectRequest,
+  type DesktopComputerDisconnectResult,
+  type DesktopComputerOperation,
+  desktopComputerConnectionOperationSchema,
+  desktopComputerConnectionProgressSchema,
   desktopComputerConnectionRequestSchema,
   desktopComputerConnectionResultSchema,
+  desktopComputerDisconnectOperationSchema,
+  desktopComputerDisconnectPhaseSchema,
+  desktopComputerDisconnectRequestSchema,
+  desktopComputerDisconnectResultSchema,
+  desktopComputerOperationSchema,
 } from "./computer-connection";
 export {
-  DESKTOP_APP_ORIGIN,
+  type ComputerConnectionProgressObservation,
+  type ComputerConnectionProgressPhase,
+  computerConnectionProgressMeasurementSchema,
+  computerConnectionProgressObservationSchema,
+  computerConnectionProgressPhaseSchema,
+} from "./computer-connection-progress";
+export {
   DESKTOP_AUTH_SCHEME,
+  DESKTOP_INSTALLED_AUTH_SCHEME,
+  DESKTOP_TEST_AUTH_SCHEME,
+  desktopAuthIdentity,
+} from "./desktop-auth-identity";
+export {
+  DESKTOP_APP_ORIGIN,
   DESKTOP_COMPATIBILITY_PATH,
   DESKTOP_CONTRACT_HEADER,
   DESKTOP_CONTRACT_VERSION,
-  DESKTOP_INSTALLED_AUTH_SCHEME,
-  DESKTOP_TEST_AUTH_SCHEME,
   DESKTOP_WEB_BUILD_HEADER,
   type DesktopInstalledTarget,
+  type DesktopLocalComputer,
   type DesktopPlatform,
   type DesktopSession,
   type DesktopSpaceStreamBridge,
   type DesktopSpaceStreamEvent,
   type DesktopSpaceStreamInput,
-  desktopAuthIdentity,
   desktopCompatibilitySchema,
   desktopInstalledTargetSchema,
+  desktopLocalComputerSchema,
   desktopPlatformSchema,
   desktopProductionSourceSchema,
   desktopSessionSchema,
@@ -125,13 +152,28 @@ export {
   desktopSpaceStreamInputSchema,
   desktopWebBuildSchema,
 } from "./desktop-client";
+export * from "./desktop-development";
+export * from "./desktop-notifications";
 export {
+  DESKTOP_PROMOTED_RELEASE_KEY,
+  DESKTOP_UPDATE_FEED_URL,
   type DesktopCandidateManifest,
+  type DesktopReleasePlatform,
   desktopCandidateIdSchema,
   desktopCandidateLocation,
   desktopCandidateManifestKey,
   desktopCandidateManifestSchema,
+  desktopCandidateUpdateArtifact,
+  desktopPlatformUpdateFeedUrl,
+  desktopPromotedReleaseKey,
+  desktopPromotedReleaseSchema,
+  desktopReleasePlatformSchema,
+  desktopUpdaterFeedSchema,
+  desktopUpdaterFeedSchemaForPlatform,
+  desktopWindowsBuildSchema,
+  resolveDesktopReleasePlatform,
 } from "./desktop-release";
+export * from "./desktop-updater";
 export {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,
@@ -197,6 +239,8 @@ export {
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE,
+  REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY,
+  REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE,
   resolveCenterAgentCallbackFailureMessage,
@@ -240,6 +284,18 @@ export {
   spaceMessageMutationBodySchema,
   spaceMessageMutationResponseSchema,
 } from "./schemas/http/space-message-mutation";
+export type {
+  MessageSearchResponse,
+  MessageSearchRpcInput,
+} from "./schemas/http/space-message-search";
+export {
+  messageSearchCursorSchema,
+  messageSearchQuerySchema,
+  messageSearchResponseSchema,
+  messageSearchRpcInputSchema,
+  spaceMessageSearchQuerySchema,
+  spaceMessageSearchResponseSchema,
+} from "./schemas/http/space-message-search";
 export * from "./schemas/index";
 export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
 export {
@@ -254,7 +310,32 @@ export {
   serviceControlCarrierCapabilitySchema,
 } from "./service-account-admission";
 export {
+  type ProfileWorkingFolderFact,
+  profileWorkingFolderFactSchema,
+  SERVICE_EXECUTION_HOST_MAX_FRAME_BYTES,
+  SERVICE_EXECUTION_HOST_MAX_PENDING_REQUESTS,
+  SERVICE_EXECUTION_HOST_PROTOCOL,
+  type ServiceExecutionHostArguments,
+  type ServiceExecutionHostCatalog,
+  type ServiceExecutionHostIdentity,
+  type ServiceExecutionHostInput,
+  type ServiceExecutionHostMessage,
+  type ServiceExecutionHostMethod,
+  type ServiceExecutionHostOutput,
+  type ServiceExecutionHostRoute,
+  type ServiceExecutionHostSnapshot,
+  serviceExecutionHostCatalogSchema,
+  serviceExecutionHostIdentitySchema,
+  serviceExecutionHostMessageSchema,
+  serviceExecutionHostMethods,
+  serviceExecutionHostOwnerSchema,
+  serviceExecutionHostRequestSchema,
+  serviceExecutionHostRouteSchema,
+  serviceExecutionHostSnapshotSchema,
+} from "./service-execution-host";
+export {
   projectLegacySpaceAccessView,
+  projectSpaceAccessViewForVersion,
   SPACE_ACCESS_VERSION,
   SPACE_ACCESS_VERSION_HEADER,
 } from "./space-access-version";
@@ -287,6 +368,18 @@ export {
   spaceOwnerDepartureResultSchema,
   spaceOwnerDepartureSpaceInputSchema,
 } from "./space-owner-departure";
+export {
+  SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
+  SPACE_WORK_MAX_BYTES,
+  type SpaceWorkHandoff,
+  type SpaceWorkingCopyAccess,
+  type SpaceWorkSelection,
+  spaceWorkHandoffSchema,
+  spaceWorkingCopyAccessSchema,
+  spaceWorkingCopyResultSchema,
+  spaceWorkRelativePathSchema,
+  spaceWorkSelectionSchema,
+} from "./space-work-handoff";
 export type * from "./types/index";
 export {
   WEB_APPLICATION_ERROR_MAX_BYTES,

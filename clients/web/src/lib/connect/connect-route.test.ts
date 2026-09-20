@@ -81,6 +81,17 @@ describe("parseAgentProfileIdList", () => {
 });
 
 describe("connect route targets", () => {
+	it("retains an explicit Prepare Session observer without treating it as setup intent", () => {
+		const search = normalizeConnectRouteSearch({
+			observePrepareSessionId: " prepare-desktop-1 ",
+		});
+		expect(search.observePrepareSessionId).toBe("prepare-desktop-1");
+		expect(resolveConnectRouteIntent(search)).toEqual({
+			kind: "account_computer_setup",
+			resetThisComputer: false,
+		});
+	});
+
 	it("keeps Agent creation as the destination across setup session consumption", () => {
 		const path = buildConnectComputerPath({
 			orgSlug: "acme",

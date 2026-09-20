@@ -365,6 +365,7 @@ describe("api-client space api", () => {
       "createDiagnosticReport",
       "createFolder",
       "createSpace",
+      "createTask",
       "createThread",
       "deleteSpace",
       "discardComposerUpload",
@@ -382,6 +383,7 @@ describe("api-client space api", () => {
       "getMessageDetails",
       "getMessageReactions",
       "getStatus",
+      "getTask",
       "getThread",
       "getUpdates",
       "getViewerMembership",
@@ -394,10 +396,12 @@ describe("api-client space api", () => {
       "listFiles",
       "listSignalEnvelopes",
       "listSignals",
+      "listTasks",
       "listThreadEvents",
       "listThreadSignals",
       "listThreads",
       "mutateMessage",
+      "mutateTask",
       "postNormalMessage",
       "postThreadSignal",
       "postWakeStop",
@@ -418,6 +422,104 @@ describe("api-client space api", () => {
       "uploadAttachment",
       "uploadFile",
     ]);
+  });
+
+  it("uses the shared revision-bound Space Task contract", async () => {
+    const actor = {
+      profileId: "11111111-1111-4111-8111-111111111111",
+      profileKind: "human" as const,
+      profileName: "Mira",
+      ownerUserId: "owner-1",
+    };
+    const task = {
+      taskId: "tsk_22222222-2222-4222-8222-222222222222",
+      spaceId: "space-123",
+      title: "Ship Space Tasks",
+      description: null,
+      completionConditions: ["The result is reviewable"],
+      sourceSignalId: "signal-1",
+      threadId: null,
+      requestedBy: actor,
+      createdBy: actor,
+      assignee: actor,
+      reviewer: null,
+      phase: "to_do" as const,
+      result: null,
+      review: null,
+      automaticReworkRounds: 0,
+      needsHumanDecision: false,
+      revision: 1,
+      createdAt: "2026-09-15T00:00:00.000Z",
+      updatedAt: "2026-09-15T00:00:00.000Z",
+    };
+    const event = {
+      eventId: "tse_33333333-3333-4333-8333-333333333333",
+      taskId: task.taskId,
+      operationId: "operation-1",
+      type: "created" as const,
+      actor,
+      fromPhase: null,
+      toPhase: "to_do" as const,
+      taskRevision: 1,
+      detail: task.title,
+      createdAt: task.createdAt,
+    };
+    const transport = vi.fn((request: { init?: RequestInit; url: string }) => {
+      if (request.init?.method === "GET") {
+        return Promise.resolve(
+          Response.json(
+            request.url.endsWith(task.taskId)
+              ? { task, events: [event] }
+              : { tasks: [task], truncated: false }
+          )
+        );
+      }
+      return Promise.resolve(Response.json({ task, event, applied: true }));
+    });
+    const api = createSpaceApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(api.listTasks({ spaceId: task.spaceId })).resolves.toEqual({
+      tasks: [task],
+      truncated: false,
+    });
+    await expect(
+      api.getTask({ spaceId: task.spaceId, taskId: task.taskId })
+    ).resolves.toEqual({ task, events: [event] });
+    await expect(
+      api.createTask({
+        spaceId: task.spaceId,
+        body: {
+          operationId: event.operationId,
+          title: task.title,
+          sourceSignalId: task.sourceSignalId,
+          assigneeProfileId: actor.profileId,
+        },
+      })
+    ).resolves.toMatchObject({ applied: true, task });
+    await expect(
+      api.mutateTask({
+        spaceId: task.spaceId,
+        taskId: task.taskId,
+        body: {
+          action: "mark_in_progress",
+          expectedRevision: 1,
+          operationId: "operation-2",
+        },
+      })
+    ).resolves.toMatchObject({ applied: true, task });
+
+    expect(transport).toHaveBeenNthCalledWith(
+      4,
+      expect.objectContaining({
+        operation: "space.tasks.mutate",
+        init: expect.objectContaining({ method: "PATCH" }),
+      })
+    );
   });
 
   it("uses one shared Space Files contract for list and binary upload", async () => {
@@ -697,7 +799,10 @@ describe("api-client space api", () => {
     expect(transport).not.toHaveBeenCalled();
   });
 
-  it("reads bootstrap through the shared space api", async () => {
+  it.each([
+    undefined,
+    false,
+  ])("reads bootstrap through the shared space api (readiness: %s)", async (includeAgentReadiness) => {
     const transport = vi.fn(() =>
       Promise.resolve(
         new Response(
@@ -759,6 +864,7 @@ describe("api-client space api", () => {
     );
 
     const result = await api.getBootstrap({
+      includeAgentReadiness,
       spaceId: "space-123",
       requestContext: REQUEST_CONTEXT,
       includeAgentStreamPresence: true,
@@ -772,7 +878,7 @@ describe("api-client space api", () => {
     expect(result.status.spaceId).toBe("space-123");
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/bootstrap?recent=1&limit=30&signalType=signal.text&signalType=signal.status&includeAgentStreamPresence=true",
+        url: `https://gateway.openmeld.invalid/v1/spaces/space-123/bootstrap?recent=1&limit=30&signalType=signal.text&signalType=signal.status&includeAgentStreamPresence=true${includeAgentReadiness === false ? "&includeAgentReadiness=false" : ""}`,
         operation: "space.bootstrap.read",
       })
     );
@@ -966,7 +1072,9 @@ describe("api-client space api", () => {
       spaceId: "space-123",
       requestContext: REQUEST_CONTEXT,
       accessMode: "public_view_join_password",
+      allowGuests: true,
       password: "pw-123",
+      visibility: "public",
     });
 
     expect(result).toEqual({
@@ -982,7 +1090,9 @@ describe("api-client space api", () => {
           method: "PUT",
           body: JSON.stringify({
             accessMode: "public_view_join_password",
+            allowGuests: true,
             password: "pw-123",
+            visibility: "public",
           }),
         }),
       })

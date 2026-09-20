@@ -12,6 +12,9 @@ import {
   requestCurrentOpenMeldToolsUpdateResponseSchema,
   selectCurrentLocalAgentInstallationBodySchema,
   selectCurrentLocalAgentInstallationResponseSchema,
+  setCurrentAgentProfileWorkspaceBodySchema,
+  setCurrentAgentProfileWorkspaceResponseSchema,
+  setCurrentAgentProfileWorkspaceRouteParamsSchema,
   setCurrentLocalAgentEnabledBodySchema,
   setCurrentLocalAgentEnabledResponseSchema,
   setCurrentOpenMeldToolsMaintenanceBodySchema,
@@ -25,6 +28,7 @@ import {
   respondBadRequest,
 } from "./rpc-http.helpers";
 import { readJsonRequestBody } from "./rpc-http.parsers";
+import { registerPeopleComputerProjectMutationRoutes } from "./rpc-http.people-computer-projects";
 import { registerServiceConnectionEvidenceRoutes } from "./rpc-http.service-connection-evidence";
 
 /** These names intentionally have no fallback to account-current RPC methods. */
@@ -32,6 +36,44 @@ export function registerPeopleComputerControlRoutes(
   app: Hono<HonoBindings>
 ): void {
   registerServiceConnectionEvidenceRoutes(app);
+  registerPeopleComputerProjectMutationRoutes(app);
+  const workspaceRoute =
+    "/v1/people-computers/:deviceId/lanes/:runtimeLane/agent-profiles/:profileId/workspace";
+  app.put(workspaceRoute, async (c) => {
+    const target = peopleComputerTargetSchema.safeParse({
+      deviceId: c.req.param("deviceId"),
+      runtimeLane: c.req.param("runtimeLane"),
+    });
+    const profile = setCurrentAgentProfileWorkspaceRouteParamsSchema.safeParse({
+      agentProfileId: c.req.param("profileId"),
+    });
+    const body = await readJsonRequestBody(c.req.raw);
+    const parsed = body.ok
+      ? setCurrentAgentProfileWorkspaceBodySchema.safeParse(body.value)
+      : null;
+    if (!(target.success && profile.success && parsed?.success)) {
+      return respondBadRequest({
+        c,
+        route: workspaceRoute,
+        method: "PUT",
+        code: "invalid_payload",
+        message: "Invalid computer working folder request.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: workspaceRoute,
+      method: "PUT",
+      responseSchema: setCurrentAgentProfileWorkspaceResponseSchema,
+      execute: () =>
+        c.var.coreRpc.setPeopleComputerAgentProfileWorkspace({
+          ...target.data,
+          ...profile.data,
+          ...parsed.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
   const projectDiscoveryRoute =
     "/v1/people-computers/:deviceId/lanes/:runtimeLane/projects/discover";
   app.post(projectDiscoveryRoute, async (c) => {

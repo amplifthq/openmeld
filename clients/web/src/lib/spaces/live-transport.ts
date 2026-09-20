@@ -45,6 +45,13 @@ class DesktopSpaceLiveTransport implements SpaceLiveTransport {
 				if (event.type === "close") {
 					this.closed = true;
 					this.unsubscribe();
+					this.events.dispatchEvent(
+						new CloseEvent("close", {
+							code: event.code,
+							reason: event.reason,
+						})
+					);
+					return;
 				}
 				this.events.dispatchEvent(new Event(event.type));
 			}

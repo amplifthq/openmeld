@@ -1,10 +1,10 @@
-import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
   OPENMELD_SPACE_ACTION_MCP_SERVER_ID,
   OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES,
   type RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
+import { execPlatformFile as execFile } from "@openmeld/adapter-core/process-launch";
 import { buildCodexAppServerLaunch } from "./codex-app-server-launch.js";
 
 const execFileAsync = promisify(execFile);

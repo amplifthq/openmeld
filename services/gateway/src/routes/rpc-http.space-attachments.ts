@@ -30,13 +30,14 @@ import {
   executeRpcRoute,
   formatAuditValue,
   resolveGatewayStructuredRpcErrorResponse,
+  resolvePublicRouteRequestId,
 } from "./rpc-http.helpers";
 import { parseSpaceRouteParams } from "./rpc-http.parsers";
 import type { RpcHttpMethod } from "./rpc-http.types";
 
 const SPACE_ATTACHMENTS_ROUTE = "/v1/spaces/:spaceId/attachments";
 const SPACE_ATTACHMENT_ROUTE = "/v1/spaces/:spaceId/attachments/:attachmentId";
-const ATTACHMENT_CACHE_CONTROL = "private, max-age=3600";
+const ATTACHMENT_CACHE_CONTROL = "private, no-store";
 
 const CONTENT_LENGTH_PATTERN = /^\d+$/u;
 
@@ -285,12 +286,7 @@ async function downloadSpaceAttachment(
     return respondCoreDownloadError({ c, error, spaceId });
   }
 
-  if (
-    descriptor.spaceId !== spaceId ||
-    descriptor.id !== attachmentId ||
-    descriptor.organizationId !==
-      c.var.openMeldRequestContext.activeOrganizationId
-  ) {
+  if (descriptor.spaceId !== spaceId || descriptor.id !== attachmentId) {
     return respondAttachmentError({
       c,
       route: SPACE_ATTACHMENT_ROUTE,
@@ -309,7 +305,7 @@ async function downloadSpaceAttachment(
     logAttachmentStorageFailure({
       attachmentId,
       compensationError: null,
-      requestId: c.var.openMeldRequestContext.actorContext.requestId,
+      requestId: resolvePublicRouteRequestId(c),
       spaceId,
       storageError: error,
     });
@@ -342,7 +338,9 @@ async function downloadSpaceAttachment(
     spaceId,
     status: 200,
     latencyMs: Date.now() - c.var.startedAt,
-    ...contextAuditFields(c.var.openMeldRequestContext),
+    ...(c.var.openMeldRequestContext
+      ? contextAuditFields(c.var.openMeldRequestContext)
+      : { requestId: resolvePublicRouteRequestId(c) }),
   });
   return withRequestIdHeader(
     new Response(object.body, {
@@ -352,7 +350,7 @@ async function downloadSpaceAttachment(
         "x-content-type-options": "nosniff",
       },
     }),
-    c.var.openMeldRequestContext.actorContext.requestId
+    resolvePublicRouteRequestId(c)
   );
 }
 
@@ -381,13 +379,15 @@ function respondAttachmentError(
     errorCode: input.code,
     ...(input.spaceId ? { spaceId: input.spaceId } : {}),
     ...(input.reason ? { reason: formatAuditValue(input.reason, 320) } : {}),
-    ...contextAuditFields(context),
+    ...(context
+      ? contextAuditFields(context)
+      : { requestId: resolvePublicRouteRequestId(input.c) }),
   });
   return jsonErrorResponse({
     status: input.status,
     code: input.code,
     message: input.message,
-    requestId: context.actorContext.requestId,
+    requestId: resolvePublicRouteRequestId(input.c),
   });
 }
 
@@ -399,7 +399,7 @@ function respondCoreDownloadError(input: {
   const context = input.c.var.openMeldRequestContext;
   const structured = resolveGatewayStructuredRpcErrorResponse({
     err: input.error,
-    requestId: context.actorContext.requestId,
+    requestId: resolvePublicRouteRequestId(input.c),
   });
   if (structured) {
     logAuditEvent({
@@ -410,7 +410,9 @@ function respondCoreDownloadError(input: {
       latencyMs: Date.now() - input.c.var.startedAt,
       spaceId: input.spaceId,
       errorCode: structured.code,
-      ...contextAuditFields(context),
+      ...(context
+        ? contextAuditFields(context)
+        : { requestId: resolvePublicRouteRequestId(input.c) }),
     });
     return jsonErrorResponse(structured);
   }

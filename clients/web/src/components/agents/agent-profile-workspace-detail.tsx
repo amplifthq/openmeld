@@ -13,6 +13,8 @@ import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { CardFooter } from "@openmeld/ui/components/card";
 import { Input } from "@openmeld/ui/components/input";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { SkeletonRegion } from "@openmeld/ui/components/skeleton-content";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import {
@@ -31,6 +33,7 @@ import {
 	ProhibitIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
+import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import type {
 	AgentProfileActivityDestination,
@@ -39,7 +42,6 @@ import type {
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { AgentProfileConversationsSection } from "#/components/directory/agent-conversations-section";
-import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
 import {
 	AgentTaskActivityTime,
@@ -96,7 +98,9 @@ export function AgentProfileWorkspaceDetail(input: {
 	) {
 		operationalRecoveryAction = (
 			<ProfileDetailsRecoveryActionButton
-				compact={projectedRecoveryAction.kind === "skip_interrupted_work"}
+				compact={isInterruptedWorkRecoveryActionKind(
+					projectedRecoveryAction.kind
+				)}
 				isPending={input.isRecoveryActionPending}
 				onRecoveryAction={input.onRecoveryAction}
 				recoveryAction={projectedRecoveryAction}
@@ -167,12 +171,18 @@ export function AgentProfileWorkspaceDetail(input: {
 					</div>
 				</div>
 			</div>
-			<AgentProfileUsage
-				profileId={input.profile.openMeldProfileId}
-				variant="details"
-			/>
 			<AgentProfileCurrentActivity
 				activityNavigation={visibleActivityNavigation}
+				isLoading={
+					taskActivity.enabled &&
+					taskActivity.isPending &&
+					!input.operationalContext
+				}
+				isUnavailable={
+					taskActivity.enabled &&
+					taskActivity.isError &&
+					!input.operationalContext
+				}
 				lastTaskActivityAt={taskActivity.activity?.lastTaskActivityAt}
 				operationalContext={input.operationalContext}
 				recoveryAction={operationalRecoveryAction}
@@ -213,6 +223,13 @@ function AgentProfilePresence(input: {
 	wakeAvailabilityIsRefreshing: boolean;
 	wakeAvailabilityNowMs: number;
 }) {
+	if (input.wakeAvailabilityIsPending && !input.wakeAvailability) {
+		return (
+			<SkeletonRegion className="mt-3" label="Loading Agent availability">
+				<Skeleton className="h-5 w-36" />
+			</SkeletonRegion>
+		);
+	}
 	const presentation = resolveAgentProfilePresence(input);
 	const checkedAt = input.wakeAvailability
 		? formatAgentWakeAvailabilityCheckedAt(
@@ -387,12 +404,30 @@ function AgentProfilePresenceIcon(input: {
 }
 
 function AgentProfileCurrentActivity(input: {
+	isLoading?: boolean;
+	isUnavailable?: boolean;
 	activityNavigation: AgentProfileActivityNavigation | null;
 	lastTaskActivityAt?: string | null;
 	operationalContext: AgentProfileOperationalContextInput | null;
 	recoveryAction: ReactNode;
 	recoveryActionKind: ProfileDetailsRecoveryAction["kind"] | null;
 }) {
+	if (input.isLoading || input.isUnavailable) {
+		return (
+			<section className="space-y-3">
+				<h2 className="font-medium text-sm">Current activity</h2>
+				{input.isLoading ? (
+					<SkeletonRegion label="Loading Agent activity">
+						<Skeleton className="h-4 w-48" />
+					</SkeletonRegion>
+				) : (
+					<p className="text-muted-foreground text-sm">
+						Current activity unavailable.
+					</p>
+				)}
+			</section>
+		);
+	}
 	const currentDestination = input.activityNavigation?.current ?? null;
 	const queuedDestinations = input.activityNavigation?.queued ?? [];
 	const { footerRecoveryAction, interruptedRecoveryAction } =
@@ -455,6 +490,14 @@ function AgentProfileCurrentActivity(input: {
 	);
 }
 
+// Both of these decide the fate of the interrupted Wake itself, so they belong
+// beside it rather than in the card footer that starts queued work.
+function isInterruptedWorkRecoveryActionKind(
+	kind: ProfileDetailsRecoveryAction["kind"]
+): boolean {
+	return kind === "skip_interrupted_work" || kind === "fork_interrupted_work";
+}
+
 function resolveActivityRecoveryActions(input: {
 	recoveryAction: ReactNode;
 	recoveryActionKind: ProfileDetailsRecoveryAction["kind"] | null;
@@ -462,7 +505,10 @@ function resolveActivityRecoveryActions(input: {
 	footerRecoveryAction: ReactNode;
 	interruptedRecoveryAction: ReactNode;
 } {
-	if (input.recoveryActionKind === "skip_interrupted_work") {
+	if (
+		input.recoveryActionKind &&
+		isInterruptedWorkRecoveryActionKind(input.recoveryActionKind)
+	) {
 		return {
 			footerRecoveryAction: null,
 			interruptedRecoveryAction: input.recoveryAction,
@@ -621,10 +667,10 @@ function ActivityDestinationLink(input: {
 	}
 	return (
 		<div className="flex min-w-0 items-center">
-			<a
+			<Link
 				aria-label={resolveActivityDestinationAriaLabel(input.destination)}
 				className="group flex min-h-14 min-w-0 flex-1 items-center gap-3 rounded-md bg-transparent px-3 py-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-				href={input.destination.href}
+				to={input.destination.href}
 			>
 				<span className="shrink-0 text-muted-foreground">{icon}</span>
 				<span className="min-w-0 flex-1">
@@ -651,7 +697,7 @@ function ActivityDestinationLink(input: {
 					aria-hidden="true"
 					className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
 				/>
-			</a>
+			</Link>
 			{input.trailingAction ? (
 				<div className="shrink-0 pe-3">{input.trailingAction}</div>
 			) : null}
