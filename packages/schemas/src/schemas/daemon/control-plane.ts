@@ -461,11 +461,6 @@ export const openMeldDaemonHistoryPayloadSchema = z.strictObject({
 export const openMeldDaemonInterruptPayloadSchema = z.strictObject({
   accepted: z.boolean(),
   target: openMeldDaemonControlTargetSelectorSchema,
-  // See the cancel payload: interrupting a started turn is a request, not a
-  // completion barrier, so this states what the adapter actually established.
-  localAttemptOutcome: z
-    .enum(["stop_requested_after_start", "withdrawn_before_start"])
-    .optional(),
   resolvedDispatchId: z.string().min(1).optional(),
   resolvedRuntimeCoordinatorExecutionId: z.string().min(1).optional(),
   resolvedTaskId: z.string().min(1).optional(),
@@ -473,18 +468,27 @@ export const openMeldDaemonInterruptPayloadSchema = z.strictObject({
   reasonCode: z.string().min(1).optional(),
 });
 
+/**
+ * What accepting a cancellation established, carried on `reasonCode`.
+ *
+ * `accepted` alone only means the control request was taken: an adapter can
+ * register a stop signal before the provider turn is acknowledged, and
+ * interrupting a started turn is a request, not a completion barrier. Work that
+ * replaces the attempt needs `adapter.cancel.withdrawn_before_start`.
+ *
+ * This rides the existing free-form reason code on purpose. These payloads are
+ * strict objects, so a Service that emitted a new key would have its whole
+ * frame rejected by a Core that predates it, and local components can reach a
+ * user before the matching Core deploy.
+ */
+export const OPENMELD_DAEMON_CANCEL_WITHDRAWN_BEFORE_START_REASON_CODE =
+  "adapter.cancel.withdrawn_before_start" as const;
+export const OPENMELD_DAEMON_CANCEL_STOP_REQUESTED_AFTER_START_REASON_CODE =
+  "adapter.cancel.stop_requested_after_start" as const;
+
 export const openMeldDaemonCancelPayloadSchema = z.strictObject({
   accepted: z.boolean(),
   target: openMeldDaemonControlTargetSelectorSchema,
-  // What accepting the cancellation established, when the adapter can tell.
-  // `accepted` alone only means the control request was taken: a signal can be
-  // registered before the provider turn is acknowledged, and interrupting is
-  // not the same barrier as the turn completing. Work that replaces this
-  // attempt needs `withdrawn_before_start`; anything else, including an absent
-  // field from a Service that predates this, is not proof.
-  localAttemptOutcome: z
-    .enum(["stop_requested_after_start", "withdrawn_before_start"])
-    .optional(),
   resolvedDispatchId: z.string().min(1).optional(),
   resolvedRuntimeCoordinatorExecutionId: z.string().min(1).optional(),
   resolvedTaskId: z.string().min(1).optional(),

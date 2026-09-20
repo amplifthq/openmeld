@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-18T12:17:09.549Z",
+  "updatedAt": "2026-09-20T03:26:13.077Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.213",
+      "packageVersion": "0.3.214",
       "updatePolicy": "available",
-      "reason": "Advisory connection recovery and split update targets preserve existing setup and update contracts; publish only after cloud receivers are deployed."
+      "reason": "The Service states what an accepted cancellation established on the existing reason code, so no new payload key is introduced and an older Core still parses the frame. An older CLI keeps working and simply cannot prove a withdrawal, which withholds a replacement branch instead of breaking anything."
     },
     "service": {
-      "bundleHash": "448d205e5f151ed60aef4deee63adbbd105a43f8d21bc864ff31ba2646f0d5da",
-      "bundleVersion": "0.3.213",
+      "bundleHash": "c6d6e82811d31455bc1f6855f9890e1115e8e589cc8d2674c5c5c3da0fc32146",
+      "bundleVersion": "0.3.214",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Advisory keepalive and controlled-stop fixes preserve accepted work and existing update recovery; new runtime receivers deploy before this Service."
+      "reason": "Withdrawal evidence rides the existing free-form cancel reason code, so an older Core tolerates it and a newer Core treats an older Service's plain acceptance as unproven, withholding the replacement branch with an explicit awaiting-stop stage rather than starting a second attempt."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",

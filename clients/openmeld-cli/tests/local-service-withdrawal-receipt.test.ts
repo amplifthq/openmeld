@@ -63,7 +63,7 @@ describe("local withdrawal receipts", () => {
     });
     expect(first).toMatchObject({
       accepted: true,
-      localAttemptOutcome: "withdrawn_before_start",
+      reasonCode: "adapter.cancel.withdrawn_before_start",
       resolvedRuntimeCoordinatorExecutionId: EXECUTION_ID,
       resolvedTaskId: TASK_ID,
     });
@@ -78,8 +78,7 @@ describe("local withdrawal receipts", () => {
     });
     expect(replay).toMatchObject({
       accepted: true,
-      localAttemptOutcome: "withdrawn_before_start",
-      reasonCode: "adapter.cancel.already_withdrawn",
+      reasonCode: "adapter.cancel.withdrawn_before_start",
       resolvedDispatchId: DISPATCH_ID,
       resolvedRuntimeCoordinatorExecutionId: EXECUTION_ID,
       resolvedTaskId: TASK_ID,
@@ -153,8 +152,7 @@ describe("local withdrawal receipts", () => {
     });
     expect(replay).toMatchObject({
       accepted: true,
-      localAttemptOutcome: "stop_requested_after_start",
-      reasonCode: "adapter.cancel.already_withdrawn",
+      reasonCode: "adapter.cancel.stop_requested_after_start",
     });
   });
 });

@@ -2841,7 +2841,6 @@ const submitWakeStopLocalControlResult = async (input: {
   awaitCompletion?: boolean;
   hub: RuntimeTransportHub;
   includeResolvedIdentity?: boolean;
-  localAttemptOutcome?: "stop_requested_after_start" | "withdrawn_before_start";
   note?: string | null;
   reasonCode?: string | null;
   resolvedDispatchId?: string;
@@ -2863,9 +2862,6 @@ const submitWakeStopLocalControlResult = async (input: {
     requestId: `wake-stop:${RUNTIME_COORDINATOR_EXECUTION_ID}`,
     payload: {
       accepted: input.accepted ?? true,
-      ...(input.localAttemptOutcome
-        ? { localAttemptOutcome: input.localAttemptOutcome }
-        : {}),
       ...(input.note === null
         ? {}
         : { note: input.note ?? "adapter.cancel.accepted" }),
@@ -19791,7 +19787,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       // the only proof replacement work has, so it must be kept.
       await submitWakeStopLocalControlResult({
         hub,
-        localAttemptOutcome: "withdrawn_before_start",
+        reasonCode: "adapter.cancel.withdrawn_before_start",
         socket,
         state,
         waitUntilTasks,
@@ -19804,7 +19800,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         )
       ).toMatchObject({
         localAttemptWithdrawal: {
-          reasonCode: "adapter.cancel.accepted",
+          reasonCode: "adapter.cancel.withdrawn_before_start",
           status: "withdrawn",
         },
       });
@@ -19896,7 +19892,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
       await submitWakeStopLocalControlResult({
         hub,
-        localAttemptOutcome: "stop_requested_after_start",
+        reasonCode: "adapter.cancel.stop_requested_after_start",
         socket,
         state,
         waitUntilTasks,
@@ -19931,7 +19927,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
       await submitWakeStopLocalControlResult({
         hub,
-        localAttemptOutcome: "withdrawn_before_start",
+        reasonCode: "adapter.cancel.withdrawn_before_start",
         resolvedTaskId: "task-from-another-run",
         socket,
         state,

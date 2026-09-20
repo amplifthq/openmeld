@@ -32,6 +32,7 @@ import {
   localProjectControlRemoveConnectionResultSchema,
   localProjectControlRemoveMissingConnectionsResultSchema,
   localProjectControlSetDefaultConnectionResultSchema,
+  OPENMELD_DAEMON_CANCEL_WITHDRAWN_BEFORE_START_REASON_CODE,
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
@@ -19251,8 +19252,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     // interrupting a started turn leaves its result and effects standing. Only
     // an adapter that states it withdrew the attempt before any turn began has
     // supplied what replacement work needs; a Service that predates this says
-    // nothing, which stays unproven rather than becoming permission.
-    if (input.payload.localAttemptOutcome !== "withdrawn_before_start") {
+    // only `accepted`, which stays unproven rather than becoming permission.
+    if (
+      input.payload.reasonCode !==
+      OPENMELD_DAEMON_CANCEL_WITHDRAWN_BEFORE_START_REASON_CODE
+    ) {
       return;
     }
     const withdrawn =

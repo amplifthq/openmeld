@@ -1,12 +1,17 @@
 import type {
   AdapterCancelResult,
   AdapterInterruptResult,
+  AdapterLocalAttemptOutcome,
 } from "@openmeld/adapter-core";
 import type {
   InflightTaskControlRecord,
   InflightTaskControlRegistry,
   LocalDaemonAdapterContainer,
 } from "@openmeld/local-service";
+import {
+  OPENMELD_DAEMON_CANCEL_STOP_REQUESTED_AFTER_START_REASON_CODE,
+  OPENMELD_DAEMON_CANCEL_WITHDRAWN_BEFORE_START_REASON_CODE,
+} from "@openmeld/schemas";
 import type {
   OpenMeldDaemonCancelRequestPayload,
   OpenMeldDaemonControlPlaneResponse,
@@ -83,7 +88,7 @@ export async function handleLocalControlPlaneCancel(input: {
     }
   }
   const reasonCode = result.accepted
-    ? "adapter.cancel.accepted"
+    ? resolveAcceptedCancelReasonCode(result.localAttemptOutcome)
     : result.reasonCode;
   emitRunLine({
     presenter: input.presenter,
@@ -102,9 +107,6 @@ export async function handleLocalControlPlaneCancel(input: {
   });
   return {
     accepted: result.accepted,
-    ...(result.localAttemptOutcome
-      ? { localAttemptOutcome: result.localAttemptOutcome }
-      : {}),
     note: resolveAdapterCancelNote({ reasonCode, result }),
     reasonCode,
     resolvedDispatchId: resolution.record.dispatchId,
@@ -117,6 +119,25 @@ export async function handleLocalControlPlaneCancel(input: {
     resolvedTaskId: resolution.record.taskId,
     target: input.payload.target,
   };
+}
+
+/**
+ * Names what an accepted cancellation established.
+ *
+ * The distinction rides the existing reason code rather than a new payload key:
+ * these control payloads are strict objects, so a Service that emitted a new
+ * key would have its whole frame rejected by a Core that predates it, and a
+ * local component can reach a user before the matching Core deploy.
+ */
+function resolveAcceptedCancelReasonCode(
+  localAttemptOutcome: AdapterLocalAttemptOutcome | undefined
+): string {
+  if (localAttemptOutcome === "withdrawn_before_start") {
+    return OPENMELD_DAEMON_CANCEL_WITHDRAWN_BEFORE_START_REASON_CODE;
+  }
+  return localAttemptOutcome === "stop_requested_after_start"
+    ? OPENMELD_DAEMON_CANCEL_STOP_REQUESTED_AFTER_START_REASON_CODE
+    : "adapter.cancel.accepted";
 }
 
 /**
@@ -142,9 +163,8 @@ function replayRecordedWithdrawal(input: {
   }
   return {
     accepted: true,
-    localAttemptOutcome: receipt.localAttemptOutcome,
     note: "Replayed the recorded withdrawal for this attempt.",
-    reasonCode: "adapter.cancel.already_withdrawn",
+    reasonCode: resolveAcceptedCancelReasonCode(receipt.localAttemptOutcome),
     resolvedDispatchId: receipt.record.dispatchId,
     ...(receipt.record.runtimeCoordinatorExecutionId
       ? {
