@@ -78,8 +78,11 @@ can be combined and persist in the URL; Unread only stays beside the tabs.
 The existing `agentsOnly` query remains supported; `peopleOnly` and
 `conversationType` are additive. Every filter is applied before grouping,
 counts, pagination and frozen bulk operations.
-Mentions includes structured Human mentions and current personal-Agent mentions
-through history, not unmentioned DMs. This does not change the older unread-only
+Mentions includes structured Human mentions, current personal-Agent mentions,
+and incoming Direct Messages addressed to the Human recipient, including Center
+Agent messages. A DM observed only through Agent ownership is not a direct
+message to that Human. These messages use the shared Web/native delivery policy
+and still honor conversation mute. This does not change the older unread-only
 `view=mentions` API. Agents filters actual interaction/author/recipient facts, not
 the presence of an Agent somewhere in a Space.
 

@@ -169,6 +169,10 @@ the exact message or Thread reply without acknowledging unrelated unread work.
 Open app restores the renderer's existing route rather than choosing a new
 home. The menu does not expose the version, a separate Web app row, or Service
 lifecycle controls. Quitting the GUI retains the independent Service lifecycle.
+The unread preview uses one bounded, whitespace-normalized native label rather
+than a wrapping macOS sublabel. AppKit owns content-sized menu width; no custom
+minimum/maximum-width window is introduced. The full preview remains available
+in the tooltip and accessible label. Truncation preserves grapheme boundaries.
 The native menu keeps its current snapshot while open, so a refresh cannot
 retarget the row under the pointer.
 

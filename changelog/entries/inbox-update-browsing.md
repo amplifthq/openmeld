@@ -2,7 +2,7 @@
 id: inbox-update-browsing
 title: Browse grouped Inbox updates with less clutter
 kind: improved
-areas: ["inbox", "web"]
+areas: ["inbox", "web", "desktop"]
 audiences: ["users"]
 ---
 
@@ -15,3 +15,7 @@ messages and documents remain available. Group actions also have clearer buttons
 Inbox conversation updates use the same Space and direct-message avatars as
 the sidebar. Expand/collapse sits beside filters, while bulk mark-as-read sits
 beside the list heading.
+
+Incoming direct messages appear with mentions, including Center Agent messages,
+while muted conversations remain quiet. Desktop's native menu uses a compact,
+single-line unread preview; long text remains available in its tooltip.

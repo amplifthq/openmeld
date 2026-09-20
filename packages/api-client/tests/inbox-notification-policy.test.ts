@@ -2,38 +2,59 @@ import type { InboxItem } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { isInboxNotificationEligible } from "../src/inbox/notification-policy";
 
-const item: InboxItem & { sourceFacts: NonNullable<InboxItem["sourceFacts"]> } =
-  {
-    id: "item",
-    organizationId: "org",
-    recipientUserId: "owner",
-    title: "Monica contacted Codex",
-    preview: "A new message",
-    contextLabel: "Design",
-    kind: "space_message",
-    attention: "update",
-    importance: "normal",
-    sourceTarget: {
-      kind: "space",
-      spaceId: "space",
-      signalId: "signal",
-      agentOwnerActivity: true,
-      directMessage: true,
-    },
-    sourceFacts: {
-      version: 1,
-      recipientReasons: ["agent_owner"],
-      agentProfileIds: ["codex"],
-      personalAgentProfileIds: ["codex"],
-    },
-    readAt: null,
-    resolutionStatus: "not_applicable",
-    createdAt: "2026-09-18T00:00:00Z",
-    updatedAt: "2026-09-18T00:00:00Z",
-    occurredAt: "2026-09-18T00:00:00Z",
-  };
+const item: InboxItem & {
+  sourceFacts: NonNullable<InboxItem["sourceFacts"]>;
+  sourceTarget: Extract<InboxItem["sourceTarget"], { kind: "space" }>;
+} = {
+  id: "item",
+  organizationId: "org",
+  recipientUserId: "owner",
+  title: "Monica contacted Codex",
+  preview: "A new message",
+  contextLabel: "Design",
+  kind: "space_message",
+  attention: "update",
+  importance: "normal",
+  sourceTarget: {
+    kind: "space",
+    spaceId: "space",
+    signalId: "signal",
+    agentOwnerActivity: true,
+    directMessage: true,
+  },
+  sourceFacts: {
+    version: 1,
+    recipientReasons: ["agent_owner"],
+    agentProfileIds: ["codex"],
+    personalAgentProfileIds: ["codex"],
+  },
+  readAt: null,
+  resolutionStatus: "not_applicable",
+  createdAt: "2026-09-18T00:00:00Z",
+  updatedAt: "2026-09-18T00:00:00Z",
+  occurredAt: "2026-09-18T00:00:00Z",
+};
 
 describe("source-owned Inbox delivery eligibility", () => {
+  it.each([
+    "space",
+    "center_agent",
+  ] as const)("delivers an incoming %s DM without an explicit mention, but honors mute", (kind) => {
+    const directMessage: InboxItem = {
+      ...item,
+      kind: "space_message",
+      sourceTarget:
+        kind === "space"
+          ? { kind, spaceId: "space", signalId: "signal", directMessage: true }
+          : { kind, spaceId: "space", signalId: "signal" },
+      sourceFacts: {
+        ...item.sourceFacts,
+        recipientReasons: ["direct_message"],
+      },
+    };
+    expect(isInboxNotificationEligible(directMessage)).toBe(true);
+    expect(isInboxNotificationEligible(directMessage, "muted")).toBe(false);
+  });
   it.each([
     "mentions_and_replies",
     "all_messages",

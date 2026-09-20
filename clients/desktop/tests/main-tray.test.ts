@@ -974,7 +974,7 @@ describe("main tray behavior", () => {
 
     expect(trayMenuItem("Computer — Connected")).toBeTruthy();
     expect(
-      trayMenuItem(`${"L".repeat(21)}… · now — ${"p".repeat(17)}…`)
+      trayMenuItem(`${"L".repeat(21)}… · now — ${"p".repeat(19)}`)
     ).toBeTruthy();
   });
 
@@ -1039,42 +1039,42 @@ describe("main tray behavior", () => {
         preview: "Short preview",
         title: "Short title",
         expectedLabel: "Short title · now",
-        expectedSublabel: "Short preview",
+        expectedPreview: "Short preview",
       },
       {
         name: "exact budgets",
         preview: "p".repeat(32),
-        title: "T".repeat(30),
-        expectedLabel: `${"T".repeat(30)} · now`,
-        expectedSublabel: "p".repeat(32),
+        title: "T".repeat(22),
+        expectedLabel: `${"T".repeat(22)} · now`,
+        expectedPreview: "p".repeat(32),
       },
       {
         name: "long English text",
         preview: `${"p".repeat(16)}\n${"p".repeat(17)}`,
         title: "T".repeat(31),
-        expectedLabel: `${"T".repeat(29)}… · now`,
-        expectedSublabel: `${"p".repeat(16)} ${"p".repeat(14)}…`,
+        expectedLabel: `${"T".repeat(21)}… · now`,
+        expectedPreview: `${"p".repeat(16)} ${"p".repeat(14)}…`,
       },
       {
         name: "long Chinese text",
         preview: "文".repeat(33),
         title: "标".repeat(31),
-        expectedLabel: `${"标".repeat(29)}… · now`,
-        expectedSublabel: `${"文".repeat(31)}…`,
+        expectedLabel: `${"标".repeat(21)}… · now`,
+        expectedPreview: `${"文".repeat(31)}…`,
       },
       {
         name: "ordinary emoji on the truncation boundary",
         preview: `${"b".repeat(30)}😀x`,
-        title: `${"a".repeat(28)}😀x`,
-        expectedLabel: `${"a".repeat(28)}… · now`,
-        expectedSublabel: `${"b".repeat(30)}…`,
+        title: `${"a".repeat(20)}😀x`,
+        expectedLabel: `${"a".repeat(20)}… · now`,
+        expectedPreview: `${"b".repeat(30)}…`,
       },
       {
         name: "family emoji crossing the truncation boundary",
         preview: `${"f".repeat(30)}👨‍👩‍👧‍👦x`,
         title: "Family update",
         expectedLabel: "Family update · now",
-        expectedSublabel: `${"f".repeat(30)}…`,
+        expectedPreview: `${"f".repeat(30)}…`,
       },
     ];
 
@@ -1095,14 +1095,15 @@ describe("main tray behavior", () => {
         status: "ready",
       });
 
-      const preview = trayMenuTemplate()?.find(
-        (item) => item.sublabel !== undefined
+      const preview = trayMenuTemplate()?.find((item) =>
+        item.accessibilityLabel?.endsWith(` — ${testCase.preview}`)
       );
-      expect(preview?.label, testCase.name).toBe(testCase.expectedLabel);
-      expect(preview?.sublabel, testCase.name).toBe(testCase.expectedSublabel);
-      expect(preview?.label?.length, testCase.name).toBeLessThanOrEqual(36);
-      expect(preview?.sublabel?.length, testCase.name).toBeLessThanOrEqual(32);
-      expect(preview?.sublabel, testCase.name).not.toContain("\n");
+      expect(preview?.label, testCase.name).toBe(
+        `${testCase.expectedLabel} — ${testCase.expectedPreview}`
+      );
+      expect(preview?.sublabel, testCase.name).toBeUndefined();
+      expect(preview?.label?.length, testCase.name).toBeLessThanOrEqual(63);
+      expect(preview?.label, testCase.name).not.toContain("\n");
     }
   });
 
