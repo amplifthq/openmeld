@@ -209,3 +209,15 @@ export const spaceTaskMutationReceiptSchema = z.strictObject({
   event: spaceTaskEventSchema,
   applied: z.boolean(),
 });
+
+export const SPACE_TASK_OPERATION_CONFLICT_ERROR_CODE =
+  "space_task.operation_conflict" as const;
+export const SPACE_TASK_REVISION_CONFLICT_ERROR_CODE =
+  "space_task.revision_conflict" as const;
+
+export const SPACE_TASK_ERROR_CODES = [
+  SPACE_TASK_OPERATION_CONFLICT_ERROR_CODE,
+  SPACE_TASK_REVISION_CONFLICT_ERROR_CODE,
+] as const;
+
+export const spaceTaskErrorCodeSchema = z.enum(SPACE_TASK_ERROR_CODES);

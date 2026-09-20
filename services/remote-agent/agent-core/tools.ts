@@ -268,6 +268,10 @@ import {
   parseSlackThreadPublicationTargetKey,
 } from "./slack-thread-publication-evidence";
 import {
+  mutateSpaceTaskRefreshingOnRevisionConflict,
+  readSpaceTaskRevision,
+} from "./space-task-revision-retry";
+import {
   buildRemoteAgentToolContext,
   resolveOrganizationMemberTurnEnvelopeSpeaker,
   resolveVerifiedTurnEnvelopeProfileId,
@@ -3400,18 +3404,33 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             })
           );
         }
-        const rpc = requireCoreRpc(
+        const mutate = requireCoreRpc(
           input.coreWorker.mutateSpaceTask,
           "mutateSpaceTask"
         );
-        return spaceTaskMutationReceiptSchema.parse(
-          await rpc({
-            body: buildSpaceTaskMutationFromTool(request),
-            context: toolContext.context,
-            spaceId: space.id,
-            taskId: request.taskId,
-          })
+        const read = requireCoreRpc(
+          input.coreWorker.getSpaceTask,
+          "getSpaceTask"
         );
+        const body = buildSpaceTaskMutationFromTool(request);
+        return await mutateSpaceTaskRefreshingOnRevisionConflict({
+          mutate: (mutation) =>
+            mutate({
+              body: mutation,
+              context: toolContext.context,
+              spaceId: space.id,
+              taskId: request.taskId,
+            }),
+          readCurrentRevision: async () =>
+            readSpaceTaskRevision(
+              await read({
+                context: toolContext.context,
+                spaceId: space.id,
+                taskId: request.taskId,
+              })
+            ),
+          request: body,
+        });
       },
     }),
     toolDefinition({

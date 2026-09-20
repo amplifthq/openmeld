@@ -30,3 +30,6 @@ export type ListSpaceTasksResponse = z.infer<
 export type SpaceTaskMutationReceipt = z.infer<
   SchemaModule["spaceTaskMutationReceiptSchema"]
 >;
+export type SpaceTaskErrorCode = z.infer<
+  SchemaModule["spaceTaskErrorCodeSchema"]
+>;

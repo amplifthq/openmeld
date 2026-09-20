@@ -18,6 +18,7 @@ import {
   SPACE_ACCESS_VERSION_HEADER,
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_FILE_ERROR_CODES,
+  SPACE_TASK_ERROR_CODES,
   toLegacySpaceAddressingWireValue,
 } from "@openmeld/schemas";
 import { getSpaceAccessRequestId } from "@openmeld/space";
@@ -191,6 +192,7 @@ const DIRECT_GATEWAY_ERROR_CODES = [
   "space.publication_mode.owner_required",
   "space.publication_mode.password_not_configured",
   ...SPACE_FILE_ERROR_CODES,
+  ...SPACE_TASK_ERROR_CODES,
   "attachment_too_large",
   "attachment_type_unsupported",
   "attachment_content_mismatch",

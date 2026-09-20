@@ -1183,6 +1183,7 @@ export type {
   MutateSpaceTaskBody,
   SpaceTask,
   SpaceTaskActor,
+  SpaceTaskErrorCode,
   SpaceTaskEvent,
   SpaceTaskEventType,
   SpaceTaskId,

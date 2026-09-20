@@ -10,6 +10,7 @@ import type {
   SpaceTaskMutationReceipt,
   SpaceTaskPhase,
 } from "@openmeld/schemas/types";
+import { SpaceTaskWorkflowError } from "../../application/space-task-workflow";
 
 type StoredTaskRow = { task_json: string };
 type StoredEventRow = { event_json: string };
@@ -159,9 +160,22 @@ export class SpaceTaskRepository {
       task.taskId,
       expectedRevision
     );
-    if (result.rowsWritten !== 1) {
-      throw new Error("space_task.concurrent_update");
+    if ((result.rowsWritten ?? 0) > 0) {
+      return;
     }
+    const stored = this.readTask(task.taskId);
+    if (!stored) {
+      throw new SpaceTaskWorkflowError({
+        code: "space_task.not_found",
+        message: "Task not found.",
+        status: 404,
+      });
+    }
+    throw new SpaceTaskWorkflowError({
+      code: "space_task.revision_conflict",
+      message: `This Task changed from revision ${expectedRevision} to ${stored.revision}. Refresh it and try again.`,
+      status: 409,
+    });
   }
 
   appendEvent(event: SpaceTaskEvent): void {

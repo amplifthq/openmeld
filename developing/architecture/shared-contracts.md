@@ -628,9 +628,15 @@ whose profile ownership matches the authenticated actor. Current Direct
 Messages reject the capability.
 
 Create and mutation requests carry an operation id. Mutations also carry an
-expected revision. Replaying the same operation returns `applied: false`; reuse
-for different input conflicts. List responses are bounded to 500 Tasks and
-report `truncated` rather than silently claiming complete history. The additive
+expected revision. A matching write succeeds when SQLite reports any rows
+written; a miss is typed `space_task.revision_conflict` HTTP 409, not a raw
+concurrent-update error. Replaying the same operation returns `applied: false`;
+reuse for different input is `space_task.operation_conflict` HTTP 409. Both
+codes belong to `gatewayErrorCodeSchema`, so Gateway can pass them through
+instead of wrapping them as `upstream_error`. Callers refresh the Task and
+retry once with a new operation id; the writer does not last-write-wins over a
+stale brief. List responses are bounded to 500 Tasks and report `truncated`
+rather than silently claiming complete history. The additive
 `space.tasks.changed` WebSocket
 frame is only a refresh signal. Web rereads the Task projection and never
 derives Task state from the frame.

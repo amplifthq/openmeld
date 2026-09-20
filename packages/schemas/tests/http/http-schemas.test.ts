@@ -2972,6 +2972,13 @@ describe("http schemas", () => {
       expect(
         gatewayErrorCodeSchema.safeParse("center_agent.dm_open_failed").success
       ).toBe(true);
+      expect(
+        gatewayErrorCodeSchema.safeParse("space_task.revision_conflict").success
+      ).toBe(true);
+      expect(
+        gatewayErrorCodeSchema.safeParse("space_task.operation_conflict")
+          .success
+      ).toBe(true);
 
       const resolved = postResolvedSpaceMembersBodySchema.safeParse({
         members: [

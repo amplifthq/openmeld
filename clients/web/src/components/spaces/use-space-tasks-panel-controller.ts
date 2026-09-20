@@ -13,6 +13,7 @@ import {
 } from "#/lib/spaces/api";
 import { baseQueryOptions } from "#/query/query-config";
 import { spaceTaskQueryKeys } from "#/query/spaces/space-tasks";
+import { mutateSpaceTaskRefreshingOnRevisionConflict } from "./space-task-revision-retry";
 
 export type SpaceTasksPanelProps = {
 	membersSnapshot: SpaceMembersSnapshot | null;
@@ -65,7 +66,22 @@ export function useSpaceTasksPanelController(input: SpaceTasksPanelProps) {
 	): Promise<boolean> => {
 		setPendingTaskId(taskId);
 		try {
-			await api.mutateTask({ body, spaceId: input.spaceId, taskId });
+			await mutateSpaceTaskRefreshingOnRevisionConflict({
+				mutate: (mutation) =>
+					api.mutateTask({
+						body: mutation,
+						spaceId: input.spaceId,
+						taskId,
+					}),
+				readCurrentRevision: async () =>
+					(
+						await api.getTask({
+							spaceId: input.spaceId,
+							taskId,
+						})
+					).task.revision,
+				request: body,
+			});
 			await queryClient.invalidateQueries({
 				queryKey: spaceTaskQueryKeys.space(input.spaceId),
 			});
