@@ -147,6 +147,10 @@ import {
   spaceOwnerMemberReferences,
 } from "./space-index.schema.ts";
 import { spaceInvitations } from "./space-invitation.schema.ts";
+import {
+  githubAppWebhookDeliveries,
+  spaceTaskGitHubIssueLinks,
+} from "./space-task-github.schema.ts";
 
 export const openMeldDaemonOpsDecisions = sqliteTable(
   "openMeldDaemon_ops_decisions",
@@ -1794,4 +1798,6 @@ export const coreSchema = {
   spaceOwnerMemberReferences,
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
+  spaceTaskGitHubIssueLinks,
+  githubAppWebhookDeliveries,
 } as const;

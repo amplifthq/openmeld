@@ -1,3 +1,4 @@
+import { GITHUB_APP_WEBHOOK_RAW_BODY_MAX_BYTES } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import app from "../src/index";
 
@@ -95,6 +96,95 @@ describe("GitHub App setup callback", () => {
 
     expect(response.status).toBe(400);
     expect(beginGitHubAppInstallationVerification).not.toHaveBeenCalled();
+  });
+});
+
+describe("GitHub App webhook", () => {
+  it("acks verified ping and issue deliveries, rejects bad signatures, and fails closed on Core errors", async () => {
+    const verifyGitHubAppWebhook = vi.fn(async () => ({
+      reasonCode: null,
+      status: "accepted" as const,
+    }));
+    const ping = await app.fetch(
+      new Request("https://gateway.test/github/app/webhook", {
+        body: '{"zen":"Design for failure."}',
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": "delivery-ping",
+          "x-github-event": "ping",
+          "x-hub-signature-256": "sha256=test",
+        },
+        method: "POST",
+      }),
+      makeEnv({ verifyGitHubAppWebhook }),
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(ping.status).toBe(200);
+    expect(await ping.text()).toBe("OK");
+    expect(verifyGitHubAppWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headers: {
+          deliveryId: "delivery-ping",
+          event: "ping",
+          signature256: "sha256=test",
+        },
+        rawBody: '{"zen":"Design for failure."}',
+      })
+    );
+
+    verifyGitHubAppWebhook.mockResolvedValueOnce({
+      reasonCode: "github.webhook_signature_invalid",
+      status: "rejected",
+    });
+    const rejected = await app.fetch(
+      new Request("https://gateway.test/github/app/webhook", {
+        body: "{}",
+        method: "POST",
+      }),
+      makeEnv({ verifyGitHubAppWebhook }),
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(rejected.status).toBe(401);
+
+    verifyGitHubAppWebhook.mockResolvedValueOnce({
+      reasonCode: "github.webhook_queue_unavailable",
+      status: "rejected",
+    });
+    const unavailable = await app.fetch(
+      new Request("https://gateway.test/github/app/webhook", {
+        body: "{}",
+        method: "POST",
+      }),
+      makeEnv({ verifyGitHubAppWebhook }),
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(unavailable.status).toBe(503);
+
+    verifyGitHubAppWebhook.mockRejectedValueOnce(new Error("core down"));
+    const failed = await app.fetch(
+      new Request("https://gateway.test/github/app/webhook", {
+        body: "{}",
+        method: "POST",
+      }),
+      makeEnv({ verifyGitHubAppWebhook }),
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(failed.status).toBe(503);
+    expect(await failed.text()).toBe("Provider verification unavailable");
+  });
+
+  it("rejects an oversized GitHub webhook body before Core", async () => {
+    const verifyGitHubAppWebhook = vi.fn();
+    const response = await app.fetch(
+      new Request("https://gateway.test/github/app/webhook", {
+        body: "x".repeat(GITHUB_APP_WEBHOOK_RAW_BODY_MAX_BYTES + 1),
+        method: "POST",
+      }),
+      makeEnv({ verifyGitHubAppWebhook }),
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(413);
+    expect(verifyGitHubAppWebhook).not.toHaveBeenCalled();
   });
 });
 

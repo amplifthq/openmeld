@@ -646,10 +646,24 @@ derives Task state from the frame.
 GitHub issue association is additive Remote Agent plus Space Task contract.
 Creating an issue from a shared Space records a linked Task through the
 existing create/mutate RPCs; the GitHub issue remains GitHub-owned. Closing
-the issue through `github_update_issue` cancels still-active linked Tasks
-through the Space writer. Completing or canceling a Task does not PATCH
-GitHub from Core. Old Remote Agent builds simply omit the association. Deploy
-schema consumers in Web, Gateway, and Core before the Remote Agent producer.
+the issue through `github_update_issue` or a verified GitHub App webhook
+cancels still-active linked Tasks through the Space writer. Completing or
+canceling a Task does not PATCH GitHub from Core. Old Remote Agent builds
+simply omit the association.
+
+Gateway `POST /github/app/webhook` forwards the raw body and GitHub delivery
+headers to Core `verifyGitHubAppWebhook`. Core verifies
+`X-Hub-Signature-256` with `GITHUB_OPENMELD_WEBHOOK_SECRET`, accepts `ping`,
+ignores uninteresting events, and enqueues `kind: "github_app_webhook"` on
+the existing daemon-dispatch queue. The Space Durable Object
+`rpcApplyGitHubIssueObservation` path has no member context and does not
+start a model turn. Deploy D1 migration 0180 before Core and Gateway
+consumers. A missing webhook secret fails closed. Old Gateway builds simply
+lack the route; old Core builds reject the new RPC. No local-component
+upgrade is required.
+
+Deploy schema consumers in Web, Gateway, and Core before the Remote Agent
+producer.
 
 The local Space Action MCP adds non-final Task tools alongside its one required
 final Space action. This is an additive CLI/OpenMeld Service/adapter contract
