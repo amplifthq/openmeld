@@ -11,7 +11,19 @@ export function normalizeSpacePasswordText(password: string): string {
 export const spacePasswordSchema = z
   .string()
   .transform(normalizeSpacePasswordText)
-  .pipe(z.string().min(SPACE_PASSWORD_MIN_LENGTH));
+  .pipe(
+    z.string().superRefine((password, context) => {
+      // Keep the existing UTF-16 length contract used by CLI and Core.
+      if (password.length < SPACE_PASSWORD_MIN_LENGTH) {
+        context.addIssue({
+          code: "too_small",
+          origin: "string",
+          minimum: SPACE_PASSWORD_MIN_LENGTH,
+          inclusive: true,
+        });
+      }
+    })
+  );
 
 export const createSpacePasswordBodySchema = z.strictObject({
   password: spacePasswordSchema.optional(),
