@@ -62,13 +62,12 @@ export function MessageSearchDialog(input: {
 }) {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	let description =
-		"Search messages across your Spaces and direct messages in this workspace.";
+		"Messages across Spaces and direct messages in this workspace.";
 	if (input.spaceId) {
-		description =
-			"Search this conversation, including older messages and replies.";
+		description = "Messages and replies in this conversation.";
 	}
 	if (input.scope === "inbox") {
-		description = "Search messages and other activity in your Inbox.";
+		description = "Messages and activity in this Inbox.";
 	}
 	return (
 		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
@@ -163,24 +162,21 @@ function MessageSearchContents(input: {
 		).values(),
 	];
 	const { hasNextPage, isFetching, isError, fetchNextPage } = results;
-	useEffect(() => {
-		if (
-			hasNextPage &&
-			!isFetching &&
+	const resultCount = matches.length + activities.length;
+	const continueAutomatically = Boolean(
+		hasNextPage && (indexing || resultCount < 30)
+	);
+	// One search spans several requests; gaps between pages are not completion.
+	const searching = Boolean(
+		query &&
 			!isError &&
-			(indexing || matches.length + activities.length < 30)
-		) {
+			(results.isPending || isFetching || continueAutomatically)
+	);
+	useEffect(() => {
+		if (continueAutomatically && !isFetching && !isError) {
 			fetchNextPage();
 		}
-	}, [
-		hasNextPage,
-		isFetching,
-		isError,
-		indexing,
-		matches.length,
-		activities.length,
-		fetchNextPage,
-	]);
+	}, [continueAutomatically, isFetching, isError, fetchNextPage]);
 	return (
 		<>
 			<form
@@ -196,7 +192,7 @@ function MessageSearchContents(input: {
 					maxLength={200}
 					minLength={3}
 					onChange={(event) => setDraft(event.target.value)}
-					placeholder="Search text (at least 3 characters)…"
+					placeholder="Search text…"
 					value={draft}
 				/>
 				<Button
@@ -244,20 +240,18 @@ function MessageSearchContents(input: {
 							</p>
 						</Link>
 					))}
-					<div aria-live="polite" className="text-muted-foreground text-sm">
-						{!query && "Enter at least 3 characters to search."}
-						{query && results.isFetching && "Searching…"}
+					<div
+						aria-live="polite"
+						className="min-h-5 text-muted-foreground text-sm"
+					>
+						{!query && "Use at least 3 characters."}
+						{searching && "Searching…"}
 						{query &&
-							!results.isFetching &&
+							!searching &&
 							!results.isError &&
 							!results.hasNextPage &&
-							matches.length + activities.length === 0 &&
-							"No results found. Try different words."}
-						{!results.isFetching &&
-							results.hasNextPage &&
-							(indexing
-								? "Preparing older messages for search…"
-								: "More conversations or messages are available to search.")}
+							resultCount === 0 &&
+							`No matches for “${query}”. Try another phrase.`}
 					</div>
 					{results.isError && (
 						<div role="alert">
@@ -276,13 +270,13 @@ function MessageSearchContents(input: {
 					)}
 				</div>
 			</ScrollArea>
-			{results.hasNextPage && (
+			{results.hasNextPage && !continueAutomatically && (
 				<Button
 					disabled={results.isFetching}
 					onClick={() => results.fetchNextPage()}
 					variant="secondary"
 				>
-					{indexing ? "Continue search" : "Search more"}
+					Show more results
 				</Button>
 			)}
 		</>
