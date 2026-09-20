@@ -113,7 +113,9 @@ export function confirmMacUpdateInstallReceipt(
     return null;
   }
   if (
-    receipt.state !== "launch_confirmed" ||
+    !["target_placed", "launch_attempted", "launch_confirmed"].includes(
+      receipt.state
+    ) ||
     receipt.targetVersion !== input.currentVersion ||
     !input.currentBundle ||
     receipt.targetBundle !== basename(input.currentBundle)

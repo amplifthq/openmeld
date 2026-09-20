@@ -550,8 +550,11 @@ unable to open the app even when the new bundle later verifies. The rename
 installer keeps a bounded local receipt at
 `<Desktop userData>/desktop-update-install-receipt.txt`; it contains only
 source/target versions, source/target bundle names, and the install phase. The
-new app promotes `launch_confirmed` to `application_started` only after its
-own Main process starts from the expected bundle/version.
+new app promotes `target_placed` / `launch_attempted` to
+`application_started` only after its own Main process starts from the expected
+bundle/version. The detached installer waits for that application-owned receipt
+before removing the legacy bundle; process-list observation alone is not treated
+as successful relaunch.
 
 Restart freezes document editing, flushes active text through the existing
 composer draft owner, and refuses while navigation guards, pending sends,

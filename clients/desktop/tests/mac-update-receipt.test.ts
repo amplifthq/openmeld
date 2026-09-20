@@ -32,7 +32,7 @@ describe("macOS Desktop update install receipt", () => {
     expect(
       parseMacUpdateInstallReceipt(
         [
-          "state=launch_confirmed",
+          "state=launch_attempted",
           "sourceVersion=0.1.3",
           "targetVersion=0.1.4",
           "sourceBundle=OpenMeld Desktop.app",
@@ -41,7 +41,7 @@ describe("macOS Desktop update install receipt", () => {
         ].join("\n")
       )
     ).toEqual({
-      state: "launch_confirmed",
+      state: "launch_attempted",
       sourceVersion: "0.1.3",
       targetVersion: "0.1.4",
       sourceBundle: "OpenMeld Desktop.app",
@@ -50,7 +50,7 @@ describe("macOS Desktop update install receipt", () => {
     expect(() =>
       parseMacUpdateInstallReceipt(
         [
-          "state=launch_confirmed",
+          "state=launch_attempted",
           "sourceVersion=0.1.3",
           "targetVersion=0.1.4",
           "sourceBundle=OpenMeld Desktop.app",
@@ -72,7 +72,7 @@ describe("macOS Desktop update install receipt", () => {
     writeFileSync(
       receiptPath,
       [
-        "state=launch_confirmed",
+        "state=launch_attempted",
         "sourceVersion=0.1.3",
         "targetVersion=0.1.4",
         "sourceBundle=OpenMeld Desktop.app",
@@ -97,7 +97,7 @@ describe("macOS Desktop update install receipt", () => {
     writeFileSync(
       receiptPath,
       [
-        "state=launch_confirmed",
+        "state=launch_attempted",
         "sourceVersion=0.1.3",
         "targetVersion=0.1.4",
         "sourceBundle=OpenMeld Desktop.app",
@@ -111,9 +111,9 @@ describe("macOS Desktop update install receipt", () => {
         currentVersion: "0.1.3",
         currentBundle: "/Applications/OpenMeld Desktop.app",
       })
-    ).toMatchObject({ state: "launch_confirmed" });
+    ).toMatchObject({ state: "launch_attempted" });
     expect(readFileSync(receiptPath, "utf8")).toContain(
-      "state=launch_confirmed"
+      "state=launch_attempted"
     );
   });
 });

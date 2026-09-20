@@ -30,6 +30,9 @@ step="waiting_for_exit"
 
 write_receipt() {
   state=$1
+  if [[ -f "$receipt" ]] && /usr/bin/grep -Fx 'state=application_started' "$receipt" >/dev/null; then
+    return 0
+  fi
   receipt_tmp="$receipt.tmp.$pid"
   /usr/bin/printf 'state=%s\\nsourceVersion=%s\\ntargetVersion=%s\\nsourceBundle=%s\\ntargetBundle=%s\\n' \
     "$state" "$source_version" "$target_version" \
@@ -99,16 +102,15 @@ write_receipt "target_placed"
 step="launch_target"
 /usr/bin/open "$target"
 write_receipt "launch_attempted"
-launched=0
-for _ in {1..50}; do
-  if /bin/ps -axo command= | /usr/bin/grep -F "$target/Contents/MacOS/OpenMeld" | /usr/bin/grep -v grep >/dev/null; then
-    launched=1
+application_started=0
+for _ in {1..150}; do
+  if [[ -f "$receipt" ]] && /usr/bin/grep -Fx 'state=application_started' "$receipt" >/dev/null; then
+    application_started=1
     break
   fi
   /bin/sleep 0.2
 done
-[[ "$launched" -eq 1 ]]
-write_receipt "launch_confirmed"
+[[ "$application_started" -eq 1 ]]
 
 trap - ERR INT TERM
 /bin/rm -rf "$current" || true

@@ -146,22 +146,23 @@ describe("macOS Desktop bundle rename", () => {
     expect(removeLegacyIndex).toBeGreaterThan(moveTargetIndex);
   });
 
-  it("keeps the legacy app until the new app has actually launched", () => {
+  it("keeps the legacy app until the relaunched Main process confirms itself", () => {
     const launchIndex = MAC_BUNDLE_RENAME_INSTALL_SCRIPT.indexOf(
       '/usr/bin/open "$target"'
     );
-    const confirmIndex = MAC_BUNDLE_RENAME_INSTALL_SCRIPT.indexOf(
-      'write_receipt "launch_confirmed"'
+    const waitForMainIndex = MAC_BUNDLE_RENAME_INSTALL_SCRIPT.indexOf(
+      "state=application_started"
     );
     const removeLegacyIndex = MAC_BUNDLE_RENAME_INSTALL_SCRIPT.indexOf(
       '/bin/rm -rf "$current"'
     );
 
     expect(launchIndex).toBeGreaterThan(0);
-    expect(confirmIndex).toBeGreaterThan(launchIndex);
-    expect(removeLegacyIndex).toBeGreaterThan(confirmIndex);
+    expect(waitForMainIndex).toBeGreaterThan(0);
+    expect(removeLegacyIndex).toBeGreaterThan(launchIndex);
     expect(MAC_BUNDLE_RENAME_INSTALL_SCRIPT).toContain("restore_target");
     expect(MAC_BUNDLE_RENAME_INSTALL_SCRIPT).toContain('write_receipt "failed:$step"');
+    expect(MAC_BUNDLE_RENAME_INSTALL_SCRIPT).not.toContain("/bin/ps -axo");
   });
 
   it("starts the fixed installer with bounded evidence and leaves Squirrel unused", () => {
