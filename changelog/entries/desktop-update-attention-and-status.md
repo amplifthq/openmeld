@@ -4,7 +4,9 @@ title: Clearer Desktop update status and reminders
 kind: fixed
 areas: ["desktop", "settings"]
 audiences: ["users"]
-evidence: ["pr:1160"]
+publishedAt: 2026-09-20
+release: v0.3.214
+evidence: ["pr:1160", "commit:99bd94a254457683a4922452b05bc80e175d50ac", "commit:7fd7cd5faca0f24826471a336374235a9507734d", "artifact:desktop-d266d57edbd064073263c2226c8d436bb1b577c42416430ab8af08c8c0adf77f"]
 ---
 
 Desktop update reminders now point from Settings to Updates with matching blue
