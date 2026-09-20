@@ -21,6 +21,7 @@ export type InboxItemRecord = {
   sourceKey: string;
   sourceKind: InboxSourceKind;
   sourceTargetJson: string;
+  sourceFactsJson: string | null;
   title: string;
 };
 
@@ -37,6 +38,7 @@ type InboxItemRow = {
   source_key: string;
   source_kind: InboxSourceKind;
   source_target_json: string;
+  source_facts_json: string | null;
   title: string;
 };
 
@@ -71,6 +73,9 @@ export async function prepareEnsureInboxItemStatements(input: {
 }): Promise<PreparedInboxItemWrite> {
   const candidate = inboxSourceCandidateSchema.parse(input.candidate);
   const sourceTargetJson = JSON.stringify(candidate.sourceTarget);
+  const sourceFactsJson = candidate.sourceFacts
+    ? JSON.stringify(candidate.sourceFacts)
+    : null;
   const itemId = await buildStableId("inbox_item", [
     candidate.organizationId,
     candidate.recipientUserId,
@@ -151,13 +156,14 @@ export async function prepareEnsureInboxItemStatements(input: {
           source_kind,
           source_key,
           source_target_json,
+          source_facts_json,
           resolution_status,
           read_at_ms,
           occurred_at_ms,
           created_at_ms,
           updated_at_ms
         ) SELECT
-          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
           ${spaceReadWatermark.expression},
           ?, ?, ?
         WHERE ${input.sourceGuard?.sql ?? "1"}
@@ -168,6 +174,7 @@ export async function prepareEnsureInboxItemStatements(input: {
               AND inbox_items.attention = excluded.attention
               AND inbox_items.importance = excluded.importance
               AND inbox_items.source_target_json = excluded.source_target_json
+              AND inbox_items.source_facts_json IS excluded.source_facts_json
               AND inbox_items.occurred_at_ms = excluded.occurred_at_ms
             THEN excluded.title
             ELSE NULL
@@ -190,6 +197,7 @@ export async function prepareEnsureInboxItemStatements(input: {
       candidate.sourceKind,
       candidate.sourceKey,
       sourceTargetJson,
+      sourceFactsJson,
       resolutionStatus,
       ...spaceReadWatermark.bindings,
       candidate.occurredAtMs,
@@ -252,6 +260,8 @@ function readInboxTargetScope(
     case "organization_join_request":
     case "message_channel":
     case "organization_document":
+    case "computer_connection":
+    case "desktop_update":
     case "settings":
       return null;
     default:
@@ -353,6 +363,7 @@ export async function readInboxItemBySource(input: {
           source_kind,
           source_key,
           source_target_json,
+          source_facts_json,
           occurred_at_ms
         FROM inbox_items
         WHERE organization_id = ?
@@ -569,6 +580,7 @@ function mapInboxItemRow(row: InboxItemRow): InboxItemRecord {
     sourceKey: row.source_key,
     sourceKind: row.source_kind,
     sourceTargetJson: row.source_target_json,
+    sourceFactsJson: row.source_facts_json,
     title: row.title,
   };
 }

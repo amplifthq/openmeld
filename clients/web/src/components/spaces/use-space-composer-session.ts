@@ -13,6 +13,7 @@ export function useSpaceComposerSession(input: {
 		profileId: string;
 		spaceId: string;
 		draftScope?: string;
+		restoreFromScopes?: readonly string[];
 	};
 }) {
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -69,9 +70,13 @@ export function useSpaceComposerSession(input: {
 			setErrorMessage,
 		},
 		onEditorChange,
-		recordPendingSubmission: (includeFiles = true) => {
-			authoring.recordPendingSubmission();
-			return includeFiles ? files.beginSubmission() : [];
+		recordPendingSubmission: (submission?: {
+			fileIds?: readonly string[];
+			submittedAtMs?: number;
+		}) => {
+			files.preflightSubmission(submission?.fileIds);
+			authoring.recordPendingSubmission(submission?.submittedAtMs);
+			return files.beginSubmission(submission?.fileIds);
 		},
 		send: {
 			begin: beginSend,

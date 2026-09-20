@@ -3,6 +3,7 @@
 import { existsSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { desktopProcessOwners } from "./desktop-worktree-state.mjs";
 import { readIsolatedDevOwners } from "./dev-isolated-lane.mjs";
 import { findActiveDevLockHolder, readDevLockPayload } from "./dev-lock.mjs";
 import { manageWorktreeDevService } from "./dev-service.mjs";
@@ -44,7 +45,10 @@ async function run() {
   manageWorktreeDevService(repoRoot, { dryRun });
   const rows = readProcessRows({ repoRoot, includeMetrics: true });
   const targets = collectTargetProcesses(rows, {
-    roots: readIsolatedDevOwners(repoRoot, rows),
+    roots: [
+      ...readIsolatedDevOwners(repoRoot, rows),
+      ...desktopProcessOwners(repoRoot, rows),
+    ],
   });
 
   if (targets.length === 0) {

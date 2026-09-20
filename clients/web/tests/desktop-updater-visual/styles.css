@@ -1,0 +1,4 @@
+@import "../../src/styles.css";
+
+/* This isolated Vite root must scan the same product classes as the web root. */
+@source "../../src";

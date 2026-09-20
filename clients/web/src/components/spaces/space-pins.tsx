@@ -29,7 +29,10 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext, useState } from "react";
 import { toast } from "sonner";
-import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import {
+	createOrganizationScopedWebOpenMeldApiFoundation,
+	createUnscopedWebOpenMeldApiFoundation,
+} from "#/lib/openmeld-api/client";
 import {
 	hasUnseenPinnedFileUpdate,
 	useSeenFileRevision,
@@ -238,6 +241,7 @@ export const spaceMessagePinsQueryKey = (spaceId: string) =>
 	["space-message-pins", spaceId] as const;
 
 type SpacePinsProviderProps = {
+	publicRead?: boolean;
 	children: ReactNode;
 	spaceId: string;
 	profileId: string;
@@ -245,14 +249,14 @@ type SpacePinsProviderProps = {
 	canPin: boolean;
 };
 export function SpacePinsProvider(input: SpacePinsProviderProps) {
-	if (!input.organizationSlug) {
+	if (!(input.organizationSlug || input.publicRead)) {
 		return input.children;
 	}
 	return (
 		<SpacePinsProviderContent
 			{...input}
 			canPin={input.canPin && !input.profileId.startsWith("agt_")}
-			organizationSlug={input.organizationSlug}
+			organizationSlug={input.organizationSlug ?? ""}
 		/>
 	);
 }
@@ -264,10 +268,12 @@ function SpacePinsProviderContent(
 		`openmeld:pins:${JSON.stringify([input.organizationSlug, input.profileId, input.spaceId])}`
 	);
 	const createClient = () =>
-		createOrganizationScopedWebOpenMeldApiFoundation({
-			organizationSlug: input.organizationSlug,
-			openMeldProfileId: input.profileId,
-		});
+		input.publicRead
+			? createUnscopedWebOpenMeldApiFoundation()
+			: createOrganizationScopedWebOpenMeldApiFoundation({
+					organizationSlug: input.organizationSlug,
+					openMeldProfileId: input.profileId,
+				});
 	const queryKey = [
 		...spaceMessagePinsQueryKey(input.spaceId),
 		input.profileId,

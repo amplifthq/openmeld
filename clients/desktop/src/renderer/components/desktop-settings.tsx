@@ -140,12 +140,12 @@ function GeneralSettings({
                 busy={desktopSettingsBusy}
                 checked={openAtLogin}
                 disabled={!openAtLoginKnown}
-                label="Open OpenMeld Desktop at login"
+                label="OpenMeld at login"
                 onChange={onSetOpenAtLogin}
               />
             }
             error={preferenceProblem?.message}
-            label="Open OpenMeld Desktop at login"
+            label="OpenMeld at login"
           />
         </GeneralGroup>
 
@@ -178,11 +178,11 @@ function GeneralSettings({
                 size="sm"
                 variant="destructive"
               >
-                Quit OpenMeld Desktop
+                Quit OpenMeld
               </Button>
             }
             description="Closes the app. OpenMeld Service keeps its current state."
-            label="Quit OpenMeld Desktop"
+            label="Quit OpenMeld"
           />
         </GeneralGroup>
       </div>
@@ -331,7 +331,7 @@ function AccountSettings({
                     aria-hidden="true"
                     data-icon="inline-start"
                   />
-                  Open OpenMeld Web
+                  Open web app
                 </Button>
               ) : (
                 <Button disabled={signInBusy} onClick={onSignIn} size="sm">
@@ -341,10 +341,10 @@ function AccountSettings({
             }
             description={
               signedIn
-                ? "Manage your profile details in OpenMeld Web. Desktop shows the local account session for this Mac."
-                : "Sign in on this Mac before opening account settings in OpenMeld Web."
+                ? "Manage your profile details in the OpenMeld web app. Desktop shows the local account session for this Mac."
+                : "Sign in on this Mac before opening account settings in the OpenMeld web app."
             }
-            title="OpenMeld Web Account"
+            title="OpenMeld account"
           />
         </SettingsAccountProfileSection>
 
@@ -358,7 +358,7 @@ function AccountSettings({
                 signInBusy={signInBusy}
               />
             }
-            description="Generate one-time CLI tokens in OpenMeld Web. Desktop does not show or store token values locally."
+            description="Generate one-time CLI tokens in the OpenMeld web app. Desktop does not show or store token values locally."
             title="One-time CLI token"
           />
         </SettingsAccountCliAccessSection>
@@ -373,7 +373,7 @@ function AccountSettings({
                 signInBusy={signInBusy}
               />
             }
-            description="Password and sign-in provider changes live on OpenMeld Web."
+            description="Password and sign-in provider changes live in the OpenMeld web app."
             title="Providers and password"
           />
         </SettingsAccountSecuritySection>
@@ -388,7 +388,7 @@ function AccountSettings({
                 signInBusy={signInBusy}
               />
             }
-            description="Review browser sessions in OpenMeld Web. This page only shows the local CLI session on this Mac."
+            description="Review browser sessions in the OpenMeld web app. This page only shows the local CLI session on this Mac."
             footer={
               signOutProblem ? (
                 <p className="text-destructive text-xs" role="alert">
@@ -405,7 +405,7 @@ function AccountSettings({
         busy={signOutBusy}
         confirmLabel="Sign out on this Mac"
         confirmVariant="destructive"
-        description="Sign out applies only to OpenMeld on this Mac. It clears the local CLI session and profile selection. OpenMeld Web in your browser will stay signed in. OpenMeld Service may be stopped as part of local sign-out cleanup."
+        description="Sign out applies only to OpenMeld on this Mac. It clears the local CLI session and profile selection. The OpenMeld web app in your browser will stay signed in. OpenMeld Service may be stopped as part of local sign-out cleanup."
         onConfirm={() => {
           setConfirmSignOut(false);
           onSignOut();
@@ -575,7 +575,7 @@ function OpenWebOrSignInAction({
   return (
     <Button onClick={onOpenWeb} size="sm" variant="outline">
       <ArrowSquareOutIcon aria-hidden="true" data-icon="inline-start" />
-      Open OpenMeld Web
+      Open web app
     </Button>
   );
 }

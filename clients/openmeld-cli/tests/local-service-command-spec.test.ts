@@ -93,6 +93,47 @@ describe("local service system service command spec", () => {
     expect(spec.args[0]).toMatch(DAEMON_SERVICE_LAUNCHER_PATH_PATTERN);
   });
 
+  it("persists the Windows terminal Path and required runtime directories, not arbitrary secrets", () => {
+    const originalEnv = process.env;
+    const originalPlatform = Object.getOwnPropertyDescriptor(
+      process,
+      "platform"
+    );
+    process.env = {
+      Path: "C:\\Node;C:\\npm",
+      SystemRoot: "C:\\Windows",
+      USERPROFILE: "C:\\Users\\Test",
+      TEMP: "C:\\Temp",
+      PRIVATE_SECRET: "not-forwarded",
+      OPENMELD_ENV_PRESET: "dev-local",
+      OPENMELD_HOME: "/test-owned/windows-environment",
+    };
+    Object.defineProperty(process, "platform", {
+      value: "win32",
+      configurable: true,
+    });
+    try {
+      const spec = buildDaemonSystemServiceCommandSpec({
+        controller: "windows-service",
+        distribution: "npm",
+      });
+      expect(spec.env).toMatchObject({
+        PATH: "C:\\Node;C:\\npm",
+        SystemRoot: "C:\\Windows",
+        USERPROFILE: "C:\\Users\\Test",
+        TEMP: "C:\\Temp",
+      });
+      expect(spec.env).not.toHaveProperty("Path");
+      expect(spec.env).not.toHaveProperty("PRIVATE_SECRET");
+      expect(spec.executable).toBe(process.execPath);
+    } finally {
+      process.env = originalEnv;
+      if (originalPlatform) {
+        Object.defineProperty(process, "platform", originalPlatform);
+      }
+    }
+  });
+
   it("keeps the macOS binary Service executable path stable across versions", () => {
     const previousSpec = buildDaemonSystemServiceCommandSpec({
       binaryExecutablePath: "/Users/dev/.openmeld/versions/0.2.14/openmeld",

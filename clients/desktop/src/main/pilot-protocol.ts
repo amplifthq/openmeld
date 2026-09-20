@@ -13,6 +13,7 @@ import {
   DESKTOP_APP_ORIGIN,
   DESKTOP_CONTRACT_HEADER,
   DESKTOP_CONTRACT_VERSION,
+  DESKTOP_UPDATE_OBSERVATION_PATH,
   DESKTOP_WEB_BUILD_HEADER,
   type DesktopLocalComputer,
   SPACE_ACCESS_VERSION_HEADER,
@@ -77,6 +78,10 @@ export function createPilotProtocol(input: PilotProtocolOptions) {
       url.pathname.startsWith("/_serverFn/") ||
       url.pathname.startsWith("/v1/")
     ) {
+      const sourceRefusal = admitRendererCloudPath(url);
+      if (sourceRefusal) {
+        return sourceRefusal;
+      }
       return await forwardCloud(request, url, input);
     }
     if (
@@ -90,6 +95,23 @@ export function createPilotProtocol(input: PilotProtocolOptions) {
     }
     return await readAsset(request, url, input.assets);
   };
+}
+
+const TRAILING_SLASHES = /\/+$/u;
+
+function admitRendererCloudPath(url: URL): Response | null {
+  // A trusted renderer is not the authority for Main's native updater facts.
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(url.pathname).replace(TRAILING_SLASHES, "");
+  } catch {
+    return new Response("Invalid Desktop request path", { status: 403 });
+  }
+  return pathname === DESKTOP_UPDATE_OBSERVATION_PATH
+    ? new Response("Only the native updater can report update observations.", {
+        status: 403,
+      })
+    : null;
 }
 
 async function forwardCloud(
@@ -235,6 +257,8 @@ async function sanitizeCloudResponse(
     "cache-control",
     "x-openmeld-file-revision",
     "x-request-id",
+    "x-openmeld-request-id",
+    "server-timing",
     "x-tss-serialized",
     "x-tss-raw",
   ]) {

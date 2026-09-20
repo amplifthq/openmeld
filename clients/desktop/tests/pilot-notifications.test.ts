@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { desktopNotificationReferenceSchema } from "@openmeld/schemas";
+import { desktopNotificationActivationSchema } from "@openmeld/schemas";
 import type { InboxItem } from "@openmeld/schemas/types";
 import type { BrowserWindow, NotificationConstructorOptions } from "electron";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -56,23 +56,41 @@ const request = {
 };
 
 function setup(window: BrowserWindow | null = null) {
+  const setInboxAttention = vi.fn();
+  const setTrayContext = vi.fn();
+  const setTrayPresentation = vi.fn();
   const session = vi.fn(async () => ({
     user: { id: "user-a", name: "A", email: "a@example.com" },
   }));
   const cloudRequest = vi.fn<
     Parameters<typeof createPilotNotifications>[0]["auth"]["cloudRequest"]
-  >(async (path) =>
-    path.startsWith("/v1/inbox/message-notification-preferences")
-      ? Response.json({
+  >((path) => {
+    if (path.startsWith("/v1/inbox/message-notification-preferences")) {
+      return Promise.resolve(
+        Response.json({
           organizationId: "org-a",
           spaceId: "space-a",
           defaultMode: "mentions_and_replies",
           overrideMode: null,
           effectiveMode: "mentions_and_replies",
         })
-      : Response.json({ item })
-  );
+      );
+    }
+    if (path.startsWith("/v1/inbox?")) {
+      return Promise.resolve(
+        Response.json({
+          items: [item],
+          nextCursor: null,
+          organizationId: "org-a",
+        })
+      );
+    }
+    return Promise.resolve(Response.json({ item }));
+  });
   const notifications = createPilotNotifications({
+    setInboxAttention,
+    setTrayContext,
+    setTrayPresentation,
     auth: { session, cloudRequest },
     webOrigin: "https://openmeld.ai",
     webBuild: "a".repeat(64),
@@ -86,8 +104,168 @@ function setup(window: BrowserWindow | null = null) {
     enabled: true,
     visibleConversation: null,
   });
-  return { notifications, session, cloudRequest };
+  return {
+    notifications,
+    session,
+    cloudRequest,
+    setInboxAttention,
+    setTrayContext,
+    setTrayPresentation,
+  };
 }
+
+const attention = {
+  ordinaryUnreadCount: 150,
+  unreadMentionCount: 1,
+  unreadUrgentUpdateCount: 1,
+  unresolvedActionCount: 2,
+};
+
+it("keeps Inbox attention independent of notification permission and clears it on logout", async () => {
+  const { notifications, setInboxAttention } = setup();
+  await notifications.setContext({
+    userId: "user-a",
+    organizationId: "org-a",
+    enabled: false,
+    visibleConversation: null,
+    attention,
+  });
+  expect(setInboxAttention).toHaveBeenLastCalledWith(attention);
+  notifications.clear();
+  expect(setInboxAttention).toHaveBeenLastCalledWith(null);
+});
+
+it.each([
+  "logout",
+  "organization switch",
+])("rejects a count that completes after %s", async (change) => {
+  const { notifications, session, setInboxAttention } = setup();
+  const held = Promise.withResolvers<Awaited<ReturnType<typeof session>>>();
+  session.mockReturnValueOnce(held.promise);
+  const pending = notifications.setContext({
+    userId: "user-a",
+    organizationId: "org-a",
+    enabled: false,
+    visibleConversation: null,
+    attention,
+  });
+  if (change === "logout") {
+    notifications.clear();
+  } else {
+    await notifications.setContext({
+      userId: "user-a",
+      organizationId: "org-b",
+      enabled: false,
+      visibleConversation: null,
+      attention: null,
+    });
+  }
+  held.resolve({ user: { id: "user-a", name: "A", email: "a@example.com" } });
+  await pending;
+  expect(setInboxAttention).toHaveBeenLastCalledWith(null);
+  expect(setInboxAttention).not.toHaveBeenCalledWith(attention);
+});
+
+it("rejects a late old-account count after the native account changes", async () => {
+  const { notifications, session, setInboxAttention } = setup();
+  session.mockResolvedValue({
+    user: { id: "user-b", name: "B", email: "b@example.com" },
+  });
+  await notifications.setContext({
+    userId: "user-a",
+    organizationId: "org-a",
+    enabled: false,
+    visibleConversation: null,
+    attention,
+  });
+  expect(setInboxAttention).toHaveBeenLastCalledWith(null);
+  expect(setInboxAttention).not.toHaveBeenCalledWith(attention);
+});
+
+it("uses the Inbox-owned eligible preview instead of scanning unread pages", async () => {
+  const { notifications, cloudRequest, setTrayPresentation } = setup();
+  const eligibleItem: InboxItem = {
+    ...item,
+    id: "item-b",
+    occurredAt: "2026-09-14T23:59:00.000Z",
+    sourceTarget: {
+      kind: "space",
+      spaceId: "space-b",
+      signalId: "signal-b",
+    },
+  };
+  cloudRequest.mockImplementation((path) => {
+    if (
+      path.startsWith("/v1/inbox?") &&
+      path.includes("notificationPreview=true")
+    ) {
+      return Promise.resolve(
+        Response.json({
+          items: [eligibleItem],
+          nextCursor: null,
+          organizationId: "org-a",
+        })
+      );
+    }
+    return Promise.resolve(Response.json({ item: eligibleItem }));
+  });
+
+  await notifications.setContext({
+    userId: "user-a",
+    organizationId: "org-a",
+    organizationSlug: "workspace",
+    enabled: false,
+    latestUnreadStatus: "ready",
+    unreadCount: 2,
+    unreadCountStatus: "ready",
+    visibleConversation: null,
+  });
+
+  expect(setTrayPresentation).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      item: expect.objectContaining({
+        reference: expect.objectContaining({ itemId: "item-b" }),
+      }),
+      status: "ready",
+    })
+  );
+  expect(cloudRequest).toHaveBeenCalledWith(
+    "/v1/inbox?limit=1&notificationPreview=true&view=unread",
+    expect.any(Object)
+  );
+});
+
+it("reports an unavailable Inbox instead of leaving the tray loading, then recovers", async () => {
+  const { notifications, setTrayPresentation } = setup();
+
+  await notifications.setContext({
+    userId: "user-a",
+    organizationId: "org-a",
+    organizationSlug: "workspace",
+    enabled: false,
+    latestUnreadStatus: "unavailable",
+    unreadCount: null,
+    unreadCountStatus: "unavailable",
+    visibleConversation: null,
+  });
+  expect(setTrayPresentation).toHaveBeenLastCalledWith({
+    status: "unavailable",
+  });
+
+  await notifications.setContext({
+    userId: "user-a",
+    organizationId: "org-a",
+    organizationSlug: "workspace",
+    enabled: false,
+    latestUnreadStatus: "ready",
+    unreadCount: 1,
+    unreadCountStatus: "ready",
+    visibleConversation: null,
+  });
+  expect(setTrayPresentation).toHaveBeenLastCalledWith(
+    expect.objectContaining({ status: "ready" })
+  );
+});
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -95,11 +273,13 @@ beforeEach(() => {
 });
 
 it.each([
-  ["all_messages", false, true],
-  ["mentions_and_replies", false, false],
-  ["mentions_and_replies", true, true],
-  ["muted", true, false],
-] as const)("uses fresh native message preferences: %s, Human reply %s", async (mode, replyToRecipient, eligible) => {
+  ["all_messages", false, true, false],
+  ["mentions_and_replies", false, false, false],
+  ["mentions_and_replies", true, true, false],
+  ["muted", true, false, false],
+  ["mentions_and_replies", false, true, true],
+  ["muted", false, false, true],
+] as const)("uses fresh native message preferences: %s, Human reply %s, eligible %s, Center DM %s", async (mode, replyToRecipient, eligible, centerDm) => {
   const { notifications, cloudRequest } = setup();
   cloudRequest.mockImplementation(async (path) =>
     path.startsWith("/v1/inbox/message-notification-preferences")
@@ -113,12 +293,26 @@ it.each([
       : Response.json({
           item: {
             ...item,
-            sourceTarget: {
-              kind: "space",
-              spaceId: "space-a",
-              signalId: "signal-a",
-              replyToRecipient,
-            },
+            sourceFacts: centerDm
+              ? {
+                  version: 1,
+                  recipientReasons: ["direct_message"],
+                  agentProfileIds: [],
+                  personalAgentProfileIds: [],
+                }
+              : undefined,
+            sourceTarget: centerDm
+              ? {
+                  kind: "center_agent",
+                  spaceId: "space-a",
+                  signalId: "signal-a",
+                }
+              : {
+                  kind: "space",
+                  spaceId: "space-a",
+                  signalId: "signal-a",
+                  replyToRecipient,
+                },
           },
         })
   );
@@ -139,7 +333,7 @@ it.each([
 it.each([
   true,
   false,
-])("rechecks access before restoring the window on click: %s", async (authorized) => {
+])("shows the window promptly but rechecks access before sending a target: %s", async (authorized) => {
   const send = vi.fn();
   const window = {
     isDestroyed: () => false,
@@ -169,19 +363,90 @@ it.each([
     );
   }
   notification.emit("click");
+  expect(window.show).toHaveBeenCalledOnce();
+  expect(send).not.toHaveBeenCalled();
   await vi.waitFor(() => expect(cloudRequest).toHaveBeenCalledTimes(3));
   if (authorized) {
-    await vi.waitFor(() => expect(window.focus).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
     expect(window.restore).toHaveBeenCalledOnce();
-    const reference = desktopNotificationReferenceSchema.parse(
+    const reference = desktopNotificationActivationSchema.parse(
       send.mock.calls[0]?.[1]
     );
     expect(reference.itemId).toBe(item.id);
+    expect(reference.sourceTarget).toEqual(item.sourceTarget);
   } else {
     await vi.runAllTimersAsync();
-    expect(window.show).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   }
+  notifications.clear();
+});
+it.each([
+  ["new click", 1],
+  ["user navigation", 0],
+  ["the visible conversation finishes loading", 1],
+  ["the first navigation context arrives", 1],
+] as const)("handles a pending notification activation after %s", async (change, expectedSends) => {
+  const send = vi.fn();
+  const window = {
+    isDestroyed: () => false,
+    isMinimized: () => false,
+    show: vi.fn(),
+    focus: vi.fn(),
+    webContents: { send },
+  };
+  const { notifications, cloudRequest } = setup(
+    window as unknown as BrowserWindow
+  );
+  if (change !== "the first navigation context arrives") {
+    await notifications.setContext({
+      userId: request.userId,
+      organizationId: request.organizationId,
+      enabled: true,
+      visibleConversation: null,
+      navigationKey: "route-a",
+    });
+  }
+  const delivery = notifications.show(request);
+  await vi.waitFor(() => expect(native.created).toHaveBeenCalledOnce());
+  const notification = native.created.mock.calls[0]?.[0] as EventEmitter;
+  notification.emit("show");
+  await delivery;
+  let completeFirst!: (response: Response) => void;
+  cloudRequest.mockImplementationOnce(
+    () =>
+      new Promise<Response>((resolve) => {
+        completeFirst = resolve;
+      })
+  );
+  notification.emit("click");
+  await vi.waitFor(() => expect(completeFirst).toBeDefined());
+  if (change === "new click") {
+    notification.emit("click");
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+  } else if (change === "user navigation") {
+    await notifications.setContext({
+      userId: request.userId,
+      organizationId: request.organizationId,
+      enabled: true,
+      visibleConversation: null,
+      navigationKey: "user-opened-another-page",
+    });
+  } else {
+    await notifications.setContext({
+      userId: request.userId,
+      organizationId: request.organizationId,
+      enabled: true,
+      visibleConversation: {
+        kind: "space",
+        spaceId: "space-that-finished-loading",
+        threadRootSignalId: null,
+      },
+      navigationKey: "route-a",
+    });
+  }
+  completeFirst(Response.json({ item }));
+  await vi.runAllTimersAsync();
+  expect(send).toHaveBeenCalledTimes(expectedSends);
   notifications.clear();
 });
 afterEach(() => {

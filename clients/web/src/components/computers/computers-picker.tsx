@@ -1,10 +1,8 @@
 "use client";
 
 import { SettingsAddComputerCardContent } from "@openmeld/ui/components/settings-computers";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	ADD_CARD_PICKER_CLASS_NAME,
-	CARD_PICKER_GRID_CLASS_NAME,
 	cardPickerCardClassName,
 } from "@openmeld/ui/lib/card-picker-contract";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
@@ -33,6 +31,7 @@ import {
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveConnectedLocalRuntime } from "#/lib/connect/connected-runtime";
 import { buildOrganizationComputerPath } from "#/lib/organizations/organization-routes";
+import { ComputerCardsSkeleton } from "./computer-cards-skeleton";
 import { OrganizationComputerPickerCard } from "./organization-computer-card";
 import {
 	formatComputerCount,
@@ -56,12 +55,8 @@ export function ComputersPicker(input: {
 }) {
 	if (input.isPending) {
 		return (
-			<div
-				className={CARD_PICKER_GRID_CLASS_NAME}
-				data-testid="computers-picker-loading"
-			>
-				<Skeleton className="h-40 w-full" />
-				<Skeleton className="h-40 w-full" />
+			<div data-testid="computers-picker-loading">
+				<ComputerCardsSkeleton />
 			</div>
 		);
 	}
@@ -179,11 +174,7 @@ export function ComputersPicker(input: {
 					{renderGroupGrid(group)}
 				</DirectoryOwnerGroup>
 			))}
-			{input.directoryIsPending ? (
-				<output className="text-muted-foreground text-xs">
-					Loading other members&apos; computers…
-				</output>
-			) : null}
+			{input.directoryIsPending ? <ComputerCardsSkeleton /> : null}
 			{input.directoryError ? (
 				<output className="text-destructive text-xs">
 					{input.directoryError}

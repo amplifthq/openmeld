@@ -1,9 +1,12 @@
 import { ensureSpaceExecutionInputOutbox } from "./space-execution-input-repo";
 import { SpaceFileUpdateRepository } from "./space-file-update-repo";
+import { ensureSpaceInboxContactTable } from "./space-inbox-contact-repo";
+import { ensureSpaceInboxProjectionSelectionsTable } from "./space-inbox-projection-outbox-repo";
 import { ensureSpaceReactionTables } from "./space-reaction-repo";
+import { ensureSpaceTaskTables } from "./space-task-repo";
 
-export const SPACE_SQL_SCHEMA_VERSION = 40;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v40";
+export const SPACE_SQL_SCHEMA_VERSION = 43;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v43";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -16,6 +19,7 @@ const SPACE_META_PASSWORD_PROOF_COLUMN = "password_proof_json";
 const SPACE_META_PURPOSE_COLUMN = "purpose";
 const SPACE_META_DIRECT_MESSAGE_COLUMN = "direct_message_json";
 const SPACE_META_GUIDE_COLUMN = "guide";
+const SPACE_META_LINK_JOIN_POLICY_COLUMN = "link_join_policy";
 const SPACE_META_GUIDELINES_LEGACY_COLUMN = "guidelines";
 const SPACE_CURSORS_MENTION_ALIAS_COLUMN = "mention_alias";
 const SPACE_SIGNALS_CLIENT_MESSAGE_ID_COLUMN = "client_message_id";
@@ -27,6 +31,9 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   ensureSpaceExecutionInputOutbox(sql);
   new SpaceFileUpdateRepository(sql).initialize();
   ensureSpaceReactionTables(sql);
+  ensureSpaceInboxContactTable(sql);
+  ensureSpaceInboxProjectionSelectionsTable(sql);
+  ensureSpaceTaskTables(sql);
   sql.exec(`CREATE TABLE IF NOT EXISTS space_file_pins (
     signal_id TEXT PRIMARY KEY,
     pinned_by_profile_id TEXT NOT NULL,
@@ -54,6 +61,8 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
 	        CHECK (organization_visibility IN ('public', 'private')),
 	      guide TEXT NULL,
       access_mode TEXT NULL,
+      link_join_policy TEXT NULL
+        CHECK (link_join_policy IN ('invite_only', 'access_mode')),
       password_proof_json TEXT NULL,
       archive_cursor_ts INTEGER NULL,
       created_at INTEGER NOT NULL,
@@ -65,6 +74,7 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   ensureSpaceMetaDirectMessageColumn(sql);
   ensureSpaceMetaPasswordProofColumn(sql);
   ensureSpaceMetaAccessModeColumn(sql);
+  ensureSpaceMetaLinkJoinPolicyColumn(sql);
   ensureSpaceMetaOrganizationColumns(sql);
 
   // retired: role_instructions is no longer read or written
@@ -815,6 +825,21 @@ function ensureSpaceMetaAccessModeColumn(sql: SqlStorage): void {
     END
     WHERE access_mode IS NULL
       OR trim(access_mode) = ''
+  `);
+}
+
+function ensureSpaceMetaLinkJoinPolicyColumn(sql: SqlStorage): void {
+  const hasLinkJoinPolicyColumn = listTableColumnNames(sql, "space_meta").has(
+    SPACE_META_LINK_JOIN_POLICY_COLUMN
+  );
+  if (hasLinkJoinPolicyColumn) {
+    return;
+  }
+
+  sql.exec(`
+    ALTER TABLE space_meta
+    ADD COLUMN link_join_policy TEXT NULL
+      CHECK (link_join_policy IN ('invite_only', 'access_mode'))
   `);
 }
 

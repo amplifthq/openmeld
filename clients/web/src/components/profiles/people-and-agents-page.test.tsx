@@ -1217,7 +1217,7 @@ describe("PeopleAndAgentsPage", () => {
 		});
 	});
 
-	it("keeps Agent selection in the existing profileId deep-link contract", () => {
+	it("opens the canonical person-owned Agent route when its owner is already known", () => {
 		render(
 			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />
 		);
@@ -1227,7 +1227,7 @@ describe("PeopleAndAgentsPage", () => {
 			.onSelectProfile("agt_11111111-1111-4111-8111-111111111111");
 
 		expect(navigateMock).toHaveBeenCalledWith({
-			to: "/o/acme/agents?profileId=agt_11111111-1111-4111-8111-111111111111",
+			to: "/o/acme/people/11111111-1111-4111-8111-111111111111/agents/agt_11111111-1111-4111-8111-111111111111",
 		});
 	});
 

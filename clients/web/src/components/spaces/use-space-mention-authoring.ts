@@ -396,11 +396,15 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 				text: composerText,
 			}),
 		}),
-		prepareFileOnlySubmission: (): PreparedSpaceComposerSubmission & {
+		prepareFileOnlySubmission: (
+			detached = false
+		): PreparedSpaceComposerSubmission & {
 			restoredFromSignalId?: string;
 		} => ({
-			restoredFromSignalId: composerDraft.content.restoredFromSignalId,
-			...prepareSpaceFileOnlySubmission({ replyTo }),
+			restoredFromSignalId: detached
+				? undefined
+				: composerDraft.content.restoredFromSignalId,
+			...prepareSpaceFileOnlySubmission({ replyTo: detached ? null : replyTo }),
 		}),
 		preparePlainTextSubmission: (
 			text: string,
@@ -413,7 +417,13 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 				snapshot: input.snapshot,
 				text,
 			}),
-		recordPendingSubmission: () => {
+		recordPendingSubmission: (submittedAtMs?: number) => {
+			if (
+				submittedAtMs !== undefined &&
+				composerDraft.record.updatedAtMs > submittedAtMs
+			) {
+				return;
+			}
 			currentComposerHasDraftRef.current = false;
 			resetComposerState();
 		},

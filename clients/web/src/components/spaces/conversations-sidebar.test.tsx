@@ -25,6 +25,11 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
 	useNavigate: () => vi.fn(),
+	useLocation: ({
+		select,
+	}: {
+		select: (location: { href: string }) => unknown;
+	}) => select({ href: "/o/acme/spaces" }),
 	Link: ({
 		to,
 		children,
@@ -92,7 +97,8 @@ it("shows Spaces and Direct messages together and keeps the current draft when s
 	expect(
 		within(pinned)
 			.getAllByRole("link")
-			.map((link) => link.textContent)
+			.filter((link) => !link.getAttribute("href")?.includes("focusSignalId"))
+			.map((link) => link.getAttribute("aria-label"))
 	).toEqual([
 		expect.stringContaining("Release planning"),
 		expect.stringContaining("Felix"),
@@ -104,6 +110,7 @@ it("shows Spaces and Direct messages together and keeps the current draft when s
 	expect(
 		within(screen.getByRole("region", { name: "Recent" }))
 			.getAllByRole("link")
+			.filter((link) => !link.getAttribute("href")?.includes("focusSignalId"))
 			.map((link) => link.getAttribute("href"))
 	).toEqual([
 		"/o/test/chats/center-agent?session=agent",
@@ -115,7 +122,9 @@ it("shows Spaces and Direct messages together and keeps the current draft when s
 	);
 	await selectView("Grouped");
 	expect(
-		within(screen.getByRole("region", { name: "Pinned" })).getAllByRole("link")
+		within(screen.getByRole("region", { name: "Pinned" }))
+			.getAllByRole("link")
+			.filter((link) => !link.getAttribute("href")?.includes("focusSignalId"))
 	).toHaveLength(2);
 });
 it("searches both types and retains canonical session destinations", () => {
@@ -180,7 +189,9 @@ it("pins a Space in Recent and retains its position after switching", async () =
 	);
 	await selectView("Grouped");
 	expect(
-		within(screen.getByRole("region", { name: "Pinned" })).getAllByRole("link")
+		within(screen.getByRole("region", { name: "Pinned" }))
+			.getAllByRole("link")
+			.filter((link) => !link.getAttribute("href")?.includes("focusSignalId"))
 	).toHaveLength(3);
 });
 it("does not offer direct-message rename or archive actions on Spaces", async () => {

@@ -1,0 +1,48 @@
+{
+  "capture": {
+    "command": "cursor-agent acp",
+    "harnessVersion": "2026.09.10-fd3934a",
+    "observedAt": "2026-09-16T16:39:56.739Z",
+    "protocolVersion": 1,
+    "authenticationMethod": "cursor_login",
+    "sessionOperation": "new",
+    "sourceState": "consistent"
+  },
+  "sources": {
+    "configOption": {
+      "id": "model",
+      "name": "Model",
+      "type": "select",
+      "options": [
+        {
+          "value": "grok-4.6[effort=high,fast=true]",
+          "name": "grok-4.6"
+        },
+        {
+          "value": "claude-opus-5[thinking=true,context=300k,effort=high,fast=false]",
+          "name": "claude-opus-5"
+        },
+        {
+          "value": "muse-spark-1.3[context=300k,effort=high]",
+          "name": "muse-spark-1.3"
+        }
+      ]
+    },
+    "legacyModels": {
+      "availableModels": [
+        {
+          "modelId": "grok-4.6[effort=high,fast=true]",
+          "name": "grok-4.6"
+        },
+        {
+          "modelId": "claude-opus-5[thinking=true,context=300k,effort=high,fast=false]",
+          "name": "claude-opus-5"
+        },
+        {
+          "modelId": "muse-spark-1.3[context=300k,effort=high]",
+          "name": "muse-spark-1.3"
+        }
+      ]
+    }
+  }
+}

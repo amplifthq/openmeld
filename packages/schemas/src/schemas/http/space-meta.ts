@@ -5,7 +5,10 @@ import {
   profileKindSchema,
   uuidProfileIdSchema,
 } from "../protocol/profile";
-import { spaceAccessModeSchema } from "./space-access-mode";
+import {
+  spaceAccessModeSchema,
+  spaceLinkJoinPolicySchema,
+} from "./space-access-mode";
 import { spaceNameSchema } from "./space-name";
 
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
@@ -74,6 +77,7 @@ export const spaceMetaSchema = z.strictObject({
   allowGuests: z.boolean().optional(),
   guide: trimmedNonEmptyStringSchema.optional(),
   accessMode: spaceAccessModeSchema.optional(),
+  linkJoinPolicy: spaceLinkJoinPolicySchema.optional(),
   passwordProtected: z.boolean().optional(),
   createdAt: isoDateTimeSchema.optional(),
   updatedAt: isoDateTimeSchema.optional(),

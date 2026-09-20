@@ -1,7 +1,8 @@
-// General Computer management remains Web-only. Working-folder operations use
+// Local Computer configuration remains Web-only. Forget uses cloud account
+// authorization, not the local Service proxy. Working-folder operations use
 // exact native account/device/lane admission; Start/Stop use protected IPC.
 const LOCAL_CONTROL_ROUTES = [
-  ["POST", "/v1/devices/:deviceId/forget"],
+  ["POST", "/v1/devices/current/forget"],
   ["PUT", "/v1/devices/:deviceId/observed-metadata"],
   ["POST", "/v1/local-runtimes/:deviceId/enrollment"],
   ["PUT", "/v1/local-runtimes/:deviceId/display-name"],

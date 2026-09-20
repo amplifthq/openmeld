@@ -6,6 +6,8 @@ import {
 import { useQueries, useQuery } from "@tanstack/react-query";
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import {
+	filterSpaceWakeProgressItems,
+	readSpaceWakeProgressSummaryItems,
 	spaceActiveWakeProgressSummaryQueryOptions,
 	spaceWakeProgressPresentationQueryOptions,
 } from "#/query/spaces/active-wake-progress";
@@ -66,6 +68,16 @@ export function useSpaceListIndicators(input: {
 			refetchIntervalInBackground: false,
 		})),
 	});
+	// Cache-only observers keep completion evidence alive for exactly the same
+	// closed Spaces whose summaries the sidebar is currently presenting.
+	const otherPresentations = useQueries({
+		queries: otherActiveSpaceIds.map((spaceId) =>
+			spaceWakeProgressPresentationQueryOptions({
+				spaceId,
+				openMeldProfileId: input.currentProfileId,
+			})
+		),
+	});
 	const currentSpaceWakeProgressPresentationQuery = useQuery(
 		spaceWakeProgressPresentationQueryOptions({
 			openMeldProfileId: input.currentProfileId,
@@ -91,24 +103,37 @@ export function useSpaceListIndicators(input: {
 	);
 	const currentSpaceWakeProgressItems =
 		currentSpaceWakeProgressVisibleProjection ??
-		mergeWakeProgressItems({
-			currentItems:
-				currentSpaceActiveWakeProgressSummaryQuery.data?.items ?? [],
-			incomingItems: currentSpaceWakeProgressPresentationQuery.data ?? [],
+		filterSpaceWakeProgressItems({
+			presentation: currentSpaceWakeProgressPresentationQuery.data,
+			items: mergeWakeProgressItems({
+				currentItems: readSpaceWakeProgressSummaryItems({
+					presentation: currentSpaceWakeProgressPresentationQuery.data,
+					summary: currentSpaceActiveWakeProgressSummaryQuery.data,
+				}),
+				incomingItems: currentSpaceWakeProgressPresentationQuery.data.items,
+			}),
 		});
 	otherActiveSpaceQueries.forEach((query, index) => {
 		const spaceId = otherActiveSpaceIds[index];
 		if (!(spaceId && query.isSuccess)) {
 			return;
 		}
-		if (query.data.items.length === 0 && !query.data.pageInfo?.hasMore) {
+		const presentation = otherPresentations[index]?.data;
+		if (!presentation) {
+			return;
+		}
+		const items = readSpaceWakeProgressSummaryItems({
+			presentation,
+			summary: query.data,
+		});
+		if (items.length === 0 && !query.data.pageInfo?.hasMore) {
 			activeWakeSummaryBySpaceId.delete(spaceId);
 			return;
 		}
 		activeWakeSummaryBySpaceId.set(spaceId, {
 			...buildSpaceActiveWakeSummary({
 				fallbackSummary: ambientActiveWakeSummaryBySpaceId.get(spaceId),
-				items: query.data.items,
+				items,
 				spaceId,
 			}),
 			hasMore: query.data.pageInfo?.hasMore,

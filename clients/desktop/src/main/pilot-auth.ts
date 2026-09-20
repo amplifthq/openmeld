@@ -3,8 +3,8 @@ import { resolve } from "node:path";
 import { electronClient, handleDeepLink } from "@better-auth/electron/client";
 import { storage } from "@better-auth/electron/storage";
 import {
-  DESKTOP_AUTH_SCHEME,
   type DesktopInstalledTarget,
+  desktopAuthIdentity,
   desktopSessionSchema,
 } from "@openmeld/schemas";
 import {
@@ -12,6 +12,7 @@ import {
   createAuthClient,
 } from "better-auth/client";
 import { app, type BrowserWindow } from "electron";
+import { assertPilotAuthCallback } from "./pilot-auth-callback";
 
 export function createPilotAuth(
   webOrigin: string,
@@ -20,7 +21,9 @@ export function createPilotAuth(
   installedTarget?: DesktopInstalledTarget
 ) {
   let signInError: string | null = null;
-  const authScheme = installedTarget?.authScheme ?? DESKTOP_AUTH_SCHEME;
+  const authScheme =
+    installedTarget?.authScheme ??
+    desktopAuthIdentity(false, undefined, webOrigin).authScheme;
   const sessionNotifications: BetterAuthClientPlugin = {
     id: "desktop-session-notifications",
     fetchPlugins: [
@@ -62,12 +65,16 @@ export function createPilotAuth(
   // Electron permits one privileged-scheme registration. The application
   // registers page and auth schemes together; SDK setup would overwrite it.
   client.setupMain({ bridges: false, csp: false, scheme: false, getWindow });
-  const registered =
-    process.defaultApp && process.argv[1]
-      ? app.setAsDefaultProtocolClient(authScheme, process.execPath, [
-          resolve(process.argv[1]),
-        ])
-      : app.setAsDefaultProtocolClient(authScheme);
+  // Never register the shared generic Electron bundle on macOS.
+  let registered = true;
+  if (process.platform !== "darwin" || app.isPackaged) {
+    registered =
+      process.platform === "win32" && process.defaultApp && process.argv[1]
+        ? app.setAsDefaultProtocolClient(authScheme, process.execPath, [
+            resolve(process.argv[1]),
+          ])
+        : app.setAsDefaultProtocolClient(authScheme);
+  }
   if (!registered) {
     throw new Error("Desktop sign-in callback registration failed");
   }
@@ -119,8 +126,11 @@ export function createPilotAuth(
     app.quit();
   }
   return {
-    signIn: () => {
+    signIn: async () => {
       signInError = null;
+      if (!installedTarget) {
+        await assertPilotAuthCallback(app, authScheme);
+      }
       return client.requestAuth();
     },
     async cloudRequest(

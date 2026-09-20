@@ -1,5 +1,6 @@
 import { collectMessageLinks } from "@openmeld/protocol";
 import { Fragment, useMemo } from "react";
+import { DesktopAwareLink } from "#/desktop/desktop-aware-link";
 
 export function MessageLinksText({ text }: { text: string }) {
 	const links = useMemo(() => collectMessageLinks(text), [text]);
@@ -12,7 +13,7 @@ export function MessageLinksText({ text }: { text: string }) {
 				return (
 					<Fragment key={link.start}>
 						{before}
-						<a
+						<DesktopAwareLink
 							className="text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 							href={link.url}
 							onClick={(event) => event.stopPropagation()}
@@ -20,7 +21,7 @@ export function MessageLinksText({ text }: { text: string }) {
 							target="_blank"
 						>
 							{link.label}
-						</a>
+						</DesktopAwareLink>
 					</Fragment>
 				);
 			})}

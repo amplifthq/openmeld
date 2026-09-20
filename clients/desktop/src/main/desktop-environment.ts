@@ -11,11 +11,6 @@ const DEFAULT_DESKTOP_DOWNLOAD_PAGE_URL_BY_PRESET = {
   "dev-local": "http://localhost:3000/desktop",
   canary: "http://localhost:3000/desktop",
 } as const satisfies Record<DesktopEnvPreset, string>;
-const DEFAULT_DESKTOP_UPDATE_MANIFEST_URL_BY_PRESET = {
-  prod: "https://openmeld.ai/desktop/update.json",
-  "dev-local": "http://localhost:3000/desktop/update.json",
-  canary: "http://localhost:3000/desktop/update.json",
-} as const satisfies Record<DesktopEnvPreset, string>;
 
 export function resolveDesktopWebUrl(
   input: { env?: NodeJS.ProcessEnv; path?: string } = {}
@@ -35,19 +30,47 @@ function withWebPath(webUrl: string, path: string): string {
   if (!isAbsoluteWebPath(path)) {
     throw new Error("Web path must start with a single /.");
   }
-  const url = new URL(webUrl);
-  url.pathname = path;
-  url.search = "";
-  url.hash = "";
-  return url.toString();
+  const base = new URL(webUrl);
+  const url = new URL(path, base);
+  if (url.origin !== base.origin || url.username || url.password) {
+    throw new Error("Web path must stay on the configured OpenMeld origin.");
+  }
+  return url.href;
 }
 
 export function isAbsoluteWebPath(value: unknown): value is string {
   return (
     typeof value === "string" &&
     value.startsWith("/") &&
-    !value.startsWith("//")
+    !value.startsWith("//") &&
+    !value.includes("\\")
   );
+}
+
+export function normalizeExternalBrowserUrl(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new Error("Browser URL must be a string.");
+  }
+  if (value.includes("\\")) {
+    throw new Error("Browser URL must not contain backslashes.");
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Browser URL must be valid.");
+  }
+  if (url.protocol === "mailto:" || url.protocol === "tel:") {
+    return url.href;
+  }
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username.length > 0 ||
+    url.password.length > 0
+  ) {
+    throw new Error("Browser URL must use an allowed system protocol.");
+  }
+  return url.href;
 }
 
 export function resolveNodeDownloadUrl(
@@ -84,24 +107,6 @@ export function resolveDesktopDownloadPageUrl(
   ];
 }
 
-export function resolveDesktopUpdateManifestUrl(
-  input: { env?: NodeJS.ProcessEnv } = {}
-): string {
-  const env = input.env ?? process.env;
-  const explicitManifestUrl = normalizeOptionalText(
-    env.OPENMELD_DESKTOP_UPDATE_MANIFEST_URL
-  );
-  if (explicitManifestUrl) {
-    return normalizeHttpUrl(
-      explicitManifestUrl,
-      "OPENMELD_DESKTOP_UPDATE_MANIFEST_URL"
-    );
-  }
-  return DEFAULT_DESKTOP_UPDATE_MANIFEST_URL_BY_PRESET[
-    resolveDesktopEnvPreset({ env })
-  ];
-}
-
 export function resolveDesktopEnvPreset(
   input: { env?: NodeJS.ProcessEnv } = {}
 ): DesktopEnvPreset {
@@ -128,7 +133,10 @@ function normalizeHttpUrl(value: string, label: string): string {
   if (!(url.protocol === "https:" || url.protocol === "http:")) {
     throw new Error(`${label} must use http or https.`);
   }
-  return value;
+  if (url.username.length > 0 || url.password.length > 0) {
+    throw new Error(`${label} must not include credentials.`);
+  }
+  return url.href.endsWith("/") ? url.href.slice(0, -1) : url.href;
 }
 
 function normalizeOptionalText(value: unknown): string | null {

@@ -41,8 +41,8 @@ export function useInboxItemDismissMutation(input: {
 			}),
 		onError: (_error, item, context) => {
 			restoreInboxCacheSnapshots(queryClient, context);
-			input.onAnnouncement?.(`Could not dismiss ${item.title}.`);
-			toast.error("Could not dismiss this Inbox item.");
+			input.onAnnouncement?.(`Could not remove ${item.title} from Inbox.`);
+			toast.error("Could not remove this item from Inbox.");
 		},
 		onMutate: async (item) => {
 			await queryClient.cancelQueries({
@@ -66,7 +66,7 @@ export function useInboxItemDismissMutation(input: {
 			});
 		},
 		onSuccess: (response, item) => {
-			input.onAnnouncement?.(`${item.title} dismissed from Inbox.`);
+			input.onAnnouncement?.(`${item.title} removed from Inbox.`);
 			input.onDismissed?.(response.dismissedItemId);
 		},
 	});

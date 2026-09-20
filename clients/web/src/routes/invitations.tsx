@@ -5,6 +5,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@openmeld/ui/components/card";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AuthPageShell } from "#/components/auth/auth-page-shell";
@@ -30,13 +31,15 @@ function InvitationsPage() {
 					<CardTitle>Invitations</CardTitle>
 				</CardHeader>
 				<CardContent className="space-y-4">
-					{session.isPending && <p>Loading your account…</p>}
+					{session.isPending && (
+						<SkeletonRows label="Loading your account" rows={1} />
+					)}
 					{!session.isPending && session.data && (
 						<>
 							<p className="text-muted-foreground text-sm">
 								Invitations for {session.data.user.email}
 							</p>
-							{query.isPending && <p>Loading invitations…</p>}
+							{query.isPending && <SkeletonRows label="Loading invitations" />}
 							{query.error && (
 								<p className="text-destructive text-sm" role="alert">
 									{query.error.message}

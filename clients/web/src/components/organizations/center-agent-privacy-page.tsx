@@ -17,12 +17,16 @@ import {
 	buildOrganizationComputersPath,
 	buildOrganizationMemoryPath,
 } from "#/lib/organizations/organization-routes";
+import { currentDeviceTargetQueryOptions } from "#/query/connect/current-device-target";
 import { localRuntimesQueryOptions } from "#/query/connect/local-runtimes";
 
 export function CenterAgentPrivacyPage() {
 	const { currentOrganization, storageScope } = useAppOrganization();
 	const localRuntimesQuery = useQuery(
 		localRuntimesQueryOptions({ enabled: true, storageScope })
+	);
+	const preference = useQuery(
+		currentDeviceTargetQueryOptions({ enabled: true, storageScope })
 	);
 	return (
 		<>
@@ -63,11 +67,23 @@ export function CenterAgentPrivacyPage() {
 					</p>
 					<ComputerFileAccessLinks
 						computers={localRuntimesQuery.data?.localRuntimes ?? []}
-						currentDeviceId={localRuntimesQuery.data?.currentDeviceId ?? null}
+						currentDeviceId={
+							preference.isSuccess &&
+							preference.data.availability === "resolved"
+								? preference.data.deviceId
+								: null
+						}
 						isError={localRuntimesQuery.isError}
 						isPending={localRuntimesQuery.isPending}
-						onRetry={() => localRuntimesQuery.refetch()}
+						onRetry={() =>
+							Promise.all([
+								localRuntimesQuery.refetch(),
+								preference.refetch(),
+							]).catch(console.error)
+						}
 						orgSlug={currentOrganization.slug}
+						selectionPending={preference.isPending}
+						selectionUnavailable={preference.isError}
 					/>
 				</div>
 			</section>
@@ -76,6 +92,8 @@ export function CenterAgentPrivacyPage() {
 }
 
 function ComputerFileAccessLinks(input: {
+	selectionPending: boolean;
+	selectionUnavailable: boolean;
 	computers: readonly LocalRuntimeComputer[];
 	currentDeviceId: string | null;
 	isError: boolean;
@@ -140,6 +158,14 @@ function ComputerFileAccessLinks(input: {
 
 	return (
 		<FluidCardGroup>
+			{input.selectionUnavailable ? (
+				<div className="flex items-center gap-3 text-sm">
+					<p role="alert">Computer selection unavailable.</p>
+					<Button onClick={input.onRetry} size="sm" variant="ghost">
+						Try again
+					</Button>
+				</div>
+			) : null}
 			<ul
 				aria-label="Computers with file access settings"
 				className="grid gap-2 sm:grid-cols-2"
@@ -153,6 +179,8 @@ function ComputerFileAccessLinks(input: {
 							canManage={canManage}
 							computer={computer}
 							isCurrentComputer={isCurrentComputer}
+							selectionPending={input.selectionPending}
+							selectionUnavailable={input.selectionUnavailable}
 						/>
 					);
 					return (
@@ -188,6 +216,8 @@ function ComputerFileAccessLinks(input: {
 }
 
 function ComputerFileAccessRowContent(input: {
+	selectionPending: boolean;
+	selectionUnavailable: boolean;
 	canManage: boolean;
 	computer: LocalRuntimeComputer;
 	isCurrentComputer: boolean;
@@ -213,7 +243,14 @@ function ComputerFileAccessRowContent(input: {
 				</span>
 				{input.canManage ? null : (
 					<span className="mt-1 block text-muted-foreground text-xs leading-4">
-						{resolveComputerFileAccessAction(input)}
+						{input.selectionPending ? (
+							<Skeleton
+								aria-label="Loading Computer selection"
+								className="h-3 w-28"
+							/>
+						) : (
+							resolveComputerFileAccessAction(input)
+						)}
 					</span>
 				)}
 			</span>
@@ -233,9 +270,13 @@ function ComputerFileAccessRowContent(input: {
 }
 
 function resolveComputerFileAccessAction(input: {
+	selectionUnavailable: boolean;
 	canManage: boolean;
 	isCurrentComputer: boolean;
 }): string {
+	if (input.selectionUnavailable) {
+		return "Selection not confirmed";
+	}
 	if (input.canManage) {
 		return "Manage file access";
 	}

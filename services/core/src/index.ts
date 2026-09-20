@@ -207,6 +207,7 @@ import type {
   GitHubAppInstallationVerificationResponse,
   ImportOrganizationSkillFromGitHubResponse,
   ImportOrganizationSkillFromGitHubRpcInput,
+  InboxFeedResponse,
   InboxNotificationPreferencesResponse,
   InboxSummaryResponse,
   InspectExecutionRecoveryResponse,
@@ -220,6 +221,7 @@ import type {
   ListCenterAgentRoutinesResponse,
   ListFeedbackIssuesForOrganizationRequest,
   ListFeedbackIssuesForOrganizationResponse,
+  ListInboxFeedRpcInput,
   ListInboxItemsResponse,
   ListInboxItemsRpcInput,
   ListOrganizationDocumentsResponse,
@@ -228,6 +230,7 @@ import type {
   ListOrganizationSkillsRpcInput,
   ListSpaceFileRevisionsResponse,
   ListSpaceFilesResponse,
+  ListSpaceTasksResponse,
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsResponse,
   ListSpaceThreadsResponse,
@@ -246,6 +249,8 @@ import type {
   MessageChannelIdentityLinkConsumeResponse,
   MessageChannelIdentityLinkPreviewResponse,
   MessageChannelSetupRequestResponse,
+  MutateInboxFeedResponse,
+  MutateInboxFeedRpcInput,
   NotifyAgentProfileRouteCatalogChangedResponse,
   OpenCenterAgentDirectMessageSpaceResponse,
   OpenDirectMessageSpaceResponse,
@@ -329,6 +334,8 @@ import type {
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceMessagePinsResponse,
+  SpaceTaskMutationReceipt,
+  SpaceTaskResponse,
   SpaceViewerMembershipResponse,
   StartCenterAgentMemberResearchResponse,
   StartCenterAgentMemberResearchRpcInput,
@@ -393,6 +400,7 @@ import {
   clearCoreCenterAgentOrganizationNativeDeliveryData,
   createCoreCenterAgentMemoryService,
 } from "./center-agent-memory/core-memory-service";
+import { rpcReportDesktopUpdateObservation } from "./computers/desktop-update-inbox";
 import { readModelCatalog } from "./config/model-catalog";
 import {
   rpcListPluginAccess,
@@ -417,11 +425,13 @@ import {
   rpcGetInboxSummary,
   rpcGetSpaceInboxSummary,
   rpcGetSpaceInboxUnreadTargets,
+  rpcListInboxFeed,
   rpcListInboxItems,
   rpcMarkAllInboxItemsRead,
   rpcMarkCenterAgentInboxReadThrough,
   rpcMarkInboxItemRead,
   rpcMarkSpaceInboxReadThrough,
+  rpcMutateInboxFeed,
   rpcUpdateInboxMessageNotificationPreferences,
   rpcUpdateInboxNotificationPreferences,
 } from "./inbox/transport/rpc/inbox-rpc";
@@ -607,6 +617,7 @@ import {
   type CreateSpaceDiagnosticReportInput,
   type CreateSpaceFolderInput,
   type CreateSpaceInput,
+  type CreateSpaceTaskInput,
   type DeleteRoutineInput,
   type DeleteSpaceAttachmentRecordInput,
   type DeleteSpaceAttachmentRecordResult,
@@ -663,6 +674,7 @@ import {
   type GetSpaceMessageReactionsInput,
   type GetSpaceMetaInput,
   type GetSpaceStatusInput,
+  type GetSpaceTaskInput,
   type GetSpaceThreadInput,
   type GetSpaceUpdatesInput,
   type GetSpaceViewerMembershipInput,
@@ -688,9 +700,11 @@ import {
   type ListSignalsInput,
   type ListSignalsResult,
   type ListSpaceFilesInput,
+  type ListSpaceTasksInput,
   type ListSpaceThreadEventsInput,
   type ListSpaceThreadSignalsInput,
   type ListSpaceThreadsInput,
+  type MutateSpaceTaskInput,
   type NotifyAgentProfileRouteCatalogChangedInput,
   type NotifyAgentProfilesRouteCatalogChangedInput,
   type OpenCenterAgentDirectMessageSpaceInput,
@@ -827,6 +841,7 @@ import {
   rpcCreateSpace,
   rpcCreateSpaceDiagnosticReport,
   rpcCreateSpaceFolder,
+  rpcCreateSpaceTask,
   rpcDeleteRoutine,
   rpcDeleteSpace,
   rpcDeleteSpaceAttachmentRecord,
@@ -890,6 +905,7 @@ import {
   rpcGetSpaceMessageReactions,
   rpcGetSpaceMeta,
   rpcGetSpaceStatus,
+  rpcGetSpaceTask,
   rpcGetSpaceThread,
   rpcGetSpaceUpdates,
   rpcGetSpaceViewerMembership,
@@ -917,10 +933,12 @@ import {
   rpcListSignals,
   rpcListSpaceFileRevisions,
   rpcListSpaceFiles,
+  rpcListSpaceTasks,
   rpcListSpaceThreadEvents,
   rpcListSpaceThreadSignals,
   rpcListSpaceThreads,
   rpcMutateSpaceMessage,
+  rpcMutateSpaceTask,
   rpcNotifyAgentProfileRouteCatalogChanged,
   rpcNotifyAgentProfilesRouteCatalogChanged,
   rpcOpenCenterAgentDirectMessageSpace,
@@ -1071,6 +1089,7 @@ import {
   ROUTINE_TICK_CRON,
   runCoreScheduledTasks,
 } from "./scheduled/core-scheduled-tasks";
+import { rpcSearchMessages } from "./search/message-search";
 import { emitCoreCloudflareRuntimeEvidence } from "./shared/observability/cloudflare-runtime-evidence";
 import { handleCoreQueueBatch } from "./shared/queue/core-queue-router";
 import type { SpaceBootstrapWithTiming } from "./space/application/space-bootstrap-timing";
@@ -1447,6 +1466,20 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   listRoutineRuns(input: ListRoutineRunsInput) {
     return rpcListRoutineRuns(this.env, input);
+  }
+
+  listInboxFeed(input: ListInboxFeedRpcInput): Promise<InboxFeedResponse> {
+    return rpcListInboxFeed(this.env, input);
+  }
+
+  searchMessages(input: import("@openmeld/schemas").MessageSearchRpcInput) {
+    return rpcSearchMessages(this.env, input);
+  }
+
+  mutateInboxFeed(
+    input: MutateInboxFeedRpcInput
+  ): Promise<MutateInboxFeedResponse> {
+    return rpcMutateInboxFeed(this.env, input);
   }
 
   listInboxItems(
@@ -2174,6 +2207,26 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse> {
     return rpcSpaceMessagePins(this.env, input);
+  }
+
+  listSpaceTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse> {
+    return rpcListSpaceTasks(this.env, input);
+  }
+
+  getSpaceTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse> {
+    return rpcGetSpaceTask(this.env, input);
+  }
+
+  createSpaceTask(
+    input: CreateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    return rpcCreateSpaceTask(this.env, input);
+  }
+
+  mutateSpaceTask(
+    input: MutateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    return rpcMutateSpaceTask(this.env, input);
   }
 
   getSpaceContract(input: GetSpaceContractInput): Promise<SpaceContract> {
@@ -3786,6 +3839,26 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.listRoutineRuns(input);
   }
 
+  reportDesktopUpdateObservation(
+    input: import("@openmeld/schemas/types").DesktopUpdateObservationRpcInput
+  ) {
+    return rpcReportDesktopUpdateObservation(this.env, input);
+  }
+
+  listInboxFeed(input: ListInboxFeedRpcInput): Promise<InboxFeedResponse> {
+    return super.listInboxFeed(input);
+  }
+
+  searchMessages(input: import("@openmeld/schemas").MessageSearchRpcInput) {
+    return super.searchMessages(input);
+  }
+
+  mutateInboxFeed(
+    input: MutateInboxFeedRpcInput
+  ): Promise<MutateInboxFeedResponse> {
+    return super.mutateInboxFeed(input);
+  }
+
   listInboxItems(
     input: ListInboxItemsRpcInput
   ): Promise<ListInboxItemsResponse> {
@@ -4294,6 +4367,26 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse> {
     return super.spaceMessagePins(input);
+  }
+
+  listSpaceTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse> {
+    return super.listSpaceTasks(input);
+  }
+
+  getSpaceTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse> {
+    return super.getSpaceTask(input);
+  }
+
+  createSpaceTask(
+    input: CreateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    return super.createSpaceTask(input);
+  }
+
+  mutateSpaceTask(
+    input: MutateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    return super.mutateSpaceTask(input);
   }
 
   getSpaceContract(input: GetSpaceContractInput): Promise<SpaceContract> {

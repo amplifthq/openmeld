@@ -6,10 +6,8 @@ import {
 } from "@openmeld/local-service";
 import { RUNTIME_TRANSPORT_SCHEMA_VERSION } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  emitDaemonErrorFrame,
-  handleDaemonSocketFrame,
-} from "../src/local-service/carrier/frame-router";
+import { emitDaemonErrorFrame } from "../src/local-service/carrier/daemon-frame-transport";
+import { handleDaemonSocketFrame } from "../src/local-service/carrier/frame-router";
 import type { Presenter } from "../src/runtime/presenter/types";
 import type { WsClient } from "../src/transport/ws";
 

@@ -118,7 +118,11 @@ fixtures. The product's Space sidebar does not consume synthetic Working or
 needs-input summaries: its indicators come from the same API progress data
 as the conversation. Use the standalone preview below for isolated row states.
 Rerunning the seed restores unread records so clicking them does not exhaust the
-test matrix permanently.
+test matrix permanently. For Desktop tray checks, the newest record belongs to
+a muted Space, the next record is an ordinary eligible unread, and a later record
+is a reply in a Thread whose Space uses mentions-and-replies notifications. This
+lets the same reset verify muted-message fallback first, then exact Thread
+navigation after the ordinary unread is read.
 
 ## Repeatable visual state matrix
 

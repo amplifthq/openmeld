@@ -26,6 +26,26 @@ vi.mock("#/components/inbox/inbox-browser-notification-prompt", () => ({
 		<div data-testid="notification-introduction" />
 	),
 }));
+vi.mock("#/components/inbox/inbox-notification-listener", async () => {
+	const { useCurrentComputer } = await import("./current-computer");
+	return {
+		InboxNotificationListener: () => (
+			<div data-testid="native-menu-computer-context">
+				{useCurrentComputer() ? "provided" : "missing"}
+			</div>
+		),
+	};
+});
+vi.mock("#/components/settings/app-settings-dialog", async () => {
+	const { useCurrentComputer } = await import("./current-computer");
+	return {
+		default: () => (
+			<div data-testid="settings-computer-context">
+				{useCurrentComputer() ? "provided" : "missing"}
+			</div>
+		),
+	};
+});
 
 const SPACES_TAB_NAME = /Spaces/;
 const SPACE_OR_SPACES_TAB_NAME = /^Spaces?$/;
@@ -172,6 +192,16 @@ describe("AppShell", () => {
 		]);
 		renderAppShell();
 		expect(screen.queryByTestId("notification-introduction")).toBeNull();
+	});
+	it("shares the real Computer context with the native menu and Settings consumers", () => {
+		renderAppShell();
+
+		expect(screen.getByTestId("native-menu-computer-context").textContent).toBe(
+			"provided"
+		);
+		expect(screen.getByTestId("settings-computer-context").textContent).toBe(
+			"provided"
+		);
 	});
 	it("introduces notifications on the first actual Space entry after onboarding", () => {
 		routerMatchesMock.mockReturnValue([

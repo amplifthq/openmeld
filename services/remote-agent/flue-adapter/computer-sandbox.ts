@@ -34,7 +34,7 @@ import {
 } from "./agent-computer-workspace-access";
 import { createComputerCommandTool } from "./computer-command";
 import type { createAgentComputerFileHandoff } from "./computer-file-handoff";
-import { buildAgentComputerName } from "./computer-identity";
+import { resolveRemoteAgentComputerName } from "./computer-identity";
 import { getComputerSpaceFileTools } from "./computer-space-files";
 import type { AgentComputer } from "./computer-workspace";
 import { AGENT_COMPUTER_SHELL_BACKEND_ID } from "./computer-workspace";
@@ -44,6 +44,7 @@ import {
   getRemoteAgentSandboxToolDefinitions,
   type RemoteAgentComputerSearch,
 } from "./sandbox-tools";
+import { materializeSpaceWork } from "./space-work-materialization";
 import { emitRemoteAgentToolUsage } from "./tool-usage-observability";
 
 const DEFAULT_EXEC_TIMEOUT_MS = 120_000;
@@ -91,12 +92,7 @@ export async function createRemoteAgentComputerCapability(input: {
 }> {
   const namespace = input.env.AGENT_COMPUTER as AgentComputerNamespace;
   const computerId = namespace.idFromName(
-    buildAgentComputerName(
-      input.context.agentProfileId,
-      input.context.conversationIdentity?.kind === "personal_agent"
-        ? (input.context.spaceId ?? "")
-        : undefined
-    )
+    resolveRemoteAgentComputerName(input.context)
   );
   const workspaceAccess = createAgentComputerWorkspaceAccess({
     computerId,
@@ -116,12 +112,24 @@ export async function createRemoteAgentComputerCapability(input: {
           binding.centerAgentOrganizationDocumentsComputerSnapshot?.(rpcInput)
       )
     : null;
-  const { documents, workingDirectory } =
+  const { documents, workingDirectory: baseWorkingDirectory } =
     await materializeAgentComputerWorkspace({
       context: input.context,
       organizationDocumentsSnapshot,
       workspaceAccess,
     });
+  if (input.context.workHandoff && !input.storage) {
+    throw new Error("Durable storage is required to prepare handoff files.");
+  }
+  const workingDirectory = input.storage
+    ? await materializeSpaceWork({
+        context: input.context,
+        coreWorker: input.coreWorker,
+        storage: input.storage,
+        workspaceAccess,
+        workingDirectory: baseWorkingDirectory,
+      })
+    : baseWorkingDirectory;
   const api = instrumentRemoteAgentComputerSandboxApi({
     api: new AgentComputerSandboxApi(workspaceAccess),
     context: input.context,
@@ -135,7 +143,7 @@ export async function createRemoteAgentComputerCapability(input: {
         workingCopies: createReacquiringOrganizationDocumentWorkingCopyStore({
           projection: documents,
           workspaceAccess,
-          workingDirectory,
+          workingDirectory: baseWorkingDirectory,
         }),
       })
     : [];

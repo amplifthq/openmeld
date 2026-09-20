@@ -177,12 +177,12 @@ function resolveHeaderCopy(destination: StatusWindowDestination): {
       return {
         title: "Settings",
         description:
-          "Manage OpenMeld Desktop, this computer, and Web account handoffs.",
+          "Manage OpenMeld, this computer, and Web account handoffs.",
       };
     default:
       return {
         title: "Home",
-        description: "Current OpenMeld Desktop state for this Mac.",
+        description: "Current OpenMeld state for this Mac.",
       };
   }
 }

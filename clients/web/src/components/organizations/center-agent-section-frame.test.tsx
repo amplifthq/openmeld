@@ -24,7 +24,6 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 }));
 
 vi.mock("./center-agent-header-navigation", () => ({
-	CenterAgentHeaderMenu: () => <button type="button">Center Agent menu</button>,
 	CenterAgentHeaderTabs: () => <nav>Center Agent tabs</nav>,
 }));
 
@@ -45,5 +44,8 @@ describe("CenterAgentSectionFrame", () => {
 			screen.getByRole("heading", { level: 1, name: "Center Agent" })
 		).toBeTruthy();
 		expect(screen.queryByText("Direct Message")).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Center Agent menu" })
+		).toBeNull();
 	});
 });

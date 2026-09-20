@@ -1,7 +1,7 @@
 import type { WebPerformanceReport } from "@openmeld/schemas";
 import { WEB_PERFORMANCE_POLICY } from "./performance-policy";
 
-const SPACE_ROUTE = /^(\/o\/[^/]+)?\/spaces\/([^/]+)\/?$/;
+const SPACE_ROUTE = /^(\/o\/[^/]+)?\/(spaces|chats)\/([^/]+)\/?$/;
 const SPACE_REQUEST =
 	/^\/v1\/spaces\/([^/]+)\/(entry-resolution|bootstrap|signals|status|members)$/;
 const REQUEST_ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -99,13 +99,22 @@ export function beginSpaceOpen(pathname: string, trigger: Snapshot["trigger"]) {
 	if (active?.pathname === pathname) {
 		return;
 	}
-	const match = pathname.match(SPACE_ROUTE);
+	const routeMatch = pathname.match(SPACE_ROUTE);
+	const match =
+		routeMatch &&
+		!(
+			routeMatch[2] === "chats" &&
+			(!routeMatch[1] || routeMatch[3] === "center-agent")
+		)
+			? routeMatch
+			: null;
+	const routeId = match?.[1]
+		? `/o/$orgSlug/${match[2]}/$spaceId`
+		: "/spaces/$spaceId";
 	// Public links canonicalize to the organization route within the same opening.
-	if (active && !active.done && match?.[2] === active.spaceId) {
+	if (active && !active.done && match?.[3] === active.spaceId) {
 		active.pathname = pathname;
-		active.routeId = match[1]
-			? "/o/$orgSlug/spaces/$spaceId"
-			: "/spaces/$spaceId";
+		active.routeId = routeId;
 		return;
 	}
 	if (active) {
@@ -115,13 +124,13 @@ export function beginSpaceOpen(pathname: string, trigger: Snapshot["trigger"]) {
 		}
 		active = undefined;
 	}
-	if (!match?.[2]) {
+	if (!match?.[3]) {
 		return;
 	}
 	const attempt: Attempt = {
-		spaceId: match[2],
+		spaceId: match[3],
 		pathname,
-		routeId: match[1] ? "/o/$orgSlug/spaces/$spaceId" : "/spaces/$spaceId",
+		routeId,
 		start: performance.now(),
 		normalSample: Math.random() < 0.1,
 		done: false,

@@ -125,10 +125,8 @@ export function messageReactionsKey(spaceId: string, signalId?: string) {
 }
 export function useMessageReactions(input?: MessageReactionInput) {
 	const queryClient = useQueryClient();
-	const api = useMemo(
-		() => createUnscopedWebSpaceApi({ openMeldProfileId: input?.profileId }),
-		[input?.profileId]
-	);
+	const createReactionApi = () =>
+		createUnscopedWebSpaceApi({ openMeldProfileId: input?.profileId });
 	const key = useMemo(
 		() => [
 			...messageReactionsKey(input?.spaceId ?? "", input?.signalId ?? ""),
@@ -159,7 +157,7 @@ export function useMessageReactions(input?: MessageReactionInput) {
 			}
 			return saveHistoryReactions(
 				(
-					await api.getMessageReactions({
+					await createReactionApi().getMessageReactions({
 						spaceId: input.spaceId,
 						signalId: input.signalId,
 					})
@@ -231,7 +229,7 @@ export function useMessageReactions(input?: MessageReactionInput) {
 		}));
 		setError(null);
 		try {
-			const response = await api.setMessageReaction({
+			const response = await createReactionApi().setMessageReaction({
 				spaceId: input.spaceId,
 				signalId: input.signalId,
 				emoji: emoji.emoji,
@@ -566,10 +564,6 @@ export function MessageReactionViewer({
 	const emoji = state.groups.some((group) => group.emoji === selected)
 		? (selected ?? undefined)
 		: state.groups[0]?.emoji;
-	const api = useMemo(
-		() => createUnscopedWebSpaceApi({ openMeldProfileId: input.profileId }),
-		[input.profileId]
-	);
 	const query = useInfiniteQuery({
 		queryKey: [
 			...messageReactionsKey(input.spaceId, input.signalId),
@@ -581,7 +575,9 @@ export function MessageReactionViewer({
 		enabled: state.viewerOpen && Boolean(emoji),
 		initialPageParam: undefined as string | undefined,
 		queryFn: ({ pageParam }) =>
-			api.getMessageReactions({
+			createUnscopedWebSpaceApi({
+				openMeldProfileId: input.profileId,
+			}).getMessageReactions({
 				spaceId: input.spaceId,
 				signalId: input.signalId,
 				emoji,

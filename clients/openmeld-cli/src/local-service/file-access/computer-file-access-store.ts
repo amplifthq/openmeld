@@ -10,7 +10,7 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import {
   computerFileAccessPolicyInputSchema,
   computerFileAccessPolicySchema,
@@ -21,6 +21,7 @@ import type {
   ComputerFileAccessPolicyInput,
 } from "@openmeld/schemas/types";
 import { z } from "zod/v4";
+import { isSameOrDescendantPath } from "../../lib/path-containment";
 import { DaemonServiceRunError } from "../core/types";
 
 const LEGACY_COMPUTER_FILE_ACCESS_STORE_SCHEMA =
@@ -322,9 +323,9 @@ function removeRedundantFolders(folders: readonly string[]): string[] {
 }
 
 function isPathInside(candidate: string, parent: string): boolean {
-  const relation = relative(parent, candidate);
   return (
-    relation.length > 0 && !relation.startsWith("..") && !isAbsolute(relation)
+    relative(parent, candidate) !== "" &&
+    isSameOrDescendantPath(candidate, parent)
   );
 }
 

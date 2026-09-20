@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-16T04:00:44.461Z",
+  "updatedAt": "2026-09-20T03:05:17.690Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.210",
+      "packageVersion": "0.3.214",
       "updatePolicy": "available",
-      "reason": "Existing commands, setup, Space actions, and diagnostics remain compatible; new task selection requires the cloud receivers deployed first."
+      "reason": "The rollout installs cloud receivers before publication; existing CLI commands remain compatible and older CLIs simply lack the new handoff and Windows controls."
     },
     "service": {
-      "bundleHash": "04228fd80a7cf617fe8286f8f621a0f34c5d5275fd77b94de3bb0200f0a7ebc0",
-      "bundleVersion": "0.3.210",
+      "bundleHash": "15b4595bff28e3b4e0ec9c3f24d70e5035cc5e08d9ea63f10d5648c78acf68ad",
+      "bundleVersion": "0.3.214",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Only optional bootstrap and notification schema enrichment changed; old cloud and old Services remain compatible, with no new Wake or setup requirement."
+      "reason": "Existing Services remain compatible with the additive cloud contracts; older Services continue supported work and simply lack the new handoff and Windows supervision capabilities."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",

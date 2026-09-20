@@ -10,6 +10,7 @@ import {
 	fireEvent,
 	render,
 	screen,
+	waitFor,
 	within,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -91,6 +92,10 @@ describe("HumanProfileDetailsPopover", () => {
 				organizationQueryKeys.agentRuntimeOverview("org-acme")
 			)
 		).toBeUndefined();
+		fireEvent.click(
+			dialog.getByRole("link", { name: "View Monica Cheng profile" })
+		);
+		return waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 	});
 
 	it("omits the entire Agents footer when the person has no Agents", () => {

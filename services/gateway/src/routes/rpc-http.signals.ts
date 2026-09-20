@@ -132,6 +132,7 @@ export const buildListSignalsRpcInput = (input: {
   spaceId: input.spaceId,
   ...(input.query.afterTs === null ? {} : { afterTs: input.query.afterTs }),
   ...(input.hasLimit ? { limit: input.query.limit } : {}),
+  ...(input.query.q ? { q: input.query.q } : {}),
   ...(input.query.cursor === null ? {} : { cursor: input.query.cursor }),
   ...(input.query.recentOnly ? { recent: true } : {}),
   ...(input.query.afterSignalId
@@ -274,11 +275,19 @@ const registerGetSignalsRoute = (app: Hono<HonoBindings>): void => {
       route: "/v1/spaces/:spaceId/signals",
       method: "GET",
       includeLegacySpaceAddressingWireFields: true,
-      execute: async () => {
-        return await c.var.coreRpc.listSignals(
-          rpcInput,
-          OPENMELD_SPACE_ADDRESSING_VERSION
-        );
+      execute: () =>
+        c.var.coreRpc.listSignals(rpcInput, OPENMELD_SPACE_ADDRESSING_VERSION),
+      resolveSuccessHeaders: ({ payload }) => {
+        const parsed = catchupResponseSchema.safeParse(payload);
+        if (parsed.success && parsed.data.nextCursor) {
+          const next = new URL(c.req.url);
+          next.searchParams.set("cursor", parsed.data.nextCursor);
+          next.searchParams.delete("recent");
+          return {
+            Link: `<${next.pathname}${next.search}>; rel="next"; type="application/json"`,
+          };
+        }
+        return undefined;
       },
       responseSchema: catchupResponseSchema,
     });

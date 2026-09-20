@@ -12,6 +12,18 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  assertProcessRestarted,
+  assertProductionSignatureDetails,
+  assertReceiptMatchesTarget,
+  compareStableVersions,
+  PRODUCTION_EXECUTABLE,
+  parseInstallReceipt,
+  parseSmokeArgs,
+  processListHasProductionApp,
+  productionProcessPids,
+} from "../e2e/desktop-macos-production-update-smoke.mjs";
+
+import {
   assertProductionReleaseSource,
   buildCoreCurrentCliProjectionPreflightStepSpecs,
   buildProductionDeployStepSpecs,
@@ -27,6 +39,152 @@ import {
 } from "./production-release.mjs";
 
 const REMOTE_SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
+const SPACE_TASK_PATHS = [
+  "packages/schemas/src/schemas/http/space-tasks.ts",
+  "services/core/src/rpc/methods.ts",
+  "services/core/src/space/transport/do/space.ts",
+  "services/gateway/src/routes/rpc-http.space-tasks.ts",
+  "clients/openmeld-cli/src/space/dispatch-task.ts",
+  "services/remote-agent/agent-core/tools.ts",
+];
+const SPACE_TASK_SCOPE_ERROR = /Space Task .*require/u;
+const SPACE_TASK_CONFLICT_ERROR = /Space Task receivers.*conflict/u;
+const DESKTOP_SMOKE_NEWER_ERROR_RE = /must be newer/u;
+const DESKTOP_SMOKE_STABLE_ERROR_RE = /stable/u;
+const DESKTOP_SMOKE_TEAM_ID_ERROR_RE = /Team ID/u;
+const DESKTOP_SMOKE_STILL_RUNNING_ERROR_RE = /still running/u;
+const DESKTOP_SMOKE_NOT_RUNNING_ERROR_RE = /not running/u;
+const DESKTOP_SMOKE_APPLICATION_STARTED_ERROR_RE = /application_started/u;
+const DESKTOP_SMOKE_VERSION_MISMATCH_ERROR_RE = /not 0\.1\.6/u;
+const DESKTOP_SMOKE_MALFORMED_ERROR_RE = /malformed/u;
+
+test("deploys Space Task RPC and HTTP receivers before their real callers", () => {
+  const plan = buildProductionReleasePlan({
+    base: "previous-release",
+    sourceSha: REMOTE_SOURCE_SHA,
+    scope: "web,cli,gateway,core,remote-agent",
+    changedPaths: SPACE_TASK_PATHS,
+  });
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.label),
+    [
+      "Deploy Core with the current published CLI projection",
+      "Verify Core deployment is visible",
+      "Deploy Gateway Worker",
+      "Verify Gateway Worker health",
+      "Deploy Web",
+      "Verify Web health",
+      "Deploy Remote Agent Worker",
+      "Verify Remote Agent deployment is visible",
+      "Publish CLI and deploy its Core release projection",
+      "Verify final R2/npm/Core alignment",
+    ]
+  );
+  assert.deepEqual(plan.deploySteps[0].args, [
+    "scripts/release/deploy-core-current-cli-projection.mjs",
+    "--release-sha",
+    REMOTE_SOURCE_SHA,
+  ]);
+  const automatic = resolveAutomaticReleaseScopes({
+    affectedPackages: ["openmeld-web"],
+    changedPaths: SPACE_TASK_PATHS,
+  });
+  assert.ok(
+    ["core", "gateway", "cli", "web"].every((scope) =>
+      automatic.includes(scope)
+    )
+  );
+});
+
+test("allows a Space Task receiver stage with the immutable published CLI projection", () => {
+  for (const scope of ["core", "core,gateway", "core,remote-agent"]) {
+    const plan = buildProductionReleasePlan({
+      base: "previous-release",
+      sourceSha: REMOTE_SOURCE_SHA,
+      scope,
+      changedPaths: SPACE_TASK_PATHS,
+    });
+    assert.equal(
+      plan.deploySteps[0].label,
+      "Deploy Core with the current published CLI projection"
+    );
+    assert.equal(
+      plan.deploySteps[1].label,
+      "Verify Core deployment is visible"
+    );
+    assert.ok(
+      !plan.deploySteps.some((step) => step.internalOperation === "publish-cli")
+    );
+    for (const steps of [plan.preflightSteps, plan.verifySteps]) {
+      assert.ok(
+        !steps.some(
+          (step) => step.label === "Verify Core CLI channel compatibility"
+        )
+      );
+    }
+    assert.ok(
+      plan.preflightSteps.some(
+        (step) => step.label === "Verify production Core Queue resources"
+      )
+    );
+  }
+  for (const scopes of [
+    ["cli"],
+    ["web"],
+    ["gateway"],
+    ["remote-agent"],
+    ["core", "cli"],
+    ["core", "web"],
+  ]) {
+    assert.throws(
+      () =>
+        buildProductionDeployStepSpecs(scopes, {
+          changedPaths: SPACE_TASK_PATHS,
+        }),
+      SPACE_TASK_SCOPE_ERROR
+    );
+  }
+});
+
+test("rejects opposing Space Task receiver orders instead of overriding existing constraints", () => {
+  for (const otherPaths of [
+    ["services/remote-agent/.flue/cloudflare.ts"],
+    [
+      "packages/schemas/src/schemas/http/auth-device-authorization.ts",
+      "clients/web/src/lib/cli-entry-command.ts",
+      "clients/openmeld-cli/src/openmeld.ts",
+    ],
+    [
+      "packages/schemas/src/schemas/http/space-wake-progress.ts",
+      "clients/openmeld-cli/src/space/wake-control-command.ts",
+    ],
+  ]) {
+    assert.throws(
+      () =>
+        buildProductionDeployStepSpecs(
+          ["core", "gateway", "web", "remote-agent", "cli"],
+          {
+            changedPaths: [...SPACE_TASK_PATHS, ...otherPaths],
+          }
+        ),
+      SPACE_TASK_CONFLICT_ERROR
+    );
+  }
+  for (const omitted of SPACE_TASK_PATHS.slice(0, 3)) {
+    const plan = buildProductionReleasePlan({
+      base: "previous-release",
+      sourceSha: REMOTE_SOURCE_SHA,
+      scope: "core",
+      changedPaths: SPACE_TASK_PATHS.filter((file) => file !== omitted),
+    });
+    assert.equal(plan.deploySteps[0].label, "Deploy Core Worker");
+    assert.ok(
+      plan.preflightSteps.some(
+        (step) => step.label === "Verify Core CLI channel compatibility"
+      )
+    );
+  }
+});
 const DEVICE_WAIT_ORDER_ERROR =
   /Device wait requires Core before Gateway and Web/u;
 const PERSONAL_CORE_RECEIVER_ERROR = /require the Core receiver/u;
@@ -373,7 +531,7 @@ test("the guarded local lane invokes the internal CLI publisher while both lease
   ]);
 });
 
-test("derives deploy scopes from affected deployable packages", () => {
+test("includes the CLI for an affected packaged Service dependency", () => {
   assert.deepEqual(
     resolveAutomaticReleaseScopes({
       affectedPackages: [
@@ -384,7 +542,7 @@ test("derives deploy scopes from affected deployable packages", () => {
       ],
       changedPaths: ["packages/api-client/src/index.ts"],
     }),
-    ["web", "gateway", "core"]
+    ["cli", "web", "gateway", "core"]
   );
 });
 
@@ -1389,6 +1547,8 @@ test("routes a local Core release through startup admission at the exact source 
     ],
     command: "node",
     label: "Deploy Core Worker",
+    releaseScope: "core",
+    completesReleaseScope: false,
     workerDeploymentArgs: [
       "--config",
       "services/core/wrangler.jsonc",
@@ -2139,5 +2299,112 @@ test("installs device-wait receivers before browser callers and Service publicat
         ],
       }),
     DEVICE_WAIT_ORDER_ERROR
+  );
+});
+
+test("Desktop macOS A-to-B smoke parses thin before/after phases", () => {
+  assert.deepEqual(parseSmokeArgs(["before", "0.1.4", "0.1.5"]), {
+    phase: "before",
+    currentVersion: "0.1.4",
+    targetVersion: "0.1.5",
+  });
+  assert.deepEqual(parseSmokeArgs(["after", "0.1.5"]), {
+    phase: "after",
+    targetVersion: "0.1.5",
+  });
+  assert.throws(
+    () => parseSmokeArgs(["before", "0.1.5", "0.1.5"]),
+    DESKTOP_SMOKE_NEWER_ERROR_RE
+  );
+  assert.throws(
+    () => parseSmokeArgs(["before", "0.1", "0.1.5"]),
+    DESKTOP_SMOKE_STABLE_ERROR_RE
+  );
+});
+
+test("Desktop macOS A-to-B smoke compares stable versions numerically", () => {
+  assert.equal(compareStableVersions("0.1.9", "0.1.10"), -1);
+  assert.equal(compareStableVersions("0.2.0", "0.1.99"), 1);
+  assert.equal(compareStableVersions("1.0.0", "1.0.0"), 0);
+});
+
+test("Desktop macOS A-to-B smoke requires the production Apple signing identity", () => {
+  const valid = [
+    "Identifier=sh.openmeld.desktop",
+    "Authority=Developer ID Application: SOPHIAPRO PTE. LTD. (38FFHDPA3B)",
+    "TeamIdentifier=38FFHDPA3B",
+  ].join("\n");
+  assert.doesNotThrow(() => assertProductionSignatureDetails(valid));
+  assert.throws(
+    () =>
+      assertProductionSignatureDetails(
+        valid.replace("TeamIdentifier=38FFHDPA3B", "TeamIdentifier=OTHER")
+      ),
+    DESKTOP_SMOKE_TEAM_ID_ERROR_RE
+  );
+});
+
+test("Desktop macOS A-to-B smoke matches the production executable and requires restart", () => {
+  const output = [
+    "101 /bin/zsh",
+    `202 ${PRODUCTION_EXECUTABLE}`,
+    "303 /usr/bin/open /tmp/Other.app",
+  ].join("\n");
+  assert.deepEqual(productionProcessPids(output), [202]);
+  assert.equal(processListHasProductionApp(output), true);
+  assert.equal(
+    processListHasProductionApp(
+      "404 /Applications/OpenMeld Desktop.app/Contents/MacOS/OpenMeld\n"
+    ),
+    false
+  );
+  assert.doesNotThrow(() => assertProcessRestarted([101], [202]));
+  assert.throws(
+    () => assertProcessRestarted([101], [101]),
+    DESKTOP_SMOKE_STILL_RUNNING_ERROR_RE
+  );
+  assert.throws(
+    () => assertProcessRestarted([101], []),
+    DESKTOP_SMOKE_NOT_RUNNING_ERROR_RE
+  );
+});
+
+test("Desktop macOS A-to-B smoke validates bounded updater receipt evidence", () => {
+  const receipt = parseInstallReceipt(
+    [
+      "state=application_started",
+      "sourceVersion=0.1.4",
+      "targetVersion=0.1.5",
+      "sourceBundle=OpenMeld.app",
+      "targetBundle=OpenMeld.app",
+      "",
+    ].join("\n")
+  );
+  assert.doesNotThrow(() => assertReceiptMatchesTarget(receipt, "0.1.5"));
+  assert.throws(
+    () =>
+      assertReceiptMatchesTarget(
+        { ...receipt, state: "install_requested" },
+        "0.1.5"
+      ),
+    DESKTOP_SMOKE_APPLICATION_STARTED_ERROR_RE
+  );
+  assert.throws(
+    () => assertReceiptMatchesTarget(receipt, "0.1.6"),
+    DESKTOP_SMOKE_VERSION_MISMATCH_ERROR_RE
+  );
+  assert.throws(
+    () =>
+      parseInstallReceipt(
+        [
+          "state=application_started",
+          "sourceVersion=0.1.4",
+          "targetVersion=0.1.5",
+          "sourceBundle=OpenMeld.app",
+          "targetBundle=OpenMeld.app",
+          "unexpected=user-content",
+        ].join("\n")
+      ),
+    DESKTOP_SMOKE_MALFORMED_ERROR_RE
   );
 });

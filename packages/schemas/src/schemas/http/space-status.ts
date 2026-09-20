@@ -10,7 +10,10 @@ import {
   spacePublicationModeSchema,
 } from "../space-mesh/publication-policy";
 import { resultArchivePolicySchema } from "../space-mesh/result-archive-policy";
-import { spaceAccessModeSchema } from "./space-access-mode";
+import {
+  spaceAccessModeSchema,
+  spaceLinkJoinPolicySchema,
+} from "./space-access-mode";
 import { spaceMembersSummarySchema } from "./space-members";
 import { spaceOrganizationVisibilitySchema } from "./space-meta";
 import { spaceRouteParamsSchema } from "./space-route-params";
@@ -68,6 +71,7 @@ export const getSpaceStatusResponseSchema = z.object({
   ownerUserIds: z.array(z.string().min(1)).optional(),
   allowGuests: z.boolean().optional(),
   accessMode: spaceAccessModeSchema,
+  linkJoinPolicy: spaceLinkJoinPolicySchema.optional(),
   passwordProtected: z.boolean(),
   dispatchPolicy: spaceDispatchPolicySchema,
   publicationMode: spacePublicationModeSchema,

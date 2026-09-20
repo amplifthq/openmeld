@@ -6,7 +6,7 @@ import {
 	useNavigate,
 } from "@tanstack/react-router";
 import { z } from "zod/v4";
-import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
+import { AgentResolutionPage } from "#/components/agents/agent-resolution-page";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { PeopleAndAgentsPage } from "#/components/profiles/people-and-agents-page";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -89,13 +89,21 @@ function TeamAgentsRoute() {
 	}
 	if (directory.isPending || directory.isError) {
 		return (
-			<AppFullWidthLayout>
-				<p role={directory.isError ? "alert" : "status"}>
-					{directory.isError
-						? "Couldn’t load this Agent. Try again."
-						: "Loading Agent…"}
-				</p>
-			</AppFullWidthLayout>
+			<AgentResolutionPage
+				detail
+				error={directory.isError}
+				initialSidebarStates={sidebarStates}
+				isPending={directory.isPending}
+				isRetrying={directory.isFetching}
+				message="Couldn’t load this Agent."
+				onRetry={
+					directory.isError
+						? () => {
+								directory.refetch().catch(console.error);
+							}
+						: undefined
+				}
+			/>
 		);
 	}
 	const profile = directory.data.agentProfiles.find(
@@ -103,9 +111,12 @@ function TeamAgentsRoute() {
 	);
 	if (profileId && !profile) {
 		return (
-			<AppFullWidthLayout>
-				<p>Agent not found in this workspace.</p>
-			</AppFullWidthLayout>
+			<AgentResolutionPage
+				detail
+				initialSidebarStates={sidebarStates}
+				isPending={false}
+				message="Agent not found in this workspace."
+			/>
 		);
 	}
 	const member = directory.data.members.find(

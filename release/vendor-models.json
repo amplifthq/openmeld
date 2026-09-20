@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-14T07:35:57Z",
+  "updatedAt": "2026-09-16T16:16:02Z",
   "agentControllers": {
     "codex": {
       "defaultModelId": "gpt-5.6-sol",
@@ -36,7 +36,7 @@
             "max",
             "ultra"
           ],
-          "minCliVersion": null
+          "minCliVersion": "0.144.0"
         },
         {
           "id": "gpt-5.6-terra",
@@ -50,21 +50,21 @@
             "max",
             "ultra"
           ],
-          "minCliVersion": null
+          "minCliVersion": "0.144.0"
         },
         {
           "id": "gpt-5.6-luna",
           "displayName": "GPT-5.6 Luna",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
-          "minCliVersion": null
+          "minCliVersion": "0.144.0"
         },
         {
           "id": "gpt-5.5",
           "displayName": "GPT-5.5",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
-          "minCliVersion": null
+          "minCliVersion": "0.124.0"
         },
         {
           "id": "gpt-5.4",
@@ -102,7 +102,7 @@
           "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
-          "minCliVersion": "2.1.255"
+          "minCliVersion": "2.1.257"
         },
         {
           "id": "claude-opus-5",
@@ -170,6 +170,30 @@
     "cursor": {
       "defaultModelId": "default[]",
       "models": [
+        {
+          "id": "claude-opus-5[thinking=true,context=300k,effort=high,fast=false]",
+          "displayName": "Claude Opus 5",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "grok-4.6[effort=high,fast=true]",
+          "displayName": "Grok 4.6 — High Fast",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "muse-spark-1.3[context=300k,effort=high]",
+          "displayName": "Muse Spark 1.3",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
         {
           "id": "claude-fable-5-1[thinking=true,context=300k,effort=high]",
           "displayName": "Claude Fable 5.1",
@@ -422,6 +446,30 @@
     "opencode": {
       "defaultModelId": "opencode/mimo-v2.5-free",
       "models": [
+        {
+          "id": "opencode-go/deepseek-v4.1-flash",
+          "displayName": "DeepSeek V4.1 Flash",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "high", "max"],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/hy4-preview",
+          "displayName": "Hy4 Preview",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["none", "high"],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode/ling-3.0-flash-fin-free",
+          "displayName": "OpenCode Ling 3.0 Flash Fin Free",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high"],
+          "minCliVersion": null
+        },
         {
           "id": "openai/gpt-6-astra",
           "displayName": "GPT-6 Astra",

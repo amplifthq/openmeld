@@ -65,6 +65,12 @@ export async function resolveExternalOpenMeldToolsUpdate(
       phase: serviceJob.phase,
       requestSource: serviceJob.requestSource,
       requestedAt: serviceJob.requestedAt,
+      ...(serviceJob.targetCliVersion
+        ? { targetCliVersion: serviceJob.targetCliVersion }
+        : {}),
+      ...(serviceJob.targetServiceVersion
+        ? { targetServiceVersion: serviceJob.targetServiceVersion }
+        : {}),
       targetVersion: serviceJob.targetVersion,
       updatedAt: serviceJob.updatedAt,
       urgency: serviceJob.urgency,

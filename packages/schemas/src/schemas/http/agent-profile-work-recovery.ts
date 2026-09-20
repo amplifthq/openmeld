@@ -22,6 +22,14 @@ export const executeAgentProfileWorkRecoveryBodySchema = z.discriminatedUnion(
         .min(1)
         .max(512),
     }),
+    z.strictObject({
+      action: z.literal("fork_interrupted_work"),
+      expectedInterruptedTargetWakeLifecycleId: z
+        .string()
+        .trim()
+        .min(1)
+        .max(512),
+    }),
   ]
 );
 

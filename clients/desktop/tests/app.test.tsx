@@ -268,6 +268,7 @@ function makeBridge(overrides: Partial<OpenMeldBridge> = {}): OpenMeldBridge {
     getAgents: () => Promise.resolve(agents(false)),
     setAgentEnabled: () => Promise.resolve(agents(true)),
     openWeb: () => Promise.resolve(),
+    openExternal: () => Promise.resolve(),
     getDesktopSettings: () => Promise.resolve(desktopSettings(false)),
     setOpenAtLogin: () => Promise.resolve(desktopSettings(true)),
     getDesktopUpdateStatus: () => Promise.resolve(desktopUpdate()),
@@ -276,6 +277,7 @@ function makeBridge(overrides: Partial<OpenMeldBridge> = {}): OpenMeldBridge {
     enterApp: () => Promise.resolve(),
     quitDesktop: () => Promise.resolve(),
     onWindowDestinationChange: () => () => undefined,
+    onNavigationRequest: () => () => undefined,
     ...overrides,
   };
 }
@@ -426,7 +428,7 @@ describe("App", () => {
     ).toBeTruthy();
   });
 
-  it("shows an OpenMeld Desktop update prompt that opens the download page", async () => {
+  it("shows an OpenMeld update prompt that opens the download page", async () => {
     const openDesktopDownloadPage = vi.fn(() => Promise.resolve());
     render(
       <App
@@ -439,9 +441,7 @@ describe("App", () => {
       />
     );
 
-    expect(
-      await screen.findByText("OpenMeld Desktop update available")
-    ).toBeTruthy();
+    expect(await screen.findByText("OpenMeld update available")).toBeTruthy();
     expect(screen.getByText(DESKTOP_UPDATE_VERSION_LINE)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Download Update" }));
@@ -561,7 +561,7 @@ describe("App", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(screen.queryByText("OpenMeld Desktop update available")).toBeNull();
+    expect(screen.queryByText("OpenMeld update available")).toBeNull();
 
     const liveStateRefresh = setIntervalSpy.mock.calls.find(
       (call) => call[1] === 30_000
@@ -585,7 +585,7 @@ describe("App", () => {
     });
 
     expect(getDesktopUpdateStatus).toHaveBeenCalledTimes(2);
-    expect(screen.getByText("OpenMeld Desktop update available")).toBeTruthy();
+    expect(screen.getByText("OpenMeld update available")).toBeTruthy();
   });
 
   it("confirms Stop OpenMeld Service from Home before calling the bridge", async () => {
@@ -745,7 +745,7 @@ describe("App", () => {
                 kind: "spawn_failed",
                 code: "desktop.node_missing",
                 message:
-                  "Node.js is required before OpenMeld Desktop can install OpenMeld CLI.",
+                  "Node.js is required before OpenMeld can install OpenMeld CLI.",
                 requestId: null,
               },
             }),
@@ -758,7 +758,7 @@ describe("App", () => {
     expect(await screen.findByText("Node.js is required.")).toBeTruthy();
     expect(
       screen.getByText(
-        "Install Node.js LTS, return to OpenMeld Desktop, then choose Try again. After Node.js and npm are available, OpenMeld Desktop will continue CLI and Service setup from this app."
+        "Install Node.js LTS, return to OpenMeld, then choose Try again. After Node.js and npm are available, OpenMeld will continue CLI and Service setup from this app."
       )
     ).toBeTruthy();
     fireEvent.click(
@@ -780,7 +780,7 @@ describe("App", () => {
                 kind: "spawn_failed",
                 code: "desktop.npm_missing",
                 message:
-                  "npm is required before OpenMeld Desktop can install OpenMeld CLI.",
+                  "npm is required before OpenMeld can install OpenMeld CLI.",
                 requestId: null,
               },
             }),
@@ -793,7 +793,7 @@ describe("App", () => {
     expect(await screen.findByText("npm is required.")).toBeTruthy();
     expect(
       screen.getByText(
-        "npm is required for OpenMeld Desktop to install OpenMeld CLI. The current Node.js LTS installer includes npm; install it, return here, then choose Try again."
+        "npm is required for OpenMeld to install OpenMeld CLI. The current Node.js LTS installer includes npm; install it, return here, then choose Try again."
       )
     ).toBeTruthy();
     fireEvent.click(
@@ -814,8 +814,7 @@ describe("App", () => {
               problem: {
                 kind: "spawn_failed",
                 code: "desktop.openmeld_cli_missing",
-                message:
-                  "OpenMeld Desktop could not find OpenMeld CLI on this Mac.",
+                message: "OpenMeld could not find OpenMeld CLI on this Mac.",
                 requestId: null,
               },
             }),
@@ -830,7 +829,7 @@ describe("App", () => {
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "OpenMeld Desktop will install the official OpenMeld CLI for you with npm. You do not need to run Terminal commands; after the install finishes, continue setup from this app."
+        "OpenMeld will install the official OpenMeld CLI for you with npm. You do not need to run Terminal commands; after the install finishes, continue setup from this app."
       )
     ).toBeTruthy();
     fireEvent.click(
@@ -888,7 +887,7 @@ describe("App", () => {
     expect(within(serviceCard).getByText("Not installed")).toBeTruthy();
     expect(
       within(serviceCard).getByText(
-        "OpenMeld Desktop will install or update OpenMeld CLI, prepare OpenMeld Service, and connect local agents from this app."
+        "OpenMeld will install or update OpenMeld CLI, prepare OpenMeld Service, and connect local agents from this app."
       )
     ).toBeTruthy();
     expect(
@@ -907,7 +906,7 @@ describe("App", () => {
     expect(within(serviceCard).getByText("Ready for Spaces")).toBeTruthy();
     expect(
       within(serviceCard).getByText(
-        "Keep OpenMeld Desktop open while setup runs. No terminal commands are needed."
+        "Keep OpenMeld open while setup runs. No terminal commands are needed."
       )
     ).toBeTruthy();
     expect(
@@ -1033,7 +1032,7 @@ describe("App", () => {
     ).toBe("page");
   });
 
-  it("opens OpenMeld Web from the Home actions menu", async () => {
+  it("opens the web app from the Home actions menu", async () => {
     const openWeb = vi.fn(() => Promise.resolve());
     render(<App bridge={makeBridge({ openWeb })} skipSplash />);
 
@@ -1044,7 +1043,7 @@ describe("App", () => {
       (await screen.findByRole("menu")).classList.contains("no-drag")
     ).toBe(true);
     fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Open OpenMeld Web" })
+      await screen.findByRole("menuitem", { name: "Open web app" })
     );
 
     expect(openWeb).toHaveBeenCalledTimes(1);
@@ -1117,9 +1116,7 @@ describe("App", () => {
     ).toBeNull();
     expect(screen.getByRole("button", { name: "Open Computers" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Account" })).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Quit OpenMeld Desktop" })
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Quit OpenMeld" })).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "Sign out on this Mac" })
     ).toBeNull();
@@ -1136,7 +1133,7 @@ describe("App", () => {
     ).toBeNull();
     fireEvent.click(
       screen.getByRole("switch", {
-        name: "Enable Open OpenMeld Desktop at login",
+        name: "Enable OpenMeld at login",
       })
     );
 
@@ -1161,14 +1158,12 @@ describe("App", () => {
     ).toBeTruthy();
   });
 
-  it("quits OpenMeld Desktop from General without a confirmation dialog", async () => {
+  it("quits OpenMeld from General without a confirmation dialog", async () => {
     const quitDesktop = vi.fn(() => Promise.resolve());
     render(<App bridge={makeBridge({ quitDesktop })} skipSplash />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Quit OpenMeld Desktop" })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Quit OpenMeld" }));
 
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(quitDesktop).toHaveBeenCalledTimes(1);
@@ -1190,7 +1185,7 @@ describe("App", () => {
     const dialog = await screen.findByRole("dialog");
     expect(
       within(dialog).getByText(
-        "Sign out applies only to OpenMeld on this Mac. It clears the local CLI session and profile selection. OpenMeld Web in your browser will stay signed in. OpenMeld Service may be stopped as part of local sign-out cleanup."
+        "Sign out applies only to OpenMeld on this Mac. It clears the local CLI session and profile selection. The OpenMeld web app in your browser will stay signed in. OpenMeld Service may be stopped as part of local sign-out cleanup."
       )
     ).toBeTruthy();
 
@@ -1498,21 +1493,21 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Directory" }));
     expect(
       await screen.findByText(
-        "Create, rename, and review account-level Agent Profiles in OpenMeld Web."
+        "Create, rename, and review account-level Agent Profiles in the OpenMeld web app."
       )
     ).toBeTruthy();
     expect(
-      screen.getAllByRole("button", { name: "Open OpenMeld Web" })
+      screen.getAllByRole("button", { name: "Open web app" })
     ).toHaveLength(2);
 
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     expect(
       await screen.findByText(
-        "Create and manage teammate identities in OpenMeld Web."
+        "Create and manage teammate identities in the OpenMeld web app."
       )
     ).toBeTruthy();
     expect(
-      screen.getAllByRole("button", { name: "Open OpenMeld Web" })
+      screen.getAllByRole("button", { name: "Open web app" })
     ).toHaveLength(2);
   });
 
@@ -1793,7 +1788,7 @@ describe("App", () => {
     expect(screen.getByText("Ready for Spaces")).toBeTruthy();
     expect(
       screen.getByText(
-        "Keep OpenMeld Desktop open while setup runs. No terminal commands are needed."
+        "Keep OpenMeld open while setup runs. No terminal commands are needed."
       )
     ).toBeTruthy();
 

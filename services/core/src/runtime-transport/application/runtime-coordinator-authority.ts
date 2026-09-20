@@ -295,12 +295,25 @@ export const RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE =
   "runtime.progress_stale" as const;
 export const RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE =
   "runtime.local_runtime_lost" as const;
+// The same stale-progress watchdog fires, but the cause is not a lost computer:
+// another app holds the native conversation's writer lock, so the dispatch never
+// produced a second piece of lifecycle evidence. It needs its own code so the
+// notice can name the real cause and the work can settle into a decision gate.
+export const RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE =
+  "runtime.controller_conversation_occupied" as const;
 export const RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE =
   "runtime_coordinator.wake_stop_requested" as const;
 export const RUNTIME_COORDINATOR_WAKE_STOP_LOCAL_CONTROL_ACCEPTED_REASON_CODE =
   "runtime_coordinator.wake_stop_local_control_accepted" as const;
 export const RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE =
   "runtime_coordinator.pre_agent_stop_requested" as const;
+// Why Core asked the computer to withdraw an attempt it had already closed.
+export const RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_OCCUPANCY_TERMINAL_REASON_CODE =
+  "runtime_coordinator.local_attempt_withdrawal_occupancy_terminal" as const;
+export const RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_SUPERSEDED_REASON_CODE =
+  "runtime_coordinator.local_attempt_withdrawal_superseded_by_continuation" as const;
+export const RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_SERVICE_AWAY_REASON_CODE =
+  "runtime_coordinator.local_attempt_withdrawal_service_away" as const;
 
 export const isRuntimeCoordinatorLateResultRecoverable = (input: {
   executionStatus: RuntimeCoordinatorExecutionStatus | null;
@@ -315,7 +328,9 @@ export const isRuntimeCoordinatorLateResultRecoverable = (input: {
   (input.terminalReasonCode ===
     RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE ||
     input.terminalReasonCode ===
-      RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE) &&
+      RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE ||
+    input.terminalReasonCode ===
+      RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE) &&
   (input.taskResultStatus === "success" ||
     input.taskResultStatus === "partial_success");
 
@@ -325,6 +340,7 @@ export type RuntimeCoordinatorPreAcceptRedeliveryExpiryCause =
 
 export type RuntimeCoordinatorRunExpiryCause =
   | RuntimeCoordinatorPreAcceptRedeliveryExpiryCause
+  | "controller_conversation_occupied"
   | "local_runtime_lost"
   | "local_progress_stale";
 
@@ -374,6 +390,24 @@ export type RuntimeCoordinatorPendingAgentInteractionState = {
   response: AgentInteractionResponse | null;
 };
 
+/**
+ * Whether the attempt on the user's computer has been withdrawn.
+ *
+ * Core reaching a terminal decision is not proof that the local Agent stopped:
+ * a stale-evidence terminal is a decision made from missing evidence, and the
+ * local task can still be queued or running. Only the Service's own
+ * acknowledgement for this exact run proves the attempt is gone, so work that
+ * replaces this one has something trustworthy to wait for.
+ */
+export type RuntimeCoordinatorLocalAttemptWithdrawal = {
+  acknowledgedAtMs: number | null;
+  reasonCode: string | null;
+  requestedAtMs: number;
+  /** Pins the evidence to one run so a stale acknowledgement cannot satisfy a newer one. */
+  runId: string;
+  status: "requested" | "withdrawn";
+};
+
 export type RuntimeCoordinatorRunCommandState = {
   activeRunId: string;
   attemptId: string;
@@ -384,6 +418,7 @@ export type RuntimeCoordinatorRunCommandState = {
   lastWatchdogCheckAtMs?: number | null;
   /** Last accepted progress for which transport recovery was required. */
   communicationRecoveryBaselineAtMs?: number | null;
+  localAttemptWithdrawal?: RuntimeCoordinatorLocalAttemptWithdrawal | null;
   localProgress: RuntimeCoordinatorRunLocalProgressState;
   modelVersion: typeof RUNTIME_COORDINATOR_RUN_COMMAND_STATE_MODEL_VERSION;
   ownerUserId: string;
@@ -1053,6 +1088,25 @@ export const resolveRuntimeCoordinatorRunCommandStateWatchdogAtMs = (
   );
 };
 
+export const resolveRuntimeCoordinatorExecutionAdmissionValidityMs = (input: {
+  commandState: RuntimeCoordinatorRunCommandState;
+  tokenExpiresAtMs: number | null;
+  nowMs: number;
+}): number => {
+  const nextObservationAtMs =
+    resolveRuntimeCoordinatorRunCommandStateWatchdogAtMs(input.commandState);
+  if (nextObservationAtMs === null) {
+    return 0;
+  }
+  return Math.max(
+    0,
+    Math.min(
+      nextObservationAtMs,
+      input.tokenExpiresAtMs ?? Number.POSITIVE_INFINITY
+    ) - input.nowMs
+  );
+};
+
 export const hasRuntimeCoordinatorProgressAdvancedSinceLastWatchdogCheck = (
   commandState: RuntimeCoordinatorRunCommandState
 ): boolean => {
@@ -1168,6 +1222,15 @@ export const buildRuntimeCoordinatorRunExpiryEventPayload = (input: {
       },
     };
   }
+  if (input.expiryCause === "controller_conversation_occupied") {
+    return {
+      controllerConversationOccupied: {
+        ...common,
+        progressEvidenceStaleTerminalAfterMs:
+          RUNTIME_COORDINATOR_PROGRESS_EVIDENCE_STALE_TERMINAL_AFTER_MS,
+      },
+    };
+  }
   if (input.expiryCause === "local_runtime_lost") {
     return {
       localRuntimeLost: common,
@@ -1240,6 +1303,17 @@ export const buildRuntimeCoordinatorProgressStaleTerminalPlan =
     action: "timeout_terminal",
     eventType: "runtime_coordinator_timeout_terminal",
     reasonCode: RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE,
+    retiredReasonCode: "execution_token_expired",
+    terminalOutcomeKind: "timed_out",
+    tokenStatus: "expired",
+  });
+
+export const buildRuntimeCoordinatorControllerConversationOccupiedTerminalPlan =
+  (): RuntimeCoordinatorTerminalDecisionPlan => ({
+    action: "timeout_terminal",
+    eventType: "runtime_coordinator_timeout_terminal",
+    reasonCode:
+      RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
     retiredReasonCode: "execution_token_expired",
     terminalOutcomeKind: "timed_out",
     tokenStatus: "expired",
@@ -1552,10 +1626,104 @@ export const isRuntimeCoordinatorRunCommandState = (
       return false;
     }
   }
+  if (
+    record.localAttemptWithdrawal !== undefined &&
+    record.localAttemptWithdrawal !== null &&
+    !isRuntimeCoordinatorLocalAttemptWithdrawal(record.localAttemptWithdrawal)
+  ) {
+    return false;
+  }
   return runtimeTransportDeliverDispatchRequestSchema.safeParse(
     record.sanitizedDeliveryRequest
   ).success;
 };
+
+const isRuntimeCoordinatorLocalAttemptWithdrawal = (
+  value: unknown
+): value is RuntimeCoordinatorLocalAttemptWithdrawal => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Partial<RuntimeCoordinatorLocalAttemptWithdrawal>;
+  return (
+    (record.status === "requested" || record.status === "withdrawn") &&
+    typeof record.runId === "string" &&
+    record.runId.length > 0 &&
+    typeof record.requestedAtMs === "number" &&
+    record.requestedAtMs >= 0 &&
+    isOptionalNullableNonNegativeNumber(record.acknowledgedAtMs) &&
+    isOptionalNullableString(record.reasonCode) &&
+    (record.status === "requested") === (record.acknowledgedAtMs == null)
+  );
+};
+
+/**
+ * Records that Core asked the computer to withdraw this attempt.
+ *
+ * Re-requesting is normal: the first control frame can be lost, refused, or
+ * sent while the Service is away. An existing acknowledgement for the same run
+ * is kept, because proof of withdrawal does not expire when someone asks again.
+ */
+export const withRuntimeCoordinatorLocalAttemptWithdrawalRequest = (input: {
+  commandState: RuntimeCoordinatorRunCommandState;
+  nowMs: number;
+  reasonCode: string | null;
+}): RuntimeCoordinatorRunCommandState => {
+  const current = input.commandState.localAttemptWithdrawal;
+  if (isRuntimeCoordinatorLocalAttemptWithdrawn(input.commandState)) {
+    return input.commandState;
+  }
+  return {
+    ...input.commandState,
+    localAttemptWithdrawal: {
+      acknowledgedAtMs: null,
+      reasonCode: input.reasonCode,
+      requestedAtMs:
+        current?.runId === input.commandState.activeRunId
+          ? current.requestedAtMs
+          : input.nowMs,
+      runId: input.commandState.activeRunId,
+      status: "requested",
+    },
+    updatedAtMs: input.nowMs,
+  };
+};
+
+/**
+ * Records the Service's own acknowledgement that this attempt is gone.
+ *
+ * Callers own the identity match. This is deliberately separate from the Wake
+ * Stop lifecycle: an execution Core already closed on stale evidence can still
+ * receive a truthful withdrawal acknowledgement, and discarding it would leave
+ * replacement work with nothing to verify.
+ */
+export const withRuntimeCoordinatorLocalAttemptWithdrawn = (input: {
+  commandState: RuntimeCoordinatorRunCommandState;
+  nowMs: number;
+  reasonCode: string | null;
+}): RuntimeCoordinatorRunCommandState => {
+  const current = input.commandState.localAttemptWithdrawal;
+  return {
+    ...input.commandState,
+    localAttemptWithdrawal: {
+      acknowledgedAtMs: input.nowMs,
+      reasonCode: input.reasonCode,
+      requestedAtMs:
+        current?.runId === input.commandState.activeRunId
+          ? current.requestedAtMs
+          : input.nowMs,
+      runId: input.commandState.activeRunId,
+      status: "withdrawn",
+    },
+    updatedAtMs: input.nowMs,
+  };
+};
+
+export const isRuntimeCoordinatorLocalAttemptWithdrawn = (
+  commandState: RuntimeCoordinatorRunCommandState
+): boolean =>
+  commandState.localAttemptWithdrawal?.status === "withdrawn" &&
+  commandState.localAttemptWithdrawal.runId === commandState.activeRunId;
 
 export const normalizeRuntimeCoordinatorFinalizationRetryEntry = (
   value: unknown

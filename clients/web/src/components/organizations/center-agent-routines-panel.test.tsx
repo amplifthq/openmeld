@@ -1173,7 +1173,9 @@ describe("CenterAgentRoutinesPanel", () => {
 				/>
 			</TestQueryClientProvider>
 		);
-		expect(screen.getByText("Loading routines.")).toBeTruthy();
+		expect(
+			screen.getByRole("status", { name: "Loading routines" })
+		).toBeTruthy();
 	});
 
 	it("keeps owner truth unchanged when pause or delete is rejected", async () => {

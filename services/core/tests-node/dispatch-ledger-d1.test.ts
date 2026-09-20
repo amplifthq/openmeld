@@ -1743,6 +1743,8 @@ describe("claimDispatchAttempt", () => {
 
   it.each([
     ["daemon.profile.offline", 2000],
+    ["daemon.service.draining", 2000],
+    ["daemon.service.draining", DISPATCH_IDEMPOTENCY_WINDOW_MS + 2000],
     ["runtime_coordinator.device_waiting", 2000],
     [
       "runtime_coordinator.device_waiting",
@@ -1762,6 +1764,9 @@ describe("claimDispatchAttempt", () => {
       targetProfileId: message.targetProfileId,
       deadlineAtMs: 604_801_000,
     };
+    if (errorCode === "daemon.service.draining") {
+      message.deviceWait = undefined;
+    }
 
     const firstClaim = await claimDispatchAttempt({
       db,
@@ -1955,7 +1960,10 @@ describe("claimDispatchAttempt", () => {
     });
   });
 
-  it("allows Queue retry to re-enter pre-execution waiting delivery as fallback trigger", async () => {
+  it.each([
+    "daemon.profile.offline",
+    "daemon.service.draining",
+  ])("allows Queue retry to re-enter pre-execution waiting delivery for %s", async (errorCode) => {
     const { db, readAttempt, readRow, seedRow, seedAttemptRow } =
       createDispatchLedgerFixture();
     const message = buildDispatchMessage({
@@ -1982,7 +1990,7 @@ describe("claimDispatchAttempt", () => {
     seeded.status = "failed_retryable";
     seedRow(seeded);
     firstAttempt.status = "failed_retryable";
-    firstAttempt.errorCode = "daemon.profile.offline";
+    firstAttempt.errorCode = errorCode;
     seedAttemptRow(firstAttempt);
 
     const retryClaim = await claimDispatchAttempt({
@@ -2008,10 +2016,16 @@ describe("claimDispatchAttempt", () => {
     });
   });
 
-  it("keeps connection_replaced retry as RuntimeCoordinator trigger evidence", async () => {
+  it.each([
+    "daemon.session.connection_replaced",
+    "daemon.service.draining",
+  ])("keeps delivered-work retry for %s as RuntimeCoordinator trigger evidence", async (errorCode) => {
     const { db, readAttempt, readRow, seedRow, seedAttemptRow } =
       createDispatchLedgerFixture();
-    const message = buildDispatchMessage();
+    const message = {
+      ...buildDispatchMessage(),
+      deliveryRecoveryReason: "connection_replaced" as const,
+    };
 
     const firstClaim = await claimDispatchAttempt({
       db,
@@ -2036,7 +2050,10 @@ describe("claimDispatchAttempt", () => {
       throw new Error("expected a seeded attempt row");
     }
     attemptRow.status = "failed_retryable";
-    attemptRow.errorCode = "daemon.session.connection_replaced";
+    attemptRow.errorCode = errorCode;
+    attemptRow.daemonSessionId = "daemon-session-existing";
+    attemptRow.connectionGeneration = 2;
+    attemptRow.leaseEpoch = 1;
     seedAttemptRow(attemptRow);
 
     const retryClaim = await claimDispatchAttempt({

@@ -5,7 +5,7 @@ import {
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { z } from "zod/v4";
 import { isSpaceFileHtml } from "#/components/spaces/space-file-html-document";
@@ -98,12 +98,12 @@ function FilePreviewPage() {
 						Version {input.revision}
 					</p>
 				</div>
-				<a
+				<Link
 					className={buttonVariants({ size: "sm", variant: "outline" })}
-					href={openSpaceUrl}
+					to={openSpaceUrl}
 				>
 					Open Space
-				</a>
+				</Link>
 			</header>
 			<div className="flex min-h-0 flex-1 flex-col p-5">
 				{query.isPending ? (

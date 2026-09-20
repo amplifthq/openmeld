@@ -1,4 +1,5 @@
 import { Button } from "@openmeld/ui/components/button";
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { RequestDetails } from "#/components/organizations/invitation-request-details";
 import { useAppSettings } from "#/components/settings/use-app-settings";
 import { useInvitationRequest } from "#/query/organizations/invitation-requests";
@@ -15,11 +16,7 @@ export function InvitationReview({
 	const { query, mutation } = useInvitationRequest(requestId);
 	const openSettings = useAppSettings();
 	if (query.isPending) {
-		return (
-			<p aria-busy="true" className="text-muted-foreground text-sm">
-				Loading request…
-			</p>
-		);
+		return <SkeletonRows label="Loading request" rows={1} />;
 	}
 	if (!query.data) {
 		return (

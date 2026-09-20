@@ -13,12 +13,14 @@ import {
 } from "./space-file-dialogs";
 import { SpaceFileMaintenanceDialog } from "./space-file-maintenance-dialog";
 import { SpaceFileUpdateSettingsDialog } from "./space-file-update-settings-dialog";
+import { SpaceWorkHandoffDialog } from "./space-work-handoff-dialog";
 import {
 	type SpaceFilesPanelProps,
 	useSpaceFilesPanelController,
 } from "./use-space-files-panel-controller";
 
 export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
+	const [handoffOpen, setHandoffOpen] = useState(false);
 	const organization = useOptionalAppOrganization();
 	const [collaborationDialog, setCollaborationDialog] = useState<
 		"notifications" | "maintenance" | null
@@ -140,6 +142,7 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 				isPending={filesQuery.isPending}
 				loaded={filesQuery.data !== undefined}
 				onDismissError={() => setActionError(null)}
+				onHandOff={organization ? () => setHandoffOpen(true) : undefined}
 				onMove={(entry) => setEntryDialog({ entry, kind: "move" })}
 				onNewFolder={() => setFolderDialogOpen(true)}
 				onNewMarkdownFile={() => setMarkdownFileDialogOpen(true)}
@@ -171,6 +174,18 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 				spaceId={input.spaceId}
 				view={view}
 			/>
+			{handoffOpen && organization ? (
+				<SpaceWorkHandoffDialog
+					api={api}
+					files={(filesQuery.data?.entries ?? []).filter(
+						(entry): entry is SpaceFileDescriptor => entry.kind === "file"
+					)}
+					onClose={() => setHandoffOpen(false)}
+					organizationId={organization.currentOrganization.id}
+					profileId={input.openMeldProfileId}
+					spaceId={input.spaceId}
+				/>
+			) : null}
 			<FolderNameDialog
 				onOpenChange={setFolderDialogOpen}
 				onSubmit={async (name) => {

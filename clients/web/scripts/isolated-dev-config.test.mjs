@@ -11,6 +11,11 @@ test("maps the shared isolated lane into Vite and Worker settings", () => {
 			BETTER_AUTH_URL: "http://localhost:31002",
 			VITE_BETTER_AUTH_URL: "http://localhost:31002",
 			VITE_OPENMELD_HOME: "/repo/.turbo/dev/isolated/wt-example/home",
+			VITE_OPENMELD_SETUP_USER_FACING_COMMAND: "openmeld-dev",
+			VITE_OPENMELD_CLI_BINARY_MANIFEST_URL:
+				"http://127.0.0.1:31004/cli/manifest.json",
+			OPENMELD_CLI_BINARY_MANIFEST_URL:
+				"http://127.0.0.1:31004/cli/manifest.json",
 			OPENMELD_DEV_ISOLATED: "1",
 			OPENMELD_DEV_LANE_ID: "wt-example",
 			OPENMELD_DEV_WEB_INSPECTOR_PORT: "31008",
@@ -26,6 +31,14 @@ test("maps the shared isolated lane into Vite and Worker settings", () => {
 			persistStatePath: "/repo/.wrangler-dev-state/isolated/wt-example/web",
 			port: 31_000,
 			vars: {
+				VITE_OPENMELD_SETUP_USER_FACING_COMMAND: "openmeld-dev",
+				VITE_OPENMELD_DEV_LANE_ID: "wt-example",
+				VITE_OPENMELD_GATEWAY_URL: "http://localhost:31001",
+				VITE_OPENMELD_WEB_URL: "http://localhost:31000",
+				VITE_OPENMELD_CLI_BINARY_MANIFEST_URL:
+					"http://127.0.0.1:31004/cli/manifest.json",
+				OPENMELD_CLI_BINARY_MANIFEST_URL:
+					"http://127.0.0.1:31004/cli/manifest.json",
 				BETTER_AUTH_URL: "http://localhost:31002",
 				VITE_BETTER_AUTH_URL: "http://localhost:31002",
 				VITE_OPENMELD_HOME: "/repo/.turbo/dev/isolated/wt-example/home",

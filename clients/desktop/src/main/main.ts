@@ -1,14 +1,17 @@
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import type {
+  DesktopInboxAttention,
+  DesktopUpdaterState,
+} from "@openmeld/schemas";
 import {
   ArrowClockwiseIcon,
+  BellIcon,
   DesktopIcon,
+  DesktopTowerIcon,
   GearSixIcon,
-  GlobeIcon,
-  PlayCircleIcon,
   PowerIcon,
-  StopCircleIcon,
-  WrenchIcon,
 } from "@phosphor-icons/react/ssr";
 import {
   app,
@@ -29,15 +32,31 @@ import {
   type DesktopWindowDestination,
   WINDOW_IPC,
 } from "../shared/ipc-contract";
+import { isDesktopAppHref } from "../shared/navigation";
+import { desktopUpdaterPresentation } from "../shared/updater-presentation";
 import type { CliProblem, ServiceView } from "../shared/view-types";
-import { resolveDesktopDownloadPageUrl } from "./desktop-environment";
+import {
+  normalizeExternalBrowserUrl,
+  resolveDesktopDownloadPageUrl,
+  resolveDesktopWebUrl,
+} from "./desktop-environment";
 import { installedCommandEnvironment } from "./installed-environment";
 import { createDesktopHandlers, type DesktopHandlers } from "./ipc-handlers";
 import { initializeDesktopPilot } from "./pilot";
+import type {
+  DesktopTrayContext,
+  DesktopTrayPresentation,
+} from "./pilot-notifications";
 import { createPilotServiceHandlers } from "./pilot-service";
 import { registerOpenMeldIpcHandlers } from "./register-ipc";
 import { assertTrustedRenderer } from "./renderer-trust";
-import { readDesktopUpdateStatus } from "./update/desktop-update";
+import {
+  createTrayTemplateImage,
+  hasTrayUnreadDot,
+  trayAttentionTitle,
+} from "./tray-image";
+import { createDesktopUpdateInboxReporter } from "./update/desktop-update-inbox-reporter";
+import { registerAppUpdater } from "./update/register-app-updater";
 
 // Keep the native window at the full Desktop workspace size from launch so the
 // app shell never flashes through a compact splash-sized frame.
@@ -45,7 +64,14 @@ const APP_WIDTH = 1040;
 const APP_HEIGHT = 720;
 const APP_MIN_WIDTH = 960;
 const APP_MIN_HEIGHT = 640;
-const APP_NAME = "OpenMeld Desktop";
+const APP_NAME = "OpenMeld";
+// These UTF-16 text budgets keep native auto-layout compact without claiming a
+// pixel width. Truncation always retreats to a complete grapheme boundary.
+const TRAY_PREVIEW_SOURCE_TEXT_BUDGET = 22;
+const TRAY_PREVIEW_BODY_TEXT_BUDGET = 32;
+const NATIVE_MENU_GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, {
+  granularity: "grapheme",
+});
 const APP_ICON_PATH = join(import.meta.dirname, "../../resources/icon.png");
 const TRAY_ICON_PATH = join(
   import.meta.dirname,
@@ -62,21 +88,39 @@ app.setName(APP_NAME);
 
 let handlers: DesktopHandlers;
 let ipcDisposer: (() => void) | null = null;
-let isQuitting = false;
+let quitIntent: "none" | "ordinary" | "updater-install" = "none";
 let mainWindow: BrowserWindow | null = null;
-const pilot = initializeDesktopPilot(() => mainWindow);
 let tray: Tray | null = null;
-let latestServiceView: ServiceView | null = null;
+let trayAttention: DesktopInboxAttention | null = null;
+let trayContext: DesktopTrayContext | null = null;
+let trayMenuOpen = false;
+let trayMenuRefreshPending = false;
+let trayPresentation: DesktopTrayPresentation = { status: "loading" };
+let trayUpdaterState: DesktopUpdaterState | null = null;
+const pilot = initializeDesktopPilot(
+  () => mainWindow,
+  (attention) => {
+    trayAttention = attention;
+    updateTrayImage();
+    updateTrayMenu();
+  },
+  (presentation) => {
+    trayPresentation = presentation;
+    updateTrayMenu();
+  },
+  (context) => {
+    trayContext = context;
+    updateTrayMenu();
+  },
+  invalidateOpenTrayMenu
+);
+let appUpdater: ReturnType<typeof registerAppUpdater> | null = null;
+let inboxUpdateReporter:
+  | ReturnType<typeof createDesktopUpdateInboxReporter>
+  | undefined;
 
 type SyncTrayOptions = {
   showProblem: boolean;
-};
-
-type ConfirmTrayActionInput = {
-  title: string;
-  message: string;
-  detail: string;
-  confirmLabel: string;
 };
 
 function createMainWindow(
@@ -91,7 +135,10 @@ function createMainWindow(
     show: false,
     title: APP_NAME,
     backgroundColor: WINDOW_BACKGROUND,
-    titleBarStyle: "hiddenInset",
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
+    ...(process.platform !== "darwin"
+      ? { titleBarOverlay: { height: 38 } }
+      : {}),
     webPreferences: {
       ...(pilot ? { session: pilot.getSession() } : {}),
       preload: join(import.meta.dirname, "../preload/index.cjs"),
@@ -105,11 +152,32 @@ function createMainWindow(
   }
 
   const window = new BrowserWindow(options);
+  window.maximize();
   pilot?.observeWindow(window.webContents);
 
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  window.webContents.on("will-navigate", (event) => {
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    const browserUrl = resolveBrowserHandoffUrl(url);
+    if (browserUrl) {
+      openExternalBrowserUrl(browserUrl);
+    }
+    return { action: "deny" };
+  });
+  window.webContents.on("will-navigate", (event, url) => {
     event.preventDefault();
+    const href = resolveInAppNavigationHref(url);
+    if (href) {
+      window.webContents.send(WINDOW_IPC.navigateHref, href);
+      return;
+    }
+    const browserUrl = resolveBrowserHandoffUrl(url);
+    if (browserUrl) {
+      openExternalBrowserUrl(browserUrl);
+    }
+  });
+  window.webContents.on("will-prevent-unload", () => {
+    if (quitIntent === "ordinary") {
+      quitIntent = "none";
+    }
   });
 
   window.once("ready-to-show", () => {
@@ -117,7 +185,7 @@ function createMainWindow(
   });
 
   window.on("close", (event) => {
-    if (isQuitting) {
+    if (quitIntent !== "none") {
       return;
     }
     event.preventDefault();
@@ -138,6 +206,58 @@ function createMainWindow(
     })
   );
   return window;
+}
+
+function openExternalBrowserUrl(value: string): void {
+  try {
+    runBackgroundTask(shell.openExternal(normalizeExternalBrowserUrl(value)));
+  } catch {
+    return;
+  }
+}
+
+function resolveInAppNavigationHref(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    const url = new URL(value);
+    const origin = `${url.protocol}//${url.host}`;
+    if (
+      origin !== "openmeld-desktop://app" &&
+      (!pilot || url.origin !== pilot.webOrigin)
+    ) {
+      return null;
+    }
+    const href = `${url.pathname}${url.search}${url.hash}`;
+    return isDesktopAppHref(href) ? href : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveBrowserHandoffUrl(value: string): string | null {
+  const appHref = resolveInAppNavigationHref(value);
+  if (appHref) {
+    try {
+      return resolveDesktopWebUrl({
+        env: pilot?.installedTarget
+          ? installedCommandEnvironment(
+              pilot.installedTarget,
+              app.getPath("userData")
+            ).env
+          : process.env,
+        path: appHref,
+      });
+    } catch {
+      return null;
+    }
+  }
+  try {
+    return normalizeExternalBrowserUrl(value);
+  } catch {
+    return null;
+  }
 }
 
 function configureAppIdentity(): void {
@@ -167,6 +287,12 @@ function createApplicationMenu(): MenuItemConstructorOptions[] {
       label: APP_NAME,
       submenu: [
         { label: `About ${APP_NAME}`, role: "about" },
+        {
+          label: "Check for Updates…",
+          click: () => {
+            appUpdater?.showNative().catch(console.error);
+          },
+        },
         { type: "separator" },
         {
           accelerator: "Command+,",
@@ -210,7 +336,7 @@ function createApplicationMenu(): MenuItemConstructorOptions[] {
       submenu: [
         {
           click: () => runTrayAction(() => handlers.openWeb()),
-          label: "Open OpenMeld Web App",
+          label: "Open Web App",
         },
       ],
     }
@@ -296,12 +422,19 @@ function sendWindowDestination(
   if (window.isDestroyed()) {
     return;
   }
+  if (window.webContents.isLoadingMainFrame()) {
+    window.webContents.once("did-finish-load", () =>
+      sendWindowDestination(window, destination)
+    );
+    return;
+  }
   window.webContents.send(WINDOW_IPC.navigateDestination, destination);
 }
 
 function createTray(): Tray {
   const nextTray = new Tray(createTrayImage());
   tray = nextTray;
+  updateTrayImage();
   updateTrayMenu();
   runBackgroundTask(refreshTrayStatus(), { showError: false });
   return nextTray;
@@ -311,113 +444,181 @@ function updateTrayMenu(): void {
   if (!tray) {
     return;
   }
+  if (trayMenuOpen) {
+    trayMenuRefreshPending = true;
+    return;
+  }
   tray.setToolTip(resolveTrayTooltip());
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      {
-        label: resolveTrayStatusLabel(),
-        enabled: false,
-      },
-      {
-        label: resolveTrayDesktopVersionLabel(),
-        enabled: false,
-      },
-      { type: "separator" },
-      trayActionItem({
-        icon: "desktop",
-        label: "Open OpenMeld Desktop",
-        click: showStatusWindow,
-      }),
-      trayActionItem({
-        icon: "web",
-        label: "Open OpenMeld Web App",
-        click: () => {
-          runTrayAction(() => handlers.openWeb());
-        },
-      }),
-      { type: "separator" },
-      trayActionItem({
-        icon: "settings",
-        label: "Open Settings",
-        click: showSettingsWindow,
-      }),
-      { type: "separator" },
-      ...serviceMenuItems(),
-      { type: "separator" },
-      trayActionItem({
-        icon: "quit",
-        label: "Quit OpenMeld Desktop",
-        click: quitDesktop,
-      }),
-    ])
-  );
+  const menu = Menu.buildFromTemplate(createTrayMenuTemplate());
+  if ("on" in menu && typeof menu.on === "function") {
+    menu.on("menu-will-show", () => {
+      trayMenuOpen = true;
+    });
+    menu.on("menu-will-close", () => {
+      trayMenuOpen = false;
+      if (trayMenuRefreshPending) {
+        trayMenuRefreshPending = false;
+        updateTrayMenu();
+      }
+    });
+  }
+  tray.setContextMenu(menu);
 }
 
-/**
- * The service controls are binary: a running service only offers Stop (plus
- * Reconnect), a stopped service only offers Start, and a service that isn't
- * installed (or whose status / CLI can't be read) only offers Set Up. This
- * mirrors the GUI's per-state screens — we never show both Start and Stop.
- */
-function serviceMenuItems(): MenuItemConstructorOptions[] {
-  if (pilot) {
+function invalidateOpenTrayMenu(): void {
+  if (!trayMenuOpen) {
+    return;
+  }
+  trayMenuOpen = false;
+  trayMenuRefreshPending = false;
+  tray?.closeContextMenu();
+}
+
+function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
+  const preview = trayPreviewMenuItems(trayPresentation);
+  const updater = trayUpdaterMenuItems(trayUpdaterState);
+  const unreadCount = trayContext?.unreadCount;
+  const computer = trayContext?.computer;
+  const computerStatus = computer?.statusLabel ?? "Checking…";
+  const nativeMenuCapabilities = resolveNativeMenuCapabilities();
+  return [
+    ...preview,
+    trayActionItem({
+      icon: "inbox",
+      label: "Open Inbox",
+      ...(trayAttention || (unreadCount && unreadCount > 0)
+        ? {
+            sublabel: [
+              ...(unreadCount && unreadCount > 0
+                ? [`${unreadCount} unread`]
+                : []),
+              ...(trayAttention?.unreadMentionCount
+                ? [
+                    `${trayAttention.unreadMentionCount} ${trayAttention.unreadMentionCount === 1 ? "mention" : "mentions"}`,
+                  ]
+                : []),
+              ...(trayAttention?.unresolvedActionCount
+                ? [`${trayAttention.unresolvedActionCount} pending`]
+                : []),
+              ...(trayAttention?.unreadUrgentUpdateCount
+                ? [`${trayAttention.unreadUrgentUpdateCount} urgent`]
+                : []),
+            ].join(" · "),
+          }
+        : {}),
+      click: () => showDesktopWindow("inbox"),
+    }),
+    { type: "separator" },
+    trayActionItem({
+      icon: "desktop",
+      label: "Open App",
+      click: showStatusWindow,
+    }),
+    trayActionItem({
+      icon: "computer",
+      label: nativeMenuCapabilities.badge
+        ? "Computer"
+        : `Computer — ${computerStatus}`,
+      accessibilityLabel: `Computer, ${computerStatus}`,
+      ...(nativeMenuCapabilities.badge
+        ? { badge: { type: "none" as const, content: computerStatus } }
+        : {}),
+      enabled: computer?.available ?? Boolean(pilot),
+      click: () => showDesktopWindow("computer"),
+    }),
+    trayActionItem({
+      icon: "settings",
+      label: "Settings…",
+      click: showSettingsWindow,
+    }),
+    ...updater,
+    { type: "separator" },
+    trayActionItem({
+      icon: "quit",
+      label: "Quit OpenMeld",
+      click: quitDesktop,
+    }),
+  ];
+}
+
+function trayUpdaterMenuItems(
+  state: DesktopUpdaterState | null
+): MenuItemConstructorOptions[] {
+  const presentation = desktopUpdaterPresentation(state);
+  if (!presentation.attention) {
     return [];
   }
-  const setupItem: MenuItemConstructorOptions = {
-    icon: createTrayMenuIcon("setup"),
-    label: resolveSetupComputerLabel(),
-    click: () => runServiceTrayAction(() => handlers.setupComputer()),
-  };
-  const cliMissing = latestServiceView?.problem?.kind === "spawn_failed";
-  if (cliMissing) {
-    return [setupItem];
+  const label = (() => {
+    if (state?.status === "downloading") {
+      return "Downloading Update…";
+    }
+    if (state?.status === "downloaded") {
+      return "Restart to Update…";
+    }
+    if (state?.status === "error") {
+      return "Update Needs Attention…";
+    }
+    return "Update Available…";
+  })();
+  const nativeMenuCapabilities = resolveNativeMenuCapabilities();
+  return [
+    trayActionItem({
+      icon: "updates",
+      label,
+      accessibilityLabel: `${presentation.headline}. ${presentation.description}`,
+      ...(nativeMenuCapabilities.badge
+        ? { badge: { type: "updates" as const, count: 1 } }
+        : {}),
+      click: () => appUpdater?.showNative().catch(console.error),
+    }),
+  ];
+}
+
+function trayPreviewMenuItems(
+  presentation: DesktopTrayPresentation
+): MenuItemConstructorOptions[] {
+  if (presentation.status === "ready") {
+    const item = presentation.item;
+    const reference = item.reference;
+    const source = item.contextLabel
+      ? `${item.title} · ${item.contextLabel}`
+      : item.title;
+    const relativeTime = formatRelativeTime(item.occurredAt);
+    const headline = `${truncateNativeMenuText(
+      source,
+      TRAY_PREVIEW_SOURCE_TEXT_BUDGET
+    )} · ${relativeTime}`;
+    const preview = truncateNativeMenuText(
+      item.preview,
+      TRAY_PREVIEW_BODY_TEXT_BUDGET
+    );
+    return [
+      { label: "Latest unread", enabled: false },
+      {
+        // Native labels size the menu to their content. macOS sublabels can
+        // wrap independently, so keep the preview in the single-line label.
+        label: preview ? `${headline} — ${preview}` : headline,
+        accessibilityLabel: `${source} · ${relativeTime} — ${item.preview}`,
+        toolTip: item.preview,
+        click: () => {
+          showDesktopWindow();
+          runBackgroundTask(
+            pilot?.activateNotification(reference) ?? Promise.resolve()
+          );
+        },
+      },
+    ];
   }
-  switch (latestServiceView?.lifecycle) {
-    case "running":
-      return [
-        trayActionItem({
-          icon: "reconnect",
-          label: setupItem.label ?? resolveSetupComputerLabel(),
-          click: () =>
-            runConfirmedServiceTrayAction(
-              {
-                title: "Reconnect this computer?",
-                message: "Reconnect This Computer",
-                detail:
-                  "This reruns setup for this Mac and may restart OpenMeld Service. It will not sign you out.",
-                confirmLabel: "Reconnect This Computer",
-              },
-              () => handlers.setupComputer()
-            ),
-        }),
-        trayActionItem({
-          icon: "stop",
-          label: "Stop OpenMeld Service",
-          click: () =>
-            runConfirmedServiceTrayAction(
-              {
-                title: "Stop OpenMeld Service?",
-                message: "Stop OpenMeld Service on this Mac",
-                detail:
-                  "This Mac cannot receive local Wake work until OpenMeld Service is started again.",
-                confirmLabel: "Stop OpenMeld Service",
-              },
-              () => handlers.stopService()
-            ),
-        }),
-      ];
-    case "stopped":
-      return [
-        trayActionItem({
-          icon: "start",
-          label: "Start OpenMeld Service",
-          click: () => runServiceTrayAction(() => handlers.startService()),
-        }),
-      ];
-    default:
-      // not_installed / unknown / unread — Set Up is the only safe action.
-      return [setupItem];
+  if (presentation.status === "empty") {
+    return [];
   }
+  const label = {
+    loading: "Loading notifications…",
+    no_unread_messages: "No message preview available",
+    signed_out: "Sign in to view notifications",
+    unavailable: "Notifications unavailable",
+  }[presentation.status];
+  return [{ label, enabled: false }];
 }
 
 function trayActionItem(
@@ -428,14 +629,12 @@ function trayActionItem(
 }
 
 type TrayMenuIconName =
+  | "computer"
   | "desktop"
+  | "inbox"
   | "quit"
-  | "reconnect"
   | "settings"
-  | "setup"
-  | "start"
-  | "stop"
-  | "web";
+  | "updates";
 
 type TrayMenuIconComponent = ComponentType<{
   color?: string;
@@ -444,14 +643,12 @@ type TrayMenuIconComponent = ComponentType<{
 }>;
 
 const TRAY_MENU_ICONS = {
+  computer: DesktopTowerIcon,
   desktop: DesktopIcon,
+  inbox: BellIcon,
   quit: PowerIcon,
-  reconnect: ArrowClockwiseIcon,
   settings: GearSixIcon,
-  setup: WrenchIcon,
-  start: PlayCircleIcon,
-  stop: StopCircleIcon,
-  web: GlobeIcon,
+  updates: ArrowClockwiseIcon,
 } satisfies Record<TrayMenuIconName, TrayMenuIconComponent>;
 
 function createTrayMenuIcon(name: TrayMenuIconName) {
@@ -471,40 +668,6 @@ function createTrayMenuIcon(name: TrayMenuIconName) {
   );
 }
 
-function runServiceTrayAction(mutate: () => Promise<ServiceView>): void {
-  runTrayAction(async () => {
-    syncTrayServiceView(await mutate(), { showProblem: true });
-  });
-}
-
-function runConfirmedServiceTrayAction(
-  confirm: ConfirmTrayActionInput,
-  mutate: () => Promise<ServiceView>
-): void {
-  runTrayAction(async () => {
-    if (!(await confirmTrayAction(confirm))) {
-      return;
-    }
-    syncTrayServiceView(await mutate(), { showProblem: true });
-  });
-}
-
-async function confirmTrayAction(
-  input: ConfirmTrayActionInput
-): Promise<boolean> {
-  const result = await dialog.showMessageBox({
-    type: "warning",
-    title: input.title,
-    message: input.message,
-    detail: input.detail,
-    buttons: ["Cancel", input.confirmLabel],
-    defaultId: 0,
-    cancelId: 0,
-    noLink: true,
-  });
-  return result.response === 1;
-}
-
 async function refreshTrayStatus(): Promise<void> {
   syncTrayServiceView(await handlers.getServiceStatus(), {
     showProblem: false,
@@ -515,7 +678,6 @@ function syncTrayServiceView(
   view: ServiceView,
   options: SyncTrayOptions
 ): void {
-  latestServiceView = view;
   updateTrayMenu();
   if (options.showProblem && view.problem) {
     showProblem(resolveProblemTitle(view.problem), view.problem);
@@ -536,7 +698,7 @@ function runBackgroundTask(
       return;
     }
     const message = error instanceof Error ? error.message : String(error);
-    dialog.showErrorBox("OpenMeld Desktop", message);
+    dialog.showErrorBox(APP_NAME, message);
   });
 }
 
@@ -549,55 +711,145 @@ function showProblem(title: string, problem: CliProblem): void {
 
 function resolveProblemTitle(problem: CliProblem): string {
   if (problem.kind === "spawn_failed") {
-    return "OpenMeld Desktop could not find the OpenMeld command-line tool.";
+    return "OpenMeld could not find the OpenMeld command-line tool.";
   }
-  return "OpenMeld Desktop could not update the service.";
-}
-
-function resolveTrayStatusLabel(): string {
-  if (latestServiceView?.problem?.kind === "spawn_failed") {
-    return "OpenMeld Command-Line Tool: Not Available";
-  }
-  switch (latestServiceView?.lifecycle) {
-    case "running":
-      return "OpenMeld Service: Running";
-    case "stopped":
-      return "OpenMeld Service: Stopped";
-    case "not_installed":
-      return "OpenMeld Service: Not Installed";
-    case "unknown":
-      return "OpenMeld Service: Status Unavailable";
-    default:
-      return "OpenMeld Service: Checking Status";
-  }
-}
-
-function resolveTrayDesktopVersionLabel(): string {
-  return `OpenMeld Desktop: v${app.getVersion()}`;
+  return "OpenMeld could not update the service.";
 }
 
 function resolveTrayTooltip(): string {
-  return resolveTrayStatusLabel().replace(": ", " - ");
+  const service = APP_NAME;
+  const attention = formatTrayAttentionTooltip(trayAttention);
+  return attention ? `${service}\n${attention}` : service;
 }
 
-function resolveSetupComputerLabel(): string {
-  return latestServiceView?.lifecycle === "running"
-    ? "Reconnect This Computer"
-    : "Set Up This Computer";
+function formatTrayAttentionTooltip(
+  attention: DesktopInboxAttention | null
+): string | null {
+  if (!attention) {
+    return null;
+  }
+  const details = [
+    ...(attention.needsActionCount === undefined
+      ? []
+      : [
+          `${attention.needsActionCount} needs action, ${attention.needsReviewCount ?? 0} needs review`,
+        ]),
+    ...(attention.unresolvedActionCount > 0
+      ? [
+          `${attention.unresolvedActionCount} pending ${attention.unresolvedActionCount === 1 ? "action or review" : "actions or reviews"}`,
+        ]
+      : []),
+    ...(attention.unreadUrgentUpdateCount > 0
+      ? [
+          `${attention.unreadUrgentUpdateCount} unread priority ${attention.unreadUrgentUpdateCount === 1 ? "update" : "updates"}`,
+        ]
+      : []),
+    ...(attention.unreadMentionCount > 0
+      ? [
+          `${attention.unreadMentionCount} unread ${attention.unreadMentionCount === 1 ? "mention" : "mentions"}`,
+        ]
+      : []),
+    ...(attention.ordinaryUnreadCount > 0
+      ? [
+          `${attention.ordinaryUnreadCount} other unread ${attention.ordinaryUnreadCount === 1 ? "update" : "updates"}`,
+        ]
+      : []),
+  ];
+  return details.length > 0
+    ? `Inbox - ${details.join(", ")}`
+    : "Inbox - All caught up";
+}
+
+function resolveNativeMenuCapabilities(): {
+  badge: boolean;
+} {
+  if (
+    process.platform !== "darwin" ||
+    typeof process.getSystemVersion !== "function"
+  ) {
+    return { badge: false };
+  }
+  const [major = 0] = process
+    .getSystemVersion()
+    .split(".")
+    .map((part) => Number.parseInt(part, 10));
+  return {
+    badge: major >= 14,
+  };
+}
+
+function truncateNativeMenuText(value: string, textBudget: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= textBudget) {
+    return normalized;
+  }
+  if (textBudget <= 0) {
+    return "";
+  }
+  if (textBudget === 1) {
+    return "…";
+  }
+
+  const contentBudget = textBudget - 1;
+  let truncationIndex = 0;
+  for (const grapheme of NATIVE_MENU_GRAPHEME_SEGMENTER.segment(normalized)) {
+    const nextIndex = grapheme.index + grapheme.segment.length;
+    if (nextIndex > contentBudget) {
+      break;
+    }
+    truncationIndex = nextIndex;
+  }
+  return `${normalized.slice(0, truncationIndex).trimEnd()}…`;
+}
+
+function formatRelativeTime(value: string): string {
+  const occurredAt = Date.parse(value);
+  if (!Number.isFinite(occurredAt)) {
+    return "now";
+  }
+  const elapsedMs = Math.max(0, Date.now() - occurredAt);
+  const minutes = Math.floor(elapsedMs / 60_000);
+  if (minutes < 1) {
+    return "now";
+  }
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h`;
+  }
+  return `${Math.floor(hours / 24)}d`;
 }
 
 function quitDesktop(): void {
-  isQuitting = true;
+  if (quitIntent !== "updater-install") {
+    quitIntent = "ordinary";
+  }
   app.quit();
 }
 
-function createTrayImage() {
+function createTrayImage(unread = false) {
   const image = nativeImage.createFromPath(TRAY_ICON_PATH);
+  if (process.platform === "darwin" && !image.isEmpty()) {
+    return createTrayTemplateImage(image, unread);
+  }
   const resizedImage = image.isEmpty()
     ? createAppIcon()
     : image.resize({ height: 18 });
   resizedImage?.setTemplateImage(true);
   return resizedImage ?? nativeImage.createEmpty();
+}
+
+function updateTrayImage(): void {
+  if (!tray || process.platform !== "darwin") {
+    return;
+  }
+  const title = trayAttentionTitle(trayAttention);
+  const unread = hasTrayUnreadDot(trayAttention);
+  // Native text keeps counts crisp and accessible; ordinary unread has no title.
+  tray.setTitle(title, { fontType: "monospacedDigit" });
+  tray.setImage(createTrayImage(unread));
 }
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -606,7 +858,9 @@ if (hasSingleInstanceLock) {
   app.on("second-instance", showStatusWindow);
 
   app.on("before-quit", () => {
-    isQuitting = true;
+    if (quitIntent !== "updater-install") {
+      quitIntent = "ordinary";
+    }
   });
 
   app.on("window-all-closed", () => {
@@ -625,6 +879,45 @@ function bootstrapApp(): void {
   runBackgroundTask(
     app.whenReady().then(() => {
       pilot?.install(authorizeRenderer);
+      const nativeUpdatesEnabled =
+        app.isPackaged &&
+        (process.platform === "darwin" || process.platform === "win32") &&
+        pilot?.installedTarget?.kind === "production";
+      if (nativeUpdatesEnabled && pilot) {
+        try {
+          const currentPilot = pilot;
+          inboxUpdateReporter = createDesktopUpdateInboxReporter({
+            userData: app.getPath("userData"),
+            lane: "prod",
+            deviceName: hostname(),
+            platform: process.platform === "win32" ? "win32" : "darwin",
+            currentUserId: async () =>
+              (await currentPilot.auth.session()).user?.id ?? null,
+            send: currentPilot.reportDesktopUpdateObservation,
+          });
+          currentPilot.setDesktopUpdateAccountListener(
+            inboxUpdateReporter.accountChanged
+          );
+        } catch (error) {
+          console.warn("[openmeld.desktop.inbox_update_source_unavailable]", {
+            error,
+          });
+        }
+      }
+      const updater = registerAppUpdater({
+        enabled: nativeUpdatesEnabled,
+        inboxSource: inboxUpdateReporter,
+        authorize: authorizeRenderer,
+        getWindow: () => mainWindow,
+        onStateChanged: (state) => {
+          trayUpdaterState = state;
+          updateTrayMenu();
+        },
+        setInstalling: (value) => {
+          quitIntent = value ? "updater-install" : "none";
+        },
+      });
+      appUpdater = updater;
       const commandDeps = pilot?.installedTarget
         ? installedCommandEnvironment(
             pilot.installedTarget,
@@ -641,11 +934,7 @@ function bootstrapApp(): void {
           },
         },
         desktopUpdate: {
-          getStatus: () =>
-            readDesktopUpdateStatus({
-              currentVersion: app.getVersion(),
-              env: commandDeps?.env ?? process.env,
-            }),
+          getStatus: updater.legacyStatus,
           openDownloadPage: async () => {
             await shell.openExternal(
               resolveDesktopDownloadPageUrl({
@@ -671,8 +960,7 @@ function bootstrapApp(): void {
         authorizeRenderer(event);
         const window = BrowserWindow.fromWebContents(event.sender);
         if (window && !window.isDestroyed()) {
-          window.setSize(APP_WIDTH, APP_HEIGHT, true);
-          window.center();
+          window.maximize();
         }
       });
       ipcMain.handle(WINDOW_IPC.quitDesktop, (event) => {
@@ -681,6 +969,7 @@ function bootstrapApp(): void {
       });
       createTray();
       showStatusWindow();
+      appUpdater.check()?.catch(console.error);
     })
   );
 }
@@ -744,6 +1033,7 @@ function createWindowIpcHandlers(
 }
 
 app.on("will-quit", () => {
+  inboxUpdateReporter?.dispose();
   pilot?.dispose();
   ipcDisposer?.();
   ipcDisposer = null;

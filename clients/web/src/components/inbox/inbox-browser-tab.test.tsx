@@ -33,7 +33,9 @@ describe("Inbox browser tab lifecycle", () => {
 		const client = new QueryClient();
 		const summary: InboxSummaryResponse = {
 			organizationId: "org-a",
+			ordinaryUnreadCount: 127,
 			totalUnreadCount: 127,
+			unreadMentionCount: 0,
 			unresolvedActionCount: 0,
 			unreadUrgentUpdateCount: 0,
 		};
