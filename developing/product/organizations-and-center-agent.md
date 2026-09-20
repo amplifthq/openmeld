@@ -657,6 +657,25 @@ Local Agent request remains unlabelled rather than being guessed.
 
 ### Computer setup assistance
 
+Computer care reuses these reads and controls. A targeted
+`openmeld_list_computers` read includes path-free Local Agent diagnostics and
+`care`: current connection lookup, last heartbeat, supervisor response
+evidence, and the last acknowledged Execution Host observation when supported.
+Host observations carry their own time and incarnation, not process IDs or
+paths. A missing observation is unknown; an unresponsive Host does not imply
+that accepted work stopped. Local counts do not identify affected cloud tasks.
+
+For a specific task, Center Agent reads the existing Wake progress and execution
+recovery projections, including device wait, pending interaction, stop
+eligibility and pagination. It must not infer the occupying application's
+identity from a conversation writer conflict or attribute all queued work to
+one blocker. It may combine authorized observations to investigate, but does
+not create a second scheduler or maintenance state machine. Existing owner
+controls retain their authorization and confirmation rules; after a mutation,
+Center Agent re-reads its operation or owning projection before claiming repair.
+No arbitrary local shell, process termination, lock deletion, or boundary
+bypass is introduced. Team-safe reads remain separate from private diagnosis.
+
 The Center Agent may help the represented member connect a new computer,
 reconnect an existing computer, or install a required OpenMeld Service update.
 Before recommending one of those actions, it reads the Core-owned current

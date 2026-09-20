@@ -44,11 +44,11 @@ vi.mock("../src/local-service/routing/resolve-controller-support", async () => {
 });
 
 import type { RouteCatalog } from "../src/local-service/core/types";
+import { loadDaemonRouteCatalog } from "../src/local-service/routing/route-catalog";
 import {
   createMutableRouteCatalogState,
-  loadDaemonRouteCatalog,
   syncDaemonRouteCatalogState,
-} from "../src/local-service/routing/route-catalog";
+} from "../src/local-service/routing/route-catalog-state";
 
 const createRouteCatalog = (profileIds: string[]): RouteCatalog => ({
   profileIds,
