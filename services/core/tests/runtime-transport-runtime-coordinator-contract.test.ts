@@ -19805,6 +19805,61 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
+  it("keeps a failed head reread unknown instead of reporting that nothing started", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const { hub, sentFrames, socket, state, storageRecords } = createHarness({
+        agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+      });
+      await issueDeliveryToken({ hub, sentFrames, socket, state });
+      const admissionKey =
+        runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+          TARGET_AGENT_PROFILE_ID
+        );
+      const admission = storageRecordsAdmission(storageRecords, admissionKey);
+      const interrupted = admission.workItems[0];
+      if (!interrupted) {
+        throw new Error("Expected the delivered Wake to hold the work slot.");
+      }
+      storageRecords.set(admissionKey, {
+        ...admission,
+        recoveryGate: {
+          continuationClientMessageId: null,
+          interruptedWork: interrupted,
+          status: "awaiting_occupancy_decision",
+          updatedAtMs: 1_700_000_000_000,
+        },
+        workItems: [],
+      });
+
+      const withdrawalHub = hub as unknown as {
+        readRuntimeCoordinatorHeadLifecycleRecord: (
+          targetWakeLifecycleId: string
+        ) => Promise<unknown>;
+        rpcRequestAgentProfileWorkLocalAttemptWithdrawal: (input: {
+          expectedInterruptedTargetWakeLifecycleId: string;
+          ownerUserId: string;
+          targetProfileId: string;
+        }) => Promise<unknown>;
+      };
+      // The recovery read resolves the head from admission storage and still
+      // reports `awaiting_withdrawal`; only this call's own reread fails.
+      withdrawalHub.readRuntimeCoordinatorHeadLifecycleRecord = () =>
+        Promise.reject(new Error("storage unavailable"));
+
+      await expect(
+        withdrawalHub.rpcRequestAgentProfileWorkLocalAttemptWithdrawal({
+          expectedInterruptedTargetWakeLifecycleId:
+            interrupted.targetWakeLifecycleId,
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toEqual({ status: "unavailable" });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("refuses a withdrawal acknowledgement that names a different task", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {

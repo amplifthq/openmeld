@@ -2208,18 +2208,32 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ) {
       return { status: "not_pending" };
     }
-    if (
-      recovery.status === "available" &&
-      recovery.interruptedLocalAttempt === "withdrawn"
-    ) {
-      return { status: "withdrawn" };
+    // The recovery read already resolved this from an authoritative head, so
+    // both settled answers come from there. Rereading the head is only how this
+    // call addresses the attempt it still has to ask about.
+    if (recovery.status === "available") {
+      if (recovery.interruptedLocalAttempt === "withdrawn") {
+        return { status: "withdrawn" };
+      }
+      if (recovery.interruptedLocalAttempt === "not_started") {
+        return { status: "not_started" };
+      }
     }
     const head = await this.readRuntimeCoordinatorHeadLifecycleRecord(
       interruptedTargetWakeLifecycleId
-    ).catch(() => null);
+    ).catch((error: unknown) => {
+      console.warn(
+        "[core.runtime_transport.local_attempt_withdrawal_head_unreadable]",
+        { error, targetWakeLifecycleId: interruptedTargetWakeLifecycleId }
+      );
+      return null;
+    });
     const executionId = head?.runtimeCoordinatorExecutionId;
     if (!executionId) {
-      return { status: "not_started" };
+      // A head that cannot be read is not a head that never started work.
+      // Answering `not_started` here would turn a read failure into permission
+      // to run the same instruction again.
+      return { status: "unavailable" };
     }
     const commandState = await this.readRuntimeCoordinatorRunCommandState(
       executionId
