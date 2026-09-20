@@ -1,5 +1,7 @@
 import {
   describeLinkedGitHubIssueClosePrompt,
+  SPACE_TASK_EXTERNAL_WORK_ITEM_LIMIT_ERROR_CODE,
+  SPACE_TASK_LIST_MAX_ITEMS,
   spaceTaskMutationReceiptSchema,
   spaceTaskSchema,
 } from "@openmeld/schemas";
@@ -14,6 +16,7 @@ import {
   applyGitHubIssueSpaceTaskBinding,
   findSpaceTaskForGitHubIssue,
   readGitHubIssueIdentityFromWrite,
+  type SpaceTaskGitHubBindingError,
   shouldBindGitHubIssueToSpaceTask,
 } from "../agent-core/space-task-github-binding";
 
@@ -179,7 +182,7 @@ describe("GitHub issue Space Task binding", () => {
         getSpaceTask: vi.fn(),
         listSpaceTasks: vi.fn(async () => ({
           tasks: [existing],
-          truncated: false,
+          truncated: true,
         })),
         mutateSpaceTask: vi.fn(),
       },
@@ -273,5 +276,62 @@ describe("GitHub issue Space Task binding", () => {
       },
     });
     expect(summary).toBeNull();
+  });
+
+  it.each([
+    {
+      actionId: "github.create_issue" as const,
+      actionInput: {
+        owner: "amplifthq",
+        repo: "openmeld",
+        title: "Follow GitHub issue #1143",
+      },
+      data: { html_url: ISSUE.url, number: 1143 },
+    },
+    {
+      actionId: "github.update_issue" as const,
+      actionInput: {
+        issueNumber: 1143,
+        owner: "amplifthq",
+        repo: "openmeld",
+        state: "closed",
+      },
+      data: { number: 1143, state: "closed" },
+    },
+  ])("does not treat a truncated Task list miss as not found for $actionId", async ({
+    actionId,
+    actionInput,
+    data,
+  }) => {
+    const createSpaceTask = vi.fn();
+    const mutateSpaceTask = vi.fn();
+    await expect(
+      applyGitHubIssueSpaceTaskBinding({
+        actionId,
+        actionInput,
+        data,
+        ports: {
+          createSpaceTask,
+          getSpaceTask: vi.fn(),
+          listSpaceTasks: vi.fn(async () => ({
+            tasks: [],
+            truncated: true,
+          })),
+          mutateSpaceTask,
+        },
+        toolContext: {
+          context: CONTEXT,
+          turnEnvelope: { space: SHARED_SPACE } as RemoteAgentTurnEnvelope,
+        },
+      })
+    ).rejects.toThrowError(
+      expect.objectContaining<Partial<SpaceTaskGitHubBindingError>>({
+        code: SPACE_TASK_EXTERNAL_WORK_ITEM_LIMIT_ERROR_CODE,
+        message: `This Space has more than ${SPACE_TASK_LIST_MAX_ITEMS} Tasks, so OpenMeld cannot confirm whether GitHub issue amplifthq/openmeld#1143 already has a linked Task.`,
+        name: "SpaceTaskGitHubBindingError",
+      })
+    );
+    expect(createSpaceTask).not.toHaveBeenCalled();
+    expect(mutateSpaceTask).not.toHaveBeenCalled();
   });
 });

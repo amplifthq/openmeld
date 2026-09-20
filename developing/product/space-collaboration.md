@@ -142,7 +142,8 @@ requests an authorized Stop for a linked active Agent Wake; an unavailable or
 failed Stop does not undo the Task cancellation or claim that execution ended.
 
 GitHub issues filed from a shared Space through OpenMeld's GitHub tools are
-associated with a Space Task. The issue body receives an OpenMeld Task
+associated with a Space Task when the Task list can confirm whether that issue
+is already linked. The issue body receives an OpenMeld Task
 reference, and the Task stores the repository and issue number. Closing that
 issue through those same GitHub tools closes still-active linked Tasks.
 Closing or completing a Task does not silently patch GitHub; the Task result

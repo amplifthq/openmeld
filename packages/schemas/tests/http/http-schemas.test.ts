@@ -2980,6 +2980,15 @@ describe("http schemas", () => {
         gatewayErrorCodeSchema.safeParse("space_task.operation_conflict")
           .success
       ).toBe(true);
+      expect(
+        gatewayErrorCodeSchema.safeParse("space_task.external_work_item_limit")
+          .success
+      ).toBe(true);
+      expect(
+        gatewayErrorCodeSchema.safeParse(
+          "space_task.external_work_item_not_found"
+        ).success
+      ).toBe(true);
 
       const storedTaskWithoutLinks = spaceTaskSchema.safeParse({
         assignee: null,
