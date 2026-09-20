@@ -10,10 +10,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath, pathToFileURL } from "node:url";
-
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
+import { pathToFileURL } from "node:url";
 
 export const PRODUCTION_APP_PATH = "/Applications/OpenMeld.app";
 export const LEGACY_APP_PATH = "/Applications/OpenMeld Desktop.app";
