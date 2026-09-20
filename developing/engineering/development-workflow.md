@@ -178,11 +178,12 @@ this admission policy. Keep those focused and inspect machine facts first.
 Hosted GitHub jobs retain their independent runner limits.
 
 Startup budgets are estimates: 6 GiB for a Worker stack, 2 GiB for Web and
-2 GiB for broad verification. Admission keeps 15% of effective machine memory
-(at least 1 GiB) as headroom and accounts for reservations that have not yet
-materialized as resident memory. macOS also blocks new work while the OS
-reports memory pressure. These checks reduce overlapping peaks; they are not
-OS-enforced memory caps and cannot prevent another application from growing.
+2 GiB for broad verification. Admission keeps 10% of effective memory on macOS,
+where the operating system also blocks new work when it reports memory
+pressure. Other platforms keep 15%; all platforms keep at least 1 GiB and
+account for reservations that have not yet materialized as resident memory.
+These checks reduce overlapping peaks; they are not OS-enforced memory caps and
+cannot prevent another application from growing.
 
 After the Worker stack's existing readiness probes pass, its reservation keeps
 growth room of 25% of current process-tree RSS (at least 1 GiB), instead of
@@ -436,6 +437,22 @@ It must never download another worktree's build from the shared fixed-port
 server. Restart the binary server after changing CLI source; `dev:stop` includes
 that server. `cli:binary:serve` without the worktree suffix remains the fixed-port
 development entry only.
+
+### Local macOS CLI/Service sign-in
+
+New sign-ins automatically use the existing private-file token store when
+`dev-local` has an explicit isolated `OPENMELD_HOME` and both Auth and Gateway
+use loopback URLs. No extra setup flag is needed. Credentials are unencrypted,
+protected by directory `0700` / file `0600` permissions; use test accounts only.
+CLI rebuilds and Service restarts reuse the same login. Existing Keychain
+sessions are not migrated: sign in normally once with the current build.
+
+For real-Keychain acceptance, set `OPENMELD_DEV_CREDENTIAL_STORE=system` on the
+setup/login command and use a separate fresh Home. Check that the saved
+`tokenRef.provider` is `macos-keychain`; disabling the development mode does not
+convert an existing file credential. Production, canary, remote endpoints,
+default user-state directories and other operating systems retain their normal
+storage behavior. This mode does not change provider credentials or permissions.
 
 For a localhost Routine smoke, start the Worker stack with
 `pnpm dev:worktree -- --test-scheduled`, create an enabled Routine through Web,
