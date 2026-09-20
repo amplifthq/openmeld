@@ -43,6 +43,10 @@ const SOURCE_PRESERVED = /Original messages and documents won’t be deleted/u;
 const FROZEN_SELECTION_DESCRIPTION =
 	/New messages and items outside this selection stay unread/u;
 vi.mock("#/lib/organizations/organization-context", () => ({
+	useOptionalAppOrganization: () => ({
+		currentOrganization: testOrganization,
+		currentUserId: "user-123",
+	}),
 	useAppOrganization: () => ({
 		currentOrganization: testOrganization,
 		currentUserId: "user-123",

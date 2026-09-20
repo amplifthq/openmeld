@@ -19,7 +19,10 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
-import { useAppOrganization } from "#/lib/organizations/organization-context";
+import {
+	useAppOrganization,
+	useOptionalAppOrganization,
+} from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationDirectMessagePath,
@@ -34,6 +37,10 @@ export function MessageSearchButton(input: {
 	scope?: "inbox" | "messages";
 }) {
 	const [open, setOpen] = useState(false);
+	const organization = useOptionalAppOrganization();
+	if (!organization) {
+		return null;
+	}
 	return (
 		<>
 			<Button onClick={() => setOpen(true)} size="sm" variant="secondary">
