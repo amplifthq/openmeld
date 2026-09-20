@@ -1274,7 +1274,16 @@ Ordinary Service Stop keeps CLI credentials; cloud Forget removes the saved
 Computer record. Neither is an alias for Disconnect. Entry checks must not
 sign in, update, repair, or start the Service before reviewed admission.
 
-The signed macOS binary stores new bearer sessions in the user's macOS
+Isolated macOS `dev-local` sign-ins use the existing private-file store when
+Auth and Gateway are loopback endpoints and an explicit Home is outside the
+default user-state directories (including symlink targets). The CLI warns that
+this is unencrypted test storage. Existing token references are never migrated;
+Service reads use the same reference after restart. Set
+`OPENMELD_DEV_CREDENTIAL_STORE=system` at login to retain normal OS storage
+selection; use a fresh Home and verify the provider for Keychain acceptance.
+See [local development sign-in](../engineering/development-workflow.md#local-macos-cliservice-sign-in).
+
+The signed macOS binary otherwise stores new bearer sessions in the user's macOS
 Keychain through Security.framework. The bare Developer ID CLI must not request
 a restricted Keychain access-group entitlement, because it has no embedded
 provisioning profile and macOS would reject the executable before it starts.

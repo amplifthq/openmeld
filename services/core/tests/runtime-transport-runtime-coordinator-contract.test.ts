@@ -586,6 +586,7 @@ const createRecordingD1 = (input?: {
                 sourceKind,
                 sourceKey,
                 sourceTargetJson,
+                sourceFactsJson,
                 resolutionStatus,
                 occurredAtMs,
                 createdAtMs,
@@ -613,6 +614,7 @@ const createRecordingD1 = (input?: {
                 recipient_user_id: recipientUserId,
                 resolution_status:
                   existing?.resolution_status ?? resolutionStatus,
+                source_facts_json: sourceFactsJson,
                 source_key: sourceKey,
                 source_kind: sourceKind,
                 source_target_json: sourceTargetJson,
@@ -7336,6 +7338,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       authorizedContinuationClientMessageId: null,
       interruptedClientMessageId: "client-message-1",
       interruptedDispatchId: "dispatch-1",
+      // The computer never acknowledged that the interrupted attempt is gone,
+      // so replacement work has nothing to verify yet.
+      interruptedLocalAttempt: "awaiting_withdrawal",
       interruptedSourceSignalId: "signal-1",
       interruptedTargetWakeLifecycleId:
         buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity
@@ -7959,6 +7964,32 @@ describe("runtime transport runtime coordinator transport contract", () => {
         targetProfileId: TARGET_AGENT_PROFILE_ID,
       })
     ).resolves.toEqual({ status: "authorized" });
+    expect(
+      forked.storageRecords.get(forkedPrepared.admissionKey)
+    ).toMatchObject({
+      recoveryGate: {
+        continuationClientMessageId: "client-message-occupancy-fork",
+        status: "continuation_authorized",
+      },
+    });
+    // A stale window that still shows both buttons cannot answer the decision a
+    // second time. Disabling a button is usability; this is the guarantee.
+    await expect(
+      (
+        forked.hub as unknown as {
+          rpcSkipAgentProfileInterruptedWork: (input: {
+            expectedInterruptedTargetWakeLifecycleId: string;
+            ownerUserId: string;
+            targetProfileId: string;
+          }) => Promise<unknown>;
+        }
+      ).rpcSkipAgentProfileInterruptedWork({
+        expectedInterruptedTargetWakeLifecycleId:
+          forkedGate.interruptedTargetWakeLifecycleId,
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "not_pending" });
     expect(
       forked.storageRecords.get(forkedPrepared.admissionKey)
     ).toMatchObject({
@@ -10908,6 +10939,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       authorizedContinuationClientMessageId: null,
       interruptedClientMessageId: "client-message-1",
       interruptedDispatchId: "dispatch-1",
+      // The computer never acknowledged that the interrupted attempt is gone,
+      // so replacement work has nothing to verify yet.
+      interruptedLocalAttempt: "awaiting_withdrawal",
       interruptedSourceSignalId: "signal-1",
       interruptedTargetWakeLifecycleId:
         buildRuntimeCoordinatorHeadAcceptRequest().targetWakeLifecycleIdentity
@@ -19565,6 +19599,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         spaceFetchRequests,
         state,
         storageRecords,
+        waitUntilTasks,
       } = createHarness();
       const executionToken = await issueDeliveryToken({
         hub,
@@ -19643,7 +19678,25 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
 
-      expect(sentFrames).toEqual([]);
+      // The terminal outcome also withdraws the local attempt, so the replacement
+      // branch the owner may choose does not race a wait that is still queued on
+      // the occupied conversation.
+      expect(sentFrames).toEqual([
+        expect.objectContaining({
+          code: "daemon.local_agent_control.cancel",
+          payload: {
+            requestId: `wake-stop:${RUNTIME_COORDINATOR_EXECUTION_ID}`,
+            payload: {
+              reason: "controller_conversation_occupied_timeout",
+              runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+              target: {
+                by: "task",
+                taskId: "task-1",
+              },
+            },
+          },
+        }),
+      ]);
       expect(spaceFetchRequests).toHaveLength(1);
       expect(spaceFetchRequests[0]?.body).toMatchObject({
         data: {
@@ -19685,6 +19738,212 @@ describe("runtime transport runtime coordinator transport contract", () => {
         desiredStatus: "open",
         stage: "resolve_occupied_conversation",
         targetWakeLifecycleId: occupiedTargetWakeLifecycleId,
+      });
+      // Core closed this execution on stale evidence, so nothing yet proves the
+      // attempt on the computer is gone.
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorRunCommandStateStorageKey(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )
+      ).toMatchObject({
+        localAttemptWithdrawal: { status: "requested" },
+      });
+      await expect(
+        (
+          hub as unknown as {
+            rpcReadAgentProfileWorkRecovery: (input: {
+              ownerUserId: string;
+              targetProfileId: string;
+            }) => Promise<unknown>;
+          }
+        ).rpcReadAgentProfileWorkRecovery({
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toMatchObject({
+        interruptedLocalAttempt: "awaiting_withdrawal",
+      });
+
+      // Accepting the request is not the same fact as the attempt being gone,
+      // so an older Service that can only say `accepted` proves nothing.
+      await submitWakeStopLocalControlResult({
+        hub,
+        socket,
+        state,
+        waitUntilTasks,
+      });
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorRunCommandStateStorageKey(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )
+      ).toMatchObject({
+        localAttemptWithdrawal: { status: "requested" },
+      });
+
+      // The Service states it withdrew the attempt before any turn began. The
+      // Wake Stop lifecycle cannot advance a terminal execution, but that is
+      // the only proof replacement work has, so it must be kept.
+      await submitWakeStopLocalControlResult({
+        hub,
+        reasonCode: "adapter.cancel.withdrawn_before_start",
+        socket,
+        state,
+        waitUntilTasks,
+      });
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorRunCommandStateStorageKey(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )
+      ).toMatchObject({
+        localAttemptWithdrawal: {
+          reasonCode: "adapter.cancel.withdrawn_before_start",
+          status: "withdrawn",
+        },
+      });
+      await expect(
+        (
+          hub as unknown as {
+            rpcReadAgentProfileWorkRecovery: (input: {
+              ownerUserId: string;
+              targetProfileId: string;
+            }) => Promise<unknown>;
+          }
+        ).rpcReadAgentProfileWorkRecovery({
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toMatchObject({
+        interruptedLocalAttempt: "withdrawn",
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("keeps a failed head reread unknown instead of reporting that nothing started", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const { hub, sentFrames, socket, state, storageRecords } = createHarness({
+        agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+      });
+      await issueDeliveryToken({ hub, sentFrames, socket, state });
+      const admissionKey =
+        runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+          TARGET_AGENT_PROFILE_ID
+        );
+      const admission = storageRecordsAdmission(storageRecords, admissionKey);
+      const interrupted = admission.workItems[0];
+      if (!interrupted) {
+        throw new Error("Expected the delivered Wake to hold the work slot.");
+      }
+      storageRecords.set(admissionKey, {
+        ...admission,
+        recoveryGate: {
+          continuationClientMessageId: null,
+          interruptedWork: interrupted,
+          status: "awaiting_occupancy_decision",
+          updatedAtMs: 1_700_000_000_000,
+        },
+        workItems: [],
+      });
+
+      const withdrawalHub = hub as unknown as {
+        readRuntimeCoordinatorHeadLifecycleRecord: (
+          targetWakeLifecycleId: string
+        ) => Promise<unknown>;
+        rpcRequestAgentProfileWorkLocalAttemptWithdrawal: (input: {
+          expectedInterruptedTargetWakeLifecycleId: string;
+          ownerUserId: string;
+          targetProfileId: string;
+        }) => Promise<unknown>;
+      };
+      // The recovery read resolves the head from admission storage and still
+      // reports `awaiting_withdrawal`; only this call's own reread fails.
+      withdrawalHub.readRuntimeCoordinatorHeadLifecycleRecord = () =>
+        Promise.reject(new Error("storage unavailable"));
+
+      await expect(
+        withdrawalHub.rpcRequestAgentProfileWorkLocalAttemptWithdrawal({
+          expectedInterruptedTargetWakeLifecycleId:
+            interrupted.targetWakeLifecycleId,
+          ownerUserId: "owner-1",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        })
+      ).resolves.toEqual({ status: "unavailable" });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("refuses a stop requested after the turn started as proof the attempt is gone", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const { hub, sentFrames, socket, state, storageRecords, waitUntilTasks } =
+        createHarness({
+          agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+        });
+      await issueDeliveryToken({ hub, sentFrames, socket, state });
+      enableWakeStopControl(state);
+      await requestRuntimeCoordinatorWakeStop(hub);
+
+      await submitWakeStopLocalControlResult({
+        hub,
+        reasonCode: "adapter.cancel.stop_requested_after_start",
+        socket,
+        state,
+        waitUntilTasks,
+      });
+
+      // The turn had already started, so its result and effects still stand.
+      // Interrupting asks for a stop; it does not prove one happened.
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorRunCommandStateStorageKey(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )
+      ).not.toMatchObject({
+        localAttemptWithdrawal: { status: "withdrawn" },
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("refuses a withdrawal acknowledgement that names a different task", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const { hub, sentFrames, socket, state, storageRecords, waitUntilTasks } =
+        createHarness({
+          agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+        });
+      await issueDeliveryToken({ hub, sentFrames, socket, state });
+      enableWakeStopControl(state);
+      await requestRuntimeCoordinatorWakeStop(hub);
+
+      await submitWakeStopLocalControlResult({
+        hub,
+        reasonCode: "adapter.cancel.withdrawn_before_start",
+        resolvedTaskId: "task-from-another-run",
+        socket,
+        state,
+        waitUntilTasks,
+      });
+
+      expect(
+        storageRecords.get(
+          buildRuntimeCoordinatorRunCommandStateStorageKey(
+            RUNTIME_COORDINATOR_EXECUTION_ID
+          )
+        )
+      ).not.toMatchObject({
+        localAttemptWithdrawal: { status: "withdrawn" },
       });
     } finally {
       nowSpy.mockRestore();

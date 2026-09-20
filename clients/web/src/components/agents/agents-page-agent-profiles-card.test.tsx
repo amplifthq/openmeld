@@ -63,6 +63,7 @@ const navigateMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() =>
 	Object.assign(vi.fn(), {
 		error: vi.fn(),
+		info: vi.fn(),
 		success: vi.fn(),
 		warning: vi.fn(),
 	})
@@ -326,6 +327,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		navigateMock.mockReset();
 		toastMock.mockReset();
 		toastMock.error.mockReset();
+		toastMock.info.mockReset();
 		toastMock.success.mockReset();
 		toastMock.warning.mockReset();
 	});
@@ -1220,6 +1222,44 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 	});
 
+	it("tells the owner their choice was kept while the original request is still being checked", async () => {
+		executeAgentProfileWorkRecoveryMock.mockRejectedValueOnce(
+			Object.assign(new Error("awaiting original stop"), {
+				code: "agent_profile_work_recovery.awaiting_original_stop",
+			})
+		);
+		renderAgentProfilesCard(
+			{},
+			createPrimaryBindingResponse("codex:approveForMe").binding,
+			{
+				agentProfileOperationalContextByProfileId: new Map([
+					[
+						AGENT_PROFILE_ID,
+						{
+							currentWorkLocation: "Launch planning",
+							queuedWorkLocations: [],
+							recoveryAction: { kind: "continue_interrupted_work" },
+							status: "paused",
+							waitingCount: 0,
+						},
+					],
+				]),
+				presentation: "detail",
+			}
+		);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Continue interrupted work" })
+		);
+
+		await waitFor(() => {
+			expect(toastMock.info).toHaveBeenCalledWith(
+				"OpenMeld kept your choice for Research Agent and is checking whether the original request stopped on your computer. Nothing new has started yet."
+			);
+		});
+		expect(toastMock.error).not.toHaveBeenCalled();
+	});
+
 	it("lets the owner skip interrupted work before queued work can continue", async () => {
 		executeAgentProfileWorkRecoveryMock.mockResolvedValueOnce({
 			action: "skip_interrupted_work",
@@ -1277,7 +1317,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 		expect(
 			within(confirmation).getByText(
-				"This work will not continue. Any queued work can start after you skip it."
+				"OpenMeld will not continue this work, and it asks your computer to stop the original attempt. Anything the work already changed stays as it is. Any queued work can start after you skip it."
 			)
 		).toBeTruthy();
 		fireEvent.click(
