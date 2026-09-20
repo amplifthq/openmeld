@@ -2314,9 +2314,12 @@ test("Desktop macOS A-to-B smoke parses thin before/after phases", () => {
   });
   assert.throws(
     () => parseSmokeArgs(["before", "0.1.5", "0.1.5"]),
-    /must be newer/u
+    DESKTOP_SMOKE_NEWER_ERROR_RE
   );
-  assert.throws(() => parseSmokeArgs(["before", "0.1", "0.1.5"]), /stable/u);
+  assert.throws(
+    () => parseSmokeArgs(["before", "0.1", "0.1.5"]),
+    DESKTOP_SMOKE_STABLE_ERROR_RE
+  );
 });
 
 test("Desktop macOS A-to-B smoke compares stable versions numerically", () => {
@@ -2337,7 +2340,7 @@ test("Desktop macOS A-to-B smoke requires the production Apple signing identity"
       assertProductionSignatureDetails(
         valid.replace("TeamIdentifier=38FFHDPA3B", "TeamIdentifier=OTHER")
       ),
-    /Team ID/u
+    DESKTOP_SMOKE_TEAM_ID_ERROR_RE
   );
 });
 
@@ -2356,8 +2359,14 @@ test("Desktop macOS A-to-B smoke matches the production executable and requires 
     false
   );
   assert.doesNotThrow(() => assertProcessRestarted([101], [202]));
-  assert.throws(() => assertProcessRestarted([101], [101]), /still running/u);
-  assert.throws(() => assertProcessRestarted([101], []), /not running/u);
+  assert.throws(
+    () => assertProcessRestarted([101], [101]),
+    DESKTOP_SMOKE_STILL_RUNNING_ERROR_RE
+  );
+  assert.throws(
+    () => assertProcessRestarted([101], []),
+    DESKTOP_SMOKE_NOT_RUNNING_ERROR_RE
+  );
 });
 
 test("Desktop macOS A-to-B smoke validates bounded updater receipt evidence", () => {
@@ -2378,7 +2387,7 @@ test("Desktop macOS A-to-B smoke validates bounded updater receipt evidence", ()
         { ...receipt, state: "install_requested" },
         "0.1.5"
       ),
-    /application_started/u
+    DESKTOP_SMOKE_APPLICATION_STARTED_ERROR_RE
   );
   assert.throws(
     () => assertReceiptMatchesTarget(receipt, "0.1.6"),
@@ -2396,6 +2405,6 @@ test("Desktop macOS A-to-B smoke validates bounded updater receipt evidence", ()
           "unexpected=user-content",
         ].join("\n")
       ),
-    /malformed/u
+    DESKTOP_SMOKE_MALFORMED_ERROR_RE
   );
 });
