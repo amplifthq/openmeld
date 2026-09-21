@@ -323,18 +323,25 @@ describe("Space image display ownership", () => {
 				mimeType: "image/png",
 				revision: 1,
 			});
-		for (let index = 0; index < 34; index += 1) {
+		const mounted = await client.fetchQuery(
+			options({ downloadFileContent }, "file-0")
+		);
+		const observer = new QueryObserver(
+			client,
+			options({ downloadFileContent }, "file-0")
+		);
+		const stop = observer.subscribe(() => {
+			/* Keep one image mounted while the idle cache exceeds its budget. */
+		});
+		for (let index = 1; index < 34; index += 1) {
 			await client.fetchQuery(
 				options({ downloadFileContent }, `file-${index}`)
 			);
 		}
-		const observer = new QueryObserver(
-			client,
-			options({ downloadFileContent }, "file-33")
-		);
-		const stop = observer.subscribe(() => {
-			/* Keep one image mounted. */
-		});
+		await Promise.resolve();
+		expect(client.getQueryCache().getAll()).toHaveLength(33);
+		expect(mounted.imagePreview?.getSnapshot()).toBe("blob:image-1");
+		expect(revokeUrl).toHaveBeenCalledTimes(1);
 		stop();
 		await Promise.resolve();
 		expect(client.getQueryCache().getAll()).toHaveLength(32);
