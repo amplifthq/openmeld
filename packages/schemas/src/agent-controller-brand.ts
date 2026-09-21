@@ -5,6 +5,7 @@ export const BUILTIN_AGENT_CONTROLLER_DISPLAY_ORDER = [
   "claude-code",
   "grok-build",
   "opencode",
+  "antigravity",
   "openclaw",
   "cursor",
 ] as const;
@@ -23,6 +24,12 @@ export type BuiltinAgentControllerBrand = {
 };
 
 export const BUILTIN_AGENT_CONTROLLER_BRANDS = {
+  antigravity: {
+    accentHex: "#4f7df3",
+    accentRgb: [79, 125, 243],
+    controllerId: "antigravity",
+    selectionMixPercent: 32,
+  },
   "claude-code": {
     accentHex: "#d97757",
     accentRgb: [217, 119, 87],

@@ -4,6 +4,7 @@ packages:
   - runtime/local-execution
   - runtime/local-service
   - runtime/adapters/core
+  - runtime/adapters/antigravity
   - runtime/adapters/claude-code
   - runtime/adapters/codex
   - runtime/adapters/cursor

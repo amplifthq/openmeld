@@ -1,5 +1,6 @@
 // biome-ignore-all lint/performance/noBarrelFile: This package intentionally exposes a stable local-service carrier entrypoint.
 export { createLocalAdapterEntries } from "./adapters/adapter-factory.js";
+export { installAntigravityAdapter } from "./adapters/installers/install-antigravity.js";
 export { installClaudeCodeAdapter } from "./adapters/installers/install-claude-code.js";
 export { installCodexAdapter } from "./adapters/installers/install-codex.js";
 export { installOpenClawAdapter } from "./adapters/installers/install-openclaw.js";

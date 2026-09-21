@@ -334,6 +334,14 @@ const CONTROLLER_SIGN_IN_AVAILABILITY_COPY_BY_ID: Readonly<
     }
   >
 > = {
+  antigravity: {
+    controllerInterfaceDescription:
+      "Antigravity CLI is installed, but this computer is not signed in.",
+    summary:
+      "Run agy in a terminal on this computer, then sign in to Antigravity.",
+    tooltip:
+      "Antigravity CLI is not signed in. Run agy in a terminal on this computer.",
+  },
   "claude-code": {
     summary:
       "Run claude in a terminal on this computer, then sign in to Claude Code.",
