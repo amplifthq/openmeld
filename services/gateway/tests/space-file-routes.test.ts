@@ -179,7 +179,74 @@ describe("Space file routes", () => {
     expect(listSpaceFiles).toHaveBeenCalledWith(
       expect.objectContaining({
         query: { view: "trash", origin: "artifact" },
-      })
+      }),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION
+    );
+  });
+
+  it("declares the origin capability on the Gateway-to-Core RPC boundary for every file-bearing operation, independent of the HTTP caller's own capability", async () => {
+    // This is a second, independent negotiation from the HTTP client-to-
+    // Gateway boundary covered elsewhere in this file: current Gateway
+    // always asks Core for the origin-aware shape internally (so it can
+    // apply its own HTTP-caller-facing projection), regardless of whether
+    // the calling HTTP client declared the capability. An already-published
+    // Gateway build has no second argument on any of these calls at all and
+    // never sends it — see the Core-side coverage
+    // (`services/core/tests/organization-rpc.test.ts`,
+    // `withSpaceFilesOriginRpcOutput`) and the frozen-schema proof
+    // (`packages/schemas/tests/http/space-files.test.ts`, "lets a frozen
+    // pre-origin Gateway parse a current Core response...") for what
+    // protects that already-published Gateway once Core stops passing it
+    // the pre-origin shape unconditionally.
+    const { coreRpc, env } = makeEnv();
+    const getSpaceFile = vi.fn(async () => FILE);
+    const listSpaceFileRevisions = vi.fn(async () => ({
+      file: FILE,
+      revisions: [FILE.latestRevision],
+    }));
+    const updateSpaceFileEntry = vi.fn(async () => ({ entry: FILE }));
+    Object.assign(coreRpc, {
+      getSpaceFile,
+      listSpaceFileRevisions,
+      updateSpaceFileEntry,
+    });
+
+    await app.fetch(
+      new Request(`http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}`),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}/revisions`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    await app.fetch(
+      new Request(`http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}`, {
+        body: JSON.stringify({
+          clientMutationId: "rename-route-test",
+          name: "renamed.md",
+        }),
+        headers: { "content-type": "application/json" },
+        method: "PATCH",
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(getSpaceFile).toHaveBeenCalledWith(
+      expect.anything(),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION
+    );
+    expect(listSpaceFileRevisions).toHaveBeenCalledWith(
+      expect.anything(),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION
+    );
+    expect(updateSpaceFileEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION
     );
   });
 
@@ -340,7 +407,8 @@ describe("Space file routes", () => {
         body: { clientMutationId: "restore-entry-route-test" },
         entryId: FILE_ID,
         spaceId: SPACE_ID,
-      })
+      }),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION
     );
   });
 
@@ -379,7 +447,8 @@ describe("Space file routes", () => {
         fileId: FILE_ID,
         revision: 1,
         spaceId: SPACE_ID,
-      })
+      }),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION
     );
   });
 
@@ -403,7 +472,8 @@ describe("Space file routes", () => {
           name: "launch-notes.md",
           spaceId: SPACE_ID,
         }),
-      })
+      }),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION
     );
     expect(bucket.put).not.toHaveBeenCalled();
   });
@@ -484,7 +554,8 @@ describe("Space file routes", () => {
         clientMutationId: "publish-composer-upload-route-test",
         spaceId: SPACE_ID,
         uploadId: COMPOSER_UPLOAD_ID,
-      })
+      }),
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION
     );
   });
 

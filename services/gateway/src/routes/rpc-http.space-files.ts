@@ -2,6 +2,7 @@ import type { GatewayErrorCode } from "@openmeld/gateway-contract";
 import {
   contextAuditFields,
   jsonErrorResponse,
+  OPENMELD_SPACE_FILES_ORIGIN_VERSION,
   toErrorMessage,
   withRequestIdHeader,
 } from "@openmeld/gateway-contract";
@@ -145,16 +146,19 @@ export function registerSpaceFileRoutes(app: Hono<HonoBindings>): void {
       responseSchema: spaceFileUploadResponseSchema,
       includeLegacySpaceFilesOriginWireFields: true,
       execute: () =>
-        c.var.coreRpc.spaceFileUpload({
-          spaceId: target.spaceId,
-          uploadId: target.entryId,
-          command: command.data,
-          ...(command.data.action === "part" && c.req.raw.body
-            ? { body: c.req.raw.body }
-            : {}),
-          context: buildCoreRpcContext(c),
-          spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
-        }),
+        c.var.coreRpc.spaceFileUpload(
+          {
+            spaceId: target.spaceId,
+            uploadId: target.entryId,
+            command: command.data,
+            ...(command.data.action === "part" && c.req.raw.body
+              ? { body: c.req.raw.body }
+              : {}),
+            context: buildCoreRpcContext(c),
+            spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+          },
+          OPENMELD_SPACE_FILES_ORIGIN_VERSION
+        ),
     });
   });
   app.put(SPACE_COMPOSER_UPLOAD_ROUTE, stageSpaceComposerUpload);
@@ -260,13 +264,16 @@ async function publishSpaceComposerUpload(
   return await executeRpcRoute({
     c,
     execute: () =>
-      c.var.coreRpc.publishSpaceComposerUpload({
-        clientMutationId: body.data.clientMutationId,
-        context: buildCoreRpcContext(c),
-        spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
-        spaceId: target.spaceId,
-        uploadId: uploadId.data,
-      }),
+      c.var.coreRpc.publishSpaceComposerUpload(
+        {
+          clientMutationId: body.data.clientMutationId,
+          context: buildCoreRpcContext(c),
+          spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+          spaceId: target.spaceId,
+          uploadId: uploadId.data,
+        },
+        OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      ),
     method: "POST",
     resolveSuccessPayload: (file) => ({ file }),
     responseSchema: publishSpaceComposerUploadResponseSchema,
@@ -338,13 +345,16 @@ async function restoreSpaceFileEntry(
     responseSchema: restoreSpaceFileEntryResponseSchema,
     includeLegacySpaceFilesOriginWireFields: true,
     execute: () =>
-      c.var.coreRpc.restoreSpaceFileEntry({
-        body: body.data,
-        entryId: target.entryId,
-        spaceId: target.spaceId,
-        spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
-        context: buildCoreRpcContext(c),
-      }),
+      c.var.coreRpc.restoreSpaceFileEntry(
+        {
+          body: body.data,
+          entryId: target.entryId,
+          spaceId: target.spaceId,
+          spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+          context: buildCoreRpcContext(c),
+        },
+        OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      ),
   });
 }
 
@@ -390,14 +400,17 @@ async function restoreSpaceFileRevision(
     includeLegacySpaceFilesOriginWireFields: true,
     resolveSuccessPayload: (file) => ({ file }),
     execute: () =>
-      c.var.coreRpc.restoreSpaceFileRevision({
-        body: body.data,
-        fileId: target.entryId,
-        revision: revision.data,
-        spaceId: target.spaceId,
-        spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
-        context: buildCoreRpcContext(c),
-      }),
+      c.var.coreRpc.restoreSpaceFileRevision(
+        {
+          body: body.data,
+          fileId: target.entryId,
+          revision: revision.data,
+          spaceId: target.spaceId,
+          spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+          context: buildCoreRpcContext(c),
+        },
+        OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      ),
   });
 }
 
@@ -435,12 +448,15 @@ async function listSpaceFiles(c: Context<HonoBindings>): Promise<Response> {
     responseSchema: listSpaceFilesResponseSchema,
     includeLegacySpaceFilesOriginWireFields: true,
     execute: () =>
-      c.var.coreRpc.listSpaceFiles({
-        spaceId: target.spaceId,
-        query: parsed.data,
-        spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
-        context: buildCoreRpcContext(c),
-      }),
+      c.var.coreRpc.listSpaceFiles(
+        {
+          spaceId: target.spaceId,
+          query: parsed.data,
+          spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+          context: buildCoreRpcContext(c),
+        },
+        OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      ),
   });
 }
 
@@ -458,12 +474,15 @@ async function getSpaceFile(c: Context<HonoBindings>): Promise<Response> {
     includeLegacySpaceFilesOriginWireFields: true,
     resolveSuccessPayload: (file) => ({ file }),
     execute: () =>
-      c.var.coreRpc.getSpaceFile({
-        spaceId: target.spaceId,
-        fileId: target.entryId,
-        spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
-        context: buildCoreRpcContext(c),
-      }),
+      c.var.coreRpc.getSpaceFile(
+        {
+          spaceId: target.spaceId,
+          fileId: target.entryId,
+          spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+          context: buildCoreRpcContext(c),
+        },
+        OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      ),
   });
 }
 
@@ -482,12 +501,15 @@ async function listSpaceFileRevisions(
     responseSchema: listSpaceFileRevisionsResponseSchema,
     includeLegacySpaceFilesOriginWireFields: true,
     execute: () =>
-      c.var.coreRpc.listSpaceFileRevisions({
-        spaceId: target.spaceId,
-        fileId: target.entryId,
-        spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
-        context: buildCoreRpcContext(c),
-      }),
+      c.var.coreRpc.listSpaceFileRevisions(
+        {
+          spaceId: target.spaceId,
+          fileId: target.entryId,
+          spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+          context: buildCoreRpcContext(c),
+        },
+        OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      ),
   });
 }
 
@@ -552,13 +574,16 @@ async function updateSpaceFileEntry(
     responseSchema: updateSpaceFileEntryResponseSchema,
     includeLegacySpaceFilesOriginWireFields: true,
     execute: () =>
-      c.var.coreRpc.updateSpaceFileEntry({
-        spaceId: target.spaceId,
-        entryId: target.entryId,
-        body: body.data,
-        spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
-        context: buildCoreRpcContext(c),
-      }),
+      c.var.coreRpc.updateSpaceFileEntry(
+        {
+          spaceId: target.spaceId,
+          entryId: target.entryId,
+          body: body.data,
+          spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+          context: buildCoreRpcContext(c),
+        },
+        OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      ),
   });
 }
 
@@ -778,16 +803,19 @@ async function downloadSpaceFileContent(
     bytes: ReadableStream<Uint8Array>;
   };
   try {
-    const response = await c.var.coreRpc.streamSpaceFileContent({
-      spaceId: target.spaceId,
-      content: {
+    const response = await c.var.coreRpc.streamSpaceFileContent(
+      {
         spaceId: target.spaceId,
-        fileId: target.entryId,
-        revision: query.data.revision,
+        content: {
+          spaceId: target.spaceId,
+          fileId: target.entryId,
+          revision: query.data.revision,
+        },
+        spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+        context: buildCoreRpcContext(c),
       },
-      spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
-      context: buildCoreRpcContext(c),
-    });
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION
+    );
     const { bytes, ...metadata } = response;
     resolved = {
       ...resolveSpaceFileContentResponseSchema.parse(metadata),
@@ -835,16 +863,19 @@ async function persistSpaceFileRevision(input: {
 > {
   try {
     const file = uploadSpaceFileResponseSchema.shape.file.parse(
-      await input.c.var.coreRpc.writeSpaceFileContent({
-        bytes: input.bytes,
-        spaceId: input.write.spaceId,
-        write: input.write,
-        spaceAccess: buildGatewaySpaceAccessContext(
-          input.c,
-          input.write.spaceId
-        ),
-        context: buildCoreRpcContext(input.c),
-      })
+      await input.c.var.coreRpc.writeSpaceFileContent(
+        {
+          bytes: input.bytes,
+          spaceId: input.write.spaceId,
+          write: input.write,
+          spaceAccess: buildGatewaySpaceAccessContext(
+            input.c,
+            input.write.spaceId
+          ),
+          context: buildCoreRpcContext(input.c),
+        },
+        OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      )
     );
     logFileSuccess(
       input.c,
