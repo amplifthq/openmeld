@@ -8,7 +8,7 @@
 - Do not use this for: New permissions, capture policy, execution recovery, deployment, or a cumulative backlog of earlier review suggestions.
 - Source of truth: The four v2 PR comments define this handoff; current scoped owner documents and explicit later owner decisions govern product and architecture contracts.
 
-Status: **IN PROGRESS**. Remove this handoff when the implemented scope ships and its durable contracts and evidence have moved to the owning documents and PR. Keep #1199 Draft for implementation and the separately requested Codex review/smoke.
+Status: **IMPLEMENTED — INDEPENDENT REVIEW AND SMOKE PENDING**. Remove this handoff when the implemented scope ships and its durable contracts and evidence have moved to the owning documents and PR. Keep #1199 Draft until the current candidate passes the separately requested Codex review, local checks, and user-entry smoke. The owner authorizes Codex to push the verified candidate and mark this existing PR Ready once those conditions pass; merge, deployment, and production replay remain unauthorized.
 
 ## Read in order
 
@@ -23,7 +23,7 @@ The original proposal and overlapping reviews are historical evidence, not addit
 
 On 2026-09-21, a fresh fetch of `origin/main` resolved to `6d0736ee1197bee8778760f4b7ecc13d2bd77b2c`. The docs-only #1199 head was `c9ea650de48f86b290e09ebbf26929d106c2bbf8`, already containing that main. Implementation uses a separate worktree and preserves other agents' checkouts.
 
-At takeover, #1198 was Ready, open and unmerged at `57dd5cc33e7aec465ccc403f6cf40bdaa9b7ca68`. It merged at `2026-09-21T10:30:10Z` as `cba063764d52ccdcd9a96faab9d272ab4185b743`. After Batch 2, this worktree integrated then-current main in `b9c3c2893`; the final review baseline is `139bb7b9b589e4089a30a51f25ce7c961b355f276`, including the #1198 merge. Its admission ACK, callback wait, Workflow recovery, and fair recovery-scan changes remain the execution owner, not duplicated diagnostics logic. Merged is not deployed. Neither PR establishes the original missing-ACK/empty-response incident cause or authorizes historical production replay.
+At takeover, #1198 was Ready, open and unmerged at `57dd5cc33e7aec465ccc403f6cf40bdaa9b7ca68`. The rechecked GitHub record reports it merged at `2026-09-21T10:30:18Z` through integration commit `139bb7b9ddb64533f8774f52e9b47177e3017c5a`. After Batch 2, this worktree integrated then-current main in `b9c3c2893`. The later implementation follow-up fetched main at `9de12a0c0c8a234acdf7e1e166ceaf7c56517d14` and merged that exact base in `8a40702a2`, including the newer Space Files and Final Candidate control changes. #1198's admission ACK, callback wait, Workflow recovery, and fair recovery-scan changes remain the execution owner, not duplicated diagnostics logic. Merged is not deployed. Neither PR establishes the original missing-ACK/empty-response incident cause or authorizes historical production replay.
 
 ## Corrected scope and source map
 
@@ -103,7 +103,7 @@ The changed producer/consumer pairs are private Core Center Agent RPC receivers 
 
 The existing suites `center-agent-delegation-service.write.test.ts`, `center-agent-wake-publication-service.write.test.ts`, `slack-search-client.test.ts`, `slack-search-presentation.test.ts`, and `remote-agent-slack-signal-service.test.ts` passed together (127 tests). These cover controlled exact-permalink hydration and escaped presentation, event-bound Slack search authority, persisted child subscriptions/completion mode, and Wake publication/continuation ownership. They do not establish that a real user can open an old Slack link in the desktop UI, obtain a fresh live Slack grant in another turn, or complete the entire live DM-to-Space workflow. Those exact live steps remain for the separately requested Codex smoke; no grant lifetime was extended and no new delegation system was created.
 
-### Final validation boundary
+### Historical validation at candidate `7b18c6e3a`
 
 The September 21 takeover reproduced the Core type error in
 `github-app-webhook-service.test.ts` on current `main` as well as this branch.
@@ -157,8 +157,8 @@ worktree's development environment was stopped.
 `verify:pr -- --feedback` passed after the fixture correction: 1,467 Schemas
 tests, 1,165 Core boundary tests, 960 Remote Agent tests, and one Remote Agent
 Workerd test, plus selected code, docs, Changelog, and dependency-build checks.
-Its source state was `09e1058f5`; subsequent edits only update this evidence
-document. The installed Workerd warned that the requested compatibility date
+Its source state was `09e1058f5`; the remaining commits through `7b18c6e3a`
+only updated this evidence document. The installed Workerd warned that the requested compatibility date
 was newer than its supported date; this is not deployed-runtime verification.
 
 Earlier `check:affected` attempts waited behind the memory guard and did not
@@ -171,14 +171,14 @@ Frozen-lockfile installation made no changes; a direct Auth typecheck reproduced
 the error. The relevant package sources, manifests, and lockfile importer
 entries match `origin/main` at `ab960e073`. Main itself was not separately
 executed. Better Auth `1.6.30` declares `better-sqlite3 ^12.0.0`, so a global
-override to 13 is not a proven safe correction. This dependency boundary needs
-separate resolution and Auth/DB validation; no casts, skipped checks, or manual
-dependency-link changes were introduced.
+override to 13 is not a proven safe correction. That candidate needed a
+separately validated correction. The implementation follow-up below resolves
+this boundary without casts, skipped checks, or manual dependency-link edits.
 
-No other development environment was stopped and the memory guard was not
-bypassed. `check:affected` is not green; `test:affected` and Final Candidate were
-not run. The candidate remains local and the PR remains Draft: push is withheld
-until the requested validation condition is satisfied.
+At that handoff, `check:affected` was failed, `test:affected` and Final Candidate
+were not run, and push was withheld. No other development environment was
+stopped and the memory guard was not bypassed. These are historical results,
+not the validation status of the later implementation below.
 
 Final self-review also checks the actual Space-owned audience, not the public
 metadata DTO, which intentionally omits private DM internals. The private
@@ -186,6 +186,87 @@ metadata DTO, which intentionally omits private DM internals. The private
 current conversation classification alongside the unchanged public metadata.
 Memory and Routine diagnostics reauthorize after external read latency; a
 converted private conversation must not retain private disclosure authority.
+
+### Implementation follow-up: shared-query boundary and current self-check
+
+The source candidate is `7e55dce2549956645d347f80b0ca7d87f04515af`, based on
+main `9de12a0c0c8a234acdf7e1e166ceaf7c56517d14`. Later handoff-only documentation
+commits do not change that tested implementation.
+
+- `8a40702a2` integrates the exact main base without rewriting prior commits.
+- `3a5d0e9bc` adds `@openmeld/db/query` as direct Drizzle operator/type exports
+  and moves all nine Auth repositories' related imports to that same instance
+  as the shared tables and D1 factory. No SQL, authorization condition, database
+  schema, dependency version, or SQLite 13 patch was changed. Auth retains its
+  declared Drizzle dependency for Better Auth's peer contract. The source test
+  alias mirrors the real export; native ESM was also checked through the built
+  public subpaths without test aliases. The new regression checks runtime SQL
+  class identity and exact inferred record/SQL types under the full typecheck.
+- `7e55dce25` types the existing Gateway webhook fixture with the shared response
+  union. The prior fixture matched main and incorrectly inferred accepted-only
+  responses. Existing accepted, rejected, unavailable and oversized-body
+  assertions remain unchanged; production Gateway behavior is unchanged.
+
+Self-check evidence for this follow-up:
+
+| Check | Observed result |
+| --- | --- |
+| Frozen-lockfile installation | Passed; lockfile unchanged by this correction. |
+| Auth build with its dependencies | 4 tasks passed. |
+| Auth and DB full package checks | 5 tasks passed, including Biome and TypeScript. |
+| Auth package tests | 201 tests in 26 files passed. |
+| Auth HTTP/RPC database regressions | 98 tests in 6 files passed: session resolution, display name, avatar, Organization preference, sidebar and join links. |
+| DB startup, bundled SQLite prebuild and schema guards | 10 tests in 4 files passed. |
+| Gateway full typecheck and webhook Workerd tests | Passed; 5 webhook tests passed. |
+| `check:affected` against the exact main base above | 51 tasks passed, 44 cached, exit 0 at source candidate `7e55dce25`. The resource guard admitted the run normally. |
+| Center Agent capability/catalog regressions | 218 tests in 6 files passed, including all four read/recall capability suites. |
+| Core Workerd source access and private RPC surface | 13 tests in 2 files passed. |
+
+The initial follow-up affected run stopped at the Gateway fixture after the
+Auth correction; the later 51-task run supersedes that failure. None of these
+self-checks is a fresh browser smoke, an independent review, a complete
+`test:affected` run, or Final Candidate certification. Existing controlled
+missing-source/teardown diagnostics in Workerd logs do not prove deployed
+runtime behavior. No new live Slack, delegation or source-link result is claimed.
+
+This correction adds a package export, not a new HTTP/RPC or persisted schema.
+Generated JavaScript and declarations both preserve the DB-owned Drizzle import;
+no Node-only SQLite tooling is pulled into the query entrypoint. The existing
+private receiver-before-caller rollout requirements remain unchanged.
+
+### Codex closeout responsibility
+
+Review the actual local candidate, not the still-docs-only remote PR. Fetch and
+reconcile the then-current main and rerun affected checks, Draft feedback and
+risk-selected tests for the final candidate using the current repository rules.
+Do not treat a cached old smoke, a pending check or an unavailable result as a
+new pass. An implementation blocker goes back to the implementation owner with
+its exact reproduction; keep the PR Draft rather than silently expanding scope.
+
+Use normal isolated user entry points for Auth login/session/settings and the
+four capability successes. In particular, add a populated Activity scenario;
+empty-only smoke does not prove useful populated output. Exercise new-private-
+conversation recall and actual source reading, and preserve deletion/opt-out
+and source/audience protection checks. A clickable source link must use an
+existing canonical link capability; report its exact verification status rather
+than manufacture a URL. Do not replay historical production Routine Runs.
+
+For v2 E, separately exercise an exact Slack reference under fresh authority and
+DM-to-Space delegation through discovery, eligible target, minimal shareable
+brief, real Wake, explicit completion mode and parent result return. Prohibiting
+DM conversion is not delegation evidence. Record complete success or the exact
+failing/environment-blocked step and its scope; do not create a new grant,
+permission or execution system. Expected unsupported sources and v2 F hypotheses
+remain outside implemented scope, not implied additional feature requirements.
+
+When the scoped review, local validation and smoke pass with no blocking
+findings, Codex is explicitly authorized to push to the existing
+`feat/center-agent-capability-expansion-20260921` PR branch, refresh the English
+PR body/evidence while retaining the top v2 links, and mark #1199 Ready without
+another confirmation. Preserve other agents' commits; never force-push or bypass
+hooks. Follow current Final Candidate policy at the correct stage; Ready is not
+merge approval or a deployment instruction. Do not merge, deploy, publish or
+replay production tasks.
 
 ### Unsupported and separately pending evidence
 
