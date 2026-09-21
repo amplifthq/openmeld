@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-20T17:50:17.776Z",
+  "updatedAt": "2026-09-21T04:41:20.490Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.215",
+      "packageVersion": "0.3.216",
       "updatePolicy": "available",
-      "reason": "The new Host remains behind Service and Core capability checks; older cloud receivers parse existing frames, older CLIs continue supported work, and Zod preserves public CLI inputs."
+      "reason": "Existing CLI commands remain compatible with current cloud and Service update/self-rescue flows."
     },
     "service": {
-      "bundleHash": "f7ce053a8c51ed4ca2b7da579a8ea2155993e70ce7deeb6b9d8b0db8ed47f308",
-      "bundleVersion": "0.3.215",
+      "bundleHash": "0bbbd1f7ee9dd5e8dd2ab6a5b2224884aed40d2948f89b8854a6198178d86ee9",
+      "bundleVersion": "0.3.216",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
-      "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
-      "updatePolicy": "available",
-      "reason": "Service and Host ship together; older Services continue supported Wake work after receiver rollout, missing withdrawal proof withholds unsafe replacement work, and Zod preserves accepted transport and password validation."
+      "serviceContractVersion": "openmeld-service-contract-2026-09-opencode-session-directory-v1",
+      "updatePolicy": "required",
+      "reason": "Older Services can resume OpenCode in a different folder than the admitted workspace, so new Wake work must wait for this safety fix."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
