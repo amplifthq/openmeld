@@ -1,8 +1,16 @@
 diff --git a/dist/agent-coordinator-BdFpbgNh.mjs b/dist/agent-coordinator-BdFpbgNh.mjs
-index 4ccecda0df695372eb52b3a7c41f59ef6930ae37..29cad4cf844a88f23fef77e5c9e064dead9c8094 100644
+index 4ccecda0df695372eb52b3a7c41f59ef6930ae37..576146646eeec196a55c11bd6ece0ee2188cd657 100644
 --- a/dist/agent-coordinator-BdFpbgNh.mjs
 +++ b/dist/agent-coordinator-BdFpbgNh.mjs
-@@ -92,6 +92,9 @@ function createCloudflareAgentRuntime(options) {
+@@ -2,6 +2,7 @@ import { A as SubmissionConflictError, H as formatErrorForLog, N as SubmissionTi
+ import { S as handleAgentRequest, b as handleAgentConversationRead, et as agentStreamPath, ft as createSessionStorageKey, v as handleAgentAttachmentRead, x as assertAgentDispatchAdmissionInput, y as handleAgentConversationHead } from "./dispatch-Dohpn4Ea.mjs";
+ import { r as drainGlobalEventDeliveries, t as createCoordinatorEventEmitter } from "./events-BhCLb2HD.mjs";
+ import { n as createMcpConnectionCache } from "./mcp-Bpamf0G-.mjs";
++import { recordUnreadySubmissionFailure } from "./conversation-stream-store-B2RVviYM.mjs";
+ import { D as SUBMISSION_HARNESS_NAME, O as SUBMISSION_SESSION_NAME, _ as submissionSyntheticRequest, a as admitInstanceContact, c as createDispatchAgentSubmissionInput, d as isInstanceContactRejection, f as materializeSubmissionAttachments, g as settleUnclaimableSubmission, h as serializeSubmissionError, l as ensureInstanceIdentity, m as reconcileInterruptedSubmission, n as SqliteConversationStreamStore, o as adoptKeyedSubmissionReplay, p as processSubmission, s as createDirectAgentSubmissionInput, u as finalizePendingSettlement, v as unreadySubmissionDeadline } from "./conversation-stream-store-B2RVviYM.mjs";
+ import { n as ensureSqlAgentExecutionTables, r as ConversationRecordWriter, t as createSqlAgentExecutionStoreFromSql } from "./sql-agent-execution-store-CS3_7p5s.mjs";
+ import { n as SqliteAttachmentStore, r as ensureSqlAttachmentTable } from "./sql-attachment-store-CjtLrhTN.mjs";
+@@ -92,6 +93,9 @@ function createCloudflareAgentRuntime(options) {
  		onRequest(instance, request) {
  			return getCoordinator(instance).onRequest(request);
  		},
@@ -12,7 +20,7 @@ index 4ccecda0df695372eb52b3a7c41f59ef6930ae37..29cad4cf844a88f23fef77e5c9e064de
  		onFiberRecovered(instance, ctx, inherited) {
  			return getCoordinator(instance).onFiberRecovered(ctx, inherited);
  		},
-@@ -231,7 +234,8 @@ var CloudflareAgentCoordinator = class {
+@@ -231,7 +235,8 @@ var CloudflareAgentCoordinator = class {
  		if (isInternalDispatchRequest(request)) return this.admitDispatch(request);
  		if (isInternalInstanceInfoRequest(request)) return this.instanceInfo();
  		if (isAbortRequest(request, this.agentName, this.instance.name)) {
@@ -22,7 +30,36 @@ index 4ccecda0df695372eb52b3a7c41f59ef6930ae37..29cad4cf844a88f23fef77e5c9e064de
  			return Response.json({ aborted });
  		}
  		const method = request.method;
-@@ -617,6 +621,13 @@ var CloudflareAgentCoordinator = class {
+@@ -368,7 +373,7 @@ var CloudflareAgentCoordinator = class {
+ 				const found = this.options.agents.find((record) => record.name === submission.input.agent)?.agent;
+ 				const agent = found && submission.input.agent === this.agentName && submission.input.id === this.instance.name ? found : void 0;
+ 				if (!agent) {
+-					if (Date.now() >= unreadySubmissionDeadline(submission, void 0) && await this.terminalizeUnreadySubmission(submission, /* @__PURE__ */ new Error(`[flue] Submission target agent "${submission.input.agent}" has no registered definition, so the submission could never start.`))) continue;
++					if (await this.terminalizeUnreadySubmission(submission, new Error(`[flue] Submission target agent "${submission.input.agent}" has no registered definition, so the submission could never start.`), void 0)) continue;
+ 					console.error("[flue:submission-reconciliation]", {
+ 						agentName: this.agentName,
+ 						instanceId: this.instance.name,
+@@ -390,7 +395,7 @@ var CloudflareAgentCoordinator = class {
+ 					await this.materializeSubmissionConversation(submission.input, agent);
+ 					await this.submissions.markSubmissionCanonicalReady(submission.submissionId);
+ 				} catch (error) {
+-					if (Date.now() >= unreadySubmissionDeadline(submission, agent) && await this.terminalizeUnreadySubmission(submission, error)) continue;
++					if (await this.terminalizeUnreadySubmission(submission, error, agent)) continue;
+ 					this.logSubmissionReconciliationFailure(submission, "materialize_submission", error);
+ 				}
+ 			}
+@@ -447,8 +452,8 @@ var CloudflareAgentCoordinator = class {
+ 	* (another isolate settled first, or a racing claim made the row runnable)
+ 	* falls back to the deferral logging so nothing is silently dropped.
+ 	*/
+-	async terminalizeUnreadySubmission(submission, error) {
+-		if (!await settleUnclaimableSubmission(this.submissions, submission, "failed", error, this.emitCoordinatorEvent)) return false;
++	async terminalizeUnreadySubmission(submission, error, agent) {
++		if (!await recordUnreadySubmissionFailure(this.submissions, submission, agent, error, this.emitCoordinatorEvent)) return false;
+ 		console.error("[flue:submission-reconciliation]", {
+ 			agentName: this.agentName,
+ 			instanceId: this.instance.name,
+@@ -617,6 +622,13 @@ var CloudflareAgentCoordinator = class {
  		this.conversationWriter = void 0;
  		this.conversationWriterCreation = void 0;
  	}
@@ -36,6 +73,84 @@ index 4ccecda0df695372eb52b3a7c41f59ef6930ae37..29cad4cf844a88f23fef77e5c9e064de
  	async abortInstance() {
  		const sessionKey = createSessionStorageKey(this.agentName, this.instance.name, SUBMISSION_HARNESS_NAME, SUBMISSION_SESSION_NAME);
  		const affected = await this.submissions.requestSessionAbort(sessionKey);
+diff --git a/dist/agent-execution-store-BoXvwktA.d.mts b/dist/agent-execution-store-BoXvwktA.d.mts
+index b06a5d07329baef615d46e8d61b1a8dbdfe83ca1..c4cedb20d32ee71f07d2af4156661f76ab267493 100644
+--- a/dist/agent-execution-store-BoXvwktA.d.mts
++++ b/dist/agent-execution-store-BoXvwktA.d.mts
+@@ -1436,6 +1436,16 @@ interface AgentSubmissionStore {
+    * Idempotent while queued; returns `null` when the submission is missing or no longer queued.
+    */
+   markSubmissionCanonicalReady(submissionId: string): Promise<AgentSubmission | null>;
++  /**
++   * Optional bounded preparation seam implemented by OpenMeld's pinned SQL
++   * stores. Count a failed materialization only while the same queued,
++   * unready row still has expectedAttemptCount. A stale call cannot fail a
++   * newly ready/claimed/settled row. Exhaustion and increment are one CAS;
++   * only its winner may publish terminal observation. No wall-clock limit
++   * is imposed on a healthy execution. Other adapters retain their own
++   * existing deadline behavior when this seam is absent.
++   */
++  recordSubmissionPreparationFailure?(submissionId: string, expectedAttemptCount: number, maxAttempts: number, error: unknown, expired?: boolean): Promise<AgentSubmission | null>;
+   /**
+    * Atomic compare-and-set. Transition the submission from queued to
+    * running ONLY when it is currently queued and is the runnable head of
+diff --git a/dist/builtin-providers-Cr4ZxYKK.mjs b/dist/builtin-providers-Cr4ZxYKK.mjs
+index 25d43cfaaaa9aa06f5b66f08511f206060de190f..0ba2e48050fc820fa18529aa2e34910e5a091774 100644
+--- a/dist/builtin-providers-Cr4ZxYKK.mjs
++++ b/dist/builtin-providers-Cr4ZxYKK.mjs
+@@ -1,5 +1,6 @@
+ import { d as abortErrorFor, p as createCallHandle, r as createCwdSandbox } from "./sandbox-CR3o1Qmd.mjs";
+ import { f as getPreparedToolAdapter } from "./result-D9Q9s-LD.mjs";
++import { recordUnreadySubmissionFailure } from "./conversation-stream-store-B2RVviYM.mjs";
+ import { A as SubmissionConflictError, C as SessionNotFoundError, J as createConversationIdentity, N as SubmissionTimeoutError, W as normalizeLogAttributes, X as generateAttemptId, it as generateOwnerId, k as SubmissionAbortedError, ut as isKeyDerivedSubmissionId, y as RuntimeUnavailableError, z as classifyError } from "./errors-CsDcT_C4.mjs";
+ import { dt as createActionScopeName, et as agentStreamPath, f as configureFlueRuntime, ft as createSessionStorageKey, g as resetFlueRuntimeForTests, h as getFlueRuntime, l as resolveAgentDurability, o as getRegisteredFlueAgents, pt as createTaskSessionName, s as registerFlueAgents, ut as assertPublicSessionName, vt as createAgentOutputChannel } from "./dispatch-Dohpn4Ea.mjs";
+ import { c as resolveModel, l as setProvider, r as hasProvider } from "./providers-8VayQV37.mjs";
+@@ -1113,8 +1114,8 @@ function createNodeAgentCoordinator(options) {
+ 	* runnable) falls back to the deferral logging so nothing is silently
+ 	* dropped.
+ 	*/
+-	async function terminalizeUnreadySubmission(submission, error) {
+-		if (!await settleUnclaimableSubmission(submissions, submission, "failed", error, coordinatorEventEmitter(submission.input))) return false;
++	async function terminalizeUnreadySubmission(submission, error, agent) {
++		if (!await recordUnreadySubmissionFailure(submissions, submission, agent, error, coordinatorEventEmitter(submission.input))) return false;
+ 		console.error("[flue:submission-reconciliation]", {
+ 			submissionId: submission.submissionId,
+ 			operation: "materialize_submission",
+@@ -1122,7 +1123,15 @@ function createNodeAgentCoordinator(options) {
+ 		}, error);
+ 		return true;
+ 	}
+-	async function reconcileUnreadySubmissions() {
++	let unreadyPassInFlight;
++	function reconcileUnreadySubmissions() {
++		// The claim loop and lease scanner can wake together. Share one local
++		// materialization pass; the store CAS still fences stale remote owners.
++		return unreadyPassInFlight ??= runUnreadyReconciliationPass().finally(() => {
++			unreadyPassInFlight = void 0;
++		});
++	}
++	async function runUnreadyReconciliationPass() {
+ 		for (const submission of await submissions.listUnreadySubmissions()) {
+ 			if (submission.abortRequestedAt !== void 0) {
+ 				await settleUnclaimableSubmission(submissions, submission, "aborted", new SubmissionAbortedError(), coordinatorEventEmitter(submission.input));
+@@ -1130,7 +1139,7 @@ function createNodeAgentCoordinator(options) {
+ 			}
+ 			const agent = agents.find((record) => record.name === submission.input.agent)?.agent;
+ 			if (!agent) {
+-				if (Date.now() >= unreadySubmissionDeadline(submission, void 0) && await terminalizeUnreadySubmission(submission, /* @__PURE__ */ new Error(`[flue] Submission target agent "${submission.input.agent}" has no registered definition, so the submission could never start.`))) continue;
++				if (await terminalizeUnreadySubmission(submission, new Error(`[flue] Submission target agent "${submission.input.agent}" has no registered definition, so the submission could never start.`), void 0)) continue;
+ 				console.error("[flue:submission-reconciliation]", {
+ 					submissionId: submission.submissionId,
+ 					operation: "materialize_submission",
+@@ -1149,7 +1158,7 @@ function createNodeAgentCoordinator(options) {
+ 				await materializeSubmissionConversation(submission.input, agent);
+ 				await submissions.markSubmissionCanonicalReady(submission.submissionId);
+ 			} catch (error) {
+-				if (Date.now() >= unreadySubmissionDeadline(submission, agent) && await terminalizeUnreadySubmission(submission, error)) continue;
++				if (await terminalizeUnreadySubmission(submission, error, agent)) continue;
+ 				console.error("[flue:submission-reconciliation]", {
+ 					submissionId: submission.submissionId,
+ 					operation: "materialize_submission",
 diff --git a/dist/cloudflare/internal.mjs b/dist/cloudflare/internal.mjs
 index 507b275fd464dd8d40411cb294bd41f6c6e16ced..17c441c0845d8eecf795f4df5ea8fcc184adbc9a 100644
 --- a/dist/cloudflare/internal.mjs
@@ -51,7 +166,7 @@ index 507b275fd464dd8d40411cb294bd41f6c6e16ced..17c441c0845d8eecf795f4df5ea8fcc1
  		* The Agents SDK alarm handler dispatches `schedule`/`scheduleEvery`/
  		* `queue` callbacks to methods on this class — including
 diff --git a/dist/conversation-stream-store-B2RVviYM.mjs b/dist/conversation-stream-store-B2RVviYM.mjs
-index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..89dc2eab24d0c5e96e04634c5e5adc0ce7f3fa9d 100644
+index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf54d3835f 100644
 --- a/dist/conversation-stream-store-B2RVviYM.mjs
 +++ b/dist/conversation-stream-store-B2RVviYM.mjs
 @@ -1,4 +1,5 @@
@@ -151,7 +266,61 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..89dc2eab24d0c5e96e04634c5e5adc0c
  	};
  }
  /**
-@@ -5056,7 +5075,7 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -4997,10 +5016,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+ 	const { input } = submission;
+ 	const attempt = submissionAttemptRef(submission);
+ 	if (!attempt) return void 0;
++	// Before the input-applied stamp exists, the store carries default budgets.
++	// Read the static without rendering; never reinstate a one-hour deadline on
++	// an agent whose policy deliberately disables total wall-clock expiry.
++	if (submission.inputAppliedAt === void 0) {
++		assertDurability(agent.durability, `[agent "${input.agent}"]`);
++		submission = {
++			...submission,
++			maxAttempts: agent.durability?.maxAttempts ?? DURABILITY_DEFAULT_MAX_ATTEMPTS,
++			timeoutAt: agent.durability?.timeoutMs === 0 ? 0 : submission.timeoutAt
++		};
++	}
+ 	const ctx = createContext(input.submissionId);
+ 	let state;
+ 	try {
+-		state = await createAgentSubmissionSessionHandler(agent, input, (s) => s.inspectSubmissionInput(input))(ctx);
++		// Recovery classification is a read of canonical runtime facts. Opening
++		// an agent first can require unavailable tools/Computer resources and
++		// prevent completion, abort, and retry-budget checks from ever running.
++		state = conversationWriter
++			? await inspectPersistedSubmission(conversationWriter, input)
++			: await createAgentSubmissionSessionHandler(agent, input, (s) => s.inspectSubmissionInput(input))(ctx);
+ 	} catch (renderError) {
+ 		if (submission.timeoutAt > 0 && Date.now() >= submission.timeoutAt) {
+ 			await failInterruptedSubmission(submissions, submission, attempt, agent, "exceeded_timeout", () => new SubmissionTimeoutError(), createContext, conversationWriter, emitCoordinatorEvent);
+@@ -5014,7 +5049,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+ 		return;
+ 	}
+ 	if (submission.abortRequestedAt !== void 0) {
+-		await settleAbortedWithContext(submissions, submission, attempt, agent, createContext(input.submissionId), conversationWriter, emitCoordinatorEvent);
++		await settleAbortedWithContext(submissions, submission, attempt, agent, createContext(input.submissionId), conversationWriter, emitCoordinatorEvent, { renderAdvisory: false });
+ 		return;
+ 	}
+ 	if (submission.attemptCount >= submission.maxAttempts) {
+@@ -5040,6 +5075,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+ 	}
+ 	await submissions.requeueSubmission(attempt);
+ }
++async function inspectPersistedSubmission(writer, input) {
++	const reduced = await writer.loadReducedState();
++	const conversation = [...reduced.conversations.values()].find((candidate) => candidate.harness === SUBMISSION_HARNESS_NAME && candidate.session === SUBMISSION_SESSION_NAME);
++	if (!conversation) return "absent";
++	const state = classifyConversationSubmission(conversation, submissionEntryId(input.kind, input.submissionId), { contextWindow: 0 });
++	if (state.kind === "absent") return "absent";
++	// A previous completed step does not complete a newer in-progress response.
++	if ([...conversation.inProgressMessages.values()].some((message) => message.submissionId === input.submissionId)) return "interrupted";
++	return state.kind === "completed" ? "completed" : "interrupted";
++}
+ /**
+ * The wall-clock deadline after which a queued submission that never became
+ * claimable (materialization permanently failing, agent definition
+@@ -5056,7 +5101,7 @@ function unreadySubmissionDeadline(submission, agent) {
  		assertDurability(agent.durability, `[agent "${submission.input.agent}"]`);
  		timeoutMs = agent.durability?.timeoutMs ?? 36e5;
  	} catch {}
@@ -160,7 +329,49 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..89dc2eab24d0c5e96e04634c5e5adc0c
  }
  /**
  * Settle a queued submission that can never be claimed — a durable abort on
-@@ -5117,11 +5136,32 @@ async function processSubmission(opts) {
+@@ -5071,6 +5116,10 @@ function unreadySubmissionDeadline(submission, agent) {
+ */
+ async function settleUnclaimableSubmission(submissions, submission, outcome, error, emitCoordinatorEvent) {
+ 	if (!await submissions.settleQueuedSubmission(submission.submissionId, outcome, error)) return false;
++	emitUnclaimableSettlement(submission, outcome, error, emitCoordinatorEvent);
++	return true;
++}
++function emitUnclaimableSettlement(submission, outcome, error, emitCoordinatorEvent) {
+ 	const errorInfo = { errorInfo: classifyError(error) };
+ 	emitCoordinatorEvent({
+ 		type: "submission_settled",
+@@ -5084,8 +5133,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
+ 		kind: submission.kind,
+ 		operation: "materialize_submission",
+ 		outcome: "terminated",
++		attemptCount: submission.attemptCount,
++		maxAttempts: submission.maxAttempts,
+ 		error: serializeSubmissionError(error)
+ 	}, errorInfo);
++}
++export async function recordUnreadySubmissionFailure(submissions, submission, agent, error, emitCoordinatorEvent) {
++	const expired = Date.now() >= unreadySubmissionDeadline(submission, agent);
++	if (!submissions.recordSubmissionPreparationFailure) {
++		return expired && await settleUnclaimableSubmission(submissions, submission, "failed", error, emitCoordinatorEvent);
++	}
++	let maxAttempts = DURABILITY_DEFAULT_MAX_ATTEMPTS;
++	try {
++		assertDurability(agent?.durability, `[agent "${submission.input.agent}"]`);
++		maxAttempts = agent?.durability?.maxAttempts ?? maxAttempts;
++	} catch {}
++	const exhausted = submission.attemptCount + 1 >= maxAttempts;
++	const terminalError = exhausted ? new SubmissionInterruptedError({
++		phase: "retry_exhausted_before_input",
++		attemptCount: submission.attemptCount + 1,
++		maxAttempts
++	}) : error;
++	const updated = await submissions.recordSubmissionPreparationFailure(submission.submissionId, submission.attemptCount, maxAttempts, terminalError, expired);
++	if (updated?.status !== "settled") return false;
++	emitUnclaimableSettlement(updated, "failed", terminalError, emitCoordinatorEvent);
+ 	return true;
+ }
+ /** Synthetic request for the submission's kind: an agent route for direct prompts, the dispatch path for dispatches. */
+@@ -5117,11 +5188,32 @@ async function processSubmission(opts) {
  		attemptCount: submission.attemptCount,
  		maxAttempts: submission.maxAttempts
  	});
@@ -197,7 +408,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..89dc2eab24d0c5e96e04634c5e5adc0c
  	};
  	const execute = () => createAgentSubmissionSessionHandler(agent, input, (session) => {
  		const handle = session.processSubmissionInput(input, {
-@@ -5151,17 +5191,7 @@ async function processSubmission(opts) {
+@@ -5151,17 +5243,7 @@ async function processSubmission(opts) {
  		return;
  	}
  	try {
@@ -216,6 +427,32 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..89dc2eab24d0c5e96e04634c5e5adc0c
  	} catch (error) {
  		if (opts.isShutdownAbort?.(error)) throw error;
  		if (opts.signal?.reason instanceof SubmissionAbortedError) {
+@@ -5181,7 +5263,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+ 	const ctx = createContext(input.submissionId);
+ 	let interruptedTools;
+ 	try {
+-		interruptedTools = await createAgentSubmissionSessionHandler(agent, input, (s) => s.recordSubmissionTerminal({
++		// The canonical settlement is the outcome, not the optional rendered
++		// advisory. A following live session repairs any interrupted tail before
++		// appending new input. Recovery must not prepare execution resources merely
++		// to record that this execution cannot run again.
++		if (!conversationWriter) interruptedTools = await createAgentSubmissionSessionHandler(agent, input, (s) => s.recordSubmissionTerminal({
+ 			submissionId: submission.submissionId,
+ 			kind: submission.kind,
+ 			reason,
+@@ -5215,10 +5301,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+ * through the two-phase outbox with `outcome: 'aborted'` — the durable
+ * terminal record a reconnecting waiter observes.
+ */
+-async function settleAbortedWithContext(submissions, submission, attempt, agent, ctx, conversationWriter, emitCoordinatorEvent) {
++async function settleAbortedWithContext(submissions, submission, attempt, agent, ctx, conversationWriter, emitCoordinatorEvent, options) {
+ 	const error = new SubmissionAbortedError();
+ 	try {
+-		await createAgentSubmissionSessionHandler(agent, submission.input, (s) => s.recordSubmissionTerminal({
++		if (options?.renderAdvisory !== false || !conversationWriter) await createAgentSubmissionSessionHandler(agent, submission.input, (s) => s.recordSubmissionTerminal({
+ 			submissionId: submission.submissionId,
+ 			kind: submission.kind,
+ 			reason: "aborted",
 diff --git a/dist/dispatch-Dohpn4Ea.mjs b/dist/dispatch-Dohpn4Ea.mjs
 index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..fce7304475441887bb6c6610bae1bb8184dfb4db 100644
 --- a/dist/dispatch-Dohpn4Ea.mjs
@@ -477,10 +714,32 @@ index a8f2280ec735a56f4de512eb5799fa835f070540..547e1a315ea90c5c1e76f344c53a69f2
  import { Env, Handler, Hono } from "hono";
  import { AgentTool } from "@earendil-works/pi-agent-core";
 diff --git a/dist/sql-agent-execution-store-CS3_7p5s.mjs b/dist/sql-agent-execution-store-CS3_7p5s.mjs
-index 9a8b8c34e42e58ae0debd0159e144cd7be2e4b84..880bfd5f237aa19715a237fbcdbfd742ffec6eed 100644
+index 9a8b8c34e42e58ae0debd0159e144cd7be2e4b84..a2e26a2a13ff6b31e4997ca6da5bbf57a8c57706 100644
 --- a/dist/sql-agent-execution-store-CS3_7p5s.mjs
 +++ b/dist/sql-agent-execution-store-CS3_7p5s.mjs
-@@ -485,6 +485,12 @@ var AgentSubmissionStoreImpl = class {
+@@ -396,6 +396,21 @@ var AgentSubmissionStoreImpl = class {
+ 				 RETURNING ${submissionColumns}`, Date.now(), submissionId).toArray()[0];
+ 		return row ? this.parseSubmission(row) : null;
+ 	}
++	async recordSubmissionPreparationFailure(submissionId, expectedAttemptCount, maxAttempts, error, expired = false) {
++		if (!Number.isInteger(expectedAttemptCount) || expectedAttemptCount < 0 || !Number.isInteger(maxAttempts) || maxAttempts < 1) throw new Error("[flue] Invalid submission preparation budget.");
++		const terminal = expired || expectedAttemptCount + 1 >= maxAttempts;
++		const row = this.sql.exec(`UPDATE flue_agent_submissions
++			 SET attempt_count = attempt_count + 1, max_attempts = ?,
++			     status = ?, settled_at = ?, error = ?
++			 WHERE submission_id = ? AND status = 'queued'
++			   AND canonical_ready_at IS NULL AND abort_requested_at IS NULL AND attempt_count = ?
++			 RETURNING ${submissionColumns}`,
++			maxAttempts, terminal ? "settled" : "queued",
++			terminal ? Date.now() : null,
++			terminal ? error instanceof Error ? error.message : String(error) : null,
++			submissionId, expectedAttemptCount).toArray()[0];
++		return row ? this.parseSubmission(row) : null;
++	}
+ 	async hasUnsettledSubmissions() {
+ 		return this.sql.exec(`SELECT 1
+ 					 FROM flue_agent_submissions
+@@ -485,6 +500,12 @@ var AgentSubmissionStoreImpl = class {
  				 WHERE session_key = ? AND status IN ('queued', 'running', 'joining', 'joined')
  				 RETURNING submission_id`, Date.now(), sessionKey).toArray().map((row) => String(row.submission_id));
  	}

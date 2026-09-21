@@ -341,7 +341,7 @@ New provider-neutral Message Channel turns use
 conversation ids remain readable and continue through their current producer
 until the separately gated Slack adapter migration.
 
-The Flue 2.0.3 upgrade uses synchronous agent hooks and a fresh
+The initial Flue 2.0.3 cutover used synchronous agent hooks and a fresh
 `FlueCenterAgentV2Agent` namespace for the authorized prelaunch beta reset.
 The Computer namespace and Core business data remain separate. The adapter's
 [pinned integration contracts](../../services/remote-agent/flue-adapter/README.md)
@@ -350,6 +350,24 @@ This first reset does not authorize interrupting accepted work on subsequent
 releases. A real staging handoff must prove continued execution and the exact
 session context, including intermediate choices and unpublished work; rebuilding
 Core memory or a visible-message excerpt alone does not establish that guarantee.
+
+The subsequent Flue 2.1.0 upgrade retains those identities and existing
+conversations; it does not repeat the beta reset. Healthy executions have no
+fixed total wall-clock deadline. The five-attempt budget includes the initial
+execution and failed queued materialization, not elapsed healthy running time.
+Queued preparation failures are counted atomically on the existing runtime
+submission row; a stale failure cannot terminate a ready, claimed, cancelled,
+or already-settled submission. No additional execution ledger is introduced.
+
+Recovery reads canonical completion before checking cancellation, the retry
+budget, and positive deadlines. This classification must not require preparing
+Computer, model, or tool resources. A completed result survives an exhausted
+budget or a late stop; actual resumed execution still prepares resources under
+its immutable submission identity. A preparation error during that resumed
+execution follows the existing failure-settlement path rather than repeatedly
+failing the inspection step forever. Terminal recovery does not need a rendered
+advisory to commit the canonical settlement. A later live session repairs its
+interrupted conversation tail without blindly repeating unknown external effects.
 
 Model-visible tool results must cross an OpenMeld-owned bounded persistence
 boundary before Flue stores them in the conversation session. A direct tool

@@ -15,8 +15,10 @@ is not a future release strategy.
 `patches/@flue__runtime@2.1.0.patch` retains seven explicit contracts:
 
 1. A zero durability timeout disables total wall-clock expiration. Recovery
-   attempts remain bounded. Healthy long-running work must not fail because
-   one hour passed.
+   attempts remain bounded; the five-attempt policy includes the initial run.
+   Repeated failed materialization of a queued input consumes the existing
+   attempt budget through a fenced SQL update, without a new table or timer.
+   Healthy long-running work must not fail because one hour passed.
 2. Exact-submission abort and a read-only submission projection support
    OpenMeld's execution identity. A late stop cannot abort a subsequent turn.
    The upstream conversation-wide abort remains available to upstream callers.
@@ -38,11 +40,15 @@ is not a future release strategy.
    outbox and the exact-execution steering source described below. Core verifies
    the original sender and private Center Agent chat before accepting an input;
    independent queued deliveries retain separate authority and callbacks.
-6. Submission instrumentation encloses the shared session-opening boundary,
-   including recovery inspection and abort/terminal reconciliation. These paths
-   render the agent just as live execution does and require the same exact
-   submission authority and prepared resources. Instrumenting only the live
-   process leaves a restarted Worker unable to reconcile an interrupted turn.
+6. Submission instrumentation encloses every shared session-opening boundary.
+   Actual recovery execution uses the same exact submission authority and
+   prepared resources as live execution. Classification itself reads canonical
+   records without rendering: an unavailable Computer or tool preparation must
+   not prevent recognition of a completed response, a stop, or an exhausted
+   budget. Terminal recovery commits the existing settlement outbox without
+   requiring the optional rendered advisory. The next live session repairs any
+   interrupted tail before applying new input; no external tool is blindly
+   replayed to manufacture a result.
 7. An optional exact-execution steering source can supply durably accepted
    inputs at the existing model-turn boundary. It resolves inside submission
    instrumentation. Flue validates the named agent, conversation and host
