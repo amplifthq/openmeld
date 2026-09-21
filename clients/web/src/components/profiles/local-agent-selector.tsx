@@ -303,33 +303,33 @@ function LocalAgentSelectionStatePanel(input: {
 			className={className}
 		>
 			<div className="grid gap-1.5">
-				<h3 className="font-medium text-sm">{content.title}</h3>
+				<div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+					<h3 className="font-medium text-sm">{content.title}</h3>
+					{state.onRetry ? (
+						<Button
+							onClick={state.onRetry}
+							size="sm"
+							type="button"
+							variant="outline"
+						>
+							Check again
+						</Button>
+					) : null}
+				</div>
 				<p className="max-w-xl text-muted-foreground text-xs leading-5">
 					{content.description}
 				</p>
 			</div>
-			<div className="flex flex-wrap items-center gap-2">
-				{state.guideHref ? (
-					<DesktopAwareLink
-						className="inline-flex min-h-9 items-center font-medium text-sm underline underline-offset-4"
-						href={state.guideHref}
-					>
-						{state.kind === "not_installed"
-							? "Open install guide"
-							: "Open setup guide"}
-					</DesktopAwareLink>
-				) : null}
-				{state.onRetry ? (
-					<Button
-						onClick={state.onRetry}
-						size="sm"
-						type="button"
-						variant="outline"
-					>
-						Check again
-					</Button>
-				) : null}
-			</div>
+			{state.guideHref ? (
+				<DesktopAwareLink
+					className="inline-flex min-h-9 w-fit items-center font-medium text-sm underline underline-offset-4"
+					href={state.guideHref}
+				>
+					{state.kind === "not_installed"
+						? "Open install guide"
+						: "Open setup guide"}
+				</DesktopAwareLink>
+			) : null}
 		</section>
 	);
 }
