@@ -88,20 +88,36 @@ test("a pushed proposal survives a failed PR request without rewriting the branc
       })
     );
     // Stub only the GitHub transport. Git commit, push, fetch, and branch recovery
-    // run against a real disposable bare remote. gh's selected JSON fields are
-    // state/headRefName/url; no provider API response is mocked here.
+    // run against a real disposable bare remote. The fake PR/comment transport
+    // mirrors the fields consumed by the publisher so the open-review refresh
+    // path is exercised without touching GitHub.
     await writeFile(
       "dev-tmp/bin/gh",
       `#!${process.execPath}
 const fs = require('node:fs');
 const args = process.argv.slice(2);
-if (args[1] === 'list') {
+const commentsPath = 'dev-tmp/comments.json';
+const readComments = () => fs.existsSync(commentsPath) ? JSON.parse(fs.readFileSync(commentsPath, 'utf8')) : [];
+const writeComment = (body) => fs.writeFileSync(commentsPath, JSON.stringify([{ id: 7, user: { login: 'github-actions[bot]' }, body }]));
+if (args[0] === 'pr' && args[1] === 'list') {
   console.log(fs.existsSync('dev-tmp/pr.json') ? fs.readFileSync('dev-tmp/pr.json', 'utf8') : '[]');
-} else if (args[1] === 'create') {
+} else if (args[0] === 'pr' && args[1] === 'create') {
   if (!fs.existsSync('dev-tmp/retry')) { fs.writeFileSync('dev-tmp/retry', '1'); process.exit(1); }
   const head = args[args.indexOf('--head') + 1];
-  fs.writeFileSync('dev-tmp/pr.json', JSON.stringify([{ state: 'OPEN', headRefName: head, url: 'https://example.invalid/pull/1' }]));
-  console.log('https://example.invalid/pull/1');
+  const url = 'https://github.com/example/openmeld/pull/1';
+  fs.writeFileSync('dev-tmp/pr.json', JSON.stringify([{ state: 'OPEN', headRefName: head, url }]));
+  console.log(url);
+} else if (args[0] === 'pr' && args[1] === 'comment') {
+  const bodyFile = args[args.indexOf('--body-file') + 1];
+  writeComment(fs.readFileSync(bodyFile, 'utf8'));
+  console.log('https://github.com/example/openmeld/pull/1#issuecomment-7');
+} else if (args[0] === 'api' && args.includes('--paginate')) {
+  console.log(JSON.stringify([readComments()]));
+} else if (args[0] === 'api' && args.includes('PATCH')) {
+  const field = args[args.indexOf('-F') + 1];
+  const bodyFile = field.slice('body=@'.length);
+  writeComment(fs.readFileSync(bodyFile, 'utf8'));
+  console.log('{}');
 } else process.exit(2);
 `,
       { mode: 0o755 }
@@ -121,6 +137,10 @@ if (args[1] === 'list') {
     await publishUpdate(output);
     assert.equal(git("branch", "--show-current"), "main");
     assert.equal(git("status", "--porcelain"), "");
+    const firstComment = JSON.parse(
+      await readFile("dev-tmp/comments.json", "utf8")
+    )[0];
+    assert.ok(firstComment.body.includes("Latest model catalog scan"));
     git("checkout", pulls[0].headRefName);
     await writeFile("reviewer-notes.md", "Reviewer decision in progress.\n");
     git("add", "--", "reviewer-notes.md");
@@ -128,12 +148,24 @@ if (args[1] === 'list') {
     git("push", "origin", `HEAD:refs/heads/${pulls[0].headRefName}`);
     const reviewed = git("rev-parse", "HEAD");
     git("checkout", "main");
+    await writeFile(
+      join(output, "review.md"),
+      "# Model catalog update\n\nSecond scan.\n"
+    );
     await publishUpdate(output);
     assert.equal(
       git("ls-remote", "--heads", "origin", pulls[0].headRefName).split(
         "\t"
       )[0],
       reviewed
+    );
+    const refreshedComment = JSON.parse(
+      await readFile("dev-tmp/comments.json", "utf8")
+    )[0];
+    assert.ok(refreshedComment.body.includes("Second scan."));
+    assert.equal(
+      JSON.parse(await readFile("dev-tmp/comments.json", "utf8")).length,
+      1
     );
   } finally {
     process.chdir(previousCwd);
