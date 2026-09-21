@@ -14545,6 +14545,7 @@ export async function rpcCenterAgentListSpaceFiles(
       query: {
         parentId: request.parentId ?? null,
         view: request.view ?? "active",
+        origin: request.origin ?? "artifact",
       },
       spaceId: request.spaceId,
     })
@@ -14674,6 +14675,7 @@ export async function rpcCenterAgentSaveSpaceFile(
       ? {
           name: request.name,
           parentId: request.parentId ?? null,
+          origin: "artifact",
         }
       : {}),
     revisionId,
@@ -20275,6 +20277,7 @@ export async function rpcPublishSpaceComposerUpload(
       fileId,
       mimeType: staged.descriptor.mimeType,
       name: staged.descriptor.name,
+      origin: "chat_upload",
       parentId: null,
       revisionId,
       sizeBytes: staged.descriptor.sizeBytes,

@@ -1020,7 +1020,7 @@ requires the Codex App Server permission profile and actual access probe.
 the current Space filesystem. The MVP commands are:
 
 ```text
-openmeld space files list <space-id> [--folder <folder-id>] [--json]
+openmeld space files list <space-id> [--folder <folder-id>] [--all] [--json]
 openmeld space files read <space-id> <file-id> [--revision <n>]
 openmeld space files upload <space-id> <local-path> [--name <name>] [--folder <folder-id>]
 openmeld space files write <space-id> <file-id> --base-revision <n> (--file <local-path> | --stdin)
@@ -1931,6 +1931,18 @@ Use scoped owner documents for deeper rules:
 - `space files list --trash`, `space files history`, `space files restore`, and
   `space files restore-version` consume the same member-only Trash and immutable
   revision contract as Web; restoring a version creates a new latest revision.
+- `space files list` defaults to artifacts only, matching Web's default; pass
+  `--all` to also see files shared as chat uploads. `space files upload` always
+  records the new file as an artifact; `space send --file` and
+  `space action reply --file` always record theirs as chat uploads. A CLI
+  build that predates this classification omits `origin` on upload; Core
+  treats that omission as `artifact`, matching the pre-feature create
+  default, so an old CLI keeps working against new Core without an update.
+  Reading `origin` back is negotiated: a current CLI declares an explicit
+  capability header on every Space Files request and gets `origin` in the
+  response; a CLI build that predates this feature never declares it and
+  keeps getting the exact pre-origin response shape it already parses, so
+  it is never forced to update.
 - Status commands must remain read-only.
 - Mutating commands must be explicit and lane-scoped.
 - `openmeld routines` exposes exactly eight commands, uses an explicit target

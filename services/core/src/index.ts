@@ -1,5 +1,8 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { OPENMELD_SPACE_ADDRESSING_VERSION } from "@openmeld/gateway-contract";
+import {
+  OPENMELD_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+} from "@openmeld/gateway-contract";
 import type {
   SignalEnvelope,
   SpaceCursor,
@@ -8,7 +11,9 @@ import type {
 import {
   type ListCenterAgentSessionsResponse,
   peopleComputerTargetSchema,
+  SPACE_FILES_ORIGIN_CAPABILITY_TOKEN,
   toLegacySpaceAddressingWireValue,
+  toLegacySpaceFilesOriginWireValue,
   toSpaceSignalReadWireValue,
 } from "@openmeld/schemas";
 import type {
@@ -1932,18 +1937,34 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcResolveSpaceAttachmentForDownload(this.env, input);
   }
 
-  listSpaceFiles(input: ListSpaceFilesInput): Promise<ListSpaceFilesResponse> {
-    return rpcListSpaceFiles(this.env, input);
+  listSpaceFiles(
+    input: ListSpaceFilesInput,
+    spaceFilesOriginVersion?: string
+  ): Promise<ListSpaceFilesResponse> {
+    return withSpaceFilesOriginRpcOutput(
+      rpcListSpaceFiles(this.env, input),
+      spaceFilesOriginVersion === OPENMELD_SPACE_FILES_ORIGIN_VERSION
+    );
   }
 
-  getSpaceFile(input: GetSpaceFileInput): Promise<SpaceFileDescriptor> {
-    return rpcGetSpaceFile(this.env, input);
+  getSpaceFile(
+    input: GetSpaceFileInput,
+    spaceFilesOriginVersion?: string
+  ): Promise<SpaceFileDescriptor> {
+    return withSpaceFilesOriginRpcOutput(
+      rpcGetSpaceFile(this.env, input),
+      spaceFilesOriginVersion === OPENMELD_SPACE_FILES_ORIGIN_VERSION
+    );
   }
 
   listSpaceFileRevisions(
-    input: GetSpaceFileInput
+    input: GetSpaceFileInput,
+    spaceFilesOriginVersion?: string
   ): Promise<ListSpaceFileRevisionsResponse> {
-    return rpcListSpaceFileRevisions(this.env, input);
+    return withSpaceFilesOriginRpcOutput(
+      rpcListSpaceFileRevisions(this.env, input),
+      spaceFilesOriginVersion === OPENMELD_SPACE_FILES_ORIGIN_VERSION
+    );
   }
 
   createSpaceFolder(
@@ -1953,9 +1974,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   }
 
   updateSpaceFileEntry(
-    input: UpdateSpaceFileEntryInput
+    input: UpdateSpaceFileEntryInput,
+    spaceFilesOriginVersion?: string
   ): Promise<UpdateSpaceFileEntryResponse> {
-    return rpcUpdateSpaceFileEntry(this.env, input);
+    return withSpaceFilesOriginRpcOutput(
+      rpcUpdateSpaceFileEntry(this.env, input),
+      spaceFilesOriginVersion === OPENMELD_SPACE_FILES_ORIGIN_VERSION
+    );
   }
 
   trashSpaceFileEntry(
@@ -1965,15 +1990,23 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   }
 
   restoreSpaceFileEntry(
-    input: RestoreSpaceFileEntryInput
+    input: RestoreSpaceFileEntryInput,
+    spaceFilesOriginVersion?: string
   ): Promise<RestoreSpaceFileEntryResponse> {
-    return rpcRestoreSpaceFileEntry(this.env, input);
+    return withSpaceFilesOriginRpcOutput(
+      rpcRestoreSpaceFileEntry(this.env, input),
+      spaceFilesOriginVersion === OPENMELD_SPACE_FILES_ORIGIN_VERSION
+    );
   }
 
   restoreSpaceFileRevision(
-    input: RestoreSpaceFileRevisionInput
+    input: RestoreSpaceFileRevisionInput,
+    spaceFilesOriginVersion?: string
   ): Promise<SpaceFileDescriptor> {
-    return rpcRestoreSpaceFileRevision(this.env, input);
+    return withSpaceFilesOriginRpcOutput(
+      rpcRestoreSpaceFileRevision(this.env, input),
+      spaceFilesOriginVersion === OPENMELD_SPACE_FILES_ORIGIN_VERSION
+    );
   }
 
   prepareSpaceFileWrite(
@@ -1994,8 +2027,14 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcResolveSpaceFileContent(this.env, input);
   }
 
-  streamSpaceFileContent(input: ReadSpaceFileContentRpcInput) {
-    return rpcStreamSpaceFileContent(this.env, input);
+  streamSpaceFileContent(
+    input: ReadSpaceFileContentRpcInput,
+    spaceFilesOriginVersion?: string
+  ) {
+    return withSpaceFilesOriginStreamRpcOutput(
+      rpcStreamSpaceFileContent(this.env, input),
+      spaceFilesOriginVersion === OPENMELD_SPACE_FILES_ORIGIN_VERSION
+    );
   }
 
   readSpaceFileContent(
@@ -2005,13 +2044,23 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   }
 
   writeSpaceFileContent(
-    input: WriteSpaceFileContentRpcInput
+    input: WriteSpaceFileContentRpcInput,
+    spaceFilesOriginVersion?: string
   ): Promise<SpaceFileDescriptor> {
-    return rpcWriteSpaceFileContent(this.env, input);
+    return withSpaceFilesOriginRpcOutput(
+      rpcWriteSpaceFileContent(this.env, input),
+      spaceFilesOriginVersion === OPENMELD_SPACE_FILES_ORIGIN_VERSION
+    );
   }
 
-  spaceFileUpload(input: Parameters<typeof rpcSpaceFileUpload>[1]) {
-    return rpcSpaceFileUpload(this.env, input);
+  spaceFileUpload(
+    input: Parameters<typeof rpcSpaceFileUpload>[1],
+    spaceFilesOriginVersion?: string
+  ) {
+    return withSpaceFilesOriginRpcOutput(
+      rpcSpaceFileUpload(this.env, input),
+      spaceFilesOriginVersion === OPENMELD_SPACE_FILES_ORIGIN_VERSION
+    );
   }
   spaceFileUpdateSettings(
     input: Parameters<typeof rpcSpaceFileUpdateSettings>[1]
@@ -2023,8 +2072,14 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcStageSpaceComposerUpload(this.env, input);
   }
 
-  publishSpaceComposerUpload(input: PublishSpaceComposerUploadRpcInput) {
-    return rpcPublishSpaceComposerUpload(this.env, input);
+  publishSpaceComposerUpload(
+    input: PublishSpaceComposerUploadRpcInput,
+    spaceFilesOriginVersion?: string
+  ) {
+    return withSpaceFilesOriginRpcOutput(
+      rpcPublishSpaceComposerUpload(this.env, input),
+      spaceFilesOriginVersion === OPENMELD_SPACE_FILES_ORIGIN_VERSION
+    );
   }
 
   discardSpaceComposerUpload(input: DiscardSpaceComposerUploadRpcInput) {
@@ -3358,25 +3413,37 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   centerAgentListSpaceFiles(
     input: CenterAgentListSpaceFilesRpcInput
   ): Promise<CenterAgentListSpaceFilesResponse> {
-    return rpcCenterAgentListSpaceFiles(this.env, input);
+    return withSpaceFilesOriginRpcOutput(
+      rpcCenterAgentListSpaceFiles(this.env, input),
+      input.requestedOriginModel === SPACE_FILES_ORIGIN_CAPABILITY_TOKEN
+    );
   }
 
   centerAgentReadSpaceFile(
     input: CenterAgentReadSpaceFileRpcInput
   ): Promise<CenterAgentReadSpaceFileResponse> {
-    return rpcCenterAgentReadSpaceFile(this.env, input);
+    return withSpaceFilesOriginRpcOutput(
+      rpcCenterAgentReadSpaceFile(this.env, input),
+      input.requestedOriginModel === SPACE_FILES_ORIGIN_CAPABILITY_TOKEN
+    );
   }
 
   centerAgentSaveSpaceFile(
     input: CenterAgentSaveSpaceFileRpcInput
   ): Promise<CenterAgentSaveSpaceFileResponse> {
-    return rpcCenterAgentSaveSpaceFile(this.env, input);
+    return withSpaceFilesOriginRpcOutput(
+      rpcCenterAgentSaveSpaceFile(this.env, input),
+      input.requestedOriginModel === SPACE_FILES_ORIGIN_CAPABILITY_TOKEN
+    );
   }
 
   centerAgentManageSpaceFiles(
     input: CenterAgentManageSpaceFilesRpcInput
   ): Promise<CenterAgentManageSpaceFilesResponse> {
-    return rpcCenterAgentManageSpaceFiles(this.env, input);
+    return withSpaceFilesOriginRpcOutput(
+      rpcCenterAgentManageSpaceFiles(this.env, input),
+      input.requestedOriginModel === SPACE_FILES_ORIGIN_CAPABILITY_TOKEN
+    );
   }
 
   centerAgentReadDispatchHistory(
@@ -4196,18 +4263,25 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.resolveSpaceAttachmentForDownload(input);
   }
 
-  listSpaceFiles(input: ListSpaceFilesInput): Promise<ListSpaceFilesResponse> {
-    return super.listSpaceFiles(input);
+  listSpaceFiles(
+    input: ListSpaceFilesInput,
+    spaceFilesOriginVersion?: string
+  ): Promise<ListSpaceFilesResponse> {
+    return super.listSpaceFiles(input, spaceFilesOriginVersion);
   }
 
-  getSpaceFile(input: GetSpaceFileInput): Promise<SpaceFileDescriptor> {
-    return super.getSpaceFile(input);
+  getSpaceFile(
+    input: GetSpaceFileInput,
+    spaceFilesOriginVersion?: string
+  ): Promise<SpaceFileDescriptor> {
+    return super.getSpaceFile(input, spaceFilesOriginVersion);
   }
 
   listSpaceFileRevisions(
-    input: GetSpaceFileInput
+    input: GetSpaceFileInput,
+    spaceFilesOriginVersion?: string
   ): Promise<ListSpaceFileRevisionsResponse> {
-    return super.listSpaceFileRevisions(input);
+    return super.listSpaceFileRevisions(input, spaceFilesOriginVersion);
   }
 
   createSpaceFolder(
@@ -4217,9 +4291,10 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
 
   updateSpaceFileEntry(
-    input: UpdateSpaceFileEntryInput
+    input: UpdateSpaceFileEntryInput,
+    spaceFilesOriginVersion?: string
   ): Promise<UpdateSpaceFileEntryResponse> {
-    return super.updateSpaceFileEntry(input);
+    return super.updateSpaceFileEntry(input, spaceFilesOriginVersion);
   }
 
   trashSpaceFileEntry(
@@ -4229,15 +4304,17 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
 
   restoreSpaceFileEntry(
-    input: RestoreSpaceFileEntryInput
+    input: RestoreSpaceFileEntryInput,
+    spaceFilesOriginVersion?: string
   ): Promise<RestoreSpaceFileEntryResponse> {
-    return super.restoreSpaceFileEntry(input);
+    return super.restoreSpaceFileEntry(input, spaceFilesOriginVersion);
   }
 
   restoreSpaceFileRevision(
-    input: RestoreSpaceFileRevisionInput
+    input: RestoreSpaceFileRevisionInput,
+    spaceFilesOriginVersion?: string
   ): Promise<SpaceFileDescriptor> {
-    return super.restoreSpaceFileRevision(input);
+    return super.restoreSpaceFileRevision(input, spaceFilesOriginVersion);
   }
 
   prepareSpaceFileWrite(
@@ -5687,6 +5764,52 @@ async function withSpaceAddressingRpcOutput<T>(
   spaceAddressingVersion: string | undefined
 ): Promise<T> {
   return toSpaceAddressingRpcOutput(await value, spaceAddressingVersion);
+}
+
+/**
+ * The RPC boundary analog of `withSpaceAddressingRpcOutput`, shared by both
+ * Space Files RPC boundaries this Core exposes:
+ * - Core/Remote Agent (Center Agent tools): the caller declares
+ *   `requestedOriginModel === SPACE_FILES_ORIGIN_CAPABILITY_TOKEN`.
+ * - Gateway/Core (every ordinary Gateway-facing Space Files method): the
+ *   caller declares `spaceFilesOriginVersion === OPENMELD_SPACE_FILES_ORIGIN_VERSION`.
+ * An already-published caller on either boundary has no such field/argument
+ * and never sends it, so its response is downgraded to the pre-origin shape
+ * it already knows how to parse. Only a caller that explicitly declares the
+ * capability receives `origin` on file descriptors.
+ */
+async function withSpaceFilesOriginRpcOutput<T>(
+  value: Promise<T>,
+  originCapable: boolean
+): Promise<T> {
+  const resolved = await value;
+  return originCapable
+    ? resolved
+    : (toLegacySpaceFilesOriginWireValue(resolved) as T);
+}
+
+/**
+ * `streamSpaceFileContent`'s resolved value embeds a live `bytes:
+ * ReadableStream` alongside its file-descriptor metadata.
+ * `toLegacySpaceFilesOriginWireValue`'s generic recursive JSON walk treats
+ * any object as a plain record and reconstructs it from
+ * `Object.entries()`/`Object.fromEntries()`; a `ReadableStream` has no
+ * enumerable own properties, so that walk would silently replace the stream
+ * with `{}` and corrupt every downgraded file download. Exclude `bytes` from
+ * the walk and reattach it untouched.
+ */
+async function withSpaceFilesOriginStreamRpcOutput<
+  T extends { bytes: unknown },
+>(value: Promise<T>, originCapable: boolean): Promise<T> {
+  const resolved = await value;
+  if (originCapable) {
+    return resolved;
+  }
+  const { bytes, ...metadata } = resolved;
+  return {
+    ...(toLegacySpaceFilesOriginWireValue(metadata) as object),
+    bytes,
+  } as T;
 }
 
 class CoreEntrypoint extends CenterAgentRpcEntrypoint {

@@ -52,6 +52,55 @@ export const spaceFileSizeBytesSchema = eagerZod
 export const spaceComposerUploadIdSchema = z.string().uuid();
 
 /**
+ * The one canonical fact distinguishing a chat upload (sent as a message
+ * attachment, from Web Composer or CLI `space send --file`) from an
+ * artifact (deliberately created or uploaded straight into Files, or
+ * written by an Agent). Set once at file creation and never changed by a
+ * later revision, update, trash, or restore.
+ *
+ * A file created before this classification existed does not stay
+ * unclassified: the schema migration that added this column deterministically
+ * backfilled every pre-existing file row to `"artifact"`, because there is no
+ * reliable signal in that historical data to recover a chat upload from
+ * deliberately created work (both wrote through the identical path before
+ * this column existed). A missing/`NULL` value on a file after that
+ * migration is exceptional/corrupt data, not normal history; every read
+ * path still fails closed on it — treats it as "not a known artifact" —
+ * rather than guessing a classification for it.
+ */
+export const spaceFileOriginSchema = z.enum(["artifact", "chat_upload"]);
+
+/**
+ * Which files a Space Files list request includes. `"artifact"` (the
+ * default) hides chat uploads to keep the list focused on deliberately
+ * created or uploaded work; folders are always included. `"all"` also
+ * includes chat uploads and any file whose origin is missing/`NULL`
+ * (exceptional/corrupt data — see `spaceFileOriginSchema`, not normal
+ * historical data, which is backfilled to `"artifact"`).
+ */
+export const spaceFileListOriginFilterSchema = z
+  .enum(["artifact", "all"])
+  .default("artifact");
+
+/**
+ * The explicit capability token a Center Agent / Remote Agent RPC caller
+ * sets to declare it understands `origin` on Space Files responses. Core's
+ * RPC entrypoint methods strip `origin` from the response
+ * (`toLegacySpaceFilesOriginWireValue`) unless the caller's request carries
+ * this exact token, so an already-published Remote Agent build — which has
+ * no field for this at all and therefore never sends it — keeps receiving
+ * the pre-origin response shape it already knows how to parse. This is the
+ * RPC-boundary analog of the `x-openmeld-space-files-origin-version` HTTP
+ * header Gateway checks for Web/CLI callers; see the Space Files Origin
+ * Classification Contract Impact Audit in
+ * `developing/engineering/development-workflow.md`.
+ */
+export const SPACE_FILES_ORIGIN_CAPABILITY_TOKEN = "origin_aware" as const;
+export const spaceFilesOriginCapabilitySchema = z
+  .literal(SPACE_FILES_ORIGIN_CAPABILITY_TOKEN)
+  .optional();
+
+/**
  * Derives the opaque file identity for a retriable create mutation.
  * Reusing the mutation identity produces the same file identity.
  */
@@ -298,6 +347,7 @@ export const spaceFileDescriptorSchema = z.strictObject({
   ...baseEntryShape,
   kind: z.literal("file"),
   latestRevision: spaceFileRevisionSchema,
+  origin: spaceFileOriginSchema.nullable().default(null),
 });
 
 export const spaceFileEntrySchema = z.discriminatedUnion("kind", [
@@ -318,12 +368,14 @@ export const spaceFileCapabilitiesSchema = z.strictObject({
 export const listSpaceFilesQuerySchema = z.strictObject({
   parentId: spaceFileEntryIdSchema.nullable().optional(),
   view: z.enum(["active", "trash"]).default("active"),
+  origin: spaceFileListOriginFilterSchema,
 });
 
 export const listSpaceFilesResponseSchema = z.strictObject({
   spaceId: scopeIdSchema,
   parentId: spaceFileEntryIdSchema.nullable(),
   view: z.enum(["active", "trash"]).default("active"),
+  origin: spaceFileListOriginFilterSchema,
   breadcrumbs: z.array(spaceFileBreadcrumbSchema),
   entries: z.array(spaceFileEntrySchema),
   capabilities: spaceFileCapabilitiesSchema,
@@ -400,6 +452,9 @@ export const createSpaceFileUploadQuerySchema = z.strictObject({
   name: spaceFileNameSchema,
   parentId: spaceFileEntryIdSchema.optional(),
   clientMutationId: spaceFileClientMutationIdSchema,
+  // Optional for rolling interoperability with clients that predate this
+  // field. An omitted origin on upload is treated as 'artifact' server-side.
+  origin: spaceFileOriginSchema.optional(),
 });
 
 export const updateSpaceFileContentQuerySchema = z.strictObject({
@@ -485,6 +540,15 @@ export const prepareSpaceFileWriteInputSchema = z.strictObject({
   clientMutationId: spaceFileClientMutationIdSchema,
   mimeType: spaceFileMimeTypeSchema,
   sizeBytes: spaceFileSizeBytesSchema,
+  // Only meaningful when this write creates a new file (baseRevision is
+  // null). Ignored for a new revision of an existing file, which always
+  // keeps the origin recorded at that file's creation. Left optional for
+  // rolling interoperability: a legacy client that predates this field can
+  // keep creating files without sending it. The server treats an omitted
+  // origin on a new-file write as 'artifact', matching the repository's
+  // pre-feature create behavior, so old clients stay visible in the
+  // default Files view without any required client-side change.
+  origin: spaceFileOriginSchema.optional(),
 });
 
 export const prepareSpaceFileWriteResponseSchema = z.strictObject({

@@ -273,6 +273,26 @@ test("full confidence does not repeat its affected unit and integration subsets"
   assert.ok(!ids.includes("affected-integration-tests"));
 });
 
+test("a lockfile-only local current-main plan is not a control-plane refuse", () => {
+  const plan = createPlan(["pnpm-lock.yaml"], {
+    controlTrust: "current-main",
+    mode: "local",
+    planSourceSha: BASE_SHA,
+  });
+
+  assert.ok(!checkIds(plan).includes("trusted-control-entrypoints"));
+  assert.ok(checkIds(plan).includes("repository-contracts"));
+});
+
+test("hosted still verifies control entrypoints on a lockfile-only candidate", () => {
+  const plan = createPlan(["pnpm-lock.yaml"], {
+    mode: "remote",
+    planSourceSha: BASE_SHA,
+  });
+
+  assert.ok(checkIds(plan).includes("trusted-control-entrypoints"));
+});
+
 test("a hosted plan adds a trusted current-main entrypoint check", () => {
   const plan = createPlan(["clients/web/src/app.tsx"], {
     mode: "remote",

@@ -14,6 +14,7 @@ catalogs:
       version: 4.6.5
 
 overrides:
+  '@modelcontextprotocol/sdk>zod': 4.6.5
   '@aws-sdk/core': 3.974.28
   '@aws-sdk/credential-provider-env': 3.972.54
   '@aws-sdk/credential-provider-http': 3.972.56
@@ -4326,7 +4327,7 @@ packages:
     engines: {node: '>=18'}
     peerDependencies:
       '@cfworker/json-schema': ^4.1.1
-      zod: ^3.25 || ^4.0
+      zod: 4.6.5
     peerDependenciesMeta:
       '@cfworker/json-schema':
         optional: true
@@ -4336,7 +4337,7 @@ packages:
     engines: {node: '>=18'}
     peerDependencies:
       '@cfworker/json-schema': ^4.1.1
-      zod: ^3.25 || ^4.0
+      zod: 4.6.5
     peerDependenciesMeta:
       '@cfworker/json-schema':
         optional: true
