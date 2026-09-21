@@ -1,5 +1,14 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -49,9 +58,11 @@ async function writeFakeOpenCodeServer(fixturePath) {
       "const ignoreSigterm = process.env.OPENMELD_FAKE_OPENCODE_IGNORE_SIGTERM === '1';",
       "const interaction = process.env.OPENMELD_FAKE_OPENCODE_INTERACTION;",
       "const staleIdleOnResume = process.env.OPENMELD_FAKE_OPENCODE_STALE_IDLE_ON_RESUME === '1';",
+      "const emptyOutput = process.env.OPENMELD_FAKE_OPENCODE_EMPTY_OUTPUT === '1';",
+      "const sessionDirectory = process.env.OPENMELD_FAKE_OPENCODE_SESSION_DIRECTORY ?? process.cwd();",
       "const sessionID = process.env.OPENMELD_FAKE_OPENCODE_SESSION_ID ?? 'opencode-session-server';",
       "const forkSessionID = 'opencode-session-fork-1';",
-      "const sseClients = new Set();",
+      "const sseClients = new Map();",
       "const queuedEvents = [];",
       "let promptMessageID = null;",
       "let promptSessionID = sessionID;",
@@ -73,27 +84,28 @@ async function writeFakeOpenCodeServer(fixturePath) {
       "const emit = (event) => {",
       "  const frame = 'data: ' + JSON.stringify(event) + '\\n\\n';",
       "  if (sseClients.size === 0) { queuedEvents.push(frame); return; }",
-      "  for (const client of sseClients) client.write(frame);",
+      "  for (const [client, directory] of sseClients) if (directory === sessionDirectory) client.write(frame);",
       "};",
       "const finishPrompt = () => {",
       "  if (!promptMessageID || promptFinished) return;",
       "  promptFinished = true;",
-      "  emit({ id: 'event-assistant', type: 'message.updated', properties: { sessionID: promptSessionID, info: { id: 'assistant-1', sessionID: promptSessionID, role: 'assistant', parentID: promptMessageID } } });",
+      "  emit({ id: 'event-assistant', type: 'message.updated', properties: { sessionID: promptSessionID, info: { id: 'assistant-1', sessionID: promptSessionID, role: 'assistant', parentID: promptMessageID, finish: 'stop', time: { completed: Date.now() } } } });",
       // Official SDK v2 ReasoningPart and EventMessagePartDelta wire shapes.
       "  emit({ type: 'message.part.updated', properties: { part: { id: 'reasoning-1', sessionID: promptSessionID, messageID: 'assistant-1', type: 'reasoning', text: 'Checking', time: { start: Date.now() } } } });",
       "  emit({ type: 'message.part.delta', properties: { sessionID: promptSessionID, messageID: 'assistant-1', partID: 'reasoning-1', field: 'text', delta: ' dependencies.' } });",
-      "  emit({ id: 'event-part', type: 'message.part.updated', properties: { sessionID: promptSessionID, time: Date.now(), part: { id: 'part-1', sessionID: promptSessionID, messageID: 'assistant-1', type: 'text', text: 'OpenCode server reply' } } });",
+      "  if (!emptyOutput) emit({ id: 'event-part', type: 'message.part.updated', properties: { sessionID: promptSessionID, time: Date.now(), part: { id: 'part-1', sessionID: promptSessionID, messageID: 'assistant-1', type: 'text', text: 'OpenCode server reply' } } });",
       "  emit({ id: 'event-idle', type: 'session.idle', properties: { sessionID: promptSessionID } });",
       "};",
       "const server = createServer(async (request, response) => {",
       "  const url = new URL(request.url, 'http://' + host + ':' + port);",
       "  if (request.method === 'GET' && url.pathname === '/event') {",
+      "    log({ method: request.method, path: url.pathname, directory: url.searchParams.get('directory') });",
       "    response.writeHead(200, {",
       "      'cache-control': 'no-cache',",
       "      connection: 'keep-alive',",
       "      'content-type': 'text/event-stream',",
       "    });",
-      "    sseClients.add(response);",
+      "    sseClients.set(response, url.searchParams.get('directory') ?? process.cwd());",
       "    response.write('data: ' + JSON.stringify({ id: 'server-connected', type: 'server.connected', properties: {} }) + '\\n\\n');",
       "    for (const frame of queuedEvents.splice(0)) response.write(frame);",
       "    request.on('close', () => sseClients.delete(response));",
@@ -107,13 +119,13 @@ async function writeFakeOpenCodeServer(fixturePath) {
       "  if (request.method === 'POST' && url.pathname === '/session') {",
       "    const body = await readBody(request);",
       "    log({ body, method: request.method, path: url.pathname });",
-      "    sendJson(response, 200, { id: sessionID });",
+      "    sendJson(response, 200, { id: sessionID, directory: sessionDirectory });",
       "    return;",
       "  }",
       "  if (request.method === 'POST' && url.pathname === '/session/' + sessionID + '/fork') {",
       "    const body = await readBody(request);",
       "    log({ body, method: request.method, path: url.pathname });",
-      "    sendJson(response, 200, { id: forkSessionID });",
+      "    sendJson(response, 200, { id: forkSessionID, directory: sessionDirectory });",
       "    return;",
       "  }",
       "  if (request.method === 'PATCH' && url.pathname === '/session/opencode-session-fork-1') {",
@@ -124,13 +136,13 @@ async function writeFakeOpenCodeServer(fixturePath) {
       "  }",
       "  if (request.method === 'GET' && (url.pathname === '/session/' + sessionID || url.pathname === '/session/' + forkSessionID)) {",
       "    log({ method: request.method, path: url.pathname });",
-      "    sendJson(response, 200, { id: url.pathname.endsWith(forkSessionID) ? forkSessionID : sessionID });",
+      "    sendJson(response, 200, { id: url.pathname.endsWith(forkSessionID) ? forkSessionID : sessionID, directory: sessionDirectory });",
       "    return;",
       "  }",
       "  if (request.method === 'GET' && (url.pathname === '/session/' + sessionID + '/message' || url.pathname === '/session/' + forkSessionID + '/message')) {",
       "    sendJson(response, 200, promptFinished ? [{",
       "      info: { id: 'assistant-1', sessionID: promptSessionID, role: 'assistant', parentID: promptMessageID },",
-      "      parts: [{ id: 'part-1', sessionID: promptSessionID, messageID: 'assistant-1', type: 'text', text: 'OpenCode server reply' }],",
+      "      parts: emptyOutput ? [{ id: 'step-start-1', sessionID: promptSessionID, messageID: 'assistant-1', type: 'step-start' }, { id: 'step-finish-1', sessionID: promptSessionID, messageID: 'assistant-1', type: 'step-finish' }] : [{ id: 'part-1', sessionID: promptSessionID, messageID: 'assistant-1', type: 'text', text: 'OpenCode server reply' }],",
       "    }] : []);",
       "    return;",
       "  }",
@@ -219,7 +231,7 @@ async function writeFakeOpenCodeServer(fixturePath) {
       "  if (!stalledStart) setTimeout(() => console.log('opencode server listening on http://' + host + ':' + port), Number(process.env.OPENMELD_FAKE_OPENCODE_START_DELAY_MS ?? 0));",
       "});",
       "const shutdown = () => {",
-      "  for (const client of sseClients) client.end();",
+      "  for (const client of sseClients.keys()) client.end();",
       "  server.close(() => process.exit(0));",
       "  setTimeout(() => process.exit(0), 250).unref();",
       "};",
@@ -268,7 +280,9 @@ async function readLog(logPath) {
 }
 
 async function withServerFixture(callback) {
-  const fixtureDir = await mkdtemp(join(tmpdir(), "opencode-server-fixture-"));
+  const fixtureDir = await realpath(
+    await mkdtemp(join(tmpdir(), "opencode-server-fixture-"))
+  );
   const fixturePath = join(fixtureDir, "fake-opencode-server.mjs");
   const logPath = join(fixtureDir, "requests.jsonl");
   await writeFakeOpenCodeServer(fixturePath);
@@ -726,6 +740,194 @@ test("OpenCode ignores stale idle events while resuming a session", async () => 
 
     assert.equal(result.output, "OpenCode server reply");
     assert.equal(result.sessionId, "opencode-session-server");
+  });
+});
+
+test("OpenCode adapter resumes through the server when no interaction callback is needed", async () => {
+  const { createOpenCodeAdapter } = await import("../dist/index.js");
+  await withServerFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+    const adapter = createOpenCodeAdapter({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      openCodeTimeoutMs: 5000,
+    });
+    const result = await adapter.dispatch({
+      agentControllerConversationId: "opencode-session-server",
+      agentId: "opencode-resume",
+      conversationPolicy: {
+        model: "openai/gpt-5.4",
+        reasoningLevel: "high",
+      },
+      env: { OPENMELD_FAKE_OPENCODE_SERVER_LOG: logPath },
+      prompt: "Continue the existing session",
+      runtimeContext: createRuntimeContext(fixtureDir),
+      sourceEventId: "source-opencode-resume",
+      spaceId: "space-opencode-resume",
+      taskId: "task-opencode-resume",
+    });
+    assert.equal(result.status, "success", JSON.stringify(result));
+    assert.equal(result.output, "OpenCode server reply");
+    const promptRequests = (await readLog(logPath)).filter((entry) =>
+      entry.path?.endsWith("/prompt_async")
+    );
+    assert.equal(promptRequests.length, 1);
+    assert.deepEqual(promptRequests[0].body.model, {
+      modelID: "gpt-5.4",
+      providerID: "openai",
+    });
+    assert.equal(promptRequests[0].body.variant, "high");
+  });
+});
+
+test("OpenCode rejects a resumed session outside the selected working folder before prompt or fork", async () => {
+  const { invokeOpenCodeServerTransport } = await import("../dist/index.js");
+  for (const executionMode of ["normal", "repair"]) {
+    await withServerFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+      const oldDirectory = join(fixtureDir, "old-session-directory");
+      await mkdir(oldDirectory);
+      await assert.rejects(
+        invokeOpenCodeServerTransport({
+          env: {
+            OPENMELD_FAKE_OPENCODE_SERVER_LOG: logPath,
+            OPENMELD_FAKE_OPENCODE_SESSION_DIRECTORY: oldDirectory,
+          },
+          executionMode,
+          launchContract: createNodeScriptLaunchContract(fixturePath),
+          openCodeTimeoutMs: 5000,
+          openCodeWorkdir: fixtureDir,
+          prompt: "Continue the existing session",
+          sessionId: "opencode-session-server",
+        }),
+        (error) => {
+          assert.equal(error.code, "context.workspace_mismatch");
+          assert.equal(error.message.includes("old-session-directory"), false);
+          return true;
+        }
+      );
+      const log = await readLog(logPath);
+      assert.equal(
+        log.filter(
+          (entry) =>
+            entry.path?.endsWith("/prompt_async") ||
+            entry.path?.endsWith("/fork")
+        ).length,
+        0
+      );
+    });
+  }
+});
+
+test("OpenCode adapter preserves the existing conversation when its folder differs", async () => {
+  const { createOpenCodeAdapter } = await import("../dist/index.js");
+  await withServerFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+    const oldDirectory = join(fixtureDir, "old-session-directory");
+    await mkdir(oldDirectory);
+    const adapter = createOpenCodeAdapter({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      openCodeTimeoutMs: 5000,
+    });
+    const result = await adapter.dispatch({
+      agentControllerConversationId: "opencode-session-server",
+      agentId: "opencode-resume",
+      env: {
+        OPENMELD_FAKE_OPENCODE_SERVER_LOG: logPath,
+        OPENMELD_FAKE_OPENCODE_SESSION_DIRECTORY: oldDirectory,
+      },
+      prompt: "Continue the existing session",
+      runtimeContext: createRuntimeContext(fixtureDir),
+      sourceEventId: "source-opencode-resume",
+      spaceId: "space-opencode-resume",
+      taskId: "task-opencode-resume",
+    });
+    assert.equal(result.status, "failed", JSON.stringify(result));
+    assert.equal(result.errorCode, "context.workspace_mismatch");
+    const log = await readLog(logPath);
+    assert.equal(
+      log.some(
+        (entry) =>
+          entry.path === "/session" ||
+          entry.path?.endsWith("/prompt_async") ||
+          entry.path?.endsWith("/fork")
+      ),
+      false
+    );
+  });
+});
+
+test("OpenCode rejects a missing or unavailable session directory before prompt", async () => {
+  const { invokeOpenCodeServerTransport } = await import("../dist/index.js");
+  for (const [sessionDirectory, expectedCode] of [
+    ["", "protocol.invalid"],
+    ["missing", "context.workspace_unavailable"],
+  ]) {
+    await withServerFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+      await assert.rejects(
+        invokeOpenCodeServerTransport({
+          env: {
+            OPENMELD_FAKE_OPENCODE_SERVER_LOG: logPath,
+            OPENMELD_FAKE_OPENCODE_SESSION_DIRECTORY: sessionDirectory
+              ? join(fixtureDir, sessionDirectory)
+              : "",
+          },
+          launchContract: createNodeScriptLaunchContract(fixturePath),
+          openCodeTimeoutMs: 5000,
+          openCodeWorkdir: fixtureDir,
+          prompt: "Continue the existing session",
+          sessionId: "opencode-session-server",
+        }),
+        (error) => {
+          assert.equal(error.code, expectedCode);
+          return true;
+        }
+      );
+      assert.equal(
+        (await readLog(logPath)).some((entry) =>
+          entry.path?.endsWith("/prompt_async")
+        ),
+        false
+      );
+    });
+  }
+});
+
+test("OpenCode resumes an equivalent folder alias through the session's event directory", async () => {
+  const { invokeOpenCodeServerTransport } = await import("../dist/index.js");
+  await withServerFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+    const aliasDirectory = join(fixtureDir, "alias");
+    await symlink(fixtureDir, aliasDirectory, "dir");
+    const result = await invokeOpenCodeServerTransport({
+      env: { OPENMELD_FAKE_OPENCODE_SERVER_LOG: logPath },
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      openCodeTimeoutMs: 5000,
+      openCodeWorkdir: aliasDirectory,
+      prompt: "Continue the existing session",
+      sessionId: "opencode-session-server",
+    });
+    assert.equal(result.output, "OpenCode server reply");
+    const log = await readLog(logPath);
+    assert.equal(
+      log.find((entry) => entry.path === "/event")?.directory,
+      fixtureDir
+    );
+  });
+});
+
+test("OpenCode reports an empty completed assistant turn", async () => {
+  const { invokeOpenCodeServerTransport } = await import("../dist/index.js");
+  await withServerFixture(async ({ fixtureDir, fixturePath }) => {
+    await assert.rejects(
+      invokeOpenCodeServerTransport({
+        env: { OPENMELD_FAKE_OPENCODE_EMPTY_OUTPUT: "1" },
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        openCodeTimeoutMs: 5000,
+        openCodeWorkdir: fixtureDir,
+        prompt: "Reply exactly OK",
+        sessionId: "opencode-session-server",
+      }),
+      (error) => {
+        assert.equal(error.code, "runtime.output.empty");
+        return true;
+      }
+    );
   });
 });
 
