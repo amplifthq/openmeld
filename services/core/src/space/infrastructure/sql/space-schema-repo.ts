@@ -5,8 +5,8 @@ import { ensureSpaceInboxProjectionSelectionsTable } from "./space-inbox-project
 import { ensureSpaceReactionTables } from "./space-reaction-repo";
 import { ensureSpaceTaskTables } from "./space-task-repo";
 
-export const SPACE_SQL_SCHEMA_VERSION = 43;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v43";
+export const SPACE_SQL_SCHEMA_VERSION = 44;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v44";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -22,6 +22,7 @@ const SPACE_META_GUIDE_COLUMN = "guide";
 const SPACE_META_LINK_JOIN_POLICY_COLUMN = "link_join_policy";
 const SPACE_META_GUIDELINES_LEGACY_COLUMN = "guidelines";
 const SPACE_CURSORS_MENTION_ALIAS_COLUMN = "mention_alias";
+const SPACE_FILE_ENTRIES_ORIGIN_COLUMN = "origin";
 const SPACE_SIGNALS_CLIENT_MESSAGE_ID_COLUMN = "client_message_id";
 export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   ensureSpaceSchemaMigrationsTable(sql);
@@ -327,9 +328,12 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
       created_by_json TEXT NOT NULL,
       updated_by_json TEXT NOT NULL,
       trashed_at_ms INTEGER NULL,
-      trashed_by_json TEXT NULL
+      trashed_by_json TEXT NULL,
+      origin TEXT NULL
+        CHECK (origin IS NULL OR origin IN ('artifact', 'chat_upload'))
     )
   `);
+  ensureSpaceFileEntriesOriginColumn(sql);
 
   sql.exec(`
     CREATE TABLE IF NOT EXISTS space_file_revisions (
@@ -697,6 +701,18 @@ function ensureSpaceCursorsMentionAliasColumn(sql: SqlStorage): void {
   sql.exec(`
     ALTER TABLE space_cursors
     ADD COLUMN mention_alias TEXT NULL
+  `);
+}
+
+function ensureSpaceFileEntriesOriginColumn(sql: SqlStorage): void {
+  const columnNames = listTableColumnNames(sql, "space_file_entries");
+  if (columnNames.has(SPACE_FILE_ENTRIES_ORIGIN_COLUMN)) {
+    return;
+  }
+  sql.exec(`
+    ALTER TABLE space_file_entries
+    ADD COLUMN origin TEXT NULL
+      CHECK (origin IS NULL OR origin IN ('artifact', 'chat_upload'))
   `);
 }
 

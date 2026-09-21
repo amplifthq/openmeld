@@ -7417,7 +7417,7 @@ describe("organization Core RPC", () => {
     });
     expect(spaceStub.rpcListSpaceFiles).toHaveBeenCalledWith(
       expect.objectContaining({
-        query: { parentId: null, view: "trash" },
+        query: { parentId: null, view: "trash", origin: "artifact" },
         spaceAccess: expect.objectContaining({
           actor: expect.objectContaining({
             kind: "authenticated",
@@ -14019,7 +14019,13 @@ function createSpaceStub(
     rpcPatchMeta: patchSpaceMeta,
     rpcPatchMetaWithPasswordAtomic: patchSpaceMeta,
     rpcListSpaceFiles: vi.fn(
-      (request: { query?: { view?: "active" | "trash" }; spaceId: string }) =>
+      (request: {
+        query?: {
+          view?: "active" | "trash";
+          origin?: "artifact" | "all";
+        };
+        spaceId: string;
+      }) =>
         Promise.resolve({
           breadcrumbs:
             request.query?.view === "trash"
@@ -14033,6 +14039,7 @@ function createSpaceStub(
           parentId: null,
           spaceId: request.spaceId,
           view: request.query?.view ?? "active",
+          origin: request.query?.origin ?? "artifact",
         })
     ),
     rpcListSignals: vi.fn(listSignals),

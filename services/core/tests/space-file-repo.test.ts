@@ -180,6 +180,7 @@ describe("SpaceFileRepository", () => {
         repository.list({
           spaceId: fixture.spaceId,
           parentId: folder.id,
+          origin: "all",
           canWrite: true,
         })
       ).toMatchObject({
@@ -190,6 +191,142 @@ describe("SpaceFileRepository", () => {
         entries: [{ id: firstRevision.id, kind: "file" }],
         capabilities: { canRead: true, canWrite: true },
       });
+    });
+  });
+
+  it("defaults the Files list to artifacts and fails closed on unclassified or chat-upload files", async () => {
+    const fixture = createFixture();
+
+    await withRepository(fixture.spaceId, (repository) => {
+      const folder = repository.createFolder({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-folder`,
+          fixture,
+          operation: "folder_create",
+          operationId: `${fixture.prefix}-mkdir`,
+        }),
+        clientMutationId: `${fixture.prefix}-mkdir`,
+        folderId: `${fixture.prefix}-folder`,
+        name: "Launch",
+        nowMs: fixture.nowMs,
+        spaceId: fixture.spaceId,
+      });
+
+      const commit = (input: {
+        fileId: string;
+        name: string;
+        origin?: "artifact" | "chat_upload";
+        revision: number;
+      }) =>
+        repository.commitWrite({
+          actor,
+          auditEvent: createAuditEvent({
+            entryId: input.fileId,
+            fixture,
+            operation: "content_write",
+            operationId: `${fixture.prefix}-write-${input.fileId}`,
+            revisionId: `${fixture.prefix}-revision-${input.fileId}`,
+          }),
+          nowMs: fixture.nowMs + input.revision,
+          write: {
+            spaceId: fixture.spaceId,
+            fileId: input.fileId,
+            revisionId: `${fixture.prefix}-revision-${input.fileId}`,
+            name: input.name,
+            parentId: null,
+            baseRevision: null,
+            clientMutationId: `${fixture.prefix}-write-${input.fileId}`,
+            mimeType: "text/plain",
+            sizeBytes: 4,
+            ...(input.origin ? { origin: input.origin } : {}),
+          },
+        });
+
+      const artifactFile = commit({
+        fileId: `${fixture.prefix}-artifact`,
+        name: "brief.txt",
+        origin: "artifact",
+        revision: 1,
+      });
+      expect(artifactFile.origin).toBe("artifact");
+
+      const chatUploadFile = commit({
+        fileId: `${fixture.prefix}-chat-upload`,
+        name: "screenshot.txt",
+        origin: "chat_upload",
+        revision: 2,
+      });
+      expect(chatUploadFile.origin).toBe("chat_upload");
+
+      const unclassifiedFile = commit({
+        fileId: `${fixture.prefix}-unclassified`,
+        name: "legacy.txt",
+        revision: 3,
+      });
+      expect(unclassifiedFile.origin).toBeNull();
+
+      const defaultList = repository.list({
+        spaceId: fixture.spaceId,
+        parentId: null,
+        canWrite: true,
+      });
+      expect(defaultList.origin).toBe("artifact");
+      expect(defaultList.entries).toMatchObject([
+        { id: folder.id, kind: "folder" },
+        { id: artifactFile.id, kind: "file" },
+      ]);
+      expect(
+        defaultList.entries.some((entry) => entry.id === chatUploadFile.id)
+      ).toBe(false);
+      expect(
+        defaultList.entries.some((entry) => entry.id === unclassifiedFile.id)
+      ).toBe(false);
+
+      const allList = repository.list({
+        spaceId: fixture.spaceId,
+        parentId: null,
+        origin: "all",
+        canWrite: true,
+      });
+      expect(allList.origin).toBe("all");
+      expect(allList.entries.map((entry) => entry.id)).toEqual(
+        expect.arrayContaining([
+          folder.id,
+          artifactFile.id,
+          chatUploadFile.id,
+          unclassifiedFile.id,
+        ])
+      );
+
+      // A later revision of a chat upload never becomes an artifact by
+      // omission; origin is fixed at creation and stays hidden by default.
+      const chatUploadRevision = repository.commitWrite({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: chatUploadFile.id,
+          fixture,
+          operation: "content_write",
+          operationId: `${fixture.prefix}-write-chat-upload-2`,
+          revisionId: `${fixture.prefix}-revision-chat-upload-2`,
+        }),
+        nowMs: fixture.nowMs + 10,
+        write: {
+          spaceId: fixture.spaceId,
+          fileId: chatUploadFile.id,
+          revisionId: `${fixture.prefix}-revision-chat-upload-2`,
+          baseRevision: 1,
+          clientMutationId: `${fixture.prefix}-write-chat-upload-2`,
+          mimeType: "text/plain",
+          sizeBytes: 8,
+        },
+      });
+      expect(chatUploadRevision.origin).toBe("chat_upload");
+      expect(
+        repository
+          .list({ spaceId: fixture.spaceId, parentId: null, canWrite: true })
+          .entries.some((entry) => entry.id === chatUploadFile.id)
+      ).toBe(false);
     });
   });
 
@@ -465,6 +602,7 @@ describe("SpaceFileRepository", () => {
         repository
           .list({
             canWrite: true,
+            origin: "all",
             parentId: null,
             spaceId: fixture.spaceId,
           })
@@ -659,6 +797,7 @@ describe("SpaceFileRepository", () => {
         repository.list({
           spaceId: fixture.spaceId,
           view: "active",
+          origin: "all",
           canWrite: true,
         }).entries
       ).toMatchObject([{ id: file.id }]);
@@ -835,7 +974,7 @@ describe("SpaceFileRepository", () => {
       await expect(
         instance.rpcListSpaceFiles({
           spaceId,
-          query: { view: "active" },
+          query: { view: "active", origin: "artifact" },
           spaceAccess: createAuthenticatedSpaceAccessContext({
             spaceId,
             requestContext: createRequestContext("profile-non-member"),
@@ -848,7 +987,7 @@ describe("SpaceFileRepository", () => {
       await expect(
         instance.rpcListSpaceFiles({
           spaceId,
-          query: { view: "trash" },
+          query: { view: "trash", origin: "artifact" },
           spaceAccess: createAuthenticatedSpaceAccessContext({
             spaceId,
             requestContext: createRequestContext("profile-non-member"),
