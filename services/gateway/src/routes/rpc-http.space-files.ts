@@ -3,6 +3,7 @@ import {
   contextAuditFields,
   jsonErrorResponse,
   OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
   toErrorMessage,
   withRequestIdHeader,
 } from "@openmeld/gateway-contract";
@@ -38,6 +39,7 @@ import {
   stageSpaceComposerUploadQuerySchema,
   stageSpaceComposerUploadResponseSchema,
   toLegacySpaceFilesOriginWireValue,
+  toLegacySpaceImageGeometryWireValue,
   trashSpaceFileEntryBodySchema,
   trashSpaceFileEntryResponseSchema,
   updateSpaceFileContentQuerySchema,
@@ -61,6 +63,7 @@ import {
   resolveGatewayStructuredRpcErrorResponse,
   resolvePublicRouteRequestId,
   supportsSpaceFilesOriginCapability,
+  supportsSpaceImageGeometryCapability,
 } from "./rpc-http.helpers";
 import { parseSpaceRouteParams } from "./rpc-http.parsers";
 import type { RpcHttpMethod } from "./rpc-http.types";
@@ -157,7 +160,8 @@ export function registerSpaceFileRoutes(app: Hono<HonoBindings>): void {
             context: buildCoreRpcContext(c),
             spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
           },
-          OPENMELD_SPACE_FILES_ORIGIN_VERSION
+          OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+          OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
         ),
     });
   });
@@ -272,7 +276,8 @@ async function publishSpaceComposerUpload(
           spaceId: target.spaceId,
           uploadId: uploadId.data,
         },
-        OPENMELD_SPACE_FILES_ORIGIN_VERSION
+        OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+        OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
       ),
     method: "POST",
     resolveSuccessPayload: (file) => ({ file }),
@@ -353,7 +358,8 @@ async function restoreSpaceFileEntry(
           spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
           context: buildCoreRpcContext(c),
         },
-        OPENMELD_SPACE_FILES_ORIGIN_VERSION
+        OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+        OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
       ),
   });
 }
@@ -409,7 +415,8 @@ async function restoreSpaceFileRevision(
           spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
           context: buildCoreRpcContext(c),
         },
-        OPENMELD_SPACE_FILES_ORIGIN_VERSION
+        OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+        OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
       ),
   });
 }
@@ -455,7 +462,8 @@ async function listSpaceFiles(c: Context<HonoBindings>): Promise<Response> {
           spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
           context: buildCoreRpcContext(c),
         },
-        OPENMELD_SPACE_FILES_ORIGIN_VERSION
+        OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+        OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
       ),
   });
 }
@@ -481,7 +489,8 @@ async function getSpaceFile(c: Context<HonoBindings>): Promise<Response> {
           spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
           context: buildCoreRpcContext(c),
         },
-        OPENMELD_SPACE_FILES_ORIGIN_VERSION
+        OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+        OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
       ),
   });
 }
@@ -508,7 +517,8 @@ async function listSpaceFileRevisions(
           spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
           context: buildCoreRpcContext(c),
         },
-        OPENMELD_SPACE_FILES_ORIGIN_VERSION
+        OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+        OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
       ),
   });
 }
@@ -582,7 +592,8 @@ async function updateSpaceFileEntry(
           spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
           context: buildCoreRpcContext(c),
         },
-        OPENMELD_SPACE_FILES_ORIGIN_VERSION
+        OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+        OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
       ),
   });
 }
@@ -771,9 +782,12 @@ function resolveSpaceFileUploadResponsePayload(
   file: SpaceFileDescriptor
 ): unknown {
   const parsed = uploadSpaceFileResponseSchema.parse({ file });
-  return supportsSpaceFilesOriginCapability(c.req.raw.headers)
+  const originProjected = supportsSpaceFilesOriginCapability(c.req.raw.headers)
     ? parsed
     : toLegacySpaceFilesOriginWireValue(parsed);
+  return supportsSpaceImageGeometryCapability(c.req.raw.headers)
+    ? originProjected
+    : toLegacySpaceImageGeometryWireValue(originProjected);
 }
 
 async function downloadSpaceFileContent(
@@ -814,7 +828,8 @@ async function downloadSpaceFileContent(
         spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
         context: buildCoreRpcContext(c),
       },
-      OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
     const { bytes, ...metadata } = response;
     resolved = {
@@ -874,7 +889,8 @@ async function persistSpaceFileRevision(input: {
           ),
           context: buildCoreRpcContext(input.c),
         },
-        OPENMELD_SPACE_FILES_ORIGIN_VERSION
+        OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+        OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
       )
     );
     logFileSuccess(

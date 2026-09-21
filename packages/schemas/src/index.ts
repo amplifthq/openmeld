@@ -90,6 +90,7 @@ export {
   toLegacySpaceAddressingWireValue,
 } from "./compatibility/legacy-space-addressing-wire";
 export { toLegacySpaceFilesOriginWireValue } from "./compatibility/legacy-space-files-origin-wire";
+export { toLegacySpaceImageGeometryWireValue } from "./compatibility/legacy-space-image-geometry-wire";
 export { toSpaceSignalReadWireValue } from "./compatibility/space-signal-read-wire";
 export {
   type ComputerConnectionIntent,

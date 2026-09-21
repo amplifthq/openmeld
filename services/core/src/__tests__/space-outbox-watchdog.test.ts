@@ -969,6 +969,9 @@ const createSpaceAlarmHarness = (input: {
     exec: (query: string, ...params: unknown[]) => { toArray: () => unknown[] };
   };
 }) => {
+  const bindings = input.bindings ?? {
+    OPENMELD_DAEMON_DISPATCH_QUEUE: {},
+  };
   const space = Object.create(Space.prototype) as {
     bindings: Record<string, unknown>;
     ctx: {
@@ -980,14 +983,13 @@ const createSpaceAlarmHarness = (input: {
         sql: typeof input.sql;
       };
     };
+    env: Record<string, unknown>;
     spaceId: string;
     syncDispatchOutboxAlarm: () => Promise<void>;
   };
   Object.defineProperties(space, {
     bindings: {
-      value: input.bindings ?? {
-        OPENMELD_DAEMON_DISPATCH_QUEUE: {},
-      },
+      value: bindings,
     },
     ctx: {
       value: {
@@ -1000,6 +1002,7 @@ const createSpaceAlarmHarness = (input: {
         },
       },
     },
+    env: { value: bindings },
     spaceId: { value: "space-1", writable: true },
   });
   return space;

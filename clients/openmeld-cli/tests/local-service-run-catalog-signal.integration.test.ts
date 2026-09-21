@@ -2971,7 +2971,7 @@ function createMockSocket(input?: {
               payload: {
                 ok: true,
                 connectionGeneration: 1,
-                ...(input?.executionAdmissionConfirmation
+                ...(input?.executionAdmissionConfirmation !== false
                   ? { executionAdmissionConfirmation: true }
                   : {}),
                 acceptedLeases,

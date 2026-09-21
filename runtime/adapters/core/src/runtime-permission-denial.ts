@@ -2,6 +2,7 @@ export const RUNTIME_PERMISSION_DENIED_REASON_CODE =
   "permission.denied.runtime";
 
 export type RuntimePermissionDenialSource =
+  | "antigravity"
   | "claude-code"
   | "codex"
   | "opencode"
@@ -69,6 +70,14 @@ export function readRuntimePermissionDenialDetails(
   }
   const lowered = normalizedMessage.toLowerCase();
 
+  if (isAntigravityPermissionDenial(lowered)) {
+    return {
+      normalizedMessage,
+      permissionKind: readAntigravityPermissionKind(lowered),
+      source: "antigravity",
+    };
+  }
+
   if (isOpenCodePermissionDenial(lowered)) {
     return {
       normalizedMessage,
@@ -102,6 +111,26 @@ export function readRuntimePermissionDenialDetails(
   }
 
   return null;
+}
+
+function isAntigravityPermissionDenial(value: string): boolean {
+  return (
+    value.includes("permission check failed") ||
+    value.includes("user denied permission to run command") ||
+    (value.includes("tool required the") &&
+      value.includes("permission") &&
+      value.includes("auto-denied"))
+  );
+}
+
+function readAntigravityPermissionKind(value: string): string | null {
+  if (value.includes("command")) {
+    return "command";
+  }
+  if (value.includes("mcp")) {
+    return "mcp";
+  }
+  return "tool_use";
 }
 
 function normalizeRuntimePermissionMessage(

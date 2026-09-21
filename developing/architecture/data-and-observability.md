@@ -1199,6 +1199,20 @@ to an explicit not-found response at the byte boundary.
 
 ## Space File Data Boundary
 
+Image display geometry is immutable revision metadata in the nullable
+`space_file_revisions.image_dimensions_json` column. The lazy SQLite migration
+is idempotent and leaves historical rows unknown; it does not backfill by reading
+old objects or move authority into D1. Repository reads validate the complete
+pair; non-image revisions omit it. A restored image receives the copied
+original's geometry on its new revision, while earlier revisions remain intact.
+
+The final authorized revision commit extracts bounded metadata from private R2
+ranges (128 KiB and 16 reads maximum), reusing the existing canonical object key
+and revision fence. It does not retain decoded pixels, create thumbnails, or
+rewrite the immutable original. Browser binary caches are separate ephemeral
+read resources, not durable file authority. Neither metadata failures nor image
+loading effects justify logging object URLs, raw bytes, or private object keys.
+
 The Space Durable Object is the only writer for Space File identity, folder
 hierarchy, current placement, revision sequence, Trash state, and actor
 attribution. Its SQLite tables are canonical business state, not a D1

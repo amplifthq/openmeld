@@ -14,6 +14,7 @@ import {
   parseIncoming as parseProtocolIncoming,
   parseServerErrorFrame as parseProtocolServerErrorFrame,
 } from "@openmeld/protocol";
+import { toLegacySpaceImageGeometryWireValue } from "@openmeld/schemas";
 import type {
   MessageEnvelope,
   SpaceAgentStreamPartFrame,
@@ -34,7 +35,10 @@ export function makeHello(profile: Profile) {
   return {
     type: "hello",
     profile,
-    capabilities: { spaceMessageAddressing: true },
+    capabilities: {
+      spaceImageGeometry: true,
+      spaceMessageAddressing: true,
+    },
   };
 }
 
@@ -45,7 +49,7 @@ export function makeTextSignal(
     meta?: Record<string, unknown>;
   }
 ) {
-  return {
+  return toLegacySpaceImageGeometryWireValue({
     type: "signal.text",
     data: {
       text,
@@ -54,7 +58,7 @@ export function makeTextSignal(
         : {}),
       ...(options?.meta ? { meta: options.meta } : {}),
     },
-  };
+  });
 }
 
 export function sanitizeText(

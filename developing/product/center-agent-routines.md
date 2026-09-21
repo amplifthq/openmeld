@@ -938,6 +938,39 @@ ACK recovery timeout. Diagnostics may include identifiers, timestamps, state,
 bounded reason codes, publication pointers, and retry evidence. They must not log Routine
 instructions, prompt bodies, credentials, or arbitrary worker payloads.
 
+### Center Agent historical evidence reads
+
+`openmeld_list_routine_runs` lists a bounded page of retained Center Agent Run
+history for an exact Routine. It reuses the existing historical owner, including
+retained Runs after definition deletion, and provides `nextBeforeScheduledFor`
+for older occurrences. `openmeld_list_routines.lastRun` remains unchanged.
+Personal Agent Runs are not included by this Center Agent reader.
+
+`openmeld_read_routine_run_diagnostics` takes only an exact Run ID; Core resolves
+the Organization, linked native deliveries, and the persisted current
+`nativeDeliveryId` result owner. It returns at most eight linked deliveries,
+prioritizing that pointer rather than assuming the earliest or latest delivery
+owns the result. Continuation therefore does not make the completed first
+attempt look like the final answer. History truncation and a missing recorded
+owner are explicit.
+
+Readouts separate canonical Run state, frozen `scheduledFor`/destination
+snapshots, native-delivery admission and lifecycle, sanitized runtime timestamps
+and counts, and publication. These are independent owner observations, not an
+atomic or exhaustive history. Submitted does not prove worker admission;
+completed generation does not prove publication; pausing future scheduling does
+not prove an in-flight Run stopped. Skipped, failed, not recorded, unavailable,
+and redacted evidence remain distinct. Runtime tool names, arguments, transcript
+content, raw provider payloads, Routine instructions, and raw failure details are
+not included in these Organization-level diagnostics.
+
+Current member/source/reply-audience authorization governs Space and signal
+references. Slack and other Message Channel destination locators are explicitly
+unsupported in this read, rather than assumed public or absent. This read path
+never submits, recovers, replays, retries, repairs, stops, or publishes work.
+The admission and execution recovery implementation merged in #1198 remains the
+single owner of those effects.
+
 ## Mixed-Version Deployment Windows
 
 Routine rollout has three different strict mixed-version windows. Do not collapse

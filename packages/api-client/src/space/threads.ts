@@ -9,6 +9,7 @@ import {
   postSpaceThreadSignalBodySchema,
   postSpaceThreadSignalResponseSchema,
   toCompatibleSpaceAddressingRequestWireValue,
+  toLegacySpaceImageGeometryWireValue,
 } from "@openmeld/schemas";
 import type {
   CreateSpaceThreadBody,
@@ -182,7 +183,9 @@ export async function postSpaceThreadSignal(
     method: "POST",
     headers: currentSpaceAddressingHeaders("application/json"),
     body: JSON.stringify(
-      toCompatibleSpaceAddressingRequestWireValue(parsedBody.data)
+      toLegacySpaceImageGeometryWireValue(
+        toCompatibleSpaceAddressingRequestWireValue(parsedBody.data)
+      )
     ),
     requestContext: input.requestContext,
     signal: input.signal,

@@ -1,6 +1,8 @@
 import {
   OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
   OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
 } from "@openmeld/gateway-contract";
 import { SPACE_FILE_MAX_SIZE_BYTES } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
@@ -12,6 +14,11 @@ import app from "../src/index";
 const ORIGIN_CAPABLE_HEADERS = {
   [OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION]:
     OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+};
+const CURRENT_FILE_CAPABILITY_HEADERS = {
+  ...ORIGIN_CAPABLE_HEADERS,
+  [OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION]:
+    OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
 };
 
 const SPACE_ID = "space-files-route-test";
@@ -58,6 +65,7 @@ const FILE = {
     sizeBytes: TEXT_BYTES.byteLength,
     createdAt: "2026-08-22T08:00:00.000Z",
     createdBy: ACTOR,
+    imageDimensions: { width: 800, height: 600 },
   },
   origin: "artifact" as const,
   trashedAt: null,
@@ -180,11 +188,12 @@ describe("Space file routes", () => {
       expect.objectContaining({
         query: { view: "trash", origin: "artifact" },
       }),
-      OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 
-  it("declares the origin capability on the Gateway-to-Core RPC boundary for every file-bearing operation, independent of the HTTP caller's own capability", async () => {
+  it("declares current file capabilities on the Gateway-to-Core RPC boundary for every file-bearing operation, independent of the HTTP caller's own capability", async () => {
     // This is a second, independent negotiation from the HTTP client-to-
     // Gateway boundary covered elsewhere in this file: current Gateway
     // always asks Core for the origin-aware shape internally (so it can
@@ -238,15 +247,18 @@ describe("Space file routes", () => {
 
     expect(getSpaceFile).toHaveBeenCalledWith(
       expect.anything(),
-      OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
     expect(listSpaceFileRevisions).toHaveBeenCalledWith(
       expect.anything(),
-      OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
     expect(updateSpaceFileEntry).toHaveBeenCalledWith(
       expect.anything(),
-      OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 
@@ -297,7 +309,7 @@ describe("Space file routes", () => {
 
     const response = await app.fetch(
       new Request(`http://local/v1/spaces/${SPACE_ID}/files`, {
-        headers: ORIGIN_CAPABLE_HEADERS,
+        headers: CURRENT_FILE_CAPABILITY_HEADERS,
       }),
       env,
       TEST_EXECUTION_CONTEXT
@@ -305,7 +317,14 @@ describe("Space file routes", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      entries: [{ origin: "artifact" }],
+      entries: [
+        {
+          origin: "artifact",
+          latestRevision: {
+            imageDimensions: { width: 800, height: 600 },
+          },
+        },
+      ],
       origin: "artifact",
     });
   });
@@ -391,7 +410,7 @@ describe("Space file routes", () => {
           }),
           headers: {
             "content-type": "application/json",
-            ...ORIGIN_CAPABLE_HEADERS,
+            ...CURRENT_FILE_CAPABILITY_HEADERS,
           },
           method: "POST",
         }
@@ -408,7 +427,8 @@ describe("Space file routes", () => {
         entryId: FILE_ID,
         spaceId: SPACE_ID,
       }),
-      OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 
@@ -427,7 +447,7 @@ describe("Space file routes", () => {
           }),
           headers: {
             "content-type": "application/json",
-            ...ORIGIN_CAPABLE_HEADERS,
+            ...CURRENT_FILE_CAPABILITY_HEADERS,
           },
           method: "POST",
         }
@@ -448,7 +468,8 @@ describe("Space file routes", () => {
         revision: 1,
         spaceId: SPACE_ID,
       }),
-      OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 
@@ -473,7 +494,8 @@ describe("Space file routes", () => {
           spaceId: SPACE_ID,
         }),
       }),
-      OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
     expect(bucket.put).not.toHaveBeenCalled();
   });
@@ -538,7 +560,7 @@ describe("Space file routes", () => {
           }),
           headers: {
             "content-type": "application/json",
-            ...ORIGIN_CAPABLE_HEADERS,
+            ...CURRENT_FILE_CAPABILITY_HEADERS,
           },
           method: "POST",
         }
@@ -555,7 +577,8 @@ describe("Space file routes", () => {
         spaceId: SPACE_ID,
         uploadId: COMPOSER_UPLOAD_ID,
       }),
-      OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 
@@ -720,7 +743,7 @@ function uploadRequest(input?: { contentLength?: number }): Request {
       headers: {
         "content-length": String(input?.contentLength ?? TEXT_BYTES.byteLength),
         "content-type": "text/markdown; charset=utf-8",
-        ...ORIGIN_CAPABLE_HEADERS,
+        ...CURRENT_FILE_CAPABILITY_HEADERS,
       },
       body: Uint8Array.from(TEXT_BYTES).buffer,
     }

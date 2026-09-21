@@ -472,6 +472,16 @@ logged, retained, or projected. Other connected OpenCode providers are
 Failure to read OpenCode Go usage produces provider-scoped `unavailable`
 evidence without failing the rest of the Computer inventory.
 
+Antigravity has native Usage support through its signed-in CLI. OpenMeld runs
+`agy --print /usage` as the background ACI probe and parses each reported
+weekly quota independently, preserving the provider label, remaining
+percentage, and reset time supplied by Antigravity. The adapter converts the
+reported remaining percentage into the shared used-percentage contract and
+marks an exact zero remaining as exhausted. Authentication failure becomes the
+existing signed-out ACI state; malformed, timed-out, or otherwise unreadable
+output becomes `unavailable` without failing another Local Agent. The probe
+does not create an OpenMeld Agent Profile, Binding, Wake, or conversation.
+
 Provider-access evidence is provider-neutral and carries its provider, stable
 reason code, observation time, and `wake_failure` source. The Service forwards
 it with the exact Agent Profile, Binding, device, runtime lane, OpenMeld Service
@@ -572,9 +582,21 @@ read does not record an action or finish the Wake. The configuration forwards th
 dispatch identity, and fails closed when the action context is absent, expired,
 or mismatched. Fresh and resumed controller conversations use the same tool
 boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, and OpenClaw use
-their controller-native tool extension point and the same dispatch-owned action
-writer. Controllers without a proven structured-tool surface continue to use
-the exact dispatch-scoped CLI fallback.
+their controller-native tool extension point and the same
+dispatch-owned action writer. Controllers without a proven structured-tool
+surface continue to use the exact dispatch-scoped CLI fallback.
+
+Antigravity CLI does not currently expose a proven per-invocation structured-
+tool configuration surface. During an action-enabled dispatch, the adapter
+therefore adds a unique temporary workspace plugin whose invocation hook tells
+the model to return one `reply`, `status`, or `silent` outcome through
+Antigravity's native JSON-schema output. The adapter validates that structured
+result and invokes the same dispatch-owned action writer directly without a
+shell. It grants the model no additional tool permission; all shell, file,
+network, and ambient MCP actions continue through Antigravity's normal
+permission policy. The adapter removes the plugin after the invocation and
+never writes Antigravity's user settings or the user's project customization
+files.
 
 OpenClaw Gateway does not expose a per-turn plugin-injection surface. During an
 action-enabled dispatch, the adapter therefore runs the same OpenClaw Session

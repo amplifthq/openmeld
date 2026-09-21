@@ -53,6 +53,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@openmeld/adapter-antigravity": "workspace:*",
     "@openmeld/adapter-claude-code": "workspace:*",
     "@openmeld/adapter-codex": "workspace:*",
     "@openmeld/adapter-core": "workspace:*",

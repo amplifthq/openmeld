@@ -14,6 +14,21 @@ export {
   serviceConnectionIncidentsReadRpcInputSchema,
   serviceConnectionIncidentsResponseSchema,
 } from "./daemon/service-connection-evidence";
+export { agentActivityOverviewResponseSchema } from "./http/agent-activity-overview";
+export {
+  centerAgentEvidenceSourceSpaceSchema,
+  centerAgentReadAuditJournalResponseSchema,
+  centerAgentReadAuditJournalRpcInputSchema,
+} from "./http/center-agent-evidence";
+export {
+  CENTER_AGENT_RETAINED_MEMORY_MAX_ITEMS,
+  CENTER_AGENT_RETAINED_MEMORY_MAX_SOURCES,
+  CENTER_AGENT_RETAINED_MEMORY_MAX_TEXT_CHARS,
+  CENTER_AGENT_RETAINED_MEMORY_QUERY_MAX_CHARS,
+  centerAgentMemorySourceReferenceSchema,
+  centerAgentSearchMemoryResponseSchema,
+  centerAgentSearchMemoryRpcInputSchema,
+} from "./http/center-agent-memory-search";
 export {
   LOCAL_AGENT_REASONING_MAX_CHARS,
   localAgentReasoningPreferencesRpcSchema,
@@ -1257,6 +1272,15 @@ export {
   centerAgentUpdateProjectToolRpcInputSchema,
 } from "./http/center-agent-projects";
 export {
+  CENTER_AGENT_ROUTINE_EVIDENCE_PAGE_LIMIT,
+  centerAgentListRoutineRunsToolResponseSchema,
+  centerAgentListRoutineRunsToolRpcInputSchema,
+  centerAgentReadRoutineRunDiagnosticsResponseSchema,
+  centerAgentReadRoutineRunDiagnosticsRpcInputSchema,
+  centerAgentRoutineRunEvidenceSchema,
+  centerAgentRoutineRuntimeEvidenceSchema,
+} from "./http/center-agent-routine-evidence";
+export {
   CENTER_AGENT_ROUTINE_AUTHORIZED_ACTIONS,
   CENTER_AGENT_ROUTINE_CRON_EXPRESSION_MAX_CHARS,
   CENTER_AGENT_ROUTINE_DESTINATION_KINDS,
@@ -2246,6 +2270,7 @@ export {
   spaceFileDescriptorSchema,
   spaceFileEntryIdSchema,
   spaceFileEntrySchema,
+  spaceFileImageDimensionsSchema,
   spaceFileListOriginFilterSchema,
   spaceFileMimeTypeSchema,
   spaceFileMutationErrorCodeSchema,

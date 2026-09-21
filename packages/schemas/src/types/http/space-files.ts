@@ -15,6 +15,10 @@ export type SpaceFileAuditResult = z.infer<
   Schemas["spaceFileAuditResultSchema"]
 >;
 export type SpaceFileRevision = z.infer<Schemas["spaceFileRevisionSchema"]>;
+export type SpaceFileImageDimensions = z.infer<
+  Schemas["spaceFileImageDimensionsSchema"]
+>;
+
 export type SpaceComposerUploadDescriptor = z.infer<
   Schemas["spaceComposerUploadDescriptorSchema"]
 >;

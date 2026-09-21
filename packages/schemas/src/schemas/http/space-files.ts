@@ -297,6 +297,16 @@ export const spaceFileAuditEventSchema = z
     }
   });
 
+/** Optional for legacy/unsupported images; one complete display-oriented pair. */
+export const spaceFileImageDimensionsSchema = eagerZod
+  .strictObject({
+    width: eagerZod.number().int().min(1).max(32_768),
+    height: eagerZod.number().int().min(1).max(32_768),
+  })
+  .refine((value) => value.width * value.height <= 128 * 1024 * 1024, {
+    message: "Image geometry exceeds the supported display area.",
+  });
+
 export const spaceFileRevisionSchema = z.strictObject({
   id: spaceFileRevisionIdSchema,
   fileId: spaceFileEntryIdSchema,
@@ -305,6 +315,7 @@ export const spaceFileRevisionSchema = z.strictObject({
   sizeBytes: spaceFileSizeBytesSchema,
   createdAt: z.iso.datetime({ offset: true }),
   createdBy: spaceFileActorSchema,
+  imageDimensions: spaceFileImageDimensionsSchema.optional(),
 });
 
 /**
@@ -318,6 +329,7 @@ export const spaceMessageFileReferenceSchema = eagerZod.strictObject({
   name: spaceFileNameSchema,
   mimeType: spaceFileMimeTypeSchema,
   sizeBytes: spaceFileSizeBytesSchema,
+  imageDimensions: spaceFileImageDimensionsSchema.optional(),
 });
 
 export const spaceMessageFileReferencesSchema = z

@@ -548,13 +548,13 @@ function readTimelineFiles(input: {
 	if (input.signal.type !== "signal.text") {
 		return [];
 	}
-	const isPending = input.signal.id.startsWith("pending:");
+	const isLocalSubmission =
+		input.signal.id.startsWith("pending:") ||
+		input.signal.id.startsWith("failed:");
 	return (input.signal.data.files ?? []).map((file) => ({
 		...file,
-		isLocal:
-			file.fileId.startsWith("composer-file:") &&
-			(isPending || input.signal.id.startsWith("failed:")),
-		localPreviewUrl: isPending
+		isLocal: file.fileId.startsWith("composer-file:") && isLocalSubmission,
+		localPreviewUrl: isLocalSubmission
 			? (input.pendingFilePreviewUrlsById?.get(file.fileId) ?? null)
 			: null,
 	}));
@@ -855,7 +855,19 @@ function isAgentFinalReplySignal(
 export function resolveSpaceConversationItemKey(
 	item: SpaceTimelineItem
 ): string {
-	return item.wakeDispatchId ? `wake-answer:${item.wakeDispatchId}` : item.id;
+	if (item.wakeDispatchId) {
+		return `wake-answer:${item.wakeDispatchId}`;
+	}
+	// Presentation identity survives pending, failed, retried, and accepted
+	// deliveries. The canonical signal id still owns every message action.
+	return item.clientMessageId
+		? JSON.stringify([
+				"message",
+				item.spaceId,
+				item.actorProfileId,
+				item.clientMessageId,
+			])
+		: item.id;
 }
 
 function readFinalizedAgentDispatchId(signal: SignalEnvelope): string | null {

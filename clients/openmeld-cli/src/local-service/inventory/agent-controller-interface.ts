@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { realpath } from "node:fs/promises";
+import { parseAntigravityUsageLimits } from "@openmeld/adapter-antigravity";
 import { projectCodexUsageLimits } from "@openmeld/adapter-codex";
 import {
   buildCliLaunchInvocation,
@@ -55,6 +56,8 @@ const CODEX_AUX_INVENTORY_GRACE_MS = 2500;
 const PROBE_OUTPUT_LIMIT = 32_000;
 const CODEX_USER_AGENT_VERSION_RE = /\/([^\s]+)/u;
 const CLI_SEMVER_RE = /\b(\d+\.\d+\.\d+(?:[-+][^\s]+)?)\b/u;
+const ANTIGRAVITY_AUTH_FAILURE_RE =
+  /auth(?:entication)? required|not signed in|sign in/iu;
 const SEMVER_CORE_RE = /^v?(\d+)\.(\d+)\.(\d+)/u;
 const WHITESPACE_RE = /\s+/u;
 
@@ -84,6 +87,7 @@ const CONTROLLER_INTERFACE_SNAPSHOT_RESOLVERS: Record<
   string,
   AgentControllerInterfaceSnapshotResolver
 > = {
+  antigravity: resolveAntigravityInterfaceSnapshot,
   "claude-code": resolveClaudeCodeInterfaceSnapshot,
   codex: resolveCodexInterfaceSnapshot,
   cursor: resolveCursorInterfaceSnapshot,
@@ -91,6 +95,68 @@ const CONTROLLER_INTERFACE_SNAPSHOT_RESOLVERS: Record<
   openclaw: resolveOpenClawInterfaceSnapshot,
   opencode: resolveOpenCodeInterfaceSnapshot,
 };
+
+async function resolveAntigravityInterfaceSnapshot(
+  input: InventoryProbeInput
+): Promise<AgentControllerInterfaceProbeOutcome> {
+  const [versionProbe, usageProbe] = await Promise.all([
+    runLaunchContractCommand({
+      workingDirectory: input.workingDirectory,
+      args: ["--version"],
+      launchContract: input.launchContract,
+    }),
+    runLaunchContractCommand({
+      workingDirectory: input.workingDirectory,
+      allowNonZeroExit: true,
+      args: ["--print", "/usage"],
+      launchContract: input.launchContract,
+      timeoutMs: 15_000,
+    }),
+  ]);
+  const version = versionProbe.ok ? parseCliVersion(versionProbe.stdout) : null;
+  const observedAt = new Date().toISOString();
+  const providerMessage = `${usageProbe.stdout}\n${usageProbe.stderr}`.trim();
+  const unauthenticated =
+    usageProbe.code !== 0 && ANTIGRAVITY_AUTH_FAILURE_RE.test(providerMessage);
+  const usageLimits =
+    usageProbe.code === 0
+      ? parseAntigravityUsageLimits({
+          observedAt,
+          output: usageProbe.stdout,
+        })
+      : createUnavailableProviderUsageLimits(observedAt);
+  const probeCompleted = usageProbe.code === 0 || unauthenticated;
+  let authStatus: AgentControllerInterfaceAuthSnapshot["status"] = "unknown";
+  let message: string | null =
+    "OpenMeld could not read Antigravity CLI authentication or usage status.";
+  let status: AgentControllerInterfaceStatus = "warning";
+  if (unauthenticated) {
+    authStatus = "unauthenticated";
+    message = requireControllerSignInInterfaceDescription("antigravity");
+    status = "unavailable";
+  } else if (usageProbe.code === 0) {
+    authStatus = "authenticated";
+    message = null;
+    status = "ready";
+  }
+
+  return {
+    probeCompleted,
+    snapshot: {
+      ...input.baseSnapshot,
+      auth: {
+        ...(usageProbe.code === 0
+          ? { label: "Antigravity account connected" }
+          : {}),
+        status: authStatus,
+      },
+      message,
+      status,
+      usageLimits,
+      version,
+    },
+  };
+}
 
 export async function probeAgentControllerUsageObservationAuth(input: {
   agentId: string;

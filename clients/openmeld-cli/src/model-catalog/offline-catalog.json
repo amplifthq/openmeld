@@ -1,7 +1,110 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-01T00:00:00.000Z",
+  "updatedAt": "2026-09-21T00:00:00.000Z",
   "agentControllers": {
+    "antigravity": {
+      "defaultModelId": "gemini-3.8-flash-high",
+      "models": [
+        {
+          "id": "gemini-3.8-flash-high",
+          "displayName": "Gemini 3.8 Flash (High)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.8-flash-medium",
+          "displayName": "Gemini 3.8 Flash (Medium)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.8-flash-low",
+          "displayName": "Gemini 3.8 Flash (Low)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.7-flash-high",
+          "displayName": "Gemini 3.7 Flash (High)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.7-flash-medium",
+          "displayName": "Gemini 3.7 Flash (Medium)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.7-flash-low",
+          "displayName": "Gemini 3.7 Flash (Low)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.6-flash-high",
+          "displayName": "Gemini 3.6 Flash (High)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.6-flash-medium",
+          "displayName": "Gemini 3.6 Flash (Medium)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.6-flash-low",
+          "displayName": "Gemini 3.6 Flash (Low)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.1-pro-high",
+          "displayName": "Gemini 3.1 Pro (High)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.1-pro-low",
+          "displayName": "Gemini 3.1 Pro (Low)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "claude-sonnet-4-6",
+          "displayName": "Claude Sonnet 4.6 (Thinking)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "claude-opus-4-6-thinking",
+          "displayName": "Claude Opus 4.6 Thinking",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gpt-oss-120b-medium",
+          "displayName": "GPT-OSS 120B (Medium)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        }
+      ]
+    },
     "codex": {
       "defaultModelId": "gpt-5.6-sol",
       "models": [

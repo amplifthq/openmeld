@@ -699,6 +699,10 @@ Native background controls are folded and appear only for a positively matching
 device. Missing, unreadable, and explicitly different accounts remain distinct;
 unavailable control capabilities are not evidence of an old version. A global
 Connect this Mac action does not identify a selected remote Computer as local.
+The shared Local agents cards include Antigravity alongside Codex, Claude Code,
+Grok Build, OpenCode, and Cursor, using the same canonical order and the same
+status, enablement, Usage, and details projection as Web. Desktop does not keep
+a second Local Agent catalog or infer readiness from whether a logo is shown.
 
 This pilot restriction applies to the shared Computer presentation and cloud
 transport as well as native IPC. `canConfigureLocalComputer` removes unsupported

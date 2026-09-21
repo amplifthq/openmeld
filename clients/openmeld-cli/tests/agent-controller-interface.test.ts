@@ -96,6 +96,60 @@ afterEach(() => {
 });
 
 describe("agent controller interface inventory", () => {
+  it("reads Antigravity sign-in and both weekly quota groups without running a task", async () => {
+    const home = await mkdtemp(join(tmpdir(), "openmeld-aci-antigravity-"));
+    try {
+      const binPath = join(home, "agy.mjs");
+      await writeFile(
+        binPath,
+        [
+          "#!/usr/bin/env node",
+          "const args = process.argv.slice(2);",
+          "if (args[0] === '--version') { console.log('Antigravity CLI 1.2.7'); process.exit(0); }",
+          "if (args[0] === '--print' && args[1] === '/usage') {",
+          "  console.log('Gemini Models\\tWeekly Limit Remaining\\t99%\\t2026-09-28T07:03:35Z');",
+          "  console.log('Claude and GPT models\\tWeekly Limit Remaining\\t75%\\t2026-09-28T07:32:37Z');",
+          "  process.exit(0);",
+          "}",
+          "process.exit(1);",
+        ].join("\n"),
+        "utf8"
+      );
+      await chmod(binPath, 0o755);
+
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:antigravity",
+        state: createBuiltinAgentTargetState(
+          "antigravity",
+          "Antigravity",
+          binPath
+        ),
+      });
+
+      expect(snapshot).toMatchObject({
+        auth: {
+          label: "Antigravity account connected",
+          status: "authenticated",
+        },
+        controllerId: "antigravity",
+        status: "ready",
+        usageLimits: [
+          {
+            key: "antigravity-gemini:weekly",
+            usedPercent: 1,
+          },
+          {
+            key: "antigravity-other:weekly",
+            usedPercent: 25,
+          },
+        ],
+        version: "1.2.7",
+      });
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
+  });
+
   it("preserves last-known provider capacity as stale after a temporary read failure", () => {
     const observedAt = "2026-08-20T08:00:00.000Z";
 
@@ -1404,6 +1458,7 @@ async function writeOpenClawBin(
 
 function createBuiltinAgentTargetState(
   agentId:
+    | "antigravity"
     | "claude-code"
     | "codex"
     | "cursor"

@@ -1,6 +1,8 @@
 import {
   OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
+  OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
   OPENMELD_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
 } from "@openmeld/gateway-contract";
 import { normalizeSpacePasswordText } from "@openmeld/schemas";
 import {
@@ -48,6 +50,10 @@ export function buildSpaceRpcRequest(input: {
   headers.set(
     OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
     OPENMELD_SPACE_ADDRESSING_VERSION
+  );
+  headers.set(
+    OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
+    OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
   );
   if (input.body !== undefined) {
     headers.set("content-type", "application/json");
