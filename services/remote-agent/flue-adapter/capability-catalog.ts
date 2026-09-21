@@ -257,6 +257,18 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     dependencies: ["openmeld_list_routine_runs"],
     namespace: "organization",
   },
+  openmeld_search_center_agent_memory: {
+    aliases: [
+      "recall a previous conclusion",
+      "what did we decide",
+      "search remembered context",
+      "查找之前的结论",
+      "我们之前怎么决定的",
+      "跨对话记忆",
+    ],
+    dependencies: ["openmeld_read_space_context"],
+    namespace: "organization",
+  },
   openmeld_read_center_agent_turn_diagnostics: {
     aliases: [
       "diagnose a recent Center Agent turn",

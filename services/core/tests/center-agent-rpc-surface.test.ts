@@ -170,6 +170,15 @@ describe("Private Center Agent RPC surface", () => {
     }
   });
 
+  it("keeps explicit memory search off the Gateway surface", () => {
+    expect(
+      Object.getOwnPropertyNames(CenterAgentRpcEntrypoint.prototype)
+    ).toContain("centerAgentSearchMemory");
+    expect(
+      Object.getOwnPropertyNames(GatewayRpcEntrypoint.prototype)
+    ).not.toContain("centerAgentSearchMemory");
+  });
+
   it("keeps the historical Routine entrypoint as a compatibility alias", () => {
     expect(
       Object.getPrototypeOf(CenterAgentRoutineRpcEntrypoint.prototype)

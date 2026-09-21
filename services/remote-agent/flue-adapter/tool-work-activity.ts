@@ -92,6 +92,7 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
     "openmeld_manage_agent_profile_creation_request",
     "center_agent.attention.request",
   ],
+  ["openmeld_search_center_agent_memory", "center_agent.activity.read"],
   ["openmeld_read_center_agent_activity", "center_agent.activity.read"],
   ["openmeld_read_center_agent_turn_diagnostics", "center_agent.activity.read"],
   ["openmeld_request_member_attention", "center_agent.attention.request"],

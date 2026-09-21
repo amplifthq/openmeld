@@ -20,6 +20,15 @@ export {
   centerAgentReadAuditJournalRpcInputSchema,
 } from "./http/center-agent-evidence";
 export {
+  CENTER_AGENT_RETAINED_MEMORY_MAX_ITEMS,
+  CENTER_AGENT_RETAINED_MEMORY_MAX_SOURCES,
+  CENTER_AGENT_RETAINED_MEMORY_MAX_TEXT_CHARS,
+  CENTER_AGENT_RETAINED_MEMORY_QUERY_MAX_CHARS,
+  centerAgentMemorySourceReferenceSchema,
+  centerAgentSearchMemoryResponseSchema,
+  centerAgentSearchMemoryRpcInputSchema,
+} from "./http/center-agent-memory-search";
+export {
   LOCAL_AGENT_REASONING_MAX_CHARS,
   localAgentReasoningPreferencesRpcSchema,
   localAgentReasoningPreferencesSchema,

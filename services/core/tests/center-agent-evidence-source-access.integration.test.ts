@@ -12,7 +12,7 @@ import {
   persistRemoteAgentWorkerSubmitRequest,
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import { rpcCreateSpace } from "../src/rpc/methods";
+import { rpcCreateSpace, rpcPostSignal } from "../src/rpc/methods";
 
 const coreEnv = env as unknown as CoreBindings;
 const NOW_MS = Date.UTC(2026, 8, 21, 10);
@@ -185,6 +185,32 @@ describe("Center Agent evidence source authorization in Workerd", () => {
       organizationId,
     });
     await expect(access.readPermittedSpace(hidden.spaceId)).resolves.toBeNull();
+    const source = await rpcCreateSpace(coreEnv, {
+      context: requester.context,
+      name: "Prior private discussion",
+      visibility: "private",
+      accessMode: "members_only",
+    });
+    const signal = await rpcPostSignal(coreEnv, {
+      authoringPolicy: "user_authored",
+      context: requester.context,
+      profile: {
+        kind: "human",
+        profileId: requester.profileId,
+        profileName: "Requester",
+      },
+      spaceId: source.spaceId,
+      text: "The review was scheduled for Friday.",
+    });
+    await expect(access.canReadSignal(source.spaceId, signal.id)).resolves.toBe(
+      true
+    );
+    await expect(
+      access.canReadSignal(source.spaceId, randomUUID())
+    ).resolves.toBe(false);
+    await expect(access.canReadSignal(hidden.spaceId, signal.id)).resolves.toBe(
+      false
+    );
   });
 });
 

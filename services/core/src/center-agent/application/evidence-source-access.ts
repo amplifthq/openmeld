@@ -8,6 +8,7 @@ import type {
 import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
 import { type CoreBindings, wakeEvidenceDb } from "../../lib/bindings";
 import { readRemoteAgentNativeDeliveryBySubmissionId } from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import type { ListSignalsResult } from "../../rpc/methods";
 import { resolveSpaceStub } from "../../rpc/space-ref";
 import type { prepareCenterAgentRepresentedMemberRequest } from "./represented-member-request";
 
@@ -99,7 +100,54 @@ export async function createCenterAgentEvidenceSourceAccess(input: {
     return read;
   }
 
-  return { audience, envelope, memberContext, readPermittedSpace };
+  const permittedSignals = new Map<string, Promise<boolean>>();
+  function canReadSignal(spaceId: string, signalId: string): Promise<boolean> {
+    const key = JSON.stringify([spaceId, signalId]);
+    const retained = permittedSignals.get(key);
+    if (retained) {
+      return retained;
+    }
+    if (permittedSignals.size >= 48) {
+      return Promise.resolve(false);
+    }
+    const read = (async () => {
+      if (!(await readPermittedSpace(spaceId))) {
+        return false;
+      }
+      try {
+        const stub = resolveSpaceStub(input.env.OPENMELD_SPACES, spaceId);
+        if (!stub) {
+          return false;
+        }
+        const result = await stub.rpcListSignals({
+          spaceId,
+          aroundSignalId: signalId,
+          beforeCount: 1,
+          afterCount: 0,
+          signalTypes: ["signal.text"],
+          spaceAccess: createAuthenticatedSpaceAccessContext({
+            requestContext: memberContext,
+            spaceId,
+          }),
+        });
+        return (result as ListSignalsResult).signals.some(
+          (signal) => (signal as { id?: unknown }).id === signalId
+        );
+      } catch {
+        return false;
+      }
+    })();
+    permittedSignals.set(key, read);
+    return read;
+  }
+
+  return {
+    audience,
+    envelope,
+    memberContext,
+    readPermittedSpace,
+    canReadSignal,
+  };
 }
 
 async function readVerifiedCurrentEnvelope(input: {

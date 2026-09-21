@@ -106,6 +106,8 @@ import type {
   CenterAgentResumeRoutineToolRpcInput,
   CenterAgentSaveSpaceFileResponse,
   CenterAgentSaveSpaceFileRpcInput,
+  CenterAgentSearchMemoryResponse,
+  CenterAgentSearchMemoryRpcInput,
   CenterAgentSearchSlackMessagesBody,
   CenterAgentSearchSlackMessagesResponse,
   CenterAgentSetAgentProfileDefaultProjectToolResponse,
@@ -524,6 +526,9 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadAgentActivityOverview?(
     input: CenterAgentReadAgentActivityToolRpcInput
   ): Promise<AgentActivityOverviewResponse>;
+  centerAgentSearchMemory?(
+    input: CenterAgentSearchMemoryRpcInput
+  ): Promise<CenterAgentSearchMemoryResponse>;
   centerAgentReadAuditJournal?(
     input: CenterAgentReadAuditJournalRpcInput
   ): Promise<CenterAgentReadAuditJournalResponse>;

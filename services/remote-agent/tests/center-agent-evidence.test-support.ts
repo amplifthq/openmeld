@@ -163,11 +163,48 @@ export async function createEvidenceFixture(
       },
     ],
   ]);
+  const signals = new Map<string, Set<string>>();
+  const signalReads: {
+    spaceId: string;
+    signalId: string;
+    memberContext: OpenMeldRequestContext;
+  }[] = [];
   const env = {
     OPENMELD_DB: harness.db,
     OPENMELD_SPACES: {
       idFromString: (spaceId: string) => spaceId,
       get: (spaceId: string) => ({
+        rpcListSignals: ({
+          aroundSignalId,
+          spaceAccess,
+        }: {
+          aroundSignalId: string;
+          spaceAccess: { actor: { requestContext: OpenMeldRequestContext } };
+        }) => {
+          const memberContext = spaceAccess.actor.requestContext;
+          signalReads.push({
+            spaceId,
+            signalId: aroundSignalId,
+            memberContext,
+          });
+          if (
+            !spaces.has(spaceId) ||
+            memberContext.actorContext.openMeldProfileId !== speaker.profileId
+          ) {
+            return Promise.reject(new Error("Source is not readable."));
+          }
+          return Promise.resolve({
+            signals: signals.get(spaceId)?.has(aroundSignalId)
+              ? [
+                  {
+                    id: aroundSignalId,
+                    type: "signal.text",
+                    data: { text: "Retained source turn" },
+                  },
+                ]
+              : [],
+          });
+        },
         rpcGetMeta: ({
           spaceAccess,
         }: {
@@ -228,6 +265,8 @@ export async function createEvidenceFixture(
     execute,
     harness,
     request,
+    signals,
+    signalReads,
     sourceReads,
     spaces,
     speaker,

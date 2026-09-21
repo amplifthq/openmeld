@@ -104,6 +104,7 @@ import type {
   CenterAgentResumeRoutineToolRpcInput,
   CenterAgentSaveSpaceFileResponse,
   CenterAgentSaveSpaceFileRpcInput,
+  CenterAgentSearchMemoryRpcInput,
   CenterAgentSearchSlackMessagesResponse,
   CenterAgentSelectLocalAgentInstallationResponse,
   CenterAgentSetAgentProfileDefaultProjectToolResponse,
@@ -406,6 +407,7 @@ import {
   clearCoreCenterAgentOrganizationNativeDeliveryData,
   createCoreCenterAgentMemoryService,
 } from "./center-agent-memory/core-memory-service";
+import { rpcCenterAgentSearchMemory } from "./center-agent-memory/memory-search-rpc";
 import { rpcReportDesktopUpdateObservation } from "./computers/desktop-update-inbox";
 import { readModelCatalog } from "./config/model-catalog";
 import {
@@ -5574,6 +5576,10 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
 
   centerAgentReadChangelog(input: CenterAgentReadChangelogInput) {
     return rpcCenterAgentReadChangelog(this.env, input);
+  }
+
+  centerAgentSearchMemory(input: CenterAgentSearchMemoryRpcInput) {
+    return rpcCenterAgentSearchMemory(this.env, input);
   }
 
   centerAgentReadAuditJournal(input: CenterAgentReadAuditJournalRpcInput) {

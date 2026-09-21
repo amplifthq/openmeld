@@ -25,6 +25,11 @@ export type {
   CenterAgentReadAuditJournalRpcInput,
 } from "./http/center-agent-evidence";
 export type {
+  CenterAgentMemorySourceReference,
+  CenterAgentSearchMemoryResponse,
+  CenterAgentSearchMemoryRpcInput,
+} from "./http/center-agent-memory-search";
+export type {
   CenterAgentListRoutineRunsToolResponse,
   CenterAgentListRoutineRunsToolRpcInput,
   CenterAgentReadRoutineRunDiagnosticsResponse,
