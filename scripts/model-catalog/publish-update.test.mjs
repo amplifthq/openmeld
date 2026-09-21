@@ -11,6 +11,14 @@ test("a pushed proposal survives a failed PR request without rewriting the branc
   const temporary = await mkdtemp(join(tmpdir(), "openmeld-catalog-publish-"));
   const previousCwd = process.cwd();
   const previousPath = process.env.PATH;
+  const previousGitHubContext = {
+    repository: process.env.GITHUB_REPOSITORY,
+    runId: process.env.GITHUB_RUN_ID,
+    serverUrl: process.env.GITHUB_SERVER_URL,
+  };
+  delete process.env.GITHUB_REPOSITORY;
+  delete process.env.GITHUB_RUN_ID;
+  delete process.env.GITHUB_SERVER_URL;
   const git = (...args) =>
     execFileSync("git", args, {
       encoding: "utf8",
@@ -137,6 +145,13 @@ if (args[0] === 'pr' && args[1] === 'list') {
     await publishUpdate(output);
     assert.equal(git("branch", "--show-current"), "main");
     assert.equal(git("status", "--porcelain"), "");
+    await assert.rejects(readFile("dev-tmp/comments.json", "utf8"), {
+      code: "ENOENT",
+    });
+    process.env.GITHUB_SERVER_URL = "https://github.com";
+    process.env.GITHUB_REPOSITORY = "example/openmeld";
+    process.env.GITHUB_RUN_ID = "123";
+    await publishUpdate(output);
     const firstComment = JSON.parse(
       await readFile("dev-tmp/comments.json", "utf8")
     )[0];
@@ -170,6 +185,17 @@ if (args[0] === 'pr' && args[1] === 'list') {
   } finally {
     process.chdir(previousCwd);
     process.env.PATH = previousPath;
+    for (const [name, value] of [
+      ["GITHUB_REPOSITORY", previousGitHubContext.repository],
+      ["GITHUB_RUN_ID", previousGitHubContext.runId],
+      ["GITHUB_SERVER_URL", previousGitHubContext.serverUrl],
+    ]) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
     await rm(temporary, { recursive: true, force: true });
   }
 });
