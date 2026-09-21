@@ -157,6 +157,7 @@ import {
   resumeCenterAgentRoutineResponseSchema,
   SPACE_FILE_MAX_SIZE_BYTES,
   SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES,
+  SPACE_FILES_ORIGIN_CAPABILITY_TOKEN,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   SPACE_PASSWORD_MIN_LENGTH,
   SPACE_TASK_COMPLETION_CONDITION_MAX_CHARS,
@@ -3560,7 +3561,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         const response = await callCoreRpc(
           input.coreWorker,
           "centerAgentListSpaceFiles",
-          { ...request, context },
+          {
+            ...request,
+            context,
+            requestedOriginModel: SPACE_FILES_ORIGIN_CAPABILITY_TOKEN,
+          },
           (binding, rpcInput) => binding.centerAgentListSpaceFiles?.(rpcInput)
         );
         return centerAgentListSpaceFilesResponseSchema.parse(response);
@@ -3581,7 +3586,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         const response = await callCoreRpc(
           input.coreWorker,
           "centerAgentReadSpaceFile",
-          { ...request, context },
+          {
+            ...request,
+            context,
+            requestedOriginModel: SPACE_FILES_ORIGIN_CAPABILITY_TOKEN,
+          },
           (binding, rpcInput) => binding.centerAgentReadSpaceFile?.(rpcInput)
         );
         return centerAgentReadSpaceFileResponseSchema.parse(response);
@@ -3602,6 +3611,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         const request = centerAgentSaveSpaceFileRpcInputSchema.parse({
           ...toolInput,
           context,
+          requestedOriginModel: SPACE_FILES_ORIGIN_CAPABILITY_TOKEN,
         });
         const response = await callCoreRpc(
           input.coreWorker,
@@ -3630,6 +3640,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         const request = centerAgentManageSpaceFilesRpcInputSchema.parse({
           ...toolInput,
           context,
+          requestedOriginModel: SPACE_FILES_ORIGIN_CAPABILITY_TOKEN,
         });
         const response = await callCoreRpc(
           input.coreWorker,
