@@ -759,6 +759,13 @@ the profile to a Project, or move the profile's current controller session.
 Remote Agent and Center Agent Profiles do not show or use this field in the
 MVP.
 
+An existing OpenCode session remains bound to its native working folder. If
+that folder does not resolve to the Agent's current effective working folder,
+Wake fails before prompting or forking the session. The owner must restore the
+matching folder for that Agent or explicitly create a new Agent with a new
+OpenCode session in the selected folder. OpenMeld does not run in the former
+folder or replace the session automatically.
+
 The current computer resolves Project intent through its own local state:
 
 ```text

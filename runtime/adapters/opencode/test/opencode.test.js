@@ -199,7 +199,7 @@ test("opencode output parser does not stringify object error payloads", async ()
   );
 });
 
-test("opencode cli transport passes cwd, prompt, model, variant, and session flags", async () => {
+test("opencode cli transport passes cwd, prompt, model, and variant for a new session", async () => {
   const { invokeOpenCodeCliTransport } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "opencode-cli-fixture-"));
   const dispatchDir = await mkdtemp(join(tmpdir(), "opencode-dispatch-"));
@@ -221,9 +221,9 @@ test("opencode cli transport passes cwd, prompt, model, variant, and session fla
       "if (realpathSync(readArg('--dir')) !== process.cwd()) throw new Error('expected spawn cwd as --dir');",
       "if (readArg('--model') !== 'openai/gpt-5.4') throw new Error('missing model');",
       "if (readArg('--variant') !== 'high') throw new Error('missing variant');",
-      "if (readArg('--session') !== 'session-existing-1') throw new Error('missing session');",
+      "if (readArg('--session') !== null) throw new Error('CLI must not resume a session');",
       "const prompt = args[args.length - 1];",
-      "console.log(JSON.stringify({ type: 'text', sessionID: 'session-existing-1', part: { text: prompt + ':' + process.cwd() } }));",
+      "console.log(JSON.stringify({ type: 'text', sessionID: 'session-new-1', part: { text: prompt + ':' + process.cwd() } }));",
       "process.exit(0);",
     ].join("\n"),
     "utf8"
@@ -240,7 +240,7 @@ test("opencode cli transport passes cwd, prompt, model, variant, and session fla
       openCodeTimeoutMs: 5000,
       openCodeWorkdir: dispatchDir,
       prompt: "hello",
-      sessionId: "session-existing-1",
+      sessionId: null,
     });
 
     const expectedDispatchDir = await realpath(dispatchDir);
@@ -251,12 +251,25 @@ test("opencode cli transport passes cwd, prompt, model, variant, and session fla
       },
       {
         output: `hello:${expectedDispatchDir}`,
-        sessionId: "session-existing-1",
+        sessionId: "session-new-1",
       }
     );
     validateOpenCodeTelemetry(result.telemetry, {
-      resumedContext: true,
+      resumedContext: false,
     });
+    await assert.rejects(
+      invokeOpenCodeCliTransport({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        openCodeTimeoutMs: 5000,
+        openCodeWorkdir: dispatchDir,
+        prompt: "continue",
+        sessionId: "session-existing-1",
+      }),
+      (error) => {
+        assert.equal(error.code, "context.resume_requires_server");
+        return true;
+      }
+    );
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });
