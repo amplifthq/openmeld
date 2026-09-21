@@ -56,6 +56,7 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const [parentId, setParentId] = useState<string | null>(ROOT_FOLDER_ID);
 	const [view, setView] = useState<"active" | "trash">("active");
+	const [showChatUploads, setShowChatUploads] = useState(false);
 	const [selectedFile, setSelectedFile] = useState<SpaceFileDescriptor | null>(
 		null
 	);
@@ -117,12 +118,13 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 			cancelled = true;
 		};
 	}, [api, input.fileToOpen, input.spaceId, selectFile]);
+	const origin = showChatUploads ? "all" : "artifact";
 	const filesQuery = useQuery({
-		queryKey: spaceFileQueryKeys.folder(input.spaceId, parentId, view),
+		queryKey: spaceFileQueryKeys.folder(input.spaceId, parentId, view, origin),
 		queryFn: async ({ signal }) =>
 			await api.listFiles({
 				spaceId: input.spaceId,
-				query: { parentId, view },
+				query: { parentId, view, origin },
 				signal,
 			}),
 		gcTime: baseQueryOptions.gcTime,
@@ -184,6 +186,7 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 							declaredMimeType: file.type,
 							fileName: file.name,
 						}),
+						origin: "artifact",
 						bytes: file,
 						onProgress: (bytes) => {
 							uploaded.set(file, bytes);
@@ -286,6 +289,9 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 		setActionError(null);
 		setView(nextView);
 	};
+	const toggleShowChatUploads = () => {
+		setShowChatUploads((current) => !current);
+	};
 
 	return {
 		actionError,
@@ -313,6 +319,8 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 		setMarkdownFileDialogOpen,
 		setParentId,
 		selectFile,
+		showChatUploads,
+		toggleShowChatUploads,
 		trashEntry,
 		uploadFiles,
 		view,

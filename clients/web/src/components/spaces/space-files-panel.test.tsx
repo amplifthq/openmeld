@@ -139,7 +139,9 @@ describe("SpaceFilesPanel", () => {
 		expect(screen.getByText("View only")).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "New" })).toBeNull();
 		expect(
-			screen.getByText("Shared with the people and agents in this Space.")
+			screen.getByText(
+				"Shared with the people and agents in this Space. Files shared in chat are hidden; show them below."
+			)
 		).toBeTruthy();
 	});
 
@@ -326,6 +328,40 @@ describe("SpaceFilesPanel", () => {
 				expect.objectContaining({ name: "research.txt" })
 			)
 		);
+	});
+
+	it("defaults Files to artifacts only and reveals chat uploads only after an explicit toggle", async () => {
+		renderPanel();
+
+		await screen.findByText("launch-notes.md");
+		expect(spaceApiMocks.listFiles).toHaveBeenCalledWith(
+			expect.objectContaining({
+				query: { parentId: null, view: "active", origin: "artifact" },
+			})
+		);
+		expect(
+			screen.getByText(
+				"Shared with the people and agents in this Space. Files shared in chat are hidden; show them below."
+			)
+		).toBeTruthy();
+
+		fireEvent.click(screen.getByRole("button", { name: "Show chat uploads" }));
+
+		await waitFor(() =>
+			expect(spaceApiMocks.listFiles).toHaveBeenCalledWith(
+				expect.objectContaining({
+					query: { parentId: null, view: "active", origin: "all" },
+				})
+			)
+		);
+		expect(
+			screen.getByRole("button", { name: "Hide chat uploads" })
+		).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Shared with the people and agents in this Space, including files shared in chat."
+			)
+		).toBeTruthy();
 	});
 
 	it("keeps deleted entries in one recoverable Trash view", async () => {
@@ -557,7 +593,7 @@ describe("SpaceFilesPanel", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
 		expect(
 			await screen.findByText(
-				"Shared with the people and agents in this Space."
+				"Shared with the people and agents in this Space. Files shared in chat are hidden; show them below."
 			)
 		).toBeTruthy();
 	});
