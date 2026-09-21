@@ -15,6 +15,7 @@ import { Input } from "@openmeld/ui/components/input";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
+import { cn } from "@openmeld/ui/lib/utils";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -237,6 +238,15 @@ function MessageSearchContents(input: {
 		profileId,
 		currentOrganization,
 	} = useMessageSearch({ ...input, draft, isComposing });
+	const showInitialState = Boolean(input.spaceId && !searchText);
+	const showNoResults = Boolean(
+		query &&
+			!searching &&
+			!results.isError &&
+			!results.hasNextPage &&
+			resultCount === 0
+	);
+	const showCenteredEmptyState = showInitialState || showNoResults;
 	return (
 		<>
 			<Input
@@ -257,10 +267,16 @@ function MessageSearchContents(input: {
 			/>
 			<ScrollArea
 				className="min-h-32 flex-1"
+				contentClassName={showCenteredEmptyState ? "h-full" : undefined}
 				viewportProps={{ "aria-label": "Message search results" }}
 			>
-				<div className="space-y-2 py-2">
-					{input.spaceId && !searchText && (
+				<div
+					className={cn(
+						"space-y-2 py-2",
+						showCenteredEmptyState && "flex h-full flex-col justify-center"
+					)}
+				>
+					{showInitialState && (
 						<AppEmptyState
 							description="Results will appear here."
 							icon={<MagnifyingGlassIcon />}
@@ -301,24 +317,23 @@ function MessageSearchContents(input: {
 					))}
 					<div
 						aria-live="polite"
-						className="min-h-5 text-muted-foreground text-sm"
+						className={cn(
+							"text-muted-foreground text-sm",
+							showCenteredEmptyState ? "sr-only" : "min-h-5"
+						)}
 					>
 						{!(input.spaceId || isComposing) &&
 							[...searchText].length < minimumQueryLength &&
 							"Use at least 3 characters."}
 						{searching && "Searching…"}
 					</div>
-					{query &&
-						!searching &&
-						!results.isError &&
-						!results.hasNextPage &&
-						resultCount === 0 && (
-							<AppEmptyState
-								description="Try another search."
-								icon={<MagnifyingGlassIcon />}
-								title={`No messages found for “${query}”`}
-							/>
-						)}
+					{showNoResults && (
+						<AppEmptyState
+							description="Try another search."
+							icon={<MagnifyingGlassIcon />}
+							title={`No messages found for “${query}”`}
+						/>
+					)}
 					{results.isError && (
 						<div role="alert">
 							<p className="text-sm">
