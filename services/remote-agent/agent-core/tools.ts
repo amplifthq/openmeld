@@ -5360,20 +5360,21 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_check_agent_profile_readiness",
       description:
-        "Check whether an OpenMeld Agent Profile can reply now. Use this after creating, connecting, or updating an Agent Profile, or when a user asks why an agent cannot reply.",
+        "Check whether the requesting member's OpenMeld Agent Profile can reply now, in a private conversation. Use this after creating, connecting, or updating their Agent Profile, or when they ask why it cannot reply. For another member's Agent or a shared conversation, use the team-safe Organization directory readiness instead.",
       input: object({ agentProfileId: nonEmptyStringSchema }),
       execute: async (payload) => {
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_check_agent_profile_readiness",
+          requesterPrivate: true,
         });
         const rpc = requireCoreRpc(
           input.coreWorker.centerAgentCheckAgentProfileReadiness,
           "centerAgentCheckAgentProfileReadiness"
         );
         return centerAgentCheckAgentProfileReadinessResponseSchema.parse(
-          await rpc({ agentProfileId: payload.agentProfileId, context })
+          await rpc({ agentProfileId: payload.agentProfileId, ...toolContext })
         );
       },
     }),
@@ -5996,6 +5997,7 @@ async function buildRequesterPrivateVerifiedMemberToolContext(input: {
 }
 
 async function buildRepresentedMemberAttributionToolContext(input: {
+  requesterPrivate?: boolean;
   storage: RemoteAgentReadableStorage;
   submissionId: string;
   toolName: RemoteAgentOpenMeldToolName;
@@ -6004,6 +6006,14 @@ async function buildRepresentedMemberAttributionToolContext(input: {
   onBehalfOf: { profileId: string };
 }> {
   const toolContext = await buildOpenMeldToolContext(input);
+  if (
+    input.requesterPrivate &&
+    (!toolContext.turnEnvelope ||
+      resolveCenterAgentContextScopePlan(toolContext.turnEnvelope)
+        .interactionEnvironment !== "requester_private")
+  ) {
+    throw new Error("Owner Agent diagnostics require a private conversation.");
+  }
   const profileId = resolveVerifiedTurnEnvelopeProfileId(
     toolContext.turnEnvelope
   );
