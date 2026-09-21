@@ -22,6 +22,7 @@ import {
   AntigravityCliTransportError,
   invokeAntigravityCliTransport,
 } from "./transport/antigravity-cli-transport.js";
+import { withAntigravityDispatchSpaceActionPlugin } from "./transport/antigravity-space-action-plugin.js";
 
 export type AntigravityAdapterOptions = {
   antigravityBin?: string;
@@ -148,30 +149,38 @@ function createDefaultAntigravityInvoke(input: {
             message: `context.rebuild_failed: ${toErrorMessage(error)}`,
           }),
         invokeOnce: async (sessionId) => {
-          const transportResult = await invokeAntigravityCliTransport({
-            conversationPolicy: request.conversationPolicy,
-            env: request.env,
-            launchContract,
-            onPreview: request.onPreview,
-            onProcessControlEvent: (event) => {
-              task.process = event.phase === "process_spawned" ? event : null;
-              if (
-                event.phase === "process_spawned" &&
-                task.cancellationRequested
-              ) {
-                signalProcess(event, "SIGINT");
-              }
-              input.options.registerRuntimeProcess?.({
-                ...event,
-                taskId: request.taskId,
-              });
-            },
-            onRuntimeEvent: request.onRuntimeEvent,
-            prompt: request.prompt,
-            sessionId,
-            timeoutMs: request.timeoutMs ?? null,
-            workdir: request.runtimeContext.providerRuntimeWorkingDirectory,
-          });
+          const transportResult =
+            await withAntigravityDispatchSpaceActionPlugin({
+              env: request.env,
+              run: async ({ addDir }) =>
+                await invokeAntigravityCliTransport({
+                  addDir,
+                  conversationPolicy: request.conversationPolicy,
+                  env: request.env,
+                  launchContract,
+                  onPreview: request.onPreview,
+                  onProcessControlEvent: (event) => {
+                    task.process =
+                      event.phase === "process_spawned" ? event : null;
+                    if (
+                      event.phase === "process_spawned" &&
+                      task.cancellationRequested
+                    ) {
+                      signalProcess(event, "SIGINT");
+                    }
+                    input.options.registerRuntimeProcess?.({
+                      ...event,
+                      taskId: request.taskId,
+                    });
+                  },
+                  onRuntimeEvent: request.onRuntimeEvent,
+                  prompt: request.prompt,
+                  sessionId,
+                  timeoutMs: request.timeoutMs ?? null,
+                  workdir:
+                    request.runtimeContext.providerRuntimeWorkingDirectory,
+                }),
+            });
           return {
             contextId: transportResult.sessionId,
             output: transportResult.output,

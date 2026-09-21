@@ -584,7 +584,8 @@ Cursor uses five controller-native presets over its ACP interface:
 - **Run Everything** launches `cursor-agent --force acp`, requires explicit
   confirmation, and still respects explicit Cursor deny rules.
 
-When a running Codex, Claude Code, Grok Build, Cursor, or OpenCode turn asks for permission,
+When a running Codex, Claude Code, Grok Build, Cursor, OpenCode, or Antigravity
+turn asks for permission,
 asks a structured question, or finishes a plan that needs review, OpenMeld
 pauses that same Wake and presents the request in its Space. The Binding owner
 can answer there without opening the controller's terminal. OpenMeld returns

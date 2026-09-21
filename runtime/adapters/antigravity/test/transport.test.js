@@ -20,6 +20,7 @@ describe("Antigravity CLI transport contract", () => {
   it("uses the exact conversation id and model on a resumed turn", () => {
     assert.deepEqual(
       buildAntigravityArgs({
+        addDir: "/tmp/openmeld-antigravity-dispatch",
         conversationPolicy: {
           collaborationMode: "plan",
           model: "gemini-3.8-flash-high",
@@ -34,6 +35,8 @@ describe("Antigravity CLI transport contract", () => {
         "stream-json",
         "--print-timeout",
         "0",
+        "--add-dir",
+        "/tmp/openmeld-antigravity-dispatch",
         "--conversation",
         "conversation-123",
         "--model",

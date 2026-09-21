@@ -53,6 +53,7 @@ export class AntigravityCliTransportError extends Error {
 }
 
 export async function invokeAntigravityCliTransport(input: {
+  addDir?: string | null;
   conversationPolicy?: ConversationPolicy;
   env?: Record<string, string | undefined>;
   launchContract: RuntimeAgentControllerLaunchContract;
@@ -74,6 +75,7 @@ export async function invokeAntigravityCliTransport(input: {
   }
   const invocation = buildCliLaunchInvocation({
     args: buildAntigravityArgs({
+      addDir: input.addDir,
       conversationPolicy: input.conversationPolicy,
       prompt,
       sessionId: normalizeOptionalText(input.sessionId),
@@ -225,6 +227,7 @@ function classifyAntigravityPermissionFailure(
 }
 
 export function buildAntigravityArgs(input: {
+  addDir?: string | null;
   conversationPolicy?: ConversationPolicy;
   prompt: string;
   sessionId: string | null;
@@ -237,6 +240,10 @@ export function buildAntigravityArgs(input: {
     "--print-timeout",
     "0",
   ];
+  const addDir = normalizeOptionalText(input.addDir);
+  if (addDir) {
+    args.push("--add-dir", addDir);
+  }
   if (input.sessionId) {
     args.push("--conversation", input.sessionId);
   }

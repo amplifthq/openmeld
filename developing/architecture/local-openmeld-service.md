@@ -581,10 +581,17 @@ controller access to local credentials or arbitrary filesystem paths. A file
 read does not record an action or finish the Wake. The configuration forwards the active
 dispatch identity, and fails closed when the action context is absent, expired,
 or mismatched. Fresh and resumed controller conversations use the same tool
-boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, and OpenClaw use
-their controller-native tool extension point and the same dispatch-owned action
-writer. Controllers without a proven structured-tool surface continue to use
-the exact dispatch-scoped CLI fallback.
+boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, Antigravity, and
+OpenClaw use their controller-native tool extension point and the same
+dispatch-owned action writer. Controllers without a proven structured-tool
+surface continue to use the exact dispatch-scoped CLI fallback.
+
+Antigravity CLI receives that tool through a unique temporary workspace plugin
+added only to the active invocation. Its hook grants approval only to the
+dispatch MCP server's named tools; ordinary shell, file, network, and ambient
+MCP actions continue through Antigravity's normal permission policy. The
+adapter removes the plugin after the invocation and never writes Antigravity's
+user settings or the user's project customization files.
 
 OpenClaw Gateway does not expose a per-turn plugin-injection surface. During an
 action-enabled dispatch, the adapter therefore runs the same OpenClaw Session
