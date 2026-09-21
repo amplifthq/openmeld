@@ -432,7 +432,11 @@ Space publication code. The `legacy` engine uses Core's bounded pre-ACK
 recovery scans and the compatibility Queue for admission and publication
 recovery; an accepted execution is never failed by that Queue. The `workflow`
 engine creates one Cloudflare Workflow instance whose id is the Run id, retries
-the idempotent worker submission step, and waits durably for the validated
+the idempotent worker submission step until the ledger contains a confirmed
+submission id. A saved request alone is not admission evidence: an unknown
+worker acknowledgement leaves that step retryable using the same idempotency
+key, while a validated callback may recover the acknowledgement. The Workflow
+then waits durably for the validated
 callback event without a fixed total callback deadline. When the initial Center
 Agent registers an all-terminal delegated continuation, Core records that
 initial callback without publishing or terminalizing the Run, waits for one
@@ -453,6 +457,13 @@ an errored instance, Core restarts only a recognized failed phase: callback
 finalization, continuation callback finalization, or continuation failure
 finalization restarts from its exact finalization step so the received event
 remains cached; an idempotent submission failure may restart from the beginning.
+Initial and continuation callback waits renew their one-day platform wait
+window when `WorkflowTimeoutError` is thrown inside the Workflow. This preserves
+the acknowledged submission and earlier finalization without restarting the
+instance. A wait timeout is not an Agent execution failure and must not re-admit
+the turn or fail the Run. Other errors propagate for inspection. Older failed
+instances still require operator inspection; this does not authorize guessing
+a restart point from a serialized error message.
 An
 unknown error phase or explicitly terminated instance fails closed for operator
 inspection rather than erasing durable progress. This recovery must not execute

@@ -78,10 +78,12 @@ export class RoutineRunWorkflow extends WorkflowEntrypoint<
         status: "blocked",
       };
     }
-    const callbackEvent = await step.waitForEvent<RemoteAgentCoreCallbackBody>(
-      ROUTINE_WORKFLOW_STEPS.waitForCallback,
-      { type: ROUTINE_WORKFLOW_CALLBACK_EVENTS.initial }
-    );
+    const callbackEvent =
+      await waitForRoutineCallback<RemoteAgentCoreCallbackBody>(
+        step,
+        ROUTINE_WORKFLOW_STEPS.waitForCallback,
+        ROUTINE_WORKFLOW_CALLBACK_EVENTS.initial
+      );
     const callback = remoteAgentCoreCallbackBodySchema.parse(
       callbackEvent.payload
     );
@@ -106,9 +108,10 @@ export class RoutineRunWorkflow extends WorkflowEntrypoint<
       return { status: "completed" };
     }
     const continuationEvent =
-      await step.waitForEvent<RoutineWorkflowContinuationEventPayload>(
+      await waitForRoutineCallback<RoutineWorkflowContinuationEventPayload>(
+        step,
         ROUTINE_WORKFLOW_STEPS.waitForContinuationCallback,
-        { type: ROUTINE_WORKFLOW_CALLBACK_EVENTS.continuation }
+        ROUTINE_WORKFLOW_CALLBACK_EVENTS.continuation
       );
     const continuation = routineWorkflowContinuationEventPayloadSchema.parse(
       continuationEvent.payload
@@ -163,6 +166,37 @@ export class RoutineRunWorkflow extends WorkflowEntrypoint<
         })
     );
     return { status: "completed" };
+  }
+}
+
+async function waitForRoutineCallback<T>(
+  step: WorkflowStep,
+  name: string,
+  type: string
+) {
+  for (;;) {
+    try {
+      return await step.waitForEvent<T>(name, { type, timeout: "1 day" });
+    } catch (error) {
+      // Workerd's RPC boundary serializes the timeout subclass as Error with
+      // its original name in the message (also exercised by the Workers tests).
+      if (
+        !(
+          error instanceof Error &&
+          (error.name === "WorkflowTimeoutError" ||
+            (error.name === "Error" &&
+              error.message ===
+                "WorkflowTimeoutError: Execution timed out after 86400000ms"))
+        )
+      ) {
+        throw error;
+      }
+      // A platform wait window is not an execution deadline. Each repeated
+      // wait is durably indexed by Workflows; admission is never replayed.
+      console.info("[core.routine.workflow.callback_wait_renewed]", {
+        step: name,
+      });
+    }
   }
 }
 

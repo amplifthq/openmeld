@@ -17,6 +17,62 @@ const CALLBACK = {
 };
 
 describe("Routine Run Workflow", () => {
+  it.each([
+    ["wait for Remote Agent callback", "remote-agent-initial-callback"],
+    [
+      "wait for Center Agent continuation callback",
+      "remote-agent-continuation-callback",
+    ],
+  ])("renews %s after timeout and accepts the eventual callback", async (stepName, eventType) => {
+    const runId = `routine_run_workflow_${crypto.randomUUID()}`;
+    const workflow = requireWorkflowBinding();
+    await using instance = await introspectWorkflowInstance(workflow, runId);
+    await instance.modify(async (modifier) => {
+      await modifier.mockStepResult(
+        { name: "ensure Remote Agent submission" },
+        waitingSubmission(runId)
+      );
+      if (stepName === "wait for Center Agent continuation callback") {
+        await modifier.mockEvent({
+          payload: { ...CALLBACK, dispatchId: runId, idempotencyKey: runId },
+          type: "remote-agent-initial-callback",
+        });
+        await modifier.mockStepResult(
+          { name: "finalize Remote Agent callback" },
+          { finalized: true, terminal: false }
+        );
+      }
+      await modifier.forceEventTimeout({ name: stepName });
+      await modifier.mockStepResult(
+        {
+          name:
+            eventType === "remote-agent-initial-callback"
+              ? "finalize Remote Agent callback"
+              : "finalize Center Agent continuation callback",
+        },
+        { finalized: true, terminal: true }
+      );
+    });
+    const handle = await workflow.create({ id: runId, params: { runId } });
+    await handle.sendEvent({
+      type: eventType,
+      payload:
+        eventType === "remote-agent-initial-callback"
+          ? { ...CALLBACK, dispatchId: runId, idempotencyKey: runId }
+          : {
+              kind: "callback",
+              callback: {
+                ...CALLBACK,
+                dispatchId: runId,
+                idempotencyKey: runId,
+              },
+            },
+    });
+    await instance.waitForStatus("complete");
+    await expect(instance.getOutput()).resolves.toEqual({
+      status: "completed",
+    });
+  });
   it("creates a missing Workflow instance through the production coordinator", async () => {
     const runId = `routine_run_workflow_${crypto.randomUUID()}`;
     const workflow = requireWorkflowBinding();
@@ -69,7 +125,7 @@ describe("Routine Run Workflow", () => {
     await instance.modify(async (modifier) => {
       await modifier.mockStepResult(
         { name: "ensure Remote Agent submission" },
-        waitingSubmission(runId, null)
+        waitingSubmission(runId)
       );
       await modifier.mockEvent({
         payload: { ...CALLBACK, dispatchId: runId, idempotencyKey: runId },
@@ -219,7 +275,7 @@ function requireWorkflowBinding(): Workflow<{ runId: string }> {
 
 function waitingSubmission(
   runId: string,
-  submissionId: string | null = "submission-workflow"
+  submissionId = "submission-workflow"
 ) {
   return {
     dispatchId: runId,
