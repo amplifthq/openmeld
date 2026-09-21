@@ -4,6 +4,7 @@ import {
 	fireEvent,
 	render,
 	screen,
+	waitFor,
 } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +21,10 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-function HeaderFixture(input: { scrollKey?: string }) {
+function HeaderFixture(input: {
+	scrollKey?: string;
+	showSetupRecallAction?: boolean;
+}) {
 	const context = useSpaceReadingHeader();
 	return (
 		<>
@@ -31,6 +35,9 @@ function HeaderFixture(input: { scrollKey?: string }) {
 						<span />
 					</div>
 					<div data-slot="space-window-header-navigation">Messages Files</div>
+					{input.showSetupRecallAction ? (
+						<div data-slot="space-header-setup-recall-action">Get set up</div>
+					) : null}
 				</div>
 			</header>
 			<div
@@ -206,8 +213,9 @@ describe("Space reading header", () => {
 		const view = render(renderHeader("first"));
 		const header = screen.getByTestId("header");
 		const firstScroller = screen.getByTestId("scroller");
+		let width = 800;
 		header.style.paddingLeft = "24px";
-		Object.defineProperty(header, "clientWidth", { value: 800 });
+		Object.defineProperty(header, "clientWidth", { get: () => width });
 		setConversationGeometry(firstScroller, header, 1500);
 		act(() => resize());
 		fireEvent.touchMove(firstScroller);
@@ -216,11 +224,17 @@ describe("Space reading header", () => {
 		expect(header.dataset.compact).toBe("true");
 		const frame = header.closest("header");
 		const compactHeight = frame?.style.height;
+		// Replacing the Messages scroller must not remeasure a transient header
+		// geometry and briefly expand an already compact reading layout.
+		width = 200;
 		view.rerender(renderHeader("replacement"));
 		const scroller = screen.getByTestId("scroller");
 		expect(scroller).not.toBe(firstScroller);
 		expect(screen.getByTestId("header")).toBe(header);
+		expect(header.dataset.compact).toBe("true");
 		expect(frame?.style.height).toBe(compactHeight);
+		width = 800;
+		act(() => resize());
 		setConversationGeometry(scroller, header, 1396);
 		// The detached scroller must no longer control the header.
 		firstScroller.scrollTop = 1460;
@@ -254,5 +268,40 @@ describe("Space reading header", () => {
 		view.unmount();
 		expect(header.dataset.compact).toBeUndefined();
 		expect(frame?.style.height).toBe("");
+	});
+
+	it("reconciles compact layout when the narrow setup recall action disappears", async () => {
+		const resize = mockHeaderResize();
+		vi.stubGlobal("innerWidth", 900);
+		const renderHeader = (showSetupRecallAction: boolean) => (
+			<SpaceReadingHeaderProvider
+				isDirectMessage={false}
+				organizationSlug="workspace"
+				profileId="reader"
+				spaceId="design"
+				view="messages"
+			>
+				<HeaderFixture showSetupRecallAction={showSetupRecallAction} />
+			</SpaceReadingHeaderProvider>
+		);
+		const view = render(renderHeader(false));
+		const header = screen.getByTestId("header");
+		const scroller = screen.getByTestId("scroller");
+		header.style.paddingLeft = "24px";
+		Object.defineProperty(header, "clientWidth", { value: 800 });
+		setConversationGeometry(scroller, header, 1436);
+		act(() => resize());
+		fireEvent.wheel(scroller, { deltaY: -5 });
+		fireEvent.scroll(scroller);
+		expect(header.dataset.compact).toBe("true");
+
+		view.rerender(renderHeader(true));
+		act(() => resize());
+		expect(header.dataset.compact).toBe("false");
+
+		view.rerender(renderHeader(false));
+		fireEvent.wheel(scroller, { deltaY: -5 });
+		fireEvent.scroll(scroller);
+		await waitFor(() => expect(header.dataset.compact).toBe("true"));
 	});
 });
