@@ -533,8 +533,13 @@ shown regardless of this filter.
 A caller (old CLI, old Web build, or any request written before this field
 existed) that omits `origin` when creating a file gets **artifact**, matching
 the create behavior this feature preceded; the shared HTTP contract keeps
-`origin` optional specifically so no client is required to send it before a
-service can roll safely. A pre-existing file created before this
+`origin` optional on requests specifically so no client is required to send
+it before a service can roll safely. Reading responses is not symmetric: a
+CLI published before this change has no knowledge of `origin` in a file
+response at all, and rejects any Space Files response that now carries it
+until it updates — see the Space Files Origin Classification Contract
+Impact Audit in `developing/engineering/development-workflow.md` for the
+exact supported compatibility matrix. A pre-existing file created before this
 distinction existed was migrated to **artifact** in the same schema step
 that added the column, since there is no reliable signal in that historical
 data to recover a chat upload from deliberately created work. After that

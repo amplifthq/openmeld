@@ -1496,76 +1496,159 @@ expected-routes output.
 ### Space Files Origin Classification Contract Impact Audit
 
 Space Files origin classification (`artifact` vs. `chat_upload`) adds a
-nullable `origin` column to Core's `space_file_entries` SQL, an optional
-`origin` field on shared list/upload/write HTTP schemas
+nullable `origin` column to Core's `space_file_entries` SQL, an `origin`
+field on shared file-descriptor and list-response HTTP schemas
 (`packages/schemas/src/schemas/http/space-files.ts`), an optional `origin`
 query filter on list, and Web/CLI/remote-agent write-path defaults. It does
 not change Runtime Transport frames, setup, Prepare Session, Wake dispatch,
 Space Actions, D1 schemas, or any local-component/service contract version.
 
-- **Core (schema and repository).** The Durable Object schema migration
-  (`SPACE_SQL_SCHEMA_VERSION` 44) adds `origin` via `ALTER TABLE ... ADD
-  COLUMN` and, in the same migration step, backfills every existing file row
-  (`kind = 'file'`) to `'artifact'`. There is no reliable signal in
-  pre-existing rows to recover a historical chat upload versus deliberately
-  created work — both wrote through the same path before this column
-  existed — so `'artifact'` is the deterministic default, matching the
-  repository's create-time default and keeping historical files visible in
-  the default view. Folders are excluded from the backfill and never carry
-  an `origin`. After migration, a `NULL` origin on a file row is
-  exceptional/corrupt data (for example a direct database edit), not normal
-  history, and the read path still fails closed on it (excluded from the
-  default `artifact` list, included only under `origin: "all"`).
+**This response-field addition is not bidirectionally safe.** It follows the
+shared-schema evolution rule in
+[Schema rules](../architecture/shared-contracts.md#space-access-context-propagation):
+adding a field to a `z.strictObject()` response breaks an already-published
+client that validates with its own frozen (older) schema, and "published CLI
+versions can never be forced to update first." That is a real, proven,
+accepted limitation here, not a hypothetical — see the behavior tests below —
+and this audit states the actual supported matrix instead of claiming full
+interoperability.
+
+- **Core (schema and repository) — the migration is retry-safe.** The
+  Durable Object schema migration bumped `SPACE_SQL_SCHEMA_VERSION`/
+  `SPACE_SQL_SCHEMA_CHECKSUM` to 45 specifically for this repair: any
+  database that already recorded schema v44 (including one that ran an
+  earlier, buggy copy of this migration that left rows unrepaired) does not
+  match v45 and re-enters the full migration, which repairs it. Within that
+  migration, `ensureSpaceFileEntriesOriginColumn` adds the `origin` column
+  via `ALTER TABLE` only when it is missing, but then **unconditionally**
+  runs `backfillSpaceFileEntriesOrigin` (`UPDATE ... WHERE kind = 'file' AND
+  origin IS NULL`) every time this function runs — whether the column was
+  just added, already existed with every row classified, or already existed
+  with rows still `NULL` from an earlier incomplete run. This mirrors the
+  existing `ensureSpaceMetaAccessModeColumn` repair pattern in the same
+  file. There is no reliable signal in pre-existing rows to recover a
+  historical chat upload versus deliberately created work — both wrote
+  through the same path before this column existed — so `'artifact'` is the
+  deterministic backfill target, matching the repository's create-time
+  default. Folders are excluded from the backfill (`kind = 'file'` guard)
+  and never carry an `origin`. After migration, a `NULL` origin on a file
+  row is exceptional/corrupt data (for example a direct database edit), not
+  normal history, and the read path still fails closed on it (excluded from
+  the default `artifact` list, included only under `origin: "all"`).
+  `services/core/tests/space-file-entries-origin-migration.test.ts` proves
+  this against a real Durable Object SQLite instance: nested file/folder
+  outcomes, the interrupted/earlier-v44 repair path (column present, rows
+  still `NULL`, migration marker removed to force re-entry), unchanged
+  folder placement, and idempotent rerun of both the short-circuit and the
+  full migration body.
 - **Core (write path, legacy interoperability).** `SpaceFileRepository
   .commitWrite` treats a missing `origin` on a new-file write
-  (`baseRevision === null`) as `'artifact'`, not `NULL`. This is what makes
-  the shared schema's optional `origin` field safe for rolling
-  interoperability: an old CLI, old Web build, or any caller that predates
-  this field can keep creating files with no client-side change, and the
-  file stays visible in the default Files view exactly as it did before this
-  feature. `origin` is otherwise immutable — set once at file creation and
-  never touched by a later revision write, an update, a trash, or a restore.
-  Explicit `chat_upload` writes (Web Composer publish, CLI `space send
-  --file`) always set `origin` themselves and are unaffected by this
-  default.
-- **Gateway / Core HTTP routes.** `origin` stays optional on
+  (`baseRevision === null`) as `'artifact'`, not `NULL`. `origin` is
+  otherwise immutable — set once at file creation and never touched by a
+  later revision write, an update, a trash, or a restore. Explicit
+  `chat_upload` writes (Web Composer publish, CLI `space send --file`)
+  always set `origin` themselves and are unaffected by this default.
+- **Gateway / Core HTTP request side is safe.** `origin` stays optional on
   `listSpaceFilesQuerySchema`, `createSpaceFileUploadQuerySchema`, and
-  `prepareSpaceFileWriteInputSchema`/`commitSpaceFileWriteInputSchema`. No
-  old client is required to send it before any service can roll safely in
-  either direction; the server-side default above is what preserves
-  pre-feature behavior for a caller that omits it.
+  `prepareSpaceFileWriteInputSchema`/`commitSpaceFileWriteInputSchema`. An
+  old client that never sends `origin` on a request is unaffected: Core
+  applies the deterministic default above. This direction was never in
+  doubt; the request-side field was optional from the start and no
+  strict-object rejects an *absent* key.
+- **HTTP response side is where the real compatibility gap is, and it is
+  one-directional.** `spaceFileDescriptorSchema` and
+  `listSpaceFilesResponseSchema` are `z.strictObject()` and now include
+  `origin` on every file descriptor and list response. The supported matrix:
+  - *New reader (current schema) + a producer that predates `origin`*
+    (Core before this change, or a transient rollout window before Core
+    redeploys): **safe.** The missing key defaults (`origin: null` on a file
+    descriptor, `origin: "artifact"` on a list response), and an ordinary
+    default-filter request against that producer keeps working exactly as
+    before. Proven by
+    `packages/schemas/tests/http/space-files.test.ts` ("lets a current
+    reader parse a response from a producer that predates origin") and
+    `packages/api-client/tests/space-api.test.ts` ("keeps default Space
+    Files listing working against a Core response from before the origin
+    filter existed").
+  - *New reader requesting `origin: "all"` against that same old producer*
+    (Show chat uploads / CLI `--all`, before Core has redeployed): **fails
+    explicitly, not silently.** The missing response field defaults to
+    `"artifact"`, which does not match the requested `"all"`; the existing
+    `packages/api-client/src/space/files.ts` filter-echo check throws
+    `OpenMeldApiClientInvalidResponseError` (same mechanism already used for
+    the `view` field). This is an accepted, diagnosable degrade confined to
+    the brief window inside one coordinated release before Core has
+    redeployed — not a silent data-correctness bug. Proven by
+    `space-api.test.ts` ("fails closed instead of silently showing an
+    unfiltered list as chat uploads during rollout").
+  - *An already-published CLI (built before this release) + new Core/
+    Gateway*: **breaks.** An old CLI's frozen `spaceFileDescriptorSchema`/
+    `listSpaceFilesResponseSchema` have no knowledge of `origin` at all;
+    Zod's strict-object mode rejects the extra key on *every* Space Files
+    response (list, upload, get, revisions — anything that embeds a file
+    descriptor), not only `origin`-filtering calls. No request-side or
+    response-side default fixes this, because the failure is entirely
+    inside the old client's own already-compiled code, which this change
+    cannot touch. This matches the general, already-accepted architecture
+    limitation ("published CLI versions can never be forced to update
+    first") — it is not unique to this feature, but this is the first time
+    it is being triggered by a Space Files response field, so it is called
+    out explicitly here. Proven by `space-files.test.ts` ("documents that an
+    already-published pre-origin strict reader rejects the new response
+    shape"), which reconstructs the exact frozen pre-PR schema (PR base
+    `6d0736ee1197bee8778760f4b7ecc13d2bd77b2c`) and shows it rejects a
+    current-shaped payload. **Required mitigation:** any user on a CLI
+    published before this release must update their CLI before Space Files
+    commands (list, upload, send, restore, revisions) work again against
+    updated Core/Gateway; call this out in the CLI release notes for this
+    version. There is no existing CLI contract-version constant that gates
+    HTTP response *shape* specifically (`OPENMELD_CLI_COMMAND_CONTRACT_VERSION`
+    gates command *behavior*); inventing one is a larger, separate
+    architectural change and is out of scope for this fix.
 - **Web.** New Web builds explicitly send `origin: "artifact"` for
   Files-panel uploads and Markdown-file creation, and `origin: "chat_upload"`
   is set server-side for Composer-published attachments. The Files list
   defaults to `origin: "artifact"`; a "Show chat uploads" toggle switches to
   `origin: "all"`. The "Chat upload" badge renders only when
-  `entry.origin === "chat_upload"` — never for `NULL`/unclassified, which
-  keeps a fail-closed default list from asserting a false source for data it
-  does not actually know. The toggle resets to its default `false` on every
-  `changeView` call (for example, opening Trash), so a different view never
-  silently inherits an unrelated filter state.
+  `entry.origin === "chat_upload"` — never for `NULL`/unclassified. The
+  toggle resets to its default `false` on every `changeView` call. Because
+  Web, Gateway, and Core deploy together as one coordinated release, an end
+  user of Web never observes the response-side compatibility gap above in
+  steady state — only the already-published, independently-versioned CLI
+  population does, and only until it updates. **New UI defaults to artifacts
+  and chat uploads are reachable once Web, Gateway, and Core have all
+  completed this coordinated deploy** — that user-facing outcome is
+  unaffected by the CLI-specific gap above.
 - **CLI.** `space files upload` sends `origin: "artifact"`; `space send
   --file` sends `origin: "chat_upload"`. `space files list` defaults to
-  `artifact` and accepts `--all` to request `origin: "all"`. An old CLI that
-  predates `origin` keeps working against new Core: its uploads land as
-  `'artifact'` under the legacy-interoperability default above.
+  `artifact` and accepts `--all` to request `origin: "all"`. A CLI built
+  from this release or later reads new Core/Gateway responses correctly. A
+  CLI built before this release does not — see the response-side matrix
+  above.
 - **Remote Agent.** Agent-authored output files
   (`publishRemoteAgentOutputFile`) always set `origin: "artifact"`. The
   `openmeld_list_space_files` tool exposes the same `origin` filter
   (`"artifact"` default, `"all"`) as the HTTP/RPC contract.
-- **Rollout order.** No ordering constraint beyond normal Core-before-Gateway-
-  before-Web/CLI deploy hygiene: every consumer of `origin` treats it as
-  optional and defaults to `'artifact'` when absent, so old and new
-  components interoperate in either direction during a mixed-version window.
-  No local-component contract version, Runtime Transport epoch, or
-  `SPACE_SQL_SCHEMA_CHECKSUM` string changes; only the migration's internal
-  backfill behavior does, and it is safe to apply before this diff is fully
-  deployed everywhere.
-- **Rollback.** Rolling back Core does not need to reverse the migration: the
-  `origin` column and its backfilled values are additive and harmless to a
-  pre-feature Core build, which simply never reads or writes that column.
-  Do not delete or null out backfilled `origin` values as part of a
-  rollback; that would recreate the exact P1 defect this audit fixes.
+- **Rollout order.** Deploy in the standard coordinated order (Auth, Web,
+  Gateway, Core, Remote Agent). Web and Gateway becoming "origin-aware"
+  before Core redeploys is safe (the new-reader-old-producer case above);
+  Core is the last cloud component to start emitting `origin`, by which
+  point Web and Gateway already understand the field. No local-component
+  contract version or Runtime Transport epoch changes. `SPACE_SQL_SCHEMA_
+  CHECKSUM` does change (v44 → v45) specifically so a database stuck in a
+  broken v44 state self-heals on the next deploy; this is intentional, not
+  an oversight, and safe to apply at any point in the rollout since the
+  migration is additive and self-repairing.
+- **Rollback.** Rolling back Core does not need to reverse the migration:
+  the `origin` column and its backfilled values are additive and harmless
+  to a pre-feature Core build, which simply never reads or writes that
+  column. Do not delete or null out backfilled `origin` values as part of a
+  rollback; that would recreate the exact historical-file-hiding defect
+  this migration fixes. Rolling Core back after it has started emitting
+  `origin` reintroduces the already-published-CLI gap in the opposite
+  direction only in the sense that CLI already lost compatibility at
+  forward-deploy time; a Core rollback does not make an old CLI's situation
+  worse or better.
 
 ### Versioned local-state rollout discipline
 
