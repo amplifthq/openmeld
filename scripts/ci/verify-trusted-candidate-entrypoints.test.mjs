@@ -285,6 +285,58 @@ test("flow-style onlyBuiltDependencies still refuses hosted certification", () =
   }
 });
 
+const HIDDEN_QUOTED_OR_TAGGED_ONLY_BUILT_DEPENDENCY_FORMS = [
+  [
+    "double-quoted complex key",
+    ['? "onlyBuiltDependencies"', ":", "  - evil-native"].join("\n"),
+  ],
+  [
+    "single-quoted complex key",
+    ["? 'onlyBuiltDependencies'", ":", "  - evil-native"].join("\n"),
+  ],
+  [
+    "tagged !!str complex key",
+    ["? !!str onlyBuiltDependencies", ":", "  - evil-native"].join("\n"),
+  ],
+  [
+    "tagged !!str quoted complex key",
+    ['? !!str "onlyBuiltDependencies"', ":", "  - evil-native"].join("\n"),
+  ],
+];
+
+for (const [
+  label,
+  hiddenYaml,
+] of HIDDEN_QUOTED_OR_TAGGED_ONLY_BUILT_DEPENDENCY_FORMS) {
+  test(`quoted or tagged complex-key ${label} still refuses hosted certification`, () => {
+    const fixture = createFixture();
+    try {
+      writeWorkspace(fixture.trustedRoot, {
+        allowBuilds: { "better-sqlite3": true },
+      });
+      writeWorkspace(fixture.candidateRoot, {
+        allowBuilds: { "better-sqlite3": true },
+      });
+      writeFileSync(
+        path.join(fixture.candidateRoot, "pnpm-workspace.yaml"),
+        `${readFileSync(path.join(fixture.candidateRoot, "pnpm-workspace.yaml"), "utf8").trimEnd()}\n${hiddenYaml}\n`
+      );
+
+      assert.throws(
+        () =>
+          verifyTrustedCandidateEntrypoints({
+            candidateRoot: fixture.candidateRoot,
+            paths: ["pnpm-workspace.yaml"],
+            trustedRoot: fixture.trustedRoot,
+          }),
+        SELF_REWRITE_PATTERN
+      );
+    } finally {
+      fixture.cleanup();
+    }
+  });
+}
+
 test("complex-key patchedDependencies still refuses hosted certification", () => {
   const fixture = createFixture();
   try {

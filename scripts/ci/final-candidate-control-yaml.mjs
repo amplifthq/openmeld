@@ -6,6 +6,7 @@ const BOM_PATTERN = /^\uFEFF/u;
 const KEY_SEPARATOR_PATTERN = /:(?:\s|$)/u;
 const INLINE_COMPLEX_SEPARATOR_PATTERN = /\s+:(?:\s|$)/u;
 const FLOW_COLLECTION_START_PATTERN = /^\s*[[{]/u;
+const YAML_TAG_PATTERN = /^(!!\w+|![A-Za-z][\w-]*|!<[^>]+>)\s*(.*)$/u;
 
 export function parseControlYamlMapping(text) {
   const document = parseYamlDocument(text);
@@ -79,7 +80,7 @@ function parseBlockNode(parser, minIndent) {
     return parseBlockMapping(parser, indent);
   }
   parser.index += 1;
-  return coercePlainScalar(trimmed);
+  return parseComplexScalarKey(trimmed);
 }
 
 function parseBlockMapping(parser, indent) {
@@ -132,7 +133,7 @@ function parseComplexMappingEntry(parser, indent, trimmed) {
       };
     }
     parser.index += 1;
-    key = coercePlainScalar(afterQuestion);
+    key = parseComplexScalarKey(afterQuestion);
   }
   skipEmptyAndComments(parser);
   const valueLine = currentLine(parser);
@@ -376,19 +377,63 @@ function splitInlineComplexEntry(afterQuestion) {
   }
   const restStart = afterQuestion.indexOf(":", separator);
   return {
-    key: coercePlainScalar(afterQuestion.slice(0, separator).trim()),
+    key: parseComplexScalarKey(afterQuestion.slice(0, separator).trim()),
     rest: afterQuestion.slice(restStart + 1).trim(),
   };
 }
 
+function parseComplexScalarKey(text) {
+  const tagged = splitYamlTag(text);
+  if (tagged.tag !== null && tagged.tag !== "!!str") {
+    throw new Error(`Unsupported YAML tag on a complex key: ${tagged.tag}`);
+  }
+  const remainder = tagged.remainder;
+  if (remainder.startsWith("'") || remainder.startsWith('"')) {
+    const quoted = readQuotedString(remainder, 0);
+    const trailing = remainder.slice(quoted.end).trim();
+    if (trailing !== "") {
+      throw new Error("Quoted YAML complex key has trailing content.");
+    }
+    return quoted.value;
+  }
+  if (
+    remainder.startsWith("&") ||
+    remainder.startsWith("*") ||
+    remainder.startsWith("!") ||
+    remainder.startsWith("[") ||
+    remainder.startsWith("{")
+  ) {
+    throw new Error(
+      "YAML tags, anchors, aliases, and collection keys are not accepted on complex keys."
+    );
+  }
+  return coercePlainScalar(remainder);
+}
+
+function splitYamlTag(text) {
+  if (!text.startsWith("!")) {
+    return { remainder: text, tag: null };
+  }
+  const match = YAML_TAG_PATTERN.exec(text);
+  if (!match) {
+    throw new Error("Unrecognized YAML tag on a complex key.");
+  }
+  return { remainder: match[2], tag: match[1] };
+}
+
 function isMappingStart(trimmed) {
-  return (
-    trimmed.startsWith("? ") ||
-    trimmed === "?" ||
-    trimmed.startsWith("'") ||
-    trimmed.startsWith('"') ||
-    KEY_SEPARATOR_PATTERN.test(trimmed)
-  );
+  if (trimmed.startsWith("? ") || trimmed === "?") {
+    return true;
+  }
+  if (trimmed.startsWith("'") || trimmed.startsWith('"')) {
+    try {
+      const quoted = readQuotedString(trimmed, 0);
+      return trimmed.slice(quoted.end).trim().startsWith(":");
+    } catch {
+      return false;
+    }
+  }
+  return KEY_SEPARATOR_PATTERN.test(trimmed);
 }
 
 function readQuotedString(text, start) {
