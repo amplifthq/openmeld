@@ -177,6 +177,7 @@ const electronMock = vi.hoisted(() => {
   const app = {
     dock: { setIcon: vi.fn() },
     enableSandbox: vi.fn(),
+    getName: vi.fn(() => "OpenMeld"),
     getVersion: vi.fn(() => desktopVersion),
     isPackaged: false,
     on: vi.fn(),
@@ -394,6 +395,8 @@ beforeEach(() => {
   electronMock.windowInstances.length = 0;
   electronMock.app.enableSandbox.mockClear();
   electronMock.app.dock.setIcon.mockClear();
+  electronMock.app.getName.mockReset();
+  electronMock.app.getName.mockReturnValue("OpenMeld");
   electronMock.app.getVersion.mockClear();
   electronMock.app.on.mockClear();
   electronMock.app.quit.mockClear();
@@ -583,8 +586,14 @@ describe("main tray behavior", () => {
     expect(window?.maximize).toHaveBeenCalledOnce();
   });
 
-  it("applies OpenMeld identity to native app, menu, and window surfaces", async () => {
+  it.each([
+    "OpenMeld",
+    "OpenMeld Test",
+    "OpenMeld Dev",
+    "OpenMeld Dev wt-7574cf217e3a",
+  ])("preserves %s on every native application surface", async (appName) => {
     setTestPlatform("darwin");
+    electronMock.app.getName.mockReturnValue(appName);
 
     await importMain();
 
@@ -596,10 +605,10 @@ describe("main tray behavior", () => {
       submenu?: Array<{ label?: string }>;
     }>;
 
-    expect(electronMock.app.setName).toHaveBeenCalledWith("OpenMeld");
+    expect(electronMock.app.setName).toHaveBeenCalledWith(appName);
     expect(electronMock.app.setAboutPanelOptions).toHaveBeenCalledWith(
       expect.objectContaining({
-        applicationName: "OpenMeld",
+        applicationName: appName,
         applicationVersion: electronMock.desktopVersion,
         version: electronMock.desktopVersion,
       })
@@ -609,14 +618,25 @@ describe("main tray behavior", () => {
     );
     expect(window?.options).toMatchObject({
       icon: electronMock.appIcon,
-      title: "OpenMeld",
+      title: appName,
     });
     expect(applicationMenu.at(0)).toEqual(
-      expect.objectContaining({ label: "OpenMeld" })
+      expect.objectContaining({ label: appName })
     );
     expect(applicationMenu.at(0)?.submenu?.map((item) => item.label)).toEqual(
-      expect.arrayContaining(["About OpenMeld", "Settings...", "Quit OpenMeld"])
+      expect.arrayContaining([
+        `About ${appName}`,
+        `Hide ${appName}`,
+        "Settings...",
+        `Quit ${appName}`,
+      ])
     );
+    expect(electronMock.trayInstances.at(0)?.setToolTip).toHaveBeenCalledWith(
+      appName
+    );
+    expect(trayMenuItem(`Quit ${appName}`)).toBeDefined();
+    trayMenuItem(`Quit ${appName}`)?.click?.();
+    expect(electronMock.app.quit).toHaveBeenCalledOnce();
   });
 
   it("opens OpenMeld only from the explicit tray menu item", async () => {

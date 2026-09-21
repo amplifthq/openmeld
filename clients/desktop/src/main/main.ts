@@ -64,7 +64,9 @@ const APP_WIDTH = 1040;
 const APP_HEIGHT = 720;
 const APP_MIN_WIDTH = 960;
 const APP_MIN_HEIGHT = 640;
-const APP_NAME = "OpenMeld";
+// Packaging writes the selected channel name into package metadata. Do not
+// replace it with the production brand or infer it from the launch environment.
+const APP_NAME = app.getName();
 // These UTF-16 text budgets keep native auto-layout compact without claiming a
 // pixel width. Truncation always retreats to a complete grapheme boundary.
 const TRAY_PREVIEW_SOURCE_TEXT_BUDGET = 22;
@@ -535,7 +537,7 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
     { type: "separator" },
     trayActionItem({
       icon: "quit",
-      label: "Quit OpenMeld",
+      label: `Quit ${APP_NAME}`,
       click: quitDesktop,
     }),
   ];
