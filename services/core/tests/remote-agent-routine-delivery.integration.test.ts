@@ -2284,7 +2284,7 @@ describe("Remote Agent Routine native delivery", () => {
     });
   });
 
-  it("lets a Workflow wait for its callback when the worker ACK outcome is unknown", async () => {
+  it("keeps Workflow admission retryable when the worker ACK outcome is unknown", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmitRequest = {
       ...(await buildRoutineWorkerSubmitRequest(fixture)),
@@ -2316,20 +2316,14 @@ describe("Remote Agent Routine native delivery", () => {
     );
 
     const testEnv = buildEnv({ fixture, workerSubmit });
-    const submission = await ensureRemoteAgentRoutineWorkflowSubmission({
-      db: env.OPENMELD_DB,
-      env: testEnv,
-      nowMs: recoveryAtMs,
-      runId: fixture.runId,
-    });
-    expect(submission).toEqual({
-      dispatchId: fixture.runId,
-      idempotencyKey: fixture.runId,
-      organizationId: fixture.organizationId,
-      spaceId: fixture.spaceId,
-      status: "waiting",
-      submissionId: null,
-    });
+    await expect(
+      ensureRemoteAgentRoutineWorkflowSubmission({
+        db: env.OPENMELD_DB,
+        env: testEnv,
+        nowMs: recoveryAtMs,
+        runId: fixture.runId,
+      })
+    ).rejects.toThrow("has no acknowledged Remote Agent submission");
 
     expect(workerSubmit).toHaveBeenCalledTimes(1);
     await expect(
@@ -2348,7 +2342,6 @@ describe("Remote Agent Routine native delivery", () => {
       }),
     });
 
-    expect(submission.status).toBe("waiting");
     await expect(
       readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
     ).resolves.toMatchObject({ failureCode: null, status: "submitted" });
