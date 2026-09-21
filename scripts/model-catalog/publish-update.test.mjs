@@ -16,9 +16,9 @@ test("a pushed proposal survives a failed PR request without rewriting the branc
     runId: process.env.GITHUB_RUN_ID,
     serverUrl: process.env.GITHUB_SERVER_URL,
   };
-  delete process.env.GITHUB_REPOSITORY;
-  delete process.env.GITHUB_RUN_ID;
-  delete process.env.GITHUB_SERVER_URL;
+  Reflect.deleteProperty(process.env, "GITHUB_REPOSITORY");
+  Reflect.deleteProperty(process.env, "GITHUB_RUN_ID");
+  Reflect.deleteProperty(process.env, "GITHUB_SERVER_URL");
   const git = (...args) =>
     execFileSync("git", args, {
       encoding: "utf8",
@@ -191,7 +191,7 @@ if (args[0] === 'pr' && args[1] === 'list') {
       ["GITHUB_SERVER_URL", previousGitHubContext.serverUrl],
     ]) {
       if (value === undefined) {
-        delete process.env[name];
+        Reflect.deleteProperty(process.env, name);
       } else {
         process.env[name] = value;
       }
