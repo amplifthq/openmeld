@@ -2415,6 +2415,63 @@ describe("CreateProfileDialog", () => {
 		);
 	});
 
+	it("accepts an enabled local agent when the control response times out", async () => {
+		const setLocalAgentEnabled = vi
+			.fn()
+			.mockRejectedValue(new Error("Local agent control timed out."));
+		const recovery = buildFakeRecovery([
+			buildCatalogEntry({
+				agentId: "antigravity",
+				detected: true,
+				enabled: false,
+				launchStatus: "disabled",
+				selectable: false,
+			}),
+		]);
+		const currentData = recovery.localRuntimesQuery.data;
+		if (!currentData) {
+			throw new Error("Expected the fake Computer inventory.");
+		}
+		const refetch = vi.fn().mockResolvedValue({
+			data: {
+				...currentData,
+				localRuntimes: currentData.localRuntimes.map((computer) => ({
+					...computer,
+					executionTargets: computer.executionTargets.map((target) => ({
+						...target,
+						localAgentCatalog: {
+							entries: target.localAgentCatalog.entries.map((entry) =>
+								entry.agentId === "antigravity"
+									? {
+											...entry,
+											enabled: true,
+											launchStatus: "ready",
+											selectable: true,
+										}
+									: entry
+							),
+						},
+					})),
+				})),
+			},
+		});
+		Object.assign(recovery, { setLocalAgentEnabled });
+		Object.assign(recovery.localRuntimesQuery, { refetch });
+		renderCurrentCreateProfileDialog({ recovery });
+
+		fireEvent.click(await screen.findByRole("radio", { name: "Antigravity" }));
+		const enableSwitch = await screen.findByRole("switch", {
+			name: "Enable Antigravity",
+		});
+		fireEvent.click(enableSwitch);
+
+		await waitFor(() => expect(refetch).toHaveBeenCalledOnce());
+		await waitFor(() =>
+			expect(enableSwitch.hasAttribute("data-unchecked")).toBe(true)
+		);
+		expect(screen.queryByRole("alert")).toBeNull();
+	});
+
 	it("shows cached usage without blocking a signed-out local agent selection", async () => {
 		renderCurrentCreateProfileDialog({
 			recovery: buildFakeRecovery(

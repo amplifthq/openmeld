@@ -2396,11 +2396,10 @@ function resolveLocalAgentSelectionStateForTarget(input: {
 			kind: "disabled",
 			manageHref,
 			onEnable: () =>
-				input.recovery.setLocalAgentEnabled({
+				enableLocalAgentWithOutcomeConfirmation({
 					agentId: base.agentId,
-					deviceId: target.deviceId,
-					enabled: true,
-					runtimeLane: target.runtimeLane,
+					recovery: input.recovery,
+					target,
 				}),
 		};
 	}
@@ -2452,6 +2451,42 @@ function resolveLocalAgentSelectionStateForTarget(input: {
 		kind: "available",
 		manageHref,
 	};
+}
+
+async function enableLocalAgentWithOutcomeConfirmation(input: {
+	agentId: string;
+	recovery: RecoveryController;
+	target: PeopleComputerTarget;
+}): Promise<void> {
+	try {
+		await input.recovery.setLocalAgentEnabled({
+			agentId: input.agentId,
+			deviceId: input.target.deviceId,
+			enabled: true,
+			runtimeLane: input.target.runtimeLane,
+		});
+		return;
+	} catch (error) {
+		const refreshed = await input.recovery.localRuntimesQuery
+			.refetch()
+			.catch(() => null);
+		const refreshedTarget = refreshed?.data?.localRuntimes
+			.flatMap((computer) => computer.executionTargets)
+			.find(
+				(candidate) =>
+					candidate.deviceId === input.target.deviceId &&
+					candidate.runtimeLane === input.target.runtimeLane
+			);
+		const enabled = refreshedTarget?.localAgentCatalog.entries.some(
+			(candidate) =>
+				candidate.agentId === input.agentId &&
+				candidate.enabled &&
+				candidate.lifecycleStatus !== "suspended"
+		);
+		if (!enabled) {
+			throw error;
+		}
+	}
 }
 
 type CreateProfileSubmissionInput = {
