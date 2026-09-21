@@ -475,6 +475,9 @@ export async function runDaemonSocketSession(input: {
   let closeReason = "closed";
   const socketConnectedAtMs = Date.now();
   let heartbeatInFlight = false;
+  // Admission may change again before the current heartbeat is acknowledged.
+  // Retain only the need to republish; the next send reads the current state.
+  let admissionHeartbeatPending = false;
   const heartbeatIdleWaiters: Array<() => void> = [];
   // A replacement session must replay every durable result that survived the
   // previous process before it can accept new work. The existing heartbeat
@@ -546,7 +549,7 @@ export async function runDaemonSocketSession(input: {
     socket: input.socket,
     onAdmissionChanged: () => {
       acceptingDispatches = !shutdownStopCause && hostLink.canAccept();
-      if (lastHeartbeatSentAtMs !== null) {
+      if (heartbeatInFlight || lastHeartbeatSentAtMs !== null) {
         scheduleHeartbeat({
           delayMs: 0,
           reason: "execution_host_admission_changed",
@@ -595,6 +598,8 @@ export async function runDaemonSocketSession(input: {
   const waitForClose = new Promise<void>((resolve) => {
     input.socket.onClose((code, reason) => {
       closed = true;
+      admissionHeartbeatPending = false;
+      clearHeartbeatTimer();
       hostLink.detach().catch(reportHostFailure);
       closeCode = code;
       closeReason = normalizeText(reason) || "closed";
@@ -795,10 +800,20 @@ export async function runDaemonSocketSession(input: {
     };
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: One ordered transaction owns heartbeat response, cadence, retry, and pending admission publication.
   async function sendHeartbeat(
-    options: { advanceIdleCadence?: boolean } = {}
+    options: {
+      advanceIdleCadence?: boolean;
+      publishAdmissionAfterInFlight?: boolean;
+    } = {}
   ): Promise<void> {
-    if (closed || heartbeatInFlight) {
+    if (closed) {
+      return;
+    }
+    if (heartbeatInFlight) {
+      if (options.publishAdmissionAfterInFlight) {
+        admissionHeartbeatPending = true;
+      }
       return;
     }
     heartbeatInFlight = true;
@@ -921,6 +936,7 @@ export async function runDaemonSocketSession(input: {
       startSupplementalEvidenceSyncs();
     } catch (error) {
       if (recordHeartbeatFailure(error)) {
+        admissionHeartbeatPending = false;
         input.socket.terminate();
         return;
       }
@@ -934,6 +950,14 @@ export async function runDaemonSocketSession(input: {
       });
     } finally {
       heartbeatInFlight = false;
+      const publishPendingAdmission = admissionHeartbeatPending;
+      admissionHeartbeatPending = false;
+      if (!closed && publishPendingAdmission) {
+        scheduleHeartbeat({
+          delayMs: 0,
+          reason: "execution_host_admission_changed",
+        });
+      }
       resolveHeartbeatIdleWaiters(heartbeatIdleWaiters);
       schedulePendingLocalExecutionEvidenceRefreshIfNeeded();
     }
@@ -956,6 +980,13 @@ export async function runDaemonSocketSession(input: {
       return;
     }
     const normalizedDelayMs = Math.max(0, Math.trunc(inputSchedule.delayMs));
+    if (
+      heartbeatInFlight &&
+      inputSchedule.reason === "execution_host_admission_changed"
+    ) {
+      admissionHeartbeatPending = true;
+      return;
+    }
     const dueAtMs = Date.now() + normalizedDelayMs;
     if (
       heartbeatTimer &&
@@ -972,6 +1003,8 @@ export async function runDaemonSocketSession(input: {
       sendHeartbeat({
         advanceIdleCadence:
           inputSchedule.reason !== "execution_host_admission_changed",
+        publishAdmissionAfterInFlight:
+          inputSchedule.reason === "execution_host_admission_changed",
       }).catch((error) => {
         emitRunLine({
           presenter: input.presenter,

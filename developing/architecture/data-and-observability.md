@@ -27,6 +27,11 @@ The index stores no attachment content, reasoning, or execution diagnostics.
 SQLite triggers update the index atomically with canonical message inserts,
 edits, recalls, and retention deletes. Historical indexing advances in batches
 of 500 rows on demand and exposes incompleteness instead of empty success.
+Searches scoped to one Space accept one or more characters. Queries of one or
+two characters use a literal scan of that Space's private index because FTS5
+trigram matching cannot serve them; queries of three or more characters keep
+the indexed trigram path. Workspace and Inbox searches retain a three-character
+minimum so a short query cannot fan out linear scans across several Spaces.
 
 Core's shared search reader enumerates active member-owned Space candidates in
 the Organization directory, then calls the normal authorized Space reader for
@@ -992,6 +997,20 @@ step failures, retries, waiting duration, and terminal instance state. The
 OpenMeld evidence joins those platform facts to the D1 Run, native-delivery
 ledger, and one destination result; neither metric surface may repair or override
 product truth.
+
+`routine_runs.workflow_last_checked_at_ms` is only a fair-scan cursor. Core
+atomically selects and timestamps a bounded batch in least-recently-checked
+order before reading Workflow status. A stuck or blocked batch cannot occupy
+every subsequent scan. This timestamp grants no execution authority, does not
+change Run status or its result owner, and is not execution progress evidence.
+If a scanner stops after claiming a batch, a later tick can check it again.
+The scan summary counts successful checks, not newly started executions.
+
+Known phase errors may arrive with their original name or as Workerd's `Error`
+envelope with the owned phase name at the beginning of its message. Recovery
+normalizes that outer envelope only; nested errors and generic timeouts do not
+authorize restarting a Workflow. Callback wait renewal emits Run-correlated
+evidence through the same runtime evidence writer.
 
 An unknown Workflow error phase, a terminated instance, a status read failure,
 or a completed instance paired with a nonterminal D1 Run is a blocked-recovery

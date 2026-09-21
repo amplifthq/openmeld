@@ -216,9 +216,11 @@ async function handleListSpaceFiles(
   }
   const parentId = c.req.query("parentId");
   const view = c.req.query("view");
+  const origin = c.req.query("origin");
   const query = listSpaceFilesQuerySchema.safeParse({
     ...(parentId === undefined ? {} : { parentId }),
     ...(view === undefined ? {} : { view }),
+    ...(origin === undefined ? {} : { origin }),
   });
   if (!query.success) {
     return invalidSpaceFilesPayload(c, query.error.issues[0]?.message);

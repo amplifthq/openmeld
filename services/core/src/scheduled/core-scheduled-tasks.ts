@@ -152,7 +152,11 @@ export async function runCoreScheduledTasks(input: {
       input.retryRoutineSubmissions ?? retryRemoteAgentRoutineSubmissions;
     const retryRoutineWorkflowStarts =
       input.retryRoutineWorkflowStarts ?? retryPendingRoutineRunWorkflowStarts;
-    await retryRoutineWorkflowStarts({ db, env: input.env });
+    await retryRoutineWorkflowStarts({
+      db,
+      env: input.env,
+      nowMs: input.nowMs,
+    });
     await retryRoutineSubmissions({
       db,
       env: input.env,

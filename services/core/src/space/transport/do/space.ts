@@ -2754,6 +2754,7 @@ export class Space extends DurableObject<CoreBindings> {
       spaceId: this.spaceId,
       parentId: input.query?.parentId,
       view: input.query?.view,
+      origin: input.query?.origin ?? "artifact",
       canWrite,
     });
   }
@@ -3207,70 +3208,88 @@ export class Space extends DurableObject<CoreBindings> {
               },
             };
           }
-          const target = metadata.target;
-          const baseRevision =
-            target.kind === "file" ? null : target.baseRevision;
-          const createFields =
-            target.kind === "file"
-              ? { name: target.name, parentId: target.parentId }
-              : {};
-          const write = {
-            spaceId: this.spaceId,
-            fileId:
-              target.kind === "file"
-                ? await buildSpaceFileEntryIdForMutation(
-                    target.clientMutationId
-                  )
-                : target.fileId,
-            baseRevision,
-            clientMutationId: target.clientMutationId,
+          return await this.finishSpaceFileUploadWrite({
+            bucket,
+            key,
             mimeType: metadata.mimeType,
+            object,
             sizeBytes: metadata.sizeBytes,
-            ...createFields,
-            revisionId: await buildSpaceFileRevisionIdFromDigest({
-              baseRevision,
-              clientMutationId: target.clientMutationId,
-              mimeType: metadata.mimeType,
-              contentDigest: await hashSpaceFileStream(object.body),
-              ...createFields,
-            }),
-          };
-          const prepared = await this.rpcPrepareSpaceFileWrite({
             spaceAccess: input.spaceAccess,
-            write,
+            target: metadata.target,
           });
-          if (prepared.committedFile) {
-            return { file: prepared.committedFile };
-          }
-          const source = await bucket.get(key);
-          if (!source) {
-            throw new Error("The uploaded file is unavailable.");
-          }
-          await bucket.put(prepared.objectKey, source.body, {
-            httpMetadata: { contentType: metadata.mimeType },
-          });
-          try {
-            return {
-              file: await this.rpcCommitSpaceFileWrite({
-                spaceAccess: input.spaceAccess,
-                write,
-              }),
-            };
-          } catch (error) {
-            const committed = this.spaceFileRepository.resolveCommittedWrite(
-              write.clientMutationId,
-              write.fileId
-            );
-            if (committed) {
-              return { file: committed };
-            }
-            await bucket.delete(prepared.objectKey);
-            throw error;
-          }
         },
       });
     } finally {
       await this.syncSpaceBackgroundAlarm();
+    }
+  }
+
+  private async finishSpaceFileUploadWrite(input: {
+    bucket: R2Bucket;
+    key: string;
+    mimeType: string;
+    object: R2ObjectBody;
+    sizeBytes: number;
+    spaceAccess: SpaceAccessContext;
+    target: Exclude<SpaceFileUploadMetadata["target"], { kind: "composer" }>;
+  }): Promise<{ file: SpaceFileDescriptor }> {
+    const { bucket, mimeType, object, target } = input;
+    const baseRevision = target.kind === "file" ? null : target.baseRevision;
+    const createFields =
+      target.kind === "file"
+        ? { name: target.name, parentId: target.parentId }
+        : {};
+    const write = {
+      spaceId: this.spaceId,
+      fileId:
+        target.kind === "file"
+          ? await buildSpaceFileEntryIdForMutation(target.clientMutationId)
+          : target.fileId,
+      baseRevision,
+      clientMutationId: target.clientMutationId,
+      mimeType,
+      sizeBytes: input.sizeBytes,
+      ...createFields,
+      ...(target.kind === "file" ? { origin: target.origin } : {}),
+      revisionId: await buildSpaceFileRevisionIdFromDigest({
+        baseRevision,
+        clientMutationId: target.clientMutationId,
+        mimeType,
+        contentDigest: await hashSpaceFileStream(object.body),
+        ...createFields,
+      }),
+    };
+    const prepared = await this.rpcPrepareSpaceFileWrite({
+      spaceAccess: input.spaceAccess,
+      write,
+    });
+    if (prepared.committedFile) {
+      return { file: prepared.committedFile };
+    }
+    const source = await bucket.get(input.key);
+    if (!source) {
+      throw new Error("The uploaded file is unavailable.");
+    }
+    await bucket.put(prepared.objectKey, source.body, {
+      httpMetadata: { contentType: mimeType },
+    });
+    try {
+      return {
+        file: await this.rpcCommitSpaceFileWrite({
+          spaceAccess: input.spaceAccess,
+          write,
+        }),
+      };
+    } catch (error) {
+      const committed = this.spaceFileRepository.resolveCommittedWrite(
+        write.clientMutationId,
+        write.fileId
+      );
+      if (committed) {
+        return { file: committed };
+      }
+      await bucket.delete(prepared.objectKey);
+      throw error;
     }
   }
 

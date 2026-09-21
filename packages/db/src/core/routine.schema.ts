@@ -148,6 +148,9 @@ export const routineRuns = sqliteTable(
     slackConversationIdSnapshot: text("slack_conversation_id_snapshot"),
     slackThreadLabelSnapshot: text("slack_thread_label_snapshot"),
     executionEngine: text("execution_engine"),
+    workflowLastCheckedAtMs: integer("workflow_last_checked_at_ms")
+      .default(0)
+      .notNull(),
     continuationDelegationId: text("continuation_delegation_id"),
     nativeDeliveryId: text("native_delivery_id"),
     publishedSignalId: text("published_signal_id"),
@@ -181,6 +184,12 @@ export const routineRuns = sqliteTable(
     index("routine_runs_engine_status_started_idx").on(
       table.executionEngine,
       table.status,
+      table.startedAtMs
+    ),
+    index("routine_runs_workflow_check_idx").on(
+      table.executionEngine,
+      table.status,
+      table.workflowLastCheckedAtMs,
       table.startedAtMs
     ),
     index("routine_runs_failure_publication_due_idx").on(

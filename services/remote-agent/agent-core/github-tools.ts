@@ -1471,7 +1471,10 @@ async function bindGitHubIssueBatchItemToSpaceTask(input: {
     }
     await runOpenConnectorAction({
       actionId: "github.update_issue",
-      baseUrl: input.connectorExecution.baseUrl,
+      baseUrl: requireConnectorConfiguration(
+        input.connectorExecution.baseUrl,
+        "OpenConnector base URL"
+      ),
       connectionName: input.manifest.connectionName,
       fetch: input.connectorExecution.fetch,
       input: {
@@ -1480,7 +1483,10 @@ async function bindGitHubIssueBatchItemToSpaceTask(input: {
         owner: input.owner,
         repo: input.repo,
       },
-      runtimeToken: input.connectorExecution.runtimeToken,
+      runtimeToken: requireConnectorConfiguration(
+        input.connectorExecution.runtimeToken,
+        "OpenConnector runtime token"
+      ),
     });
   } catch (error) {
     console.warn("[remote_agent.space_task_github_binding_failed]", {
@@ -3224,8 +3230,11 @@ async function readRuntimeEnvelope(response: Response): Promise<{
   };
 }
 
-function requireConnectorConfiguration(value: string, label: string): string {
-  const normalized = value.trim();
+function requireConnectorConfiguration(
+  value: string | undefined,
+  label: string
+): string {
+  const normalized = value?.trim();
   if (!normalized) {
     throw new Error(`${label} is not configured.`);
   }

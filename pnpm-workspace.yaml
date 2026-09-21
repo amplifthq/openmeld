@@ -38,6 +38,15 @@ minimumReleaseAgeExclude:
   - miniflare
 
 overrides:
+  # Force every @modelcontextprotocol/sdk instance onto the workspace's zod
+  # catalog version. Without this, pnpm can resolve a second, older zod for
+  # the SDK's own peer dependency (e.g. pulled in transitively through
+  # @anthropic-ai/claude-agent-sdk) while callers like the CLI's dispatch MCP
+  # server build tool schemas with the catalog zod. Two zod instances make
+  # every zod-schema `instanceof` check the SDK does at runtime fail, which
+  # surfaces as `McpError: MCP error -32603: Cannot read properties of
+  # undefined (reading 'push')` on the very first tool call.
+  '@modelcontextprotocol/sdk>zod': 'catalog:'
   '@aws-sdk/core': 3.974.28
   '@aws-sdk/credential-provider-env': 3.972.54
   '@aws-sdk/credential-provider-http': 3.972.56
