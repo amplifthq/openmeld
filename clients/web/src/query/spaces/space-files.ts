@@ -1,8 +1,12 @@
-import type { SpaceApi } from "@openmeld/api-client";
+import {
+	type SpaceApi,
+	toStructuredApiClientFailure,
+} from "@openmeld/api-client";
 import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { baseQueryOptions } from "#/query/query-config";
 import {
 	type CachedSpaceFileContent,
+	clearSpaceFileImage,
 	spaceFileImageResources,
 } from "./space-file-image-resource";
 
@@ -40,12 +44,30 @@ export function spaceFileContentQueryOptions(input: {
 		queryFn: async ({ client, signal }): Promise<CachedSpaceFileContent> => {
 			const owner = spaceFileImageResources(client);
 			const generation = owner.generation;
-			const content = await input.api.downloadFileContent({
-				fileId: input.fileId,
-				revision: input.revision,
-				signal,
-				spaceId: input.spaceId,
-			});
+			const content = await input.api
+				.downloadFileContent({
+					fileId: input.fileId,
+					revision: input.revision,
+					signal,
+					spaceId: input.spaceId,
+				})
+				.catch((error: unknown) => {
+					const failure = toStructuredApiClientFailure(error);
+					const cached = client.getQueryData<CachedSpaceFileContent>(
+						spaceFileQueryKeys.content(
+							input.spaceId,
+							input.fileId,
+							input.revision
+						)
+					);
+					if (
+						cached?.imagePreview &&
+						[401, 403, 404, 410].includes(failure.status ?? 0)
+					) {
+						clearSpaceFileImage(client, input.spaceId, input.fileId);
+					}
+					throw error;
+				});
 			signal.throwIfAborted();
 			if (generation !== owner.generation) {
 				throw new DOMException(

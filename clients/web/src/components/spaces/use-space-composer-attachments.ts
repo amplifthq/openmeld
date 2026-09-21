@@ -6,8 +6,10 @@ import {
 } from "@openmeld/schemas";
 import type {
 	SpaceComposerUploadDescriptor,
+	SpaceFileImageDimensions,
 	SpaceMessageFileReference,
 } from "@openmeld/schemas/types";
+import { readDisplayImageDimensions } from "@openmeld/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
@@ -804,6 +806,26 @@ async function preparePendingFile(input: {
 		if (input.file.size > SPACE_FILE_MAX_SIZE_BYTES) {
 			throw new Error(formatSpaceFileSizeLimitError(input.item.fileName));
 		}
+		if (
+			input.item.mimeType.startsWith("image/") &&
+			!input.item.imageDimensions
+		) {
+			const imageDimensions = await readDisplayImageDimensions({
+				size: input.file.size,
+				read: async (offset, length) => {
+					controller.signal.throwIfAborted();
+					return new Uint8Array(
+						await input.file.slice(offset, offset + length).arrayBuffer()
+					);
+				},
+			});
+			if (imageDimensions) {
+				updateFile(input.setFiles, input.item.localId, (current) => ({
+					...current,
+					imageDimensions,
+				}));
+			}
+		}
 		const currentBeforePersistence = input.item;
 		if (currentBeforePersistence.failurePhase !== "persist-upload") {
 			phase = "persist-draft";
@@ -963,7 +985,12 @@ function removeFileDraft(
 
 function toMessageFileReference(descriptor: {
 	id: string;
-	latestRevision: { mimeType: string; revision: number; sizeBytes: number };
+	latestRevision: {
+		mimeType: string;
+		revision: number;
+		sizeBytes: number;
+		imageDimensions?: SpaceFileImageDimensions;
+	};
 	name: string;
 }): SpaceMessageFileReference {
 	return {
@@ -972,6 +999,9 @@ function toMessageFileReference(descriptor: {
 		name: descriptor.name,
 		revision: descriptor.latestRevision.revision,
 		sizeBytes: descriptor.latestRevision.sizeBytes,
+		...(descriptor.latestRevision.imageDimensions
+			? { imageDimensions: descriptor.latestRevision.imageDimensions }
+			: {}),
 	};
 }
 

@@ -1130,11 +1130,19 @@ describe("SpaceMessageBody", () => {
 				constructor(callback: IntersectionObserverCallback) {
 					reveal = () =>
 						callback(
-							[{ isIntersecting: true } as IntersectionObserverEntry],
+							[
+								{
+									isIntersecting: true,
+									target: this.target,
+								} as IntersectionObserverEntry,
+							],
 							this as unknown as IntersectionObserver
 						);
 				}
-				observe = vi.fn();
+				target: Element | undefined;
+				observe = vi.fn((target: Element) => {
+					this.target = target;
+				});
 				disconnect = vi.fn();
 			}
 		);

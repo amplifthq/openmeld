@@ -56,7 +56,10 @@ export function useSpaceFileImageSource(input: {
 	} else if (contentQuery.error) {
 		error = new Error("The image preview could not be loaded.");
 	}
-	if (!sourceUrl && (resource || input.isLocal || contentQuery.isSuccess)) {
+	if (
+		!(contentQuery.isFetching || sourceUrl) &&
+		(resource || input.isLocal || contentQuery.isSuccess)
+	) {
 		error ??= unavailable;
 	}
 	return {
@@ -65,6 +68,9 @@ export function useSpaceFileImageSource(input: {
 		sourceUrl,
 		retry: async () => {
 			if (!input.isLocal) {
+				// An explicit decode retry must replace bad bytes, not just reuse
+				// the same immutable URL as an ordinary successful revalidation.
+				resource?.revoke();
 				await contentQuery.refetch();
 			}
 		},

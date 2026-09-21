@@ -3,7 +3,7 @@ import type { NavigationAction } from "@openmeld/schemas";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
-import { FileIcon, ImageIcon } from "@phosphor-icons/react";
+import { FileIcon } from "@phosphor-icons/react";
 import { QueryClientContext } from "@tanstack/react-query";
 import { useReducedMotionConfig } from "framer-motion";
 import {
@@ -13,7 +13,6 @@ import {
 	type Ref,
 	useCallback,
 	useContext,
-	useEffect,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -64,6 +63,7 @@ import {
 	type SpaceMessageReferencesById,
 	SpaceMessageReferenceText,
 } from "./space-message-reference";
+import { useImageFrameActivity } from "./use-image-frame-activity";
 import { useSpaceFileImageSource } from "./use-space-file-image-source";
 import { useSpaceStreamDisplayText } from "./use-space-stream-display-text";
 
@@ -768,29 +768,10 @@ function SpaceMessageFileImage(input: {
 	onOpenSpaceFile?: (fileId: string, revision: number) => void;
 	spaceId: string;
 }) {
-	const placeholder = useRef<HTMLOutputElement>(null);
-	const [visible, setVisible] = useState(false);
-	useEffect(() => {
-		const element = placeholder.current;
-		if (!element) {
-			return;
-		}
-		const observer = new IntersectionObserver(
-			(entries) => {
-				if (entries.some((entry) => entry.isIntersecting)) {
-					setVisible(true);
-					observer.disconnect();
-				}
-			},
-			{ rootMargin: "100px" }
-		);
-		observer.observe(element);
-		return () => observer.disconnect();
-	}, []);
-	const [isBroken, setIsBroken] = useState(false);
+	const activity = useImageFrameActivity();
 	const imageSource = useSpaceFileImageSource({
 		api: input.api,
-		enabled: visible,
+		enabled: activity.active,
 		fileId: input.file.fileId,
 		isLocal: input.file.isLocal,
 		localPreviewUrl: input.file.localPreviewUrl,
@@ -799,39 +780,11 @@ function SpaceMessageFileImage(input: {
 		spaceId: input.spaceId,
 	});
 
-	if (imageSource.isLoading) {
-		return (
-			<output
-				aria-label={`Loading ${input.file.name}`}
-				className={cn(
-					"animate-pulse bg-muted motion-reduce:animate-none",
-					input.isSingle ? "h-48 w-72 max-w-full" : "aspect-square w-full"
-				)}
-				ref={placeholder}
-			/>
-		);
-	}
-	if (imageSource.error || isBroken || !imageSource.sourceUrl) {
-		return (
-			<button
-				className={cn(
-					"flex min-h-28 w-full flex-col items-center justify-center gap-2 border border-border bg-muted text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
-					input.isSingle ? "max-h-[32rem]" : "aspect-square"
-				)}
-				onClick={() =>
-					input.onOpenSpaceFile?.(input.file.fileId, input.file.revision)
-				}
-				type="button"
-			>
-				<ImageIcon aria-hidden="true" className="size-6" />
-				<span className="px-4 text-center text-xs">Image unavailable</span>
-			</button>
-		);
-	}
-
 	return (
 		<SpaceImagePreview
+			active={activity.active}
 			altText={input.file.name}
+			error={!imageSource.sourceUrl && Boolean(imageSource.error)}
 			focusedAction={
 				input.onOpenSpaceFile
 					? {
@@ -841,9 +794,12 @@ function SpaceMessageFileImage(input: {
 						}
 					: undefined
 			}
+			frameRef={activity.frame}
+			height={input.file.imageDimensions?.height}
 			imageSource={imageSource.sourceUrl}
 			isSingle={input.isSingle}
-			onError={() => setIsBroken(true)}
+			onRetry={imageSource.retry}
+			width={input.file.imageDimensions?.width}
 		/>
 	);
 }
@@ -864,7 +820,7 @@ function SpaceMessageAttachmentImage(input: {
 	organizationSlug?: string;
 	spaceId: string;
 }) {
-	const [isBroken, setIsBroken] = useState(false);
+	const activity = useImageFrameActivity();
 	const downloadPath = buildWebSpaceAttachmentDownloadPath({
 		attachmentId: input.attachment.id,
 		organizationSlug: input.organizationSlug,
@@ -873,24 +829,11 @@ function SpaceMessageAttachmentImage(input: {
 	const altText = input.attachment.fileName ?? "Attached image";
 	const imageSource = input.attachment.localPreviewUrl ?? downloadPath;
 
-	if (isBroken) {
-		return (
-			<div
-				className={cn(
-					"flex min-h-28 w-full items-center justify-center border border-border bg-muted",
-					input.isSingle ? "max-h-[32rem]" : "aspect-square"
-				)}
-			>
-				<span className="px-4 text-center text-muted-foreground text-xs">
-					Image unavailable
-				</span>
-			</div>
-		);
-	}
-
 	return (
 		<SpaceImagePreview
+			active={activity.active}
 			altText={altText}
+			cold={!input.attachment.localPreviewUrl}
 			focusedAction={
 				getDesktopPlatform()
 					? {
@@ -908,10 +851,10 @@ function SpaceMessageAttachmentImage(input: {
 						}
 					: { href: downloadPath, label: "Open original" }
 			}
+			frameRef={activity.frame}
 			height={input.attachment.height}
 			imageSource={imageSource}
 			isSingle={input.isSingle}
-			onError={() => setIsBroken(true)}
 			width={input.attachment.width}
 		/>
 	);

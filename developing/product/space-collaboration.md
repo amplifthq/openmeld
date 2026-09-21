@@ -425,6 +425,23 @@ fallback is `An agent is working`, not a guessed participant.
 
 ## Space Files
 
+### Image previews
+
+Selecting and sending an image preserves the same original through pending,
+failed/retried, and accepted message presentation. Publication or message
+acknowledgement does not itself close an open viewer, replace a usable image
+with a skeleton, or fetch a second copy. Filenames are labels, not identity:
+two selected files with the same name remain distinct.
+
+Loading, ready, and error states occupy the same frame. Known dimensions reserve
+the displayed aspect ratio; older or unsupported images use a stable fallback.
+A long screenshot remains fully visible within a multi-image cell, and the
+focused viewer uses original bytes. A genuinely cold image has a loading effect
+only while active; reduced-motion and unavailable graphics have a static
+placeholder. Errors expose a retry action rather than perpetual loading.
+Current access checks still apply, and access revocation removes cached private
+pixels even from an already open preview.
+
 ### Selected work handoffs
 
 A selected work handoff is an ordinary Space Message or Thread reply with one

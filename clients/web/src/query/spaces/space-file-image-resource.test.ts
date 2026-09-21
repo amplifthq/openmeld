@@ -1,8 +1,15 @@
-import type { SpaceApi, SpaceFileContent } from "@openmeld/api-client";
+import {
+	OpenMeldApiClientHttpError,
+	type SpaceApi,
+	type SpaceFileContent,
+} from "@openmeld/api-client";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	type CachedSpaceFileContent,
+	clearSpaceFileImage,
 	clearSpaceFileImageResources,
+	type SpaceFileImageResource,
 	spaceFileImageResources,
 } from "./space-file-image-resource";
 import {
@@ -57,6 +64,104 @@ function options(
 }
 
 describe("Space image display ownership", () => {
+	it("enforces the idle byte budget while a mounted original remains owned", async () => {
+		const client = createClient();
+		const releases: Array<() => void> = [];
+		const resources: SpaceFileImageResource[] = [];
+		for (let index = 0; index < 3; index += 1) {
+			const bytes = new Blob(["small fixture"], { type: "image/png" });
+			// Exercise accounting without allocating hundreds of MiB in a unit test.
+			Object.defineProperty(bytes, "size", { value: 80 * 1024 * 1024 });
+			const resource = spaceFileImageResources(client).create(
+				bytes,
+				"space-1",
+				`large-${index}`
+			);
+			resources.push(resource);
+			if (index === 0) {
+				releases.push(
+					resource.subscribe(() => {
+						/* Visible original. */
+					})
+				);
+			}
+			client.setQueryData<CachedSpaceFileContent>(
+				spaceFileQueryKeys.content("space-1", `large-${index}`, 1),
+				{ bytes, mimeType: "image/png", revision: 1, imagePreview: resource }
+			);
+			resource.release();
+		}
+		await Promise.resolve();
+		expect(client.getQueryCache().getAll()).toHaveLength(2);
+		expect(resources[0]?.getSnapshot()).not.toBeNull();
+		for (const release of releases) {
+			release();
+		}
+		await Promise.resolve();
+		expect(client.getQueryCache().getAll()).toHaveLength(1);
+	});
+
+	it("revokes one deleted file across revisions without discarding another file's image", async () => {
+		const client = createClient();
+		const downloadFileContent = vi
+			.fn<SpaceApi["downloadFileContent"]>()
+			.mockImplementation(async (input) => ({
+				bytes: new ArrayBuffer(1),
+				mimeType: "image/png",
+				revision: input.revision ?? 1,
+			}));
+		const first = await client.fetchQuery(options({ downloadFileContent }));
+		const secondRevision = await client.fetchQuery(
+			options({ downloadFileContent }, "file-1", 2)
+		);
+		const sibling = await client.fetchQuery(
+			options({ downloadFileContent }, "file-2")
+		);
+		clearSpaceFileImage(client, "space-1", "file-1");
+		expect(first.imagePreview?.getSnapshot()).toBeNull();
+		expect(secondRevision.imagePreview?.getSnapshot()).toBeNull();
+		expect(sibling.imagePreview?.getSnapshot()).not.toBeNull();
+		expect(client.getQueryCache().getAll()).toHaveLength(1);
+	});
+
+	it("preserves explicit cold authorization errors and revokes warm originals when the server denies access", async () => {
+		const client = createClient();
+		const failure = new OpenMeldApiClientHttpError({
+			code: "upstream_error",
+			message: "Forbidden",
+			status: 403,
+			rawBody: "",
+			upstreamCode: "space_file.forbidden",
+		});
+		const downloadFileContent = vi
+			.fn<SpaceApi["downloadFileContent"]>()
+			.mockRejectedValue(failure);
+		await expect(
+			client.fetchQuery(options({ downloadFileContent }))
+		).rejects.toBe(failure);
+		expect(
+			client.getQueryState(spaceFileQueryKeys.content("space-1", "file-1", 1))
+				?.status
+		).toBe("error");
+		downloadFileContent.mockResolvedValueOnce({
+			bytes: new ArrayBuffer(1),
+			mimeType: "image/png",
+			revision: 1,
+		});
+		const cached = await client.fetchQuery(options({ downloadFileContent }));
+		const release = cached.imagePreview?.subscribe(() => {
+			/* Visible viewer. */
+		});
+		await expect(
+			client.fetchQuery({ ...options({ downloadFileContent }), staleTime: 0 })
+		).rejects.toBeDefined();
+		expect(cached.imagePreview?.getSnapshot()).toBeNull();
+		expect(
+			client.getQueryData(spaceFileQueryKeys.content("space-1", "file-1", 1))
+		).toBeUndefined();
+		release?.();
+	});
+
 	it("hands the same URL and original bytes from composer to canonical cache and all viewers", async () => {
 		const client = createClient();
 		const original = new File(["original bytes"], "photo.png", {
@@ -231,6 +336,7 @@ describe("Space image display ownership", () => {
 			/* Keep one image mounted. */
 		});
 		stop();
+		await Promise.resolve();
 		expect(client.getQueryCache().getAll()).toHaveLength(32);
 		expect(revokeUrl).toHaveBeenCalledTimes(2);
 	});

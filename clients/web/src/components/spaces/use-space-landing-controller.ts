@@ -365,6 +365,9 @@ function createPendingOutgoingSignal(input: {
 			name: file.fileName,
 			mimeType: file.mimeType,
 			sizeBytes: file.upload?.sizeBytes ?? 0,
+			...(file.imageDimensions
+				? { imageDimensions: file.imageDimensions }
+				: {}),
 		}));
 	const previewUrls = new Map(input.filePreviewUrlsById);
 	for (const file of localFiles) {

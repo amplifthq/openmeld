@@ -109,6 +109,18 @@ function createOwner(client: QueryClient) {
 	const awaitingAdmission = new Set<SpaceFileImageResource>();
 	let generation = 0;
 	let pruning = false;
+	let pruneQueued = false;
+	function schedulePrune() {
+		if (pruneQueued) {
+			return;
+		}
+		pruneQueued = true;
+		// Reconcile cache and consumer leases before applying the idle budget.
+		queueMicrotask(() => {
+			pruneQueued = false;
+			prune();
+		});
+	}
 	function prune() {
 		if (pruning) {
 			return;
@@ -164,7 +176,7 @@ function createOwner(client: QueryClient) {
 			}
 		}
 		if (event.type === "observerRemoved") {
-			prune();
+			schedulePrune();
 		}
 	});
 	return {
@@ -185,6 +197,7 @@ function createOwner(client: QueryClient) {
 					if (resource.ownerCount === 0) {
 						resources.delete(resource.originalUrl);
 					}
+					schedulePrune();
 				},
 			});
 			resources.set(resource.originalUrl, resource);
@@ -236,8 +249,28 @@ export function clearSpaceFileImageResources(
 	owners.get(client)?.clear(spaceId);
 	const queryKey =
 		spaceId === undefined ? ["space-files"] : ["space-files", spaceId];
-	client.cancelQueries({ queryKey }).catch((error: unknown) => {
-		console.error("Could not cancel a revoked file read.", { error });
-	});
+	client
+		.cancelQueries({ queryKey }, { revert: false })
+		.catch((error: unknown) => {
+			console.error("Could not cancel a revoked file read.", { error });
+		});
+	client.removeQueries({ queryKey });
+}
+
+/** Authoritative deletion/denial revokes this file without evicting its siblings. */
+export function clearSpaceFileImage(
+	client: QueryClient,
+	spaceId: string,
+	fileId: string
+): void {
+	const queryKey = ["space-files", spaceId, "content", fileId];
+	for (const query of client.getQueryCache().findAll({ queryKey })) {
+		readPreview(query.state.data)?.revoke();
+	}
+	client
+		.cancelQueries({ queryKey }, { revert: false })
+		.catch((error: unknown) => {
+			console.error("Could not cancel a revoked image read.", { error });
+		});
 	client.removeQueries({ queryKey });
 }
