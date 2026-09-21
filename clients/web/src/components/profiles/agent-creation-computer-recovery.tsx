@@ -57,8 +57,8 @@ export function AgentCreationComputerRecoveryPanel(input: {
 			{recovery.state === "local_agents" ? (
 				<div className="space-y-1 text-muted-foreground text-sm">
 					<p>
-						If you haven’t installed a local agent, install one such as Codex or
-						Claude Code, then check again.
+						If you haven’t installed a local agent, choose one from the install
+						guide, then check again.
 					</p>
 					<a
 						className="inline-flex min-h-9 items-center font-medium text-foreground underline underline-offset-4"

@@ -2555,9 +2555,13 @@ physical computer; it must never silently move a draft to another computer.
 **Create Agent** opens the full-width `/o/:orgSlug/new-agent` view so reload,
 back, and forward preserve the user's location. Space, People, and other compact
 entry points use the dialog composition. Both surfaces use the same creation
-controller and generator components: **Choose a Local Agent** is available, and
-**Remote Agent** is disabled with **Coming soon**. Local setup offers a connected
-computer's Agent or **Connect Computer**. A concrete local Agent and computer
+controller and generator components: **Choose a Local Agent** always presents
+Codex, Claude Code, Grok Build, OpenCode, Antigravity, and Cursor in that order,
+and **Remote Agent** is disabled with **Coming soon**. The complete catalog is
+visible and selectable even when a Local Agent is not installed, is disabled,
+is signed out, or has not finished checking. Selecting one is an inspection
+choice; only the existing canonical eligibility projection can provide the
+Binding choice used for creation. A concrete eligible local Agent and computer
 are required before creation; there is no **Choose later** path.
 Core rejects new Web creation requests without that target before creating an
 identity. Existing request retries and intentional CLI manual profiles retain
@@ -2577,6 +2581,15 @@ preset or guesses between multiple connections on one Computer.
 While local agents are loading, the heading
 reports checking instead of prematurely asking the user to connect a computer.
 The form keeps its actions separate through spacing without a footer divider.
+An unavailable selected Local Agent renders one full-width dashed recovery
+panel below the catalog. The panel names the concrete reason and offers the
+Agent-specific install guide, an inline enable switch, concise sign-in/setup
+guidance, or a retry as appropriate. It must not hide the choice or replace the
+whole page with loading. An available selection shows its cached Usage summary
+at the far right of the editable default-name row above Advanced Agent
+Settings. Only that summary may show a skeleton while its already requested
+runtime projection loads; the form remains interactive and Web does not issue
+a duplicate provider Usage request.
 An unfinished browser-local draft may prefill that first decision, but the first
 new local-Agent or execution-target choice dismisses restoration for the current
 open flow so later renders cannot reverse the user's click.

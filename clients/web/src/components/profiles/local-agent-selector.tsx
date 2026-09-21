@@ -407,7 +407,7 @@ function LocalAgentSelectorEmptyState(input: {
 			actionLabel="Set up local agents"
 			centerAgentHref={emptyState?.centerAgentHref}
 			className={className}
-			descriptionLead="No local agents are available to select. Set up a local agent such as Codex or Claude Code, then return to finish creating your Agent."
+			descriptionLead="No local agents are available to select. Set up a supported local agent, then return to finish creating your Agent."
 		/>
 	);
 }

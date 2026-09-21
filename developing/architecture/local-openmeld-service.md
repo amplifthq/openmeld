@@ -472,6 +472,16 @@ logged, retained, or projected. Other connected OpenCode providers are
 Failure to read OpenCode Go usage produces provider-scoped `unavailable`
 evidence without failing the rest of the Computer inventory.
 
+Antigravity has native Usage support through its signed-in CLI. OpenMeld runs
+`agy --print /usage` as the background ACI probe and parses each reported
+weekly quota independently, preserving the provider label, remaining
+percentage, and reset time supplied by Antigravity. The adapter converts the
+reported remaining percentage into the shared used-percentage contract and
+marks an exact zero remaining as exhausted. Authentication failure becomes the
+existing signed-out ACI state; malformed, timed-out, or otherwise unreadable
+output becomes `unavailable` without failing another Local Agent. The probe
+does not create an OpenMeld Agent Profile, Binding, Wake, or conversation.
+
 Provider-access evidence is provider-neutral and carries its provider, stable
 reason code, observation time, and `wake_failure` source. The Service forwards
 it with the exact Agent Profile, Binding, device, runtime lane, OpenMeld Service

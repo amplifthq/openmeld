@@ -224,7 +224,7 @@ describe("LocalAgentSelector", () => {
 		expect(screen.getByText("Set up local agents")).toBeTruthy();
 		expect(
 			screen.getByText(
-				"No local agents are available to select. Set up a local agent such as Codex or Claude Code, then return to finish creating your Agent."
+				"No local agents are available to select. Set up a supported local agent, then return to finish creating your Agent."
 			)
 		).toBeTruthy();
 		expect(screen.queryByRole("radio")).toBeNull();

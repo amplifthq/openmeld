@@ -84,7 +84,7 @@ describe("AgentProfileGenerator", () => {
 			expect(screen.queryByText("No supported agents detected")).toBeNull();
 			expect(
 				screen.getByText(
-					"If you haven’t installed a local agent, install one such as Codex or Claude Code, then check again."
+					"If you haven’t installed a local agent, choose one from the install guide, then check again."
 				)
 			).toBeTruthy();
 			const guide = screen.getByRole("link", {

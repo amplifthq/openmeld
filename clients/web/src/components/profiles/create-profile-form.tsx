@@ -139,8 +139,8 @@ export type AgentProfileLocalAgentSelectionState = {
 };
 
 // Presentational, route-free Create Profile form. All state lives in the
-// parent dialog; this component only renders an available kind choice, the
-// name input, the agent binding radio, and the recoverable error block. It
+// parent dialog; this component only renders the kind choice, the name input,
+// the agent catalog and Binding state, and the recoverable error block. It
 // performs no navigation, no StartFlow reads/writes, and no mutation.
 export type CreateProfileFormProps = {
 	remoteProfileName?: string;
