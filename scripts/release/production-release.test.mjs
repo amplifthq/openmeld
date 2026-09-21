@@ -39,94 +39,155 @@ import {
 } from "./production-release.mjs";
 
 const REMOTE_SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
-const IMAGE_EVIDENCE_PATHS = [
+const IMAGE_GEOMETRY_PATHS = [
   "packages/schemas/src/schemas/http/space-files.ts",
   "services/core/src/space/application/space-file-image-metadata.ts",
   "services/core/src/space/transport/do/space.ts",
+];
+const EVIDENCE_PATHS = [
   "packages/schemas/src/schemas/http/center-agent-memory-search.ts",
   "services/core/src/index.ts",
   "services/remote-agent/agent-core/tools.ts",
 ];
-const IMAGE_ORDER_ERROR = /Image geometry requires Web and Gateway readers/u;
+const SPACE_MESSAGE_SEARCH_PATHS = [
+  "packages/schemas/src/schemas/http/space-message-search.ts",
+  "services/core/src/space/infrastructure/sql/space-message-search-repo.ts",
+  "services/gateway/src/routes/rpc-http.message-search.ts",
+  "clients/web/src/components/search/message-search.tsx",
+];
+const FULL_BACKLOG_PATHS = [
+  "packages/db/drizzle/0181_loud_dark_beast.sql",
+  ...SPACE_MESSAGE_SEARCH_PATHS,
+  "clients/openmeld-cli/src/local-service/carrier/run-socket-session.ts",
+  "packages/schemas/src/compatibility/legacy-space-files-origin-wire.ts",
+  "services/core/src/routes/spaces.ts",
+  "services/gateway/src/routes/rpc-http.space-files.ts",
+  ...EVIDENCE_PATHS,
+  "runtime/adapters/antigravity/src/transport/antigravity-cli-transport.ts",
+  ...IMAGE_GEOMETRY_PATHS,
+  "clients/web/src/components/spaces/space-reading-header.tsx",
+];
 const EVIDENCE_ORDER_ERROR = /evidence tools require the Core RPC receiver/u;
-const GEOMETRY_CONFLICT_ERROR = /receiver order conflicts/u;
+const SPACE_MESSAGE_SEARCH_SCOPE_ERROR =
+  /Web callers require the Gateway and Core short-query receivers/u;
 
-test("composes image presentation readers and Core evidence receivers before their producers", () => {
+test("orders the complete backlog by its real receiver and producer boundaries", () => {
   const plan = buildProductionReleasePlan({
     base: "previous-release",
     sourceSha: REMOTE_SOURCE_SHA,
     scope: "auto",
-    changedPaths: IMAGE_EVIDENCE_PATHS,
-    affectedPackages: ["@openmeld/auth-worker"],
+    changedPaths: FULL_BACKLOG_PATHS,
+    affectedPackages: [
+      "@openmeld/auth-worker",
+      "@openmeld/core",
+      "@openmeld/gateway",
+      "@openmeld/remote-agent",
+      "openmeld",
+      "openmeld-web",
+    ],
   });
   assert.equal(
     plan.deployOrderProfile,
-    "space-image-geometry-and-evidence-receivers-first"
+    "space-message-search-and-evidence-receivers-first"
   );
   assert.deepEqual(plan.deployScopeOrder, [
+    "db",
     "auth",
-    "web",
-    "gateway",
     "cli",
     "core",
+    "gateway",
+    "web",
     "remote-agent",
   ]);
-  const labels = plan.deploySteps.map((step) => step.label);
-  assert.ok(
-    labels.indexOf("Deploy Web") <
-      labels.indexOf("Publish CLI and deploy its Core release projection")
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.label),
+    [
+      "Synchronize production database",
+      "Deploy Auth Worker",
+      "Verify Auth Worker health",
+      "Publish CLI and deploy its Core release projection",
+      "Deploy Gateway Worker",
+      "Verify Gateway Worker health",
+      "Deploy Web",
+      "Verify Web health",
+      "Deploy Remote Agent Worker",
+      "Verify Remote Agent deployment is visible",
+      "Verify final R2/npm/Core alignment",
+    ]
   );
-  assert.ok(
-    labels.indexOf("Deploy Gateway Worker") <
-      labels.indexOf("Publish CLI and deploy its Core release projection")
-  );
-  assert.ok(
-    labels.indexOf("Publish CLI and deploy its Core release projection") <
-      labels.indexOf("Deploy Remote Agent Worker")
-  );
-  assert.ok(
-    !labels.includes("Deploy Core with the current published CLI projection")
-  );
-  for (const scope of ["cloud", "full", "core", "cli", "core,remote-agent"]) {
-    assert.throws(
-      () =>
-        buildProductionDeployStepSpecs(expandRequestedReleaseScopes(scope), {
-          changedPaths: IMAGE_EVIDENCE_PATHS,
-        }),
-      IMAGE_ORDER_ERROR
-    );
-  }
-  assert.throws(
-    () =>
-      buildProductionDeployStepSpecs(["remote-agent"], {
-        changedPaths: IMAGE_EVIDENCE_PATHS,
-      }),
-    EVIDENCE_ORDER_ERROR
-  );
-  for (const scope of ["auth", "web", "gateway"]) {
+});
+
+test("keeps image geometry capability-negotiated instead of imposing a deploy direction", () => {
+  const plan = buildProductionReleasePlan({
+    base: "previous-release",
+    sourceSha: REMOTE_SOURCE_SHA,
+    scope: "auto",
+    changedPaths: IMAGE_GEOMETRY_PATHS,
+    affectedPackages: [],
+  });
+  assert.equal(plan.deployOrderProfile, "default-auth-receiver-first");
+  assert.deepEqual(plan.scopes, ["cli", "web", "gateway", "core"]);
+  for (const scope of ["core", "cli", "web", "gateway"]) {
     assert.doesNotThrow(() =>
       buildProductionDeployStepSpecs([scope], {
-        changedPaths: IMAGE_EVIDENCE_PATHS,
+        changedPaths: IMAGE_GEOMETRY_PATHS,
       })
     );
   }
+});
+
+test("requires short-query receivers when the new Web caller is selected", () => {
+  for (const scopes of [["web"], ["gateway", "web"], ["core", "web"]]) {
+    assert.throws(
+      () =>
+        buildProductionDeployStepSpecs(scopes, {
+          changedPaths: SPACE_MESSAGE_SEARCH_PATHS,
+        }),
+      SPACE_MESSAGE_SEARCH_SCOPE_ERROR
+    );
+  }
+  assert.deepEqual(
+    buildProductionDeployStepSpecs(["core", "gateway", "web"], {
+      changedPaths: SPACE_MESSAGE_SEARCH_PATHS,
+    }).map((step) => step.label),
+    [
+      "Deploy Core Worker",
+      "Verify Core deployment is visible",
+      "Deploy Gateway Worker",
+      "Verify Gateway Worker health",
+      "Deploy Web",
+      "Verify Web health",
+    ]
+  );
+});
+
+test("recognizes Space message search direction only from every real boundary", () => {
+  for (const omitted of SPACE_MESSAGE_SEARCH_PATHS) {
+    const plan = buildProductionReleasePlan({
+      affectedPackages: [],
+      base: "previous-release",
+      changedPaths: SPACE_MESSAGE_SEARCH_PATHS.filter(
+        (file) => file !== omitted
+      ),
+      scope: "core,gateway,web",
+      sourceSha: REMOTE_SOURCE_SHA,
+    });
+    assert.equal(plan.deployOrderProfile, "default-auth-receiver-first");
+  }
+});
+
+test("keeps Center Agent evidence callers behind the Core receiver", () => {
   assert.throws(
     () =>
-      buildProductionDeployStepSpecs(
-        ["web", "gateway", "cli", "core", "remote-agent"],
-        {
-          changedPaths: [
-            ...IMAGE_EVIDENCE_PATHS,
-            "services/remote-agent/.flue/cloudflare.ts",
-          ],
-        }
-      ),
-    GEOMETRY_CONFLICT_ERROR
+      buildProductionDeployStepSpecs(["remote-agent"], {
+        changedPaths: EVIDENCE_PATHS,
+      }),
+    EVIDENCE_ORDER_ERROR
   );
 });
 
 test("evidence direction requires real schema, Core receiver, and Remote Agent caller changes", () => {
-  const paths = IMAGE_EVIDENCE_PATHS.slice(3);
+  const paths = EVIDENCE_PATHS;
   const plan = buildProductionReleasePlan({
     base: "previous-release",
     sourceSha: REMOTE_SOURCE_SHA,

@@ -4,8 +4,8 @@ import test from "node:test";
 import { admitHostedFleetPlan } from "./hosted-fleet-plan-admission.mjs";
 import { buildProductionReleasePlan } from "./production-release.mjs";
 
-const IMAGE_STAGE_PATTERN = /Web -> Gateway -> CLI\/Core -> Remote Agent/u;
-test("refuses the combined geometry/evidence fleet before mutation and names the required stages", async () => {
+const BACKLOG_STAGE_PATTERN = /core -> gateway -> web -> remote-agent/u;
+test("refuses a backlog fleet whose receiver order differs from the static hosted lane", async () => {
   for (const scope of ["cloud", "full"]) {
     await assert.rejects(
       admitHostedFleetPlan(
@@ -18,9 +18,10 @@ test("refuses the combined geometry/evidence fleet before mutation and names the
             buildProductionReleasePlan({
               ...input,
               changedPaths: [
-                "packages/schemas/src/schemas/http/space-files.ts",
-                "services/core/src/space/application/space-file-image-metadata.ts",
-                "services/core/src/space/transport/do/space.ts",
+                "packages/schemas/src/schemas/http/space-message-search.ts",
+                "services/core/src/space/infrastructure/sql/space-message-search-repo.ts",
+                "services/gateway/src/routes/rpc-http.message-search.ts",
+                "clients/web/src/components/search/message-search.tsx",
                 "packages/schemas/src/schemas/http/center-agent-memory-search.ts",
                 "services/core/src/index.ts",
                 "services/remote-agent/agent-core/tools.ts",
@@ -28,7 +29,7 @@ test("refuses the combined geometry/evidence fleet before mutation and names the
             }),
         }
       ),
-      IMAGE_STAGE_PATTERN
+      BACKLOG_STAGE_PATTERN
     );
   }
 });
