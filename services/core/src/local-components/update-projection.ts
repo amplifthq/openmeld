@@ -40,9 +40,13 @@ const NUMERIC_SEMVER_IDENTIFIER_RE = /^\d+$/u;
 // Core owns this monotonic compatibility floor separately from the latest
 // release's advisory policy, so a later optional release can never make an
 // older unsafe Service eligible for new Wake work again.
-// 0.3.214 also confirms current Coordinator authority at provider admission;
-// an older Host can start a delivery after Core has already expired it.
-const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.214";
+// 0.3.216 also rejects an OpenCode resume before provider execution when the
+// native Session belongs to a different folder than the admitted workspace.
+const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.216";
+// Keep the last published floor active while its replacement is not yet on the
+// stable channel. Once 0.3.216 is published, the newer floor remains active
+// even if a later release returns to an advisory policy.
+const PREVIOUS_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.214";
 
 type ServiceUpdateDecision = {
   reasonCodes: string[];
@@ -223,11 +227,18 @@ function resolveMinimumRecoveryTargetVersion(input: {
   installedVersion: string | null;
   publishedVersion: string;
 }): string | null {
+  const candidateFloorPublicationComparison = compareSemver(
+    input.publishedVersion,
+    MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION
+  );
+  const candidateFloorIsPublished =
+    candidateFloorPublicationComparison !== null &&
+    candidateFloorPublicationComparison >= 0;
+  const activeMinimumVersion = candidateFloorIsPublished
+    ? MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION
+    : PREVIOUS_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION;
   const installedVersionComparison = input.installedVersion
-    ? compareSemver(
-        input.installedVersion,
-        MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION
-      )
+    ? compareSemver(input.installedVersion, activeMinimumVersion)
     : null;
   if (installedVersionComparison !== null && installedVersionComparison >= 0) {
     return null;
@@ -237,15 +248,12 @@ function resolveMinimumRecoveryTargetVersion(input: {
   // activate the floor once that manifest proves the recovery target exists.
   const publishedVersionComparison = compareSemver(
     input.publishedVersion,
-    MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION
+    activeMinimumVersion
   );
   if (publishedVersionComparison === null || publishedVersionComparison < 0) {
     return null;
   }
-  return maxServiceVersion(
-    MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
-    input.publishedVersion
-  );
+  return maxServiceVersion(activeMinimumVersion, input.publishedVersion);
 }
 
 function resolveServiceUpdateDecision(input: {
