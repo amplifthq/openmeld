@@ -362,6 +362,7 @@ import type {
   UpdateSpaceFileEntryResponse,
   WriteCurrentDeviceObservedMetadataResponse,
 } from "@openmeld/schemas/types";
+import { rpcCenterAgentReadAgentActivityOverview } from "./agent-activity/activity-center-agent-rpc";
 import { acceptAgentActivitySessionInventoryMemberCleanup } from "./agent-activity/activity-session-inventory-member-cleanup-service";
 import { reconcileDeletedAgentProfile } from "./agent-profile-binding/application/deleted-profile-reconcile-service";
 import {
@@ -5535,6 +5536,12 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     input: CenterAgentGetOrganizationInviteLinkToolRpcInput
   ): Promise<CenterAgentGetOrganizationInviteLinkResponse> {
     return rpcCenterAgentGetOrganizationInviteLink(this.env, input);
+  }
+
+  centerAgentReadAgentActivityOverview(
+    input: CenterAgentReadAgentActivityInput
+  ) {
+    return rpcCenterAgentReadAgentActivityOverview(this.env, input);
   }
 
   centerAgentReadAgentActivity(input: CenterAgentReadAgentActivityInput) {

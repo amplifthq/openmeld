@@ -14,6 +14,7 @@ export {
   serviceConnectionIncidentsReadRpcInputSchema,
   serviceConnectionIncidentsResponseSchema,
 } from "./daemon/service-connection-evidence";
+export { agentActivityOverviewResponseSchema } from "./http/agent-activity-overview";
 export {
   centerAgentReadAuditJournalResponseSchema,
   centerAgentReadAuditJournalRpcInputSchema,

@@ -74,6 +74,60 @@ describe("Agent Activity Session Inventory repository", () => {
     expect(secondPage.nextCursor).toBeNull();
   });
 
+  it("enumerates several live inventory pages and rejects a changed filter", async () => {
+    const harness = createInventoryHarness();
+    await reconcile(harness.db, {
+      sessions: Array.from({ length: 7 }, (_, index) =>
+        observedSession(`native-${index + 1}`, (index + 1) * 1000)
+      ),
+    });
+    const first = await read(harness.db, { limit: 2 });
+    await expect(
+      read(harness.db, {
+        cursor: first.nextCursor ?? undefined,
+        limit: 2,
+        provider: "claude-code",
+      })
+    ).rejects.toThrow("Agent Activity Session cursor is invalid.");
+    const ids = first.sessions.map((session) => session.nativeSessionId);
+    let cursor = first.nextCursor;
+    let pages = 1;
+    while (cursor) {
+      const page = await read(harness.db, { cursor, limit: 2 });
+      ids.push(...page.sessions.map((session) => session.nativeSessionId));
+      cursor = page.nextCursor;
+      pages += 1;
+      expect(pages).toBeLessThanOrEqual(4);
+    }
+    expect(ids).toEqual(
+      Array.from({ length: 7 }, (_, index) => `native-${index + 1}`)
+    );
+    expect(pages).toBe(4);
+  });
+
+  it("keeps cursors live rather than claiming a frozen snapshot across source changes", async () => {
+    const harness = createInventoryHarness();
+    const original = Array.from({ length: 4 }, (_, index) =>
+      observedSession(`native-${index + 1}`, (index + 1) * 1000)
+    );
+    await reconcile(harness.db, { sessions: original });
+    const first = await read(harness.db, { limit: 2 });
+    await reconcile(harness.db, {
+      reconciliationId: "reconciliation-new",
+      sessions: [observedSession("newer-session", 0), ...original],
+    });
+    const remainder = await read(harness.db, {
+      cursor: first.nextCursor ?? undefined,
+      limit: 2,
+    });
+    expect(
+      remainder.sessions.map((session) => session.nativeSessionId)
+    ).toEqual(["native-3", "native-4"]);
+    expect((await read(harness.db)).sessions[0]?.nativeSessionId).toBe(
+      "newer-session"
+    );
+  });
+
   it("rejects a pagination cursor issued for another Organization", async () => {
     const harness = createInventoryHarness();
     await reconcile(harness.db, {

@@ -19,6 +19,7 @@ export type {
   SpaceMessageMutationBody,
   SpaceMessageMutationResponse,
 } from "../schemas/http/space-message-mutation";
+export type { AgentActivityOverviewResponse } from "./http/agent-activity-overview";
 export type {
   CenterAgentReadAuditJournalResponse,
   CenterAgentReadAuditJournalRpcInput,

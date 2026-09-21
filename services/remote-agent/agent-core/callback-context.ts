@@ -25,6 +25,7 @@ import {
   sanitizeDispatchErrorSummary,
 } from "@openmeld/schemas";
 import type {
+  AgentActivityOverviewResponse,
   CenterAgentAuthorizeAnonymousMemberToolResponse,
   CenterAgentAuthorizeAnonymousMemberToolRpcInput,
   CenterAgentCreateOrganizationInviteLinkResponse,
@@ -60,6 +61,7 @@ import type {
   CenterAgentPauseRoutineToolRpcInput,
   CenterAgentPrepareRemoveProjectToolResponse,
   CenterAgentPrepareRemoveProjectToolRpcInput,
+  CenterAgentReadAgentActivityToolRpcInput,
   CenterAgentReadAuditJournalResponse,
   CenterAgentReadAuditJournalRpcInput,
   CenterAgentReadChangelogToolRpcInput,
@@ -509,6 +511,9 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentManageSpaceFiles?(
     input: CenterAgentManageSpaceFilesRpcInput
   ): Promise<CenterAgentManageSpaceFilesResponse>;
+  centerAgentReadAgentActivityOverview?(
+    input: CenterAgentReadAgentActivityToolRpcInput
+  ): Promise<AgentActivityOverviewResponse>;
   centerAgentReadAuditJournal?(
     input: CenterAgentReadAuditJournalRpcInput
   ): Promise<CenterAgentReadAuditJournalResponse>;

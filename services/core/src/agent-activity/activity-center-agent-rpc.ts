@@ -12,6 +12,7 @@ import { prepareCenterAgentOrganizationMemberRequest } from "../center-agent/app
 import { agentActivityDb, type CoreBindings } from "../lib/bindings";
 import { createProjectService } from "../projects/project-service";
 import { createCoreRpcHttpError } from "../rpc/errors";
+import { projectAgentActivityOverview } from "./activity-overview";
 import { readAgentActivitySessionInventory } from "./activity-session-inventory-repository";
 import { readAgentActivitySnapshotForAuthority } from "./activity-snapshot-rpc";
 
@@ -60,6 +61,17 @@ export async function rpcCenterAgentReadAgentActivity(
     query,
     service: createProjectService({ db }),
   });
+}
+
+export async function rpcCenterAgentReadAgentActivityOverview(
+  env: CoreBindings,
+  input: CenterAgentReadAgentActivityToolRpcInput
+) {
+  const snapshot = await rpcCenterAgentReadAgentActivity(env, {
+    ...input,
+    includeProviderMetadata: false,
+  });
+  return projectAgentActivityOverview(snapshot, input);
 }
 
 export async function rpcCenterAgentListAgentActivitySessions(

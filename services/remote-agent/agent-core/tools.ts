@@ -1,8 +1,8 @@
 import { resolveCenterAgentContextScopePlan } from "@openmeld/agent-runtime";
 import {
   accountSpaceActiveWakeSummaryResponseSchema,
+  agentActivityOverviewResponseSchema,
   agentActivitySessionInventoryResponseSchema,
-  agentActivitySnapshotResponseSchema,
   agentControllerCollaborationModeSchema,
   agentProfileCreationRequestMutationResponseSchema,
   agentReplyPlacementSchema,
@@ -63,6 +63,7 @@ import {
   centerAgentPostSlackFileResponseSchema,
   centerAgentPostSpaceMessageResponseSchema,
   centerAgentPrepareRemoveProjectToolResponseSchema,
+  centerAgentReadAgentActivityToolRpcInputSchema,
   centerAgentReadAuditJournalResponseSchema,
   centerAgentReadAuditJournalRpcInputSchema,
   centerAgentReadChannelFileResponseSchema,
@@ -3237,7 +3238,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_read_agent_activity",
       description:
-        "Read the current Organization's public, privacy-safe coding-agent activity. Connected Message Channel members receive the same ordinary-member public projection. This is awareness evidence only, not a work lock or execution authority.",
+        "Read a bounded overview of the current Organization's public, privacy-safe coding-agent activity using member, Project, provider, or status filters. Titles and summaries can be shortened; coverage reports omitted records and source limits. This is a current awareness snapshot, not historical usage totals or a complete event stream. For more current sessions use openmeld_list_agent_activity_sessions with its own filters/cursor; that inventory does not continue these digests/events or provide a frozen snapshot. A missing row does not prove no activity, and activity is not a work lock or execution authority.",
       input: object({
         memberUserId: optionalNonEmptyStringSchema,
         projectId: optionalNonEmptyStringSchema,
@@ -3256,12 +3257,17 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           submissionId: input.submissionId,
           toolName: "openmeld_read_agent_activity",
         });
-        const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentReadAgentActivity,
-          "centerAgentReadAgentActivity"
-        );
-        return agentActivitySnapshotResponseSchema.parse(
-          await rpc({ ...payload, ...toolContext })
+        return agentActivityOverviewResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentReadAgentActivityOverview",
+            centerAgentReadAgentActivityToolRpcInputSchema.parse({
+              ...payload,
+              ...toolContext,
+            }),
+            (binding, request) =>
+              binding.centerAgentReadAgentActivityOverview?.(request)
+          )
         );
       },
     }),
