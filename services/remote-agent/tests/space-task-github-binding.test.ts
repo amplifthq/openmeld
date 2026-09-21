@@ -1,5 +1,6 @@
 import {
   describeLinkedGitHubIssueClosePrompt,
+  mutateSpaceTaskBodySchema,
   SPACE_TASK_EXTERNAL_WORK_ITEM_LIMIT_ERROR_CODE,
   SPACE_TASK_LIST_MAX_ITEMS,
   spaceTaskMutationReceiptSchema,
@@ -221,20 +222,14 @@ describe("GitHub issue Space Task binding", () => {
     });
     const observedActions: string[] = [];
     const mutateSpaceTask = vi.fn((input: unknown) => {
-      if (
-        !input ||
-        typeof input !== "object" ||
-        !("body" in input) ||
-        !input.body ||
-        typeof input.body !== "object" ||
-        !("action" in input.body) ||
-        typeof input.body.action !== "string"
-      ) {
-        throw new Error("Expected a Space Task mutation request.");
-      }
-      observedActions.push(input.body.action);
+      const body = mutateSpaceTaskBodySchema.parse(
+        input && typeof input === "object" && "body" in input
+          ? input.body
+          : null
+      );
+      observedActions.push(body.action);
       return Promise.resolve(
-        receiptFor(input.body.action === "cancel" ? canceled : observed)
+        receiptFor(body.action === "cancel" ? canceled : observed)
       );
     });
 
