@@ -3864,10 +3864,14 @@ entry in Files.
 The active Files list defaults to artifacts only (see the Space Files origin
 contract above); it never applies this filter to Trash. A **Show chat
 uploads** toggle beside Trash switches the request to `origin=all` and updates
-the subtitle to say chat uploads are included; toggling back returns to the
-default. When chat uploads are shown, each one carries a **Chat upload** badge
-next to its name so the distinction stays visible in the row, not only in the
-toggle state.
+the subtitle to say chat uploads are included; toggling back, or switching to
+another view (Trash and back), returns to the default — the toggle is local
+Files-view state and never survives a `changeView` call. When chat uploads
+are shown, each file whose `origin` is exactly `"chat_upload"` carries a
+**Chat upload** badge next to its name so the distinction stays visible in
+the row, not only in the toggle state. A file with no recorded origin never
+gets this badge; the fail-closed default list does not extend to asserting a
+source it does not actually know.
 
 Markdown creation and editing reuse the exact rich Plate surface owned by the
 Organization Documents experience. Both surfaces persist one CommonMark + GFM

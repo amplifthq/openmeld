@@ -522,16 +522,33 @@ Every Space File records one canonical **origin**: **artifact** (created in
 Files, uploaded through the Files upload control or CLI `space files upload`,
 or written by an Agent) or **chat upload** (sent as a message attachment
 through the Composer or CLI `space send --file`). Origin is set once at file
-creation and never changes on a later revision. The Files list defaults to
-artifacts only so chat screenshots and pasted images do not bury deliberate
-work; a **Show chat uploads** toggle (`origin=all`, CLI `--all`) reveals chat
-uploads without leaving Files, and toggling it off returns to the default.
-Folders are structural and always shown regardless of this filter. A file
-whose origin was never recorded (data written before this distinction
-existed) fails closed: it stays out of the default artifacts view, the same
-as a chat upload, until an explicit `origin=all` read asks for it. This is
-strictly a list-time presentation filter; it does not trash, delete, or move
-chat uploads, and every chat upload remains reachable there.
+creation and never changes on a later revision, an update, a trash, or a
+restore. The Files list defaults to artifacts only so chat screenshots and
+pasted images do not bury deliberate work; a **Show chat uploads** toggle
+(`origin=all`, CLI `--all`) reveals chat uploads without leaving Files, and
+toggling it off — or switching to Trash, which resets the toggle — returns
+to the default. Folders are structural, never carry an origin, and are always
+shown regardless of this filter.
+
+A caller (old CLI, old Web build, or any request written before this field
+existed) that omits `origin` when creating a file gets **artifact**, matching
+the create behavior this feature preceded; the shared HTTP contract keeps
+`origin` optional specifically so no client is required to send it before a
+service can roll safely. A pre-existing file created before this
+distinction existed was migrated to **artifact** in the same schema step
+that added the column, since there is no reliable signal in that historical
+data to recover a chat upload from deliberately created work. After that
+migration, a file with no recorded origin is exceptional/corrupt data, not
+normal history, and the read path still fails closed on it exactly like a
+chat upload: it stays out of the default artifacts view until an explicit
+`origin=all` read asks for it, and the Web badge never claims it is a known
+chat upload. This is strictly a list-time presentation filter; it does not
+trash, delete, or move chat uploads, and every chat upload remains reachable
+there. The Move-to-folder destination picker also reads with `origin=all`
+for the same presentation-only reason — folders are exempt from this filter
+regardless — and that read is never an authorization or visibility decision;
+who may move a file into a folder stays owned by the ordinary per-request
+access checks.
 
 The Space Files MVP does not project files into Resources/Documents or the
 Center Agent Computer. A later explicit **Copy to Organization Files** action

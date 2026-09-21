@@ -1934,7 +1934,10 @@ Use scoped owner documents for deeper rules:
 - `space files list` defaults to artifacts only, matching Web's default; pass
   `--all` to also see files shared as chat uploads. `space files upload` always
   records the new file as an artifact; `space send --file` and
-  `space action reply --file` always record theirs as chat uploads.
+  `space action reply --file` always record theirs as chat uploads. A CLI
+  build that predates this classification omits `origin` on upload; Core
+  treats that omission as `artifact`, matching the pre-feature create
+  default, so an old CLI keeps working against new Core without an update.
 - Status commands must remain read-only.
 - Mutating commands must be explicit and lane-scoped.
 - `openmeld routines` exposes exactly eight commands, uses an explicit target

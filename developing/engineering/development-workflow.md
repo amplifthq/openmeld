@@ -1493,6 +1493,80 @@ expected-routes output.
   Core. The nullable D1 column remains in place; rollback must not rewrite
   Binding rows or active RuntimeCoordinator execution state.
 
+### Space Files Origin Classification Contract Impact Audit
+
+Space Files origin classification (`artifact` vs. `chat_upload`) adds a
+nullable `origin` column to Core's `space_file_entries` SQL, an optional
+`origin` field on shared list/upload/write HTTP schemas
+(`packages/schemas/src/schemas/http/space-files.ts`), an optional `origin`
+query filter on list, and Web/CLI/remote-agent write-path defaults. It does
+not change Runtime Transport frames, setup, Prepare Session, Wake dispatch,
+Space Actions, D1 schemas, or any local-component/service contract version.
+
+- **Core (schema and repository).** The Durable Object schema migration
+  (`SPACE_SQL_SCHEMA_VERSION` 44) adds `origin` via `ALTER TABLE ... ADD
+  COLUMN` and, in the same migration step, backfills every existing file row
+  (`kind = 'file'`) to `'artifact'`. There is no reliable signal in
+  pre-existing rows to recover a historical chat upload versus deliberately
+  created work — both wrote through the same path before this column
+  existed — so `'artifact'` is the deterministic default, matching the
+  repository's create-time default and keeping historical files visible in
+  the default view. Folders are excluded from the backfill and never carry
+  an `origin`. After migration, a `NULL` origin on a file row is
+  exceptional/corrupt data (for example a direct database edit), not normal
+  history, and the read path still fails closed on it (excluded from the
+  default `artifact` list, included only under `origin: "all"`).
+- **Core (write path, legacy interoperability).** `SpaceFileRepository
+  .commitWrite` treats a missing `origin` on a new-file write
+  (`baseRevision === null`) as `'artifact'`, not `NULL`. This is what makes
+  the shared schema's optional `origin` field safe for rolling
+  interoperability: an old CLI, old Web build, or any caller that predates
+  this field can keep creating files with no client-side change, and the
+  file stays visible in the default Files view exactly as it did before this
+  feature. `origin` is otherwise immutable — set once at file creation and
+  never touched by a later revision write, an update, a trash, or a restore.
+  Explicit `chat_upload` writes (Web Composer publish, CLI `space send
+  --file`) always set `origin` themselves and are unaffected by this
+  default.
+- **Gateway / Core HTTP routes.** `origin` stays optional on
+  `listSpaceFilesQuerySchema`, `createSpaceFileUploadQuerySchema`, and
+  `prepareSpaceFileWriteInputSchema`/`commitSpaceFileWriteInputSchema`. No
+  old client is required to send it before any service can roll safely in
+  either direction; the server-side default above is what preserves
+  pre-feature behavior for a caller that omits it.
+- **Web.** New Web builds explicitly send `origin: "artifact"` for
+  Files-panel uploads and Markdown-file creation, and `origin: "chat_upload"`
+  is set server-side for Composer-published attachments. The Files list
+  defaults to `origin: "artifact"`; a "Show chat uploads" toggle switches to
+  `origin: "all"`. The "Chat upload" badge renders only when
+  `entry.origin === "chat_upload"` — never for `NULL`/unclassified, which
+  keeps a fail-closed default list from asserting a false source for data it
+  does not actually know. The toggle resets to its default `false` on every
+  `changeView` call (for example, opening Trash), so a different view never
+  silently inherits an unrelated filter state.
+- **CLI.** `space files upload` sends `origin: "artifact"`; `space send
+  --file` sends `origin: "chat_upload"`. `space files list` defaults to
+  `artifact` and accepts `--all` to request `origin: "all"`. An old CLI that
+  predates `origin` keeps working against new Core: its uploads land as
+  `'artifact'` under the legacy-interoperability default above.
+- **Remote Agent.** Agent-authored output files
+  (`publishRemoteAgentOutputFile`) always set `origin: "artifact"`. The
+  `openmeld_list_space_files` tool exposes the same `origin` filter
+  (`"artifact"` default, `"all"`) as the HTTP/RPC contract.
+- **Rollout order.** No ordering constraint beyond normal Core-before-Gateway-
+  before-Web/CLI deploy hygiene: every consumer of `origin` treats it as
+  optional and defaults to `'artifact'` when absent, so old and new
+  components interoperate in either direction during a mixed-version window.
+  No local-component contract version, Runtime Transport epoch, or
+  `SPACE_SQL_SCHEMA_CHECKSUM` string changes; only the migration's internal
+  backfill behavior does, and it is safe to apply before this diff is fully
+  deployed everywhere.
+- **Rollback.** Rolling back Core does not need to reverse the migration: the
+  `origin` column and its backfilled values are additive and harmless to a
+  pre-feature Core build, which simply never reads or writes that column.
+  Do not delete or null out backfilled `origin` values as part of a
+  rollback; that would recreate the exact P1 defect this audit fixes.
+
 ### Versioned local-state rollout discipline
 
 A versioned local file is a cross-version contract even when it never leaves
