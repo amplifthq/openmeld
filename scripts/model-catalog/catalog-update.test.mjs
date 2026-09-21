@@ -148,14 +148,31 @@ test("upstream model instructions are excluded from the handoff", () => {
 test("open review refresh and a declined exact proposal prevent branch churn", () => {
   const fingerprint = "a".repeat(64);
   const base = { controller: "codex", fingerprint, changed: true };
+  const openPull = {
+    state: "OPEN",
+    headRefName: "codex/catalog-update-codex-older",
+    url: "https://github.com/amplifthq/openmeld/pull/1138",
+  };
   assert.equal(
     publicationDecision({
       ...base,
-      pulls: [
-        { state: "OPEN", headRefName: "codex/catalog-update-codex-older" },
-      ],
+      changed: false,
+      pulls: [openPull, openPull],
     }),
     "update-review"
+  );
+  assert.throws(() =>
+    publicationDecision({
+      ...base,
+      pulls: [
+        openPull,
+        {
+          ...openPull,
+          headRefName: "codex/catalog-update-another-review",
+          url: "https://github.com/amplifthq/openmeld/pull/1204",
+        },
+      ],
+    })
   );
   assert.equal(
     publicationDecision({
