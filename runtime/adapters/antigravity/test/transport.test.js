@@ -191,7 +191,7 @@ describe("Antigravity CLI transport contract", () => {
         "const readArg = (name) => { const i = args.indexOf(name); return i < 0 ? null : args[i + 1]; };",
         "if (readArg('--conversation') !== 'conversation-before') throw new Error('wrong conversation');",
         "console.log(JSON.stringify({ event: 'init', conversation_id: 'conversation-before', init: {} }));",
-        "console.log(JSON.stringify({ event: 'step_update', step_update: { conversation_id: 'conversation-before', state: 'ACTIVE', step_index: 1, step_type: 'agent_response', text_delta: 'Working' } }));",
+        "for (const text_delta of ['Hello', ' world', '\\n', '  code']) console.log(JSON.stringify({ event: 'step_update', step_update: { conversation_id: 'conversation-before', state: 'ACTIVE', step_index: 1, step_type: 'agent_response', text_delta } }));",
         "console.log(JSON.stringify({ event: 'result', result: { conversation_id: 'conversation-before', status: 'SUCCESS', response: 'Finished' } }));",
       ].join("\n"),
       "utf8"
@@ -213,7 +213,12 @@ describe("Antigravity CLI transport contract", () => {
 
       assert.equal(result.output, "Finished");
       assert.equal(result.sessionId, "conversation-before");
-      assert.deepEqual(previews, ["Working"]);
+      assert.deepEqual(previews, [
+        "Hello",
+        "Hello world",
+        "Hello world\n",
+        "Hello world\n  code",
+      ]);
       assert.equal(result.telemetry.resumedContext, true);
     } finally {
       await rm(fixtureDir, { force: true, recursive: true });

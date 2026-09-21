@@ -130,10 +130,11 @@ export async function invokeAntigravityCliTransport(input: {
           firstOutputAtMs ??= Date.now();
           previewText += event.textDelta;
           if (input.onPreview) {
+            const previewSnapshot = previewText;
             previewChain = previewChain.then(() =>
-              Promise.resolve(input.onPreview?.({ text: previewText })).then(
-                () => undefined
-              )
+              Promise.resolve(
+                input.onPreview?.({ text: previewSnapshot })
+              ).then(() => undefined)
             );
           }
         }

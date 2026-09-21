@@ -73,7 +73,7 @@ export function parseAntigravityOutputLine(
       state,
       stepIndex,
       stepType,
-      textDelta: readText(step?.text_delta),
+      textDelta: readTextDelta(step?.text_delta),
       toolError: readText(toolError?.message),
       toolInput: toolInfo?.parameters,
       toolName: readText(step?.tool_name) ?? readText(toolInfo?.name),
@@ -137,6 +137,10 @@ function readText(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
     : null;
+}
+
+function readTextDelta(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function toRecord(value: unknown): Record<string, unknown> | null {
