@@ -83,6 +83,24 @@ export const spaceFileListOriginFilterSchema = z
   .default("artifact");
 
 /**
+ * The explicit capability token a Center Agent / Remote Agent RPC caller
+ * sets to declare it understands `origin` on Space Files responses. Core's
+ * RPC entrypoint methods strip `origin` from the response
+ * (`toLegacySpaceFilesOriginWireValue`) unless the caller's request carries
+ * this exact token, so an already-published Remote Agent build — which has
+ * no field for this at all and therefore never sends it — keeps receiving
+ * the pre-origin response shape it already knows how to parse. This is the
+ * RPC-boundary analog of the `x-openmeld-space-files-origin-version` HTTP
+ * header Gateway checks for Web/CLI callers; see the Space Files Origin
+ * Classification Contract Impact Audit in
+ * `developing/engineering/development-workflow.md`.
+ */
+export const SPACE_FILES_ORIGIN_CAPABILITY_TOKEN = "origin_aware" as const;
+export const spaceFilesOriginCapabilitySchema = z
+  .literal(SPACE_FILES_ORIGIN_CAPABILITY_TOKEN)
+  .optional();
+
+/**
  * Derives the opaque file identity for a retriable create mutation.
  * Reusing the mutation identity produces the same file identity.
  */
