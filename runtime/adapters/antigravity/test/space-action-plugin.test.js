@@ -9,6 +9,8 @@ import {
 } from "../dist/transport/antigravity-space-action-plugin.js";
 
 const STRUCTURED_OUTCOME_PATTERN = /structured outcome/u;
+const UNNECESSARY_TOOL_USE_PATTERN =
+  /do not inspect the workspace or run a command just to orient yourself/u;
 const INCONSISTENT_PATTERN = /inconsistent/u;
 
 test("does not configure structured output outside an OpenMeld dispatch", async () => {
@@ -61,6 +63,7 @@ writeFileSync(${JSON.stringify(invocationPath)}, JSON.stringify({ args: process.
           "utf8"
         );
         assert.match(instructionSource, STRUCTURED_OUTCOME_PATTERN);
+        assert.match(instructionSource, UNNECESSARY_TOOL_USE_PATTERN);
         assert.equal(jsonSchema, ANTIGRAVITY_SPACE_ACTION_JSON_SCHEMA);
         return {
           structuredOutput: {

@@ -109,6 +109,7 @@ function writeJson(path: string, value: unknown): Promise<void> {
 function buildInstructionHookSource(): string {
   const instruction = [
     "For this OpenMeld Wake, do not run a Space Action CLI command and do not inspect its environment variables.",
+    "If the request can be answered without tools, return the structured outcome immediately; do not inspect the workspace or run a command just to orient yourself.",
     "Complete the user's work under the normal Antigravity permission policy.",
     "At the end, return exactly one structured outcome using the required JSON schema: reply for a public message, status for a short final status, or silent when no public reply is appropriate.",
     "Put the public reply, status text, or silence reason in text.",
