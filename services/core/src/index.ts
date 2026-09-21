@@ -54,6 +54,7 @@ import type {
   CenterAgentListOrganizationMembersToolRpcInput,
   CenterAgentListProjectsToolResponse,
   CenterAgentListProjectsToolRpcInput,
+  CenterAgentListRoutineRunsToolRpcInput,
   CenterAgentListRoutinesToolRpcInput,
   CenterAgentListSlackChannelsResponse,
   CenterAgentListSpaceFilesResponse,
@@ -82,6 +83,7 @@ import type {
   CenterAgentReadOrganizationSkillsResponse,
   CenterAgentReadOrganizationSkillsRpcInput,
   CenterAgentReadPeopleComputersResponse,
+  CenterAgentReadRoutineRunDiagnosticsRpcInput,
   CenterAgentReadSlackChannelHistoryResponse,
   CenterAgentReadSlackChannelMembersResponse,
   CenterAgentReadSlackFileResponse,
@@ -534,6 +536,10 @@ import {
   rpcCenterAgentResumeRoutine,
   rpcCenterAgentUpdateRoutine,
 } from "./routines/routine-center-agent-rpc";
+import {
+  rpcCenterAgentListRoutineRuns,
+  rpcCenterAgentReadRoutineRunDiagnostics,
+} from "./routines/routine-evidence-rpc";
 import { RoutineRunWorkflow } from "./routines/routine-run-workflow";
 import {
   type AddCenterAgentToSpaceInput,
@@ -5600,6 +5606,16 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     input: CenterAgentSetOrganizationWorkingLanguageToolRpcInput
   ): Promise<CenterAgentSetOrganizationWorkingLanguageToolResponse> {
     return rpcCenterAgentSetOrganizationWorkingLanguage(this.env, input);
+  }
+
+  centerAgentListRoutineRuns(input: CenterAgentListRoutineRunsToolRpcInput) {
+    return rpcCenterAgentListRoutineRuns(this.env, input);
+  }
+
+  centerAgentReadRoutineRunDiagnostics(
+    input: CenterAgentReadRoutineRunDiagnosticsRpcInput
+  ) {
+    return rpcCenterAgentReadRoutineRunDiagnostics(this.env, input);
   }
 
   centerAgentListRoutines(

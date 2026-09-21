@@ -236,6 +236,27 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     dependencies: ["openmeld_read_organization_directory"],
     namespace: "agents_and_computers",
   },
+  openmeld_list_routine_runs: {
+    aliases: [
+      "Routine run history",
+      "past scheduled runs",
+      "Routine 历史记录",
+      "定时任务历史",
+    ],
+    dependencies: ["openmeld_list_routines"],
+    namespace: "organization",
+  },
+  openmeld_read_routine_run_diagnostics: {
+    aliases: [
+      "diagnose a Routine run",
+      "scheduled report never arrived",
+      "Routine execution and publication",
+      "定时任务为什么没有结果",
+      "定时任务诊断",
+    ],
+    dependencies: ["openmeld_list_routine_runs"],
+    namespace: "organization",
+  },
   openmeld_read_center_agent_turn_diagnostics: {
     aliases: [
       "diagnose a recent Center Agent turn",

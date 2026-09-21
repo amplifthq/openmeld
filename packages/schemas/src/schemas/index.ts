@@ -1262,6 +1262,15 @@ export {
   centerAgentUpdateProjectToolRpcInputSchema,
 } from "./http/center-agent-projects";
 export {
+  CENTER_AGENT_ROUTINE_EVIDENCE_PAGE_LIMIT,
+  centerAgentListRoutineRunsToolResponseSchema,
+  centerAgentListRoutineRunsToolRpcInputSchema,
+  centerAgentReadRoutineRunDiagnosticsResponseSchema,
+  centerAgentReadRoutineRunDiagnosticsRpcInputSchema,
+  centerAgentRoutineRunEvidenceSchema,
+  centerAgentRoutineRuntimeEvidenceSchema,
+} from "./http/center-agent-routine-evidence";
+export {
   CENTER_AGENT_ROUTINE_AUTHORIZED_ACTIONS,
   CENTER_AGENT_ROUTINE_CRON_EXPRESSION_MAX_CHARS,
   CENTER_AGENT_ROUTINE_DESTINATION_KINDS,

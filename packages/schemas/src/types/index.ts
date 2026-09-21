@@ -25,6 +25,13 @@ export type {
   CenterAgentReadAuditJournalRpcInput,
 } from "./http/center-agent-evidence";
 export type {
+  CenterAgentListRoutineRunsToolResponse,
+  CenterAgentListRoutineRunsToolRpcInput,
+  CenterAgentReadRoutineRunDiagnosticsResponse,
+  CenterAgentReadRoutineRunDiagnosticsRpcInput,
+  CenterAgentRoutineRunEvidence,
+} from "./http/center-agent-routine-evidence";
+export type {
   OrganizationMemberPresenceBody,
   OrganizationMemberPresenceResponse,
 } from "./http/organization-member-presence";

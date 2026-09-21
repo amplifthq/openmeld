@@ -20,6 +20,7 @@ import {
   CENTER_AGENT_PUBLICATION_OPERATION_ID_MAX_CHARS,
   CENTER_AGENT_ROUTINE_AUTHORIZED_ACTIONS,
   CENTER_AGENT_ROUTINE_CRON_EXPRESSION_MAX_CHARS,
+  CENTER_AGENT_ROUTINE_EVIDENCE_PAGE_LIMIT,
   CENTER_AGENT_ROUTINE_INSTRUCTIONS_MAX_CHARS,
   CENTER_AGENT_ROUTINE_NAME_MAX_CHARS,
   CENTER_AGENT_ROUTINE_TIMEZONE_MAX_CHARS,
@@ -50,6 +51,8 @@ import {
   centerAgentListOpportunitiesToolResponseSchema,
   centerAgentListOrganizationMembersResponseSchema,
   centerAgentListProjectsToolResponseSchema,
+  centerAgentListRoutineRunsToolResponseSchema,
+  centerAgentListRoutineRunsToolRpcInputSchema,
   centerAgentListSlackChannelsBodySchema,
   centerAgentListSlackChannelsResponseSchema,
   centerAgentListSpaceFilesResponseSchema,
@@ -76,6 +79,8 @@ import {
   centerAgentReadOrganizationSkillsResponseSchema,
   centerAgentReadOrganizationSkillsRpcInputSchema,
   centerAgentReadPeopleComputersResponseSchema,
+  centerAgentReadRoutineRunDiagnosticsResponseSchema,
+  centerAgentReadRoutineRunDiagnosticsRpcInputSchema,
   centerAgentReadSlackChannelHistoryBodySchema,
   centerAgentReadSlackChannelHistoryResponseSchema,
   centerAgentReadSlackChannelMembersBodySchema,
@@ -312,6 +317,28 @@ const readChangelogToolInputSchema = object({
   ),
   release: optional(trimmedNonEmptyStringSchema),
   since: optional(trimmedNonEmptyStringSchema),
+});
+const listRoutineRunsToolInputSchema = strictObject({
+  routineId: pipe(trimmedNonEmptyStringSchema, maxLength(256)),
+  beforeScheduledFor: optional(
+    pipe(
+      number(),
+      integer(),
+      minValue(Number.MIN_SAFE_INTEGER),
+      maxValue(Number.MAX_SAFE_INTEGER)
+    )
+  ),
+  limit: optional(
+    pipe(
+      number(),
+      integer(),
+      minValue(1),
+      maxValue(CENTER_AGENT_ROUTINE_EVIDENCE_PAGE_LIMIT)
+    )
+  ),
+});
+const readRoutineRunDiagnosticsToolInputSchema = strictObject({
+  runId: pipe(trimmedNonEmptyStringSchema, maxLength(256)),
 });
 const readCenterAgentTurnDiagnosticsToolInputSchema = strictObject({
   limit: optional(pipe(number(), integer(), minValue(1), maxValue(20))),
@@ -1345,6 +1372,8 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_request_member_attention",
   "openmeld_create_routine",
   "openmeld_list_routines",
+  "openmeld_list_routine_runs",
+  "openmeld_read_routine_run_diagnostics",
   "openmeld_update_routine",
   "openmeld_delete_routine",
   "openmeld_pause_routine",
@@ -1434,6 +1463,8 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_read_space_file",
   "openmeld_read_dispatch_history",
   "openmeld_list_routines",
+  "openmeld_list_routine_runs",
+  "openmeld_read_routine_run_diagnostics",
   "openmeld_list_feedback_issues",
   "openmeld_list_agent_tasks",
   "openmeld_inspect_execution_recovery",
@@ -3853,6 +3884,60 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             (binding, rpcInput) => binding.centerAgentListRoutines?.(rpcInput)
           ),
           "centerAgentListRoutines"
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_list_routine_runs",
+      description:
+        "List a bounded page of retained historical Runs for an exact Center Agent Routine, including deleted definitions. Use nextBeforeScheduledFor to continue older Runs. These are recorded Run states and frozen occurrence destinations, not today's mutable schedule. Destination references are disclosed only when currently readable and safe for this conversation; Slack/Feishu/Lark destination references are unsupported in this read. A skipped Run is not a failed execution. This read does not start or recover work.",
+      input: listRoutineRunsToolInputSchema,
+      execute: async (payload) => {
+        const parsed = parseValibot(listRoutineRunsToolInputSchema, payload);
+        const context = await buildVerifiedMemberToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_list_routine_runs",
+        });
+        return centerAgentListRoutineRunsToolResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentListRoutineRuns",
+            centerAgentListRoutineRunsToolRpcInputSchema.parse({
+              ...parsed,
+              ...context,
+            }),
+            (binding, request) => binding.centerAgentListRoutineRuns?.(request)
+          )
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_read_routine_run_diagnostics",
+      description:
+        "Read exact Center Agent Routine Run diagnostics by runId, normally selected from openmeld_list_routine_runs. Core resolves the bounded linked native-delivery history and persisted current result owner, including continuation handoffs. Report Run state, worker admission, sanitized runtime timestamps/counts, publication, and evidence coverage separately. Submitted is not accepted; completed generation is not publication; pausing a Routine does not prove an in-flight Run stopped. Missing, unavailable and redacted evidence are not proof an event never happened. This is read-only: never imply it retries, replays, repairs, publishes or grades the Run.",
+      input: readRoutineRunDiagnosticsToolInputSchema,
+      execute: async (payload) => {
+        const parsed = parseValibot(
+          readRoutineRunDiagnosticsToolInputSchema,
+          payload
+        );
+        const context = await buildVerifiedMemberToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_read_routine_run_diagnostics",
+        });
+        return centerAgentReadRoutineRunDiagnosticsResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentReadRoutineRunDiagnostics",
+            centerAgentReadRoutineRunDiagnosticsRpcInputSchema.parse({
+              ...parsed,
+              ...context,
+            }),
+            (binding, request) =>
+              binding.centerAgentReadRoutineRunDiagnostics?.(request)
+          )
         );
       },
     }),

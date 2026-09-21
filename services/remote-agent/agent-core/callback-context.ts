@@ -47,6 +47,8 @@ import type {
   CenterAgentListOrganizationMembersToolRpcInput,
   CenterAgentListProjectsToolResponse,
   CenterAgentListProjectsToolRpcInput,
+  CenterAgentListRoutineRunsToolResponse,
+  CenterAgentListRoutineRunsToolRpcInput,
   CenterAgentListRoutinesToolRpcInput,
   CenterAgentListSlackChannelsBody,
   CenterAgentListSlackChannelsResponse,
@@ -75,6 +77,8 @@ import type {
   CenterAgentReadOrganizationDocumentsRpcInput,
   CenterAgentReadOrganizationSkillsResponse,
   CenterAgentReadOrganizationSkillsRpcInput,
+  CenterAgentReadRoutineRunDiagnosticsResponse,
+  CenterAgentReadRoutineRunDiagnosticsRpcInput,
   CenterAgentReadSlackChannelHistoryBody,
   CenterAgentReadSlackChannelHistoryResponse,
   CenterAgentReadSlackChannelMembersBody,
@@ -388,6 +392,12 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentDeleteRoutine?(
     input: CenterAgentDeleteRoutineToolRpcInput
   ): Promise<DeleteCenterAgentRoutineResponse>;
+  centerAgentListRoutineRuns?(
+    input: CenterAgentListRoutineRunsToolRpcInput
+  ): Promise<CenterAgentListRoutineRunsToolResponse>;
+  centerAgentReadRoutineRunDiagnostics?(
+    input: CenterAgentReadRoutineRunDiagnosticsRpcInput
+  ): Promise<CenterAgentReadRoutineRunDiagnosticsResponse>;
   centerAgentListRoutines?(
     input: CenterAgentListRoutinesToolRpcInput
   ): Promise<ListCenterAgentRoutinesResponse>;
