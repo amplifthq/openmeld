@@ -94,6 +94,7 @@ export async function uploadPreparedSpaceFiles(input: {
         clientMutationId: crypto.randomUUID(),
         mimeType: file.mimeType,
         name: file.name,
+        origin: "chat_upload",
         parentId: null,
         requestContext: input.requestContext,
         spaceId: input.spaceId,
