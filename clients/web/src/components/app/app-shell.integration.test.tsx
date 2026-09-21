@@ -321,9 +321,7 @@ describe("AppShell", () => {
 		expect(
 			screen.queryByRole("tab", { name: BROWSE_SPACES_TAB_NAME })
 		).toBeNull();
-		expect(
-			screen.getByRole("tab", { name: "Spaces", exact: true })
-		).toBeTruthy();
+		expect(screen.getByRole("tab", { name: "Spaces" })).toBeTruthy();
 		expect(screen.getByRole("tab", { name: TEAM_TAB_NAME })).toBeTruthy();
 		expect(screen.queryByRole("tab", { name: SETTINGS_TAB_NAME })).toBeNull();
 	});
