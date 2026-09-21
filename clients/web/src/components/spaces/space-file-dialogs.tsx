@@ -410,6 +410,17 @@ export function MoveEntryDialog(input: {
 	);
 }
 
+/**
+ * Walks every folder to build the "Move to folder…" destination list. This
+ * only ever collects `entry.kind === "folder"` results, and folders carry no
+ * origin classification — the repository's origin filter already always
+ * includes folders regardless of `origin`. Passing `origin: "all"` here is
+ * presentation-only insurance against a future change to that exemption; it
+ * is not an authorization or visibility decision, and it must never be
+ * read as one. This function does not, and must not, decide which files a
+ * caller may read or write — that stays owned by the server-side access
+ * checks on each move request.
+ */
 async function loadMoveDestinations(input: {
 	api: SpaceApi;
 	excludedFolderId?: string;
