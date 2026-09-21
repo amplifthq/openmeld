@@ -72,4 +72,5 @@ patchedDependencies:
   '@cloudflare/computer@0.2.1': patches/@cloudflare__computer@0.2.1.patch
   '@flue/runtime@2.0.3': patches/@flue__runtime@2.0.3.patch
   '@tanstack/history@1.162.1': patches/@tanstack__history@1.162.1.patch
+  better-sqlite3@13.0.3: patches/better-sqlite3@13.0.3.patch
   thinking-orbs@0.3.1: patches/thinking-orbs@0.3.1.patch

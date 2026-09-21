@@ -1,10 +1,16 @@
-import { githubAppInstallationSetupQuerySchema } from "@openmeld/schemas";
+import {
+  GITHUB_APP_WEBHOOK_RAW_BODY_MAX_BYTES,
+  githubAppInstallationSetupQuerySchema,
+  githubAppWebhookVerificationResponseSchema,
+} from "@openmeld/schemas";
+import type { GitHubAppWebhookVerificationResponse } from "@openmeld/schemas/types";
 import type { Context, Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
 import { OpenConnectorClient } from "../lib/openconnector-client";
 
 export function registerGitHubAppRoutes(app: Hono<HonoBindings>): void {
   app.get("/github/app/setup", handleGitHubAppSetup);
+  app.post("/github/app/webhook", handleGitHubAppWebhook);
 }
 
 async function handleGitHubAppSetup(
@@ -99,4 +105,55 @@ function escapeHtml(value: string): string {
 
 function toSafeErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message.slice(0, 500) : "Unknown error";
+}
+
+async function handleGitHubAppWebhook(
+  c: Context<HonoBindings>
+): Promise<Response> {
+  const receivedAtMs = Date.now();
+  const gatewayRequestId = crypto.randomUUID();
+  const rawBody = await c.req.text();
+  if (rawBody.length > GITHUB_APP_WEBHOOK_RAW_BODY_MAX_BYTES) {
+    return c.text("Provider payload too large", 413);
+  }
+  let verification: GitHubAppWebhookVerificationResponse | null = null;
+  try {
+    const result = await c.env.OPENMELD_CORE_WORKER.verifyGitHubAppWebhook({
+      gatewayRequestId,
+      headers: {
+        deliveryId: normalizeOptionalText(c.req.header("x-github-delivery")),
+        event: normalizeOptionalText(c.req.header("x-github-event")),
+        signature256: normalizeOptionalText(
+          c.req.header("x-hub-signature-256")
+        ),
+      },
+      rawBody,
+      receivedAtMs,
+    });
+    const parsed = githubAppWebhookVerificationResponseSchema.safeParse(result);
+    verification = parsed.success ? parsed.data : null;
+  } catch (error) {
+    console.warn("[gateway.github_app.webhook.verify_failed]", {
+      error: toSafeErrorMessage(error),
+      gatewayRequestId,
+    });
+    return c.text("Provider verification unavailable", 503);
+  }
+  if (!verification) {
+    return c.text("Provider verification unavailable", 503);
+  }
+  if (verification.status === "rejected") {
+    const status =
+      verification.reasonCode === "github.webhook_queue_unavailable" ||
+      verification.reasonCode === "github.webhook_enqueue_failed"
+        ? 503
+        : 401;
+    return c.text("GitHub webhook rejected", status);
+  }
+  return c.text("OK");
+}
+
+function normalizeOptionalText(value: string | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
 }

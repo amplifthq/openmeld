@@ -88,7 +88,7 @@ execution Task Handles or claim production availability.
 | Human and Agent responsibility; optional independent review | Multiple primary assignees, arbitrary reviewer chains, and mandatory organizational role hierarchies |
 | One board, a task detail panel, source-thread links, and Inbox attention | Global Tasks navigation, Board/List switching, custom workflow editors, and independent Goals |
 | One real execution-to-review-to-delivery path using existing coordination | A separate runtime scheduler, new Agent framework, or hosted workstation product |
-| Explicit GitHub issue association from authorized GitHub tools, with tool-path close sync and a close prompt when the Task finishes first | External event ingestion, webhooks, and Linear association until those provider contracts are implemented and verified |
+| Explicit GitHub issue association from authorized GitHub tools, with tool-path and GitHub App webhook close/reopen sync for already-linked Tasks, plus a close prompt when the Task finishes first | Linear association, GitHub PR/review/check events, bulk import, auto-created follow-up Tasks, and current-state GitHub GET reconciliation until those provider contracts are implemented and verified |
 
 Initial shared-Space scope is confirmed. It proves shared handoff without reviving the retired private Task product. Before expanding eligible Space kinds, inventory their full UI and mutation surfaces under the existing specialization rules.
 
@@ -297,15 +297,19 @@ body receives an OpenMeld Task reference. If the Space Task list is truncated
 and the linked Task is not on the returned page, GitHub tools refuse to treat
 that as a miss: they do not create another card and do not skip close-sync.
 Closing that issue through
-`github_update_issue` closes still-active linked Tasks. Completing or
+`github_update_issue`, or through a verified GitHub App webhook after the
+issue is already linked, cancels still-active linked Tasks. Completing or
 canceling a Task does not silently write GitHub; clients prompt the Agent or
 person to close still-open linked issues. Direct Messages do not create Tasks.
-This is not an import of every GitHub issue, not a webhook subscription, and
-not a second Task lifecycle owned by GitHub.
+This is not an import of every GitHub issue and not a second Task lifecycle
+owned by GitHub.
 
-The first release still promises no continuous provider-event wakeup, Linear
-association, or automatic closure report from GitHub webhooks. On a request to
-wait for an unobserved external event, explain the unsupported capability
+The first GitHub webhook increment observes already-linked issue
+`closed`/`reopened` deliveries. It does not create Tasks, import repositories,
+subscribe to pull-request events, or call GitHub to re-GET current state.
+Linear association and automatic closure reports for unlinked issues remain
+unsupported. On a request to wait for an unobserved external event other than
+an already-linked GitHub issue close, explain the unsupported capability
 before accepting an automatic follow-up obligation. Existing unrelated
 provider tools retain their own capabilities and rules.
 
@@ -350,7 +354,7 @@ Connection loss shows the last confirmed observation and an unavailable/stale in
 
 The report returns to the established conversation and uses existing Inbox attention when needed. It states the verified source outcome, such as "closed as not planned," rather than claiming the underlying problem was fixed. If the requested deliverable is that report, publication success is part of Task completion. A failed report retries only its existing publication intent, not the source mutation or repair work.
 
-Before enabling each provider, verify its real permission model, event coverage, relationship semantics, missed-event recovery, and current-state reads. Final webhook schemas, binding configuration, reconciliation budgets, and storage migrations belong to that future implementation. Until then, links are explicitly links, not monitored dependencies.
+Before enabling each remaining provider increment, verify its real permission model, event coverage, relationship semantics, missed-event recovery, and current-state reads. Already-linked GitHub issue close/reopen webhook observation is implemented; pull-request events, Linear, bulk import, and GitHub current-state GET reconciliation remain later work. Links without that supported observation still do not claim monitoring.
 
 ## 10. Delivery Slices and Acceptance
 
@@ -382,13 +386,25 @@ Deliver capture from Messages, stable Task identity, roles, board/detail, result
 | Completed work with failed publication | Work is not rerun; delivery failure and exact retry are visible |
 | Refresh, leave/re-enter, and current access revocation | State remains recoverable; inaccessible data and mutation controls are not exposed |
 | DM and specialized Space entry points | Tasks is absent and unsupported server operations reject; ordinary messaging still works |
-| A first-release request for automatic GitHub or Linear event follow-up | Unsupported monitoring is explained; no event subscription or automatic-report promise is fabricated |
+| A first-release request for automatic Linear follow-up, GitHub PR events, or unlinked GitHub issue import | Unsupported monitoring is explained; no event subscription or automatic-report promise is fabricated. Already-linked GitHub issue close/reopen can update the linked Task. |
 
 Use focused behavior tests at the owner seam, then supported real-user entry points for the shared handoff. Follow repository test guidance; do not build broad test suites that only mirror schema or UI implementation.
 
 ### Follow-up B: GitHub event-driven follow-up
 
-After Slice A, implement the GitHub portion of section 9 for explicitly accepted obligations. Verify another person's linked PR, close with different reasons, reopen, already-satisfied conditions at subscription time, missed/duplicate/reordered delivery, and revoked connection. Include a follow-up Task that completes by reporting an external cancellation while a linked repair Task remains unresolved, and a failed publication that retries without repeating work. No event should silently start unapproved work or broaden source visibility.
+The first increment observes already-linked GitHub issue `closed` and
+`reopened` events through the GitHub App webhook. Close cancels still-active
+linked Tasks after refreshing `lastObservedState`. Reopen refreshes the
+observation and does not reopen a completed or canceled Task. Missing D1 link
+rows are ignored; callbacks grant no new execution authority and do not start
+a model turn.
+
+Later GitHub follow-up still includes another person's linked PR, close
+reasons, already-satisfied conditions at subscription time, missed/reordered
+delivery recovery beyond delivery-id dedup, current-state GET refresh, Wake
+Stop after webhook cancel, and a follow-up Task that completes by reporting an
+external cancellation while a linked repair Task remains unresolved. No event
+should silently start unapproved work or broaden source visibility.
 
 ### Follow-up C: Linear event-driven follow-up
 
@@ -423,9 +439,10 @@ engineering details in the owning contracts:
 4. Reviewer and rework handoffs publish deterministic Space messages. Human
    targets use normal mentions and Inbox projection; Agent targets use normal
    Wake admission. The Task never becomes execution truth.
-5. GitHub webhook and Linear event observation remain deferred in that order.
-   Authorized GitHub tool-path association and close sync are first-release
-   behavior; links still do not claim webhook monitoring.
+5. Already-linked GitHub issue close/reopen webhook observation is
+   implemented. Linear event observation, GitHub pull-request events, bulk
+   import, and current-state GitHub GET reconciliation remain deferred.
+   Authorized GitHub tool-path association remains first-release behavior.
 
 The implementation must update [Space collaboration](space-collaboration.md), [Organizations and Center Agent](organizations-and-center-agent.md), [data ownership](../architecture/data-and-observability.md), [shared contracts](../architecture/shared-contracts.md), [Web](../clients/web.md), [CLI](../clients/cli.md), and [Inbox](inbox.md) for the behavior each owns. Update [Remote Agent](remote-agent-runtime.md) and execution owner documents only for actual touched contracts.
 

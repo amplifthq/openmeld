@@ -194,6 +194,7 @@
   "packageManager": "pnpm@10.30.0",
   "sherif": {
     "ignoreDependency": [
+      "better-sqlite3",
       "vite@8.1.2"
     ]
   },

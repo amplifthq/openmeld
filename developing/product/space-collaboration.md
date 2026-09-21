@@ -145,12 +145,16 @@ GitHub issues filed from a shared Space through OpenMeld's GitHub tools are
 associated with a Space Task when the Task list can confirm whether that issue
 is already linked. The issue body receives an OpenMeld Task
 reference, and the Task stores the repository and issue number. Closing that
-issue through those same GitHub tools closes still-active linked Tasks.
+issue through those same GitHub tools, or through a verified GitHub App
+webhook after the issue is already linked, cancels still-active linked Tasks
+and refreshes the Task-owned last observed issue state. Reopening the issue
+refreshes that observation and does not reopen a completed or canceled Task.
 Closing or completing a Task does not silently patch GitHub; the Task result
 prompts the Agent or person to close the linked issue when it is still open.
-This is authorized tool-path association, not an import of every GitHub issue
-and not provider-event observation. Linear objects remain links. Automatic
-webhook follow-up stays deferred and must not be implied by a linked URL.
+This is authorized association for already-linked issues, not an import of
+every GitHub issue and not Task creation from GitHub events. Linear objects
+remain links. Webhook deliveries grant no new execution authority and do not
+start Agent work.
 
 ## Editing and Recalling Messages
 

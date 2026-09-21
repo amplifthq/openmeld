@@ -560,6 +560,8 @@ import {
   readSpaceStatusSummaryUseCase,
 } from "../../application/space-status-service";
 import {
+  type ApplyGitHubIssueObservationInput,
+  type ApplyGitHubIssueObservationResult,
   type CreateSpaceTaskContext,
   SpaceTaskService,
 } from "../../application/space-task-service";
@@ -596,6 +598,7 @@ import {
   readSpaceDispatchTrace as readSpaceDispatchTraceFromRepo,
   type SpaceDispatchLedgerStatus,
 } from "../../infrastructure/d1/space-dispatch-read-repo";
+import { projectSpaceTaskGitHubIssueLinks } from "../../infrastructure/d1/space-task-github-issue-link-repo";
 import {
   clearDispatchOutboxPoisonFailure,
   createDispatchOutboxRecord,
@@ -6951,6 +6954,7 @@ export class Space extends DurableObject<CoreBindings> {
             if (receipt.applied) {
               await this.broadcastSpaceTasksChanged("space.task.created");
             }
+            await this.projectSpaceTaskGitHubIssueLinks(receipt.task, []);
             return receipt;
           }),
       }
@@ -6977,6 +6981,34 @@ export class Space extends DurableObject<CoreBindings> {
       }
     );
     return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcApplyGitHubIssueObservation(
+    input: ApplyGitHubIssueObservationInput
+  ): Promise<ApplyGitHubIssueObservationResult> {
+    this.applySpaceRef(input.spaceId);
+    let previousItems: SpaceTask["externalWorkItems"] = [];
+    try {
+      previousItems = this.spaceTaskService.read(input.taskId).task
+        .externalWorkItems;
+    } catch (error) {
+      if (
+        !(error instanceof SpaceTaskWorkflowError) ||
+        error.code !== "space_task.not_found"
+      ) {
+        throw error;
+      }
+    }
+    const result = this.spaceTaskService.applyGitHubIssueObservation(input);
+    if (result.task && (result.observed || result.canceled)) {
+      await this.broadcastSpaceTasksChanged(
+        result.canceled
+          ? "space.task.cancel"
+          : "space.task.observe_external_work_item"
+      );
+      await this.projectSpaceTaskGitHubIssueLinks(result.task, previousItems);
+    }
+    return result;
   }
 
   async rpcFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse> {
@@ -7016,6 +7048,8 @@ export class Space extends DurableObject<CoreBindings> {
     context: CoreRpcContextInput,
     taskContext: SpaceTaskMutationContext
   ): Promise<SpaceTaskMutationReceipt> {
+    const previousItems = this.spaceTaskService.read(input.taskId).task
+      .externalWorkItems;
     const receipt = this.spaceTaskService.mutate(
       input.taskId,
       input.body,
@@ -7024,6 +7058,7 @@ export class Space extends DurableObject<CoreBindings> {
     if (receipt.applied) {
       await this.broadcastSpaceTasksChanged(`space.task.${input.body.action}`);
     }
+    await this.projectSpaceTaskGitHubIssueLinks(receipt.task, previousItems);
     await this.requestTaskExecutionStopAfterCancellation({
       context,
       request: input,
@@ -7309,6 +7344,33 @@ export class Space extends DurableObject<CoreBindings> {
           : null;
       },
     };
+  }
+
+  private async projectSpaceTaskGitHubIssueLinks(
+    task: SpaceTask,
+    previousItems: SpaceTask["externalWorkItems"]
+  ): Promise<void> {
+    const db = projectionsDb(this.bindings);
+    const organizationId = this.readSpaceMetaRecord()?.organizationId?.trim();
+    if (!(db && organizationId)) {
+      return;
+    }
+    try {
+      await projectSpaceTaskGitHubIssueLinks({
+        db,
+        nowMs: Date.now(),
+        organizationId,
+        previousItems,
+        spaceId: this.spaceId,
+        task,
+      });
+    } catch (error) {
+      console.warn("[core.space.task_github_issue_link_projection_failed]", {
+        error: error instanceof Error ? error.message : String(error),
+        spaceId: this.spaceId,
+        taskId: task.taskId,
+      });
+    }
   }
 
   private buildSpaceTaskCreateContext(

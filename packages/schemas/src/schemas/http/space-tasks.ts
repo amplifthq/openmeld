@@ -103,6 +103,19 @@ export function formatSpaceTaskGitHubIssueLabel(item: {
   return `${item.owner}/${item.repo}#${item.number}`;
 }
 
+export function spaceTaskGitHubIssueOperationId(
+  kind: "attach" | "cancel" | "create" | "observe-closed" | "observe-open",
+  identity: {
+    number: number;
+    owner: string;
+    repo: string;
+  },
+  taskId?: string
+): string {
+  const base = `github-issue-${kind}:${identity.owner.toLowerCase()}:${identity.repo.toLowerCase()}:${identity.number}`;
+  return taskId ? `${base}:${taskId}` : base;
+}
+
 export function describeLinkedGitHubIssueClosePrompt(task: {
   externalWorkItems: ReadonlyArray<{
     lastObservedState: "open" | "closed" | null;

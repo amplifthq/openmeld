@@ -112,10 +112,19 @@ visible transition or Agent Wake.
 
 Linked GitHub issues are references on the Task document. GitHub remains the
 only writer of issue state. `lastObservedState` is a Task-owned observation
-from an authorized GitHub tool result, not a second issue store and not
-webhook truth. Remote Agent may create or cancel Tasks after a GitHub tool
-succeeds; it does not write Task rows itself and does not PATCH GitHub when a
-Task closes.
+from an authorized GitHub tool result or a verified GitHub App webhook
+delivery, not a second issue store. Remote Agent may create or cancel Tasks
+after a GitHub tool succeeds; it does not write Task rows itself and does not
+PATCH GitHub when a Task closes.
+
+`space_task_github_issue_links` is a Core D1 query projection written after
+the Space Durable Object commits a Task with GitHub `externalWorkItems`. It
+is not Task truth and must not be used as a second Task writer. Detached
+links remain rows with `detached_at_ms` set so webhook fan-out can skip them.
+`github_app_webhook_deliveries` is the Core delivery-id ledger for GitHub App
+webhook processing on the existing `OPENMELD_DAEMON_DISPATCH_QUEUE`. Duplicate
+`X-GitHub-Delivery` ids are ignored after a successful claim. Missing link
+rows mean no Space is scanned. Webhook callbacks grant no execution authority.
 
 ## Space message previews and slow Web experiences
 

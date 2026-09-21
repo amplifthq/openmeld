@@ -205,6 +205,8 @@ import type {
   GetSpaceWakeTraceWaterfallResponse,
   GitHubAppInstallationStartResponse,
   GitHubAppInstallationVerificationResponse,
+  GitHubAppWebhookVerificationInput,
+  GitHubAppWebhookVerificationResponse,
   ImportOrganizationSkillFromGitHubResponse,
   ImportOrganizationSkillFromGitHubRpcInput,
   InboxFeedResponse,
@@ -1092,6 +1094,7 @@ import {
 import { rpcSearchMessages } from "./search/message-search";
 import { emitCoreCloudflareRuntimeEvidence } from "./shared/observability/cloudflare-runtime-evidence";
 import { handleCoreQueueBatch } from "./shared/queue/core-queue-router";
+import { verifyGitHubAppWebhook } from "./space/application/github-app-webhook-service";
 import type { SpaceBootstrapWithTiming } from "./space/application/space-bootstrap-timing";
 import { Space } from "./space/transport/do/space";
 import {
@@ -3153,6 +3156,15 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       env: this.env,
       input,
       waitUntil: (promise) => this.ctx.waitUntil(promise),
+    });
+  }
+
+  verifyGitHubAppWebhook(
+    input: GitHubAppWebhookVerificationInput
+  ): Promise<GitHubAppWebhookVerificationResponse> {
+    return verifyGitHubAppWebhook({
+      env: this.env,
+      input,
     });
   }
 
