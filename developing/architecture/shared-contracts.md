@@ -2619,7 +2619,18 @@ revision, ignoring untrusted supplied geometry.
 
 **Contract Impact Audit — image geometry (#1200).** The producer is Core's Space
 revision owner. Consumers include Web, API client response parsers, Gateway,
-CLI, Service execution/result readers, and hosted/remote Agent file contexts.
+CLI and Service execution/result readers. Remote Agent does not consume display
+geometry. Core projects it out of Remote Agent file-tool and Space-context RPC
+responses, including nested revisions and message file references, while
+preserving original bytes and canonical Space records. The private native-file
+write RPC applies the same projection; Gateway-facing responses retain geometry.
+Origin capability negotiation remains independent.
+
+Native delivery already resolves Space files into explicit original-byte
+attachments before freezing submit-turn requests. Those attachment descriptors
+contain identity, MIME type, object key and byte size, not display geometry.
+The frozen request, execution-recovery copy and replay retain that compatible
+shape. No rejection-triggered fallback or new capability negotiation is needed.
 The optional field is backward-compatible for new readers of old data, but old
 strict readers can reject new responses and signals. Therefore the CLI command
 and Service compatibility identities are both advanced to
@@ -2628,9 +2639,13 @@ and Service compatibility identities are both advanced to
 These markers flow through the existing local-component compatibility and
 execution-admission machinery; they do not assert that a release was published.
 
-Rollout is receiver-first: distribute compatible CLI/Service and hosted Agent
-readers before enabling the new Core producer and matching execution epoch;
-deploy the matching Web reader with the producer. Incompatible execution remains
+Rollout is receiver-first for the actual strict readers: deploy compatible Web
+and Gateway readers, then publish compatible CLI/Service before enabling the
+new Core producer and matching execution epoch. The signed CLI release owns
+that Core projection, so Web and Gateway must precede the CLI stage. Remote
+Agent has no pre-Core geometry dependency after the wire projection. The private
+evidence RPC contract below still requires Core before new Remote Agent callers.
+Incompatible execution remains
 fenced by existing admission. A rollback stops new production first and retains
 readers that can parse already persisted optional geometry; dropping the nullable
 column or rolling readers back ahead of stored data is not a safe rollback.

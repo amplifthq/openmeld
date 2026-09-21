@@ -7,6 +7,7 @@ import type {
   PrepareSpaceFileWriteResponse,
 } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CenterAgentRpcEntrypoint, GatewayRpcEntrypoint } from "../src/index";
 import type { CoreBindings } from "../src/lib/bindings";
 import { createCoreRpcHttpError } from "../src/rpc/errors";
 import {
@@ -44,6 +45,7 @@ const ACTOR = {
   ownerUserId: "owner-files-test",
 };
 const REVISION = {
+  imageDimensions: { width: 300, height: 900 },
   id: REVISION_ID,
   fileId: FILE_ID,
   revision: 1,
@@ -162,6 +164,34 @@ function makeEnv(input?: {
 }
 
 describe("Core Space file content RPC", () => {
+  it("preserves geometry for Gateway callers while Remote Agent receives the pre-geometry revision", async () => {
+    const { env } = makeEnv({ committedFile: FILE });
+    const request = {
+      bytes: Uint8Array.from(BYTES).buffer,
+      context: CONTEXT,
+      spaceId: SPACE_ID,
+      write: WRITE,
+    };
+    const gateway = Object.create(
+      GatewayRpcEntrypoint.prototype
+    ) as GatewayRpcEntrypoint;
+    const remote = Object.create(
+      CenterAgentRpcEntrypoint.prototype
+    ) as CenterAgentRpcEntrypoint;
+    Reflect.set(gateway, "env", env);
+    Reflect.set(remote, "env", env);
+    const visible = await gateway.writeSpaceFileContent(request);
+    const wire = await remote.writeSpaceFileContent(request);
+    expect(visible.latestRevision.imageDimensions).toEqual(
+      REVISION.imageDimensions
+    );
+    expect(wire.latestRevision).not.toHaveProperty("imageDimensions");
+    expect(FILE.latestRevision.imageDimensions).toEqual({
+      width: 300,
+      height: 900,
+    });
+  });
+
   it("prepares metadata, stores immutable bytes, and commits one revision", async () => {
     const { bucket, env, stub } = makeEnv();
 

@@ -7432,7 +7432,7 @@ describe("organization Core RPC", () => {
     );
   });
 
-  it("strips origin from a Remote Agent's Space Files response unless it declares the origin capability", async () => {
+  it("projects Remote Agent file responses without display geometry and negotiates origin independently", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
@@ -7463,6 +7463,7 @@ describe("organization Core RPC", () => {
       id: "file-1",
       kind: "file" as const,
       latestRevision: {
+        imageDimensions: { width: 300, height: 900 },
         createdAt: "2026-08-23T00:00:00.000Z",
         createdBy: {
           displayName: "Ava",
@@ -7524,6 +7525,12 @@ describe("organization Core RPC", () => {
     expect(current).toMatchObject({
       entries: [{ origin: "artifact" }],
       origin: "artifact",
+    });
+    expect(JSON.stringify(legacy)).not.toContain("imageDimensions");
+    expect(JSON.stringify(current)).not.toContain("imageDimensions");
+    expect(originBearingFile.latestRevision.imageDimensions).toEqual({
+      width: 300,
+      height: 900,
     });
   });
 

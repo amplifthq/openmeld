@@ -533,6 +533,7 @@ import {
   handleCenterAgentSlackTeammateInvitations,
   handleSlackWelcomeInteraction,
 } from "./remote-agent/application/slack-welcome-interaction-service";
+import { withRemoteAgentSpaceFileWire } from "./remote-agent/application/space-file-wire";
 import { submitRemoteAgentStreamDelta } from "./remote-agent/application/stream-delta-service";
 import { submitRemoteAgentStreamPart } from "./remote-agent/application/stream-part-service";
 import {
@@ -3404,45 +3405,55 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   centerAgentReadSpaceContext(
     input: CenterAgentReadSpaceContextInput
   ): Promise<CenterAgentReadSpaceContextResponse> {
-    return withSpaceAddressingRpcOutput(
-      rpcCenterAgentReadSpaceContext(this.env, input),
-      resolveCenterAgentSpaceAddressingVersion(input)
+    return withRemoteAgentSpaceFileWire(
+      withSpaceAddressingRpcOutput(
+        rpcCenterAgentReadSpaceContext(this.env, input),
+        resolveCenterAgentSpaceAddressingVersion(input)
+      )
     );
   }
 
   centerAgentListSpaceFiles(
     input: CenterAgentListSpaceFilesRpcInput
   ): Promise<CenterAgentListSpaceFilesResponse> {
-    return withSpaceFilesOriginRpcOutput(
-      rpcCenterAgentListSpaceFiles(this.env, input),
-      input.requestedOriginModel === SPACE_FILES_ORIGIN_CAPABILITY_TOKEN
+    return withRemoteAgentSpaceFileWire(
+      withSpaceFilesOriginRpcOutput(
+        rpcCenterAgentListSpaceFiles(this.env, input),
+        input.requestedOriginModel === SPACE_FILES_ORIGIN_CAPABILITY_TOKEN
+      )
     );
   }
 
   centerAgentReadSpaceFile(
     input: CenterAgentReadSpaceFileRpcInput
   ): Promise<CenterAgentReadSpaceFileResponse> {
-    return withSpaceFilesOriginRpcOutput(
-      rpcCenterAgentReadSpaceFile(this.env, input),
-      input.requestedOriginModel === SPACE_FILES_ORIGIN_CAPABILITY_TOKEN
+    return withRemoteAgentSpaceFileWire(
+      withSpaceFilesOriginRpcOutput(
+        rpcCenterAgentReadSpaceFile(this.env, input),
+        input.requestedOriginModel === SPACE_FILES_ORIGIN_CAPABILITY_TOKEN
+      )
     );
   }
 
   centerAgentSaveSpaceFile(
     input: CenterAgentSaveSpaceFileRpcInput
   ): Promise<CenterAgentSaveSpaceFileResponse> {
-    return withSpaceFilesOriginRpcOutput(
-      rpcCenterAgentSaveSpaceFile(this.env, input),
-      input.requestedOriginModel === SPACE_FILES_ORIGIN_CAPABILITY_TOKEN
+    return withRemoteAgentSpaceFileWire(
+      withSpaceFilesOriginRpcOutput(
+        rpcCenterAgentSaveSpaceFile(this.env, input),
+        input.requestedOriginModel === SPACE_FILES_ORIGIN_CAPABILITY_TOKEN
+      )
     );
   }
 
   centerAgentManageSpaceFiles(
     input: CenterAgentManageSpaceFilesRpcInput
   ): Promise<CenterAgentManageSpaceFilesResponse> {
-    return withSpaceFilesOriginRpcOutput(
-      rpcCenterAgentManageSpaceFiles(this.env, input),
-      input.requestedOriginModel === SPACE_FILES_ORIGIN_CAPABILITY_TOKEN
+    return withRemoteAgentSpaceFileWire(
+      withSpaceFilesOriginRpcOutput(
+        rpcCenterAgentManageSpaceFiles(this.env, input),
+        input.requestedOriginModel === SPACE_FILES_ORIGIN_CAPABILITY_TOKEN
+      )
     );
   }
 
@@ -3455,9 +3466,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   centerAgentPostSpaceMessage(
     input: CenterAgentPostSpaceMessageInput
   ): Promise<CenterAgentPostSpaceMessageResponse> {
-    return withSpaceAddressingRpcOutput(
-      rpcCenterAgentPostSpaceMessage(this.env, input),
-      resolveCenterAgentSpaceAddressingVersion(input)
+    return withRemoteAgentSpaceFileWire(
+      withSpaceAddressingRpcOutput(
+        rpcCenterAgentPostSpaceMessage(this.env, input),
+        resolveCenterAgentSpaceAddressingVersion(input)
+      )
     );
   }
 
@@ -3506,14 +3519,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   centerAgentWakeAgentProfilesInSpace(
     input: CenterAgentWakeAgentProfilesInSpaceInput
   ): Promise<CenterAgentWakeAgentProfilesInSpaceResponse> {
-    return withSpaceAddressingRpcOutput(
-      rpcCenterAgentWakeAgentProfilesInSpace(this.env, input),
-      resolveCenterAgentSpaceAddressingVersion(input)
+    return withRemoteAgentSpaceFileWire(
+      withSpaceAddressingRpcOutput(
+        rpcCenterAgentWakeAgentProfilesInSpace(this.env, input),
+        resolveCenterAgentSpaceAddressingVersion(input)
+      )
     );
   }
 
   personalRemoteAgentSpaceTool(input: unknown) {
-    return runPersonalRemoteAgentSpaceTool(this.env, input);
+    return withRemoteAgentSpaceFileWire(
+      runPersonalRemoteAgentSpaceTool(this.env, input)
+    );
   }
 
   centerAgentListAgentTasks(
@@ -5505,6 +5522,15 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 }
 
 export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
+  writeSpaceFileContent(
+    input: WriteSpaceFileContentRpcInput,
+    spaceFilesOriginVersion?: string
+  ): Promise<SpaceFileDescriptor> {
+    return withRemoteAgentSpaceFileWire(
+      super.writeSpaceFileContent(input, spaceFilesOriginVersion)
+    );
+  }
+
   centerAgentInviteSlackTeammates(
     input: CenterAgentInviteSlackTeammatesRpcInput
   ): Promise<CenterAgentInviteSlackTeammatesRpcResponse> {
