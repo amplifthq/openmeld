@@ -12,6 +12,7 @@ describe("LocalAgentsOnboardingDemo", () => {
 			"claude-code",
 			"grok-build",
 			"opencode",
+			"antigravity",
 			"cursor",
 		].map((agentId) => within(grid).getByTestId(`local-agent-logo-${agentId}`));
 

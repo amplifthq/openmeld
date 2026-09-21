@@ -3,6 +3,7 @@ import { BUILTIN_AGENT_CONTROLLER_DISPLAY_ORDER } from "@openmeld/schemas";
 export const LOCAL_AGENTS_GUIDE_PATH = "/guides/local-agents";
 
 export type LocalAgentInstallGuideId =
+	| "antigravity"
 	| "claude-code"
 	| "codex"
 	| "cursor"
@@ -21,6 +22,21 @@ export type LocalAgentInstallGuide = {
 };
 
 export const LOCAL_AGENT_INSTALL_GUIDES = {
+	antigravity: {
+		agentId: "antigravity",
+		displayName: "Antigravity",
+		installSteps: [
+			"Install Antigravity CLI with the official installer: curl -fsSL https://antigravity.google/cli/install.sh | bash",
+			"Open a project folder in Terminal and run agy.",
+			"Finish signing in with your Google account, then start one conversation.",
+		],
+		officialDocsUrl: "https://antigravity.google/docs/cli-install?hl=en",
+		officialInstallUrl: "https://antigravity.google/docs/cli-install?hl=en",
+		postInstallNote:
+			"OpenMeld verifies Antigravity by finding the agy executable, checking its version, and reading sign-in and quota status. OpenMeld does not run a task while checking your account.",
+		summary: "Google's terminal coding agent for local development work.",
+		verifyCommand: "agy --version",
+	},
 	"claude-code": {
 		agentId: "claude-code",
 		displayName: "Claude Code",
