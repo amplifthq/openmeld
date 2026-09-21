@@ -6,6 +6,10 @@
   in native OS surfaces without merging their identities or storage.
 - Read this when: Changing Desktop packaging metadata, native app names, or
   worktree application paths.
+- Update this when: Changing the channel-name contract or the metadata/native
+  surfaces that must consume it.
+- Do not use this for: Notification delivery policy, production release
+  authorization, or automated cleanup of local OS registrations.
 - Source of truth: `scripts/desktop/app-name.ts` maps the already selected
   application ID to its name. [Desktop Client](desktop.md) continues to own
   platform responsibilities and production update compatibility.
