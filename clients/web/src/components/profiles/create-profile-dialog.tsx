@@ -67,6 +67,7 @@ import {
 	useState,
 } from "react";
 import { toast } from "sonner";
+import { isLocalAgentControlStillRunningError } from "#/components/agents/agents-page-formatters";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { AgentCreationComputerSetup } from "#/components/connect/agent-creation-computer-setup";
 import { canConfigureLocalComputer } from "#/desktop/platform";
@@ -2474,6 +2475,9 @@ async function enableLocalAgentWithOutcomeConfirmation(input: {
 		});
 		return;
 	} catch (error) {
+		if (!isLocalAgentControlStillRunningError(error)) {
+			throw error;
+		}
 		for (const delayMs of LOCAL_AGENT_ENABLE_CONFIRMATION_DELAYS_MS) {
 			if (delayMs > 0) {
 				await new Promise<void>((resolve) => {

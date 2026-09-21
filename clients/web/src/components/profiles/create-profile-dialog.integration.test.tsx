@@ -2416,9 +2416,11 @@ describe("CreateProfileDialog", () => {
 	});
 
 	it("accepts an enabled local agent after a slow control report refresh", async () => {
-		const setLocalAgentEnabled = vi
-			.fn()
-			.mockRejectedValue(new Error("Local agent control timed out."));
+		const setLocalAgentEnabled = vi.fn().mockRejectedValue({
+			code: "local_agent_control.timeout",
+			message: "Local agent control timed out.",
+			status: 504,
+		});
 		const recovery = buildFakeRecovery([
 			buildCatalogEntry({
 				agentId: "antigravity",
@@ -2486,6 +2488,84 @@ describe("CreateProfileDialog", () => {
 			expect(refetch).toHaveBeenCalledTimes(9);
 			expect(enableSwitch.hasAttribute("data-unchecked")).toBe(true);
 			expect(screen.queryByRole("alert")).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("reports an explicit enable rejection without polling", async () => {
+		const setLocalAgentEnabled = vi
+			.fn()
+			.mockRejectedValue(new Error("You don’t have permission to do that."));
+		const recovery = buildFakeRecovery([
+			buildCatalogEntry({
+				agentId: "antigravity",
+				detected: true,
+				enabled: false,
+				launchStatus: "disabled",
+				selectable: false,
+			}),
+		]);
+		const refetch = vi.fn();
+		Object.assign(recovery, { setLocalAgentEnabled });
+		Object.assign(recovery.localRuntimesQuery, { refetch });
+		renderCurrentCreateProfileDialog({ recovery });
+
+		fireEvent.click(await screen.findByRole("radio", { name: "Antigravity" }));
+		fireEvent.click(
+			await screen.findByRole("switch", { name: "Enable Antigravity" })
+		);
+
+		expect(
+			(
+				await screen.findByText("You don’t have permission to do that.")
+			).getAttribute("role")
+		).toBe("alert");
+		expect(refetch).not.toHaveBeenCalled();
+	});
+
+	it("keeps a slow unconfirmed enable change as still applying", async () => {
+		const controlTimeout = {
+			code: "local_agent_control.timeout",
+			message: "Local agent control timed out.",
+			status: 504,
+		};
+		const setLocalAgentEnabled = vi.fn().mockRejectedValue(controlTimeout);
+		const recovery = buildFakeRecovery([
+			buildCatalogEntry({
+				agentId: "antigravity",
+				detected: true,
+				enabled: false,
+				launchStatus: "disabled",
+				selectable: false,
+			}),
+		]);
+		const refetch = vi
+			.fn()
+			.mockResolvedValue({ data: recovery.localRuntimesQuery.data });
+		Object.assign(recovery, { setLocalAgentEnabled });
+		Object.assign(recovery.localRuntimesQuery, { refetch });
+		renderCurrentCreateProfileDialog({ recovery });
+
+		fireEvent.click(await screen.findByRole("radio", { name: "Antigravity" }));
+		const enableSwitch = await screen.findByRole("switch", {
+			name: "Enable Antigravity",
+		});
+		vi.useFakeTimers();
+		try {
+			fireEvent.click(enableSwitch);
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(32_000);
+			});
+
+			expect(screen.queryByRole("alert")).toBeNull();
+			expect(
+				screen
+					.getByText(
+						"OpenMeld is still applying this change. Check again in a moment."
+					)
+					.tagName.toLowerCase()
+			).toBe("output");
 		} finally {
 			vi.useRealTimers();
 		}

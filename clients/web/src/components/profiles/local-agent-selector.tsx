@@ -12,6 +12,10 @@ import { Switch } from "@openmeld/ui/components/switch";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CheckIcon, RobotIcon } from "@phosphor-icons/react";
 import { type ReactNode, useId, useState } from "react";
+import {
+	formatMutationError,
+	isLocalAgentControlStillRunningError,
+} from "#/components/agents/agents-page-formatters";
 import { ComputerSetupChoiceCard } from "#/components/connect/computer-setup-choice-card";
 import { DesktopAwareLink } from "#/desktop/desktop-aware-link";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
@@ -196,6 +200,7 @@ function LocalAgentSelectionStatePanel(input: {
 }) {
 	const [enableRequested, setEnableRequested] = useState(false);
 	const [enableError, setEnableError] = useState<string | null>(null);
+	const [enableStatus, setEnableStatus] = useState<string | null>(null);
 	const state = input.state;
 	const className =
 		"grid min-h-40 content-center gap-4 rounded-md border border-border/70 border-dashed bg-card/25 px-6 py-7";
@@ -245,15 +250,25 @@ function LocalAgentSelectionStatePanel(input: {
 							}
 							setEnableRequested(true);
 							setEnableError(null);
+							setEnableStatus(null);
 							state
 								.onEnable()
 								.then(() => {
 									setEnableRequested(false);
 								})
-								.catch(() => {
+								.catch((error: unknown) => {
 									setEnableRequested(false);
+									if (isLocalAgentControlStillRunningError(error)) {
+										setEnableStatus(
+											"OpenMeld is still applying this change. Check again in a moment."
+										);
+										return;
+									}
 									setEnableError(
-										`Couldn’t turn on ${state.displayName}. Try again.`
+										formatMutationError(
+											error,
+											`Couldn’t turn on ${state.displayName}. Try again.`
+										)
 									);
 								});
 						}}
@@ -263,6 +278,11 @@ function LocalAgentSelectionStatePanel(input: {
 					<p className="text-destructive text-xs" role="alert">
 						{enableError}
 					</p>
+				) : null}
+				{enableStatus ? (
+					<output className="text-muted-foreground text-xs">
+						{enableStatus}
+					</output>
 				) : null}
 				{!state.canEnable && state.manageHref ? (
 					<DesktopAwareLink
