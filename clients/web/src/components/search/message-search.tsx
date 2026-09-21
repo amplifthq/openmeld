@@ -278,6 +278,7 @@ function MessageSearchContents(input: {
 				>
 					{showInitialState && (
 						<AppEmptyState
+							className="h-full min-h-0"
 							description="Results will appear here."
 							icon={<MagnifyingGlassIcon />}
 							title="Start typing to search"
@@ -329,6 +330,7 @@ function MessageSearchContents(input: {
 					</div>
 					{showNoResults && (
 						<AppEmptyState
+							className="h-full min-h-0"
 							description="Try another search."
 							icon={<MagnifyingGlassIcon />}
 							title={`No messages found for “${query}”`}
