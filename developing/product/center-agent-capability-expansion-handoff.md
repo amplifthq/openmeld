@@ -86,7 +86,8 @@ Implementation worktree: `/Users/felix/Desktop/work/.webcodex-managed-worktrees/
 | 2 | `96c2d6ae7` | Bounded Activity overview and explicit live Inventory coverage/paging tests. |
 | 3 | `151a7078f` | Retained historical and exact Routine diagnostics, frozen destination evidence, linked delivery/result ownership and sanitized runtime evidence. |
 | 4 | `5c781dcd1` | Explicit retained-memory lookup, complete bounded provenance, active-subject reads without writes, current member/source/audience authorization. |
-| 5 | This follow-up changeset | Production frozen discovery/describe/Code Mode acceptance, converted-DM disclosure regression, owner docs, draft Changelog and integration checks. |
+| 5 | `cb0e881c3` | Production frozen discovery/describe/Code Mode acceptance, current-audience disclosure checks, owner docs, draft Changelog and integration checks. |
+| Review follow-up | `268ef2983`, `01fedb347` | Discard provider results when the retained subject is deleted, disabled, or changes during the read; cover member deletion and organization opt-out. |
 
 The four capability fixture suites live in `services/remote-agent/tests/center-agent-{audit-evidence,activity-overview,routine-evidence,memory-search}.test.ts`. Their positive cases now use production `getRemoteAgentFlueTools`, its actual frozen capability search/describe contract, the actual Code Mode SDK and normal result envelopes, then real Core authorization and SQLite-backed owning repositories. The external JavaScript executor and external provider responses are controlled fixtures, not live vendor verification. The actual Space authorization/message-reader boundary is exercised separately under Workerd in `services/core/tests/center-agent-evidence-source-access.integration.test.ts`, including a real posted message, a missing message, and another member's private source.
 
@@ -103,6 +104,49 @@ The changed producer/consumer pairs are private Core Center Agent RPC receivers 
 The existing suites `center-agent-delegation-service.write.test.ts`, `center-agent-wake-publication-service.write.test.ts`, `slack-search-client.test.ts`, `slack-search-presentation.test.ts`, and `remote-agent-slack-signal-service.test.ts` passed together (127 tests). These cover controlled exact-permalink hydration and escaped presentation, event-bound Slack search authority, persisted child subscriptions/completion mode, and Wake publication/continuation ownership. They do not establish that a real user can open an old Slack link in the desktop UI, obtain a fresh live Slack grant in another turn, or complete the entire live DM-to-Space workflow. Those exact live steps remain for the separately requested Codex smoke; no grant lifetime was extended and no new delegation system was created.
 
 ### Final validation boundary
+
+The September 21 takeover reproduced the Core type error in
+`github-app-webhook-service.test.ts` on current `main` as well as this branch.
+`fb6d1a5d9` types the queue spy from the vendor `Queue.send` signature. It also
+found and corrected a new Space storage access typo. Core and Remote Agent full
+type checks passed. The four capability suites passed (11 audit, 2 Activity,
+7 Routine, and 16 memory cases), as did the two webhook tests and the real
+Workerd Space evidence integration test. The latter proves authorized private
+message reads, missing-message denial, another member's private-source denial,
+and the owning Space's rejection of Center Agent DM conversion. Simulated
+audience changes remain a separate fail-closed contract test; a successful live
+Center Agent DM-to-shared conversion is not claimed.
+
+Independent read-only review found a retained-subject deletion/opt-out race.
+The regression failed before the fix; the reader now checks the existing
+subject ID and update timestamp again after provider completion. No second
+memory store, capture path, or execution authority was introduced.
+
+#### Real user-entry smoke
+
+At implementation commit `01fedb347`, normal Web login and Center Agent chat
+were exercised in isolated lane `wt-4868c1e446d0`, with disposable Northstar
+data. Chrome was tried first; repeated automation timeouts required the in-app
+browser for the remaining steps. No production tasks were replayed.
+
+- Audit reading returned two actual local audit entries. Activity returned an
+  honest empty current overview with explicit coverage limits; populated and
+  oversized Activity results have fixture coverage only.
+- Historical Routine diagnostics selected failed Run
+  `282982cb-02ed-422b-957c-daf2fae1d5f1` instead of its newer skipped Run,
+  separating Run, workflow, and absent publication evidence. The paused
+  Routine and historical rows were prepared in disposable local storage; the
+  acceptance step was the normal chat request and visible answer, not SQL.
+- A fictional Project Lantern decision was entered in one private chat, then
+  found with retained-memory search from a newly created private chat. A
+  follow-up read the original source message and verified both Friday and
+  `$42 per seat` against its untruncated text. Source Space and Signal IDs were
+  returned. A clickable source permalink was not returned, so link navigation
+  is not verified. This is readable-source evidence, not exhaustive history or
+  current-decision verification.
+
+The local stack and Web started for this smoke were stopped afterward. No other
+worktree's development environment was stopped.
 
 The repository-wide `check:affected` attempt was stopped while waiting for the
 machine's constrained-memory lease; it had not executed the checks. Only this
