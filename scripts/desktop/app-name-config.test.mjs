@@ -112,6 +112,7 @@ for (const laneId of ["wt-7574cf217e3a", "wt-012345abcdef"]) {
         authOrigin: `http://${laneId}.localhost:3201`,
         gatewayOrigin: `http://${laneId}.localhost:3202`,
       }),
+      OPENMELD_DESKTOP_PRIVATE_PACKAGE: "1",
     });
     assert.deepEqual(nameMetadata(config), {
       appId: `sh.openmeld.desktop.dev.${laneId}.p3200`,
