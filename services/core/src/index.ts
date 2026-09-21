@@ -72,6 +72,7 @@ import type {
   CenterAgentPostSpaceMessageResponse,
   CenterAgentPrepareRemoveProjectToolResponse,
   CenterAgentPrepareRemoveProjectToolRpcInput,
+  CenterAgentReadAuditJournalRpcInput,
   CenterAgentReadConnectorActionOperationResponse,
   CenterAgentReadDispatchHistoryResponse,
   CenterAgentReadMemberComputersResponse,
@@ -789,6 +790,7 @@ import {
   rpcCenterAgentPostSlackThreadMessage,
   rpcCenterAgentPostSpaceMessage,
   rpcCenterAgentReadAgentActivity,
+  rpcCenterAgentReadAuditJournal,
   rpcCenterAgentReadChangelog,
   rpcCenterAgentReadConnectorActionOperation,
   rpcCenterAgentReadDispatchHistory,
@@ -5561,6 +5563,10 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     return rpcCenterAgentReadChangelog(this.env, input);
   }
 
+  centerAgentReadAuditJournal(input: CenterAgentReadAuditJournalRpcInput) {
+    return rpcCenterAgentReadAuditJournal(this.env, input);
+  }
+
   centerAgentReadTurnDiagnostics(
     input: CenterAgentReadTurnDiagnosticsInput
   ): Promise<CenterAgentReadTurnDiagnosticsResponse> {
@@ -5676,6 +5682,8 @@ class CoreEntrypoint extends CenterAgentRpcEntrypoint {
   }
 }
 
+// biome-ignore lint/performance/noBarrelFile: Wrangler requires the Durable Object class export.
+export { LarkChannelConnector } from "./remote-agent/transport/lark/lark-channel-connector";
 export {
   app,
   PrepareSessionHub,
@@ -5683,8 +5691,6 @@ export {
   RuntimeTransportHub,
   Space,
 };
-// biome-ignore lint/performance/noBarrelFile: Wrangler requires the Durable Object class export.
-export { LarkChannelConnector } from "./remote-agent/transport/lark/lark-channel-connector";
 export default CoreEntrypoint;
 
 import type {

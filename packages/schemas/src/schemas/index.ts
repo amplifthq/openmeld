@@ -15,6 +15,10 @@ export {
   serviceConnectionIncidentsResponseSchema,
 } from "./daemon/service-connection-evidence";
 export {
+  centerAgentReadAuditJournalResponseSchema,
+  centerAgentReadAuditJournalRpcInputSchema,
+} from "./http/center-agent-evidence";
+export {
   LOCAL_AGENT_REASONING_MAX_CHARS,
   localAgentReasoningPreferencesRpcSchema,
   localAgentReasoningPreferencesSchema,

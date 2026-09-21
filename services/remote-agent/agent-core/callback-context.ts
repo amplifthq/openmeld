@@ -60,6 +60,8 @@ import type {
   CenterAgentPauseRoutineToolRpcInput,
   CenterAgentPrepareRemoveProjectToolResponse,
   CenterAgentPrepareRemoveProjectToolRpcInput,
+  CenterAgentReadAuditJournalResponse,
+  CenterAgentReadAuditJournalRpcInput,
   CenterAgentReadChangelogToolRpcInput,
   CenterAgentReadConnectorActionOperationBody,
   CenterAgentReadConnectorActionOperationResponse,
@@ -507,6 +509,9 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentManageSpaceFiles?(
     input: CenterAgentManageSpaceFilesRpcInput
   ): Promise<CenterAgentManageSpaceFilesResponse>;
+  centerAgentReadAuditJournal?(
+    input: CenterAgentReadAuditJournalRpcInput
+  ): Promise<CenterAgentReadAuditJournalResponse>;
   listCenterAgentAuditJournal?(input: unknown): Promise<unknown>;
   centerAgentPostSlackChannelMessage?(input: unknown): Promise<unknown>;
   centerAgentPostSlackFile?(input: unknown): Promise<unknown>;

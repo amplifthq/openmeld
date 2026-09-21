@@ -6084,10 +6084,14 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_respond_to_opportunity",
     },
     {
-      expectedPayload: { actionSet: "v21", limit: 25 },
+      expectedPayload: {
+        actionSet: "v21",
+        limit: 25,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
       input: { limit: 25 },
       response: auditJournalResponse(),
-      rpcName: "listCenterAgentAuditJournal",
+      rpcName: "centerAgentReadAuditJournal",
       toolName: "openmeld_read_center_agent_activity",
     },
     {
@@ -7042,6 +7046,12 @@ function organizationSpaceDirectoryResponse() {
 
 function auditJournalResponse() {
   return {
+    coverage: {
+      kind: "bounded_recent_journal",
+      references: "authorized_space_references_only",
+      contextDetails: "not_included",
+      historicalCompleteness: "not_claimed",
+    },
     entries: [
       {
         action: "create_space",

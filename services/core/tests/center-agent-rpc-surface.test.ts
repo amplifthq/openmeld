@@ -147,6 +147,15 @@ describe("Private Center Agent RPC surface", () => {
     }
   });
 
+  it("keeps member-attributed audit reads on the private Center Agent entrypoint", () => {
+    expect(
+      Object.getOwnPropertyNames(CenterAgentRpcEntrypoint.prototype)
+    ).toContain("centerAgentReadAuditJournal");
+    expect(
+      Object.getOwnPropertyNames(GatewayRpcEntrypoint.prototype)
+    ).not.toContain("centerAgentReadAuditJournal");
+  });
+
   it("keeps the historical Routine entrypoint as a compatibility alias", () => {
     expect(
       Object.getPrototypeOf(CenterAgentRoutineRpcEntrypoint.prototype)

@@ -10,7 +10,6 @@ export type {
   ServiceConnectionIncidentsReadRpcInput,
   ServiceConnectionIncidentsResponse,
 } from "../schemas/daemon/service-connection-evidence";
-
 export type {
   LocalAgentReasoningPreferences,
   LocalAgentReasoningPreferencesRpc,
@@ -20,6 +19,10 @@ export type {
   SpaceMessageMutationBody,
   SpaceMessageMutationResponse,
 } from "../schemas/http/space-message-mutation";
+export type {
+  CenterAgentReadAuditJournalResponse,
+  CenterAgentReadAuditJournalRpcInput,
+} from "./http/center-agent-evidence";
 export type {
   OrganizationMemberPresenceBody,
   OrganizationMemberPresenceResponse,

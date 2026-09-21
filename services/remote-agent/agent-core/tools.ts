@@ -63,6 +63,8 @@ import {
   centerAgentPostSlackFileResponseSchema,
   centerAgentPostSpaceMessageResponseSchema,
   centerAgentPrepareRemoveProjectToolResponseSchema,
+  centerAgentReadAuditJournalResponseSchema,
+  centerAgentReadAuditJournalRpcInputSchema,
   centerAgentReadChannelFileResponseSchema,
   centerAgentReadDispatchHistoryResponseSchema,
   centerAgentReadMemberComputersBodySchema,
@@ -119,7 +121,6 @@ import {
   getAgentProfileCreationApprovalPreferenceResponseSchema,
   inspectExecutionRecoveryResponseSchema,
   listAgentProfileCreationRequestsResponseSchema,
-  listCenterAgentAuditJournalResponseSchema,
   listCenterAgentRoutinesResponseSchema,
   listFeedbackIssuesForOrganizationRequestSchema,
   listFeedbackIssuesForOrganizationResponseSchema,
@@ -1799,7 +1800,7 @@ async function executeManageSpaceTasksTool(input: {
     toolName: "openmeld_manage_space_tasks",
   });
   const space = toolContext.turnEnvelope?.space;
-  if (!space || space.kind !== "space") {
+  if (space?.kind !== "space") {
     throw new Error(
       "Space Tasks are available only in the current shared OpenMeld Space."
     );
@@ -3408,26 +3409,29 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_read_center_agent_activity",
       description:
-        "Read recent Center Agent organization-level actions, including created Spaces, Agent Profile changes, Space membership changes, and Space setting changes. Entries created on behalf of a member include sourceSpaceId when the originating Space is known; use it to match an artifact to the authorization that started it.",
+        "Read a bounded recent journal of Center Agent organization-level actions on behalf of the verified member. This is not complete history or proof that an unlisted action never happened. Resource and sourceSpaceId references are included only for currently authorized OpenMeld Spaces that can be disclosed in this conversation. Other references and private context-manifest details are omitted; null does not establish that a source never existed.",
       input: object({
         limit: optional(pipe(number(), integer(), minValue(1), maxValue(200))),
       }),
       execute: async (payload) => {
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildVerifiedMemberToolContext({
+          missingSpeakerMessage:
+            "Audit reads require a verified human member speaker.",
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_read_center_agent_activity",
         });
-        const rpc = requireCoreRpc(
-          input.coreWorker.listCenterAgentAuditJournal,
-          "listCenterAgentAuditJournal"
-        );
-        return listCenterAgentAuditJournalResponseSchema.parse(
-          await rpc({
-            actionSet: "v21",
-            ...(payload.limit === undefined ? {} : { limit: payload.limit }),
-            context,
-          })
+        return centerAgentReadAuditJournalResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentReadAuditJournal",
+            centerAgentReadAuditJournalRpcInputSchema.parse({
+              actionSet: "v21",
+              ...(payload.limit === undefined ? {} : { limit: payload.limit }),
+              ...toolContext,
+            }),
+            (binding, request) => binding.centerAgentReadAuditJournal?.(request)
+          )
         );
       },
     }),
