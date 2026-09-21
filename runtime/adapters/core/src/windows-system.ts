@@ -30,6 +30,10 @@ export function powerShellEncodedArguments(script: string): string[] {
 }
 
 const FILE_TIME_PATTERN = /^\d{10,20}$/u;
+// A fresh Windows Service can spend more than five seconds starting its first
+// system PowerShell process. Keep the native identity read bounded without
+// rejecting that cold start before the script gets a chance to run.
+const PROCESS_IDENTITY_TIMEOUT_MS = 15_000;
 let currentProcessFileTime: string | undefined;
 
 /** An opened process handle binds the observation to the actual instance, not a reused PID. */
@@ -48,7 +52,7 @@ export function readWindowsProcessStartFileTime(pid: number): string | null {
       {
         encoding: "utf8",
         windowsHide: true,
-        timeout: 5000,
+        timeout: PROCESS_IDENTITY_TIMEOUT_MS,
         maxBuffer: 1024,
         stdio: ["ignore", "pipe", "ignore"],
       }
