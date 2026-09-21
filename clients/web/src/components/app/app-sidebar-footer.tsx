@@ -127,8 +127,10 @@ export function AppSidebarFooter({
 			<AvatarFallback>{name.slice(0, 1)}</AvatarFallback>
 		</Avatar>
 	);
-	const actionClass =
-		"size-7 shrink-0 justify-center p-0 text-sidebar-foreground/60 hover:text-sidebar-foreground focus-visible:text-sidebar-foreground";
+	const actionClass = cn(
+		"shrink-0 justify-center p-0 text-sidebar-foreground/60 hover:text-sidebar-foreground focus-visible:text-sidebar-foreground",
+		iconOnly ? "size-9" : "size-7"
+	);
 	return (
 		<SidebarFooter
 			className={cn(
@@ -141,7 +143,7 @@ export function AppSidebarFooter({
 				aria-label="App utilities"
 				className={cn(
 					"app-sidebar-footer-actions gap-1",
-					iconOnly ? "w-9" : "min-w-0 flex-1 flex-row items-center"
+					iconOnly ? "mx-auto w-9" : "min-w-0 flex-1 flex-row items-center"
 				)}
 			>
 				<SidebarMenuItem className="shrink-0">

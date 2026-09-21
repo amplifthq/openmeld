@@ -41,6 +41,7 @@ import {
   listSpaceDispatchTraceFinalVisibleSignalCandidates,
   MAX_SPACE_GUIDE_LENGTH,
   MAX_SPACE_NAME_LENGTH,
+  messageSearchQuerySchema,
   normalizeListSignalsReadQuerySemantics,
   normalizeSpaceCursorPatch,
   OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS,
@@ -1546,6 +1547,7 @@ describe("http schemas", () => {
           readListSignalsQueryRawValues(new URLSearchParams(query))
         );
       expect(read("q=invoice&limit=30").success).toBe(true);
+      expect(read("q=a&limit=30").success).toBe(true);
       for (const query of [
         "q=invoice&recent=true",
         "q=invoice&aroundSignalId=message",
@@ -1554,6 +1556,19 @@ describe("http schemas", () => {
       ]) {
         expect(read(query).success).toBe(false);
       }
+    });
+
+    it("allows short queries only when search is scoped to one Space", () => {
+      expect(
+        messageSearchQuerySchema.safeParse({ q: "a", spaceId: "space-1" })
+          .success
+      ).toBe(true);
+      expect(messageSearchQuerySchema.safeParse({ q: "ab" }).success).toBe(
+        false
+      );
+      expect(messageSearchQuerySchema.safeParse({ q: "abc" }).success).toBe(
+        true
+      );
     });
     it("reads raw query values from URLSearchParams", () => {
       const params = new URLSearchParams(

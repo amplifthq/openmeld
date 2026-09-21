@@ -126,6 +126,7 @@ import type {
   LedgerPaths,
 } from "../src/local-service/core/types";
 import { loadExecutionHostCatalog } from "../src/local-service/execution-host/catalog";
+import type { ExecutionHostPort } from "../src/local-service/execution-host/port";
 import type { ExecutionHostResources } from "../src/local-service/execution-host/runtime";
 import { createInProcessExecutionHost } from "./helpers/execution-host";
 
@@ -134,6 +135,7 @@ type RunTestDaemonSocketSessionInput = Omit<
   "executionHost" | "localComponentsObservation" | "loadRouteCatalog"
 > &
   Omit<ExecutionHostResources, "initialCatalog"> & {
+    decorateExecutionHost?: (host: ExecutionHostPort) => ExecutionHostPort;
     profileOwnerName: string | null;
     loadRouteCatalog?: () => Promise<ExecutionHostResources["initialCatalog"]>;
   };
@@ -149,6 +151,7 @@ async function runDaemonSocketSession(
     pendingAgentInteractionRegistry,
     localAdapterContainer,
     ledgerPaths,
+    decorateExecutionHost,
     profileOwnerName,
     ...sessionInput
   } = input;
@@ -194,7 +197,7 @@ async function runDaemonSocketSession(
             false
           )),
       localComponentsObservation,
-      executionHost: host.port,
+      executionHost: decorateExecutionHost?.(host.port) ?? host.port,
     });
   } finally {
     localComponentsObservation.dispose();
@@ -1242,6 +1245,298 @@ describe("local service run catalog signal", () => {
 
     socket.close(1000, "shutdown");
     await sessionPromise;
+  });
+
+  it("publishes restored admission promptly when catalog configure finishes during a heartbeat", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(1);
+    let syncRouteCatalog: ((reason: string) => Promise<unknown>) | null = null;
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    syncDaemonRouteCatalogStateMock.mockResolvedValue({
+      skippedProfiles: [],
+      status: "unchanged",
+    });
+
+    const secondConfigureStarted = Promise.withResolvers<void>();
+    const releaseSecondConfigure = Promise.withResolvers<void>();
+    let configureCallCount = 0;
+    let holdNonacceptingHeartbeat = false;
+    const socket = createMockSocket({
+      executionAdmissionConfirmation: true,
+      respondToHeartbeat: (frame) =>
+        !(
+          holdNonacceptingHeartbeat &&
+          frame.payload.acceptingDispatches === false
+        ),
+    });
+    const sessionPromise = runDaemonSocketSession({
+      ...buildKeepaliveSessionInput(socket, [], 60_000),
+      attachRouteCatalogSyncInvoker: (invoker) => {
+        syncRouteCatalog = invoker;
+      },
+      daemonSessionId: "session-catalog-configure-heartbeat-race",
+      decorateExecutionHost: (host) => ({
+        ...host,
+        call: async (method, payload, options) => {
+          if (method === "configureConnection") {
+            configureCallCount += 1;
+            if (configureCallCount === 2) {
+              secondConfigureStarted.resolve();
+              await releaseSecondConfigure.promise;
+            }
+          }
+          return await host.call(method, payload, options);
+        },
+      }),
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    await flushMicrotasks(() => configureCallCount === 1);
+    expect(
+      socket.sentFrames
+        .filter(isHeartbeatFrame)
+        .some((frame) => frame.payload.acceptingDispatches !== false)
+    ).toBe(true);
+
+    const attachedSyncRouteCatalog = syncRouteCatalog as
+      | ((reason: string) => Promise<unknown>)
+      | null;
+    if (!attachedSyncRouteCatalog) {
+      throw new Error("expected syncRouteCatalog to be attached");
+    }
+    holdNonacceptingHeartbeat = true;
+    const syncPromise = attachedSyncRouteCatalog("periodic_catalog_refresh");
+    await flushMicrotasks(() => configureCallCount === 2);
+    await secondConfigureStarted.promise;
+    await vi.advanceTimersByTimeAsync(0);
+
+    const falseHeartbeatIndex = socket.sentFrames.findLastIndex(
+      (frame) =>
+        isHeartbeatFrame(frame) && frame.payload.acceptingDispatches === false
+    );
+    expect(falseHeartbeatIndex).toBeGreaterThanOrEqual(0);
+    const heartbeatCountWithFalseInFlight = socket.heartbeatSendCount;
+
+    releaseSecondConfigure.resolve();
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(0);
+    const heartbeatCountBeforeFalseAck = socket.heartbeatSendCount;
+    socket.emitServerFrame({
+      v: 1,
+      code: "daemon.session.heartbeat",
+      payload: {
+        ok: true,
+        serverNowMs: Date.now(),
+        staleLeases: [],
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(syncPromise).resolves.toMatchObject({ status: "unchanged" });
+
+    const acceptingPublishedPromptly = socket.sentFrames
+      .slice(falseHeartbeatIndex + 1)
+      .some(
+        (frame) =>
+          isHeartbeatFrame(frame) && frame.payload.acceptingDispatches !== false
+      );
+    await vi.advanceTimersByTimeAsync(60_000);
+    const acceptingPublishedAtCadence = socket.sentFrames
+      .slice(falseHeartbeatIndex + 1)
+      .some(
+        (frame) =>
+          isHeartbeatFrame(frame) && frame.payload.acceptingDispatches !== false
+      );
+
+    socket.close(1000, "shutdown");
+    await sessionPromise;
+    const heartbeatCountAfterClose = socket.heartbeatSendCount;
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect({
+      acceptingPublishedAtCadence,
+      acceptingPublishedPromptly,
+      heartbeatCountBeforeFalseAck,
+      heartbeatCountAfterClose: socket.heartbeatSendCount,
+      heartbeatCountWithFalseInFlight,
+    }).toMatchObject({
+      acceptingPublishedAtCadence: true,
+      acceptingPublishedPromptly: true,
+      heartbeatCountBeforeFalseAck: heartbeatCountWithFalseInFlight,
+      heartbeatCountAfterClose,
+    });
+  });
+
+  it("publishes initial Host admission when configure opens during the first heartbeat", async () => {
+    vi.useFakeTimers();
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    const firstConfigureStarted = Promise.withResolvers<void>();
+    const releaseFirstConfigure = Promise.withResolvers<void>();
+    const socket = createMockSocket({
+      executionAdmissionConfirmation: true,
+      respondToHeartbeat: (frame) =>
+        frame.payload.acceptingDispatches !== false,
+    });
+    const sessionPromise = runDaemonSocketSession({
+      ...buildKeepaliveSessionInput(socket, [], 60_000),
+      daemonSessionId: "session-initial-configure-heartbeat-race",
+      decorateExecutionHost: (host) => ({
+        ...host,
+        call: async (method, payload, options) => {
+          if (method === "configureConnection") {
+            firstConfigureStarted.resolve();
+            await releaseFirstConfigure.promise;
+          }
+          return await host.call(method, payload, options);
+        },
+      }),
+    });
+
+    await firstConfigureStarted.promise;
+    await vi.advanceTimersByTimeAsync(0);
+    const falseHeartbeatIndex = socket.sentFrames.findLastIndex(
+      (frame) =>
+        isHeartbeatFrame(frame) && frame.payload.acceptingDispatches === false
+    );
+    expect(falseHeartbeatIndex).toBeGreaterThanOrEqual(0);
+    const heartbeatCountWithFalseInFlight = socket.heartbeatSendCount;
+
+    releaseFirstConfigure.resolve();
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(socket.heartbeatSendCount).toBe(heartbeatCountWithFalseInFlight);
+    socket.emitServerFrame({
+      v: 1,
+      code: "daemon.session.heartbeat",
+      payload: {
+        ok: true,
+        serverNowMs: Date.now(),
+        staleLeases: [],
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(
+      socket.sentFrames
+        .slice(falseHeartbeatIndex + 1)
+        .some(
+          (frame) =>
+            isHeartbeatFrame(frame) &&
+            frame.payload.acceptingDispatches !== false
+        )
+    ).toBe(true);
+
+    socket.close(1000, "shutdown");
+    await sessionPromise;
+  });
+
+  it("publishes the latest draining admission after a queued heartbeat settles", async () => {
+    vi.useFakeTimers();
+    let syncRouteCatalog: ((reason: string) => Promise<unknown>) | null = null;
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    syncDaemonRouteCatalogStateMock.mockResolvedValue({
+      skippedProfiles: [],
+      status: "unchanged",
+    });
+
+    const secondConfigureStarted = Promise.withResolvers<void>();
+    const releaseSecondConfigure = Promise.withResolvers<void>();
+    const shutdownRequested =
+      Promise.withResolvers<RuntimeTransportStopCause>();
+    let configureCallCount = 0;
+    let holdNonacceptingHeartbeat = false;
+    const lines: Array<{ code: string; text: string }> = [];
+    const socket = createMockSocket({
+      executionAdmissionConfirmation: true,
+      respondToHeartbeat: (frame) =>
+        !(
+          holdNonacceptingHeartbeat &&
+          frame.payload.acceptingDispatches === false
+        ),
+    });
+    const sessionPromise = runDaemonSocketSession({
+      ...buildKeepaliveSessionInput(socket, lines, 60_000),
+      attachRouteCatalogSyncInvoker: (invoker) => {
+        syncRouteCatalog = invoker;
+      },
+      daemonSessionId: "session-catalog-configure-drain-race",
+      decorateExecutionHost: (host) => ({
+        ...host,
+        call: async (method, payload, options) => {
+          if (method === "configureConnection") {
+            configureCallCount += 1;
+            if (configureCallCount === 2) {
+              secondConfigureStarted.resolve();
+              await releaseSecondConfigure.promise;
+            }
+          }
+          return await host.call(method, payload, options);
+        },
+      }),
+      shutdownRequested: shutdownRequested.promise,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    await flushMicrotasks(() => configureCallCount === 1);
+    const attachedSyncRouteCatalog = syncRouteCatalog as
+      | ((reason: string) => Promise<unknown>)
+      | null;
+    if (!attachedSyncRouteCatalog) {
+      throw new Error("expected syncRouteCatalog to be attached");
+    }
+
+    holdNonacceptingHeartbeat = true;
+    const syncPromise = attachedSyncRouteCatalog("periodic_catalog_refresh");
+    await flushMicrotasks(() => configureCallCount === 2);
+    await secondConfigureStarted.promise;
+    await vi.advanceTimersByTimeAsync(0);
+    const falseHeartbeatIndex = socket.sentFrames.findLastIndex(
+      (frame) =>
+        isHeartbeatFrame(frame) && frame.payload.acceptingDispatches === false
+    );
+    expect(falseHeartbeatIndex).toBeGreaterThanOrEqual(0);
+
+    releaseSecondConfigure.resolve();
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(0);
+    shutdownRequested.resolve("controlled_service_update");
+    await flushMicrotasks(() =>
+      lines.some(
+        (line) => line.code === "daemon.run.controlled_shutdown_started"
+      )
+    );
+    holdNonacceptingHeartbeat = false;
+    socket.emitServerFrame({
+      v: 1,
+      code: "daemon.session.heartbeat",
+      payload: {
+        ok: true,
+        serverNowMs: Date.now(),
+        staleLeases: [],
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(syncPromise).resolves.toMatchObject({ status: "unchanged" });
+    await sessionPromise;
+
+    const heartbeatsAfterDrainStarted = socket.sentFrames
+      .slice(falseHeartbeatIndex + 1)
+      .filter(isHeartbeatFrame);
+    expect(heartbeatsAfterDrainStarted.length).toBeGreaterThan(0);
+    expect(
+      heartbeatsAfterDrainStarted.every(
+        (frame) => frame.payload.acceptingDispatches === false
+      )
+    ).toBe(true);
+    expect(heartbeatsAfterDrainStarted).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            acceptingDispatches: false,
+            stopCause: "controlled_service_update",
+          }),
+        }),
+      ])
+    );
   });
 
   it("allows an attached local control-plane invoker to force immediate route catalog sync", async () => {
@@ -2589,9 +2884,15 @@ async function flushMicrotasks(until?: () => boolean): Promise<void> {
 
 function createMockSocket(input?: {
   closeEventReason?: string;
+  executionAdmissionConfirmation?: boolean;
   hangOnClose?: boolean;
   respondToKeepalive?: boolean;
-  respondToHeartbeat?: boolean;
+  respondToHeartbeat?:
+    | boolean
+    | ((frame: {
+        code: string;
+        payload: { acceptingDispatches?: boolean };
+      }) => boolean);
   respondToRegister?: boolean;
 }) {
   let onMessage: ((data: string) => void) | null = null;
@@ -2645,6 +2946,7 @@ function createMockSocket(input?: {
       const frame = JSON.parse(data) as {
         code: string;
         payload: {
+          acceptingDispatches?: boolean;
           profileIds?: string[];
           leases?: Array<{ profileId: string; leaseEpoch: number }>;
         };
@@ -2669,6 +2971,9 @@ function createMockSocket(input?: {
               payload: {
                 ok: true,
                 connectionGeneration: 1,
+                ...(input?.executionAdmissionConfirmation
+                  ? { executionAdmissionConfirmation: true }
+                  : {}),
                 acceptedLeases,
                 rejectedProfiles: [],
               },
@@ -2679,7 +2984,11 @@ function createMockSocket(input?: {
       }
       if (frame.code === "daemon.session.heartbeat") {
         heartbeatSendCount += 1;
-        if (!respondToHeartbeat) {
+        const shouldRespond =
+          typeof respondToHeartbeat === "function"
+            ? respondToHeartbeat(frame)
+            : respondToHeartbeat;
+        if (!shouldRespond) {
           return;
         }
         queueMicrotask(() => {
