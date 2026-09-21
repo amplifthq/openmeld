@@ -15,6 +15,7 @@
     "release:preflight:core-current-cli-projection": "node scripts/release/preflight-core-current-cli-projection.mjs",
     "release:verify:local": "node scripts/release/production-release.mjs verify",
     "release:deploy:local": "node scripts/release/production-release.mjs deploy",
+    "release:recover:remote-agent-partial": "node scripts/release/remote-agent-partial-recovery.mjs",
     "deploy:cloud": "pnpm run release:deploy:local -- --scope cloud",
     "deploy:openconnector:production": "node scripts/cloudflare/deploy-openconnector.mjs --environment production",
     "deploy:openconnector:staging": "node scripts/dev/doppler-environment.mjs component:stg open-connector -- node scripts/cloudflare/deploy-openconnector.mjs --environment staging",
