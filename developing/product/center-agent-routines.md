@@ -426,6 +426,25 @@ as an emergency rollback or for explicit Organization ids through
 affects only later claims. An existing Run never changes engine or falls back
 from Workflow to Legacy.
 
+### Reliability ownership
+
+| Responsibility | Owner | Evidence required before moving on |
+| --- | --- | --- |
+| One scheduled occurrence | Core scheduler and atomic D1 claim | Unique Routine/occurrence Run and advanced schedule |
+| Durable admission retries | Run Workflow using shared native delivery | Confirmed submission id, or an explicit terminal/blocked outcome |
+| Agent execution and progress | Remote Agent native runtime | Exact execution lifecycle; a scheduler or wait timeout cannot override it |
+| Callback validation and publication | Shared native-delivery service | Matching identity, frozen destination, and idempotent publication receipt |
+| Durable finalization after callback handoff | Run Workflow | Cached callback retained while the exact finalization step retries |
+| Visible Run outcome | Core projection from the current native delivery | Current delivery owns the result; an earlier continuation cannot finalize it |
+
+Center and personal Remote Agent Routines share these owners. A Workflow is
+retained because it owns durable finalization after the callback sender has
+received acknowledgement, including a rejected continuation. Removing it would
+require another durable finalization owner; direct callback handling alone is
+not an equivalent simplification. No new scheduler or execution framework is
+introduced for future Team or Local Agent support. A future Local executor must
+use RuntimeCoordinator for execution rather than copying the hosted runtime.
+
 Both engines keep D1 as Routine and Run product truth and use the same Remote
 Agent admission, Run idempotency key, callback validation, target snapshot, and
 Space publication code. The `legacy` engine uses Core's bounded pre-ACK
@@ -457,6 +476,10 @@ an errored instance, Core restarts only a recognized failed phase: callback
 finalization, continuation callback finalization, or continuation failure
 finalization restarts from its exact finalization step so the received event
 remains cached; an idempotent submission failure may restart from the beginning.
+Phase recognition accepts the exact owned error name, or Workerd's serialized
+outer `Error` envelope beginning with that same phase name. It never searches
+nested causes or infers a phase from a generic platform timeout. This keeps
+retry exhaustion recoverable across the actual Worker RPC boundary.
 Initial and continuation callback waits renew their one-day platform wait
 window when `WorkflowTimeoutError` is thrown inside the Workflow. This preserves
 the acknowledged submission and earlier finalization without restarting the
@@ -477,6 +500,14 @@ routine storage after D1 and the destination hold the durable outcome. The
 full paid-plan error window preserves operator inspection for failures that
 must remain fail closed. Terminal-state retention does not limit an active
 callback wait or shorten D1 Run history.
+
+Workflow recovery scans use a bounded, least-recently-checked batch. Checking
+an already waiting instance is not starting another execution. Apply the
+additive `workflow_last_checked_at_ms` migration before deploying the Core
+scanner; old Core versions can ignore this scheduling-only column on rollback.
+No CLI, Local Service, Remote Agent payload, or public Routine schema changes
+are required. Existing errored instances still follow the phase-recognition
+rules above; deploying this code does not rewrite their cached steps.
 
 `UNIQUE(routineId, scheduledFor)` is the idempotency fence for a recorded
 occurrence or aggregate overdue range. The claim/advance update also compares

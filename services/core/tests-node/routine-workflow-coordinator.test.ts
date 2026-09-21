@@ -29,14 +29,20 @@ describe("Routine Workflow coordinator", () => {
     });
   });
 
-  it("restarts callback finalization without discarding the received event", async () => {
+  it.each([
+    false,
+    true,
+  ])("restarts callback finalization without discarding the received event (serialized: %s)", async (serialized) => {
     const restart = vi.fn().mockResolvedValue(undefined);
     const workflow = workflowWithExistingInstance({
       restart,
       status: {
         error: {
-          message: "callback finalization exhausted its retries",
-          name: "RoutineWorkflowCallbackFinalizationError",
+          message:
+            "RoutineWorkflowCallbackFinalizationError: callback finalization exhausted its retries",
+          name: serialized
+            ? "Error"
+            : "RoutineWorkflowCallbackFinalizationError",
         },
         status: "errored",
       },
@@ -55,14 +61,20 @@ describe("Routine Workflow coordinator", () => {
     });
   });
 
-  it("restarts continuation finalization without waiting for another callback", async () => {
+  it.each([
+    false,
+    true,
+  ])("restarts continuation finalization without waiting for another callback (serialized: %s)", async (serialized) => {
     const restart = vi.fn().mockResolvedValue(undefined);
     const workflow = workflowWithExistingInstance({
       restart,
       status: {
         error: {
-          message: "continuation callback finalization exhausted its retries",
-          name: "RoutineWorkflowContinuationCallbackFinalizationError",
+          message:
+            "RoutineWorkflowContinuationCallbackFinalizationError: continuation callback finalization exhausted its retries",
+          name: serialized
+            ? "Error"
+            : "RoutineWorkflowContinuationCallbackFinalizationError",
         },
         status: "errored",
       },
@@ -81,14 +93,20 @@ describe("Routine Workflow coordinator", () => {
     });
   });
 
-  it("restarts continuation failure finalization without waiting for another event", async () => {
+  it.each([
+    false,
+    true,
+  ])("restarts continuation failure finalization without waiting for another event (serialized: %s)", async (serialized) => {
     const restart = vi.fn().mockResolvedValue(undefined);
     const workflow = workflowWithExistingInstance({
       restart,
       status: {
         error: {
-          message: "continuation failure finalization exhausted its retries",
-          name: "RoutineWorkflowContinuationFailureFinalizationError",
+          message:
+            "RoutineWorkflowContinuationFailureFinalizationError: continuation failure finalization exhausted its retries",
+          name: serialized
+            ? "Error"
+            : "RoutineWorkflowContinuationFailureFinalizationError",
         },
         status: "errored",
       },
@@ -135,15 +153,26 @@ describe("Routine Workflow coordinator", () => {
     );
   });
 
-  it("does not erase Workflow state for an unrecognized error phase", async () => {
+  it.each([
+    {
+      name: "WorkflowInternalError",
+      message: "the platform could not identify the failed step",
+    },
+    {
+      name: "Error",
+      message: "WorkflowTimeoutError: Execution timed out after 86400000ms",
+    },
+    {
+      name: "Error",
+      message:
+        "unknown wrapper: RoutineWorkflowSubmissionError: nested failure",
+    },
+  ])("does not erase Workflow state for an unrecognized error phase: $message", async (error) => {
     const restart = vi.fn().mockResolvedValue(undefined);
     const workflow = workflowWithExistingInstance({
       restart,
       status: {
-        error: {
-          message: "the platform could not identify the failed step",
-          name: "WorkflowInternalError",
-        },
+        error,
         status: "errored",
       },
     });

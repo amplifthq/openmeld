@@ -2309,11 +2309,11 @@ describe("Remote Agent Routine native delivery", () => {
       .bind(fixture.runId)
       .run();
     const recoveryAtMs = fixture.nowMs + 60_000;
-    const workerSubmit = vi.fn(() =>
-      Promise.reject(
+    const workerSubmit = vi
+      .fn()
+      .mockRejectedValue(
         new Error("transport disconnected after the worker admitted the turn")
-      )
-    );
+      );
 
     const testEnv = buildEnv({ fixture, workerSubmit });
     await expect(
@@ -2348,6 +2348,29 @@ describe("Remote Agent Routine native delivery", () => {
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
+
+    workerSubmit.mockResolvedValueOnce({
+      accepted: true,
+      createdAt: fixture.nowMs,
+      idempotencyKey: fixture.runId,
+      status: "pending",
+      submissionId: fixture.submissionId,
+    });
+    await expect(
+      ensureRemoteAgentRoutineWorkflowSubmission({
+        db: env.OPENMELD_DB,
+        env: testEnv,
+        nowMs: recoveryAtMs + 1000,
+        runId: fixture.runId,
+      })
+    ).resolves.toMatchObject({
+      status: "waiting",
+      submissionId: fixture.submissionId,
+    });
+    expect(workerSubmit).toHaveBeenCalledTimes(2);
+    expect(
+      workerSubmit.mock.calls.map(([request]) => request.idempotencyKey)
+    ).toEqual([fixture.runId, fixture.runId]);
   });
 
   it("keeps a Workflow waiting and retains its Routine envelope after worker ACK", async () => {

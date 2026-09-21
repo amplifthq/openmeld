@@ -1,6 +1,7 @@
 import { env, introspectWorkflowInstance } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
+import { resolveRoutineWorkflowErrorName } from "../src/routines/routine-workflow-contract";
 import { ensureRoutineRunWorkflowStarted } from "../src/routines/routine-workflow-coordinator";
 
 const CALLBACK = {
@@ -17,6 +18,29 @@ const CALLBACK = {
 };
 
 describe("Routine Run Workflow", () => {
+  it("recognizes an exhausted real submission step for coordinator recovery", async () => {
+    const runId = `routine_run_workflow_${crypto.randomUUID()}`;
+    const workflow = requireWorkflowBinding();
+    await using instance = await introspectWorkflowInstance(workflow, runId);
+    const handle = await workflow.create({ id: runId, params: { runId } });
+    await instance.waitForStatus("errored");
+    const error = await instance.getError();
+    expect(resolveRoutineWorkflowErrorName(error)).toBe(
+      "RoutineWorkflowSubmissionError"
+    );
+    // The installed Workers test binding does not implement restart. Retain
+    // the real serialized status and replace only that unavailable API call.
+    const restart = vi.fn().mockResolvedValue(undefined);
+    await ensureRoutineRunWorkflowStarted({
+      env: {
+        OPENMELD_ROUTINE_RUN_WORKFLOW: {
+          get: async () => ({ status: () => handle.status(), restart }),
+        },
+      } as unknown as CoreBindings,
+      runId,
+    });
+    expect(restart).toHaveBeenCalledExactlyOnceWith(undefined);
+  }, 40_000);
   it.each([
     ["wait for Remote Agent callback", "remote-agent-initial-callback"],
     [
