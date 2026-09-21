@@ -288,6 +288,11 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 		selectFile(null);
 		setActionError(null);
 		setView(nextView);
+		// The chat-uploads toggle is a filter on the active Files list. Trash
+		// (and any other view switch) starts from the default artifact-only
+		// state instead of silently inheriting a toggle the new view has no
+		// control to show or explain.
+		setShowChatUploads(false);
 	};
 	const toggleShowChatUploads = () => {
 		setShowChatUploads((current) => !current);
