@@ -23,6 +23,9 @@ export const centerAgentListSpaceFilesRpcInputSchema =
   centerAgentSpaceFileScopeSchema.extend({
     parentId: spaceFileEntryIdSchema.nullable().optional(),
     view: z.enum(["active", "trash"]).optional(),
+    // Omit to see artifacts only, the same default the Files list uses.
+    // Pass "all" to also see files shared as chat uploads.
+    origin: z.enum(["artifact", "all"]).optional(),
   });
 
 export const centerAgentListSpaceFilesResponseSchema =

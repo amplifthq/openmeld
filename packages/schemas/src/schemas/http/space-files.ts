@@ -52,6 +52,27 @@ export const spaceFileSizeBytesSchema = eagerZod
 export const spaceComposerUploadIdSchema = z.string().uuid();
 
 /**
+ * The one canonical fact distinguishing a chat upload (sent as a message
+ * attachment, from Web Composer or CLI `space send --file`) from an
+ * artifact (deliberately created or uploaded straight into Files, or
+ * written by an Agent). Set once at file creation and never changed by a
+ * later revision. A file created before this classification existed has no
+ * value here; every read path must treat that absence as "not a known
+ * artifact" rather than guessing.
+ */
+export const spaceFileOriginSchema = z.enum(["artifact", "chat_upload"]);
+
+/**
+ * Which files a Space Files list request includes. `"artifact"` (the
+ * default) hides chat uploads to keep the list focused on deliberately
+ * created or uploaded work; folders are always included. `"all"` also
+ * includes chat uploads and any file whose origin was never classified.
+ */
+export const spaceFileListOriginFilterSchema = z
+  .enum(["artifact", "all"])
+  .default("artifact");
+
+/**
  * Derives the opaque file identity for a retriable create mutation.
  * Reusing the mutation identity produces the same file identity.
  */
@@ -298,6 +319,7 @@ export const spaceFileDescriptorSchema = z.strictObject({
   ...baseEntryShape,
   kind: z.literal("file"),
   latestRevision: spaceFileRevisionSchema,
+  origin: spaceFileOriginSchema.nullable().default(null),
 });
 
 export const spaceFileEntrySchema = z.discriminatedUnion("kind", [
@@ -318,12 +340,14 @@ export const spaceFileCapabilitiesSchema = z.strictObject({
 export const listSpaceFilesQuerySchema = z.strictObject({
   parentId: spaceFileEntryIdSchema.nullable().optional(),
   view: z.enum(["active", "trash"]).default("active"),
+  origin: spaceFileListOriginFilterSchema,
 });
 
 export const listSpaceFilesResponseSchema = z.strictObject({
   spaceId: scopeIdSchema,
   parentId: spaceFileEntryIdSchema.nullable(),
   view: z.enum(["active", "trash"]).default("active"),
+  origin: spaceFileListOriginFilterSchema,
   breadcrumbs: z.array(spaceFileBreadcrumbSchema),
   entries: z.array(spaceFileEntrySchema),
   capabilities: spaceFileCapabilitiesSchema,
@@ -400,6 +424,7 @@ export const createSpaceFileUploadQuerySchema = z.strictObject({
   name: spaceFileNameSchema,
   parentId: spaceFileEntryIdSchema.optional(),
   clientMutationId: spaceFileClientMutationIdSchema,
+  origin: spaceFileOriginSchema.optional(),
 });
 
 export const updateSpaceFileContentQuerySchema = z.strictObject({
@@ -485,6 +510,10 @@ export const prepareSpaceFileWriteInputSchema = z.strictObject({
   clientMutationId: spaceFileClientMutationIdSchema,
   mimeType: spaceFileMimeTypeSchema,
   sizeBytes: spaceFileSizeBytesSchema,
+  // Only meaningful when this write creates a new file (baseRevision is
+  // null). Ignored for a new revision of an existing file, which always
+  // keeps the origin recorded at that file's creation.
+  origin: spaceFileOriginSchema.optional(),
 });
 
 export const prepareSpaceFileWriteResponseSchema = z.strictObject({

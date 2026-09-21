@@ -17,6 +17,7 @@ import {
   restoreSpaceFileRevisionBodySchema,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   spaceFileAuditEventSchema,
+  spaceFileDescriptorSchema,
   spaceFileNameSchema,
   spaceMessageFileReferenceSchema,
   spaceMessageFileReferencesSchema,
@@ -206,15 +207,62 @@ describe("Space Files contracts", () => {
   });
 
   it("keeps active Files and Trash as separate list views", () => {
-    expect(listSpaceFilesQuerySchema.parse({})).toEqual({ view: "active" });
+    expect(listSpaceFilesQuerySchema.parse({})).toEqual({
+      view: "active",
+      origin: "artifact",
+    });
     expect(listSpaceFilesQuerySchema.parse({ view: "trash" })).toEqual({
       view: "trash",
+      origin: "artifact",
     });
     expect(
       restoreSpaceFileEntryBodySchema.safeParse({
         clientMutationId: "restore-1",
       }).success
     ).toBe(true);
+  });
+
+  it("defaults the Files list to artifacts only, with an explicit escape to see chat uploads", () => {
+    expect(listSpaceFilesQuerySchema.parse({}).origin).toBe("artifact");
+    expect(listSpaceFilesQuerySchema.parse({ origin: "all" }).origin).toBe(
+      "all"
+    );
+    expect(
+      listSpaceFilesQuerySchema.safeParse({ origin: "chat_upload" }).success
+    ).toBe(false);
+    const actor = {
+      displayName: "Maya",
+      profileId: "profile-1",
+      profileKind: "human" as const,
+    };
+    const file = {
+      createdAt: "2026-08-23T00:00:00.000Z",
+      createdBy: actor,
+      id: "file-1",
+      kind: "file" as const,
+      latestRevision: {
+        createdAt: "2026-08-23T00:00:00.000Z",
+        createdBy: actor,
+        fileId: "file-1",
+        id: "revision-1",
+        mimeType: "text/markdown",
+        revision: 1,
+        sizeBytes: 12,
+      },
+      name: "brief.md",
+      parentId: null,
+      path: "/brief.md",
+      spaceId: "space-1",
+      updatedAt: "2026-08-23T00:00:00.000Z",
+      updatedBy: actor,
+    };
+    expect(spaceFileDescriptorSchema.parse(file).origin).toBeNull();
+    expect(
+      spaceFileDescriptorSchema.parse({ ...file, origin: "artifact" }).origin
+    ).toBe("artifact");
+    expect(
+      spaceFileDescriptorSchema.parse({ ...file, origin: "chat_upload" }).origin
+    ).toBe("chat_upload");
   });
 
   it("keeps active file responses readable during a receiver-first rollout", () => {
