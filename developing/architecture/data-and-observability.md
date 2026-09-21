@@ -27,6 +27,11 @@ The index stores no attachment content, reasoning, or execution diagnostics.
 SQLite triggers update the index atomically with canonical message inserts,
 edits, recalls, and retention deletes. Historical indexing advances in batches
 of 500 rows on demand and exposes incompleteness instead of empty success.
+Searches scoped to one Space accept one or more characters. Queries of one or
+two characters use a literal scan of that Space's private index because FTS5
+trigram matching cannot serve them; queries of three or more characters keep
+the indexed trigram path. Workspace and Inbox searches retain a three-character
+minimum so a short query cannot fan out linear scans across several Spaces.
 
 Core's shared search reader enumerates active member-owned Space candidates in
 the Organization directory, then calls the normal authorized Space reader for
