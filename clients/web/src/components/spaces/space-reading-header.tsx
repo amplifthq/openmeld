@@ -29,11 +29,16 @@ export function spaceReadingHeaderStorageKey(input: {
 	return `openmeld.space.reading-header.v2:${JSON.stringify([input.organizationSlug, input.profileId, input.spaceId])}`;
 }
 
+// Distance from the latest messages, in CSS pixels. The wider gap prevents
+// trackpad jitter from repeatedly changing the header near either endpoint.
+const COMPACT_DISTANCE = 64;
+const EXPAND_DISTANCE = 16;
+
 export function resolveSpaceReadingHeaderPosition(
 	distance: number,
 	compact = false
 ) {
-	return compact ? distance > 1 : distance > 4;
+	return compact ? distance > EXPAND_DISTANCE : distance >= COMPACT_DISTANCE;
 }
 
 export function SpaceReadingHeaderProvider(input: {

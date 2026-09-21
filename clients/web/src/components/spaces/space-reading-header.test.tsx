@@ -37,16 +37,23 @@ function HeaderFixture() {
 }
 
 describe("Space reading header", () => {
-	it("snaps on a small scroll and stays compact until returning to the latest messages", () => {
+	it("ignores small scrolls and stays compact until returning near the latest messages", () => {
 		let compact = false;
 		for (const [distance, expected] of [
 			[0, false],
-			[5, true],
-			[3, true],
-			[2, true],
-			[1, false],
 			[3, false],
-			[5, true],
+			[5, false],
+			[32, false],
+			[63.5, false],
+			[64, true],
+			[63.5, true],
+			[32, true],
+			[16.5, true],
+			[16, false],
+			[17, false],
+			[63.5, false],
+			[64, true],
+			[-0.5, false],
 		] as const) {
 			compact = resolveSpaceReadingHeaderPosition(distance, compact);
 			expect(compact).toBe(expected);
@@ -94,22 +101,29 @@ describe("Space reading header", () => {
 		fireEvent.wheel(scroller, { deltaY: -5 });
 		scroller.scrollTop = 1495;
 		fireEvent.scroll(scroller);
+		expect(header.dataset.compact).not.toBe("true");
+		expect(scroller.scrollTop).toBe(1495);
+		scroller.scrollTop = 1436;
+		fireEvent.scroll(scroller);
 		expect(header.dataset.compact).toBe("true");
-		expect(scroller.scrollTop).toBe(1455);
+		expect(scroller.scrollTop).toBe(1396);
 		// Viewport resize notifications do not expand it or offset the anchor twice.
 		act(() => resize());
 		fireEvent.scroll(scroller);
-		expect(scroller.scrollTop).toBe(1455);
+		expect(scroller.scrollTop).toBe(1396);
 		width = 200;
 		act(() => resize());
 		expect(header.dataset.compact).toBe("false");
-		expect(scroller.scrollTop).toBe(1495);
+		expect(scroller.scrollTop).toBe(1436);
 		width = 800;
 		act(() => resize());
 		expect(header.dataset.compact).toBe("true");
-		scroller.scrollTop = 1460;
+		scroller.scrollTop = 1443;
+		fireEvent.scroll(scroller);
+		expect(header.dataset.compact).toBe("true");
+		scroller.scrollTop = 1444;
 		fireEvent.scroll(scroller);
 		expect(header.dataset.compact).toBe("false");
-		expect(scroller.scrollTop).toBe(1500);
+		expect(scroller.scrollTop).toBe(1484);
 	});
 });

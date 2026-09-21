@@ -120,7 +120,7 @@ export function SpaceWindowHeader(input: {
 				>
 					{input.navigation ? (
 						<div
-							className="motion-safe:group-data-[compact=true]/space-header:slide-in-from-bottom-2 flex h-full shrink-0 items-center group-data-[compact=true]/space-header:col-start-2 group-data-[compact=true]/space-header:row-start-1 motion-safe:group-data-[compact=true]/space-header:animate-in motion-safe:group-data-[compact=true]/space-header:duration-150"
+							className="flex h-full shrink-0 items-center group-data-[compact=true]/space-header:col-start-2 group-data-[compact=true]/space-header:row-start-1"
 							data-slot="space-window-header-navigation"
 						>
 							{input.navigation}
