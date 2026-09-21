@@ -937,7 +937,7 @@ describe("CreateProfileDialog", () => {
 		expect(screen.queryByRole("radio", { name: "A teammate" })).toBeNull();
 	});
 
-	it("replaces cached Agent configuration with the inline connection workflow immediately", async () => {
+	it("keeps every local agent visible and opens connection recovery for the selected one", async () => {
 		const recovery = buildFakeRecovery();
 		const computer =
 			recovery.localRuntimesQuery.data?.peopleComputers.computers[0];
@@ -959,6 +959,8 @@ describe("CreateProfileDialog", () => {
 		readiness.service.connected = false;
 		readiness.service.matchingCurrentRuntime = false;
 		renderCurrentCreateProfileDialog({ recovery });
+		expect(await screen.findAllByRole("radio")).toHaveLength(6);
+		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
 		expect(
 			await screen.findByRole("region", { name: "Inline computer setup" })
 		).toBeTruthy();
@@ -976,7 +978,13 @@ describe("CreateProfileDialog", () => {
 		);
 		expect(screen.getByText("Reconnect Office Mac")).toBeTruthy();
 		expect(screen.queryByRole("textbox", { name: "Agent name" })).toBeNull();
-		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Create Agent",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
 		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
 	});
 
@@ -2344,6 +2352,110 @@ describe("CreateProfileDialog", () => {
 		);
 		expect(screen.getByTestId("local-agent-logo-grok-build")).toBeTruthy();
 		expect(screen.queryByText("Adel")).toBeNull();
+	});
+
+	it("links an uninstalled Antigravity selection to its exact guide", async () => {
+		renderCurrentCreateProfileDialog({
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "antigravity",
+					detected: false,
+					enabled: false,
+					launchStatus: "not_detected",
+					selectable: false,
+				}),
+			]),
+		});
+
+		fireEvent.click(await screen.findByRole("radio", { name: "Antigravity" }));
+
+		expect(
+			await screen.findByText("Install Antigravity on this computer.")
+		).toBeTruthy();
+		expect(
+			screen
+				.getByRole("link", { name: "Open install guide" })
+				.getAttribute("href")
+		).toBe("/guides/local-agents/antigravity");
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Create Agent",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+	});
+
+	it("lets the user turn on the selected disabled local agent", async () => {
+		const setLocalAgentEnabled = vi.fn().mockResolvedValue(undefined);
+		const recovery = buildFakeRecovery([
+			buildCatalogEntry({
+				agentId: "antigravity",
+				detected: true,
+				enabled: false,
+				launchStatus: "disabled",
+				selectable: false,
+			}),
+		]);
+		Object.assign(recovery, { setLocalAgentEnabled });
+		renderCurrentCreateProfileDialog({ recovery });
+
+		fireEvent.click(await screen.findByRole("radio", { name: "Antigravity" }));
+		fireEvent.click(
+			await screen.findByRole("switch", { name: "Enable Antigravity" })
+		);
+
+		await waitFor(() =>
+			expect(setLocalAgentEnabled).toHaveBeenCalledWith({
+				agentId: "antigravity",
+				deviceId: "device-123",
+				enabled: true,
+				runtimeLane: "dev-local",
+			})
+		);
+	});
+
+	it("shows cached usage without blocking a signed-out local agent selection", async () => {
+		renderCurrentCreateProfileDialog({
+			recovery: buildFakeRecovery(
+				[
+					buildCatalogEntry({
+						agentId: "codex",
+						launchStatus: "ready",
+						selectable: true,
+					}),
+				],
+				{
+					agentControllerInterface: {
+						auth: { status: "unauthenticated" },
+						models: [],
+						status: "ready",
+						usageLimits: [
+							{
+								key: "weekly",
+								label: "Weekly usage",
+								observedAt: "2026-09-21T08:00:00.000Z",
+								resetsAt: "2026-09-22T08:00:00.000Z",
+								status: "available",
+								usedPercent: 25,
+							},
+						],
+					},
+				}
+			),
+		});
+
+		fireEvent.click(await screen.findByRole("radio", { name: "Codex" }));
+
+		expect(
+			await screen.findByText("Sign in to Codex on this computer.")
+		).toBeTruthy();
+		expect(
+			screen.getByLabelText("Codex usage limits, 75% left, Available")
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_PATTERN })
+		).toBeTruthy();
 	});
 
 	it("blocks an unbound Agent even when the form is submitted directly", async () => {

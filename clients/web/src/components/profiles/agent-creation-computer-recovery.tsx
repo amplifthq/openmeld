@@ -85,6 +85,15 @@ export function AgentCreationComputerRecoveryPanel(input: {
 					) : null}
 				</div>
 			) : null}
+			{recovery.state !== "checking" && !recovery.setup ? (
+				<Button
+					className="justify-self-start"
+					onClick={recovery.onStart}
+					type="button"
+				>
+					{agentCreationComputerActionLabel(recovery)}
+				</Button>
+			) : null}
 		</section>
 	);
 }

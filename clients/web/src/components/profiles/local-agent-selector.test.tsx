@@ -107,6 +107,80 @@ describe("LocalAgentSelector", () => {
 		expect(onChange).toHaveBeenCalledWith("claude-code");
 	});
 
+	it("keeps known choices selectable while their current status loads", () => {
+		render(
+			<LocalAgentSelector
+				choices={CHOICES}
+				disabled={false}
+				isResolving
+				onChange={vi.fn()}
+				selectionState={{
+					agentId: "codex",
+					blocksCreation: true,
+					displayName: "Codex",
+					kind: "checking",
+				}}
+				value="codex"
+			/>
+		);
+
+		expect(screen.getAllByRole("radio")).toHaveLength(2);
+		expect(screen.getByRole("radio", { name: CODEX_RADIO_NAME })).toBeTruthy();
+		expect(screen.getByLabelText("Checking Codex")).toBeTruthy();
+	});
+
+	it("links an uninstalled selection to its exact install guide", () => {
+		render(
+			<LocalAgentSelector
+				choices={CHOICES}
+				disabled={false}
+				isResolving={false}
+				onChange={vi.fn()}
+				selectionState={{
+					agentId: "claude-code",
+					blocksCreation: true,
+					displayName: "Claude Code",
+					guideHref: "/guides/local-agents/claude-code",
+					kind: "not_installed",
+				}}
+				value="claude-code"
+			/>
+		);
+
+		expect(
+			screen.getByText("Install Claude Code on this computer.")
+		).toBeTruthy();
+		expect(
+			screen
+				.getByRole("link", { name: "Open install guide" })
+				.getAttribute("href")
+		).toBe("/guides/local-agents/claude-code");
+	});
+
+	it("turns on the exact disabled local agent inline", () => {
+		const onEnable = vi.fn().mockResolvedValue(undefined);
+		render(
+			<LocalAgentSelector
+				choices={CHOICES}
+				disabled={false}
+				isResolving={false}
+				onChange={vi.fn()}
+				selectionState={{
+					agentId: "codex",
+					blocksCreation: true,
+					canEnable: true,
+					displayName: "Codex",
+					kind: "disabled",
+					onEnable,
+				}}
+				value="codex"
+			/>
+		);
+
+		fireEvent.click(screen.getByRole("switch", { name: "Enable Codex" }));
+		expect(onEnable).toHaveBeenCalledOnce();
+	});
+
 	it("keeps the choices in one native radio group for keyboard navigation", () => {
 		const onChange = vi.fn();
 		render(

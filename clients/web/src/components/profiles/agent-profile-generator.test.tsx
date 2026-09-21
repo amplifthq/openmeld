@@ -44,7 +44,7 @@ describe("AgentProfileGenerator", () => {
 		["reconnect", "Reconnect Computer"],
 		["check_failed", "Try again"],
 		["local_agents", "Check again"],
-	] as const)("replaces stale configuration with an actionable %s state", (state, label) => {
+	] as const)("keeps the agent chooser visible with an actionable %s state", (state, label) => {
 		const onStart = vi.fn();
 		const onSubmit = vi.fn();
 		render(
@@ -52,12 +52,27 @@ describe("AgentProfileGenerator", () => {
 				initialAgentId="codex"
 				onSubmit={onSubmit}
 				overrides={{
+					additionalSubmitBlockReason:
+						"Connect the selected computer before creating this Agent.",
 					computerRecovery: { state, computerName: "Office Mac", onStart },
+					localAgentSelectionState: {
+						agentId: "codex",
+						blocksCreation: true,
+						displayName: "Codex",
+						kind: "computer",
+					},
 				}}
 			/>
 		);
 		expect(screen.queryByRole("textbox", { name: "Agent name" })).toBeNull();
-		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
+		expect(screen.getAllByRole("radio")).toHaveLength(6);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Create Agent",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
 		fireEvent.submit(screen.getByTestId("create-profile-panel"));
 		expect(onSubmit).not.toHaveBeenCalled();
 		fireEvent.click(screen.getByRole("button", { name: label }));
@@ -96,6 +111,12 @@ describe("AgentProfileGenerator", () => {
 						state: "reconnect",
 						computerName: "Office Mac",
 						onStart: vi.fn(),
+					},
+					localAgentSelectionState: {
+						agentId: "codex",
+						blocksCreation: true,
+						displayName: "Codex",
+						kind: "computer",
 					},
 				}}
 			/>
@@ -342,7 +363,7 @@ describe("AgentProfileGenerator", () => {
 		expect(screen.queryByRole("button", { name: "Edit Model" })).toBeNull();
 	});
 
-	it("blocks creation until a local agent is selected and keeps Remote Agent unavailable", () => {
+	it("shows every supported local agent before one is available or selected", () => {
 		const onSubmit = vi.fn();
 		render(
 			<GeneratorHarness
@@ -352,7 +373,17 @@ describe("AgentProfileGenerator", () => {
 			/>
 		);
 
-		expect(screen.getByText("Set up local agents")).toBeTruthy();
+		expect(screen.getAllByRole("radio")).toHaveLength(6);
+		for (const name of [
+			"Codex",
+			"Claude Code",
+			"Grok Build",
+			"OpenCode",
+			"Antigravity",
+			"Cursor",
+		]) {
+			expect(screen.getByRole("radio", { name })).toBeTruthy();
+		}
 		expect(screen.queryByRole("button", { name: "Edit Runs on" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Connect later" })).toBeNull();
 		expect(
@@ -366,9 +397,41 @@ describe("AgentProfileGenerator", () => {
 		expect(remoteTab.getAttribute("aria-disabled")).toBe("true");
 		fireEvent.click(remoteTab);
 		expect(remoteTab.getAttribute("aria-selected")).toBe("false");
-		expect(screen.getByText("Set up local agents")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 		expect(onSubmit).not.toHaveBeenCalled();
+	});
+
+	it("shows cached local-agent usage beside the generated name", () => {
+		render(
+			<GeneratorHarness
+				initialAgentId="codex"
+				overrides={{
+					localAgentSelectionState: {
+						agentId: "codex",
+						blocksCreation: false,
+						displayName: "Codex",
+						kind: "available",
+						usageLimits: [
+							{
+								key: "weekly",
+								label: "Weekly usage",
+								observedAt: "2026-09-21T08:00:00.000Z",
+								resetsAt: "2026-09-22T08:00:00.000Z",
+								status: "available",
+								usedPercent: 25,
+							},
+						],
+					},
+				}}
+			/>
+		);
+
+		expect(
+			screen.getByLabelText("Codex usage limits, 75% left, Available")
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
+		).toBeTruthy();
 	});
 
 	it("submits through the existing creation contract", () => {
