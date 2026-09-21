@@ -581,17 +581,22 @@ controller access to local credentials or arbitrary filesystem paths. A file
 read does not record an action or finish the Wake. The configuration forwards the active
 dispatch identity, and fails closed when the action context is absent, expired,
 or mismatched. Fresh and resumed controller conversations use the same tool
-boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, Antigravity, and
-OpenClaw use their controller-native tool extension point and the same
+boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, and OpenClaw use
+their controller-native tool extension point and the same
 dispatch-owned action writer. Controllers without a proven structured-tool
 surface continue to use the exact dispatch-scoped CLI fallback.
 
-Antigravity CLI receives that tool through a unique temporary workspace plugin
-added only to the active invocation. Its hook grants approval only to the
-dispatch MCP server's named tools; ordinary shell, file, network, and ambient
-MCP actions continue through Antigravity's normal permission policy. The
-adapter removes the plugin after the invocation and never writes Antigravity's
-user settings or the user's project customization files.
+Antigravity CLI does not currently expose a proven per-invocation structured-
+tool configuration surface. During an action-enabled dispatch, the adapter
+therefore adds a unique temporary workspace plugin whose invocation hook
+injects one exact Space Action executable path. Its permission hook approves
+only a command whose parsed first token is that exact path and whose action is
+`reply`, `status`, or `silent`. The executable forwards arguments without a
+shell to the same dispatch-owned action writer. Chained commands and all other
+shell, file, network, and ambient MCP actions continue through Antigravity's
+normal permission policy. The adapter removes the plugin after the invocation
+and never writes Antigravity's user settings or the user's project
+customization files.
 
 OpenClaw Gateway does not expose a per-turn plugin-injection surface. During an
 action-enabled dispatch, the adapter therefore runs the same OpenClaw Session
