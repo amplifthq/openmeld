@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-21T11:39:12.593Z",
+  "updatedAt": "2026-09-21T04:41:20.490Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.217",
+      "packageVersion": "0.3.216",
       "updatePolicy": "available",
-      "reason": "Space Files origin classification adds a negotiated, non-breaking response capability. This CLI build sends an explicit x-openmeld-space-files-origin-version header on every Space Files request and gains the origin field plus the --all chat-uploads filter; an already-published CLI never sends that header and keeps receiving the exact pre-origin response shape it already parses, so it remains fully compatible without an update."
+      "reason": "Existing CLI commands remain compatible with current cloud and Service update/self-rescue flows."
     },
     "service": {
-      "bundleHash": "3b2903b24ea84d48223e2d88cab5b5ec45c4e4eb8b5fad4f690f6747c00388aa",
-      "bundleVersion": "0.3.217",
+      "bundleHash": "0bbbd1f7ee9dd5e8dd2ab6a5b2224884aed40d2948f89b8854a6198178d86ee9",
+      "bundleVersion": "0.3.216",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-opencode-session-directory-v1",
-      "updatePolicy": "available",
-      "reason": "The packaged Service bundle picked up shared package updates (packages/schemas, packages/gateway-contract, packages/api-client) from the same Space Files origin classification change, but Service never calls any Space Files endpoint or reads the origin field; its own Wake/dispatch/Prepare behavior and wire contracts are unchanged, so old and new Service remain compatible with old and new cloud in both directions."
+      "updatePolicy": "required",
+      "reason": "Older Services can resume OpenCode in a different folder than the admitted workspace, so new Wake work must wait for this safety fix."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",

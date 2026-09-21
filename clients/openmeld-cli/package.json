@@ -1,7 +1,7 @@
 {
   "$schema": "https://www.schemastore.org/package.json",
   "name": "openmeld",
-  "version": "0.3.217",
+  "version": "0.3.216",
   "openMeldReleaseDate": "2026-09-21",
   "description": "OpenMeld CLI - https://openmeld.ai",
   "license": "MIT",
