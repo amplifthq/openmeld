@@ -245,12 +245,17 @@ function LocalAgentSelectionStatePanel(input: {
 							}
 							setEnableRequested(true);
 							setEnableError(null);
-							state.onEnable().catch(() => {
-								setEnableRequested(false);
-								setEnableError(
-									`Couldn’t turn on ${state.displayName}. Try again.`
-								);
-							});
+							state
+								.onEnable()
+								.then(() => {
+									setEnableRequested(false);
+								})
+								.catch(() => {
+									setEnableRequested(false);
+									setEnableError(
+										`Couldn’t turn on ${state.displayName}. Try again.`
+									);
+								});
 						}}
 					/>
 				</div>

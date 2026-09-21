@@ -163,7 +163,7 @@ describe("LocalAgentSelector", () => {
 		).toBe("/guides/local-agents/claude-code");
 	});
 
-	it("turns on the exact disabled local agent inline", () => {
+	it("turns on the exact disabled local agent inline and settles pending state", async () => {
 		const onEnable = vi.fn().mockResolvedValue(undefined);
 		render(
 			<LocalAgentSelector
@@ -185,6 +185,13 @@ describe("LocalAgentSelector", () => {
 
 		fireEvent.click(screen.getByRole("switch", { name: "Enable Codex" }));
 		expect(onEnable).toHaveBeenCalledOnce();
+		await waitFor(() =>
+			expect(
+				screen
+					.getByRole("switch", { name: "Enable Codex" })
+					.hasAttribute("data-unchecked")
+			).toBe(true)
+		);
 	});
 
 	it("does not carry a pending enable request to another local agent", () => {
