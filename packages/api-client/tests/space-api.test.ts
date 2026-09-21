@@ -682,6 +682,108 @@ describe("api-client space api", () => {
     });
   });
 
+  it("keeps default Space Files listing working against a Core response from before the origin filter existed", async () => {
+    // Simulates a real, pre-origin Core/Gateway response: no `origin` key
+    // anywhere, and the entries themselves are whatever Core has always
+    // returned (unfiltered), since a producer that predates this feature
+    // never applies any origin-based filtering. This is the one direction
+    // the coordinated cloud deploy order keeps safe: an updated client can
+    // still read an old producer's response for the ordinary, default
+    // request every existing caller already makes.
+    const actor = {
+      profileId: "human-1",
+      profileKind: "human" as const,
+      displayName: "Mira Stone",
+      ownerUserId: "owner-1",
+    };
+    const preOriginFile = {
+      id: "file-1",
+      spaceId: "space-123",
+      parentId: null,
+      name: "launch notes.md",
+      path: "/launch notes.md",
+      kind: "file" as const,
+      createdAt: "2026-08-22T08:00:00.000Z",
+      updatedAt: "2026-08-22T08:00:00.000Z",
+      createdBy: actor,
+      updatedBy: actor,
+      latestRevision: {
+        id: "revision-1",
+        fileId: "file-1",
+        revision: 1,
+        mimeType: "text/markdown",
+        sizeBytes: 13,
+        createdAt: "2026-08-22T08:00:00.000Z",
+        createdBy: actor,
+      },
+    };
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          breadcrumbs: [{ id: null, name: "Files" }],
+          capabilities: { canRead: true, canWrite: true },
+          entries: [preOriginFile],
+          parentId: null,
+          spaceId: "space-123",
+        })
+      )
+    );
+    const api = createSpaceApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      // No `query.origin` at all: this is exactly what every caller that
+      // predates this feature (and every ordinary `space files list` today)
+      // already sends.
+      api.listFiles({ spaceId: "space-123" })
+    ).resolves.toMatchObject({
+      origin: "artifact",
+      entries: [{ id: "file-1", origin: null }],
+    });
+  });
+
+  it("fails closed instead of silently showing an unfiltered list as chat uploads during rollout", async () => {
+    // The reverse rollout gap: a new client asks a not-yet-updated Core/
+    // Gateway for `origin=all` (Show chat uploads / `--all`). The old
+    // producer does not know the query parameter and returns its ordinary,
+    // pre-origin response shape (no `origin` key). The client's schema
+    // defaults the missing field to "artifact", which does not match the
+    // "all" the caller actually asked for. This must fail loudly with a
+    // diagnosable error, not silently return an artifact-only list while
+    // claiming chat uploads are included.
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          breadcrumbs: [{ id: null, name: "Files" }],
+          capabilities: { canRead: true, canWrite: true },
+          entries: [],
+          parentId: null,
+          spaceId: "space-123",
+        })
+      )
+    );
+    const api = createSpaceApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.listFiles({
+        spaceId: "space-123",
+        query: { view: "active", origin: "all" },
+      })
+    ).rejects.toMatchObject({
+      code: "gateway.invalid_response",
+      schemaIssuePath: "origin",
+    });
+  });
+
   it("inspects exact execution recovery through the shared space api", async () => {
     const recovery = createExecutionRecoveryProjection();
     const transport = vi.fn(() =>

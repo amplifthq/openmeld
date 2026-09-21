@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import * as z from "zod/v4";
 import {
   buildSpaceComposerPublishedFileId,
   buildSpaceFileEntryIdForMutation,
@@ -23,6 +24,31 @@ import {
   spaceMessageFileReferencesSchema,
   updateSpaceFileEntryBodySchema,
 } from "../../src";
+
+/**
+ * Reconstructs the exact frozen response contract shipped before `origin`
+ * existed (PR base `6d0736ee1197bee8778760f4b7ecc13d2bd77b2c`:
+ * `spaceFileDescriptorSchema`/`listSpaceFilesResponseSchema` were already
+ * `z.strictObject()` and had no `origin` key). An already-published CLI or
+ * Web bundle built against that contract parses server responses with
+ * exactly this shape; it has no knowledge of `origin` at all. Derived from
+ * the current schema minus `origin`, so it tracks any other field the
+ * current shape gains and only isolates the one field this PR adds.
+ */
+const preOriginSpaceFileDescriptorSchema = z.strictObject(
+  Object.fromEntries(
+    Object.entries(spaceFileDescriptorSchema.shape).filter(
+      ([key]) => key !== "origin"
+    )
+  )
+);
+const preOriginListSpaceFilesResponseSchema = z.strictObject(
+  Object.fromEntries(
+    Object.entries(listSpaceFilesResponseSchema.shape).filter(
+      ([key]) => key !== "origin"
+    )
+  )
+);
 
 describe("Space Files contracts", () => {
   it("keeps Composer publication identities exact at the request limits", async () => {
@@ -265,46 +291,123 @@ describe("Space Files contracts", () => {
     ).toBe("chat_upload");
   });
 
-  it("keeps active file responses readable during a receiver-first rollout", () => {
+  it("lets a current reader parse a response from a producer that predates origin", () => {
+    // This is the one direction that is actually safe without any deploy
+    // ordering: a NEW reader (current schema) accepting an OLD-shaped
+    // response (no `origin` key at all, e.g. from Core before this change,
+    // or during a rollout window where Core has not redeployed yet).
     const actor = {
       displayName: "Maya",
       profileId: "profile-1",
       profileKind: "human" as const,
     };
+    const preOriginFile = {
+      createdAt: "2026-08-23T00:00:00.000Z",
+      createdBy: actor,
+      id: "file-1",
+      kind: "file",
+      latestRevision: {
+        createdAt: "2026-08-23T00:00:00.000Z",
+        createdBy: actor,
+        fileId: "file-1",
+        id: "revision-1",
+        mimeType: "text/markdown",
+        revision: 1,
+        sizeBytes: 12,
+      },
+      name: "brief.md",
+      parentId: null,
+      path: "/brief.md",
+      spaceId: "space-1",
+      updatedAt: "2026-08-23T00:00:00.000Z",
+      updatedBy: actor,
+    };
+    // Prove the fixture is genuinely old-shaped first: a pre-origin strict
+    // reader (see the reconstructed schema above) must accept it.
+    expect(
+      preOriginSpaceFileDescriptorSchema.parse(preOriginFile)
+    ).toMatchObject(preOriginFile);
+
     expect(
       listSpaceFilesResponseSchema.parse({
         breadcrumbs: [{ id: null, name: "Files" }],
         capabilities: { canRead: true, canWrite: true },
-        entries: [
-          {
-            createdAt: "2026-08-23T00:00:00.000Z",
-            createdBy: actor,
-            id: "file-1",
-            kind: "file",
-            latestRevision: {
-              createdAt: "2026-08-23T00:00:00.000Z",
-              createdBy: actor,
-              fileId: "file-1",
-              id: "revision-1",
-              mimeType: "text/markdown",
-              revision: 1,
-              sizeBytes: 12,
-            },
-            name: "brief.md",
-            parentId: null,
-            path: "/brief.md",
-            spaceId: "space-1",
-            updatedAt: "2026-08-23T00:00:00.000Z",
-            updatedBy: actor,
-          },
-        ],
+        entries: [preOriginFile],
         parentId: null,
         spaceId: "space-1",
       })
     ).toMatchObject({
-      entries: [{ trashedAt: null, trashedBy: null }],
+      entries: [{ trashedAt: null, trashedBy: null, origin: null }],
+      origin: "artifact",
       view: "active",
     });
+  });
+
+  it("documents that an already-published pre-origin strict reader rejects the new response shape", () => {
+    // The reverse direction is not safe, and this PR does not claim it is:
+    // an already-published CLI or Web bundle parses responses with its own
+    // frozen schema, which has no knowledge of `origin` at all. Zod's
+    // strict object mode rejects any unrecognized key, so a real historical
+    // client throws on any response Core now returns for a file. This is a
+    // known, accepted limitation of already-published clients reading a
+    // `z.strictObject()` response that gains a field (see
+    // `developing/architecture/shared-contracts.md`'s schema-evolution
+    // rule and the Space Files Origin Classification Contract Impact Audit
+    // in `developing/engineering/development-workflow.md`) — not something
+    // any request-side or response-side default in this schema can fix,
+    // because the break lives entirely in the old client's own frozen code.
+    const actor = {
+      displayName: "Maya",
+      profileId: "profile-1",
+      profileKind: "human" as const,
+    };
+    const newShapedFile = {
+      createdAt: "2026-08-23T00:00:00.000Z",
+      createdBy: actor,
+      id: "file-1",
+      kind: "file" as const,
+      latestRevision: {
+        createdAt: "2026-08-23T00:00:00.000Z",
+        createdBy: actor,
+        fileId: "file-1",
+        id: "revision-1",
+        mimeType: "text/markdown",
+        revision: 1,
+        sizeBytes: 12,
+      },
+      name: "brief.md",
+      origin: "artifact" as const,
+      parentId: null,
+      path: "/brief.md",
+      spaceId: "space-1",
+      updatedAt: "2026-08-23T00:00:00.000Z",
+      updatedBy: actor,
+    };
+    // The current schema accepts it (this is the supported new-reads-new
+    // case), but the frozen old strict reader rejects the same object,
+    // because it carries a key ("origin") the old reader never learned.
+    expect(spaceFileDescriptorSchema.safeParse(newShapedFile).success).toBe(
+      true
+    );
+    expect(
+      preOriginSpaceFileDescriptorSchema.safeParse(newShapedFile).success
+    ).toBe(false);
+
+    const newShapedListResponse = {
+      breadcrumbs: [{ id: null, name: "Files" }],
+      capabilities: { canRead: true, canWrite: true },
+      entries: [newShapedFile],
+      origin: "artifact" as const,
+      parentId: null,
+      spaceId: "space-1",
+    };
+    expect(
+      listSpaceFilesResponseSchema.safeParse(newShapedListResponse).success
+    ).toBe(true);
+    expect(
+      preOriginListSpaceFilesResponseSchema.safeParse(newShapedListResponse)
+        .success
+    ).toBe(false);
   });
 
   it("gives the Center Agent the same Trash and restore language", () => {
