@@ -267,33 +267,6 @@ describe("local component update projection", () => {
 
   it.each([
     {
-      installedVersion: "0.3.213",
-      latestVersion: "0.3.215",
-      requiredVersion: "0.3.215",
-      setupAction: "update_service",
-      status: "update_required",
-      updatePolicy: "required",
-      wakeBlocked: true,
-    },
-    {
-      installedVersion: "0.3.214",
-      latestVersion: "0.3.215",
-      requiredVersion: null,
-      setupAction: "none",
-      status: "update_available",
-      updatePolicy: "available",
-      wakeBlocked: false,
-    },
-    {
-      installedVersion: "0.3.215",
-      latestVersion: "0.3.215",
-      requiredVersion: null,
-      setupAction: "none",
-      status: "current",
-      updatePolicy: "available",
-      wakeBlocked: false,
-    },
-    {
       installedVersion: "0.3.215",
       latestVersion: "0.3.216",
       requiredVersion: "0.3.216",
@@ -323,6 +296,33 @@ describe("local component update projection", () => {
     {
       installedVersion: "0.3.216",
       latestVersion: "0.3.217",
+      requiredVersion: "0.3.217",
+      setupAction: "update_service",
+      status: "update_required",
+      updatePolicy: "required",
+      wakeBlocked: true,
+    },
+    {
+      installedVersion: "0.3.217",
+      latestVersion: "0.3.217",
+      requiredVersion: null,
+      setupAction: "none",
+      status: "current",
+      updatePolicy: "available",
+      wakeBlocked: false,
+    },
+    {
+      installedVersion: "0.3.216",
+      latestVersion: "0.3.218",
+      requiredVersion: "0.3.218",
+      setupAction: "update_service",
+      status: "update_required",
+      updatePolicy: "required",
+      wakeBlocked: true,
+    },
+    {
+      installedVersion: "0.3.217",
+      latestVersion: "0.3.218",
       requiredVersion: null,
       setupAction: "none",
       status: "update_available",
@@ -371,7 +371,7 @@ describe("local component update projection", () => {
     const projection = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-06-04T00:00:00.000Z",
       releaseManifest: createReleaseManifest({
-        serviceBundleVersion: "0.3.215",
+        serviceBundleVersion: "0.3.216",
         serviceUpdatePolicy: "available",
       }),
       serviceConnected: true,
@@ -382,9 +382,9 @@ describe("local component update projection", () => {
       setupAction: "update_service",
       service: {
         installedVersion,
-        latestVersion: "0.3.215",
+        latestVersion: "0.3.216",
         reasonCodes: [reasonCode],
-        requiredVersion: "0.3.215",
+        requiredVersion: "0.3.216",
         status: "update_required",
         updatePolicy: "required",
         wakeBlocked: true,
