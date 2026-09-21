@@ -12,7 +12,9 @@ import type {
   SpaceFileAuditEvent,
   SpaceFileDescriptor,
   SpaceFileEntry,
+  SpaceFileListOriginFilter,
   SpaceFileMutationErrorCode,
+  SpaceFileOrigin,
   SpaceFileRevision,
   SpaceFolderDescriptor,
   TrashSpaceFileEntryResponse,
@@ -34,6 +36,7 @@ type SpaceFileEntryRow = {
   updated_by_json: string;
   trashed_at_ms: number | null;
   trashed_by_json: string | null;
+  origin: SpaceFileOrigin | null;
 };
 
 type SpaceFileRevisionRow = {
@@ -88,13 +91,25 @@ export class SpaceFileRepository {
     spaceId: string;
     parentId?: string | null;
     view?: "active" | "trash";
+    origin?: SpaceFileListOriginFilter;
     canWrite: boolean;
   }): ListSpaceFilesResponse {
     const view = input.view ?? "active";
+    const origin = input.origin ?? "artifact";
     const parentId = view === "trash" ? null : (input.parentId ?? null);
     if (view === "active" && parentId) {
       this.requireActiveFolder(parentId);
     }
+    // Folders are never chat uploads, so the "artifact" filter never hides
+    // them; only files carry an origin classification. Every write path
+    // (new-file creation, the historical-row backfill) now assigns
+    // 'artifact' or 'chat_upload' explicitly, so a file with a NULL origin
+    // is exceptional/corrupt data, not normal history. It still fails
+    // closed here and stays out of the default view, same as a chat upload.
+    const originClause =
+      view === "active" && origin === "artifact"
+        ? "AND (kind = 'folder' OR origin = 'artifact')"
+        : "";
     const rows = this.sql
       .exec<SpaceFileEntryRow>(
         `
@@ -109,12 +124,13 @@ export class SpaceFileRepository {
             created_by_json,
             updated_by_json,
             trashed_at_ms,
-            trashed_by_json
+            trashed_by_json,
+            origin
           FROM space_file_entries
           WHERE ${
             view === "trash"
               ? "trashed_at_ms IS NOT NULL"
-              : "parent_key = ? AND trashed_at_ms IS NULL"
+              : `parent_key = ? AND trashed_at_ms IS NULL ${originClause}`
           }
           ORDER BY
             ${view === "trash" ? "trashed_at_ms DESC," : "CASE kind WHEN 'folder' THEN 0 ELSE 1 END,"}
@@ -129,6 +145,7 @@ export class SpaceFileRepository {
       spaceId: input.spaceId,
       parentId,
       view,
+      origin,
       breadcrumbs:
         view === "trash"
           ? [
@@ -569,8 +586,9 @@ export class SpaceFileRepository {
               created_by_json,
               updated_by_json,
               trashed_at_ms,
-              trashed_by_json
-            ) VALUES (?, ?, 'file', ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+              trashed_by_json,
+              origin
+            ) VALUES (?, ?, 'file', ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)
           `,
           input.write.fileId,
           input.write.spaceId,
@@ -581,7 +599,15 @@ export class SpaceFileRepository {
           input.nowMs,
           input.nowMs,
           actorJson,
-          actorJson
+          actorJson,
+          // A legacy client that never learned about `origin` gets the same
+          // classification the repository has always implied for a plain
+          // create: 'artifact'. This keeps rolling interoperability — an old
+          // client stays visible in the default Files view without being
+          // required to send a new field before the server can roll safely.
+          // Explicit chat-upload write paths always set `origin` themselves
+          // and are unaffected by this default.
+          input.write.origin ?? "artifact"
         );
       } else {
         revision = input.write.baseRevision + 1;
@@ -684,6 +710,7 @@ export class SpaceFileRepository {
             ...base,
             kind: "file",
             latestRevision: this.latestRevision(row.entry_id),
+            origin: row.origin,
           }
     );
   }
@@ -796,7 +823,8 @@ export class SpaceFileRepository {
             created_by_json,
             updated_by_json,
             trashed_at_ms,
-            trashed_by_json
+            trashed_by_json,
+            origin
           FROM space_file_entries
           WHERE entry_id = ?
           LIMIT 1

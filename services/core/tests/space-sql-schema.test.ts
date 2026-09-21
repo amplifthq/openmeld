@@ -312,4 +312,112 @@ describe("space-sql-schema", () => {
     expect(allSql).toContain("ADD COLUMN organization_visibility TEXT NULL");
     expect(allSql).toContain("SET guide = guidelines");
   });
+
+  it("adds the Space Files origin column when missing, on a fresh schema pass", () => {
+    const sql = new FakeSqlStorage();
+    const createTableInfoRow = <T extends Record<string, unknown>>(
+      name: string
+    ) => ({ name }) as unknown as T;
+    sql.exec = function exec<T extends Record<string, unknown>>(
+      statement: string,
+      ...params: unknown[]
+    ): FakeSqlCursor<T> {
+      this.calls.push({ sql: statement, params });
+      if (statement === "PRAGMA table_info(space_file_entries)") {
+        return new FakeSqlCursor<T>([
+          createTableInfoRow<T>("entry_id"),
+          createTableInfoRow<T>("space_id"),
+          createTableInfoRow<T>("kind"),
+          createTableInfoRow<T>("name"),
+        ]);
+      }
+      if (statement === "PRAGMA table_info(space_meta)") {
+        return new FakeSqlCursor<T>([
+          createTableInfoRow<T>("space_id"),
+          createTableInfoRow<T>("name"),
+          createTableInfoRow<T>("created_at"),
+          createTableInfoRow<T>("updated_at"),
+        ]);
+      }
+      if (statement === "PRAGMA table_info(space_cursors)") {
+        return new FakeSqlCursor<T>([createTableInfoRow<T>("profile_id")]);
+      }
+      return new FakeSqlCursor<T>([]);
+    };
+
+    ensureSpaceSqlSchema(sql as unknown as SqlStorage);
+
+    const alterCallIndex = sql.calls.findIndex(
+      (call) =>
+        call.sql.includes("ALTER TABLE space_file_entries") &&
+        call.sql.includes("ADD COLUMN origin")
+    );
+    const backfillCallIndex = sql.calls.findIndex(
+      (call) =>
+        call.sql.includes("UPDATE space_file_entries") &&
+        call.sql.includes("SET origin = 'artifact'")
+    );
+    expect(alterCallIndex).toBeGreaterThanOrEqual(0);
+    // The backfill always runs after the column exists, whether this pass
+    // just added it or found it already present — see the real-database
+    // repair test in space-file-entries-origin-migration.test.ts for proof
+    // of the actual row-level repair behavior across both paths.
+    expect(backfillCallIndex).toBeGreaterThan(alterCallIndex);
+    expect(sql.calls[backfillCallIndex]?.sql).toContain(
+      "WHERE kind = 'file' AND origin IS NULL"
+    );
+    // Folders never appear in the backfill's WHERE clause: the guard is
+    // scoped to `kind = 'file'`, so a historical folder keeps a NULL origin
+    // (folders never carry one) instead of being force-classified.
+    expect(sql.calls[backfillCallIndex]?.sql).not.toContain("kind = 'folder'");
+  });
+
+  it("still runs the Space Files origin backfill when the column already exists", () => {
+    const sql = new FakeSqlStorage();
+    const createTableInfoRow = <T extends Record<string, unknown>>(
+      name: string
+    ) => ({ name }) as unknown as T;
+    sql.exec = function exec<T extends Record<string, unknown>>(
+      statement: string,
+      ...params: unknown[]
+    ): FakeSqlCursor<T> {
+      this.calls.push({ sql: statement, params });
+      if (statement === "PRAGMA table_info(space_file_entries)") {
+        return new FakeSqlCursor<T>([
+          createTableInfoRow<T>("entry_id"),
+          createTableInfoRow<T>("origin"),
+        ]);
+      }
+      if (statement === "PRAGMA table_info(space_meta)") {
+        return new FakeSqlCursor<T>([createTableInfoRow<T>("space_id")]);
+      }
+      if (statement === "PRAGMA table_info(space_cursors)") {
+        return new FakeSqlCursor<T>([createTableInfoRow<T>("profile_id")]);
+      }
+      return new FakeSqlCursor<T>([]);
+    };
+
+    ensureSpaceSqlSchema(sql as unknown as SqlStorage);
+
+    // This is the exact repair this schema version exists to guarantee: a
+    // database that reached this schema pass with the `origin` column
+    // already present (an earlier, interrupted, or previously buggy
+    // migration) must still have its backfill run, not skip it because the
+    // `ALTER TABLE` step was unnecessary this time.
+    expect(
+      sql.calls.some(
+        (call) =>
+          call.sql.includes("ALTER TABLE space_file_entries") &&
+          call.sql.includes("ADD COLUMN origin")
+      )
+    ).toBe(false);
+    expect(
+      sql.calls.some(
+        (call) =>
+          call.sql.includes("UPDATE space_file_entries") &&
+          call.sql.includes("SET origin = 'artifact'") &&
+          call.sql.includes("WHERE kind = 'file' AND origin IS NULL")
+      )
+    ).toBe(true);
+  });
 });

@@ -8983,7 +8983,7 @@ describe("OpenMeld Core", () => {
     ).resolves.toMatchObject({ id: writes[1]?.fileId });
 
     const result = await stub.rpcListSpaceFiles({
-      query: { view: "active" },
+      query: { view: "active", origin: "all" },
       spaceAccess,
       spaceId,
     });

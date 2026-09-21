@@ -2,6 +2,10 @@ import type { z } from "zod/v4";
 
 type Schemas = typeof import("../../schemas/http/space-files");
 
+export type SpaceFileOrigin = z.infer<Schemas["spaceFileOriginSchema"]>;
+export type SpaceFileListOriginFilter = z.infer<
+  Schemas["spaceFileListOriginFilterSchema"]
+>;
 export type SpaceFileActor = z.infer<Schemas["spaceFileActorSchema"]>;
 export type SpaceFileAuditEvent = z.infer<Schemas["spaceFileAuditEventSchema"]>;
 export type SpaceFileAuditOperation = z.infer<

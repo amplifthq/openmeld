@@ -6140,14 +6140,22 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_read_space_context",
     },
     {
-      expectedPayload: { parentId: null, spaceId: SPACE_ID },
+      expectedPayload: {
+        parentId: null,
+        requestedOriginModel: "origin_aware",
+        spaceId: SPACE_ID,
+      },
       input: { parentId: null, spaceId: SPACE_ID },
       response: listSpaceFilesResponse(),
       rpcName: "centerAgentListSpaceFiles",
       toolName: "openmeld_list_space_files",
     },
     {
-      expectedPayload: { spaceId: SPACE_ID, view: "trash" },
+      expectedPayload: {
+        requestedOriginModel: "origin_aware",
+        spaceId: SPACE_ID,
+        view: "trash",
+      },
       input: { spaceId: SPACE_ID, view: "trash" },
       response: { ...listSpaceFilesResponse(), entries: [], view: "trash" },
       rpcName: "centerAgentListSpaceFiles",
@@ -6156,6 +6164,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     {
       expectedPayload: {
         fileId: "file-1",
+        requestedOriginModel: "origin_aware",
         revision: 1,
         spaceId: SPACE_ID,
       },
@@ -6168,6 +6177,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       expectedPayload: {
         fileId: "file-1",
         includeHistory: true,
+        requestedOriginModel: "origin_aware",
         spaceId: SPACE_ID,
       },
       input: { fileId: "file-1", includeHistory: true, spaceId: SPACE_ID },
@@ -6186,6 +6196,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         content: "# Release brief\n\nReady for review.",
         fileId: "file-1",
         mimeType: "text/markdown",
+        requestedOriginModel: "origin_aware",
         spaceId: SPACE_ID,
       },
       input: {
@@ -6207,6 +6218,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         clientMutationId: "create-planning-folder",
         name: "Planning",
         parentId: null,
+        requestedOriginModel: "origin_aware",
         spaceId: SPACE_ID,
       },
       input: {
@@ -6229,6 +6241,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         baseRevision: 3,
         clientMutationId: "restore-release-brief-r1",
         fileId: "file-1",
+        requestedOriginModel: "origin_aware",
         revision: 1,
         spaceId: SPACE_ID,
       },
