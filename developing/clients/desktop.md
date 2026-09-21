@@ -1098,17 +1098,24 @@ The app's `Info.plist` declares the existing development Auth return scheme from
 `packages/schemas`, as macOS requires for packaged URL callbacks; no new scheme
 or Auth authority is introduced.
 
-Output is under `clients/desktop/dist/private`, with `Private` in both app and
-DMG names. This target writes no preview/update manifest and has no publisher.
-It does not bundle CLI, Service, credentials, lane state, or worktree asset paths.
-The legacy preview build remains a separate paused distribution path.
+Output is under `clients/desktop/dist/private`. The `.app` name follows the
+unified [Desktop Application Names](desktop-app-identity.md) contract:
+`OpenMeld Dev.app` for the private development identity, or
+`OpenMeld Dev wt-<id>.app` when the selected identity belongs to a worktree.
+The DMG filename is configured separately in
+`electron-builder.private.config.mjs`; it is currently
+`OpenMeld-Desktop-Private-${version}-macos-${arch}-unsigned.dmg`. Do not infer
+the DMG filename from the application display name. This target writes no
+preview/update manifest and has no publisher. It does not bundle CLI, Service,
+credentials, lane state, or worktree asset paths. The legacy preview build
+remains a separate paused distribution path.
 
 Launch the built or copied app from an already configured, matching worktree:
 
 ```sh
-pnpm desktop:start:package "/path/to/OpenMeld Desktop Private.app"
+pnpm desktop:start:package "/path/to/OpenMeld Dev.app"
 # Explicit canary preset, using the same worktree lane:
-pnpm desktop:start:package "/path/to/OpenMeld Desktop Private.app" canary
+pnpm desktop:start:package "/path/to/OpenMeld Dev wt-<id>.app" canary
 ```
 
 This extends the existing root launcher: it verifies lane ownership and the
