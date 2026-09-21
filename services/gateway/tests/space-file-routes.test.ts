@@ -50,6 +50,7 @@ const FILE = {
     createdAt: "2026-08-22T08:00:00.000Z",
     createdBy: ACTOR,
   },
+  origin: "artifact" as const,
   trashedAt: null,
   trashedBy: null,
 };
@@ -167,7 +168,9 @@ describe("Space file routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ view: "trash" });
     expect(listSpaceFiles).toHaveBeenCalledWith(
-      expect.objectContaining({ query: { view: "trash" } })
+      expect.objectContaining({
+        query: { view: "trash", origin: "artifact" },
+      })
     );
   });
 

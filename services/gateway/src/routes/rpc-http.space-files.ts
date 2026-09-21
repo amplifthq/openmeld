@@ -405,6 +405,9 @@ async function listSpaceFiles(c: Context<HonoBindings>): Promise<Response> {
       ? {}
       : { parentId: c.req.query("parentId") }),
     ...(c.req.query("view") === undefined ? {} : { view: c.req.query("view") }),
+    ...(c.req.query("origin") === undefined
+      ? {}
+      : { origin: c.req.query("origin") }),
   });
   if (!parsed.success) {
     return respondFileError({
@@ -594,6 +597,9 @@ async function uploadSpaceFile(c: Context<HonoBindings>): Promise<Response> {
     name: c.req.query("name"),
     parentId: c.req.query("parentId"),
     clientMutationId: c.req.query("clientMutationId"),
+    ...(c.req.query("origin") === undefined
+      ? {}
+      : { origin: c.req.query("origin") }),
   });
   if (!query.success) {
     return respondFileError({
@@ -636,6 +642,7 @@ async function uploadSpaceFile(c: Context<HonoBindings>): Promise<Response> {
     clientMutationId: query.data.clientMutationId,
     mimeType: body.mimeType,
     sizeBytes: body.bytes.byteLength,
+    ...(query.data.origin === undefined ? {} : { origin: query.data.origin }),
   };
   const result = await persistSpaceFileRevision({
     c,
