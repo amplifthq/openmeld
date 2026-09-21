@@ -6783,6 +6783,21 @@ Shared contract truth lives in `packages/schemas`.
 
 Shared database truth lives in `packages/db`.
 
+Consumers building predicates for those shared tables import the required
+operators and inferred-record types from `@openmeld/db/query`. That entrypoint
+re-exports Drizzle directly from the same package that owns the tables and D1
+factory; it is not another ORM, query implementation, or database authority.
+Its ESM and declaration outputs keep Drizzle external, and it must not import
+Node-only SQLite tooling into Worker consumers.
+
+Do not combine a shared table with query helpers or inferred-record types from
+a consumer-local Drizzle installation. pnpm may resolve the same Drizzle version
+with different optional SQLite peers, creating incompatible private/protected
+type identities. Auth retains its declared Drizzle dependency for Better Auth's
+peer contract, but its own repositories use `@openmeld/db/query`. Fix this
+boundary without coercing types, editing dependency links, or undoing the
+separately validated SQLite 13 runtime/install fixes.
+
 The durable mental model is:
 
 ```text

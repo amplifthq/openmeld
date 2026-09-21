@@ -3,11 +3,11 @@ import {
   type createD1Db,
   members,
 } from "@openmeld/db/auth";
+import { and, eq, exists, sql } from "@openmeld/db/query";
 import {
   type AccountSidebarSnapshot,
   accountSidebarPreferencesSchema,
 } from "@openmeld/schemas";
-import { and, eq, exists, sql } from "drizzle-orm";
 
 export function createAccountSidebarRepository(
   db: ReturnType<typeof createD1Db>
