@@ -300,10 +300,12 @@ Run `pnpm verify:model-catalog` for the collector and real disposable-Git
 publication/recovery tests. A pushed branch whose PR creation failed is recovered
 without rewriting it; external branch changes stop automatic recovery.
 
-One open catalog bot PR is the active review inbox. Subsequent successful runs
-leave its branch and body untouched so a coding agent can safely continue there,
-but upsert one bot-owned **Latest model catalog scan** comment with the newest
-generated brief and the current Actions run link. This refresh happens even when
+One open catalog bot PR is the active review inbox. Subsequent successful Actions
+runs leave its branch and body untouched so a coding agent can safely continue
+there, but upsert one bot-owned **Latest model catalog scan** comment with the
+newest generated brief and the current Actions run link. A local publisher
+invocation without an Actions run context leaves the open PR untouched rather
+than authoring that bot marker under a human account. This refresh happens even when
 the scan has no deterministic additions, so the PR always exposes fresh evidence
 without rewriting reviewer-owned commits. A closed PR suppresses the same combined
 source fingerprint; materially changed facts may produce a new proposal. Merging
