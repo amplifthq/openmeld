@@ -3861,6 +3861,14 @@ preview and morph into a focused full-size view when selected; non-image
 references remain file cards, and both presentations lead to the same canonical
 entry in Files.
 
+The active Files list defaults to artifacts only (see the Space Files origin
+contract above); it never applies this filter to Trash. A **Show chat
+uploads** toggle beside Trash switches the request to `origin=all` and updates
+the subtitle to say chat uploads are included; toggling back returns to the
+default. When chat uploads are shown, each one carries a **Chat upload** badge
+next to its name so the distinction stays visible in the row, not only in the
+toggle state.
+
 Markdown creation and editing reuse the exact rich Plate surface owned by the
 Organization Documents experience. Both surfaces persist one CommonMark + GFM
 string, expose only formatting that round-trips through that contract, and use

@@ -1020,7 +1020,7 @@ requires the Codex App Server permission profile and actual access probe.
 the current Space filesystem. The MVP commands are:
 
 ```text
-openmeld space files list <space-id> [--folder <folder-id>] [--json]
+openmeld space files list <space-id> [--folder <folder-id>] [--all] [--json]
 openmeld space files read <space-id> <file-id> [--revision <n>]
 openmeld space files upload <space-id> <local-path> [--name <name>] [--folder <folder-id>]
 openmeld space files write <space-id> <file-id> --base-revision <n> (--file <local-path> | --stdin)
@@ -1931,6 +1931,10 @@ Use scoped owner documents for deeper rules:
 - `space files list --trash`, `space files history`, `space files restore`, and
   `space files restore-version` consume the same member-only Trash and immutable
   revision contract as Web; restoring a version creates a new latest revision.
+- `space files list` defaults to artifacts only, matching Web's default; pass
+  `--all` to also see files shared as chat uploads. `space files upload` always
+  records the new file as an artifact; `space send --file` and
+  `space action reply --file` always record theirs as chat uploads.
 - Status commands must remain read-only.
 - Mutating commands must be explicit and lane-scoped.
 - `openmeld routines` exposes exactly eight commands, uses an explicit target

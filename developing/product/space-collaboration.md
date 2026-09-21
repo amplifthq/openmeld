@@ -514,6 +514,21 @@ Agent Computer remain separate owners:
   uploads.
 - the Center Agent Computer is its private durable working environment.
 
+Every Space File records one canonical **origin**: **artifact** (created in
+Files, uploaded through the Files upload control or CLI `space files upload`,
+or written by an Agent) or **chat upload** (sent as a message attachment
+through the Composer or CLI `space send --file`). Origin is set once at file
+creation and never changes on a later revision. The Files list defaults to
+artifacts only so chat screenshots and pasted images do not bury deliberate
+work; a **Show chat uploads** toggle (`origin=all`, CLI `--all`) reveals chat
+uploads without leaving Files, and toggling it off returns to the default.
+Folders are structural and always shown regardless of this filter. A file
+whose origin was never recorded (data written before this distinction
+existed) fails closed: it stays out of the default artifacts view, the same
+as a chat upload, until an explicit `origin=all` read asks for it. This is
+strictly a list-time presentation filter; it does not trash, delete, or move
+chat uploads, and every chat upload remains reachable there.
+
 The Space Files MVP does not project files into Resources/Documents or the
 Center Agent Computer. A later explicit **Copy to Organization Files** action
 may create a new Organization-owned file with clear provenance; it must not
