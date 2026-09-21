@@ -2728,8 +2728,12 @@ describe("remote agent OpenMeld tool catalog", () => {
     const centerAgentReadPeopleComputers = vi.fn(async () =>
       listComputersResponse()
     );
+    const centerAgentCheckAgentProfileReadiness = vi.fn();
     const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { centerAgentReadPeopleComputers },
+      coreWorker: {
+        centerAgentReadPeopleComputers,
+        centerAgentCheckAgentProfileReadiness,
+      },
       storage: await createStorageWithPendingContext(request),
       turnEnvelope: request.turnEnvelope,
     });
@@ -2738,6 +2742,12 @@ describe("remote agent OpenMeld tool catalog", () => {
       executeTool(tools, "openmeld_list_computers", {})
     ).rejects.toThrow("only in your direct conversation");
     expect(centerAgentReadPeopleComputers).not.toHaveBeenCalled();
+    await expect(
+      executeTool(tools, "openmeld_check_agent_profile_readiness", {
+        agentProfileId: AGENT_PROFILE_ID,
+      })
+    ).rejects.toThrow("private conversation");
+    expect(centerAgentCheckAgentProfileReadiness).not.toHaveBeenCalled();
   });
 
   it("uses provider-linked member identity for requester-private Computer diagnostics", async () => {
@@ -6487,6 +6497,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     {
       expectedPayload: {
         agentProfileId: AGENT_PROFILE_ID,
+        onBehalfOf,
       },
       input: {
         agentProfileId: AGENT_PROFILE_ID,

@@ -12273,6 +12273,7 @@ export async function rpcCenterAgentCheckAgentProfileReadiness(
   });
   const parsed = centerAgentCheckAgentProfileReadinessBodySchema.safeParse({
     agentProfileId: input.agentProfileId,
+    onBehalfOf: input.onBehalfOf,
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -12285,7 +12286,14 @@ export async function rpcCenterAgentCheckAgentProfileReadiness(
   }
   const response = await checkAgentProfileReadinessOperation({
     agentProfileId: parsed.data.agentProfileId,
-    deps: buildCenterAgentProductOperationDeps(env, authorization),
+    deps: buildCenterAgentProductOperationDeps(
+      env,
+      authorization,
+      await resolveCenterAgentProductOperationOwner(
+        authorization,
+        parsed.data.onBehalfOf
+      )
+    ),
   });
   const validated =
     centerAgentCheckAgentProfileReadinessResponseSchema.safeParse(response);

@@ -277,3 +277,30 @@ Explicit memory search supports retained OpenMeld DM and Space-message provenanc
 Do not add model-turn-completeness grading, automatic "should have done more" continuation, blanket permissions, a second execution/memory/task/transaction ledger, invisible transcript capture, universal history search, production repair/retry/replay, automatic merge, or deployment.
 
 Close out with implemented slices, exact commits, tests and scenarios actually exercised, supported sources/surfaces, remaining evidence gaps, and separately scoped follow-ups. A capability that always returns unavailable is not implemented. Preserve explicit unsupported source boundaries without blocking independent useful slices.
+
+## Authorized follow-up: owner Agent readiness
+
+Live delegation exposed a pre-existing conflict: the Center Agent readiness RPC
+authenticated an Agent principal, then passed that principal to an owner-only
+read requiring a human account. The fix preserves Agent authentication and
+derives `onBehalfOf` from the verified turn, revalidates current Organization
+membership, and applies the existing target-owner check. Full owner diagnostics
+are private-chat only; shared or other-member status uses the existing team-safe
+directory projection. No organization-owner impersonation is introduced.
+
+Contract impact: the internal Remote Agent-to-Core readiness request adds optional
+`onBehalfOf`, consistent with neighboring owner operations. Missing attribution
+fails closed. Old callers remain unable to read owner diagnostics; new callers
+against old Core retain the previous unavailable behavior, so deploy Core before
+Remote Agent for this fix. The response, CLI, Service, setup, Wake, and runtime
+contracts are unchanged; no local-component version floor is required. The shared
+schema changes the Service build fingerprint. Deferred release-ready verification
+passes against `303814dfbde9388cbf0851227efa9b509e7fb007`; version and release
+manifest remain identical to that base. The final clean-main release must stamp
+the rebuilt Service facts. The change follows the scoped identity and
+owner-diagnostic privacy rules.
+
+Regression evidence includes the real Workerd/D1 RPC authorization path: removing
+the fix reproduces `401 auth.unauthenticated`; with the fix, owner reads succeed
+and missing attribution, another owner, and removed membership are rejected.
+Remote Agent tests cover trusted attribution and refusal in shared conversations.
