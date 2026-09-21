@@ -487,8 +487,7 @@ instance. A wait timeout is not an Agent execution failure and must not re-admit
 the turn or fail the Run. Other errors propagate for inspection. Older failed
 instances still require operator inspection; this does not authorize guessing
 a restart point from a serialized error message.
-An
-unknown error phase or explicitly terminated instance fails closed for operator
+An unknown error phase or explicitly terminated instance fails closed for operator
 inspection rather than erasing durable progress. This recovery must not execute
 or terminalize the Run through the legacy path. Workflow state is an execution
 mechanism and operational diagnostic, not a second Routine registry or Run

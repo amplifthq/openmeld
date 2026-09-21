@@ -219,9 +219,24 @@ describe("GitHub issue Space Task binding", () => {
       phase: "canceled",
       revision: 4,
     });
-    const mutateSpaceTask = vi.fn(async (input: { body: { action: string } }) =>
-      receiptFor(input.body.action === "cancel" ? canceled : observed)
-    );
+    const observedActions: string[] = [];
+    const mutateSpaceTask = vi.fn((input: unknown) => {
+      if (
+        !input ||
+        typeof input !== "object" ||
+        !("body" in input) ||
+        !input.body ||
+        typeof input.body !== "object" ||
+        !("action" in input.body) ||
+        typeof input.body.action !== "string"
+      ) {
+        throw new Error("Expected a Space Task mutation request.");
+      }
+      observedActions.push(input.body.action);
+      return Promise.resolve(
+        receiptFor(input.body.action === "cancel" ? canceled : observed)
+      );
+    });
 
     const summary = await applyGitHubIssueSpaceTaskBinding({
       actionId: "github.update_issue",
@@ -247,9 +262,7 @@ describe("GitHub issue Space Task binding", () => {
       },
     });
 
-    expect(
-      mutateSpaceTask.mock.calls.map((call) => call[0].body.action)
-    ).toEqual(["observe_external_work_item", "cancel"]);
+    expect(observedActions).toEqual(["observe_external_work_item", "cancel"]);
     expect(summary?.closedTaskIds).toEqual([canceled.taskId]);
     expect(describeLinkedGitHubIssueClosePrompt(canceled)).toBeNull();
   });

@@ -567,7 +567,7 @@ function observeExternalWorkItem({
   }
   const current = task.externalWorkItems[existingIndex];
   if (!current) {
-    fail(
+    return fail(
       "space_task.external_work_item_not_found",
       "This Task is not linked to that GitHub issue.",
       404
