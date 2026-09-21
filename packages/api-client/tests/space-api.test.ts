@@ -652,6 +652,76 @@ describe("api-client space api", () => {
     );
   });
 
+  it("declares the origin capability on every Space Files request so Gateway does not strip origin from this client's own responses", async () => {
+    // Gateway strips `origin` from any caller that omits this header (see
+    // the Space Files Origin Classification Contract Impact Audit). This
+    // client is current, not an already-published frozen reader, so it
+    // must declare the capability on every Space Files call or it would
+    // silently lose the very field this release adds.
+    const actor = {
+      profileId: "11111111-1111-4111-8111-111111111111",
+      profileKind: "human" as const,
+      displayName: "Mira Stone",
+      ownerUserId: "owner-1",
+    };
+    const file = {
+      id: "file-1",
+      spaceId: "space-123",
+      parentId: null,
+      name: "launch notes.md",
+      origin: "artifact" as const,
+      path: "/launch notes.md",
+      kind: "file" as const,
+      createdAt: "2026-08-22T08:00:00.000Z",
+      updatedAt: "2026-08-22T08:00:00.000Z",
+      createdBy: actor,
+      updatedBy: actor,
+      trashedAt: null,
+      trashedBy: null,
+      latestRevision: {
+        id: "revision-1",
+        fileId: "file-1",
+        revision: 1,
+        mimeType: "text/markdown",
+        sizeBytes: 5,
+        createdAt: "2026-08-22T08:00:00.000Z",
+        createdBy: actor,
+      },
+    };
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          breadcrumbs: [{ id: null, name: "Files" }],
+          capabilities: { canRead: true, canWrite: true },
+          entries: [file],
+          origin: "artifact",
+          parentId: null,
+          spaceId: "space-123",
+          view: "active",
+        })
+      )
+    );
+    const api = createSpaceApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.listFiles({ spaceId: "space-123" })
+    ).resolves.toMatchObject({ entries: [{ origin: "artifact" }] });
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        init: expect.objectContaining({
+          headers: expect.objectContaining({
+            "x-openmeld-space-files-origin-version": "1",
+          }),
+        }),
+      })
+    );
+  });
+
   it("fails closed instead of showing active files as Trash during rollout", async () => {
     const transport = vi.fn(() =>
       Promise.resolve(

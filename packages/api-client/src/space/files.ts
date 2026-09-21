@@ -1,4 +1,8 @@
 import {
+  OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+} from "@openmeld/gateway-contract";
+import {
   createSpaceFolderResponseSchema,
   discardSpaceComposerUploadResponseSchema,
   getSpaceFileResponseSchema,
@@ -97,6 +101,7 @@ async function uploadMultipart(
         method: "POST",
         operation: "space.files.upload",
         headers: {
+          ...spaceFilesOriginCapabilityHeaders(),
           "content-type": part
             ? "application/octet-stream"
             : "application/json",
@@ -262,7 +267,10 @@ export async function createSpaceFolder(
     url: buildSpaceFileFoldersPath(input.spaceId),
     operation: "space.files.folder.create",
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...spaceFilesOriginCapabilityHeaders(),
+      "content-type": "application/json",
+    },
     body: JSON.stringify(input.body),
     schema: createSpaceFolderResponseSchema,
     invalidMessage: "invalid Space folder create response",
@@ -281,7 +289,10 @@ export async function updateSpaceFileEntry(
     url: buildSpaceFileEntryPath(input.spaceId, input.entryId),
     operation: "space.files.entry.update",
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...spaceFilesOriginCapabilityHeaders(),
+      "content-type": "application/json",
+    },
     body: JSON.stringify(input.body),
     schema: updateSpaceFileEntryResponseSchema,
     invalidMessage: "invalid Space file update response",
@@ -301,7 +312,10 @@ export async function trashSpaceFileEntry(
     url: buildSpaceFileEntryPath(input.spaceId, input.entryId),
     operation: "space.files.entry.trash",
     method: "DELETE",
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...spaceFilesOriginCapabilityHeaders(),
+      "content-type": "application/json",
+    },
     body: JSON.stringify({ clientMutationId: input.clientMutationId }),
     schema: trashSpaceFileEntryResponseSchema,
     invalidMessage: "invalid Space file trash response",
@@ -320,7 +334,10 @@ export async function restoreSpaceFileEntry(
     url: buildSpaceFileRestorePath(input.spaceId, input.entryId),
     operation: "space.files.entry.restore",
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...spaceFilesOriginCapabilityHeaders(),
+      "content-type": "application/json",
+    },
     body: JSON.stringify({ clientMutationId: input.clientMutationId }),
     schema: restoreSpaceFileEntryResponseSchema,
     invalidMessage: "invalid Space file restore response",
@@ -346,7 +363,10 @@ export async function restoreSpaceFileRevision(
     ),
     operation: "space.files.revision.restore",
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...spaceFilesOriginCapabilityHeaders(),
+      "content-type": "application/json",
+    },
     body: JSON.stringify({
       baseRevision: input.baseRevision,
       clientMutationId: input.clientMutationId,
@@ -400,7 +420,10 @@ export async function uploadSpaceFile(
     url: buildSpaceFileUploadPath(input),
     operation: "space.files.upload",
     method: "POST",
-    headers: { "content-type": mimeType },
+    headers: {
+      ...spaceFilesOriginCapabilityHeaders(),
+      "content-type": mimeType,
+    },
     body,
     schema: uploadSpaceFileResponseSchema,
     invalidMessage: "invalid Space file upload response",
@@ -436,7 +459,10 @@ export async function stageSpaceComposerUpload(
   const response = await client.requestJson({
     ...requestFields(input),
     body,
-    headers: { "content-type": mimeType },
+    headers: {
+      ...spaceFilesOriginCapabilityHeaders(),
+      "content-type": mimeType,
+    },
     invalidMessage: "invalid Space Composer upload response",
     method: "PUT",
     operation: "space.composer_uploads.stage",
@@ -456,7 +482,10 @@ export async function publishSpaceComposerUpload(
   const response = await client.requestJson({
     ...requestFields(input),
     body: JSON.stringify({ clientMutationId: input.clientMutationId }),
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...spaceFilesOriginCapabilityHeaders(),
+      "content-type": "application/json",
+    },
     invalidMessage: "invalid Space Composer upload publication response",
     method: "POST",
     operation: "space.composer_uploads.publish",
@@ -518,7 +547,10 @@ export async function updateSpaceFileContent(
     }),
     operation: "space.files.content.update",
     method: "PUT",
-    headers: { "content-type": mimeType },
+    headers: {
+      ...spaceFilesOriginCapabilityHeaders(),
+      "content-type": mimeType,
+    },
     body,
     schema: uploadSpaceFileResponseSchema,
     invalidMessage: "invalid Space file content update response",
@@ -573,9 +605,27 @@ function requestFields(input: SpaceRequestInput) {
     requestContext: input.requestContext,
     signal: input.signal,
     timeoutMs: input.timeoutMs,
+    headers: spaceFilesOriginCapabilityHeaders(),
     ...(input.spacePassword === undefined
       ? {}
       : { spacePassword: input.spacePassword }),
+  };
+}
+
+/**
+ * Declares this client understands `origin` on Space Files responses.
+ * Gateway strips `origin` from every file descriptor for a caller that
+ * omits this header (see the Space Files Origin Classification Contract
+ * Impact Audit), so an already-published client that predates this field —
+ * which never sends it — keeps receiving the pre-origin response shape it
+ * already knows how to parse. Every call in this file must merge this into
+ * any `headers` object it sets of its own, rather than overwrite it — an
+ * object literal spread later in the same call wins over this one.
+ */
+function spaceFilesOriginCapabilityHeaders(): Record<string, string> {
+  return {
+    [OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION]:
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
   };
 }
 
