@@ -3667,6 +3667,15 @@ The small pinned package patch surfaces shared-context loss and avoids creating
 WebGL before checking the required 2D output context. Normal package cleanup
 owns GPU disposal; the application does not implement a second shader renderer.
 
+The effect is an explicitly emitted, content-addressed module loaded by native
+`import()` through a small failure-isolated adapter. A failed effect download
+returns the static frame without emitting Vite's critical-route preload error,
+refreshing the application, or delaying the original image. The build owns its
+hashed URL and relative addressing; no URL-pattern exception or temporary global
+error suppression changes recovery for actual application chunks. Build tests
+execute emitted code with the effect chunk missing and verify that a separate
+critical import still emits its normal recovery event.
+
 Unit and controller integration tests cover resource ownership, geometry,
 acknowledgement ordering, decode retry, and privacy. Browser/native visual smoke
 is a separate acceptance gate, including the previously reported PNG grey

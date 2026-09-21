@@ -19,10 +19,11 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { loadSpaceImageEffect } from "./load-space-image-effect";
 import { resolveSpaceImageFrame } from "./space-image-frame";
 import { useSpaceImagePreviewSource } from "./use-space-image-preview-source";
 
-const LoadingEffect = lazy(() => import("./space-image-loading-effect"));
+const LoadingEffect = lazy(loadSpaceImageEffect);
 
 function useImageReadiness(source: string | null) {
 	const image = useRef<HTMLImageElement>(null);
