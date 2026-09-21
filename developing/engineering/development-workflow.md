@@ -1499,20 +1499,126 @@ Space Files origin classification (`artifact` vs. `chat_upload`) adds a
 nullable `origin` column to Core's `space_file_entries` SQL, an `origin`
 field on shared file-descriptor and list-response HTTP schemas
 (`packages/schemas/src/schemas/http/space-files.ts`), an optional `origin`
-query filter on list, and Web/CLI/remote-agent write-path defaults. It does
+query filter on list, Web/CLI/Remote Agent write-path defaults, and a
+**negotiated response capability** so the new `origin` field never reaches a
+caller that has not explicitly declared it understands the field. It does
 not change Runtime Transport frames, setup, Prepare Session, Wake dispatch,
 Space Actions, D1 schemas, or any local-component/service contract version.
 
-**This response-field addition is not bidirectionally safe.** It follows the
-shared-schema evolution rule in
-[Schema rules](../architecture/shared-contracts.md#space-access-context-propagation):
-adding a field to a `z.strictObject()` response breaks an already-published
-client that validates with its own frozen (older) schema, and "published CLI
-versions can never be forced to update first." That is a real, proven,
-accepted limitation here, not a hypothetical — see the behavior tests below —
-and this audit states the actual supported matrix instead of claiming full
-interoperability.
+**Why negotiation, not a bare additive field.** Per
+[Schema rules](../architecture/shared-contracts.md#space-access-context-propagation),
+"published CLI versions can never be forced to update first," so a shared
+response addition must preserve an already-published frozen strict reader —
+adding `origin` directly to `spaceFileDescriptorSchema`/
+`listSpaceFilesResponseSchema` (both `z.strictObject()`) would have broken
+every already-published CLI and Remote Agent build on every Space Files
+response, which an earlier revision of this audit incorrectly accepted as a
+forced-update policy. That is corrected here: **old requests continue
+receiving the exact pre-origin response shape (no `origin` key anywhere);
+only a caller that explicitly opts in receives `origin`.** One canonical
+`origin` fact remains on `space_file_entries`; only the wire projection
+varies by caller capability.
 
+**The negotiation mechanism, one per transport boundary:**
+
+- **Gateway HTTP (Web, CLI).** A capability header,
+  `x-openmeld-space-files-origin-version: 1`
+  (`OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION`/
+  `OPENMELD_SPACE_FILES_ORIGIN_VERSION` in `packages/gateway-contract`).
+  `services/gateway/src/routes/rpc-http.helpers.ts`'s `executeRpcRoute`/
+  `executePublicRpcRoute` accept `includeLegacySpaceFilesOriginWireFields:
+  true` (mirroring the existing `includeLegacySpaceAddressingWireFields`
+  pattern) and, when the caller's request lacks the header, apply
+  `toLegacySpaceFilesOriginWireValue` — a pure recursive JSON walker in
+  `packages/schemas/src/compatibility/legacy-space-files-origin-wire.ts`
+  (mirroring `toLegacySpaceAddressingWireValue`) — to the **already-validated
+  response**, stripping every `origin` key regardless of whether Core
+  actually sent it or Gateway's own schema default materialized it. Every
+  file-bearing Space Files route opts in: list, get, list-revisions,
+  update-entry, restore-entry, restore-revision, upload (both the direct and
+  multipart/raw paths), and Composer publish. Non-file-bearing routes
+  (create-folder, trash, Composer stage/discard, content download) carry no
+  `origin` field and are unaffected.
+- **Core/Remote Agent RPC (Center Agent tools).** This boundary has no HTTP
+  headers, so the capability is an explicit optional field,
+  `requestedOriginModel: "origin_aware"`
+  (`SPACE_FILES_ORIGIN_CAPABILITY_TOKEN` in `packages/schemas`), added once
+  to the shared `centerAgentSpaceFileScopeSchema` base that every Center
+  Agent Space Files RPC input schema extends
+  (`packages/schemas/src/schemas/http/center-agent-space-files.ts`). Core's
+  `CoreEntrypoint` methods (`centerAgentListSpaceFiles`,
+  `centerAgentReadSpaceFile`, `centerAgentSaveSpaceFile`,
+  `centerAgentManageSpaceFiles` in `services/core/src/index.ts`) wrap the
+  underlying `rpcCenterAgent*` call in `withSpaceFilesOriginRpcOutput`
+  (mirroring `withSpaceAddressingRpcOutput`), which strips `origin` unless
+  the caller's `requestedOriginModel` matches the token exactly. Remote
+  Agent's tool-calling code
+  (`services/remote-agent/agent-core/tools.ts`) sets this token on every one
+  of the four Space Files tool calls.
+
+**Supported matrix, proven by behavior tests, not asserted:**
+
+- *Any caller (old or new) + Gateway/Core, default request, no capability
+  declared*: safe — response omits `origin` entirely, matching the exact
+  pre-origin shape. An already-published CLI's frozen strict schema parses
+  this successfully because the key it never learned about is genuinely
+  absent, not defaulted-and-present.
+  `services/gateway/tests/space-file-routes.test.ts` ("strips origin from
+  every file descriptor for a caller that has not declared the origin
+  capability", "strips origin from a single-file read (getSpaceFile) for a
+  non-capable caller").
+- *New reader declaring the capability + a producer that predates `origin`
+  entirely* (old Core, or a transient rollout window before Core
+  redeploys): safe — the missing key still defaults for the capable caller
+  (`origin: null` on a descriptor, `"artifact"` on a list), and the capable
+  caller already knows how to interpret that default.
+  `packages/schemas/tests/http/space-files.test.ts` ("lets a current reader
+  parse a response from a producer that predates origin");
+  `packages/api-client/tests/space-api.test.ts` ("keeps default Space Files
+  listing working against a Core response from before the origin filter
+  existed").
+- *A capability-declaring caller requesting `origin: "all"` against a
+  producer that predates `origin`*: fails explicitly, not silently. The
+  missing response field still defaults to `"artifact"`, which does not
+  match the requested `"all"`; the existing `packages/api-client/src/space/
+  files.ts` filter-echo check throws `OpenMeldApiClientInvalidResponseError`
+  (the same mechanism already used for the `view` field).
+  `space-api.test.ts` ("fails closed instead of silently showing an
+  unfiltered list as chat uploads during rollout").
+- *Gateway is new, Core still predates `origin`, caller has not declared the
+  capability*: safe and non-leaking. Gateway's own current schema still
+  defaults the missing key during validation, but the origin-capability
+  check runs **after** validation and strips the key regardless of whether
+  Core sent it or Gateway's schema default produced it — no cloud step
+  emits `origin` to a non-capable caller merely because a schema default
+  materialized it. `space-file-routes.test.ts` ("never leaks a
+  schema-defaulted origin to a non-capable caller even when Core itself
+  predates origin").
+- *An already-published CLI or Remote Agent (built before this release) +
+  new Core/Gateway*: safe — it never sends the capability header/field
+  (it has no code path that could), so every Space Files response it
+  receives is downgraded to the exact shape its frozen schema already
+  parses. `packages/schemas/tests/http/space-files.test.ts` ("documents that
+  an already-published pre-origin strict reader rejects the new response
+  shape") proves *why* this matters — a frozen reader genuinely cannot
+  tolerate the field present — which is exactly what the negotiation now
+  prevents from happening to it.
+  `services/core/tests/organization-rpc.test.ts` ("strips origin from a
+  Remote Agent's Space Files response unless it declares the origin
+  capability") and `services/remote-agent/tests/tools.test.ts` (the
+  `openmeld_list_space_files`/`openmeld_read_space_file`/
+  `openmeld_save_space_file`/`openmeld_manage_space_files` scenarios, which
+  assert the tool layer always sends `requestedOriginModel: "origin_aware"`)
+  prove the Core/Remote Agent direction end to end.
+- **No required CLI/Remote Agent update.** Because the response is
+  negotiated rather than unconditionally additive, there is no forced-update
+  policy and no CLI release-note warning to write. An old CLI or Remote
+  Agent keeps working indefinitely with the pre-origin behavior (an
+  unclassified caller never sees `origin`, never sees the chat-upload
+  filter, and cannot request `--all`); it simply does not gain the new
+  capability until it updates — the same "advisory `available`" shape as
+  every other additive local-component change in this file, not a breaking
+  one.
 - **Core (schema and repository) — the migration is retry-safe.** The
   Durable Object schema migration bumped `SPACE_SQL_SCHEMA_VERSION`/
   `SPACE_SQL_SCHEMA_CHECKSUM` to 45 specifically for this repair: any
@@ -1548,107 +1654,58 @@ interoperability.
   later revision write, an update, a trash, or a restore. Explicit
   `chat_upload` writes (Web Composer publish, CLI `space send --file`)
   always set `origin` themselves and are unaffected by this default.
-- **Gateway / Core HTTP request side is safe.** `origin` stays optional on
-  `listSpaceFilesQuerySchema`, `createSpaceFileUploadQuerySchema`, and
+- **Gateway / Core HTTP request side is safe independent of negotiation.**
+  `origin` stays optional on `listSpaceFilesQuerySchema`,
+  `createSpaceFileUploadQuerySchema`, and
   `prepareSpaceFileWriteInputSchema`/`commitSpaceFileWriteInputSchema`. An
   old client that never sends `origin` on a request is unaffected: Core
   applies the deterministic default above. This direction was never in
   doubt; the request-side field was optional from the start and no
   strict-object rejects an *absent* key.
-- **HTTP response side is where the real compatibility gap is, and it is
-  one-directional.** `spaceFileDescriptorSchema` and
-  `listSpaceFilesResponseSchema` are `z.strictObject()` and now include
-  `origin` on every file descriptor and list response. The supported matrix:
-  - *New reader (current schema) + a producer that predates `origin`*
-    (Core before this change, or a transient rollout window before Core
-    redeploys): **safe.** The missing key defaults (`origin: null` on a file
-    descriptor, `origin: "artifact"` on a list response), and an ordinary
-    default-filter request against that producer keeps working exactly as
-    before. Proven by
-    `packages/schemas/tests/http/space-files.test.ts` ("lets a current
-    reader parse a response from a producer that predates origin") and
-    `packages/api-client/tests/space-api.test.ts` ("keeps default Space
-    Files listing working against a Core response from before the origin
-    filter existed").
-  - *New reader requesting `origin: "all"` against that same old producer*
-    (Show chat uploads / CLI `--all`, before Core has redeployed): **fails
-    explicitly, not silently.** The missing response field defaults to
-    `"artifact"`, which does not match the requested `"all"`; the existing
-    `packages/api-client/src/space/files.ts` filter-echo check throws
-    `OpenMeldApiClientInvalidResponseError` (same mechanism already used for
-    the `view` field). This is an accepted, diagnosable degrade confined to
-    the brief window inside one coordinated release before Core has
-    redeployed — not a silent data-correctness bug. Proven by
-    `space-api.test.ts` ("fails closed instead of silently showing an
-    unfiltered list as chat uploads during rollout").
-  - *An already-published CLI (built before this release) + new Core/
-    Gateway*: **breaks.** An old CLI's frozen `spaceFileDescriptorSchema`/
-    `listSpaceFilesResponseSchema` have no knowledge of `origin` at all;
-    Zod's strict-object mode rejects the extra key on *every* Space Files
-    response (list, upload, get, revisions — anything that embeds a file
-    descriptor), not only `origin`-filtering calls. No request-side or
-    response-side default fixes this, because the failure is entirely
-    inside the old client's own already-compiled code, which this change
-    cannot touch. This matches the general, already-accepted architecture
-    limitation ("published CLI versions can never be forced to update
-    first") — it is not unique to this feature, but this is the first time
-    it is being triggered by a Space Files response field, so it is called
-    out explicitly here. Proven by `space-files.test.ts` ("documents that an
-    already-published pre-origin strict reader rejects the new response
-    shape"), which reconstructs the exact frozen pre-PR schema (PR base
-    `6d0736ee1197bee8778760f4b7ecc13d2bd77b2c`) and shows it rejects a
-    current-shaped payload. **Required mitigation:** any user on a CLI
-    published before this release must update their CLI before Space Files
-    commands (list, upload, send, restore, revisions) work again against
-    updated Core/Gateway; call this out in the CLI release notes for this
-    version. There is no existing CLI contract-version constant that gates
-    HTTP response *shape* specifically (`OPENMELD_CLI_COMMAND_CONTRACT_VERSION`
-    gates command *behavior*); inventing one is a larger, separate
-    architectural change and is out of scope for this fix.
-- **Web.** New Web builds explicitly send `origin: "artifact"` for
-  Files-panel uploads and Markdown-file creation, and `origin: "chat_upload"`
-  is set server-side for Composer-published attachments. The Files list
-  defaults to `origin: "artifact"`; a "Show chat uploads" toggle switches to
-  `origin: "all"`. The "Chat upload" badge renders only when
-  `entry.origin === "chat_upload"` — never for `NULL`/unclassified. The
-  toggle resets to its default `false` on every `changeView` call. Because
-  Web, Gateway, and Core deploy together as one coordinated release, an end
-  user of Web never observes the response-side compatibility gap above in
-  steady state — only the already-published, independently-versioned CLI
-  population does, and only until it updates. **New UI defaults to artifacts
-  and chat uploads are reachable once Web, Gateway, and Core have all
-  completed this coordinated deploy** — that user-facing outcome is
-  unaffected by the CLI-specific gap above.
+- **Web.** New Web builds send the capability header on every Space Files
+  request (`packages/api-client/src/space/files.ts`) and explicitly send
+  `origin: "artifact"` for Files-panel uploads and Markdown-file creation;
+  `origin: "chat_upload"` is set server-side for Composer-published
+  attachments. The Files list defaults to `origin: "artifact"`; a "Show chat
+  uploads" toggle switches to `origin: "all"`. The "Chat upload" badge
+  renders only when `entry.origin === "chat_upload"` — never for
+  `NULL`/unclassified. The toggle resets to its default `false` on every
+  `changeView` call. Web, Gateway, and Core deploy together as one
+  coordinated release, so Web always declares the capability against an
+  origin-aware Gateway/Core in steady state.
 - **CLI.** `space files upload` sends `origin: "artifact"`; `space send
   --file` sends `origin: "chat_upload"`. `space files list` defaults to
   `artifact` and accepts `--all` to request `origin: "all"`. A CLI built
-  from this release or later reads new Core/Gateway responses correctly. A
-  CLI built before this release does not — see the response-side matrix
-  above.
+  from this release or later declares the capability header on every Space
+  Files call (via the same shared `packages/api-client`) and reads `origin`
+  back normally. A CLI built before this release never declares the
+  capability and is fully unaffected — see the supported matrix above.
 - **Remote Agent.** Agent-authored output files
   (`publishRemoteAgentOutputFile`) always set `origin: "artifact"`. The
   `openmeld_list_space_files` tool exposes the same `origin` filter
-  (`"artifact"` default, `"all"`) as the HTTP/RPC contract.
+  (`"artifact"` default, `"all"`) as the HTTP/RPC contract, and every Space
+  Files tool call sets `requestedOriginModel: "origin_aware"`.
 - **Rollout order.** Deploy in the standard coordinated order (Auth, Web,
-  Gateway, Core, Remote Agent). Web and Gateway becoming "origin-aware"
-  before Core redeploys is safe (the new-reader-old-producer case above);
-  Core is the last cloud component to start emitting `origin`, by which
-  point Web and Gateway already understand the field. No local-component
-  contract version or Runtime Transport epoch changes. `SPACE_SQL_SCHEMA_
-  CHECKSUM` does change (v44 → v45) specifically so a database stuck in a
-  broken v44 state self-heals on the next deploy; this is intentional, not
-  an oversight, and safe to apply at any point in the rollout since the
-  migration is additive and self-repairing.
+  Gateway, Core, Remote Agent). Because the response is negotiated rather
+  than unconditionally additive, there is no ordering constraint beyond
+  normal deploy hygiene: any mix of old/new Web, Gateway, Core, CLI, and
+  Remote Agent is safe in either direction, since a non-capable caller
+  never receives the field regardless of which side changed first. No
+  local-component contract version or Runtime Transport epoch changes.
+  `SPACE_SQL_SCHEMA_CHECKSUM` does change (v44 → v45) specifically so a
+  database stuck in a broken v44 state self-heals on the next deploy; this
+  is intentional, not an oversight, and safe to apply at any point in the
+  rollout since the migration is additive and self-repairing.
 - **Rollback.** Rolling back Core does not need to reverse the migration:
   the `origin` column and its backfilled values are additive and harmless
   to a pre-feature Core build, which simply never reads or writes that
   column. Do not delete or null out backfilled `origin` values as part of a
   rollback; that would recreate the exact historical-file-hiding defect
-  this migration fixes. Rolling Core back after it has started emitting
-  `origin` reintroduces the already-published-CLI gap in the opposite
-  direction only in the sense that CLI already lost compatibility at
-  forward-deploy time; a Core rollback does not make an old CLI's situation
-  worse or better.
+  this migration fixes. Rolling any component back to a pre-origin version
+  is always safe under this negotiated contract: a rolled-back component
+  simply stops declaring (or stops honoring) the capability, and every
+  caller reverts to receiving the pre-origin response shape it already
+  understands.
 
 ### Versioned local-state rollout discipline
 

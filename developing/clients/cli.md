@@ -1938,6 +1938,11 @@ Use scoped owner documents for deeper rules:
   build that predates this classification omits `origin` on upload; Core
   treats that omission as `artifact`, matching the pre-feature create
   default, so an old CLI keeps working against new Core without an update.
+  Reading `origin` back is negotiated: a current CLI declares an explicit
+  capability header on every Space Files request and gets `origin` in the
+  response; a CLI build that predates this feature never declares it and
+  keeps getting the exact pre-origin response shape it already parses, so
+  it is never forced to update.
 - Status commands must remain read-only.
 - Mutating commands must be explicit and lane-scoped.
 - `openmeld routines` exposes exactly eight commands, uses an explicit target
