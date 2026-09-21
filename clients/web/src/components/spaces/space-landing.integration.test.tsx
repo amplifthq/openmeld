@@ -3053,7 +3053,9 @@ describe("SpaceLanding", () => {
 			leftProfileId: DEFAULT_SPACE_PROFILE_ID,
 			status: "left",
 		});
+		const cancelQueriesMock = vi.fn().mockResolvedValue(undefined);
 		const invalidateQueriesMock = vi.fn().mockResolvedValue(undefined);
+		const removeQueriesMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
 			getUpdates: vi.fn().mockResolvedValue({
 				signals: [],
@@ -3063,7 +3065,9 @@ describe("SpaceLanding", () => {
 			postNormalMessage: vi.fn(),
 		});
 		useQueryClientMock.mockReturnValue({
+			cancelQueries: cancelQueriesMock,
 			invalidateQueries: invalidateQueriesMock,
+			removeQueries: removeQueriesMock,
 			setQueryData: vi.fn(),
 		});
 		mockSpaceQueries({
@@ -3145,6 +3149,13 @@ describe("SpaceLanding", () => {
 			});
 		});
 		expect(toastMock.success).toHaveBeenCalledWith("You left this Space.");
+		expect(cancelQueriesMock).toHaveBeenCalledWith(
+			{ queryKey: ["space-files", "space-123"] },
+			{ revert: false }
+		);
+		expect(removeQueriesMock).toHaveBeenCalledWith({
+			queryKey: ["space-files", "space-123"],
+		});
 		expect(invalidateQueriesMock).toHaveBeenCalledWith({
 			queryKey: ["spaces", "status", "space-123", DEFAULT_SPACE_PROFILE_ID],
 		});
@@ -3210,7 +3221,9 @@ describe("SpaceLanding", () => {
 			}
 		);
 		const deleteSpaceMock = vi.fn(() => pendingDelete);
+		const cancelQueriesMock = vi.fn().mockResolvedValue(undefined);
 		const invalidateQueriesMock = vi.fn().mockResolvedValue(undefined);
+		const removeQueriesMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
 			deleteSpace: deleteSpaceMock,
 			getUpdates: vi.fn().mockResolvedValue({
@@ -3220,11 +3233,12 @@ describe("SpaceLanding", () => {
 			postNormalMessage: vi.fn(),
 		});
 		useQueryClientMock.mockReturnValue({
-			cancelQueries: vi.fn().mockResolvedValue(undefined),
+			cancelQueries: cancelQueriesMock,
 			getQueriesData: vi.fn(() => []),
 			getQueryData: vi.fn(() => undefined),
 			getQueryState: vi.fn(() => undefined),
 			invalidateQueries: invalidateQueriesMock,
+			removeQueries: removeQueriesMock,
 			getQueryCache: () => ({ subscribe: () => () => undefined }),
 			setQueriesData: vi.fn(),
 			setQueryData: vi.fn(),
@@ -3271,6 +3285,7 @@ describe("SpaceLanding", () => {
 			});
 		});
 		expect(removeDeletedSpaceFromAccountHistoryMock).not.toHaveBeenCalled();
+		expect(removeQueriesMock).not.toHaveBeenCalled();
 		finishDelete({ deleted: true, spaceId: "space-123" });
 		await waitFor(() => {
 			expect(removeDeletedSpaceFromAccountHistoryMock).toHaveBeenCalledWith({
@@ -3278,6 +3293,13 @@ describe("SpaceLanding", () => {
 				reason: "deleted_space",
 				spaceId: "space-123",
 			});
+		});
+		expect(cancelQueriesMock).toHaveBeenCalledWith(
+			{ queryKey: ["space-files", "space-123"] },
+			{ revert: false }
+		);
+		expect(removeQueriesMock).toHaveBeenCalledWith({
+			queryKey: ["space-files", "space-123"],
 		});
 		expect(invalidateQueriesMock).toHaveBeenCalledWith({
 			queryKey: ["spaces", "status", "space-123", DEFAULT_SPACE_PROFILE_ID],

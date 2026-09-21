@@ -3287,6 +3287,7 @@ export function useSpaceLandingController(input: {
 			}).leaveSpace({
 				spaceId: input.spaceId,
 			});
+			clearSpaceFileImageResources(queryClient, input.spaceId);
 			const historyReason =
 				response.status === "already_absent"
 					? "leave_space_already_absent"
@@ -3461,6 +3462,7 @@ export function useSpaceLandingController(input: {
 				spaceId: input.spaceId,
 			});
 			deleted = true;
+			clearSpaceFileImageResources(queryClient, input.spaceId);
 
 			try {
 				await removeDeletedSpaceFromAccountHistory({
