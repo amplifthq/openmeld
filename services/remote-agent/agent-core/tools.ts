@@ -507,6 +507,7 @@ const listSpaceFilesToolInputSchema = strictObject({
   parentId: optional(nullable(spaceFileIdToolInputSchema)),
   spaceId: nonEmptyStringSchema,
   view: optional(picklist(["active", "trash"] as const)),
+  origin: optional(picklist(["artifact", "all"] as const)),
 });
 const readSpaceFileToolInputSchema = strictObject({
   fileId: spaceFileIdToolInputSchema,
@@ -3547,7 +3548,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_space_files",
       description:
-        "List files and folders in one OpenMeld Space. The Center Agent uses the same Space membership and public-view rules as every other participant; this tool does not read the Center Agent Computer or Organization Resources. Omit parentId, or pass null, for the root folder. Pass view=trash to list recoverable items. Use returned stable IDs for later reads and mutations.",
+        "List files and folders in one OpenMeld Space. The Center Agent uses the same Space membership and public-view rules as every other participant; this tool does not read the Center Agent Computer or Organization Resources. Omit parentId, or pass null, for the root folder. Pass view=trash to list recoverable items. By default this returns artifacts only, the same default the Files list shows; pass origin=all to also see files shared as chat uploads. Use returned stable IDs for later reads and mutations.",
       input: listSpaceFilesToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(listSpaceFilesToolInputSchema, payload);
