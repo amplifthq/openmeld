@@ -856,6 +856,10 @@ Organization's settled metrics into one deterministic public Space named
 the current designated Center Agent presentation. It is not a Wake, a Center
 Agent turn, execution evidence, or a second copy of Space truth. Report data
 ownership belongs to `developing/architecture/data-and-observability.md`.
+On first creation, the Space bootstraps all current Organization owners as its
+human Owners while preserving the Center Agent as creator and report author.
+Later runs use the Space-owned `ownerUserIds` authority and do not resynchronize
+ownership from Organization roles.
 
 This specialization is not yet a complete Space contract. The implementation
 creates an ordinary Space without a durable purpose marker or server-enforced

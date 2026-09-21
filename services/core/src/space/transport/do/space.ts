@@ -536,6 +536,7 @@ import {
 } from "../../application/space-members-service";
 import { projectSpaceMessageDetails } from "../../application/space-message-details";
 import {
+  buildNextSpaceMetaRecord,
   handlePatchMetaUseCase,
   handlePatchMetaWithPasswordAtomicUseCase,
 } from "../../application/space-meta-service";
@@ -2342,6 +2343,20 @@ type PatchSpaceMetaInput = {
   context?: CoreRpcContextInput;
   initializeIfAbsent?: boolean;
 };
+
+type InitializeSpaceMetaWithOwnersInput = {
+  creator: SpaceCreator;
+  name: string;
+  organizationId: string;
+  owners?: ResolvedSpaceMemberProfile[];
+  spaceId: string;
+  visibility: "public" | "private";
+};
+
+type InitializeSpaceMetaWithOwnersResponse =
+  | { meta: SpaceMeta; status: "created" | "existing" }
+  | { reason: string; status: "owners_invalid" }
+  | { status: "owners_required" };
 
 type TextSignalClientMessageResolution =
   | {
@@ -10052,6 +10067,128 @@ export class Space extends DurableObject<CoreBindings> {
     return readSpaceRpcJsonOrThrow(response);
   }
 
+  async rpcInitializeSpaceMetaWithOwners(
+    input: InitializeSpaceMetaWithOwnersInput
+  ): Promise<InitializeSpaceMetaWithOwnersResponse> {
+    this.applySpaceRef(input.spaceId);
+    const result = await this.ctx.blockConcurrencyWhile(async () => {
+      try {
+        const existing = this.readSpaceMetaRecord();
+        if (existing) {
+          return {
+            ok: true as const,
+            value: {
+              meta: toPublicSpaceMeta(
+                existing,
+                this.ctx.storage.sql.databaseSize
+              ),
+              status: "existing" as const,
+            },
+          };
+        }
+        if (input.owners === undefined) {
+          return {
+            ok: true as const,
+            value: { status: "owners_required" as const },
+          };
+        }
+
+        const ownerByUserId = new Map<string, ResolvedSpaceMemberProfile>();
+        for (const owner of input.owners) {
+          const ownerUserId = normalizeOptionalText(owner.ownerUserId);
+          if (!(ownerUserId && owner.profileKind === "human")) {
+            throw new Error(
+              "A system-initialized Space must have human organization owners."
+            );
+          }
+          ownerByUserId.set(ownerUserId, owner);
+        }
+        const owners = [...ownerByUserId.entries()]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([, owner]) => owner);
+        if (owners.length === 0) {
+          throw new Error(
+            "A system-initialized Space must have current organization owners."
+          );
+        }
+
+        const now = new Date().toISOString();
+        const record = buildNextSpaceMetaRecord({
+          existing: null,
+          metaUpdate: {
+            hasAccessMode: false,
+            hasCreator: true,
+            creator: input.creator,
+            hasGuide: false,
+            hasName: true,
+            name: input.name,
+            hasOrganizationId: true,
+            organizationId: input.organizationId,
+            hasPurpose: false,
+            hasVisibility: true,
+            visibility: input.visibility,
+          },
+          now,
+          spaceId: input.spaceId,
+        });
+        const initialized = await this.initializeOwnedSpace(
+          {
+            ...record,
+            ownerUserIds: owners.map((owner) => owner.ownerUserId as string),
+          },
+          { requireOrganizationOwnerRole: true }
+        );
+        upsertSpaceCreatorFromCurrentMeta({
+          sql: this.ctx.storage.sql,
+          spaceId: this.spaceId,
+        });
+        addSpaceMembersUseCase({
+          actorDisplayName: input.creator.profileName,
+          actorProfileId: input.creator.profileId,
+          env: this.bindings,
+          liveSessions: this.sessions.values(),
+          members: owners,
+          spaceId: this.spaceId,
+          sql: this.ctx.storage.sql,
+        });
+        await this.projectCurrentSpaceIndexSnapshot("space.created");
+        return {
+          ok: true as const,
+          value: {
+            meta: toPublicSpaceMeta(
+              initialized,
+              this.ctx.storage.sql.databaseSize
+            ),
+            status: "created" as const,
+          },
+        };
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          (error.message ===
+            "A system-initialized Space must have human organization owners." ||
+            error.message ===
+              "A system-initialized Space must have current organization owners." ||
+            error.message ===
+              "The initial Space owners must be current organization owners.")
+        ) {
+          return {
+            ok: true as const,
+            value: {
+              reason: error.message,
+              status: "owners_invalid" as const,
+            },
+          };
+        }
+        return { error, ok: false as const };
+      }
+    });
+    if (!result.ok) {
+      throw result.error;
+    }
+    return result.value;
+  }
+
   async rpcInitializeDirectMessageMeta(
     input: InitializeDirectMessageSpaceMetaInput
   ): Promise<InitializeDirectMessageSpaceMetaResponse> {
@@ -15793,18 +15930,43 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   private async initializeOwnedSpace(
-    record: SpaceMetaRecord
+    record: SpaceMetaRecord,
+    options?: { requireOrganizationOwnerRole?: boolean }
   ): Promise<SpaceMetaRecord> {
     const existing = this.readSpaceMetaRecord();
     if (existing) {
       return existing;
     }
-    const userId = record.creator?.ownerUserId;
-    if (!userId) {
+    const ownerUserIds = [
+      ...new Set(
+        (
+          record.ownerUserIds ??
+          (record.creator?.ownerUserId ? [record.creator.ownerUserId] : [])
+        )
+          .map((ownerUserId) => normalizeOptionalText(ownerUserId))
+          .filter((ownerUserId): ownerUserId is string => Boolean(ownerUserId))
+      ),
+    ].sort();
+    if (ownerUserIds.length === 0) {
       throw new Error("A Space must have an organization member as its owner.");
     }
-    await this.protectSpaceOwnerMembership(record.organizationId, userId);
-    return initializeSpaceMetaRecordIfAbsent(this.ctx.storage.sql, record);
+    if (options?.requireOrganizationOwnerRole) {
+      await this.protectInitialOrganizationOwnerMemberships(
+        record.organizationId,
+        ownerUserIds
+      );
+    } else {
+      for (const ownerUserId of ownerUserIds) {
+        await this.protectSpaceOwnerMembership(
+          record.organizationId,
+          ownerUserId
+        );
+      }
+    }
+    return initializeSpaceMetaRecordIfAbsent(this.ctx.storage.sql, {
+      ...record,
+      ownerUserIds,
+    });
   }
 
   private async protectSpaceOwnerMembership(
@@ -15832,6 +15994,48 @@ export class Space extends DurableObject<CoreBindings> {
       )
       .bind(this.spaceId, member.id)
       .run();
+  }
+
+  private async protectInitialOrganizationOwnerMemberships(
+    organizationId: string,
+    ownerUserIds: readonly string[]
+  ): Promise<void> {
+    const db = identityDb(this.bindings);
+    if (!db) {
+      throw new Error("Space ownership storage is unavailable.");
+    }
+    const memberResults = await db.batch(
+      ownerUserIds.map((ownerUserId) =>
+        db
+          .prepare(
+            "SELECT id FROM members WHERE organization_id = ? AND user_id = ? AND role = 'owner' LIMIT 1"
+          )
+          .bind(organizationId, ownerUserId)
+      )
+    );
+    const memberIds = memberResults
+      .map((result) => (result.results[0] as { id?: unknown } | undefined)?.id)
+      .filter(
+        (memberId): memberId is string =>
+          typeof memberId === "string" && memberId.length > 0
+      );
+    if (memberIds.length !== ownerUserIds.length) {
+      throw new Error(
+        "The initial Space owners must be current organization owners."
+      );
+    }
+    // Validate the full owner set before installing any protection. D1 batches
+    // the restrictive references atomically, and the foreign key rejects a
+    // concurrent membership deletion before Space truth is committed.
+    await db.batch(
+      memberIds.map((memberId) =>
+        db
+          .prepare(
+            "INSERT OR IGNORE INTO space_owner_member_references (space_id, member_id) VALUES (?, ?)"
+          )
+          .bind(this.spaceId, memberId)
+      )
+    );
   }
 
   private async projectCurrentSpaceIndexSnapshot(
