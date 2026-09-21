@@ -2819,6 +2819,7 @@ describe("shared drizzle migration history integrity", () => {
         "continuation_delegation_id",
         "agent_profile_id_snapshot",
         "message_channel_destination_json_snapshot",
+        "workflow_last_checked_at_ms",
       ]);
       expect(listTableIndexes(database, "routine_runs")).toEqual(
         expect.arrayContaining([
@@ -2826,6 +2827,7 @@ describe("shared drizzle migration history integrity", () => {
           "routine_runs_routine_scheduled_unique",
           "routine_runs_status_started_idx",
           "routine_runs_engine_status_started_idx",
+          "routine_runs_workflow_check_idx",
         ])
       );
 

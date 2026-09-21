@@ -1255,22 +1255,29 @@ export async function listUnpublishedFailedRoutineRuns(input: {
   }));
 }
 
-export async function listPendingRoutineWorkflowRunIds(input: {
+export async function claimRoutineWorkflowCheckBatch(input: {
   db: D1Database;
   limit: number;
+  nowMs: number;
 }): Promise<string[]> {
   const result = await input.db
     .prepare(
       `
-        SELECT id
-        FROM routine_runs
-        WHERE execution_engine = 'workflow'
-          AND status IN ('claimed', 'submitted')
-        ORDER BY started_at_ms ASC, id ASC
-        LIMIT ?
+        UPDATE routine_runs
+        SET workflow_last_checked_at_ms = ?
+        WHERE id IN (
+          SELECT id
+          FROM routine_runs
+          WHERE execution_engine = 'workflow'
+            AND status IN ('claimed', 'submitted')
+            AND workflow_last_checked_at_ms < ?
+          ORDER BY workflow_last_checked_at_ms ASC, started_at_ms ASC, id ASC
+          LIMIT ?
+        )
+        RETURNING id
       `
     )
-    .bind(input.limit)
+    .bind(input.nowMs, input.nowMs, input.limit)
     .all<{ id: string }>();
   return (result.results ?? []).map((row) => row.id);
 }
