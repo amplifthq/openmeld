@@ -1,6 +1,10 @@
 "use client";
 
 import {
+	OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
+	OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+} from "@openmeld/gateway-contract";
+import {
 	type MessageSearchResponse,
 	messageSearchResponseSchema,
 	sanitizeSignalTextPreview,
@@ -160,6 +164,10 @@ export function useMessageSearch(input: {
 			}).requestJson({
 				url: `/v1/messages/search?${params}`,
 				operation: "messages.search",
+				headers: {
+					[OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION]:
+						OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+				},
 				signal,
 				schema: messageSearchResponseSchema,
 				invalidMessage: "Message search is unavailable. Refresh and try again.",
