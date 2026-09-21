@@ -143,6 +143,9 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 			input.selectionState.kind !== "available" ? (
 				<LocalAgentSelectionStatePanel
 					computerRecovery={input.computerRecovery}
+					key={
+						input.selectionState.selectionKey ?? input.selectionState.agentId
+					}
 					state={input.selectionState}
 				/>
 			) : null}

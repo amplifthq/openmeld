@@ -2299,6 +2299,13 @@ function resolveLocalAgentSelectionState(input: {
 		displayName,
 		guideHref,
 		onRetry: input.onRetry,
+		selectionKey: [
+			input.bindingTarget?.deviceId ?? input.recovery.deviceId ?? "no-device",
+			input.bindingTarget?.runtimeLane ??
+				input.recovery.runtimeLane ??
+				"no-lane",
+			input.selectedLocalAgentId,
+		].join(":"),
 	};
 	if (
 		input.computerRecovery &&
@@ -2330,7 +2337,7 @@ function resolveLocalAgentSelectionState(input: {
 function resolveLocalAgentSelectionStateForTarget(input: {
 	base: Pick<
 		AgentProfileLocalAgentSelectionState,
-		"agentId" | "displayName" | "guideHref" | "onRetry"
+		"agentId" | "displayName" | "guideHref" | "onRetry" | "selectionKey"
 	>;
 	creationGuidance: ReturnType<typeof resolveLocalAgentCreationGuidance>;
 	isResolvingLocalAgents: boolean;

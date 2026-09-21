@@ -134,6 +134,7 @@ export type AgentProfileLocalAgentSelectionState = {
 	message?: string | null;
 	onEnable?: () => Promise<void>;
 	onRetry?: () => void;
+	selectionKey?: string;
 	usageLimits?: AgentControllerUsageLimits;
 	usageLoading?: boolean;
 };
