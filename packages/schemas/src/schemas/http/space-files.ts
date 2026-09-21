@@ -56,9 +56,17 @@ export const spaceComposerUploadIdSchema = z.string().uuid();
  * attachment, from Web Composer or CLI `space send --file`) from an
  * artifact (deliberately created or uploaded straight into Files, or
  * written by an Agent). Set once at file creation and never changed by a
- * later revision. A file created before this classification existed has no
- * value here; every read path must treat that absence as "not a known
- * artifact" rather than guessing.
+ * later revision, update, trash, or restore.
+ *
+ * A file created before this classification existed does not stay
+ * unclassified: the schema migration that added this column deterministically
+ * backfilled every pre-existing file row to `"artifact"`, because there is no
+ * reliable signal in that historical data to recover a chat upload from
+ * deliberately created work (both wrote through the identical path before
+ * this column existed). A missing/`NULL` value on a file after that
+ * migration is exceptional/corrupt data, not normal history; every read
+ * path still fails closed on it — treats it as "not a known artifact" —
+ * rather than guessing a classification for it.
  */
 export const spaceFileOriginSchema = z.enum(["artifact", "chat_upload"]);
 
@@ -66,7 +74,9 @@ export const spaceFileOriginSchema = z.enum(["artifact", "chat_upload"]);
  * Which files a Space Files list request includes. `"artifact"` (the
  * default) hides chat uploads to keep the list focused on deliberately
  * created or uploaded work; folders are always included. `"all"` also
- * includes chat uploads and any file whose origin was never classified.
+ * includes chat uploads and any file whose origin is missing/`NULL`
+ * (exceptional/corrupt data — see `spaceFileOriginSchema`, not normal
+ * historical data, which is backfilled to `"artifact"`).
  */
 export const spaceFileListOriginFilterSchema = z
   .enum(["artifact", "all"])
