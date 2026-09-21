@@ -96,7 +96,7 @@ function startChild(t, mode, directory) {
 
 test(
   "simultaneous warning-pressure waiters admit only one startup",
-  { timeout: 90_000 },
+  { timeout: 60_000 },
   async (t) => {
     const directory = mkdtempSync(
       join(tmpdir(), "openmeld-warning-resources-")
@@ -106,6 +106,9 @@ test(
       startChild(t, "warning", directory),
     ];
     await Promise.all(children.map((child) => child.message("waiting")));
+    for (const child of children) {
+      child.child.send("observe");
+    }
     const winner = await Promise.race(
       children.map(async (child) => {
         await child.message("acquired");
@@ -118,6 +121,7 @@ test(
     assert.equal(entries.length, 1);
     assert.equal(entries[0].pid, winner.child.pid);
     const waiting = children.find((child) => child !== winner);
+    await waiting.message("serialized");
     waiting.child.send("cancel");
     await waiting.message("cancelled");
     winner.child.send("release");
@@ -340,7 +344,7 @@ test("warning observations reset on swap writes, critical pressure, missing evid
   const memory = { pressure: "warning", swapouts: 1_245_226 };
   let now = 0;
   const quietWindow = () => {
-    for (let elapsed = 0; elapsed < WARNING_OBSERVATION_MS; elapsed += 1000) {
+    for (let elapsed = 0; elapsed < 30_000; elapsed += 1000) {
       assert.equal(observe(memory, now), false);
       now += 1000;
     }

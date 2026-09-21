@@ -224,6 +224,8 @@ export async function acquireLocalResources({
   onWait = console.error,
   gitCommonDir,
   readMemory = readMachineMemory,
+  monotonicNow = () => performance.now(),
+  wait = delay,
 } = {}) {
   const policy = resourcePolicy(env, readMemory().totalBytes);
   if (!(kind in policy.costs)) {
@@ -292,8 +294,8 @@ export async function acquireLocalResources({
     // OS probes can be slow under pressure; do not hold the shared lock while
     // running them. Pending reservations are still reconciled inside the lock.
     const memory = readMemory();
-    const warningStable = observeMemory(memory);
-    const sampledAt = performance.now();
+    const sampledAt = monotonicNow();
+    const warningStable = observeMemory(memory, sampledAt);
     const result = await transact((entries, rows) => {
       const inherited = entries.find(
         (entry) =>
@@ -313,7 +315,7 @@ export async function acquireLocalResources({
         availableBytes: memory.availableBytes,
         pressure: memory.pressure,
         warningStable:
-          warningStable && performance.now() - sampledAt <= MAX_SAMPLE_GAP_MS,
+          warningStable && monotonicNow() - sampledAt <= MAX_SAMPLE_GAP_MS,
         policy,
       });
       if (reason) {
@@ -362,6 +364,6 @@ export async function acquireLocalResources({
       onWait(`${message} ${result.budget}`);
       lastReason = message;
     }
-    await delay(1000, undefined, { signal });
+    await wait(1000, undefined, { signal });
   }
 }

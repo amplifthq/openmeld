@@ -185,9 +185,10 @@ These checks reduce overlapping peaks; they are not OS-enforced memory caps and
 cannot prevent another application from growing.
 
 On macOS, warning pressure is distinct from critical pressure. Broad builds
-still wait for normal pressure. Worker, Web and Desktop starts may proceed at
-warning only after 30 continuous seconds without an increase in `vm_stat`
-swapouts, and only if the unchanged memory budget fits. Missing counters,
+still wait for normal pressure. Worker and Web starts, plus Desktop starts with
+a reusable prepared bundle, may proceed at warning only after 30 continuous
+seconds without an increase in `vm_stat` swapouts, and only if the unchanged
+memory budget fits. Missing counters,
 counter resets, critical pressure, or a sampling gap over five seconds restart
 the observation. The 30-second window is a conservative local policy, not an
 Apple capacity guarantee; a quiet swap counter does not mean RAM is unused.

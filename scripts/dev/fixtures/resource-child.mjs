@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { setImmediate as yieldTurn } from "node:timers/promises";
 import { acquireLocalResources, RESOURCE_TOKEN } from "../local-resources.mjs";
 
 const [mode, directory] = process.argv.slice(2);
@@ -18,9 +19,17 @@ if (mode === "leaf") {
   process.on("SIGTERM", () => process.exit(0));
 } else {
   const controller = new AbortController();
+  let now = 0;
+  let startObservation;
+  const observationStarted = new Promise((resolve) => {
+    startObservation = resolve;
+  });
   process.on("message", (message) => {
     if (message === "cancel") {
       controller.abort();
+    }
+    if (message === "observe") {
+      startObservation();
     }
   });
   try {
@@ -29,6 +38,18 @@ if (mode === "leaf") {
       kind: mode === "warning" ? "web" : "heavy",
       gitCommonDir: directory,
       signal: controller.signal,
+      // Advance the real 30-second policy in virtual time. Registry locks,
+      // process identity and the cross-process admission cooldown stay real.
+      ...(mode === "warning"
+        ? {
+            monotonicNow: () => now,
+            wait: async (milliseconds, value, options) => {
+              await observationStarted;
+              await yieldTurn(value, options);
+              now += milliseconds;
+            },
+          }
+        : {}),
       // Arbitration tests use a controlled OS boundary; no real memory load.
       readMemory: () => ({
         totalBytes: 16 * 1024 ** 3,
@@ -36,7 +57,12 @@ if (mode === "leaf") {
         pressure: mode === "warning" ? "warning" : "normal",
         swapouts: 100,
       }),
-      onWait: () => process.send({ type: "waiting" }),
+      onWait: (message) =>
+        process.send({
+          type: message.includes("previous admission")
+            ? "serialized"
+            : "waiting",
+        }),
     });
     process.send({ type: "acquired" });
     process.on("message", async (message) => {
