@@ -1,6 +1,11 @@
 import {
+  OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+} from "@openmeld/gateway-contract";
+import {
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdForMutation,
+  spaceFileRevisionSchema,
 } from "@openmeld/schemas";
 import type {
   OpenMeldRequestContext,
@@ -96,6 +101,16 @@ function makeEnv(input?: {
 }) {
   const objectKey = input?.objectKey ?? OBJECT_KEY;
   const stub = {
+    rpcFilePins: vi.fn(async () => ({
+      pins: [
+        {
+          file: FILE,
+          pinnedByProfileId: CONTEXT.actorContext.openMeldProfileId,
+          pinnedByName: "Mira Stone",
+          pinnedAt: FILE.createdAt,
+        },
+      ],
+    })),
     rpcPrepareSpaceFileWrite: vi.fn(
       async (request: {
         write: { fileId: string; revisionId: string };
@@ -164,7 +179,7 @@ function makeEnv(input?: {
 }
 
 describe("Core Space file content RPC", () => {
-  it("preserves geometry for Gateway callers while Remote Agent receives the pre-geometry revision", async () => {
+  it("negotiates geometry for Gateway callers while legacy Gateway and Remote Agent retain their revision contract", async () => {
     const { env } = makeEnv({ committedFile: FILE });
     const request = {
       bytes: Uint8Array.from(BYTES).buffer,
@@ -180,12 +195,56 @@ describe("Core Space file content RPC", () => {
     ) as CenterAgentRpcEntrypoint;
     Reflect.set(gateway, "env", env);
     Reflect.set(remote, "env", env);
-    const visible = await gateway.writeSpaceFileContent(request);
-    const wire = await remote.writeSpaceFileContent(request);
+    const visible = await gateway.writeSpaceFileContent(
+      request,
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
+    );
+    const legacy = await gateway.writeSpaceFileContent(
+      request,
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION
+    );
+    const wire = await remote.writeSpaceFileContent(
+      request,
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
+    );
     expect(visible.latestRevision.imageDimensions).toEqual(
       REVISION.imageDimensions
     );
     expect(wire.latestRevision).not.toHaveProperty("imageDimensions");
+    const legacyRevision = spaceFileRevisionSchema
+      .omit({ imageDimensions: true })
+      .strict();
+    expect(legacyRevision.safeParse(visible.latestRevision).success).toBe(
+      false
+    );
+    expect(legacyRevision.safeParse(legacy.latestRevision).success).toBe(true);
+    expect(legacyRevision.safeParse(wire.latestRevision).success).toBe(true);
+    const replay = await gateway.prepareSpaceFileWrite(request);
+    const currentReplay = await gateway.prepareSpaceFileWrite(
+      request,
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
+    );
+    expect(
+      legacyRevision.safeParse(replay.committedFile?.latestRevision).success
+    ).toBe(true);
+    expect(currentReplay.committedFile?.latestRevision.imageDimensions).toEqual(
+      REVISION.imageDimensions
+    );
+    const legacyPins = await gateway.spaceFilePins(request);
+    const currentPins = await gateway.spaceFilePins(
+      request,
+      OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
+    );
+    expect(
+      legacyRevision.safeParse(legacyPins.pins[0]?.file.latestRevision).success
+    ).toBe(true);
+    expect(currentPins.pins[0]?.file.latestRevision.imageDimensions).toEqual(
+      REVISION.imageDimensions
+    );
     expect(FILE.latestRevision.imageDimensions).toEqual({
       width: 300,
       height: 900,

@@ -1,6 +1,8 @@
-import { spaceMessageFileReferenceSchema } from "@openmeld/schemas";
+import {
+  spaceMessageFileReferenceSchema,
+  toLegacySpaceImageGeometryWireValue,
+} from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
-import { projectRemoteAgentSpaceFileWire } from "../src/remote-agent/application/space-file-wire";
 
 // Frozen pre-#1200 message-file wire contract, not the new schema's shape.
 const legacyFileReference = spaceMessageFileReferenceSchema
@@ -34,7 +36,7 @@ describe("Remote Agent Space file projection", () => {
       unrelated: { imageDimensions: "user-authored value" },
     };
     expect(legacyFileReference.safeParse(file).success).toBe(false);
-    const wire = projectRemoteAgentSpaceFileWire(canonical);
+    const wire = toLegacySpaceImageGeometryWireValue(canonical);
     for (const reference of [
       wire.signals[0]?.data.files[0],
       wire.file.latestRevision,

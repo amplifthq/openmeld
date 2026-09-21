@@ -2623,14 +2623,26 @@ CLI and Service execution/result readers. Remote Agent does not consume display
 geometry. Core projects it out of Remote Agent file-tool and Space-context RPC
 responses, including nested revisions and message file references, while
 preserving original bytes and canonical Space records. The private native-file
-write RPC applies the same projection; Gateway-facing responses retain geometry.
-Origin capability negotiation remains independent.
+write RPC applies the same projection. Gateway-facing RPC methods return geometry
+only for `spaceImageGeometryVersion === "1"`. Gateway declares that version to
+Core and independently checks `x-openmeld-space-image-geometry-version: 1` on
+HTTP callers. Missing or unknown versions receive the legacy shape. API clients
+declare this header for file and message reads/mutations, including search.
+WebSocket readers declare `spaceImageGeometry: true` in the existing hello
+capabilities; the Space session persists that declaration across hibernation.
+Origin capability negotiation remains independent. The shared geometry projection
+preserves non-JSON RPC resources and never changes stored revisions or messages.
+Client authoring requests omit display geometry even when the local preview has
+it. Gateway also removes it before forwarding authoring requests to Core. Core
+reconstructs file references from authorized canonical revisions, so this does
+not trust client geometry or alter the visible result. A new client can safely
+author against an older strict receiver without retrying a rejected request.
 
 Native delivery already resolves Space files into explicit original-byte
 attachments before freezing submit-turn requests. Those attachment descriptors
 contain identity, MIME type, object key and byte size, not display geometry.
 The frozen request, execution-recovery copy and replay retain that compatible
-shape. No rejection-triggered fallback or new capability negotiation is needed.
+shape. No rejection-triggered fallback or Remote Agent capability is needed.
 The optional field is backward-compatible for new readers of old data, but old
 strict readers can reject new responses and signals. Therefore the CLI command
 and Service compatibility identities are both advanced to
@@ -2639,18 +2651,20 @@ and Service compatibility identities are both advanced to
 These markers flow through the existing local-component compatibility and
 execution-admission machinery; they do not assert that a release was published.
 
-Rollout is receiver-first for the actual strict readers: deploy compatible Web
-and Gateway readers, then publish compatible CLI/Service before enabling the
-new Core producer and matching execution epoch. The signed CLI release owns
-that Core projection, so Web and Gateway must precede the CLI stage. Remote
-Agent has no pre-Core geometry dependency after the wire projection. The private
-evidence RPC contract below still requires Core before new Remote Agent callers.
-Incompatible execution remains
-fenced by existing admission. A rollback stops new production first and retains
-readers that can parse already persisted optional geometry; dropping the nullable
-column or rolling readers back ahead of stored data is not a safe rollback.
-No alternate version negotiation, duplicated API shape, D1 migration, or new
-public image transport is introduced.
+Rollout may deploy Core before Gateway and Web: old Gateway receives legacy RPC
+output from new Core; old Web/CLI receives legacy HTTP or WebSocket output; new
+readers accept missing optional geometry from old servers. This composes with
+short-query Core/Gateway receivers before Web and private evidence Core receivers
+before Remote Agent callers. The signed CLI release publishes compatible local
+components before activating its Core execution-epoch projection. Existing local
+component identities and admission fences remain authoritative.
+
+Gateway/Web/CLI readers may roll back while the negotiated Core boundary stays
+in place. Do not roll Core back below this compatibility bridge after geometry
+has been persisted in messages: old internal readers are not certified for that
+canonical shape. Recover with the bridge retained, or a forward fix. Never erase
+canonical geometry, drop the nullable column, or rewrite stored messages for a
+rollback. No D1 migration or new public image transport is introduced.
 
 `packages/schemas` owns the Space File entry and revision descriptors, mutation
 bodies and responses, raw upload query, list query, content limits, error-code

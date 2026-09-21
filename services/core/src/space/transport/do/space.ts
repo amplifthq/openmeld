@@ -6,7 +6,9 @@ import {
 } from "@openmeld/agent-runtime";
 import {
   OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
+  OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
   OPENMELD_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
 } from "@openmeld/gateway-contract";
 import type {
   Profile,
@@ -131,6 +133,7 @@ import {
   spaceThreadContextSchema,
   spaceViewerMembershipResponseSchema,
   toLegacySpaceAddressingWireValue,
+  toLegacySpaceImageGeometryWireValue,
   toSpaceSignalReadWireValue,
   updateSpaceFileEntryBodySchema,
   validateSpaceSignalClientMessageIdPolicy,
@@ -2644,8 +2647,8 @@ export class Space extends DurableObject<CoreBindings> {
     }
   }
 
-  fetch(request: Request): Promise<Response> {
-    return handleErrors(request, () => {
+  async fetch(request: Request): Promise<Response> {
+    const response = await handleErrors(request, () => {
       const url = new URL(request.url);
       this.updateSpaceIdFromQuery(url);
       const internalRedriveDispatchId =
@@ -2728,6 +2731,7 @@ export class Space extends DurableObject<CoreBindings> {
         },
       });
     });
+    return projectSpaceImageGeometryHttpResponse(request, response);
   }
 
   async rpcListSpaceFiles(input: {
@@ -21181,6 +21185,31 @@ export class Space extends DurableObject<CoreBindings> {
   }
 }
 
+/** The HTTP dispatcher serves protocol JSON, never file-content bytes. */
+async function projectSpaceImageGeometryHttpResponse(
+  request: Request,
+  response: Response
+): Promise<Response> {
+  if (
+    request.headers.get(OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION) ===
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION ||
+    !response.headers.get("content-type")?.includes("application/json")
+  ) {
+    return response;
+  }
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  headers.delete("etag");
+  return Response.json(
+    toLegacySpaceImageGeometryWireValue(await response.json()),
+    {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    }
+  );
+}
+
 function spaceAddressingJsonResponse(
   request: Request,
   value: unknown,
@@ -21204,7 +21233,11 @@ function spaceAddressingWireValueForSession(
   value: unknown,
   session: Session
 ): unknown {
-  const readValue = toSpaceSignalReadWireValue(value);
+  const readValue = toSpaceSignalReadWireValue(
+    session.supportsSpaceImageGeometry
+      ? value
+      : toLegacySpaceImageGeometryWireValue(value)
+  );
   return session.supportsSpaceMessageAddressing
     ? readValue
     : toLegacySpaceAddressingWireValue(readValue);
