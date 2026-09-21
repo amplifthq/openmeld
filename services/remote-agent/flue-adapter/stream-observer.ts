@@ -363,6 +363,7 @@ async function handleCenterAgentStreamDelta(input: {
       delta: input.streamDelta.delta,
       kind: input.streamDelta.kind,
       observedAtMs: input.streamDelta.observedAtMs,
+      replaceTextPrefix: input.streamDelta.replaceTextPrefix,
       storage,
     });
     if (result.status === "published") {

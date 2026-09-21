@@ -166,12 +166,12 @@ index 507b275fd464dd8d40411cb294bd41f6c6e16ced..17c441c0845d8eecf795f4df5ea8fcc1
  		* The Agents SDK alarm handler dispatches `schedule`/`scheduleEvery`/
  		* `queue` callbacks to methods on this class — including
 diff --git a/dist/conversation-stream-store-B2RVviYM.mjs b/dist/conversation-stream-store-B2RVviYM.mjs
-index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf54d3835f 100644
+index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979ceb642fd 100644
 --- a/dist/conversation-stream-store-B2RVviYM.mjs
 +++ b/dist/conversation-stream-store-B2RVviYM.mjs
 @@ -1,4 +1,5 @@
  import { c as encodeBase64, d as abortErrorFor, f as composeTimeoutSignal, m as raceToolWithDeadline, p as createCallHandle, r as createCwdSandbox, s as decodeBase64, u as abandonToolOnAbort } from "./sandbox-CR3o1Qmd.mjs";
-+import { buildCanonicalActionEvidence } from "./dispatch-Dohpn4Ea.mjs";
++import { buildCanonicalActionEvidence, projectSubmissionRetryTextPrefix } from "./dispatch-Dohpn4Ea.mjs";
  import { A as createEditTool, D as READ_SKILL_RESOURCE_TOOL_NAME, E as redactObservationDetailImages, F as createTaskTool, I as createWriteTool, L as formatBashResult, M as createGrepTool, N as createPackagedSkillReadTool, O as createActivateSkillTool, P as createReadTool, R as overlayPackagedSkills, S as renderWithFrame, T as redactEventImages, _ as packageSkillDefinition, a as buildPromptText, b as getSkillReferenceDirectory, c as buildWorkspaceSkillPrompt, d as parseSkillMarkdown, f as getPreparedToolAdapter, g as isSkillDefinition, i as buildPackagedSkillPrompt, j as createGlobTool, k as createBashTool, l as createResultTools, n as GIVE_UP_TOOL_NAME, o as buildResultFollowUpPrompt, r as ResultUnavailableError, s as buildSkillByPathlessNamePrompt, t as FINISH_TOOL_NAME, u as prepareResultTool, w as IMAGE_DATA_OMITTED } from "./result-D9Q9s-LD.mjs";
  import { $ as generateIncarnationId, A as SubmissionConflictError, F as ToolNameConflictError, J as createConversationIdentity, K as serializeEventError, M as SubmissionRetryExhaustedError, N as SubmissionTimeoutError, O as SubagentNotDeclaredError, S as SessionBusyError, T as SkillNotRegisteredError, W as normalizeLogAttributes, X as generateAttemptId, Y as deriveKeyedSubmissionId, Z as generateBlockId, a as AttachmentNotAvailableError, c as ConversationRecordInvariantError, ct as generateToolCallId, d as FlueError, ft as interceptExecution, h as OperationFailedError, j as SubmissionInterruptedError, k as SubmissionAbortedError, l as ConversationStreamStoreError, lt as generateTurnId, n as AgentInstanceNotFoundError, nt as generateInvocationId, ot as generateSubmissionId, p as InvalidRequestError, rt as generateOperationId, st as generateTaskId, t as AgentInstanceExistsError, tt as generateInstanceUid, u as DelegationDepthExceededError, z as classifyError } from "./errors-CsDcT_C4.mjs";
  import { $ as MAX_READ_LIMIT, B as DEFAULT_COMPACTION_SETTINGS, C as DeliveredMessageSchema, Ct as generateConversationEntryId, E as assertDurability, F as getActiveConversationPathSince, G as prepareCompaction, H as compact, I as getLatestConversationCompaction, J as emptyUsage, K as shouldCompact, L as countConsecutiveRetryableModelErrors, N as aggregateConversationUsageSince, P as classifyConversationSubmission, R as findTrailingPartialToolBatch, St as encodeCanonicalId, Tt as toolStepRecordId, U as deriveCompactionDefaults, V as calculateContextTokens, W as isAssistantContextOverflow, Y as fromProviderUsage, _t as assertAppendMessage, bt as fnv1a64, ct as toolOutcomeKey, d as resolveAgentInitialDataSchema, et as agentStreamPath, ft as createSessionStorageKey, gt as renderSignalMessage, ht as createUserContextMessage, it as buildConversationContextEntries, lt as toolResultEntryId, mt as parseSessionStorageKey, nt as parseOffset, ot as getActiveConversationPath, q as addUsage, rt as buildConversationContext, tt as formatOffset, w as MAX_IMAGE_DATA_LENGTH, wt as generateConversationRecordId, xt as RESERVED_SIGNAL_TYPES, yt as runResponseMetadataHooks, z as isRetryableModelError } from "./dispatch-Dohpn4Ea.mjs";
@@ -205,7 +205,36 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf
  		}
  		await this.restoreDeliveryCursor();
  	}
-@@ -4050,7 +4051,7 @@ var Session = class {
+@@ -2232,6 +2233,9 @@ var Session = class {
+ 							modelInfo,
+ 							...isResponseFirstMessage && this.responseStartMetadata ? { responseMetadata: this.responseStartMetadata } : {}
+ 						}]);
++						if (this.activeSubmissionId !== void 0) {
++							this.canonicalAssistant.textPrefix = projectSubmissionRetryTextPrefix(await this.requireConversation(), this.activeSubmissionId);
++						}
+ 					}
+ 					this.emit({
+ 						type: "message_start",
+@@ -2261,6 +2265,8 @@ var Session = class {
+ 					} else if (assistant && aEvent.type === "text_delta") {
+ 						const block = assistant.blocks.get(aEvent.contentIndex);
+ 						if (block?.type !== "text") throw new Error("[flue] Canonical text delta has no started block.");
++						const textPrefix = assistant.textPrefix;
++						assistant.textPrefix = void 0;
+ 						this.enqueueCanonical([{
+ 							...this.canonicalEnvelope("assistant_text_delta"),
+ 							type: "assistant_text_delta",
+@@ -2270,7 +2276,8 @@ var Session = class {
+ 							delta: aEvent.delta
+ 						}], () => this.emit({
+ 							type: "text_delta",
+-							text: aEvent.delta
++							text: aEvent.delta,
++							...textPrefix !== void 0 ? { textPrefix } : {}
+ 						}));
+ 					} else if (assistant && aEvent.type === "text_end") {
+ 						const block = assistant.blocks.get(aEvent.contentIndex);
+@@ -4050,7 +4057,7 @@ var Session = class {
  		};
  		const throwIfHalted = () => {
  			if (options.signal.aborted) throw abortErrorFor(options.signal);
@@ -214,7 +243,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf
  		};
  		while (true) {
  			const overflow = assistant !== void 0 && isAssistantContextOverflow(assistant, this.agentLoop.state.model.contextWindow ?? 0);
-@@ -4183,6 +4184,7 @@ var Session = class {
+@@ -4183,6 +4190,7 @@ var Session = class {
  				this.internalLog("info", "[flue:compaction] Nothing to compact (first kept message has no entry)");
  				return false;
  			}
@@ -222,7 +251,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf
  			this.internalLog("info", `[flue:compaction] Summarizing ${preparation.messagesToSummarize.length} messages` + (preparation.isSplitTurn ? ` (split turn: ${preparation.turnPrefixMessages.length} prefix messages)` : "") + `, keeping messages from index ${preparation.firstKeptIndex}`);
  			const estimatedTokens = preparation.tokensBefore;
  			this.emit({
-@@ -4536,7 +4538,7 @@ var Session = class {
+@@ -4536,7 +4544,7 @@ var Session = class {
  	resolveSubmissionDurability(startedAt, timeoutAt) {
  		return {
  			maxAttempts: this.config.durability?.maxAttempts ?? 10,
@@ -231,7 +260,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf
  		};
  	}
  	async runPersistedContextInput(options) {
-@@ -4578,7 +4580,13 @@ var Session = class {
+@@ -4578,7 +4586,13 @@ var Session = class {
  					signal: options.signal
  				});
  				await this.flushResponseOutput();
@@ -246,7 +275,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf
  			} finally {
  				this.pendingSignalAppends = [];
  				this.agentLoop.clearSteeringQueue();
-@@ -4976,7 +4984,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
+@@ -4976,7 +4990,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
  }
  function createAgentSubmissionSessionHandler(agent, input, execute) {
  	return async (ctx) => {
@@ -266,7 +295,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf
  	};
  }
  /**
-@@ -4997,10 +5016,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -4997,10 +5022,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	const { input } = submission;
  	const attempt = submissionAttemptRef(submission);
  	if (!attempt) return void 0;
@@ -294,7 +323,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf
  	} catch (renderError) {
  		if (submission.timeoutAt > 0 && Date.now() >= submission.timeoutAt) {
  			await failInterruptedSubmission(submissions, submission, attempt, agent, "exceeded_timeout", () => new SubmissionTimeoutError(), createContext, conversationWriter, emitCoordinatorEvent);
-@@ -5014,7 +5049,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5014,7 +5055,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  		return;
  	}
  	if (submission.abortRequestedAt !== void 0) {
@@ -303,7 +332,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf
  		return;
  	}
  	if (submission.attemptCount >= submission.maxAttempts) {
-@@ -5040,6 +5075,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5040,6 +5081,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	}
  	await submissions.requeueSubmission(attempt);
  }
@@ -320,7 +349,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf
  /**
  * The wall-clock deadline after which a queued submission that never became
  * claimable (materialization permanently failing, agent definition
-@@ -5056,7 +5101,7 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5056,7 +5107,7 @@ function unreadySubmissionDeadline(submission, agent) {
  		assertDurability(agent.durability, `[agent "${submission.input.agent}"]`);
  		timeoutMs = agent.durability?.timeoutMs ?? 36e5;
  	} catch {}
@@ -329,7 +358,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf
  }
  /**
  * Settle a queued submission that can never be claimed — a durable abort on
-@@ -5071,6 +5116,10 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5071,6 +5122,10 @@ function unreadySubmissionDeadline(submission, agent) {
  */
  async function settleUnclaimableSubmission(submissions, submission, outcome, error, emitCoordinatorEvent) {
  	if (!await submissions.settleQueuedSubmission(submission.submissionId, outcome, error)) return false;
@@ -340,7 +369,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf
  	const errorInfo = { errorInfo: classifyError(error) };
  	emitCoordinatorEvent({
  		type: "submission_settled",
-@@ -5084,8 +5133,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
+@@ -5084,8 +5139,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
  		kind: submission.kind,
  		operation: "materialize_submission",
  		outcome: "terminated",
@@ -371,7 +400,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf
  	return true;
  }
  /** Synthetic request for the submission's kind: an agent route for direct prompts, the dispatch path for dispatches. */
-@@ -5117,11 +5188,32 @@ async function processSubmission(opts) {
+@@ -5117,11 +5194,32 @@ async function processSubmission(opts) {
  		attemptCount: submission.attemptCount,
  		maxAttempts: submission.maxAttempts
  	});
@@ -408,7 +437,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf
  	};
  	const execute = () => createAgentSubmissionSessionHandler(agent, input, (session) => {
  		const handle = session.processSubmissionInput(input, {
-@@ -5151,17 +5243,7 @@ async function processSubmission(opts) {
+@@ -5151,17 +5249,7 @@ async function processSubmission(opts) {
  		return;
  	}
  	try {
@@ -427,7 +456,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf
  	} catch (error) {
  		if (opts.isShutdownAbort?.(error)) throw error;
  		if (opts.signal?.reason instanceof SubmissionAbortedError) {
-@@ -5181,7 +5263,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5181,7 +5269,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  	const ctx = createContext(input.submissionId);
  	let interruptedTools;
  	try {
@@ -440,7 +469,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf
  			submissionId: submission.submissionId,
  			kind: submission.kind,
  			reason,
-@@ -5215,10 +5301,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5215,10 +5307,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  * through the two-phase outbox with `outcome: 'aborted'` — the durable
  * terminal record a reconnecting waiter observes.
  */
@@ -454,7 +483,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..c7d5b4b7a340c65394f3ee31a2f93cdf
  			kind: submission.kind,
  			reason: "aborted",
 diff --git a/dist/dispatch-Dohpn4Ea.mjs b/dist/dispatch-Dohpn4Ea.mjs
-index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..fce7304475441887bb6c6610bae1bb8184dfb4db 100644
+index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..34e722a1e00b196974aa8b633abb7f7ad0e50d63 100644
 --- a/dist/dispatch-Dohpn4Ea.mjs
 +++ b/dist/dispatch-Dohpn4Ea.mjs
 @@ -4,6 +4,7 @@ import { n as isValibotSchema } from "./schema-DIDpvZZa.mjs";
@@ -692,7 +721,25 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..fce7304475441887bb6c6610bae1bb81
  	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
  	summary += formatFileOperations(readFiles, modifiedFiles);
  	return {
-@@ -2942,7 +3013,7 @@ function assertDurability(definition, label) {
+@@ -2220,6 +2291,17 @@ function supersededAssistantErrorEntryIds(conversation) {
+ 	}
+ 	return superseded;
+ }
++export function projectSubmissionRetryTextPrefix(conversation, submissionId) {
++	const previous = getActiveConversationPath(conversation).findLast((entry) => entry.type === "message" && entry.message.role === "assistant" && entry.submissionId === submissionId);
++	if (previous?.message.stopReason !== "error") return void 0;
++	// Use the same projection as the official conversation-reset protocol,
++	// after the replacement's start record made the failed step superseded.
++	// Select this submission explicitly; never fall back to another response.
++	const response = projectConversationUi(conversation, "-1").messages.find((message) => message.role === "assistant" && message.submissionId === submissionId);
++	if (!response) throw new Error("[flue] Retried submission has no canonical response projection.");
++	const text = response.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n\n");
++	return text ? `${text}\n\n` : "";
++}
+ function projectConversationUi(conversation, streamOffset) {
+ 	const messages = [];
+ 	const byId = /* @__PURE__ */ new Map();
+@@ -2942,7 +3024,7 @@ function assertDurability(definition, label) {
  	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} durability must be a configuration object.`);
  	for (const key of Object.keys(definition)) if (key !== "maxAttempts" && key !== "timeoutMs") throw new Error(`[flue] ${label} durability received unknown field "${key}".`);
  	assertPositiveInteger(definition.maxAttempts, `${label} durability.maxAttempts`);
@@ -753,7 +800,7 @@ index 9a8b8c34e42e58ae0debd0159e144cd7be2e4b84..a2e26a2a13ff6b31e4997ca6da5bbf57
  		return this.sql.exec(`UPDATE flue_agent_submissions
  					 SET status = 'queued', attempt_id = NULL, input_applied_at = NULL, started_at = NULL, owner_id = NULL, lease_expires_at = 0
 diff --git a/dist/types-BAqOl5NC.d.mts b/dist/types-BAqOl5NC.d.mts
-index 49effc41c60e5f07d406e315146add31fb6b3ae8..00b75c4a6ce1306d37f7a9a9be0991c4a306e442 100644
+index 49effc41c60e5f07d406e315146add31fb6b3ae8..5b135a263a1d9b410a278a4813d669d0dcb98409 100644
 --- a/dist/types-BAqOl5NC.d.mts
 +++ b/dist/types-BAqOl5NC.d.mts
 @@ -741,7 +741,35 @@ interface AgentProps {
@@ -792,3 +839,17 @@ index 49effc41c60e5f07d406e315146add31fb6b3ae8..00b75c4a6ce1306d37f7a9a9be0991c4
    /**
     * The agent's durable identity — keys conversation storage everywhere and
     * the Durable Object class on Cloudflare. Defaults to the function's own
+@@ -1278,6 +1306,13 @@ type FlueEventVariant = {
+ } | {
+   type: 'text_delta';
+   text: string;
++  /**
++   * On the first text delta replacing a failed assistant step, the official
++   * canonical visible-text prefix for this submission. Replace the old
++   * accumulated text with this prefix before appending text. Empty is a real
++   * reset. Not emitted for ordinary model turns; contains no reasoning/tools.
++   */
++  textPrefix?: string;
+ } | {
+   type: 'thinking_start';
+   contentIndex?: number;

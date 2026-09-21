@@ -60,6 +60,7 @@ type RemoteAgentStreamPublishInput = {
 type RemoteAgentStreamPushInput = RemoteAgentStreamPublishInput & {
   delta: string;
   kind: RemoteAgentStreamDeltaKind;
+  replaceTextPrefix?: string;
 };
 
 type RemoteAgentStreamPartPushInput = RemoteAgentStreamPublishInput & {
@@ -406,11 +407,25 @@ export function createRemoteAgentStreamPublisher(
           };
         }
 
-        replaceRecoveredRemoteAgentTextSnapshotIfNeeded({
-          kind: input.kind,
-          state,
-          transientState,
-        });
+        const replacementPrefix =
+          input.kind === "text" ? input.replaceTextPrefix : undefined;
+        const replacingFailedText = replacementPrefix !== undefined;
+        if (replacementPrefix !== undefined) {
+          // Flue supplies the official visible-text projection, not a guessed
+          // string prefix. Drop buffered failed text too, keep the existing
+          // stream identity/sequence, and retain legitimate earlier narration.
+          state.pendingText = "";
+          state.textSnapshot = replacementPrefix;
+          transientState.replaceTextSnapshotOnNextText = false;
+          transientState.pendingKindOrder =
+            transientState.pendingKindOrder.filter((kind) => kind !== "text");
+        } else {
+          replaceRecoveredRemoteAgentTextSnapshotIfNeeded({
+            kind: input.kind,
+            state,
+            transientState,
+          });
+        }
         appendPendingRemoteAgentStreamDelta({
           delta: input.delta,
           kind: input.kind,
@@ -431,11 +446,14 @@ export function createRemoteAgentStreamPublisher(
           transientState,
         });
         if (
-          !shouldFlushRemoteAgentStream(
-            state,
-            input.observedAtMs,
-            pendingDelta,
-            input.context
+          !(
+            replacingFailedText ||
+            shouldFlushRemoteAgentStream(
+              state,
+              input.observedAtMs,
+              pendingDelta,
+              input.context
+            )
           )
         ) {
           return {

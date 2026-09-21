@@ -107,6 +107,17 @@ the new package, remove an adaptation only when the upstream behavior fulfills
 its contract, and exercise the affected cancellation, observation, compaction,
 recovery and steering boundaries. A clean patch apply alone proves none of them.
 
+OpenMeld consumes observation deltas rather than Flue's public conversation
+stream. When a failed assistant step is replaced, the first replacement text
+delta carries a prefix derived from the official conversation UI projection.
+The publisher atomically replaces accumulated and buffered failed text with
+that prefix before appending the new delta. Legitimate earlier tool narration
+remains; reasoning and tool payloads never enter the prefix. Ordinary model
+turns do not reset text. The existing stream identity, increasing sequence,
+snapshot bounds, cancellation checks, and Core callback schema are unchanged.
+This correction becomes visible with the first replacement text, not through
+an invented empty delta while the replacement is still waiting for its model.
+
 The footprint reader is a pinned, read-only aggregate over Flue's inline and
 spilled batches. It does not write runtime state or derive execution truth.
 Unknown storage tables fail closed until this adapter is updated and verified.
