@@ -5,8 +5,8 @@ import { ensureSpaceInboxProjectionSelectionsTable } from "./space-inbox-project
 import { ensureSpaceReactionTables } from "./space-reaction-repo";
 import { ensureSpaceTaskTables } from "./space-task-repo";
 
-export const SPACE_SQL_SCHEMA_VERSION = 44;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v44";
+export const SPACE_SQL_SCHEMA_VERSION = 45;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v45";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -706,14 +706,23 @@ function ensureSpaceCursorsMentionAliasColumn(sql: SqlStorage): void {
 
 function ensureSpaceFileEntriesOriginColumn(sql: SqlStorage): void {
   const columnNames = listTableColumnNames(sql, "space_file_entries");
-  if (columnNames.has(SPACE_FILE_ENTRIES_ORIGIN_COLUMN)) {
-    return;
+  if (!columnNames.has(SPACE_FILE_ENTRIES_ORIGIN_COLUMN)) {
+    sql.exec(`
+      ALTER TABLE space_file_entries
+      ADD COLUMN origin TEXT NULL
+        CHECK (origin IS NULL OR origin IN ('artifact', 'chat_upload'))
+    `);
   }
-  sql.exec(`
-    ALTER TABLE space_file_entries
-    ADD COLUMN origin TEXT NULL
-      CHECK (origin IS NULL OR origin IN ('artifact', 'chat_upload'))
-  `);
+  // Unconditional and idempotent, matching the
+  // `ensureSpaceMetaAccessModeColumn` repair pattern: this must run every
+  // time this function runs, not only on the call that just added the
+  // column. A database that already has the column from an earlier,
+  // interrupted, or previously buggy schema pass can still have NULL file
+  // rows; gating the backfill on "column was just added" would leave those
+  // rows unrepaired forever. `SPACE_SQL_SCHEMA_VERSION` is bumped whenever
+  // this repair logic changes so a durable database that already recorded
+  // an older version (even one that ran a stale copy of this function)
+  // re-enters this whole migration and gets repaired.
   backfillSpaceFileEntriesOrigin(sql);
 }
 
@@ -735,7 +744,10 @@ function ensureSpaceFileEntriesOriginColumn(sql: SqlStorage): void {
  * After this backfill runs, a NULL origin on a file row is not normal
  * historical data — it is an exceptional/corrupt state that must fail
  * closed (stay out of the default "artifact" view) rather than being
- * silently reclassified.
+ * silently reclassified. This UPDATE is itself the repair for that state:
+ * it is safe and correct to run on every schema pass, whether the column
+ * was just added, already existed with every row classified, or already
+ * existed with some rows still NULL from an earlier incomplete run.
  */
 function backfillSpaceFileEntriesOrigin(sql: SqlStorage): void {
   sql.exec(`

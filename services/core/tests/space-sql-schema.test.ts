@@ -313,7 +313,7 @@ describe("space-sql-schema", () => {
     expect(allSql).toContain("SET guide = guidelines");
   });
 
-  it("adds the Space Files origin column and backfills every historical file to 'artifact', never touching folders", () => {
+  it("adds the Space Files origin column when missing, on a fresh schema pass", () => {
     const sql = new FakeSqlStorage();
     const createTableInfoRow = <T extends Record<string, unknown>>(
       name: string
@@ -358,6 +358,10 @@ describe("space-sql-schema", () => {
         call.sql.includes("SET origin = 'artifact'")
     );
     expect(alterCallIndex).toBeGreaterThanOrEqual(0);
+    // The backfill always runs after the column exists, whether this pass
+    // just added it or found it already present — see the real-database
+    // repair test in space-file-entries-origin-migration.test.ts for proof
+    // of the actual row-level repair behavior across both paths.
     expect(backfillCallIndex).toBeGreaterThan(alterCallIndex);
     expect(sql.calls[backfillCallIndex]?.sql).toContain(
       "WHERE kind = 'file' AND origin IS NULL"
@@ -368,7 +372,7 @@ describe("space-sql-schema", () => {
     expect(sql.calls[backfillCallIndex]?.sql).not.toContain("kind = 'folder'");
   });
 
-  it("does not re-backfill Space Files origin once the column already exists", () => {
+  it("still runs the Space Files origin backfill when the column already exists", () => {
     const sql = new FakeSqlStorage();
     const createTableInfoRow = <T extends Record<string, unknown>>(
       name: string
@@ -395,6 +399,11 @@ describe("space-sql-schema", () => {
 
     ensureSpaceSqlSchema(sql as unknown as SqlStorage);
 
+    // This is the exact repair this schema version exists to guarantee: a
+    // database that reached this schema pass with the `origin` column
+    // already present (an earlier, interrupted, or previously buggy
+    // migration) must still have its backfill run, not skip it because the
+    // `ALTER TABLE` step was unnecessary this time.
     expect(
       sql.calls.some(
         (call) =>
@@ -406,8 +415,9 @@ describe("space-sql-schema", () => {
       sql.calls.some(
         (call) =>
           call.sql.includes("UPDATE space_file_entries") &&
-          call.sql.includes("SET origin = 'artifact'")
+          call.sql.includes("SET origin = 'artifact'") &&
+          call.sql.includes("WHERE kind = 'file' AND origin IS NULL")
       )
-    ).toBe(false);
+    ).toBe(true);
   });
 });
