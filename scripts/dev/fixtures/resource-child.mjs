@@ -26,14 +26,15 @@ if (mode === "leaf") {
   try {
     process.send({ type: "attempting" });
     const reservation = await acquireLocalResources({
-      kind: "heavy",
+      kind: mode === "warning" ? "web" : "heavy",
       gitCommonDir: directory,
       signal: controller.signal,
       // Arbitration tests use a controlled OS boundary; no real memory load.
       readMemory: () => ({
         totalBytes: 16 * 1024 ** 3,
         availableBytes: 12 * 1024 ** 3,
-        pressure: "normal",
+        pressure: mode === "warning" ? "warning" : "normal",
+        swapouts: 100,
       }),
       onWait: () => process.send({ type: "waiting" }),
     });
