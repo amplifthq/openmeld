@@ -122,6 +122,12 @@ The regression failed before the fix; the reader now checks the existing
 subject ID and update timestamp again after provider completion. No second
 memory store, capture path, or execution authority was introduced.
 
+Draft feedback also exposed two unchanged main-branch readiness fixtures that
+still declared Service `0.3.214` as supported after the published compatibility
+floor moved to `0.3.216`. `09e1058f5` updates only those fixture versions; all
+22 tests in the two files passed without changing assertions or production
+readiness policy.
+
 #### Real user-entry smoke
 
 At implementation commit `01fedb347`, normal Web login and Center Agent chat
@@ -148,12 +154,31 @@ browser for the remaining steps. No production tasks were replayed.
 The local stack and Web started for this smoke were stopped afterward. No other
 worktree's development environment was stopped.
 
-The repository-wide `check:affected` attempt was stopped while waiting for the
-machine's constrained-memory lease; it had not executed the checks. Only this
-task's waiting job was cancelled. Other development stacks were not stopped and
-the protection gate was not bypassed. `test:affected` and Final Candidate
-acceptance remain pending. Scoped tests and type checks must not be represented
-as either of those repository-wide gates or as live user smoke.
+`verify:pr -- --feedback` passed after the fixture correction: 1,467 Schemas
+tests, 1,165 Core boundary tests, 960 Remote Agent tests, and one Remote Agent
+Workerd test, plus selected code, docs, Changelog, and dependency-build checks.
+Its source state was `09e1058f5`; subsequent edits only update this evidence
+document. The installed Workerd warned that the requested compatibility date
+was newer than its supported date; this is not deployed-runtime verification.
+
+Earlier `check:affected` attempts waited behind the memory guard and did not
+execute. After this task's local stack stopped and OS pressure recovered, the
+guard admitted the closeout run normally. That run **failed** in
+`@openmeld/auth#check` (42 successful tasks, 46 planned): Auth and DB resolve
+Drizzle `0.45.2` through different `better-sqlite3` peer instances (`12.6.2`
+versus patched `13.0.3`), making their SQL/column types nominally incompatible.
+Frozen-lockfile installation made no changes; a direct Auth typecheck reproduced
+the error. The relevant package sources, manifests, and lockfile importer
+entries match `origin/main` at `ab960e073`. Main itself was not separately
+executed. Better Auth `1.6.30` declares `better-sqlite3 ^12.0.0`, so a global
+override to 13 is not a proven safe correction. This dependency boundary needs
+separate resolution and Auth/DB validation; no casts, skipped checks, or manual
+dependency-link changes were introduced.
+
+No other development environment was stopped and the memory guard was not
+bypassed. `check:affected` is not green; `test:affected` and Final Candidate were
+not run. The candidate remains local and the PR remains Draft: push is withheld
+until the requested validation condition is satisfied.
 
 Final self-review also checks the actual Space-owned audience, not the public
 metadata DTO, which intentionally omits private DM internals. The private
@@ -164,7 +189,7 @@ converted private conversation must not retain private disclosure authority.
 
 ### Unsupported and separately pending evidence
 
-Explicit memory search supports retained OpenMeld DM and Space-message provenance with current source and reply-audience authorization. Slack/Lark/Feishu and legacy explicit-tool provenance without a verifiable conversation origin remain unsupported; Routine and external-channel callers cannot use this interactive reader. Routine channel destination locators are unsupported rather than exposed. Memory search is bounded, not exhaustive history or automatic current-decision verification. Activity is a bounded current view, not complete usage analytics. Real vendor/live UI smoke, cross-version deployed service smoke, production outcomes, release and deployment are not claimed. F remains follow-up hypotheses, not implemented backlog or measured usage demand.
+Explicit memory search supports retained OpenMeld DM and Space-message provenance with current source and reply-audience authorization. Slack/Lark/Feishu and legacy explicit-tool provenance without a verifiable conversation origin remain unsupported; Routine and external-channel callers cannot use this interactive reader. Routine channel destination locators are unsupported rather than exposed. Memory search is bounded, not exhaustive history or automatic current-decision verification. Activity is a bounded current view, not complete usage analytics. Beyond the local Web smoke above, live Slack/delegation workflows, cross-version deployed service smoke, production outcomes, release and deployment are not claimed. F remains follow-up hypotheses, not implemented backlog or measured usage demand.
 
 ## Exclusions and closeout
 
