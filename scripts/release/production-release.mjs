@@ -130,6 +130,25 @@ const CORE_WORKER_RESPONSE_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER 
 const CORE_WORKER_RESPONSE_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER =
   CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER;
 const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
+  "center-agent-evidence-receivers-first": SCOPE_ORDER,
+  "space-image-geometry-readers-first": [
+    "db",
+    "auth",
+    "web",
+    "gateway",
+    "cli",
+    "core",
+    "remote-agent",
+  ],
+  "space-image-geometry-and-evidence-receivers-first": [
+    "db",
+    "auth",
+    "web",
+    "gateway",
+    "cli",
+    "core",
+    "remote-agent",
+  ],
   "space-task-receivers-first": CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER,
   "space-caller-context-receivers-first": [
     "db",
@@ -395,8 +414,22 @@ export function expandRequestedReleaseScopes(scope) {
   return sortScopes(requested);
 }
 
-export function resolveAutomaticReleaseScopes(input) {
+function imageGeometryAndEvidenceScopes(changedPaths) {
   const scopes = new Set();
+  if (isSpaceImageGeometryDiff(changedPaths)) {
+    for (const scope of ["web", "gateway", "cli", "core"]) {
+      scopes.add(scope);
+    }
+  }
+  if (isCenterAgentEvidenceDiff(changedPaths)) {
+    scopes.add("core");
+    scopes.add("remote-agent");
+  }
+  return scopes;
+}
+
+export function resolveAutomaticReleaseScopes(input) {
+  const scopes = imageGeometryAndEvidenceScopes(input.changedPaths);
   if (
     input.changedPaths.some((path) =>
       path.startsWith("release/openmeld-cli-skill/")
@@ -618,6 +651,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   const selected = new Set(scopes);
   const steps = [];
   const changedPaths = input.changedPaths ?? [];
+  assertImageGeometryAndEvidenceReleaseScopes(scopes, changedPaths);
   assertConnectComputerReleaseScopes(scopes, changedPaths);
   assertInboxSourceTargetReleaseScopes(
     scopes,
@@ -858,6 +892,29 @@ function resolveProductionDeployOrderProfile(
   changedPaths,
   taskInboxRetired = false
 ) {
+  const geometry = isSpaceImageGeometryDiff(changedPaths);
+  const evidence = isCenterAgentEvidenceDiff(changedPaths);
+  if (geometry || evidence) {
+    const otherProfile = resolveProductionDeployOrderProfile(
+      changedPaths.filter(
+        (file) =>
+          file !== SPACE_IMAGE_GEOMETRY_PRODUCER_PATH &&
+          !CENTER_AGENT_EVIDENCE_SCHEMA_PATHS.has(file)
+      ),
+      taskInboxRetired
+    );
+    if (otherProfile !== "default-auth-receiver-first") {
+      throw new Error(
+        `Image geometry/evidence receiver order conflicts with ${otherProfile}; review and split incompatible releases.`
+      );
+    }
+    if (geometry) {
+      return evidence
+        ? "space-image-geometry-and-evidence-receivers-first"
+        : "space-image-geometry-readers-first";
+    }
+    return "center-agent-evidence-receivers-first";
+  }
   if (isSpaceTaskReceiverFirstDiff(changedPaths)) {
     const otherProfile = resolveProductionDeployOrderProfile(
       changedPaths.filter((file) => file !== SPACE_TASK_SCHEMA_PATH),
@@ -1199,12 +1256,62 @@ function assertComposableWakeProgressOptInReleaseProfile(input) {
 
 function doesCliReleaseOwnCoreProjection(profile) {
   return (
+    profile === "center-agent-evidence-receivers-first" ||
+    profile === "space-image-geometry-readers-first" ||
+    profile === "space-image-geometry-and-evidence-receivers-first" ||
     profile === "space-caller-context-receivers-first" ||
     profile === "default-auth-receiver-first" ||
     profile === "connect-computer-cli-receiver-first" ||
     profile === "core-worker-response-and-connect-computer-receivers-first" ||
     profile === "remote-agent-and-connect-computer-receivers-first"
   );
+}
+
+const SPACE_IMAGE_GEOMETRY_PRODUCER_PATH =
+  "services/core/src/space/application/space-file-image-metadata.ts";
+const CENTER_AGENT_EVIDENCE_SCHEMA_PATHS = new Set([
+  "packages/schemas/src/schemas/http/center-agent-evidence.ts",
+  "packages/schemas/src/schemas/http/agent-activity-overview.ts",
+  "packages/schemas/src/schemas/http/center-agent-routine-evidence.ts",
+  "packages/schemas/src/schemas/http/center-agent-memory-search.ts",
+]);
+
+function isSpaceImageGeometryDiff(paths) {
+  return (
+    paths.includes(SPACE_IMAGE_GEOMETRY_PRODUCER_PATH) &&
+    paths.includes("packages/schemas/src/schemas/http/space-files.ts") &&
+    paths.includes("services/core/src/space/transport/do/space.ts")
+  );
+}
+
+function isCenterAgentEvidenceDiff(paths) {
+  return (
+    paths.some((file) => CENTER_AGENT_EVIDENCE_SCHEMA_PATHS.has(file)) &&
+    paths.includes("services/core/src/index.ts") &&
+    paths.includes("services/remote-agent/agent-core/tools.ts")
+  );
+}
+
+function assertImageGeometryAndEvidenceReleaseScopes(scopes, paths) {
+  const selected = new Set(scopes);
+  if (
+    isSpaceImageGeometryDiff(paths) &&
+    (selected.has("core") || selected.has("cli")) &&
+    !["web", "gateway", "cli", "core"].every((scope) => selected.has(scope))
+  ) {
+    throw new Error(
+      "Image geometry requires Web and Gateway readers, then signed CLI/Service publication with its Core producer projection. Use the guarded ordered auto plan: Auth (if selected) -> Web -> Gateway -> CLI/Core -> Remote Agent (if selected); hosted cloud/full cannot publish the required CLI stage."
+    );
+  }
+  if (
+    isCenterAgentEvidenceDiff(paths) &&
+    selected.has("remote-agent") &&
+    !selected.has("core")
+  ) {
+    throw new Error(
+      "Center Agent evidence tools require the Core RPC receiver before Remote Agent; include Core in the ordered plan."
+    );
+  }
 }
 
 function isConnectComputerCliReceiverFirstDiff(changedPaths) {

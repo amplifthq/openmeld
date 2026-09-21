@@ -2,6 +2,36 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { admitHostedFleetPlan } from "./hosted-fleet-plan-admission.mjs";
+import { buildProductionReleasePlan } from "./production-release.mjs";
+
+const IMAGE_STAGE_PATTERN = /Web -> Gateway -> CLI\/Core -> Remote Agent/u;
+test("refuses the combined geometry/evidence fleet before mutation and names the required stages", async () => {
+  for (const scope of ["cloud", "full"]) {
+    await assert.rejects(
+      admitHostedFleetPlan(
+        { releaseSha: "b".repeat(40), releaseSource: "/release-source", scope },
+        {
+          readHeadSha: () => "b".repeat(40),
+          fetchStableVersion: async () => "0.3.216",
+          resolveTagSha: () => "a".repeat(40),
+          buildPlan: (input) =>
+            buildProductionReleasePlan({
+              ...input,
+              changedPaths: [
+                "packages/schemas/src/schemas/http/space-files.ts",
+                "services/core/src/space/application/space-file-image-metadata.ts",
+                "services/core/src/space/transport/do/space.ts",
+                "packages/schemas/src/schemas/http/center-agent-memory-search.ts",
+                "services/core/src/index.ts",
+                "services/remote-agent/agent-core/tools.ts",
+              ],
+            }),
+        }
+      ),
+      IMAGE_STAGE_PATTERN
+    );
+  }
+});
 
 const RELEASE_SHA = "b".repeat(40);
 const STABLE_TAG_SHA = "a".repeat(40);

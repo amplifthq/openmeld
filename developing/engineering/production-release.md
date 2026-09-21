@@ -304,6 +304,32 @@ on opposite sides of another deployment fail closed and require separate
 releases. This includes Connect Computer combined with Inbox source-target,
 Local Service runtime, or Center Agent CLI receiver-first contracts.
 
+Space image geometry selects `space-image-geometry-readers-first` only when the
+shared file schema, Core image metadata reader and Space revision owner change
+together. Web and Gateway strictly parse file responses, so both deploy before
+the CLI stage publishes compatible CLI/Service readers and activates Core's
+geometry producer. The order is Database, Auth, Web, Gateway, CLI/Core, Remote
+Agent, restricted to selected scopes. Core must not deploy temporarily with the
+old CLI projection. Remote Agent RPC responses omit unused display geometry;
+native submit-turn attachments already omit it before request persistence.
+
+The evidence schema family, Core private entrypoint and Remote Agent tool caller
+together select `center-agent-evidence-receivers-first`: Core must precede Remote
+Agent. Combined with geometry this becomes
+`space-image-geometry-and-evidence-receivers-first` with the same image-reader
+order. Schema-only edits do not establish either directional contract. An
+explicit plan missing a required receiver is rejected; incompatible existing
+profiles fail closed rather than overriding either direction.
+
+Generic hosted `cloud`/`full` cannot publish the intervening CLI stage and are
+rejected for the geometry contract. Use the guarded ordered auto plan, or the
+existing supported hosted scopes anchored to one SHA: Auth (when selected), Web,
+Gateway, normal signed CLI Release (including Core), then Remote Agent. Verify
+each prior stage before dispatching its dependent stage. Keep the original
+pre-feature base for the complete plan; a version-only diff is not rollout
+evidence. Single-side planner invocations do not certify that prior receivers
+have already deployed.
+
 The planner selects `wake-progress-opt-in-receivers-first` only when one diff
 changes the shared Wake Progress schema, its Core producer, and the CLI caller
 that explicitly opts into the additive wait-reason field. It automatically
