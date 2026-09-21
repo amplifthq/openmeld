@@ -64,4 +64,5 @@ patchedDependencies:
   '@flue/runtime@2.0.3': patches/@flue__runtime@2.0.3.patch
   '@tanstack/history@1.162.1': patches/@tanstack__history@1.162.1.patch
   better-sqlite3@13.0.3: patches/better-sqlite3@13.0.3.patch
+  img-fx@0.5.1: patches/img-fx@0.5.1.patch
   thinking-orbs@0.3.1: patches/thinking-orbs@0.3.1.patch

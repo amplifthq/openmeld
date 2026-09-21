@@ -26,6 +26,74 @@ const actor: SpaceFileActor = {
 };
 
 describe("SpaceFileRepository", () => {
+  it("keeps optional geometry on its immutable revision through reads, updates, replay, and lazy migration", async () => {
+    const fixture = createFixture();
+    await withRepository(fixture.spaceId, (repository, sql) => {
+      ensureSpaceSqlSchema(sql);
+      const fileId = `${fixture.prefix}-image`;
+      const save = (
+        revision: number,
+        imageDimensions?: { width: number; height: number }
+      ) => ({
+        actor,
+        imageDimensions,
+        nowMs: fixture.nowMs + revision,
+        auditEvent: createAuditEvent({
+          entryId: fileId,
+          fixture,
+          operation: "content_write",
+          operationId: `${fixture.prefix}-geometry-${revision}`,
+        }),
+        write: {
+          spaceId: fixture.spaceId,
+          fileId,
+          revisionId: `${fixture.prefix}-revision-${revision}`,
+          clientMutationId: `${fixture.prefix}-geometry-${revision}`,
+          name: "photo.png",
+          parentId: null,
+          baseRevision: revision === 1 ? null : revision - 1,
+          mimeType: "image/png",
+          sizeBytes: 50,
+        },
+      });
+      const first = save(1, { width: 300, height: 900 });
+      expect(
+        repository.commitWrite(first).latestRevision.imageDimensions
+      ).toEqual(first.imageDimensions);
+      repository.commitWrite(save(2, { width: 1200, height: 600 }));
+      expect(
+        repository.resolveRevision({ fileId, revision: 1 }).revision
+          .imageDimensions
+      ).toEqual({ width: 300, height: 900 });
+      expect(repository.getFile(fileId).latestRevision.imageDimensions).toEqual(
+        { width: 1200, height: 600 }
+      );
+      expect(
+        repository.commitWrite({
+          ...first,
+          imageDimensions: { width: 1, height: 1 },
+        }).latestRevision.imageDimensions
+      ).toEqual({ width: 300, height: 900 });
+      repository.commitWrite(save(3));
+      expect(repository.getFile(fileId).latestRevision).not.toHaveProperty(
+        "imageDimensions"
+      );
+      expect(
+        repository
+          .listRevisions(fileId)
+          .map((revision) => revision.imageDimensions)
+      ).toEqual([
+        undefined,
+        { width: 1200, height: 600 },
+        { width: 300, height: 900 },
+      ]);
+      expect(() =>
+        repository.commitWrite(save(4, { width: 0, height: 500 }))
+      ).toThrow();
+      expect(repository.getFile(fileId).latestRevision.revision).toBe(3);
+    });
+  });
+
   it("commits notification intent once with a new revision, never for conflicts or replayed saves", async () => {
     const fixture = createFixture();
     await withRepository(fixture.spaceId, (repository, sql) => {

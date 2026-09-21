@@ -2596,6 +2596,47 @@ define a public attachment URL.
 
 ### Space File Contracts
 
+**Revision image geometry.** Revision descriptors and message file references
+may include `imageDimensions: { width, height }`. Both positive integer axes must
+be present, at most 32,768 each, with at most 128 Mi pixels of area. Absence is
+valid for historical, unsupported, or unsafe metadata; zero, partial, or guessed
+geometry is not valid. These are display-oriented dimensions, not an EXIF-blind
+raw rectangle. Existing raw-byte writes, download routes, authentication, and
+file/revision identities are unchanged.
+
+All stored producers converge on the Space Durable Object's final revision
+commit. After initial authorization and before the transactional commit, it
+reads at most 128 KiB through at most 16 private R2 ranges of the exact immutable
+original. It then rechecks access and the existing revision fence. JPEG, PNG,
+and WebP EXIF orientation is normalized; GIF geometry is supported. Unsupported
+container transforms, invalid metadata, and exhausted metadata budgets remain
+unknown. Transport failure is not disguised as corrupt metadata. Original bytes
+are neither decoded nor rewritten. Restore reads the copied original through
+the same path; mutation replay preserves the already committed geometry. Browser
+selection uses the same bounded reader only for local presentation, never as
+server authority. Core rebuilds message references from their authorized stored
+revision, ignoring untrusted supplied geometry.
+
+**Contract Impact Audit — image geometry (#1200).** The producer is Core's Space
+revision owner. Consumers include Web, API client response parsers, Gateway,
+CLI, Service execution/result readers, and hosted/remote Agent file contexts.
+The optional field is backward-compatible for new readers of old data, but old
+strict readers can reject new responses and signals. Therefore the CLI command
+and Service compatibility identities are both advanced to
+`2026-09-image-geometry-v1`, and the daemon execution epoch advances to
+`runtime-transport-epoch-2026-09-image-geometry`. Skills content is unchanged.
+These markers flow through the existing local-component compatibility and
+execution-admission machinery; they do not assert that a release was published.
+
+Rollout is receiver-first: distribute compatible CLI/Service and hosted Agent
+readers before enabling the new Core producer and matching execution epoch;
+deploy the matching Web reader with the producer. Incompatible execution remains
+fenced by existing admission. A rollback stops new production first and retains
+readers that can parse already persisted optional geometry; dropping the nullable
+column or rolling readers back ahead of stored data is not a safe rollback.
+No alternate version negotiation, duplicated API shape, D1 migration, or new
+public image transport is introduced.
+
 `packages/schemas` owns the Space File entry and revision descriptors, mutation
 bodies and responses, raw upload query, list query, content limits, error-code
 set, R2 key constructor, common extension-to-MIME inference, and Center Agent
