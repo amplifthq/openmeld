@@ -36,6 +36,7 @@ export function verifyTrustedCandidateEntrypoints(input) {
 function collectControlPaths(trustedRoot, candidateRoot) {
   return [
     ...new Set([
+      ".npmrc",
       "pnpm-workspace.yaml",
       ...listTrackedControls(trustedRoot),
       ...listTrackedControls(candidateRoot),

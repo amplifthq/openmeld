@@ -1,13 +1,7 @@
+import { parseControlYamlMapping } from "./final-candidate-control-yaml.mjs";
+
 const DEPENDENCY_LOCKFILE_PATH = "pnpm-lock.yaml";
 const WORKSPACE_MANIFEST_PATH = "pnpm-workspace.yaml";
-const COMMENT_OR_BLANK_PATTERN = /^\s*(?:#.*)?$/u;
-const LINE_SPLIT_PATTERN = /\r?\n/u;
-const NESTED_LIST_ENTRY_PATTERN =
-  /^\s{2}-\s+(?:'([^']+)'|"([^"]+)"|(\S+))\s*$/u;
-const NESTED_MAP_ENTRY_PATTERN =
-  /^\s{2}(?:'([^']+)'|"([^"]+)"|([^:#]+)):\s*(.*?)\s*$/u;
-const NON_WHITESPACE_START_PATTERN = /^\S/u;
-const TOP_LEVEL_YAML_KEY_PATTERN = /^([A-Za-z][\w]*):\s*(.*?)\s*$/u;
 const UNSAFE_RELATED_PATH_PATTERN = /(?:^|[\\/])\.\.(?:[\\/]|$)/u;
 const WINDOWS_ABSOLUTE_PATH_PATTERN = /^[A-Za-z]:[\\/]/u;
 
@@ -36,8 +30,11 @@ export function projectFinalCandidateControl(
 }
 
 function projectPnpmWorkspace(contents, readRelated) {
-  const document = parseTopLevelYamlCollections(contents);
-  const patchedDependencies = asStringMap(document.patchedDependencies);
+  const document = parseControlYamlMapping(contents);
+  const patchedDependencies = asStringMap(
+    document.patchedDependencies,
+    "patchedDependencies"
+  );
   const patchContents = {};
   for (const [packageName, patchPath] of Object.entries(
     patchedDependencies
@@ -47,93 +44,37 @@ function projectPnpmWorkspace(contents, readRelated) {
       : "unsafe-path";
   }
   return JSON.stringify({
-    allowBuilds: asSortedMap(document.allowBuilds),
-    configDependencies: asSortedMap(document.configDependencies),
-    ignoredBuiltDependencies: asSortedList(document.ignoredBuiltDependencies),
-    neverBuiltDependencies: asSortedList(document.neverBuiltDependencies),
-    onlyBuiltDependencies: asSortedList(document.onlyBuiltDependencies),
+    allowBuilds: asSortedMap(document.allowBuilds, "allowBuilds"),
+    configDependencies: asSortedMap(
+      document.configDependencies,
+      "configDependencies"
+    ),
+    ignoredBuiltDependencies: asSortedList(
+      document.ignoredBuiltDependencies,
+      "ignoredBuiltDependencies"
+    ),
+    neverBuiltDependencies: asSortedList(
+      document.neverBuiltDependencies,
+      "neverBuiltDependencies"
+    ),
+    onlyBuiltDependencies: asSortedList(
+      document.onlyBuiltDependencies,
+      "onlyBuiltDependencies"
+    ),
     patchContents,
-    patchedDependencies: asSortedMap(patchedDependencies),
+    patchedDependencies: asSortedMap(
+      patchedDependencies,
+      "patchedDependencies"
+    ),
   });
 }
 
-function parseTopLevelYamlCollections(text) {
-  const result = {};
-  let currentKey = null;
-  let currentKind = null;
-  for (const line of text.split(LINE_SPLIT_PATTERN)) {
-    if (COMMENT_OR_BLANK_PATTERN.test(line)) {
-      continue;
-    }
-    if (NON_WHITESPACE_START_PATTERN.test(line)) {
-      ({ currentKey, currentKind } = startTopLevelCollection(result, line));
-      continue;
-    }
-    currentKind = appendNestedYamlValue(result, currentKey, currentKind, line);
-  }
-  return result;
-}
-
-function startTopLevelCollection(result, line) {
-  const match = TOP_LEVEL_YAML_KEY_PATTERN.exec(line);
-  const currentKey = match?.[1] ?? null;
-  if (!currentKey) {
-    return { currentKey: null, currentKind: null };
-  }
-  const rest = match[2] ?? "";
-  if (rest === "" || rest.startsWith("#")) {
-    result[currentKey] = {};
-    return { currentKey, currentKind: null };
-  }
-  if (rest === "[]") {
-    result[currentKey] = [];
-    return { currentKey, currentKind: "list" };
-  }
-  if (rest === "{}") {
-    result[currentKey] = {};
-    return { currentKey, currentKind: "map" };
-  }
-  result[currentKey] = stripYamlQuotes(rest);
-  return { currentKey, currentKind: "scalar" };
-}
-
-function appendNestedYamlValue(result, currentKey, currentKind, line) {
-  if (!currentKey || currentKind === "scalar") {
-    return currentKind;
-  }
-  const listMatch = NESTED_LIST_ENTRY_PATTERN.exec(line);
-  if (listMatch && currentKind !== "map") {
-    if (!Array.isArray(result[currentKey])) {
-      result[currentKey] = [];
-    }
-    result[currentKey].push(
-      stripYamlQuotes(listMatch[1] ?? listMatch[2] ?? listMatch[3] ?? "")
-    );
-    return "list";
-  }
-  const mapMatch = NESTED_MAP_ENTRY_PATTERN.exec(line);
-  if (!(mapMatch && currentKind !== "list")) {
-    return currentKind;
-  }
-  if (
-    Array.isArray(result[currentKey]) ||
-    typeof result[currentKey] !== "object"
-  ) {
-    result[currentKey] = {};
-  }
-  const nestedKey = (mapMatch[1] ?? mapMatch[2] ?? mapMatch[3] ?? "").trim();
-  result[currentKey][nestedKey] = stripYamlQuotes(mapMatch[4] ?? "");
-  return "map";
-}
-
-function asSortedMap(value) {
-  if (
-    value === undefined ||
-    value === null ||
-    Array.isArray(value) ||
-    typeof value !== "object"
-  ) {
+function asSortedMap(value, fieldName) {
+  if (value === undefined || value === null) {
     return {};
+  }
+  if (Array.isArray(value) || typeof value !== "object") {
+    throw new Error(`${fieldName} must be a YAML mapping.`);
   }
   return Object.fromEntries(
     Object.entries(value)
@@ -142,43 +83,42 @@ function asSortedMap(value) {
   );
 }
 
-function asStringMap(value) {
-  if (
-    value === undefined ||
-    value === null ||
-    Array.isArray(value) ||
-    typeof value !== "object"
-  ) {
+function asStringMap(value, fieldName) {
+  if (value === undefined || value === null) {
     return {};
   }
+  if (Array.isArray(value) || typeof value !== "object") {
+    throw new Error(`${fieldName} must be a YAML mapping.`);
+  }
   return Object.fromEntries(
-    Object.entries(value).map(([key, entry]) => [key, String(entry)])
+    Object.entries(value).map(([key, entry]) => {
+      if (typeof entry !== "string") {
+        throw new Error(`${fieldName} path for ${key} must be a string.`);
+      }
+      return [key, entry];
+    })
   );
 }
 
-function asSortedList(value) {
-  if (!Array.isArray(value)) {
+function asSortedList(value, fieldName) {
+  if (value === undefined || value === null) {
     return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be a YAML sequence.`);
   }
   return value.map((item) => normalizeYamlScalar(item)).toSorted();
 }
 
 function normalizeYamlScalar(value) {
-  if (value === "true") {
+  if (value === true || value === "true") {
     return true;
   }
-  if (value === "false") {
+  if (value === false || value === "false") {
     return false;
   }
-  return value;
-}
-
-function stripYamlQuotes(value) {
-  if (
-    (value.startsWith("'") && value.endsWith("'")) ||
-    (value.startsWith('"') && value.endsWith('"'))
-  ) {
-    return value.slice(1, -1);
+  if (value !== null && typeof value === "object") {
+    return JSON.stringify(value);
   }
   return value;
 }

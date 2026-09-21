@@ -25,6 +25,7 @@ const EXPLICIT_BOOTSTRAP_PATTERN = /--control-trust explicit-bootstrap/u;
 const MISSING_CURRENT_MAIN_CONTROL_PATTERN = /Current main does not contain/u;
 const SILENT_CONTROL_REUSE_PATTERN = /cannot be certified by silently reusing/u;
 const WORKSPACE_MANIFEST_PATTERN = /pnpm-workspace\.yaml/u;
+const NPMRC_PATH_PATTERN = /\.npmrc/u;
 
 test("local fallback executes current-main control for an ordinary candidate", () => {
   const fixture = createFixture({
@@ -66,6 +67,22 @@ test("a lockfile-only candidate uses current-main control without bootstrap", ()
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, CURRENT_MAIN_CONTROL_PATTERN);
     assert.doesNotMatch(result.stdout, EXPLICIT_BOOTSTRAP_PATTERN);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("an .npmrc script-shell change still requires an explicit local bootstrap", () => {
+  const fixture = createFixture({
+    baseHasControl: true,
+    candidateChangesControl: false,
+    candidateChangesNpmrc: true,
+  });
+  try {
+    const ordinary = runBootstrap(fixture, ["run", "--", "--pr", "1"]);
+    assert.equal(ordinary.status, 1);
+    assert.match(ordinary.stderr, SILENT_CONTROL_REUSE_PATTERN);
+    assert.match(ordinary.stderr, NPMRC_PATH_PATTERN);
   } finally {
     fixture.cleanup();
   }
@@ -169,6 +186,11 @@ function createFixture(input) {
     writeFileSync(
       path.join(repositoryPath, "pnpm-lock.yaml"),
       "lockfileVersion: '9.0'\nimporters: {}\n"
+    );
+  } else if (input.candidateChangesNpmrc) {
+    writeFileSync(
+      path.join(repositoryPath, ".npmrc"),
+      "script-shell=./candidate-shell.sh\n"
     );
   } else if (input.candidateChangesAllowBuilds) {
     writeFileSync(
