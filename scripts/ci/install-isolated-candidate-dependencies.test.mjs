@@ -141,9 +141,16 @@ test(
         "script-shell=./candidate-shell.sh\n"
       );
 
+      // FC itself runs inside the trusted wrapper. Its inherited shell setting
+      // must not protect this deliberately unwrapped attack control as well.
       const unwrapped = spawnSync("pnpm", ["run", "prove"], {
         cwd: fixture.candidateRoot,
         encoding: "utf8",
+        env: {
+          ...process.env,
+          NPM_CONFIG_SCRIPT_SHELL: undefined,
+          npm_config_script_shell: undefined,
+        },
       });
       assert.equal(
         unwrapped.status,

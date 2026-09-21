@@ -179,11 +179,30 @@ Hosted GitHub jobs retain their independent runner limits.
 
 Startup budgets are estimates: 6 GiB for a Worker stack, 2 GiB for Web and
 2 GiB for broad verification. Admission keeps 10% of effective memory on macOS,
-where the operating system also blocks new work when it reports memory
-pressure. Other platforms keep 15%; all platforms keep at least 1 GiB and
+where critical OS memory pressure blocks new work. Other platforms keep 15%; all platforms keep at least 1 GiB and
 account for reservations that have not yet materialized as resident memory.
 These checks reduce overlapping peaks; they are not OS-enforced memory caps and
 cannot prevent another application from growing.
+
+On macOS, warning pressure is distinct from critical pressure. Broad builds
+still wait for normal pressure. Worker and Web starts, plus Desktop starts with
+a reusable prepared bundle, may proceed at warning only after 30 continuous
+seconds without an increase in `vm_stat` swapouts, and only if the unchanged
+memory budget fits. Missing counters,
+counter resets, critical pressure, or a sampling gap over five seconds restart
+the observation. The 30-second window is a conservative local policy, not an
+Apple capacity guarantee; a quiet swap counter does not mean RAM is unused.
+The existing shared registry serializes admission: a starting Worker stack must
+report ready, and at least 30 seconds must pass after the preceding live
+reservation before more work starts at warning. Each next component samples
+again; worsening pressure pauses subsequent admission, never kills running work.
+Normal-pressure behavior and Windows/Linux budget checks are unchanged.
+
+Pressure levels follow [Apple's memory-pressure notifications](https://github.com/apple-oss-distributions/xnu/blob/main/doc/vm/memorystatus_notify.md).
+Use current swap activity rather than the historical amount of swap in use;
+[Activity Monitor](https://support.apple.com/guide/activity-monitor/view-memory-usage-actmntr1004/mac)
+also considers swap rate when describing pressure. Waiting output identifies
+the pressure level, observation/readiness condition and memory budget.
 
 After the Worker stack's existing readiness probes pass, its reservation keeps
 growth room of 25% of current process-tree RSS (at least 1 GiB), instead of
