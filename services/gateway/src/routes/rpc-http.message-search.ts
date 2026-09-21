@@ -19,7 +19,8 @@ export function registerMessageSearchRoutes(app: Hono<HonoBindings>): void {
         c,
         route,
         method: "GET",
-        message: "Enter 3 to 200 characters and use a valid search cursor.",
+        message:
+          "Enter 1 to 200 characters for a Space search, or 3 to 200 characters otherwise, and use a valid search cursor.",
       });
     }
     return executeRpcRoute({

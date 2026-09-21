@@ -79,6 +79,10 @@ describe("Space message search", () => {
         "chinese",
       ]);
       expect(search("nvoice").signals.length).toBe(2);
+      insert.run("short", message("short", "A % _"));
+      expect(search("a").signals.map((item) => item.id)).toEqual(["short"]);
+      expect(search("%").signals.map((item) => item.id)).toEqual(["short"]);
+      expect(search("_").signals.map((item) => item.id)).toEqual(["short"]);
     } finally {
       db.close();
     }

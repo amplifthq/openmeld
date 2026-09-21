@@ -48,6 +48,10 @@ describe("public agent failure reason mapping", () => {
     ],
     ["execution_context.workspace_access_unverified", "project file boundary"],
     ["context.mcp_isolation_unverified", "tools authorized for this task"],
+    [
+      "execution_context.mcp_server_initialization_failed",
+      "tools required for this task",
+    ],
   ])("explains local task preparation failure %s without blaming the provider", (errorCode, expected) => {
     const reason = resolveMappedPublicAgentFailureReason(errorCode);
     expect(reason).toContain(expected);

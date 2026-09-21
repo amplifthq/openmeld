@@ -52,6 +52,8 @@ import { verifyCodexWorkspaceAccess } from "./codex-workspace-access-probe.js";
 const CODEX_APP_SERVER_VERSION_PATTERN = /\/([^\s]+)/u;
 const EXECUTION_CONTEXT_ERROR_PATTERN =
   /^(execution_context\.[a-z_]+|context\.mcp_isolation_unverified)(?::|$)/u;
+const REQUIRED_MCP_INITIALIZATION_FAILURE_PATTERN =
+  /required MCP servers? failed to initialize/iu;
 
 export type CodexAppServerTransportResult = {
   output: string;
@@ -3029,6 +3031,14 @@ function toJsonRpcTransportError(
   const message =
     normalizeOptionalText(error.message) ?? "codex app-server error";
   const originalError = createProviderOriginalError(message) ?? undefined;
+  const mcpInitializationFailure =
+    classifyCodexRequiredMcpInitializationFailure({
+      message,
+      ...(typeof error.code === "number" ? { rpcErrorCode: error.code } : {}),
+    });
+  if (mcpInitializationFailure) {
+    return mcpInitializationFailure;
+  }
   const permissionDenial = classifyRuntimePermissionDenialMessage({
     message,
     source: "codex",
@@ -3086,6 +3096,25 @@ function toJsonRpcTransportError(
     message,
     originalError,
     ...(typeof error.code === "number" ? { rpcErrorCode: error.code } : {}),
+  });
+}
+
+function classifyCodexRequiredMcpInitializationFailure(input: {
+  message: string;
+  rpcErrorCode?: number;
+}): CodexAppServerTransportError | null {
+  if (!REQUIRED_MCP_INITIALIZATION_FAILURE_PATTERN.test(input.message)) {
+    return null;
+  }
+  return new CodexAppServerTransportError({
+    code: "execution_context.mcp_server_initialization_failed",
+    errorType: "config",
+    message:
+      "execution_context.mcp_server_initialization_failed: required tools could not start",
+    originalError: createProviderOriginalError(input.message) ?? undefined,
+    ...(typeof input.rpcErrorCode === "number"
+      ? { rpcErrorCode: input.rpcErrorCode }
+      : {}),
   });
 }
 

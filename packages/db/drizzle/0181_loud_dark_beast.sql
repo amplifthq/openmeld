@@ -1,0 +1,2 @@
+ALTER TABLE `routine_runs` ADD `workflow_last_checked_at_ms` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+CREATE INDEX `routine_runs_workflow_check_idx` ON `routine_runs` (`execution_engine`,`status`,`workflow_last_checked_at_ms`,`started_at_ms`);

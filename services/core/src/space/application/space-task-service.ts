@@ -48,6 +48,10 @@ export type ApplyGitHubIssueObservationResult = {
   task: SpaceTask | null;
 };
 
+export type CreateSpaceTaskContext = SpaceTaskMutationContext & {
+  requestedBy: SpaceTaskActor;
+};
+
 export type SpaceTaskRepositoryPort = Pick<
   SpaceTaskRepository,
   | "appendEvent"

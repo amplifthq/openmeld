@@ -185,7 +185,7 @@ export async function applyGitHubIssueSpaceTaskBinding(input: {
   };
 }): Promise<SpaceTaskGitHubBindingSummary | null> {
   const space = input.toolContext.turnEnvelope?.space;
-  if (!shouldBindGitHubIssueToSpaceTask(space)) {
+  if (!(space && shouldBindGitHubIssueToSpaceTask(space))) {
     return null;
   }
   if (

@@ -41,7 +41,18 @@ describe("GitHub App webhook verification", () => {
     const send = vi.fn(async () => undefined);
     const env = {
       GITHUB_OPENMELD_WEBHOOK_SECRET: SECRET,
-      OPENMELD_DAEMON_DISPATCH_QUEUE: { send },
+      OPENMELD_DAEMON_DISPATCH_QUEUE: {
+        metrics: async () => ({ backlogBytes: 0, backlogCount: 0 }),
+        send: async (...args: Parameters<Queue["send"]>) => {
+          await send(...args);
+          return {
+            metadata: { metrics: { backlogBytes: 0, backlogCount: 0 } },
+          };
+        },
+        sendBatch: async () => ({
+          metadata: { metrics: { backlogBytes: 0, backlogCount: 0 } },
+        }),
+      },
     };
 
     await expect(

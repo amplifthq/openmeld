@@ -173,7 +173,24 @@ Open app restores the renderer's existing route rather than choosing a new
 home. The menu does not expose the version, a separate Web app row, or Service
 lifecycle controls. Quitting the GUI retains the independent Service lifecycle.
 The unread preview uses one bounded, whitespace-normalized native label rather
-than a wrapping macOS sublabel. AppKit owns content-sized menu width; no custom
+than a wrapping macOS sublabel. Main supplies compact display text; the native
+menu retains ownership of layout, system appearance, and interaction. A complete
+source-title and excerpt row stays intact when it fits the shared 32-unit budget.
+Only an overflowing row limits the source to 12 units and gives the excerpt the
+remaining space after the separator and ellipses. Wide Latin and non-ASCII
+graphemes each count as two units. With no excerpt, the source can use the full
+row; with no source, no separator appears. Short content receives no padding or
+artificial minimum width and can lay out naturally. Relative time appears in the
+existing disabled Latest unread heading; conversation context stays in the full
+accessible label.
+
+AppKit owns the final content-sized menu width. These conservative text units
+are an OpenMeld formatting heuristic, not an official platform value or a pixel
+maximum for the whole menu. Other menu items, badges, fonts, and system layout
+can establish a natural width floor. The visual acceptance ceiling is about half
+of the whole menu in the original Desktop 0.1.5 screenshot at the same display
+scale, not a ratio recalculated from each test string. Native measurement is
+UNVERIFIED and deferred by the owner to the unified post-merge smoke. No custom
 minimum/maximum-width window is introduced. The full preview remains available
 in the tooltip and accessible label. Truncation preserves grapheme boundaries.
 The native menu keeps its current snapshot while open, so a refresh cannot
@@ -1098,17 +1115,24 @@ The app's `Info.plist` declares the existing development Auth return scheme from
 `packages/schemas`, as macOS requires for packaged URL callbacks; no new scheme
 or Auth authority is introduced.
 
-Output is under `clients/desktop/dist/private`, with `Private` in both app and
-DMG names. This target writes no preview/update manifest and has no publisher.
-It does not bundle CLI, Service, credentials, lane state, or worktree asset paths.
-The legacy preview build remains a separate paused distribution path.
+Output is under `clients/desktop/dist/private`. The `.app` name follows the
+unified [Desktop Application Names](desktop-app-identity.md) contract:
+`OpenMeld Dev.app` for the private development identity, or
+`OpenMeld Dev wt-<id>.app` when the selected identity belongs to a worktree.
+The DMG filename is configured separately in
+`electron-builder.private.config.mjs`; it is currently
+`OpenMeld-Desktop-Private-${version}-macos-${arch}-unsigned.dmg`. Do not infer
+the DMG filename from the application display name. This target writes no
+preview/update manifest and has no publisher. It does not bundle CLI, Service,
+credentials, lane state, or worktree asset paths. The legacy preview build
+remains a separate paused distribution path.
 
 Launch the built or copied app from an already configured, matching worktree:
 
 ```sh
-pnpm desktop:start:package "/path/to/OpenMeld Desktop Private.app"
+pnpm desktop:start:package "/path/to/OpenMeld Dev.app"
 # Explicit canary preset, using the same worktree lane:
-pnpm desktop:start:package "/path/to/OpenMeld Desktop Private.app" canary
+pnpm desktop:start:package "/path/to/OpenMeld Dev wt-<id>.app" canary
 ```
 
 This extends the existing root launcher: it verifies lane ownership and the
