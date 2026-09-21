@@ -106,7 +106,7 @@ const fs = require('node:fs');
 const args = process.argv.slice(2);
 const commentsPath = 'dev-tmp/comments.json';
 const readComments = () => fs.existsSync(commentsPath) ? JSON.parse(fs.readFileSync(commentsPath, 'utf8')) : [];
-const writeComment = (body) => fs.writeFileSync(commentsPath, JSON.stringify([{ id: 7, user: { login: 'github-actions[bot]' }, body }]));
+const writeComments = (comments) => fs.writeFileSync(commentsPath, JSON.stringify(comments));
 if (args[0] === 'pr' && args[1] === 'list') {
   console.log(fs.existsSync('dev-tmp/pr.json') ? fs.readFileSync('dev-tmp/pr.json', 'utf8') : '[]');
 } else if (args[0] === 'pr' && args[1] === 'create') {
@@ -117,14 +117,23 @@ if (args[0] === 'pr' && args[1] === 'list') {
   console.log(url);
 } else if (args[0] === 'pr' && args[1] === 'comment') {
   const bodyFile = args[args.indexOf('--body-file') + 1];
-  writeComment(fs.readFileSync(bodyFile, 'utf8'));
-  console.log('https://github.com/example/openmeld/pull/1#issuecomment-7');
+  const comments = readComments();
+  const id = Math.max(0, ...comments.map((comment) => comment.id)) + 1;
+  comments.push({ id, user: { login: 'github-actions[bot]' }, body: fs.readFileSync(bodyFile, 'utf8') });
+  writeComments(comments);
+  console.log('https://github.com/example/openmeld/pull/1#issuecomment-' + id);
 } else if (args[0] === 'api' && args.includes('--paginate')) {
   console.log(JSON.stringify([readComments()]));
 } else if (args[0] === 'api' && args.includes('PATCH')) {
+  const endpoint = args[args.indexOf('PATCH') + 1];
+  const id = Number(endpoint.split('/').at(-1));
+  const comments = readComments();
+  const comment = comments.find((item) => item.id === id);
+  if (!comment) process.exit(3);
   const field = args[args.indexOf('-F') + 1];
   const bodyFile = field.slice('body=@'.length);
-  writeComment(fs.readFileSync(bodyFile, 'utf8'));
+  comment.body = fs.readFileSync(bodyFile, 'utf8');
+  writeComments(comments);
   console.log('{}');
 } else process.exit(2);
 `,
@@ -152,10 +161,21 @@ if (args[0] === 'pr' && args[1] === 'list') {
     process.env.GITHUB_REPOSITORY = "example/openmeld";
     process.env.GITHUB_RUN_ID = "123";
     await publishUpdate(output);
-    const firstComment = JSON.parse(
+    const firstComments = JSON.parse(
       await readFile("dev-tmp/comments.json", "utf8")
-    )[0];
+    );
+    assert.equal(firstComments.length, 1);
+    const [firstComment] = firstComments;
     assert.ok(firstComment.body.includes("Latest model catalog scan"));
+    const humanComment = {
+      id: firstComment.id + 1,
+      user: { login: "reviewer" },
+      body: "Reviewer-owned comment; leave it unchanged.",
+    };
+    await writeFile(
+      "dev-tmp/comments.json",
+      JSON.stringify([...firstComments, humanComment])
+    );
     git("checkout", pulls[0].headRefName);
     await writeFile("reviewer-notes.md", "Reviewer decision in progress.\n");
     git("add", "--", "reviewer-notes.md");
@@ -174,14 +194,14 @@ if (args[0] === 'pr' && args[1] === 'list') {
       )[0],
       reviewed
     );
-    const refreshedComment = JSON.parse(
+    const refreshedComments = JSON.parse(
       await readFile("dev-tmp/comments.json", "utf8")
-    )[0];
-    assert.ok(refreshedComment.body.includes("Second scan."));
-    assert.equal(
-      JSON.parse(await readFile("dev-tmp/comments.json", "utf8")).length,
-      1
     );
+    assert.equal(refreshedComments.length, firstComments.length + 1);
+    const [refreshedComment, preservedHumanComment] = refreshedComments;
+    assert.equal(refreshedComment.id, firstComment.id);
+    assert.ok(refreshedComment.body.includes("Second scan."));
+    assert.deepEqual(preservedHumanComment, humanComment);
   } finally {
     process.chdir(previousCwd);
     process.env.PATH = previousPath;
