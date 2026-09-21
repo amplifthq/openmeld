@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-21T04:41:20.490Z",
+  "updatedAt": "2026-09-21T22:59:17.868Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.216",
-      "updatePolicy": "available",
-      "reason": "Existing CLI commands remain compatible with current cloud and Service update/self-rescue flows."
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-image-geometry-v1",
+      "packageVersion": "0.3.217",
+      "updatePolicy": "required",
+      "reason": "Publish the matching geometry-aware command contract before Core raises local-component admission; legacy reads, update, and self-rescue remain compatible."
     },
     "service": {
-      "bundleHash": "0bbbd1f7ee9dd5e8dd2ab6a5b2224884aed40d2948f89b8854a6198178d86ee9",
-      "bundleVersion": "0.3.216",
-      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
-      "serviceContractVersion": "openmeld-service-contract-2026-09-opencode-session-directory-v1",
+      "bundleHash": "b5a7ec13983f0874bea3a36d7eb370c73781c39c2f91f581d5d4f5c85c71b4e1",
+      "bundleVersion": "0.3.217",
+      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-image-geometry",
+      "serviceContractVersion": "openmeld-service-contract-2026-09-image-geometry-v1",
       "updatePolicy": "required",
-      "reason": "Older Services can resume OpenCode in a different folder than the admitted workspace, so new Wake work must wait for this safety fix."
+      "reason": "New Wake work requires the matching runtime epoch and corrected admission and required-MCP startup carrier; accepted work and self-rescue remain compatible."
     },
     "skills": {
-      "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
+      "bundleHash": "c3ce8a2e5928354908a505326ccdc68b65f7a3e305792d595982fd0a41c33e7e",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The plugin guide adds optional commands without changing existing Wake or reply instructions; publish after the compatible cloud receivers."
+      "reason": "Antigravity setup guidance is additive; existing explicit-recipient Wake and reply instructions remain compatible with old and new cloud."
     }
   }
 }
