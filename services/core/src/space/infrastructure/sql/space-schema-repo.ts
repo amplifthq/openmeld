@@ -714,6 +714,35 @@ function ensureSpaceFileEntriesOriginColumn(sql: SqlStorage): void {
     ADD COLUMN origin TEXT NULL
       CHECK (origin IS NULL OR origin IN ('artifact', 'chat_upload'))
   `);
+  backfillSpaceFileEntriesOrigin(sql);
+}
+
+/**
+ * Every file row that predates this column was written by the same code
+ * path the current "artifact" write default now uses explicitly — chat
+ * uploads only gained a distinct write path (and always set `origin`
+ * themselves) in the same change that added this column. There is no
+ * reliable signal in existing rows that would let this backfill tell a
+ * historical chat upload apart from historical deliberately-created work,
+ * so every pre-existing file defaults to 'artifact', matching the
+ * repository's create-time default and keeping historical files visible in
+ * the default Files view instead of hiding them behind a filter that did
+ * not exist when they were created.
+ *
+ * Folders never carry an origin (they are excluded from this UPDATE by the
+ * `kind = 'file'` guard) and are never affected by the origin filter.
+ *
+ * After this backfill runs, a NULL origin on a file row is not normal
+ * historical data — it is an exceptional/corrupt state that must fail
+ * closed (stay out of the default "artifact" view) rather than being
+ * silently reclassified.
+ */
+function backfillSpaceFileEntriesOrigin(sql: SqlStorage): void {
+  sql.exec(`
+    UPDATE space_file_entries
+    SET origin = 'artifact'
+    WHERE kind = 'file' AND origin IS NULL
+  `);
 }
 
 function ensureOpenMeldDaemonOutboxPoisonColumns(sql: SqlStorage): void {

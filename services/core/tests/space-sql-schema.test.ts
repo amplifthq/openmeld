@@ -312,4 +312,102 @@ describe("space-sql-schema", () => {
     expect(allSql).toContain("ADD COLUMN organization_visibility TEXT NULL");
     expect(allSql).toContain("SET guide = guidelines");
   });
+
+  it("adds the Space Files origin column and backfills every historical file to 'artifact', never touching folders", () => {
+    const sql = new FakeSqlStorage();
+    const createTableInfoRow = <T extends Record<string, unknown>>(
+      name: string
+    ) => ({ name }) as unknown as T;
+    sql.exec = function exec<T extends Record<string, unknown>>(
+      statement: string,
+      ...params: unknown[]
+    ): FakeSqlCursor<T> {
+      this.calls.push({ sql: statement, params });
+      if (statement === "PRAGMA table_info(space_file_entries)") {
+        return new FakeSqlCursor<T>([
+          createTableInfoRow<T>("entry_id"),
+          createTableInfoRow<T>("space_id"),
+          createTableInfoRow<T>("kind"),
+          createTableInfoRow<T>("name"),
+        ]);
+      }
+      if (statement === "PRAGMA table_info(space_meta)") {
+        return new FakeSqlCursor<T>([
+          createTableInfoRow<T>("space_id"),
+          createTableInfoRow<T>("name"),
+          createTableInfoRow<T>("created_at"),
+          createTableInfoRow<T>("updated_at"),
+        ]);
+      }
+      if (statement === "PRAGMA table_info(space_cursors)") {
+        return new FakeSqlCursor<T>([createTableInfoRow<T>("profile_id")]);
+      }
+      return new FakeSqlCursor<T>([]);
+    };
+
+    ensureSpaceSqlSchema(sql as unknown as SqlStorage);
+
+    const alterCallIndex = sql.calls.findIndex(
+      (call) =>
+        call.sql.includes("ALTER TABLE space_file_entries") &&
+        call.sql.includes("ADD COLUMN origin")
+    );
+    const backfillCallIndex = sql.calls.findIndex(
+      (call) =>
+        call.sql.includes("UPDATE space_file_entries") &&
+        call.sql.includes("SET origin = 'artifact'")
+    );
+    expect(alterCallIndex).toBeGreaterThanOrEqual(0);
+    expect(backfillCallIndex).toBeGreaterThan(alterCallIndex);
+    expect(sql.calls[backfillCallIndex]?.sql).toContain(
+      "WHERE kind = 'file' AND origin IS NULL"
+    );
+    // Folders never appear in the backfill's WHERE clause: the guard is
+    // scoped to `kind = 'file'`, so a historical folder keeps a NULL origin
+    // (folders never carry one) instead of being force-classified.
+    expect(sql.calls[backfillCallIndex]?.sql).not.toContain("kind = 'folder'");
+  });
+
+  it("does not re-backfill Space Files origin once the column already exists", () => {
+    const sql = new FakeSqlStorage();
+    const createTableInfoRow = <T extends Record<string, unknown>>(
+      name: string
+    ) => ({ name }) as unknown as T;
+    sql.exec = function exec<T extends Record<string, unknown>>(
+      statement: string,
+      ...params: unknown[]
+    ): FakeSqlCursor<T> {
+      this.calls.push({ sql: statement, params });
+      if (statement === "PRAGMA table_info(space_file_entries)") {
+        return new FakeSqlCursor<T>([
+          createTableInfoRow<T>("entry_id"),
+          createTableInfoRow<T>("origin"),
+        ]);
+      }
+      if (statement === "PRAGMA table_info(space_meta)") {
+        return new FakeSqlCursor<T>([createTableInfoRow<T>("space_id")]);
+      }
+      if (statement === "PRAGMA table_info(space_cursors)") {
+        return new FakeSqlCursor<T>([createTableInfoRow<T>("profile_id")]);
+      }
+      return new FakeSqlCursor<T>([]);
+    };
+
+    ensureSpaceSqlSchema(sql as unknown as SqlStorage);
+
+    expect(
+      sql.calls.some(
+        (call) =>
+          call.sql.includes("ALTER TABLE space_file_entries") &&
+          call.sql.includes("ADD COLUMN origin")
+      )
+    ).toBe(false);
+    expect(
+      sql.calls.some(
+        (call) =>
+          call.sql.includes("UPDATE space_file_entries") &&
+          call.sql.includes("SET origin = 'artifact'")
+      )
+    ).toBe(false);
+  });
 });
