@@ -213,9 +213,7 @@ test("latest scan handoff updates only the bot-owned stable comment", () => {
   };
   assert.equal(findLatestScanComment([human]), null);
   assert.equal(findLatestScanComment([human, bot]), bot);
-  assert.throws(() =>
-    findLatestScanComment([bot, { ...bot, id: 3 }])
-  );
+  assert.throws(() => findLatestScanComment([bot, { ...bot, id: 3 }]));
 });
 
 test("publication rejects a default change even when the catalog itself is valid", () => {
