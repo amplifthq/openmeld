@@ -1555,6 +1555,33 @@ varies by caller capability.
   Agent's tool-calling code
   (`services/remote-agent/agent-core/tools.ts`) sets this token on every one
   of the four Space Files tool calls.
+- **Gateway/Core RPC (every ordinary Gateway-facing Space Files method).**
+  This is a third, independent boundary from the two above: current Gateway
+  and current Core are separately deployed Workers, and Core's *ordinary*
+  Gateway-facing entrypoint methods (`listSpaceFiles`, `getSpaceFile`,
+  `listSpaceFileRevisions`, `updateSpaceFileEntry`, `restoreSpaceFileEntry`,
+  `restoreSpaceFileRevision`, `writeSpaceFileContent`, `spaceFileUpload`,
+  `publishSpaceComposerUpload`, `streamSpaceFileContent` in
+  `services/core/src/index.ts`'s `CoreRpcEntrypoint`, redeclared with the
+  same signature on `GatewayRpcEntrypoint`) are a *separate* call path from
+  the four `centerAgentXxx` methods above — wrapping only those four does not
+  protect this path. Each of these methods now accepts an optional
+  `spaceFilesOriginVersion` second argument, mirroring exactly how
+  `listSpaceThreads`/`getSpaceThread`/`getSpaceMemberDirectory`/
+  `getSpaceBootstrap` already accept `spaceAddressingVersion` for the
+  addressing rollout, and downgrades its response
+  (via `withSpaceFilesOriginRpcOutput`, or
+  `withSpaceFilesOriginStreamRpcOutput` for `streamSpaceFileContent`, whose
+  resolved value embeds a live `bytes: ReadableStream` that the generic JSON
+  walker would otherwise corrupt) unless the caller passes
+  `OPENMELD_SPACE_FILES_ORIGIN_VERSION` exactly. Current Gateway's HTTP route
+  handlers (`services/gateway/src/routes/rpc-http.space-files.ts`) always
+  pass that constant on every one of these calls, independent of whether the
+  *HTTP* caller declared its own capability — Gateway always wants the full
+  data from Core so it can apply its own HTTP-caller-facing projection
+  (the first bullet above). An already-published Gateway build has no such
+  second argument on any of these calls and never sends it, so it keeps
+  receiving the exact pre-origin response shape from a new Core.
 
 **Supported matrix, proven by behavior tests, not asserted:**
 
@@ -1610,6 +1637,26 @@ varies by caller capability.
   `openmeld_save_space_file`/`openmeld_manage_space_files` scenarios, which
   assert the tool layer always sends `requestedOriginModel: "origin_aware"`)
   prove the Core/Remote Agent direction end to end.
+- *An already-published (frozen) Gateway build + new Core*: safe — Core's
+  ordinary Gateway-facing methods (the Gateway/Core RPC boundary above)
+  downgrade their response whenever the caller omits
+  `spaceFilesOriginVersion`, which an already-published Gateway's compiled
+  code has no way to send. `services/core/tests/organization-rpc.test.ts`
+  proves the underlying `withSpaceFilesOriginRpcOutput` gate at the
+  entrypoint level, and
+  `packages/schemas/tests/http/space-files.test.ts` ("lets a frozen
+  pre-origin Gateway parse a current Core response once the Gateway-to-Core
+  RPC boundary downgrades it") reconstructs the exact frozen Gateway
+  response schemas for every representative Gateway-facing operation
+  family (get, upload/write, restore-revision, list-revisions,
+  update-entry, restore-entry — both the file and folder entry variants)
+  and proves each accepts the downgraded value while rejecting the raw
+  new-shaped one.
+  `services/gateway/tests/space-file-routes.test.ts` ("declares the origin
+  capability on the Gateway-to-Core RPC boundary for every file-bearing
+  operation...") proves current Gateway's own route handlers always pass
+  the version constant on this boundary, independent of the calling HTTP
+  client's own capability.
 - **No required CLI/Remote Agent update.** Because the response is
   negotiated rather than unconditionally additive, there is no forced-update
   policy and no CLI release-note warning to write. An old CLI or Remote
@@ -1686,26 +1733,33 @@ varies by caller capability.
   (`"artifact"` default, `"all"`) as the HTTP/RPC contract, and every Space
   Files tool call sets `requestedOriginModel: "origin_aware"`.
 - **Rollout order.** Deploy in the standard coordinated order (Auth, Web,
-  Gateway, Core, Remote Agent). Because the response is negotiated rather
-  than unconditionally additive, there is no ordering constraint beyond
-  normal deploy hygiene: any mix of old/new Web, Gateway, Core, CLI, and
-  Remote Agent is safe in either direction, since a non-capable caller
-  never receives the field regardless of which side changed first. No
-  local-component contract version or Runtime Transport epoch changes.
-  `SPACE_SQL_SCHEMA_CHECKSUM` does change (v44 → v45) specifically so a
-  database stuck in a broken v44 state self-heals on the next deploy; this
-  is intentional, not an oversight, and safe to apply at any point in the
-  rollout since the migration is additive and self-repairing.
+  Gateway, Core, Remote Agent). Because the response is negotiated on all
+  three boundaries above (HTTP client/Gateway, Gateway/Core RPC, Core/Remote
+  Agent RPC) rather than unconditionally additive on any of them, there is
+  no ordering constraint beyond normal deploy hygiene: any mix of old/new
+  Web, Gateway, Core, CLI, and Remote Agent is safe in either direction,
+  proven directly by behavior tests for each pairing above — not asserted
+  from deployment order — since a non-capable caller never receives the
+  field regardless of which side changed first. No local-component contract
+  version or Runtime Transport epoch changes. `SPACE_SQL_SCHEMA_CHECKSUM`
+  does change (v44 → v45) specifically so a database stuck in a broken v44
+  state self-heals on the next deploy; this is intentional, not an
+  oversight, and safe to apply at any point in the rollout since the
+  migration is additive and self-repairing.
 - **Rollback.** Rolling back Core does not need to reverse the migration:
   the `origin` column and its backfilled values are additive and harmless
   to a pre-feature Core build, which simply never reads or writes that
   column. Do not delete or null out backfilled `origin` values as part of a
   rollback; that would recreate the exact historical-file-hiding defect
-  this migration fixes. Rolling any component back to a pre-origin version
-  is always safe under this negotiated contract: a rolled-back component
-  simply stops declaring (or stops honoring) the capability, and every
-  caller reverts to receiving the pre-origin response shape it already
-  understands.
+  this migration fixes. Rolling any single component back to a pre-origin
+  version is safe under this negotiated contract on all three boundaries: a
+  rolled-back component simply stops declaring (Gateway/Core RPC,
+  Core/Remote Agent RPC) or stops honoring (HTTP client/Gateway) the
+  capability, and every caller on the other side of that boundary reverts to
+  the pre-origin response shape it already understands — including rolling
+  Gateway back to a pre-origin build while Core stays current, which the
+  Gateway/Core RPC negotiation now covers explicitly (see above); it was not
+  covered before that negotiation existed.
 
 ### Versioned local-state rollout discipline
 
