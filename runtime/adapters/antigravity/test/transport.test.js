@@ -51,6 +51,42 @@ describe("Antigravity CLI transport contract", () => {
           event: "step_update",
           step_update: {
             conversation_id: "conversation-123",
+            state: "ERROR",
+            step_index: 3,
+            step_type: "tool",
+            tool_name: "run_command",
+            tool_info: {
+              error: {
+                message:
+                  "permission check failed for an OpenMeld Space Action command",
+                type: "TOOL_ERROR",
+              },
+              name: "run_command",
+              parameters: { CommandLine: "openmeld space action reply" },
+            },
+          },
+        })
+      ),
+      {
+        conversationId: "conversation-123",
+        event: "step_update",
+        state: "ERROR",
+        stepIndex: 3,
+        stepType: "tool",
+        textDelta: null,
+        toolError:
+          "permission check failed for an OpenMeld Space Action command",
+        toolInput: { CommandLine: "openmeld space action reply" },
+        toolName: "run_command",
+      }
+    );
+
+    assert.deepEqual(
+      parseAntigravityOutputLine(
+        JSON.stringify({
+          event: "step_update",
+          step_update: {
+            conversation_id: "conversation-123",
             state: "ACTIVE",
             step_index: 2,
             step_type: "agent_response",
@@ -203,6 +239,37 @@ describe("Antigravity CLI transport contract", () => {
           workdir: fixtureDir,
         }),
         (error) => error?.code === "runtime.output.invalid"
+      );
+    } finally {
+      await rm(fixtureDir, { force: true, recursive: true });
+    }
+  });
+
+  it("reports a headless tool denial as a runtime permission failure", async () => {
+    const fixtureDir = await mkdtemp(join(tmpdir(), "antigravity-fixture-"));
+    const fixturePath = join(fixtureDir, "agy-permission-fixture.mjs");
+    await writeFile(
+      fixturePath,
+      [
+        "#!/usr/bin/env node",
+        "console.log(JSON.stringify({ event: 'init', conversation_id: 'conversation-1', init: {} }));",
+        "console.log(JSON.stringify({ event: 'step_update', step_update: { conversation_id: 'conversation-1', state: 'ERROR', step_index: 2, step_type: 'tool', tool_name: 'run_command', tool_info: { name: 'run_command', parameters: { CommandLine: 'openmeld space action reply' }, error: { type: 'TOOL_ERROR', message: 'permission check failed for command: user denied permission to run command' } } } }));",
+        "console.log(JSON.stringify({ event: 'result', result: { conversation_id: 'conversation-1', status: 'SUCCESS', response: '' } }));",
+      ].join("\n"),
+      "utf8"
+    );
+    await chmod(fixturePath, 0o755);
+
+    try {
+      await assert.rejects(
+        invokeAntigravityCliTransport({
+          launchContract: createNodeScriptLaunchContract(fixturePath),
+          prompt: "Run.",
+          sessionId: null,
+          timeoutMs: 5000,
+          workdir: fixtureDir,
+        }),
+        (error) => error?.code === "permission.denied.runtime"
       );
     } finally {
       await rm(fixtureDir, { force: true, recursive: true });

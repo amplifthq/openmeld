@@ -9,6 +9,7 @@ import type {
 } from "@openmeld/adapter-core";
 import {
   buildCliLaunchInvocation,
+  classifyRuntimePermissionDenialMessage,
   resolveAdapterToolActivityName,
   resolveAdapterToolWorkActivity,
 } from "@openmeld/adapter-core";
@@ -86,6 +87,7 @@ export async function invokeAntigravityCliTransport(input: {
     result: null as Extract<AntigravityStreamEvent, { event: "result" }> | null,
   };
   let malformedOutput = false;
+  const providerErrorMessages: string[] = [];
   let previewText = "";
   let previewChain = Promise.resolve();
 
@@ -97,7 +99,13 @@ export async function invokeAntigravityCliTransport(input: {
     env: input.env,
     onLifecycleEvent: input.onRuntimeEvent,
     onProcessControlEvent: input.onProcessControlEvent,
-    onStderrLine: () => undefined,
+    onStderrLine: (lineEvent) => {
+      const message = normalizeOptionalText(lineEvent.line);
+      if (message) {
+        providerErrorMessages.push(message);
+      }
+      return undefined;
+    },
     onStdoutLine: (lineEvent) => {
       const event = parseAntigravityOutputLine(lineEvent.line);
       if (!event) {
@@ -106,6 +114,9 @@ export async function invokeAntigravityCliTransport(input: {
       }
       conversationId = event.conversationId || conversationId;
       if (event.event === "step_update") {
+        if (event.toolError) {
+          providerErrorMessages.push(event.toolError);
+        }
         if (event.stepType === "agent_response" && event.textDelta) {
           firstOutputAtMs ??= Date.now();
           previewText += event.textDelta;
@@ -169,6 +180,15 @@ export async function invokeAntigravityCliTransport(input: {
   const resolvedSessionId =
     normalizeOptionalText(terminalResult.conversationId) ?? conversationId;
   if (!(output && resolvedSessionId)) {
+    const permissionFailure = classifyAntigravityPermissionFailure(
+      providerErrorMessages
+    );
+    if (permissionFailure) {
+      throw new AntigravityCliTransportError({
+        ...permissionFailure,
+        telemetry,
+      });
+    }
     throw new AntigravityCliTransportError({
       code: output ? "context.missing" : "runtime.output.empty",
       errorType: "adapter",
@@ -179,6 +199,29 @@ export async function invokeAntigravityCliTransport(input: {
     });
   }
   return { output, sessionId: resolvedSessionId, telemetry };
+}
+
+function classifyAntigravityPermissionFailure(
+  messages: readonly string[]
+): Pick<
+  AntigravityCliTransportError,
+  "code" | "errorType" | "message" | "originalError"
+> | null {
+  for (const message of messages) {
+    const classification = classifyRuntimePermissionDenialMessage({
+      message,
+      source: "antigravity",
+    });
+    if (classification) {
+      return {
+        code: classification.code,
+        errorType: classification.errorType,
+        message: classification.message,
+        originalError: classification.details.normalizedMessage,
+      };
+    }
+  }
+  return null;
 }
 
 export function buildAntigravityArgs(input: {

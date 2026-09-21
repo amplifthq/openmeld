@@ -6,7 +6,7 @@ export type AntigravityStreamEvent =
   | {
       event: "step_update";
       conversationId: string;
-      state: "ACTIVE" | "DONE";
+      state: "ACTIVE" | "DONE" | "ERROR";
       stepIndex: number;
       stepType: string;
       textDelta: string | null;
@@ -57,7 +57,7 @@ export function parseAntigravityOutputLine(
     const stepType = readText(step?.step_type);
     if (
       !conversationId ||
-      (state !== "ACTIVE" && state !== "DONE") ||
+      (state !== "ACTIVE" && state !== "DONE" && state !== "ERROR") ||
       typeof stepIndex !== "number" ||
       !Number.isInteger(stepIndex) ||
       !stepType
