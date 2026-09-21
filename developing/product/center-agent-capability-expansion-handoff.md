@@ -23,7 +23,7 @@ The original proposal and overlapping reviews are historical evidence, not addit
 
 On 2026-09-21, a fresh fetch of `origin/main` resolved to `6d0736ee1197bee8778760f4b7ecc13d2bd77b2c`. The docs-only #1199 head was `c9ea650de48f86b290e09ebbf26929d106c2bbf8`, already containing that main. Implementation uses a separate worktree and preserves other agents' checkouts.
 
-At takeover, #1198 was Ready, open and unmerged at `57dd5cc33e7aec465ccc403f6cf40bdaa9b7ca68`. Its admission ACK, callback wait, Workflow recovery, and fair recovery-scan changes are implementation, not just investigation. Do not copy them here or treat that branch as deployed. Recheck its merge state and overlapping contracts at integration. Neither PR establishes the original missing-ACK/empty-response incident cause or authorizes historical production replay.
+At takeover, #1198 was Ready, open and unmerged at `57dd5cc33e7aec465ccc403f6cf40bdaa9b7ca68`. It merged at `2026-09-21T10:30:10Z` as `cba063764d52ccdcd9a96faab9d272ab4185b743`. After Batch 2, this worktree integrated then-current main in `b9c3c2893`; the final review baseline is `139bb7b9b589e4089a30a51f25ce7c961b355f276`, including the #1198 merge. Its admission ACK, callback wait, Workflow recovery, and fair recovery-scan changes remain the execution owner, not duplicated diagnostics logic. Merged is not deployed. Neither PR establishes the original missing-ACK/empty-response incident cause or authorizes historical production replay.
 
 ## Corrected scope and source map
 
@@ -74,6 +74,53 @@ For Slack, distinguish stable permalink navigation, fresh source read/search aut
 For DM-to-Space, check target discovery, member/Agent eligibility, a minimally shareable self-contained brief, an actual Wake, explicit completion mode, and result return. A reference is not delegation, queued publication is not execution, and a child result is not automatically the parent's final answer.
 
 Prioritize evidence-backed work/result status and safe delivery reconciliation, then approved-brief delegation and current-document verification. Pause/stop distinctions and source-readiness are validation scenarios over existing owners. A future PR-merge subscription requires its own supported event source, cancellation, authority and duplicate-delivery contract; it is not implied by Local Agent task watching.
+
+## Implementation evidence and review handoff
+
+Implementation worktree: `/Users/felix/Desktop/work/.webcodex-managed-worktrees/openmeld-c0cc522a-d895-424d-8de7-8ee1d9f5c701`, branch `webcodex/pr1199-handoff-v2-20260921`. Other agents' checkouts were not modified.
+
+| Batch | Local commit | Implemented result |
+| --- | --- | --- |
+| 0 | `39980a830` | Replace the old additive proposal with this v2 source map. |
+| 1 | `e72aecf62` | Private member-attributed Audit Log adapter, preserving human journal behavior and filtering source references before visible output. |
+| 2 | `96c2d6ae7` | Bounded Activity overview and explicit live Inventory coverage/paging tests. |
+| 3 | `151a7078f` | Retained historical and exact Routine diagnostics, frozen destination evidence, linked delivery/result ownership and sanitized runtime evidence. |
+| 4 | `5c781dcd1` | Explicit retained-memory lookup, complete bounded provenance, active-subject reads without writes, current member/source/audience authorization. |
+| 5 | This follow-up changeset | Production frozen discovery/describe/Code Mode acceptance, converted-DM disclosure regression, owner docs, draft Changelog and integration checks. |
+
+The four capability fixture suites live in `services/remote-agent/tests/center-agent-{audit-evidence,activity-overview,routine-evidence,memory-search}.test.ts`. Their positive cases now use production `getRemoteAgentFlueTools`, its actual frozen capability search/describe contract, the actual Code Mode SDK and normal result envelopes, then real Core authorization and SQLite-backed owning repositories. The external JavaScript executor and external provider responses are controlled fixtures, not live vendor verification. The actual Space authorization/message-reader boundary is exercised separately under Workerd in `services/core/tests/center-agent-evidence-source-access.integration.test.ts`, including a real posted message, a missing message, and another member's private source.
+
+Positive and boundary evidence includes: a normal member's real audit records without borrowing an owner principal; an oversized multibyte snapshot whose structured overview fits the real result boundary; four-page live Inventory traversal and changed cursor filters/source state; selection of an older Run after definition deletion; a continuation's persisted result owner rather than its completed first delivery; independent admission, generation and publication facts; recall of a known conclusion from a new private conversation with every permitted source; a public-only fact in a shared conversation while a mixed public/private fact is withheld; no match versus provider outage/partial lookup; source revocation, missing messages, and later dated reversals without a claim of current approval. The current reply audience is reread, including conversion during provider latency.
+
+The focused D1 migration harness also now honors index removal by actual table ownership. This applies the already-existing `0063` continuation index migration in tests; it does not add a production migration. The corrected fixture verifies that linked deliveries may share a Run while immutable admission identity still cannot be reassigned.
+
+### Contract impact audit
+
+The changed producer/consumer pairs are private Core Center Agent RPC receivers and Remote Agent callers, with shared derived schemas and strict parsing. Existing human Audit Log, Web/CLI Activity snapshot, HTTP Routine history, `lastRun`, interactive turn diagnostics, and automatic prompt-memory envelopes remain intact. New receiver names are additive and unavailable on Gateway. Old Core rejects new calls explicitly; there is no fallback to human identity or an oversized snapshot. Deploy receivers before callers, and roll callers back before removing receivers. This ordering is documented for review only: no deployment is part of this task. No persisted schema migration, public Gateway wire cut, or local service ABI update is introduced.
+
+### E: verification only, not new functionality
+
+The existing suites `center-agent-delegation-service.write.test.ts`, `center-agent-wake-publication-service.write.test.ts`, `slack-search-client.test.ts`, `slack-search-presentation.test.ts`, and `remote-agent-slack-signal-service.test.ts` passed together (127 tests). These cover controlled exact-permalink hydration and escaped presentation, event-bound Slack search authority, persisted child subscriptions/completion mode, and Wake publication/continuation ownership. They do not establish that a real user can open an old Slack link in the desktop UI, obtain a fresh live Slack grant in another turn, or complete the entire live DM-to-Space workflow. Those exact live steps remain for the separately requested Codex smoke; no grant lifetime was extended and no new delegation system was created.
+
+### Final validation boundary
+
+The repository-wide `check:affected` attempt was stopped while waiting for the
+machine's constrained-memory lease; it had not executed the checks. Only this
+task's waiting job was cancelled. Other development stacks were not stopped and
+the protection gate was not bypassed. `test:affected` and Final Candidate
+acceptance remain pending. Scoped tests and type checks must not be represented
+as either of those repository-wide gates or as live user smoke.
+
+Final self-review also checks the actual Space-owned audience, not the public
+metadata DTO, which intentionally omits private DM internals. The private
+`rpcGetEvidenceReadContext` reuses Space read authorization and returns only its
+current conversation classification alongside the unchanged public metadata.
+Memory and Routine diagnostics reauthorize after external read latency; a
+converted private conversation must not retain private disclosure authority.
+
+### Unsupported and separately pending evidence
+
+Explicit memory search supports retained OpenMeld DM and Space-message provenance with current source and reply-audience authorization. Slack/Lark/Feishu and legacy explicit-tool provenance without a verifiable conversation origin remain unsupported; Routine and external-channel callers cannot use this interactive reader. Routine channel destination locators are unsupported rather than exposed. Memory search is bounded, not exhaustive history or automatic current-decision verification. Activity is a bounded current view, not complete usage analytics. Real vendor/live UI smoke, cross-version deployed service smoke, production outcomes, release and deployment are not claimed. F remains follow-up hypotheses, not implemented backlog or measured usage demand.
 
 ## Exclusions and closeout
 

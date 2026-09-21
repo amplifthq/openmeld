@@ -16,6 +16,7 @@ export {
 } from "./daemon/service-connection-evidence";
 export { agentActivityOverviewResponseSchema } from "./http/agent-activity-overview";
 export {
+  centerAgentEvidenceSourceSpaceSchema,
   centerAgentReadAuditJournalResponseSchema,
   centerAgentReadAuditJournalRpcInputSchema,
 } from "./http/center-agent-evidence";

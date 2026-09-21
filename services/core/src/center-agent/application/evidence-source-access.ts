@@ -1,5 +1,5 @@
 import { resolveCenterAgentContextScopePlan } from "@openmeld/agent-runtime";
-import { getSpaceMetaResponseSchema } from "@openmeld/schemas";
+import { centerAgentEvidenceSourceSpaceSchema } from "@openmeld/schemas";
 import type {
   OpenMeldRequestContext,
   RemoteAgentTurnEnvelope,
@@ -37,10 +37,45 @@ export async function createCenterAgentEvidenceSourceAccess(input: {
     },
   };
   const envelope = await readVerifiedCurrentEnvelope(input);
-  const audience = envelope
+  let audience = envelope
     ? resolveCenterAgentContextScopePlan(envelope).interactionEnvironment
     : null;
+  const replyContext = envelope
+    ? await readAuthorizedSpace(envelope.space.id)
+    : null;
+  const replySpace = replyContext?.meta ?? null;
+  if (
+    !replyContext ||
+    (audience === "requester_private" &&
+      (!replyContext.isDirectMessage || replySpace?.visibility !== "private"))
+  ) {
+    audience = null;
+  }
   const permittedSpaces = new Map<string, Promise<SpaceMeta | null>>();
+
+  async function readAuthorizedSpace(spaceId: string) {
+    try {
+      const stub = resolveSpaceStub(input.env.OPENMELD_SPACES, spaceId);
+      if (!stub) {
+        return null;
+      }
+      const result = centerAgentEvidenceSourceSpaceSchema.parse(
+        await stub.rpcGetEvidenceReadContext({
+          spaceId,
+          spaceAccess: createAuthenticatedSpaceAccessContext({
+            requestContext: memberContext,
+            spaceId,
+          }),
+        })
+      );
+      return result.meta.spaceId === spaceId &&
+        result.meta.organizationId === organizationId
+        ? result
+        : null;
+    } catch {
+      return null;
+    }
+  }
 
   function readPermittedSpace(spaceId: string): Promise<SpaceMeta | null> {
     const retained = permittedSpaces.get(spaceId);
@@ -56,25 +91,12 @@ export async function createCenterAgentEvidenceSourceAccess(input: {
     }
     const read = (async () => {
       try {
-        const stub = resolveSpaceStub(input.env.OPENMELD_SPACES, spaceId);
-        if (!stub) {
-          return null;
-        }
-        // The canonical Space owner checks current membership/access, including
-        // revocation. Public listing visibility alone is never read authority.
-        const meta = getSpaceMetaResponseSchema.parse(
-          await stub.rpcGetMeta({
-            spaceId,
-            spaceAccess: createAuthenticatedSpaceAccessContext({
-              requestContext: memberContext,
-              spaceId,
-            }),
-          })
-        );
-        if (
-          meta.spaceId !== spaceId ||
-          meta.organizationId !== organizationId
-        ) {
+        // Reauthorize through the canonical owner, never through listing visibility.
+        const meta =
+          spaceId === envelope?.space.id
+            ? replySpace
+            : ((await readAuthorizedSpace(spaceId))?.meta ?? null);
+        if (!meta) {
           return null;
         }
         if (audience === "requester_private") {

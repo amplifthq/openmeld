@@ -236,6 +236,23 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     dependencies: ["openmeld_read_organization_directory"],
     namespace: "agents_and_computers",
   },
+  openmeld_read_center_agent_activity: {
+    aliases: [
+      "Center Agent 操作记录",
+      "Center Agent action audit",
+      "who created this Space",
+    ],
+    namespace: "organization",
+  },
+  openmeld_read_agent_activity: {
+    aliases: [
+      "查看编码代理活动概览",
+      "coding agent activity overview",
+      "current coding work",
+    ],
+    dependencies: ["openmeld_list_agent_activity_sessions"],
+    namespace: "agents_and_computers",
+  },
   openmeld_list_routine_runs: {
     aliases: [
       "Routine run history",

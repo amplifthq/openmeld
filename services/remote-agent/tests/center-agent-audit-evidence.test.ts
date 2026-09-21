@@ -11,6 +11,7 @@ import {
   EVIDENCE_OTHER_SPACE_ID,
   EVIDENCE_SPACE_ID,
 } from "./center-agent-evidence.test-support";
+import { executeEvidenceCodeMode } from "./evidence-code-mode.test-support";
 import {
   createRoutineTurnEnvelope,
   createSubmitTurnRequest,
@@ -73,15 +74,17 @@ describe("member-attributed Center Agent audit evidence", () => {
         context: context(f),
       })
     ).rejects.toMatchObject({ code: "organization.membership_required" });
+    const output = await executeEvidenceCodeMode({
+      fixture: f,
+      binding: {
+        centerAgentReadAuditJournal: (input) =>
+          rpcCenterAgentReadAuditJournal(f.env, input),
+      },
+      toolName: "openmeld_read_center_agent_activity",
+      payload: { limit: 25 },
+    });
     const result = centerAgentReadAuditJournalResponseSchema.parse(
-      await f.execute(
-        {
-          centerAgentReadAuditJournal: (input) =>
-            rpcCenterAgentReadAuditJournal(f.env, input),
-        },
-        "openmeld_read_center_agent_activity",
-        { limit: 25 }
-      )
+      (output as { result: unknown }).result
     );
     expect(result.entries).toHaveLength(2);
     expect(
@@ -210,6 +213,35 @@ describe("member-attributed Center Agent audit evidence", () => {
     await expect(
       f.execute(binding, "openmeld_read_center_agent_activity")
     ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("does not use a stale private turn envelope after its reply audience has changed", async () => {
+    const f = await fixture();
+    f.spaces.set(EVIDENCE_OTHER_SPACE_ID, {
+      spaceId: EVIDENCE_OTHER_SPACE_ID,
+      organizationId: f.request.organizationId,
+      visibility: "private",
+      accessMode: "members_only",
+      name: "Other readable private source",
+    });
+    f.spaces.set(EVIDENCE_SPACE_ID, {
+      spaceId: EVIDENCE_SPACE_ID,
+      organizationId: f.request.organizationId,
+      visibility: "private",
+      accessMode: "members_only",
+      directMessage: {
+        pairKey: "converted",
+        convertedAt: new Date(TEST_NOW_MS).toISOString(),
+      },
+    });
+    const result = await rpcCenterAgentReadAuditJournal(f.env, request(f));
+    expect(result.entries).toHaveLength(2);
+    expect(
+      result.entries.every(
+        (entry) => entry.resource === null && entry.sourceSpaceId === null
+      )
+    ).toBe(true);
+    expect(JSON.stringify(result)).not.toContain(EVIDENCE_OTHER_SPACE_ID);
   });
 
   it("rejects a missing verified speaker before calling Core", async () => {

@@ -154,14 +154,9 @@ async function requireMemoryAudience(
   ) {
     throw unsupportedSurface();
   }
-  const replySpace = await access.readPermittedSpace(envelope.space.id);
-  if (
-    !replySpace ||
-    (access.audience === "requester_private" &&
-      (!replySpace.directMessage ||
-        replySpace.directMessage.convertedAt ||
-        replySpace.visibility !== "private"))
-  ) {
+  // The source-access owner checks the current DM audience. Public metadata
+  // intentionally does not contain the private DM record.
+  if (!(await access.readPermittedSpace(envelope.space.id))) {
     throw unsupportedSurface();
   }
 }

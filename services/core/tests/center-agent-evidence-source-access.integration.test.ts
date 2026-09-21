@@ -211,6 +211,25 @@ describe("Center Agent evidence source authorization in Workerd", () => {
     await expect(access.canReadSignal(hidden.spaceId, signal.id)).resolves.toBe(
       false
     );
+    // The real Center Agent DM owner forbids conversion altogether. The
+    // converted-audience reader regression is covered by the tool fixtures.
+    await expect(
+      stub.rpcConvertDirectMessageToSpace({
+        context: requester.context,
+        members: [
+          {
+            agentControllerRef: null,
+            ownerName: "Other member",
+            ownerUserId: other.userId,
+            profileId: other.profileId,
+            profileKind: "human",
+            profileName: "Other member",
+          },
+        ],
+        name: "Shared evidence discussion",
+        spaceId,
+      })
+    ).rejects.toThrow("Center Agent Direct Messages cannot become Spaces.");
   });
 });
 

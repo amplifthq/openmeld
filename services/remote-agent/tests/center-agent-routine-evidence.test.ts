@@ -339,6 +339,55 @@ describe("Routine evidence through normal member tools", () => {
     );
   });
 
+  it.each([
+    "converted_reply",
+    "revoked_member",
+  ] as const)("reauthorizes after runtime diagnostics when authority changes: %s", async (change) => {
+    const f = await fixture();
+    await delivery(f, "only-delivery", 0);
+    f.spaces.set(EVIDENCE_OTHER_SPACE_ID, {
+      spaceId: EVIDENCE_OTHER_SPACE_ID,
+      organizationId: f.request.organizationId,
+      visibility: "private",
+      accessMode: "members_only",
+      name: "Readable private destination",
+    });
+    f.harness.run({
+      sql: "UPDATE routine_runs SET target_space_id_snapshot = ?, published_signal_id = 'private-result' WHERE id = 'old-run'",
+      params: [EVIDENCE_OTHER_SPACE_ID],
+    });
+    Reflect.set(f.env, "OPENMELD_REMOTE_AGENT_WORKER", {
+      readRuntimeDiagnostics: () => {
+        if (change === "revoked_member") {
+          f.harness.run({
+            sql: "DELETE FROM members WHERE id = ?",
+            params: [f.speaker.id],
+          });
+        } else {
+          f.spaces.set(EVIDENCE_SPACE_ID, {
+            spaceId: EVIDENCE_SPACE_ID,
+            organizationId: f.request.organizationId,
+            visibility: "private",
+            accessMode: "members_only",
+            directMessage: {
+              pairKey: "converted",
+              convertedAt: new Date(TEST_NOW_MS).toISOString(),
+            },
+          });
+        }
+        return Promise.resolve(runtimeResponse([]));
+      },
+    });
+    if (change === "revoked_member") {
+      await expect(f.read()).rejects.toMatchObject({ status: 403 });
+    } else {
+      const result = await f.read();
+      expect(result.run.destination.coverage).toBe("redacted");
+      expect(result.run.publication.signalId).toBeNull();
+      expect(JSON.stringify(result)).not.toContain(EVIDENCE_OTHER_SPACE_ID);
+    }
+  });
+
   it("distinguishes skipped, failed, absent runtime evidence and unavailable runtime service", async () => {
     const f = await fixture();
     expect(await f.read("middle-run")).toMatchObject({

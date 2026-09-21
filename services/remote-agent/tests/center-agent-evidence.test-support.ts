@@ -160,6 +160,13 @@ export async function createEvidenceFixture(
         visibility: "private",
         accessMode: "members_only",
         name: "Allowed source",
+        ...(request.turnEnvelope.space.kind === "dm"
+          ? {
+              directMessage: {
+                pairKey: `${speaker.profileId}:${request.agentProfileId}`,
+              },
+            }
+          : {}),
       },
     ],
   ]);
@@ -205,6 +212,28 @@ export async function createEvidenceFixture(
               : [],
           });
         },
+        rpcGetEvidenceReadContext: ({
+          spaceAccess,
+        }: {
+          spaceAccess: { actor: { requestContext: OpenMeldRequestContext } };
+        }) => {
+          const memberContext = spaceAccess.actor.requestContext;
+          sourceReads.push({ spaceId, memberContext });
+          const record = spaces.get(spaceId);
+          if (
+            !record ||
+            memberContext.actorContext.openMeldProfileId !== speaker.profileId
+          ) {
+            return Promise.reject(new Error("Source is not readable."));
+          }
+          const { directMessage, ...meta } = record;
+          return Promise.resolve({
+            meta,
+            isDirectMessage: Boolean(
+              directMessage && !directMessage.convertedAt
+            ),
+          });
+        },
         rpcGetMeta: ({
           spaceAccess,
         }: {
@@ -219,7 +248,8 @@ export async function createEvidenceFixture(
           ) {
             return Promise.reject(new Error("Source is not readable."));
           }
-          return Promise.resolve(meta);
+          const { directMessage: _privateMetadata, ...publicMeta } = meta;
+          return Promise.resolve(publicMeta);
         },
       }),
     },

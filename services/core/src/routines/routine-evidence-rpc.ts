@@ -37,7 +37,7 @@ export async function rpcCenterAgentListRoutineRuns(
     centerAgentListRoutineRunsToolRpcInputSchema,
     input
   );
-  const { access, db, organizationId } = await prepareRead(env, request);
+  const { prepared, db, organizationId } = await prepareRead(env, request);
   const limit = request.limit ?? 20;
   // Reuse the existing historical owner, including its deleted-definition and
   // Center-versus-personal executor scope. One extra row proves continuation.
@@ -48,6 +48,7 @@ export async function rpcCenterAgentListRoutineRuns(
     beforeScheduledFor: request.beforeScheduledFor,
     limit: limit + 1,
   });
+  const access = await createCenterAgentEvidenceSourceAccess({ env, prepared });
   const runs = await Promise.all(
     records.slice(0, limit).map((run) => projectRun(run, access))
   );
@@ -70,7 +71,7 @@ export async function rpcCenterAgentReadRoutineRunDiagnostics(
     centerAgentReadRoutineRunDiagnosticsRpcInputSchema,
     input
   );
-  const { access, db, organizationId } = await prepareRead(env, request);
+  const { db, organizationId } = await prepareRead(env, request);
   const record = await readRoutineRunExecutionRecord({
     db,
     runId: request.runId,
@@ -87,6 +88,10 @@ export async function rpcCenterAgentReadRoutineRunDiagnostics(
     });
   }
   const nativeDelivery = await readNativeEvidence(env, organizationId, record);
+  // Runtime reads cross a service boundary. Recheck both the represented
+  // member and current reply audience before exposing destination references.
+  const { prepared } = await prepareRead(env, request);
+  const access = await createCenterAgentEvidenceSourceAccess({ env, prepared });
   return centerAgentReadRoutineRunDiagnosticsResponseSchema.parse({
     organizationId,
     observedAtMs: Date.now(),
@@ -118,7 +123,7 @@ async function prepareRead(
     });
   }
   return {
-    access: await createCenterAgentEvidenceSourceAccess({ env, prepared }),
+    prepared,
     db,
     organizationId: prepared.authorization.activeOrganization.organizationId,
   };

@@ -5,6 +5,13 @@ import {
   listCenterAgentAuditJournalResponseSchema,
 } from "./center-agent";
 import { centerAgentVerifiedMemberToolSpeakerSchema } from "./center-agent-speaker";
+import { getSpaceMetaResponseSchema } from "./space-meta";
+
+/** Private Core-to-Space read; public metadata omits DM internals. */
+export const centerAgentEvidenceSourceSpaceSchema = z.strictObject({
+  meta: getSpaceMetaResponseSchema,
+  isDirectMessage: z.boolean(),
+});
 
 export const centerAgentReadAuditJournalRpcInputSchema =
   listCenterAgentAuditJournalQuerySchema.extend({

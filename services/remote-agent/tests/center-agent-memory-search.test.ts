@@ -488,6 +488,38 @@ describe("authorized retained-memory search from normal member tools", () => {
     await expect(f.read()).rejects.toMatchObject({ status: 403 });
   });
 
+  it("rechecks a reply audience changed while the provider was reading", async () => {
+    const f = await fixture();
+    fact(f, {
+      sources: [
+        {
+          spaceId: EVIDENCE_OTHER_SPACE_ID,
+          signalId: "private-before-conversion",
+        },
+      ],
+    });
+    provider.search.mockImplementation((input: ProviderQuery) => {
+      const current = f.spaces.get(f.request.spaceId);
+      if (!current?.directMessage) {
+        throw new Error("Missing current DM.");
+      }
+      f.spaces.set(f.request.spaceId, {
+        ...current,
+        directMessage: {
+          ...current.directMessage,
+          convertedAt: new Date(TEST_NOW_MS).toISOString(),
+        },
+      });
+      return Promise.resolve({
+        edges: graphs.get(input.userId ?? input.graphId ?? "") ?? [],
+      });
+    });
+    await expect(f.read()).rejects.toMatchObject({
+      code: "center_agent.memory_search_surface_unsupported",
+    });
+    expect(f.signalReads).toEqual([]);
+  });
+
   it("rejects a converted private reply audience and Routine callers explicitly", async () => {
     const f = await fixture();
     const current = f.spaces.get(f.request.spaceId);
