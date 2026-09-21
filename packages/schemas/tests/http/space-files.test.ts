@@ -8,21 +8,29 @@ import {
   centerAgentListSpaceFilesRpcInputSchema,
   centerAgentManageSpaceFilesRpcInputSchema,
   createSpaceFolderBodySchema,
+  getSpaceFileResponseSchema,
   isSpaceFileTextEditable,
+  listSpaceFileRevisionsResponseSchema,
   listSpaceFilesQuerySchema,
   listSpaceFilesResponseSchema,
   postNormalMessageBodySchema,
   postSpaceThreadSignalBodySchema,
   resolveSpaceFileMimeType,
   restoreSpaceFileEntryBodySchema,
+  restoreSpaceFileEntryResponseSchema,
   restoreSpaceFileRevisionBodySchema,
+  restoreSpaceFileRevisionResponseSchema,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   spaceFileAuditEventSchema,
   spaceFileDescriptorSchema,
+  spaceFileEntrySchema,
   spaceFileNameSchema,
   spaceMessageFileReferenceSchema,
   spaceMessageFileReferencesSchema,
+  toLegacySpaceFilesOriginWireValue,
   updateSpaceFileEntryBodySchema,
+  updateSpaceFileEntryResponseSchema,
+  uploadSpaceFileResponseSchema,
 } from "../../src";
 
 /**
@@ -49,6 +57,34 @@ const preOriginListSpaceFilesResponseSchema = z.strictObject(
     )
   )
 );
+const preOriginSpaceFileEntrySchema = z.discriminatedUnion("kind", [
+  z.strictObject(spaceFileEntrySchema.options[0].shape),
+  preOriginSpaceFileDescriptorSchema,
+]);
+const preOriginGetSpaceFileResponseSchema = z.strictObject({
+  ...getSpaceFileResponseSchema.shape,
+  file: preOriginSpaceFileDescriptorSchema,
+});
+const preOriginUploadSpaceFileResponseSchema = z.strictObject({
+  ...uploadSpaceFileResponseSchema.shape,
+  file: preOriginSpaceFileDescriptorSchema,
+});
+const preOriginRestoreSpaceFileRevisionResponseSchema = z.strictObject({
+  ...restoreSpaceFileRevisionResponseSchema.shape,
+  file: preOriginSpaceFileDescriptorSchema,
+});
+const preOriginListSpaceFileRevisionsResponseSchema = z.strictObject({
+  ...listSpaceFileRevisionsResponseSchema.shape,
+  file: preOriginSpaceFileDescriptorSchema,
+});
+const preOriginUpdateSpaceFileEntryResponseSchema = z.strictObject({
+  ...updateSpaceFileEntryResponseSchema.shape,
+  entry: preOriginSpaceFileEntrySchema,
+});
+const preOriginRestoreSpaceFileEntryResponseSchema = z.strictObject({
+  ...restoreSpaceFileEntryResponseSchema.shape,
+  entry: preOriginSpaceFileEntrySchema,
+});
 
 describe("Space Files contracts", () => {
   it("keeps Composer publication identities exact at the request limits", async () => {
@@ -408,6 +444,140 @@ describe("Space Files contracts", () => {
       preOriginListSpaceFilesResponseSchema.safeParse(newShapedListResponse)
         .success
     ).toBe(false);
+  });
+
+  it("lets a frozen pre-origin Gateway parse a current Core response once the Gateway-to-Core RPC boundary downgrades it", () => {
+    // The Gateway-to-Core RPC boundary is a second, independent negotiation
+    // from the HTTP client-to-Gateway boundary covered above: Core's ordinary
+    // Gateway-facing Space Files methods (listSpaceFiles, getSpaceFile,
+    // listSpaceFileRevisions, updateSpaceFileEntry, restoreSpaceFileEntry,
+    // restoreSpaceFileRevision, writeSpaceFileContent, spaceFileUpload,
+    // publishSpaceComposerUpload, streamSpaceFileContent) accept an optional
+    // spaceFilesOriginVersion argument and downgrade their response with
+    // toLegacySpaceFilesOriginWireValue when it is absent — exactly what an
+    // already-published (frozen) Gateway build does, since its own compiled
+    // code has no such argument and never passes it. This proves that once
+    // Core applies that downgrade, a Gateway build frozen at PR base
+    // (`6d0736ee1197bee8778760f4b7ecc13d2bd77b2c`, before origin existed)
+    // successfully parses the result with its own frozen strict schemas —
+    // for every response family a Gateway-facing method returns, not only
+    // the list response covered above.
+    const actor = {
+      displayName: "Maya",
+      profileId: "profile-1",
+      profileKind: "human" as const,
+    };
+    const newShapedFile = {
+      createdAt: "2026-08-23T00:00:00.000Z",
+      createdBy: actor,
+      id: "file-1",
+      kind: "file" as const,
+      latestRevision: {
+        createdAt: "2026-08-23T00:00:00.000Z",
+        createdBy: actor,
+        fileId: "file-1",
+        id: "revision-1",
+        mimeType: "text/markdown",
+        revision: 1,
+        sizeBytes: 12,
+      },
+      name: "brief.md",
+      origin: "artifact" as const,
+      parentId: null,
+      path: "/brief.md",
+      spaceId: "space-1",
+      updatedAt: "2026-08-23T00:00:00.000Z",
+      updatedBy: actor,
+    };
+    const newShapedFolder = {
+      createdAt: "2026-08-23T00:00:00.000Z",
+      createdBy: actor,
+      id: "folder-1",
+      kind: "folder" as const,
+      name: "Launch",
+      parentId: null,
+      path: "/Launch",
+      spaceId: "space-1",
+      updatedAt: "2026-08-23T00:00:00.000Z",
+      updatedBy: actor,
+    };
+
+    const representativeCoreResponses: Array<{
+      current: z.ZodType;
+      legacy: z.ZodType;
+      operation: string;
+      // A folder entry never carries `origin` in either shape (folders are
+      // structural, not classified), so the frozen schema already accepts
+      // its raw new-shaped value; only the file-descriptor-bearing cases
+      // prove the actual compatibility gap this negotiation closes.
+      expectRawValueAccepted?: boolean;
+      value: unknown;
+    }> = [
+      {
+        current: getSpaceFileResponseSchema,
+        legacy: preOriginGetSpaceFileResponseSchema,
+        operation: "getSpaceFile",
+        value: { file: newShapedFile },
+      },
+      {
+        current: uploadSpaceFileResponseSchema,
+        legacy: preOriginUploadSpaceFileResponseSchema,
+        operation: "spaceFileUpload / writeSpaceFileContent",
+        value: { file: newShapedFile },
+      },
+      {
+        current: restoreSpaceFileRevisionResponseSchema,
+        legacy: preOriginRestoreSpaceFileRevisionResponseSchema,
+        operation: "restoreSpaceFileRevision",
+        value: { file: newShapedFile },
+      },
+      {
+        current: listSpaceFileRevisionsResponseSchema,
+        legacy: preOriginListSpaceFileRevisionsResponseSchema,
+        operation: "listSpaceFileRevisions",
+        value: {
+          file: newShapedFile,
+          revisions: [newShapedFile.latestRevision],
+        },
+      },
+      {
+        current: updateSpaceFileEntryResponseSchema,
+        legacy: preOriginUpdateSpaceFileEntryResponseSchema,
+        operation: "updateSpaceFileEntry (file entry)",
+        value: { entry: newShapedFile },
+      },
+      {
+        current: updateSpaceFileEntryResponseSchema,
+        legacy: preOriginUpdateSpaceFileEntryResponseSchema,
+        operation: "updateSpaceFileEntry (folder entry)",
+        expectRawValueAccepted: true,
+        value: { entry: newShapedFolder },
+      },
+      {
+        current: restoreSpaceFileEntryResponseSchema,
+        legacy: preOriginRestoreSpaceFileEntryResponseSchema,
+        operation: "restoreSpaceFileEntry",
+        value: { entry: newShapedFile },
+      },
+    ];
+
+    for (const representative of representativeCoreResponses) {
+      expect(
+        representative.current.safeParse(representative.value).success,
+        `${representative.operation}: current schema should accept the new-shaped value`
+      ).toBe(true);
+      expect(
+        representative.legacy.safeParse(representative.value).success,
+        `${representative.operation}: frozen pre-origin schema should reject the raw new-shaped value`
+      ).toBe(representative.expectRawValueAccepted ?? false);
+      const downgraded = toLegacySpaceFilesOriginWireValue(
+        representative.value
+      );
+      expect(
+        representative.legacy.safeParse(downgraded).success,
+        `${representative.operation}: frozen pre-origin schema should accept the downgraded value`
+      ).toBe(true);
+    }
   });
 
   it("gives the Center Agent the same Trash and restore language", () => {
