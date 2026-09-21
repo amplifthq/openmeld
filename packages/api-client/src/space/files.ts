@@ -211,6 +211,19 @@ export async function listSpaceFiles(
       },
     });
   }
+  const requestedOrigin = input.query?.origin ?? "artifact";
+  if (response.origin !== requestedOrigin) {
+    throw new OpenMeldApiClientInvalidResponseError({
+      message: `Space Files returned the ${response.origin} filter while ${requestedOrigin} was requested.`,
+      operation: "space.files.list",
+      status: 200,
+      rawBody: JSON.stringify(response),
+      schemaIssue: {
+        message: "The response origin filter did not match the request.",
+        path: ["origin"],
+      },
+    });
+  }
   return response;
 }
 
@@ -351,6 +364,12 @@ export async function uploadSpaceFile(
     clientMutationId: string;
     mimeType: string;
     name: string;
+    /**
+     * The one canonical fact distinguishing a chat upload from an artifact.
+     * Required so every caller of this route makes that choice explicitly
+     * instead of leaving the file unclassified.
+     */
+    origin: "artifact" | "chat_upload";
     parentId?: string | null;
     onProgress?: (uploadedBytes: number, totalBytes: number) => void;
   }
@@ -366,6 +385,7 @@ export async function uploadSpaceFile(
         kind: "file",
         clientMutationId: input.clientMutationId,
         name: input.name,
+        origin: input.origin,
         parentId: input.parentId ?? null,
       },
       await mutationUploadId(input.clientMutationId)

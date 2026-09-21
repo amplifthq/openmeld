@@ -534,6 +534,7 @@ describe("api-client space api", () => {
       spaceId: "space-123",
       parentId: null,
       name: "launch notes.md",
+      origin: null,
       path: "/launch notes.md",
       kind: "file" as const,
       createdAt: "2026-08-22T08:00:00.000Z",
@@ -583,7 +584,10 @@ describe("api-client space api", () => {
     );
 
     await expect(
-      api.listFiles({ spaceId: "space-123", query: { view: "trash" } })
+      api.listFiles({
+        spaceId: "space-123",
+        query: { view: "trash", origin: "artifact" },
+      })
     ).resolves.toMatchObject({ entries: [], capabilities: { canWrite: true } });
     await expect(
       api.uploadFile({
@@ -591,6 +595,7 @@ describe("api-client space api", () => {
         name: "launch notes.md",
         clientMutationId: "mutation-1",
         mimeType: "text/markdown",
+        origin: "artifact",
         bytes: new TextEncoder().encode("hello"),
       })
     ).resolves.toEqual(file);
@@ -621,7 +626,7 @@ describe("api-client space api", () => {
       2,
       expect.objectContaining({
         operation: "space.files.upload",
-        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/files?clientMutationId=mutation-1&name=launch+notes.md",
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/files?clientMutationId=mutation-1&name=launch+notes.md&origin=artifact",
         init: expect.objectContaining({
           method: "POST",
           headers: expect.objectContaining({ "content-type": "text/markdown" }),
@@ -666,7 +671,10 @@ describe("api-client space api", () => {
     );
 
     await expect(
-      api.listFiles({ spaceId: "space-123", query: { view: "trash" } })
+      api.listFiles({
+        spaceId: "space-123",
+        query: { view: "trash", origin: "artifact" },
+      })
     ).rejects.toMatchObject({
       code: "gateway.invalid_response",
       schemaIssuePath: "view",
