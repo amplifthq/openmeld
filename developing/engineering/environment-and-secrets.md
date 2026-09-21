@@ -185,10 +185,12 @@ owned by `developing/engineering/staging-environment.md`.
 3. no package-local `.dev.vars`, `.env`, or `.env.local` file would shadow
    Doppler.
 
-The shared baseline intentionally excludes two privileged capabilities:
+The shared baseline intentionally excludes these privileged capabilities:
 
 - `GITHUB_OPENMELD_API_TOKEN`: public GitHub metadata reads fall back to the
   anonymous rate limit when it is absent;
+- `GITHUB_OPENMELD_WEBHOOK_SECRET`: GitHub App webhook deliveries are rejected
+  until this secret is set. Local startup still works;
 - `OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN`: connector administration is unavailable when it
   is absent, while ordinary local startup and connector runtime execution still
   work.

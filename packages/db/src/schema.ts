@@ -175,6 +175,8 @@ export const {
   spaceOwnerMemberReferences,
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
+  spaceTaskGitHubIssueLinks,
+  githubAppWebhookDeliveries,
 } = coreSchema;
 
 export const {

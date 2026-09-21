@@ -21,6 +21,7 @@ import {
   CORE_ROUTINE_SCHEMA_DEFINITION_PATH,
   CORE_SPACE_ATTACHMENT_SCHEMA_DEFINITION_PATH,
   CORE_SPACE_INDEX_SCHEMA_DEFINITION_PATH,
+  CORE_SPACE_TASK_GITHUB_SCHEMA_DEFINITION_PATH,
 } from "../core/fact-metadata.ts";
 import { getDiagnosticsDbSchemaSources } from "../diagnostics/fact-metadata.ts";
 
@@ -34,7 +35,7 @@ export const SHARED_DB_DATABASE_NAME = "openmeld-db-prod";
  * Keep in sync with packages/db/drizzle/meta/_journal.json; the shared migration
  * history integrity test guards the two against drift.
  */
-export const LATEST_SHARED_MIGRATION_ID = 180;
+export const LATEST_SHARED_MIGRATION_ID = 181;
 export const SHARED_DB_SCHEMA_ENTRYPOINT_PATH = "packages/db/src/schema.ts";
 export const SHARED_DB_RELEASE_NOTES = [
   "Root db:* commands now report the shared OPENMELD_DB schema and migration contract instead of an auth-only view.",
@@ -129,6 +130,12 @@ export const getSharedDbSchemaSources = (): DbFactSource[] => {
       owner: "packages/db",
       path: CORE_SPACE_ATTACHMENT_SCHEMA_DEFINITION_PATH,
       note: "Core-owned Space attachment metadata is part of the shared OPENMELD_DB aggregate.",
+    },
+    {
+      kind: "core_schema_module",
+      owner: "packages/db",
+      path: CORE_SPACE_TASK_GITHUB_SCHEMA_DEFINITION_PATH,
+      note: "Linked GitHub issue lookup and GitHub App webhook delivery ledger are Core-owned query projections in the shared OPENMELD_DB aggregate.",
     },
     {
       kind: "core_schema_module",

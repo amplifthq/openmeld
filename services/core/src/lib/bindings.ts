@@ -22,6 +22,7 @@ import type {
   EnsureOrganizationJoinLinkOnBehalfOfRpcResponse,
   EnsureSlackWorkspaceMemberOrganizationMembershipRpcInput,
   EnsureSlackWorkspaceMemberOrganizationMembershipRpcResponse,
+  GitHubAppWebhookQueueMessage,
   MessageChannelIngressEnvelope,
   OpenMeldDaemonDispatchQueueMessage,
   OpenMeldRequestContext,
@@ -212,6 +213,7 @@ export type CoreBindings = {
   OPENMELD_GATEWAY_URL?: string;
   LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY?: string;
   GITHUB_OPENMELD_API_TOKEN?: string;
+  GITHUB_OPENMELD_WEBHOOK_SECRET?: string;
   SLACK_OPENMELD_BOT_TOKEN?: string;
   SLACK_OPENMELD_TOKEN_CRYPTO_KEY?: string;
   WEB_APP_URL?: string;
@@ -222,6 +224,7 @@ export type CoreBindings = {
     | AgentTaskObservationRedriveQueueMessage
     | RemoteAgentNativeDeliveryDeadlineProbeQueueMessage
     | RemoteAgentSlackEventQueueMessage
+    | GitHubAppWebhookQueueMessage
     | OpenMeldDaemonDispatchQueueMessage
   >;
   OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE?: Queue<MessageChannelIngressEnvelope>;

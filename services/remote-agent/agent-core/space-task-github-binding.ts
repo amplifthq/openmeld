@@ -6,6 +6,7 @@ import {
   SPACE_TASK_EXTERNAL_WORK_ITEM_LIMIT_ERROR_CODE,
   SPACE_TASK_LIST_MAX_ITEMS,
   spaceTaskExternalWorkItemIdentityKey,
+  spaceTaskGitHubIssueOperationId,
   spaceTaskMutationReceiptSchema,
   spaceTaskResponseSchema,
   spaceTaskSchema,
@@ -308,7 +309,7 @@ async function createLinkedSpaceTask(input: {
     ],
     description: `Linked GitHub issue ${formatSpaceTaskGitHubIssueLabel(input.item)}.`,
     externalWorkItems: [input.item],
-    operationId: githubIssueTaskOperationId("create", input.item),
+    operationId: spaceTaskGitHubIssueOperationId("create", input.item),
     title,
   });
   return spaceTaskMutationReceiptSchema.parse(
@@ -338,7 +339,7 @@ async function ensureGitHubIssueAttached(input: {
       action: "attach_external_work_item",
       expectedRevision: input.task.revision,
       item: input.item,
-      operationId: githubIssueTaskOperationId(
+      operationId: spaceTaskGitHubIssueOperationId(
         "attach",
         input.item,
         input.task.taskId
@@ -380,7 +381,7 @@ async function closeSpaceTasksForGitHubIssue(input: {
         lastObservedAt: input.now,
         lastObservedState: "closed",
         number: input.identity.number,
-        operationId: githubIssueTaskOperationId(
+        operationId: spaceTaskGitHubIssueOperationId(
           "observe-closed",
           input.identity,
           task.taskId
@@ -402,7 +403,7 @@ async function closeSpaceTasksForGitHubIssue(input: {
       body: {
         action: "cancel",
         expectedRevision: observed.task.revision,
-        operationId: githubIssueTaskOperationId(
+        operationId: spaceTaskGitHubIssueOperationId(
           "cancel",
           input.identity,
           task.taskId
@@ -502,15 +503,6 @@ function buildGitHubWorkItem(
     repo: identity.repo,
     url: identity.url,
   };
-}
-
-function githubIssueTaskOperationId(
-  kind: string,
-  identity: Pick<GitHubIssueSpaceTaskIdentity, "number" | "owner" | "repo">,
-  taskId?: string
-): string {
-  const base = `github-issue-${kind}:${identity.owner.toLowerCase()}:${identity.repo.toLowerCase()}:${identity.number}`;
-  return taskId ? `${base}:${taskId}` : base;
 }
 
 function buildSpaceUrl(
