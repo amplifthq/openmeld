@@ -36,7 +36,7 @@ export function resolveSpaceFileErrorMessage(error: unknown): string {
 
 export function downloadContent(
 	fileName: string,
-	content: SpaceFileContent
+	content: Omit<SpaceFileContent, "bytes"> & { bytes: ArrayBuffer | Blob }
 ): void {
 	const url = URL.createObjectURL(
 		new Blob([content.bytes], { type: content.mimeType })

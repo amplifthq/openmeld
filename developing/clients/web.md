@@ -3636,6 +3636,65 @@ working-folder choice in Agent settings clears that Profile's remaining draft
 and marker. Neither case may change the durable request back to creation, call
 Auth, or hide the unfinished choice behind a completed badge.
 
+## Space Image Presentation
+
+A selected image keeps its presentation identity through staging, publication,
+message failure/retry, and HTTP or live acknowledgement. Message actions still
+use canonical signal IDs; the rendered message key includes Space, author, and
+client message identity. Each published file is matched to its explicit local
+selection, never to its name or position. Canonical cache admission occurs before
+posting the message, so either acknowledgement transport finds the original.
+
+The existing non-persisted `space-files` TanStack Query cache owns immutable
+original bytes. Composer, thumbnail, and focused viewer subscribe to a shared
+object-URL handle; releasing the composer does not revoke a displayed image.
+Warm cache reads return the same handle during render, without a loading effect
+or effect-created URL. A local File is transferred without conversion. Idle
+originals have a five-minute GC lifetime and a 32-image/128-MiB retention budget;
+mounted consumers are not evicted by that idle budget. The resource registry
+contains handles, not a second copy of bytes. It is scoped to the QueryClient.
+
+Logout, account/Organization cache clearing, Space access rejection, and an
+authoritative file denial revoke active handles before discarding cached bytes.
+Deletion of one file clears its revisions; folder deletion clears the Space's
+image resources because not every descendant is in the current listing.
+Revocation notifies already decoded composer and focused-view images as well as
+message thumbnails. In-flight reads cannot repopulate a cleared account cache.
+Binary bytes and object URLs are never admitted to persisted display histories.
+
+One frame owns loading, decoded image, error, and retry. Valid display-oriented
+revision geometry reserves the aspect ratio, bounded to a 512-pixel box without
+upscaling; legacy/unsupported metadata uses a fixed 288-by-192 fallback. That
+initial geometry stays fixed for the mount even if metadata arrives later.
+Multi-image cells are explicitly square and use `object-contain`, preserving the
+whole long screenshot. Decode completion is source/attempt fenced. A decode
+failure is recoverable with an explicit retry, not an indefinite skeleton.
+
+Genuinely cold, active image loads use the pinned `img-fx` `ImageGeneration`
+component through a lazy adapter. `images=[]` and `autoReveal=false` keep private
+sources and decoding in the application; there is no artificial completion or
+reveal delay. The stable frame remains observed after loading and failure.
+Offscreen/background, reduced-motion, unavailable-WebGL, initialization-failure,
+and context-loss states retain the static frame without an active renderer.
+The small pinned package patch surfaces shared-context loss and avoids creating
+WebGL before checking the required 2D output context. Normal package cleanup
+owns GPU disposal; the application does not implement a second shader renderer.
+
+The effect is an explicitly emitted, content-addressed module loaded by native
+`import()` through a small failure-isolated adapter. A failed effect download
+returns the static frame without emitting Vite's critical-route preload error,
+refreshing the application, or delaying the original image. The build owns its
+hashed URL and relative addressing; no URL-pattern exception or temporary global
+error suppression changes recovery for actual application chunks. Build tests
+execute emitted code with the effect chunk missing and verify that a separate
+critical import still emits its normal recovery event.
+
+Unit and controller integration tests cover resource ownership, geometry,
+acknowledgement ordering, decode retry, and privacy. Browser/native visual smoke
+is a separate acceptance gate, including the previously reported PNG grey
+preview; header metadata and jsdom tests alone do not establish that incident's
+root cause or verify GPU rendering.
+
 ## Space And Thread Presentation
 
 Web presents a Space as a collaboration room and visible outcome surface.

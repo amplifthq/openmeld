@@ -12,6 +12,7 @@ import { readInstalledDesktopTarget } from "../../scripts/desktop/installed-targ
 import { desktopWebBuildIdentity } from "../../scripts/desktop/web-build-identity.mjs";
 import { resolveCliBuildEnvironment } from "./scripts/cli-target-config";
 import { desktopPilotBuildPrerequisites } from "./scripts/desktop-pilot-build";
+import { imageLoadingEffectModule } from "./scripts/image-loading-effect-module";
 import { resolveIsolatedWebDevSettings } from "./scripts/isolated-dev-config.ts";
 
 const isolatedDev = resolveIsolatedWebDevSettings(process.env);
@@ -89,6 +90,7 @@ const config = defineConfig(({ command, mode }) => {
 			},
 		},
 		plugins: [
+			imageLoadingEffectModule(),
 			desktopPilotBuildPrerequisites(
 				desktopRendererBuild,
 				installedTarget?.webOrigin

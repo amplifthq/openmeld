@@ -1,4 +1,7 @@
-import type { SpaceComposerUploadDescriptor } from "@openmeld/schemas/types";
+import type {
+	SpaceComposerUploadDescriptor,
+	SpaceFileImageDimensions,
+} from "@openmeld/schemas/types";
 
 export type ComposerFileFailurePhase =
 	| "validation"
@@ -15,6 +18,7 @@ export type SpaceComposerFile = {
 	localId: string;
 	mimeType: string;
 	previewUrl: string | null;
+	imageDimensions?: SpaceFileImageDimensions;
 	progress: number;
 	publishMutationId: string;
 	publicationAttempted?: boolean;

@@ -382,6 +382,9 @@ vi.mock("@tanstack/react-query", async () => {
 				) as (queryKey: readonly unknown[], update: unknown) => unknown;
 				return new Proxy(mockedQueryClient, {
 					get(target, property, receiver) {
+						if (property === "getQueryCache") {
+							return actualQueryClient.getQueryCache.bind(actualQueryClient);
+						}
 						if (!(property in target)) {
 							const actualValue = Reflect.get(actualQueryClient, property);
 							return typeof actualValue === "function"
@@ -3050,7 +3053,9 @@ describe("SpaceLanding", () => {
 			leftProfileId: DEFAULT_SPACE_PROFILE_ID,
 			status: "left",
 		});
+		const cancelQueriesMock = vi.fn().mockResolvedValue(undefined);
 		const invalidateQueriesMock = vi.fn().mockResolvedValue(undefined);
+		const removeQueriesMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
 			getUpdates: vi.fn().mockResolvedValue({
 				signals: [],
@@ -3060,7 +3065,9 @@ describe("SpaceLanding", () => {
 			postNormalMessage: vi.fn(),
 		});
 		useQueryClientMock.mockReturnValue({
+			cancelQueries: cancelQueriesMock,
 			invalidateQueries: invalidateQueriesMock,
+			removeQueries: removeQueriesMock,
 			setQueryData: vi.fn(),
 		});
 		mockSpaceQueries({
@@ -3142,6 +3149,13 @@ describe("SpaceLanding", () => {
 			});
 		});
 		expect(toastMock.success).toHaveBeenCalledWith("You left this Space.");
+		expect(cancelQueriesMock).toHaveBeenCalledWith(
+			{ queryKey: ["space-files", "space-123"] },
+			{ revert: false }
+		);
+		expect(removeQueriesMock).toHaveBeenCalledWith({
+			queryKey: ["space-files", "space-123"],
+		});
 		expect(invalidateQueriesMock).toHaveBeenCalledWith({
 			queryKey: ["spaces", "status", "space-123", DEFAULT_SPACE_PROFILE_ID],
 		});
@@ -3207,7 +3221,9 @@ describe("SpaceLanding", () => {
 			}
 		);
 		const deleteSpaceMock = vi.fn(() => pendingDelete);
+		const cancelQueriesMock = vi.fn().mockResolvedValue(undefined);
 		const invalidateQueriesMock = vi.fn().mockResolvedValue(undefined);
+		const removeQueriesMock = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
 			deleteSpace: deleteSpaceMock,
 			getUpdates: vi.fn().mockResolvedValue({
@@ -3217,11 +3233,12 @@ describe("SpaceLanding", () => {
 			postNormalMessage: vi.fn(),
 		});
 		useQueryClientMock.mockReturnValue({
-			cancelQueries: vi.fn().mockResolvedValue(undefined),
+			cancelQueries: cancelQueriesMock,
 			getQueriesData: vi.fn(() => []),
 			getQueryData: vi.fn(() => undefined),
 			getQueryState: vi.fn(() => undefined),
 			invalidateQueries: invalidateQueriesMock,
+			removeQueries: removeQueriesMock,
 			getQueryCache: () => ({ subscribe: () => () => undefined }),
 			setQueriesData: vi.fn(),
 			setQueryData: vi.fn(),
@@ -3268,6 +3285,7 @@ describe("SpaceLanding", () => {
 			});
 		});
 		expect(removeDeletedSpaceFromAccountHistoryMock).not.toHaveBeenCalled();
+		expect(removeQueriesMock).not.toHaveBeenCalled();
 		finishDelete({ deleted: true, spaceId: "space-123" });
 		await waitFor(() => {
 			expect(removeDeletedSpaceFromAccountHistoryMock).toHaveBeenCalledWith({
@@ -3275,6 +3293,13 @@ describe("SpaceLanding", () => {
 				reason: "deleted_space",
 				spaceId: "space-123",
 			});
+		});
+		expect(cancelQueriesMock).toHaveBeenCalledWith(
+			{ queryKey: ["space-files", "space-123"] },
+			{ revert: false }
+		);
+		expect(removeQueriesMock).toHaveBeenCalledWith({
+			queryKey: ["space-files", "space-123"],
 		});
 		expect(invalidateQueriesMock).toHaveBeenCalledWith({
 			queryKey: ["spaces", "status", "space-123", DEFAULT_SPACE_PROFILE_ID],
@@ -13642,7 +13667,11 @@ describe("SpaceLanding", () => {
 		);
 	});
 
-	it("stages a selected image and publishes it as a Space File only on Send", async () => {
+	it.each([
+		"http-first",
+		"live-first",
+		"live-accepted-http-error",
+	] as const)("keeps the selected image and open viewer through %s acknowledgement", async (acknowledgement) => {
 		vi.stubGlobal(
 			"IntersectionObserver",
 			class implements IntersectionObserver {
@@ -13701,18 +13730,30 @@ describe("SpaceLanding", () => {
 		let resolvePost:
 			| ((signal: ReturnType<typeof createTextSignal>) => void)
 			| null = null;
+		let rejectPost: ((error: Error) => void) | null = null;
 		const postNormalMessageMock = vi.fn().mockImplementation(
 			() =>
-				new Promise<ReturnType<typeof createTextSignal>>((resolve) => {
+				new Promise<ReturnType<typeof createTextSignal>>((resolve, reject) => {
 					resolvePost = resolve;
+					rejectPost = reject;
 				})
 		);
+		let liveSnapshot: ReturnType<typeof createTextSignal> | undefined;
 		createWebSpaceApiMock.mockReturnValue({
 			discardComposerUpload: discardComposerUploadMock,
 			downloadFileContent: downloadFileContentMock,
 			postNormalMessage: postNormalMessageMock,
 			publishComposerUpload: publishComposerUploadMock,
 			stageComposerUpload: stageComposerUploadMock,
+			getUpdates: vi.fn(() =>
+				Promise.resolve({ signals: liveSnapshot ? [liveSnapshot] : [] })
+			),
+			listSignalEnvelopes: vi.fn(() =>
+				Promise.resolve({
+					envelopes: liveSnapshot ? [liveSnapshot] : [],
+					nextCursor: null,
+				})
+			),
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -13729,7 +13770,9 @@ describe("SpaceLanding", () => {
 			}),
 		});
 
-		renderSpaceLanding();
+		const queryClient = createTestQueryClient();
+		useQueryClientMock.mockReturnValue(queryClient);
+		renderSpaceLanding({ queryClient });
 		fireEvent.change(screen.getByLabelText("Choose files to send"), {
 			target: {
 				files: [new File(["source"], "picnic.png", { type: "image/png" })],
@@ -13738,7 +13781,6 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(createWebSpaceApiMock).toHaveBeenCalledWith({
-				organizationSlug: "acme",
 				openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
 			});
 			expect(stageComposerUploadMock).toHaveBeenCalledWith({
@@ -13763,7 +13805,6 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(createWebSpaceApiMock).toHaveBeenCalledWith({
-				organizationSlug: "acme",
 				openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
 			});
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
@@ -13791,29 +13832,60 @@ describe("SpaceLanding", () => {
 			"blob:source-image-preview"
 		);
 
+		if (!optimisticImage) {
+			throw new Error("Expected the optimistic original.");
+		}
+		const originalFrame = optimisticImage.closest("[data-image-frame]");
+		const originalStyle = originalFrame?.getAttribute("style");
+		fireEvent.click(screen.getByRole("button", { name: "Open picnic.png" }));
+		const originalViewer = screen.getByRole("dialog", { name: "picnic.png" });
+		const published = createTextSignal({
+			files: [messageFile],
+			id: "sig-image-message",
+			text: "Photos from the picnic",
+			ts: Date.now(),
+			meta: postNormalMessageMock.mock.calls[0]?.[0].meta,
+		});
+		liveSnapshot = published;
+		const emitLive = async () => {
+			await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+			await act(async () => {
+				await FakeWebSocket.instances[0]?.emitOpen();
+				await FakeWebSocket.instances[0]?.emitMessage(
+					JSON.stringify(published)
+				);
+			});
+		};
+		if (acknowledgement !== "http-first") {
+			await emitLive();
+		}
 		await act(async () => {
-			resolvePost?.(
-				createTextSignal({
-					files: [messageFile],
-					id: "sig-image-message",
-					text: "Photos from the picnic",
-				})
-			);
+			if (acknowledgement === "live-accepted-http-error") {
+				rejectPost?.(
+					new Error("The HTTP response was lost after live acceptance.")
+				);
+			} else {
+				resolvePost?.(published);
+			}
 			await Promise.resolve();
 		});
-
+		if (acknowledgement === "http-first") {
+			await emitLive();
+		}
 		await waitFor(() => {
-			expect(
-				document.querySelector('img[src="blob:converted-image-preview"]')
-			).not.toBeNull();
+			expect(screen.getByRole("dialog", { name: "picnic.png" })).toBe(
+				originalViewer
+			);
+			expect(originalFrame?.querySelector("img")).toBe(optimisticImage);
+			expect(optimisticImage.isConnected).toBe(true);
+			expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
 		});
-		expect(downloadFileContentMock).toHaveBeenCalledWith({
-			fileId: descriptor.id,
-			revision: 1,
-			signal: expect.any(AbortSignal),
-			spaceId: "space-123",
-		});
-		expect(URL.revokeObjectURL).toHaveBeenCalledWith(
+		expect(originalFrame?.getAttribute("style")).toBe(originalStyle);
+		expect(optimisticImage.getAttribute("src")).toBe(
+			"blob:source-image-preview"
+		);
+		expect(downloadFileContentMock).not.toHaveBeenCalled();
+		expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(
 			"blob:source-image-preview"
 		);
 		expect(discardComposerUploadMock).not.toHaveBeenCalled();
@@ -19747,6 +19819,16 @@ function resolveOrganizationSpacesQueryResult(queryKey: readonly unknown[]) {
 function resolveSpaceInboxUnreadTargetsQueryResult(
 	queryKey: readonly unknown[]
 ) {
+	if (queryKey[0] === "inbox" && queryKey[2] === "space-summary") {
+		return createQueryResult({
+			isSuccess: true,
+			data: {
+				organizationId: String(queryKey[1] ?? ""),
+				spaces: [],
+				totalUnreadCount: 0,
+			},
+		});
+	}
 	return queryKey[0] === "inbox" && queryKey[2] === "space-unread-targets"
 		? createQueryResult({
 				isSuccess: true,

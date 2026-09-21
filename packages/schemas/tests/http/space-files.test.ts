@@ -24,6 +24,7 @@ import {
   spaceFileAuditEventSchema,
   spaceFileDescriptorSchema,
   spaceFileEntrySchema,
+  spaceFileImageDimensionsSchema,
   spaceFileNameSchema,
   spaceMessageFileReferenceSchema,
   spaceMessageFileReferencesSchema,
@@ -87,6 +88,42 @@ const preOriginRestoreSpaceFileEntryResponseSchema = z.strictObject({
 });
 
 describe("Space Files contracts", () => {
+  it("admits legacy references and validated geometry but never partial dimensions", () => {
+    const legacy = {
+      fileId: "image-1",
+      revision: 1,
+      name: "photo.png",
+      mimeType: "image/png",
+      sizeBytes: 42,
+    };
+    expect(spaceMessageFileReferenceSchema.parse(legacy)).toEqual(legacy);
+    expect(
+      spaceMessageFileReferenceSchema.parse({
+        ...legacy,
+        imageDimensions: { width: 1200, height: 2400 },
+      }).imageDimensions
+    ).toEqual({ width: 1200, height: 2400 });
+    for (const invalid of [
+      { width: 3 },
+      { height: 3 },
+      { width: 0, height: 3 },
+      { width: -1, height: 3 },
+      { width: 1.5, height: 3 },
+      { width: Number.POSITIVE_INFINITY, height: 3 },
+      { width: 32_768, height: 32_768 },
+    ]) {
+      expect(spaceFileImageDimensionsSchema.safeParse(invalid).success).toBe(
+        false
+      );
+      expect(
+        spaceMessageFileReferenceSchema.safeParse({
+          ...legacy,
+          imageDimensions: invalid,
+        }).success
+      ).toBe(false);
+    }
+  });
+
   it("keeps Composer publication identities exact at the request limits", async () => {
     const clientMutationId = "m".repeat(128);
     const uploadId = "22222222-2222-4222-8222-222222222222";

@@ -2270,6 +2270,7 @@ export {
   spaceFileDescriptorSchema,
   spaceFileEntryIdSchema,
   spaceFileEntrySchema,
+  spaceFileImageDimensionsSchema,
   spaceFileListOriginFilterSchema,
   spaceFileMimeTypeSchema,
   spaceFileMutationErrorCodeSchema,

@@ -3,13 +3,14 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import testConfig from "../../vitest.config";
+import { imageLoadingEffectModule } from "../image-loading-effect-module";
 
 // Isolated presentation harness. Only setup transport is simulated; it never
 // contacts a Worker, creates an Agent, or touches a real computer connection.
 export default defineConfig({
 	root: import.meta.dirname,
 	publicDir: path.resolve(import.meta.dirname, "../../public"),
-	plugins: [react(), tailwindcss()],
+	plugins: [imageLoadingEffectModule(), react(), tailwindcss()],
 	resolve: {
 		alias: {
 			"#/components/connect/bring-agents-setup-context": path.resolve(

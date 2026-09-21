@@ -502,6 +502,7 @@ import {
 import { handlePatchCursorUseCase } from "../../application/space-cursor-service";
 import { resolveSpaceDispatchConversationContinuityScope } from "../../application/space-dispatch-conversation-continuity";
 import { buildSpaceFileAuditEvent } from "../../application/space-file-audit";
+import { readStoredSpaceFileImageDimensions } from "../../application/space-file-image-metadata";
 import { hashSpaceFileStream } from "../../application/space-file-stream";
 import { SpaceFileUploads } from "../../application/space-file-uploads";
 import { prepareSpaceInboxCandidateForCenterAgent } from "../../application/space-inbox-center-agent-candidate";
@@ -2954,6 +2955,9 @@ export class Space extends DurableObject<CoreBindings> {
             revision: pending.revision,
             mimeType: revision.mimeType,
             sizeBytes: revision.sizeBytes,
+            ...(revision.imageDimensions
+              ? { imageDimensions: revision.imageDimensions }
+              : {}),
           },
         ],
         messageEnvelope: normalizeMessageEnvelope({
@@ -3341,6 +3345,25 @@ export class Space extends DurableObject<CoreBindings> {
   }): Promise<SpaceFileDescriptor> {
     const write = commitSpaceFileWriteInputSchema.parse(input.write);
     this.applySpaceRef(write.spaceId);
+    await this.requireSpaceFileWriteActor(input.spaceAccess);
+    const committed = this.runSpaceFileRepositoryOperation(() =>
+      this.spaceFileRepository.prepareWrite(write)
+    );
+    const imageDimensions = committed
+      ? committed.latestRevision.imageDimensions
+      : await readStoredSpaceFileImageDimensions({
+          bucket: this.env.OPENMELD_SPACE_ATTACHMENTS,
+          objectKey: buildSpaceFileObjectKey({
+            organizationId: this.requireSpaceFileMetaRecord().organizationId,
+            spaceId: this.spaceId,
+            fileId: write.fileId,
+            revisionId: write.revisionId,
+          }),
+          mimeType: write.mimeType,
+          sizeBytes: write.sizeBytes,
+        });
+    // Membership can change while R2 header ranges are read. The repository
+    // performs the final revision/CAS check inside the commit transaction.
     const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
     const nowMs = Date.now();
     const auditEvent = this.buildSuccessfulSpaceFileAuditEvent({
@@ -3362,6 +3385,7 @@ export class Space extends DurableObject<CoreBindings> {
       this.spaceFileRepository.commitWrite({
         actor,
         auditEvent,
+        imageDimensions,
         nowMs,
         write,
       })
@@ -3545,6 +3569,9 @@ export class Space extends DurableObject<CoreBindings> {
         name: resolved.file.name,
         mimeType: resolved.revision.mimeType,
         sizeBytes: resolved.revision.sizeBytes,
+        ...(resolved.revision.imageDimensions
+          ? { imageDimensions: resolved.revision.imageDimensions }
+          : {}),
       };
     });
   }
@@ -17647,6 +17674,9 @@ export class Space extends DurableObject<CoreBindings> {
         revision: file.latestRevision.revision,
         mimeType: file.latestRevision.mimeType,
         sizeBytes: file.latestRevision.sizeBytes,
+        ...(file.latestRevision.imageDimensions
+          ? { imageDimensions: file.latestRevision.imageDimensions }
+          : {}),
       }));
     for (const decision of mergedReadyDecisions) {
       outboxRecords.push(
