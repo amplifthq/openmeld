@@ -8,7 +8,9 @@ import type {
 import {
   type ListCenterAgentSessionsResponse,
   peopleComputerTargetSchema,
+  SPACE_FILES_ORIGIN_CAPABILITY_TOKEN,
   toLegacySpaceAddressingWireValue,
+  toLegacySpaceFilesOriginWireValue,
   toSpaceSignalReadWireValue,
 } from "@openmeld/schemas";
 import type {
@@ -3347,25 +3349,37 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   centerAgentListSpaceFiles(
     input: CenterAgentListSpaceFilesRpcInput
   ): Promise<CenterAgentListSpaceFilesResponse> {
-    return rpcCenterAgentListSpaceFiles(this.env, input);
+    return withSpaceFilesOriginRpcOutput(
+      rpcCenterAgentListSpaceFiles(this.env, input),
+      input.requestedOriginModel
+    );
   }
 
   centerAgentReadSpaceFile(
     input: CenterAgentReadSpaceFileRpcInput
   ): Promise<CenterAgentReadSpaceFileResponse> {
-    return rpcCenterAgentReadSpaceFile(this.env, input);
+    return withSpaceFilesOriginRpcOutput(
+      rpcCenterAgentReadSpaceFile(this.env, input),
+      input.requestedOriginModel
+    );
   }
 
   centerAgentSaveSpaceFile(
     input: CenterAgentSaveSpaceFileRpcInput
   ): Promise<CenterAgentSaveSpaceFileResponse> {
-    return rpcCenterAgentSaveSpaceFile(this.env, input);
+    return withSpaceFilesOriginRpcOutput(
+      rpcCenterAgentSaveSpaceFile(this.env, input),
+      input.requestedOriginModel
+    );
   }
 
   centerAgentManageSpaceFiles(
     input: CenterAgentManageSpaceFilesRpcInput
   ): Promise<CenterAgentManageSpaceFilesResponse> {
-    return rpcCenterAgentManageSpaceFiles(this.env, input);
+    return withSpaceFilesOriginRpcOutput(
+      rpcCenterAgentManageSpaceFiles(this.env, input),
+      input.requestedOriginModel
+    );
   }
 
   centerAgentReadDispatchHistory(
@@ -5652,6 +5666,23 @@ async function withSpaceAddressingRpcOutput<T>(
   spaceAddressingVersion: string | undefined
 ): Promise<T> {
   return toSpaceAddressingRpcOutput(await value, spaceAddressingVersion);
+}
+
+/**
+ * The Core/Remote Agent RPC boundary analog of `withSpaceAddressingRpcOutput`.
+ * An already-published Remote Agent has no `requestedOriginModel` field and
+ * never sends it, so its response is downgraded to the pre-origin shape it
+ * already knows how to parse. Only a caller that explicitly declares the
+ * `origin_aware` capability receives `origin` on file descriptors.
+ */
+async function withSpaceFilesOriginRpcOutput<T>(
+  value: Promise<T>,
+  requestedOriginModel: string | undefined
+): Promise<T> {
+  const resolved = await value;
+  return requestedOriginModel === SPACE_FILES_ORIGIN_CAPABILITY_TOKEN
+    ? resolved
+    : (toLegacySpaceFilesOriginWireValue(resolved) as T);
 }
 
 class CoreEntrypoint extends CenterAgentRpcEntrypoint {
