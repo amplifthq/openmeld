@@ -164,7 +164,13 @@ import { useAgentCreationComputerRecovery } from "./use-agent-creation-computer-
 type RecoveryController = ReturnType<typeof useLocalAgentRecoveryController>;
 const PROJECT_PATH_SEPARATOR_PATTERN = /[\\/]/u;
 const PROJECT_PATH_TRAILING_SEPARATOR_PATTERN = /[\\/]+$/u;
-const LOCAL_AGENT_ENABLE_CONFIRMATION_DELAYS_MS = [0, 1000, 2000, 4000, 5000];
+// A local agent control request can outlive the Gateway's five-second response
+// timeout while the Service completes a fresh controller report. Keep the
+// pending state local to this switch and reconcile against the canonical
+// Computer projection long enough for that report to arrive.
+const LOCAL_AGENT_ENABLE_CONFIRMATION_DELAYS_MS = [
+	0, 1000, 2000, 4000, 5000, 5000, 5000, 5000, 5000,
+];
 
 export type { CreateProfileSpaceContext } from "#/lib/profiles/create-profile-orchestration";
 

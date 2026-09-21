@@ -2415,7 +2415,7 @@ describe("CreateProfileDialog", () => {
 		);
 	});
 
-	it("accepts an enabled local agent when the control response times out", async () => {
+	it("accepts an enabled local agent after a slow control report refresh", async () => {
 		const setLocalAgentEnabled = vi
 			.fn()
 			.mockRejectedValue(new Error("Local agent control timed out."));
@@ -2456,6 +2456,13 @@ describe("CreateProfileDialog", () => {
 		const refetch = vi
 			.fn()
 			.mockResolvedValueOnce({ data: currentData })
+			.mockResolvedValueOnce({ data: currentData })
+			.mockResolvedValueOnce({ data: currentData })
+			.mockResolvedValueOnce({ data: currentData })
+			.mockResolvedValueOnce({ data: currentData })
+			.mockResolvedValueOnce({ data: currentData })
+			.mockResolvedValueOnce({ data: currentData })
+			.mockResolvedValueOnce({ data: currentData })
 			.mockResolvedValueOnce({ data: confirmedData });
 		Object.assign(recovery, { setLocalAgentEnabled });
 		Object.assign(recovery.localRuntimesQuery, { refetch });
@@ -2474,9 +2481,9 @@ describe("CreateProfileDialog", () => {
 			expect(refetch).toHaveBeenCalledOnce();
 
 			await act(async () => {
-				await vi.advanceTimersByTimeAsync(1000);
+				await vi.advanceTimersByTimeAsync(32_000);
 			});
-			expect(refetch).toHaveBeenCalledTimes(2);
+			expect(refetch).toHaveBeenCalledTimes(9);
 			expect(enableSwitch.hasAttribute("data-unchecked")).toBe(true);
 			expect(screen.queryByRole("alert")).toBeNull();
 		} finally {
