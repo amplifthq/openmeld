@@ -1,6 +1,6 @@
 # Flue 2 integration boundary
 
-This adapter targets exactly Flue 2.0.3. Vite builds the synchronous
+This adapter targets exactly Flue 2.1.0. Vite builds the synchronous
 `CenterAgentV2` hook function. Asynchronous materialization happens under the
 immutable submission context before rendering; nested operations reuse those
 resources, and concurrent submissions do not share them.
@@ -12,7 +12,7 @@ is not a future release strategy.
 
 ## Retained package adaptations
 
-`patches/@flue__runtime@2.0.3.patch` retains seven explicit contracts:
+`patches/@flue__runtime@2.1.0.patch` retains seven explicit contracts:
 
 1. A zero durability timeout disables total wall-clock expiration. Recovery
    attempts remain bounded. Healthy long-running work must not fail because
@@ -21,10 +21,12 @@ is not a future release strategy.
    OpenMeld's execution identity. A late stop cannot abort a subsequent turn.
    The upstream conversation-wide abort remains available to upstream callers.
 3. Persisted submission operations expose their completed text, model, and
-   canonical usage through the existing operation observation. Upstream's
-   persisted-input path returns void, unlike its prompt path; interpreting that
-   missing result as an empty answer would incorrectly fail a successful turn.
-   Usage is rebuilt from durable assistant steps, including prior attempts.
+   canonical usage through the existing operation observation. Flue 2.1.0
+   supplies the text from its inner persisted-input operation, even though the
+   outer submission handle returns void. The adaptation enriches that existing
+   result with the actual model and recorded usage; it does not emit another
+   completion. Usage is rebuilt from durable assistant steps, including prior
+   attempts, and absent usage remains absent rather than becoming invented zeroes.
 4. Compaction separates observed facts, current status, and pending plans.
    A bounded action-evidence section is regenerated from canonical tool events
    across repeated compactions. Tool counts are evidence of recorded calls and
