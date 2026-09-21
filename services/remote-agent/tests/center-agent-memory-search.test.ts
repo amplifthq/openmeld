@@ -488,6 +488,35 @@ describe("authorized retained-memory search from normal member tools", () => {
     await expect(f.read()).rejects.toMatchObject({ status: 403 });
   });
 
+  it("withholds memory deleted or disabled while the provider is reading", async () => {
+    const f = await fixture();
+    fact(f, {
+      sources: [
+        { spaceId: EVIDENCE_OTHER_SPACE_ID, signalId: "retired-memory" },
+      ],
+    });
+    provider.search.mockImplementation(async (input: ProviderQuery) => {
+      const edges = graphs.get(input.userId ?? input.graphId ?? "") ?? [];
+      await f.repository.markMemberDeleted({
+        organizationId: f.request.organizationId,
+        userId: f.speaker.ownerUserId,
+        deletedAtMs: TEST_NOW_MS,
+      });
+      await f.repository.upsertPolicy({
+        organizationId: f.request.organizationId,
+        organizationMemoryOptIn: false,
+        nowMs: TEST_NOW_MS,
+        updatedByUserId: f.speaker.ownerUserId,
+      });
+      return { edges };
+    });
+    const result = await f.read();
+    expect(result.items).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain(CONCLUSION);
+    expect(provider.create).not.toHaveBeenCalled();
+    expect(provider.userAdd).not.toHaveBeenCalled();
+  });
+
   it("rechecks a reply audience changed while the provider was reading", async () => {
     const f = await fixture();
     fact(f, {

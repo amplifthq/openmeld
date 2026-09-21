@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env, runInDurableObject } from "cloudflare:test";
 import { randomUUID } from "node:crypto";
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
@@ -213,23 +213,31 @@ describe("Center Agent evidence source authorization in Workerd", () => {
     );
     // The real Center Agent DM owner forbids conversion altogether. The
     // converted-audience reader regression is covered by the tool fixtures.
-    await expect(
-      stub.rpcConvertDirectMessageToSpace({
-        context: requester.context,
-        members: [
-          {
-            agentControllerRef: null,
-            ownerName: "Other member",
-            ownerUserId: other.userId,
-            profileId: other.profileId,
-            profileKind: "human",
-            profileName: "Other member",
-          },
-        ],
-        name: "Shared evidence discussion",
-        spaceId,
-      })
-    ).rejects.toThrow("Center Agent Direct Messages cannot become Spaces.");
+    const conversionError = await runInDurableObject(stub, async (instance) => {
+      try {
+        await instance.rpcConvertDirectMessageToSpace({
+          context: requester.context,
+          members: [
+            {
+              agentControllerRef: null,
+              ownerName: "Other member",
+              ownerUserId: other.userId,
+              profileId: other.profileId,
+              profileKind: "human",
+              profileName: "Other member",
+            },
+          ],
+          name: "Shared evidence discussion",
+          spaceId,
+        });
+        return null;
+      } catch (error) {
+        return (error as Error).message;
+      }
+    });
+    expect(conversionError).toContain(
+      "Center Agent Direct Messages cannot become Spaces."
+    );
   });
 });
 

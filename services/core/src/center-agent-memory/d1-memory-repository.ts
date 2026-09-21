@@ -26,7 +26,7 @@ export function createD1CenterAgentMemoryRepository(
       const organization = buildCenterAgentOrganizationMemoryRef(input);
       const rows = await db
         .prepare(`
-        SELECT subject_id, zep_user_id, zep_graph_id
+        SELECT subject_id, zep_user_id, zep_graph_id, updated_at_ms
         FROM center_agent_memory_subjects
         WHERE organization_id = ? AND provider = 'zep_cloud' AND status = 'active'
           AND deleted_at_ms IS NULL
@@ -44,17 +44,19 @@ export function createD1CenterAgentMemoryRepository(
           subject_id: string;
           zep_user_id: string | null;
           zep_graph_id: string | null;
+          updated_at_ms: number;
         }>();
       // Use existing active subjects only. A read never creates/revives a graph
       // or trusts a provider selector that differs from its canonical owner.
-      return [member, organization].filter((ref) =>
-        rows.results.some(
+      return [member, organization].flatMap((ref) => {
+        const row = rows.results.find(
           (row) =>
             row.subject_id === ref.subjectId &&
             row.zep_user_id === (ref.zepUserId ?? null) &&
             row.zep_graph_id === (ref.zepGraphId ?? null)
-        )
-      );
+        );
+        return row ? [{ ...ref, updatedAtMs: row.updated_at_ms }] : [];
+      });
     },
 
     async markMemberDeleted(input) {

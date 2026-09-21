@@ -35,9 +35,20 @@ export async function searchRetainedCenterAgentMemory(input: {
         )
       )
     );
-    const successful = results.flatMap((result) =>
-      result.status === "fulfilled" ? [result.value] : []
-    );
+    // A provider read must not outlive deletion, policy opt-out, or a
+    // replacement of the retained subject. Reuse the repository's authority.
+    const currentRefs = await input.repository.readActiveSubjects(input);
+    const successful = results.flatMap((result, index) => {
+      const ref = refs[index];
+      const stillCurrent = currentRefs.some(
+        (current) =>
+          current.subjectId === ref?.subjectId &&
+          current.updatedAtMs === ref.updatedAtMs
+      );
+      return result.status === "fulfilled" && stillCurrent
+        ? [result.value]
+        : [];
+    });
     const incomplete =
       successful.length !== results.length ||
       successful.some((result) => result.status === "partial");
