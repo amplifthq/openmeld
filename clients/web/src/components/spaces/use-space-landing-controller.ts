@@ -353,9 +353,9 @@ function createPendingOutgoingSignal(input: {
 }): PendingOutgoingSignal {
 	// Browser-only attachment placeholders are replaced with server references
 	// before publication. Their local ids must never enter an API request.
-	const localFiles = (input.composerFiles ?? []).filter(
-		(file) => file.status !== "failed"
-	);
+	// A failed upload is still the same selected image during a message retry.
+	// Admission and publication validate readiness; presentation must not erase it.
+	const localFiles = input.composerFiles ?? [];
 	const files =
 		input.files ??
 		localFiles.map((file) => ({
