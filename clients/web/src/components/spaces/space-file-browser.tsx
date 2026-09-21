@@ -414,7 +414,7 @@ function SpaceFileBrowserContent(input: {
 										</span>
 										{input.showChatUploads &&
 										entry.kind === "file" &&
-										entry.origin !== "artifact" ? (
+										entry.origin === "chat_upload" ? (
 											<Badge className="shrink-0" variant="outline">
 												Chat upload
 											</Badge>
