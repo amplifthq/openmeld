@@ -5,6 +5,8 @@ import test from "node:test";
 import { desktopAuthIdentity } from "../../packages/schemas/src/desktop-auth-identity.ts";
 import { desktopAppName, withDesktopAppName } from "./app-name.ts";
 
+const UNKNOWN_APP_ID_ERROR = /Unknown Desktop application identity/u;
+
 const desktopPackage = JSON.parse(
   readFileSync(
     new URL("../../clients/desktop/package.json", import.meta.url),
@@ -106,10 +108,7 @@ test("does not infer production from unknown or malformed identities", () => {
     "sh.openmeld.desktop.dev.wt-7574cf217e3a",
     "sh.openmeld.desktop.dev.wt-7574cf217e3a.p3200.extra",
   ]) {
-    assert.throws(
-      () => withDesktopAppName({}, appId),
-      /Unknown Desktop application identity/u
-    );
+    assert.throws(() => withDesktopAppName({}, appId), UNKNOWN_APP_ID_ERROR);
   }
 });
 

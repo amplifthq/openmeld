@@ -4,6 +4,8 @@ import {
   DESKTOP_TEST_AUTH_SCHEME,
 } from "../../packages/schemas/src/desktop-auth-identity.ts";
 
+const WORKTREE_APP_ID_SUFFIX = /^(wt-[a-f0-9]{12})\.p\d+$/u;
+
 // Naming contract: developing/clients/desktop-app-identity.md.
 /** Build-time presentation of an already selected identity, never a target selector. */
 export function desktopAppName(appId: string): string {
@@ -17,7 +19,7 @@ export function desktopAppName(appId: string): string {
     return "OpenMeld Dev";
   }
   if (appId.startsWith(`${DESKTOP_AUTH_SCHEME}.`)) {
-    const worktree = /^(wt-[a-f0-9]{12})\.p\d+$/u.exec(
+    const worktree = WORKTREE_APP_ID_SUFFIX.exec(
       appId.slice(DESKTOP_AUTH_SCHEME.length + 1)
     );
     if (worktree) {
