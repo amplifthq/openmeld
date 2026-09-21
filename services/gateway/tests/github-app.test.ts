@@ -1,4 +1,5 @@
 import { GITHUB_APP_WEBHOOK_RAW_BODY_MAX_BYTES } from "@openmeld/schemas";
+import type { GitHubAppWebhookVerificationResponse } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import app from "../src/index";
 
@@ -101,10 +102,12 @@ describe("GitHub App setup callback", () => {
 
 describe("GitHub App webhook", () => {
   it("acks verified ping and issue deliveries, rejects bad signatures, and fails closed on Core errors", async () => {
-    const verifyGitHubAppWebhook = vi.fn(async () => ({
-      reasonCode: null,
-      status: "accepted" as const,
-    }));
+    const verifyGitHubAppWebhook = vi.fn(
+      async (): Promise<GitHubAppWebhookVerificationResponse> => ({
+        reasonCode: null,
+        status: "accepted",
+      })
+    );
     const ping = await app.fetch(
       new Request("https://gateway.test/github/app/webhook", {
         body: '{"zen":"Design for failure."}',

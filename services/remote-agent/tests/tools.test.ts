@@ -5970,7 +5970,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       },
       input: { projectId: "project-1" },
       response: agentActivitySnapshotResponse(),
-      rpcName: "centerAgentReadAgentActivity",
+      rpcName: "centerAgentReadAgentActivityOverview",
       toolName: "openmeld_read_agent_activity",
     },
     {
@@ -6084,10 +6084,14 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_respond_to_opportunity",
     },
     {
-      expectedPayload: { actionSet: "v21", limit: 25 },
+      expectedPayload: {
+        actionSet: "v21",
+        limit: 25,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
       input: { limit: 25 },
       response: auditJournalResponse(),
-      rpcName: "listCenterAgentAuditJournal",
+      rpcName: "centerAgentReadAuditJournal",
       toolName: "openmeld_read_center_agent_activity",
     },
     {
@@ -7055,6 +7059,12 @@ function organizationSpaceDirectoryResponse() {
 
 function auditJournalResponse() {
   return {
+    coverage: {
+      kind: "bounded_recent_journal",
+      references: "authorized_space_references_only",
+      contextDetails: "not_included",
+      historicalCompleteness: "not_claimed",
+    },
     entries: [
       {
         action: "create_space",
@@ -7134,6 +7144,27 @@ function turnDiagnosticsResponse() {
 
 function agentActivitySnapshotResponse() {
   return {
+    coverage: {
+      kind: "bounded_current_snapshot",
+      history: "not_included",
+      providerMetadata: "not_included",
+      textShortened: false,
+      omittedFromSnapshot: {
+        projects: 0,
+        sessions: 0,
+        digests: 0,
+        recentEvents: 0,
+      },
+      sourceLimitReached: {
+        projects: false,
+        sessions: false,
+        digests: false,
+        recentEvents: false,
+      },
+      digestsExcludedBySessionFilters: false,
+      continuation: "openmeld_list_agent_activity_sessions",
+      continuationScope: "live_session_inventory_not_snapshot_or_history",
+    },
     asOfMs: TEST_NOW_MS,
     digests: [],
     digestsTruncated: false,

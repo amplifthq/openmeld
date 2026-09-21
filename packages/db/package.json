@@ -31,6 +31,10 @@
       "types": "./dist/facts.d.mts",
       "default": "./dist/facts.mjs"
     },
+    "./query": {
+      "types": "./dist/query.d.mts",
+      "default": "./dist/query.mjs"
+    },
     "./tooling": {
       "types": "./dist/tooling.d.mts",
       "default": "./dist/tooling.mjs"

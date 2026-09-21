@@ -6846,6 +6846,27 @@ export class Space extends DurableObject<CoreBindings> {
     return readSpaceRpcJsonOrThrow(response);
   }
 
+  async rpcGetEvidenceReadContext(input: GetSpaceMetaInput): Promise<{
+    meta: SpaceMeta;
+    isDirectMessage: boolean;
+  }> {
+    // Reuse normal member authorization. Keep DM internals out of the public
+    // metadata DTO; expose only the canonical current audience fact.
+    const meta = await this.rpcGetMeta(input);
+    const record = this.readSpaceMetaRecord();
+    const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    });
+    return {
+      meta,
+      isDirectMessage: isDirectMessageSpace({
+        purpose: record?.purpose,
+        directMessageConvertedAt: record?.directMessage?.convertedAt,
+        activeMemberCount: activeMembers.length,
+      }),
+    };
+  }
+
   async rpcMessagePins(
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse> {

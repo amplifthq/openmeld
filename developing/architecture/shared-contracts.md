@@ -4395,6 +4395,36 @@ still align with the delivery and the owning current-membership projection.
 must not choose the memory subject. Missing or conflicting frozen scope fails
 closed.
 
+### Private Center Agent evidence-read contracts
+
+The additive schemas `center-agent-evidence.ts`, `agent-activity-overview.ts`,
+`center-agent-routine-evidence.ts`, and `center-agent-memory-search.ts` under
+`packages/schemas/src/schemas/http/` own the private Audit Log adapter, Activity
+overview, historical/exact Routine diagnostics, and explicit retained-memory
+read. Their types are derived and used by Core receivers and Remote Agent
+parsers. Core's private Center Agent entrypoint exposes these methods; Gateway
+does not. The human journal, Web/CLI Activity snapshot, Routine HTTP history,
+`lastRun`, interactive turn-diagnostic restrictions, and automatic memory turn
+envelope remain unchanged.
+
+The model supplies only read intent and bounded selectors, never principal,
+member, Organization, graph/episode selector, or arbitrary submission authority.
+Core reauthorizes the designated Agent and represented member, then resolves
+source access and the current reply audience. The explicit memory response may
+include authorized structured OpenMeld Space/signal references; this is a
+separate contract from the automatic turn envelope, which still excludes them.
+Every supporting source of a synthesized fact must pass before its text or any
+reference becomes visible in the ordinary tool result. Runtime summaries include
+only allowlisted timestamps/counts, not tool names or raw provider content.
+
+Mixed versions fail explicitly: deploy these Core receivers before the Remote
+Agent callers, and remove callers before rolling receivers back. New callers
+must not fall back to the human Audit Log endpoint or the unbounded-for-tools
+legacy snapshot. Existing callers continue using retained old receivers and
+shapes. No Gateway/Web/CLI wire change, new database migration, local component
+bundle update, or workstation hard cut is introduced by these private reads.
+This ordering is a compatibility contract, not authorization to deploy.
+
 ### Information Protection Contracts
 
 `packages/agent-runtime/src/information-protection-prompt.ts` is the single
@@ -6752,6 +6782,21 @@ service, and provider-account facts decide availability.
 Shared contract truth lives in `packages/schemas`.
 
 Shared database truth lives in `packages/db`.
+
+Consumers building predicates for those shared tables import the required
+operators and inferred-record types from `@openmeld/db/query`. That entrypoint
+re-exports Drizzle directly from the same package that owns the tables and D1
+factory; it is not another ORM, query implementation, or database authority.
+Its ESM and declaration outputs keep Drizzle external, and it must not import
+Node-only SQLite tooling into Worker consumers.
+
+Do not combine a shared table with query helpers or inferred-record types from
+a consumer-local Drizzle installation. pnpm may resolve the same Drizzle version
+with different optional SQLite peers, creating incompatible private/protected
+type identities. Auth retains its declared Drizzle dependency for Better Auth's
+peer contract, but its own repositories use `@openmeld/db/query`. Fix this
+boundary without coercing types, editing dependency links, or undoing the
+separately validated SQLite 13 runtime/install fixes.
 
 The durable mental model is:
 

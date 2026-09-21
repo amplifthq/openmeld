@@ -5,6 +5,27 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("focused D1 migration fixtures", () => {
+  it("applies index removals by their owning table rather than index naming conventions", () => {
+    const harness = createSqliteD1Harness();
+    try {
+      applyDrizzleMigrationsForTables(harness, [
+        "openMeldRemoteAgent_native_delivery_ledger",
+      ]);
+      expect(
+        harness.queryFirst({
+          sql: "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'openMeldRemoteAgent_native_delivery_routine_run_unique'",
+        })
+      ).toBeNull();
+      expect(
+        harness.queryFirst({
+          sql: "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_openMeldRemoteAgent_native_delivery_routine_run'",
+        })
+      ).not.toBeNull();
+    } finally {
+      harness.close();
+    }
+  });
+
   it("rebuilds requested identity and Binding tables with foreign keys and ownership guards intact", () => {
     const harness = createSqliteD1Harness();
     try {

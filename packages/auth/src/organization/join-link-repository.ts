@@ -3,8 +3,14 @@ import {
   organizationJoinLinks,
   organizations,
 } from "@openmeld/db/auth";
-import type { InferSelectModel } from "drizzle-orm";
-import { and, eq, isNull, lte, sql } from "drizzle-orm";
+import {
+  and,
+  eq,
+  type InferSelectModel,
+  isNull,
+  lte,
+  sql,
+} from "@openmeld/db/query";
 import type { createD1Db } from "../db";
 
 export type OrganizationJoinLinkRecord = InferSelectModel<

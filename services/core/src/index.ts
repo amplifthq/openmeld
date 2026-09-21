@@ -59,6 +59,7 @@ import type {
   CenterAgentListOrganizationMembersToolRpcInput,
   CenterAgentListProjectsToolResponse,
   CenterAgentListProjectsToolRpcInput,
+  CenterAgentListRoutineRunsToolRpcInput,
   CenterAgentListRoutinesToolRpcInput,
   CenterAgentListSlackChannelsResponse,
   CenterAgentListSpaceFilesResponse,
@@ -77,6 +78,7 @@ import type {
   CenterAgentPostSpaceMessageResponse,
   CenterAgentPrepareRemoveProjectToolResponse,
   CenterAgentPrepareRemoveProjectToolRpcInput,
+  CenterAgentReadAuditJournalRpcInput,
   CenterAgentReadConnectorActionOperationResponse,
   CenterAgentReadDispatchHistoryResponse,
   CenterAgentReadMemberComputersResponse,
@@ -86,6 +88,7 @@ import type {
   CenterAgentReadOrganizationSkillsResponse,
   CenterAgentReadOrganizationSkillsRpcInput,
   CenterAgentReadPeopleComputersResponse,
+  CenterAgentReadRoutineRunDiagnosticsRpcInput,
   CenterAgentReadSlackChannelHistoryResponse,
   CenterAgentReadSlackChannelMembersResponse,
   CenterAgentReadSlackFileResponse,
@@ -106,6 +109,7 @@ import type {
   CenterAgentResumeRoutineToolRpcInput,
   CenterAgentSaveSpaceFileResponse,
   CenterAgentSaveSpaceFileRpcInput,
+  CenterAgentSearchMemoryRpcInput,
   CenterAgentSearchSlackMessagesResponse,
   CenterAgentSelectLocalAgentInstallationResponse,
   CenterAgentSetAgentProfileDefaultProjectToolResponse,
@@ -366,6 +370,7 @@ import type {
   UpdateSpaceFileEntryResponse,
   WriteCurrentDeviceObservedMetadataResponse,
 } from "@openmeld/schemas/types";
+import { rpcCenterAgentReadAgentActivityOverview } from "./agent-activity/activity-center-agent-rpc";
 import { acceptAgentActivitySessionInventoryMemberCleanup } from "./agent-activity/activity-session-inventory-member-cleanup-service";
 import { reconcileDeletedAgentProfile } from "./agent-profile-binding/application/deleted-profile-reconcile-service";
 import {
@@ -407,6 +412,7 @@ import {
   clearCoreCenterAgentOrganizationNativeDeliveryData,
   createCoreCenterAgentMemoryService,
 } from "./center-agent-memory/core-memory-service";
+import { rpcCenterAgentSearchMemory } from "./center-agent-memory/memory-search-rpc";
 import { rpcReportDesktopUpdateObservation } from "./computers/desktop-update-inbox";
 import { readModelCatalog } from "./config/model-catalog";
 import {
@@ -537,6 +543,10 @@ import {
   rpcCenterAgentResumeRoutine,
   rpcCenterAgentUpdateRoutine,
 } from "./routines/routine-center-agent-rpc";
+import {
+  rpcCenterAgentListRoutineRuns,
+  rpcCenterAgentReadRoutineRunDiagnostics,
+} from "./routines/routine-evidence-rpc";
 import { RoutineRunWorkflow } from "./routines/routine-run-workflow";
 import {
   type AddCenterAgentToSpaceInput,
@@ -794,6 +804,7 @@ import {
   rpcCenterAgentPostSlackThreadMessage,
   rpcCenterAgentPostSpaceMessage,
   rpcCenterAgentReadAgentActivity,
+  rpcCenterAgentReadAuditJournal,
   rpcCenterAgentReadChangelog,
   rpcCenterAgentReadConnectorActionOperation,
   rpcCenterAgentReadDispatchHistory,
@@ -5612,6 +5623,12 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     return rpcCenterAgentGetOrganizationInviteLink(this.env, input);
   }
 
+  centerAgentReadAgentActivityOverview(
+    input: CenterAgentReadAgentActivityInput
+  ) {
+    return rpcCenterAgentReadAgentActivityOverview(this.env, input);
+  }
+
   centerAgentReadAgentActivity(input: CenterAgentReadAgentActivityInput) {
     return rpcCenterAgentReadAgentActivity(this.env, input);
   }
@@ -5636,6 +5653,14 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
 
   centerAgentReadChangelog(input: CenterAgentReadChangelogInput) {
     return rpcCenterAgentReadChangelog(this.env, input);
+  }
+
+  centerAgentSearchMemory(input: CenterAgentSearchMemoryRpcInput) {
+    return rpcCenterAgentSearchMemory(this.env, input);
+  }
+
+  centerAgentReadAuditJournal(input: CenterAgentReadAuditJournalRpcInput) {
+    return rpcCenterAgentReadAuditJournal(this.env, input);
   }
 
   centerAgentReadTurnDiagnostics(
@@ -5664,6 +5689,16 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     input: CenterAgentSetOrganizationWorkingLanguageToolRpcInput
   ): Promise<CenterAgentSetOrganizationWorkingLanguageToolResponse> {
     return rpcCenterAgentSetOrganizationWorkingLanguage(this.env, input);
+  }
+
+  centerAgentListRoutineRuns(input: CenterAgentListRoutineRunsToolRpcInput) {
+    return rpcCenterAgentListRoutineRuns(this.env, input);
+  }
+
+  centerAgentReadRoutineRunDiagnostics(
+    input: CenterAgentReadRoutineRunDiagnosticsRpcInput
+  ) {
+    return rpcCenterAgentReadRoutineRunDiagnostics(this.env, input);
   }
 
   centerAgentListRoutines(
@@ -5799,6 +5834,8 @@ class CoreEntrypoint extends CenterAgentRpcEntrypoint {
   }
 }
 
+// biome-ignore lint/performance/noBarrelFile: Wrangler requires the Durable Object class export.
+export { LarkChannelConnector } from "./remote-agent/transport/lark/lark-channel-connector";
 export {
   app,
   PrepareSessionHub,
@@ -5806,8 +5843,6 @@ export {
   RuntimeTransportHub,
   Space,
 };
-// biome-ignore lint/performance/noBarrelFile: Wrangler requires the Durable Object class export.
-export { LarkChannelConnector } from "./remote-agent/transport/lark/lark-channel-connector";
 export default CoreEntrypoint;
 
 import type {
