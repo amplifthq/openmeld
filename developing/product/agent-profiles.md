@@ -608,16 +608,14 @@ A dispatch-scoped first-party OpenMeld Space Action is not a general controller
 command approval. OpenMeld may make its own `reply`, `status`, and `stay_silent`
 tools approval-free because they can write only one validated proposal for the
 current dispatch and still require RuntimeCoordinator publication. OpenMeld
-may provide Antigravity with one unique temporary Space Action executable for
-the active Wake because its CLI has no proven per-invocation structured-tool
-configuration surface. Antigravity's hook may approve only a command whose
-parsed first token is that exact executable and whose action is `reply`,
-`status`, or `silent`. The executable forwards without a shell to the same
-dispatch-owned writer and is removed after the turn. Chained commands, other
-shell strings, arbitrary `openmeld` commands, filesystem access, network
-access, and another dispatch remain under the controller's native policy.
-`Ask for approval` therefore remains authoritative for ordinary controller
-actions without blocking the Agent's chosen Space outcome.
+may require Antigravity's final response to match a dispatch-scoped structured
+output schema because its CLI has no proven per-invocation structured-tool
+configuration surface. After validating that `reply`, `status`, or `silent`
+outcome, the trusted adapter invokes the same dispatch-owned writer without a
+shell. The model never receives a new command permission, and ordinary shell,
+filesystem, network, and MCP actions remain under the controller's native
+policy. `Ask for approval` therefore remains authoritative for ordinary
+controller actions without blocking the Agent's chosen Space outcome.
 
 Only the Binding owner may see request details or answer. Other authenticated
 Space members may see that the Agent Profile is waiting for its owner, but not

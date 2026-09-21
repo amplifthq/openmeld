@@ -1,139 +1,120 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import test from "node:test";
-import { withAntigravityDispatchSpaceActionPlugin } from "../dist/transport/antigravity-space-action-plugin.js";
+import {
+  ANTIGRAVITY_SPACE_ACTION_JSON_SCHEMA,
+  withAntigravityDispatchSpaceAction,
+} from "../dist/transport/antigravity-space-action-plugin.js";
 
-test("does not add a plugin outside an OpenMeld Space Action dispatch", async () => {
-  const result = await withAntigravityDispatchSpaceActionPlugin({
+const STRUCTURED_OUTCOME_PATTERN = /structured outcome/u;
+const INCONSISTENT_PATTERN = /inconsistent/u;
+
+test("does not configure structured output outside an OpenMeld dispatch", async () => {
+  const result = await withAntigravityDispatchSpaceAction({
     env: {},
-    run: async ({ addDir }) => addDir,
+    run: async (configuration) => ({
+      configuration,
+      structuredOutput: null,
+    }),
   });
-
-  assert.equal(result, null);
+  assert.deepEqual(result.configuration, {
+    addDir: null,
+    jsonSchema: null,
+  });
 });
 
-test("adds one temporary scoped action command and removes it after the turn", async () => {
+test("records one temporary structured reply and removes its plugin", async () => {
   const fixtureRoot = await mkdtemp(join(tmpdir(), "openmeld-antigravity-"));
   const commandPath = join(fixtureRoot, "openmeld-dev");
+  const invocationPath = join(fixtureRoot, "invocation.json");
   await writeFile(
     commandPath,
     `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
 let stdin = "";
 for await (const chunk of process.stdin) stdin += chunk;
-console.log(JSON.stringify({ args: process.argv.slice(2), stdin }));
+writeFileSync(${JSON.stringify(invocationPath)}, JSON.stringify({ args: process.argv.slice(2), stdin }));
 `,
     { encoding: "utf8", mode: 0o700 }
   );
 
   let pluginRoot = "";
   try {
-    const result = await withAntigravityDispatchSpaceActionPlugin({
+    const result = await withAntigravityDispatchSpaceAction({
       env: dispatchEnv(commandPath),
-      run: async ({ addDir }) => {
+      run: async ({ addDir, jsonSchema }) => {
         assert.ok(addDir);
         pluginRoot = addDir;
         const pluginId = basename(addDir);
         const pluginDir = join(addDir, ".agents", "plugins", pluginId);
-        const actionCommand = join(pluginDir, "openmeld-space-action");
         const hooks = JSON.parse(
           await readFile(join(pluginDir, "hooks.json"), "utf8")
         );
         assert.equal(
-          hooks["openmeld-space-action"].PreToolUse[0].matcher,
-          "run_command"
+          hooks["openmeld-space-action"].PreInvocation[0].command,
+          "node ./inject-space-action.mjs"
         );
-
-        const permissionHook = join(pluginDir, "allow-space-action.mjs");
-        const allowed = await runJsonHook(permissionHook, {
-          toolCall: {
-            name: "run_command",
-            args: { CommandLine: `'${actionCommand}' reply 'It is ready.'` },
-          },
-        });
-        assert.equal(allowed.decision, "allow");
-
-        const chained = await runJsonHook(permissionHook, {
-          toolCall: {
-            name: "run_command",
-            args: {
-              CommandLine: `'${actionCommand}' reply ok; touch /tmp/nope`,
-            },
-          },
-        });
-        assert.equal(chained.decision, "ask");
-
-        const instruction = await runJsonHook(
+        const instructionSource = await readFile(
           join(pluginDir, "inject-space-action.mjs"),
-          {}
+          "utf8"
         );
-        assert.match(
-          instruction.injectSteps[0].ephemeralMessage,
-          new RegExp(actionCommand.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u")
-        );
-
-        const executed = await runProcess(actionCommand, [
-          "reply",
-          "It is ready.",
-          "--mention",
-          "profile-1",
-        ]);
-        assert.deepEqual(JSON.parse(executed.stdout.trim()), {
-          args: [
-            "space",
-            "action",
-            "reply",
-            "--message-file",
-            "-",
-            "--mention",
-            "profile-1",
-          ],
-          stdin: "It is ready.",
-        });
-        return "ran";
+        assert.match(instructionSource, STRUCTURED_OUTCOME_PATTERN);
+        assert.equal(jsonSchema, ANTIGRAVITY_SPACE_ACTION_JSON_SCHEMA);
+        return {
+          structuredOutput: {
+            action: "reply",
+            mentionTargets: ["human-1"],
+            referenceTargets: [],
+            status: "none",
+            text: "It is ready.",
+            wakeTargets: [],
+          },
+          value: "ran",
+        };
       },
     });
 
-    assert.equal(result, "ran");
+    assert.equal(result.value, "ran");
+    assert.deepEqual(JSON.parse(await readFile(invocationPath, "utf8")), {
+      args: [
+        "space",
+        "action",
+        "reply",
+        "--message-file",
+        "-",
+        "--mention",
+        "human-1",
+      ],
+      stdin: "It is ready.",
+    });
     await assert.rejects(access(pluginRoot));
   } finally {
     await rm(fixtureRoot, { force: true, recursive: true });
   }
 });
 
-async function runJsonHook(path, payload) {
-  const result = await runProcess(process.execPath, [path], {
-    stdin: JSON.stringify(payload),
-  });
-  return JSON.parse(result.stdout);
-}
-
-async function runProcess(path, args, options = {}) {
-  return await new Promise((resolve, reject) => {
-    const child = spawn(path, args, { stdio: ["pipe", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.once("error", reject);
-    child.once("close", (code) => {
-      if (code === 0) {
-        resolve({ stderr, stdout });
-        return;
-      }
-      reject(new Error(stderr || `Process exited with code ${String(code)}.`));
-    });
-    child.stdin.end(options.stdin ?? "");
-  });
-}
+test("rejects an inconsistent structured outcome without invoking the writer", async () => {
+  await assert.rejects(
+    withAntigravityDispatchSpaceAction({
+      env: dispatchEnv("/tmp/openmeld-dev"),
+      run: async () => ({
+        structuredOutput: {
+          action: "silent",
+          mentionTargets: ["human-1"],
+          referenceTargets: [],
+          status: "none",
+          text: "No reply needed.",
+          wakeTargets: [],
+        },
+      }),
+    }),
+    (error) =>
+      error?.code === "space.action.record_failed" &&
+      INCONSISTENT_PATTERN.test(error.message)
+  );
+});
 
 function dispatchEnv(commandPath) {
   return {

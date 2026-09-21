@@ -118,6 +118,7 @@ describe("Antigravity CLI transport contract", () => {
             conversation_id: "conversation-123",
             response: "Done",
             status: "SUCCESS",
+            structured_output: { action: "reply", text: "Done" },
             usage: {
               cache_read_tokens: 3,
               input_tokens: 10,
@@ -134,6 +135,7 @@ describe("Antigravity CLI transport contract", () => {
         event: "result",
         response: "Done",
         status: "SUCCESS",
+        structuredOutput: { action: "reply", text: "Done" },
         usage: {
           cacheReadTokens: 3,
           inputTokens: 10,

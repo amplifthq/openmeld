@@ -588,15 +588,15 @@ surface continue to use the exact dispatch-scoped CLI fallback.
 
 Antigravity CLI does not currently expose a proven per-invocation structured-
 tool configuration surface. During an action-enabled dispatch, the adapter
-therefore adds a unique temporary workspace plugin whose invocation hook
-injects one exact Space Action executable path. Its permission hook approves
-only a command whose parsed first token is that exact path and whose action is
-`reply`, `status`, or `silent`. The executable forwards arguments without a
-shell to the same dispatch-owned action writer. Chained commands and all other
-shell, file, network, and ambient MCP actions continue through Antigravity's
-normal permission policy. The adapter removes the plugin after the invocation
-and never writes Antigravity's user settings or the user's project
-customization files.
+therefore adds a unique temporary workspace plugin whose invocation hook tells
+the model to return one `reply`, `status`, or `silent` outcome through
+Antigravity's native JSON-schema output. The adapter validates that structured
+result and invokes the same dispatch-owned action writer directly without a
+shell. It grants the model no additional tool permission; all shell, file,
+network, and ambient MCP actions continue through Antigravity's normal
+permission policy. The adapter removes the plugin after the invocation and
+never writes Antigravity's user settings or the user's project customization
+files.
 
 OpenClaw Gateway does not expose a per-turn plugin-injection surface. During an
 action-enabled dispatch, the adapter therefore runs the same OpenClaw Session

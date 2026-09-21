@@ -20,6 +20,7 @@ export type AntigravityStreamEvent =
       error: string | null;
       response: string;
       status: string;
+      structuredOutput: unknown;
       usage: AntigravityTokenUsage | null;
     };
 
@@ -91,6 +92,7 @@ export function parseAntigravityOutputLine(
       event: "result",
       response: typeof result.response === "string" ? result.response : "",
       status,
+      structuredOutput: result.structured_output,
       usage: parseTokenUsage(result.usage),
     };
   }

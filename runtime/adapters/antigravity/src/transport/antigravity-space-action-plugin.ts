@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -5,26 +6,66 @@ import { join } from "node:path";
 import { resolveDispatchSpaceActionMcpServer } from "@openmeld/adapter-core";
 
 const PLUGIN_DIRECTORY_PREFIX = "openmeld_dispatch_";
+const FINAL_STATUSES = new Set(["done", "blocked", "needs_input", "handoff"]);
 
-export async function withAntigravityDispatchSpaceActionPlugin<T>(input: {
+export const ANTIGRAVITY_SPACE_ACTION_JSON_SCHEMA = JSON.stringify({
+  additionalProperties: false,
+  properties: {
+    action: { enum: ["reply", "status", "silent"], type: "string" },
+    mentionTargets: { items: { type: "string" }, type: "array" },
+    referenceTargets: { items: { type: "string" }, type: "array" },
+    status: {
+      enum: ["none", "done", "blocked", "needs_input", "handoff"],
+      type: "string",
+    },
+    text: { minLength: 1, type: "string" },
+    wakeTargets: { items: { type: "string" }, type: "array" },
+  },
+  required: [
+    "action",
+    "text",
+    "status",
+    "wakeTargets",
+    "referenceTargets",
+    "mentionTargets",
+  ],
+  type: "object",
+});
+
+type AntigravityStructuredSpaceAction = {
+  action: "reply" | "silent" | "status";
+  mentionTargets: string[];
+  referenceTargets: string[];
+  status: "blocked" | "done" | "handoff" | "needs_input" | "none";
+  text: string;
+  wakeTargets: string[];
+};
+
+export async function withAntigravityDispatchSpaceAction<
+  T extends { structuredOutput: unknown },
+>(input: {
   env: Record<string, string | undefined> | undefined;
-  run: (input: { addDir: string | null }) => Promise<T>;
+  run: (input: {
+    addDir: string | null;
+    jsonSchema: string | null;
+  }) => Promise<T>;
 }): Promise<T> {
   const actionServer = resolveDispatchSpaceActionMcpServer(input.env);
   if (!actionServer) {
-    return await input.run({ addDir: null });
+    return await input.run({ addDir: null, jsonSchema: null });
   }
 
   const pluginId = `${PLUGIN_DIRECTORY_PREFIX}${randomUUID().replaceAll("-", "")}`;
   const root = join(tmpdir(), pluginId);
   const pluginDir = join(root, ".agents", "plugins", pluginId);
-  const actionCommandPath = join(pluginDir, "openmeld-space-action");
 
   try {
-    await mkdir(join(pluginDir, "rules"), { recursive: true, mode: 0o700 });
+    await mkdir(pluginDir, { recursive: true, mode: 0o700 });
     await Promise.all([
       writeJson(join(pluginDir, "plugin.json"), {
-        name: "OpenMeld Space Action",
+        description:
+          "Records one structured Space outcome for the active OpenMeld Wake.",
+        name: pluginId,
       }),
       writeJson(join(pluginDir, "hooks.json"), {
         "openmeld-space-action": {
@@ -35,54 +76,24 @@ export async function withAntigravityDispatchSpaceActionPlugin<T>(input: {
               type: "command",
             },
           ],
-          PreToolUse: [
-            {
-              hooks: [
-                {
-                  command: "node ./allow-space-action.mjs",
-                  timeout: 5,
-                  type: "command",
-                },
-              ],
-              matcher: "run_command",
-            },
-          ],
         },
       }),
       writeFile(
-        join(pluginDir, "allow-space-action.mjs"),
-        buildPermissionHookSource(actionCommandPath),
-        { encoding: "utf8", mode: 0o600 }
-      ),
-      writeFile(
         join(pluginDir, "inject-space-action.mjs"),
-        buildInstructionHookSource(actionCommandPath),
-        { encoding: "utf8", mode: 0o600 }
-      ),
-      writeFile(
-        actionCommandPath,
-        buildActionCommandSource({
-          args: actionServer.args,
-          commandPath: actionServer.commandPath,
-          env: actionServer.env,
-        }),
-        { encoding: "utf8", mode: 0o700 }
-      ),
-      writeFile(
-        join(pluginDir, "rules", "AGENTS.md"),
-        [
-          "# OpenMeld Space Action",
-          "",
-          "This OpenMeld Wake provides a dispatch-scoped Space Action command in an ephemeral message.",
-          "Call that exact command once to record the final reply, status, or intentional silence.",
-          "Do not inspect environment variables or search for another OpenMeld command.",
-          "",
-        ].join("\n"),
+        buildInstructionHookSource(),
         { encoding: "utf8", mode: 0o600 }
       ),
     ]);
 
-    return await input.run({ addDir: root });
+    const result = await input.run({
+      addDir: root,
+      jsonSchema: ANTIGRAVITY_SPACE_ACTION_JSON_SCHEMA,
+    });
+    await recordStructuredSpaceAction({
+      action: parseStructuredSpaceAction(result.structuredOutput),
+      actionServer,
+    });
+    return result;
   } finally {
     await rm(root, { force: true, recursive: true }).catch(() => undefined);
   }
@@ -95,152 +106,162 @@ function writeJson(path: string, value: unknown): Promise<void> {
   });
 }
 
-function buildPermissionHookSource(actionCommandPath: string): string {
-  return `const ACTION_COMMAND = ${JSON.stringify(actionCommandPath)};
-
-let text = "";
-for await (const chunk of process.stdin) text += chunk;
-
-let payload;
-try {
-  payload = JSON.parse(text);
-} catch {
-  process.stdout.write(JSON.stringify({ decision: "deny", reason: "OpenMeld could not validate this Space Action command." }));
-  process.exit(0);
-}
-
-const commandLine = String(payload?.toolCall?.args?.CommandLine ?? payload?.toolCall?.args?.command ?? "").trim();
-const tokens = parseShellWords(commandLine);
-const allowed = tokens !== null && tokens[0] === ACTION_COMMAND && ["reply", "status", "silent"].includes(tokens[1]);
-
-process.stdout.write(JSON.stringify(allowed
-  ? { decision: "allow", reason: "This command can only record an action for the current OpenMeld Wake." }
-  : { decision: "ask", reason: "Use the Agent Profile's normal Antigravity permission policy." }
-));
-
-function parseShellWords(value) {
-  const tokens = [];
-  let token = "";
-  let quote = "";
-  let escaped = false;
-  let started = false;
-  for (const character of value) {
-    if (escaped) {
-      token += character;
-      escaped = false;
-      started = true;
-      continue;
-    }
-    if (character === "\\\\" && quote !== "'") {
-      escaped = true;
-      started = true;
-      continue;
-    }
-    if (quote) {
-      if (character === quote) quote = "";
-      else token += character;
-      started = true;
-      continue;
-    }
-    if (character === "'" || character === '"') {
-      quote = character;
-      started = true;
-      continue;
-    }
-    if (/\\s/u.test(character)) {
-      if (started) {
-        tokens.push(token);
-        token = "";
-        started = false;
-      }
-      continue;
-    }
-    if (";&|<>()\u0060$".includes(character)) return null;
-    token += character;
-    started = true;
-  }
-  if (escaped || quote) return null;
-  if (started) tokens.push(token);
-  return tokens;
-}
-`;
-}
-
-function buildInstructionHookSource(actionCommandPath: string): string {
+function buildInstructionHookSource(): string {
   const instruction = [
-    "OpenMeld provides one dispatch-scoped Space Action command for this Wake.",
-    `For a reply, run exactly: '${actionCommandPath}' reply 'public message'`,
-    `For a final status, run exactly: '${actionCommandPath}' status done 'short update'`,
-    `To stay silent, run exactly: '${actionCommandPath}' silent 'reason'`,
-    "Use shell quoting inside the message when needed. Do not inspect environment variables or search for another command. This command is approved only for the current dispatch; all other tools keep the normal Antigravity permission policy.",
+    "For this OpenMeld Wake, do not run a Space Action CLI command and do not inspect its environment variables.",
+    "Complete the user's work under the normal Antigravity permission policy.",
+    "At the end, return exactly one structured outcome using the required JSON schema: reply for a public message, status for a short final status, or silent when no public reply is appropriate.",
+    "Put the public reply, status text, or silence reason in text.",
+    "Use status=none unless action=status. Include only validated profile IDs from the provided target reference lists; otherwise leave all target arrays empty.",
+    "OpenMeld will validate and record this outcome for the current dispatch.",
   ].join(" ");
   return `process.stdout.write(JSON.stringify({ injectSteps: [{ ephemeralMessage: ${JSON.stringify(instruction)} }] }));\n`;
 }
 
-function buildActionCommandSource(input: {
+function parseStructuredSpaceAction(
+  value: unknown
+): AntigravityStructuredSpaceAction {
+  const record = toRecord(value);
+  const action = record?.action;
+  const status = record?.status;
+  const text = normalizeRequiredText(record?.text);
+  const wakeTargets = parseTargetIds(record?.wakeTargets);
+  const referenceTargets = parseTargetIds(record?.referenceTargets);
+  const mentionTargets = parseTargetIds(record?.mentionTargets);
+  if (
+    (action !== "reply" && action !== "status" && action !== "silent") ||
+    (status !== "none" && !FINAL_STATUSES.has(String(status))) ||
+    !text ||
+    wakeTargets === null ||
+    referenceTargets === null ||
+    mentionTargets === null
+  ) {
+    throw createSpaceActionError(
+      "Antigravity returned an invalid structured Space outcome."
+    );
+  }
+  if (
+    (action === "status" && !FINAL_STATUSES.has(String(status))) ||
+    (action !== "status" && status !== "none") ||
+    (action !== "reply" &&
+      (wakeTargets.length > 0 ||
+        referenceTargets.length > 0 ||
+        mentionTargets.length > 0))
+  ) {
+    throw createSpaceActionError(
+      "Antigravity returned an inconsistent structured Space outcome."
+    );
+  }
+  return {
+    action,
+    mentionTargets,
+    referenceTargets,
+    status: status as AntigravityStructuredSpaceAction["status"],
+    text,
+    wakeTargets,
+  };
+}
+
+async function recordStructuredSpaceAction(input: {
+  action: AntigravityStructuredSpaceAction;
+  actionServer: NonNullable<
+    ReturnType<typeof resolveDispatchSpaceActionMcpServer>
+  >;
+}): Promise<void> {
+  const baseArgs = input.actionServer.args.slice(0, -1);
+  let args: string[];
+  let stdin = "";
+  if (input.action.action === "reply") {
+    args = [...baseArgs, "reply", "--message-file", "-"];
+    stdin = input.action.text;
+    appendTargetArgs(args, "--wake", input.action.wakeTargets);
+    appendTargetArgs(args, "--reference", input.action.referenceTargets);
+    appendTargetArgs(args, "--mention", input.action.mentionTargets);
+  } else if (input.action.action === "status") {
+    args = [...baseArgs, "status", input.action.status, input.action.text];
+  } else {
+    args = [...baseArgs, "silent", "--reason", input.action.text];
+  }
+
+  await runActionWriter({
+    args,
+    commandPath: input.actionServer.commandPath,
+    env: input.actionServer.env,
+    stdin,
+  });
+}
+
+function appendTargetArgs(
+  args: string[],
+  option: "--mention" | "--reference" | "--wake",
+  values: readonly string[]
+): void {
+  for (const value of values) {
+    args.push(option, value);
+  }
+}
+
+async function runActionWriter(input: {
   args: readonly string[];
   commandPath: string;
   env: Record<string, string>;
-}): string {
-  return `#!/usr/bin/env node
-import { spawn } from "node:child_process";
+  stdin: string;
+}): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(input.commandPath, [...input.args], {
+      env: { ...process.env, ...input.env },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.once("error", (error) => {
+      reject(createSpaceActionError(error.message));
+    });
+    child.once("close", (code, signal) => {
+      if (code === 0 && signal === null) {
+        resolve();
+        return;
+      }
+      reject(
+        createSpaceActionError(
+          normalizeRequiredText(stderr) ??
+            `The Space outcome writer exited with code ${String(code)}.`
+        )
+      );
+    });
+    child.stdin.end(input.stdin);
+  });
+}
 
-const COMMAND_PATH = ${JSON.stringify(input.commandPath)};
-const COMMAND_ARGS = ${JSON.stringify(input.args)};
-const ACTION_ENV = ${JSON.stringify(input.env)};
-const FINAL_STATUSES = new Set(["done", "blocked", "needs_input", "handoff"]);
-const args = process.argv.slice(2);
-const action = args.shift();
-let commandArgs;
-let inputText = "";
+function createSpaceActionError(message: string): Error {
+  return Object.assign(new Error(message), {
+    code: "space.action.record_failed",
+    errorType: "adapter",
+  });
+}
 
-if (action === "reply") {
-  const message = required(args.shift(), "Reply message");
-  commandArgs = [...COMMAND_ARGS.slice(0, -1), "reply", "--message-file", "-"];
-  inputText = message;
-  while (args.length > 0) {
-    const option = args.shift();
-    if (!["--wake", "--reference", "--mention"].includes(option)) fail("Unsupported reply option.");
-    commandArgs.push(option, required(args.shift(), option));
+function parseTargetIds(value: unknown): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
   }
-} else if (action === "status") {
-  const status = required(args.shift(), "Status");
-  if (!FINAL_STATUSES.has(status)) fail("Unsupported final status.");
-  commandArgs = [...COMMAND_ARGS.slice(0, -1), "status", status, required(args.shift(), "Status text")];
-  if (args.length > 0) fail("Unexpected status arguments.");
-} else if (action === "silent") {
-  commandArgs = [...COMMAND_ARGS.slice(0, -1), "silent", "--reason", required(args.shift(), "Silent reason")];
-  if (args.length > 0) fail("Unexpected silent arguments.");
-} else {
-  fail("Use reply, status, or silent.");
-}
-
-const child = spawn(COMMAND_PATH, commandArgs, {
-  env: { ...process.env, ...ACTION_ENV },
-  stdio: ["pipe", "inherit", "inherit"],
-});
-child.once("error", (error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
-child.once("close", (code, signal) => {
-  if (signal) {
-    process.kill(process.pid, signal);
-    return;
+  const values = value.map(normalizeRequiredText);
+  if (values.some((item) => item === null)) {
+    return null;
   }
-  process.exitCode = code ?? 1;
-});
-child.stdin.end(inputText);
-
-function required(value, label) {
-  const normalized = String(value ?? "").trim();
-  if (!normalized) fail(label + " is required.");
-  return normalized;
+  return values as string[];
 }
 
-function fail(message) {
-  console.error(message);
-  process.exit(2);
+function normalizeRequiredText(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
 }
-`;
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }

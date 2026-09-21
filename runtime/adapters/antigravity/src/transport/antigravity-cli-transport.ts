@@ -27,6 +27,7 @@ const CONTEXT_FAILURE_PATTERN =
 export type AntigravityCliTransportResult = {
   output: string;
   sessionId: string;
+  structuredOutput: unknown;
   telemetry: AdapterDispatchTelemetry;
 };
 
@@ -56,6 +57,7 @@ export async function invokeAntigravityCliTransport(input: {
   addDir?: string | null;
   conversationPolicy?: ConversationPolicy;
   env?: Record<string, string | undefined>;
+  jsonSchema?: string | null;
   launchContract: RuntimeAgentControllerLaunchContract;
   onPreview?: AdapterPreviewCallback;
   onProcessControlEvent?: AdapterRuntimeProcessCallback;
@@ -77,6 +79,7 @@ export async function invokeAntigravityCliTransport(input: {
     args: buildAntigravityArgs({
       addDir: input.addDir,
       conversationPolicy: input.conversationPolicy,
+      jsonSchema: input.jsonSchema,
       prompt,
       sessionId: normalizeOptionalText(input.sessionId),
     }),
@@ -119,7 +122,11 @@ export async function invokeAntigravityCliTransport(input: {
         if (event.toolError) {
           providerErrorMessages.push(event.toolError);
         }
-        if (event.stepType === "agent_response" && event.textDelta) {
+        if (
+          event.stepType === "agent_response" &&
+          event.textDelta &&
+          !input.jsonSchema
+        ) {
           firstOutputAtMs ??= Date.now();
           previewText += event.textDelta;
           if (input.onPreview) {
@@ -200,7 +207,12 @@ export async function invokeAntigravityCliTransport(input: {
       telemetry,
     });
   }
-  return { output, sessionId: resolvedSessionId, telemetry };
+  return {
+    output,
+    sessionId: resolvedSessionId,
+    structuredOutput: terminalResult.structuredOutput,
+    telemetry,
+  };
 }
 
 function classifyAntigravityPermissionFailure(
@@ -229,6 +241,7 @@ function classifyAntigravityPermissionFailure(
 export function buildAntigravityArgs(input: {
   addDir?: string | null;
   conversationPolicy?: ConversationPolicy;
+  jsonSchema?: string | null;
   prompt: string;
   sessionId: string | null;
 }): string[] {
@@ -243,6 +256,10 @@ export function buildAntigravityArgs(input: {
   const addDir = normalizeOptionalText(input.addDir);
   if (addDir) {
     args.push("--add-dir", addDir);
+  }
+  const jsonSchema = normalizeOptionalText(input.jsonSchema);
+  if (jsonSchema) {
+    args.push("--json-schema", jsonSchema);
   }
   if (input.sessionId) {
     args.push("--conversation", input.sessionId);
