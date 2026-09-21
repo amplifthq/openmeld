@@ -36,7 +36,7 @@ describe("Remote Agent Space file projection", () => {
     expect(legacyFileReference.safeParse(file).success).toBe(false);
     const wire = projectRemoteAgentSpaceFileWire(canonical);
     for (const reference of [
-      wire.signals[0].data.files[0],
+      wire.signals[0]?.data.files[0],
       wire.file.latestRevision,
       ...wire.revisions,
     ]) {
