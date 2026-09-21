@@ -69,6 +69,21 @@ export function SpaceReadingHeaderProvider(input: {
 		[storageKey]
 	);
 
+	// Layout belongs to the header's lifetime, not to the active view or its
+	// scroller. Rebinding scroll input must not expand and re-collapse the header.
+	useLayoutEffect(() => {
+		if (!header || input.isDirectMessage) {
+			return;
+		}
+		const frame = header.closest("header");
+		return () => {
+			delete header.dataset.compact;
+			if (frame) {
+				frame.style.height = "";
+			}
+		};
+	}, [header, input.isDirectMessage]);
+
 	useLayoutEffect(() => {
 		if (!header || input.isDirectMessage) {
 			return;
@@ -114,7 +129,7 @@ function attachSpaceReadingHeader(
 		return;
 	}
 	let canCompact = false;
-	let appliedCompact = false;
+	let appliedCompact = header.dataset.compact === "true";
 	let userScrolled = false;
 	const apply = () => {
 		const next = canCompact && state.compact;
@@ -228,7 +243,5 @@ function attachSpaceReadingHeader(
 		scroller?.removeEventListener("touchmove", startUserScroll);
 		scroller?.removeEventListener("keydown", onKeyDown);
 		scroller?.removeEventListener("pointerdown", onPointerDown);
-		delete header.dataset.compact;
-		frame.style.height = "";
 	};
 }
