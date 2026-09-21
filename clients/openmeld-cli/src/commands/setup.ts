@@ -1221,6 +1221,7 @@ async function finalizeLocalComponentsSetupSnapshot(): Promise<
 
 function formatSetupLocalAgentDisplayName(agentId: string): string {
   const knownDisplayNames: Readonly<Record<string, string>> = {
+    antigravity: "Antigravity",
     "claude-code": "Claude Code",
     codex: "Codex",
     cursor: "Cursor",

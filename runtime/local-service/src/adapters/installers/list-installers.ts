@@ -1,3 +1,4 @@
+import { installAntigravityAdapter } from "./install-antigravity.js";
 import { installClaudeCodeAdapter } from "./install-claude-code.js";
 import { installCodexAdapter } from "./install-codex.js";
 import { installCursorAdapter } from "./install-cursor.js";
@@ -8,6 +9,7 @@ import type { LocalAdapterInstaller } from "./types.js";
 
 export function listLocalAdapterInstallers(): LocalAdapterInstaller[] {
   return [
+    installAntigravityAdapter,
     installClaudeCodeAdapter,
     installCodexAdapter,
     installCursorAdapter,
