@@ -4698,9 +4698,10 @@ and system notices keep their recorded event semantics.
 
 At the latest messages, the Space header presents a two-row hierarchy. The first
 row contains the Space name, access mode, live connection indicator, and
-right-aligned actions. The second row contains Messages and Files below the
-Space name. Those view labels align with the Space name and use a flat active
-underline that overlays the header divider. The Members action shows the active
+right-aligned actions. The second row contains the available Space views
+(Messages, Tasks, and Files) below the Space name. Those view labels align with
+the Space name and use a flat active underline that overlays the header divider.
+The Members action shows the active
 member total from the Space member projection. The header and Space sidebar do
 not repeat `Joined as` or an aggregate live-human count; speaking identity stays
 with the composer when a choice is available, and per-member presence belongs
@@ -4711,18 +4712,27 @@ trailing edge of the second header row so the Space name remains identifiable;
 it stays visually separate from the **Messages** and **Files** view control and
 returns to the primary action group at wider breakpoints.
 
-While reading earlier messages in a Space, a small scroll switches the header
-fully into one compact row. Messages and Files move upward between the sidebar
-toggle and the title, separated from the title by a vertical divider. There is
-no scroll-progress interpolation and no diagonal travel. The same layout applies
-inside Desk windows; width checks use layout coordinates, unaffected by canvas
-zoom. Long titles truncate. Insufficient width and mobile setup recall retain
-the complete two-row layout. Direct messages retain their existing headers.
-Messages and Files share the same expanded/compact preference per Organization,
-Profile, and Space. Returning to the latest messages expands the header. A new
+While reading earlier messages in a Space, scrolling at least 64 CSS pixels
+away from the latest messages switches the header directly into one compact
+row. Messages, Tasks, and Files appear between the sidebar toggle and the title,
+separated from the title by a vertical divider. There is no entrance animation,
+position transition, or scroll-progress interpolation, regardless of motion
+preferences. The header expands only when the reader returns within 16 CSS
+pixels of the latest messages. This distance hysteresis absorbs small scrolls
+and avoids toggling at the threshold without a timer-based debounce.
+The same layout applies inside Desk windows; width checks use layout coordinates,
+unaffected by canvas zoom. Long titles truncate. Insufficient width and mobile
+setup recall retain the complete two-row layout. Direct messages retain their
+existing headers.
+All Space views share the expanded/compact preference per Organization, Profile,
+and Space. Switching views or replacing the message scroller rebinds input
+observation without clearing the header layout or compensating the reading
+anchor again. Only an actual layout endpoint change adjusts the message viewport.
+Layout cleanup belongs to the header's lifetime, not to view changes. A new
 preference starts expanded; obsolete intermediate-position preferences are not
-reused. Files does not drive compaction. A short vertical entrance runs once
-per collapse, with no travel under reduced motion.
+reused. Tasks and Files do not drive compaction, and programmatic message
+restoration does not count as user scroll input after rebinding.
+
 Message-header visibility observations update the read-through scheduler directly rather
 than publishing React state through the Space controller. Scrolling away cancels
 the pending read immediately without rerendering the transcript. Space/Profile
