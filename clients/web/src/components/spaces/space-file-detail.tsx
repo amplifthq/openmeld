@@ -71,6 +71,7 @@ import {
 	resolveSpaceFileErrorMessage,
 	utf8ByteLength,
 } from "./space-file-utils";
+import { useSpaceFileImageSource } from "./use-space-file-image-source";
 
 export type SpaceFileLeaveGuard = {
 	discard: () => void;
@@ -160,7 +161,15 @@ export function SpaceFileDetail(input: {
 			spaceId: input.spaceId,
 		})
 	);
-	const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+	const imageSource = useSpaceFileImageSource({
+		api: input.api,
+		enabled: imagePreviewable,
+		fileId: input.file.id,
+		mimeType: displayedMimeType,
+		revision: displayedRevision,
+		spaceId: input.spaceId,
+	});
+	const imagePreviewUrl = imageSource.sourceUrl;
 	const revisionVisible =
 		contentQuery.isSuccess ||
 		!(editable || html || imagePreviewable || previewRevision !== null);
@@ -185,21 +194,14 @@ export function SpaceFileDetail(input: {
 		input.file.id,
 	]);
 	useEffect(() => {
-		if (!(imagePreviewable && contentQuery.data)) {
-			setImagePreviewUrl(null);
-			return;
-		}
-		const objectUrl = URL.createObjectURL(
-			new Blob([contentQuery.data.bytes], { type: contentQuery.data.mimeType })
-		);
-		setImagePreviewUrl(objectUrl);
-		return () => URL.revokeObjectURL(objectUrl);
-	}, [contentQuery.data, imagePreviewable]);
-	useEffect(() => {
 		if (
 			!(editable && contentQuery.data) ||
 			loadedRevision === contentQuery.data.revision
 		) {
+			return;
+		}
+		// Only images are cached as Blobs; editable text retains its ArrayBuffer.
+		if (contentQuery.data.bytes instanceof Blob) {
 			return;
 		}
 		const content = new TextDecoder().decode(contentQuery.data.bytes);
@@ -375,7 +377,11 @@ export function SpaceFileDetail(input: {
 			fileName={input.file.name}
 			hasUnsavedChanges={hasUnsavedChanges}
 			html={html}
-			htmlBytes={contentQuery.data?.bytes ?? null}
+			htmlBytes={
+				contentQuery.data?.bytes instanceof ArrayBuffer
+					? contentQuery.data.bytes
+					: null
+			}
 			htmlDraft={
 				loadedRevision === displayedRevision && editable ? draft : null
 			}

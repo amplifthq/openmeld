@@ -123,6 +123,7 @@ import {
 	readSpaceMembers,
 	spaceMembersQueryOptions,
 } from "#/query/spaces/members";
+import { clearSpaceFileImageResources } from "#/query/spaces/space-file-image-resource";
 import { spaceQueryKeys, spaceStatusQueryOptions } from "#/query/spaces/status";
 import {
 	spaceThreadSignalsQueryOptions,
@@ -1052,13 +1053,11 @@ function useClearRejectedSpaceConversationCache(input: {
 		[]
 	);
 	useEffect(() => {
-		if (
-			!(
-				input.currentAccessRejection &&
-				input.organizationId &&
-				input.organizationSlug
-			)
-		) {
+		if (!input.currentAccessRejection) {
+			return;
+		}
+		clearSpaceFileImageResources(input.queryClient, input.spaceId);
+		if (!(input.organizationId && input.organizationSlug)) {
 			return;
 		}
 		queryPersistence

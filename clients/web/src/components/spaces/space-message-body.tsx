@@ -4,6 +4,7 @@ import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
 import { FileIcon, ImageIcon } from "@phosphor-icons/react";
+import { QueryClientContext } from "@tanstack/react-query";
 import { useReducedMotionConfig } from "framer-motion";
 import {
 	type ComponentProps,
@@ -11,6 +12,7 @@ import {
 	type ReactNode,
 	type Ref,
 	useCallback,
+	useContext,
 	useEffect,
 	useLayoutEffect,
 	useMemo,
@@ -27,6 +29,7 @@ import {
 } from "#/lib/spaces/api";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { buildWebSpaceAttachmentDownloadPath } from "#/lib/spaces/web-space-attachment-path";
+import { resolveSpaceFileImagePresentationKey } from "#/query/spaces/space-files";
 import {
 	CenterAgentComputerSetupCard,
 	type CenterAgentComputerSetupContext,
@@ -673,6 +676,7 @@ export function SpaceMessageFileList(input: {
 	onOpenSpaceFile?: (fileId: string, revision: number) => void;
 	spaceId: string;
 }) {
+	const queryClient = useContext(QueryClientContext);
 	if (input.files.length === 0) {
 		return null;
 	}
@@ -700,7 +704,11 @@ export function SpaceMessageFileList(input: {
 							api={input.api}
 							file={file}
 							isSingle={imageFiles.length === 1}
-							key={`${file.fileId}:${String(file.revision)}`}
+							key={resolveSpaceFileImagePresentationKey(
+								queryClient,
+								input.spaceId,
+								file
+							)}
 							onOpenSpaceFile={file.isLocal ? undefined : input.onOpenSpaceFile}
 							spaceId={input.spaceId}
 						/>

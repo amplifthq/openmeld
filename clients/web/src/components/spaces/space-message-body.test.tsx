@@ -12,6 +12,7 @@ import {
 import { MotionConfig } from "framer-motion";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { spaceFileImageResources } from "#/query/spaces/space-file-image-resource";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import {
 	SPACE_RESPONSE_TRUNCATED_MARKER,
@@ -1137,7 +1138,8 @@ describe("SpaceMessageBody", () => {
 				disconnect = vi.fn();
 			}
 		);
-		const createUrl = vi.fn(() => "blob:remote-preview");
+		let sourceSequence = 0;
+		const createUrl = vi.fn(() => `blob:remote-preview-${++sourceSequence}`);
 		const revokeUrl = vi.fn();
 		vi.stubGlobal(
 			"URL",
@@ -1146,11 +1148,11 @@ describe("SpaceMessageBody", () => {
 				static revokeObjectURL = revokeUrl;
 			}
 		);
-		downloadFileContent.mockResolvedValue({
+		downloadFileContent.mockImplementation(async ({ revision }) => ({
 			bytes: new Uint8Array([137, 80, 78, 71]).buffer,
 			mimeType: "image/png",
-			revision: 1,
-		});
+			revision: revision ?? 1,
+		}));
 		const client = new QueryClient({
 			defaultOptions: { queries: { retry: false } },
 		});
@@ -1182,7 +1184,7 @@ describe("SpaceMessageBody", () => {
 		await screen.findByRole("img", { name: "remote.png" });
 		expect(downloadFileContent).toHaveBeenCalledTimes(1);
 		view.unmount();
-		expect(revokeUrl).toHaveBeenCalledWith("blob:remote-preview");
+		expect(revokeUrl).not.toHaveBeenCalled();
 		view = render(image(1));
 		await screen.findByRole("img", { name: "remote.png" });
 		expect(downloadFileContent).toHaveBeenCalledTimes(1);
@@ -1199,12 +1201,27 @@ describe("SpaceMessageBody", () => {
 			})
 		);
 		expect(createUrl).toHaveBeenCalled();
+		view.unmount();
+		client.clear();
 	});
 
 	it("keeps canonical Space image files as morphing image previews", () => {
 		const onOpenSpaceFile = vi.fn();
-		render(
-			<QueryClientProvider client={new QueryClient()}>
+		vi.stubGlobal(
+			"URL",
+			class extends URL {
+				static createObjectURL = vi.fn(() => "blob:space-photo-preview");
+				static revokeObjectURL = vi.fn();
+			}
+		);
+		const client = new QueryClient();
+		const resource = spaceFileImageResources(client).create(
+			new Blob(["image"]),
+			"space-123",
+			"file-photo"
+		);
+		const view = render(
+			<QueryClientProvider client={client}>
 				<SpaceMessageBody
 					item={{
 						files: [
@@ -1237,6 +1254,9 @@ describe("SpaceMessageBody", () => {
 		expect(screen.getByRole("dialog")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Open in Files" }));
 		expect(onOpenSpaceFile).toHaveBeenCalledWith("file-photo", 2);
+		view.unmount();
+		resource.release();
+		client.clear();
 	});
 
 	it("replaces a broken attachment image with a stable placeholder", () => {
