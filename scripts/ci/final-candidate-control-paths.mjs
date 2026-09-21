@@ -3,7 +3,6 @@ const CONTROL_PATH_PATTERNS = [
   /^\.github\/workflows\/final-candidate\.yml$/u,
   /^\.github\/workflows\/merge-group-final-candidate\.yml$/u,
   /^package\.json$/u,
-  /^pnpm-lock\.yaml$/u,
   /^pnpm-workspace\.yaml$/u,
   /^turbo\.json$/u,
   /^scripts\/ci\/final-candidate(?:-[^/]*)?\.(?:mjs|test\.mjs)$/u,

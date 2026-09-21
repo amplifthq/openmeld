@@ -129,6 +129,21 @@ dependencies stay isolated and complete for the selected checks. This setup is
 the same for all PR scopes, confidence levels, merge groups, and local fallback;
 it does not change validation coverage or grant candidate code write credentials.
 
+Hosted `trusted-control-entrypoints` compares the current-main control
+projection, not every workspace or lockfile byte. The isolated installer
+consumes the candidate lockfile with `--frozen-lockfile --ignore-scripts` and
+rebuilds only native dependencies from the trusted `pnpm-workspace.yaml`
+allowlist. A catalog or override that only changes resolved JavaScript packages
+is not control drift. Changes to Final Candidate workflows, trusted
+entrypoints, install wrappers, `package.json` `packageManager` or scripts, the
+Turbo task graph, or workspace fields that change what native code may run
+(`allowBuilds`, `onlyBuiltDependencies`, `patchedDependencies`, and
+equivalents, including the referenced patch files) still refuse hosted
+certification. Those pull requests use the documented local explicit bootstrap.
+When that refuse happens, the required `OpenMeld Final Candidate` status is the
+single honest gate: it names the control refuse and the bootstrap path instead
+of presenting three lookalike product-test failures.
+
 A non-draft PR targeting `main` starts standard FC on opening, new commits,
 reopening, or marking ready; no label is needed. To retry after diagnosing a
 failure, or explicitly request full confidence:

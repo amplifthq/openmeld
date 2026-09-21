@@ -23,6 +23,8 @@ const CANDIDATE_CONTROL_PATTERN = /CANDIDATE_CONTROL/u;
 const CURRENT_MAIN_CONTROL_PATTERN = /--control-trust current-main/u;
 const EXPLICIT_BOOTSTRAP_PATTERN = /--control-trust explicit-bootstrap/u;
 const MISSING_CURRENT_MAIN_CONTROL_PATTERN = /Current main does not contain/u;
+const SILENT_CONTROL_REUSE_PATTERN = /cannot be certified by silently reusing/u;
+const WORKSPACE_MANIFEST_PATTERN = /pnpm-workspace\.yaml/u;
 
 test("local fallback executes current-main control for an ordinary candidate", () => {
   const fixture = createFixture({
@@ -47,6 +49,39 @@ test("local fallback executes current-main control for an ordinary candidate", (
         "u"
       )
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("a lockfile-only candidate uses current-main control without bootstrap", () => {
+  const fixture = createFixture({
+    baseHasControl: true,
+    candidateChangesControl: false,
+    candidateChangesLockfile: true,
+  });
+  try {
+    const result = runBootstrap(fixture, ["run", "--", "--pr", "1"]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, CURRENT_MAIN_CONTROL_PATTERN);
+    assert.doesNotMatch(result.stdout, EXPLICIT_BOOTSTRAP_PATTERN);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("allowBuilds drift still requires an explicit local bootstrap", () => {
+  const fixture = createFixture({
+    baseHasControl: true,
+    candidateChangesAllowBuilds: true,
+    candidateChangesControl: false,
+  });
+  try {
+    const ordinary = runBootstrap(fixture, ["run", "--", "--pr", "1"]);
+    assert.equal(ordinary.status, 1);
+    assert.match(ordinary.stderr, SILENT_CONTROL_REUSE_PATTERN);
+    assert.match(ordinary.stderr, WORKSPACE_MANIFEST_PATTERN);
   } finally {
     fixture.cleanup();
   }
@@ -114,6 +149,10 @@ function createFixture(input) {
     path.join(repositoryPath, "pnpm-lock.yaml"),
     "lockfileVersion: '9.0'\n"
   );
+  writeFileSync(
+    path.join(repositoryPath, "pnpm-workspace.yaml"),
+    "packages: []\nallowBuilds:\n  better-sqlite3: true\n"
+  );
   if (input.baseHasControl) {
     writeControl(repositoryPath, "BASE_CONTROL");
   }
@@ -126,6 +165,16 @@ function createFixture(input) {
   git(repositoryPath, "checkout", "--quiet", "-b", "codex/candidate");
   if (input.candidateChangesControl) {
     writeControl(repositoryPath, "CANDIDATE_CONTROL");
+  } else if (input.candidateChangesLockfile) {
+    writeFileSync(
+      path.join(repositoryPath, "pnpm-lock.yaml"),
+      "lockfileVersion: '9.0'\nimporters: {}\n"
+    );
+  } else if (input.candidateChangesAllowBuilds) {
+    writeFileSync(
+      path.join(repositoryPath, "pnpm-workspace.yaml"),
+      "packages: []\nallowBuilds:\n  better-sqlite3: true\n  evil-native: true\n"
+    );
   } else {
     writeFileSync(
       path.join(repositoryPath, "product.txt"),

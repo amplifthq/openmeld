@@ -25,6 +25,7 @@ const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
   "scripts/ci/final-candidate-bootstrap.test.mjs",
   "scripts/ci/final-candidate-output.mjs",
   "scripts/ci/final-candidate-control-paths.mjs",
+  "scripts/ci/final-candidate-control-projection.mjs",
   "scripts/ci/final-candidate-policy.mjs",
   "scripts/ci/final-candidate-policy.test.mjs",
   "scripts/ci/final-candidate-publisher.mjs",
