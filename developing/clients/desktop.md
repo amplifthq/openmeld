@@ -173,7 +173,15 @@ Open app restores the renderer's existing route rather than choosing a new
 home. The menu does not expose the version, a separate Web app row, or Service
 lifecycle controls. Quitting the GUI retains the independent Service lifecycle.
 The unread preview uses one bounded, whitespace-normalized native label rather
-than a wrapping macOS sublabel. AppKit owns content-sized menu width; no custom
+than a wrapping macOS sublabel. Its source title, separator, excerpt, and ellipses
+share a 32-unit budget; wide Latin and non-ASCII graphemes each count as two
+units. The source uses at most 12 units when an excerpt is present, and the
+excerpt gets the remaining space. With no excerpt, the source can use the full
+row. Relative time appears in the existing disabled Latest unread heading;
+conversation context stays in the full accessible label. AppKit owns
+content-sized menu width; these conservative text units are not a pixel-width
+guarantee. Native whole-menu width, including Computer and updater badges, must
+be checked at the same display scale during visual acceptance. No custom
 minimum/maximum-width window is introduced. The full preview remains available
 in the tooltip and accessible label. Truncation preserves grapheme boundaries.
 The native menu keeps its current snapshot while open, so a refresh cannot

@@ -65,10 +65,11 @@ const APP_HEIGHT = 720;
 const APP_MIN_WIDTH = 960;
 const APP_MIN_HEIGHT = 640;
 const APP_NAME = "OpenMeld";
-// These UTF-16 text budgets keep native auto-layout compact without claiming a
-// pixel width. Truncation always retreats to a complete grapheme boundary.
-const TRAY_PREVIEW_SOURCE_TEXT_BUDGET = 22;
-const TRAY_PREVIEW_BODY_TEXT_BUDGET = 32;
+// Budget the complete row, including separators and ellipses. Wide Latin and
+// non-ASCII graphemes cost two units; this is conservative, not a pixel measure.
+const TRAY_PREVIEW_TEXT_BUDGET = 32;
+const TRAY_PREVIEW_SOURCE_TEXT_BUDGET = 12;
+const WIDE_NATIVE_MENU_GRAPHEME = /[^\u0020-\u007e]|[MWmw@%&]/u;
 const NATIVE_MENU_GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, {
   granularity: "grapheme",
 });
@@ -584,20 +585,24 @@ function trayPreviewMenuItems(
       ? `${item.title} · ${item.contextLabel}`
       : item.title;
     const relativeTime = formatRelativeTime(item.occurredAt);
-    const headline = `${truncateNativeMenuText(
-      source,
-      TRAY_PREVIEW_SOURCE_TEXT_BUDGET
-    )} · ${relativeTime}`;
-    const preview = truncateNativeMenuText(
-      item.preview,
-      TRAY_PREVIEW_BODY_TEXT_BUDGET
+    const preview = item.preview.replace(/\s+/g, " ").trim();
+    const sourceLabel = truncateNativeMenuText(
+      item.title,
+      preview ? TRAY_PREVIEW_SOURCE_TEXT_BUDGET : TRAY_PREVIEW_TEXT_BUDGET
     );
+    const prefix = sourceLabel ? `${sourceLabel} — ` : "";
+    const label = preview
+      ? `${prefix}${truncateNativeMenuText(
+          preview,
+          TRAY_PREVIEW_TEXT_BUDGET - nativeMenuTextUnits(prefix)
+        )}`
+      : sourceLabel;
     return [
-      { label: "Latest unread", enabled: false },
+      { label: `Latest unread · ${relativeTime}`, enabled: false },
       {
         // Native labels size the menu to their content. macOS sublabels can
         // wrap independently, so keep the preview in the single-line label.
-        label: preview ? `${headline} — ${preview}` : headline,
+        label,
         accessibilityLabel: `${source} · ${relativeTime} — ${item.preview}`,
         toolTip: item.preview,
         click: () => {
@@ -778,26 +783,31 @@ function resolveNativeMenuCapabilities(): {
   };
 }
 
+function nativeMenuTextUnits(value: string): number {
+  let units = 0;
+  for (const { segment } of NATIVE_MENU_GRAPHEME_SEGMENTER.segment(value)) {
+    units += WIDE_NATIVE_MENU_GRAPHEME.test(segment) ? 2 : 1;
+  }
+  return units;
+}
+
 function truncateNativeMenuText(value: string, textBudget: number): string {
   const normalized = value.replace(/\s+/g, " ").trim();
-  if (normalized.length <= textBudget) {
+  if (nativeMenuTextUnits(normalized) <= textBudget) {
     return normalized;
   }
-  if (textBudget <= 0) {
+  if (textBudget < nativeMenuTextUnits("…")) {
     return "";
   }
-  if (textBudget === 1) {
-    return "…";
-  }
-
-  const contentBudget = textBudget - 1;
+  const contentBudget = textBudget - nativeMenuTextUnits("…");
+  let units = 0;
   let truncationIndex = 0;
   for (const grapheme of NATIVE_MENU_GRAPHEME_SEGMENTER.segment(normalized)) {
-    const nextIndex = grapheme.index + grapheme.segment.length;
-    if (nextIndex > contentBudget) {
+    units += WIDE_NATIVE_MENU_GRAPHEME.test(grapheme.segment) ? 2 : 1;
+    if (units > contentBudget) {
       break;
     }
-    truncationIndex = nextIndex;
+    truncationIndex = grapheme.index + grapheme.segment.length;
   }
   return `${normalized.slice(0, truncationIndex).trimEnd()}…`;
 }

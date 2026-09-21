@@ -838,6 +838,7 @@ describe("main tray behavior", () => {
         icon?: unknown;
         label?: string;
         sublabel?: string;
+        toolTip?: string;
         type?: string;
       }>
     | undefined {
@@ -851,6 +852,7 @@ describe("main tray behavior", () => {
           icon?: unknown;
           label?: string;
           sublabel?: string;
+          toolTip?: string;
           type?: string;
         }>
       | undefined;
@@ -1029,7 +1031,7 @@ describe("main tray behavior", () => {
 
     expect(trayMenuItem("Computer — Connected")).toBeTruthy();
     expect(
-      trayMenuItem(`${"L".repeat(21)}… · now — ${"p".repeat(19)}`)
+      trayMenuItem(`${"L".repeat(10)}… — ${"p".repeat(14)}…`)
     ).toBeTruthy();
   });
 
@@ -1056,8 +1058,10 @@ describe("main tray behavior", () => {
       status: "ready",
     });
 
-    const preview = trayMenuTemplate()?.find((item) =>
-      item.label?.startsWith("Morgan · Design review ·")
+    const preview = trayMenuTemplate()?.find(
+      (item) =>
+        item.accessibilityLabel ===
+        "Morgan · Design review · now — Please check the latest layout."
     );
     preview?.click?.();
 
@@ -1085,7 +1089,7 @@ describe("main tray behavior", () => {
     expect(tray?.closeContextMenu).toHaveBeenCalledOnce();
   });
 
-  it("keeps native preview text within its budgets at grapheme boundaries", async () => {
+  it("shares one compact preview budget without losing full text or graphemes", async () => {
     setTestPlatform("darwin");
     await importMain();
     const cases = [
@@ -1093,51 +1097,92 @@ describe("main tray behavior", () => {
         name: "short text",
         preview: "Short preview",
         title: "Short title",
-        expectedLabel: "Short title · now",
-        expectedPreview: "Short preview",
+        expectedLabel: "Short title — Short preview",
       },
       {
         name: "exact budgets",
-        preview: "p".repeat(32),
-        title: "T".repeat(22),
-        expectedLabel: `${"T".repeat(22)} · now`,
-        expectedPreview: "p".repeat(32),
+        preview: "p".repeat(16),
+        title: "T".repeat(12),
+        expectedLabel: `${"T".repeat(12)} — ${"p".repeat(16)}`,
       },
       {
         name: "long English text",
         preview: `${"p".repeat(16)}\n${"p".repeat(17)}`,
         title: "T".repeat(31),
-        expectedLabel: `${"T".repeat(21)}… · now`,
-        expectedPreview: `${"p".repeat(16)} ${"p".repeat(14)}…`,
+        expectedLabel: `${"T".repeat(10)}… — ${"p".repeat(14)}…`,
       },
       {
         name: "long Chinese text",
         preview: "文".repeat(33),
         title: "标".repeat(31),
-        expectedLabel: `${"标".repeat(21)}… · now`,
-        expectedPreview: `${"文".repeat(31)}…`,
+        expectedLabel: `${"标".repeat(5)}… — ${"文".repeat(7)}…`,
+      },
+      {
+        name: "wide English text",
+        preview: "W".repeat(32),
+        title: "W".repeat(22),
+        expectedLabel: `${"W".repeat(5)}… — ${"W".repeat(7)}…`,
+      },
+      {
+        name: "short source leaves room for the message",
+        preview: "p".repeat(40),
+        title: "A",
+        expectedLabel: `A — ${"p".repeat(25)}…`,
+      },
+      {
+        name: "long source without a message uses the full row",
+        preview: " \n\t ",
+        title: "T".repeat(40),
+        expectedLabel: `${"T".repeat(30)}…`,
+      },
+      {
+        name: "empty message",
+        preview: "",
+        title: "Alice",
+        expectedLabel: "Alice",
+      },
+      {
+        name: "long context and older mixed-language message",
+        preview: "请检查最新发布计划，release notes 已更新。",
+        title: "Amplift Center Agent",
+        contextLabel: "A long project name that belongs in the full context",
+        ageMs: 42 * 24 * 60 * 60 * 1000,
+        expectedTime: "42d",
+        expectedLabel: "Amplift C… — 请检查最新发布…",
       },
       {
         name: "ordinary emoji on the truncation boundary",
-        preview: `${"b".repeat(30)}😀x`,
-        title: `${"a".repeat(20)}😀x`,
-        expectedLabel: `${"a".repeat(20)}… · now`,
-        expectedPreview: `${"b".repeat(30)}…`,
+        preview: `${"b".repeat(14)}😀x`,
+        title: `${"a".repeat(10)}😀x`,
+        expectedLabel: `${"a".repeat(10)}… — ${"b".repeat(14)}…`,
       },
       {
         name: "family emoji crossing the truncation boundary",
-        preview: `${"f".repeat(30)}👨‍👩‍👧‍👦x`,
-        title: "Family update",
-        expectedLabel: "Family update · now",
-        expectedPreview: `${"f".repeat(30)}…`,
+        preview: `${"f".repeat(20)}👨‍👩‍👧‍👦xy`,
+        title: "Team",
+        expectedLabel: `Team — ${"f".repeat(20)}…`,
+      },
+      {
+        name: "family emoji fits before the ellipsis",
+        preview: `${"f".repeat(19)}👨‍👩‍👧‍👦xyzz`,
+        title: "Team",
+        expectedLabel: `Team — ${"f".repeat(19)}👨‍👩‍👧‍👦…`,
+      },
+      {
+        name: "combining sequence fits before the ellipsis",
+        preview: `${"c".repeat(19)}e\u0301xyz`,
+        title: "Jose\u0301",
+        expectedLabel: `Jose\u0301 — ${"c".repeat(19)}e\u0301…`,
       },
     ];
 
     for (const testCase of cases) {
       inboxTitle.setPresentation?.({
         item: {
-          contextLabel: "",
-          occurredAt: new Date().toISOString(),
+          contextLabel: testCase.contextLabel ?? "",
+          occurredAt: new Date(
+            Date.now() - (testCase.ageMs ?? 0)
+          ).toISOString(),
           preview: testCase.preview,
           reference: {
             itemId: `item-${testCase.name}`,
@@ -1153,11 +1198,18 @@ describe("main tray behavior", () => {
       const preview = trayMenuTemplate()?.find((item) =>
         item.accessibilityLabel?.endsWith(` — ${testCase.preview}`)
       );
-      expect(preview?.label, testCase.name).toBe(
-        `${testCase.expectedLabel} — ${testCase.expectedPreview}`
+      expect(preview?.label, testCase.name).toBe(testCase.expectedLabel);
+      expect(preview?.toolTip, testCase.name).toBe(testCase.preview);
+      const source = testCase.contextLabel
+        ? `${testCase.title} · ${testCase.contextLabel}`
+        : testCase.title;
+      expect(preview?.accessibilityLabel, testCase.name).toBe(
+        `${source} · ${testCase.expectedTime ?? "now"} — ${testCase.preview}`
       );
+      expect(
+        trayMenuItem(`Latest unread · ${testCase.expectedTime ?? "now"}`)
+      ).toEqual(expect.objectContaining({ enabled: false }));
       expect(preview?.sublabel, testCase.name).toBeUndefined();
-      expect(preview?.label?.length, testCase.name).toBeLessThanOrEqual(63);
       expect(preview?.label, testCase.name).not.toContain("\n");
     }
   });
