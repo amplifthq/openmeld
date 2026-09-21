@@ -63,6 +63,7 @@ const FILE = {
   updatedAt: "2026-08-22T08:00:00.000Z",
   createdBy: ACTOR,
   updatedBy: ACTOR,
+  origin: "artifact" as const,
   trashedAt: null,
   trashedBy: null,
   latestRevision: REVISION,

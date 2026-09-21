@@ -901,6 +901,7 @@ function createPublishedFile(): Awaited<
 		id: "file-1",
 		kind: "file",
 		name: "first.txt",
+		origin: "chat_upload",
 		path: "/first.txt",
 		spaceId: "space-1",
 		parentId: null,

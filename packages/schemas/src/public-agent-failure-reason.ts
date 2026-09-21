@@ -1299,6 +1299,14 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "computer",
     },
     {
+      body: "OpenMeld couldn't start the tools required for this task. Open Diagnostics for details, then wake the agent again.",
+      kind: "local_agent_prepare",
+      patterns: ["execution_context.mcp_server_initialization_failed"],
+      primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
       body: "This agent is missing its local workspace on this device. Run `openmeld doctor --repair`, then `openmeld setup --profile <agent-profile-id>`, and try again.",
       kind: "local_agent_prepare",
       patterns: ["workspace.missing", "profile.workspace.missing"],

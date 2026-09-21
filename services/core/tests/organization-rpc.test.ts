@@ -7417,7 +7417,7 @@ describe("organization Core RPC", () => {
     });
     expect(spaceStub.rpcListSpaceFiles).toHaveBeenCalledWith(
       expect.objectContaining({
-        query: { parentId: null, view: "trash" },
+        query: { parentId: null, view: "trash", origin: "artifact" },
         spaceAccess: expect.objectContaining({
           actor: expect.objectContaining({
             kind: "authenticated",
@@ -7430,6 +7430,101 @@ describe("organization Core RPC", () => {
         }),
       })
     );
+  });
+
+  it("strips origin from a Remote Agent's Space Files response unless it declares the origin capability", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId: JOINED_PRIVATE_SPACE_ID,
+          spaceName: "Launch Room",
+          visibility: "private",
+        }),
+      ],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const originBearingFile = {
+      createdAt: "2026-08-23T00:00:00.000Z",
+      createdBy: {
+        displayName: "Ava",
+        profileId: HUMAN_PROFILE_ID,
+        profileKind: "human" as const,
+      },
+      id: "file-1",
+      kind: "file" as const,
+      latestRevision: {
+        createdAt: "2026-08-23T00:00:00.000Z",
+        createdBy: {
+          displayName: "Ava",
+          profileId: HUMAN_PROFILE_ID,
+          profileKind: "human" as const,
+        },
+        fileId: "file-1",
+        id: "revision-1",
+        mimeType: "text/markdown",
+        revision: 1,
+        sizeBytes: 12,
+      },
+      name: "brief.md",
+      origin: "artifact" as const,
+      parentId: null,
+      path: "/brief.md",
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+      trashedAt: null,
+      trashedBy: null,
+      updatedAt: "2026-08-23T00:00:00.000Z",
+      updatedBy: {
+        displayName: "Ava",
+        profileId: HUMAN_PROFILE_ID,
+        profileKind: "human" as const,
+      },
+    };
+    spaceStub.rpcListSpaceFiles.mockResolvedValue({
+      breadcrumbs: [{ id: null, name: "Files" }],
+      capabilities: { canRead: true as const, canWrite: true },
+      entries: [originBearingFile],
+      origin: "artifact" as const,
+      parentId: null,
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+      view: "active" as const,
+    } as unknown as Awaited<ReturnType<typeof spaceStub.rpcListSpaceFiles>>);
+    const env = buildEnv({ db, spaceStub });
+    const context = buildCenterAgentContext({
+      activeOrganizationId: "org-a",
+      profileId: AGENT_PROFILE_ID,
+      profileKind: "agent",
+      userId: "user-a",
+    });
+    const entrypoint = createCenterAgentRpcEntrypoint(env);
+
+    // An already-published Remote Agent has no `requestedOriginModel` field
+    // and never sends it — this is exactly that shape.
+    const legacy = await entrypoint.centerAgentListSpaceFiles({
+      context,
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+    });
+    const current = await entrypoint.centerAgentListSpaceFiles({
+      context,
+      requestedOriginModel: "origin_aware",
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+    });
+
+    expect(JSON.stringify(legacy)).not.toContain("origin");
+    expect(legacy.entries[0]).not.toHaveProperty("origin");
+    expect(current).toMatchObject({
+      entries: [{ origin: "artifact" }],
+      origin: "artifact",
+    });
   });
 
   it("rejects Center Agent Space context reads outside the active Organization", async () => {
@@ -14019,7 +14114,13 @@ function createSpaceStub(
     rpcPatchMeta: patchSpaceMeta,
     rpcPatchMetaWithPasswordAtomic: patchSpaceMeta,
     rpcListSpaceFiles: vi.fn(
-      (request: { query?: { view?: "active" | "trash" }; spaceId: string }) =>
+      (request: {
+        query?: {
+          view?: "active" | "trash";
+          origin?: "artifact" | "all";
+        };
+        spaceId: string;
+      }) =>
         Promise.resolve({
           breadcrumbs:
             request.query?.view === "trash"
@@ -14033,6 +14134,7 @@ function createSpaceStub(
           parentId: null,
           spaceId: request.spaceId,
           view: request.query?.view ?? "active",
+          origin: request.query?.origin ?? "artifact",
         })
     ),
     rpcListSignals: vi.fn(listSignals),

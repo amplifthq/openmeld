@@ -247,6 +247,16 @@ account preferences as the sidebar. The open conversation remains readable and
 the success message explains where to recover it; no destructive confirmation
 or shared-history deletion is involved.
 
+The conversation header exposes message search as the same compact icon action
+used by its neighboring tools, with an accessible label and tooltip. Its dialog
+accepts a single character when scoped to the current Space, presents centered
+dashed initial, no-result, and full-error states, and keeps workspace-wide and
+Inbox search at a three-character minimum. One framed result region is retained
+while empty or reporting a full error. Empty and full-error content is centered
+with its recovery action. Real results keep the same region height without its
+empty-state border or background; they remain top-aligned with normal padding,
+the shared Fluid moving hover highlight, and Fluid ScrollArea edge fading.
+
 Your Spaces and the sidebar render active memberships from the account Space
 index. The Organization discovery snapshot must not veto a newer account index
 entry. The account index refreshes every five seconds in the foreground so a
@@ -3873,6 +3883,18 @@ the conversation, canonical image references retain the familiar inline image
 preview and morph into a focused full-size view when selected; non-image
 references remain file cards, and both presentations lead to the same canonical
 entry in Files.
+
+The active Files list defaults to artifacts only (see the Space Files origin
+contract above); it never applies this filter to Trash. A **Show chat
+uploads** toggle beside Trash switches the request to `origin=all` and updates
+the subtitle to say chat uploads are included; toggling back, or switching to
+another view (Trash and back), returns to the default — the toggle is local
+Files-view state and never survives a `changeView` call. When chat uploads
+are shown, each file whose `origin` is exactly `"chat_upload"` carries a
+**Chat upload** badge next to its name so the distinction stays visible in
+the row, not only in the toggle state. A file with no recorded origin never
+gets this badge; the fail-closed default list does not extend to asserting a
+source it does not actually know.
 
 Markdown creation and editing reuse the exact rich Plate surface owned by the
 Organization Documents experience. Both surfaces persist one CommonMark + GFM

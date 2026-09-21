@@ -13,5 +13,6 @@ activities. Results open the original message or Inbox item.
 Results appear automatically after you pause typing, without pressing Enter.
 The command menu shows matching messages directly alongside other results.
 
-Search supports literal text of at least three characters, including Chinese.
-Older conversations are indexed progressively, with visible progress and errors.
+Search inside a conversation starts with one character, including Chinese.
+Workspace-wide and Inbox search require at least three characters. Older
+conversations are indexed progressively, with visible progress and errors.

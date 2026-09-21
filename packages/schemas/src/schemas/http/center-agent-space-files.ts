@@ -11,18 +11,27 @@ import {
   spaceFileNameSchema,
   spaceFileRevisionNumberSchema,
   spaceFileRevisionSchema,
+  spaceFilesOriginCapabilitySchema,
   spaceFolderDescriptorSchema,
 } from "./space-files";
 
 const centerAgentSpaceFileScopeSchema = z.strictObject({
   context: openMeldRequestContextSchema,
   spaceId: z.string().trim().min(1).max(512),
+  // Explicit capability declaration for the Core/Remote Agent RPC boundary
+  // (Center Agent tools). An already-published Remote Agent has no field
+  // for this and never sends it, so Core strips `origin` from every
+  // response for it — see `SPACE_FILES_ORIGIN_CAPABILITY_TOKEN`.
+  requestedOriginModel: spaceFilesOriginCapabilitySchema,
 });
 
 export const centerAgentListSpaceFilesRpcInputSchema =
   centerAgentSpaceFileScopeSchema.extend({
     parentId: spaceFileEntryIdSchema.nullable().optional(),
     view: z.enum(["active", "trash"]).optional(),
+    // Omit to see artifacts only, the same default the Files list uses.
+    // Pass "all" to also see files shared as chat uploads.
+    origin: z.enum(["artifact", "all"]).optional(),
   });
 
 export const centerAgentListSpaceFilesResponseSchema =

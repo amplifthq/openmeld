@@ -2261,21 +2261,25 @@ describe("Remote Agent GitHub tools", () => {
     const fetchMock = vi.fn<typeof fetch>((url) => {
       const href = String(url);
       if (href.includes("github.update_issue")) {
-        return testOpenConnectorSuccessResponse({
-          actionId: "github.update_issue",
-          data: { number: 7 },
-          outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
-        });
+        return Promise.resolve(
+          testOpenConnectorSuccessResponse({
+            actionId: "github.update_issue",
+            data: { number: 7 },
+            outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+          })
+        );
       }
-      return testOpenConnectorSuccessResponse({
-        actionId: "github.create_issue",
-        data: {
-          html_url: "https://github.com/openmeld/app/issues/7",
-          number: 7,
-          title: "Track connector bug",
-        },
-        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
-      });
+      return Promise.resolve(
+        testOpenConnectorSuccessResponse({
+          actionId: "github.create_issue",
+          data: {
+            html_url: "https://github.com/openmeld/app/issues/7",
+            number: 7,
+            title: "Track connector bug",
+          },
+          outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+        })
+      );
     });
     const tools = getRemoteAgentGitHubToolDefinitions({
       connectorExecution: {
@@ -2359,7 +2363,7 @@ describe("Remote Agent GitHub tools", () => {
       }
       throw new Error("createSpaceTask should not run.");
     });
-    const fetchMock = vi.fn<typeof fetch>(() =>
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       testOpenConnectorSuccessResponse({
         actionId: "github.create_issue",
         data: {

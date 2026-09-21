@@ -11,9 +11,16 @@ export const spaceFileQueryKeys = {
 	folder: (
 		spaceId: string,
 		parentId: string | null,
-		view: "active" | "trash" = "active"
+		view: "active" | "trash" = "active",
+		origin: "artifact" | "all" = "artifact"
 	) =>
-		[...spaceFileQueryKeys.space(spaceId), "folder", view, parentId] as const,
+		[
+			...spaceFileQueryKeys.space(spaceId),
+			"folder",
+			view,
+			origin,
+			parentId,
+		] as const,
 	content: (spaceId: string, fileId: string, revision: number) =>
 		[
 			...spaceFileQueryKeys.space(spaceId),

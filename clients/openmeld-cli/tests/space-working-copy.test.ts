@@ -415,6 +415,7 @@ function receipt(sizeBytes: number): SpaceFileDescriptor {
     id: "report",
     kind: "file",
     name: "report.csv",
+    origin: "artifact",
     path: "/report.csv",
     spaceId: "space",
     parentId: null,
