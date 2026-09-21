@@ -36,6 +36,7 @@ import {
   spaceFileUploadResponseSchema,
   stageSpaceComposerUploadQuerySchema,
   stageSpaceComposerUploadResponseSchema,
+  toLegacySpaceFilesOriginWireValue,
   trashSpaceFileEntryBodySchema,
   trashSpaceFileEntryResponseSchema,
   updateSpaceFileContentQuerySchema,
@@ -58,6 +59,7 @@ import {
   formatAuditValue,
   resolveGatewayStructuredRpcErrorResponse,
   resolvePublicRouteRequestId,
+  supportsSpaceFilesOriginCapability,
 } from "./rpc-http.helpers";
 import { parseSpaceRouteParams } from "./rpc-http.parsers";
 import type { RpcHttpMethod } from "./rpc-http.types";
@@ -141,6 +143,7 @@ export function registerSpaceFileRoutes(app: Hono<HonoBindings>): void {
       method: "POST",
       spaceId: target.spaceId,
       responseSchema: spaceFileUploadResponseSchema,
+      includeLegacySpaceFilesOriginWireFields: true,
       execute: () =>
         c.var.coreRpc.spaceFileUpload({
           spaceId: target.spaceId,
@@ -267,6 +270,7 @@ async function publishSpaceComposerUpload(
     method: "POST",
     resolveSuccessPayload: (file) => ({ file }),
     responseSchema: publishSpaceComposerUploadResponseSchema,
+    includeLegacySpaceFilesOriginWireFields: true,
     route: SPACE_COMPOSER_UPLOAD_PUBLISH_ROUTE,
     spaceId: target.spaceId,
   });
@@ -332,6 +336,7 @@ async function restoreSpaceFileEntry(
     method: "POST",
     spaceId: target.spaceId,
     responseSchema: restoreSpaceFileEntryResponseSchema,
+    includeLegacySpaceFilesOriginWireFields: true,
     execute: () =>
       c.var.coreRpc.restoreSpaceFileEntry({
         body: body.data,
@@ -382,6 +387,7 @@ async function restoreSpaceFileRevision(
     method: "POST",
     spaceId: target.spaceId,
     responseSchema: restoreSpaceFileRevisionResponseSchema,
+    includeLegacySpaceFilesOriginWireFields: true,
     resolveSuccessPayload: (file) => ({ file }),
     execute: () =>
       c.var.coreRpc.restoreSpaceFileRevision({
@@ -427,6 +433,7 @@ async function listSpaceFiles(c: Context<HonoBindings>): Promise<Response> {
     method: "GET",
     spaceId: target.spaceId,
     responseSchema: listSpaceFilesResponseSchema,
+    includeLegacySpaceFilesOriginWireFields: true,
     execute: () =>
       c.var.coreRpc.listSpaceFiles({
         spaceId: target.spaceId,
@@ -448,6 +455,7 @@ async function getSpaceFile(c: Context<HonoBindings>): Promise<Response> {
     method: "GET",
     spaceId: target.spaceId,
     responseSchema: getSpaceFileResponseSchema,
+    includeLegacySpaceFilesOriginWireFields: true,
     resolveSuccessPayload: (file) => ({ file }),
     execute: () =>
       c.var.coreRpc.getSpaceFile({
@@ -472,6 +480,7 @@ async function listSpaceFileRevisions(
     method: "GET",
     spaceId: target.spaceId,
     responseSchema: listSpaceFileRevisionsResponseSchema,
+    includeLegacySpaceFilesOriginWireFields: true,
     execute: () =>
       c.var.coreRpc.listSpaceFileRevisions({
         spaceId: target.spaceId,
@@ -541,6 +550,7 @@ async function updateSpaceFileEntry(
     method: "PATCH",
     spaceId: target.spaceId,
     responseSchema: updateSpaceFileEntryResponseSchema,
+    includeLegacySpaceFilesOriginWireFields: true,
     execute: () =>
       c.var.coreRpc.updateSpaceFileEntry({
         spaceId: target.spaceId,
@@ -655,7 +665,7 @@ async function uploadSpaceFile(c: Context<HonoBindings>): Promise<Response> {
     return result.response;
   }
   return withRequestIdHeader(
-    Response.json(uploadSpaceFileResponseSchema.parse({ file: result.file }), {
+    Response.json(resolveSpaceFileUploadResponsePayload(c, result.file), {
       status: 201,
     }),
     resolvePublicRouteRequestId(c)
@@ -719,9 +729,26 @@ async function updateSpaceFileContent(
     return result.response;
   }
   return withRequestIdHeader(
-    Response.json(uploadSpaceFileResponseSchema.parse({ file: result.file })),
+    Response.json(resolveSpaceFileUploadResponsePayload(c, result.file)),
     resolvePublicRouteRequestId(c)
   );
+}
+
+/**
+ * `uploadSpaceFile` and `updateSpaceFileContent` build their JSON response
+ * directly (they stream raw bytes and cannot use `executeRpcRoute`'s shared
+ * response pipeline), so they apply the same origin-capability downgrade
+ * `executeRpcRoute`'s `includeLegacySpaceFilesOriginWireFields` applies for
+ * every other Space Files route.
+ */
+function resolveSpaceFileUploadResponsePayload(
+  c: Context<HonoBindings>,
+  file: SpaceFileDescriptor
+): unknown {
+  const parsed = uploadSpaceFileResponseSchema.parse({ file });
+  return supportsSpaceFilesOriginCapability(c.req.raw.headers)
+    ? parsed
+    : toLegacySpaceFilesOriginWireValue(parsed);
 }
 
 async function downloadSpaceFileContent(
