@@ -164,6 +164,7 @@ import { useAgentCreationComputerRecovery } from "./use-agent-creation-computer-
 type RecoveryController = ReturnType<typeof useLocalAgentRecoveryController>;
 const PROJECT_PATH_SEPARATOR_PATTERN = /[\\/]/u;
 const PROJECT_PATH_TRAILING_SEPARATOR_PATTERN = /[\\/]+$/u;
+const LOCAL_AGENT_ENABLE_CONFIRMATION_DELAYS_MS = [0, 1000, 2000, 4000, 5000];
 
 export type { CreateProfileSpaceContext } from "#/lib/profiles/create-profile-orchestration";
 
@@ -2467,25 +2468,33 @@ async function enableLocalAgentWithOutcomeConfirmation(input: {
 		});
 		return;
 	} catch (error) {
-		const refreshed = await input.recovery.localRuntimesQuery
-			.refetch()
-			.catch(() => null);
-		const refreshedTarget = refreshed?.data?.localRuntimes
-			.flatMap((computer) => computer.executionTargets)
-			.find(
+		for (const delayMs of LOCAL_AGENT_ENABLE_CONFIRMATION_DELAYS_MS) {
+			if (delayMs > 0) {
+				await new Promise<void>((resolve) => {
+					setTimeout(resolve, delayMs);
+				});
+			}
+			const refreshed = await input.recovery.localRuntimesQuery
+				.refetch()
+				.catch(() => null);
+			const refreshedTarget = refreshed?.data?.localRuntimes
+				.flatMap((computer) => computer.executionTargets)
+				.find(
+					(candidate) =>
+						candidate.deviceId === input.target.deviceId &&
+						candidate.runtimeLane === input.target.runtimeLane
+				);
+			const enabled = refreshedTarget?.localAgentCatalog.entries.some(
 				(candidate) =>
-					candidate.deviceId === input.target.deviceId &&
-					candidate.runtimeLane === input.target.runtimeLane
+					candidate.agentId === input.agentId &&
+					candidate.enabled &&
+					candidate.lifecycleStatus !== "suspended"
 			);
-		const enabled = refreshedTarget?.localAgentCatalog.entries.some(
-			(candidate) =>
-				candidate.agentId === input.agentId &&
-				candidate.enabled &&
-				candidate.lifecycleStatus !== "suspended"
-		);
-		if (!enabled) {
-			throw error;
+			if (enabled) {
+				return;
+			}
 		}
+		throw error;
 	}
 }
 

@@ -2432,29 +2432,31 @@ describe("CreateProfileDialog", () => {
 		if (!currentData) {
 			throw new Error("Expected the fake Computer inventory.");
 		}
-		const refetch = vi.fn().mockResolvedValue({
-			data: {
-				...currentData,
-				localRuntimes: currentData.localRuntimes.map((computer) => ({
-					...computer,
-					executionTargets: computer.executionTargets.map((target) => ({
-						...target,
-						localAgentCatalog: {
-							entries: target.localAgentCatalog.entries.map((entry) =>
-								entry.agentId === "antigravity"
-									? {
-											...entry,
-											enabled: true,
-											launchStatus: "ready",
-											selectable: true,
-										}
-									: entry
-							),
-						},
-					})),
+		const confirmedData = {
+			...currentData,
+			localRuntimes: currentData.localRuntimes.map((computer) => ({
+				...computer,
+				executionTargets: computer.executionTargets.map((target) => ({
+					...target,
+					localAgentCatalog: {
+						entries: target.localAgentCatalog.entries.map((entry) =>
+							entry.agentId === "antigravity"
+								? {
+										...entry,
+										enabled: true,
+										launchStatus: "ready",
+										selectable: true,
+									}
+								: entry
+						),
+					},
 				})),
-			},
-		});
+			})),
+		};
+		const refetch = vi
+			.fn()
+			.mockResolvedValueOnce({ data: currentData })
+			.mockResolvedValueOnce({ data: confirmedData });
 		Object.assign(recovery, { setLocalAgentEnabled });
 		Object.assign(recovery.localRuntimesQuery, { refetch });
 		renderCurrentCreateProfileDialog({ recovery });
@@ -2463,13 +2465,23 @@ describe("CreateProfileDialog", () => {
 		const enableSwitch = await screen.findByRole("switch", {
 			name: "Enable Antigravity",
 		});
-		fireEvent.click(enableSwitch);
+		vi.useFakeTimers();
+		try {
+			fireEvent.click(enableSwitch);
+			await act(async () => {
+				await Promise.resolve();
+			});
+			expect(refetch).toHaveBeenCalledOnce();
 
-		await waitFor(() => expect(refetch).toHaveBeenCalledOnce());
-		await waitFor(() =>
-			expect(enableSwitch.hasAttribute("data-unchecked")).toBe(true)
-		);
-		expect(screen.queryByRole("alert")).toBeNull();
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(1000);
+			});
+			expect(refetch).toHaveBeenCalledTimes(2);
+			expect(enableSwitch.hasAttribute("data-unchecked")).toBe(true);
+			expect(screen.queryByRole("alert")).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("shows cached usage without blocking a signed-out local agent selection", async () => {
