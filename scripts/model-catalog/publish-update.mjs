@@ -101,14 +101,11 @@ function workflowRunUrl() {
     : null;
 }
 
-async function updateOpenReview(pull, output) {
+async function updateOpenReview(pull, output, runUrl) {
   const { number, repository } = pullCoordinates(pull.url);
   const review = await readFile(resolve(output, "review.md"), "utf8");
   const commentPath = resolve(output, "latest-scan-comment.md");
-  await writeFile(
-    commentPath,
-    renderLatestScanComment(review, workflowRunUrl())
-  );
+  await writeFile(commentPath, renderLatestScanComment(review, runUrl));
   const commentPages = JSON.parse(
     command("gh", [
       "api",
@@ -304,7 +301,12 @@ export async function publishUpdate(output) {
     changed: result.changed,
   });
   if (decision === "update-review") {
-    await updateOpenReview(openCatalogPull(pulls), output);
+    const runUrl = workflowRunUrl();
+    if (!runUrl) {
+      console.log("review-in-progress");
+      return;
+    }
+    await updateOpenReview(openCatalogPull(pulls), output, runUrl);
     return;
   }
   if (decision !== "create") {
