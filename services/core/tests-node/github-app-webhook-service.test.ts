@@ -38,7 +38,9 @@ async function sign(rawBody: string): Promise<string> {
 
 describe("GitHub App webhook verification", () => {
   it("accepts ping, enqueues closed issues, and ignores uninteresting signed events", async () => {
-    const send = vi.fn(async () => undefined);
+    const send = vi
+      .fn<(...args: Parameters<Queue["send"]>) => Promise<void>>()
+      .mockResolvedValue(undefined);
     const env = {
       GITHUB_OPENMELD_WEBHOOK_SECRET: SECRET,
       OPENMELD_DAEMON_DISPATCH_QUEUE: {
