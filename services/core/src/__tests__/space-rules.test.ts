@@ -32,17 +32,21 @@ const createContext = (input: {
   },
 });
 
-const createMeta = (creator: {
-  kind: "human" | "agent";
-  profileId: string;
-  ownerUserId?: string;
+const createMeta = (input: {
+  creator: {
+    kind: "human" | "agent";
+    profileId: string;
+    ownerUserId?: string;
+  };
+  ownerUserIds?: string[];
 }) => ({
   v: 1 as const,
   spaceId: "space-1",
   organizationId: "org-1",
   visibility: "private" as const,
   accessMode: "public" as const,
-  creator,
+  creator: input.creator,
+  ownerUserIds: input.ownerUserIds ?? [],
   createdAt: NOW_ISO,
   updatedAt: NOW_ISO,
 });
@@ -330,13 +334,17 @@ describe("Direct Message dispatch rules", () => {
 });
 
 describe("space deletion policy", () => {
-  it("allows human creator deleting their own space", () => {
+  it("allows a human Space owner to delete the Space", () => {
     const result = authorizeSpaceDeletion({
       meta: createMeta({
-        kind: "human",
-        profileId: "human-owner",
+        creator: {
+          kind: "human",
+          profileId: "human-owner",
+        },
+        ownerUserIds: ["owner-1"],
       }),
       context: createContext({
+        ownerUserId: "owner-1",
         profileId: "human-owner",
         profileKind: "human",
       }),
@@ -344,13 +352,17 @@ describe("space deletion policy", () => {
     expect(result).toEqual({ ok: true });
   });
 
-  it("rejects non-creator deleting a human-created space", () => {
+  it("rejects a non-owner deleting a human-created Space", () => {
     const result = authorizeSpaceDeletion({
       meta: createMeta({
-        kind: "human",
-        profileId: "human-owner",
+        creator: {
+          kind: "human",
+          profileId: "human-owner",
+        },
+        ownerUserIds: ["owner-1"],
       }),
       context: createContext({
+        ownerUserId: "owner-2",
         profileId: "human-other",
         profileKind: "human",
       }),
@@ -358,16 +370,19 @@ describe("space deletion policy", () => {
     expect(result).toEqual({
       ok: false,
       code: "space.forbidden",
-      message: "only space creator can delete this space",
+      message: "Only a Space owner can delete this Space.",
     });
   });
 
   it("allows owner human deleting agent-created space", () => {
     const result = authorizeSpaceDeletion({
       meta: createMeta({
-        kind: "agent",
-        profileId: "agt-owner",
-        ownerUserId: "owner-1",
+        creator: {
+          kind: "agent",
+          profileId: "agt-owner",
+          ownerUserId: "owner-1",
+        },
+        ownerUserIds: ["owner-1"],
       }),
       context: createContext({
         profileId: "human-owner",
@@ -381,9 +396,12 @@ describe("space deletion policy", () => {
   it("requires human confirmation when requester is an agent", () => {
     const result = authorizeSpaceDeletion({
       meta: createMeta({
-        kind: "agent",
-        profileId: "agt-owner",
-        ownerUserId: "owner-1",
+        creator: {
+          kind: "agent",
+          profileId: "agt-owner",
+          ownerUserId: "owner-1",
+        },
+        ownerUserIds: ["owner-1"],
       }),
       context: createContext({
         profileId: "agt-other",
@@ -393,18 +411,21 @@ describe("space deletion policy", () => {
     expect(result).toEqual({
       ok: false,
       code: "space.human_confirmation_required",
-      message: "agent-created spaces require owner human confirmation",
+      message: "A Space owner must confirm deletion.",
     });
   });
 });
 
 describe("space member management policy", () => {
-  it("allows a human creator account to remove members from a human-created space", () => {
+  it("allows a human Space owner to remove members", () => {
     const result = authorizeSpaceMemberRemoval({
       meta: createMeta({
-        kind: "human",
-        ownerUserId: "owner-1",
-        profileId: "human-owner",
+        creator: {
+          kind: "human",
+          ownerUserId: "owner-1",
+          profileId: "human-owner",
+        },
+        ownerUserIds: ["owner-1"],
       }),
       context: createContext({
         ownerUserId: "owner-1",
@@ -419,9 +440,12 @@ describe("space member management policy", () => {
   it("allows the owner human to remove members from an agent-created space", () => {
     const result = authorizeSpaceMemberRemoval({
       meta: createMeta({
-        kind: "agent",
-        ownerUserId: "owner-1",
-        profileId: "agt-owner",
+        creator: {
+          kind: "agent",
+          ownerUserId: "owner-1",
+          profileId: "agt-owner",
+        },
+        ownerUserIds: ["owner-1"],
       }),
       context: createContext({
         ownerUserId: "owner-1",
@@ -436,9 +460,12 @@ describe("space member management policy", () => {
   it("rejects agents even when they belong to the creator account", () => {
     const result = authorizeSpaceMemberRemoval({
       meta: createMeta({
-        kind: "agent",
-        ownerUserId: "owner-1",
-        profileId: "agt-owner",
+        creator: {
+          kind: "agent",
+          ownerUserId: "owner-1",
+          profileId: "agt-owner",
+        },
+        ownerUserIds: ["owner-1"],
       }),
       context: createContext({
         ownerUserId: "owner-1",
@@ -450,16 +477,19 @@ describe("space member management policy", () => {
     expect(result).toEqual({
       ok: false,
       code: "space.forbidden",
-      message: "member removal is only allowed for the owner human",
+      message: "Only a Space owner can manage members.",
     });
   });
 
-  it("rejects humans outside the creator account", () => {
+  it("rejects humans outside the Space owner set", () => {
     const result = authorizeSpaceMemberRemoval({
       meta: createMeta({
-        kind: "human",
-        ownerUserId: "owner-1",
-        profileId: "human-owner",
+        creator: {
+          kind: "human",
+          ownerUserId: "owner-1",
+          profileId: "human-owner",
+        },
+        ownerUserIds: ["owner-1"],
       }),
       context: createContext({
         ownerUserId: "owner-2",
@@ -471,15 +501,17 @@ describe("space member management policy", () => {
     expect(result).toEqual({
       ok: false,
       code: "space.forbidden",
-      message: "member removal is only allowed for the creator account human",
+      message: "Only a Space owner can manage members.",
     });
   });
 
-  it("fails closed when the creator owner is missing", () => {
+  it("fails closed when the Space owner set is empty", () => {
     const result = authorizeSpaceMemberRemoval({
       meta: createMeta({
-        kind: "human",
-        profileId: "human-owner",
+        creator: {
+          kind: "human",
+          profileId: "human-owner",
+        },
       }),
       context: createContext({
         ownerUserId: "owner-1",
@@ -491,7 +523,7 @@ describe("space member management policy", () => {
     expect(result).toEqual({
       ok: false,
       code: "space.forbidden",
-      message: "member removal is only allowed for the creator account human",
+      message: "Only a Space owner can manage members.",
     });
   });
 });
