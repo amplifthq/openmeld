@@ -238,6 +238,9 @@ The local development commands it invokes may wait for shared worktree
 capacity as described in
 [Resource Discipline](development-workflow.md#resource-discipline). Waiting
 affects execution timing, not candidate identity or validation requirements.
+The preflight reports macOS warning and critical pressure separately; both
+remain informational here. Development admission owns the quiet-swap observation
+for warning-pressure starts, and broad local builds still wait for normal pressure.
 The narrow `Dev lifecycle` workflow additionally exercises process ownership
 and resource arbitration on macOS, Linux and Windows when development scripts
 change. It uses disposable processes, requires no cloud credentials, and does
