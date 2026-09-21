@@ -247,6 +247,12 @@ account preferences as the sidebar. The open conversation remains readable and
 the success message explains where to recover it; no destructive confirmation
 or shared-history deletion is involved.
 
+The conversation header exposes message search as the same compact icon action
+used by its neighboring tools, with an accessible label and tooltip. Its dialog
+accepts a single character when scoped to the current Space, presents centered
+dashed initial and no-result states, and keeps workspace-wide and Inbox search
+at a three-character minimum.
+
 Your Spaces and the sidebar render active memberships from the account Space
 index. The Organization discovery snapshot must not veto a newer account index
 entry. The account index refreshes every five seconds in the foreground so a

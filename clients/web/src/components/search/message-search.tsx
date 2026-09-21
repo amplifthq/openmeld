@@ -12,12 +12,14 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { AppEmptyState } from "#/components/app/app-empty-state";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import {
 	useAppOrganization,
@@ -41,12 +43,26 @@ export function MessageSearchButton(input: {
 	if (!organization) {
 		return null;
 	}
+	const label = input.scope === "inbox" ? "Search Inbox" : "Search messages";
 	return (
 		<>
-			<Button onClick={() => setOpen(true)} size="sm" variant="secondary">
-				<MagnifyingGlassIcon />
-				{input.scope === "inbox" ? "Search Inbox" : "Search messages"}
-			</Button>
+			{input.spaceId ? (
+				<TooltipHint content={label}>
+					<Button
+						aria-label={label}
+						onClick={() => setOpen(true)}
+						size="icon-sm"
+						variant="ghost"
+					>
+						<MagnifyingGlassIcon />
+					</Button>
+				</TooltipHint>
+			) : (
+				<Button onClick={() => setOpen(true)} size="sm" variant="secondary">
+					<MagnifyingGlassIcon />
+					{label}
+				</Button>
+			)}
 			<MessageSearchDialog {...input} onOpenChange={setOpen} open={open} />
 		</>
 	);
@@ -99,16 +115,17 @@ export function useMessageSearch(input: {
 	const profileId = input.profileId ?? defaultHumanProfile?.openMeldProfileId;
 	const { isComposing } = input;
 	const searchText = input.draft.trim();
+	const minimumQueryLength = input.spaceId ? 1 : 3;
 	const [settledQuery, setSettledQuery] = useState("");
 	const query = !isComposing && settledQuery === searchText ? settledQuery : "";
 	useEffect(() => {
 		setSettledQuery("");
-		if (isComposing || [...searchText].length < 3) {
+		if (isComposing || [...searchText].length < minimumQueryLength) {
 			return;
 		}
 		const timer = setTimeout(() => setSettledQuery(searchText), 300);
 		return () => clearTimeout(timer);
-	}, [searchText, isComposing]);
+	}, [searchText, isComposing, minimumQueryLength]);
 	const results = useInfiniteQuery({
 		queryKey: [
 			"message-search",
@@ -119,7 +136,7 @@ export function useMessageSearch(input: {
 			input.scope,
 			query,
 		],
-		enabled: Boolean([...query].length >= 3 && profileId),
+		enabled: Boolean([...query].length >= minimumQueryLength && profileId),
 		initialPageParam: undefined as string | undefined,
 		queryFn: ({ pageParam, signal }) => {
 			const params = new URLSearchParams({
@@ -174,7 +191,7 @@ export function useMessageSearch(input: {
 	// One search spans several requests; gaps between pages are not completion.
 	const searching = Boolean(
 		!isComposing &&
-			[...searchText].length >= 3 &&
+			[...searchText].length >= minimumQueryLength &&
 			!isError &&
 			(!query || results.isPending || isFetching || continueAutomatically)
 	);
@@ -192,6 +209,7 @@ export function useMessageSearch(input: {
 		query,
 		searchText,
 		resultCount,
+		minimumQueryLength,
 		profileId,
 		currentOrganization,
 	};
@@ -215,6 +233,7 @@ function MessageSearchContents(input: {
 		query,
 		searchText,
 		resultCount,
+		minimumQueryLength,
 		profileId,
 		currentOrganization,
 	} = useMessageSearch({ ...input, draft, isComposing });
@@ -241,6 +260,13 @@ function MessageSearchContents(input: {
 				viewportProps={{ "aria-label": "Message search results" }}
 			>
 				<div className="space-y-2 py-2">
+					{input.spaceId && !searchText && (
+						<AppEmptyState
+							description="Results will appear here."
+							icon={<MagnifyingGlassIcon />}
+							title="Start typing to search"
+						/>
+					)}
 					{activities.map((item) => (
 						<Link
 							className="block rounded-md border p-3 hover:bg-accent focus-visible:outline-2"
@@ -277,17 +303,22 @@ function MessageSearchContents(input: {
 						aria-live="polite"
 						className="min-h-5 text-muted-foreground text-sm"
 					>
-						{!isComposing &&
-							[...searchText].length < 3 &&
+						{!(input.spaceId || isComposing) &&
+							[...searchText].length < minimumQueryLength &&
 							"Use at least 3 characters."}
 						{searching && "Searching…"}
-						{query &&
-							!searching &&
-							!results.isError &&
-							!results.hasNextPage &&
-							resultCount === 0 &&
-							`No matches for “${query}”. Try another phrase.`}
 					</div>
+					{query &&
+						!searching &&
+						!results.isError &&
+						!results.hasNextPage &&
+						resultCount === 0 && (
+							<AppEmptyState
+								description="Try another search."
+								icon={<MagnifyingGlassIcon />}
+								title={`No messages found for “${query}”`}
+							/>
+						)}
 					{results.isError && (
 						<div role="alert">
 							<p className="text-sm">
