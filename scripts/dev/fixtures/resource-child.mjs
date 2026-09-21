@@ -46,7 +46,9 @@ if (mode === "leaf") {
             wait: async (milliseconds, value, options) => {
               await observationStarted;
               await yieldTurn(value, options);
-              now += milliseconds;
+              // Five virtual seconds per retry avoids 30 expensive Windows
+              // process snapshots while retaining valid observation samples.
+              now += milliseconds * 5;
             },
           }
         : {}),
