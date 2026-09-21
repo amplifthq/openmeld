@@ -12,7 +12,37 @@ import { readProcessRows } from "./process-rows.mjs";
 import { collectDescendants, sameProcess } from "./process-tree.mjs";
 
 const GIB = 1024 ** 3;
+export const WARNING_OBSERVATION_MS = 30_000;
+const MAX_SAMPLE_GAP_MS = 5000;
 export const RESOURCE_TOKEN = "OPENMELD_LOCAL_RESOURCE_TOKEN";
+
+// Warning is not critical pressure. Require a continuous quiet observation,
+// not a low historical swap total. Missing samples never prove stability.
+export function createMemoryObservation() {
+  let previous;
+  let quietSince;
+  return (memory, now = performance.now()) => {
+    if (
+      memory.pressure !== "warning" ||
+      !Number.isSafeInteger(memory.swapouts) ||
+      memory.swapouts < 0
+    ) {
+      previous = undefined;
+      quietSince = undefined;
+      return false;
+    }
+    if (
+      !previous ||
+      now <= previous.at ||
+      now - previous.at > MAX_SAMPLE_GAP_MS ||
+      memory.swapouts !== previous.swapouts
+    ) {
+      quietSince = now;
+    }
+    previous = { at: now, swapouts: memory.swapouts };
+    return now - quietSince >= WARNING_OBSERVATION_MS;
+  };
+}
 
 function positiveNumber(env, key, fallback) {
   if (!env[key]) {
@@ -61,9 +91,33 @@ export function admissionReason({
   availableBytes,
   policy,
   pressure,
+  warningStable = false,
+  now = Date.now(),
 }) {
-  if (pressure === "constrained") {
-    return "the operating system reports memory pressure";
+  if (pressure === "critical") {
+    return "critical OS memory pressure; waiting for it to recover";
+  }
+  if (pressure === "warning") {
+    if (kind === "heavy") {
+      return "warning OS memory pressure; broad builds wait for normal pressure";
+    }
+    if (!warningStable) {
+      return "warning OS memory pressure; observing 30 continuous seconds without swap writes (missing samples restart observation)";
+    }
+    if (
+      entries.some((entry) => entry.kind === "stack" && entry.ready !== true)
+    ) {
+      return "warning OS memory pressure; waiting for the starting Worker stack to become ready";
+    }
+    if (
+      entries.some(
+        (entry) =>
+          Number.isFinite(entry.admittedAt) &&
+          now - entry.admittedAt < WARNING_OBSERVATION_MS
+      )
+    ) {
+      return "warning OS memory pressure; observing the previous admission for 30 seconds before starting more work";
+    }
   }
   if (
     kind === "heavy" &&
@@ -170,6 +224,8 @@ export async function acquireLocalResources({
   onWait = console.error,
   gitCommonDir,
   readMemory = readMachineMemory,
+  monotonicNow = () => performance.now(),
+  wait = delay,
 } = {}) {
   const policy = resourcePolicy(env, readMemory().totalBytes);
   if (!(kind in policy.costs)) {
@@ -179,6 +235,7 @@ export async function acquireLocalResources({
   const directory = join(commonDir, "openmeld-dev");
   const registryPath = join(directory, "resources.json");
   const token = randomUUID();
+  const observeMemory = createMemoryObservation();
   let lastReason;
   const transact = (callback, waitingSignal) => {
     return withRegistryLock(
@@ -237,6 +294,8 @@ export async function acquireLocalResources({
     // OS probes can be slow under pressure; do not hold the shared lock while
     // running them. Pending reservations are still reconciled inside the lock.
     const memory = readMemory();
+    const sampledAt = monotonicNow();
+    const warningStable = observeMemory(memory, sampledAt);
     const result = await transact((entries, rows) => {
       const inherited = entries.find(
         (entry) =>
@@ -255,12 +314,14 @@ export async function acquireLocalResources({
         rows,
         availableBytes: memory.availableBytes,
         pressure: memory.pressure,
+        warningStable:
+          warningStable && monotonicNow() - sampledAt <= MAX_SAMPLE_GAP_MS,
         policy,
       });
       if (reason) {
         return {
           reason,
-          budget: `Memory GiB: available=${(memory.availableBytes / GIB).toFixed(1)}, headroom=${(policy.headroomBytes / GIB).toFixed(1)}, new=${(policy.costs[kind] / GIB).toFixed(1)}, reserved growth=${(reservedGrowthBytes(entries, rows) / GIB).toFixed(1)}.`,
+          budget: `OS pressure=${memory.pressure}. Memory GiB: available=${(memory.availableBytes / GIB).toFixed(1)}, headroom=${(policy.headroomBytes / GIB).toFixed(1)}, new=${(policy.costs[kind] / GIB).toFixed(1)}, reserved growth=${(reservedGrowthBytes(entries, rows) / GIB).toFixed(1)}.`,
           owners: entries
             .map((entry) => `${entry.kind}: ${entry.repoRoot}`)
             .join("; "),
@@ -279,6 +340,7 @@ export async function acquireLocalResources({
         bytes: policy.costs[kind],
         repoRoot: resolve(repoRoot),
         token,
+        admittedAt: Date.now(),
       });
       return { token };
     }, signal);
@@ -302,6 +364,6 @@ export async function acquireLocalResources({
       onWait(`${message} ${result.budget}`);
       lastReason = message;
     }
-    await delay(1000, undefined, { signal });
+    await wait(1000, undefined, { signal });
   }
 }

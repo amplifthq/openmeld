@@ -4,6 +4,7 @@ import { totalmem } from "node:os";
 const PAGE_SIZE = /page size of (\d+) bytes/u;
 const PAGE_COUNT =
   /^(Pages free|Pages inactive|Pages speculative):\s+(\d+)\./gmu;
+const SWAPOUTS = /^Swapouts:\s+(\d+)\./mu;
 
 export function parseMacMemory(output, pressure, totalBytes) {
   const pageSize = Number(PAGE_SIZE.exec(output)?.[1]);
@@ -17,7 +18,8 @@ export function parseMacMemory(output, pressure, totalBytes) {
       totalBytes,
       counts.reduce((sum, match) => sum + Number(match[2]), 0) * pageSize
     ),
-    pressure: pressure === 1 ? "normal" : "constrained",
+    pressure: { 1: "normal", 2: "warning", 4: "critical" }[pressure],
+    swapouts: SWAPOUTS.test(output) ? Number(SWAPOUTS.exec(output)[1]) : null,
     source: "macOS free + inactive + speculative pages (estimate)",
   };
 }
