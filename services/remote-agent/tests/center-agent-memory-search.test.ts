@@ -488,12 +488,16 @@ describe("authorized retained-memory search from normal member tools", () => {
     await expect(f.read()).rejects.toMatchObject({ status: 403 });
   });
 
-  it("withholds memory deleted or disabled while the provider is reading", async () => {
+  it.each([
+    "member",
+    "organization",
+  ] as const)("withholds %s memory deleted or disabled while the provider is reading", async (scope) => {
     const f = await fixture();
     fact(f, {
       sources: [
         { spaceId: EVIDENCE_OTHER_SPACE_ID, signalId: "retired-memory" },
       ],
+      scope,
     });
     provider.search.mockImplementation(async (input: ProviderQuery) => {
       const edges = graphs.get(input.userId ?? input.graphId ?? "") ?? [];
