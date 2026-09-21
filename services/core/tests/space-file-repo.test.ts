@@ -194,7 +194,7 @@ describe("SpaceFileRepository", () => {
     });
   });
 
-  it("defaults the Files list to artifacts and fails closed on unclassified or chat-upload files", async () => {
+  it("defaults the Files list to artifacts, treats a legacy write as an artifact, and fails closed on chat-upload files", async () => {
     const fixture = createFixture();
 
     await withRepository(fixture.spaceId, (repository) => {
@@ -259,12 +259,17 @@ describe("SpaceFileRepository", () => {
       });
       expect(chatUploadFile.origin).toBe("chat_upload");
 
-      const unclassifiedFile = commit({
-        fileId: `${fixture.prefix}-unclassified`,
+      // A legacy client that never learned about `origin` (or an old
+      // request that omits it) is not "unclassified": the repository
+      // defaults a plain new-file write to 'artifact', matching pre-feature
+      // create behavior, so the file stays visible in the default view
+      // without the client sending anything new.
+      const legacyFile = commit({
+        fileId: `${fixture.prefix}-legacy`,
         name: "legacy.txt",
         revision: 3,
       });
-      expect(unclassifiedFile.origin).toBeNull();
+      expect(legacyFile.origin).toBe("artifact");
 
       const defaultList = repository.list({
         spaceId: fixture.spaceId,
@@ -275,12 +280,10 @@ describe("SpaceFileRepository", () => {
       expect(defaultList.entries).toMatchObject([
         { id: folder.id, kind: "folder" },
         { id: artifactFile.id, kind: "file" },
+        { id: legacyFile.id, kind: "file" },
       ]);
       expect(
         defaultList.entries.some((entry) => entry.id === chatUploadFile.id)
-      ).toBe(false);
-      expect(
-        defaultList.entries.some((entry) => entry.id === unclassifiedFile.id)
       ).toBe(false);
 
       const allList = repository.list({
@@ -295,7 +298,7 @@ describe("SpaceFileRepository", () => {
           folder.id,
           artifactFile.id,
           chatUploadFile.id,
-          unclassifiedFile.id,
+          legacyFile.id,
         ])
       );
 
@@ -327,6 +330,91 @@ describe("SpaceFileRepository", () => {
           .list({ spaceId: fixture.spaceId, parentId: null, canWrite: true })
           .entries.some((entry) => entry.id === chatUploadFile.id)
       ).toBe(false);
+    });
+  });
+
+  it("fails closed on a NULL origin as exceptional/corrupt data, not normal history", async () => {
+    // Every write path now assigns 'artifact' or 'chat_upload' explicitly, and
+    // the schema migration backfills every pre-existing row, so the only way
+    // a file row can carry a NULL origin today is exceptional/corrupt data
+    // (for example a direct database edit). This writes that row directly,
+    // bypassing commitWrite, to prove the read path still fails closed
+    // instead of guessing a classification.
+    const fixture = createFixture();
+
+    await withRepository(fixture.spaceId, (repository, sql) => {
+      const folder = repository.createFolder({
+        actor,
+        auditEvent: createAuditEvent({
+          entryId: `${fixture.prefix}-folder`,
+          fixture,
+          operation: "folder_create",
+          operationId: `${fixture.prefix}-mkdir`,
+        }),
+        clientMutationId: `${fixture.prefix}-mkdir`,
+        folderId: `${fixture.prefix}-folder`,
+        name: "Launch",
+        nowMs: fixture.nowMs,
+        spaceId: fixture.spaceId,
+      });
+      const corruptFileId = `${fixture.prefix}-corrupt`;
+      const actorJson = JSON.stringify(actor);
+      sql.exec(
+        `
+          INSERT INTO space_file_entries (
+            entry_id, space_id, kind, parent_id, parent_key, name, name_key,
+            created_at_ms, updated_at_ms, created_by_json, updated_by_json,
+            trashed_at_ms, trashed_by_json, origin
+          ) VALUES (?, ?, 'file', NULL, '', ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+        `,
+        corruptFileId,
+        fixture.spaceId,
+        "corrupt.txt",
+        "corrupt.txt",
+        fixture.nowMs,
+        fixture.nowMs,
+        actorJson,
+        actorJson
+      );
+      sql.exec(
+        `
+          INSERT INTO space_file_revisions (
+            revision_id, file_id, revision, mime_type, size_bytes,
+            created_at_ms, created_by_json, client_mutation_id
+          ) VALUES (?, ?, 1, 'text/plain', 4, ?, ?, ?)
+        `,
+        `${corruptFileId}-revision`,
+        corruptFileId,
+        fixture.nowMs,
+        actorJson,
+        `${corruptFileId}-write`
+      );
+
+      const defaultList = repository.list({
+        spaceId: fixture.spaceId,
+        parentId: null,
+        canWrite: true,
+      });
+      expect(
+        defaultList.entries.some((entry) => entry.id === corruptFileId)
+      ).toBe(false);
+      expect(defaultList.entries).toMatchObject([
+        { id: folder.id, kind: "folder" },
+      ]);
+
+      const allList = repository.list({
+        spaceId: fixture.spaceId,
+        parentId: null,
+        origin: "all",
+        canWrite: true,
+      });
+      const corruptEntry = allList.entries.find(
+        (entry) => entry.id === corruptFileId
+      );
+      expect(corruptEntry).toMatchObject({ kind: "file" });
+      expect(
+        corruptEntry && "origin" in corruptEntry ? corruptEntry.origin : null
+      ).toBeNull();
     });
   });
 

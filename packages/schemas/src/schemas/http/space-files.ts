@@ -424,6 +424,8 @@ export const createSpaceFileUploadQuerySchema = z.strictObject({
   name: spaceFileNameSchema,
   parentId: spaceFileEntryIdSchema.optional(),
   clientMutationId: spaceFileClientMutationIdSchema,
+  // Optional for rolling interoperability with clients that predate this
+  // field. An omitted origin on upload is treated as 'artifact' server-side.
   origin: spaceFileOriginSchema.optional(),
 });
 
@@ -512,7 +514,12 @@ export const prepareSpaceFileWriteInputSchema = z.strictObject({
   sizeBytes: spaceFileSizeBytesSchema,
   // Only meaningful when this write creates a new file (baseRevision is
   // null). Ignored for a new revision of an existing file, which always
-  // keeps the origin recorded at that file's creation.
+  // keeps the origin recorded at that file's creation. Left optional for
+  // rolling interoperability: a legacy client that predates this field can
+  // keep creating files without sending it. The server treats an omitted
+  // origin on a new-file write as 'artifact', matching the repository's
+  // pre-feature create behavior, so old clients stay visible in the
+  // default Files view without any required client-side change.
   origin: spaceFileOriginSchema.optional(),
 });
 

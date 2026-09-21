@@ -101,8 +101,10 @@ export class SpaceFileRepository {
       this.requireActiveFolder(parentId);
     }
     // Folders are never chat uploads, so the "artifact" filter never hides
-    // them; only files carry an origin classification. A file whose origin
-    // was never recorded (legacy data, or a caller that omitted it) fails
+    // them; only files carry an origin classification. Every write path
+    // (new-file creation, the historical-row backfill) now assigns
+    // 'artifact' or 'chat_upload' explicitly, so a file with a NULL origin
+    // is exceptional/corrupt data, not normal history. It still fails
     // closed here and stays out of the default view, same as a chat upload.
     const originClause =
       view === "active" && origin === "artifact"
@@ -598,7 +600,14 @@ export class SpaceFileRepository {
           input.nowMs,
           actorJson,
           actorJson,
-          input.write.origin ?? null
+          // A legacy client that never learned about `origin` gets the same
+          // classification the repository has always implied for a plain
+          // create: 'artifact'. This keeps rolling interoperability — an old
+          // client stays visible in the default Files view without being
+          // required to send a new field before the server can roll safely.
+          // Explicit chat-upload write paths always set `origin` themselves
+          // and are unaffected by this default.
+          input.write.origin ?? "artifact"
         );
       } else {
         revision = input.write.baseRevision + 1;
