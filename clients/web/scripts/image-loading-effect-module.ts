@@ -22,7 +22,7 @@ export function imageLoadingEffectModule(
 			building = config.command === "build";
 		},
 		resolveId(source) {
-			return source === moduleId ? resolvedId : null;
+			return source === moduleId || source === resolvedId ? resolvedId : null;
 		},
 		load(id) {
 			if (id !== resolvedId) {
@@ -36,6 +36,9 @@ export function imageLoadingEffectModule(
 				id: effectFile,
 				name: "space-image-loading-effect",
 				preserveSignature: "strict",
+				// This decoration can only run after its requesting application chunk.
+				// It is not a second application entry for Start's client manifest.
+				implicitlyLoadedAfterOneOf: [resolvedId],
 			});
 			// Rollup owns hashes and relative URLs, including the Desktop scheme.
 			return `export default import.meta.ROLLUP_FILE_URL_${reference};`;

@@ -34,7 +34,18 @@ it("bundles a lazy optional effect whose failure cannot become a critical Vite p
 			root,
 			publicDir: false,
 			logLevel: "silent",
-			plugins: [imageLoadingEffectModule(effect)],
+			plugins: [
+				imageLoadingEffectModule(effect),
+				{
+					name: "assert-single-application-entry",
+					generateBundle(_options, bundle) {
+						const entries = Object.values(bundle).filter(
+							(chunk) => chunk.type === "chunk" && chunk.isEntry
+						);
+						expect(entries).toHaveLength(1);
+					},
+				},
+			],
 			build: {
 				outDir: output,
 				target: "esnext",
