@@ -1100,10 +1100,28 @@ describe("main tray behavior", () => {
         expectedLabel: "Short title — Short preview",
       },
       {
-        name: "exact budgets",
+        name: "source above its overflow allocation still fits in the row",
+        preview: "OK",
+        title: "Amplift Center Agent",
+        expectedLabel: "Amplift Center Agent — OK",
+      },
+      {
+        name: "visible source and message whitespace is normalized",
+        preview: "  Looks   good\nnow  ",
+        title: "  Release   Agent\n ",
+        expectedLabel: "Release Agent — Looks good now",
+      },
+      {
+        name: "complete row exactly at the budget",
         preview: "p".repeat(16),
         title: "T".repeat(12),
         expectedLabel: `${"T".repeat(12)} — ${"p".repeat(16)}`,
+      },
+      {
+        name: "complete row one unit above the budget",
+        preview: "p".repeat(17),
+        title: "T".repeat(12),
+        expectedLabel: `${"T".repeat(12)} — ${"p".repeat(14)}…`,
       },
       {
         name: "long English text",
@@ -1140,6 +1158,12 @@ describe("main tray behavior", () => {
         preview: "",
         title: "Alice",
         expectedLabel: "Alice",
+      },
+      {
+        name: "missing source has no separator",
+        preview: "Message without a source",
+        title: "",
+        expectedLabel: "Message without a source",
       },
       {
         name: "long context and older mixed-language message",

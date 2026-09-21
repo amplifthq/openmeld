@@ -585,18 +585,24 @@ function trayPreviewMenuItems(
       ? `${item.title} · ${item.contextLabel}`
       : item.title;
     const relativeTime = formatRelativeTime(item.occurredAt);
-    const preview = item.preview.replace(/\s+/g, " ").trim();
-    const sourceLabel = truncateNativeMenuText(
-      item.title,
-      preview ? TRAY_PREVIEW_SOURCE_TEXT_BUDGET : TRAY_PREVIEW_TEXT_BUDGET
-    );
-    const prefix = sourceLabel ? `${sourceLabel} — ` : "";
-    const label = preview
-      ? `${prefix}${truncateNativeMenuText(
-          preview,
-          TRAY_PREVIEW_TEXT_BUDGET - nativeMenuTextUnits(prefix)
-        )}`
-      : sourceLabel;
+    const title = normalizeNativeMenuText(item.title);
+    const preview = normalizeNativeMenuText(item.preview);
+    const separator = title && preview ? " — " : "";
+    const completeLabel = `${title}${separator}${preview}`;
+    let label = completeLabel;
+    if (nativeMenuTextUnits(completeLabel) > TRAY_PREVIEW_TEXT_BUDGET) {
+      const sourceLabel = truncateNativeMenuText(
+        title,
+        preview ? TRAY_PREVIEW_SOURCE_TEXT_BUDGET : TRAY_PREVIEW_TEXT_BUDGET
+      );
+      const prefix = sourceLabel && preview ? `${sourceLabel} — ` : sourceLabel;
+      label = preview
+        ? `${prefix}${truncateNativeMenuText(
+            preview,
+            TRAY_PREVIEW_TEXT_BUDGET - nativeMenuTextUnits(prefix)
+          )}`
+        : sourceLabel;
+    }
     return [
       { label: `Latest unread · ${relativeTime}`, enabled: false },
       {
@@ -791,8 +797,12 @@ function nativeMenuTextUnits(value: string): number {
   return units;
 }
 
+function normalizeNativeMenuText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
 function truncateNativeMenuText(value: string, textBudget: number): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
+  const normalized = normalizeNativeMenuText(value);
   if (nativeMenuTextUnits(normalized) <= textBudget) {
     return normalized;
   }
