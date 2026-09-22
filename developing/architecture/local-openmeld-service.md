@@ -1849,6 +1849,11 @@ Catalog consumption rules:
   during admission is persisted on a later read if the local principal still
   matches. A new Service process resolves its own startup principal. Remote
   authorization checks still decide whether the bearer session is valid.
+  During a same-account setup transition, a Service admitted for the candidate
+  login reads that exact candidate's credential snapshot. It must not replace
+  the candidate with the previous committed login just because both share an
+  account. The Execution Host independently verifies the same session identity;
+  commit and rollback remain owned by the existing auth transition journal.
 - One OpenMeld Service process reuses a verified credential for the same
   committed login, storage reference, lane, auth origin, client and account.
   Organization selection and display-only profile changes update context
