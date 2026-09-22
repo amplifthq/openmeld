@@ -196,6 +196,8 @@ const COMMAND_ENTRY_NAME_BY_ROUTE = {
   "space result": "space.result",
   "spaces result": "space.result",
   "space wake-progress": "space.wake_progress",
+  "space respond": "space.respond",
+  "spaces respond": "space.respond",
   "spaces wake-progress": "space.wake_progress",
   "space wake-stop": "space.wake_stop",
   "spaces wake-stop": "space.wake_stop",

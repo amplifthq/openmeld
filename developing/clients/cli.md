@@ -287,6 +287,16 @@ Center Agent Chat. Agent View returns the structured pending interaction and
 stable Space, Signal, client-message, and target-profile identifiers. Neither
 view fabricates a final answer or starts a second turn.
 
+`openmeld space respond <space>` reads the same owner-private pending questions
+as Web and Desktop. Human View offers the available single-choice answers in
+the terminal. Agent View or non-interactive invocation returns the pending
+requests in the existing `GetActiveSpaceWakeProgressResponse` shape without
+selecting an answer. Explicit automation supplies `--execution`,
+`--interaction`, and `--response` JSON from that request. Core remains the sole
+response authority and rejects stale, unauthorized, or conflicting answers.
+An accepted response is reported as sent; it is never described as a completed
+task. `space wake-progress` and the Space retain the final outcome path.
+
 `OpenMeld Service` means the local background service only. Local service lifecycle
 and service diagnosis belong under:
 

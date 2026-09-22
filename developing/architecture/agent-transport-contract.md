@@ -784,6 +784,25 @@ and execution identity before Space elects the final claim. Retries reuse the
 same stopped publication and acknowledgement. An expired/interrupted waiter or
 legacy ambiguous `owner_cancelled` result is not evidence of explicit refusal.
 
+Working-folder recovery uses this same private question contract during local
+admission, before a provider turn begins. It adds no recovery queue, Inbox
+authority, or automatic replay of terminal work. OpenCode's native folder guard
+still runs immediately before prompting. The owner can use the verified original
+folder for this task, explicitly start a new conversation in the current folder,
+or stop. The chosen folder is checked against the current Computer file policy;
+the choice never grants a file-access exception or changes computers.
+`context.workspace_recovery_declined` is an explicit local admission decline.
+Like a Computer file-access decline, Core verifies the accepted result receipt
+and current execution identity before publishing the normal stopped outcome.
+Lost or expired questions are failures, not evidence of an owner decline.
+
+The question/response wire format is unchanged. Deploy Core's explicit-decline
+receiver before publishing the CLI/Service recovery caller; an older Core would
+otherwise present the new decline reason as a failure. Old clients can render
+the standard question. This compatible update does not raise the mandatory
+Service floor or change setup, Space actions, status, or diagnostics contracts.
+Local-component stamping and publication remain deferred to the final release.
+
 ### Runtime Transport And RuntimeCoordinator Boundary
 
 Current production topology has these Core Durable Objects:
