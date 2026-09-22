@@ -12,6 +12,7 @@ import {
   getSpaceInboxUnreadTargetsRpcInputSchema,
   inboxFeedResponseSchema,
   inboxMessageNotificationPreferencesResponseSchema,
+  inboxNotificationObservationsResponseSchema,
   inboxNotificationPreferencesResponseSchema,
   inboxSummaryResponseSchema,
   listInboxFeedRpcInputSchema,
@@ -27,6 +28,7 @@ import {
   markSpaceInboxReadThroughRpcInputSchema,
   mutateInboxFeedResponseSchema,
   mutateInboxFeedRpcInputSchema,
+  observeInboxNotificationsRpcInputSchema,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
   updateInboxMessageNotificationPreferencesRpcInputSchema,
@@ -46,6 +48,7 @@ import type {
   GetSpaceInboxUnreadTargetsRpcInput,
   InboxFeedResponse,
   InboxItem,
+  InboxNotificationObservationsResponse,
   InboxNotificationPreferencesResponse,
   InboxSummaryResponse,
   ListInboxFeedRpcInput,
@@ -61,6 +64,7 @@ import type {
   MarkSpaceInboxReadThroughRpcInput,
   MutateInboxFeedResponse,
   MutateInboxFeedRpcInput,
+  ObserveInboxNotificationsRpcInput,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
   UpdateInboxMessageNotificationPreferencesRpcInput,
@@ -72,6 +76,7 @@ import { resolveActiveOrganizationMembership } from "../../../organizations/orga
 import { createCoreRpcHttpError } from "../../../rpc/errors";
 import { createInboxFeedService } from "../../application/inbox-feed-service";
 import { createInboxMessageNotificationPreferencesService } from "../../application/inbox-message-notification-preferences";
+import { observeInboxNotifications } from "../../application/inbox-notification-observations";
 import {
   createInboxService,
   InboxServiceError,
@@ -147,6 +152,28 @@ export async function rpcDismissInboxItem(
         itemId: request.itemId,
         organizationId: prepared.organizationId,
         recipientUserId: prepared.userId,
+      })
+    )
+  );
+}
+
+export async function rpcObserveInboxNotifications(
+  env: CoreBindings,
+  input: ObserveInboxNotificationsRpcInput
+): Promise<InboxNotificationObservationsResponse> {
+  const request = parseRequest(observeInboxNotificationsRpcInputSchema, input);
+  const prepared = await prepareRequest(env, request.context, true);
+  await reconcileInvitationInbox(prepared.db, prepared.organizationId);
+  return parseResponse(
+    inboxNotificationObservationsResponseSchema,
+    await runService(() =>
+      observeInboxNotifications({
+        db: prepared.db,
+        canManageOrganization: prepared.canManageOrganization,
+        organizationId: prepared.organizationId,
+        recipientUserId: prepared.userId,
+        cursor: request.cursor,
+        limit: request.limit,
       })
     )
   );

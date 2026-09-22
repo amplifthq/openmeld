@@ -1155,6 +1155,13 @@ browser. They do not consume, mark, or store unread state. Clicking one opens
 the canonical source target for that item directly; Web does not insert Inbox
 as an intermediate destination.
 
+Browser observation uses `/v1/inbox/notification-observations`, with a bounded
+insertion cursor and the existing pending-item ledger. The first response is an
+empty baseline, not historical replay; subsequent pages are retained before the
+cursor advances. This avoids first-page loss during bursts and delayed source
+projection. A visible Web window must also have document focus to suppress its
+current-conversation notification or automatically mark a message read.
+
 ### Notification settings
 
 **Settings -> Personal -> Notifications** owns phase 1 delivery preferences:
@@ -1179,10 +1186,14 @@ as an intermediate destination.
   setting on unless the member has explicitly turned it off. **Not now** only
   dismisses the introduction for that member in that browser, and Settings and
   Space Info remain the durable discovery and control surfaces.
+  Storage-read failures appear as paused delivery, independently of the saved
+  switch value. The sample and unusable switch are disabled without saving a new
+  preference; a later focus/settings refresh can clear the error.
 - **Play OpenMeld sounds** is a member- and browser-local preference that
   defaults on. Web plays `ready` for ordinary directly addressed updates and
   `chime` for urgent or open action-required notifications, only after the
-  native browser notification was successfully created. A 350-millisecond
+  browser acknowledges display with `show`. Constructor success is not delivery;
+  error or missing acknowledgement keeps the attempt retryable. A 350-millisecond
   batch produces one cue, with `chime` winning mixed bursts. Playback stays at
   the fixed full app volume, and the setting explains that browser or operating
   system notification sounds are controlled separately. Blocked or failed

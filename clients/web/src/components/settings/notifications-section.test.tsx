@@ -56,6 +56,8 @@ vi.mock("#/lib/organizations/inbox", () => ({
 		updateCurrentInboxNotificationPreferencesMock,
 }));
 
+const STORAGE_PAUSED_PATTERN = /Notifications are paused because/;
+
 describe("NotificationsSection", () => {
 	it("shows Desktop delivery and a native test without requesting browser permission", async () => {
 		const testNotification = vi.fn().mockResolvedValue("delivered");
@@ -137,6 +139,50 @@ describe("NotificationsSection", () => {
 				.getByRole("switch", { name: "Browser notifications" })
 				.getAttribute("aria-checked")
 		).toBe("true");
+	});
+
+	it("shows paused storage delivery without rewriting the preference and clears the error after recovery", async () => {
+		renderNotificationsSection();
+		fireEvent.click(screen.getByRole("button", { name: "Enable" }));
+		await waitFor(() =>
+			expect(
+				screen
+					.getByRole("switch", { name: "Browser notifications" })
+					.getAttribute("aria-checked")
+			).toBe("true")
+		);
+		const original = Storage.prototype.getItem;
+		const read = vi
+			.spyOn(Storage.prototype, "getItem")
+			.mockImplementation(function (this: Storage, key) {
+				if (key === "openmeld.inbox.browser-notifications.delivered-item-ids") {
+					throw new DOMException("blocked", "SecurityError");
+				}
+				return original.call(this, key);
+			});
+		fireEvent.focus(window);
+		expect(await screen.findByText(STORAGE_PAUSED_PATTERN)).toBeTruthy();
+		expect(
+			screen
+				.getByRole("button", { name: "Show an example" })
+				.hasAttribute("disabled")
+		).toBe(true);
+		expect(
+			original.call(
+				window.localStorage,
+				"openmeld.inbox.browser-notifications.enabled:user-123"
+			)
+		).toBe("enabled");
+		read.mockRestore();
+		fireEvent.focus(window);
+		await waitFor(() =>
+			expect(screen.queryByText(STORAGE_PAUSED_PATTERN)).toBeNull()
+		);
+		expect(
+			screen
+				.getByRole("button", { name: "Show an example" })
+				.hasAttribute("disabled")
+		).toBe(false);
 	});
 
 	it("saves the account message default independently and exposes the enabled example", async () => {

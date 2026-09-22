@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { canReceivePersonalAgentActivity } from "../src/inbox/application/inbox-agent-owner-access";
 import { ensureInboxItem } from "../src/inbox/application/inbox-item-service";
 import { createInboxMessageNotificationPreferencesService } from "../src/inbox/application/inbox-message-notification-preferences";
+import { observeInboxNotifications } from "../src/inbox/application/inbox-notification-observations";
 import { createInboxService } from "../src/inbox/application/inbox-service";
 import { reconcileInvitationInbox } from "../src/organizations/invitation-inbox-projection";
 import {
@@ -11,6 +12,121 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox service", () => {
+  it("observes every new insertion across pages without replaying history or losing delayed source events", async () => {
+    const harness = createInboxHarness();
+    try {
+      const identity = {
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
+      const observe = (cursor?: string) =>
+        observeInboxNotifications({
+          db: harness.db,
+          ...identity,
+          cursor,
+          limit: 50,
+        });
+      await seedSpaceItem(harness.db, {
+        recipientUserId: "user_one",
+        spaceId: "space_one",
+        sourceKey: "history",
+        occurredAtMs: 9000,
+      });
+      const baseline = await observe();
+      expect(baseline.items).toEqual([]);
+      const expected: string[] = [];
+      for (let index = 0; index < 101; index += 1) {
+        const saved = await seedSpaceItem(harness.db, {
+          recipientUserId: "user_one",
+          spaceId: "space_one",
+          sourceKey: `burst-${index}`,
+          occurredAtMs: 1000,
+        });
+        expected.push(saved.itemId);
+      }
+      const first = await observe(baseline.cursor);
+      expect(first.items.map((item) => item.id)).toEqual(expected.slice(0, 50));
+      expect(first.hasMore).toBe(true);
+      const late = await seedSpaceItem(harness.db, {
+        recipientUserId: "user_one",
+        spaceId: "space_one",
+        sourceKey: "later-insertion",
+        occurredAtMs: 500,
+      });
+      const second = await observe(first.cursor);
+      const third = await observe(second.cursor);
+      expect(
+        [...first.items, ...second.items, ...third.items].map((item) => item.id)
+      ).toEqual(expected);
+      expect(third.hasMore).toBe(false);
+      expect(third.items.every((item) => item.readAt === null)).toBe(true);
+      const next = await observe(third.cursor);
+      expect(next.items.map((item) => item.id)).toEqual([late.itemId]);
+      expect((await observe(next.cursor)).items).toEqual([]);
+      await expect(
+        observeInboxNotifications({
+          db: harness.db,
+          organizationId: "org_one",
+          recipientUserId: "user_two",
+          cursor: next.cursor,
+        })
+      ).rejects.toMatchObject({ status: 400 });
+      await expect(observe("invalid-cursor")).rejects.toMatchObject({
+        status: 400,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("filters inaccessible and cleared observations before advancing the observation cursor", async () => {
+    const harness = createInboxHarness();
+    try {
+      const input = {
+        db: harness.db,
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
+      const baseline = await observeInboxNotifications(input);
+      seedSpaceIndex(harness, {
+        organizationId: "org_one",
+        spaceId: "no-access",
+      });
+      await seedSpaceItem(harness.db, {
+        recipientUserId: "user_one",
+        spaceId: "no-access",
+        sourceKey: "private",
+      });
+      const cleared = await seedSpaceItem(harness.db, {
+        recipientUserId: "user_one",
+        spaceId: "space_one",
+        sourceKey: "cleared",
+      });
+      harness.run({
+        sql: "UPDATE inbox_items SET cleared_at_ms = 3000 WHERE id = ?",
+        params: [cleared.itemId],
+      });
+      const result = await observeInboxNotifications({
+        ...input,
+        cursor: baseline.cursor,
+      });
+      expect(result.items).toEqual([]);
+      expect(result.hasMore).toBe(false);
+      const next = await seedSpaceItem(harness.db, {
+        recipientUserId: "user_one",
+        spaceId: "space_one",
+        sourceKey: "accessible",
+      });
+      expect(
+        (
+          await observeInboxNotifications({ ...input, cursor: result.cursor })
+        ).items.map((item) => item.id)
+      ).toEqual([next.itemId]);
+    } finally {
+      harness.close();
+    }
+  });
+
   it.each([
     "mentions_and_replies",
     "all_messages",

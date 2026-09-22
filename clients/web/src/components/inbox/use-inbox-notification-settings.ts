@@ -5,6 +5,7 @@ import { subscribeInboxBrowserNotificationSoundSettings } from "#/lib/inbox/brow
 import {
 	disableInboxNotifications,
 	enableInboxNotifications,
+	INBOX_NOTIFICATION_STORAGE_UNAVAILABLE_MESSAGE,
 	type InboxNotificationSettings,
 	readInboxNotificationSettings,
 	setInboxNotificationSoundEnabled,
@@ -108,7 +109,10 @@ export function useInboxNotificationSettings(
 	};
 
 	return {
-		error: currentOperationState?.error ?? null,
+		canDeliver: settings?.enabled === true && !settings.unavailableReason,
+		error: settings?.unavailableReason
+			? INBOX_NOTIFICATION_STORAGE_UNAVAILABLE_MESSAGE
+			: (currentOperationState?.error ?? null),
 		isPending: currentOperationState?.isPending ?? false,
 		setEnabled,
 		setSoundEnabled,
@@ -124,6 +128,7 @@ function readStableSettingsSnapshot(userId: string): InboxNotificationSettings {
 		cached &&
 		cached.enabled === current.enabled &&
 		cached.permission === current.permission &&
+		cached.unavailableReason === current.unavailableReason &&
 		cached.soundEnabled === current.soundEnabled
 	) {
 		return cached;

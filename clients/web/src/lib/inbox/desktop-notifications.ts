@@ -30,5 +30,10 @@ export async function isNotificationConversationVisible(): Promise<boolean> {
 	const desktop = getDesktopPlatform();
 	return desktop
 		? await desktop.notificationFocused()
-		: document.visibilityState === "visible";
+		: isInboxDocumentFocused();
+}
+
+/** A visible second window is not evidence that its conversation is being read. */
+export function isInboxDocumentFocused(): boolean {
+	return document.visibilityState === "visible" && document.hasFocus();
 }

@@ -196,8 +196,9 @@ describe("SpaceThreadPanel", () => {
 		);
 	});
 
-	it("reads the visible reply only in the open Thread scope", async () => {
+	it("reads the visible focused reply only in the open Thread scope", async () => {
 		vi.useFakeTimers();
+		const focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
 		const originalHitTest = document.elementFromPoint;
 		Object.defineProperty(document, "elementFromPoint", {
 			configurable: true,
@@ -235,6 +236,7 @@ describe("SpaceThreadPanel", () => {
 			await act(async () => vi.advanceTimersByTimeAsync(1));
 			expect(onViewedThroughTs).toHaveBeenCalledExactlyOnceWith(latestTs);
 		} finally {
+			focus.mockRestore();
 			geometry.mockRestore();
 			Object.defineProperty(document, "elementFromPoint", {
 				configurable: true,

@@ -37,7 +37,7 @@ export function ClientNotificationControl(input: {
 		<Switch
 			aria-label={label}
 			checked={input.settings.enabled}
-			disabled={input.disabled}
+			disabled={input.disabled || Boolean(input.settings.unavailableReason)}
 			onCheckedChange={input.onChange}
 		/>
 	);
