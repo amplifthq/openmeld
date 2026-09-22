@@ -848,7 +848,7 @@ test("keeps Deep Confidence setup and sharding intentional", () => {
 
   assert.equal(
     workflow.match(/uses: \.\/\.github\/actions\/setup-node-pnpm/gu)?.length,
-    4
+    5
   );
   assert.ok(
     workflow.includes("pnpm exec turbo run build --filter=@openmeld/core^...")

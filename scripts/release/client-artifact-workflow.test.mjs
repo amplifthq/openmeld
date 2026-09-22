@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { parse } from "yaml";
+import { rendererBuildEnvironment } from "../desktop/renderer-build.mjs";
+import { resourcePolicy } from "../dev/local-resources.mjs";
 
 test("manual client artifact validation excludes the broad diagnostic jobs", () => {
   const workflow = parse(
@@ -39,4 +41,22 @@ test("manual client artifact validation excludes the broad diagnostic jobs", () 
     `${"$"}{{ runner.temp }}/openmeld-artifact-check`
   );
   assert.equal(job.env.OPENMELD_HOME, undefined);
+});
+
+test("hosted renderer fits the observed runner startup budget without bypassing admission", () => {
+  const workflow = parse(
+    readFileSync(
+      new URL("../../.github/workflows/deep-confidence.yml", import.meta.url),
+      "utf8"
+    )
+  );
+  // Run 35719672053 reported 8.1 GiB available on its 14 GiB macOS runner.
+  // A 7 GiB reservation plus 1.4 GiB headroom waited without starting Vite.
+  const memoryBytes = 14 * 1024 ** 3;
+  const env = rendererBuildEnvironment(
+    workflow.jobs["release-artifacts"].env,
+    memoryBytes
+  );
+  const policy = resourcePolicy(env, memoryBytes);
+  assert.ok(policy.costs.heavy + policy.headroomBytes <= 8.1 * 1024 ** 3);
 });
