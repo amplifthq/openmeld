@@ -10,6 +10,7 @@ import {
   buildProductionReleasePlan,
   expandRequestedReleaseScopes,
 } from "./production-release.mjs";
+import { admitCliNpmArtifact } from "./release-cli-resume.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 export const PRODUCTION_TRAIN_SCOPES_ENV = "OPENMELD_PRODUCTION_TRAIN_SCOPES";
@@ -88,6 +89,7 @@ export function resolveProductionTrain(input, dependencies = {}) {
   }
   return {
     artifactScopes: [
+      ...(plan.scopes.includes("cli") ? ["cli"] : []),
       ...(desktopSelected ? ["desktop"] : []),
       ...(plan.scopes.includes("web") ? ["web"] : []),
     ],
@@ -115,13 +117,25 @@ export async function admitProductionTrainArtifacts(input, dependencies = {}) {
       "Production train source must be the checked-out release SHA."
     );
   }
-  const artifacts = { desktop: "not_required", web: "not_required" };
+  const artifacts = {
+    cli: "not_required",
+    desktop: "not_required",
+    web: "not_required",
+  };
   for (const scope of train.artifactScopes) {
-    await (dependencies.checkArtifact ?? checkProductionArtifact)({
-      root: input.root,
-      scope,
-      sourceSha: train.sourceSha,
-    });
+    if (scope === "cli") {
+      await (dependencies.checkNpmArtifact ?? admitCliNpmArtifact)({
+        cwd: input.root,
+        env: input.env,
+        sourceSha: train.sourceSha,
+      });
+    } else {
+      await (dependencies.checkArtifact ?? checkProductionArtifact)({
+        root: input.root,
+        scope,
+        sourceSha: train.sourceSha,
+      });
+    }
     artifacts[scope] = "verified";
   }
   return { ...train, artifacts };

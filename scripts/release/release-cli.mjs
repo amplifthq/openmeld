@@ -21,6 +21,9 @@ const DIRTY_PATH_PREVIEW_LIMIT = 24;
 const LINE_SPLIT_REGEX = /\r?\n/u;
 const CANONICAL_RELEASE_VERSION_PATTERN =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
+const PRODUCTION_STAGE_ADMISSION_PATH = fileURLToPath(
+  new URL("./production-stage-admission.mjs", import.meta.url)
+);
 
 export function parseGitStatusPorcelain(output) {
   return String(output)
@@ -247,6 +250,15 @@ export async function runCliRelease(input = {}) {
         encoding: "utf8",
       }).trim()
   ).trim();
+  const admitProductionStage =
+    input.adapters?.admitProductionStage ?? admitCliProductionStage;
+  await admitProductionStage({
+    cwd,
+    env,
+    repo: env.GITHUB_REPOSITORY,
+    sourceSha,
+    write: input.write,
+  });
   const admitTrainArtifacts =
     input.adapters?.admitTrainArtifacts ??
     (async (admissionInput, dependencies) => {
@@ -266,6 +278,9 @@ export async function runCliRelease(input = {}) {
         : {}),
       ...(input.adapters?.checkArtifact
         ? { checkArtifact: input.adapters.checkArtifact }
+        : {}),
+      ...(input.adapters?.checkNpmArtifact
+        ? { checkNpmArtifact: input.adapters.checkNpmArtifact }
         : {}),
       ...(input.adapters?.readHeadSha
         ? { readHeadSha: input.adapters.readHeadSha }
@@ -303,6 +318,32 @@ export async function runCliRelease(input = {}) {
       runStep,
     },
   });
+}
+
+export function admitCliProductionStage(input) {
+  const args = [
+    PRODUCTION_STAGE_ADMISSION_PATH,
+    "--scope",
+    "cli",
+    "--source-sha",
+    input.sourceSha,
+    ...(input.repo ? ["--repo", input.repo] : []),
+  ];
+  const result = (input.spawn ?? spawnSync)(process.execPath, args, {
+    cwd: input.cwd,
+    encoding: "utf8",
+    env: input.env,
+    maxBuffer: 20 * 1024 * 1024,
+  });
+  if (result.error || result.status !== 0) {
+    throw new Error(
+      `Production CLI stage admission failed: ${result.error?.message ?? result.stderr?.trim() ?? `exit ${String(result.status)}`}`
+    );
+  }
+  const output = String(result.stdout ?? "");
+  if (output) {
+    (input.write ?? ((value) => process.stdout.write(value)))(output);
+  }
 }
 
 export function assertCliReleaseVersionTarget(input = {}) {

@@ -9,6 +9,7 @@ import {
 
 const ALREADY_DONE_RE = /SKIP \(already done/u;
 const WEB_ARTIFACT_REJECTED_RE = /Web artifact rejected/u;
+const NPM_ARTIFACT_REJECTED_RE = /isolated npm consumer rejected/u;
 
 test("keeps the production database sequence minimal and fail closed", () => {
   assert.deepEqual(
@@ -92,6 +93,7 @@ test("the database entry admits a train Web artifact before any database mutatio
     runProductionDbRelease({
       adapters: {
         assertCleanWorktree: () => undefined,
+        checkNpmArtifact: () => undefined,
         checkArtifact: () => {
           throw new Error("Web artifact rejected");
         },
@@ -104,5 +106,30 @@ test("the database entry admits a train Web artifact before any database mutatio
     }),
     WEB_ARTIFACT_REJECTED_RE
   );
+  assert.deepEqual(mutations, []);
+});
+
+test("the database entry rejects a bad CLI package before any database mutation", async () => {
+  const mutations = [];
+  const admissions = [];
+  await assert.rejects(
+    runProductionDbRelease({
+      adapters: {
+        assertCleanWorktree: () => undefined,
+        checkArtifact: () => admissions.push("web"),
+        checkNpmArtifact: () => {
+          admissions.push("npm");
+          throw new Error("isolated npm consumer rejected");
+        },
+        readHeadSha: () => "a".repeat(40),
+        runStep: (step) => mutations.push(step.label),
+      },
+      cwd: "/release-source",
+      env: { OPENMELD_PRODUCTION_TRAIN_SCOPES: "db,core,cli,web" },
+      write: () => undefined,
+    }),
+    NPM_ARTIFACT_REJECTED_RE
+  );
+  assert.deepEqual(admissions, ["npm"]);
   assert.deepEqual(mutations, []);
 });

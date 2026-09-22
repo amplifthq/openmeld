@@ -1,6 +1,16 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -18,6 +28,9 @@ const CONSUMER_ENVIRONMENT_KEY =
 const LINE_BREAK = /\r?\n/u;
 const SOURCE_SHA = /^[a-f0-9]{40}$/u;
 const SHA512_INTEGRITY = /^sha512-[A-Za-z0-9+/]{86}==$/u;
+const CACHE_SCHEMA_VERSION = 1;
+const BUILD_ENVIRONMENT_KEY =
+  /^(?:cc|cflags|cxx|cxxflags|ldflags|macosx_deployment_target|node_options|npm_config_arch|npm_config_target_arch|sdkroot)$/iu;
 
 export function assertNpmRuntimeDependencies(manifest) {
   for (const field of RUNTIME_DEPENDENCY_FIELDS) {
@@ -116,6 +129,24 @@ export async function inspectNpmCliArtifact(artifactPath, expected = {}) {
     manifest,
     integrity: `sha512-${createHash("sha512").update(readFileSync(artifactPath)).digest("base64")}`,
   };
+}
+
+export function verifyPreparedNpmCliArtifact(input) {
+  if (
+    !(
+      input?.path &&
+      SHA512_INTEGRITY.test(input.integrity ?? "") &&
+      isRegularFile(input.path)
+    )
+  ) {
+    throw new Error("npm publication requires a verified CLI tarball.");
+  }
+  const integrity = `sha512-${createHash("sha512").update(readFileSync(input.path)).digest("base64")}`;
+  if (integrity !== input.integrity) {
+    throw new Error(
+      "The prepared npm tarball changed after consumer verification; refusing publication."
+    );
+  }
 }
 
 function consumerEnvironment(root, source) {
@@ -238,15 +269,248 @@ export async function packNpmCliArtifact(input = {}) {
   }
 }
 
-export async function prepareNpmCliArtifact(input = {}) {
-  const artifact = await packNpmCliArtifact(input);
-  try {
-    await verifyNpmCliConsumer(artifact.path, artifact.manifest, input.env);
-    return artifact;
-  } catch (error) {
-    artifact.cleanup();
-    throw error;
+export async function prepareNpmCliArtifact(input = {}, dependencies = {}) {
+  return await prepareCachedNpmCliArtifact(input, dependencies);
+}
+
+export async function admitNpmCliArtifact(input = {}, dependencies = {}) {
+  return await prepareCachedNpmCliArtifact(input, {
+    ...dependencies,
+    runReleaseReady:
+      dependencies.runReleaseReady ??
+      (async ({ cwd, env }) => {
+        await run("pnpm", ["run", "verify:release-ready", "--", "--force"], {
+          cwd,
+          env,
+          timeout: 600_000,
+        });
+      }),
+  });
+}
+
+async function prepareCachedNpmCliArtifact(input = {}, dependencies = {}) {
+  const cwd = input.cwd ?? REPO_ROOT;
+  const env = input.env ?? process.env;
+  const sourceSha = await readExactCleanSource({
+    cwd,
+    env,
+    expectedSourceSha: input.sourceSha,
+  });
+  const runtime = await resolveToolRuntime({ cwd, env }, dependencies);
+  const buildInputs = hashBuildInputs({ env, runtime, sourceSha });
+  const cache = resolveNpmArtifactCache({ cwd, buildInputs });
+  const expected = readExpectedNpmArtifact({ cwd, sourceSha });
+  const cached = await readCachedNpmCliArtifact(
+    { cache, expected, runtime, sourceSha },
+    dependencies
+  );
+  if (cached) {
+    return cached;
   }
+
+  await dependencies.runReleaseReady?.({ cwd, env, sourceSha });
+  const postBuildSourceSha = await readExactCleanSource({
+    cwd,
+    env,
+    expectedSourceSha: sourceSha,
+  });
+  if (postBuildSourceSha !== sourceSha) {
+    throw new Error("CLI artifact build changed the exact release source.");
+  }
+
+  const packArtifact = dependencies.packArtifact ?? packNpmCliArtifact;
+  const verifyConsumer = dependencies.verifyConsumer ?? verifyNpmCliConsumer;
+  const artifact = await packArtifact({ cwd, env });
+  try {
+    await verifyConsumer(artifact.path, artifact.manifest, env);
+    await readExactCleanSource({
+      cwd,
+      env,
+      expectedSourceSha: sourceSha,
+    });
+    const inspected = await (
+      dependencies.inspectArtifact ?? inspectNpmCliArtifact
+    )(artifact.path, expected);
+    mkdirSync(cache.directory, { recursive: true });
+    const temporaryArtifact = `${cache.artifactPath}.${process.pid}.tmp`;
+    copyFileSync(artifact.path, temporaryArtifact);
+    renameSync(temporaryArtifact, cache.artifactPath);
+    const cachedResult = await (
+      dependencies.inspectArtifact ?? inspectNpmCliArtifact
+    )(cache.artifactPath, expected);
+    if (
+      cachedResult.integrity !== inspected.integrity ||
+      cachedResult.integrity !== artifact.integrity
+    ) {
+      throw new Error("Cached npm artifact bytes changed during handoff.");
+    }
+    writeJsonAtomically(cache.receiptPath, {
+      artifactIntegrity: cachedResult.integrity,
+      buildInputs,
+      manifest: {
+        gitHead: cachedResult.manifest.gitHead,
+        minRequiredCliVersion:
+          cachedResult.manifest.openmeld?.minRequiredCliVersion,
+        name: cachedResult.manifest.name,
+        version: cachedResult.manifest.version,
+      },
+      runtime,
+      schemaVersion: CACHE_SCHEMA_VERSION,
+      sourceSha,
+    });
+    return persistentArtifact(cache.artifactPath, cachedResult);
+  } catch (error) {
+    rmSync(cache.directory, { recursive: true, force: true, maxRetries: 3 });
+    throw error;
+  } finally {
+    artifact.cleanup();
+  }
+}
+
+async function readExactCleanSource(input) {
+  const sourceSha = await run(
+    "git",
+    ["rev-parse", "--verify", "HEAD^{commit}"],
+    {
+      cwd: input.cwd,
+      env: input.env,
+    }
+  );
+  if (!SOURCE_SHA.test(sourceSha)) {
+    throw new Error("CLI artifact admission requires an exact source commit.");
+  }
+  if (input.expectedSourceSha && sourceSha !== input.expectedSourceSha) {
+    throw new Error("CLI artifact source does not match the release train.");
+  }
+  const status = await run(
+    "git",
+    ["status", "--porcelain=v1", "--untracked-files=normal"],
+    { cwd: input.cwd, env: input.env }
+  );
+  if (status) {
+    throw new Error("CLI artifact admission requires a clean worktree.");
+  }
+  return sourceSha;
+}
+
+async function resolveToolRuntime(input, dependencies) {
+  if (dependencies.readToolRuntime) {
+    return await dependencies.readToolRuntime(input);
+  }
+  return {
+    arch: process.arch,
+    ...(process.platform === "darwin"
+      ? {
+          compiler: await run("xcrun", ["clang", "--version"], input),
+          sdk: await run("xcrun", ["--show-sdk-version"], input),
+        }
+      : {}),
+    node: process.version,
+    npm: await run("npm", ["--version"], input),
+    platform: process.platform,
+    pnpm: await run("pnpm", ["--version"], input),
+  };
+}
+
+function hashBuildInputs(input) {
+  const environment = Object.fromEntries(
+    Object.entries(input.env)
+      .filter(([key]) => BUILD_ENVIRONMENT_KEY.test(key))
+      .sort(([left], [right]) => left.localeCompare(right))
+  );
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        environment,
+        runtime: input.runtime,
+        sourceSha: input.sourceSha,
+      })
+    )
+    .digest("hex");
+}
+
+function resolveNpmArtifactCache(input) {
+  const directory = join(
+    input.cwd,
+    "dev-tmp/release-artifact-check/artifacts/cli",
+    input.buildInputs
+  );
+  return {
+    artifactPath: join(directory, "openmeld.tgz"),
+    buildInputs: input.buildInputs,
+    directory,
+    receiptPath: join(directory, "receipt.json"),
+  };
+}
+
+function readExpectedNpmArtifact(input) {
+  const source = JSON.parse(
+    readFileSync(join(input.cwd, "clients/openmeld-cli/package.json"), "utf8")
+  );
+  return {
+    gitHead: input.sourceSha,
+    minRequiredCliVersion: source.openmeld?.minRequiredCliVersion,
+    version: source.version,
+  };
+}
+
+async function readCachedNpmCliArtifact(input, dependencies) {
+  if (
+    !(
+      isRegularFile(input.cache.receiptPath) &&
+      isRegularFile(input.cache.artifactPath)
+    )
+  ) {
+    return null;
+  }
+  try {
+    const receipt = JSON.parse(readFileSync(input.cache.receiptPath, "utf8"));
+    if (
+      receipt.schemaVersion !== CACHE_SCHEMA_VERSION ||
+      receipt.buildInputs !== input.cache.buildInputs ||
+      receipt.sourceSha !== input.sourceSha ||
+      JSON.stringify(receipt.runtime) !== JSON.stringify(input.runtime)
+    ) {
+      return null;
+    }
+    const result = await (
+      dependencies.inspectArtifact ?? inspectNpmCliArtifact
+    )(input.cache.artifactPath, input.expected);
+    if (
+      receipt.artifactIntegrity !== result.integrity ||
+      receipt.manifest?.name !== result.manifest.name ||
+      receipt.manifest?.version !== result.manifest.version ||
+      receipt.manifest?.gitHead !== result.manifest.gitHead ||
+      receipt.manifest?.minRequiredCliVersion !==
+        result.manifest.openmeld?.minRequiredCliVersion
+    ) {
+      return null;
+    }
+    return persistentArtifact(input.cache.artifactPath, result);
+  } catch {
+    rmSync(input.cache.directory, {
+      recursive: true,
+      force: true,
+      maxRetries: 3,
+    });
+    return null;
+  }
+}
+
+function isRegularFile(path) {
+  return existsSync(path) && lstatSync(path).isFile();
+}
+
+function persistentArtifact(path, result) {
+  return { ...result, path, cleanup: () => undefined };
+}
+
+function writeJsonAtomically(path, value) {
+  const temporaryPath = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, {
+    mode: 0o600,
+  });
+  renameSync(temporaryPath, path);
 }
 
 export async function verifyPublishedNpmCliArtifact(input) {

@@ -44,7 +44,7 @@ test("requires an explicit train and uses the release plan source and scopes", (
       }
     ),
     {
-      artifactScopes: ["web"],
+      artifactScopes: ["cli", "web"],
       productionScopes: ["db", "cli", "web"],
       scopes: ["db", "cli", "web"],
       selectedScopes: ["db"],
@@ -73,7 +73,7 @@ test("rejects an entry scope outside the declared train", () => {
   );
 });
 
-test("checks selected Desktop then Web artifacts and skips both for a backend-only train", async () => {
+test("checks selected CLI, Desktop, then Web artifacts and skips all for a backend-only train", async () => {
   const checks = [];
   const dependencies = {
     buildPlan: ({ scope, sourceSha }) => ({
@@ -81,6 +81,7 @@ test("checks selected Desktop then Web artifacts and skips both for a backend-on
       sourceSha,
     }),
     checkArtifact: (input) => checks.push(input),
+    checkNpmArtifact: (input) => checks.push(input),
     readHeadSha: () => SOURCE_SHA,
   };
   assert.deepEqual(
@@ -95,7 +96,11 @@ test("checks selected Desktop then Web artifacts and skips both for a backend-on
     ),
     {
       artifactScopes: [],
-      artifacts: { desktop: "not_required", web: "not_required" },
+      artifacts: {
+        cli: "not_required",
+        desktop: "not_required",
+        web: "not_required",
+      },
       productionScopes: ["db"],
       scopes: ["db"],
       selectedScopes: ["db"],
@@ -115,8 +120,8 @@ test("checks selected Desktop then Web artifacts and skips both for a backend-on
       dependencies
     ),
     {
-      artifactScopes: ["desktop", "web"],
-      artifacts: { desktop: "verified", web: "verified" },
+      artifactScopes: ["cli", "desktop", "web"],
+      artifacts: { cli: "verified", desktop: "verified", web: "verified" },
       productionScopes: ["db", "cli", "web"],
       scopes: ["db", "cli", "web", "desktop"],
       selectedScopes: ["cli"],
@@ -124,6 +129,11 @@ test("checks selected Desktop then Web artifacts and skips both for a backend-on
     }
   );
   assert.deepEqual(checks, [
+    {
+      cwd: "/release",
+      env: { [PRODUCTION_TRAIN_SCOPES_ENV]: "db,cli,web,desktop" },
+      sourceSha: SOURCE_SHA,
+    },
     { root: "/release", scope: "desktop", sourceSha: SOURCE_SHA },
     { root: "/release", scope: "web", sourceSha: SOURCE_SHA },
   ]);
@@ -155,7 +165,11 @@ test("the CLI admits an explicit selected scope at the checked-out source", () =
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), {
     artifactScopes: [],
-    artifacts: { desktop: "not_required", web: "not_required" },
+    artifacts: {
+      cli: "not_required",
+      desktop: "not_required",
+      web: "not_required",
+    },
     productionScopes: ["db"],
     scopes: ["db"],
     selectedScopes: ["db"],

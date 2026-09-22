@@ -73,6 +73,15 @@ test("passes the explicit production train into hosted CLI admission", () => {
   assert.ok(hostedRelease.includes("env: releaseEnvironment"));
   assert.ok(cliRelease.includes("admitTrainArtifacts"));
   assert.ok(cliRelease.includes('selectedScopes: "cli"'));
+  for (const permission of [
+    "actions: read",
+    "checks: read",
+    "statuses: read",
+    "pull-requests: read",
+  ]) {
+    assert.ok(workflow.includes(permission));
+  }
+  assert.ok(hostedRelease.includes("GH_TOKEN: token"));
 });
 
 test("keeps the signed and notarized CLI publisher fail closed", () => {

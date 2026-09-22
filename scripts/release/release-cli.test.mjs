@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,7 @@ import {
   recordNpmPublicationReceipt,
 } from "./npm-publication-receipt.mjs";
 import {
+  admitCliProductionStage,
   assertChannelReadyForVersionOnlyRelease,
   assertCliReleaseVersionTarget,
   buildCoreDeployStepSpec,
@@ -29,6 +30,7 @@ import {
   tagCliRelease,
 } from "./release-cli.mjs";
 import {
+  admitCliNpmArtifact,
   probeCliReleaseStages,
   readCompletedCliRelease,
   resolveCoreProjectionTag,
@@ -52,6 +54,9 @@ const RECEIPT_SAVE_RE = /Could not save/u;
 const UNCONFIRMED_ACCEPTANCE_RE = /acceptance is unconfirmed/u;
 const INTERRUPTED_PUBLISH_RE = /publish connection interrupted/u;
 const WEB_ARTIFACT_REJECTED_RE = /Web artifact rejected/u;
+const PENDING_CORE_PREREQUISITE_RE = /pending prerequisite core/u;
+const ISOLATED_NPM_CONSUMER_RE = /isolated npm consumer/u;
+const PREPARED_NPM_TARBALL_CHANGED_RE = /tarball changed/u;
 
 const CLI_RELEASE_REFUSED_RE = /CLI release refused/u;
 const DEPLOYS_CORE_RE = /deploys Core/u;
@@ -116,6 +121,8 @@ const TEST_CLI_ARCHIVE = gzipSync(TEST_CLI_BINARY);
 const PUBLISHED_CONSUMER_FAILURE = /published consumer cannot install/u;
 const LOCAL_CONSUMER_FAILURE = /consumer install failed/u;
 const ARTIFACT_ADAPTERS = {
+  admitProductionStage: () => Promise.resolve(),
+  checkNpmArtifact: () => Promise.resolve(),
   prepareNpmArtifact: () =>
     Promise.resolve({
       path: join(tmpdir(), "verified openmeld.tgz"),
@@ -123,7 +130,49 @@ const ARTIFACT_ADAPTERS = {
       cleanup: () => undefined,
     }),
   verifyNpmArtifact: () => Promise.resolve(),
+  verifyPreparedNpmArtifact: () => undefined,
 };
+
+test("train npm admission verifies published bytes without requiring a local build", async () => {
+  const { git, repoRoot } = await createReleaseRepo("0.7.96");
+  let localAdmissionCount = 0;
+  let publishedVerificationCount = 0;
+  try {
+    await mkdir(join(repoRoot, "release"), { recursive: true });
+    await writeFile(join(repoRoot, "release/local-components.json"), "{}\n");
+    await git("add", "release/local-components.json");
+    await git("commit", "-m", "add release manifest");
+    const sourceSha = (await git("rev-parse", "HEAD")).stdout.trim();
+    const result = await admitCliNpmArtifact({
+      cwd: repoRoot,
+      sourceSha,
+      adapters: {
+        admitNpmArtifact: () => {
+          localAdmissionCount += 1;
+          throw new Error("published recovery must not build");
+        },
+        runCommand: () =>
+          Promise.resolve({
+            status: 0,
+            stdout: buildCapturedNpmVersionFloorStdout({
+              version: "0.7.96",
+              minRequiredCliVersion: "0.7.96",
+            }),
+            stderr: "",
+          }),
+        verifyNpmArtifact: () => {
+          publishedVerificationCount += 1;
+        },
+      },
+    });
+    assert.equal(result.npm.action, "SKIP");
+    assert.equal(result.npm.criterion, "npm-artifact-consumable");
+    assert.equal(localAdmissionCount, 0);
+    assert.equal(publishedVerificationCount, 1);
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
 
 function buildCapturedNpmVersionFloorStdout(input) {
   return `${JSON.stringify({
@@ -217,6 +266,33 @@ test("parses porcelain status output for release safety checks", () => {
       "?? developing/product/agent-model-selection.md",
     ]
   );
+});
+
+test("runs CLI stage admission from the exact release-source checkout", () => {
+  const calls = [];
+  const output = [];
+  admitCliProductionStage({
+    cwd: "/release-source",
+    env: { PATH: "/test-bin" },
+    repo: "openmeld/openmeld",
+    sourceSha: "a".repeat(40),
+    spawn: (command, args, options) => {
+      calls.push({ command, args, options });
+      return { status: 0, stdout: "Production stage admission passed\n" };
+    },
+    write: (value) => output.push(value),
+  });
+  assert.equal(calls[0].command, process.execPath);
+  assert.deepEqual(calls[0].args.slice(-6), [
+    "--scope",
+    "cli",
+    "--source-sha",
+    "a".repeat(40),
+    "--repo",
+    "openmeld/openmeld",
+  ]);
+  assert.equal(calls[0].options.cwd, "/release-source");
+  assert.deepEqual(output, ["Production stage admission passed\n"]);
 });
 
 test("explains why agents must not release CLI from a dirty worktree", () => {
@@ -359,13 +435,17 @@ test("adds the binary upload step only when release:cli opts in", () => {
 test("rejects a train Web artifact before any CLI publication mutation", async () => {
   const { repoRoot } = await createReleaseRepo("0.7.96");
   const mutations = [];
+  const admissions = [];
   try {
     await assert.rejects(
       runCliRelease({
         adapters: {
+          admitProductionStage: () => admissions.push("stage"),
           checkArtifact: () => {
+            admissions.push("web");
             throw new Error("Web artifact rejected");
           },
+          checkNpmArtifact: () => admissions.push("npm"),
           runStep: (step) => mutations.push(step.label),
         },
         cwd: repoRoot,
@@ -374,8 +454,140 @@ test("rejects a train Web artifact before any CLI publication mutation", async (
       }),
       WEB_ARTIFACT_REJECTED_RE
     );
+    assert.deepEqual(admissions, ["stage", "npm", "web"]);
     assert.deepEqual(mutations, []);
   } finally {
+    await rm(repoRoot, { force: true, recursive: true });
+  }
+});
+
+test("blocks the CLI entry on a pending Core prerequisite before artifact or publication work", async () => {
+  const { repoRoot } = await createReleaseRepo("0.7.96");
+  const calls = [];
+  try {
+    await assert.rejects(
+      runCliRelease({
+        adapters: {
+          admitProductionStage: ({ cwd }) => {
+            calls.push(["stage", cwd]);
+            throw new Error("pending prerequisite core");
+          },
+          admitTrainArtifacts: () => calls.push(["artifacts"]),
+          runStep: (step) => calls.push(["mutation", step.label]),
+        },
+        cwd: repoRoot,
+        env: { OPENMELD_PRODUCTION_TRAIN_SCOPES: "core,cli" },
+      }),
+      PENDING_CORE_PREREQUISITE_RE
+    );
+    assert.deepEqual(calls, [["stage", repoRoot]]);
+  } finally {
+    await rm(repoRoot, { force: true, recursive: true });
+  }
+});
+
+test("rejects a bad npm package at the CLI entry before publication work", async () => {
+  const { repoRoot } = await createReleaseRepo("0.7.96");
+  const calls = [];
+  try {
+    await assert.rejects(
+      runCliRelease({
+        adapters: {
+          admitProductionStage: () => calls.push("stage"),
+          checkNpmArtifact: () => {
+            calls.push("npm");
+            throw new Error("isolated npm consumer rejected the package");
+          },
+          runStep: (step) => calls.push(step.label),
+        },
+        cwd: repoRoot,
+        env: { OPENMELD_PRODUCTION_TRAIN_SCOPES: "core,cli" },
+      }),
+      ISOLATED_NPM_CONSUMER_RE
+    );
+    assert.deepEqual(calls, ["stage", "npm"]);
+  } finally {
+    await rm(repoRoot, { force: true, recursive: true });
+  }
+});
+
+test("rehashes the prepared tarball after binary work and before any npm receipt", async () => {
+  const { git, repoRoot } = await createReleaseRepo("0.7.96");
+  const artifactRoot = await mkdtemp(join(tmpdir(), "openmeld-tampered-npm-"));
+  const artifactPath = join(artifactRoot, "openmeld.tgz");
+  const originalBytes = Buffer.from("consumer-proven npm tarball");
+  await writeFile(artifactPath, originalBytes);
+  const integrity = `sha512-${createHash("sha512").update(originalBytes).digest("base64")}`;
+  const receipts = [];
+  const steps = [];
+  try {
+    await mkdir(join(repoRoot, "release"), { recursive: true });
+    await writeFile(join(repoRoot, "release/local-components.json"), "{}\n");
+    await git("add", "release/local-components.json");
+    await git("commit", "-m", "add release manifest");
+    await configureTestOrigin({ git, repoRoot });
+    const coreTag = resolveCoreProjectionTag({ cwd: repoRoot });
+    await assert.rejects(
+      runCliRelease({
+        adapters: {
+          admitProductionStage: () => undefined,
+          checkNpmArtifact: () => undefined,
+          fetch: () =>
+            Promise.resolve(Response.json(buildTestCliManifest("0.7.95"))),
+          prepareNpmArtifact: () =>
+            Promise.resolve({
+              cleanup: () => undefined,
+              integrity,
+              path: artifactPath,
+            }),
+          publishCliReleaseTag: () => steps.push("tag"),
+          readNpmPublicationReceipt: () => null,
+          recordNpmPublicationReceipt: (input) => receipts.push(input.state),
+          runCommand: ({ args, command }) => {
+            const key = [command, ...args].join(" ");
+            if (command === "npm") {
+              return { status: 1, stderr: "npm error code E404", stdout: "" };
+            }
+            if (key.includes("deployments list")) {
+              return {
+                status: 0,
+                stderr: "",
+                stdout: JSON.stringify(WRANGLER_RELEASE_STATE.deployments),
+              };
+            }
+            if (key.includes("versions list")) {
+              return {
+                status: 0,
+                stderr: "",
+                stdout: JSON.stringify(
+                  WRANGLER_RELEASE_STATE.versions.map((version) => ({
+                    ...version,
+                    annotations: { "workers/tag": `${coreTag}-older` },
+                  }))
+                ),
+              };
+            }
+            throw new Error(`Unexpected read-only command: ${key}`);
+          },
+          runStep: (step) => {
+            steps.push(step.label);
+            if (step.label === "Build and upload OpenMeld CLI binary") {
+              writeFileSync(artifactPath, "tampered after verification");
+            }
+          },
+        },
+        cwd: repoRoot,
+        env: { OPENMELD_PRODUCTION_TRAIN_SCOPES: "core,cli" },
+        withBinary: true,
+        write: () => undefined,
+      }),
+      PREPARED_NPM_TARBALL_CHANGED_RE
+    );
+    assert.ok(steps.includes("Build and upload OpenMeld CLI binary"));
+    assert.ok(!steps.includes("Publish OpenMeld CLI to npm"));
+    assert.deepEqual(receipts, []);
+  } finally {
+    await rm(artifactRoot, { force: true, recursive: true });
     await rm(repoRoot, { force: true, recursive: true });
   }
 });

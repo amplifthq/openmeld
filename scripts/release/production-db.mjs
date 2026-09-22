@@ -159,6 +159,7 @@ export async function runProductionDbRelease(input = {}) {
       input.adapters?.assertCleanWorktree ?? assertCleanWorktree,
     buildPlan: input.adapters?.buildPlan,
     checkArtifact: input.adapters?.checkArtifact,
+    checkNpmArtifact: input.adapters?.checkNpmArtifact,
     readHeadSha:
       input.adapters?.readHeadSha ??
       ((root) =>
@@ -183,6 +184,9 @@ export async function runProductionDbRelease(input = {}) {
       ...(adapters.buildPlan ? { buildPlan: adapters.buildPlan } : {}),
       ...(adapters.checkArtifact
         ? { checkArtifact: adapters.checkArtifact }
+        : {}),
+      ...(adapters.checkNpmArtifact
+        ? { checkNpmArtifact: adapters.checkNpmArtifact }
         : {}),
       readHeadSha: adapters.readHeadSha,
     }

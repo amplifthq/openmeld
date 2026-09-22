@@ -12,7 +12,11 @@ import {
   readNpmPublicationReceipt,
   recordNpmPublicationReceipt,
 } from "./npm-publication-receipt.mjs";
-import { publishCliReleaseTag, runCliRelease } from "./release-cli.mjs";
+import {
+  admitCliProductionStage,
+  publishCliReleaseTag,
+  runCliRelease,
+} from "./release-cli.mjs";
 import { readRemoteTagCommit } from "./release-cli-resume.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
@@ -38,8 +42,10 @@ export async function runHostedCliRelease(input = {}) {
     releaseEnvironment,
     "OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL"
   );
+  Reflect.deleteProperty(releaseEnvironment, "GH_TOKEN");
   Reflect.deleteProperty(process.env, "OPENMELD_TRUSTED_GIT_GITHUB_TOKEN");
   Reflect.deleteProperty(process.env, "OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL");
+  Reflect.deleteProperty(process.env, "GH_TOKEN");
   const localGitEnvironment = createTrustedGitEnvironment(releaseEnvironment);
   const authenticatedGitEnvironment = createTrustedGitEnvironment(
     releaseEnvironment,
@@ -54,6 +60,11 @@ export async function runHostedCliRelease(input = {}) {
 
   await (input.adapters?.runCliRelease ?? runCliRelease)({
     adapters: {
+      admitProductionStage: (stageInput) =>
+        (input.adapters?.admitProductionStage ?? admitCliProductionStage)({
+          ...stageInput,
+          env: { ...stageInput.env, GH_TOKEN: token },
+        }),
       ...(input.adapters?.admitTrainArtifacts
         ? { admitTrainArtifacts: input.adapters.admitTrainArtifacts }
         : {}),
@@ -62,6 +73,9 @@ export async function runHostedCliRelease(input = {}) {
         : {}),
       ...(input.adapters?.checkArtifact
         ? { checkArtifact: input.adapters.checkArtifact }
+        : {}),
+      ...(input.adapters?.checkNpmArtifact
+        ? { checkNpmArtifact: input.adapters.checkNpmArtifact }
         : {}),
       ...(input.adapters?.readHeadSha
         ? { readHeadSha: input.adapters.readHeadSha }

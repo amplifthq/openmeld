@@ -9,7 +9,9 @@ import { gunzipSync } from "node:zlib";
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
 import { deriveCoreProjectionTag } from "./core-projection-tag.mjs";
 import {
+  admitNpmCliArtifact,
   prepareNpmCliArtifact,
+  verifyPreparedNpmCliArtifact,
   verifyPublishedNpmCliArtifact,
 } from "./npm-cli-artifact.mjs";
 import {
@@ -57,6 +59,8 @@ export async function runResumableCliRelease(input) {
       input.adapters?.prepareNpmArtifact ?? prepareNpmCliArtifact,
     verifyNpmArtifact:
       input.adapters?.verifyNpmArtifact ?? verifyPublishedNpmCliArtifact,
+    verifyPreparedNpmArtifact:
+      input.adapters?.verifyPreparedNpmArtifact ?? verifyPreparedNpmCliArtifact,
     publishCliReleaseTag:
       input.adapters?.publishCliReleaseTag ??
       input.release.publishCliReleaseTag,
@@ -160,6 +164,37 @@ export async function readCompletedCliRelease(input = {}) {
     );
   }
   return { ...result, sourceSha: target.headSha };
+}
+
+// Train admission uses the CLI owner's immutable npm probe before deciding
+// whether a new local artifact is needed. A genuinely published package is
+// verified from npm and never depends on build scripts from its old source.
+export async function admitCliNpmArtifact(input = {}) {
+  const cwd = input.cwd ?? process.cwd();
+  const env = input.env ?? process.env;
+  const target = resolveCliReleaseTarget({ cwd });
+  if (input.sourceSha && target.headSha !== input.sourceSha) {
+    throw new Error(
+      "CLI npm admission source does not match the release train."
+    );
+  }
+  const adapters = {
+    fetch: input.adapters?.fetch ?? input.fetch ?? fetch,
+    runCommand: input.adapters?.runCommand ?? runReadOnlyCommand,
+    verifyNpmArtifact:
+      input.adapters?.verifyNpmArtifact ?? verifyPublishedNpmCliArtifact,
+  };
+  const npm = await probeNpmPublishStage({ adapters, cwd, env, target });
+  if (npm.action === "SKIP") {
+    return { npm, sourceSha: target.headSha };
+  }
+  if (npm.action !== "RUN") {
+    throw new Error(npm.reason);
+  }
+  const artifact = await (
+    input.adapters?.admitNpmArtifact ?? admitNpmCliArtifact
+  )({ cwd, env, sourceSha: target.headSha });
+  return { artifact, npm, sourceSha: target.headSha };
 }
 
 async function resumeNpmVerification(input) {
@@ -367,6 +402,7 @@ function runNpmReleaseStage(input) {
     if (!input.npmArtifact?.path) {
       throw new Error("npm publication requires a verified CLI tarball.");
     }
+    input.adapters.verifyPreparedNpmArtifact(input.npmArtifact);
     const receiptInput = { cwd: input.cwd, env: input.env, ...input.target };
     input.adapters.recordNpmPublicationReceipt({
       ...receiptInput,
