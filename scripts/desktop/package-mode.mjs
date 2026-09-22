@@ -9,6 +9,13 @@ const env = { ...process.env };
 if (mode === "acceptance") {
   env.OPENMELD_DESKTOP_ACCEPTANCE = "1";
 } else {
+  const { checkDesktopPublisher } = await import(
+    "../release/desktop-preview.mjs"
+  );
+  await checkDesktopPublisher();
+  env.CLOUDFLARE_ACCOUNT_ID = undefined;
+  env.CLOUDFLARE_API_TOKEN = undefined;
+  env.CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN = undefined;
   env.OPENMELD_DESKTOP_PRODUCTION_PREVIEW = "1";
   env.OPENMELD_DESKTOP_TARGET = "production";
 }

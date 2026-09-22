@@ -79,6 +79,11 @@ file. Its `Deployment state` describes deployment history, not permission to
 release. `Source validation` reports exact-SHA push evidence when present and
 otherwise tells the operator to confirm exact Final Candidate evidence. Use
 `--json` for automation.
+For one read-only planning pass, add `--plan-stage <scope>` to print the
+selected stage's prerequisite decision from the same status snapshot. This
+avoids an immediate second history collection while planning. It is not the
+final admission: the guarded release entrypoint still refreshes status and
+acquires its lease before any Production mutation.
 
 In GitHub Actions, the status reader uses the step's `GH_TOKEN` with the
 workflow repository and server identity to read private Git receipt refs.

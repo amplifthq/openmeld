@@ -39,6 +39,63 @@ const DMG_SUFFIX = /\.dmg$/;
 const STABLE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
 const NODE_ENTRY = /\.[cm]?js$/iu;
+const CLOUDFLARE_ACCOUNT_ID = /^[a-f0-9]{32}$/u;
+const RELEASE_TOKEN_NAME = "CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN";
+export const DEFAULT_R2_BUCKET_NAME = "openmeld-desktop-downloads-prod";
+
+export function desktopPublisherCredentials(env = process.env) {
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID?.trim();
+  const token = env[RELEASE_TOKEN_NAME]?.trim();
+  if (!(CLOUDFLARE_ACCOUNT_ID.test(accountId ?? "") && token)) {
+    throw new Error(
+      `Desktop publication requires CLOUDFLARE_ACCOUNT_ID and ${RELEASE_TOKEN_NAME} from openmeld-release/prd. Check them before signing; local Wrangler OAuth is not a publishing identity.`
+    );
+  }
+  return {
+    accountId,
+    bucket: DEFAULT_R2_BUCKET_NAME,
+    env: { ...env, CLOUDFLARE_API_TOKEN: token },
+  };
+}
+
+export async function checkDesktopPublisher(input = {}) {
+  const credentials = desktopPublisherCredentials(input.env);
+  const url = `https://api.cloudflare.com/client/v4/accounts/${credentials.accountId}/r2/buckets/${credentials.bucket}`;
+  let response;
+  try {
+    response = await (input.fetchBucket ?? fetch)(url, {
+      headers: {
+        Authorization: `Bearer ${credentials.env.CLOUDFLARE_API_TOKEN}`,
+      },
+    });
+  } catch (error) {
+    throw new Error(
+      `Desktop publisher check could not reach ${credentials.bucket} in account ${credentials.accountId}: ${error instanceof Error ? error.message : String(error)}. No Desktop object was written.`
+    );
+  }
+  if (!response.ok) {
+    throw new Error(
+      `Desktop publisher check failed for ${credentials.bucket} in account ${credentials.accountId} (HTTP ${response.status}). Confirm the openmeld-release/prd credential before signing. No Desktop object was written.`
+    );
+  }
+  let result;
+  try {
+    result = await response.json();
+  } catch (error) {
+    throw new Error(
+      `Desktop publisher check returned invalid bucket metadata for account ${credentials.accountId}: ${error instanceof Error ? error.message : String(error)}. No Desktop object was written.`
+    );
+  }
+  if (result?.success !== true || result.result?.name !== credentials.bucket) {
+    throw new Error(
+      `Desktop publisher check returned an unexpected bucket for account ${credentials.accountId}. No Desktop object was written.`
+    );
+  }
+  (input.write ?? ((line) => process.stdout.write(line)))(
+    `[release:desktop-preview] Publisher: openmeld-release/prd; account: ${credentials.accountId}; bucket: ${credentials.bucket}. Bucket read confirmed; upload permission is checked by the guarded publication.\n`
+  );
+  return credentials.env;
+}
 
 export function resolveDesktopReleaseCommand(command, args, input = {}) {
   const platform = input.platform ?? process.platform;
@@ -226,6 +283,7 @@ function inspectSignedCandidate(repoRoot, artifactPath, version, zipPath) {
 }
 
 export async function uploadDesktopCandidate(input = {}) {
+  const publisherEnv = await checkDesktopPublisher(input);
   const repoRoot = input.repoRoot ?? process.cwd();
   const { version } = JSON.parse(
     readFileSync(path.join(repoRoot, DESKTOP_PACKAGE_JSON_PATH), "utf8")
@@ -286,6 +344,7 @@ export async function uploadDesktopCandidate(input = {}) {
     manifestPath,
     `${JSON.stringify(candidate.manifest, null, 2)}\n`
   );
+  const uploadedKeys = [];
   for (const item of [
     {
       objectKey: candidate.objectKey,
@@ -310,24 +369,30 @@ export async function uploadDesktopCandidate(input = {}) {
       contentType: "application/json; charset=utf-8",
     },
   ]) {
-    runStep({
-      command: "pnpm",
-      cwd: repoRoot,
-      label: `Upload immutable Desktop candidate ${item.objectKey}`,
-      args: buildWranglerObjectPutArgs({
-        ...item,
-        bucketName: DEFAULT_R2_BUCKET_NAME,
-        cacheControl: "public, max-age=31536000, immutable",
-      }),
-    });
+    try {
+      runStep({
+        command: "pnpm",
+        cwd: repoRoot,
+        env: publisherEnv,
+        label: `Upload immutable Desktop candidate ${item.objectKey}`,
+        args: buildWranglerObjectPutArgs({
+          ...item,
+          bucketName: DEFAULT_R2_BUCKET_NAME,
+          cacheControl: "public, max-age=31536000, immutable",
+        }),
+      });
+      uploadedKeys.push(item.objectKey);
+    } catch (error) {
+      throw new Error(
+        `Desktop candidate upload stopped at ${item.objectKey}. Completed in this attempt: ${uploadedKeys.join(", ") || "none"}. The attempted object may have been written; inspect these exact R2 keys before retrying. Promotion was not attempted. Cause: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
   process.stdout.write(
     `${JSON.stringify({ ...candidate, url: new URL(candidate.downloadPath, "https://openmeld.ai").href }, null, 2)}\n`
   );
   return candidate;
 }
-
-export const DEFAULT_R2_BUCKET_NAME = "openmeld-desktop-downloads-prod";
 
 export function assertDesktopPromotionVersion(next, current) {
   // The promoted channel ships stable, monotonically increasing app versions.
@@ -350,6 +415,7 @@ export function assertDesktopPromotionVersion(next, current) {
 }
 
 export async function promoteDesktopCandidate(id, expectedVersion) {
+  const publisherEnv = await checkDesktopPublisher();
   const repoRoot = process.cwd();
   const manifestPath = path.join(
     repoRoot,
@@ -372,6 +438,7 @@ export async function promoteDesktopCandidate(id, expectedVersion) {
   runStep({
     command: "pnpm",
     cwd: repoRoot,
+    env: publisherEnv,
     label: "Verify immutable candidate metadata",
     args: [
       "exec",
@@ -422,30 +489,58 @@ export async function promoteDesktopCandidate(id, expectedVersion) {
     [location.downloadPath, manifest.sha256, manifest.sizeBytes],
     [updateArtifact.path, updateArtifact.sha256, updateArtifact.sizeBytes],
   ]) {
-    const response = await fetch(new URL(pathname, "https://openmeld.ai"), {
+    await verifyDesktopPublicArtifact({ pathname, sha256, size });
+  }
+  process.stdout.write(
+    "[release:desktop-preview] Public artifacts verified; checking the authoritative pointer under the release lease.\n"
+  );
+  try {
+    await commitDesktopPromotion({
+      repoRoot,
+      manifest,
+      expectedVersion,
+      env: publisherEnv,
+    });
+  } catch (error) {
+    throw new Error(
+      `Desktop pointer phase failed: ${error instanceof Error ? error.message : String(error)}. The pointer may have changed; inspect its authoritative R2 object before retrying. Do not infer the published version from this command's exit status.`
+    );
+  }
+  process.stdout.write(`Promoted Desktop ${manifest.version}: ${id}\n`);
+}
+
+export async function verifyDesktopPublicArtifact(input) {
+  const url = new URL(input.pathname, "https://openmeld.ai");
+  (input.write ?? ((line) => process.stdout.write(line)))(
+    `[release:desktop-preview] Verify full public download ${url.href}; pointer write has not started.\n`
+  );
+  try {
+    const response = await (input.fetchArtifact ?? fetch)(url, {
       redirect: "error",
       cache: "no-store",
     });
     if (!response.ok) {
-      throw new Error(`Desktop artifact unavailable: ${response.status}`);
+      throw new Error(`HTTP ${response.status}`);
     }
     const bytes = Buffer.from(await response.arrayBuffer());
     if (
-      bytes.length !== size ||
-      createHash("sha256").update(bytes).digest("hex") !== sha256
+      bytes.length !== input.size ||
+      createHash("sha256").update(bytes).digest("hex") !== input.sha256
     ) {
       throw new Error(
-        "Published Desktop artifact does not match the reviewed candidate."
+        `size/hash mismatch (received ${bytes.length} bytes; expected ${input.size})`
       );
     }
+  } catch (error) {
+    throw new Error(
+      `Desktop public download verification failed for ${url.href}: ${error instanceof Error ? error.message : String(error)}. No pointer write was attempted by this invocation. Inspect the public artifact, then rerun the guarded promotion with the same reviewed candidate.`
+    );
   }
-  await commitDesktopPromotion({ repoRoot, manifest, expectedVersion });
-  process.stdout.write(`Promoted Desktop ${manifest.version}: ${id}\n`);
 }
 
 // Wrangler talks directly to R2: public CDN/browser projections never authorize
 // a promotion. Only its explicit missing-object response means an empty channel.
-export function readDesktopReleaseObject(repoRoot, key) {
+export function readDesktopReleaseObject(repoRoot, key, env = process.env) {
   const invocation = resolveDesktopReleaseCommand("pnpm", [
     "exec",
     "wrangler",
@@ -458,6 +553,7 @@ export function readDesktopReleaseObject(repoRoot, key) {
   ]);
   const result = spawnSync(invocation.command, invocation.args, {
     cwd: repoRoot,
+    env,
     encoding: "utf8",
     timeout: 60_000,
     windowsHide: true,
@@ -480,9 +576,10 @@ export async function commitDesktopPromotion({
   repoRoot,
   manifest,
   expectedVersion,
-  readObject = (key) => readDesktopReleaseObject(repoRoot, key),
+  env = process.env,
+  readObject = (key) => readDesktopReleaseObject(repoRoot, key, env),
   writePointer = (pointer, key) =>
-    writeDesktopPromotionPointer(repoRoot, pointer, key),
+    writeDesktopPromotionPointer(repoRoot, pointer, key, env),
 }) {
   manifest = desktopCandidateManifestSchema.parse(manifest);
   if (!desktopCandidateUpdateArtifact(manifest)) {
@@ -536,7 +633,7 @@ export async function commitDesktopPromotion({
   }
 }
 
-function writeDesktopPromotionPointer(repoRoot, value, pointerKey) {
+function writeDesktopPromotionPointer(repoRoot, value, pointerKey, env) {
   const pointerPath = path.join(
     repoRoot,
     "clients/desktop/dist/production-preview/promoted.json"
@@ -545,6 +642,7 @@ function writeDesktopPromotionPointer(repoRoot, value, pointerKey) {
   runStep({
     command: "pnpm",
     cwd: repoRoot,
+    env,
     label: "Promote the reviewed Desktop release",
     args: buildWranglerObjectPutArgs({
       bucketName: DEFAULT_R2_BUCKET_NAME,
@@ -726,7 +824,7 @@ function runStep(input) {
   const invocation = resolveDesktopReleaseCommand(input.command, input.args);
   const result = spawnSync(invocation.command, invocation.args, {
     cwd: input.cwd,
-    env: process.env,
+    env: input.env ?? process.env,
     stdio: "inherit",
   });
   if (result.error) {
@@ -734,7 +832,7 @@ function runStep(input) {
   }
   if (result.status !== 0) {
     throw new Error(
-      `${input.command} ${input.args.join(" ")} failed with exit code ${result.status}`
+      `${input.command} ${input.args.join(" ")} failed ${result.signal ? `on signal ${result.signal}` : `with exit code ${result.status}`}`
     );
   }
 }
@@ -761,6 +859,8 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
       );
     } else if (command === "upload-candidate") {
       await uploadDesktopCandidate();
+    } else if (command === "publisher-check") {
+      await checkDesktopPublisher();
     } else if (command === "promote") {
       await promoteDesktopCandidate(process.argv[3], process.argv[4]);
     } else {
