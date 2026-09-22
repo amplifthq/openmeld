@@ -766,10 +766,44 @@ MVP.
 
 An existing OpenCode session remains bound to its native working folder. If
 that folder does not resolve to the Agent's current effective working folder,
-Wake fails before prompting or forking the session. The owner must restore the
-matching folder for that Agent or explicitly create a new Agent with a new
-OpenCode session in the selected folder. OpenMeld does not run in the former
+Wake fails before prompting or forking the session. Working Folder Recovery
+lets the owner explicitly choose the verified original folder or a new
+conversation for the same Agent Profile. OpenMeld does not run in the former
 folder or replace the session automatically.
+
+### Working Folder Recovery
+
+A working-folder conflict must give the owner an actionable choice beside the
+failed Wake. The Profile's identity and Space memberships survive recovery.
+The owner can continue the previous conversation in its verified original
+folder, start a new conversation in the currently selected folder, or leave the
+failed task without retrying it. Starting a new conversation preserves the old
+native history and explicitly warns that it will not carry into the new one.
+Neither choice changes the execution Computer.
+
+Normal Wakes require no extra confirmation. Only a verified conflict opens a
+recovery decision. The local Service verifies the native conversation and its
+folder, current Computer file access, and the expected execution target before
+applying a choice. Paths stay within the existing owner-only local-control
+boundary. A missing folder or unavailable Computer stays actionable and does
+not trigger an inferred substitute or credential change.
+
+Web and the Desktop renderer share the same recovery view. Human CLI and Agent
+View consume the same typed options and mutation, with an explicit choice in
+non-interactive use. A client must not implement recovery by independently
+clearing a conversation and updating workspace settings.
+
+The source owns one durable pending decision and its resolution. Inbox projects
+that decision as Needs action for the Profile owner, using the existing delivery
+preferences. Reading or dismissing the Inbox item does not resolve the decision.
+The requester can see that the owner needs to act without gaining local paths or
+management permissions. Repeated reports do not create repeated reminders.
+
+Retry keeps the original failed Wake and submits its original task as a new,
+idempotent attempt. Accepting that attempt resolves the decision but does not
+claim the task has finished. Success, another failure, and an explicit choice
+not to retry all have a concise visible outcome. A stale or repeated action
+cannot start duplicate work or change a newer conversation.
 
 The current computer resolves Project intent through its own local state:
 
