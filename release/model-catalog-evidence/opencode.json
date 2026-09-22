@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "controller": "opencode",
-  "observedAt": "2026-09-16T12:43:19.690Z",
-  "fingerprint": "18739cd9713ca68975f9307baccb1019ff9bd33697d3e30d99c7f645aa1d0087",
+  "observedAt": "2026-09-22T13:24:28.976Z",
+  "fingerprint": "399bf2608b774f1a1473865704b5ad4c377185995a1f555736a5ca12a2e0e5a7",
   "sources": [
     {
-      "url": "https://github.com/anomalyco/opencode/releases/tag/v1.18.31",
+      "url": "https://github.com/anomalyco/opencode/releases/tag/v1.18.32",
       "kind": "official-release",
       "data": {
-        "tag": "v1.18.31",
-        "publishedAt": "2026-09-14T17:47:30Z",
-        "notes": "## Core\n\n### Bugfixes\n\n- Restored ACP session model, effort, mode, and reasoning chunk boundaries when loading, resuming, or forking sessions. (@JacobNWolf)\n\n## TUI\n\n### Bugfixes\n\n- Show remote config authentication errors during startup and exit with a failure status.\n\n## Extensions\n\n### Improvements\n\n- Request summarized adaptive thinking for GitHub Copilot models.\n\n**Thank you to 4 community contributors:**\n- @heimoshuiyu:\n  - feat(console): add batch workspace block endpoints (#48491)\n- @JacobNWolf:\n  - fix(acp): restore session options and reasoning boundaries (#48225)\n- @R-Taneja:\n  - chore(deps): bump @ai-sdk/gateway to 3.0.191 (#48710)\n- @MatthewFeroz:\n  - fix(ui): add Merge Gateway logo (#42015)\n"
+        "tag": "v1.18.32",
+        "publishedAt": "2026-09-21T22:51:20Z",
+        "notes": "## Core\n\n### Bugfixes\n\n- Fixed Bedrock image attachments so they are only hoisted for Claude, Nova, and Llama 4 models.\n- Fixed Together AI streaming usage reporting.\n\n**Thank you to 1 community contributor:**\n- @dc85:\n  - docs: add DeepSeek V4.1 Flash to Zen (#49897)\n  - feat: add Grok 4.7 to Zen and Go (#50288)\n"
       }
     },
     {
@@ -36,8 +36,12 @@
             "release_date": "2025-10-17",
             "last_updated": "2025-10-17",
             "modalities": {
-              "input": ["text"],
-              "output": ["text"]
+              "input": [
+                "text"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -62,7 +66,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -71,8 +81,14 @@
             "release_date": "2026-09-01",
             "last_updated": "2026-09-01",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -89,6 +105,52 @@
               "cache_write": 12.5
             }
           },
+          "deepseek-v4.1-flash": {
+            "id": "deepseek-v4.1-flash",
+            "name": "DeepSeek V4.1 Flash",
+            "description": "DeepSeek V4.1 Flash model for reasoning and agentic coding",
+            "family": "deepseek-flash",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "low",
+                  "high",
+                  "max"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "interleaved": {
+              "field": "reasoning_content"
+            },
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2025-05",
+            "release_date": "2026-09-10",
+            "last_updated": "2026-09-10",
+            "modalities": {
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": true,
+            "limit": {
+              "context": 1000000,
+              "output": 384000
+            },
+            "cost": {
+              "input": 0.3,
+              "output": 1.2,
+              "cache_read": 0.006
+            }
+          },
           "gemini-3.8-flash": {
             "id": "gemini-3.8-flash",
             "name": "Gemini 3.8 Flash",
@@ -99,7 +161,11 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
               }
             ],
             "tool_call": true,
@@ -108,8 +174,16 @@
             "release_date": "2026-09-02",
             "last_updated": "2026-09-02",
             "modalities": {
-              "input": ["text", "image", "video", "audio", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "video",
+                "audio",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -136,7 +210,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -146,8 +226,14 @@
             "release_date": "2026-09-04",
             "last_updated": "2026-09-04",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -196,7 +282,11 @@
               },
               {
                 "type": "effort",
-                "values": ["low", "medium", "high"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
               }
             ],
             "tool_call": true,
@@ -208,8 +298,12 @@
             "release_date": "2026-07-06",
             "last_updated": "2026-07-06",
             "modalities": {
-              "input": ["text"],
-              "output": ["text"]
+              "input": [
+                "text"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
@@ -218,6 +312,42 @@
               "output": 64000
             },
             "status": "deprecated",
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cache_read": 0
+            }
+          },
+          "ling-3.0-flash-fin-free": {
+            "id": "ling-3.0-flash-fin-free",
+            "name": "Ling 3.0 Flash Fin Free",
+            "description": "Finance-enhanced model for financial research, multi-step investment workflows, and long-horizon planning and execution",
+            "family": "ling",
+            "attachment": false,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "toggle"
+              }
+            ],
+            "tool_call": true,
+            "structured_output": false,
+            "temperature": true,
+            "release_date": "2026-08-27",
+            "last_updated": "2026-08-27",
+            "modalities": {
+              "input": [
+                "text"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 262144,
+              "output": 32768
+            },
             "cost": {
               "input": 0,
               "output": 0,
@@ -241,10 +371,57 @@
             "release_date": "2026-04-24",
             "last_updated": "2026-04-24",
             "modalities": {
-              "input": ["text", "image", "audio", "video"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
+            "limit": {
+              "context": 200000,
+              "output": 32000
+            },
+            "status": "deprecated",
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cache_read": 0
+            }
+          },
+          "mimo-v2.6-flash-free": {
+            "id": "mimo-v2.6-flash-free",
+            "name": "MiMo-V2.6-Flash Free",
+            "description": "MiMo Flash model for multimodal coding agents and long-context automation",
+            "family": "mimo",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [],
+            "tool_call": true,
+            "interleaved": {
+              "field": "reasoning_content"
+            },
+            "temperature": true,
+            "knowledge": "2026-09-22",
+            "release_date": "2026-09-22",
+            "last_updated": "2026-09-22",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
             "limit": {
               "context": 200000,
               "output": 32000
@@ -265,7 +442,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["minimal", "low", "medium", "high", "xhigh"]
+                "values": [
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -274,8 +457,16 @@
             "release_date": "2026-08-05",
             "last_updated": "2026-08-05",
             "modalities": {
-              "input": ["text", "image", "video", "pdf", "audio"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "video",
+                "pdf",
+                "audio"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -301,7 +492,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["minimal", "low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -310,8 +507,16 @@
             "release_date": "2026-09-02",
             "last_updated": "2026-09-02",
             "modalities": {
-              "input": ["text", "image", "video", "pdf", "audio"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "video",
+                "pdf",
+                "audio"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -337,7 +542,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["minimal", "low", "medium", "high", "xhigh"]
+                "values": [
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -346,8 +557,16 @@
             "release_date": "2026-09-02",
             "last_updated": "2026-09-02",
             "modalities": {
-              "input": ["text", "image", "video", "pdf", "audio"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "video",
+                "pdf",
+                "audio"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -380,8 +599,12 @@
             "release_date": "2026-06-04",
             "last_updated": "2026-06-04",
             "modalities": {
-              "input": ["text"],
-              "output": ["text"]
+              "input": [
+                "text"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
@@ -411,8 +634,12 @@
             "release_date": "2026-08-11",
             "last_updated": "2026-08-11",
             "modalities": {
-              "input": ["text"],
-              "output": ["text"]
+              "input": [
+                "text"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
@@ -437,7 +664,11 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "high", "max"]
+                "values": [
+                  "low",
+                  "high",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -450,8 +681,12 @@
             "release_date": "2026-07-31",
             "last_updated": "2026-07-31",
             "modalities": {
-              "input": ["text"],
-              "output": ["text"]
+              "input": [
+                "text"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
@@ -477,7 +712,11 @@
               },
               {
                 "type": "effort",
-                "values": ["low", "high", "max"]
+                "values": [
+                  "low",
+                  "high",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -487,12 +726,17 @@
             "structured_output": true,
             "temperature": true,
             "release_date": "2026-08-21",
-            "last_updated": "2026-08-21",
+            "last_updated": "2026-09-01",
             "modalities": {
-              "input": ["text", "image"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
             },
-            "open_weights": false,
+            "open_weights": true,
             "limit": {
               "context": 1000000,
               "output": 384000
@@ -513,7 +757,10 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["high", "max"]
+                "values": [
+                  "high",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -526,8 +773,12 @@
             "release_date": "2026-04-24",
             "last_updated": "2026-04-24",
             "modalities": {
-              "input": ["text"],
-              "output": ["text"]
+              "input": [
+                "text"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
@@ -550,7 +801,11 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "high", "max"]
+                "values": [
+                  "low",
+                  "high",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -563,8 +818,13 @@
             "release_date": "2026-09-10",
             "last_updated": "2026-09-10",
             "modalities": {
-              "input": ["text", "image"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
@@ -594,8 +854,12 @@
             "release_date": "2026-04-07",
             "last_updated": "2026-04-07",
             "modalities": {
-              "input": ["text"],
-              "output": ["text"]
+              "input": [
+                "text"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
@@ -618,7 +882,10 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["high", "max"]
+                "values": [
+                  "high",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -630,8 +897,12 @@
             "release_date": "2026-06-13",
             "last_updated": "2026-06-13",
             "modalities": {
-              "input": ["text"],
-              "output": ["text"]
+              "input": [
+                "text"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
@@ -654,7 +925,11 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "high", "max"]
+                "values": [
+                  "low",
+                  "high",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -666,8 +941,12 @@
             "release_date": "2026-08-14",
             "last_updated": "2026-08-14",
             "modalities": {
-              "input": ["text"],
-              "output": ["text"]
+              "input": [
+                "text"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
@@ -690,7 +969,11 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "high", "max"]
+                "values": [
+                  "low",
+                  "high",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -702,8 +985,15 @@
             "release_date": "2026-08-26",
             "last_updated": "2026-08-26",
             "modalities": {
-              "input": ["text", "image", "video", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
@@ -726,7 +1016,14 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -736,8 +1033,14 @@
             "release_date": "2026-07-09",
             "last_updated": "2026-07-09",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -783,7 +1086,12 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "xhigh"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -793,8 +1101,77 @@
             "release_date": "2026-08-12",
             "last_updated": "2026-08-12",
             "modalities": {
-              "input": ["text", "image"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 500000,
+              "output": 500000
+            },
+            "provider": {
+              "npm": "@ai-sdk/openai"
+            },
+            "cost": {
+              "input": 2,
+              "output": 6,
+              "cache_read": 0.5,
+              "tiers": [
+                {
+                  "input": 4,
+                  "output": 12,
+                  "cache_read": 1,
+                  "tier": {
+                    "type": "context",
+                    "size": 200000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 4,
+                "output": 12,
+                "cache_read": 1
+              }
+            }
+          },
+          "grok-4.7": {
+            "id": "grok-4.7",
+            "name": "Grok 4.7",
+            "description": "xAI's frontier model for long-running agents, coding, knowledge work, and visual projects",
+            "family": "grok",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2026-05",
+            "release_date": "2026-09-21",
+            "last_updated": "2026-09-21",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -836,7 +1213,11 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "high"]
+                "values": [
+                  "none",
+                  "low",
+                  "high"
+                ]
               }
             ],
             "tool_call": true,
@@ -844,8 +1225,12 @@
             "release_date": "2026-07-06",
             "last_updated": "2026-07-06",
             "modalities": {
-              "input": ["text"],
-              "output": ["text"]
+              "input": [
+                "text"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
@@ -857,6 +1242,45 @@
               "input": 0.14,
               "output": 0.58,
               "cache_read": 0.035
+            }
+          },
+          "hy4-preview": {
+            "id": "hy4-preview",
+            "name": "Hy4 preview",
+            "description": "A next-generation productivity model with significantly enhanced Agent and complex task execution capabilities.",
+            "family": "Hy",
+            "attachment": false,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "none",
+                  "high"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "temperature": true,
+            "release_date": "2026-08-28",
+            "last_updated": "2026-08-28",
+            "modalities": {
+              "input": [
+                "text"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": true,
+            "limit": {
+              "context": 1024000,
+              "output": 64000
+            },
+            "cost": {
+              "input": 0.834,
+              "output": 2.501,
+              "cache_read": 0.042
             }
           },
           "kimi-k2.6": {
@@ -876,8 +1300,14 @@
             "release_date": "2026-04-21",
             "last_updated": "2026-04-21",
             "modalities": {
-              "input": ["text", "image", "video"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "video"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
@@ -908,8 +1338,14 @@
             "release_date": "2026-06-12",
             "last_updated": "2026-06-12",
             "modalities": {
-              "input": ["text", "image", "video"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "video"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
@@ -932,7 +1368,9 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["max"]
+                "values": [
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -944,8 +1382,14 @@
             "release_date": "2026-07-16",
             "last_updated": "2026-07-16",
             "modalities": {
-              "input": ["text", "image", "video"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "video"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
@@ -978,8 +1422,12 @@
             "release_date": "2026-06-30",
             "last_updated": "2026-06-30",
             "modalities": {
-              "input": ["text"],
-              "output": ["text"]
+              "input": [
+                "text"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1009,8 +1457,15 @@
             "release_date": "2026-04-22",
             "last_updated": "2026-04-22",
             "modalities": {
-              "input": ["text", "image", "audio", "video"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
@@ -1040,13 +1495,95 @@
             "release_date": "2026-04-22",
             "last_updated": "2026-04-22",
             "modalities": {
-              "input": ["text"],
-              "output": ["text"]
+              "input": [
+                "text"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
               "context": 1048576,
               "output": 128000
+            },
+            "cost": {
+              "input": 0.435,
+              "output": 0.87,
+              "cache_read": 0.003625
+            }
+          },
+          "mimo-v2.6-flash": {
+            "id": "mimo-v2.6-flash",
+            "name": "MiMo-V2.6-Flash",
+            "description": "MiMo Flash model for multimodal coding agents and long-context automation",
+            "family": "mimo",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [],
+            "tool_call": true,
+            "interleaved": {
+              "field": "reasoning_content"
+            },
+            "temperature": true,
+            "knowledge": "2026-09-22",
+            "release_date": "2026-09-22",
+            "last_updated": "2026-09-22",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1048576,
+              "output": 131072
+            },
+            "cost": {
+              "input": 0.14,
+              "output": 0.28,
+              "cache_read": 0.0028
+            }
+          },
+          "mimo-v2.6-pro": {
+            "id": "mimo-v2.6-pro",
+            "name": "MiMo-V2.6-Pro",
+            "description": "Stronger MiMo Pro tier for multimodal reasoning and coding-agent execution",
+            "family": "mimo",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [],
+            "tool_call": true,
+            "interleaved": {
+              "field": "reasoning_content"
+            },
+            "temperature": true,
+            "knowledge": "2026-09-22",
+            "release_date": "2026-09-22",
+            "last_updated": "2026-09-22",
+            "modalities": {
+              "input": [
+                "text",
+                "image",
+                "audio",
+                "video",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1048576,
+              "output": 131072
             },
             "cost": {
               "input": 0.435,
@@ -1068,8 +1605,12 @@
             "release_date": "2026-03-18",
             "last_updated": "2026-03-18",
             "modalities": {
-              "input": ["text"],
-              "output": ["text"]
+              "input": [
+                "text"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
@@ -1082,7 +1623,8 @@
             "cost": {
               "input": 0.3,
               "output": 1.2,
-              "cache_read": 0.06
+              "cache_read": 0.06,
+              "cache_write": 0.375
             }
           },
           "minimax-m3": {
@@ -1103,8 +1645,14 @@
             "release_date": "2026-05-31",
             "last_updated": "2026-05-31",
             "modalities": {
-              "input": ["text", "image", "video"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "video"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": true,
             "limit": {
@@ -1146,7 +1694,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["minimal", "low", "medium", "high", "xhigh"]
+                "values": [
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -1155,8 +1709,16 @@
             "release_date": "2026-08-05",
             "last_updated": "2026-08-05",
             "modalities": {
-              "input": ["text", "image", "video", "pdf", "audio"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "video",
+                "pdf",
+                "audio"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1182,7 +1744,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["minimal", "low", "medium", "high", "xhigh"]
+                "values": [
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -1191,8 +1759,16 @@
             "release_date": "2026-09-02",
             "last_updated": "2026-09-02",
             "modalities": {
-              "input": ["text", "image", "video", "pdf", "audio"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "video",
+                "pdf",
+                "audio"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1217,7 +1793,10 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "high"]
+                "values": [
+                  "low",
+                  "high"
+                ]
               }
             ],
             "tool_call": true,
@@ -1229,8 +1808,13 @@
             "release_date": "2026-09-04",
             "last_updated": "2026-09-04",
             "modalities": {
-              "input": ["text", "image"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1266,8 +1850,14 @@
             "release_date": "2026-04-02",
             "last_updated": "2026-04-02",
             "modalities": {
-              "input": ["text", "image", "video"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "video"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1320,8 +1910,12 @@
             "release_date": "2026-05-21",
             "last_updated": "2026-05-21",
             "modalities": {
-              "input": ["text"],
-              "output": ["text"]
+              "input": [
+                "text"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1356,8 +1950,14 @@
             "release_date": "2026-06-02",
             "last_updated": "2026-06-02",
             "modalities": {
-              "input": ["text", "image", "video"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "video"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1402,7 +2002,11 @@
               },
               {
                 "type": "effort",
-                "values": ["low", "medium", "xhigh"]
+                "values": [
+                  "low",
+                  "medium",
+                  "xhigh"
+                ]
               },
               {
                 "type": "budget_tokens"
@@ -1414,8 +2018,14 @@
             "release_date": "2026-08-26",
             "last_updated": "2026-08-26",
             "modalities": {
-              "input": ["text", "image", "video"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "video"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1445,7 +2055,11 @@
               },
               {
                 "type": "effort",
-                "values": ["low", "medium", "xhigh"]
+                "values": [
+                  "low",
+                  "medium",
+                  "xhigh"
+                ]
               },
               {
                 "type": "budget_tokens",
@@ -1458,8 +2072,14 @@
             "release_date": "2026-08-03",
             "last_updated": "2026-08-03",
             "modalities": {
-              "input": ["text", "image", "video"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "video"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1485,7 +2105,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -1495,8 +2121,14 @@
             "release_date": "2026-02-05",
             "last_updated": "2026-02-05",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1520,7 +2152,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -1530,8 +2168,14 @@
             "release_date": "2026-03-05",
             "last_updated": "2026-03-05",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1587,7 +2231,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -1597,8 +2247,13 @@
             "release_date": "2026-03-17",
             "last_updated": "2026-03-17",
             "modalities": {
-              "input": ["text", "image"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1638,7 +2293,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh"
+                ]
               }
             ],
             "tool_call": true,
@@ -1648,8 +2309,14 @@
             "release_date": "2026-04-23",
             "last_updated": "2026-04-23",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1705,7 +2372,14 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -1715,8 +2389,14 @@
             "release_date": "2026-07-09",
             "last_updated": "2026-07-09",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1785,7 +2465,14 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -1795,8 +2482,14 @@
             "release_date": "2026-07-09",
             "last_updated": "2026-07-09",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1865,7 +2558,14 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -1875,8 +2575,14 @@
             "release_date": "2026-07-09",
             "last_updated": "2026-07-09",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
@@ -1945,7 +2651,13 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high", "xhigh", "max"]
+                "values": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
               }
             ],
             "tool_call": true,
@@ -1955,8 +2667,14 @@
             "release_date": "2026-09-04",
             "last_updated": "2026-09-04",
             "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
+              "input": [
+                "text",
+                "image",
+                "pdf"
+              ],
+              "output": [
+                "text"
+              ]
             },
             "open_weights": false,
             "limit": {
