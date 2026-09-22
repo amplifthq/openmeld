@@ -2415,6 +2415,11 @@ the page defaults, or the inherited page settings for one Human group. Menus
 are bounded by the available viewport height and scroll internally.
 Page filters apply across groups; a group's controls further narrow its list.
 Optional Controller or model subgroups preserve the outer person grouping.
+Each person's group has a chevron beside its settings control. Collapsing hides
+the cards and list controls while retaining the person's header and an always
+visible expand button. Search, filters, and sorting survive collapse; collapsing
+exits selection mode and clears selected Agents. Groups start expanded and keep
+their independent collapsed state while mounted.
 
 Recent ordering uses the newer of creation and task activity from the existing
 30-day Wake evidence window. Generic profile edits and last-used timestamps do

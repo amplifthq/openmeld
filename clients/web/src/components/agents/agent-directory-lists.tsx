@@ -237,6 +237,7 @@ export function AgentDirectoryLists({
 			) : null}
 			{visibleGroups.map((group) => (
 				<AgentList
+					collapsible
 					defaults={view}
 					emptyAction={
 						group.ownerUserId === input.currentUserId ? create : undefined

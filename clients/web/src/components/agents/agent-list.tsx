@@ -18,11 +18,13 @@ import { FluidCardGroup } from "@openmeld/ui/fluid/card";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import {
 	ArrowCounterClockwiseIcon,
+	CaretDownIcon,
+	CaretRightIcon,
 	CloudIcon,
 	DesktopIcon,
 	SlidersHorizontalIcon,
 } from "@phosphor-icons/react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { SidebarFilterBadge } from "#/components/app/sidebar-filter-badge";
 import { DirectorySearch } from "#/components/directory/directory-search";
 import { ModelBrandIcon } from "#/components/models/model-brand-icon";
@@ -312,6 +314,7 @@ export function AgentList(input: {
 	search?: string;
 	defaults?: AgentListView;
 	heading?: ReactNode;
+	collapsible?: boolean;
 	hideControls?: boolean;
 	label: string;
 	renderCard: (
@@ -322,6 +325,8 @@ export function AgentList(input: {
 	emptyAction?: ReactNode;
 	onDelete?: DeleteAgents;
 }) {
+	const [collapsed, setCollapsed] = useState(false);
+	const contentId = useId();
 	const [override, setOverride] = useState<AgentListView | null>(null);
 	const [search, setSearch] = useState("");
 	const defaults = input.defaults ?? DEFAULT_AGENT_LIST_VIEW;
@@ -350,17 +355,18 @@ export function AgentList(input: {
 			<div className="flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-2">
 				{input.heading}
 				<div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
-					{!input.hideControls && (
+					{!(collapsed || input.hideControls) && (
 						<AgentListFilterChips
 							defaults={defaults}
 							onChange={changeView}
 							value={view}
 						/>
 					)}
-					{selection.trigger}
+					{!collapsed && selection.trigger}
 					{!input.hideControls && (
 						<div
 							className={`flex items-center gap-1 ${search || override ? "" : "opacity-0 group-focus-within/agent-section:opacity-100 group-hover/agent-section:opacity-100 has-[[data-popup-open]]:opacity-100 has-[input]:opacity-100 [@media(hover:none)]:opacity-100"}`}
+							hidden={collapsed}
 						>
 							<DirectorySearch
 								label={`Search ${input.label}`}
@@ -384,54 +390,76 @@ export function AgentList(input: {
 							/>
 						</div>
 					)}
-				</div>
-			</div>
-			{selection.toolbar}
-			{selection.dialog}
-			{visible.length ? (
-				groupAgentListItems(visible, view.grouping).map(([label, items]) => (
-					<div className="space-y-2" key={label}>
-						{label && (
-							<h3 className="text-muted-foreground text-xs">
-								{label} · {items.length}
-							</h3>
-						)}
-						<FluidCardGroup>
-							<FluidNavMenu
-								activeValue={null}
-								aria-label={label || input.label}
-								className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:gap-3 [&_[data-sidebar=menu]]:md:grid-cols-2 [&_[data-sidebar=menu]]:xl:grid-cols-3"
-							>
-								{items.map((item, index) =>
-									input.renderCard(item, index, selection.card(item))
-								)}
-							</FluidNavMenu>
-						</FluidCardGroup>
-					</div>
-				))
-			) : (
-				<div className="space-y-2 py-4 text-muted-foreground text-sm">
-					<p>
-						{input.items.length
-							? "No Agents match. Try another search or clear filters."
-							: "No Agents yet."}
-					</p>
-					{input.items.length > 0 && (search || override) && (
+					{input.collapsible && (
 						<Button
+							aria-controls={contentId}
+							aria-expanded={!collapsed}
+							aria-label={`${collapsed ? "Expand" : "Collapse"} ${input.label}`}
+							className={
+								collapsed
+									? ""
+									: "opacity-0 group-focus-within/agent-section:opacity-100 group-hover/agent-section:opacity-100 [@media(hover:none)]:opacity-100"
+							}
 							onClick={() => {
-								setSearch("");
-								setOverride(null);
-								selection.reset();
+								selection.cancel();
+								setCollapsed(!collapsed);
 							}}
-							size="sm"
+							size="icon-sm"
 							variant="secondary"
 						>
-							Clear search and filters
+							{collapsed ? <CaretRightIcon /> : <CaretDownIcon />}
 						</Button>
 					)}
-					{input.items.length === 0 && input.emptyAction}
 				</div>
-			)}
+			</div>
+			{selection.dialog}
+			<div className="space-y-3" hidden={collapsed} id={contentId}>
+				{selection.toolbar}
+				{visible.length ? (
+					groupAgentListItems(visible, view.grouping).map(([label, items]) => (
+						<div className="space-y-2" key={label}>
+							{label && (
+								<h3 className="text-muted-foreground text-xs">
+									{label} · {items.length}
+								</h3>
+							)}
+							<FluidCardGroup>
+								<FluidNavMenu
+									activeValue={null}
+									aria-label={label || input.label}
+									className="[&_[data-sidebar=menu]]:grid [&_[data-sidebar=menu]]:gap-3 [&_[data-sidebar=menu]]:md:grid-cols-2 [&_[data-sidebar=menu]]:xl:grid-cols-3"
+								>
+									{items.map((item, index) =>
+										input.renderCard(item, index, selection.card(item))
+									)}
+								</FluidNavMenu>
+							</FluidCardGroup>
+						</div>
+					))
+				) : (
+					<div className="space-y-2 py-4 text-muted-foreground text-sm">
+						<p>
+							{input.items.length
+								? "No Agents match. Try another search or clear filters."
+								: "No Agents yet."}
+						</p>
+						{input.items.length > 0 && (search || override) && (
+							<Button
+								onClick={() => {
+									setSearch("");
+									setOverride(null);
+									selection.reset();
+								}}
+								size="sm"
+								variant="secondary"
+							>
+								Clear search and filters
+							</Button>
+						)}
+						{input.items.length === 0 && input.emptyAction}
+					</div>
+				)}
+			</div>
 		</section>
 	);
 }

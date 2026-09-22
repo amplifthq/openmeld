@@ -50,6 +50,10 @@ export function useAgentListSelection(
 		setIds(new Set());
 		setFailures([]);
 	};
+	const cancel = () => {
+		reset();
+		setActive(false);
+	};
 	const remove = async () => {
 		if (!(confirm && onDelete) || running.current) {
 			return;
@@ -86,6 +90,7 @@ export function useAgentListSelection(
 	};
 	return {
 		active,
+		cancel,
 		reset,
 		card: (item: AgentListItem): AgentCardSelection | undefined =>
 			active
@@ -151,10 +156,7 @@ export function useAgentListSelection(
 				</Button>
 				<Button
 					disabled={pending}
-					onClick={() => {
-						reset();
-						setActive(false);
-					}}
+					onClick={cancel}
 					size="sm"
 					variant="secondary"
 				>

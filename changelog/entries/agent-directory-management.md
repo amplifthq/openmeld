@@ -9,6 +9,8 @@ audiences: ["users"]
 Filter Agents by Local or Remote, search within each person's list by name,
 model, or vendor, and remove individual filter chips or reset the view.
 Model and Controller icons make choices easier to recognize.
+Collapse a person's Agent list to make room for other people without losing
+your search or filters.
 
 Select your Agents and delete several at once, with an exact confirmation and
 individual failure feedback. Creation history is now beside your name and
