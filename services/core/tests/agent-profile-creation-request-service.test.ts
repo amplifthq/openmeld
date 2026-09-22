@@ -6,7 +6,8 @@ import type {
   AgentProfileCreationApprovalPolicy,
   CreateAgentProfileCreationRequestBody,
 } from "@openmeld/schemas/types";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import publishedManifest from "../../../release/local-components.json";
 import { createAgentProfileCreationRequestInboxProjectionService } from "../src/agent-profile-creation-request/agent-profile-creation-request-inbox-projection";
 import {
   AGENT_PROFILE_CREATION_STALE_AFTER_MS,
@@ -24,6 +25,7 @@ import {
 const NOW_MS = Date.parse("2026-08-20T10:00:00.000Z");
 
 describe("Agent Profile creation request service", () => {
+  afterEach(() => vi.unstubAllGlobals());
   let repository: InMemoryRepository;
   const createAgentProfile = vi.fn();
   const projectApprovalInbox = vi.fn();
@@ -37,6 +39,40 @@ describe("Agent Profile creation request service", () => {
     );
     projectApprovalInbox.mockReset();
     resolveApprovalInbox.mockReset();
+  });
+
+  it("rejects a new Antigravity permission before persisting or scheduling a creation request in the receiver stage", async () => {
+    const receiverManifest = structuredClone(publishedManifest);
+    receiverManifest.components.service.runtimeContractEpoch =
+      "runtime-transport-epoch-2026-09-image-geometry";
+    vi.stubGlobal(
+      "OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON",
+      JSON.stringify(receiverManifest)
+    );
+    await expect(
+      createService().create({
+        actorProfileId: "human-requester",
+        organizationId: "org-1",
+        requesterUserId: "user-requester",
+        body: requestBody({
+          configuration: {
+            ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+            agentControllerRef: "builtin:antigravity",
+            targetComputerId: "device-1",
+            agentControllerPermissionMode: "antigravity:acceptEdits",
+          },
+        }),
+      })
+    ).rejects.toThrow("Antigravity permission settings are not available yet");
+    expect(
+      await repository.findByIdempotencyKey({
+        idempotencyKey: "request-1",
+        organizationId: "org-1",
+        requesterUserId: "user-requester",
+      })
+    ).toBeNull();
+    expect(createAgentProfile).not.toHaveBeenCalled();
+    expect(projectApprovalInbox).not.toHaveBeenCalled();
   });
 
   it("keeps a teammate request pending under the safe default policy", async () => {

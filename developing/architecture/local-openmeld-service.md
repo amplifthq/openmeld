@@ -602,14 +602,23 @@ Antigravity's Binding permission intent is passed to every new or resumed CLI
 invocation using its native mode/approval flags. This changes no Space action
 authorization and grants nothing beyond the owner's explicitly selected mode.
 The four `antigravity:*` permission values require an updated CLI/Service;
-older strict schemas reject those values. The runtime epoch and required Service
-contract advance so Core blocks new Wake work on an incompatible Service with
-an update requirement. Publish the compatible local components before deploying
-the new cloud permission writer and Core admission contract. Old cloud callers
-can keep using the new Service with an omitted mode and unchanged native
-defaults. Existing controllers, setup, Stop, trace, and dispatch-owned action
-contracts are unchanged. Already accepted work keeps its existing lifecycle;
-unknown permission values must never silently fall back to another mode.
+older strict schemas reject those values. Both the CLI command contract and
+Service runtime epoch advance; the formal local-component release must mark
+both components required. Keep version stamps in that release PR.
+
+Use the existing receiver-first Core deployment when this change ships with a
+Service-to-Core addition such as workspace-recovery decline. Its immutable
+published-manifest override preserves the previous image-geometry epoch for
+old Services while also accepting the new Antigravity epoch. During this stage,
+Core rejects all new `antigravity:*` permission writes at Binding, creation
+request, and remembered-default boundaries. An omitted mode remains unchanged.
+Readiness diagnostics report the same effective epoch as runtime admission.
+After the new CLI/Service artifacts exist, the normal final Core projection
+enables those writers and requires the new epoch for new Wake work. Old Core
+does not accept the new Service epoch: the receiver deployment must precede
+Service publication. Never infer safety merely from the delayed version floor.
+Already accepted work keeps its existing lifecycle; unknown permission values
+must never silently fall back to another mode.
 
 OpenClaw Gateway does not expose a per-turn plugin-injection surface. During an
 action-enabled dispatch, the adapter therefore runs the same OpenClaw Session

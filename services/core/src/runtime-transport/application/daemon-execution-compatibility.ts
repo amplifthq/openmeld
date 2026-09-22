@@ -3,6 +3,7 @@ import type {
   DaemonExecutionCompatibility,
   DaemonRuntimeContract,
 } from "@openmeld/schemas/types";
+import { resolveCoreRuntimeContractRollout } from "../../local-components/runtime-contract-rollout";
 
 export const resolveDaemonExecutionCompatibility = (
   runtimeContract: DaemonRuntimeContract | null | undefined
@@ -11,10 +12,17 @@ export const resolveDaemonExecutionCompatibility = (
     return createMissingDaemonExecutionCompatibility();
   }
 
-  if (runtimeContract.epoch !== CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH) {
+  const rollout = resolveCoreRuntimeContractRollout();
+  if (
+    runtimeContract.epoch !== CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH &&
+    !(
+      rollout.acceptsPreviousEpoch &&
+      runtimeContract.epoch === rollout.expectedEpoch
+    )
+  ) {
     return {
       status: "update_required",
-      expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+      expectedEpoch: rollout.expectedEpoch,
       observedEpoch: runtimeContract.epoch,
       reasonCode: "daemon.runtime_contract.mismatch",
     };
@@ -22,7 +30,7 @@ export const resolveDaemonExecutionCompatibility = (
 
   return {
     status: "compatible",
-    expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+    expectedEpoch: rollout.expectedEpoch,
     observedEpoch: runtimeContract.epoch,
     reasonCode: "daemon.runtime_contract.compatible",
   };
@@ -31,7 +39,7 @@ export const resolveDaemonExecutionCompatibility = (
 export const createMissingDaemonExecutionCompatibility =
   (): DaemonExecutionCompatibility => ({
     status: "update_required",
-    expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+    expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
     observedEpoch: null,
     reasonCode: "daemon.runtime_contract.missing",
   });

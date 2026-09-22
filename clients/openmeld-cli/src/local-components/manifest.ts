@@ -41,7 +41,7 @@ import { loadSelectedSkillAssets } from "../skills/official-release";
 import { readManagedCliInstallation } from "./managed-install";
 
 export const OPENMELD_CLI_COMMAND_CONTRACT_VERSION =
-  "openmeld-cli-command-contract-2026-09-image-geometry-v1";
+  "openmeld-cli-command-contract-2026-09-antigravity-permissions-v1";
 export const OPENMELD_SKILLS_CONTRACT_VERSION =
   "openmeld-skills-contract-2026-09-explicit-space-recipients-v1";
 export const OPENMELD_SERVICE_CONTRACT_VERSION =
