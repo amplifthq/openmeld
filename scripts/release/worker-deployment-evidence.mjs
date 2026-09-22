@@ -1,6 +1,8 @@
 import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   productionCoreActivationSchema,
   productionWorkerDeploymentContextSchema,
@@ -195,9 +197,15 @@ export async function resolveReceiptWorkerTarget(input) {
       "Worker receipt target requires its existing configuration."
     );
   }
-  const { unstable_readConfig } = await import("wrangler");
+  const cwd = path.resolve(input.cwd ?? process.cwd());
+  // Hosted control has only schema dependencies. The approved source owns the
+  // pinned parser and configuration, just as it owns the Wrangler deploy CLI.
+  const require = createRequire(path.join(cwd, "package.json"));
+  const { unstable_readConfig } = await import(
+    pathToFileURL(require.resolve("wrangler")).href
+  );
   const config = unstable_readConfig({
-    config: path.resolve(input.cwd ?? process.cwd(), configFile),
+    config: path.resolve(cwd, configFile),
     env: "prod",
   });
   let projectionTag;
