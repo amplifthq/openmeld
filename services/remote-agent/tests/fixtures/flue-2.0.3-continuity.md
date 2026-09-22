@@ -22,3 +22,19 @@ or rewrite its schema to make a failing compatibility test pass.
 
 This synthetic local fixture is not production data or proof of staging
 deployment continuity, Computer survival, or hosted rollback.
+
+For a local cross-version round trip, retain the original patched 2.0.3 package
+and its dependencies, then run from the Remote Agent package:
+
+```sh
+node scripts/verify-flue-version-rollback.mjs /absolute/path/to/retained/node_modules/@flue/runtime
+```
+
+The script restores a disposable fixture copy, runs it under 2.1.0, writes a
+real format-3 checkpoint and new completed/running/queued work, then exits that
+process at a controlled provider wait without a graceful runtime stop. A
+separate process loads the same database with the retained patched 2.0.3,
+recovers the exact pending requests, reads both generations' completed results,
+and continues the conversation without the original tool. It deletes only its
+own temporary directory. It does not install packages, access user state, or
+certify a hosted/Core/Computer rollback.
