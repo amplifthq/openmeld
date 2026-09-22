@@ -370,10 +370,11 @@ is a hosted-runtime policy catalog, not a local Agent Profile controller:
 
 - `defaultModelId` is the system default resolved for each new Center Agent
   turn. The current default is `z-ai/glm-5.3-flash` (**GLM 5.3 Flash**).
-- The curated list covers six model vendors: OpenAI (GPT-5.6 Terra and GPT-5.6
-  Luna), Anthropic (Claude Opus 5 and Claude Sonnet 5), Google (Gemini 3.8 Flash,
+- The curated list covers six model vendors: OpenAI (GPT-6 Astra, GPT-5.6 Sol,
+  GPT-5.6 Terra, and GPT-5.6 Luna), Anthropic (Claude Fable 5.1, Claude Fable 5,
+  Claude Opus 5, and Claude Sonnet 5), Google (Gemini 3.8 Flash,
   Gemini 3.5 Flash Lite, and Gemini 3.1 Pro Preview), DeepSeek (V4.1 Flash and
-  V4 Flash), xAI (Grok 4.6 and Grok 4.5), and Z.ai (GLM 5.3 Flash). Exact
+  V4 Flash), xAI (Grok 4.7, Grok 4.6, and Grok 4.5), and Z.ai (GLM 5.3 Flash). Exact
   OpenRouter IDs remain in `release/vendor-models.json`; a preview model remains
   labeled Preview.
 - A hosted model may declare one optional `badgeLabel` as catalog-owned
@@ -423,6 +424,14 @@ The focused runtime test resolves each catalog route and serializes a tool
 continuation through the actual provider adapter before network dispatch.
 This proves local contract compatibility, not live provider availability or
 successful hosted execution for a particular account.
+
+The September 22 expansion adds GPT-6 Astra, GPT-5.6 Sol, Claude Fable 5.1,
+Claude Fable 5, and Grok 4.7 using the same capacity and reasoning policy.
+Their captured OpenRouter metadata is retained in
+`services/remote-agent/tests/fixtures/openrouter-hosted-models-2026-09-22.json`.
+Both Center Agent and personal Remote Agent choices use this hosted catalog;
+there is no second Remote Agent model list. Existing defaults, saved model IDs,
+and the image helper remain unchanged.
 
 No catalog schema changes are required. Older Web clients can show the expanded
 flat list; the provider-aware Web client can also consume the older catalog.

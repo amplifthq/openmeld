@@ -19,6 +19,7 @@ import {
   resolveRemoteAgentModelRuntimeConfigForRegistration,
 } from "../flue-adapter/model";
 import capturedModels from "./fixtures/openrouter-center-agent-models-2026-09-14.json";
+import additionalModels from "./fixtures/openrouter-hosted-models-2026-09-22.json";
 
 const catalog = modelCatalogSchema.parse(catalogJson);
 
@@ -38,9 +39,10 @@ describe("curated Center Agent provider models", () => {
     vi.restoreAllMocks();
   });
 
-  it.each(
-    capturedModels.data
-  )("routes $id with captured capabilities and a tool continuation", async (evidence) => {
+  it.each([
+    ...capturedModels.data,
+    ...additionalModels.data,
+  ])("routes $id with captured capabilities and a tool continuation", async (evidence) => {
     const resolved = resolveCenterAgentModelRoute({
       catalog,
       preference: { kind: "selected_model", modelId: evidence.id },
@@ -155,17 +157,24 @@ describe("curated Center Agent provider models", () => {
         expect.objectContaining({
           role: "tool",
           tool_call_id: "call-1",
-          content: evidence.id.startsWith("anthropic/")
-            ? expect.arrayContaining([
-                expect.objectContaining({
-                  type: "text",
-                  text: "Space inspected.",
-                }),
-              ])
-            : "Space inspected.",
         }),
       ]),
     });
+    // OpenRouter accepts plain text and typed content parts. The SDK adds
+    // parts when its model metadata enables Anthropic cache control.
+    const toolResult = (
+      payload as {
+        messages: {
+          role: string;
+          content: string | { type: string; text: string }[];
+        }[];
+      }
+    ).messages.find((message) => message.role === "tool");
+    expect(
+      typeof toolResult?.content === "string"
+        ? toolResult.content
+        : toolResult?.content.map((part) => part.text).join("")
+    ).toBe("Space inspected.");
     expect(payload).not.toHaveProperty("models");
   });
 
@@ -176,7 +185,7 @@ describe("curated Center Agent provider models", () => {
         ? [choice.preference.modelId]
         : []
     );
-    expect(ids).toHaveLength(12);
+    expect(ids).toHaveLength(17);
     expect([...new Set(ids.map((id) => id.split("/")[0]))].sort()).toEqual([
       "anthropic",
       "deepseek",
@@ -192,8 +201,8 @@ describe("curated Center Agent provider models", () => {
         "google/gemini-3.5-flash-lite",
       ])
     );
-    expect(ids).not.toEqual(
-      expect.arrayContaining(["openai/gpt-6-astra", "openai/gpt-5.6-sol"])
+    expect(ids).toEqual(
+      expect.arrayContaining(additionalModels.data.map((model) => model.id))
     );
     expect(catalog.agentControllers["center-agent"]?.defaultModelId).toBe(
       "z-ai/glm-5.3-flash"
