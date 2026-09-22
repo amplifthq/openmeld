@@ -64,6 +64,12 @@ export function useSocialSignIn() {
 			const result = await openMeldAuthClient.signIn.social({
 				provider: providerId,
 				callbackURL: callbackURL.toString(),
+				// When Better Auth can still recover this flow's state (for
+				// example a post-parse security check, not a missing/expired
+				// state), it sends the person back here instead of the global
+				// sign-in fallback — landing them on the exact page they left,
+				// not just "a" sign-in page.
+				errorCallbackURL: window.location.href,
 			});
 
 			if (result?.error) {
