@@ -41,11 +41,12 @@ function runBootstrap(major: number, failure = "") {
 			scriptPath,
 			`\uFEFF${buildOpenMeldSetupBootstrapPowerShellScript({ distribution: "npm", lane: "prod", openMeldHome: join(root, "openmeld-home") })}`
 		);
-		const env = Object.fromEntries(
-			Object.entries(process.env).filter(
-				([key]) => key.toLowerCase() !== "path"
-			)
-		);
+		const env = { ...process.env };
+		for (const key of Object.keys(env)) {
+			if (key.toLowerCase() === "path") {
+				delete env[key];
+			}
+		}
 		const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT;
 		if (!systemRoot) {
 			throw new Error("Native Windows test requires SystemRoot.");
