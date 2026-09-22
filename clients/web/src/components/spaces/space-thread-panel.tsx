@@ -578,6 +578,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 				className={input.className}
 				id="space-thread-panel"
 				maxWidth={panelWidth.maxWidth}
+				minRemainingWidth={512}
 				minWidth={panelWidth.minWidth}
 				onWidthChange={panelWidth.onWidthChange}
 				open={input.open ?? input.activeThread !== null}

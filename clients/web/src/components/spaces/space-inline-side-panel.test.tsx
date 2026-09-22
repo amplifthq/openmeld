@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { notifyResizeObservers } from "#/test-support/dom-observers.setup";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
 
 afterEach(() => {
@@ -38,6 +39,48 @@ function ResizablePanelHarness(input: {
 }
 
 describe("SpaceInlineSidePanel", () => {
+	it("reserves reading space during drag and preserves the saved width through narrow layouts", () => {
+		const onWidthChange = vi.fn();
+		const { container } = render(
+			<SpaceInlineSidePanel
+				ariaLabel="Thread"
+				id="space-thread-panel"
+				maxWidth="60rem"
+				minRemainingWidth={512}
+				minWidth="22rem"
+				onWidthChange={onWidthChange}
+				open
+				resizeHandleLabel="Resize Thread panel"
+				width="60rem"
+			>
+				Thread content
+			</SpaceInlineSidePanel>
+		);
+		const wrapper = container.querySelector<HTMLElement>(
+			'[data-slot="sidebar-wrapper"]'
+		);
+		let containerWidth = 1200;
+		Object.defineProperty(container, "clientWidth", {
+			get: () => containerWidth,
+		});
+		act(() => notifyResizeObservers(container));
+		const rail = screen.getByRole("separator", { name: "Resize Thread panel" });
+		fireEvent.pointerDown(rail, { clientX: 500, pointerId: 1 });
+		fireEvent.pointerMove(document, { clientX: 0, pointerId: 1 });
+		expect(wrapper?.style.getPropertyValue("--sidebar-width")).toBe("688px");
+		fireEvent.pointerUp(document, { clientX: 0, pointerId: 1 });
+		onWidthChange.mockClear();
+		containerWidth = 800;
+		act(() => notifyResizeObservers(container));
+		expect(wrapper?.getAttribute("data-space-panel-overlay")).toBe("true");
+		expect(wrapper?.style.getPropertyValue("--sidebar-width")).toBe("800px");
+		expect(screen.queryByRole("separator")).toBeNull();
+		containerWidth = 1600;
+		act(() => notifyResizeObservers(container));
+		expect(wrapper?.hasAttribute("data-space-panel-overlay")).toBe(false);
+		expect(wrapper?.style.getPropertyValue("--sidebar-width")).toBe("960px");
+		expect(onWidthChange).not.toHaveBeenCalled();
+	});
 	it("reuses the right-side rail direction and grows when its left edge moves left", () => {
 		const onWidthChange = vi.fn();
 		const { container } = render(

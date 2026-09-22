@@ -24,6 +24,13 @@ conversations and direct messages, while actions retain their own row.
 Sidebar message previews are easier to distinguish from conversation titles,
 and empty conversations no longer show placeholder preview text.
 
+Thread panels can be resized wider on large screens without squeezing the main
+conversation into an unreadable column. In smaller windows, Thread opens across
+the conversation area and closing it returns to the main conversation.
+
 From a Thread's original message details, choose **Show message in Messages**
 to locate and highlight it in the main conversation while keeping the Thread
 open, including when the original message is outside the loaded history.
+
+Archive conversation is now in the direct message header's menu, with a
+confirmation before the conversation is hidden from your list.

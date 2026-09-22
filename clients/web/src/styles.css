@@ -144,6 +144,13 @@ html[data-space-conversation-layout="centered"]
   padding-inline: var(--space-conversation-inline-padding);
 }
 
+/* Keep the underlying columns laid out, but out of the focus and reading order,
+   while a narrow container presents Thread as a full-width reading panel. */
+[data-space-inline-panels]:has(> [data-space-panel-overlay="true"])
+  > :not([data-space-panel-overlay="true"]) {
+  visibility: hidden;
+}
+
 html[data-space-self-message-alignment="left"]
   [data-space-self-message="true"][data-slot="message"] {
   flex-direction: row;

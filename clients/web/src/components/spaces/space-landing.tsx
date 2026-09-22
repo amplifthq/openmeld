@@ -1854,8 +1854,9 @@ function SpaceLandingReady({
 					showHeader={input.presentation !== "compact"}
 				>
 					<div
-						className="flex min-h-0 flex-1 overflow-hidden"
+						className="relative flex min-h-0 flex-1 overflow-hidden"
 						data-space-conversation-presentation={input.presentation}
+						data-space-inline-panels=""
 						data-space-members-panel-open={
 							isDesktopMembersPanel &&
 							membersOpen &&

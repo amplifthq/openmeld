@@ -25,7 +25,7 @@ import {
 } from "#/components/app/app-module-sidebar";
 import { MessageSearchButton } from "#/components/search/message-search";
 import type { SpaceLiveState } from "#/lib/spaces/timeline";
-import { ChatArchiveButton } from "./chat-archive-button";
+import { ChatHeaderMenu } from "./chat-header-menu";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import { SpaceHeaderNavigationMenu } from "./space-header-navigation-menu";
 import { SpacePinsRecallAction } from "./space-pins";
@@ -162,6 +162,33 @@ function resolveHeaderTitle(
 	return conversationTitle ?? (spaceName?.trim() || "Untitled space");
 }
 
+function ConversationHeaderMenu(input: {
+	profileId?: string;
+	spaceId: string;
+	isDirectMessage: boolean;
+	isCenterAgent?: boolean;
+	onOpenSettings: () => void;
+}) {
+	const ariaLabel = input.isCenterAgent ? "Center Agent menu" : "Chat menu";
+	if (input.isDirectMessage && input.profileId) {
+		return (
+			<ChatHeaderMenu
+				ariaLabel={ariaLabel}
+				onOpenConversationInformation={input.onOpenSettings}
+				profileId={input.profileId}
+				spaceId={input.spaceId}
+			/>
+		);
+	}
+	return (
+		<SpaceHeaderNavigationMenu
+			ariaLabel={ariaLabel}
+			items={[]}
+			onOpenConversationInformation={input.onOpenSettings}
+		/>
+	);
+}
+
 export function SpaceHeader(input: {
 	conversationTitle?: string;
 	conversationTitleAction?: (title: string) => ReactNode;
@@ -237,6 +264,7 @@ export function SpaceHeader(input: {
 		directMessageConvertedAt: input.status.directMessageConvertedAt,
 		purpose: input.status.spacePurpose,
 	});
+	const showChatMenu = input.showChatSettingsMenu || isDirectMessage;
 	const handleDialogOpenChange = (
 		dialog: "settings" | "share",
 		open: boolean
@@ -275,12 +303,6 @@ export function SpaceHeader(input: {
 							profileId={input.currentProfileId}
 							spaceId={input.status.spaceId}
 						/>
-						{isDirectMessage && input.currentProfileId ? (
-							<ChatArchiveButton
-								profileId={input.currentProfileId}
-								spaceId={input.status.spaceId}
-							/>
-						) : null}
 						{input.membersControl ?? null}
 						{input.hideShareControl === true ? null : (
 							<SpaceShareDialog
@@ -310,14 +332,16 @@ export function SpaceHeader(input: {
 								visibility={input.status.organizationVisibility}
 							/>
 						)}
-						{input.showChatSettingsMenu ? (
-							<SpaceHeaderNavigationMenu
-								ariaLabel="Center Agent menu"
-								items={[]}
-								onOpenConversationInformation={() => {
+						{showChatMenu ? (
+							<ConversationHeaderMenu
+								isCenterAgent={input.isCenterAgentDirectMessage}
+								isDirectMessage={isDirectMessage}
+								onOpenSettings={() => {
 									setSettingsInitialSection("general");
 									setActiveDialog("settings");
 								}}
+								profileId={input.currentProfileId}
+								spaceId={input.status.spaceId}
 							/>
 						) : null}
 						<SpaceSettingsDialog
@@ -368,7 +392,7 @@ export function SpaceHeader(input: {
 							}}
 							open={activeDialog === "settings"}
 							openMeldProfileId={input.currentProfileId}
-							showTrigger={!input.showChatSettingsMenu}
+							showTrigger={!showChatMenu}
 							spaceId={input.status.spaceId}
 							visibility={input.status.organizationVisibility}
 						/>
