@@ -119,6 +119,10 @@ tests, and the real-provider opt-in loop. The retained pre-fix SQLite fixture
 must stay unchanged; recreating it with the new implementation loses the
 old-session regression. The Node executor proves orchestration and real Core
 policy, not Worker Loader isolation or deployed Space publication.
+Remote Agent declares Core as a development dependency for these cross-owner
+contract tests, so the existing workspace build graph prepares Core dependencies.
+The Node Vitest config reuses Core's lazy-module builder, including for targeted
+test runs; generated runtime files remain owned by Core and untracked.
 
 The footprint reader is a pinned, read-only aggregate over Flue's inline and
 spilled batches. It does not write runtime state or derive execution truth.
