@@ -137,6 +137,24 @@ Workerd SSR entrypoints, and retains their source/input/output receipts. It
 uses read-only repository access and no production credentials. Match the run's
 head SHA to the candidate; these checks do not replace FC or deployed smoke.
 
+For same-run Web artifact handoff acceptance, use the read-only two-job mode:
+
+```sh
+gh workflow run deep-confidence.yml --ref <candidate-branch> -f scope=artifact-handoff
+```
+
+The parent builds and checks a real Web artifact with Workerd SSR. A separate
+runner downloads the immutable snapshot, verifies/restores it, and repeats the
+artifact preflight with `reused: true` and an unchanged output hash. It also
+requires rejection of a wrong-source receipt, corrupted receipt/snapshot, and
+diagnostic evidence presented to the Production verifier. The harness binds
+its actual Deep Confidence identity through the admission test adapter; it
+does not impersonate or widen Production's main-only workflow identity.
+Both jobs retain JSON evidence and use read-only repository access, disposable
+OpenMeld state, and no Production environment, credentials, deploy or publisher.
+This proves that transport and reuse path, not production rollout duration,
+component deployment, CLI/Desktop publication, or Product Smoke.
+
 Trusted control installs only the shared evidence parser's production
 dependencies. The result publisher does not restore the full development store;
 restoring that cache costs more than installing its small runtime. Candidate
@@ -201,7 +219,11 @@ Full command logs remain in the evidence artifact. The schema owner is
 Existing trusted task-input reuse remains available to specialized affected
 plans; standard FC no longer selects those broad tasks. Full confidence executes
 its full gate. Database/release readiness and deployment/health/smoke results are
-never reused. A green FC proves only its recorded selected checks.
+never reused. The same-run Production train artifact handoff in
+[Production Release](production-release.md) verifies parent admission evidence
+and, for Web, the actual snapshot bytes; it does not reuse FC, deployment,
+reconciliation or smoke evidence. A green FC proves only its recorded selected
+checks.
 
 Each task owns its implementation, risk assessment, and authorized delivery.
 CI does not require a reviewer count, central coordinator, waiting period, or

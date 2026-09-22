@@ -21,6 +21,10 @@ function quoted(value: string): string {
 }
 
 function runBootstrap(major: number, failure = "") {
+	const startedAt = performance.now();
+	const timings: Record<string, number> = {};
+	let phase = "prepare";
+	let phaseStartedAt = startedAt;
 	const root = mkdtempSync(join(tmpdir(), "openmeld setup 连接 "));
 	const bin = join(root, "bin");
 	const callsPath = join(root, "calls.jsonl");
@@ -51,6 +55,9 @@ function runBootstrap(major: number, failure = "") {
 		if (!systemRoot) {
 			throw new Error("Native Windows test requires SystemRoot.");
 		}
+		timings.prepare = performance.now() - phaseStartedAt;
+		phase = "process";
+		phaseStartedAt = performance.now();
 		const result = spawnSync(
 			join(systemRoot, "System32/WindowsPowerShell/v1.0/powershell.exe"),
 			[
@@ -83,9 +90,12 @@ function runBootstrap(major: number, failure = "") {
 				windowsHide: true,
 			}
 		);
+		timings.process = performance.now() - phaseStartedAt;
 		if (result.error) {
 			throw result.error;
 		}
+		phase = "read";
+		phaseStartedAt = performance.now();
 		const calls = readFileSync(callsPath, "utf8")
 			.trim()
 			.split(NEWLINE)
@@ -93,12 +103,25 @@ function runBootstrap(major: number, failure = "") {
 			.map((line) => JSON.parse(line) as FixtureCall);
 		return { ...result, calls };
 	} finally {
-		rmSync(root, { recursive: true, force: true, maxRetries: 3 });
+		timings[phase] = performance.now() - phaseStartedAt;
+		const cleanupStartedAt = performance.now();
+		try {
+			rmSync(root, { recursive: true, force: true, maxRetries: 3 });
+		} finally {
+			timings.cleanup = performance.now() - cleanupStartedAt;
+			timings.total = performance.now() - startedAt;
+			console.info(
+				"[windows setup timing]",
+				JSON.stringify({ major, failure, phase, milliseconds: timings })
+			);
+		}
 	}
 }
 
 describe.skipIf(process.platform !== "win32")(
 	"generated setup in native Windows PowerShell 5.1",
+	// Functional process tests: allow the 30 s child deadline plus fixture I/O.
+	{ timeout: 40_000 },
 	() => {
 		it.each([
 			"catalog",

@@ -80,6 +80,13 @@ release. `Source validation` reports exact-SHA push evidence when present and
 otherwise tells the operator to confirm exact Final Candidate evidence. Use
 `--json` for automation.
 
+In GitHub Actions, the status reader uses the step's `GH_TOKEN` with the
+workflow repository and server identity to read private Git receipt refs.
+The existing trusted HTTPS helper supplies credentials only to those Git
+children; checkout credentials stay unpersisted. Missing credentials or a
+repository mismatch remain admission failures. Local reads retain the
+workstation's existing Git authentication.
+
 The resolved source SHA is the cutoff for that release. Commits that reach
 `main` after the cutoff belong to the next release; do not restart or widen an
 already-running release merely to chase a newer `main`.
@@ -128,6 +135,51 @@ checks through the same guarded command. If the retained source cannot satisfy
 the current contract, use an evidence-backed forward fix or a documented
 component-specific recovery; never run older guards, replace the receipt, or
 bypass admission to force a rollback.
+
+Core receiver deployment uses the current trusted control's two-step receipt
+executor. After Cloudflare confirms the newly admitted version at 100% traffic,
+it persists `applied` before checking stable channel alignment. An alignment
+failure retains `failed/applied`; the same source, operation, projection and
+active deployment may resume alignment without another upload or deployment.
+
+Historical stable alignment verifies the registry version/source and downloaded
+tarball integrity, immutable tag and tagged local-components manifest, R2 binary
+identity, and active Core projection. It reports historical non-portable npm
+dependencies without treating them as a new candidate packaging failure. Missing
+or unreadable registry evidence still fails. New CLI publication retains every
+strict portability, clean consumer, native SQLite, retained-tarball hash and
+published-byte verification gate, entirely in the official GitHub OIDC lane.
+
+The exact Stage A incident from run `35752925516`, attempt 1, has one reviewed
+reconciliation-only entrypoint:
+
+```sh
+node /path/to/current-main-control/scripts/release/core-receiver-reconciliation.mjs \
+  --release-source /path/to/clean-product-checkout
+```
+
+The product checkout must remain at
+`567c820e470de965b4ba5e3ab303fd02340e5ca8`. Add `--verify-only` to inspect the
+evidence before merging the control change; that mode writes no release evidence.
+The writing mode requires clean current-main control and the existing Core lease.
+It independently verifies the original failed run/job, admitted startup artifact
+and its pinned digest, immutable `v0.3.217` tag/manifest, and exact active Core
+deployment `297033ac-2c4f-4e28-807d-70e4145fc965` with version
+`b7a853b8-b272-436c-bce9-084645846f3b` at 100% traffic and the old projection.
+Any replacement or intervening deployment refuses reconciliation.
+
+The earlier local failed/unknown Core receipt is also retained. Its exact source
+was subsequently completed by official CLI Release run `35528171693`; that run
+must independently verify before the old receipt can be superseded. The new
+canonical receipt uses `proof=reconciled-hosted` and links an immutable schema 5
+provenance commit as its second Git parent. Its first parent preserves the prior
+receipt. The reconciliation attempt starts when reconciliation runs, not when
+Stage A ran. It records the original run, control, artifact, deployment time and
+superseded receipt explicitly; it never claims the old runner wrote a receipt.
+Alignment failure retains applied/failed evidence; retry reuses that same
+reconciliation attempt. This command cannot upload or deploy a Cloudflare Worker.
+After completion, rerun release status and CLI stage admission before publication.
+
 For the specific Remote Agent Worker-first/container-image failure, current-main
 tooling provides `release:recover:remote-agent-partial`. It requires the clean
 original release source, the retained failed attempt and its start event, the
@@ -847,10 +899,44 @@ complete train for artifact admission, while its production packaging entrypoint
 verifies its renderer and prerender separately. Web and Desktop artifact
 snapshots remain component-specific recovery evidence: restoring one component
 selects that component's exact source and matching receipt without changing the
-other component's baseline. Artifact reuse is local to a checkout with matching
-source, build inputs, and output hash. A separate hosted deployment runner
-builds and verifies its own output rather than treating another runner's test
-result as proof of its bytes.
+other component's baseline.
+
+Within one coordinated `release-on-main.yml` run, `validate_release_source`
+performs the complete train admission once before any Production mutation.
+Only that job issues `production-train-admission` evidence through its protected
+job output. Consumers require the exact source, declared train and artifact
+scopes, repository, main workflow identity, trusted control SHA, run ID and
+attempt, clean Git tree, lockfile hash, and Node/platform/architecture.
+Coordinated consumers install the parent's exact Node version before dependency
+setup; independently resolving Node 24 on each runner can select different
+versions. Standalone callers retain the existing toolchain selection.
+The evidence retains the inspected CLI tarball integrity and each renderer's
+build-input, output and receipt hashes, including its Workerd SSR runtime.
+This is artifact admission evidence, not a deployment or reconciliation receipt.
+
+Component workflows and their nested preflight calls verify that output without
+repeating complete train builds or npm consumer installation. The Database
+action invokes the existing Database entrypoint from trusted control against the
+release-source checkout so historical source cannot select an older admission
+implementation. Its database steps and guards are unchanged.
+The Web job additionally downloads the parent's immutable same-run artifact ID,
+verifies the receipt, actual build inputs and snapshot bytes, and restores the
+admitted Web output before its existing preflight, deploy and health gates.
+Other components do not download Web bytes. Desktop publication and CLI
+publication remain separate paths with their existing checks.
+
+Missing, malformed or mismatched parent evidence, or a missing/corrupt Web
+snapshot, fails closed; it cannot silently fall back to rebuilding. Independent
+component callers without parent evidence retain complete admission. There is
+no cross-run cache or reuse: a partial rerun whose attempt differs from the
+parent proof must rerun the full coordinated workflow. Existing local snapshot
+reuse still requires matching source, build inputs and output hash.
+
+While waiting for Actions, use bounded waits or backoff and read compact job
+status first. Read detailed logs only when a job changes state or a failure
+needs diagnosis; do not repeatedly fetch unchanged full logs. Finish the current
+stage before preparing the next one. In particular, defer Desktop, signing and
+environment preparation until that stage is actually selected and ready.
 
 Working-folder recovery introduces a Core cancellation receiver that must be
 healthy before the new CLI/Service can emit that outcome. Use the guarded

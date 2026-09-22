@@ -27,6 +27,7 @@ const AGENT_REQUESTS_DESCRIPTION =
 	"Review Agents you created and finish any setup that needs attention.";
 
 export type AgentProfilesWorkspaceProps = {
+	onDeleteProfiles?: import("./agent-list-selection").DeleteAgents;
 	directoryProfiles?: OrganizationProfileDirectoryResponse["agentProfiles"];
 	taskActivityAvailable?: boolean;
 	members?: OrganizationProfileDirectoryResponse["members"];
@@ -48,7 +49,7 @@ export type AgentProfilesWorkspaceProps = {
 	onDismissCreation?: (requestId: string) => void;
 	onSelectProfile: (profileId: string) => void;
 	onViewChange: (view: "agents" | "requests") => void;
-	pendingRequestCount: number;
+	creationAttentionCount: number;
 	profiles: readonly AuthProfileView[];
 	profilesErrorMessage?: string;
 	profilesStatus?: "error" | "loading" | "ready";
@@ -160,17 +161,6 @@ function AgentProfilesWorkspaceContent(input: {
 		<div className="w-full space-y-4 px-[var(--app-page-inline-padding)] pb-8">
 			{profilesController}
 			<AgentDirectoryLists input={input.input} />
-			{input.input.person &&
-				input.input.canCreateAgent !== false &&
-				input.input.isOrganizationContext && (
-					<Button
-						onClick={() => input.input.onViewChange("requests")}
-						size="sm"
-						variant="ghost"
-					>
-						Creation history
-					</Button>
-				)}
 		</div>
 	);
 }
@@ -187,7 +177,7 @@ function AgentRequestsWorkspace(input: { input: AgentProfilesWorkspaceProps }) {
 						variant="outline"
 					>
 						<ArrowLeftIcon aria-hidden="true" data-icon="inline-start" />
-						Back to Team
+						Back to Agents
 					</Button>
 				</div>
 				<div className="min-w-0">
@@ -227,15 +217,15 @@ function AgentWorkspaceHeader(input: AgentProfilesWorkspaceProps) {
 							</h1>
 							<div className="flex items-center gap-2">
 								{input.isOrganizationContext &&
-								input.canCreateAgent !== false &&
-								input.pendingRequestCount > 0 ? (
+								input.canCreateAgent !== false ? (
 									<Button
 										onClick={() => input.onViewChange("requests")}
-										variant="ghost"
+										size="sm"
+										variant="secondary"
 									>
-										Finish setup
-										{input.pendingRequestCount > 0
-											? ` (${input.pendingRequestCount})`
+										Creation history
+										{input.creationAttentionCount > 0
+											? ` · Needs attention: ${input.creationAttentionCount}`
 											: ""}
 									</Button>
 								) : null}

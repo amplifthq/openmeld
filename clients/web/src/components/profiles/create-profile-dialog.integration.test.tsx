@@ -1567,10 +1567,26 @@ describe("CreateProfileDialog", () => {
 		fireEvent.change(screen.getByRole("textbox", { name: "Agent name" }), {
 			target: { value: "New Remote Partner" },
 		});
+		fireEvent.click(screen.getByRole("button", { name: "Edit Model" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Provider" }));
+		fireEvent.click(await screen.findByRole("option", { name: "OpenAI" }));
+		expect(
+			screen.getByRole("combobox", { name: "Model" }).textContent
+		).toContain("Choose a model");
+		expect(createAgentProfileCreationRequestMock).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
+		fireEvent.click(await screen.findByRole("option", { name: "GPT-6 Astra" }));
+		fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
 		const readsBeforeCreation = readOrganizationDirectoryMock.mock.calls.length;
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 		await waitFor(() => {
-			expect(createAgentProfileCreationRequestMock).toHaveBeenCalled();
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({
+						modelId: "openai/gpt-6-astra",
+					}),
+				})
+			);
 			expect(readOrganizationDirectoryMock.mock.calls.length).toBeGreaterThan(
 				readsBeforeCreation
 			);

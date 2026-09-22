@@ -131,6 +131,24 @@ webhook processing on the existing `OPENMELD_DAEMON_DISPATCH_QUEUE`. Duplicate
 `X-GitHub-Delivery` ids are ignored after a successful claim. Missing link
 rows mean no Space is scanned. Webhook callbacks grant no execution authority.
 
+## Center Agent generated session titles
+
+Space owns the generated default title in `space_meta.name`; the existing
+Space index outbox carries the same name to the authorized session list.
+Auth-owned personal `chats.titles` override this default without being changed
+by inference. The title generator is a dedicated Remote Agent Worker RPC,
+outside the Flue conversation and execution queue. Its shared schemas are in
+`packages/schemas/src/schemas/runtime/center-agent-session-title.ts`.
+
+Only already-persisted, user-authored main-timeline messages from the active
+Human in the designated Center Agent DM pair qualify, while the Space name is
+still `New chat`. Space persists a maximum of three attempts in its own storage,
+allows one in-flight request, and checks the current pair and unchanged metadata
+before writing. Failures are best-effort presentation failures logged with
+Space/signal correlation, never Wake failures. Request text and filenames are
+bounded; logs must not contain prompt or response bodies. Existing metadata
+invalidation signals cause clients to reread the owners.
+
 ## Space message previews and slow Web experiences
 
 Space member snapshots use the existing request-local D1 read batch for Agent

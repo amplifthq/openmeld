@@ -144,6 +144,13 @@ html[data-space-conversation-layout="centered"]
   padding-inline: var(--space-conversation-inline-padding);
 }
 
+/* Keep the underlying columns laid out, but out of the focus and reading order,
+   while a narrow container presents Thread as a full-width reading panel. */
+[data-space-inline-panels]:has(> [data-space-panel-overlay="true"])
+  > :not([data-space-panel-overlay="true"]) {
+  visibility: hidden;
+}
+
 html[data-space-self-message-alignment="left"]
   [data-space-self-message="true"][data-slot="message"] {
   flex-direction: row;
@@ -166,6 +173,7 @@ html[data-space-self-message-alignment="left"]
 
 html[data-space-self-message-alignment="left"]
   [data-space-self-message="true"]
+  > [data-slot="message-content"]:not([data-direct-message])
   [data-slot="bubble"] {
   align-self: flex-start;
   inline-size: 100%;
@@ -174,6 +182,7 @@ html[data-space-self-message-alignment="left"]
 
 html[data-space-self-message-alignment="left"]
   [data-space-self-message="true"]
+  > [data-slot="message-content"]:not([data-direct-message])
   [data-slot="bubble-content"] {
   inline-size: 100%;
   max-inline-size: 100%;
@@ -255,6 +264,62 @@ html[data-space-self-message-alignment="left"]
     [data-slot="bubble"] {
     max-inline-size: min(88%, 52rem);
   }
+}
+
+/* Messages keep an avatar column beside the first header or bubble in a run.
+   Reserve it on every row so grouped messages and actions stay aligned. */
+[data-slot="message-content"] {
+  position: relative;
+  padding-inline-start: 2rem;
+}
+
+[data-slot="message-content"]:not([data-direct-message]) [data-slot="message-speaker-avatar"] {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+}
+
+[data-slot="message-speaker-avatar"] {
+  display: flex;
+}
+
+/* Offset the name line's font ascent inset so its visible text sits just above the avatar
+   top, while removing the same space above the bubble. Avatars stay anchored. */
+[data-slot="message-content"]:not([data-direct-message]) > [data-slot="message-header"] {
+  margin-block-start: -5px;
+}
+
+[data-direct-message] > [data-slot="message-header"] {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  margin-block-end: 0;
+}
+
+[data-direct-message] [data-slot="bubble"],
+[data-direct-message] [data-slot="bubble-content"] {
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  align-self: flex-start;
+}
+
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"] > [data-slot="message-content"] {
+  padding-inline-start: 0;
+  padding-inline-end: 2rem;
+}
+
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"] [data-direct-message] > [data-slot="message-header"],
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"] [data-slot="message-content"]:not([data-direct-message]) [data-slot="message-speaker-avatar"] {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+}
+
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"] [data-direct-message] [data-slot="bubble"] {
+  align-self: flex-end;
 }
 
 @media (min-width: 1280px) {

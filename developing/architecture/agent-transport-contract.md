@@ -1143,6 +1143,13 @@ This Agent Profile can reply in this Space from the intended Runtime now.
 Route online is not enough. Binding existence is not enough. Completed Prepare
 evidence is not enough. Process health is not business readiness.
 
+A live Runtime Transport session with `acceptingDispatches: false` is not
+available for a new Wake, even while its socket and profile leases remain
+fresh. Core projects `local_service.not_accepting_wakes` as unavailable and
+invalidates carried profiles when admission closes or reopens. Computer
+connectivity, route registration, and already accepted executions remain
+separate facts; draining must not mark an in-flight Wake failed.
+
 Core-owned Wakeability is the only final user-facing projection for this
 question. Web, CLI, Space, and Start render it; they do not recompute it.
 

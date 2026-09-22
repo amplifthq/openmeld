@@ -519,6 +519,23 @@ new tool to select main explicitly. This is a cloud-only capability: old/new
 CLI, Service, and Skills retain setup, Wake, Space actions, trace and recovery
 contracts. No local contract epoch or local component stamp changes are needed.
 
+## Center Agent session title generation
+
+`generateCenterAgentSessionTitle` is an additive, internal Core-to-Remote-Agent
+service-binding RPC. Its strict request and response live in `packages/schemas`.
+Space supplies bounded persisted message text and filenames; the receiver returns
+a validated short title or no topic. It has no tool, session, or Wake authority.
+The existing Space name and index projection carry the result, and existing
+metadata invalidations refresh readers. Auth personal titles retain precedence.
+
+Deploy the Remote Agent receiver before Core and Web. New Core with an older
+receiver keeps message publication working and leaves the default title when
+the optional RPC is unavailable. Older Core does not call the new receiver.
+Rollback Web/Core before removing the receiver. No public HTTP, WebSocket,
+native delivery, CLI, Service, or Skill payload changes; old and new clients
+retain setup, Wake, Space actions, and diagnostics interoperability. No database
+migration, contract epoch, local component stamp, or new binding is required.
+
 ## Hosted reply recovery rollout
 
 The optional `replyRecovery` field on Remote Agent submit requests is owned by
@@ -1205,6 +1222,30 @@ exactly or admission fails. A plan is disclosure policy, not member authority,
 tool authority, a conversation id, or a substitute for source authorization.
 
 ### Inbox contracts
+
+`GET /v1/inbox/notification-observations` and Core `observeInboxNotifications`
+use the strict shared Inbox observation query, response and cursor schemas.
+Core derives the recipient/Organization from active membership, validates cursor
+scope and current source access, and reads a bounded insertion-ordered page from
+existing `inbox_items`. Initial requests return an empty baseline; continuation
+pins a finite upper row position until that window is consumed. Occurrence time
+is not an insertion position. Inbox uses soft clearing; this volatile cursor is
+not a durable cross-database-rebuild checkpoint. Browser reload starts a new
+baseline while its existing pending delivery ids remain recoverable.
+
+This endpoint is a read projection, not an unread writer or cross-device delivery
+lock. It returns current source facts and targets; no existing list/get/summary
+response changes. Web retains eligible ids in its existing scoped pending ledger
+before advancing. Browser delivery receipts require `show`, and aborting the
+current feed closes unacknowledged attempts. Storage availability is client-local
+capability, never a replacement for account preferences or Core read state.
+
+Contract impact: deploy **Core, then Gateway, then Web and the matching Desktop
+renderer**. New callers require the new receiver; do not expose them first or
+fall back to the lossy first-page reader. Roll back callers before the endpoint.
+Old Web/Desktop continue using unchanged APIs. No database migration, new Inbox
+table, CLI/Service/Skills contract floor, Wake/setup/trace change, or native IPC
+change is required; existing workstation execution can continue unchanged.
 
 The additive `/v1/inbox/feed` and `/v1/inbox/feed/state` endpoints use the shared
 `inbox-feed` HTTP/RPC contracts. Filters, counts, rank, group identity, request

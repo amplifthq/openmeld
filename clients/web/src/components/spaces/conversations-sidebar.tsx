@@ -118,6 +118,49 @@ function SpaceSidebarEmptyState({
 	);
 }
 
+function getConversationFailures(
+	dm: ReturnType<typeof useConversations>["directMessages"]
+) {
+	return [
+		{
+			label: "sidebar settings",
+			isError: dm.store.isError,
+			isFetching: dm.store.isFetching,
+			message: dm.store.preferences
+				? "Couldn't refresh sidebar settings. Showing saved settings."
+				: "Couldn't load sidebar settings.",
+			retry: dm.store.retry,
+		},
+		{
+			label: "conversations",
+			isError: dm.spaces.isError,
+			isFetching: dm.spaces.isFetching,
+			message: dm.spaces.data
+				? "Couldn't refresh conversations. Showing saved conversations."
+				: "Couldn't load conversations.",
+			retry: dm.spaces.refetch,
+		},
+		{
+			label: "Center Agent conversations",
+			isError: dm.sessions.isError,
+			isFetching: dm.sessions.isFetching,
+			message: dm.sessions.data
+				? "Couldn't refresh Center Agent conversations. Showing saved conversations."
+				: "Couldn't load Center Agent conversations.",
+			retry: dm.sessions.refetch,
+		},
+		{
+			label: "member information",
+			isError: dm.directory.isError,
+			isFetching: dm.directory.isFetching,
+			message: dm.directory.data
+				? "Couldn't refresh member information. Showing saved information."
+				: "Couldn't load member information.",
+			retry: dm.directory.refetch,
+		},
+	].filter((failure) => failure.isError);
+}
+
 export function ConversationsSidebar(
 	input: { currentProfileId?: string; currentSpaceId?: string } = {}
 ) {
@@ -248,11 +291,8 @@ export function ConversationsSidebar(
 		dm.sessions.isPending ||
 		dm.directory.isPending ||
 		waitingForActivity;
-	const failed =
-		dm.store.isError ||
-		dm.spaces.isError ||
-		dm.sessions.isError ||
-		dm.directory.isError;
+	const failures = getConversationFailures(dm);
+	const failed = failures.length > 0;
 	const showSpaceEmptyState = isSpaceEmptyStateVisible(
 		view,
 		pending || failed || hasFilters,
@@ -496,19 +536,22 @@ export function ConversationsSidebar(
 					Archived direct messages · Clear
 				</Button>
 			)}
-			{failed && (
-				<Button
-					onClick={() => {
-						dm.spaces.refetch();
-						dm.sessions.refetch();
-						dm.directory.refetch();
-						dm.store.retry();
-					}}
-					variant="ghost"
-				>
-					Could not load conversations. Retry
-				</Button>
-			)}
+			{failures.map((failure) => (
+				<div className="flex items-start gap-1 px-2 py-1" key={failure.label}>
+					<output className="min-w-0 flex-1 py-1 text-muted-foreground text-xs">
+						{failure.message}
+					</output>
+					<Button
+						aria-label={`Retry ${failure.label}`}
+						disabled={failure.isFetching}
+						onClick={() => failure.retry()}
+						size="sm"
+						variant="ghost"
+					>
+						Retry
+					</Button>
+				</div>
+			))}
 			{pending && (
 				<SidebarListSkeleton
 					label="Loading conversations"

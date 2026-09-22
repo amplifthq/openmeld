@@ -17,6 +17,7 @@ import {
 import type { Icon } from "@phosphor-icons/react";
 import { DotsThreeIcon, InfoIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 
 export type SpaceHeaderNavigationMenuItem = {
 	icon: Icon;
@@ -26,6 +27,7 @@ export type SpaceHeaderNavigationMenuItem = {
 
 export function SpaceHeaderNavigationMenu(input: {
 	ariaLabel: string;
+	children?: ReactNode;
 	items: readonly SpaceHeaderNavigationMenuItem[];
 	onOpenConversationInformation?: () => void;
 }) {
@@ -82,6 +84,7 @@ export function SpaceHeaderNavigationMenu(input: {
 						Chat settings
 					</FluidDropdownMenuItem>
 				) : null}
+				{input.children}
 			</FluidDropdownMenuContent>
 		</DropdownMenu>
 	);
