@@ -14,6 +14,7 @@ test("trusts production release checks and their orchestration from current main
     "production-train-artifact-admission",
     "production-web-health",
     "release-preflight",
+    "renderer-build",
   ]) {
     assert.equal(
       isFinalCandidateControlPath(`scripts/release/${name}.mjs`),

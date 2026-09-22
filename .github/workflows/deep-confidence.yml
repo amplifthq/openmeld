@@ -147,9 +147,6 @@ jobs:
     timeout-minutes: 30
     env:
       OPENMELD_ARTIFACT_SCOPES: ${{ inputs.artifact_scopes }}
-      # This dedicated runner budget is still validated by the renderer's
-      # machine-aware heap/resource admission before the build starts.
-      NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - uses: actions/checkout@v5
         with:
@@ -157,8 +154,6 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
       - uses: ./.github/actions/setup-node-pnpm
-      - name: Report effective client artifact runner memory
-        run: node --input-type=module -e 'import { readMachineMemory } from "./scripts/dev/machine-memory.mjs"; console.log(JSON.stringify(readMachineMemory()));'
       - name: Run exact-source renderer, prerender, and Workerd SSR checks
         shell: bash
         env:
