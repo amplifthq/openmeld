@@ -90,7 +90,8 @@ it.each([
 		</QueryClientProvider>
 	);
 	fireEvent.click(
-		screen.getByRole("button", { name: "Open chat history: New chat" })
+		screen.getByRole("button", { name: "Open chat history: New chat" }),
+		{ detail: 1 }
 	);
 	await screen.findByRole("menuitem", { name: "Saved launch plan" });
 	expect(!!screen.queryByRole("menuitem", { name: "New chat" })).toBe(

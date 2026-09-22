@@ -12,7 +12,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { CaretDownIcon, PlusIcon } from "@phosphor-icons/react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
@@ -37,7 +37,6 @@ export function CenterAgentChatHistory({
 	const navigate = useNavigate();
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
-	const searchRef = useRef<HTMLInputElement>(null);
 	const sessions = useInfiniteQuery({
 		...centerAgentSessionsQueryOptions(organization.id, profileId),
 		enabled: open && !!profileId,
@@ -94,11 +93,6 @@ export function CenterAgentChatHistory({
 						setSearch("");
 					}
 				}}
-				onOpenChangeComplete={(next) => {
-					if (next) {
-						searchRef.current?.focus();
-					}
-				}}
 				open={open}
 			>
 				<TooltipHint content={open ? undefined : "Open chat history"}>
@@ -122,6 +116,7 @@ export function CenterAgentChatHistory({
 					<div className="sticky top-0 z-10 border-b bg-popover px-3 py-2">
 						<input
 							aria-label="Search chat history"
+							autoFocus
 							className="w-full bg-transparent py-1.5 text-sm outline-none placeholder:text-muted-foreground"
 							onChange={(event) => setSearch(event.target.value)}
 							onKeyDown={(event) => {
@@ -141,7 +136,6 @@ export function CenterAgentChatHistory({
 								}
 							}}
 							placeholder="Search chat history"
-							ref={searchRef}
 							type="search"
 							value={search}
 						/>
