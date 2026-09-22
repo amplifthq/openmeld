@@ -23,8 +23,14 @@ const GITHUB_EXPRESSION_PREFIX = ["$", "{{"].join("");
 const GITHUB_TOKEN_INPUT = `github_token: ${GITHUB_EXPRESSION_PREFIX} github.token }}`;
 const RELEASE_SHA_CHECKOUT = `ref: ${GITHUB_EXPRESSION_PREFIX} inputs.release_sha }}`;
 const PINNED_SCOPED_RELEASE_SHA = `${GITHUB_EXPRESSION_PREFIX} inputs.release_sha }}`;
+const PRODUCTION_TRAIN_INPUT = `${GITHUB_EXPRESSION_PREFIX} inputs.production_train_scopes }}`;
+const PRODUCTION_TRAIN_OUTPUT = `${GITHUB_EXPRESSION_PREFIX} needs.validate_release_source.outputs.production_train_scopes }}`;
 const SCOPED_RELEASE_SHA_INPUT =
   /release_sha:\n\s+description: [^\n]+\n\s+required: true\n\s+type: string/u;
+const REQUIRED_PRODUCTION_TRAIN_INPUT =
+  /production_train_scopes:\n\s+description: [^\n]+\n\s+required: true\n\s+type: string/u;
+const REQUIRED_ACTION_PRODUCTION_TRAIN_INPUT =
+  /production_train_scopes:\n\s+description: [^\n]+\n\s+required: true/u;
 const MAINLINE_RELEASE_ERROR_PATTERN =
   /release_sha must identify a commit on the main first-parent chain/u;
 const YAML_JOB_BOUNDARY = /\n {2}[a-z_]+:/u;
@@ -120,6 +126,95 @@ test("keeps the manual production dispatcher deploy-only and scoped by default",
   assert.ok(source.includes(`if [ "\${GITHUB_REF}" != "refs/heads/main" ]`));
 });
 
+test("threads one explicit production train through every hosted mutation entry", () => {
+  const dispatcher = readRepoFile(".github/workflows/release-on-main.yml");
+  const databaseAction = readRepoFile(
+    ".github/actions/shared-db-gate/action.yml"
+  );
+  const validationJob = dispatcher
+    .split("  validate_release_source:")[1]
+    ?.split(YAML_JOB_BOUNDARY)[0];
+  const coreRecovery = readRepoFile(
+    ".github/workflows/recover-core-cli-projection.yml"
+  );
+  const dispatcherTrainInput = dispatcher
+    .split("      production_train_scopes:")[1]
+    ?.split("\njobs:")[0];
+
+  assert.ok(dispatcher.includes("production_train_scopes:"));
+  assert.ok(
+    dispatcher.includes(`production_train_scopes: ${PRODUCTION_TRAIN_INPUT}`)
+  );
+  assert.match(dispatcher, REQUIRED_PRODUCTION_TRAIN_INPUT);
+  assert.ok(!dispatcherTrainInput?.includes("default:"));
+  assert.ok(
+    validationJob?.includes(
+      "Admit the complete production train before Production mutation"
+    )
+  );
+  assert.ok(
+    validationJob?.includes(
+      `OPENMELD_PRODUCTION_TRAIN_SCOPES: ${GITHUB_EXPRESSION_PREFIX} inputs.production_train_scopes }}`
+    )
+  );
+  assert.ok(
+    validationJob?.includes('database-auth) selected_scopes="db,auth"')
+  );
+  assert.ok(
+    validationJob?.includes(
+      'full) selected_scopes="db,auth,web,gateway,core,remote-agent"'
+    )
+  );
+  assert.ok(validationJob?.includes("production-train-artifact-admission.mjs"));
+  assert.equal(
+    dispatcher.split(`production_train_scopes: ${PRODUCTION_TRAIN_OUTPUT}`)
+      .length - 1,
+    COMPONENT_WORKFLOWS.length + 1
+  );
+
+  for (const [scope, workflowPath] of COMPONENT_WORKFLOWS) {
+    const workflow = readRepoFile(workflowPath);
+    const trainInput = workflow
+      .split("      production_train_scopes:")[1]
+      ?.split("      release_sha:")[0];
+    const admission = workflow.indexOf(
+      "production-train-artifact-admission.mjs"
+    );
+    const lease = workflow.indexOf(
+      `Acquire shared ${
+        scope === "remote-agent"
+          ? "Remote Agent"
+          : scope[0].toUpperCase() + scope.slice(1)
+      } release lease`
+    );
+
+    assert.ok(
+      workflow.includes(
+        `OPENMELD_PRODUCTION_TRAIN_SCOPES: ${PRODUCTION_TRAIN_INPUT}`
+      ),
+      `${workflowPath} must pass the declared train to trusted admission`
+    );
+    assert.match(workflow, REQUIRED_PRODUCTION_TRAIN_INPUT, workflowPath);
+    assert.ok(!trainInput?.includes("default:"), workflowPath);
+    assert.ok(workflow.includes(`--scope ${scope}`), workflowPath);
+    assert.ok(admission >= 0 && admission < lease, workflowPath);
+  }
+
+  assert.match(databaseAction, REQUIRED_ACTION_PRODUCTION_TRAIN_INPUT);
+  assert.ok(
+    databaseAction.includes(
+      'node "$GITHUB_ACTION_PATH/../../../scripts/release/production-train-artifact-admission.mjs"'
+    )
+  );
+  assert.ok(databaseAction.includes('--source-sha "$RELEASE_SHA"'));
+  assert.ok(databaseAction.includes("--scope db"));
+  assert.ok(
+    databaseAction.indexOf("production-train-artifact-admission.mjs") <
+      databaseAction.indexOf("run db:release:prod")
+  );
+  assert.ok(coreRecovery.includes("production_train_scopes: core"));
+});
+
 test("exposes a hosted Core receiver stage with the current stable CLI projection", () => {
   const source = readRepoFile(".github/workflows/release-on-main.yml");
   const coreJob = source.split("\n  core:")[1]?.split(YAML_JOB_BOUNDARY)[0];
@@ -181,7 +276,7 @@ test("pins a scoped production release to one explicit main commit", () => {
   assert.ok(source.includes(`ref: ${PINNED_SCOPED_RELEASE_SHA}`));
   assert.equal(
     source.split(`release_sha: ${PINNED_SCOPED_RELEASE_SHA}`).length - 1,
-    COMPONENT_WORKFLOWS.length
+    COMPONENT_WORKFLOWS.length + 1
   );
   assert.ok(
     !source.includes(`release_sha: ${GITHUB_EXPRESSION_PREFIX} github.sha }}`)

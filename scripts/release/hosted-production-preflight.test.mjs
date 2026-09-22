@@ -90,7 +90,7 @@ function buildHostedPreflightFixture(extraControlScripts = []) {
       repository,
       "scripts",
       "release",
-      "production-artifact-check.mjs"
+      "production-train-artifact-admission.mjs"
     ),
     "#!/usr/bin/env node\nprocess.exit(0);\n"
   );
@@ -175,7 +175,7 @@ test("a Skill verification failure stops hosted Web preflight before later steps
     );
     assert.deepEqual(steps, [
       "Admit receipt-based Production train stage",
-      "Verify production Web artifact",
+      "Verify declared Production train artifacts",
       "Verify signed CLI Skill content",
     ]);
   } finally {

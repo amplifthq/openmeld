@@ -11,6 +11,9 @@ const PREREQUISITE_ERROR =
   /ahead of pending prerequisite gateway.*Do not bypass.*latest CLI tag/su;
 const RECOVERY_ERROR = /failed\/applied.*same guarded command/su;
 const PENDING_TRAIN = /Receipt-based pending train: web/u;
+const UNRESOLVED = /evidence is unresolved/u;
+const SOURCE_PROOF = /Missing exact source proof/u;
+const CORE_PREREQUISITE = /pending prerequisite core/u;
 
 test("uses each component receipt baseline while allowing R, R2 and R3", () => {
   const components = [
@@ -38,7 +41,7 @@ test("uses each component receipt baseline while allowing R, R2 and R3", () => {
   );
 });
 
-test("blocks a staged deployment until earlier pending receipts are verified", () => {
+test("does not turn default ordering or unrelated unknown receipts into dependencies", () => {
   const components = [
     component("db", "current", "1".repeat(40), []),
     component("cli", "current", "1".repeat(40), []),
@@ -50,17 +53,75 @@ test("blocks a staged deployment until earlier pending receipts are verified", (
     component("core", "pending", "1".repeat(40), [
       "services/core/src/index.ts",
     ]),
-    component("remote-agent", "current", "1".repeat(40), []),
+    component("remote-agent", "unknown", "1".repeat(40), []),
   ];
+  assert.doesNotThrow(() =>
+    assertProductionStageAdmission({
+      components,
+      selectedScopes: ["core"],
+      sourceSha: SOURCE,
+    })
+  );
+});
+
+test("requires the actual compatibility receiver, accepting its verified receipt", () => {
+  const components = [
+    component("gateway", "pending", "2".repeat(40), [
+      "services/gateway/src/index.ts",
+    ]),
+    component("core", "pending", "1".repeat(40), [
+      "packages/schemas/src/schemas/http/space-wake-progress.ts",
+      "clients/openmeld-cli/src/space/wake-control-command.ts",
+      "services/core/src/rpc/methods.ts",
+    ]),
+  ];
+  const input = { components, selectedScopes: ["core"], sourceSha: SOURCE };
+  components[1].compatibilityDependencies = [["gateway", "core"]];
   assert.throws(
-    () =>
-      assertProductionStageAdmission({
-        components,
-        selectedScopes: ["core"],
-        sourceSha: SOURCE,
-      }),
+    () => assertProductionStageAdmission(input),
     PREREQUISITE_ERROR
   );
+  components[0].state = "current";
+  assert.doesNotThrow(() => assertProductionStageAdmission(input));
+});
+
+test("accepts a pending Remote receiver only with a matching content witness", () => {
+  const components = [
+    component("remote-agent", "pending", "2".repeat(40), [
+      "services/remote-agent/src/unrelated-log.ts",
+    ]),
+    {
+      ...component("core", "pending", "1".repeat(40), []),
+      compatibilityDependencies: [["remote-agent", "core"]],
+      compatibilityReceiverWitnesses: [
+        {
+          producer: "core",
+          receiver: "remote-agent",
+          receiverPaths: [
+            "services/remote-agent/flue-adapter/execution-reconciliation.ts",
+          ],
+          evidence: {
+            baselineSha: "2".repeat(40),
+            result: "match",
+            targetSha: SOURCE,
+          },
+        },
+      ],
+    },
+  ];
+  const input = { components, selectedScopes: ["core"], sourceSha: SOURCE };
+  assert.doesNotThrow(() => assertProductionStageAdmission(input));
+  components[1].compatibilityReceiverWitnesses[0].evidence.result = "mismatch";
+  assert.throws(() => assertProductionStageAdmission(input));
+  components[1].compatibilityReceiverWitnesses[0].evidence.result = "unknown";
+  assert.throws(() => assertProductionStageAdmission(input));
+  components[1].compatibilityReceiverWitnesses[0].evidence.result = "match";
+  components[0].state = "unknown";
+  assert.throws(() => assertProductionStageAdmission(input));
+  components[0].state = "pending";
+  components[1].compatibilityReceiverWitnesses[0].evidence.targetSha =
+    "4".repeat(40);
+  assert.throws(() => assertProductionStageAdmission(input));
 });
 
 test("fails closed with the retained receipt recovery guidance", () => {
@@ -79,6 +140,45 @@ test("fails closed with the retained receipt recovery guidance", () => {
         sourceSha: SOURCE,
       }),
     RECOVERY_ERROR
+  );
+});
+
+test("preserves a proven retirement direction instead of inferring expansion from paths", () => {
+  const components = [
+    {
+      ...component("core", "pending", "1".repeat(40), []),
+      compatibilityDependencies: [["core", "web"]],
+    },
+    {
+      ...component("web", "pending", "2".repeat(40), [
+        "packages/schemas/src/schemas/http/inbox.ts",
+      ]),
+      compatibilityDependencies: [["core", "web"]],
+    },
+  ];
+  assert.doesNotThrow(() =>
+    assertProductionStageAdmission({
+      components,
+      selectedScopes: ["core"],
+      sourceSha: SOURCE,
+    })
+  );
+  assert.throws(
+    () =>
+      assertProductionStageAdmission({
+        components,
+        selectedScopes: ["web"],
+        sourceSha: SOURCE,
+      }),
+    CORE_PREREQUISITE
+  );
+  components[0].state = "current";
+  assert.doesNotThrow(() =>
+    assertProductionStageAdmission({
+      components,
+      selectedScopes: ["web"],
+      sourceSha: SOURCE,
+    })
   );
 });
 
@@ -101,6 +201,39 @@ test("runs the whole train status before admitting a component", async () => {
   });
   assert.deepEqual(result.pendingScopes, ["web"]);
   assert.match(output, PENDING_TRAIN);
+});
+
+test("admits only exact-source health recovery while preserving source validation blockers", async () => {
+  const status = {
+    blockers: [{ name: "Web", detail: "Retained failed/applied receipt" }],
+    sourceValidationBlockers: [],
+    components: [
+      {
+        scope: "web",
+        state: "unknown",
+        recovery: {
+          kind: "guarded-health-resume",
+          admission: "candidate",
+          sourceSha: SOURCE,
+        },
+      },
+    ],
+  };
+  const input = {
+    collectStatus: async () => status,
+    scope: "web",
+    sourceSha: SOURCE,
+    write: () => undefined,
+  };
+  await runProductionStageAdmission(input);
+  status.components[0].recovery.sourceSha = "4".repeat(40);
+  await assert.rejects(runProductionStageAdmission(input), UNRESOLVED);
+  status.components[0].recovery.sourceSha = SOURCE;
+  status.sourceValidationBlockers.push({
+    name: "Final Candidate",
+    detail: "Missing exact source proof",
+  });
+  await assert.rejects(runProductionStageAdmission(input), SOURCE_PROOF);
 });
 
 function component(scope, state, sourceSha, changedPaths) {

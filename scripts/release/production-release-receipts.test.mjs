@@ -12,7 +12,11 @@ import {
   executeProductionDeploySteps,
   executeWithProductionScopeLeases,
 } from "./production-release.mjs";
-import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
+import {
+  describeGuardedReceiptRecoveryCandidate,
+  executeRecordedProductionDeploySteps,
+} from "./production-release-receipts.mjs";
+import { runProductionStageAdmission } from "./production-stage-admission.mjs";
 
 const IDENTITY_ERROR = /output|correlat|identity|Worker|target/iu;
 const BASELINE_ERROR = /baseline/iu;
@@ -160,6 +164,126 @@ test("records health failure after application without claiming the version was 
   assert.equal(result.latest.get("web").application, "applied");
   assert.equal(result.latest.get("web").identity.versionId, WORKER_VERSION);
   assert.equal(result.latest.has("gateway"), false);
+});
+
+test("a failed applied receipt resumes health under the same lease without redeploying", async () => {
+  const options = { scopes: ["web"], failureAt: "Verify Web health" };
+  const result = fixture(options);
+
+  await assert.rejects(result.run, FAILURE);
+  const failedSource = {
+    receipt: result.latest.get("web"),
+    sha: SOURCE,
+  };
+  const recovery = describeGuardedReceiptRecoveryCandidate(failedSource);
+  assert.deepEqual(recovery, {
+    admission: "candidate",
+    attemptId: ATTEMPT,
+    componentIndex: 0,
+    kind: "guarded-health-resume",
+    operationKey: failedSource.receipt.operationKey,
+    sourceSha: SOURCE,
+  });
+  await admitRecovery(recovery);
+
+  options.failureAt = undefined;
+  await result.run();
+
+  assert.equal(
+    result.effects.filter((effect) => effect === "Deploy Web").length,
+    1
+  );
+  assert.equal(
+    result.effects.filter((effect) => effect === "Verify Web health").length,
+    2
+  );
+  assert.equal(result.latest.get("web").status, "verified");
+  assert.equal(result.released.filter((scope) => scope === "web").length, 2);
+});
+
+test("health recovery rejects operation drift before any second-run effect", async () => {
+  const options = { scopes: ["web"], failureAt: "Verify Web health" };
+  const result = fixture(options);
+  await assert.rejects(result.run, FAILURE);
+  const effectsAfterFailure = [...result.effects];
+  await admitRecovery(
+    describeGuardedReceiptRecoveryCandidate({
+      receipt: result.latest.get("web"),
+      sha: SOURCE,
+    })
+  );
+
+  options.failureAt = undefined;
+  options.steps = buildProductionDeployStepSpecs(["web"]).map((step) =>
+    step.label === "Verify Web health"
+      ? { ...step, args: [...step.args, "--operation-drift"] }
+      : step
+  );
+  await assert.rejects(result.run, UNRESOLVED_ERROR);
+
+  assert.deepEqual(result.effects, effectsAfterFailure);
+  assert.equal(result.latest.get("web").status, "failed");
+});
+
+async function admitRecovery(recovery) {
+  return await runProductionStageAdmission({
+    collectStatus: async () => ({
+      blockers: [
+        {
+          detail: "retained failed/applied receipt",
+          name: "web deployment evidence",
+          scope: "web",
+          scopes: ["web"],
+        },
+      ],
+      components: [
+        {
+          reason: "retained failed/applied receipt",
+          recovery,
+          scope: "web",
+          state: "unknown",
+        },
+      ],
+      sourceValidationBlockers: [],
+    }),
+    scope: "web",
+    sourceSha: SOURCE,
+    write: () => undefined,
+  });
+}
+
+test("recovery candidates require exact applied Worker receipt identity", () => {
+  const receipt = {
+    application: "applied",
+    attemptId: ATTEMPT,
+    componentIndex: 0,
+    identity: {
+      deploymentId: "deployment",
+      environment: "prod",
+      kind: "worker-deployment",
+      proof: "command-output",
+      sourceSha: SOURCE,
+      versionId: "version",
+      workerName: "openmeld-web-prod",
+    },
+    operationKey: "d".repeat(64),
+    startedAt: "2026-09-22T00:00:00.000Z",
+    status: "failed",
+  };
+  for (const source of [
+    { sha: "short", receipt },
+    { sha: SOURCE, receipt: { ...receipt, application: "unknown" } },
+    { sha: SOURCE, receipt: { ...receipt, identity: undefined } },
+    {
+      sha: SOURCE,
+      receipt: {
+        ...receipt,
+        identity: { ...receipt.identity, sourceSha: "b".repeat(40) },
+      },
+    },
+  ]) {
+    assert.equal(describeGuardedReceiptRecoveryCandidate(source), null);
+  }
 });
 
 test("stops safely on receipt or identity failure, retaining the last durable event", async () => {

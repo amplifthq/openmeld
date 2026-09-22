@@ -11,6 +11,7 @@ test("trusts production release checks and their orchestration from current main
     "production-release-status",
     "production-release-status-regressions",
     "production-stage-admission",
+    "production-train-artifact-admission",
     "production-web-health",
     "release-preflight",
   ]) {

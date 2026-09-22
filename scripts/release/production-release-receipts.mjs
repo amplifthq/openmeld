@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { productionComponentReceiptSchema } from "../../packages/schemas/src/schemas/release/production-release-evidence.ts";
 import {
   publishGuardedLocalReleaseEvidence,
   readGuardedLocalReleaseSources,
@@ -63,7 +64,7 @@ export async function executeRecordedProductionDeploySteps(input) {
       target,
     });
     const context = { ...input, group, target, operationKey };
-    const previous = selectResumableComponent(context, retained);
+    const previous = selectGuardedReceiptRecovery(context, retained);
     if (previous) {
       await verifyRetainedComponent(context, previous);
     }
@@ -96,7 +97,31 @@ export function releaseComponentOperationKey(input) {
     .digest("hex");
 }
 
-function selectResumableComponent(input, retained) {
+export function describeGuardedReceiptRecoveryCandidate(source) {
+  const receipt = productionComponentReceiptSchema.safeParse(source?.receipt);
+  if (
+    !(
+      EXACT_SOURCE_SHA.test(source?.sha ?? "") &&
+      receipt.success &&
+      ["applied", "failed"].includes(receipt.data.status)
+    ) ||
+    receipt.data.application !== "applied" ||
+    receipt.data.identity?.kind !== "worker-deployment" ||
+    receipt.data.identity.sourceSha !== source.sha
+  ) {
+    return null;
+  }
+  return {
+    admission: "candidate",
+    attemptId: receipt.data.attemptId,
+    componentIndex: receipt.data.componentIndex,
+    kind: "guarded-health-resume",
+    operationKey: receipt.data.operationKey,
+    sourceSha: source.sha,
+  };
+}
+
+export function selectGuardedReceiptRecovery(input, retained) {
   const scopes =
     input.group.scope === "cli" ? ["cli", "core"] : [input.group.scope];
   const pending = scopes

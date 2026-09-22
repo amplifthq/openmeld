@@ -11,3 +11,9 @@ renderer before deployment. Web health checks require a rendered page from the
 expected source. Component receipts keep staged releases and recovery tied to
 the artifacts actually deployed, including releases that use different sources
 for different components.
+
+Each stage checks the artifacts required by its declared release train before
+changing production. Independent releases remain independent, and a deployment
+with a retained, verified identity can resume its failed health check without
+deploying again. Web and Desktop keep separate checked artifact snapshots so
+building one does not force the other to rebuild.

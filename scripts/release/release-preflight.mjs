@@ -8,6 +8,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
+import { resolveProductionTrain } from "./production-train-artifact-admission.mjs";
 import { selectReleaseReadyPaths } from "./release-ready-paths.mjs";
 import {
   formatCliReleaseVersionResolution,
@@ -27,6 +28,7 @@ const DEFAULT_ADAPTERS = {
   runCommand: defaultRunCommand,
   runReleaseReady: defaultRunReleaseReady,
 };
+const PRODUCTION_TRAIN_SCOPES_ENV = "OPENMELD_PRODUCTION_TRAIN_SCOPES";
 
 export async function runReleasePreflight(input = {}) {
   const context = {
@@ -99,8 +101,8 @@ function buildCheckSpecs() {
     },
     {
       id: "production-artifacts",
-      label: "Production Web and Desktop artifacts",
-      fix: "Fix the exact-source production build or Workerd SSR failure; do not start any Production stage until both artifact receipts pass.",
+      label: "Selected Production artifacts",
+      fix: "Fix the exact-source production build or Workerd SSR failure for the selected train artifact; do not start that train until its artifact receipt passes.",
       run: checkProductionArtifacts,
     },
     {
@@ -149,7 +151,15 @@ async function checkProductionArtifacts(context) {
   if (!EXACT_SHA_PATTERN.test(head)) {
     throw new Error("Git returned no exact release source SHA.");
   }
-  for (const scope of ["web", "desktop"]) {
+  const selection = resolvePreflightSelection(context.env, head);
+  if (selection.artifactScopes.length === 0) {
+    return {
+      status: "SKIP",
+      detail:
+        "The declared Production train has no Web or Desktop artifact scope.",
+    };
+  }
+  for (const scope of selection.artifactScopes) {
     await runRequiredCommand(context, "node", [
       "scripts/release/production-artifact-check.mjs",
       "--scope",
@@ -160,7 +170,7 @@ async function checkProductionArtifacts(context) {
   }
   return {
     status: "PASS",
-    detail: `Web and Desktop production artifacts passed exact-source Workerd SSR checks at ${abbreviateSha(head)}.`,
+    detail: `${selection.artifactScopes.join(" and ")} production artifacts passed exact-source Workerd SSR checks at ${abbreviateSha(head)}.`,
   };
 }
 
@@ -171,16 +181,42 @@ async function checkProductionTrain(context) {
   if (!EXACT_SHA_PATTERN.test(head)) {
     throw new Error("Git returned no exact release source SHA.");
   }
+  const selection = resolvePreflightSelection(context.env, head);
+  if (selection.trainScopes.length === 0) {
+    return {
+      status: "SKIP",
+      detail:
+        "The declared preflight selects only Desktop, outside the hosted Production train.",
+    };
+  }
   await runRequiredCommand(context, "node", [
     "scripts/release/production-stage-admission.mjs",
     "--scope",
-    "db,cli,auth,web,gateway,core,remote-agent",
+    selection.trainScopes.join(","),
     "--source-sha",
     head,
   ]);
   return {
     status: "PASS",
-    detail: `All pending component receipts form one legal guarded train at ${abbreviateSha(head)}.`,
+    detail: `Selected component receipts form one legal guarded train (${selection.trainScopes.join(", ")}) at ${abbreviateSha(head)}.`,
+  };
+}
+
+function resolvePreflightSelection(env, sourceSha) {
+  const declaration = String(env[PRODUCTION_TRAIN_SCOPES_ENV] ?? "").trim();
+  if (!declaration) {
+    throw new Error(
+      `Release preflight requires explicit scopes in ${PRODUCTION_TRAIN_SCOPES_ENV}.`
+    );
+  }
+  const train = resolveProductionTrain({
+    env,
+    selectedScopes: declaration,
+    sourceSha,
+  });
+  return {
+    artifactScopes: train.artifactScopes,
+    trainScopes: train.productionScopes,
   };
 }
 

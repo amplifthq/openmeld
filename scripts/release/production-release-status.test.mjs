@@ -653,6 +653,12 @@ test("fails closed when a merge without push checks cannot match exact Final Can
     JSON.parse(output).blockers[0].detail,
     MISSING_EXACT_FINAL_CANDIDATE_PATTERN
   );
+  assert.deepEqual(
+    JSON.parse(output).sourceValidationBlockers,
+    JSON.parse(output).blockers.filter(
+      (blocker) => blocker.name === "Source validation"
+    )
+  );
 });
 
 test("does not require a conditional post-merge workflow for unrelated commits", async () => {

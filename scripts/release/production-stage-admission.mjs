@@ -3,10 +3,7 @@
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
-import {
-  buildProductionReleasePlan,
-  expandRequestedReleaseScopes,
-} from "./production-release.mjs";
+import { expandRequestedReleaseScopes } from "./production-release.mjs";
 import { collectProductionReleaseStatus } from "./production-release-status.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
@@ -17,8 +14,47 @@ const HOSTED_SCOPE_ALIASES = new Map([
 ]);
 
 export function assertProductionStageAdmission(input) {
+  const selected = new Set(input.selectedScopes);
+  const pendingComponents = input.components.filter(
+    (component) => component.state === "pending"
+  );
+  const pendingScopes = pendingComponents.map((component) => component.scope);
+  // The planner inspected each receipt baseline, including semantic changes
+  // such as Task Inbox retirement. Recombining paths here loses that proof and
+  // can reverse a receiver/producer dependency.
+  const dependencies = pendingComponents.flatMap((component) =>
+    (component.compatibilityDependencies ?? [])
+      .filter(([, producer]) => producer === component.scope)
+      .map((edge) => ({ component, edge }))
+  );
+  const required = new Set(selected);
+  for (let previousSize = -1; previousSize !== required.size; ) {
+    previousSize = required.size;
+    for (const dependency of dependencies) {
+      const [receiver, producer] = dependency.edge;
+      if (
+        required.has(producer) &&
+        !isProductionCompatibilityReceiverSatisfied(
+          input.components,
+          dependency.component,
+          dependency.edge,
+          input.sourceSha
+        )
+      ) {
+        required.add(receiver);
+      }
+    }
+  }
   const unresolved = input.components.filter(
-    (component) => component.state === "unknown"
+    (component) =>
+      component.state === "unknown" &&
+      required.has(component.scope) &&
+      !(
+        selected.has(component.scope) &&
+        component.recovery?.kind === "guarded-health-resume" &&
+        component.recovery.admission === "candidate" &&
+        component.recovery.sourceSha === input.sourceSha
+      )
   );
   if (unresolved.length > 0) {
     throw new Error(
@@ -31,57 +67,52 @@ export function assertProductionStageAdmission(input) {
     );
   }
 
-  const pendingComponents = input.components.filter(
-    (component) => component.state === "pending"
+  const prerequisiteScopes = [...required].filter(
+    (scope) =>
+      !(
+        selected.has(scope) ||
+        input.components.some(
+          (component) =>
+            component.scope === scope && component.state === "current"
+        )
+      )
   );
-  const pendingScopes = pendingComponents.map((component) => component.scope);
-  if (pendingScopes.length === 0) {
-    return {
-      pendingScopes: [],
-      prerequisiteScopes: [],
-      selectedScopes: input.selectedScopes,
-    };
-  }
-  const changedPaths = [
-    ...new Set(
-      pendingComponents.flatMap((component) => component.changedPaths ?? [])
-    ),
-  ];
-  const pendingPlan = buildProductionReleasePlan({
-    affectedPackages: [],
-    changedPaths,
-    scope: pendingScopes.join(","),
-    sourceSha: input.sourceSha,
-  });
-  const pendingOrder = pendingPlan.deployScopeOrder.filter((scope) =>
-    pendingScopes.includes(scope)
-  );
-  const selectedPending = pendingOrder.filter((scope) =>
-    input.selectedScopes.includes(scope)
-  );
-  if (selectedPending.length === 0) {
-    return {
-      pendingScopes: pendingOrder,
-      prerequisiteScopes: [],
-      selectedScopes: input.selectedScopes,
-    };
-  }
-  const lastSelectedIndex = Math.max(
-    ...selectedPending.map((scope) => pendingOrder.indexOf(scope))
-  );
-  const prerequisiteScopes = pendingOrder
-    .slice(0, lastSelectedIndex + 1)
-    .filter((scope) => !input.selectedScopes.includes(scope));
   if (prerequisiteScopes.length > 0) {
     throw new Error(
-      `Production stage ${input.selectedScopes.join(", ")} is ahead of pending prerequisite ${prerequisiteScopes.join(", ")}. Complete the prerequisite through its current guarded workflow and verified receipt, then rerun this preflight. Pending train order: ${pendingOrder.join(" -> ")}. Do not bypass the guard or substitute the latest CLI tag as a fleet baseline.`
+      `Production stage ${input.selectedScopes.join(", ")} is ahead of pending prerequisite ${prerequisiteScopes.join(", ")}. Complete the compatibility prerequisite through its current guarded workflow and verified receipt, then rerun this preflight. Do not bypass the guard or substitute the latest CLI tag as a fleet baseline.`
     );
   }
   return {
-    pendingScopes: pendingOrder,
+    pendingScopes,
     prerequisiteScopes,
     selectedScopes: input.selectedScopes,
   };
+}
+
+export function isProductionCompatibilityReceiverSatisfied(
+  components,
+  producerComponent,
+  edge,
+  sourceSha
+) {
+  const [receiver, producer] = edge;
+  const receiverComponent = components.find(
+    (component) => component.scope === receiver
+  );
+  if (receiverComponent?.state === "current") {
+    return true;
+  }
+  if (receiverComponent?.state !== "pending") {
+    return false;
+  }
+  return (producerComponent.compatibilityReceiverWitnesses ?? []).some(
+    (witness) =>
+      witness.receiver === receiver &&
+      witness.producer === producer &&
+      witness.evidence?.result === "match" &&
+      witness.evidence.baselineSha === receiverComponent.sha &&
+      witness.evidence.targetSha === sourceSha
+  );
 }
 
 export async function runProductionStageAdmission(input = {}) {
@@ -94,9 +125,10 @@ export async function runProductionStageAdmission(input = {}) {
     argv: ["--ref", sourceSha, ...(input.repo ? ["--repo", input.repo] : [])],
     adapters: input.adapters,
   });
-  if (status.blockers.length > 0) {
+  const sourceBlockers = status.sourceValidationBlockers ?? status.blockers;
+  if (sourceBlockers.length > 0) {
     throw new Error(
-      `Production train preflight is blocked: ${status.blockers
+      `Production train preflight is blocked: ${sourceBlockers
         .map((blocker) => `${blocker.name}: ${blocker.detail}`)
         .join(" | ")}`
     );

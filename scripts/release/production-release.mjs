@@ -215,6 +215,225 @@ const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
 };
 const INBOX_SOURCE_TARGET_SCHEMA_PATH =
   "packages/schemas/src/schemas/http/inbox.ts";
+
+// Preferred scheduling order is not a compatibility dependency. Accumulate
+// only contract directions proven by the changed producer and receiver paths.
+export function resolveProductionCompatibilityDependencies(
+  changedPaths,
+  taskInboxRetired = false
+) {
+  const edges = [];
+  const edgeKeys = new Set();
+  const addEdge = (receiver, producer) => {
+    const key = `${receiver}\0${producer}`;
+    if (!edgeKeys.has(key)) {
+      edgeKeys.add(key);
+      edges.push([receiver, producer]);
+    }
+  };
+
+  const spaceTask = isSpaceTaskReceiverFirstDiff(changedPaths);
+  const callerContext = isSpaceCallerContextDiff(changedPaths);
+  const spaceTaskCli = changedPaths.includes(
+    "clients/openmeld-cli/src/space/dispatch-task.ts"
+  );
+  const invitation = isSpaceInvitationReceiverFirstDiff(changedPaths);
+  const dependencyGroups = [
+    {
+      enabled: isCenterAgentEvidenceDiff(changedPaths),
+      edges: [["core", "remote-agent"]],
+    },
+    {
+      enabled: isSpaceMessageSearchReceiverFirstDiff(changedPaths),
+      edges: [
+        ["core", "gateway"],
+        ["gateway", "web"],
+      ],
+    },
+    {
+      enabled:
+        spaceTask &&
+        (spaceTaskCli ||
+          changedPaths.includes(
+            "services/gateway/src/routes/rpc-http.space-tasks.ts"
+          )),
+      edges: [["core", "gateway"]],
+    },
+    {
+      enabled: spaceTask && spaceTaskCli,
+      edges: [["gateway", "cli"]],
+    },
+    {
+      enabled:
+        spaceTask &&
+        changedPaths.includes("services/remote-agent/agent-core/tools.ts"),
+      edges: [["core", "remote-agent"]],
+    },
+    {
+      enabled: callerContext,
+      edges: [
+        ["auth", "cli"],
+        ["remote-agent", "cli"],
+        ["cli", "core"],
+      ],
+    },
+    {
+      enabled: isPersonalRemoteToolsReceiverFirstDiff(changedPaths),
+      edges: [["core", "remote-agent"]],
+    },
+    {
+      enabled: taskInboxRetired,
+      edges: [
+        ["core", "gateway"],
+        ["core", "web"],
+      ],
+    },
+    {
+      enabled: isDeviceWaitReceiverFirstDiff(changedPaths),
+      edges: [["core", "gateway"]],
+    },
+    {
+      enabled:
+        isDeviceWaitReceiverFirstDiff(changedPaths) &&
+        changedPaths.some(
+          (path) =>
+            path.startsWith("clients/web/") && path.includes("device-wait")
+        ),
+      edges: [["gateway", "web"]],
+    },
+    {
+      enabled: isPeopleComputersReceiverFirstDiff(changedPaths),
+      edges: [["core", "gateway"]],
+    },
+    {
+      // Caller Context has a reviewed opposite order: Auth and the signed
+      // Service precede the Core projection in the combined rollout.
+      enabled: invitation && !callerContext,
+      edges: [["core", "auth"]],
+    },
+    {
+      enabled:
+        invitation &&
+        changedPaths.includes(
+          "clients/openmeld-cli/src/space/invitations-command.ts"
+        ),
+      edges: [["auth", "cli"]],
+    },
+    {
+      enabled:
+        invitation &&
+        changedPaths.some(
+          (path) =>
+            path.startsWith("clients/web/") && path.includes("space-invitation")
+        ),
+      edges: [["auth", "web"]],
+    },
+    {
+      enabled: changedPaths.some(
+        (path) =>
+          path.startsWith("services/core/") &&
+          isCenterAgentContextManifestContractPath(path)
+      ),
+      edges: [["remote-agent", "core"]],
+    },
+    {
+      enabled: changedPaths.some(
+        (path) =>
+          path.startsWith("clients/openmeld-cli/") &&
+          isCenterAgentCliReceiverFirstContractPath(path)
+      ),
+      edges: [
+        ["core", "cli"],
+        ["gateway", "cli"],
+      ],
+    },
+    {
+      enabled: isConnectComputerCliReceiverFirstDiff(changedPaths),
+      edges: [["cli", "web"]],
+    },
+    {
+      enabled: isCoreWorkerResponseReaderFirstDiff(changedPaths),
+      edges: [
+        ["core", "remote-agent"],
+        ["gateway", "remote-agent"],
+        ["web", "remote-agent"],
+      ],
+    },
+    {
+      enabled: isWakeProgressOptInContractDiff(changedPaths),
+      edges: [
+        ["gateway", "core"],
+        ["core", "cli"],
+      ],
+    },
+    {
+      enabled: isSpaceHistoryQueryContractDiff(changedPaths),
+      edges: [
+        ["gateway", "cli"],
+        ["core", "cli"],
+      ],
+    },
+    {
+      enabled:
+        isInboxSourceTargetReceiverFirstDiff(changedPaths) && !taskInboxRetired,
+      edges: [
+        ["web", "core"],
+        ["gateway", "core"],
+      ],
+    },
+    {
+      enabled: isLocalServiceRuntimeReceiverFirstDiff(changedPaths),
+      edges: [["core", "cli"]],
+    },
+    {
+      enabled:
+        isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
+        changedPaths.some(isRemoteAgentReceiverFirstContractPath),
+      edges: [["remote-agent", "core"]],
+    },
+    {
+      enabled: isIndependentSkillBridgeDiff(changedPaths),
+      edges: [
+        ["gateway", "cli"],
+        ["web", "cli"],
+      ],
+    },
+  ];
+  for (const group of dependencyGroups) {
+    if (!group.enabled) {
+      continue;
+    }
+    for (const [receiver, producer] of group.edges) {
+      addEdge(receiver, producer);
+    }
+  }
+  return edges;
+}
+
+export function resolveProductionCompatibilityReceiverWitnesses(changedPaths) {
+  if (
+    !(
+      isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
+      changedPaths.some(isRemoteAgentReceiverFirstContractPath)
+    )
+  ) {
+    return [];
+  }
+  const receiverPaths = [
+    ...REMOTE_AGENT_WORKER_REQUEST_SCHEMA_PATHS,
+    REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH,
+    ...REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS,
+  ].filter((path) => changedPaths.includes(path));
+  return receiverPaths.length > 0
+    ? [
+        {
+          producer: "core",
+          receiver: "remote-agent",
+          receiverPaths,
+        },
+      ]
+    : [];
+}
 const RETIRED_TASK_INBOX_PRODUCER_PATH =
   "services/core/src/center-agent-tasks/application/center-agent-task-inbox-producer.ts";
 const TASK_INBOX_KIND_LINE = /^[ \t]*"center_agent_task",\r?\n/mu;
@@ -577,22 +796,27 @@ export function buildProductionPreflightStepSpecs(input) {
     controlPath: "scripts/release/production-stage-admission.mjs",
     label: "Admit receipt-based Production train stage",
   });
+  steps.splice(1, 0, {
+    args: [
+      "scripts/release/production-train-artifact-admission.mjs",
+      "--scope",
+      input.scopes.join(","),
+      "--source-sha",
+      input.releaseSha,
+    ],
+    command: "node",
+    controlArgs: [
+      "--scope",
+      input.scopes.join(","),
+      "--source-sha",
+      input.releaseSha,
+    ],
+    controlCommand: "node",
+    controlNodeArgs: [],
+    controlPath: "scripts/release/production-train-artifact-admission.mjs",
+    label: "Verify declared Production train artifacts",
+  });
   if (input.scopes.includes("web")) {
-    steps.splice(1, 0, {
-      args: [
-        "scripts/release/production-artifact-check.mjs",
-        "--scope",
-        "web",
-        "--source-sha",
-        input.releaseSha,
-      ],
-      command: "node",
-      controlArgs: ["--scope", "web", "--source-sha", input.releaseSha],
-      controlCommand: "node",
-      controlNodeArgs: [],
-      controlPath: "scripts/release/production-artifact-check.mjs",
-      label: "Verify production Web artifact",
-    });
     steps.splice(2, 0, {
       args: ["run", "verify:cli-skill"],
       command: "pnpm",
@@ -1689,6 +1913,12 @@ export function buildProductionReleasePlan(input) {
     base: input.base,
     changedPaths,
     coreProjectionFromCli: scopes.includes("cli"),
+    compatibilityDependencies: resolveProductionCompatibilityDependencies(
+      changedPaths,
+      taskInboxRetired
+    ),
+    compatibilityReceiverWitnesses:
+      resolveProductionCompatibilityReceiverWitnesses(changedPaths),
     deployOrderProfile,
     deployScopeOrder,
     deploySteps: buildProductionDeployStepSpecs(scopes, {

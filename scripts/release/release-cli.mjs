@@ -244,11 +244,45 @@ function readTagCommit(input) {
 }
 
 export async function runCliRelease(input = {}) {
+  const cwd = input.cwd ?? process.cwd();
+  const env = input.env ?? process.env;
+  const sourceSha = String(
+    env.RELEASE_SHA ??
+      execFileSync(gitBinary(), ["rev-parse", "HEAD"], {
+        cwd,
+        encoding: "utf8",
+      }).trim()
+  ).trim();
+  const admitTrainArtifacts =
+    input.adapters?.admitTrainArtifacts ??
+    (async (admissionInput, dependencies) => {
+      const admission = await import(
+        "./production-train-artifact-admission.mjs"
+      );
+      return await admission.admitProductionTrainArtifacts(
+        admissionInput,
+        dependencies
+      );
+    });
+  await admitTrainArtifacts(
+    { env, root: cwd, selectedScopes: "cli", sourceSha },
+    {
+      ...(input.adapters?.buildPlan
+        ? { buildPlan: input.adapters.buildPlan }
+        : {}),
+      ...(input.adapters?.checkArtifact
+        ? { checkArtifact: input.adapters.checkArtifact }
+        : {}),
+      ...(input.adapters?.readHeadSha
+        ? { readHeadSha: input.adapters.readHeadSha }
+        : {}),
+    }
+  );
   if (input.next || input.version) {
-    assertCleanWorktree({ cwd: input.cwd });
+    assertCleanWorktree({ cwd });
     const resolution = await resolveCliReleaseVersion({
-      cwd: input.cwd,
-      env: input.env,
+      cwd,
+      env,
       explicitVersion: input.version,
       fetch: input.adapters?.fetch ?? input.fetch,
       next: input.next,
@@ -264,6 +298,8 @@ export async function runCliRelease(input = {}) {
   }
   return await runResumableCliRelease({
     ...input,
+    cwd,
+    env,
     release: {
       assertChannelReadyForVersionOnlyRelease,
       assertCleanWorktree,

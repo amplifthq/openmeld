@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { resolveOwnedCommandInvocation } from "../dev/owned-command.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, "../..");
@@ -24,7 +25,6 @@ const repositoryManifest = JSON.parse(
 );
 const preflightScript =
   repositoryManifest.scripts["release:preflight:core-current-cli-projection"];
-const pnpmBinary = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 test("the script passes its checked-out commit to the Core current-CLI preflight", () => {
   const root = mkdtempSync(
@@ -77,18 +77,18 @@ test("the script passes its checked-out commit to the Core current-CLI preflight
     git("commit", "--quiet", "-m", "fixture");
     const expectedSha = git("rev-parse", "HEAD");
 
-    const result = spawnSync(
-      pnpmBinary,
-      ["run", "release:preflight:core-current-cli-projection"],
-      {
-        cwd: root,
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          OPENMELD_PREFLIGHT_CAPTURE: capturePath,
-        },
-      }
-    );
+    const invocation = resolveOwnedCommandInvocation("pnpm", [
+      "run",
+      "release:preflight:core-current-cli-projection",
+    ]);
+    const result = spawnSync(invocation.command, invocation.args, {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENMELD_PREFLIGHT_CAPTURE: capturePath,
+      },
+    });
 
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(readFileSync(capturePath, "utf8")), {

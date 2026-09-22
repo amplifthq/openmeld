@@ -14,6 +14,7 @@ import {
   readGithubReleaseRuns,
   releaseWorkflowScopes,
 } from "./production-release-history.mjs";
+import { describeGuardedReceiptRecoveryCandidate } from "./production-release-receipts.mjs";
 
 const DEFAULT_REF = "origin/main";
 const execFileAsync = promisify(execFile);
@@ -179,9 +180,15 @@ export async function collectProductionReleaseStatus(input = {}) {
     }
     components.push(component);
   }
+  resolveCompatibilityReceiverWitnessEvidence({
+    adapters,
+    components,
+    sourceSha,
+  });
 
   const { mergedFinalCandidate, pushCheckBlockers, pushChecks } =
     await readSourceValidation({ adapters, repo, sourceSha });
+  const sourceValidationBlockers = [...pushCheckBlockers];
   const currentChange = changeBaseSha
     ? buildCurrentChangeFacts({
         baseRef: options.changeBase,
@@ -238,6 +245,7 @@ export async function collectProductionReleaseStatus(input = {}) {
     ),
     sourceValidationEvidence:
       mergedFinalCandidate ?? describePushCheckEvidence(pushChecks),
+    sourceValidationBlockers,
     state: resolveReleaseState(blockers, scopedPendingScopes),
     workflowMapping,
   };
@@ -271,6 +279,7 @@ function buildReleaseStatusBlockers(input) {
     blockers.push({
       detail: `missing successful deployment history for ${input.missingSources.join(", ")}`,
       name: "Deployment history",
+      scopes: input.missingSources,
       url: undefined,
     });
   }
@@ -279,6 +288,8 @@ function buildReleaseStatusBlockers(input) {
       blockers.push({
         name: `${component.scope} deployment evidence`,
         detail: component.reason,
+        scope: component.scope,
+        scopes: [component.scope],
       });
     }
   }
@@ -361,9 +372,10 @@ async function readHostedReleaseState(adapters, repo, sourceSha) {
 function describeReleaseComponent(input) {
   const { releaseSource, scope, history, plansByBase, adapters, sourceSha } =
     input;
-  const unknown = (reason) => ({
+  const unknown = (reason, facts = {}) => ({
     ...releaseSource,
     evidence: describeComponentEvidence(releaseSource),
+    ...facts,
     scope,
     state: "unknown",
     reason,
@@ -390,12 +402,19 @@ function describeReleaseComponent(input) {
   }
   if (releaseSource.receipt && releaseSource.receipt.status !== "verified") {
     const receipt = releaseSource.receipt;
-    const recovery =
+    const recovery = describeGuardedReceiptRecoveryCandidate(releaseSource);
+    if (recovery) {
+      return unknown(
+        "Local release application is retained and eligible to enter guarded health-only recovery. The guarded executor must still match its exact operation and live deployment identity before running health and writing verified evidence.",
+        { recovery }
+      );
+    }
+    const guidance =
       receipt.application === "applied" && receipt.identity
         ? "Rerun the same guarded command at the retained source so current tooling can verify and complete that exact attempt; do not request a redeploy."
         : "Reconcile the retained attempt under current guarded tooling. Use the documented Remote Agent partial recovery only when its exact retained evidence qualifies; otherwise ship an evidence-backed forward fix. Do not replace the attempt or bypass the guard.";
     return unknown(
-      `Local release is ${receipt.status}/${receipt.application}; ${recovery}`
+      `Local release is ${receipt.status}/${receipt.application}; ${guidance}`
     );
   }
   let entry = plansByBase.get(releaseSource.sha);
@@ -419,10 +438,121 @@ function describeReleaseComponent(input) {
   return {
     ...releaseSource,
     changedPaths: entry.plan.changedPaths,
+    compatibilityDependencies: entry.plan.compatibilityDependencies ?? [],
+    compatibilityReceiverWitnesses: (
+      entry.plan.compatibilityReceiverWitnesses ?? []
+    ).map((witness) => ({
+      ...witness,
+      receiverPaths: [...witness.receiverPaths],
+    })),
     evidence: describeComponentEvidence(releaseSource),
     scope,
     state: entry.plan.scopes.includes(scope) ? "pending" : "current",
   };
+}
+
+function resolveCompatibilityReceiverWitnessEvidence(input) {
+  for (const producer of input.components) {
+    producer.compatibilityReceiverWitnesses = (
+      producer.compatibilityReceiverWitnesses ?? []
+    ).map((witness) => {
+      const receiver = input.components.find(
+        (component) => component.scope === witness.receiver
+      );
+      const evidence = {
+        baselineSha: receiver?.sha ?? null,
+        result: "unknown",
+        targetSha: input.sourceSha,
+      };
+      if (
+        !(
+          receiver &&
+          receiver.state === "pending" &&
+          EXACT_SOURCE_SHA.test(String(receiver.sha ?? "")) &&
+          ["success", "verified"].includes(receiver.evidence?.result)
+        )
+      ) {
+        return {
+          ...witness,
+          evidence: {
+            ...evidence,
+            reason:
+              "The receiver has no verified deployment source for this contract witness.",
+          },
+        };
+      }
+      try {
+        return {
+          ...witness,
+          evidence: {
+            ...evidence,
+            result: input.adapters.compareGitPathContents({
+              fromSha: receiver.sha,
+              paths: witness.receiverPaths,
+              toSha: input.sourceSha,
+            })
+              ? "match"
+              : "mismatch",
+          },
+        };
+      } catch (error) {
+        return {
+          ...witness,
+          evidence: {
+            ...evidence,
+            reason: `Could not compare the receiver contract witness: ${error.message}`,
+          },
+        };
+      }
+    });
+  }
+}
+
+export function compareGitPathContents(input) {
+  const fromSha = requireExactSha(input.fromSha, "receiver witness source");
+  const toSha = requireExactSha(input.toSha, "receiver witness target");
+  if (
+    !(
+      Array.isArray(input.paths) &&
+      input.paths.length > 0 &&
+      input.paths.every((path) => typeof path === "string" && path.length > 0)
+    )
+  ) {
+    throw new Error("Receiver witness paths must be a non-empty path list.");
+  }
+  const spawn = input.spawn ?? spawnSync;
+  for (const path of input.paths) {
+    const targetPath = spawn(
+      resolveCommandBinary("git"),
+      ["cat-file", "-e", `${toSha}:${path}`],
+      { cwd: input.cwd, stdio: "ignore" }
+    );
+    if (targetPath.error) {
+      throw targetPath.error;
+    }
+    if (targetPath.status !== 0) {
+      throw new Error(
+        `Receiver witness path ${path} does not exist at target ${toSha}.`
+      );
+    }
+  }
+  const result = spawn(
+    resolveCommandBinary("git"),
+    ["diff", "--quiet", fromSha, toSha, "--", ...input.paths],
+    { cwd: input.cwd, stdio: "ignore" }
+  );
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status === 0) {
+    return true;
+  }
+  if (result.status === 1) {
+    return false;
+  }
+  throw new Error(
+    `Git could not compare receiver witness paths (${result.status ?? "no status"}).`
+  );
 }
 
 function describeComponentEvidence(releaseSource) {
@@ -809,6 +939,7 @@ function defaultAdapters() {
         scope: "auto",
         sourceSha,
       }),
+    compareGitPathContents,
     readPushChecks: async (repo, sourceSha) =>
       (
         await runGhJsonAsync([

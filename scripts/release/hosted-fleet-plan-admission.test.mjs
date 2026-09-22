@@ -73,27 +73,55 @@ test("unknown component receipts fail closed before artifact execution", async (
   assert.equal(built, false);
 });
 test("receiver-first order incompatible with the hosted job graph is rejected", async () => {
+  const core = {
+    scope: "core",
+    state: "pending",
+    compatibilityDependencies: [["remote-agent", "core"]],
+    changedPaths: [
+      "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
+      "services/core/src/remote-agent/application/native-delivery-service.ts",
+      "services/remote-agent/flue-adapter/execution-reconciliation.ts",
+    ],
+  };
   await assert.rejects(
     admitHostedFleetPlan(
       input,
       dependencies({
         collectStatus: async () => ({
           blockers: [],
-          components: [
-            {
-              scope: "core",
-              state: "pending",
-              changedPaths: [
-                "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
-                "services/core/src/remote-agent/application/native-delivery-service.ts",
-                "services/remote-agent/flue-adapter/execution-reconciliation.ts",
-              ],
-            },
-          ],
+          components: [core],
         }),
       })
     ),
     BEFORE_MUTATION
+  );
+
+  core.compatibilityReceiverWitnesses = [
+    {
+      producer: "core",
+      receiver: "remote-agent",
+      evidence: {
+        baselineSha: "a".repeat(40),
+        result: "match",
+        targetSha: SHA,
+      },
+    },
+  ];
+  const remote = {
+    scope: "remote-agent",
+    sha: "a".repeat(40),
+    state: "pending",
+  };
+  await assert.doesNotReject(
+    admitHostedFleetPlan(
+      input,
+      dependencies({
+        collectStatus: async () => ({
+          blockers: [],
+          components: [core, remote],
+        }),
+      })
+    )
   );
 });
 test("exact source mismatch and missing validation evidence are rejected", async () => {

@@ -1146,7 +1146,7 @@ test("keeps deployment preflight cheap while preserving release invariants", () 
     webSteps.map((step) => step.label),
     [
       "Admit receipt-based Production train stage",
-      "Verify production Web artifact",
+      "Verify declared Production train artifacts",
       "Verify signed CLI Skill content",
       "Verify Cloudflare environment contracts",
       "Check retired identifiers",
@@ -1166,7 +1166,7 @@ test("keeps deployment preflight cheap while preserving release invariants", () 
   );
   assert.equal(
     webSteps[1]?.controlPath,
-    "scripts/release/production-artifact-check.mjs"
+    "scripts/release/production-train-artifact-admission.mjs"
   );
   assert.equal(webSteps[2]?.controlPath, "scripts/release/cli-skill-check.mjs");
 
@@ -1179,6 +1179,7 @@ test("keeps deployment preflight cheap while preserving release invariants", () 
     coreSteps.map((step) => step.label),
     [
       "Admit receipt-based Production train stage",
+      "Verify declared Production train artifacts",
       "Verify Cloudflare environment contracts",
       "Check retired identifiers",
       "Verify production Core Queue resources",
@@ -1195,6 +1196,7 @@ test("keeps deployment preflight cheap while preserving release invariants", () 
     }).map((step) => step.label),
     [
       "Admit receipt-based Production train stage",
+      "Verify declared Production train artifacts",
       "Verify Cloudflare environment contracts",
       "Check retired identifiers",
       "Verify production Core Queue resources",
@@ -1209,6 +1211,7 @@ test("keeps deployment preflight cheap while preserving release invariants", () 
     }).map((step) => step.label),
     [
       "Admit receipt-based Production train stage",
+      "Verify declared Production train artifacts",
       "Verify Cloudflare environment contracts",
       "Check retired identifiers",
       "Verify production Gateway Queue resources",
@@ -1226,6 +1229,7 @@ test("preflights current-stable Core recovery without comparing the checked-in f
     steps.map((step) => step.label),
     [
       "Admit receipt-based Production train stage",
+      "Verify declared Production train artifacts",
       "Verify Cloudflare environment contracts",
       "Check retired identifiers",
       "Verify production Core Queue resources",

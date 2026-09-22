@@ -480,15 +480,14 @@ the separate CLI Release workflow. A generic cloud/full dispatch cannot replace
 this sequence.
 
 The hosted `cloud` and `full` dispatcher implements one static scope order.
-Before any Production mutation it compares the exact release against the
-immutable tag behind the current stable CLI channel and runs the trusted
-planner. It compares the plan's actual selected-scope order, not merely the
-profile name. A named receiver-first profile may use the hosted lane when its
-selected cloud scopes still match the static order. If the actual order differs,
-the hosted fleet run fails immediately with both orders and the planning
-command; it must not partially deploy the ordinary order and discover the
-mismatch later. Use the planner's guarded ordered path until that exact order
-has reviewed hosted orchestration support.
+Before any Production mutation it reads each component's actual deployment
+baseline and verifies that the hosted order satisfies the trusted planner's
+remaining compatibility dependencies. A preferred scheduling order alone does
+not block an otherwise compatible train. If the hosted graph would violate a
+required receiver/producer dependency, the run fails with that dependency and
+the supported order. Use the guarded staged path until that dependency has
+reviewed hosted orchestration support. The stable CLI tag is not a fleet
+deployment baseline.
 
 ### Inbox source-target receiver-first order
 
@@ -779,7 +778,7 @@ Use the preflight-only command to inspect the exact deployment invariants
 without deploying:
 
 ```sh
-pnpm run release:preflight:local -- --scope core
+OPENMELD_PRODUCTION_TRAIN_SCOPES=core pnpm run release:preflight:local -- --scope core
 ```
 
 Every preflight checks the cheap repository release contracts. Core additionally
@@ -791,44 +790,78 @@ gate. Database generation, migration truth, remote application, physical
 verification, and optimization remain owned by `db:release:prod` itself.
 
 Whole-train preflight reads every component baseline and proves that all
-pending scopes form one legal receiver/producer order before any Production
-mutation. Each scoped local or hosted preflight repeats receipt-based stage
-admission. A later stage is blocked while an earlier pending prerequisite lacks
-a verified receipt. This check never substitutes the latest CLI tag for Web,
-Database, or Worker deployment evidence.
+pending scopes satisfy their actual receiver/producer compatibility dependencies
+before any Production mutation. Those dependencies decide admission; the
+documented job order is not a default dependency graph. Each scoped local or
+hosted preflight repeats receipt-based stage admission. A later stage is blocked
+while one of its real pending prerequisites lacks a verified receipt. This check
+never substitutes the latest CLI tag for Web, Database, or Worker deployment
+evidence. For the explicit Remote Agent receiver contract, a verified deployed
+source may already contain the required receiver while unrelated changes remain
+pending. Admission compares the named receiver files and shared schema inputs
+at that deployed source against the target source. Only matching content, an
+unchanged evidence identity, and existing target files discharge that dependency.
+Missing witnesses or uncertain deployment state remain blocked; absence of a
+dependency in another historical diff is not compatibility proof.
 
-Whole-train preflight also builds and runs the exact-source Web and Desktop
-artifacts under Workerd SSR. Scoped Web preflight repeats the Web artifact
-admission. The deploy command may reuse only a matching build-input and output
-hash receipt; changed inputs or a Desktop build that replaced Web output force
-a fresh Web build and check. Local Workerd receives a newly generated,
-disposable cookie-signing key only so anonymous SSR can initialize; the receipt
-records that runtime mode and never records the key. Production secret
-readiness remains a separate guard. Formal Web post-deploy health binds the
-live root SSR source and build ID to that exact clean artifact receipt.
+The complete release train is explicit. A single hosted entry requires its own
+component as the declared independent scope. A staged release passes the same
+comma-separated `OPENMELD_PRODUCTION_TRAIN_SCOPES` value to every Database, CLI,
+Web, and Worker invocation; for example, separate `db`, `cli`, and `web` runs
+for one release all declare `db,cli,web`. Every entry rejects a selected scope
+that is absent from that train. When the train includes Web, trusted current-main
+control verifies the exact-source Web artifact before Database, CLI, or Worker
+product mutation. An independent `db` train declares only `db` and therefore
+does not build Web.
+
+Artifact admission builds and runs only the exact-source Web and Desktop scopes
+declared in the train. A backend-only train builds neither. When both are
+declared, it checks Desktop first and Web second so the retained output and
+receipt still identify the Web artifact used by the Web deploy. Scoped Web
+preflight repeats the Web artifact admission. The deploy command may reuse only
+a matching source, build-input, and output-hash receipt. When the other client
+has replaced the live output, admission restores and rehashes the matching
+snapshot. Changed inputs or a missing or invalid snapshot require a new build
+and check. Local Workerd
+receives a newly generated, disposable cookie-signing key only so anonymous SSR
+can initialize; the receipt records that runtime mode and never records the key.
+Production secret readiness remains a separate guard. Formal Web post-deploy
+health binds the live root SSR source and build ID to that exact clean artifact
+receipt.
 
 The hosted `cloud`/`full` parent job derives its plan from each component's
 receipt and verifies the Web artifact before any Database or Worker job starts.
-Desktop is not part of that hosted scope; its production packaging entrypoint
-verifies its renderer and prerender separately. Artifact reuse is local to a
-checkout with matching inputs and output. A separate hosted deployment runner
+Desktop has no deployment job in that hosted scope. It may still be named in the
+complete train for artifact admission, while its production packaging entrypoint
+verifies its renderer and prerender separately. Web and Desktop artifact
+snapshots remain component-specific recovery evidence: restoring one component
+selects that component's exact source and matching receipt without changing the
+other component's baseline. Artifact reuse is local to a checkout with matching
+source, build inputs, and output hash. A separate hosted deployment runner
 builds and verifies its own output rather than treating another runner's test
 result as proof of its bytes.
+
+Health-only resume is safe only when current-main guarded control matches the
+retained receipt's selected source, operation key, lease, target, and live
+deployment identity. A stage-admission recovery candidate records that a resume
+may be possible; it never authorizes a second deploy or makes an unknown result
+verified. Identity drift keeps the component blocked for evidence-backed
+reconciliation or a legal forward fix.
 
 Useful examples:
 
 ```sh
-# Let the tool infer scopes from commits not yet on origin/main.
-pnpm run release:deploy:local
+# Inspect inferred scopes before declaring the complete intended train.
+pnpm run release:plan
 
 # Release a known Web-only fix after the commit is already on origin/main.
-pnpm run release:deploy:local -- --scope web
+OPENMELD_PRODUCTION_TRAIN_SCOPES=web pnpm run release:deploy:local -- --scope web
 
 # Apply a Core-owned migration and then release only Core.
-pnpm run release:deploy:local -- --scope db,core
+OPENMELD_PRODUCTION_TRAIN_SCOPES=db,core pnpm run release:deploy:local -- --scope db,core
 
 # Run the coordinated Auth-first cloud scope through the same guarded planner.
-pnpm run deploy:cloud
+OPENMELD_PRODUCTION_TRAIN_SCOPES=cloud pnpm run deploy:cloud
 ```
 
 `pnpm deploy` is a short alias for the automatic local scoped release. Prefer
@@ -1038,6 +1071,7 @@ release_sha="$(git rev-parse origin/main)"
 gh workflow run release-on-main.yml \
   --ref main \
   --field scope=web \
+  --field production_train_scopes=web \
   --field release_sha="$release_sha"
 ```
 
@@ -1119,7 +1153,9 @@ CLI publication is a separate immutable release, not another Worker scope.
 Read `developing/engineering/cli-binary-release.md` for artifact and Apple
 credential details.
 
-Before publication, run `pnpm run release:preflight`, then inspect the
+Before publication, set `OPENMELD_PRODUCTION_TRAIN_SCOPES` to the complete
+intended train (`cli` for an independent CLI publication), run
+`pnpm run release:preflight`, then inspect the
 base-aware local-component plan:
 
 ```sh

@@ -2,6 +2,7 @@
 
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 
 import {
   buildTrustedGitHubRepositoryUrl,
@@ -16,20 +17,19 @@ import { readRemoteTagCommit } from "./release-cli-resume.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 
-async function main() {
-  const cwd = path.resolve(process.argv[2] ?? process.cwd());
-  const sourceSha = String(process.env.RELEASE_SHA ?? "").trim();
-  const token = String(
-    process.env.OPENMELD_TRUSTED_GIT_GITHUB_TOKEN ?? ""
-  ).trim();
+export async function runHostedCliRelease(input = {}) {
+  const cwd = path.resolve(input.cwd ?? process.cwd());
+  const env = input.env ?? process.env;
+  const sourceSha = String(env.RELEASE_SHA ?? "").trim();
+  const token = String(env.OPENMELD_TRUSTED_GIT_GITHUB_TOKEN ?? "").trim();
   const serverUrl = String(
-    process.env.OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL ?? ""
+    env.OPENMELD_TRUSTED_GIT_GITHUB_SERVER_URL ?? ""
   ).trim();
-  const repository = String(process.env.GITHUB_REPOSITORY ?? "").trim();
+  const repository = String(env.GITHUB_REPOSITORY ?? "").trim();
   if (!EXACT_SHA_PATTERN.test(sourceSha)) {
     throw new Error("Hosted CLI release requires an exact RELEASE_SHA.");
   }
-  const releaseEnvironment = { ...process.env };
+  const releaseEnvironment = { ...env };
   Reflect.deleteProperty(
     releaseEnvironment,
     "OPENMELD_TRUSTED_GIT_GITHUB_TOKEN"
@@ -52,8 +52,20 @@ async function main() {
   );
   const remoteUrl = buildTrustedGitHubRepositoryUrl({ repository, serverUrl });
 
-  await runCliRelease({
+  await (input.adapters?.runCliRelease ?? runCliRelease)({
     adapters: {
+      ...(input.adapters?.admitTrainArtifacts
+        ? { admitTrainArtifacts: input.adapters.admitTrainArtifacts }
+        : {}),
+      ...(input.adapters?.buildPlan
+        ? { buildPlan: input.adapters.buildPlan }
+        : {}),
+      ...(input.adapters?.checkArtifact
+        ? { checkArtifact: input.adapters.checkArtifact }
+        : {}),
+      ...(input.adapters?.readHeadSha
+        ? { readHeadSha: input.adapters.readHeadSha }
+        : {}),
       readNpmPublicationReceipt: (input) =>
         readNpmPublicationReceipt({
           ...input,
@@ -87,11 +99,13 @@ async function main() {
   });
 }
 
-try {
-  await main();
-} catch (error) {
-  process.stderr.write(
-    `${error instanceof Error ? error.message : String(error)}\n`
-  );
-  process.exitCode = 1;
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  try {
+    await runHostedCliRelease({ cwd: process.argv[2] });
+  } catch (error) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`
+    );
+    process.exitCode = 1;
+  }
 }

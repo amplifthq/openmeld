@@ -4,9 +4,11 @@ import { execFileSync } from "node:child_process";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { checkProductionArtifact } from "./production-artifact-check.mjs";
-import { buildProductionReleasePlan } from "./production-release.mjs";
 import { collectProductionReleaseStatus } from "./production-release-status.mjs";
-import { assertProductionStageAdmission } from "./production-stage-admission.mjs";
+import {
+  assertProductionStageAdmission,
+  isProductionCompatibilityReceiverSatisfied,
+} from "./production-stage-admission.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const STATIC_HOSTED_SCOPE_ORDER = [
@@ -46,9 +48,10 @@ export async function admitHostedFleetPlan(input, dependencies = {}) {
   )({
     argv: ["--ref", releaseSha],
   });
-  if (status.blockers.length) {
+  const sourceBlockers = status.sourceValidationBlockers ?? status.blockers;
+  if (sourceBlockers.length) {
     throw new Error(
-      `Hosted fleet preflight is blocked: ${status.blockers.map((entry) => `${entry.name}: ${entry.detail}`).join(" | ")}`
+      `Hosted fleet preflight is blocked: ${sourceBlockers.map((entry) => `${entry.name}: ${entry.detail}`).join(" | ")}`
     );
   }
   const selected = STATIC_HOSTED_SCOPE_ORDER.filter(
@@ -59,37 +62,31 @@ export async function admitHostedFleetPlan(input, dependencies = {}) {
     selectedScopes: selected,
     sourceSha: releaseSha,
   });
-  const changedPaths = [
-    ...new Set(
-      status.components
-        .filter((entry) => entry.state === "pending")
-        .flatMap((entry) => entry.changedPaths ?? [])
-    ),
-  ];
-  const buildPlan = dependencies.buildPlan ?? buildProductionReleasePlan;
-  const plan = buildPlan({
-    changedPaths,
-    affectedPackages: [],
-    scope,
-    sourceSha: releaseSha,
-  });
-  const deployOrderProfile = String(plan.deployOrderProfile ?? "").trim();
-  const deployScopeOrder = requireStringArray(
-    "planned deploy scope order",
-    plan.deployScopeOrder
+  const releaseDependencies = status.components.flatMap((component) =>
+    component.state === "pending"
+      ? (component.compatibilityDependencies ?? [])
+          .filter(([, producer]) => producer === component.scope)
+          .map((edge) => ({ component, edge }))
+      : []
   );
-  const selectedScopes = new Set(
-    requireStringArray("planned release scopes", plan.scopes)
+  const reversed = releaseDependencies.filter(
+    ({ component, edge: [receiver, producer] }) =>
+      selected.includes(receiver) &&
+      selected.includes(producer) &&
+      selected.indexOf(receiver) > selected.indexOf(producer) &&
+      !isProductionCompatibilityReceiverSatisfied(
+        status.components,
+        component,
+        [receiver, producer],
+        releaseSha
+      )
   );
-  const supportedScopeOrder = STATIC_HOSTED_SCOPE_ORDER.filter((candidate) =>
-    selectedScopes.has(candidate)
-  );
-  if (!hasSameValuesInOrder(deployScopeOrder, supportedScopeOrder)) {
+  if (reversed.length > 0) {
     throw new Error(
       [
         `Hosted ${scope} release refused before any Production mutation.`,
-        `The receipt-based plan at ${releaseSha} requires ${deployOrderProfile || "an unknown deploy order"}: ${deployScopeOrder.join(" -> ") || "no deploy scopes"}.`,
-        `release-on-main.yml can execute only: ${supportedScopeOrder.join(" -> ") || "no deploy scopes"}.`,
+        `The receipt-based plan at ${releaseSha} requires: ${reversed.map(({ edge }) => edge.join(" -> ")).join(", ")}.`,
+        `release-on-main.yml can execute only: ${selected.join(" -> ")}.`,
         "Do not approximate this receiver-first plan with the ordinary hosted fleet workflow.",
         "Inspect the trusted ordered plan from a clean current-main worktree:",
         "  pnpm run release:status -- --json",
@@ -106,28 +103,11 @@ export async function admitHostedFleetPlan(input, dependencies = {}) {
     sourceSha: releaseSha,
   });
   return {
-    deployOrderProfile,
-    deployScopeOrder,
+    compatibilityDependencies: releaseDependencies.map(({ edge }) => edge),
+    deployScopeOrder: selected,
     releaseSha,
     scope,
   };
-}
-
-function hasSameValuesInOrder(actual, expected) {
-  return (
-    actual.length === expected.length &&
-    actual.every((value, index) => value === expected[index])
-  );
-}
-
-function requireStringArray(label, value) {
-  if (
-    !Array.isArray(value) ||
-    value.some((item) => typeof item !== "string" || item.length === 0)
-  ) {
-    throw new Error(`Hosted fleet-plan admission requires ${label}.`);
-  }
-  return value;
 }
 
 function readReleaseHeadSha(releaseSource) {
