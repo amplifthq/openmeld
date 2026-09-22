@@ -469,6 +469,14 @@ remain inside technical details.
 Outcome copy must not imply that Agent Controller Permission Mode changes Space
 access, Agent availability, or separate Computer file-access limits.
 
+Antigravity uses native per-invocation modes: Default preserves the CLI's
+configured permissions, Accept edits passes `--mode accept-edits`, Plan passes
+`--mode plan`, and Bypass permissions passes `--dangerously-skip-permissions`
+with explicit owner confirmation. Headless requests cannot present approval
+prompts; actions requiring approval are denied by the CLI. Plan is not a
+filesystem sandbox. These settings apply to subsequent invocations, including
+resumed conversations; Antigravity does not support live permission updates.
+
 Owners may edit Binding-level runtime settings while a Wake is running. The
 accepted Binding id and configuration revision remain the dispatch's immutable
 starting identity, so changing model, reasoning, collaboration, or

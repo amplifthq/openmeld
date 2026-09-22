@@ -154,6 +154,8 @@ function createDefaultAntigravityInvoke(input: {
             run: async ({ addDir, jsonSchema }) =>
               await invokeAntigravityCliTransport({
                 addDir,
+                agentControllerPermissionMode:
+                  request.agentControllerPermissionMode,
                 conversationPolicy: request.conversationPolicy,
                 env: request.env,
                 jsonSchema,

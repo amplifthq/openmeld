@@ -17,6 +17,31 @@ const createNodeScriptLaunchContract = (scriptPath) => ({
 });
 
 describe("Antigravity CLI transport contract", () => {
+  it("applies the selected native permission mode and rejects another controller's mode", () => {
+    const base = {
+      prompt: "Review the change.",
+      sessionId: "existing-session",
+    };
+    for (const [mode, flags] of [
+      ["antigravity:default", []],
+      ["antigravity:acceptEdits", ["--mode", "accept-edits"]],
+      ["antigravity:plan", ["--mode", "plan"]],
+      ["antigravity:bypassPermissions", ["--dangerously-skip-permissions"]],
+    ]) {
+      assert.deepEqual(
+        buildAntigravityArgs({ ...base, agentControllerPermissionMode: mode }),
+        [...buildAntigravityArgs(base), ...flags]
+      );
+    }
+    assert.throws(
+      () =>
+        buildAntigravityArgs({
+          ...base,
+          agentControllerPermissionMode: "codex:fullAccess",
+        }),
+      { code: "permission.mode.unsupported" }
+    );
+  });
   it("uses the exact conversation id and model on a resumed turn", () => {
     assert.deepEqual(
       buildAntigravityArgs({
