@@ -13,6 +13,7 @@ import {
   createMessageChannelProviderRegistry,
   type MessageChannelProviderAdapter,
 } from "../src/remote-agent/application/message-channel-adapters";
+import { publishRemoteAgentMessageChannelCardStreamDelta } from "../src/remote-agent/application/message-channel-card-stream-service";
 import { digestMessageChannelIdentityLinkToken } from "../src/remote-agent/application/message-channel-identity-link-token";
 import {
   publishRemoteAgentMessageChannelCallback,
@@ -54,6 +55,198 @@ const PROVIDER_PUBLICATION_KEY = "message_channel_publication_1";
 const SUBMISSION_ID = "submission_message_channel_1";
 
 describe("Remote Agent Message Channel publication", () => {
+  it.each([
+    { provider: "lark", streamReplacement: true, scenario: "short" },
+    { provider: "feishu", streamReplacement: true, scenario: "short" },
+    { provider: "lark", streamReplacement: false, scenario: "short" },
+    { provider: "feishu", streamReplacement: false, scenario: "short" },
+    { provider: "lark", streamReplacement: true, scenario: "same-length" },
+    {
+      provider: "feishu",
+      streamReplacement: false,
+      scenario: "rollover-restart",
+    },
+    { provider: "lark", streamReplacement: false, scenario: "final-retry" },
+    { provider: "feishu", streamReplacement: false, scenario: "legacy" },
+  ] as const)("replaces rolled-over $provider draft cards ($scenario, stream=$streamReplacement)", async ({
+    provider,
+    streamReplacement,
+    scenario,
+  }) => {
+    const harness = createSqliteD1Harness();
+    applyMessageChannelPublicationMigrations(harness);
+    seedConnection(harness, "connected", provider);
+    const cards = new Map([["card_working_lark_1", "Working"]]);
+    let rejectFinalOnce = scenario === "final-retry";
+    let rejectCreationOnce = scenario === "rollover-restart";
+    const finalizeWorkingCard = vi.fn<
+      MessageChannelProviderAdapter["finalizeWorkingCard"]
+    >(({ cardId, text, outcome }) => {
+      if (rejectFinalOnce && outcome === "completed") {
+        rejectFinalOnce = false;
+        return Promise.resolve({
+          status: "failed",
+          reasonCode: `${provider}.card_finalize_http_429`,
+          retryAfterMs: 1000,
+        });
+      }
+      cards.set(cardId, text);
+      return Promise.resolve({ status: "published" });
+    });
+    const updateWorkingCard = vi.fn<
+      MessageChannelProviderAdapter["updateWorkingCard"]
+    >(({ cardId, text }) => {
+      cards.set(cardId, text);
+      return Promise.resolve({ status: "published" });
+    });
+    const adapter = createAdapter(provider, {
+      finalizeWorkingCard,
+      updateWorkingCard,
+      createWorkingCard: vi.fn<
+        MessageChannelProviderAdapter["createWorkingCard"]
+      >(({ initialText }) => {
+        if (rejectCreationOnce) {
+          rejectCreationOnce = false;
+          return Promise.resolve({
+            status: "failed",
+            reasonCode: `${provider}.card_create_http_429`,
+          });
+        }
+        cards.set("continued-card", initialText);
+        return Promise.resolve({ status: "created", cardId: "continued-card" });
+      }),
+      publishWorkingCard: vi.fn<
+        MessageChannelProviderAdapter["publishWorkingCard"]
+      >(async () => ({
+        status: "published",
+        resultId: "continued-message",
+      })),
+    });
+    const registry = createMessageChannelProviderRegistry([adapter]);
+    const read = async () => {
+      const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+        db: harness.db,
+        idempotencyKey: IDEMPOTENCY_KEY,
+      });
+      if (!delivery) {
+        throw new Error("Missing delivery.");
+      }
+      return delivery;
+    };
+    try {
+      await createAcceptedMessageChannelDeliveryWithSentWorkingCard(
+        harness.db,
+        provider
+      );
+      await expect(
+        publishRemoteAgentMessageChannelCardStreamDelta({
+          delivery: await read(),
+          evidenceDb: harness.db,
+          providerDb: harness.db,
+          registry,
+          nowMs: 2000,
+          sequence: 1,
+          textSnapshot: "X".repeat(31_000),
+        })
+      ).resolves.toMatchObject({
+        status: scenario === "rollover-restart" ? "retryable" : "accepted",
+      });
+      if (scenario === "rollover-restart") {
+        expect(await read()).toMatchObject({
+          providerProgressState: "rollover_finalized",
+          providerProgressCardHistory: { pendingSnapshot: "X".repeat(31_000) },
+        });
+      } else {
+        expect(await read()).toMatchObject({
+          providerProgressSourceOffset: 29_996,
+          providerProgressRolloverIndex: 1,
+        });
+      }
+      if (scenario === "legacy") {
+        // Old deployed rows have no retired card receipts. Their identities
+        // cannot be invented; the active card must explicitly supersede them.
+        harness.run({
+          sql: "UPDATE openMeldRemoteAgent_native_delivery_ledger SET provider_progress_card_history_json = NULL WHERE idempotency_key = ?",
+          params: [IDEMPOTENCY_KEY],
+        });
+      }
+      const text =
+        scenario === "same-length"
+          ? "B".repeat(31_000)
+          : "Correct complete answer.";
+      const activeText = scenario === "same-length" ? text.slice(29_996) : text;
+      if (streamReplacement) {
+        await expect(
+          publishRemoteAgentMessageChannelCardStreamDelta({
+            delivery: await read(),
+            evidenceDb: harness.db,
+            providerDb: harness.db,
+            registry,
+            nowMs: 2500,
+            sequence: 2,
+            textSnapshot: text,
+          })
+        ).resolves.toMatchObject({ status: "accepted" });
+        expect(cards.get("continued-card")).toBe(activeText);
+        expect(cards.get("card_working_lark_1")).not.toContain("XXX");
+      }
+      const callback = {
+        ...createCompletedCallback(),
+        spaceId: (await read()).spaceId,
+        text,
+      };
+      if (scenario === "final-retry") {
+        await expect(
+          completeRemoteAgentNativeDelivery(buildEnv(harness.db), callback, {
+            messageChannelNowMs: () => 2800,
+            messageChannelProviderRegistry: registry,
+          })
+        ).resolves.toMatchObject({ status: "retryable" });
+        expect(cards.get("card_working_lark_1")).toContain("replaced");
+        expect((await read()).status).not.toBe("completed");
+      }
+      for (let retry = 0; retry < 2; retry += 1) {
+        await expect(
+          completeRemoteAgentNativeDelivery(buildEnv(harness.db), callback, {
+            messageChannelNowMs: () => 5000,
+            messageChannelProviderRegistry: registry,
+          })
+        ).resolves.toMatchObject({
+          status: retry === 0 ? "accepted" : "duplicate_rejected",
+          publishedSignalId: "message_working_lark_1",
+          ...(retry === 0
+            ? {}
+            : { reasonCode: "remote_agent.callback_completed_submission" }),
+        });
+      }
+      if (scenario === "legacy") {
+        expect(cards.get("continued-card")).toBe(
+          `This response replaces all earlier draft cards for this request.\n\n${text}`
+        );
+        expect(cards.get("card_working_lark_1")).toContain("XXX");
+      } else {
+        expect(cards.get("continued-card")).toBe(activeText);
+        if (scenario === "same-length") {
+          expect(cards.get("card_working_lark_1")).toBe(text.slice(0, 29_996));
+        } else {
+          expect(cards.get("card_working_lark_1")).toContain("replaced");
+        }
+        expect([...cards.values()].join("\n")).not.toContain("XXX");
+      }
+      expect(adapter.publishWorkingCard).toHaveBeenCalledOnce();
+      expect(adapter.publishReply).not.toHaveBeenCalled();
+      expect(await read()).toMatchObject({
+        status: "completed",
+        finalPublicationState: "published",
+      });
+      expect(
+        (await read()).providerProgressCardHistory ?? {}
+      ).not.toHaveProperty("pendingSnapshot");
+    } finally {
+      harness.close();
+    }
+  });
+
   it("publishes a hung admission failure once to only the frozen provider", async () => {
     const harness = createSqliteD1Harness();
     applyMessageChannelPublicationMigrations(harness);
@@ -1991,10 +2184,11 @@ function applyMessageChannelPublicationMigrations(
 
 function seedConnection(
   harness: ReturnType<typeof createSqliteD1Harness>,
-  status: "connected" | "disconnected"
+  status: "connected" | "disconnected",
+  provider: "lark" | "feishu" = "lark"
 ): void {
   harness.run({
-    params: [status],
+    params: [provider, status],
     sql: `
       INSERT INTO openMeldRemoteAgent_lark_platform_channel_connections (
         connection_id,
@@ -2017,7 +2211,7 @@ function seedConnection(
       ) VALUES (
         'connection_lark_1',
         'org_1',
-        'lark',
+        ?,
         'app_lark_1',
         'tenant_lark_1',
         'bot_open_id_1',
@@ -2093,9 +2287,10 @@ async function registerMessageChannelDeliverySubscription(
 }
 
 async function createAcceptedMessageChannelDeliveryWithSentWorkingCard(
-  db: D1Database
+  db: D1Database,
+  provider: "lark" | "feishu" = "lark"
 ): Promise<void> {
-  await createSubmittedMessageChannelDelivery(db);
+  await createSubmittedMessageChannelDelivery(db, provider);
   await createSentWorkingCard(db);
   await acceptMessageChannelDelivery(db);
 }
@@ -2197,7 +2392,8 @@ async function acceptMessageChannelDelivery(db: D1Database): Promise<void> {
 }
 
 async function createSubmittedMessageChannelDelivery(
-  db: D1Database
+  db: D1Database,
+  provider: "lark" | "feishu" = "lark"
 ): Promise<void> {
   await upsertRemoteAgentNativeDeliveryRecord({
     attemptId: null,
@@ -2206,7 +2402,7 @@ async function createSubmittedMessageChannelDelivery(
     db,
     dispatchId: "dispatch_message_channel_1",
     idempotencyKey: IDEMPOTENCY_KEY,
-    messageChannelLocator: createLocator(),
+    messageChannelLocator: { ...createLocator(), provider },
     nowMs: 1000,
     onBehalfOfDisplayName: "Ari",
     onBehalfOfProfileId: "22222222-2222-4222-8222-222222222222",
@@ -2214,7 +2410,7 @@ async function createSubmittedMessageChannelDelivery(
     organizationId: "org_1",
     profileId: AGENT_PROFILE_ID,
     providerPublicationIdempotencyKey: PROVIDER_PUBLICATION_KEY,
-    spaceId: CONVERSATION_ID,
+    spaceId: CONVERSATION_ID.replace("lark:", `${provider}:`),
     status: "submitted",
     triggerMessageId: "message_trigger_1",
     triggerText: "Please prepare the launch plan.",

@@ -11,6 +11,7 @@ export async function buildMessageChannelProviderPublicationUuid(input: {
     | "private_navigation"
     | "working"
     | `file:${string}`
+    | `card-revision:${string}`
     | `rollover:${number}:create`
     | `rollover:${number}:finalize:${number}`
     | `rollover:${number}:send`

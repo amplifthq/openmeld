@@ -418,6 +418,9 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
       "provider_progress_claim_expires_at_ms"
     ),
     providerProgressCardId: text("provider_progress_card_id"),
+    providerProgressCardHistoryJson: text(
+      "provider_progress_card_history_json"
+    ),
     providerProgressMessageId: text("provider_progress_message_id"),
     providerProgressPublicationIdempotencyKey: text(
       "provider_progress_publication_idempotency_key"

@@ -16,3 +16,9 @@ failed text without removing earlier tool updates. Completed answers, model
 information, and recorded usage survive interruptions before final delivery.
 Delivery retries do not count the same recorded usage again. Stop and safety
 failures continue to prevent a late answer from replacing the actual outcome.
+
+Lark and Feishu replies can replace a failed draft even after it has expanded
+into multiple cards. The corrected reply updates the existing card chain instead
+of failing on an obsolete text offset. Known model consumption is also retained
+when execution fails or is stopped, without turning its draft into a successful
+answer.

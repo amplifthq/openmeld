@@ -36,7 +36,6 @@ export {
   localAgentReasoningStateSchema,
   OPENMELD_REASONING_STREAM_HEADER,
 } from "./http/local-agent-reasoning";
-
 export {
   HUMAN_PRESENCE_HEARTBEAT_MS,
   HUMAN_PRESENCE_IDLE_MS,
@@ -58,6 +57,7 @@ export {
   spaceHistoryNavigationQuerySchema,
   spaceHistoryNavigationSchema,
 } from "./http/space-history-navigation";
+export { messageChannelCardHistorySchema } from "./runtime/message-channel-card-history";
 
 export const OPENMELD_SCHEMA_VERSION = 1 as const;
 

@@ -673,6 +673,16 @@ the connected provider API.
    may be visible. The worker places an explicit shortening notice inside the
    product-wide text ceiling if a model result is larger; CardKit itself never
    silently truncates the accepted callback.
+   Retry text is a replacement snapshot, not necessarily an append. The same
+   Native Delivery retains bounded retired-card identities and rendered hashes
+   so streaming and final publication can resegment the current answer, rewrite
+   obsolete card sections, and replace surplus sections with an explicit notice.
+   A pending rollover retains its bounded source snapshot so a shorter final
+   answer can finish that exact operation before correcting the card chain.
+   Existing claims, provider UUIDs, sequence fences and the six-card budget
+   remain authoritative. Legacy deliveries whose retired card identities were
+   never stored explicitly supersede earlier drafts on the current card; they
+   do not invent message identities or claim the unknown cards were retracted.
    Signed native controls bind the current card message to the same Native
    Delivery, connection, app, tenant, chat, and verified requester. Stop requests
    go to the existing Remote Agent execution owner; a click never marks the
