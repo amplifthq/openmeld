@@ -11,6 +11,8 @@ const workflow = (name) =>
   parse(
     readFileSync(new URL(`../../.github/${name}`, import.meta.url), "utf8")
   );
+const toolchain = (job) =>
+  job.steps.find((step) => step.uses?.endsWith("/setup-node-pnpm"));
 
 test("coordinated release hands trusted parent outputs to every child and retains standalone admission", () => {
   const parent = workflow("workflows/release-on-main.yml");
@@ -45,6 +47,12 @@ test("coordinated release hands trusted parent outputs to every child and retain
     );
     const child = workflow(`workflows/deploy-${file}.yml`);
     assert.equal(
+      toolchain(child.jobs.deploy).with.node_version,
+      expression(
+        "inputs.parent_admission_evidence && fromJSON(inputs.parent_admission_evidence).buildInputs.node || '24'"
+      )
+    );
+    assert.equal(
       child.on.workflow_call.inputs.parent_admission_evidence.required,
       false
     );
@@ -68,6 +76,22 @@ test("coordinated release hands trusted parent outputs to every child and retain
     );
   }
   assert.equal(parent.jobs.database.needs, "validate_release_source");
+  assert.equal(
+    toolchain(parent.jobs.database).with.node_version,
+    expression(
+      "fromJSON(needs.validate_release_source.outputs.parent_admission_evidence).buildInputs.node"
+    )
+  );
+  // Standalone jobs retain the existing major version; coordinated consumers
+  // use the producer's exact runtime instead of independently resolving it.
+  const setup = workflow("actions/setup-node-pnpm/action.yml");
+  assert.equal(setup.inputs.node_version.default, "24");
+  assert.equal(
+    setup.runs.steps.find((step) => step.uses === "actions/setup-node@v5").with[
+      "node-version"
+    ],
+    expression("inputs.node_version")
+  );
   const dbCall = parent.jobs.database.steps.find((step) =>
     step.uses?.endsWith("/shared-db-gate")
   );
@@ -268,6 +292,10 @@ test("handoff acceptance uses separate clean jobs and the production artifact tr
   const production = workflow("workflows/release-on-main.yml");
   const parent = diagnostic.jobs.validate_release_source;
   const child = diagnostic.jobs.verify_web_admission;
+  assert.equal(
+    toolchain(child).with.node_version,
+    toolchain(production.jobs.database).with.node_version
+  );
   assert.deepEqual(diagnostic.permissions, { contents: "read" });
   assert.equal(child.needs, "validate_release_source");
   for (const job of [parent, child]) {

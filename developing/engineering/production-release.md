@@ -907,6 +907,9 @@ Only that job issues `production-train-admission` evidence through its protected
 job output. Consumers require the exact source, declared train and artifact
 scopes, repository, main workflow identity, trusted control SHA, run ID and
 attempt, clean Git tree, lockfile hash, and Node/platform/architecture.
+Coordinated consumers install the parent's exact Node version before dependency
+setup; independently resolving Node 24 on each runner can select different
+versions. Standalone callers retain the existing toolchain selection.
 The evidence retains the inspected CLI tarball integrity and each renderer's
 build-input, output and receipt hashes, including its Workerd SSR runtime.
 This is artifact admission evidence, not a deployment or reconciliation receipt.

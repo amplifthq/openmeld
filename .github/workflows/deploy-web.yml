@@ -113,6 +113,7 @@ jobs:
       - name: Setup repository toolchain
         uses: ./release-control/.github/actions/setup-node-pnpm
         with:
+          node_version: ${{ inputs.parent_admission_evidence && fromJSON(inputs.parent_admission_evidence).buildInputs.node || '24' }}
           control_directory: release-control
           working_directory: release-source
 

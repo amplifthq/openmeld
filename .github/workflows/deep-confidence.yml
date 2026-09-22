@@ -248,6 +248,7 @@ jobs:
           ref: ${{ github.sha }}
       - uses: ./release-control/.github/actions/setup-node-pnpm
         with:
+          node_version: ${{ fromJSON(needs.validate_release_source.outputs.parent_admission_evidence).buildInputs.node }}
           control_directory: release-control
           working_directory: release-source
       - name: Download this run's admitted Web snapshot

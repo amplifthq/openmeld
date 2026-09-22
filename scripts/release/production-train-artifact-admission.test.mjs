@@ -457,6 +457,12 @@ test("parent evidence fails closed on source, control, train, artifact, input, a
       },
     ],
     [
+      "Node runtime drift",
+      (e) => {
+        e.buildInputs.node = "v24.999.0";
+      },
+    ],
+    [
       "workflow",
       (e) => {
         e.producer.workflowRef = "another-workflow";
