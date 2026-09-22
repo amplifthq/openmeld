@@ -138,7 +138,7 @@ describe("Runtime Transport Computer incidents", () => {
       expect(
         lookupOwnerService(
           state,
-          { ownerUserId: "owner" },
+          { v: 1, ownerUserId: "owner" },
           {
             persistRuntimeRecords: () => undefined,
             cleanupExpiredPendingDispatches: () => undefined,
@@ -230,13 +230,19 @@ describe("Runtime Transport Computer incidents", () => {
     }
   });
 
-  it("retains a failed projection and projects its latest terminal state after restart, never a reopened or duplicate incident", async () => {
+  it.each([
+    "disconnected",
+    "restored",
+  ] as const)("retries a failed %s projection after restart without reopening or duplicating the incident", async (failedState) => {
     const f = fixture();
     try {
+      let restoring = false;
       const db = createFaultInjectingD1Database({
         db: f.db,
         matches: (sql, operation) =>
-          operation === "run" && sql.includes("INSERT INTO inbox_items"),
+          operation === "run" &&
+          sql.includes("INSERT INTO inbox_items") &&
+          restoring === (failedState === "restored"),
       });
       const source = createComputerConnectionIncidents({
         db,
@@ -246,12 +252,95 @@ describe("Runtime Transport Computer incidents", () => {
       await source.observe([f.session()]);
       f.advance(LEASE_TTL_MS + 1);
       await source.observe([]);
-      expect(f.items()).toEqual([]);
-      await f.restart().observe([f.session()]);
+      const original = f.items()[0];
+      expect(f.items()).toHaveLength(failedState === "disconnected" ? 0 : 1);
+      restoring = true;
+      await source.observe([f.session({ socket: null })]);
+      if (failedState === "restored") {
+        expect(f.items()[0]).toMatchObject({
+          id: original?.id,
+          resolution_status: "open",
+        });
+        const retryAtMs = await source.nextAlarmAtMs();
+        expect(retryAtMs).toBeGreaterThan(f.now());
+        f.advance(Number(retryAtMs) - f.now());
+      }
+      await f.restart().observe([f.session({ socket: null })]);
       expect(f.items()).toHaveLength(1);
       expect(f.items()[0]?.resolution_status).toBe("resolved");
-      await f.restart().observe([f.session()]);
+      if (original) {
+        expect(f.items()[0]?.id).toBe(original.id);
+      }
+      await f.restart().observe([f.session({ socket: null })]);
       expect(f.items()).toHaveLength(1);
+    } finally {
+      f.close();
+    }
+  });
+
+  it.each([
+    { name: "another Computer", deviceId: "other-device", lane: "dev-local" },
+    { name: "another lane", deviceId: "device", lane: "prod" },
+  ] as const)("keeps $name's incident and an independent Wake failure when one connection recovers", async ({
+    deviceId,
+    lane,
+  }) => {
+    const f = fixture();
+    try {
+      if (deviceId !== "device") {
+        f.run({
+          sql: "INSERT INTO openMeldDaemon_owned_devices (owner_user_id, device_id, connected_computer_id, user_display_name, first_seen_at_ms, updated_at_ms) VALUES ('owner', 'other-device', 'other-computer', 'Other Mac', 0, 0)",
+        });
+        f.run({
+          sql: "INSERT INTO openMeldDaemon_connected_computers VALUES ('owner', 'other-computer', 0, 0)",
+        });
+      }
+      await f.source.observe([
+        f.session(),
+        f.session({ deviceId, lane, daemonSessionId: "other-session" }),
+      ]);
+      f.advance(LEASE_TTL_MS + 1);
+      await f.source.observe([]);
+      expect(f.items()).toHaveLength(2);
+      const failure = await f.item("failure", {
+        kind: "wake_outcome",
+        importance: "urgent",
+        sourceTarget: { kind: "space", spaceId: "space", signalId: "failure" },
+      });
+      const before = f.queryAll({
+        sql: "SELECT * FROM inbox_items WHERE id = ?",
+        params: [failure.itemId],
+      });
+      await f.source.observe([f.session({ socket: null })]);
+      const feed = await createInboxFeedService({
+        db: f.db,
+        nowMs: f.now,
+      }).list(f.identity);
+      const computers = feed.rows.filter(
+        (row) => row.item.kind === "computer_connection"
+      );
+      expect(
+        computers.filter((row) => row.section === "priority")
+      ).toHaveLength(1);
+      expect(
+        computers.find((row) => row.section === "priority")?.item.sourceTarget
+      ).toMatchObject({ deviceId, lane, state: "disconnected" });
+      expect(
+        computers.find((row) => row.section === "activity")?.item.sourceTarget
+      ).toMatchObject({
+        deviceId: "device",
+        lane: "dev-local",
+        state: "restored",
+      });
+      expect(
+        f.queryAll({
+          sql: "SELECT * FROM inbox_items WHERE id = ?",
+          params: [failure.itemId],
+        })
+      ).toEqual(before);
+      expect(feed.rows.find((row) => row.item.id === failure.itemId)?.dot).toBe(
+        "yellow"
+      );
     } finally {
       f.close();
     }
