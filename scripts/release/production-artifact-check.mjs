@@ -1,6 +1,15 @@
 import { execFileSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
-import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import {
+  cp,
+  lstat,
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -14,6 +23,7 @@ import {
 } from "./production-web-health.mjs";
 
 const ENV_FILE = /^\.env(?:\.|$)/u;
+const SHA256 = /^[a-f0-9]{64}$/u;
 const BUILD_ENV =
   /^(VITE_|CLOUDFLARE_ENV$|OPENMELD_DESKTOP_(TARGET|PILOT|NODE_HEAP_MB)$|OPENMELD_DEV_ISOLATED$|OPENMELD_GATEWAY_URL$|NODE_OPTIONS$|NODE_ENV$|BETTER_AUTH_URL$|WEB_APP_URL$)/u;
 
@@ -51,11 +61,19 @@ async function hashTree(directory, hash = createHash("sha256"), prefix = "") {
   return hash;
 }
 
-export async function artifactOutputIdentity(webRoot) {
-  const hash = await hashTree(path.join(webRoot, "dist"));
-  return hash
-    .update(await readFile(path.join(webRoot, ".wrangler/deploy/config.json")))
-    .digest("hex");
+export function artifactOutputIdentity(webRoot) {
+  return artifactFilesIdentity(
+    path.join(webRoot, "dist"),
+    path.join(webRoot, ".wrangler/deploy/config.json")
+  );
+}
+
+async function artifactFilesIdentity(distPath, deployConfigPath) {
+  const hash = await hashTree(distPath);
+  if ((await lstat(deployConfigPath)).isSymbolicLink()) {
+    throw new Error("Release build output must not contain symbolic links.");
+  }
+  return hash.update(await readFile(deployConfigPath)).digest("hex");
 }
 
 export async function artifactInputIdentity(
@@ -123,13 +141,185 @@ export async function artifactInputIdentity(
     .digest("hex");
 }
 
-async function reusableArtifact(receiptPath, webRoot, identity, allowDirty) {
+function artifactSnapshotPath(receiptPath, scope, identity) {
+  if (!((scope === "web" || scope === "desktop") && SHA256.test(identity))) {
+    throw new Error(
+      "Artifact snapshot requires a valid scope and input identity."
+    );
+  }
+  return path.join(path.dirname(receiptPath), "artifacts", scope, identity);
+}
+
+async function pathExists(filename) {
+  try {
+    await lstat(filename);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function snapshotOutputIdentity(snapshotPath) {
+  return artifactFilesIdentity(
+    path.join(snapshotPath, "dist"),
+    path.join(snapshotPath, "deploy/config.json")
+  );
+}
+
+export async function saveArtifactSnapshot({
+  receiptPath,
+  webRoot,
+  scope,
+  identity,
+  artifactSha256,
+}) {
+  const snapshotPath = artifactSnapshotPath(receiptPath, scope, identity);
+  const parent = path.dirname(snapshotPath);
+  const temporary = path.join(parent, `.${identity}.tmp-${randomUUID()}`);
+  const previous = path.join(parent, `.${identity}.previous-${randomUUID()}`);
+  await mkdir(path.join(temporary, "deploy"), { recursive: true });
+  try {
+    await cp(path.join(webRoot, "dist"), path.join(temporary, "dist"), {
+      recursive: true,
+    });
+    await cp(
+      path.join(webRoot, ".wrangler/deploy/config.json"),
+      path.join(temporary, "deploy/config.json")
+    );
+    if ((await snapshotOutputIdentity(temporary)) !== artifactSha256) {
+      throw new Error("Artifact snapshot changed while it was being saved.");
+    }
+    const hadPrevious = await pathExists(snapshotPath);
+    if (hadPrevious) {
+      await rename(snapshotPath, previous);
+    }
+    try {
+      await rename(temporary, snapshotPath);
+    } catch (error) {
+      if (hadPrevious) {
+        await rename(previous, snapshotPath);
+      }
+      throw error;
+    }
+    await rm(previous, { force: true, recursive: true });
+  } finally {
+    await rm(temporary, { force: true, recursive: true });
+  }
+  return snapshotPath;
+}
+
+export async function restoreArtifactSnapshot({
+  receiptPath,
+  webRoot,
+  scope,
+  identity,
+  artifactSha256,
+}) {
+  const snapshotPath = artifactSnapshotPath(receiptPath, scope, identity);
+  try {
+    if ((await snapshotOutputIdentity(snapshotPath)) !== artifactSha256) {
+      return false;
+    }
+  } catch (error) {
+    if (
+      error.code === "ENOENT" ||
+      error.message === "Release build output must not contain symbolic links."
+    ) {
+      return false;
+    }
+    throw error;
+  }
+
+  const restoreRoot = path.join(
+    webRoot,
+    `.openmeld-artifact-restore-${randomUUID()}`
+  );
+  const stagedDist = path.join(restoreRoot, "staged-dist");
+  const stagedDeploy = path.join(restoreRoot, "staged-deploy");
+  const previousDist = path.join(restoreRoot, "previous-dist");
+  const previousDeploy = path.join(restoreRoot, "previous-deploy");
+  const dist = path.join(webRoot, "dist");
+  const deploy = path.join(webRoot, ".wrangler/deploy");
+  let backedUpDist = false;
+  let backedUpDeploy = false;
+  let installedDist = false;
+  let installedDeploy = false;
+  await mkdir(restoreRoot, { recursive: true });
+  try {
+    await cp(path.join(snapshotPath, "dist"), stagedDist, { recursive: true });
+    await cp(path.join(snapshotPath, "deploy"), stagedDeploy, {
+      recursive: true,
+    });
+    if (
+      (await artifactFilesIdentity(
+        stagedDist,
+        path.join(stagedDeploy, "config.json")
+      )) !== artifactSha256
+    ) {
+      return false;
+    }
+    if (await pathExists(dist)) {
+      await rename(dist, previousDist);
+      backedUpDist = true;
+    }
+    if (await pathExists(deploy)) {
+      await rename(deploy, previousDeploy);
+      backedUpDeploy = true;
+    }
+    await rename(stagedDist, dist);
+    installedDist = true;
+    await mkdir(path.dirname(deploy), { recursive: true });
+    await rename(stagedDeploy, deploy);
+    installedDeploy = true;
+    if ((await artifactOutputIdentity(webRoot)) !== artifactSha256) {
+      throw new Error("Restored artifact does not match its verified receipt.");
+    }
+    return true;
+  } catch (error) {
+    if (installedDist) {
+      await rm(dist, { force: true, recursive: true });
+    }
+    if (installedDeploy) {
+      await rm(deploy, { force: true, recursive: true });
+    }
+    if (backedUpDist) {
+      await rename(previousDist, dist);
+    }
+    if (backedUpDeploy) {
+      await rename(previousDeploy, deploy);
+    }
+    throw error;
+  } finally {
+    await rm(restoreRoot, { force: true, recursive: true });
+  }
+}
+
+export async function reusableArtifact({
+  receiptPath,
+  webRoot,
+  scope,
+  sourceSha,
+  identity,
+  allowDirty,
+}) {
   try {
     const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
     if (
+      receipt.scope === scope &&
+      receipt.sourceSha === sourceSha &&
       receipt.inputIdentity === identity &&
+      SHA256.test(receipt.artifactSha256) &&
       receipt.allowDirty === allowDirty &&
-      receipt.artifactSha256 === (await artifactOutputIdentity(webRoot))
+      (await restoreArtifactSnapshot({
+        receiptPath,
+        webRoot,
+        scope,
+        identity,
+        artifactSha256: receipt.artifactSha256,
+      }))
     ) {
       return { ...receipt, reused: true };
     }
@@ -181,12 +371,14 @@ export async function checkProductionArtifact({
     "dev-tmp/release-artifact-check",
     `${scope}.json`
   );
-  const reusable = await reusableArtifact(
+  const reusable = await reusableArtifact({
     receiptPath,
     webRoot,
+    scope,
+    sourceSha,
     identity,
-    allowDirty
-  );
+    allowDirty,
+  });
   if (reusable) {
     return reusable;
   }
@@ -277,17 +469,25 @@ export async function checkProductionArtifact({
     );
   }
   assertArtifactCheckout(root, sourceSha, allowDirty);
+  const artifactSha256 = await artifactOutputIdentity(webRoot);
   const receipt = {
     scope,
     sourceSha,
     inputIdentity: identity,
-    artifactSha256: await artifactOutputIdentity(webRoot),
+    artifactSha256,
     ssr,
     allowDirty,
     runtime: "local-workerd-disposable-cookie-key",
     verifiedAt: new Date().toISOString(),
   };
   await mkdir(path.dirname(receiptPath), { recursive: true });
+  await saveArtifactSnapshot({
+    receiptPath,
+    webRoot,
+    scope,
+    identity,
+    artifactSha256,
+  });
   await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
   return receipt;
 }
