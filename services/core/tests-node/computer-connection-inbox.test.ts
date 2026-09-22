@@ -1,10 +1,17 @@
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { createInboxFeedService } from "../src/inbox/application/inbox-feed-service";
 import { createInboxService } from "../src/inbox/application/inbox-service";
 import { createComputerConnectionIncidents } from "../src/runtime-transport/application/computer-connection-incidents";
 import { resolveDaemonExecutionCompatibility } from "../src/runtime-transport/application/daemon-execution-compatibility";
-import { LEASE_TTL_MS } from "../src/runtime-transport/application/runtime-transport-session-service";
-import type { RuntimeTransportSessionState } from "../src/runtime-transport/application/runtime-transport-state";
+import {
+  LEASE_TTL_MS,
+  lookupOwnerService,
+} from "../src/runtime-transport/application/runtime-transport-session-service";
+import {
+  createRuntimeTransportMutableState,
+  type RuntimeTransportSessionState,
+} from "../src/runtime-transport/application/runtime-transport-state";
 import { createInboxFeedFixture } from "./helpers/inbox-feed.test-support";
 import { createFaultInjectingD1Database } from "./helpers/sqlite-d1-harness.test-support";
 
@@ -68,6 +75,114 @@ describe("Runtime Transport Computer incidents", () => {
       await restart.observe([]);
       expect(f.items()).toHaveLength(2);
     } finally {
+      f.close();
+    }
+  });
+
+  it.each([
+    { name: "a transiently absent socket", patch: { socket: null } },
+    {
+      name: "dispatch admission still warming up",
+      patch: { acceptingDispatches: false },
+    },
+    {
+      name: "an independent execution compatibility issue",
+      patch: {
+        executionCompatibility: resolveDaemonExecutionCompatibility(null),
+      },
+    },
+  ] satisfies {
+    name: string;
+    patch: Partial<RuntimeTransportSessionState>;
+  }[])("resolves an unread disconnect when Computer is online with $name", async ({
+    patch,
+  }) => {
+    const f = fixture();
+    const clock = vi.spyOn(Date, "now").mockImplementation(f.now);
+    try {
+      await f.source.observe([f.session()]);
+      f.advance(LEASE_TTL_MS + 1);
+      const source = f.restart();
+      await source.observe([]);
+      const original = f.items()[0];
+      expect(original).toMatchObject({
+        resolution_status: "open",
+        read_at_ms: null,
+      });
+      // Old lease evidence cannot resolve the fault just because it was observed again.
+      await source.observe([
+        f.session({ lastHeartbeatMs: 1000, socket: null }),
+      ]);
+      expect(f.items()[0]?.resolution_status).toBe("open");
+      await f.item("unrelated-update");
+      const inbox = createInboxService({
+        db: f.db,
+        includeAccountItems: true,
+        nowMs: f.now,
+      });
+      expect(
+        await inbox.summary({ ...f.identity, presentation: "attention" })
+      ).toMatchObject({
+        priorityCount: 1,
+        needsActionCount: 1,
+      });
+
+      const state = createRuntimeTransportMutableState();
+      const recovered = f.session({
+        daemonSessionId: "replacement",
+        connectionGeneration: 2,
+        ...patch,
+      });
+      state.sessionsById.set(recovered.daemonSessionId, recovered);
+      // Exercise the actual Computer connection verdict, not a second test-only rule.
+      expect(
+        lookupOwnerService(
+          state,
+          { ownerUserId: "owner" },
+          {
+            persistRuntimeRecords: () => undefined,
+            cleanupExpiredPendingDispatches: () => undefined,
+          }
+        ).online
+      ).toBe(true);
+      await source.observe(state.sessionsById.values());
+
+      expect(f.items()).toHaveLength(1);
+      expect(f.items()[0]).toMatchObject({
+        id: original?.id,
+        read_at_ms: null,
+        resolution_status: "resolved",
+      });
+      expect(
+        await inbox.summary({ ...f.identity, presentation: "attention" })
+      ).toMatchObject({
+        priorityCount: 0,
+        unresolvedActionCount: 0,
+        needsActionCount: 0,
+        totalUnreadCount: 2,
+      });
+      const feed = createInboxFeedService({ db: f.db, nowMs: f.now });
+      const all = await feed.list(f.identity);
+      expect(all.counts).toMatchObject({
+        priority: 0,
+        needsAction: 0,
+        unread: 2,
+      });
+      expect(
+        all.rows.find((row) => row.item.id === original?.id)
+      ).toMatchObject({
+        section: "activity",
+        dot: "blue",
+        item: {
+          resolutionStatus: "resolved",
+          sourceTarget: { state: "restored" },
+        },
+      });
+      expect(
+        (await feed.list(f.identity, { category: "needs_action" })).rows
+      ).toEqual([]);
+    } finally {
+      clock.mockRestore();
       f.close();
     }
   });
