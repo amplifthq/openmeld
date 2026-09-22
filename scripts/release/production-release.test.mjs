@@ -1086,6 +1086,7 @@ test("gives every hosted-eligible preflight step a trusted control path", () => 
   for (const scope of ["auth", "core", "gateway", "remote-agent", "web"]) {
     const steps = buildProductionPreflightStepSpecs({
       changedPaths: [],
+      releaseSha: REMOTE_SOURCE_SHA,
       scopes: [scope],
     });
     for (const step of steps) {
@@ -1100,6 +1101,7 @@ test("gives every hosted-eligible preflight step a trusted control path", () => 
 test("runs the Core CLI channel compatibility gate through the trusted control checkout", () => {
   const step = buildProductionPreflightStepSpecs({
     changedPaths: [],
+    releaseSha: REMOTE_SOURCE_SHA,
     scopes: ["core"],
   }).find((entry) => entry.label === "Verify Core CLI channel compatibility");
 
@@ -1115,6 +1117,7 @@ test("lets a selected CLI release publish its channel before the Core compatibil
   });
   const preflightSteps = buildProductionPreflightStepSpecs({
     changedPaths: [],
+    releaseSha: REMOTE_SOURCE_SHA,
     scopes: ["cli", "core"],
   });
 
@@ -1136,28 +1139,47 @@ test("lets a selected CLI release publish its channel before the Core compatibil
 test("keeps deployment preflight cheap while preserving release invariants", () => {
   const webSteps = buildProductionPreflightStepSpecs({
     changedPaths: [],
+    releaseSha: REMOTE_SOURCE_SHA,
     scopes: ["web"],
   });
   assert.deepEqual(
     webSteps.map((step) => step.label),
-    ["Verify Cloudflare environment contracts", "Check retired identifiers"]
+    [
+      "Admit receipt-based Production train stage",
+      "Verify declared Production train artifacts",
+      "Verify signed CLI Skill content",
+      "Verify Cloudflare environment contracts",
+      "Check retired identifiers",
+    ]
   );
-  assert.deepEqual(webSteps[0]?.args, [
+  assert.deepEqual(webSteps[3]?.args, [
     "run",
     "verify:cloudflare:env-contract",
     "--",
     "--profile",
     "production",
   ]);
-  assert.deepEqual(webSteps[0]?.controlArgs, ["--profile", "production"]);
+  assert.deepEqual(webSteps[3]?.controlArgs, ["--profile", "production"]);
+  assert.equal(
+    webSteps[0]?.controlPath,
+    "scripts/release/production-stage-admission.mjs"
+  );
+  assert.equal(
+    webSteps[1]?.controlPath,
+    "scripts/release/production-train-artifact-admission.mjs"
+  );
+  assert.equal(webSteps[2]?.controlPath, "scripts/release/cli-skill-check.mjs");
 
   const coreSteps = buildProductionPreflightStepSpecs({
     changedPaths: [],
+    releaseSha: REMOTE_SOURCE_SHA,
     scopes: ["core"],
   });
   assert.deepEqual(
     coreSteps.map((step) => step.label),
     [
+      "Admit receipt-based Production train stage",
+      "Verify declared Production train artifacts",
       "Verify Cloudflare environment contracts",
       "Check retired identifiers",
       "Verify production Core Queue resources",
@@ -1169,9 +1191,12 @@ test("keeps deployment preflight cheap while preserving release invariants", () 
   assert.deepEqual(
     buildProductionPreflightStepSpecs({
       changedPaths: [],
+      releaseSha: REMOTE_SOURCE_SHA,
       scopes: ["cli"],
     }).map((step) => step.label),
     [
+      "Admit receipt-based Production train stage",
+      "Verify declared Production train artifacts",
       "Verify Cloudflare environment contracts",
       "Check retired identifiers",
       "Verify production Core Queue resources",
@@ -1181,9 +1206,12 @@ test("keeps deployment preflight cheap while preserving release invariants", () 
   assert.deepEqual(
     buildProductionPreflightStepSpecs({
       changedPaths: [],
+      releaseSha: REMOTE_SOURCE_SHA,
       scopes: ["gateway"],
     }).map((step) => step.label),
     [
+      "Admit receipt-based Production train stage",
+      "Verify declared Production train artifacts",
       "Verify Cloudflare environment contracts",
       "Check retired identifiers",
       "Verify production Gateway Queue resources",
@@ -1192,11 +1220,16 @@ test("keeps deployment preflight cheap while preserving release invariants", () 
 });
 
 test("preflights current-stable Core recovery without comparing the checked-in future projection", () => {
-  const steps = buildCoreCurrentCliProjectionPreflightStepSpecs([]);
+  const steps = buildCoreCurrentCliProjectionPreflightStepSpecs(
+    [],
+    REMOTE_SOURCE_SHA
+  );
 
   assert.deepEqual(
     steps.map((step) => step.label),
     [
+      "Admit receipt-based Production train stage",
+      "Verify declared Production train artifacts",
       "Verify Cloudflare environment contracts",
       "Check retired identifiers",
       "Verify production Core Queue resources",
@@ -1568,6 +1601,23 @@ test("locks database, CLI channel, and Worker deploys into release order", () =>
   );
 });
 
+test("binds Web health to the exact preflight artifact receipt", () => {
+  const sourceSha = "f".repeat(40);
+  const health = buildProductionDeployStepSpecs(["web"], {
+    releaseSha: sourceSha,
+  }).find((step) => step.label === "Verify Web health");
+
+  assert.deepEqual(health.args, [
+    "scripts/release/production-web-health.mjs",
+    "--url",
+    "https://openmeld.ai",
+    "--source-sha",
+    sourceSha,
+    "--artifact-receipt",
+    "dev-tmp/release-artifact-check/web.json",
+  ]);
+});
+
 test("keeps the Center Agent Task CLI behind every cloud receiver", () => {
   const steps = buildProductionDeployStepSpecs(
     ["remote-agent", "web", "cli", "db", "core", "gateway"],
@@ -1682,8 +1732,15 @@ for (const changedPaths of [
       "scripts/release/deploy-core-current-cli-projection.mjs"
     );
     assert.deepEqual(
-      buildProductionPreflightStepSpecs({ scopes: ["core"], changedPaths }),
-      buildCoreCurrentCliProjectionPreflightStepSpecs(changedPaths)
+      buildProductionPreflightStepSpecs({
+        scopes: ["core"],
+        changedPaths,
+        releaseSha: REMOTE_SOURCE_SHA,
+      }),
+      buildCoreCurrentCliProjectionPreflightStepSpecs(
+        changedPaths,
+        REMOTE_SOURCE_SHA
+      )
     );
     assert.throws(
       () =>
@@ -1729,57 +1786,66 @@ test("routes a local Core release through startup admission at the exact source 
 });
 
 test("deploys a strict Local Service runtime receiver before publishing the CLI", () => {
-  const changedPaths = [
-    "packages/schemas/src/schemas/daemon/runtime-transport.ts",
-    "services/core/src/runtime-transport/application/runtime-transport-dispatch-service.ts",
+  for (const producerPath of [
     "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
-  ];
-  const plan = buildProductionReleasePlan({
-    affectedPackages: [],
-    base: "previous-release",
-    changedPaths,
-    scope: "auth,core,gateway,web,remote-agent,cli",
-    sourceSha: REMOTE_SOURCE_SHA,
-  });
+    "runtime/adapters/antigravity/src/transport/antigravity-cli-transport.ts",
+  ]) {
+    const changedPaths = [
+      "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+      "services/core/src/runtime-transport/application/runtime-transport-dispatch-service.ts",
+      producerPath,
+    ];
+    const plan = buildProductionReleasePlan({
+      affectedPackages: [],
+      base: "previous-release",
+      changedPaths,
+      scope: "auth,core,gateway,web,remote-agent,cli",
+      sourceSha: REMOTE_SOURCE_SHA,
+    });
 
-  assert.equal(plan.deployOrderProfile, "local-service-runtime-receiver-first");
-  assert.deepEqual(
-    plan.deploySteps.map((step) => step.label),
-    [
-      "Deploy Auth Worker",
-      "Verify Auth Worker health",
-      "Deploy Web",
-      "Verify Web health",
-      "Deploy Gateway Worker",
-      "Verify Gateway Worker health",
-      "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
-      "Deploy Remote Agent Worker",
-      "Verify Remote Agent deployment is visible",
-      "Publish CLI and deploy its Core release projection",
-      "Verify final R2/npm/Core alignment",
-    ]
-  );
-  const staged = buildProductionReleasePlan({
-    affectedPackages: [],
-    base: "previous-release",
-    changedPaths,
-    scope: "core,gateway",
-    sourceSha: REMOTE_SOURCE_SHA,
-  });
-  assert.ok(
-    staged.deploySteps.some(
-      (step) =>
-        step.label === "Deploy Core with the current published CLI projection"
-    )
-  );
-  for (const steps of [staged.verifySteps, staged.preflightSteps]) {
     assert.equal(
-      steps.some(
-        (step) => step.label === "Verify Core CLI channel compatibility"
-      ),
-      false
+      plan.deployOrderProfile,
+      "local-service-runtime-receiver-first"
     );
+    assert.deepEqual(plan.compatibilityDependencies, [["core", "cli"]]);
+    assert.deepEqual(
+      plan.deploySteps.map((step) => step.label),
+      [
+        "Deploy Auth Worker",
+        "Verify Auth Worker health",
+        "Deploy Web",
+        "Verify Web health",
+        "Deploy Gateway Worker",
+        "Verify Gateway Worker health",
+        "Deploy Core with the current published CLI projection",
+        "Verify Core deployment is visible",
+        "Deploy Remote Agent Worker",
+        "Verify Remote Agent deployment is visible",
+        "Publish CLI and deploy its Core release projection",
+        "Verify final R2/npm/Core alignment",
+      ]
+    );
+    const staged = buildProductionReleasePlan({
+      affectedPackages: [],
+      base: "previous-release",
+      changedPaths,
+      scope: "core,gateway",
+      sourceSha: REMOTE_SOURCE_SHA,
+    });
+    assert.ok(
+      staged.deploySteps.some(
+        (step) =>
+          step.label === "Deploy Core with the current published CLI projection"
+      )
+    );
+    for (const steps of [staged.verifySteps, staged.preflightSteps]) {
+      assert.equal(
+        steps.some(
+          (step) => step.label === "Verify Core CLI channel compatibility"
+        ),
+        false
+      );
+    }
   }
 });
 
@@ -2455,8 +2521,15 @@ test("installs device-wait receivers before browser callers and Service publicat
     "scripts/release/deploy-core-current-cli-projection.mjs"
   );
   assert.deepEqual(
-    buildProductionPreflightStepSpecs({ scopes: ["core"], changedPaths }),
-    buildCoreCurrentCliProjectionPreflightStepSpecs(changedPaths)
+    buildProductionPreflightStepSpecs({
+      scopes: ["core"],
+      changedPaths,
+      releaseSha: REMOTE_SOURCE_SHA,
+    }),
+    buildCoreCurrentCliProjectionPreflightStepSpecs(
+      changedPaths,
+      REMOTE_SOURCE_SHA
+    )
   );
   assert.throws(
     () =>

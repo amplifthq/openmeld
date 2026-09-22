@@ -16,7 +16,11 @@ const boundary = vi.hoisted(() => ({
   }),
 }));
 vi.mock("electron", () => ({
-  app: { isPackaged: false },
+  app: {
+    isPackaged: false,
+    getPath: () => "/unused-pilot-operation-test",
+    getVersion: () => "0.1.6",
+  },
   BrowserWindow: {},
   dialog: { showMessageBox: boundary.confirm },
   ipcMain: {

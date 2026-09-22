@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-21T22:59:17.868Z",
+  "updatedAt": "2026-09-22T13:39:47.597Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-09-image-geometry-v1",
-      "packageVersion": "0.3.217",
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-antigravity-permissions-v1",
+      "packageVersion": "0.3.218",
       "updatePolicy": "required",
-      "reason": "Publish the matching geometry-aware command contract before Core raises local-component admission; legacy reads, update, and self-rescue remain compatible."
+      "reason": "Require the Antigravity permission command contract after compatible Core receivers are deployed; update, diagnostics and self-rescue remain available."
     },
     "service": {
-      "bundleHash": "b5a7ec13983f0874bea3a36d7eb370c73781c39c2f91f581d5d4f5c85c71b4e1",
-      "bundleVersion": "0.3.217",
-      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-image-geometry",
-      "serviceContractVersion": "openmeld-service-contract-2026-09-image-geometry-v1",
+      "bundleHash": "eea57e35d0d4af681db4c6a86c0498d25ce44f930e147a12080a39f2413ac849",
+      "bundleVersion": "0.3.218",
+      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-antigravity-permissions",
+      "serviceContractVersion": "openmeld-service-contract-2026-09-antigravity-permissions-v1",
       "updatePolicy": "required",
-      "reason": "New Wake work requires the matching runtime epoch and corrected admission and required-MCP startup carrier; accepted work and self-rescue remain compatible."
+      "reason": "Require the Antigravity permission runtime epoch for new Wake work after receiver-first Core and verified publication; preserve accepted work and self-rescue."
     },
     "skills": {
       "bundleHash": "c3ce8a2e5928354908a505326ccdc68b65f7a3e305792d595982fd0a41c33e7e",

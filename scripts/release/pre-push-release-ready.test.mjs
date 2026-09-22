@@ -161,8 +161,8 @@ test("release PR strict mode allows a manifest-only restamp of an already declar
 test("deferred release mode rejects only premature release stamps", () => {
   const baseManifest = {
     components: {
-      cli: { packageVersion: "0.3.153" },
-      service: { bundleVersion: "0.3.153" },
+      cli: { packageVersion: "0.3.217" },
+      service: { bundleVersion: "0.3.217" },
     },
     schemaVersion: 1,
   };
@@ -170,18 +170,18 @@ test("deferred release mode rejects only premature release stamps", () => {
   assert.doesNotThrow(() =>
     assertDeferredReleaseBranchFacts({
       baseManifest,
-      basePackageVersion: "0.3.153",
+      basePackageVersion: "0.3.217",
       currentManifest: structuredClone(baseManifest),
-      currentPackageVersion: "0.3.153",
+      currentPackageVersion: "0.3.217",
     })
   );
   assert.throws(
     () =>
       assertDeferredReleaseBranchFacts({
         baseManifest,
-        basePackageVersion: "0.3.153",
+        basePackageVersion: "0.3.217",
         currentManifest: structuredClone(baseManifest),
-        currentPackageVersion: "0.3.154",
+        currentPackageVersion: "0.3.218",
       }),
     PREMATURE_RELEASE_STAMP_PATTERN
   );
@@ -189,15 +189,15 @@ test("deferred release mode rejects only premature release stamps", () => {
     () =>
       assertDeferredReleaseBranchFacts({
         baseManifest,
-        basePackageVersion: "0.3.153",
+        basePackageVersion: "0.3.217",
         currentManifest: {
           ...baseManifest,
           components: {
             ...baseManifest.components,
-            cli: { packageVersion: "0.3.154" },
+            cli: { packageVersion: "0.3.218" },
           },
         },
-        currentPackageVersion: "0.3.153",
+        currentPackageVersion: "0.3.217",
       }),
     PREMATURE_RELEASE_STAMP_PATTERN
   );

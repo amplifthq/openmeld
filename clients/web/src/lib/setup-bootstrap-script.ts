@@ -1,4 +1,8 @@
-import { getSetupFlowCopy } from "@openmeld/start";
+import {
+	getSetupFlowCopy,
+	OPENMELD_NODE_ENGINE_RANGE,
+	OPENMELD_SUPPORTED_NODE_MAJORS,
+} from "@openmeld/start";
 import { isLocalWebOrigin } from "./local-web-origin.ts";
 
 const OPENMELD_SETUP_PACKAGE_NAME = "openmeld";
@@ -10,7 +14,6 @@ const OPENMELD_SETUP_PREPARE_COMMAND_HINT =
 	"Use this setup script only with an OpenMeld Web setup command. It must include --start-session, either --device-code or --ott, and either --view human or --view agent.";
 const OPENMELD_SETUP_PACKAGE_DOWNLOAD_NOTICE =
 	"Downloading OpenMeld CLI (first run may take up to a minute)...";
-const DEFAULT_MIN_NODE_MAJOR_VERSION = 20;
 const DEFAULT_LOCAL_CLI_BINARY_MANIFEST_URL =
 	"http://127.0.0.1:3197/cli/manifest.json";
 const OPENMELD_STAGING_HOSTNAME = "staging.openmeld.ai";
@@ -26,7 +29,6 @@ type OpenMeldSetupBootstrapScriptConfig = {
 	distribution?: OpenMeldSetupDistribution;
 	gatewayUrl?: string;
 	lane: OpenMeldSetupBootstrapLane;
-	minNodeMajorVersion?: number;
 };
 
 type ResolveOpenMeldSetupBootstrapScriptConfigInput = {
@@ -158,8 +160,7 @@ export function buildOpenMeldSetupBootstrapScript(
 ): string {
 	const laneConfig = LANE_CONFIG[input.lane];
 	const setupCopy = getSetupFlowCopy("setup");
-	const minNodeMajorVersion =
-		input.minNodeMajorVersion ?? DEFAULT_MIN_NODE_MAJOR_VERSION;
+	const supportedNodeRange = OPENMELD_NODE_ENGINE_RANGE;
 	const distribution =
 		input.distribution ?? resolveDefaultSetupDistribution(input.lane);
 	const binaryManifestUrl =
@@ -170,7 +171,6 @@ set -u
 
 OPENMELD_SETUP_PACKAGE_NAME=${shellSingleQuote(OPENMELD_SETUP_PACKAGE_NAME)}
 OPENMELD_SETUP_PACKAGE_SPEC=${shellSingleQuote(OPENMELD_SETUP_PACKAGE_SPEC)}
-OPENMELD_SETUP_MIN_NODE_MAJOR_VERSION=${shellSingleQuote(String(minNodeMajorVersion))}
 OPENMELD_SETUP_ENV_PRESET=${shellSingleQuote(laneConfig.envPreset)}
 OPENMELD_SETUP_USER_FACING_COMMAND=${shellSingleQuote(laneConfig.userFacingCommand)}
 OPENMELD_SETUP_DISTRIBUTION=${shellSingleQuote(distribution)}
@@ -260,28 +260,27 @@ validate_setup_args() {
 
 ensure_node_runtime() {
   if ! command_exists node; then
-    say "OpenMeld setup needs Node.js ${minNodeMajorVersion} or newer."
+    say "OpenMeld setup requires Node.js ${supportedNodeRange}."
     if command_exists brew && confirm "Install Node.js with Homebrew now?"; then
-      brew install node < /dev/null || die "Homebrew could not install Node.js. Install Node.js ${minNodeMajorVersion} or newer, then run this setup command again."
+      brew install node < /dev/null || die "Homebrew could not install Node.js. Install a supported release (${supportedNodeRange}), then run this setup command again."
     else
-      die "Install Node.js ${minNodeMajorVersion} or newer, then run this setup command again."
+      die "Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again."
     fi
   fi
 
-  OPENMELD_SETUP_NODE_MAJOR="$(node -p "Number(process.versions.node.split('.')[0])" < /dev/null 2>/dev/null || printf '0')"
-  case "$OPENMELD_SETUP_NODE_MAJOR" in
-    ''|*[!0-9]*) OPENMELD_SETUP_NODE_MAJOR=0 ;;
-  esac
-  if [ "$OPENMELD_SETUP_NODE_MAJOR" -lt "$OPENMELD_SETUP_MIN_NODE_MAJOR_VERSION" ]; then
+  if ! node_runtime_supported; then
     say "OpenMeld setup found Node.js $(node --version < /dev/null 2>/dev/null || printf 'unknown')."
-    if command_exists brew && confirm "Upgrade Node.js with Homebrew now?"; then
-      brew upgrade node < /dev/null || brew install node < /dev/null || die "Homebrew could not upgrade Node.js. Install Node.js ${minNodeMajorVersion} or newer, then run this setup command again."
-    else
-      die "Upgrade Node.js to ${minNodeMajorVersion} or newer, then run this setup command again."
-    fi
+    die "Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again."
   fi
 
-  command_exists npm || die "OpenMeld setup needs npm. Install Node.js ${minNodeMajorVersion} or newer from nodejs.org, then run this setup command again."
+  command_exists npm || die "OpenMeld setup needs npm. Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again."
+}
+
+node_runtime_supported() {
+  case "$(node -p "Number(process.versions.node.split('.')[0])" < /dev/null 2>/dev/null)" in
+    ${OPENMELD_SUPPORTED_NODE_MAJORS.join("|")}) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 run_clean_openmeld_env() {
@@ -335,6 +334,12 @@ run_interactive_openmeld_cli() {
 
 explain_package_acquisition_failure() {
   OPENMELD_SETUP_PACKAGE_OUTPUT="$1"
+  if printf '%s\\n' "$OPENMELD_SETUP_PACKAGE_OUTPUT" | grep -E 'Unsupported URL Type "(catalog|workspace):"' >/dev/null 2>&1; then
+    say "npm found a dependency reference that cannot be installed outside its development workspace."
+    say "Share the package version and npm error with OpenMeld support, removing device codes and credentials first."
+    say "Retry with a fresh setup command after the corrected CLI release is available. Reinstalling Node.js or resetting OpenMeld does not fix this dependency error."
+    return 0
+  fi
   if printf '%s\n' "$OPENMELD_SETUP_PACKAGE_OUTPUT" | grep -E '(connect (EPERM|ECONNREFUSED|ECONNRESET|ETIMEDOUT) (127\\.0\\.0\\.1|localhost)|reason: connect (EPERM|ECONNREFUSED|ECONNRESET|ETIMEDOUT) (127\\.0\\.0\\.1|localhost))' >/dev/null 2>&1; then
     say "OpenMeld could not download the latest CLI because npm is trying to use a local proxy that is not reachable."
     say "Next: start the local proxy app or turn off the npm proxy setting, then run this setup command again."
@@ -831,8 +836,7 @@ export function buildOpenMeldSetupBootstrapPowerShellScript(
 ): string {
 	const laneConfig = LANE_CONFIG[input.lane];
 	const setupCopy = getSetupFlowCopy("setup");
-	const minNodeMajorVersion =
-		input.minNodeMajorVersion ?? DEFAULT_MIN_NODE_MAJOR_VERSION;
+	const supportedNodeRange = OPENMELD_NODE_ENGINE_RANGE;
 	const distribution =
 		input.distribution ?? resolveDefaultSetupDistribution(input.lane);
 
@@ -845,7 +849,7 @@ $ErrorActionPreference = 'Stop'
 
 $OpenMeldSetupPackageName = ${powerShellString(OPENMELD_SETUP_PACKAGE_NAME)}
 $OpenMeldSetupPackageSpec = ${powerShellString(OPENMELD_SETUP_PACKAGE_SPEC)}
-$OpenMeldSetupMinNodeMajorVersion = ${minNodeMajorVersion}
+$OpenMeldSetupSupportedNodeMajors = @(${OPENMELD_SUPPORTED_NODE_MAJORS.join(", ")})
 $OpenMeldSetupEnvPreset = ${powerShellString(laneConfig.envPreset)}
 $OpenMeldSetupUserFacingCommand = ${powerShellString(laneConfig.userFacingCommand)}
 $OpenMeldSetupDistribution = ${powerShellString(distribution)}
@@ -876,6 +880,13 @@ function Test-CommandExists {
 function Show-PackageAcquisitionFailure {
   param([string]$OutputText)
 
+  if ($OutputText -match 'Unsupported URL Type "(catalog|workspace):"') {
+    Say 'npm found a dependency reference that cannot be installed outside its development workspace.'
+    Say 'Share the package version and npm error with OpenMeld support, removing device codes and credentials first.'
+    Say 'Retry with a fresh setup command after the corrected CLI release is available. Reinstalling Node.js or resetting OpenMeld does not fix this dependency error.'
+    return
+  }
+
   if ($OutputText -match '(connect (EPERM|ECONNREFUSED|ECONNRESET|ETIMEDOUT) (127\\.0\\.0\\.1|localhost)|reason: connect (EPERM|ECONNREFUSED|ECONNRESET|ETIMEDOUT) (127\\.0\\.0\\.1|localhost))') {
     Say 'OpenMeld could not download the latest CLI because npm is trying to use a local proxy that is not reachable.'
     Say 'Next: start the local proxy app or turn off the npm proxy setting, then run this setup command again.'
@@ -896,6 +907,11 @@ function Show-PackageAcquisitionFailure {
 }
 
 function Show-PackageAcquisitionProbeFailure {
+  # Windows PowerShell 5.1 turns redirected native stderr into ErrorRecords.
+  # Diagnose the native exit code, not the presence of warnings on stderr.
+  $ErrorActionPreference = 'Continue'
+  $PSNativeCommandUseErrorActionPreference = $false
+  $global:LASTEXITCODE = 1
   # The OpenMeld CLI just ran attached to the console (buffering its output would
   # hide the live setup progress), so there is no transcript to inspect.
   # Re-run package acquisition alone to classify npm download failures; a
@@ -946,19 +962,19 @@ function Validate-SetupArgs {
 
 function Ensure-NodeRuntime {
   if (-not (Test-CommandExists 'node')) {
-    Die 'Install Node.js ${minNodeMajorVersion} or newer from nodejs.org, then run this setup command again.'
+    Die 'Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again.'
   }
 
   $nodeMajorText = (& node -p "Number(process.versions.node.split('.')[0])" 2>$null)
   $nodeMajor = 0
   [void][int]::TryParse([string]$nodeMajorText, [ref]$nodeMajor)
-  if ($nodeMajor -lt $OpenMeldSetupMinNodeMajorVersion) {
+  if ($OpenMeldSetupSupportedNodeMajors -notcontains $nodeMajor) {
     $nodeVersion = (& node --version 2>$null)
-    Die "OpenMeld setup found Node.js $nodeVersion. Upgrade Node.js to ${minNodeMajorVersion} or newer, then run this setup command again."
+    Die "OpenMeld setup found Node.js $nodeVersion. Install a supported release (${supportedNodeRange}) from nodejs.org, then run this setup command again."
   }
 
   if (-not (Test-CommandExists 'npm')) {
-    Die 'OpenMeld setup needs npm. Install Node.js ${minNodeMajorVersion} or newer from nodejs.org, then run this setup command again.'
+    Die 'OpenMeld setup needs npm. Install a supported Node.js release (${supportedNodeRange}) from nodejs.org, then run this setup command again.'
   }
 }
 
@@ -1012,8 +1028,16 @@ function Invoke-CleanOpenMeldEnv {
     if ($ExplainPackageAcquisitionFailure) {
       # Run attached to the console so the CLI's live setup progress renders;
       # capturing output here would buffer it until the CLI exits.
-      & $Executable @Arguments
-      $commandExitCode = $LASTEXITCODE
+      $previousErrorActionPreference = $ErrorActionPreference
+      try {
+        $ErrorActionPreference = 'Continue'
+        $PSNativeCommandUseErrorActionPreference = $false
+        $global:LASTEXITCODE = 1
+        & $Executable @Arguments
+        $commandExitCode = $LASTEXITCODE
+      } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+      }
       if ($commandExitCode -ne 0) {
         Show-PackageAcquisitionProbeFailure
         exit $commandExitCode

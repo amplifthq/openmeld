@@ -79,6 +79,29 @@ describe("independent official CLI Skill", () => {
     expect(() =>
       selectOfficialSkillRelease({ schemaVersion: 2, releases: [] })
     ).toThrow("channel");
+
+    const antigravityRelease = channel.releases.find(
+      (candidate: { payload: string }) =>
+        JSON.parse(candidate.payload).revision === 4
+    );
+    expect(antigravityRelease).toBeDefined();
+    if (!antigravityRelease) {
+      throw new Error("Missing published CLI Skill revision 4");
+    }
+    expect(
+      verifyOfficialSkillRelease(antigravityRelease).payload.minimumCliVersion
+    ).toBe("0.3.217");
+    const antigravityOnlyChannel = {
+      schemaVersion: 1,
+      releases: [antigravityRelease],
+    };
+    expect(
+      selectOfficialSkillRelease(antigravityOnlyChannel, "0.3.216")
+    ).toBeNull();
+    expect(
+      selectOfficialSkillRelease(antigravityOnlyChannel, "0.3.217")?.payload
+        .revision
+    ).toBe(4);
   });
 
   it("allows Markdown only, without traversal or duplicate paths", () => {

@@ -142,6 +142,10 @@ export function formatAgentControllerPermissionModeForCli(
 export function formatAgentControllerPermissionModeHelp(): string {
   const controllerGroups = [
     {
+      agentControllerRef: "builtin:antigravity",
+      label: "Antigravity",
+    },
+    {
       agentControllerRef: "builtin:claude-code",
       label: "Claude Code",
     },
@@ -194,6 +198,10 @@ function resolvePermissionModeOptions(
 }
 
 const AGENT_CONTROLLER_PERMISSION_MODE_CLI_VALUE_BY_MODE = {
+  "antigravity:default": "default",
+  "antigravity:acceptEdits": "accept-edits",
+  "antigravity:plan": "plan",
+  "antigravity:bypassPermissions": "bypass-permissions",
   "claude-code:default": "ask-permissions",
   "claude-code:acceptEdits": "accept-edits",
   "claude-code:plan": "plan",

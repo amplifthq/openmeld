@@ -469,6 +469,14 @@ remain inside technical details.
 Outcome copy must not imply that Agent Controller Permission Mode changes Space
 access, Agent availability, or separate Computer file-access limits.
 
+Antigravity uses native per-invocation modes: Default preserves the CLI's
+configured permissions, Accept edits passes `--mode accept-edits`, Plan passes
+`--mode plan`, and Bypass permissions passes `--dangerously-skip-permissions`
+with explicit owner confirmation. Headless requests cannot present approval
+prompts; actions requiring approval are denied by the CLI. Plan is not a
+filesystem sandbox. These settings apply to subsequent invocations, including
+resumed conversations; Antigravity does not support live permission updates.
+
 Owners may edit Binding-level runtime settings while a Wake is running. The
 accepted Binding id and configuration revision remain the dispatch's immutable
 starting identity, so changing model, reasoning, collaboration, or
@@ -766,10 +774,50 @@ MVP.
 
 An existing OpenCode session remains bound to its native working folder. If
 that folder does not resolve to the Agent's current effective working folder,
-Wake fails before prompting or forking the session. The owner must restore the
-matching folder for that Agent or explicitly create a new Agent with a new
-OpenCode session in the selected folder. OpenMeld does not run in the former
+Wake must resolve the conflict before prompting or forking the session. Working Folder Recovery
+lets the owner explicitly choose the verified original folder or a new
+conversation for the same Agent Profile. OpenMeld does not run in the former
 folder or replace the session automatically.
+
+### Working Folder Recovery
+
+A working-folder conflict gives the owner an actionable choice in the Wake
+before the Agent starts. The Profile's identity and Space memberships survive recovery.
+The owner can continue the previous conversation in its verified original
+folder, start a new conversation in the currently selected folder, or leave the
+task without running it. Starting a new conversation preserves the old
+native history and explicitly warns that it will not carry into the new one.
+Neither choice changes the execution Computer.
+
+Normal Wakes require no extra confirmation. Only a verified conflict opens a
+recovery decision. A targeted read of the existing native session store avoids
+starting a second controller just to inspect its folder. The local Service verifies the native conversation and its
+folder, current Computer file access, and the expected execution target before
+applying a choice. Paths stay within the existing owner-only local-control
+boundary. A missing folder or unavailable Computer stays actionable and does
+not trigger an inferred substitute or credential change.
+
+Web and the Desktop renderer reuse the existing question card. Human CLI and
+Agent View consume the same typed interaction through `openmeld space respond`,
+with an explicit response and exact request identity in non-interactive use.
+A client must not implement recovery by independently clearing a conversation
+and updating workspace settings.
+
+RuntimeCoordinator owns the existing durable pending interaction and its
+resolution. Inbox projects that question as Needs action for the Profile owner, using the existing delivery
+preferences. Reading or dismissing the Inbox item does not resolve the decision.
+The requester can see that the owner needs to act without gaining local paths or
+management permissions. Repeated reports do not create repeated reminders.
+
+Answering continues the same accepted task; it does not repost its prompt or
+create a second Wake. Continuing the previous folder applies to that task only
+and does not silently change Default Project. A successful new conversation
+uses the existing result-owned Binding update for subsequent Wakes. The old
+native history remains saved. The existing eight-hour interaction expiry,
+response-delivery watchdog, owner authorization, and exact-response idempotency
+apply. Stop, expiry, Service loss, and final reply follow normal visible outcome
+publication. Previously terminal Wakes remain terminal; a new Wake receives the
+new preflight choice without rewriting their history.
 
 The current computer resolves Project intent through its own local state:
 

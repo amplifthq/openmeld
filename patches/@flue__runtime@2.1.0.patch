@@ -1,5 +1,5 @@
 diff --git a/dist/agent-coordinator-BEWH2ojV.d.mts b/dist/agent-coordinator-BEWH2ojV.d.mts
-index a1c49aa943d9a1a451ed69130be063cb3fab7e6d..a73c9ea7fd4e3e0c73a9aa4158dabeab20fa0247 100644
+index a1c49aa943d9a1a451ed69130be063cb3fab7e6d..d3e29a89b9d1b33d59fde32c10044da348c0eb6a 100644
 --- a/dist/agent-coordinator-BEWH2ojV.d.mts
 +++ b/dist/agent-coordinator-BEWH2ojV.d.mts
 @@ -1,6 +1,23 @@
@@ -148,7 +148,7 @@ index b06a5d07329baef615d46e8d61b1a8dbdfe83ca1..347c7bf50988834436f65279c246c920
     * Atomic compare-and-set. Transition the submission from queued to
     * running ONLY when it is currently queued and is the runnable head of
 diff --git a/dist/builtin-providers-Cr4ZxYKK.mjs b/dist/builtin-providers-Cr4ZxYKK.mjs
-index 25d43cfaaaa9aa06f5b66f08511f206060de190f..0ba2e48050fc820fa18529aa2e34910e5a091774 100644
+index 25d43cfaaaa9aa06f5b66f08511f206060de190f..f4fd02f8c5f34c808f9a1ea336f2ec324e31c3cc 100644
 --- a/dist/builtin-providers-Cr4ZxYKK.mjs
 +++ b/dist/builtin-providers-Cr4ZxYKK.mjs
 @@ -1,5 +1,6 @@
@@ -158,7 +158,15 @@ index 25d43cfaaaa9aa06f5b66f08511f206060de190f..0ba2e48050fc820fa18529aa2e34910e
  import { A as SubmissionConflictError, C as SessionNotFoundError, J as createConversationIdentity, N as SubmissionTimeoutError, W as normalizeLogAttributes, X as generateAttemptId, it as generateOwnerId, k as SubmissionAbortedError, ut as isKeyDerivedSubmissionId, y as RuntimeUnavailableError, z as classifyError } from "./errors-CsDcT_C4.mjs";
  import { dt as createActionScopeName, et as agentStreamPath, f as configureFlueRuntime, ft as createSessionStorageKey, g as resetFlueRuntimeForTests, h as getFlueRuntime, l as resolveAgentDurability, o as getRegisteredFlueAgents, pt as createTaskSessionName, s as registerFlueAgents, ut as assertPublicSessionName, vt as createAgentOutputChannel } from "./dispatch-Dohpn4Ea.mjs";
  import { c as resolveModel, l as setProvider, r as hasProvider } from "./providers-8VayQV37.mjs";
-@@ -1113,8 +1114,8 @@ function createNodeAgentCoordinator(options) {
+@@ -560,6 +561,7 @@ async function initializeRootHarness(agent, config, emitEvent, delivery) {
+ 		};
+ 	};
+ 	const resourceRuntime = {
++		projectSignal: agent.projectResourceSignal,
+ 		initial: initialResources,
+ 		...durableResources?.baseline ? { baseline: durableResources.baseline } : {},
+ 		...durableResources?.narrated ? { narrated: durableResources.narrated } : {},
+@@ -1113,8 +1115,8 @@ function createNodeAgentCoordinator(options) {
  	* runnable) falls back to the deferral logging so nothing is silently
  	* dropped.
  	*/
@@ -169,7 +177,7 @@ index 25d43cfaaaa9aa06f5b66f08511f206060de190f..0ba2e48050fc820fa18529aa2e34910e
  		console.error("[flue:submission-reconciliation]", {
  			submissionId: submission.submissionId,
  			operation: "materialize_submission",
-@@ -1122,7 +1123,15 @@ function createNodeAgentCoordinator(options) {
+@@ -1122,7 +1124,15 @@ function createNodeAgentCoordinator(options) {
  		}, error);
  		return true;
  	}
@@ -186,7 +194,7 @@ index 25d43cfaaaa9aa06f5b66f08511f206060de190f..0ba2e48050fc820fa18529aa2e34910e
  		for (const submission of await submissions.listUnreadySubmissions()) {
  			if (submission.abortRequestedAt !== void 0) {
  				await settleUnclaimableSubmission(submissions, submission, "aborted", new SubmissionAbortedError(), coordinatorEventEmitter(submission.input));
-@@ -1130,7 +1139,7 @@ function createNodeAgentCoordinator(options) {
+@@ -1130,7 +1140,7 @@ function createNodeAgentCoordinator(options) {
  			}
  			const agent = agents.find((record) => record.name === submission.input.agent)?.agent;
  			if (!agent) {
@@ -195,7 +203,7 @@ index 25d43cfaaaa9aa06f5b66f08511f206060de190f..0ba2e48050fc820fa18529aa2e34910e
  				console.error("[flue:submission-reconciliation]", {
  					submissionId: submission.submissionId,
  					operation: "materialize_submission",
-@@ -1149,7 +1158,7 @@ function createNodeAgentCoordinator(options) {
+@@ -1149,7 +1159,7 @@ function createNodeAgentCoordinator(options) {
  				await materializeSubmissionConversation(submission.input, agent);
  				await submissions.markSubmissionCanonicalReady(submission.submissionId);
  			} catch (error) {
@@ -219,7 +227,7 @@ index 507b275fd464dd8d40411cb294bd41f6c6e16ced..17c441c0845d8eecf795f4df5ea8fcc1
  		* The Agents SDK alarm handler dispatches `schedule`/`scheduleEvery`/
  		* `queue` callbacks to methods on this class — including
 diff --git a/dist/conversation-stream-store-B2RVviYM.mjs b/dist/conversation-stream-store-B2RVviYM.mjs
-index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..35e4b6c8804d9bead3fc17e8e472ce901ef634a5 100644
+index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..52b8b29e14be2ebafcfddf1fccc175ae4b966fd3 100644
 --- a/dist/conversation-stream-store-B2RVviYM.mjs
 +++ b/dist/conversation-stream-store-B2RVviYM.mjs
 @@ -1,4 +1,5 @@
@@ -237,6 +245,15 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..35e4b6c8804d9bead3fc17e8e472ce90
  	canonicalToolRequestMessageId;
  	/**
  	* The just-committed tool batch, stashed by the `turn_end` handler for the
+@@ -1536,7 +1539,7 @@ var Session = class {
+ 			content: signal.body,
+ 			attributes: signal.attributes,
+ 			timestamp: new Date(timestamp).getTime()
+-		}), timestamp));
++		}, this.resourceRuntime?.projectSignal), timestamp));
+ 		if (options?.advance === false) return;
+ 		this.advanceDelivery?.({
+ 			kind: "signal",
 @@ -1823,11 +1826,11 @@ var Session = class {
  		const entryId = submissionEntryId(input.kind, input.submissionId);
  		if (!await this.conversationWriter.hasConversationEntry(this.conversationId, entryId)) {
@@ -251,6 +268,15 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..35e4b6c8804d9bead3fc17e8e472ce90
  		await source.finalize(input.submissionId);
  	}
  	/**
+@@ -1839,7 +1842,7 @@ var Session = class {
+ 	async steerJoinedEntry(entryId) {
+ 		const conversation = await this.requireConversation();
+ 		const resolved = await this.resolveCanonicalContextAttachments(conversation);
+-		const entry = buildConversationContextEntries(conversation, { resolveAttachment: (attachment) => {
++		const entry = buildConversationContextEntries(conversation, { projectResourceSignal: this.resourceRuntime?.projectSignal, resolveAttachment: (attachment) => {
+ 			const image = resolved.get(attachment.id);
+ 			if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
+ 			return image;
 @@ -1864,13 +1867,13 @@ var Session = class {
  			if (submission.status === "joining") {
  				if (await this.conversationWriter.hasConversationEntry(this.conversationId, entryId)) {
@@ -314,6 +340,15 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..35e4b6c8804d9bead3fc17e8e472ce90
  		});
  	}
  	/**
+@@ -3544,7 +3555,7 @@ var Session = class {
+ 		const activateSkillTool = Object.keys(this.liveSkills).length > 0 ? createActivateSkillTool((name) => this.activateSkillForTool(name)) : void 0;
+ 		const packagedRead = Object.values(packagedSkills).some((skill) => Object.keys(skill.files).some((path) => path !== "SKILL.md")) ? createPackagedSkillReadTool(packagedSkills) : void 0;
+ 		const frameworkTools = () => [
+-			createTaskTool(runTask),
++			...Object.keys(this.liveSubagents).length > 0 ? [createTaskTool(runTask)] : [],
+ 			...activateSkillTool ? [activateSkillTool] : [],
+ 			...packagedRead ? [packagedRead] : []
+ 		];
 @@ -3747,7 +3758,7 @@ var Session = class {
  			}
  		}
@@ -349,6 +384,15 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..35e4b6c8804d9bead3fc17e8e472ce90
  					error: serializeEventError(surfaced)
  				}, operation === "prompt" || operation === "skill" ? {
  					agentInput: this.activeAgentInput,
+@@ -4015,7 +4039,7 @@ var Session = class {
+ 	async rebuildCanonicalContext() {
+ 		const conversation = await this.requireConversation();
+ 		const resolved = await this.resolveCanonicalContextAttachments(conversation);
+-		const messages = buildConversationContext(conversation, { resolveAttachment: (attachment) => {
++		const messages = buildConversationContext(conversation, { projectResourceSignal: this.resourceRuntime?.projectSignal, resolveAttachment: (attachment) => {
+ 			const image = resolved.get(attachment.id);
+ 			if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
+ 			return image;
 @@ -4050,7 +4074,7 @@ var Session = class {
  		};
  		const throwIfHalted = () => {
@@ -358,6 +402,15 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..35e4b6c8804d9bead3fc17e8e472ce90
  		};
  		while (true) {
  			const overflow = assistant !== void 0 && isAssistantContextOverflow(assistant, this.agentLoop.state.model.contextWindow ?? 0);
+@@ -4162,7 +4186,7 @@ var Session = class {
+ 			const summarizationModel = compactionConfig?.model ? this.resolveModelForCall(compactionConfig.model) : sessionModel;
+ 			const canonicalConversation = await this.requireConversation();
+ 			const resolvedAttachments = await this.resolveCanonicalContextAttachments(canonicalConversation);
+-			const contextEntries = buildConversationContextEntries(canonicalConversation, { resolveAttachment: (attachment) => {
++			const contextEntries = buildConversationContextEntries(canonicalConversation, { projectResourceSignal: this.resourceRuntime?.projectSignal, resolveAttachment: (attachment) => {
+ 				const image = resolvedAttachments.get(attachment.id);
+ 				if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
+ 				return image;
 @@ -4183,6 +4207,7 @@ var Session = class {
  				this.internalLog("info", "[flue:compaction] Nothing to compact (first kept message has no entry)");
  				return false;
@@ -604,7 +657,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..35e4b6c8804d9bead3fc17e8e472ce90
  			kind: submission.kind,
  			reason: "aborted",
 diff --git a/dist/dispatch-Dohpn4Ea.mjs b/dist/dispatch-Dohpn4Ea.mjs
-index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..b4c4186e37f05c41e2cff153e7ecc3084154e21f 100644
+index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..1d8372b906d35da5043ee5e4835fda2232336ba4 100644
 --- a/dist/dispatch-Dohpn4Ea.mjs
 +++ b/dist/dispatch-Dohpn4Ea.mjs
 @@ -4,6 +4,7 @@ import { n as isValibotSchema } from "./schema-DIDpvZZa.mjs";
@@ -615,7 +668,33 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..b4c4186e37f05c41e2cff153e7ecc308
  //#region src/conversation-records.ts
  /**
  * Signal types reserved as framework vocabulary: `dispatch()` admission and
-@@ -1611,6 +1612,8 @@ function formatFileOperations(readFiles, modifiedFiles) {
+@@ -177,9 +178,14 @@ function toolResultOutput(content) {
+ function toolResultText(content) {
+ 	return content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n");
+ }
+-function renderSignalMessage(message) {
++function renderSignalMessage(message, projectResourceSignal) {
+ 	const tagName = message.tagName ?? "signal";
+-	return `<${tagName}${[["type", message.type], ...Object.entries(message.attributes ?? {})].map(([name, value]) => ` ${escapeXmlAttribute(name ?? "")}="${escapeXmlAttribute(value ?? "")}"`).join("")}>\n${escapeXmlText(message.content)}\n</${tagName}>`;
++	// These reserved types cannot be supplied through dispatch or append.
++	// Ordinary user text, tool results, and summaries never enter this seam.
++	const content = projectResourceSignal && (message.type === "resources" || message.type === "environment")
++		? projectResourceSignal({ type: message.type, body: message.content, attributes: message.attributes })
++		: message.content;
++	return `<${tagName}${[["type", message.type], ...Object.entries(message.attributes ?? {})].map(([name, value]) => ` ${escapeXmlAttribute(name ?? "")}="${escapeXmlAttribute(value ?? "")}"`).join("")}>\n${escapeXmlText(content)}\n</${tagName}>`;
+ }
+ function escapeXmlText(value) {
+ 	return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+@@ -748,7 +754,7 @@ function pathToContextEntries(path, options) {
+ 		const message = resolveMessageAttachments(entry, options);
+ 		if (message.role === "signal") {
+ 			messages.push({
+-				message: createUserContextMessage(renderSignalMessage(message), entry.timestamp),
++				message: createUserContextMessage(renderSignalMessage(message, options.projectResourceSignal), entry.timestamp),
+ 				sourceEntry: entry
+ 			});
+ 			index += 1;
+@@ -1611,6 +1617,8 @@ function formatFileOperations(readFiles, modifiedFiles) {
  	return `\n\n${sections.join("\n\n")}`;
  }
  const TOOL_RESULT_MAX_CHARS = 2e3;
@@ -624,7 +703,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..b4c4186e37f05c41e2cff153e7ecc308
  function truncateForSummary(text, maxChars) {
  	if (text.length <= maxChars) return text;
  	const truncatedChars = text.length - maxChars;
-@@ -1644,6 +1647,60 @@ function serializeConversation(messages) {
+@@ -1644,6 +1652,60 @@ function serializeConversation(messages) {
  	}
  	return parts.join("\n\n");
  }
@@ -685,7 +764,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..b4c4186e37f05c41e2cff153e7ecc308
  const SUMMARIZATION_SYSTEM_PROMPT = "You are a context summarization assistant. Your task is to read a conversation between a user and an AI coding assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.";
  const SUMMARIZATION_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
  
-@@ -1656,36 +1713,45 @@ Use this EXACT format:
+@@ -1656,36 +1718,45 @@ Use this EXACT format:
  - [Any constraints, preferences, or requirements mentioned by user]
  - [Or "(none)" if none were mentioned]
  
@@ -745,7 +824,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..b4c4186e37f05c41e2cff153e7ecc308
  
  Use this EXACT format:
  
-@@ -1695,22 +1761,18 @@ Use this EXACT format:
+@@ -1695,22 +1766,18 @@ Use this EXACT format:
  ## Constraints & Preferences
  - [Preserve existing, add new ones discovered]
  
@@ -774,7 +853,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..b4c4186e37f05c41e2cff153e7ecc308
  ## Critical Context
  - [Preserve important context, add new if needed]
  
-@@ -1723,12 +1785,18 @@ Summarize the prefix to provide context for the retained suffix:
+@@ -1723,12 +1790,18 @@ Summarize the prefix to provide context for the retained suffix:
  [What did the user ask for in this turn?]
  
  ## Early Progress
@@ -795,7 +874,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..b4c4186e37f05c41e2cff153e7ecc308
  /** Valid cut points: user or assistant messages. Never cut at toolResult. */
  function findValidCutPoints(messages, start, end) {
  	const cutPoints = [];
-@@ -1839,11 +1907,12 @@ async function runSummarizationCall(purpose, promptText, maxTokens, model, signa
+@@ -1839,11 +1912,12 @@ async function runSummarizationCall(purpose, promptText, maxTokens, model, signa
  		usage: response.usage
  	};
  }
@@ -810,7 +889,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..b4c4186e37f05c41e2cff153e7ecc308
  	promptText += basePrompt;
  	return runSummarizationCall("compaction", promptText, maxTokens, model, signal, observer, "Summarization failed");
  }
-@@ -1852,7 +1921,7 @@ async function generateTurnPrefixSummary(messages, model, reserveTokens, signal,
+@@ -1852,7 +1926,7 @@ async function generateTurnPrefixSummary(messages, model, reserveTokens, signal,
  	return runSummarizationCall("compaction_prefix", `<conversation>\n${serializeConversation(messages)}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`, maxTokens, model, signal, observer, "Turn prefix summarization failed");
  }
  async function compact(preparation, model, signal, observer) {
@@ -819,7 +898,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..b4c4186e37f05c41e2cff153e7ecc308
  	let summary;
  	let aggregateUsage;
  	const addCallUsage = (usage) => {
-@@ -1861,7 +1930,7 @@ async function compact(preparation, model, signal, observer) {
+@@ -1861,7 +1935,7 @@ async function compact(preparation, model, signal, observer) {
  		aggregateUsage = aggregateUsage ? addUsage(aggregateUsage, normalized) : normalized;
  	};
  	if (isSplitTurn && turnPrefixMessages.length > 0) {
@@ -828,7 +907,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..b4c4186e37f05c41e2cff153e7ecc308
  			text: "No prior history.",
  			usage: void 0
  		}), generateTurnPrefixSummary(turnPrefixMessages, model, settings.reserveTokens, signal, observer)]);
-@@ -1869,10 +1938,12 @@ async function compact(preparation, model, signal, observer) {
+@@ -1869,10 +1943,12 @@ async function compact(preparation, model, signal, observer) {
  		addCallUsage(turnPrefixResult.usage);
  		summary = `${historyResult.text}\n\n---\n\n**Turn Context (split turn):**\n\n${turnPrefixResult.text}`;
  	} else {
@@ -842,7 +921,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..b4c4186e37f05c41e2cff153e7ecc308
  	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
  	summary += formatFileOperations(readFiles, modifiedFiles);
  	return {
-@@ -2220,6 +2291,17 @@ function supersededAssistantErrorEntryIds(conversation) {
+@@ -2220,6 +2296,17 @@ function supersededAssistantErrorEntryIds(conversation) {
  	}
  	return superseded;
  }
@@ -860,7 +939,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..b4c4186e37f05c41e2cff153e7ecc308
  function projectConversationUi(conversation, streamOffset) {
  	const messages = [];
  	const byId = /* @__PURE__ */ new Map();
-@@ -2879,6 +2961,44 @@ async function readSubmissionReply(options) {
+@@ -2879,6 +2966,44 @@ async function readSubmissionReply(options) {
  	};
  	return replyFromSnapshot(snapshot, options.submissionId);
  }
@@ -905,7 +984,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..b4c4186e37f05c41e2cff153e7ecc308
  /**
  * Extract a submission's reply from a materialized conversation snapshot.
  * Shared by {@link readSubmissionReply} and the Cloudflare client, which reads
-@@ -2942,7 +3062,7 @@ function assertDurability(definition, label) {
+@@ -2942,7 +3067,7 @@ function assertDurability(definition, label) {
  	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} durability must be a configuration object.`);
  	for (const key of Object.keys(definition)) if (key !== "maxAttempts" && key !== "timeoutMs") throw new Error(`[flue] ${label} durability received unknown field "${key}".`);
  	assertPositiveInteger(definition.maxAttempts, `${label} durability.maxAttempts`);
@@ -978,10 +1057,10 @@ index 9a8b8c34e42e58ae0debd0159e144cd7be2e4b84..a2e26a2a13ff6b31e4997ca6da5bbf57
  		return this.sql.exec(`UPDATE flue_agent_submissions
  					 SET status = 'queued', attempt_id = NULL, input_applied_at = NULL, started_at = NULL, owner_id = NULL, lease_expires_at = 0
 diff --git a/dist/types-BAqOl5NC.d.mts b/dist/types-BAqOl5NC.d.mts
-index 49effc41c60e5f07d406e315146add31fb6b3ae8..7e29ecc39a8edb5c0881dda29356b8d69ba36aa5 100644
+index 49effc41c60e5f07d406e315146add31fb6b3ae8..df62689296d1c560dbfb4ac85859dd789d102581 100644
 --- a/dist/types-BAqOl5NC.d.mts
 +++ b/dist/types-BAqOl5NC.d.mts
-@@ -741,7 +741,35 @@ interface AgentProps {
+@@ -741,7 +741,45 @@ interface AgentProps {
   * IssueTriage.durability = { maxAttempts: 5, timeoutMs: 7_200_000 };
   * ```
   */
@@ -1005,6 +1084,16 @@ index 49effc41c60e5f07d406e315146add31fb6b3ae8..7e29ecc39a8edb5c0881dda29356b8d6
 +}
 +export type { AgentSteeringInput, AgentSteeringSource };
  interface AgentStatics {
++  /**
++   * Model-only presentation of trusted framework resource signals. Does not
++   * change canonical history or grant tools. Applied on live delivery, replay,
++   * and compaction before signal provenance is flattened into user messages.
++   */
++  projectResourceSignal?: (signal: {
++    type: "resources" | "environment";
++    body: string;
++    attributes?: Readonly<Record<string, string>>;
++  }) => string;
 +  /** Disable absorption of independently admitted deliveries. */
 +  joinQueuedDeliveries?: boolean;
 +  /**
@@ -1017,7 +1106,7 @@ index 49effc41c60e5f07d406e315146add31fb6b3ae8..7e29ecc39a8edb5c0881dda29356b8d6
    /**
     * The agent's durable identity — keys conversation storage everywhere and
     * the Durable Object class on Cloudflare. Defaults to the function's own
-@@ -1278,6 +1306,13 @@ type FlueEventVariant = {
+@@ -1278,6 +1316,13 @@ type FlueEventVariant = {
  } | {
    type: 'text_delta';
    text: string;

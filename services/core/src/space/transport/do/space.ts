@@ -34,7 +34,6 @@ import {
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdFromDigest,
-  COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   clearSpaceReasoningReplaySchema,
   commitSpaceFileWriteInputSchema,
@@ -57,7 +56,6 @@ import {
   getSpaceUpdatesInputSchema,
   getSpaceWakeProgressInputSchema,
   getSpaceWakeTraceWaterfallInputSchema,
-  isComputerFileAccessOwnerCancellation,
   isHostedAgentRuntimeKind,
   listSignalsQuerySchema,
   listSpaceThreadSignalsQuerySchema,
@@ -85,6 +83,7 @@ import {
   remoteAgentWorkerCancellationResponseSchema,
   remoteAgentWorkerExecutionInputResponseSchema,
   removeSpaceMembersBodySchema,
+  resolveLocalExecutionOwnerCancellationReason,
   resolveMappedPublicAgentFailureReason,
   resolveNativeReplyPlacementInputSchema,
   resolveSingleSpaceMentionLabels,
@@ -4133,15 +4132,14 @@ export class Space extends DurableObject<CoreBindings> {
     );
     const ownerCancellation =
       noticeType === "wake_stopped" &&
-      isComputerFileAccessOwnerCancellation(
+      resolveLocalExecutionOwnerCancellationReason(
         command.acceptedResult.taskResult.payload
       );
     let reasonCode: string;
     let text: string;
     if (ownerCancellation) {
-      reasonCode = COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE;
-      text =
-        "Stopped before the Agent started because the Computer owner declined the file access request.";
+      reasonCode = ownerCancellation;
+      text = "The Computer owner stopped this task before the Agent started.";
     } else if (noticeType === "wake_stopped") {
       reasonCode = "runtime_coordinator.wake_stop_requested";
       text = buildSystemNoticeText({

@@ -1,4 +1,5 @@
 import { finalCandidateEvidenceSchema } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
+import { isCliSkillCheckPath } from "../release/cli-skill-check.mjs";
 import {
   isEngineeringOnlySchemaPath,
   isReleaseReadyPath,
@@ -196,6 +197,15 @@ export function createFinalCandidatePlan(input) {
 }
 
 function selectPrimaryChecks(context, selectedChecks, skippedChecks) {
+  if (context.changedPaths.some(isCliSkillCheckPath)) {
+    selectedChecks.push(
+      check(
+        "cli-skill-integrity",
+        ["pnpm", "run", "verify:cli-skill"],
+        "Signed CLI Skill content must match its source before merge."
+      )
+    );
+  }
   if (context.docsOnly) {
     selectedChecks.push(
       check(

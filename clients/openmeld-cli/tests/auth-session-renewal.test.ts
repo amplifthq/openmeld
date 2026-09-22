@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  beginAuthSessionTransition,
+  buildStoredAuthSessionIdentity,
   getAuthSessionState,
   setAuthSession,
   withAdmittedServiceSession,
@@ -71,6 +73,47 @@ async function storeSession(input: {
 }
 
 describe("auth session renewal", () => {
+  it("keeps a same-account setup candidate bound until its login commits", async () => {
+    await withTempHome(async () => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await storeSession({
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+      const previous = (await getAuthSessionState()).session;
+      if (!previous) {
+        throw new Error("missing test session");
+      }
+      const transition = await beginAuthSessionTransition({
+        accessToken: "setup-candidate-token",
+        authBaseUrl: previous.authBaseUrl,
+        clientId: previous.clientId,
+        user: previous.user,
+      });
+      const candidate = (await getAuthSessionState()).session;
+      if (!candidate) {
+        throw new Error("missing setup candidate");
+      }
+      let committed = false;
+      try {
+        await withAdmittedServiceSession(candidate, async () => {
+          const admitted = (await getAuthSessionState()).session;
+          expect(admitted?.accessToken).toBe("setup-candidate-token");
+          expect(buildStoredAuthSessionIdentity(admitted)).toBe(
+            buildStoredAuthSessionIdentity(candidate)
+          );
+          await transition.commit();
+          committed = true;
+          expect((await getAuthSessionState()).session?.accessToken).toBe(
+            "setup-candidate-token"
+          );
+        });
+      } finally {
+        if (!committed) {
+          await transition.rollback();
+        }
+      }
+    });
+  });
   it("keeps a bound renewal during admission and persists it after the reservation settles", async () => {
     await withTempHome(async () => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";

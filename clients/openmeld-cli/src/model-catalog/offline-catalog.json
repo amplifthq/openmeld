@@ -91,7 +91,7 @@
         },
         {
           "id": "claude-opus-4-6-thinking",
-          "displayName": "Claude Opus 4.6 Thinking",
+          "displayName": "Claude Opus 4.6 (Thinking)",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": "1.2.7"

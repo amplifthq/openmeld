@@ -23,6 +23,23 @@ it.each([
   ).toMatchObject({ kind: "request_ended", recoveryTarget: null });
 });
 
+it.each([
+  "context.workspace_mismatch",
+  "context.workspace_verification_unavailable",
+  "context.workspace_recovery_unanswered",
+  "interaction.expired",
+])("uses actionable public copy for ended folder request %s without inventing setup work", (errorCode) => {
+  expect(
+    shouldPreferMappedPublicAgentFailureReason(
+      errorCode,
+      "Raw controller detail: create a new Agent with a new session here."
+    )
+  ).toBe(true);
+  expect(
+    resolvePublicAgentFailureRecovery({ errorCode, targetLabel: "OpenCode" })
+  ).toMatchObject({ kind: "request_ended", recoveryTarget: null });
+});
+
 const PROVIDER_CREDITS_COPY =
   "The model provider rejected this request because the provider account does not have enough credits. Add credits or update billing directly with the provider, then wake the agent again.";
 const PROVIDER_CREDENTIALS_COPY =

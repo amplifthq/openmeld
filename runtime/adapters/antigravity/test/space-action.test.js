@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import test from "node:test";
 import {
   ANTIGRAVITY_SPACE_ACTION_JSON_SCHEMA,
   withAntigravityDispatchSpaceAction,
-} from "../dist/transport/antigravity-space-action-plugin.js";
+} from "../dist/transport/antigravity-space-action.js";
 
 const STRUCTURED_OUTCOME_PATTERN = /structured outcome/u;
 const UNNECESSARY_TOOL_USE_PATTERN =
@@ -16,18 +16,20 @@ const INCONSISTENT_PATTERN = /inconsistent/u;
 test("does not configure structured output outside an OpenMeld dispatch", async () => {
   const result = await withAntigravityDispatchSpaceAction({
     env: {},
+    prompt: "Ordinary task",
+    workdir: "/tmp/task-workspace",
     run: async (configuration) => ({
       configuration,
       structuredOutput: null,
     }),
   });
   assert.deepEqual(result.configuration, {
-    addDir: null,
+    prompt: "Ordinary task",
     jsonSchema: null,
   });
 });
 
-test("records one temporary structured reply and removes its plugin", async () => {
+test("records one structured reply without adding a workspace or requiring a Skill read", async () => {
   const fixtureRoot = await mkdtemp(join(tmpdir(), "openmeld-antigravity-"));
   const commandPath = join(fixtureRoot, "openmeld-dev");
   const invocationPath = join(fixtureRoot, "invocation.json");
@@ -42,30 +44,20 @@ writeFileSync(${JSON.stringify(invocationPath)}, JSON.stringify({ args: process.
     { encoding: "utf8", mode: 0o700 }
   );
 
-  let pluginRoot = "";
   try {
     const result = await withAntigravityDispatchSpaceAction({
       env: dispatchEnv(commandPath),
-      run: async ({ addDir, jsonSchema }) => {
-        assert.ok(addDir);
-        pluginRoot = addDir;
-        const pluginId = basename(addDir);
-        const pluginDir = join(addDir, ".agents", "plugins", pluginId);
-        const hooks = JSON.parse(
-          await readFile(join(pluginDir, "hooks.json"), "utf8")
-        );
-        assert.equal(
-          hooks["openmeld-space-action"].PreInvocation[0].command,
-          "node ./inject-space-action.mjs"
-        );
-        const instructionSource = await readFile(
-          join(pluginDir, "inject-space-action.mjs"),
-          "utf8"
-        );
-        assert.match(instructionSource, STRUCTURED_OUTCOME_PATTERN);
-        assert.match(instructionSource, UNNECESSARY_TOOL_USE_PATTERN);
+      prompt: "Write a file in your working folder.",
+      workdir: fixtureRoot,
+      run: ({ prompt, jsonSchema, ...extraConfiguration }) => {
+        assert.deepEqual(extraConfiguration, {});
+        assert.ok(prompt.startsWith("Write a file in your working folder."));
+        assert.ok(prompt.includes(JSON.stringify(fixtureRoot)));
+        assert.ok(prompt.includes("Skill is not required to reply"));
+        assert.match(prompt, STRUCTURED_OUTCOME_PATTERN);
+        assert.match(prompt, UNNECESSARY_TOOL_USE_PATTERN);
         assert.equal(jsonSchema, ANTIGRAVITY_SPACE_ACTION_JSON_SCHEMA);
-        return {
+        return Promise.resolve({
           structuredOutput: {
             action: "reply",
             mentionTargets: ["human-1"],
@@ -75,7 +67,7 @@ writeFileSync(${JSON.stringify(invocationPath)}, JSON.stringify({ args: process.
             wakeTargets: [],
           },
           value: "ran",
-        };
+        });
       },
     });
 
@@ -92,7 +84,6 @@ writeFileSync(${JSON.stringify(invocationPath)}, JSON.stringify({ args: process.
       ],
       stdin: "It is ready.",
     });
-    await assert.rejects(access(pluginRoot));
   } finally {
     await rm(fixtureRoot, { force: true, recursive: true });
   }
@@ -102,6 +93,8 @@ test("rejects an inconsistent structured outcome without invoking the writer", a
   await assert.rejects(
     withAntigravityDispatchSpaceAction({
       env: dispatchEnv("/tmp/openmeld-dev"),
+      prompt: "Report status",
+      workdir: "/tmp/task-workspace",
       run: async () => ({
         structuredOutput: {
           action: "silent",

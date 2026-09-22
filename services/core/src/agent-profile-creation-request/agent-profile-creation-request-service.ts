@@ -20,6 +20,7 @@ import type {
   CreateAgentProfileCreationRequestBody,
   SetAgentProfileCreationApprovalPreferenceBody,
 } from "@openmeld/schemas/types";
+import { assertAgentControllerPermissionModeReleased } from "../local-components/runtime-contract-rollout";
 
 const DEFAULT_APPROVAL_POLICY = "ask_every_time" as const;
 export const AGENT_PROFILE_CREATION_STALE_AFTER_MS = 30 * 60 * 1000;
@@ -550,6 +551,10 @@ export function createAgentProfileCreationRequestService(input: {
         body,
         organizationId: request.organizationId,
       });
+
+      assertAgentControllerPermissionModeReleased(
+        configuration.agentControllerPermissionMode
+      );
 
       requireWebAgentRunTarget(body.source, configuration);
       requirePersonalRemoteAgentSelfOwnership(

@@ -287,6 +287,16 @@ Center Agent Chat. Agent View returns the structured pending interaction and
 stable Space, Signal, client-message, and target-profile identifiers. Neither
 view fabricates a final answer or starts a second turn.
 
+`openmeld space respond <space>` reads the same owner-private pending questions
+as Web and Desktop. Human View offers the available single-choice answers in
+the terminal. Agent View or non-interactive invocation returns the pending
+requests in the existing `GetActiveSpaceWakeProgressResponse` shape without
+selecting an answer. Explicit automation supplies `--execution`,
+`--interaction`, and `--response` JSON from that request. Core remains the sole
+response authority and rejects stale, unauthorized, or conflicting answers.
+An accepted response is reported as sent; it is never described as a completed
+task. `space wake-progress` and the Space retain the final outcome path.
+
 `OpenMeld Service` means the local background service only. Local service lifecycle
 and service diagnosis belong under:
 
@@ -461,6 +471,12 @@ ready here. The CLI resolves the computer's existing Organization identity and
 passes it into the shared creation request; Core remains responsible for final
 Computer, Local Agent, Project, and Binding validation. Teammate-owned requests
 require an explicit `--computer`, and the CLI never guesses another computer.
+An explicit `--computer` accepts only the exact `computerId` returned by
+`openmeld org computers --view agent`. That value is the device ID used by this
+command. A Connected Computer record ID and an Agent Profile ID belong to
+different records and fail before the creation request is submitted. Other
+profile-scoped commands require a full current Profile ID; display names such
+as `Human` are not implicit aliases unless that command documents one.
 
 The executor completes new-Session identity creation, exact native Resume, and
 provider-native Fork after Agent Activity and the local Binding path verify the
@@ -628,6 +644,15 @@ npm install -g openmeld@latest && openmeld setup --view agent
 
 Use `npx -y openmeld@latest setup` only for npm bootstrap or fallback when the
 global `openmeld` command is not installed yet.
+
+Generated POSIX and Windows bootstrap commands use the shared start package's
+supported Node policy; the CLI package engine declaration is checked against
+that policy. Reject unsupported majors before acquisition instead of promising
+that any newer Node version works. Native npm exit codes own success/failure,
+including Windows PowerShell 5.1 stderr warnings. An unresolved catalog or
+workspace dependency is a package-acquisition error, not evidence that the user
+must reset OpenMeld, reinstall Node or change network settings. Preserve the
+original npm error and direct users to a corrected CLI release.
 
 Do not ask a human user to run an Agent View setup command from Web. Do not ask
 an agent to use Human View when the agent needs structured `setup.complete`

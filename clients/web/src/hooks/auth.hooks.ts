@@ -10,6 +10,7 @@ import {
 	getFrontendCallbackURL,
 	resolvePostAuthRedirect,
 } from "#/lib/auth-redirect";
+import { resolveSocialOAuthErrorCallbackURL } from "#/lib/auth-sign-in-error";
 import { generatePasskeyName } from "#/lib/passkey-utils";
 import { completeAccountAuthChange } from "#/query/auth-boundary";
 import {
@@ -64,6 +65,13 @@ export function useSocialSignIn() {
 			const result = await openMeldAuthClient.signIn.social({
 				provider: providerId,
 				callbackURL: callbackURL.toString(),
+				// Better Auth prefers this per-flow URL over the global
+				// `onAPIError.errorURL`. Every social start — login, sign-up,
+				// and magic link — uses the same login landing so only `/login`
+				// classifies the error.
+				errorCallbackURL: resolveSocialOAuthErrorCallbackURL(
+					window.location.href
+				),
 			});
 
 			if (result?.error) {

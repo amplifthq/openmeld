@@ -22,6 +22,7 @@ import { requireMainlineReleaseSha } from "./require-mainline-release-sha.mjs";
 
 const DEFAULT_BASE_REF = "origin/main";
 const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
+const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const LINE_SPLIT_REGEX = /\r?\n/u;
 const TEST_FILE_REGEX =
   /(?:^|\/)[^/]+\.(?:integration\.)?(?:spec|test)\.[cm]?[jt]sx?$/u;
@@ -214,6 +215,265 @@ const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
 };
 const INBOX_SOURCE_TARGET_SCHEMA_PATH =
   "packages/schemas/src/schemas/http/inbox.ts";
+
+// Preferred scheduling order is not a compatibility dependency. Accumulate
+// only contract directions proven by the changed producer and receiver paths.
+export function resolveProductionCompatibilityDependencies(
+  changedPaths,
+  taskInboxRetired = false
+) {
+  const edges = [];
+  const edgeKeys = new Set();
+  const addEdge = (receiver, producer) => {
+    const key = `${receiver}\0${producer}`;
+    if (!edgeKeys.has(key)) {
+      edgeKeys.add(key);
+      edges.push([receiver, producer]);
+    }
+  };
+
+  const spaceTask = isSpaceTaskReceiverFirstDiff(changedPaths);
+  const callerContext = isSpaceCallerContextDiff(changedPaths);
+  const spaceTaskCli = changedPaths.includes(
+    "clients/openmeld-cli/src/space/dispatch-task.ts"
+  );
+  const invitation = isSpaceInvitationReceiverFirstDiff(changedPaths);
+  const dependencyGroups = [
+    {
+      enabled: isWorkingFolderRecoveryDiff(changedPaths),
+      edges: [["core", "cli"]],
+    },
+    {
+      enabled: isNpmSetupArtifactDiff(changedPaths),
+      edges: [["cli", "web"]],
+    },
+    {
+      enabled: isCenterAgentEvidenceDiff(changedPaths),
+      edges: [["core", "remote-agent"]],
+    },
+    {
+      enabled: isSpaceMessageSearchReceiverFirstDiff(changedPaths),
+      edges: [
+        ["core", "gateway"],
+        ["gateway", "web"],
+      ],
+    },
+    {
+      enabled:
+        spaceTask &&
+        (spaceTaskCli ||
+          changedPaths.includes(
+            "services/gateway/src/routes/rpc-http.space-tasks.ts"
+          )),
+      edges: [["core", "gateway"]],
+    },
+    {
+      enabled: spaceTask && spaceTaskCli,
+      edges: [["gateway", "cli"]],
+    },
+    {
+      enabled:
+        spaceTask &&
+        changedPaths.includes("services/remote-agent/agent-core/tools.ts"),
+      edges: [["core", "remote-agent"]],
+    },
+    {
+      enabled: callerContext,
+      edges: [
+        ["auth", "cli"],
+        ["remote-agent", "cli"],
+        ["cli", "core"],
+      ],
+    },
+    {
+      enabled: isPersonalRemoteToolsReceiverFirstDiff(changedPaths),
+      edges: [["core", "remote-agent"]],
+    },
+    {
+      enabled: taskInboxRetired,
+      edges: [
+        ["core", "gateway"],
+        ["core", "web"],
+      ],
+    },
+    {
+      enabled: isDeviceWaitReceiverFirstDiff(changedPaths),
+      edges: [["core", "gateway"]],
+    },
+    {
+      enabled:
+        isDeviceWaitReceiverFirstDiff(changedPaths) &&
+        changedPaths.some(
+          (path) =>
+            path.startsWith("clients/web/") && path.includes("device-wait")
+        ),
+      edges: [["gateway", "web"]],
+    },
+    {
+      enabled: isPeopleComputersReceiverFirstDiff(changedPaths),
+      edges: [["core", "gateway"]],
+    },
+    {
+      // Caller Context has a reviewed opposite order: Auth and the signed
+      // Service precede the Core projection in the combined rollout.
+      enabled: invitation && !callerContext,
+      edges: [["core", "auth"]],
+    },
+    {
+      enabled:
+        invitation &&
+        changedPaths.includes(
+          "clients/openmeld-cli/src/space/invitations-command.ts"
+        ),
+      edges: [["auth", "cli"]],
+    },
+    {
+      enabled:
+        invitation &&
+        changedPaths.some(
+          (path) =>
+            path.startsWith("clients/web/") && path.includes("space-invitation")
+        ),
+      edges: [["auth", "web"]],
+    },
+    {
+      enabled: changedPaths.some(
+        (path) =>
+          path.startsWith("services/core/") &&
+          isCenterAgentContextManifestContractPath(path)
+      ),
+      edges: [["remote-agent", "core"]],
+    },
+    {
+      enabled: changedPaths.some(
+        (path) =>
+          path.startsWith("clients/openmeld-cli/") &&
+          isCenterAgentCliReceiverFirstContractPath(path)
+      ),
+      edges: [
+        ["core", "cli"],
+        ["gateway", "cli"],
+      ],
+    },
+    {
+      enabled: isConnectComputerCliReceiverFirstDiff(changedPaths),
+      edges: [["cli", "web"]],
+    },
+    {
+      enabled: isCoreWorkerResponseReaderFirstDiff(changedPaths),
+      edges: [
+        ["core", "remote-agent"],
+        ["gateway", "remote-agent"],
+        ["web", "remote-agent"],
+      ],
+    },
+    {
+      enabled: isWakeProgressOptInContractDiff(changedPaths),
+      edges: [
+        ["gateway", "core"],
+        ["core", "cli"],
+      ],
+    },
+    {
+      enabled: isSpaceHistoryQueryContractDiff(changedPaths),
+      edges: [
+        ["gateway", "cli"],
+        ["core", "cli"],
+      ],
+    },
+    {
+      enabled:
+        isInboxSourceTargetReceiverFirstDiff(changedPaths) && !taskInboxRetired,
+      edges: [
+        ["web", "core"],
+        ["gateway", "core"],
+      ],
+    },
+    {
+      enabled: isLocalServiceRuntimeReceiverFirstDiff(changedPaths),
+      edges: [["core", "cli"]],
+    },
+    {
+      enabled:
+        isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
+        changedPaths.some(isRemoteAgentReceiverFirstContractPath),
+      edges: [["remote-agent", "core"]],
+    },
+    {
+      enabled: isIndependentSkillBridgeDiff(changedPaths),
+      edges: [
+        ["gateway", "cli"],
+        ["web", "cli"],
+      ],
+    },
+  ];
+  for (const group of dependencyGroups) {
+    if (!group.enabled) {
+      continue;
+    }
+    for (const [receiver, producer] of group.edges) {
+      addEdge(receiver, producer);
+    }
+  }
+  return edges;
+}
+
+export function resolveProductionCompatibilityReceiverWitnesses(changedPaths) {
+  const witnesses = isWorkingFolderRecoveryDiff(changedPaths)
+    ? [
+        {
+          receiver: "core",
+          producer: "cli",
+          receiverPaths: [
+            "packages/schemas/src/working-folder-recovery.ts",
+            "packages/schemas/src/public-agent-failure-reason.ts",
+            "services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts",
+            "services/core/src/runtime-transport/application/local-agent-stream.ts",
+            "services/core/src/space/transport/do/space.ts",
+          ],
+        },
+      ]
+    : [];
+  if (
+    !(
+      isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
+      changedPaths.some(isRemoteAgentReceiverFirstContractPath)
+    )
+  ) {
+    return witnesses;
+  }
+  const receiverPaths = [
+    ...REMOTE_AGENT_WORKER_REQUEST_SCHEMA_PATHS,
+    REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH,
+    ...REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS,
+  ].filter((path) => changedPaths.includes(path));
+  return receiverPaths.length > 0
+    ? [
+        ...witnesses,
+        {
+          producer: "core",
+          receiver: "remote-agent",
+          receiverPaths,
+        },
+      ]
+    : witnesses;
+}
+
+function isWorkingFolderRecoveryDiff(paths) {
+  return [
+    "packages/schemas/src/working-folder-recovery.ts",
+    "services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts",
+    "clients/openmeld-cli/src/local-service/continuation/working-folder-recovery.ts",
+  ].every((file) => paths.includes(file));
+}
+
+function isNpmSetupArtifactDiff(paths) {
+  return [
+    "scripts/release/npm-cli-artifact.mjs",
+    "clients/openmeld-cli/package.json",
+    "clients/web/src/lib/setup-bootstrap-script.ts",
+  ].every((file) => paths.includes(file));
+}
 const RETIRED_TASK_INBOX_PRODUCER_PATH =
   "services/core/src/center-agent-tasks/application/center-agent-task-inbox-producer.ts";
 const TASK_INBOX_KIND_LINE = /^[ \t]*"center_agent_task",\r?\n/mu;
@@ -248,8 +508,10 @@ const LOCAL_SERVICE_RUNTIME_TRANSPORT_SCHEMA_PATH =
   "packages/schemas/src/schemas/daemon/runtime-transport.ts";
 const LOCAL_SERVICE_RUNTIME_CORE_RECEIVER_PATH_PREFIX =
   "services/core/src/runtime-transport/";
-const LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIX =
-  "clients/openmeld-cli/src/local-service/";
+const LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIXES = [
+  "clients/openmeld-cli/src/local-service/",
+  "runtime/adapters/",
+];
 const CONNECT_COMPUTER_DEVICE_AUTH_SCHEMA_PATH =
   "packages/schemas/src/schemas/http/auth-device-authorization.ts";
 const CONNECT_COMPUTER_CLI_RECEIVER_PATH =
@@ -525,6 +787,7 @@ export function buildProductionVerifyStepSpecs(input) {
       !input.taskInboxRetired &&
       !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
       !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
+      !isWorkingFolderRecoveryDiff(input.changedPaths) &&
       !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
       !isSpaceTaskReceiverFirstDiff(input.changedPaths) &&
       !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
@@ -551,6 +814,62 @@ export function buildProductionVerifyStepSpecs(input) {
 
 export function buildProductionPreflightStepSpecs(input) {
   const steps = buildCommonReleaseStepSpecs(input.changedPaths);
+  if (!EXACT_SHA_PATTERN.test(String(input.releaseSha ?? ""))) {
+    throw new Error(
+      "Production preflight requires the exact release SHA for receipt-based train admission."
+    );
+  }
+  steps.unshift({
+    args: [
+      "scripts/release/production-stage-admission.mjs",
+      "--scope",
+      input.scopes.join(","),
+      "--source-sha",
+      input.releaseSha,
+    ],
+    command: "node",
+    controlArgs: [
+      "--scope",
+      input.scopes.join(","),
+      "--source-sha",
+      input.releaseSha,
+    ],
+    controlCommand: "node",
+    controlNodeArgs: [],
+    controlPath: "scripts/release/production-stage-admission.mjs",
+    label: "Admit receipt-based Production train stage",
+  });
+  steps.splice(1, 0, {
+    args: [
+      "scripts/release/production-train-artifact-admission.mjs",
+      "--scope",
+      input.scopes.join(","),
+      "--source-sha",
+      input.releaseSha,
+    ],
+    command: "node",
+    controlArgs: [
+      "--scope",
+      input.scopes.join(","),
+      "--source-sha",
+      input.releaseSha,
+    ],
+    controlCommand: "node",
+    controlNodeArgs: [],
+    controlPath: "scripts/release/production-train-artifact-admission.mjs",
+    label: "Verify declared Production train artifacts",
+  });
+  if (input.scopes.includes("web")) {
+    steps.splice(2, 0, {
+      args: ["run", "verify:cli-skill"],
+      command: "pnpm",
+      controlArgs: [],
+      controlCommand: "node",
+      controlNodeArgs: [],
+      controlPath: "scripts/release/cli-skill-check.mjs",
+      label: "Verify signed CLI Skill content",
+    });
+  }
   if (input.scopes.includes("gateway")) {
     steps.push(productionQueueVerificationStep("gateway"));
   }
@@ -563,6 +882,7 @@ export function buildProductionPreflightStepSpecs(input) {
     !input.taskInboxRetired &&
     !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
     !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
+    !isWorkingFolderRecoveryDiff(input.changedPaths) &&
     !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
     !isPeopleComputersReceiverFirstDiff(input.changedPaths) &&
     !isSpaceTaskReceiverFirstDiff(input.changedPaths) &&
@@ -574,18 +894,22 @@ export function buildProductionPreflightStepSpecs(input) {
 }
 
 export function buildCoreCurrentCliProjectionPreflightStepSpecs(
-  changedPaths = []
+  changedPaths,
+  releaseSha
 ) {
-  return [
-    ...buildCommonReleaseStepSpecs(changedPaths),
-    productionQueueVerificationStep("core"),
-  ];
+  return buildProductionPreflightStepSpecs({
+    changedPaths,
+    releaseSha,
+    scopes: ["core"],
+    taskInboxRetired: true,
+  }).filter((step) => step.label !== "Verify Core CLI channel compatibility");
 }
 
 export function runCoreCurrentCliProjectionPreflight(input = {}) {
   const executeStep = input.runStep ?? runStep;
   for (const step of buildCoreCurrentCliProjectionPreflightStepSpecs(
-    input.changedPaths
+    input.changedPaths,
+    input.releaseSha
   )) {
     executeStep(step);
   }
@@ -695,6 +1019,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   for (const scope of orderedScopes) {
     const start = steps.length;
     appendProductionDeployScopeSteps({
+      coreReceiverFirst: isWorkingFolderRecoveryDiff(changedPaths),
       deployOrderProfile,
       releaseSha: input.releaseSha,
       scope,
@@ -754,7 +1079,19 @@ function appendProductionDeployScopeSteps(input) {
       packageDeployStep("openmeld-web", "Deploy Web", {
         args: ["--config", "clients/web/wrangler.jsonc", "--env", "prod"],
       }),
-      publicHealthStep("https://openmeld.ai/guide.md", "Verify Web health")
+      {
+        args: [
+          "scripts/release/production-web-health.mjs",
+          "--url",
+          "https://openmeld.ai",
+          "--source-sha",
+          input.releaseSha,
+          "--artifact-receipt",
+          "dev-tmp/release-artifact-check/web.json",
+        ],
+        command: "node",
+        label: "Verify Web health",
+      }
     );
     return;
   }
@@ -785,6 +1122,7 @@ function appendProductionDeployScopeSteps(input) {
   if (input.scope === "core") {
     if (
       input.selected.has("cli") ||
+      input.coreReceiverFirst ||
       input.deployOrderProfile === "inbox-task-retirement-producer-first" ||
       input.deployOrderProfile ===
         "remote-agent-and-inbox-task-retirement-first" ||
@@ -795,7 +1133,10 @@ function appendProductionDeployScopeSteps(input) {
       input.deployOrderProfile === "space-task-receivers-first" ||
       input.deployOrderProfile === "space-invitation-receivers-first"
     ) {
-      if (!doesCliReleaseOwnCoreProjection(input.deployOrderProfile)) {
+      if (
+        input.coreReceiverFirst ||
+        !doesCliReleaseOwnCoreProjection(input.deployOrderProfile)
+      ) {
         input.steps.push(
           {
             args: [
@@ -886,7 +1227,44 @@ function resolveProductionDeployScopeOrder(
       "Personal Remote Agent tools require the Core receiver before Remote Agent deployment."
     );
   }
-  return order.filter((scope) => selected.has(scope));
+  const preferred = order.filter((scope) => selected.has(scope));
+  if (
+    !(
+      isWorkingFolderRecoveryDiff(changedPaths) ||
+      isNpmSetupArtifactDiff(changedPaths)
+    )
+  ) {
+    return preferred;
+  }
+  // Keep the existing profile's preference for independent components. These
+  // added contracts must compose with every existing receiver direction, not
+  // silently override an opposite profile (for example Caller Context).
+  const dependencies = resolveProductionCompatibilityDependencies(
+    changedPaths,
+    taskInboxRetired
+  ).filter(
+    ([receiver, producer]) => selected.has(receiver) && selected.has(producer)
+  );
+  const remaining = new Set(preferred);
+  const result = [];
+  while (remaining.size > 0) {
+    const next = preferred.find(
+      (scope) =>
+        remaining.has(scope) &&
+        !dependencies.some(
+          ([receiver, producer]) =>
+            producer === scope && remaining.has(receiver)
+        )
+    );
+    if (!next) {
+      throw new Error(
+        "Incompatible release dependencies require separate receiver-first stages. Inspect the component receipts before choosing a forward release."
+      );
+    }
+    result.push(next);
+    remaining.delete(next);
+  }
+  return result;
 }
 
 function resolveProductionDeployOrderProfile(
@@ -1362,7 +1740,9 @@ function isLocalServiceRuntimeReceiverFirstDiff(changedPaths) {
         path.startsWith(LOCAL_SERVICE_RUNTIME_CORE_RECEIVER_PATH_PREFIX)
       ) &&
       changedPaths.some((path) =>
-        path.startsWith(LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIX)
+        LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIXES.some((prefix) =>
+          path.startsWith(prefix)
+        )
       ))
   );
 }
@@ -1621,6 +2001,12 @@ export function buildProductionReleasePlan(input) {
     base: input.base,
     changedPaths,
     coreProjectionFromCli: scopes.includes("cli"),
+    compatibilityDependencies: resolveProductionCompatibilityDependencies(
+      changedPaths,
+      taskInboxRetired
+    ),
+    compatibilityReceiverWitnesses:
+      resolveProductionCompatibilityReceiverWitnesses(changedPaths),
     deployOrderProfile,
     deployScopeOrder,
     deploySteps: buildProductionDeployStepSpecs(scopes, {
@@ -1630,6 +2016,7 @@ export function buildProductionReleasePlan(input) {
     }),
     preflightSteps: buildProductionPreflightStepSpecs({
       changedPaths,
+      releaseSha: sourceSha,
       scopes,
       taskInboxRetired,
     }),

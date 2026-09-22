@@ -24,6 +24,7 @@ import type {
   OpenCodePermissionConfig,
 } from "@openmeld/schemas/types";
 import { readModelCatalog as readCoreModelCatalog } from "../../config/model-catalog";
+import { assertAgentControllerPermissionModeReleased } from "../../local-components/runtime-contract-rollout";
 import type { AcceptedRuntimeAgentControllerReport } from "../../runtime-registry/application/runtime-agent-controller-report-service";
 import {
   lookupRuntime,
@@ -866,6 +867,7 @@ function resolveAgentControllerPermissionModePatch(input: {
       status: "rejected",
     };
   }
+  assertAgentControllerPermissionModeReleased(parsed.data);
   return {
     patch: {
       agentControllerPermissionMode: parsed.data,

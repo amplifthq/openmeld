@@ -142,7 +142,7 @@ export async function runSpaceWakeProgress(input: {
     return;
   }
 
-  renderWakeProgressHumanOutput({ presenter, payload });
+  renderWakeProgressHumanOutput({ presenter, payload, space: input.space });
 }
 
 export async function runSpaceWakeStop(input: {
@@ -509,6 +509,7 @@ function resolveWakeProgressPollState(input: {
 function renderWakeProgressHumanOutput(input: {
   presenter: Parameters<typeof renderInfoCard>[0]["presenter"];
   payload: WakeProgressPayload;
+  space: string;
 }): void {
   const rows = input.payload.items.flatMap((item) => [
     {
@@ -538,6 +539,16 @@ function renderWakeProgressHumanOutput(input: {
     sanitize: true,
     minContentWidth: 72,
   });
+  if (
+    input.payload.items.some(
+      (item) => !item.terminal && item.pendingInteraction?.canRespond
+    )
+  ) {
+    input.presenter.line({
+      code: "space.wake_progress.respond",
+      text: `A task needs your response. Run \`openmeld space respond ${input.space}\` to review the choices, or open Needs action in your Inbox.`,
+    });
+  }
   input.presenter.line({
     code: "space.wake_progress.boundary",
     text: "This is live progress. Use `space result` for archived results and `service trace` for execution diagnostics.",

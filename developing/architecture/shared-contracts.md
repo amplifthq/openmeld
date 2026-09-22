@@ -6038,9 +6038,9 @@ Service projection `required` even when the latest artifact is advisory:
   Core behavior tests; an ordinary advisory release cannot lower or bypass it.
   The initial floor was `0.3.15`: Service `0.3.14` can report an online
   heartbeat without registering execution routes. The current floor is
-  `0.3.153`: earlier Services cannot provide the current working-folder facts
-  or dispatch-owned reply observation required by the current workstation
-  runtime. The floor blocks only new unsafe admission; RuntimeCoordinator keeps
+  `0.3.217`: earlier Services do not refresh admission after update or draining
+  and do not carry the required Codex MCP startup behavior. The floor blocks
+  only new unsafe admission; RuntimeCoordinator keeps
   accepted work authoritative, and Service update and reconnect controls remain
   available so the Computer can recover.
   A supported version below the latest release remains advisory when

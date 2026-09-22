@@ -44,7 +44,7 @@ export async function executeEvidenceCodeMode(input: {
       return { result: await operation(payload) };
     },
   };
-  const tools = await getRemoteAgentFlueTools({
+  const { tools } = await getRemoteAgentFlueTools({
     coreWorker: input.binding,
     agentActivityReadEnabled: true,
     turnEnvelope: input.fixture.request.turnEnvelope,

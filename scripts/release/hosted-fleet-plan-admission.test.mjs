@@ -1,197 +1,145 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
 import { admitHostedFleetPlan } from "./hosted-fleet-plan-admission.mjs";
-import { buildProductionReleasePlan } from "./production-release.mjs";
 
-const BACKLOG_STAGE_PATTERN = /core -> gateway -> web -> remote-agent/u;
-test("refuses a backlog fleet whose receiver order differs from the static hosted lane", async () => {
-  for (const scope of ["cloud", "full"]) {
-    await assert.rejects(
-      admitHostedFleetPlan(
-        { releaseSha: "b".repeat(40), releaseSource: "/release-source", scope },
-        {
-          readHeadSha: () => "b".repeat(40),
-          fetchStableVersion: async () => "0.3.216",
-          resolveTagSha: () => "a".repeat(40),
-          buildPlan: (input) =>
-            buildProductionReleasePlan({
-              ...input,
-              changedPaths: [
-                "packages/schemas/src/schemas/http/space-message-search.ts",
-                "services/core/src/space/infrastructure/sql/space-message-search-repo.ts",
-                "services/gateway/src/routes/rpc-http.message-search.ts",
-                "clients/web/src/components/search/message-search.tsx",
-                "packages/schemas/src/schemas/http/center-agent-memory-search.ts",
-                "services/core/src/index.ts",
-                "services/remote-agent/agent-core/tools.ts",
-              ],
-            }),
-        }
-      ),
-      BACKLOG_STAGE_PATTERN
-    );
-  }
-});
-
-const RELEASE_SHA = "b".repeat(40);
-const STABLE_TAG_SHA = "a".repeat(40);
-const RECEIVER_FIRST_PROFILE_PATTERN = /remote-agent-receiver-first/u;
-const BEFORE_MUTATION_PATTERN = /before any Production mutation/u;
-const RELEASE_PLAN_PATTERN = /release:plan/u;
-const STABLE_TAG_REF_PATTERN = /refs\/tags\/v0\.3\.135/u;
-const CANONICAL_STABLE_VERSION_PATTERN = /canonical stable CLI version/u;
-
-test("admits the static hosted fleet workflow for its default deploy order", async () => {
+const SHA = "b".repeat(40);
+const BEFORE_MUTATION = /before any Production mutation/u;
+const input = {
+  releaseSha: SHA,
+  releaseSource: "/release-source",
+  scope: "cloud",
+};
+const components = [
+  {
+    scope: "web",
+    state: "pending",
+    sha: "a".repeat(40),
+    changedPaths: ["clients/web/src/routes/index.tsx"],
+  },
+];
+function dependencies(overrides = {}) {
+  return {
+    readHeadSha: () => SHA,
+    collectStatus: async () => ({ blockers: [], components }),
+    checkArtifact: () => Promise.resolve(),
+    ...overrides,
+  };
+}
+test("fleet uses component receipts and runs its artifact before admission completes", async () => {
+  const calls = [];
   const result = await admitHostedFleetPlan(
-    {
-      releaseSha: RELEASE_SHA,
-      releaseSource: "/release-source",
-      scope: "cloud",
-    },
-    {
-      buildPlan: (input) => ({
-        base: input.base,
-        changedPaths: [],
-        deployOrderProfile: "default-auth-receiver-first",
-        deployScopeOrder: ["auth", "web", "gateway", "core", "remote-agent"],
-        scopes: ["auth", "web", "gateway", "core", "remote-agent"],
-        sourceSha: input.sourceSha,
-      }),
-      fetchStableVersion: async () => "0.3.135",
-      readHeadSha: () => RELEASE_SHA,
-      resolveTagSha: (tag) => {
-        assert.equal(tag, "v0.3.135");
-        return STABLE_TAG_SHA;
+    input,
+    dependencies({
+      checkArtifact: (request) => {
+        calls.push(request);
+        return Promise.resolve();
       },
-    }
+    })
   );
-
-  assert.deepEqual(result, {
-    baseRef: "refs/tags/v0.3.135",
-    baseSha: STABLE_TAG_SHA,
-    deployOrderProfile: "default-auth-receiver-first",
-    deployScopeOrder: ["auth", "web", "gateway", "core", "remote-agent"],
-    releaseSha: RELEASE_SHA,
-    scope: "cloud",
-  });
-});
-
-test("admits a named receiver-first profile when its selected cloud order matches the hosted lane", async () => {
-  const result = await admitHostedFleetPlan(
-    {
-      releaseSha: RELEASE_SHA,
-      releaseSource: "/release-source",
-      scope: "full",
-    },
-    {
-      buildPlan: () => ({
-        changedPaths: [
-          "packages/schemas/src/schemas/daemon/runtime-transport.ts",
-          "services/core/src/runtime-transport/application/runtime-transport-dispatch-service.ts",
-          "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
-        ],
-        deployOrderProfile: "local-service-runtime-receiver-first",
-        deployScopeOrder: [
-          "db",
-          "auth",
-          "web",
-          "gateway",
-          "core",
-          "remote-agent",
-        ],
-        scopes: ["db", "auth", "web", "gateway", "core", "remote-agent"],
-      }),
-      fetchStableVersion: async () => "0.3.135",
-      readHeadSha: () => RELEASE_SHA,
-      resolveTagSha: () => STABLE_TAG_SHA,
-    }
-  );
-
-  assert.deepEqual(result.deployScopeOrder, [
-    "db",
-    "auth",
-    "web",
-    "gateway",
-    "core",
-    "remote-agent",
+  assert.equal(result.releaseSha, SHA);
+  assert.equal("baseRef" in result, false);
+  assert.deepEqual(calls, [
+    { root: input.releaseSource, scope: "web", sourceSha: SHA },
   ]);
-  assert.equal(
-    result.deployOrderProfile,
-    "local-service-runtime-receiver-first"
-  );
 });
-
-test("rejects an incompatible receiver-first fleet order before any Production mutation", async () => {
+test("artifact failure blocks the whole fleet before component mutation", async () => {
   await assert.rejects(
-    () =>
-      admitHostedFleetPlan(
-        {
-          releaseSha: RELEASE_SHA,
-          releaseSource: "/release-source",
-          scope: "full",
-        },
-        {
-          buildPlan: () => ({
-            changedPaths: [
-              "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
-              "services/core/src/remote-agent/application/native-delivery-service.ts",
-              "services/remote-agent/flue-adapter/execution-reconciliation.ts",
-            ],
-            deployOrderProfile: "remote-agent-receiver-first",
-            deployScopeOrder: [
-              "db",
-              "remote-agent",
-              "auth",
-              "core",
-              "gateway",
-              "web",
-            ],
-            scopes: ["db", "auth", "web", "gateway", "core", "remote-agent"],
-          }),
-          fetchStableVersion: async () => "0.3.135",
-          readHeadSha: () => RELEASE_SHA,
-          resolveTagSha: () => STABLE_TAG_SHA,
-        }
-      ),
-    (error) => {
-      assert.match(error.message, RECEIVER_FIRST_PROFILE_PATTERN);
-      assert.match(error.message, BEFORE_MUTATION_PATTERN);
-      assert.match(error.message, RELEASE_PLAN_PATTERN);
-      assert.match(error.message, STABLE_TAG_REF_PATTERN);
-      return true;
-    }
+    admitHostedFleetPlan(
+      input,
+      dependencies({
+        checkArtifact: () => Promise.reject(new Error("Workerd SSR failed")),
+      })
+    ),
+    { message: "Workerd SSR failed" }
   );
 });
-
-test("fails closed when the stable channel cannot identify an immutable base tag", async () => {
+test("unknown component receipts fail closed before artifact execution", async () => {
+  let built = false;
   await assert.rejects(
-    () =>
-      admitHostedFleetPlan(
-        {
-          releaseSha: RELEASE_SHA,
-          releaseSource: "/release-source",
-          scope: "cloud",
+    admitHostedFleetPlan(
+      input,
+      dependencies({
+        collectStatus: async () => ({
+          blockers: [],
+          components: [{ scope: "core", state: "unknown" }],
+        }),
+        checkArtifact: () => {
+          built = true;
+          return Promise.resolve();
         },
-        {
-          fetchStableVersion: async () => "0.3.135-beta",
-          readHeadSha: () => RELEASE_SHA,
-        }
-      ),
-    CANONICAL_STABLE_VERSION_PATTERN
+      })
+    )
+  );
+  assert.equal(built, false);
+});
+test("receiver-first order incompatible with the hosted job graph is rejected", async () => {
+  const core = {
+    scope: "core",
+    state: "pending",
+    compatibilityDependencies: [["remote-agent", "core"]],
+    changedPaths: [
+      "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
+      "services/core/src/remote-agent/application/native-delivery-service.ts",
+      "services/remote-agent/flue-adapter/execution-reconciliation.ts",
+    ],
+  };
+  await assert.rejects(
+    admitHostedFleetPlan(
+      input,
+      dependencies({
+        collectStatus: async () => ({
+          blockers: [],
+          components: [core],
+        }),
+      })
+    ),
+    BEFORE_MUTATION
+  );
+
+  core.compatibilityReceiverWitnesses = [
+    {
+      producer: "core",
+      receiver: "remote-agent",
+      evidence: {
+        baselineSha: "a".repeat(40),
+        result: "match",
+        targetSha: SHA,
+      },
+    },
+  ];
+  const remote = {
+    scope: "remote-agent",
+    sha: "a".repeat(40),
+    state: "pending",
+  };
+  await assert.doesNotReject(
+    admitHostedFleetPlan(
+      input,
+      dependencies({
+        collectStatus: async () => ({
+          blockers: [],
+          components: [core, remote],
+        }),
+      })
+    )
   );
 });
-
-test("does not turn a scoped component deploy into a fleet-plan ceremony", async () => {
-  const result = await admitHostedFleetPlan({
-    releaseSha: RELEASE_SHA,
-    releaseSource: "/release-source",
-    scope: "web",
-  });
-
-  assert.deepEqual(result, {
-    releaseSha: RELEASE_SHA,
-    scope: "web",
-    skipped: true,
-  });
+test("exact source mismatch and missing validation evidence are rejected", async () => {
+  await assert.rejects(
+    admitHostedFleetPlan(
+      input,
+      dependencies({ readHeadSha: () => "c".repeat(40) })
+    )
+  );
+  await assert.rejects(
+    admitHostedFleetPlan(
+      input,
+      dependencies({
+        collectStatus: async () => ({
+          blockers: [{ name: "Source", detail: "missing FC" }],
+          components,
+        }),
+      })
+    )
+  );
 });
