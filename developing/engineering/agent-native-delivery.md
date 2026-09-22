@@ -122,6 +122,21 @@ plan is the authority for selected/skipped commands, reasons, and durations:
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
 ```
 
+When local resource admission cannot safely start a production client build,
+the existing manual Deep Confidence workflow can run only the required client
+artifacts on an isolated hosted runner:
+
+```sh
+gh workflow run deep-confidence.yml --ref <candidate-branch> \
+  -f scope=release-artifacts -f artifact_scopes=web,desktop
+```
+
+Choose `web` or `desktop` when only that artifact is needed. This mode skips
+the broad diagnostic jobs, runs the same exact-source renderer/prerender and
+Workerd SSR entrypoints, and retains their source/input/output receipts. It
+uses read-only repository access and no production credentials. Match the run's
+head SHA to the candidate; these checks do not replace FC or deployed smoke.
+
 Trusted control installs only the shared evidence parser's production
 dependencies. The result publisher does not restore the full development store;
 restoring that cache costs more than installing its small runtime. Candidate
