@@ -1,3 +1,4 @@
+import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
 	DropdownMenuTrigger,
@@ -94,8 +95,13 @@ export function CenterAgentChatHistory({
 				<TooltipHint content={open ? undefined : "Open chat history"}>
 					<DropdownMenuTrigger
 						aria-label={`Open chat history: ${title}`}
-						className="flex min-w-0 max-w-full items-center gap-2 rounded-full px-3 py-1 font-medium text-lg outline-none hover:bg-accent hover:shadow-sm focus-visible:ring-2 focus-visible:ring-ring data-popup-open:bg-accent data-popup-open:shadow-sm"
 						disabled={disabled}
+						render={
+							<Button
+								className="h-auto min-w-0 max-w-full shrink gap-2 rounded-full px-3 py-1 text-lg transition-none hover:shadow-sm data-popup-open:shadow-sm"
+								variant="ghost"
+							/>
+						}
 					>
 						<span className="truncate">{title}</span>
 						<CaretDownIcon

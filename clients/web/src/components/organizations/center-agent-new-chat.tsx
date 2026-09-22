@@ -10,10 +10,7 @@ import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery"
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { CenterAgentDirectMessageIntro } from "#/components/spaces/center-agent-direct-message-intro";
-import {
-	SpaceHeaderIdentityIcon,
-	SpaceWindowHeader,
-} from "#/components/spaces/space-header";
+import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import type { SpaceView } from "#/components/spaces/space-view";
 import {
 	ComposerFileDiscoveryError,
@@ -274,7 +271,6 @@ export function CenterAgentNewChat({
 				}
 				header={
 					<SpaceWindowHeader
-						leadingControl={<SpaceHeaderIdentityIcon isDirectMessage />}
 						navigation={
 							<CenterAgentHeaderTabs
 								activeSectionId="chat"

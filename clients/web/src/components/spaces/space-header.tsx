@@ -407,7 +407,7 @@ export function SpaceHeader(input: {
 				</>
 			}
 			leadingControl={
-				isDirectMessage ? (
+				isDirectMessage && !input.isCenterAgentDirectMessage ? (
 					<SpaceHeaderIdentityIcon isDirectMessage />
 				) : undefined
 			}

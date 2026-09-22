@@ -2,6 +2,7 @@ import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
+	DialogFooter,
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
@@ -68,9 +69,11 @@ export function ChatTitleEditor(input: {
 								{error}
 							</p>
 						)}
-						<Button disabled={pending || !name.trim()} type="submit">
-							Save
-						</Button>
+						<DialogFooter>
+							<Button disabled={pending || !name.trim()} type="submit">
+								Save
+							</Button>
+						</DialogFooter>
 					</form>
 				</DialogContent>
 			</Dialog>
