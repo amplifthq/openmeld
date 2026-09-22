@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { classifySignInError } from "./auth-sign-in-error";
+import {
+	classifySignInError,
+	isSocialOAuthCallbackError,
+	resolveSocialOAuthErrorCallbackURL,
+} from "./auth-sign-in-error";
 
 describe("classifySignInError", () => {
 	it("returns no presentation for an ordinary sign-in landing", () => {
@@ -33,5 +37,24 @@ describe("classifySignInError", () => {
 	it("fails toward a visible message for an unrecognized code", () => {
 		const result = classifySignInError("something_new_from_a_newer_provider");
 		expect(result.kind).toBe("failed");
+	});
+});
+
+describe("social OAuth error landing", () => {
+	it.each([
+		"http://localhost:3000/sign-up",
+		"http://localhost:3000/sign-up?redirect=%2Fo%2Facme",
+		"http://localhost:3000/magic-link",
+		"http://localhost:3000/magic-link?redirect=%2F",
+		"http://localhost:3000/login?redirect=%2F",
+	])("returns %s to /login so only login classifies the error", (pageUrl) => {
+		expect(resolveSocialOAuthErrorCallbackURL(pageUrl)).toBe(
+			"http://localhost:3000/login"
+		);
+	});
+
+	it("keeps a magic-link verification error out of the social OAuth set", () => {
+		expect(isSocialOAuthCallbackError("INVALID_TOKEN")).toBe(false);
+		expect(isSocialOAuthCallbackError("access_denied")).toBe(true);
 	});
 });
