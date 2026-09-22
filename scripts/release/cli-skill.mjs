@@ -1,6 +1,13 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { sign, verify } from "node:crypto";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -11,29 +18,66 @@ import {
   officialCliSkillChannelSchema,
   officialCliSkillPayloadSchema,
   officialCliSkillReleaseSchema,
-} from "../../packages/schemas/dist/index.js";
+} from "../../packages/schemas/src/official-cli-skill.ts";
 
 const defaultRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 export async function runCliSkill(input = {}) {
-  const root = input.root ?? defaultRoot;
   const mode = input.mode ?? process.argv[2];
   if (mode !== "build" && mode !== "check") {
     throw new Error("Usage: node scripts/release/cli-skill.mjs build|check");
   }
+  const controlRoot = await realpath(defaultRoot);
+  const root = await realpath(
+    mode === "check"
+      ? (input.root ?? process.env.OPENMELD_VERIFICATION_ROOT ?? controlRoot)
+      : controlRoot
+  );
+  const external = root !== controlRoot;
   const source = join(root, "release/openmeld-cli-skill");
   const destination = join(root, "clients/web/public/skills/openmeld-cli");
   const channelPath = join(destination, "channel.json");
   const archivePath = join(destination, "archive.json");
-  const { files, metadata, payload } = await readSkillSource(source);
+  if (
+    await isHistoricalSourceWithoutSkill({
+      mode,
+      external,
+      source,
+      destination,
+      root,
+      controlRoot,
+      env: input.env ?? process.env,
+    })
+  ) {
+    return;
+  }
   let channel = await readChannel(channelPath, mode);
-  let archive = await readArchive(archivePath, channel, mode);
+  const metadataSource = JSON.parse(
+    await readFile(join(source, "release.json"), "utf8")
+  );
+  const existing = channel.releases.find(
+    (release) => verifyRelease(release).revision === metadataSource.revision
+  );
+  const contract =
+    external && mode === "check" && existing
+      ? verifyRelease(existing).contractVersion
+      : OFFICIAL_CLI_SKILL_CONTRACT;
+  const { files, metadata, payload } = await readSkillSource(source, contract);
+  const historicalArchiveMissing = external && !(await pathExists(archivePath));
+  let archive = await readArchive(
+    archivePath,
+    channel,
+    historicalArchiveMissing ? "build" : mode
+  );
   const trustedReleases =
     input.trustedReleases ??
-    readTrustedReleases({
-      env: input.env ?? process.env,
+    (await trustedHistoryForSource({
       root,
-    });
+      controlRoot,
+      external,
+      channel,
+      env: input.env ?? process.env,
+    }));
   assertTrustedHistoryPreserved(archive.releases, trustedReleases);
   const trustedRevisions = new Set(
     trustedReleases.map((release) => verifyRelease(release).revision)
@@ -57,7 +101,13 @@ export async function runCliSkill(input = {}) {
     throw new Error("Skill channel exceeds size limit");
   }
   await materialize(channelPath, channelText, mode);
-  await materialize(archivePath, `${JSON.stringify(archive, null, 2)}\n`, mode);
+  if (!historicalArchiveMissing) {
+    await materialize(
+      archivePath,
+      `${JSON.stringify(archive, null, 2)}\n`,
+      mode
+    );
+  }
   for (const release of archive.releases) {
     const parsed = verifyRelease(release);
     const releaseRoot = join(destination, "releases", String(parsed.revision));
@@ -86,7 +136,71 @@ export async function runCliSkill(input = {}) {
   );
 }
 
-async function readSkillSource(source) {
+async function pathExists(path) {
+  try {
+    await lstat(path);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function isHistoricalSourceWithoutSkill(input) {
+  if (
+    input.mode !== "check" ||
+    !input.external ||
+    (await pathExists(input.source)) ||
+    (await pathExists(input.destination))
+  ) {
+    return false;
+  }
+  const prior = await trustedHistoryForSource({
+    ...input,
+    channel: { releases: [] },
+  });
+  if (prior.length) {
+    throw new Error(
+      "Published Skill delivery cannot be removed from the trusted history."
+    );
+  }
+  process.stdout.write(
+    "Official CLI Skill: not applicable to this historical source (no Skill source or public artifacts).\n"
+  );
+  return true;
+}
+
+async function trustedHistoryForSource({
+  root,
+  controlRoot,
+  external,
+  channel,
+  env,
+}) {
+  if (external && !(await pathExists(join(root, ".git")))) {
+    return channel.releases;
+  }
+  let historyEnv = env;
+  if (external && !env.OPENMELD_AFFECTED_BASE) {
+    const controlSha = resolveGitCommit(controlRoot, "HEAD");
+    const sourceSha = resolveGitCommit(root, "HEAD");
+    const ancestry = spawnSync(
+      "git",
+      ["merge-base", "--is-ancestor", sourceSha, controlSha],
+      { cwd: root, stdio: "pipe" }
+    );
+    // Approved historical checkouts retain their own signed history. A new
+    // candidate must still preserve the current trusted base's revisions.
+    if (ancestry.status === 0) {
+      historyEnv = { ...env, OPENMELD_AFFECTED_BASE: sourceSha };
+    }
+  }
+  return readTrustedReleases({ root, env: historyEnv });
+}
+
+async function readSkillSource(source, contractVersion) {
   const metadata = JSON.parse(
     await readFile(join(source, "release.json"), "utf8")
   );
@@ -107,7 +221,7 @@ async function readSkillSource(source) {
       schemaVersion: 1,
       revision: metadata.revision,
       minimumCliVersion: metadata.minimumCliVersion,
-      contractVersion: OFFICIAL_CLI_SKILL_CONTRACT,
+      contractVersion,
       files,
     })
   );
@@ -274,6 +388,14 @@ function readTrustedReleases({ env, root }) {
   const archivePath = "clients/web/public/skills/openmeld-cli/archive.json";
   if (gitPathExists(root, commit, archivePath)) {
     return parseArchive(readGitJson(root, commit, archivePath)).releases;
+  }
+  if (
+    !(
+      gitPathExists(root, commit, "clients/web/public/skills/openmeld-cli") ||
+      gitPathExists(root, commit, "release/openmeld-cli-skill")
+    )
+  ) {
+    return [];
   }
   const channel = readGitJson(
     root,

@@ -1,167 +1,250 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { cp, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { runCliSkill } from "./cli-skill.mjs";
 import { checkCliSkill } from "./cli-skill-check.mjs";
 
+const WRAPPER = fileURLToPath(
+  new URL("./cli-skill-check.mjs", import.meta.url)
+);
+const REPOSITORY_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+const SOURCE = "release/openmeld-cli-skill";
+const PUBLIC = "clients/web/public/skills/openmeld-cli";
 const VERIFICATION_FAILURE = /CLI Skill verification failed/u;
-const IMMUTABLE_REVISION_FAILURE = /Published Skill revision 1 is immutable/u;
-const TRUSTED_HISTORY_FAILURE =
-  /Published Skill revision 1 cannot be changed or removed/u;
-const INVALID_TRUSTED_ARCHIVE_FAILURE = /is not valid JSON/u;
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const CHECK_PASSED = /check passed/u;
+const CONTENT_FAILURE =
+  /Published revisions are immutable|Published Skill signature is invalid|Generated Skill file differs/u;
+const NOT_APPLICABLE = /not applicable/u;
+const HISTORICAL_NOT_APPLICABLE = /not applicable to this historical source/u;
 
-test("stops on a failed schema build or signature check without signing content", async () => {
-  for (const statuses of [[1], [0, 1], [0, 0]]) {
+test("propagates verifier failures without launching a package manager", () => {
+  for (const status of [0, 1, null]) {
     const calls = [];
-    const verify = async () =>
-      await checkCliSkill({
-        cwd: "/exact-release-source",
+    const cwd = path.resolve("release source with spaces");
+    const verify = () =>
+      checkCliSkill({
+        cwd,
         run: (command, args, options) => {
-          calls.push({ command, args, cwd: options.cwd, env: options.env });
-          return statuses[calls.length - 1];
+          calls.push({ command, args, options });
+          return { status };
         },
       });
-    if (statuses.includes(1)) {
-      await assert.rejects(verify, VERIFICATION_FAILURE);
+    if (status === 0) {
+      assert.doesNotThrow(verify);
     } else {
-      await assert.doesNotReject(verify);
+      assert.throws(verify, VERIFICATION_FAILURE);
     }
-    assert.equal(calls.length, statuses.length);
-    assert.ok(calls.every((call) => call.cwd === "/exact-release-source"));
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].command, process.execPath);
     assert.deepEqual(calls[0].args, [
-      "exec",
-      "turbo",
-      "run",
-      "build",
-      "--filter=@openmeld/schemas",
+      "--experimental-strip-types",
+      fileURLToPath(new URL("./cli-skill.mjs", import.meta.url)),
+      "check",
     ]);
-    if (calls[1]) {
-      assert.deepEqual(calls[1].args, [
+    assert.equal(calls[0].options.cwd, cwd);
+    assert.equal(calls[0].options.env.OPENMELD_VERIFICATION_ROOT, cwd);
+    assert.notEqual(calls[0].options.shell, true);
+  }
+  const spawnError = new Error("cannot launch verifier");
+  assert.throws(
+    () => checkCliSkill({ run: () => ({ error: spawnError, status: null }) }),
+    (error) => error === spawnError
+  );
+});
+
+test("the real wrapper keeps control and source separate with no pnpm on PATH", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "openmeld skill process "));
+  try {
+    const control = path.join(root, "control with spaces");
+    const source = path.join(root, "source with spaces");
+    const wrapper = path.join(control, "scripts/release/cli-skill-check.mjs");
+    mkdirSync(path.dirname(wrapper), { recursive: true });
+    copyFileSync(WRAPPER, wrapper);
+    // Probe only the executable/data boundary here. The tests below run the
+    // real verifier and real signatures, without substituting either one.
+    writeFixtureFile(
+      control,
+      "scripts/release/cli-skill.mjs",
+      [
+        'import { readFileSync } from "node:fs";',
+        'import path from "node:path";',
+        'if (process.argv[2] !== "check") throw new Error("not read-only");',
+        'process.stdout.write(readFileSync(path.join(process.env.OPENMELD_VERIFICATION_ROOT, "product.txt"), "utf8"));',
+      ].join("\n")
+    );
+    writeFixtureFile(source, "product.txt", "exact historical product\n");
+    writeFixtureFile(
+      source,
+      "scripts/release/cli-skill.mjs",
+      'throw new Error("historical executable must not run");\n'
+    );
+    const result = runWrapper(source, wrapper);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, "exact historical product\n");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("current control verifies signed historical content without source-owned code", () => {
+  const releases = readPublishedReleases();
+  for (const release of [releases[0], releases.at(-1)]) {
+    const root = mkdtempSync(path.join(tmpdir(), "openmeld signed skill "));
+    try {
+      populateSignedFixture(root, release);
+      writeFixtureFile(
+        root,
         "scripts/release/cli-skill.mjs",
-        "check",
-      ]);
+        'throw new Error("historical verifier must not run");\n'
+      );
+      writeFixtureFile(
+        root,
+        "packages/schemas/src/official-cli-skill.ts",
+        'throw new Error("historical schema must not load");\n'
+      );
+      const before = snapshotFiles(root);
+      const result = runWrapper(root);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, CHECK_PASSED);
+      assert.deepEqual(snapshotFiles(root), before);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   }
 });
 
-test("rejects mutation or deletion of every archived signed revision", async () => {
-  const fixtureRoot = await mkdtemp(join(tmpdir(), "openmeld-cli-skill-"));
-  try {
-    await cp(
-      join(REPO_ROOT, "release/openmeld-cli-skill"),
-      join(fixtureRoot, "release/openmeld-cli-skill"),
-      { recursive: true }
-    );
-    await cp(
-      join(REPO_ROOT, "clients/web/public/skills/openmeld-cli"),
-      join(fixtureRoot, "clients/web/public/skills/openmeld-cli"),
-      { recursive: true }
-    );
-    const archivePath = join(
-      fixtureRoot,
-      "clients/web/public/skills/openmeld-cli/archive.json"
-    );
-    const trustedChannel = JSON.parse(
-      await readFile(
-        join(REPO_ROOT, "clients/web/public/skills/openmeld-cli/channel.json"),
-        "utf8"
-      )
-    );
-    await writeFile(
-      archivePath,
-      `${JSON.stringify(trustedChannel, null, 2)}\n`
-    );
-    const run = () =>
-      runCliSkill({
-        mode: "check",
-        root: fixtureRoot,
-        trustedReleases: trustedChannel.releases,
-      });
-    const historicalEntry = join(
-      fixtureRoot,
-      "clients/web/public/skills/openmeld-cli/releases/1/SKILL.md"
-    );
-    const original = await readFile(historicalEntry, "utf8");
-
-    await run();
-    await writeFile(historicalEntry, `${original}\nchanged\n`);
-    await assert.rejects(run(), IMMUTABLE_REVISION_FAILURE);
-    await writeFile(historicalEntry, original);
-    await unlink(historicalEntry);
-    await assert.rejects(run(), IMMUTABLE_REVISION_FAILURE);
-    await writeFile(historicalEntry, original);
-    await writeFile(
-      archivePath,
-      `${JSON.stringify(
-        {
-          ...trustedChannel,
-          releases: trustedChannel.releases.filter(
-            (release) => JSON.parse(release.payload).revision !== 1
-          ),
-        },
-        null,
-        2
-      )}\n`
-    );
-    await rm(dirname(historicalEntry), { force: true, recursive: true });
-    await assert.rejects(run(), TRUSTED_HISTORY_FAILURE);
-  } finally {
-    await rm(fixtureRoot, { force: true, recursive: true });
+test("real verification rejects stale source, invalid signatures and changed public files", () => {
+  const release = readPublishedReleases().at(-1);
+  for (const corruption of ["source", "signature", "public"]) {
+    const root = mkdtempSync(path.join(tmpdir(), "openmeld corrupt skill "));
+    try {
+      populateSignedFixture(root, release);
+      if (corruption === "signature") {
+        writeFixtureFile(
+          root,
+          `${PUBLIC}/channel.json`,
+          `${JSON.stringify(
+            {
+              schemaVersion: 1,
+              releases: [{ ...release, signature: `${"A".repeat(86)}==` }],
+            },
+            null,
+            2
+          )}\n`
+        );
+      } else {
+        writeFixtureFile(
+          root,
+          `${corruption === "source" ? SOURCE : PUBLIC}/SKILL.md`,
+          "Unsigned edit\n"
+        );
+      }
+      const before = snapshotFiles(root);
+      const result = runWrapper(root);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, CONTENT_FAILURE);
+      assert.deepEqual(snapshotFiles(root), before);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 });
 
-test("does not fall back to the channel when the trusted archive is corrupt", async () => {
-  const fixtureRoot = await mkdtemp(join(tmpdir(), "openmeld-cli-skill-base-"));
-  try {
-    await cp(
-      join(REPO_ROOT, "release/openmeld-cli-skill"),
-      join(fixtureRoot, "release/openmeld-cli-skill"),
-      { recursive: true }
-    );
-    await cp(
-      join(REPO_ROOT, "clients/web/public/skills/openmeld-cli"),
-      join(fixtureRoot, "clients/web/public/skills/openmeld-cli"),
-      { recursive: true }
-    );
-    const archivePath = join(
-      fixtureRoot,
-      "clients/web/public/skills/openmeld-cli/archive.json"
-    );
-    const validArchive = await readFile(archivePath, "utf8");
-    await writeFile(archivePath, "{not-json\n");
-    const gitEnv = {
+test("historical sources without Skill delivery are explicit, but partial artifacts fail closed", () => {
+  for (const present of [null, SOURCE, PUBLIC]) {
+    const root = mkdtempSync(path.join(tmpdir(), "openmeld before skill "));
+    try {
+      if (present) {
+        mkdirSync(path.join(root, present), { recursive: true });
+      }
+      const before = snapshotFiles(root);
+      const result = runWrapper(root);
+      if (present) {
+        assert.notEqual(result.status, 0);
+        assert.doesNotMatch(result.stdout, NOT_APPLICABLE);
+      } else {
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(result.stdout, HISTORICAL_NOT_APPLICABLE);
+      }
+      assert.deepEqual(snapshotFiles(root), before);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+function runWrapper(cwd, wrapper = WRAPPER) {
+  return spawnSync(process.execPath, [wrapper], {
+    cwd,
+    encoding: "utf8",
+    env: {
       ...process.env,
-      GIT_AUTHOR_EMAIL: "test@openmeld.local",
-      GIT_AUTHOR_NAME: "OpenMeld Test",
-      GIT_COMMITTER_EMAIL: "test@openmeld.local",
-      GIT_COMMITTER_NAME: "OpenMeld Test",
-    };
-    const git = (...args) =>
-      execFileSync("git", args, {
-        cwd: fixtureRoot,
-        encoding: "utf8",
-        env: gitEnv,
-      }).trim();
-    git("init", "--quiet");
-    git("add", ".");
-    git("commit", "--quiet", "-m", "seed corrupt trusted archive");
-    const base = git("rev-parse", "HEAD");
-    await writeFile(archivePath, validArchive);
+      PATH: "",
+      Path: "",
+      npm_execpath: path.join(cwd, "unused pnpm.cmd"),
+    },
+  });
+}
 
-    await assert.rejects(
-      runCliSkill({
-        env: { ...process.env, OPENMELD_AFFECTED_BASE: base },
-        mode: "check",
-        root: fixtureRoot,
-      }),
-      INVALID_TRUSTED_ARCHIVE_FAILURE
-    );
-  } finally {
-    await rm(fixtureRoot, { force: true, recursive: true });
+function readPublishedReleases() {
+  return JSON.parse(
+    readFileSync(path.join(REPOSITORY_ROOT, PUBLIC, "channel.json"), "utf8")
+  ).releases;
+}
+
+function populateSignedFixture(root, release) {
+  const payload = JSON.parse(release.payload);
+  for (const directory of ["playbooks", "references"]) {
+    mkdirSync(path.join(root, SOURCE, directory), { recursive: true });
   }
-});
+  writeFixtureFile(
+    root,
+    `${SOURCE}/release.json`,
+    JSON.stringify({
+      revision: payload.revision,
+      minimumCliVersion: payload.minimumCliVersion,
+    })
+  );
+  writeFixtureFile(
+    root,
+    `${PUBLIC}/channel.json`,
+    `${JSON.stringify({ schemaVersion: 1, releases: [release] }, null, 2)}\n`
+  );
+  for (const file of payload.files) {
+    for (const directory of [
+      SOURCE,
+      PUBLIC,
+      `${PUBLIC}/releases/${payload.revision}`,
+    ]) {
+      writeFixtureFile(root, `${directory}/${file.path}`, file.content);
+    }
+  }
+}
+
+function writeFixtureFile(root, relative, content) {
+  const target = path.join(root, relative);
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, content);
+}
+
+function snapshotFiles(root, relative = "") {
+  return readdirSync(path.join(root, relative), { withFileTypes: true })
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .flatMap((entry) => {
+      const name = path.join(relative, entry.name);
+      return entry.isDirectory()
+        ? snapshotFiles(root, name)
+        : [[name, readFileSync(path.join(root, name), "utf8")]];
+    });
+}

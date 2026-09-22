@@ -23,8 +23,9 @@ Increment `release.json.revision` for every published change. Increase
 An incompatible Skill contract requires a bridge CLI release, not just a
 content update.
 
-Run `node scripts/release/cli-skill.mjs build` after building
-`@openmeld/schemas`. It signs the exact payload with Ed25519 and generates
+Run `node scripts/release/cli-skill.mjs build` with the repository's Node.js
+toolchain and installed schema runtime dependencies; no schema build is needed.
+It signs the exact payload with Ed25519 and generates
 `clients/web/public/skills/openmeld-cli/`: the public Markdown entry, topic
 files, immutable revision folders, the bounded signed channel, and a generated
 signed-release archive used only by release validation. The channel keeps the
@@ -37,9 +38,11 @@ Commit the authoring files and generated public files together.
 runs before every Web build. Ordinary content-only changes select Web delivery,
 without changing CLI or Service bytes.
 
-`pnpm run verify:cli-skill` reuses Turbo's schema build cache and runs that
-same read-only check without building Web. Focused PR feedback and Final
-Candidate select it for Skill source, public artifacts, signing/check scripts,
+`pnpm run verify:cli-skill` runs that same read-only check directly through
+Node.js and the canonical schema source, without building schemas or Web.
+It never spawns a package-manager shim or shell, including on Windows.
+Focused PR feedback and Final Candidate select it for Skill source,
+public artifacts, signing/check scripts,
 and related schema or dependency changes. Unrelated PRs do not run it.
 The whole-train `release:preflight` checks it before starting Production
 mutations, including trains that later build Desktop's renderer. Scoped Web
@@ -48,6 +51,16 @@ signed revision; validation never signs or rewrites content automatically.
 `pnpm run test:cli-skill` first builds the CLI's workspace dependencies, then
 runs the focused official-Skill integration test. This keeps a missing adapter
 build from being misreported as a Skill behavior failure.
+
+Hosted preflight always uses the current control checkout's verifier, schema,
+and pinned public key. `OPENMELD_VERIFICATION_ROOT` selects only the release
+data inspected by `check`; `build` ignores it and remains in its own checkout.
+Historical content retains its signature-verified contract rather than being
+forced onto the current publishing contract. Same-checkout verification still
+enforces the current contract. A historical checkout with neither the Skill
+source directory nor public artifacts is explicitly not applicable; partial,
+unreadable, unsigned, or changed artifacts fail closed. Missing Skill content
+in the current checkout is never optional.
 
 The signing private key is never tracked or deployed to Web. Local publication
 uses `~/.config/openmeld-release/cli-skill-signing.pem` (owner-only access), or
