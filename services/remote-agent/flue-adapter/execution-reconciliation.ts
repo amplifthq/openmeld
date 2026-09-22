@@ -28,7 +28,7 @@ import { finishRemoteAgentComputerCommands } from "./execution-cleanup";
 
 export type FlueSubmissionLifecycle = Pick<
   AgentSubmissionProjection,
-  "error" | "status" | "completedOutput"
+  "error" | "status" | "completedOutput" | "terminalMetadata"
 >;
 
 export async function reconcileSettledRemoteAgentExecutions(input: {
@@ -133,6 +133,14 @@ export async function reconcileRemoteAgentExecution(input: {
   }
 
   const cancelled = current.execution.status === "cancellation_requested";
+  if (
+    submission.terminalMetadata &&
+    submission.terminalMetadata.submissionId !== input.identity.submissionId
+  ) {
+    throw new Error(
+      "Remote Agent terminal consumption has mismatched execution identity."
+    );
+  }
   const requestedFailure =
     await readRemoteAgentRequestedExecutionFailure(input);
   // A crash can leave Flue canonically complete before the application stores
@@ -161,6 +169,13 @@ export async function reconcileRemoteAgentExecution(input: {
   });
 
   const settledExecution = await completeRemoteAgentExecutionState({
+    ...(submission.terminalMetadata
+      ? {
+          completionMetadata: normalizeTerminalMetadata(
+            submission.terminalMetadata
+          ),
+        }
+      : {}),
     identity: input.identity,
     nowMs,
     status: cancelled ? "aborted" : "failed",
@@ -220,15 +235,7 @@ async function reconcileCompletedRemoteAgentExecution(input: {
   }
   await finishRemoteAgentComputerCommands({ ...input, context });
   const nowMs = input.nowMs?.() ?? Date.now();
-  const model = input.output.model;
-  let modelId: string | null = null;
-  if (model?.id) {
-    modelId = model.provider ? `${model.provider}/${model.id}` : model.id;
-  }
-  const completionMetadata = {
-    modelId,
-    usage: normalizeFluePromptUsage(input.output.usage),
-  };
+  const completionMetadata = normalizeTerminalMetadata(input.output);
   const common = {
     identity: input.identity,
     storage: input.storage,
@@ -259,6 +266,20 @@ async function reconcileCompletedRemoteAgentExecution(input: {
     });
   }
   await projectRemoteAgentTerminalExecution({ ...input, execution, nowMs });
+}
+
+function normalizeTerminalMetadata(
+  metadata: NonNullable<AgentSubmissionProjection["terminalMetadata"]>
+) {
+  const model = metadata.model;
+  let modelId: string | null = null;
+  if (model?.id) {
+    modelId = model.provider ? `${model.provider}/${model.id}` : model.id;
+  }
+  return {
+    modelId,
+    usage: normalizeFluePromptUsage(metadata.usage),
+  };
 }
 
 async function projectRemoteAgentTerminalExecution(input: {

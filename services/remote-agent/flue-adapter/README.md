@@ -117,6 +117,17 @@ supply a successful result. Recovery uses the normal Computer cleanup and
 execution-owner CAS before projecting that result to Core; cancellation and
 requested safety failures still win over an uncommitted success.
 
+Recorded consumption is independent of that success-only output. The same
+read-only projection returns exact-submission terminal model/usage for failed
+and stopped work too, without returning its draft as an answer. Failed prompt
+observations read those persisted assistant steps before emitting their error;
+if that read itself fails, the original failure reaches canonical settlement
+and reconciliation rather than committing an incomplete application outcome.
+The recovery tests run the actual provider/coordinator into failure or Stop,
+reopen SQLite with no application terminal metadata, and verify one usage record
+and only a failed/stopped result. A failure before any model call stays unknown,
+not a synthetic zero-consumption record.
+
 Normal completion and recovery atomically persist the execution owner with the
 existing callback model/usage fields in one conditional SQL update. This keeps
 both stored record shapes readable by the previous patched release; it does
