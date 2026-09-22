@@ -17,3 +17,9 @@ changing production. Independent releases remain independent, and a deployment
 with a retained, verified identity can resume its failed health check without
 deploying again. Web and Desktop keep separate checked artifact snapshots so
 building one does not force the other to rebuild.
+
+CLI trains also install the packed npm artifact before any production change
+and retain those verified bytes for publication. Compatibility checks require
+the working-folder cancellation receiver before the new CLI/Service, and the
+verified CLI before the Web installer, without requiring unrelated components
+to ship together.

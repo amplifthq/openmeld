@@ -796,7 +796,7 @@ documented job order is not a default dependency graph. Each scoped local or
 hosted preflight repeats receipt-based stage admission. A later stage is blocked
 while one of its real pending prerequisites lacks a verified receipt. This check
 never substitutes the latest CLI tag for Web, Database, or Worker deployment
-evidence. For the explicit Remote Agent receiver contract, a verified deployed
+evidence. For the explicit Remote Agent and working-folder cancellation receiver contracts, a verified deployed
 source may already contain the required receiver while unrelated changes remain
 pending. Admission compares the named receiver files and shared schema inputs
 at that deployed source against the target source. Only matching content, an
@@ -814,8 +814,18 @@ control verifies the exact-source Web artifact before Database, CLI, or Worker
 product mutation. An independent `db` train declares only `db` and therefore
 does not build Web.
 
-Artifact admission builds and runs only the exact-source Web and Desktop scopes
-declared in the train. A backend-only train builds neither. When both are
+Artifact admission builds and runs only the exact-source CLI, Web, and Desktop
+artifacts declared in the train. A train without these scopes builds none of
+them. CLI admission uses the existing immutable npm probe: an already published
+package must pass artifact and isolated-consumer verification; a new package
+must pass strict release readiness, packing, and the same isolated-consumer
+check before any Database, CLI, or Worker mutation. The resumable publisher
+uses the retained checked tarball. Reuse requires a clean exact source, matching
+build inputs and tool runtime, and the same inspected tarball integrity.
+Changed inputs or bytes invalidate that local proof. Published-artifact recovery
+never rebuilds a historical package or overwrites its published version.
+
+Web and Desktop admission checks only the declared client scopes. When both are
 declared, it checks Desktop first and Web second so the retained output and
 receipt still identify the Web artifact used by the Web deploy. Scoped Web
 preflight repeats the Web artifact admission. The deploy command may reuse only
@@ -830,7 +840,8 @@ health binds the live root SSR source and build ID to that exact clean artifact
 receipt.
 
 The hosted `cloud`/`full` parent job derives its plan from each component's
-receipt and verifies the Web artifact before any Database or Worker job starts.
+receipt and verifies the declared train artifacts before any Database or Worker
+job starts.
 Desktop has no deployment job in that hosted scope. It may still be named in the
 complete train for artifact admission, while its production packaging entrypoint
 verifies its renderer and prerender separately. Web and Desktop artifact
@@ -840,6 +851,18 @@ other component's baseline. Artifact reuse is local to a checkout with matching
 source, build inputs, and output hash. A separate hosted deployment runner
 builds and verifies its own output rather than treating another runner's test
 result as proof of its bytes.
+
+Working-folder recovery introduces a Core cancellation receiver that must be
+healthy before the new CLI/Service can emit that outcome. Use the guarded
+`core-current-cli-projection` stage first: it installs the receiver while
+retaining the currently published CLI floor. The new npm-backed Web installer
+must follow the verified CLI publication. Thus a train containing these changes
+has the dependency chain Core -> CLI -> Web; independent components remain
+independent. The planner composes this chain with existing receiver contracts
+and refuses contradictory directions rather than guessing. A previously
+deployed matching Core receiver can satisfy the dependency even when unrelated
+Core changes remain pending. The hosted `cloud`/`full` DAG cannot publish CLI;
+use the explicit guarded stages for this train instead of its default job order.
 
 Health-only resume is safe only when current-main guarded control matches the
 retained receipt's selected source, operation key, lease, target, and live
