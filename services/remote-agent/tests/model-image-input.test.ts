@@ -1,9 +1,10 @@
 import { stream as streamOpenAICompletions } from "@earendil-works/pi-ai/api/openai-completions";
 import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages";
 import { describe, expect, it, vi } from "vitest";
-import { REMOTE_AGENT_CONNECTOR_TOOL_NAMES } from "../agent-core/connector-tools";
-import { REMOTE_AGENT_GITHUB_TOOL_NAMES } from "../agent-core/github-tools";
-import { REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES } from "../flue-adapter/capability-discovery";
+import {
+  REMOTE_AGENT_EXECUTION_INSTRUMENTATION,
+  registerRemoteAgentExecutionPreparation,
+} from "../flue-adapter/execution-context";
 import {
   declareRemoteAgentModelImageInput,
   declareRemoteAgentModelReasoning,
@@ -144,34 +145,80 @@ describe("Remote Agent model reasoning", () => {
     );
   });
 
-  it("measures provider preparation without session affinity", async () => {
-    const reportStage = vi.fn();
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
-      {},
-      reportStage
-    );
+  it.each([
+    {
+      label: "native only",
+      names: ["search", "codemode"],
+      deferredToolCount: 0,
+      expectedTotal: 2,
+    },
+    {
+      label: "native and indirect",
+      names: ["search", "codemode"],
+      deferredToolCount: 148,
+      expectedTotal: 150,
+    },
+    {
+      label: "tool-free compaction",
+      names: [],
+      deferredToolCount: 148,
+      expectedTotal: 0,
+    },
+  ])("counts capabilities for $label without session affinity", async ({
+    names,
+    deferredToolCount,
+    expectedTotal,
+  }) => {
+    const tools = names.map((name) => ({
+      function: { name },
+      type: "function",
+    }));
+    const dispose = registerRemoteAgentExecutionPreparation(async () => ({
+      deferredToolCount,
+    }));
+    try {
+      await REMOTE_AGENT_EXECUTION_INSTRUMENTATION.interceptor(
+        {
+          type: "agent",
+          operationId: "catalog-count",
+          operationKind: "prompt",
+        },
+        { submissionId: "catalog-count" },
+        async () => {
+          const reportStage = vi.fn();
+          const options =
+            withRemoteAgentProviderObservabilityAndSessionAffinity(
+              {},
+              reportStage
+            );
 
-    const payload = await options.onPayload?.(
-      {
-        messages: [{ content: "hello", role: "user" }],
-        tools: [{ function: { name: "search" }, type: "function" }],
-      },
-      TEXT_ONLY_MODEL
-    );
+          const payload = await options.onPayload?.(
+            {
+              messages: [{ content: "hello", role: "user" }],
+              tools,
+            },
+            TEXT_ONLY_MODEL
+          );
 
-    expect(payload).toEqual({
-      messages: [{ content: "hello", role: "user" }],
-      provider: { allow_fallbacks: true },
-      tools: [{ function: { name: "search" }, type: "function" }],
-    });
-    expect(reportStage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        inputBytes: expect.any(Number),
-        messageCount: 1,
-        stage: "request_prepared",
-        toolCount: 1,
-      })
-    );
+          expect(payload).toEqual({
+            messages: [{ content: "hello", role: "user" }],
+            provider: { allow_fallbacks: true },
+            tools,
+          });
+          expect(reportStage).toHaveBeenCalledWith(
+            expect.objectContaining({
+              inputBytes: expect.any(Number),
+              messageCount: 1,
+              stage: "request_prepared",
+              toolCount: names.length,
+              availableToolCount: expectedTotal,
+            })
+          );
+        }
+      );
+    } finally {
+      dispose();
+    }
   });
 
   it("rejects a complete provider payload that exceeds the frozen model input budget", async () => {
@@ -228,540 +275,25 @@ describe("Remote Agent model reasoning", () => {
   it.each([
     "z-ai/glm-5.3-flash",
     "x-ai/grok-4.6",
-  ])("keeps the same progressive discovery bootstrap for %s", async (modelId) => {
-    const reportStage = vi.fn();
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
-      {},
-      reportStage
-    );
-    const discoveryTools = REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.map(
-      (name) => ({ function: { name }, type: "function" })
-    );
-    const githubTools = REMOTE_AGENT_GITHUB_TOOL_NAMES.map((name) => ({
-      function: { name },
-      type: "function",
-    }));
-    const directTools = [
-      ...Array.from({ length: 65 }, (_, index) => ({
-        function: { name: `tool_${String(index)}` },
-        type: "function",
-      })),
-      ...discoveryTools,
-      ...githubTools,
+  ])("preserves the registered tool interface for %s without a second policy", async (modelId) => {
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
+    const tools = [
+      "codemode",
+      "activate_skill",
+      "read_skill_resource",
+      "openmeld_search_capabilities",
+      "openmeld_describe_capabilities",
+      "read",
+    ].map((name) => ({ type: "function", function: { name } }));
+    const messages = [
+      { role: "user", content: "Please use the available capabilities." },
     ];
-    const codemode = {
-      function: {
-        description: "All 65 tools remain available through typed JavaScript.",
-        name: "codemode",
-      },
-      type: "function",
-    };
-    const tools = [...directTools, codemode];
-
     const payload = await options.onPayload?.(
-      { messages: [{ content: "hello", role: "user" }], tools },
+      { tools, messages },
       { ...TEXT_ONLY_MODEL, id: modelId }
     );
-
-    expect(payload).toMatchObject({ tools: [...discoveryTools, codemode] });
-    expect(payload).not.toMatchObject({
-      tools: expect.arrayContaining(githubTools),
-    });
-    expect(tools).toHaveLength(68 + githubTools.length);
-    expect(reportStage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messageCount: 1,
-        toolCount: 3,
-      })
-    );
-  });
-
-  it("keeps Flue skill activation available beside the OpenMeld bootstrap", async () => {
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
-    const discoveryTools = REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.map(
-      (name) => ({ function: { name }, type: "function" })
-    );
-    const activateSkill = {
-      function: {
-        description: "Load one mounted Organization Skill.",
-        name: "activate_skill",
-      },
-      type: "function",
-    };
-    const codemode = {
-      function: { name: "codemode" },
-      type: "function",
-    };
-
-    const payload = await options.onPayload?.(
-      {
-        messages: [{ content: "Use the release skill.", role: "user" }],
-        tools: [
-          ...Array.from({ length: 65 }, (_, index) => ({
-            function: { name: `tool_${String(index)}` },
-            type: "function",
-          })),
-          ...discoveryTools,
-          activateSkill,
-          codemode,
-        ],
-      },
-      TEXT_ONLY_MODEL
-    );
-
-    expect(payload).toMatchObject({
-      tools: [...discoveryTools, activateSkill, codemode],
-    });
-  });
-
-  it("keeps foundational OpenMeld reads available without exposing writes", async () => {
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
-    const discoveryTools = REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.map(
-      (name) => ({ function: { name }, type: "function" })
-    );
-    const foundationalReads = ["openmeld_list_organization_members"].map(
-      (name) => ({ function: { name }, type: "function" })
-    );
-    const createTask = {
-      function: { name: "openmeld_create_task" },
-      type: "function",
-    };
-    const codemode = {
-      function: { name: "codemode" },
-      type: "function",
-    };
-
-    const payload = await options.onPayload?.(
-      {
-        messages: [
-          {
-            content: "List my current OpenMeld Tasks without changing them.",
-            role: "user",
-          },
-        ],
-        tools: [
-          ...Array.from({ length: 65 }, (_, index) => ({
-            function: { name: `tool_${String(index)}` },
-            type: "function",
-          })),
-          ...discoveryTools,
-          ...foundationalReads,
-          createTask,
-          codemode,
-        ],
-      },
-      { ...TEXT_ONLY_MODEL, id: "z-ai/glm-5.3-flash" }
-    );
-
-    expect(payload).toMatchObject({
-      tools: [...discoveryTools, ...foundationalReads, codemode],
-    });
-    expect(payload).not.toMatchObject({
-      tools: expect.arrayContaining([createTask]),
-    });
-  });
-
-  it("exposes authorized Computer tools on the first provider turn", async () => {
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
-    const computerTools = [
-      "read",
-      "write",
-      "edit",
-      "bash",
-      "grep",
-      "glob",
-      "computer_command",
-    ].map((name) => ({ function: { name }, type: "function" }));
-    const codemode = { function: { name: "codemode" }, type: "function" };
-    const otherTool = {
-      function: { name: "openmeld_create_task" },
-      type: "function",
-    };
-    const payload = await options.onPayload?.(
-      {
-        messages: [{ role: "user", content: "Run Python on your Computer." }],
-        tools: [...computerTools, otherTool, codemode],
-      },
-      { ...TEXT_ONLY_MODEL, id: "z-ai/glm-5.3-flash" }
-    );
-    expect(payload).toMatchObject({ tools: [...computerTools, codemode] });
-
-    const unavailable = await options.onPayload?.(
-      {
-        messages: [{ role: "user", content: "Run Python on your Computer." }],
-        tools: [codemode],
-      },
-      TEXT_ONLY_MODEL
-    );
-    expect(unavailable).toMatchObject({ tools: [codemode] });
-  });
-
-  it("keeps the generic Connected App bootstrap direct for provider-specific goals", async () => {
-    const reportStage = vi.fn();
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
-      {},
-      reportStage
-    );
-    const discoveryTools = REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.map(
-      (name) => ({ function: { name }, type: "function" })
-    );
-    const connectedAppTools = REMOTE_AGENT_CONNECTOR_TOOL_NAMES.map((name) => ({
-      function: {
-        description: "Discover or execute one authorized Connected App action.",
-        name,
-      },
-      type: "function",
-    }));
-    const unrelatedTools = Array.from({ length: 65 }, (_, index) => ({
-      function: {
-        description: "Manage one unrelated test resource.",
-        name: `tool_${String(index)}`,
-      },
-      type: "function",
-    }));
-    const codemode = {
-      function: {
-        description: "The frozen active capability catalog.",
-        name: "codemode",
-      },
-      type: "function",
-    };
-
-    const payload = await options.onPayload?.(
-      {
-        messages: [{ content: "Send an email with Gmail.", role: "user" }],
-        tools: [
-          ...unrelatedTools,
-          ...discoveryTools,
-          ...connectedAppTools,
-          codemode,
-        ],
-      },
-      TEXT_ONLY_MODEL
-    );
-
-    expect(payload).toMatchObject({
-      tools: [...discoveryTools, ...connectedAppTools, codemode],
-    });
-    expect(payload).not.toMatchObject({
-      tools: expect.arrayContaining(unrelatedTools),
-    });
-    expect(reportStage).toHaveBeenCalledWith(
-      expect.objectContaining({ messageCount: 1, toolCount: 6 })
-    );
-  });
-
-  it("keeps only Code Mode direct when a large tool surface has no required direct tools", async () => {
-    const reportStage = vi.fn();
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
-      {},
-      reportStage
-    );
-    const directTools = Array.from({ length: 65 }, (_, index) => ({
-      function: { name: `tool_${String(index)}` },
-      type: "function",
-    }));
-    const codemode = {
-      function: {
-        description: "All 65 tools remain available through typed JavaScript.",
-        name: "codemode",
-      },
-      type: "function",
-    };
-    const tools = [...directTools, codemode];
-
-    const payload = await options.onPayload?.(
-      { messages: [{ content: "do the work", role: "user" }], tools },
-      TEXT_ONLY_MODEL
-    );
-
-    expect(payload).toMatchObject({ tools: [codemode] });
-    expect(tools).toHaveLength(66);
-    expect(reportStage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messageCount: 1,
-        toolCount: 1,
-      })
-    );
-  });
-
-  it("does not let Chinese user wording preselect Slack capabilities", async () => {
-    const reportStage = vi.fn();
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
-      {},
-      reportStage
-    );
-    const discoveryTools = REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.map(
-      (name) => ({ function: { name }, type: "function" })
-    );
-    const slackDirectory = {
-      function: {
-        description: "Read the live Slack workspace directory.",
-        name: "openmeld_read_slack_workspace_directory",
-      },
-      type: "function",
-    };
-    const slackInvitation = {
-      function: {
-        description: "Send private OpenMeld invitations to Slack teammates.",
-        name: "openmeld_invite_slack_teammates",
-      },
-      type: "function",
-    };
-    const unrelatedTools = Array.from({ length: 65 }, (_, index) => ({
-      function: {
-        description: "Manage one unrelated test resource.",
-        name: `tool_${String(index)}`,
-      },
-      type: "function",
-    }));
-    const codemode = {
-      function: {
-        description: "The frozen active capability catalog.",
-        name: "codemode",
-      },
-      type: "function",
-    };
-
-    const payload = await options.onPayload?.(
-      {
-        messages: [
-          {
-            content: "你能私信 Monica，把组织邀请链接发给她吗？",
-            role: "user",
-          },
-        ],
-        tools: [
-          ...unrelatedTools,
-          ...discoveryTools,
-          slackDirectory,
-          slackInvitation,
-          codemode,
-        ],
-      },
-      TEXT_ONLY_MODEL
-    );
-
-    expect(payload).toMatchObject({
-      tools: [...discoveryTools, codemode],
-    });
-    expect(payload).not.toMatchObject({
-      tools: expect.arrayContaining([slackDirectory, slackInvitation]),
-    });
-    expect(payload).not.toMatchObject({
-      tools: expect.arrayContaining(unrelatedTools),
-    });
-    expect(reportStage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messageCount: 1,
-        toolCount: 3,
-      })
-    );
-  });
-
-  it("does not let a broad user phrase preselect member capabilities", async () => {
-    const reportStage = vi.fn();
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
-      {},
-      reportStage
-    );
-    const discoveryTools = REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.map(
-      (name) => ({ function: { name }, type: "function" })
-    );
-    const organizationDirectory = {
-      function: {
-        description: "Read the exact OpenMeld Organization member directory.",
-        name: "openmeld_read_organization_directory",
-      },
-      type: "function",
-    };
-    const memberComputers = {
-      function: {
-        description: "Read one exact Organization member's computers.",
-        name: "openmeld_read_member_computers",
-      },
-      type: "function",
-    };
-    const unrelatedTools = Array.from({ length: 65 }, (_, index) => ({
-      function: {
-        description: "Manage one unrelated test resource.",
-        name: `tool_${String(index)}`,
-      },
-      type: "function",
-    }));
-    const codemode = {
-      function: {
-        description: "The frozen active capability catalog.",
-        name: "codemode",
-      },
-      type: "function",
-    };
-
-    const payload = await options.onPayload?.(
-      {
-        messages: [{ content: "查看同事电脑", role: "user" }],
-        tools: [
-          ...unrelatedTools,
-          ...discoveryTools,
-          organizationDirectory,
-          memberComputers,
-          codemode,
-        ],
-      },
-      TEXT_ONLY_MODEL
-    );
-
-    expect(payload).toMatchObject({
-      tools: [...discoveryTools, codemode],
-    });
-    expect(payload).not.toMatchObject({
-      tools: expect.arrayContaining([organizationDirectory, memberComputers]),
-    });
-    expect(payload).not.toMatchObject({
-      tools: expect.arrayContaining(unrelatedTools),
-    });
-    expect(reportStage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messageCount: 1,
-        toolCount: 3,
-      })
-    );
-  });
-
-  it.each([
-    {
-      prerequisites: [
-        {
-          description: "List the current Organization's Projects.",
-          name: "openmeld_list_projects",
-        },
-      ],
-      query: "openmeld_update_project",
-      targetDescription: "Update one existing Organization Project.",
-      targetName: "openmeld_update_project",
-    },
-    {
-      prerequisites: [
-        {
-          description: "List exact OpenMeld Agent Task Handles.",
-          name: "openmeld_list_agent_tasks",
-        },
-      ],
-      query: "openmeld_watch_agent_task",
-      targetDescription: "Watch one exact OpenMeld Agent Task.",
-      targetName: "openmeld_watch_agent_task",
-    },
-    {
-      prerequisites: [
-        {
-          description: "Preview Organization Skills and GitHub SHAs.",
-          name: "openmeld_read_organization_skills",
-        },
-      ],
-      query: "openmeld_install_organization_skill",
-      targetDescription: "Install one optional Organization Skill.",
-      targetName: "openmeld_install_organization_skill",
-    },
-    {
-      prerequisites: [
-        {
-          description: "List exact local agent connection candidates.",
-          name: "openmeld_list_local_agent_connection_candidates",
-        },
-      ],
-      query: "openmeld_connect_agent_profile_to_local_agent",
-      targetDescription: "Connect one Agent Profile to a local agent.",
-      targetName: "openmeld_connect_agent_profile_to_local_agent",
-    },
-    {
-      prerequisites: [
-        {
-          description: "Read the represented member's Organization directory.",
-          name: "openmeld_read_organization_directory",
-        },
-        {
-          description: "Read saved Agent Profile creation defaults.",
-          name: "openmeld_read_agent_profile_creation_defaults",
-        },
-        {
-          description: "List exact local agent connection candidates.",
-          name: "openmeld_list_local_agent_connection_candidates",
-        },
-        {
-          description: "List the current Organization's Projects.",
-          name: "openmeld_list_projects",
-        },
-      ],
-      query: "openmeld_create_agent_profile_request",
-      targetDescription: "Create one working Agent Profile request.",
-      targetName: "openmeld_create_agent_profile_request",
-    },
-  ])("does not preselect $targetName or its prerequisites from user text", async ({
-    prerequisites,
-    query,
-    targetDescription,
-    targetName,
-  }) => {
-    const reportStage = vi.fn();
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
-      {},
-      reportStage
-    );
-    const discoveryTools = REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.map(
-      (name) => ({ function: { name }, type: "function" })
-    );
-    const prerequisiteTools = prerequisites.map(({ description, name }) => ({
-      function: { description, name },
-      type: "function",
-    }));
-    const target = {
-      function: { description: targetDescription, name: targetName },
-      type: "function",
-    };
-    const unrelatedTools = Array.from({ length: 65 }, (_, index) => ({
-      function: {
-        description: "Manage one unrelated test resource.",
-        name: `tool_${String(index)}`,
-      },
-      type: "function",
-    }));
-    const codemode = {
-      function: {
-        description: "The frozen active capability catalog.",
-        name: "codemode",
-      },
-      type: "function",
-    };
-
-    const payload = await options.onPayload?.(
-      {
-        messages: [{ content: query, role: "user" }],
-        tools: [
-          ...unrelatedTools,
-          ...discoveryTools,
-          ...prerequisiteTools,
-          target,
-          codemode,
-        ],
-      },
-      TEXT_ONLY_MODEL
-    );
-
-    expect(payload).toMatchObject({
-      tools: [...discoveryTools, codemode],
-    });
-    expect(payload).not.toMatchObject({
-      tools: expect.arrayContaining([...prerequisiteTools, target]),
-    });
-    expect(payload).not.toMatchObject({
-      tools: expect.arrayContaining(unrelatedTools),
-    });
-    expect(reportStage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messageCount: 1,
-        toolCount: 3,
-      })
-    );
+    expect(payload).toMatchObject({ tools, messages });
+    expect(payload).not.toHaveProperty("tool_choice");
   });
 
   it("does not impose a fixed schema-count limit on a generic provider payload", async () => {
@@ -819,17 +351,7 @@ describe("Remote Agent model reasoning", () => {
         tool_call_id: "legacy-create-space-call",
       },
     ];
-    const tools = [
-      {
-        function: { name: "openmeld_create_space" },
-        type: "function",
-      },
-      ...Array.from({ length: 65 }, (_, index) => ({
-        function: { name: `tool_${String(index)}` },
-        type: "function",
-      })),
-      codemode,
-    ];
+    const tools = [codemode];
 
     const payload = await options.onPayload?.(
       { messages, reasoning: { effort: "high" }, tools },
@@ -842,50 +364,6 @@ describe("Remote Agent model reasoning", () => {
       tools: [codemode],
     });
     expect(JSON.stringify(payload)).toContain("space_existing");
-    expect(payload).not.toHaveProperty("tool_choice");
-  });
-
-  it("keeps Space selection with the primary Agent instead of preselecting a Space write", async () => {
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
-    const createSpace = {
-      function: { name: "openmeld_create_space" },
-      type: "function",
-    };
-    const codemode = {
-      function: { name: "codemode" },
-      type: "function",
-    };
-
-    const payload = await options.onPayload?.(
-      {
-        messages: [
-          {
-            content:
-              "[Current verified request]\n请新开一个 Space 专门调研这个问题。",
-            role: "user",
-          },
-        ],
-        reasoning: { effort: "high" },
-        tools: [
-          {
-            function: { name: "openmeld_create_task" },
-            type: "function",
-          },
-          createSpace,
-          ...Array.from({ length: 65 }, (_, index) => ({
-            function: { name: `tool_${String(index)}` },
-            type: "function",
-          })),
-          codemode,
-        ],
-      },
-      TEXT_ONLY_MODEL
-    );
-
-    expect(payload).toMatchObject({
-      reasoning: { effort: "high" },
-      tools: [codemode],
-    });
     expect(payload).not.toHaveProperty("tool_choice");
   });
 
@@ -924,54 +402,5 @@ describe("Remote Agent model reasoning", () => {
       tools,
     });
     expect(payload).not.toHaveProperty("tool_choice");
-  });
-
-  it("keeps an unlinked Slack member's Space request with the primary Agent", async () => {
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
-    const codemode = {
-      function: { name: "codemode" },
-      type: "function",
-    };
-
-    const payload = await options.onPayload?.(
-      {
-        messages: [
-          {
-            content: [
-              "[Connected Message Channel member boundary]",
-              "This person belongs to the connected Slack workspace but has not linked an OpenMeld account.",
-              "",
-              "[Current connected Message Channel member request]",
-              "Create a Space for the production smoke test.",
-            ].join("\n"),
-            role: "user",
-          },
-        ],
-        reasoning: { effort: "high" },
-        tools: [
-          {
-            function: { name: "openmeld_require_identity_for_action" },
-            type: "function",
-          },
-          {
-            function: { name: "openmeld_get_navigation_action" },
-            type: "function",
-          },
-          ...Array.from({ length: 65 }, (_, index) => ({
-            function: { name: `tool_${String(index)}` },
-            type: "function",
-          })),
-          codemode,
-        ],
-      },
-      TEXT_ONLY_MODEL
-    );
-
-    expect(payload).toMatchObject({
-      reasoning: { effort: "high" },
-      tools: [codemode],
-    });
-    expect(payload).not.toHaveProperty("tool_choice");
-    expect(JSON.stringify(payload)).not.toContain("tool catalog");
   });
 });
