@@ -9,6 +9,10 @@ import { gunzipSync } from "node:zlib";
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
 import { deriveCoreProjectionTag } from "./core-projection-tag.mjs";
 import {
+  prepareNpmCliArtifact,
+  verifyPublishedNpmCliArtifact,
+} from "./npm-cli-artifact.mjs";
+import {
   readNpmPublicationReceipt,
   recordNpmPublicationReceipt,
 } from "./npm-publication-receipt.mjs";
@@ -49,6 +53,10 @@ export async function runResumableCliRelease(input) {
     fetch: input.adapters?.fetch ?? input.fetch ?? fetch,
     runCommand: input.adapters?.runCommand ?? runReadOnlyCommand,
     runStep: input.adapters?.runStep ?? input.release.runStep,
+    prepareNpmArtifact:
+      input.adapters?.prepareNpmArtifact ?? prepareNpmCliArtifact,
+    verifyNpmArtifact:
+      input.adapters?.verifyNpmArtifact ?? verifyPublishedNpmCliArtifact,
     publishCliReleaseTag:
       input.adapters?.publishCliReleaseTag ??
       input.release.publishCliReleaseTag,
@@ -141,6 +149,8 @@ export async function readCompletedCliRelease(input = {}) {
     runCommand: input.adapters?.runCommand ?? runReadOnlyCommand,
     readRemoteTagCommit:
       input.adapters?.readRemoteTagCommit ?? readRemoteTagCommit,
+    verifyNpmArtifact:
+      input.adapters?.verifyNpmArtifact ?? verifyPublishedNpmCliArtifact,
   };
   const target = resolveCliReleaseTarget({ cwd });
   const result = await probeCliReleaseStages({ cwd, env, adapters, target });
@@ -258,8 +268,30 @@ async function executeIncompleteCliRelease(input) {
     failureContext: "The production Core Queue gate did not complete.",
     step: productionQueueGate,
   });
-  runBinaryReleaseStage({ ...input, preTagSteps });
-  const npmPublishedThisRun = runNpmReleaseStage({ ...input, preTagSteps });
+  // Prepare before any immutable upload or npm attempted receipt. A local pack
+  // or install failure must not look like a possibly accepted publication.
+  const npmArtifact =
+    input.initial.npm.action === "RUN"
+      ? await input.adapters.prepareNpmArtifact({
+          cwd: input.cwd,
+          env: input.env,
+        })
+      : null;
+  try {
+    return await publishPreparedCliRelease({
+      ...input,
+      preTagSteps,
+      npmArtifact,
+      target: { ...input.target, npmIntegrity: npmArtifact?.integrity },
+    });
+  } finally {
+    npmArtifact?.cleanup();
+  }
+}
+
+async function publishPreparedCliRelease(input) {
+  runBinaryReleaseStage(input);
+  const npmPublishedThisRun = runNpmReleaseStage(input);
   runReleaseTagStage(input);
   runCoreProjectionStage(input);
 
@@ -332,6 +364,9 @@ function runNpmReleaseStage(input) {
   );
   printStageDecision("npm publish", input.initial.npm, input.write);
   if (input.initial.npm.action === "RUN") {
+    if (!input.npmArtifact?.path) {
+      throw new Error("npm publication requires a verified CLI tarball.");
+    }
     const receiptInput = { cwd: input.cwd, env: input.env, ...input.target };
     input.adapters.recordNpmPublicationReceipt({
       ...receiptInput,
@@ -341,7 +376,10 @@ function runNpmReleaseStage(input) {
       ...input,
       failureContext:
         "npm publish may be incomplete or may already have succeeded.",
-      step: npmStep,
+      step: {
+        ...npmStep,
+        args: ["publish", input.npmArtifact.path, ...npmStep.args.slice(1)],
+      },
     });
     input.adapters.recordNpmPublicationReceipt({
       ...receiptInput,
@@ -637,6 +675,10 @@ async function probeNpmPublishStage(input) {
         `openmeld@${input.target.version}`,
         "version",
         "openmeld.minRequiredCliVersion",
+        "dependencies",
+        "optionalDependencies",
+        "peerDependencies",
+        "dist",
         "--json",
         "--registry=https://registry.npmjs.org/",
         "--prefer-online",
@@ -645,11 +687,34 @@ async function probeNpmPublishStage(input) {
       cwd: input.cwd,
       env: input.env,
     });
-    return decideNpmPublishStage({
+    const decision = decideNpmPublishStage({
       ...result,
       targetMinRequiredCliVersion: input.target.minRequiredCliVersion,
       targetVersion: input.target.version,
     });
+    if (decision.action !== "SKIP") {
+      return decision;
+    }
+    try {
+      await (input.adapters.verifyNpmArtifact ?? verifyPublishedNpmCliArtifact)(
+        {
+          metadata: JSON.parse(result.stdout),
+          target: input.target,
+          env: input.env,
+          fetch: input.adapters.fetch,
+        }
+      );
+      return {
+        ...decision,
+        criterion: "npm-artifact-consumable",
+        reason: `${decision.reason}; its published tarball and npm consumer are verified`,
+      };
+    } catch (error) {
+      return {
+        action: "FAIL",
+        reason: `npm artifact verification failed for openmeld@${input.target.version}: ${error instanceof Error ? error.message : String(error)}. Do not republish this immutable version.`,
+      };
+    }
   } catch (error) {
     return decideNpmPublishStage({
       status: 1,

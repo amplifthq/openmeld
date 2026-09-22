@@ -1254,6 +1254,24 @@ the same resumable release command at the exact original `release_sha`:
 
 ### npm submission and availability
 
+The CLI release owner packs with pnpm so catalog/workspace references become
+portable dependency versions. A packing-only hook preserves the exact source
+`gitHead` without editing the checkout. Before any binary upload or npm attempted
+receipt, the owner checks the actual tarball and installs it with ordinary npm
+outside the workspace, using disposable HOME, OpenMeld state, npm configuration
+and cache. The installed CLI must report its version and its native SQLite
+reader must execute a query. Publication then submits that same verified tarball
+with npm; publishing the source directory directly is refused.
+
+The completion probe verifies downloadable tarball integrity, source, version,
+required floor, entrypoint and portable runtime dependencies. Within the same
+attempt its bytes must match the prepublication consumer proof. A resumed or
+read-only alignment check repeats consumer installation in disposable local
+state; it never publishes or changes real Service state. A visible but invalid
+immutable package fails closed and requires a corrected new release, not a
+republish or a user reset. This check is distinct from native Windows signed-in
+setup/Wake acceptance after release.
+
 `npm publish` can succeed while npm is still processing the package and exact
 version queries return 404. Submission is not availability. Both release lanes
 publish to and query `https://registry.npmjs.org/`, preferring an online query.
@@ -1356,7 +1374,7 @@ because they are safe, even though they create another Worker version.
 | --- | --- | --- |
 | Production D1 migration application | `wrangler d1 migrations list --remote` reports no pending migrations | Remote pending-list truth |
 | CLI binary, signing, notarization, and R2 | The production manifest has the target version and the exact target `minRequiredCliVersion`; the platform record is complete; the raw and gzip artifacts are downloadable with their recorded sizes; the gzip sha256 matches and reconstructs the recorded raw binary | Immutable published-record evidence; any inconclusive or inconsistent target-version record fails closed |
-| npm | `npm view` reports the target immutable version and its `openmeld.minRequiredCliVersion` exactly matches the target floor | Registry version and floor existence |
+| npm | The exact version and floor exist; the downloaded tarball matches integrity and source, has portable dependencies and the CLI entrypoint, and has an isolated npm consumer proof | Verified immutable artifact and consumer installation, not version existence alone |
 | Release tag | The target tag resolves to the current release commit both locally and on `origin` | Local and remote Git object identity |
 | Core projection | The active 100% production Worker version carries the stable tag derived from the release commit and `release/local-components.json` | Active Worker version identity |
 | Final channel alignment | R2 and npm expose the exact target version and `minRequiredCliVersion`, and the active Core projection satisfies its target criterion | Three-way published state |

@@ -111,6 +111,20 @@ const NPM_VERSION_FLOOR_FIXTURE = JSON.parse(
 const TEST_CLI_BINARY = Buffer.alloc(100, "b");
 const TEST_CLI_ARCHIVE = gzipSync(TEST_CLI_BINARY);
 
+// Subprocess/network artifact work has its own real tarball consumer tests.
+// These release-owner tests isolate ordering, immutable receipts, and retries.
+const PUBLISHED_CONSUMER_FAILURE = /published consumer cannot install/u;
+const LOCAL_CONSUMER_FAILURE = /consumer install failed/u;
+const ARTIFACT_ADAPTERS = {
+  prepareNpmArtifact: () =>
+    Promise.resolve({
+      path: join(tmpdir(), "verified openmeld.tgz"),
+      integrity: `sha512-${"A".repeat(86)}==`,
+      cleanup: () => undefined,
+    }),
+  verifyNpmArtifact: () => Promise.resolve(),
+};
+
 function buildCapturedNpmVersionFloorStdout(input) {
   return `${JSON.stringify({
     ...NPM_VERSION_FLOOR_FIXTURE.response,
@@ -529,6 +543,7 @@ test("fails a conflicting release tag before starting network probes", async () 
     await assert.rejects(
       runCliRelease({
         adapters: {
+          ...ARTIFACT_ADAPTERS,
           fetch: () => {
             networkProbeStarted = true;
             throw new Error("network probe must not start");
@@ -685,6 +700,7 @@ test("preserves a failed stage error and prints the canonical resume command", a
     await assert.rejects(
       runCliRelease({
         adapters: {
+          ...ARTIFACT_ADAPTERS,
           fetch: (_url, options) => {
             if (options?.method === "HEAD") {
               return new Response(null, {
@@ -771,6 +787,7 @@ test("stops before binary, npm, tag, and Core when the Queue gate fails", async 
     await assert.rejects(
       runCliRelease({
         adapters: {
+          ...ARTIFACT_ADAPTERS,
           fetch: (_url, options) => {
             if (options?.method === "HEAD") {
               return new Response(null, {
@@ -866,6 +883,7 @@ test("an inconclusive initial npm probe cannot authorize publication", async () 
     await assert.rejects(
       runCliRelease({
         adapters: {
+          ...ARTIFACT_ADAPTERS,
           fetch: (url, options) => {
             const manifest = buildTestCliManifest("0.7.96");
             if (options?.method === "HEAD") {
@@ -953,6 +971,7 @@ test("a fully completed CLI release rerun skips every stage without side effects
   try {
     const input = {
       adapters: {
+        ...ARTIFACT_ADAPTERS,
         fetch: (url, options) => {
           const manifest = buildTestCliManifest("0.7.96");
           if (options?.method === "HEAD") {
@@ -974,7 +993,7 @@ test("a fully completed CLI release rerun skips every stage without side effects
           const key = [command, ...args].join(" ");
           if (
             key ===
-            "npm view openmeld@0.7.96 version openmeld.minRequiredCliVersion --json --registry=https://registry.npmjs.org/ --prefer-online"
+            "npm view openmeld@0.7.96 version openmeld.minRequiredCliVersion dependencies optionalDependencies peerDependencies dist --json --registry=https://registry.npmjs.org/ --prefer-online"
           ) {
             return {
               status: 0,
@@ -1025,6 +1044,10 @@ test("a fully completed CLI release rerun skips every stage without side effects
 
     assert.equal(result.alignment.action, "SKIP");
     assert.deepEqual(sideEffects, []);
+    input.adapters.verifyNpmArtifact = () =>
+      Promise.reject(new Error("published consumer cannot install"));
+    await assert.rejects(runCliRelease(input), PUBLISHED_CONSUMER_FAILURE);
+    assert.deepEqual(sideEffects, []);
     const rendered = output.join("");
     for (const label of [
       "Verify local-components release manifest",
@@ -1064,6 +1087,7 @@ test("stops before every release mutation when immutable npm metadata is wrong",
     await assert.rejects(
       runCliRelease({
         adapters: {
+          ...ARTIFACT_ADAPTERS,
           fetch: (url, options) => {
             const manifest = buildTestCliManifest("0.7.96");
             if (options?.method === "HEAD") {
@@ -1141,6 +1165,7 @@ test("stops before every release mutation when immutable R2 metadata is wrong", 
     await assert.rejects(
       runCliRelease({
         adapters: {
+          ...ARTIFACT_ADAPTERS,
           fetch: (url, options) => {
             const manifest = buildTestCliManifest("0.7.96");
             manifest.channels.stable.minRequiredCliVersion = "0.7.95";
@@ -1252,6 +1277,7 @@ test("stops before every release mutation when immutable binary completion is un
       await assert.rejects(
         runCliRelease({
           adapters: {
+            ...ARTIFACT_ADAPTERS,
             fetch: releaseCase.fetch,
             runCommand: ({ args, command }) => {
               const key = [command, ...args].join(" ");
@@ -1315,6 +1341,7 @@ test("stops before every release mutation when the stable CLI channel is ahead",
     await assert.rejects(
       runCliRelease({
         adapters: {
+          ...ARTIFACT_ADAPTERS,
           fetch: (url, options) => {
             const manifest = buildTestCliManifest("0.3.132");
             if (options?.method === "HEAD") {
@@ -1386,6 +1413,7 @@ test("resumes a newer CLI target after slow command probes without reading old a
 
   const result = await probeCliReleaseStages({
     adapters: {
+      ...ARTIFACT_ADAPTERS,
       fetch: async (url, options) => {
         // HTTP progress resumes only after synchronous subprocesses yield.
         await Promise.resolve();
@@ -1603,6 +1631,7 @@ for (const interrupted of [false, true]) {
       const waits = [];
       const output = [];
       const adapters = {
+        ...ARTIFACT_ADAPTERS,
         fetch: (url, options) => {
           if (options?.method === "HEAD") {
             return new Response(null, {
@@ -1655,6 +1684,9 @@ for (const interrupted of [false, true]) {
           steps.push(step.label);
           if (step.label === "Publish OpenMeld CLI to npm") {
             assert.equal(readNpmPublicationReceipt(receipt), "attempted");
+            assert.equal(step.command, "npm");
+            assert.equal(step.args[0], "publish");
+            assert.equal(step.args[1], join(tmpdir(), "verified openmeld.tgz"));
             published += 1;
             if (interrupted) {
               throw new Error("publish connection interrupted");
@@ -1678,6 +1710,13 @@ for (const interrupted of [false, true]) {
           adapters,
           write: (text) => output.push(text),
         });
+      adapters.prepareNpmArtifact = () =>
+        Promise.reject(new Error("consumer install failed before publication"));
+      await assert.rejects(run(), LOCAL_CONSUMER_FAILURE);
+      assert.equal(readNpmPublicationReceipt(receipt), null);
+      assert.equal(published, 0);
+      assert.equal(coreDeployed, false);
+      adapters.prepareNpmArtifact = ARTIFACT_ADAPTERS.prepareNpmArtifact;
       await assert.rejects(
         run(),
         interrupted ? INTERRUPTED_PUBLISH_RE : PENDING_ALIGNMENT_RE
@@ -1798,6 +1837,7 @@ test("stops before every release mutation when the manifest is not the exact can
       await assert.rejects(
         runCliRelease({
           adapters: {
+            ...ARTIFACT_ADAPTERS,
             fetch: (url, options) => {
               const manifest = buildTestCliManifest(stableVersion, {
                 minRequiredCliVersion: targetVersion,

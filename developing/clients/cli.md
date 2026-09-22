@@ -635,6 +635,15 @@ npm install -g openmeld@latest && openmeld setup --view agent
 Use `npx -y openmeld@latest setup` only for npm bootstrap or fallback when the
 global `openmeld` command is not installed yet.
 
+Generated POSIX and Windows bootstrap commands use the shared start package's
+supported Node policy; the CLI package engine declaration is checked against
+that policy. Reject unsupported majors before acquisition instead of promising
+that any newer Node version works. Native npm exit codes own success/failure,
+including Windows PowerShell 5.1 stderr warnings. An unresolved catalog or
+workspace dependency is a package-acquisition error, not evidence that the user
+must reset OpenMeld, reinstall Node or change network settings. Preserve the
+original npm error and direct users to a corrected CLI release.
+
 Do not ask a human user to run an Agent View setup command from Web. Do not ask
 an agent to use Human View when the agent needs structured `setup.complete`
 facts.
