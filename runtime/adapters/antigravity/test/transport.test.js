@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -45,7 +45,6 @@ describe("Antigravity CLI transport contract", () => {
   it("uses the exact conversation id and model on a resumed turn", () => {
     assert.deepEqual(
       buildAntigravityArgs({
-        addDir: "/tmp/openmeld-antigravity-dispatch",
         conversationPolicy: {
           collaborationMode: "plan",
           model: "gemini-3.8-flash-high",
@@ -60,8 +59,6 @@ describe("Antigravity CLI transport contract", () => {
         "stream-json",
         "--print-timeout",
         "0",
-        "--add-dir",
-        "/tmp/openmeld-antigravity-dispatch",
         "--conversation",
         "conversation-123",
         "--model",
@@ -215,6 +212,8 @@ describe("Antigravity CLI transport contract", () => {
         "const args = process.argv.slice(2);",
         "const readArg = (name) => { const i = args.indexOf(name); return i < 0 ? null : args[i + 1]; };",
         "if (readArg('--conversation') !== 'conversation-before') throw new Error('wrong conversation');",
+        `if (process.cwd() !== ${JSON.stringify(await realpath(fixtureDir))}) throw new Error('wrong working folder');`,
+        "if (args.includes('--add-dir')) throw new Error('dispatch must not add an auxiliary workspace');",
         "console.log(JSON.stringify({ event: 'init', conversation_id: 'conversation-before', init: {} }));",
         "for (const text_delta of ['Hello', ' world', '\\n', '  code']) console.log(JSON.stringify({ event: 'step_update', step_update: { conversation_id: 'conversation-before', state: 'ACTIVE', step_index: 1, step_type: 'agent_response', text_delta } }));",
         "console.log(JSON.stringify({ event: 'result', result: { conversation_id: 'conversation-before', status: 'SUCCESS', response: 'Finished' } }));",

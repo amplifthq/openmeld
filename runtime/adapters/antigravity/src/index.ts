@@ -22,7 +22,7 @@ import {
   AntigravityCliTransportError,
   invokeAntigravityCliTransport,
 } from "./transport/antigravity-cli-transport.js";
-import { withAntigravityDispatchSpaceAction } from "./transport/antigravity-space-action-plugin.js";
+import { withAntigravityDispatchSpaceAction } from "./transport/antigravity-space-action.js";
 
 export type AntigravityAdapterOptions = {
   antigravityBin?: string;
@@ -151,9 +151,10 @@ function createDefaultAntigravityInvoke(input: {
         invokeOnce: async (sessionId) => {
           const transportResult = await withAntigravityDispatchSpaceAction({
             env: request.env,
-            run: async ({ addDir, jsonSchema }) =>
+            prompt: request.prompt,
+            workdir: request.runtimeContext.providerRuntimeWorkingDirectory,
+            run: async ({ prompt, jsonSchema }) =>
               await invokeAntigravityCliTransport({
-                addDir,
                 agentControllerPermissionMode:
                   request.agentControllerPermissionMode,
                 conversationPolicy: request.conversationPolicy,
@@ -176,7 +177,7 @@ function createDefaultAntigravityInvoke(input: {
                   });
                 },
                 onRuntimeEvent: request.onRuntimeEvent,
-                prompt: request.prompt,
+                prompt,
                 sessionId,
                 timeoutMs: request.timeoutMs ?? null,
                 workdir: request.runtimeContext.providerRuntimeWorkingDirectory,

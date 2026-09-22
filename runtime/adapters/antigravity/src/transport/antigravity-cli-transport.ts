@@ -55,7 +55,6 @@ export class AntigravityCliTransportError extends Error {
 }
 
 export async function invokeAntigravityCliTransport(input: {
-  addDir?: string | null;
   agentControllerPermissionMode?: AdapterDispatchRequest["agentControllerPermissionMode"];
   conversationPolicy?: ConversationPolicy;
   env?: Record<string, string | undefined>;
@@ -79,7 +78,6 @@ export async function invokeAntigravityCliTransport(input: {
   }
   const invocation = buildCliLaunchInvocation({
     args: buildAntigravityArgs({
-      addDir: input.addDir,
       agentControllerPermissionMode: input.agentControllerPermissionMode,
       conversationPolicy: input.conversationPolicy,
       jsonSchema: input.jsonSchema,
@@ -243,7 +241,6 @@ function classifyAntigravityPermissionFailure(
 }
 
 export function buildAntigravityArgs(input: {
-  addDir?: string | null;
   agentControllerPermissionMode?: AdapterDispatchRequest["agentControllerPermissionMode"];
   conversationPolicy?: ConversationPolicy;
   jsonSchema?: string | null;
@@ -258,10 +255,6 @@ export function buildAntigravityArgs(input: {
     "--print-timeout",
     "0",
   ];
-  const addDir = normalizeOptionalText(input.addDir);
-  if (addDir) {
-    args.push("--add-dir", addDir);
-  }
   const jsonSchema = normalizeOptionalText(input.jsonSchema);
   if (jsonSchema) {
     args.push("--json-schema", jsonSchema);

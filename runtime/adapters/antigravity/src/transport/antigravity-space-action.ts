@@ -1,11 +1,6 @@
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { resolveDispatchSpaceActionMcpServer } from "@openmeld/adapter-core";
 
-const PLUGIN_DIRECTORY_PREFIX = "openmeld_dispatch_";
 const FINAL_STATUSES = new Set(["done", "blocked", "needs_input", "handoff"]);
 
 export const ANTIGRAVITY_SPACE_ACTION_JSON_SCHEMA = JSON.stringify({
@@ -45,70 +40,32 @@ export async function withAntigravityDispatchSpaceAction<
   T extends { structuredOutput: unknown },
 >(input: {
   env: Record<string, string | undefined> | undefined;
-  run: (input: {
-    addDir: string | null;
-    jsonSchema: string | null;
-  }) => Promise<T>;
+  prompt: string;
+  workdir: string;
+  run: (input: { prompt: string; jsonSchema: string | null }) => Promise<T>;
 }): Promise<T> {
   const actionServer = resolveDispatchSpaceActionMcpServer(input.env);
   if (!actionServer) {
-    return await input.run({ addDir: null, jsonSchema: null });
+    return await input.run({ prompt: input.prompt, jsonSchema: null });
   }
 
-  const pluginId = `${PLUGIN_DIRECTORY_PREFIX}${randomUUID().replaceAll("-", "")}`;
-  const root = join(tmpdir(), pluginId);
-  const pluginDir = join(root, ".agents", "plugins", pluginId);
-
-  try {
-    await mkdir(pluginDir, { recursive: true, mode: 0o700 });
-    await Promise.all([
-      writeJson(join(pluginDir, "plugin.json"), {
-        description:
-          "Records one structured Space outcome for the active OpenMeld Wake.",
-        name: pluginId,
-      }),
-      writeJson(join(pluginDir, "hooks.json"), {
-        "openmeld-space-action": {
-          PreInvocation: [
-            {
-              command: "node ./inject-space-action.mjs",
-              timeout: 5,
-              type: "command",
-            },
-          ],
-        },
-      }),
-      writeFile(
-        join(pluginDir, "inject-space-action.mjs"),
-        buildInstructionHookSource(),
-        { encoding: "utf8", mode: 0o600 }
-      ),
-    ]);
-
-    const result = await input.run({
-      addDir: root,
-      jsonSchema: ANTIGRAVITY_SPACE_ACTION_JSON_SCHEMA,
-    });
-    await recordStructuredSpaceAction({
-      action: parseStructuredSpaceAction(result.structuredOutput),
-      actionServer,
-    });
-    return result;
-  } finally {
-    await rm(root, { force: true, recursive: true }).catch(() => undefined);
-  }
-}
-
-function writeJson(path: string, value: unknown): Promise<void> {
-  return writeFile(path, `${JSON.stringify(value, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
+  const result = await input.run({
+    prompt: `${input.prompt}\n\n${buildSpaceActionInstructions(input.workdir)}`,
+    jsonSchema: ANTIGRAVITY_SPACE_ACTION_JSON_SCHEMA,
   });
+  await recordStructuredSpaceAction({
+    action: parseStructuredSpaceAction(result.structuredOutput),
+    actionServer,
+  });
+  return result;
 }
 
-function buildInstructionHookSource(): string {
-  const instruction = [
+function buildSpaceActionInstructions(workdir: string): string {
+  return [
+    "OpenMeld Antigravity invocation contract:",
+    `The working folder for this invocation is ${JSON.stringify(workdir)}. Resolve relative task paths there.`,
     "For this OpenMeld Wake, do not run a Space Action CLI command and do not inspect its environment variables.",
+    "The structured outcome below is the complete reply/publication contract. Reading the OpenMeld CLI Skill is not required to reply; consult it only for additional OpenMeld operations requested by the user.",
     "If the request can be answered without tools, return the structured outcome immediately; do not inspect the workspace or run a command just to orient yourself.",
     "Complete the user's work under the normal Antigravity permission policy.",
     "At the end, return exactly one structured outcome using the required JSON schema: reply for a public message, status for a short final status, or silent when no public reply is appropriate.",
@@ -116,7 +73,6 @@ function buildInstructionHookSource(): string {
     "Use status=none unless action=status. Include only validated profile IDs from the provided target reference lists; otherwise leave all target arrays empty.",
     "OpenMeld will validate and record this outcome for the current dispatch.",
   ].join(" ");
-  return `process.stdout.write(JSON.stringify({ injectSteps: [{ ephemeralMessage: ${JSON.stringify(instruction)} }] }));\n`;
 }
 
 function parseStructuredSpaceAction(

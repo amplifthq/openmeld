@@ -588,15 +588,19 @@ surface continue to use the exact dispatch-scoped CLI fallback.
 
 Antigravity CLI does not currently expose a proven per-invocation structured-
 tool configuration surface. During an action-enabled dispatch, the adapter
-therefore adds a unique temporary workspace plugin whose invocation hook tells
-the model to return one `reply`, `status`, or `silent` outcome through
+therefore appends the dispatch publication contract to the invocation prompt,
+asking for one `reply`, `status`, or `silent` outcome through
 Antigravity's native JSON-schema output. The adapter validates that structured
 result and invokes the same dispatch-owned action writer directly without a
 shell. It grants the model no additional tool permission; all shell, file,
 network, and ambient MCP actions continue through Antigravity's normal
-permission policy. The adapter removes the plugin after the invocation and
-never writes Antigravity's user settings or the user's project customization
-files.
+permission policy. Publication requires no Skill read. Additional user-requested
+OpenMeld operations still use the official Skill under normal permissions.
+The prompt identifies the same working folder used to launch the CLI. The
+adapter must not add an auxiliary workspace for instruction delivery: an
+Antigravity conversation can retain that directory and resolve later file
+tasks there. It never writes Antigravity's user settings or the user's project
+customization files.
 
 Antigravity's Binding permission intent is passed to every new or resumed CLI
 invocation using its native mode/approval flags. This changes no Space action
