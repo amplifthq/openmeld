@@ -186,6 +186,7 @@ import type {
   OpenMeldToolsControlCapability,
   OpenMeldToolsControlResult,
   PostSpaceDispatchOutboxRedriveResponse,
+  RuntimeCoordinatorDeliveryRouteEvidence,
   RuntimeCoordinatorExecutionEventType,
   RuntimeCoordinatorExecutionRecord,
   RuntimeCoordinatorExecutionStatus,
@@ -337,6 +338,7 @@ import {
 } from "../../../rpc/space-signal-emitter";
 import { readCurrentRuntimeAgentControllerReport } from "../../../runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
 import { emitCoreFinalVisibleOutcomeRuntimeEvidence } from "../../../shared/observability/final-visible-outcome-evidence";
+import { CORE_LOG_EVENTS } from "../../../shared/observability/log-events";
 import { readAcceptedDispatchFinalizationFact } from "../../../space/infrastructure/d1/accepted-dispatch-finalization-repo";
 import { listActiveSpaceIdsForProfileFromSpaceIndex } from "../../../space-index/space-index-repository";
 import { legacyContextAssociationFromBinding } from "../../application/agent-profile-context-migration";
@@ -11300,9 +11302,20 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       null;
     const acceptedDeliveryRequests: RuntimeTransportDeliverDispatchRequest[] =
       [];
+    const deliveryRouteAssessment: {
+      current: {
+        evidence: RuntimeCoordinatorDeliveryRouteEvidence;
+        observedAtMs: number;
+        request: RuntimeTransportDeliverDispatchRequest;
+        response: RuntimeTransportDeliverDispatchResponse;
+      } | null;
+    } = { current: null };
     const response = await deliverDispatch(this.state, parsed.data, {
       onAcceptedDeliverySent: (request) => {
         acceptedDeliveryRequests.push(request);
+      },
+      onDeliveryRouteAssessed: (assessment) => {
+        deliveryRouteAssessment.current = assessment;
       },
       prepareAcceptedDelivery: async (request) => {
         const prepared =
@@ -11317,6 +11330,18 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       resolvePendingResultWaiters: this.resolvePendingResultWaiters,
       cleanupCompletedResults: this.cleanupCompletedResults,
     });
+    if (!response.accepted && deliveryRouteAssessment.current) {
+      console.info("[core.runtime_transport.delivery_route_assessed]", {
+        event: CORE_LOG_EVENTS.runtimeTransportDeliveryRouteAssessed,
+        attemptId: parsed.data.attemptId,
+        dispatchId: parsed.data.dispatchId,
+        observedAtMs: deliveryRouteAssessment.current.observedAtMs,
+        runtimeCoordinatorExecutionId:
+          parsed.data.payload.runtimeCoordinatorExecutionId,
+        reasonCode: response.reasonCode,
+        ...deliveryRouteAssessment.current.evidence,
+      });
+    }
     const acceptedDeliveryRequest = acceptedDeliveryRequests[0] ?? null;
     if (!response.accepted && preparedDeliveryRequest) {
       await this.rollbackRuntimeCoordinatorUnsentDelivery(
@@ -11329,6 +11354,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
     await this.recordRuntimeCoordinatorDeliveryProjection({
+      deliveryRouteAssessment: deliveryRouteAssessment.current,
       request: acceptedDeliveryRequest ?? parsed.data,
       response,
     });
@@ -13622,6 +13648,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
 
   private async recordRuntimeCoordinatorDeliveryProjection(input: {
+    deliveryRouteAssessment: {
+      evidence: RuntimeCoordinatorDeliveryRouteEvidence;
+      observedAtMs: number;
+    } | null;
     request: Parameters<typeof deliverDispatch>[1];
     response: RuntimeTransportDeliverDispatchResponse;
   }): Promise<void> {
@@ -13683,6 +13713,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         payload: {
           accepted: input.response.accepted,
           deliveryStatus: input.response.status,
+          ...(input.deliveryRouteAssessment
+            ? {
+                deliveryRouteEvidence: input.deliveryRouteAssessment.evidence,
+                deliveryRouteObservedAtMs:
+                  input.deliveryRouteAssessment.observedAtMs,
+              }
+            : {}),
         },
         reasonCode:
           "reasonCode" in input.response ? input.response.reasonCode : null,

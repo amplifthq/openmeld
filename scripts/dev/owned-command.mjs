@@ -1,10 +1,13 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
 import { readProcessRows } from "./process-rows.mjs";
 import {
   collectDescendants,
   sameProcess,
   stopProcessTree,
 } from "./process-tree.mjs";
+
+const NODE_ENTRY = /\.[cm]?js$/iu;
 
 // Only the environment/heavy-command owner samples its tree. Component
 // wrappers keep ordinary signal forwarding and do not each run a sampler.
@@ -13,18 +16,12 @@ export async function runOwnedCommand(
   args,
   { cwd = process.cwd(), env = process.env } = {}
 ) {
-  // pnpm supplies its JavaScript entrypoint to package scripts. Launch that
-  // directly on Windows: .cmd shims require a shell and cannot be spawned as
-  // executables. Keep arguments as an array instead of shell-interpolating them.
-  const pnpmEntrypoint =
-    process.platform === "win32" &&
-    ["pnpm", "pnpm.cmd"].includes(command) &&
-    env.npm_execpath;
-  const child = spawn(
-    pnpmEntrypoint ? process.execPath : command,
-    pnpmEntrypoint ? [pnpmEntrypoint, ...args] : args,
-    { cwd, env, stdio: "inherit" }
-  );
+  const invocation = resolveOwnedCommandInvocation(command, args, { env });
+  const child = spawn(invocation.command, invocation.args, {
+    cwd,
+    env,
+    stdio: "inherit",
+  });
   const tracked = new Map();
   const observe = () => {
     const rows = readProcessRows({ repoRoot: cwd, includeMetrics: true });
@@ -88,4 +85,37 @@ export async function runOwnedCommand(
     await shutdown;
     await stopProcessTree([...tracked.values()], { repoRoot: cwd });
   }
+}
+
+export function resolveOwnedCommandInvocation(
+  command,
+  args,
+  {
+    env = process.env,
+    nodePath = process.execPath,
+    platform = process.platform,
+  } = {}
+) {
+  // pnpm supplies its JavaScript entrypoint to package scripts. Launch that
+  // directly on Windows: .cmd shims require a shell and cannot be spawned as
+  // executables. Keep arguments as an array instead of shell-interpolating them.
+  const isWindowsPnpm =
+    platform === "win32" && ["pnpm", "pnpm.cmd"].includes(command);
+  const pnpmEntrypoint = isWindowsPnpm ? env.npm_execpath : undefined;
+  if (
+    isWindowsPnpm &&
+    !(
+      pnpmEntrypoint &&
+      path.win32.isAbsolute(pnpmEntrypoint) &&
+      NODE_ENTRY.test(pnpmEntrypoint)
+    )
+  ) {
+    throw new Error(
+      "Run this Windows command through a root pnpm script so the exact pnpm JavaScript entrypoint is available."
+    );
+  }
+  return {
+    args: pnpmEntrypoint ? [pnpmEntrypoint, ...args] : args,
+    command: pnpmEntrypoint ? nodePath : command,
+  };
 }

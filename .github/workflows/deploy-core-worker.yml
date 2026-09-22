@@ -3,6 +3,10 @@ run-name: Deploy Core Worker @ ${{ inputs.release_sha }}
 
 permissions:
   contents: write
+  actions: read
+  checks: read
+  statuses: read
+  pull-requests: read
 
 on:
   workflow_call:
@@ -12,6 +16,10 @@ on:
         required: false
         type: string
         default: production
+      production_train_scopes:
+        description: "Complete release train containing this Core stage"
+        required: true
+        type: string
       release_sha:
         description: "Exact main commit to deploy"
         required: true
@@ -82,6 +90,7 @@ jobs:
       run:
         working-directory: release-source
     env:
+      OPENMELD_PRODUCTION_TRAIN_SCOPES: ${{ inputs.production_train_scopes }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
@@ -108,6 +117,15 @@ jobs:
           control_directory: release-control
           working_directory: release-source
 
+      - name: Admit declared production train artifacts
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          node ../release-control/scripts/release/production-train-artifact-admission.mjs \
+            --source-sha "$RELEASE_SHA" \
+            --scope core
+
       - name: Acquire shared Core release lease
         id: scope_lease
         uses: ./release-control/.github/actions/production-scope-lease
@@ -123,6 +141,7 @@ jobs:
         if: inputs.deployment_mode == 'standard'
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           node ../release-control/scripts/release/hosted-production-preflight.mjs \
@@ -134,6 +153,7 @@ jobs:
         if: inputs.deployment_mode == 'current-stable-cli-projection'
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           node ../release-control/scripts/release/hosted-production-preflight.mjs \

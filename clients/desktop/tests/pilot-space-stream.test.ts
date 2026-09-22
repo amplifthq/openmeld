@@ -13,6 +13,7 @@ import {
 import { expect, it } from "vitest";
 import { WebSocketServer } from "ws";
 import { createPilotSpaceStreams } from "../src/main/pilot-space-stream";
+import type { TransportObservation } from "../src/main/transport-diagnostics";
 
 const id = "10000000-0000-4000-8000-000000000001";
 
@@ -42,10 +43,12 @@ it("cancels pending compatibility admission before sign-out can open a socket", 
 it("opens only the fixed authenticated Space stream and carries the existing keepalive frames", async () => {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await once(server, "listening");
+  const observations: TransportObservation[] = [];
   const streams = createPilotSpaceStreams({
     webOrigin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     webBuild: "a".repeat(64),
     cookie: () => "session=main-only",
+    observe: (event) => observations.push(event),
   });
   try {
     const connected = once(server, "connection");
@@ -77,6 +80,10 @@ it("opens only the fixed authenticated Space stream and carries the existing kee
     expect(request.headers.origin).toBe(DESKTOP_APP_ORIGIN);
     expect(request.headers[DESKTOP_WEB_BUILD_HEADER]).toBe("a".repeat(64));
     await opened.promise;
+    expect(observations).toEqual([
+      { kind: "stream", spaceId: "space-a", event: "connecting" },
+      { kind: "stream", spaceId: "space-a", event: "open" },
+    ]);
     const ping = once(socket, "message");
     streams.ping(id);
     expect((await ping)[0].toString()).toBe(SPACE_STREAM_KEEPALIVE_PING);
@@ -84,6 +91,11 @@ it("opens only the fixed authenticated Space stream and carries the existing kee
     expect(await received.promise).toBe(SPACE_STREAM_KEEPALIVE_PONG);
     const closed = once(socket, "close");
     streams.closeAll();
+    expect(observations).toContainEqual({
+      kind: "stream",
+      spaceId: "space-a",
+      event: "cancelled",
+    });
     await closed;
     expect(() => streams.ping(id)).toThrow("not open");
   } finally {

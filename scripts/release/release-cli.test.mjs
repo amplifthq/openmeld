@@ -25,7 +25,7 @@ import {
   parseGitStatusPorcelain,
   publishCliReleaseTag,
   resolveCliReleaseTagName,
-  runCliRelease,
+  runCliRelease as runCliReleaseWithAdmission,
   tagCliRelease,
 } from "./release-cli.mjs";
 import {
@@ -37,12 +37,21 @@ import {
 import { decideNpmPublishStage } from "./release-stage-probes.mjs";
 
 const execFileAsync = promisify(execFile);
+const runCliRelease = (input = {}) =>
+  runCliReleaseWithAdmission({
+    ...input,
+    env: {
+      OPENMELD_PRODUCTION_TRAIN_SCOPES: "cli",
+      ...(input.env ?? {}),
+    },
+  });
 const PENDING_ALIGNMENT_RE = /Final CLI channel alignment pending/u;
 const VERIFICATION_ONLY_RE = /resumes verification without republishing/u;
 const RECEIPT_CONFLICT_RE = /conflicts with source/u;
 const RECEIPT_SAVE_RE = /Could not save/u;
 const UNCONFIRMED_ACCEPTANCE_RE = /acceptance is unconfirmed/u;
 const INTERRUPTED_PUBLISH_RE = /publish connection interrupted/u;
+const WEB_ARTIFACT_REJECTED_RE = /Web artifact rejected/u;
 
 const CLI_RELEASE_REFUSED_RE = /CLI release refused/u;
 const DEPLOYS_CORE_RE = /deploys Core/u;
@@ -331,6 +340,30 @@ test("adds the binary upload step only when release:cli opts in", () => {
       "Publish OpenMeld CLI to npm",
     ]
   );
+});
+
+test("rejects a train Web artifact before any CLI publication mutation", async () => {
+  const { repoRoot } = await createReleaseRepo("0.7.96");
+  const mutations = [];
+  try {
+    await assert.rejects(
+      runCliRelease({
+        adapters: {
+          checkArtifact: () => {
+            throw new Error("Web artifact rejected");
+          },
+          runStep: (step) => mutations.push(step.label),
+        },
+        cwd: repoRoot,
+        env: { OPENMELD_PRODUCTION_TRAIN_SCOPES: "cli,web" },
+        withBinary: true,
+      }),
+      WEB_ARTIFACT_REJECTED_RE
+    );
+    assert.deepEqual(mutations, []);
+  } finally {
+    await rm(repoRoot, { force: true, recursive: true });
+  }
 });
 
 test("verifies production Queues before any irreversible CLI release step", () => {

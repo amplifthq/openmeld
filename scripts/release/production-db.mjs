@@ -3,7 +3,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-
+import { admitProductionTrainArtifacts } from "./production-train-artifact-admission.mjs";
 import { decideD1MigrationStage } from "./release-stage-probes.mjs";
 
 const LINE_SPLIT_REGEX = /\r?\n/u;
@@ -66,8 +66,8 @@ export function buildProductionDbStepSpecs() {
   ];
 }
 
-function assertCleanWorktree() {
-  const changes = readGitStatus();
+function assertCleanWorktree(cwd = process.cwd()) {
+  const changes = readGitStatus(cwd);
   if (changes.length > 0) {
     throw new Error(
       [
@@ -78,8 +78,8 @@ function assertCleanWorktree() {
   }
 }
 
-function assertGeneratedArtifactsStayedCommitted() {
-  const changes = readGitStatus();
+function assertGeneratedArtifactsStayedCommitted(cwd = process.cwd()) {
+  const changes = readGitStatus(cwd);
   if (changes.length === 0) {
     return;
   }
@@ -92,19 +92,20 @@ function assertGeneratedArtifactsStayedCommitted() {
   );
 }
 
-function readGitStatus() {
+function readGitStatus(cwd) {
   return execFileSync(
     resolveCommandBinary("git"),
     ["status", "--porcelain=v1", "--untracked-files=all"],
-    { encoding: "utf8" }
+    { cwd, encoding: "utf8" }
   )
     .split(LINE_SPLIT_REGEX)
     .filter(Boolean);
 }
 
-function runStep(step, env) {
+function runStep(step, env, cwd) {
   process.stdout.write(`\n[production-db] ${step.label}\n`);
   const result = spawnSync(resolveCommandBinary(step.command), step.args, {
+    cwd,
     env,
     stdio: "inherit",
   });
@@ -134,6 +135,7 @@ export function executeProductionDbSteps(input) {
         adapters.runCommand({
           args: PRODUCTION_D1_MIGRATION_LIST_ARGS,
           command: "pnpm",
+          cwd: input.cwd,
           env: stepEnv,
         })
       );
@@ -142,25 +144,66 @@ export function executeProductionDbSteps(input) {
         continue;
       }
     }
-    adapters.runStep(step, stepEnv);
+    adapters.runStep(step, stepEnv, input.cwd);
     input.afterStep?.(step);
   }
 }
 
-export function runProductionDbRelease() {
-  assertCleanWorktree();
-  const env = { ...process.env };
+export async function runProductionDbRelease(input = {}) {
+  const cwd = input.cwd ?? process.cwd();
+  const env = { ...(input.env ?? process.env) };
+  const adapters = {
+    admitTrainArtifacts:
+      input.adapters?.admitTrainArtifacts ?? admitProductionTrainArtifacts,
+    assertCleanWorktree:
+      input.adapters?.assertCleanWorktree ?? assertCleanWorktree,
+    buildPlan: input.adapters?.buildPlan,
+    checkArtifact: input.adapters?.checkArtifact,
+    readHeadSha:
+      input.adapters?.readHeadSha ??
+      ((root) =>
+        execFileSync(resolveCommandBinary("git"), ["rev-parse", "HEAD"], {
+          cwd: root,
+          encoding: "utf8",
+        }).trim()),
+    runCommand: input.adapters?.runCommand,
+    runStep: input.adapters?.runStep,
+  };
+  adapters.assertCleanWorktree(cwd);
+  const sourceSha = adapters.readHeadSha(cwd);
+  const declaredSourceSha = String(env.RELEASE_SHA ?? "").trim();
+  if (declaredSourceSha && declaredSourceSha !== sourceSha) {
+    throw new Error(
+      "Production database source must match the checked-out RELEASE_SHA."
+    );
+  }
+  await adapters.admitTrainArtifacts(
+    { env, root: cwd, selectedScopes: "db", sourceSha },
+    {
+      ...(adapters.buildPlan ? { buildPlan: adapters.buildPlan } : {}),
+      ...(adapters.checkArtifact
+        ? { checkArtifact: adapters.checkArtifact }
+        : {}),
+      readHeadSha: adapters.readHeadSha,
+    }
+  );
   const steps = buildProductionDbStepSpecs();
   executeProductionDbSteps({
     afterStep: (step) => {
       if (step.label === "Generate database artifacts") {
-        assertGeneratedArtifactsStayedCommitted();
+        assertGeneratedArtifactsStayedCommitted(cwd);
       }
     },
+    adapters: {
+      ...(adapters.runCommand ? { runCommand: adapters.runCommand } : {}),
+      ...(adapters.runStep ? { runStep: adapters.runStep } : {}),
+    },
+    cwd,
     env,
     steps,
+    write: input.write,
   });
-  assertCleanWorktree();
+  adapters.assertCleanWorktree(cwd);
 }
 
 function printProductionDbStageDecision(label, decision, write) {
@@ -181,6 +224,7 @@ function printProductionDbStageDecision(label, decision, write) {
 function runReadOnlyCommand(input) {
   const result = spawnSync(resolveCommandBinary(input.command), input.args, {
     encoding: "utf8",
+    cwd: input.cwd,
     env: input.env,
     maxBuffer: 1024 * 1024 * 20,
     timeout: COMPLETION_PROBE_TIMEOUT_MS,
@@ -209,7 +253,7 @@ function resolveCommandBinary(command) {
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    runProductionDbRelease();
+    await runProductionDbRelease();
   } catch (error) {
     process.stderr.write(
       `${error instanceof Error ? error.message : String(error)}\n`

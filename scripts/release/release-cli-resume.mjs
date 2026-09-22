@@ -107,7 +107,11 @@ export async function runResumableCliRelease(input) {
       write
     );
     printCliReleaseDecisions(initial, write);
-    return { ...initial, sourceSha: target.headSha };
+    return {
+      ...initial,
+      receiptIdentity: buildCliReleaseReceiptIdentity(target, initial.binary),
+      sourceSha: target.headSha,
+    };
   }
 
   const result = await executeIncompleteCliRelease({
@@ -120,7 +124,11 @@ export async function runResumableCliRelease(input) {
     withBinary,
     write,
   });
-  return { ...result, sourceSha: target.headSha };
+  return {
+    ...result,
+    receiptIdentity: buildCliReleaseReceiptIdentity(target, result.binary),
+    sourceSha: target.headSha,
+  };
 }
 
 // Reuse the CLI owner's immutable channel checks for receipt recovery without
@@ -571,7 +579,7 @@ async function probeCliBinaryStage(input) {
             url: serviceArtifact?.archiveUrl,
           }),
     ]);
-    return decideCliBinaryStage({
+    const decision = decideCliBinaryStage({
       archiveProbe,
       artifactProbe,
       manifest,
@@ -582,6 +590,15 @@ async function probeCliBinaryStage(input) {
       targetServiceVersion: input.target.serviceVersion,
       targetVersion: input.target.version,
     });
+    return decision.action === "SKIP" && artifact
+      ? {
+          ...decision,
+          publishedArtifact: {
+            ...artifact,
+            platform: CLI_BINARY_PLATFORM,
+          },
+        }
+      : decision;
   } catch (error) {
     return decideCliBinaryStage({
       platform: CLI_BINARY_PLATFORM,
@@ -591,6 +608,25 @@ async function probeCliBinaryStage(input) {
       targetVersion: input.target.version,
     });
   }
+}
+
+function buildCliReleaseReceiptIdentity(target, binary) {
+  if (
+    binary.action !== "SKIP" ||
+    binary.criterion !== "verified-published-record" ||
+    !binary.publishedArtifact
+  ) {
+    throw new Error(
+      "Completed CLI release is missing its verified published binary identity."
+    );
+  }
+  return {
+    artifact: binary.publishedArtifact,
+    kind: "cli-release",
+    npmPackage: "openmeld",
+    tagName: target.tagName,
+    version: target.version,
+  };
 }
 
 async function probeNpmPublishStage(input) {

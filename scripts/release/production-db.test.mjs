@@ -4,9 +4,11 @@ import test from "node:test";
 import {
   buildProductionDbStepSpecs,
   executeProductionDbSteps,
+  runProductionDbRelease,
 } from "./production-db.mjs";
 
 const ALREADY_DONE_RE = /SKIP \(already done/u;
+const WEB_ARTIFACT_REJECTED_RE = /Web artifact rejected/u;
 
 test("keeps the production database sequence minimal and fail closed", () => {
   assert.deepEqual(
@@ -82,4 +84,25 @@ test("skips only completed D1 migration application and preserves later database
     ["Optimize query planner statistics after schema synchronization", "prod"],
   ]);
   assert.match(output.join(""), ALREADY_DONE_RE);
+});
+
+test("the database entry admits a train Web artifact before any database mutation", async () => {
+  const mutations = [];
+  await assert.rejects(
+    runProductionDbRelease({
+      adapters: {
+        assertCleanWorktree: () => undefined,
+        checkArtifact: () => {
+          throw new Error("Web artifact rejected");
+        },
+        readHeadSha: () => "a".repeat(40),
+        runStep: (step) => mutations.push(step.label),
+      },
+      cwd: "/release-source",
+      env: { OPENMELD_PRODUCTION_TRAIN_SCOPES: "db,cli,web" },
+      write: () => undefined,
+    }),
+    WEB_ARTIFACT_REJECTED_RE
+  );
+  assert.deepEqual(mutations, []);
 });

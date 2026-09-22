@@ -22,6 +22,10 @@ on:
           - normal
           - resume-after-binary-upload
           - resume-after-npm-publish
+      production_train_scopes:
+        description: "Comma-separated complete release train; use cli for an independent CLI release"
+        required: true
+        type: string
 
 concurrency:
   group: cli-production-release
@@ -50,6 +54,7 @@ jobs:
       cancel-in-progress: false
     environment: production
     env:
+      OPENMELD_PRODUCTION_TRAIN_SCOPES: ${{ inputs.production_train_scopes }}
       RELEASE_PATH: ${{ inputs.release_path }}
       RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
     steps:
