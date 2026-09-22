@@ -4,6 +4,7 @@ import {
   MODEL_CATALOG_SCHEMA_VERSION,
   modelCatalogSchema,
 } from "../../src/index";
+import codexGpt6Capture from "../fixtures/codex-gpt-6-sol-luna-2026.09.23.json";
 import cursorModelCatalogCapture from "../fixtures/cursor-model-catalog-2026.09.10.json";
 import localModelCatalogCapture from "../fixtures/local-model-catalog-2026.09.22.json";
 import openCodeGoQwen38Flash from "../fixtures/opencode-go-qwen3.8-flash-1.18.25.json";
@@ -12,6 +13,18 @@ import openCodeModelCatalogCapture from "../fixtures/opencode-model-catalog-1.18
 describe("model catalog schema", () => {
   it("preserves the new local models' authenticated IDs and reasoning options", () => {
     const { agentControllers } = modelCatalogSchema.parse(vendorModelCatalog);
+    for (const model of codexGpt6Capture.data) {
+      expect(agentControllers.codex?.models).toContainEqual(
+        expect.objectContaining({
+          id: model.model,
+          unavailable: false,
+          supportedReasoningLevels: model.supportedReasoningEfforts.map(
+            (effort) => effort.reasoningEffort
+          ),
+          minCliVersion: codexGpt6Capture.version,
+        })
+      );
+    }
     const { cursor, grokBuild, opencode } = localModelCatalogCapture;
     for (const model of cursor.availableModels) {
       expect(cursor.configOptions).toContainEqual({

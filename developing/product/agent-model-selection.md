@@ -571,6 +571,22 @@ OpenMeld retains its 16,384 output-token budget, below the provider's 128K
 limit. This is a Core-served catalog addition; it changes neither the fixed
 CLI offline snapshot nor any adapter or execution contract.
 
+### 5.10 GPT-6 Sol and Luna
+
+The September 23 refresh adds `gpt-6-sol` and `gpt-6-luna` for Codex.
+An authenticated Codex 0.155.1 `model/list` establishes the exact IDs and
+reasoning efforts: Sol supports `low`, `medium`, `high`, `xhigh`, `max`, and
+`ultra`; Luna supports the same list except `ultra`. The catalog uses 0.155.1
+as the verified client floor; it is not a claim about the earliest upstream
+release that could run either model. Existing creation defaults stay unchanged.
+
+The shared hosted routes are `openai/gpt-6-sol` and `openai/gpt-6-luna`.
+Captured OpenRouter metadata establishes 1,050,000 context tokens, text/image
+input, tool calling, and `high` reasoning. OpenMeld retains its 16,384 output
+budget. Direct OpenAI Chat Completions has a separate tool/effort limitation;
+OpenRouter is the actual hosted boundary and must pass live tool continuation
+before support is claimed. The API model names alone are not adapter evidence.
+
 ## 6. Reusable Selection Logic (Web / CLI / Desktop)
 
 **Problem:** today the Web and CLI create-profile flows are duplicated with no
