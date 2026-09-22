@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 export function isCliSkillCheckPath(path) {
   return (
@@ -14,26 +15,31 @@ export function isCliSkillCheckPath(path) {
   );
 }
 
-// Both PR validation and release control use the source checkout as cwd.
-// Turbo reuses the schema build; this never builds Web or signs new content.
+// Control owns the verifier and its schema; cwd supplies only release data.
+// Use Node directly: no schema build or platform-specific pnpm shim is needed.
 export function checkCliSkill(input = {}) {
   const run = input.run ?? spawnSync;
-  for (const [command, args] of [
-    ["pnpm", ["exec", "turbo", "run", "build", "--filter=@openmeld/schemas"]],
-    [process.execPath, ["scripts/release/cli-skill.mjs", "check"]],
-  ]) {
-    const result = run(command, args, {
-      cwd: input.cwd ?? process.cwd(),
+  const cwd = resolve(input.cwd ?? process.cwd());
+  const result = run(
+    process.execPath,
+    [
+      "--experimental-strip-types",
+      fileURLToPath(new URL("./cli-skill.mjs", import.meta.url)),
+      "check",
+    ],
+    {
+      cwd,
+      env: { ...process.env, OPENMELD_VERIFICATION_ROOT: cwd },
       stdio: "inherit",
-    });
-    if (result.error) {
-      throw result.error;
     }
-    if (result.status !== 0) {
-      throw new Error(
-        "CLI Skill verification failed. Inspect the error above; for content changes, increment release/openmeld-cli-skill/release.json revision, run node scripts/release/cli-skill.mjs build with the existing signing key, and commit source and generated public files together."
-      );
-    }
+  );
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      "CLI Skill verification failed. Inspect the error above; for content changes, increment release/openmeld-cli-skill/release.json revision, run node scripts/release/cli-skill.mjs build with the existing signing key, and commit source and generated public files together."
+    );
   }
 }
 
