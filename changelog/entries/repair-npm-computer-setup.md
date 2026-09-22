@@ -15,3 +15,7 @@ Setup checks supported Node versions and distinguishes invalid package
 dependencies from network failures. Windows validation exercises the generated
 PowerShell command and a clean npm installation, including the native database
 reader.
+
+Windows background Service and hourly update tasks use a console-free launch
+host to prevent the brief black window at sign-in or scheduled updates, while
+preserving ordinary user permissions, automatic updates and task failure logs.
