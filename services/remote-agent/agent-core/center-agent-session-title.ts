@@ -4,7 +4,7 @@ import {
   generateCenterAgentSessionTitleResponseSchema,
 } from "@openmeld/schemas";
 import type { GenerateCenterAgentSessionTitleResponse } from "@openmeld/schemas/types";
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
