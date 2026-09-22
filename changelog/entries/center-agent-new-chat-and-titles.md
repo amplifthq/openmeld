@@ -20,3 +20,6 @@ preference, and message actions keep their own row below each bubble.
 Group conversations also place avatars beside messages, with smaller, muted
 names above the bubbles. Spacing between messages is tighter in both group
 conversations and direct messages, while actions retain their own row.
+
+Sidebar message previews are easier to distinguish from conversation titles,
+and empty conversations no longer show placeholder preview text.

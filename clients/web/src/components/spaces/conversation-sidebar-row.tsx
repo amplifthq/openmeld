@@ -98,6 +98,9 @@ type ConversationRowPreview = {
 	previewSignalId?: string;
 };
 
+const CONVERSATION_PREVIEW_CLASS_NAME =
+	"truncate font-normal text-muted-foreground text-xs leading-4 dark:text-muted-foreground/90";
+
 export function ConversationSidebarRow(input: ConversationSidebarRowProps) {
 	if (input.conversation.kind === "space") {
 		const item = input.conversation.item;
@@ -105,7 +108,7 @@ export function ConversationSidebarRow(input: ConversationSidebarRowProps) {
 			<ConversationSidebarRowContent
 				{...input}
 				previewSignalId={item.messagePreview?.signalId}
-				previewText={item.messagePreview?.text ?? "No messages yet"}
+				previewText={item.messagePreview?.text ?? ""}
 				timestamp={resolveConversationTimestamp(
 					item.messagePreview?.timestamp,
 					item.spaceCreatedAt
@@ -220,8 +223,9 @@ function ConversationSidebarRowContent(
 							>
 								<span className="flex min-w-0 flex-1 items-center gap-1.5">
 									<span
-										className={`truncate ${hasUnread ? "font-semibold text-sidebar-foreground" : ""}`}
+										className={`truncate ${hasUnread ? "font-semibold text-sidebar-foreground" : "text-foreground/70 data-[selected=true]:text-sidebar-accent-foreground dark:text-muted-foreground dark:data-[selected=true]:text-sidebar-accent-foreground"}`}
 										data-conversation-title="true"
+										data-selected={input.selected}
 									>
 										{input.title}
 									</span>
@@ -264,7 +268,7 @@ function ConversationSidebarRowContent(
 									url={input.url}
 								/>
 							) : (
-								<span className="truncate font-normal text-muted-foreground text-xs leading-4">
+								<span className={CONVERSATION_PREVIEW_CLASS_NAME}>
 									{needsInput ? presentation?.label : previewText}
 								</span>
 							)}
@@ -312,7 +316,7 @@ function ConversationPreviewLink(input: {
 	return (
 		<Link
 			aria-label={`Open preview message in ${input.title}: ${input.text}`}
-			className="pointer-events-auto relative truncate font-normal text-muted-foreground text-xs leading-4 decoration-muted-foreground/50 underline-offset-2 outline-none hover:underline focus-visible:underline focus-visible:ring-1 focus-visible:ring-ring"
+			className={`pointer-events-auto relative ${CONVERSATION_PREVIEW_CLASS_NAME} decoration-muted-foreground/50 underline-offset-2 outline-none hover:underline focus-visible:underline focus-visible:ring-1 focus-visible:ring-ring`}
 			onClick={(event) => {
 				if (
 					currentHref !== href ||
@@ -522,7 +526,7 @@ export function resolvePreviewText(
 	if (!preview || preview.isPending) {
 		return "Loading message…";
 	}
-	return "No messages yet";
+	return "";
 }
 
 export function ChatIcon(input: {

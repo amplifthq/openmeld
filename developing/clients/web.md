@@ -139,6 +139,11 @@ changes only the sidebar; the open conversation, draft, and reading position
 remain mounted. View choice is remembered in this browser per account and
 Organization. It does not change another member's layout.
 
+Conversation rows leave the preview blank when no message exists. Preview text
+is quieter than the title: dark mode slightly reduces its muted color opacity;
+light mode preserves readable preview contrast and slightly strengthens the
+unselected title instead. Selected and unread titles retain foreground emphasis.
+
 Pinned contains ordinary Spaces, human and Agent direct messages, and Center
 Agent sessions once each. Its shared manual order uses the existing root
 sidebar preference; ordinary pin membership remains Space Index-owned and
