@@ -129,15 +129,12 @@ export function CenterAgentNewChat({
 						...preferences,
 						chats: {
 							...chats,
-							titles: {
-								...chats.titles,
-								[session.spaceId]: (
-									titleDraft.content.text ||
-									text ||
-									attachments.files[0]?.fileName ||
-									"New chat"
-								).slice(0, 160),
-							},
+							titles: titleDraft.content.text
+								? {
+										...chats.titles,
+										[session.spaceId]: titleDraft.content.text.slice(0, 160),
+									}
+								: chats.titles,
 							groups: chats.groups.map((item) =>
 								item.id === group && !item.spaceIds.includes(session.spaceId)
 									? { ...item, spaceIds: [...item.spaceIds, session.spaceId] }

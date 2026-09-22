@@ -19,6 +19,10 @@ export type {
   SpaceMessageMutationBody,
   SpaceMessageMutationResponse,
 } from "../schemas/http/space-message-mutation";
+export type {
+  GenerateCenterAgentSessionTitleInput,
+  GenerateCenterAgentSessionTitleResponse,
+} from "../schemas/runtime/center-agent-session-title";
 export type { AgentActivityOverviewResponse } from "./http/agent-activity-overview";
 export type {
   CenterAgentReadAuditJournalResponse,

@@ -8457,6 +8457,196 @@ describe("OpenMeld Core", () => {
     });
   });
 
+  it.each([
+    false,
+    true,
+  ])("generates a Center chat title without blocking messages, including a topic after a greeting: %s", async (greetingFirst) => {
+    const organizationId = `org-title-${randomUUID()}`;
+    const ownerUserId = `user-title-${randomUUID()}`;
+    const humanProfileId = randomUUID();
+    const agentProfileId = `agt_${randomUUID()}`;
+    await ensureTestCenterAgentDesignation({
+      agentProfileId,
+      agentProfileName: "Center Agent",
+      organizationId,
+      ownerUserId,
+    });
+    await insertTestPrimaryHumanProfile({
+      ownerUserId,
+      profileId: humanProfileId,
+    });
+    const context = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId,
+      profileId: humanProfileId,
+      profileKind: "human",
+      profileName: "Title tester",
+      requestId: "title-test",
+    });
+    const session = await rpcOpenCenterAgentDirectMessageSpace(
+      env as CoreBindings,
+      { context, sessionCreationId: randomUUID() }
+    );
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(session.spaceId));
+    await runInDurableObject(stub, async (_instance, state) => {
+      let resolveTitle!: (value: { title: string | null }) => void;
+      let started!: () => void;
+      const titleStarted = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const generate = vi
+        .fn<
+          NonNullable<
+            NonNullable<
+              CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]
+            >["generateCenterAgentSessionTitle"]
+          >
+        >()
+        .mockResolvedValue({ title: "Compare cloud hosting costs" })
+        .mockImplementationOnce(async () => {
+          started();
+          return await new Promise<{ title: string | null }>((resolve) => {
+            resolveTitle = resolve;
+          });
+        });
+      const restarted = new Space(state, {
+        ...env,
+        OPENMELD_REMOTE_AGENT_WORKER: {
+          generateCenterAgentSessionTitle: generate,
+        },
+      } as CoreBindings);
+      const post = (
+        text: string,
+        authoringPolicy: "user_authored" | "system_emitted" = "user_authored"
+      ) =>
+        restarted.rpcPostSignal({
+          context,
+          spaceId: session.spaceId,
+          profile: {
+            kind: "human",
+            profileId: humanProfileId,
+            profileName: "Title tester",
+          },
+          authoringPolicy,
+          text,
+        });
+      await post("System greeting", "system_emitted");
+      expect(generate).not.toHaveBeenCalled();
+      const firstText = greetingFirst ? "hi" : "Compare cloud hosting costs";
+      const first = await post(firstText);
+      expect(first.data).toMatchObject({ text: firstText });
+      await titleStarted;
+      await post("Compare cloud hosting and storage costs");
+      expect(generate).toHaveBeenCalledTimes(1);
+      resolveTitle({
+        title: greetingFirst ? null : "Compare cloud hosting costs",
+      });
+      await vi.waitFor(() => {
+        const row = state.storage.sql
+          .exec<{ name: string }>("SELECT name FROM space_meta")
+          .toArray()[0];
+        expect(row?.name).toBe("Compare cloud hosting costs");
+      });
+      await post("Also compare support costs");
+      expect(generate).toHaveBeenCalledTimes(greetingFirst ? 2 : 1);
+    });
+    await vi.waitFor(async () => {
+      const list = await rpcListCenterAgentSessions(env as CoreBindings, {
+        context,
+      });
+      expect(
+        list.sessions.find((item) => item.spaceId === session.spaceId)?.name
+      ).toBe("Compare cloud hosting costs");
+    });
+  });
+
+  it.each([
+    "unavailable",
+    "no topic",
+    "invalid output",
+  ])("keeps title failures out of message publication and bounds retries across restart: %s", async (scenario) => {
+    const organizationId = `org-title-failure-${randomUUID()}`;
+    const ownerUserId = `user-title-failure-${randomUUID()}`;
+    const humanProfileId = randomUUID();
+    await ensureTestCenterAgentDesignation({
+      agentProfileId: `agt_${randomUUID()}`,
+      agentProfileName: "Center Agent",
+      organizationId,
+      ownerUserId,
+    });
+    await insertTestPrimaryHumanProfile({
+      ownerUserId,
+      profileId: humanProfileId,
+    });
+    const context = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId,
+      profileId: humanProfileId,
+      profileKind: "human",
+      profileName: "Title tester",
+      requestId: "title-failure",
+    });
+    const session = await rpcOpenCenterAgentDirectMessageSpace(
+      env as CoreBindings,
+      { context, sessionCreationId: randomUUID() }
+    );
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    await runInDurableObject(
+      namespace.get(namespace.idFromString(session.spaceId)),
+      async (_instance, state) => {
+        const generate = vi.fn(() => {
+          if (scenario === "unavailable") {
+            return Promise.reject(new Error("Provider unavailable"));
+          }
+          return Promise.resolve({
+            title: scenario === "no topic" ? null : "x".repeat(65),
+          });
+        });
+        const bindings = {
+          ...env,
+          OPENMELD_REMOTE_AGENT_WORKER: {
+            generateCenterAgentSessionTitle: generate,
+          },
+        } as CoreBindings;
+        const pending: Promise<unknown>[] = [];
+        const waitUntil = state.waitUntil.bind(state);
+        const capture = vi
+          .spyOn(state, "waitUntil")
+          .mockImplementation((promise) => {
+            pending.push(promise);
+            waitUntil(promise);
+          });
+        try {
+          for (let attempt = 0; attempt < 4; attempt++) {
+            const restarted = new Space(state, bindings);
+            const posted = await restarted.rpcPostSignal({
+              context,
+              spaceId: session.spaceId,
+              profile: {
+                kind: "human",
+                profileId: humanProfileId,
+                profileName: "Title tester",
+              },
+              authoringPolicy: "user_authored",
+              text: `Message ${attempt}`,
+            });
+            expect(posted.data).toMatchObject({ text: `Message ${attempt}` });
+            await Promise.all(pending.splice(0));
+          }
+          expect(generate).toHaveBeenCalledTimes(3);
+          expect(
+            state.storage.sql
+              .exec<{ name: string }>("SELECT name FROM space_meta")
+              .toArray()[0]?.name
+          ).toBe("New chat");
+        } finally {
+          capture.mockRestore();
+        }
+      }
+    );
+  });
+
   it("opens the default Center chat and independent idempotent sessions through the real Space DO", async () => {
     const organizationId = `org-center-dm-${randomUUID()}`;
     const ownerUserId = `user-center-dm-${randomUUID()}`;

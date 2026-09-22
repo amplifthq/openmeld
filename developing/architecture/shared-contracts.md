@@ -519,6 +519,23 @@ new tool to select main explicitly. This is a cloud-only capability: old/new
 CLI, Service, and Skills retain setup, Wake, Space actions, trace and recovery
 contracts. No local contract epoch or local component stamp changes are needed.
 
+## Center Agent session title generation
+
+`generateCenterAgentSessionTitle` is an additive, internal Core-to-Remote-Agent
+service-binding RPC. Its strict request and response live in `packages/schemas`.
+Space supplies bounded persisted message text and filenames; the receiver returns
+a validated short title or no topic. It has no tool, session, or Wake authority.
+The existing Space name and index projection carry the result, and existing
+metadata invalidations refresh readers. Auth personal titles retain precedence.
+
+Deploy the Remote Agent receiver before Core and Web. New Core with an older
+receiver keeps message publication working and leaves the default title when
+the optional RPC is unavailable. Older Core does not call the new receiver.
+Rollback Web/Core before removing the receiver. No public HTTP, WebSocket,
+native delivery, CLI, Service, or Skill payload changes; old and new clients
+retain setup, Wake, Space actions, and diagnostics interoperability. No database
+migration, contract epoch, local component stamp, or new binding is required.
+
 ## Hosted reply recovery rollout
 
 The optional `replyRecovery` field on Remote Agent submit requests is owned by

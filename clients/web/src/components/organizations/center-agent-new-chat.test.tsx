@@ -258,9 +258,7 @@ it("starts a conversation from the shared starter card", async () => {
 		})
 	);
 	expect(createSession).toHaveBeenCalledTimes(1);
-	expect(save.mock.calls[0][0].chats.titles["chat-1"]).toContain(
-		"I'm new to OpenMeld."
-	);
+	expect(save.mock.calls[0][0].chats.titles["chat-1"]).toBeUndefined();
 });
 
 it("does not clear a newer draft when an earlier navigation finishes", async () => {

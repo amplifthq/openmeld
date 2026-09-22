@@ -1256,6 +1256,13 @@ function invalidateSpaceMetadata(
 	reason?: string
 ): void {
 	queryClient
+		.invalidateQueries({
+			predicate: (query) =>
+				query.queryKey[0] === "center-agent" &&
+				query.queryKey[3] === "sessions",
+		})
+		.catch((error) => console.warn("Failed to refresh chat titles.", error));
+	queryClient
 		.invalidateQueries({ queryKey: accountSpaceQueryKeys.all })
 		.catch((error) => {
 			console.warn("[openmeld.web.space.meta_invalidation_refresh_failed]", {

@@ -154,7 +154,8 @@ Team remains the member directory; there is no separate Contacts destination.
 Spaces combines the canonical ordinary Space and chat unread aggregates
 and retains chat action/urgent-update priority in its attention indicator.
 
-Selecting only Center Agent in New message opens a local `?draft=new` composer without creating a session or
+Selecting only Center Agent in New message, or **New Chat** in an existing
+Center Agent conversation's header menu, opens a local `?draft=new` composer without creating a session or
 waiting for a session-list request. The first send creates the session and
 hands its message to the existing Space composer. Creation identity survives
 uncertain failures and same-tab reloads until navigation succeeds. Draft text
@@ -227,9 +228,13 @@ Management tabs retain the session or draft selector when navigating back.
 Messages, Graph and Files remain scoped to that conversation; management tabs
 remain Organization-scoped. A draft has empty Graph and Files views until sent.
 The header pencil edits a personal chat title, including before the first send.
-Draft titles persist alongside draft text. First-send naming uses a manual title
-when present, otherwise the first message or attachment name. It does not run
-an asynchronous model-title job or overwrite a manual name.
+Draft titles persist alongside draft text. First send saves a manual title when
+present; it never copies or truncates the message into a personal title. Space
+generates the default title independently in the background, using the dedicated
+small-model operation described in [Space Collaboration](../product/space-collaboration.md#center-agent-session-titles).
+The pending/default name is **New chat**. Personal titles always override the
+generated default, including renames during generation. Metadata invalidation
+refreshes both the Space header and Center Agent session index.
 
 The authorized session index supplies chat identities and paginated discovery.
 Pages render progressively; title search covers all loaded pages while older

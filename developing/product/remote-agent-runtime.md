@@ -1392,6 +1392,12 @@ Grok 4.5, DeepSeek V4 Flash, or any other primary models. If all providers for
 the exact model fail, the turn still ends in one visible failure. Public-web
 research uses the same exact-model provider-rerouting rule.
 
+The separate session-title RPC uses the fixed `z-ai/glm-5.3-flash` helper model
+with low reasoning and structured output. It runs outside the conversation and
+execution queue, cannot call tools, and never blocks or changes the primary
+turn. Its bounded failure leaves the default chat title; see
+[session titles](space-collaboration.md#center-agent-session-titles).
+
 Provider registration is scoped by Organization and frozen route identity.
 Flue/pi-ai capability metadata, AI Gateway headers, usage attribution, and
 reasoning behavior must be read through that scoped provider id rather than a

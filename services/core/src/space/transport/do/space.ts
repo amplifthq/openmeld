@@ -34,6 +34,7 @@ import {
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdFromDigest,
+  CENTER_AGENT_SESSION_TITLE_INPUT_MAX_LENGTH,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   clearSpaceReasoningReplaySchema,
   commitSpaceFileWriteInputSchema,
@@ -46,6 +47,7 @@ import {
   evalSpaceSignalMetricsInputSchema,
   evalSpaceSignalMetricsSchema,
   formatCanonicalMentionLiteral,
+  generateCenterAgentSessionTitleResponseSchema,
   getActiveSpaceWakeProgressInputSchema,
   getSpaceConversationStateResponseSchema,
   getSpaceDispatchLookupInputSchema,
@@ -2500,6 +2502,11 @@ export class Space extends DurableObject<CoreBindings> {
   private liveBroadcastDelivery: Promise<void> = Promise.resolve();
   private lastPostCleanupAtMs = 0;
   private lastRetentionWarningAtMs = 0;
+  private sessionTitleGenerationPending = false;
+  private nextSessionTitleSignal: Extract<
+    SignalEnvelope,
+    { type: "signal.text" }
+  > | null = null;
   private dispatchOutboxContinuationDueAtMs: number | null = null;
   private dispatchOutboxFlush: Promise<void> | null = null;
   // A load-shedding hint, not durable work state. Eviction may retry sooner;
@@ -17280,6 +17287,9 @@ export class Space extends DurableObject<CoreBindings> {
       },
     });
     this.broadcastRepostedSource(repostedSource);
+    if (persistedSignal) {
+      this.scheduleInitialSessionTitle(signal, signalContext);
+    }
     this.maybeEmitRetentionWarningSignal({
       signal,
       createOutboxRecord,
@@ -17307,6 +17317,134 @@ export class Space extends DurableObject<CoreBindings> {
       duplicateFinalReplyBlocked,
       persistedSignal,
     };
+  }
+
+  private scheduleInitialSessionTitle(
+    signal: SignalEnvelope,
+    context?: SignalPublishContext
+  ): void {
+    if (
+      signal.type !== "signal.text" ||
+      signal.profile.kind !== "human" ||
+      context?.authoringPolicy !== "user_authored" ||
+      context.threadContext
+    ) {
+      return;
+    }
+    // Naming never blocks publication or dispatch. Keep only the newest eligible
+    // message if a greeting's inference is still in flight when a topic arrives.
+    if (this.sessionTitleGenerationPending) {
+      this.nextSessionTitleSignal = signal;
+      return;
+    }
+    this.ctx.waitUntil(this.generateInitialSessionTitle(signal));
+  }
+
+  private async generateInitialSessionTitle(
+    signal: Extract<SignalEnvelope, { type: "signal.text" }>
+  ): Promise<void> {
+    const meta = this.readSpaceMetaRecord();
+    const worker = this.bindings.OPENMELD_REMOTE_AGENT_WORKER;
+    if (
+      this.sessionTitleGenerationPending ||
+      meta?.name !== "New chat" ||
+      meta.purpose !== "openmeld_dm_space" ||
+      meta.directMessage?.convertedAt ||
+      !worker?.generateCenterAgentSessionTitle
+    ) {
+      return;
+    }
+    this.sessionTitleGenerationPending = true;
+    try {
+      const attemptKey = "center-agent-session-title-attempts";
+      const attempts = (await this.ctx.storage.get<number>(attemptKey)) ?? 0;
+      if (attempts >= 3) {
+        return;
+      }
+      const projection =
+        await this.readCenterAgentDirectMessageProjectionFromMetaRecord(meta);
+      const member = readSpaceMemberRecord(
+        this.ctx.storage.sql,
+        signal.profile.profileId
+      );
+      if (
+        projection?.memberProfileId !== signal.profile.profileId ||
+        member?.status !== "active" ||
+        member.profileKindSnapshot !== "human"
+      ) {
+        return;
+      }
+      // A greeting or a failed request can be retried on a later message. The
+      // persisted cap bounds costs across eviction; no timer retries are needed.
+      await this.ctx.storage.put(attemptKey, attempts + 1);
+      const result = generateCenterAgentSessionTitleResponseSchema.safeParse(
+        await worker.generateCenterAgentSessionTitle({
+          organizationId: meta.organizationId,
+          spaceId: this.spaceId,
+          sourceSignalId: signal.id,
+          text: signal.data.text.slice(
+            0,
+            CENTER_AGENT_SESSION_TITLE_INPUT_MAX_LENGTH
+          ),
+          attachmentNames: (signal.data.files ?? [])
+            .slice(0, 5)
+            .map((file) => file.name.slice(0, 255)),
+        })
+      );
+      if (!result.success) {
+        throw new Error("Session title receiver returned an invalid title.");
+      }
+      if (!result.data.title) {
+        return;
+      }
+      const current = this.readSpaceMetaRecord();
+      if (
+        !current ||
+        current.name !== "New chat" ||
+        current.directMessage?.convertedAt
+      ) {
+        return;
+      }
+      const currentProjection =
+        await this.readCenterAgentDirectMessageProjectionFromMetaRecord(
+          current
+        );
+      if (
+        currentProjection?.memberProfileId !== projection.memberProfileId ||
+        currentProjection?.centerAgentProfileId !==
+          projection.centerAgentProfileId
+      ) {
+        return;
+      }
+      // Write only the generated default. Auth-owned personal titles continue
+      // to take precedence, including a rename made while inference was running.
+      const update = this.ctx.storage.sql.exec(
+        "UPDATE space_meta SET name = ?, updated_at = ? WHERE space_id = ? AND name = ? AND updated_at = ?",
+        result.data.title,
+        Date.now(),
+        this.spaceId,
+        "New chat",
+        Date.parse(current.updatedAt)
+      );
+      if (update.rowsWritten === 0) {
+        return;
+      }
+      await this.projectCurrentSpaceIndexSnapshot("space.meta_updated");
+      await this.broadcastSpaceMetaChanged({ reason: "space.name.updated" });
+    } catch (error) {
+      console.warn("[core.center_agent.session_title_failed]", {
+        spaceId: this.spaceId,
+        signalId: signal.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.sessionTitleGenerationPending = false;
+      const nextSignal = this.nextSessionTitleSignal;
+      this.nextSessionTitleSignal = null;
+      if (nextSignal) {
+        this.ctx.waitUntil(this.generateInitialSessionTitle(nextSignal));
+      }
+    }
   }
 
   private broadcastRepostedSource(repostedSource: SignalEnvelope | null) {
@@ -17457,6 +17595,7 @@ export class Space extends DurableObject<CoreBindings> {
       nowMs: persistNowMs,
     });
     if (persistedSignal) {
+      this.scheduleInitialSessionTitle(signal, signalContext);
       if (
         signal.type === "signal.text" &&
         supportsDurableObjectAlarms(this.ctx?.storage)

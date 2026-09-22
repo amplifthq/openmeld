@@ -17,7 +17,11 @@ import {
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
-import { ChatCircleTextIcon, WarningIcon } from "@phosphor-icons/react";
+import {
+	ChatCircleTextIcon,
+	PlusIcon,
+	WarningIcon,
+} from "@phosphor-icons/react";
 import { Fragment, type ReactNode, useState } from "react";
 import {
 	AppModuleSidebarToggle,
@@ -184,6 +188,7 @@ export function SpaceHeader(input: {
 	isLoadingMessages?: boolean;
 	managementControl?: ReactNode;
 	showChatSettingsMenu?: boolean;
+	newChatPath?: string;
 	// Forces an immediate live-stream reconnect; wired to the manual retry control
 	// on the degraded status indicator.
 	onReconnectLiveUpdates?: () => void;
@@ -309,7 +314,17 @@ export function SpaceHeader(input: {
 						{input.showChatSettingsMenu ? (
 							<SpaceHeaderNavigationMenu
 								ariaLabel="Center Agent menu"
-								items={[]}
+								items={
+									input.newChatPath
+										? [
+												{
+													icon: PlusIcon,
+													label: "New Chat",
+													to: input.newChatPath,
+												},
+											]
+										: []
+								}
 								onOpenConversationInformation={() => {
 									setSettingsInitialSection("general");
 									setActiveDialog("settings");

@@ -70,6 +70,7 @@ import {
 } from "#/lib/openmeld-api/client";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import {
+	buildOrganizationCenterAgentChatPath,
 	buildOrganizationSpacePath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
@@ -1749,6 +1750,13 @@ function SpaceLandingReady({
 								</>
 							}
 							membersControl={input.isGuest ? undefined : membersControl}
+							newChatPath={
+								currentSpaceIsCenterAgentDirectMessage && input.orgSlug
+									? buildOrganizationCenterAgentChatPath(input.orgSlug, {
+											draft: "new",
+										})
+									: undefined
+							}
 							notificationControl={
 								<SpaceNotificationMenu
 									isGuest={input.isGuest}
