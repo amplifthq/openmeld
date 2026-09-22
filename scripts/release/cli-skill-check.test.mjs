@@ -22,6 +22,11 @@ const REPOSITORY_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const SOURCE = "release/openmeld-cli-skill";
 const PUBLIC = "clients/web/public/skills/openmeld-cli";
 const VERIFICATION_FAILURE = /CLI Skill verification failed/u;
+const CHECK_PASSED = /check passed/u;
+const CONTENT_FAILURE =
+  /Published revisions are immutable|Published Skill signature is invalid|Generated Skill file differs/u;
+const NOT_APPLICABLE = /not applicable/u;
+const HISTORICAL_NOT_APPLICABLE = /not applicable to this historical source/u;
 
 test("propagates verifier failures without launching a package manager", () => {
   for (const status of [0, 1, null]) {
@@ -111,7 +116,7 @@ test("current control verifies signed historical content without source-owned co
       const before = snapshotFiles(root);
       const result = runWrapper(root);
       assert.equal(result.status, 0, result.stderr);
-      assert.match(result.stdout, /check passed/u);
+      assert.match(result.stdout, CHECK_PASSED);
       assert.deepEqual(snapshotFiles(root), before);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -148,10 +153,7 @@ test("real verification rejects stale source, invalid signatures and changed pub
       const before = snapshotFiles(root);
       const result = runWrapper(root);
       assert.notEqual(result.status, 0);
-      assert.match(
-        result.stderr,
-        /Published revisions are immutable|Published Skill signature is invalid|Generated Skill file differs/u
-      );
+      assert.match(result.stderr, CONTENT_FAILURE);
       assert.deepEqual(snapshotFiles(root), before);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -170,10 +172,10 @@ test("historical sources without Skill delivery are explicit, but partial artifa
       const result = runWrapper(root);
       if (present) {
         assert.notEqual(result.status, 0);
-        assert.doesNotMatch(result.stdout, /not applicable/u);
+        assert.doesNotMatch(result.stdout, NOT_APPLICABLE);
       } else {
         assert.equal(result.status, 0, result.stderr);
-        assert.match(result.stdout, /not applicable to this historical source/u);
+        assert.match(result.stdout, HISTORICAL_NOT_APPLICABLE);
       }
       assert.deepEqual(snapshotFiles(root), before);
     } finally {
