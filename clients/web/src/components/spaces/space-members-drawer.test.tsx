@@ -224,6 +224,83 @@ import {
 } from "./space-members-error-copy";
 
 describe("SpaceMembersSidePanel", () => {
+	it("shows cached identities without member actions until fresh members replace them, and hides them on failure", () => {
+		const client = createTestQueryClient();
+		const profileId = "11111111-1111-4111-8111-111111111111";
+		client.setQueryData(
+			spaceQueryKeys.memberDirectoryDisplay("space-1", profileId),
+			{
+				version: 1,
+				members: [
+					{
+						profileId: "cached-agent",
+						profileName: "Cached agent",
+						profileKind: "agent",
+						primaryMentionLabel: "Cached agent",
+						avatarUrl: null,
+						agentControllerRef: null,
+					},
+				],
+			}
+		);
+		const props: TestSpaceMembersSidePanelProps = {
+			activeWakeWaitingTargetProfileIds: new Set(),
+			agentRecoveryPlansByProfileId: new Map(),
+			autoRefreshExhaustedProfileIds: new Set(),
+			currentOwnerUserId: "user_felix",
+			currentProfileId: profileId,
+			isAgentRecoveryPending: () => false,
+			isLoading: true,
+			membersError: null,
+			onAgentRecoveryAction: async () => undefined,
+			onRefresh: async () => undefined,
+			onOpenChange: vi.fn(),
+			open: true,
+			orgSlug: "acme",
+			snapshot: null,
+			spaceId: "space-1",
+		};
+		const panel = (overrides: Partial<TestSpaceMembersSidePanelProps> = {}) => (
+			<TestQueryClientProvider queryClient={client}>
+				<SpaceMembersSidePanel {...props} {...overrides} />
+			</TestQueryClientProvider>
+		);
+		const view = render(panel());
+		expect(screen.getByText("Cached agent")).toBeTruthy();
+		expect(screen.getByRole("status").textContent).toBe("Updating members…");
+		expect(
+			screen.queryByTestId("space-agent-availability-indicator")
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Check Cached agent Profile" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Add People or Agents" })
+		).toBeNull();
+
+		view.rerender(
+			panel({
+				isLoading: false,
+				snapshot: createSpaceMembersSnapshot({
+					humans: [
+						createSpaceMemberHumanSnapshot({
+							profileId,
+							profileName: "Current member",
+						}),
+					],
+				}),
+			})
+		);
+		expect(screen.queryByText("Cached agent")).toBeNull();
+		expect(screen.getByText("Current member")).toBeTruthy();
+
+		view.rerender(panel({ membersError: SPACE_MEMBERS_LOAD_ERROR_MESSAGE }));
+		expect(screen.queryByText("Cached agent")).toBeNull();
+		expect(screen.getByText(SPACE_MEMBERS_LOAD_ERROR_MESSAGE)).toBeTruthy();
+		view.rerender(panel({ currentProfileId: "different-profile" }));
+		expect(screen.queryByText("Cached agent")).toBeNull();
+	});
+
 	it("reuses fresh candidates and preserves selection through a failed stale refresh and retry", async () => {
 		vi.useFakeTimers({ toFake: ["Date"] });
 		vi.setSystemTime(new Date("2026-09-16T12:00:00Z"));
@@ -2803,8 +2880,8 @@ describe("SpaceMembersSidePanel Wake display-debounce override", () => {
 		expect(indicator.getAttribute("data-refreshing")).toBe("true");
 		expect(screen.queryByText("Connect local agent")).toBeNull();
 		expect(
-			screen.getByText("This agent is working on a Wake in this Space.")
-		).toBeTruthy();
+			screen.queryByText("This agent is working on a Wake in this Space.")
+		).toBeNull();
 	});
 
 	it("keeps Profile Details on the raw Checking snapshot while the indicator is smoothed to Available (M1)", async () => {

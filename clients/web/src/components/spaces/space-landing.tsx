@@ -113,6 +113,7 @@ import {
 	accountSpaceQueryKeys,
 } from "#/query/spaces/account-spaces";
 import type { SpaceBootstrapSnapshot } from "#/query/spaces/bootstrap";
+import { spaceMemberDirectoryDisplayQueryOptions } from "#/query/spaces/member-directory-display";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import { buildDirectMessageConversionDefaultName } from "./direct-message-conversion";
 import { DirectMessageConversionDialog } from "./direct-message-conversion-dialog";
@@ -1626,6 +1627,8 @@ function SpaceLandingReady({
 			}
 			onOpenChange={handleMembersOpenChange}
 			open={membersOpen}
+			profileId={controller.profileId}
+			spaceId={controller.spaceId}
 		/>
 	);
 	const {
@@ -2031,11 +2034,16 @@ function resolveSpaceHistoryErrorMessage(
 }
 
 function SpaceLandingMembersControl(input: {
+	spaceId: string;
+	profileId: string;
 	isDesktopMembersPanel: boolean;
 	memberCount: number | null;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
 }) {
+	const displayQuery = useQuery(
+		spaceMemberDirectoryDisplayQueryOptions(input.spaceId, input.profileId)
+	);
 	return (
 		<SpaceMembersToggleButton
 			controlsId={
@@ -2043,7 +2051,9 @@ function SpaceLandingMembersControl(input: {
 					? "space-members-panel"
 					: "space-members-drawer"
 			}
-			memberCount={input.memberCount}
+			memberCount={
+				input.memberCount ?? displayQuery.data?.members.length ?? null
+			}
 			onOpenChange={input.onOpenChange}
 			open={input.open}
 		/>
