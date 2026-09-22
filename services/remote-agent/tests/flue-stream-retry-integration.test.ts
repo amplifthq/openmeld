@@ -22,9 +22,14 @@ import { createSubmitTurnRequest } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 it.each([
-  false,
-  true,
-])("replaces a failed streamed answer using the canonical Flue response, with prior tool narration=%s", async (withNarration) => {
+  { withNarration: false, silentToolSteps: 0 },
+  { withNarration: true, silentToolSteps: 0 },
+  { withNarration: false, silentToolSteps: 1 },
+  { withNarration: true, silentToolSteps: 2 },
+])("replaces a failed streamed answer with prior narration=$withNarration and silent retry tool steps=$silentToolSteps", async ({
+  withNarration,
+  silentToolSteps,
+}) => {
   const provider = fauxProvider({
     provider: "retry-display",
     tokensPerSecond: Number.POSITIVE_INFINITY,
@@ -46,11 +51,16 @@ it.each([
     ],
     { stopReason: "toolUse" }
   );
-  provider.setResponses(
-    withNarration
-      ? [() => gate.promise, failed, final]
-      : [() => gate.promise, final]
-  );
+  provider.setResponses([
+    () => gate.promise,
+    ...(withNarration ? [failed] : []),
+    ...Array.from({ length: silentToolSteps }, () =>
+      fauxAssistantMessage(fauxToolCall("lookup", {}), {
+        stopReason: "toolUse",
+      })
+    ),
+    final,
+  ]);
   const lookup = defineTool({
     name: "lookup",
     description: "Read the catalogue.",
@@ -81,6 +91,7 @@ it.each([
   };
   const pending = new Set<Promise<void>>();
   const errors: unknown[] = [];
+  const replacementPrefixes: string[] = [];
   const dispatchObservation = createCenterAgentObservationDispatcher({
     handle: (event) =>
       handleCenterAgentObservation({
@@ -100,6 +111,12 @@ it.each([
     },
   });
   const unsubscribe = observe((event) => {
+    if (event.type === "text_delta") {
+      const prefix: unknown = Reflect.get(event, "textPrefix");
+      if (typeof prefix === "string") {
+        replacementPrefixes.push(prefix);
+      }
+    }
     if (event.type === "text_delta" || event.type === "thinking_delta") {
       return dispatchObservation(event);
     }
@@ -155,6 +172,9 @@ it.each([
     expect(snapshots.at(-1)).toBe(answer.text);
     expect(snapshots.at(-1)).not.toContain("Wrong partial");
     expect(snapshots.at(-1)).toContain("Correct complete answer.");
+    expect(replacementPrefixes).toEqual([
+      withNarration ? "I will check the catalogue.\n\n" : "",
+    ]);
     if (withNarration) {
       expect(snapshots.at(-1)).toContain("I will check the catalogue.");
     }

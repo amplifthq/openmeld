@@ -1,5 +1,5 @@
 diff --git a/dist/agent-coordinator-BEWH2ojV.d.mts b/dist/agent-coordinator-BEWH2ojV.d.mts
-index a1c49aa943d9a1a451ed69130be063cb3fab7e6d..ba6db9b0714661dd7f224474bacc5bcb53a8be40 100644
+index a1c49aa943d9a1a451ed69130be063cb3fab7e6d..32cbc766ca8668d53ebec0c9ff0827899639ef4c 100644
 --- a/dist/agent-coordinator-BEWH2ojV.d.mts
 +++ b/dist/agent-coordinator-BEWH2ojV.d.mts
 @@ -1,6 +1,17 @@
@@ -122,7 +122,7 @@ index 4ccecda0df695372eb52b3a7c41f59ef6930ae37..c03522d69606acf8afe5cba112372927
  		const sessionKey = createSessionStorageKey(this.agentName, this.instance.name, SUBMISSION_HARNESS_NAME, SUBMISSION_SESSION_NAME);
  		const affected = await this.submissions.requestSessionAbort(sessionKey);
 diff --git a/dist/agent-execution-store-BoXvwktA.d.mts b/dist/agent-execution-store-BoXvwktA.d.mts
-index b06a5d07329baef615d46e8d61b1a8dbdfe83ca1..c4cedb20d32ee71f07d2af4156661f76ab267493 100644
+index b06a5d07329baef615d46e8d61b1a8dbdfe83ca1..347c7bf50988834436f65279c246c920fa598256 100644
 --- a/dist/agent-execution-store-BoXvwktA.d.mts
 +++ b/dist/agent-execution-store-BoXvwktA.d.mts
 @@ -1436,6 +1436,16 @@ interface AgentSubmissionStore {
@@ -214,7 +214,7 @@ index 507b275fd464dd8d40411cb294bd41f6c6e16ced..17c441c0845d8eecf795f4df5ea8fcc1
  		* The Agents SDK alarm handler dispatches `schedule`/`scheduleEvery`/
  		* `queue` callbacks to methods on this class — including
 diff --git a/dist/conversation-stream-store-B2RVviYM.mjs b/dist/conversation-stream-store-B2RVviYM.mjs
-index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979ceb642fd 100644
+index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..5ac6abdb1f275c88982ad05fcb363332497583f2 100644
 --- a/dist/conversation-stream-store-B2RVviYM.mjs
 +++ b/dist/conversation-stream-store-B2RVviYM.mjs
 @@ -1,4 +1,5 @@
@@ -223,7 +223,16 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  import { A as createEditTool, D as READ_SKILL_RESOURCE_TOOL_NAME, E as redactObservationDetailImages, F as createTaskTool, I as createWriteTool, L as formatBashResult, M as createGrepTool, N as createPackagedSkillReadTool, O as createActivateSkillTool, P as createReadTool, R as overlayPackagedSkills, S as renderWithFrame, T as redactEventImages, _ as packageSkillDefinition, a as buildPromptText, b as getSkillReferenceDirectory, c as buildWorkspaceSkillPrompt, d as parseSkillMarkdown, f as getPreparedToolAdapter, g as isSkillDefinition, i as buildPackagedSkillPrompt, j as createGlobTool, k as createBashTool, l as createResultTools, n as GIVE_UP_TOOL_NAME, o as buildResultFollowUpPrompt, r as ResultUnavailableError, s as buildSkillByPathlessNamePrompt, t as FINISH_TOOL_NAME, u as prepareResultTool, w as IMAGE_DATA_OMITTED } from "./result-D9Q9s-LD.mjs";
  import { $ as generateIncarnationId, A as SubmissionConflictError, F as ToolNameConflictError, J as createConversationIdentity, K as serializeEventError, M as SubmissionRetryExhaustedError, N as SubmissionTimeoutError, O as SubagentNotDeclaredError, S as SessionBusyError, T as SkillNotRegisteredError, W as normalizeLogAttributes, X as generateAttemptId, Y as deriveKeyedSubmissionId, Z as generateBlockId, a as AttachmentNotAvailableError, c as ConversationRecordInvariantError, ct as generateToolCallId, d as FlueError, ft as interceptExecution, h as OperationFailedError, j as SubmissionInterruptedError, k as SubmissionAbortedError, l as ConversationStreamStoreError, lt as generateTurnId, n as AgentInstanceNotFoundError, nt as generateInvocationId, ot as generateSubmissionId, p as InvalidRequestError, rt as generateOperationId, st as generateTaskId, t as AgentInstanceExistsError, tt as generateInstanceUid, u as DelegationDepthExceededError, z as classifyError } from "./errors-CsDcT_C4.mjs";
  import { $ as MAX_READ_LIMIT, B as DEFAULT_COMPACTION_SETTINGS, C as DeliveredMessageSchema, Ct as generateConversationEntryId, E as assertDurability, F as getActiveConversationPathSince, G as prepareCompaction, H as compact, I as getLatestConversationCompaction, J as emptyUsage, K as shouldCompact, L as countConsecutiveRetryableModelErrors, N as aggregateConversationUsageSince, P as classifyConversationSubmission, R as findTrailingPartialToolBatch, St as encodeCanonicalId, Tt as toolStepRecordId, U as deriveCompactionDefaults, V as calculateContextTokens, W as isAssistantContextOverflow, Y as fromProviderUsage, _t as assertAppendMessage, bt as fnv1a64, ct as toolOutcomeKey, d as resolveAgentInitialDataSchema, et as agentStreamPath, ft as createSessionStorageKey, gt as renderSignalMessage, ht as createUserContextMessage, it as buildConversationContextEntries, lt as toolResultEntryId, mt as parseSessionStorageKey, nt as parseOffset, ot as getActiveConversationPath, q as addUsage, rt as buildConversationContext, tt as formatOffset, w as MAX_IMAGE_DATA_LENGTH, wt as generateConversationRecordId, xt as RESERVED_SIGNAL_TYPES, yt as runResponseMetadataHooks, z as isRetryableModelError } from "./dispatch-Dohpn4Ea.mjs";
-@@ -1823,11 +1824,11 @@ var Session = class {
+@@ -1128,6 +1129,8 @@ var Session = class {
+ 	conversationWriter;
+ 	attachmentStore;
+ 	canonicalAssistant;
++	// Response-scoped: a tool-only retry must not discard an unconsumed reset.
++	pendingRetryTextPrefix;
+ 	canonicalToolRequestMessageId;
+ 	/**
+ 	* The just-committed tool batch, stashed by the `turn_end` handler for the
+@@ -1823,11 +1826,11 @@ var Session = class {
  		const entryId = submissionEntryId(input.kind, input.submissionId);
  		if (!await this.conversationWriter.hasConversationEntry(this.conversationId, entryId)) {
  			const parentId = await this.conversationWriter.getConversationLeaf(this.conversationId);
@@ -237,7 +246,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  		await source.finalize(input.submissionId);
  	}
  	/**
-@@ -1864,13 +1865,13 @@ var Session = class {
+@@ -1864,13 +1867,13 @@ var Session = class {
  			if (submission.status === "joining") {
  				if (await this.conversationWriter.hasConversationEntry(this.conversationId, entryId)) {
  					this.advanceDelivery?.(input.message);
@@ -253,26 +262,35 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  		}
  		await this.restoreDeliveryCursor();
  	}
-@@ -2232,6 +2233,9 @@ var Session = class {
+@@ -2014,6 +2017,7 @@ var Session = class {
+ 	* adopts them instead: the wake hooks ran on the original attempt.
+ 	*/
+ 	async beginResponseOutput() {
++		this.pendingRetryTextPrefix = void 0;
+ 		this.responseMessageId = void 0;
+ 		this.responseHasCompletedStep = false;
+ 		this.responseUsage = void 0;
+@@ -2232,6 +2236,10 @@ var Session = class {
  							modelInfo,
  							...isResponseFirstMessage && this.responseStartMetadata ? { responseMetadata: this.responseStartMetadata } : {}
  						}]);
 +						if (this.activeSubmissionId !== void 0) {
-+							this.canonicalAssistant.textPrefix = projectSubmissionRetryTextPrefix(await this.requireConversation(), this.activeSubmissionId);
++							const textPrefix = projectSubmissionRetryTextPrefix(await this.requireConversation(), this.activeSubmissionId);
++							if (textPrefix !== void 0) this.pendingRetryTextPrefix = textPrefix;
 +						}
  					}
  					this.emit({
  						type: "message_start",
-@@ -2261,6 +2265,8 @@ var Session = class {
+@@ -2261,6 +2269,8 @@ var Session = class {
  					} else if (assistant && aEvent.type === "text_delta") {
  						const block = assistant.blocks.get(aEvent.contentIndex);
  						if (block?.type !== "text") throw new Error("[flue] Canonical text delta has no started block.");
-+						const textPrefix = assistant.textPrefix;
-+						assistant.textPrefix = void 0;
++						const textPrefix = aEvent.delta.length > 0 ? this.pendingRetryTextPrefix : void 0;
++						if (textPrefix !== void 0) this.pendingRetryTextPrefix = void 0;
  						this.enqueueCanonical([{
  							...this.canonicalEnvelope("assistant_text_delta"),
  							type: "assistant_text_delta",
-@@ -2270,7 +2276,8 @@ var Session = class {
+@@ -2270,7 +2280,8 @@ var Session = class {
  							delta: aEvent.delta
  						}], () => this.emit({
  							type: "text_delta",
@@ -282,7 +300,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  						}));
  					} else if (assistant && aEvent.type === "text_end") {
  						const block = assistant.blocks.get(aEvent.contentIndex);
-@@ -4050,7 +4057,7 @@ var Session = class {
+@@ -4050,7 +4061,7 @@ var Session = class {
  		};
  		const throwIfHalted = () => {
  			if (options.signal.aborted) throw abortErrorFor(options.signal);
@@ -291,7 +309,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  		};
  		while (true) {
  			const overflow = assistant !== void 0 && isAssistantContextOverflow(assistant, this.agentLoop.state.model.contextWindow ?? 0);
-@@ -4183,6 +4190,7 @@ var Session = class {
+@@ -4183,6 +4194,7 @@ var Session = class {
  				this.internalLog("info", "[flue:compaction] Nothing to compact (first kept message has no entry)");
  				return false;
  			}
@@ -299,7 +317,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  			this.internalLog("info", `[flue:compaction] Summarizing ${preparation.messagesToSummarize.length} messages` + (preparation.isSplitTurn ? ` (split turn: ${preparation.turnPrefixMessages.length} prefix messages)` : "") + `, keeping messages from index ${preparation.firstKeptIndex}`);
  			const estimatedTokens = preparation.tokensBefore;
  			this.emit({
-@@ -4536,7 +4544,7 @@ var Session = class {
+@@ -4536,7 +4548,7 @@ var Session = class {
  	resolveSubmissionDurability(startedAt, timeoutAt) {
  		return {
  			maxAttempts: this.config.durability?.maxAttempts ?? 10,
@@ -308,7 +326,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  		};
  	}
  	async runPersistedContextInput(options) {
-@@ -4578,7 +4586,13 @@ var Session = class {
+@@ -4578,12 +4590,19 @@ var Session = class {
  					signal: options.signal
  				});
  				await this.flushResponseOutput();
@@ -323,7 +341,13 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  			} finally {
  				this.pendingSignalAppends = [];
  				this.agentLoop.clearSteeringQueue();
-@@ -4976,7 +4990,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
+ 				this.outputWriteQueue = Promise.resolve();
+ 				this.activeSubmissionId = void 0;
++				this.pendingRetryTextPrefix = void 0;
+ 				this.activeSubmissionAttemptId = void 0;
+ 				this.activeJoinSource = void 0;
+ 				this.activeJoinSignal = void 0;
+@@ -4976,7 +4995,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
  }
  function createAgentSubmissionSessionHandler(agent, input, execute) {
  	return async (ctx) => {
@@ -343,7 +367,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  	};
  }
  /**
-@@ -4997,10 +5022,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -4997,10 +5027,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	const { input } = submission;
  	const attempt = submissionAttemptRef(submission);
  	if (!attempt) return void 0;
@@ -371,7 +395,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  	} catch (renderError) {
  		if (submission.timeoutAt > 0 && Date.now() >= submission.timeoutAt) {
  			await failInterruptedSubmission(submissions, submission, attempt, agent, "exceeded_timeout", () => new SubmissionTimeoutError(), createContext, conversationWriter, emitCoordinatorEvent);
-@@ -5014,7 +5055,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5014,7 +5060,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  		return;
  	}
  	if (submission.abortRequestedAt !== void 0) {
@@ -380,7 +404,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  		return;
  	}
  	if (submission.attemptCount >= submission.maxAttempts) {
-@@ -5040,6 +5081,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5040,6 +5086,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	}
  	await submissions.requeueSubmission(attempt);
  }
@@ -397,7 +421,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  /**
  * The wall-clock deadline after which a queued submission that never became
  * claimable (materialization permanently failing, agent definition
-@@ -5056,7 +5107,7 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5056,7 +5112,7 @@ function unreadySubmissionDeadline(submission, agent) {
  		assertDurability(agent.durability, `[agent "${submission.input.agent}"]`);
  		timeoutMs = agent.durability?.timeoutMs ?? 36e5;
  	} catch {}
@@ -406,7 +430,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  }
  /**
  * Settle a queued submission that can never be claimed — a durable abort on
-@@ -5071,6 +5122,10 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5071,6 +5127,10 @@ function unreadySubmissionDeadline(submission, agent) {
  */
  async function settleUnclaimableSubmission(submissions, submission, outcome, error, emitCoordinatorEvent) {
  	if (!await submissions.settleQueuedSubmission(submission.submissionId, outcome, error)) return false;
@@ -417,7 +441,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  	const errorInfo = { errorInfo: classifyError(error) };
  	emitCoordinatorEvent({
  		type: "submission_settled",
-@@ -5084,8 +5139,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
+@@ -5084,8 +5144,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
  		kind: submission.kind,
  		operation: "materialize_submission",
  		outcome: "terminated",
@@ -448,7 +472,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  	return true;
  }
  /** Synthetic request for the submission's kind: an agent route for direct prompts, the dispatch path for dispatches. */
-@@ -5117,11 +5194,32 @@ async function processSubmission(opts) {
+@@ -5117,11 +5199,32 @@ async function processSubmission(opts) {
  		attemptCount: submission.attemptCount,
  		maxAttempts: submission.maxAttempts
  	});
@@ -485,7 +509,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  	};
  	const execute = () => createAgentSubmissionSessionHandler(agent, input, (session) => {
  		const handle = session.processSubmissionInput(input, {
-@@ -5151,17 +5249,7 @@ async function processSubmission(opts) {
+@@ -5151,17 +5254,7 @@ async function processSubmission(opts) {
  		return;
  	}
  	try {
@@ -504,7 +528,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  	} catch (error) {
  		if (opts.isShutdownAbort?.(error)) throw error;
  		if (opts.signal?.reason instanceof SubmissionAbortedError) {
-@@ -5181,7 +5269,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5181,7 +5274,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  	const ctx = createContext(input.submissionId);
  	let interruptedTools;
  	try {
@@ -517,7 +541,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  			submissionId: submission.submissionId,
  			kind: submission.kind,
  			reason,
-@@ -5215,10 +5307,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5215,10 +5312,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  * through the two-phase outbox with `outcome: 'aborted'` — the durable
  * terminal record a reconnecting waiter observes.
  */
@@ -829,7 +853,7 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..956bbb20ae2909be2967e7aa238b20ac
  function assertPositiveInteger(value, label) {
  	if (value === void 0) return;
 diff --git a/dist/index.d.mts b/dist/index.d.mts
-index a8f2280ec735a56f4de512eb5799fa835f070540..547e1a315ea90c5c1e76f344c53a69f20680faeb 100644
+index a8f2280ec735a56f4de512eb5799fa835f070540..66c5487187e4476fd028e15fce1e9a66d3904596 100644
 --- a/dist/index.d.mts
 +++ b/dist/index.d.mts
 @@ -8,6 +8,7 @@ import { h as ConversationStreamChunk, i as bash, l as isDynamicModel, n as Sand
@@ -841,7 +865,7 @@ index a8f2280ec735a56f4de512eb5799fa835f070540..547e1a315ea90c5c1e76f344c53a69f2
  import { Env, Handler, Hono } from "hono";
  import { AgentTool } from "@earendil-works/pi-agent-core";
 diff --git a/dist/internal.d.mts b/dist/internal.d.mts
-index 23e4bbb42348056b950a6cb82ad817ce2891dd23..25afbf0025538889a22755b59d4ca7da5e079153 100644
+index 23e4bbb42348056b950a6cb82ad817ce2891dd23..d7e7e25c903b8c5a5987c119c74fa8d8db569a84 100644
 --- a/dist/internal.d.mts
 +++ b/dist/internal.d.mts
 @@ -6,6 +6,7 @@ import { F as toHttpResponse, P as configureErrorRendering, m as RuntimeUnavaila
@@ -892,7 +916,7 @@ index 9a8b8c34e42e58ae0debd0159e144cd7be2e4b84..a2e26a2a13ff6b31e4997ca6da5bbf57
  		return this.sql.exec(`UPDATE flue_agent_submissions
  					 SET status = 'queued', attempt_id = NULL, input_applied_at = NULL, started_at = NULL, owner_id = NULL, lease_expires_at = 0
 diff --git a/dist/types-BAqOl5NC.d.mts b/dist/types-BAqOl5NC.d.mts
-index 49effc41c60e5f07d406e315146add31fb6b3ae8..5b135a263a1d9b410a278a4813d669d0dcb98409 100644
+index 49effc41c60e5f07d406e315146add31fb6b3ae8..7e29ecc39a8edb5c0881dda29356b8d69ba36aa5 100644
 --- a/dist/types-BAqOl5NC.d.mts
 +++ b/dist/types-BAqOl5NC.d.mts
 @@ -741,7 +741,35 @@ interface AgentProps {

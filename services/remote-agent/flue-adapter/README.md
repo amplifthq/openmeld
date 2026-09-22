@@ -135,6 +135,10 @@ turns do not reset text. The existing stream identity, increasing sequence,
 snapshot bounds, cancellation checks, and Core callback schema are unchanged.
 This correction becomes visible with the first replacement text, not through
 an invented empty delta while the replacement is still waiting for its model.
+The pending prefix belongs to the response, not an individual assistant step:
+tool-only steps and empty deltas do not consume it. The first nonempty text
+delta consumes it once, and response cleanup prevents it reaching another
+submission. No new durable state or callback protocol is introduced.
 
 The footprint reader is a pinned, read-only aggregate over Flue's inline and
 spilled batches. It does not write runtime state or derive execution truth.
