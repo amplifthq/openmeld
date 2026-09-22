@@ -146,7 +146,6 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 30
     env:
-      OPENMELD_HOME: ${{ runner.temp }}/openmeld-artifact-check
       OPENMELD_ARTIFACT_SCOPES: ${{ inputs.artifact_scopes }}
       # This dedicated runner budget is still validated by the renderer's
       # machine-aware heap/resource admission before the build starts.
@@ -160,6 +159,8 @@ jobs:
       - uses: ./.github/actions/setup-node-pnpm
       - name: Run exact-source renderer, prerender, and Workerd SSR checks
         shell: bash
+        env:
+          OPENMELD_HOME: ${{ runner.temp }}/openmeld-artifact-check
         run: |
           set -euo pipefail
           case "$OPENMELD_ARTIFACT_SCOPES" in
