@@ -311,7 +311,12 @@ async function executeComponent(input) {
             identities = new Map(
               scopes
                 .filter((scope) => !capture || scope === "cli")
-                .map((scope) => [scope, { kind: "release-source" }])
+                .map((scope) => [
+                  scope,
+                  scope === "cli"
+                    ? requireCliReleaseIdentity(result)
+                    : { kind: "release-source" },
+                ])
             );
             if (capture) {
               const expected = capture.read(
@@ -360,4 +365,13 @@ async function executeComponent(input) {
     }
     await record("verified");
   }
+}
+
+function requireCliReleaseIdentity(result) {
+  if (result?.receiptIdentity?.kind !== "cli-release") {
+    throw new Error(
+      "CLI publication completed without its verified version and artifact identity."
+    );
+  }
+  return result.receiptIdentity;
 }

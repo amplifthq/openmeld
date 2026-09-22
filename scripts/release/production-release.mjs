@@ -22,6 +22,7 @@ import { requireMainlineReleaseSha } from "./require-mainline-release-sha.mjs";
 
 const DEFAULT_BASE_REF = "origin/main";
 const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
+const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const LINE_SPLIT_REGEX = /\r?\n/u;
 const TEST_FILE_REGEX =
   /(?:^|\/)[^/]+\.(?:integration\.)?(?:spec|test)\.[cm]?[jt]sx?$/u;
@@ -551,8 +552,48 @@ export function buildProductionVerifyStepSpecs(input) {
 
 export function buildProductionPreflightStepSpecs(input) {
   const steps = buildCommonReleaseStepSpecs(input.changedPaths);
+  if (!EXACT_SHA_PATTERN.test(String(input.releaseSha ?? ""))) {
+    throw new Error(
+      "Production preflight requires the exact release SHA for receipt-based train admission."
+    );
+  }
+  steps.unshift({
+    args: [
+      "scripts/release/production-stage-admission.mjs",
+      "--scope",
+      input.scopes.join(","),
+      "--source-sha",
+      input.releaseSha,
+    ],
+    command: "node",
+    controlArgs: [
+      "--scope",
+      input.scopes.join(","),
+      "--source-sha",
+      input.releaseSha,
+    ],
+    controlCommand: "node",
+    controlNodeArgs: [],
+    controlPath: "scripts/release/production-stage-admission.mjs",
+    label: "Admit receipt-based Production train stage",
+  });
   if (input.scopes.includes("web")) {
-    steps.unshift({
+    steps.splice(1, 0, {
+      args: [
+        "scripts/release/production-artifact-check.mjs",
+        "--scope",
+        "web",
+        "--source-sha",
+        input.releaseSha,
+      ],
+      command: "node",
+      controlArgs: ["--scope", "web", "--source-sha", input.releaseSha],
+      controlCommand: "node",
+      controlNodeArgs: [],
+      controlPath: "scripts/release/production-artifact-check.mjs",
+      label: "Verify production Web artifact",
+    });
+    steps.splice(2, 0, {
       args: ["run", "verify:cli-skill"],
       command: "pnpm",
       controlArgs: [],
@@ -585,18 +626,22 @@ export function buildProductionPreflightStepSpecs(input) {
 }
 
 export function buildCoreCurrentCliProjectionPreflightStepSpecs(
-  changedPaths = []
+  changedPaths,
+  releaseSha
 ) {
-  return [
-    ...buildCommonReleaseStepSpecs(changedPaths),
-    productionQueueVerificationStep("core"),
-  ];
+  return buildProductionPreflightStepSpecs({
+    changedPaths,
+    releaseSha,
+    scopes: ["core"],
+    taskInboxRetired: true,
+  }).filter((step) => step.label !== "Verify Core CLI channel compatibility");
 }
 
 export function runCoreCurrentCliProjectionPreflight(input = {}) {
   const executeStep = input.runStep ?? runStep;
   for (const step of buildCoreCurrentCliProjectionPreflightStepSpecs(
-    input.changedPaths
+    input.changedPaths,
+    input.releaseSha
   )) {
     executeStep(step);
   }
@@ -765,7 +810,19 @@ function appendProductionDeployScopeSteps(input) {
       packageDeployStep("openmeld-web", "Deploy Web", {
         args: ["--config", "clients/web/wrangler.jsonc", "--env", "prod"],
       }),
-      publicHealthStep("https://openmeld.ai/guide.md", "Verify Web health")
+      {
+        args: [
+          "scripts/release/production-web-health.mjs",
+          "--url",
+          "https://openmeld.ai",
+          "--source-sha",
+          input.releaseSha,
+          "--artifact-receipt",
+          "dev-tmp/release-artifact-check/web.json",
+        ],
+        command: "node",
+        label: "Verify Web health",
+      }
     );
     return;
   }
@@ -1641,6 +1698,7 @@ export function buildProductionReleasePlan(input) {
     }),
     preflightSteps: buildProductionPreflightStepSpecs({
       changedPaths,
+      releaseSha: sourceSha,
       scopes,
       taskInboxRetired,
     }),

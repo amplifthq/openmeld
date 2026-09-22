@@ -5,6 +5,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
+import { buildFinalCandidateObservation } from "../ci/final-candidate-observer.mjs";
 import { buildProductionReleasePlan } from "./production-release.mjs";
 import { readGuardedLocalReleaseSources } from "./production-release-evidence.mjs";
 import {
@@ -110,9 +111,20 @@ export function resolveLatestSuccessfulReleaseSources(input) {
 }
 
 export async function runProductionReleaseStatus(input = {}) {
+  const result = await collectProductionReleaseStatus(input);
+  const options = parseProductionReleaseStatusArgs(input.argv ?? []);
+  const write = input.write ?? ((value) => process.stdout.write(value));
+  write(
+    options.json
+      ? `${JSON.stringify(result, null, 2)}\n`
+      : formatReleaseStatus(result)
+  );
+  return result.blockers.length > 0 ? 1 : 0;
+}
+
+export async function collectProductionReleaseStatus(input = {}) {
   const options = parseProductionReleaseStatusArgs(input.argv ?? []);
   const adapters = { ...defaultAdapters(), ...input.adapters };
-  const write = input.write ?? ((value) => process.stdout.write(value));
   const repo = options.repo ?? adapters.resolveRepo();
   const sourceSha = adapters.resolveRef(options.ref);
   const changeBaseSha = resolveChangeBaseSha({
@@ -168,28 +180,8 @@ export async function runProductionReleaseStatus(input = {}) {
     components.push(component);
   }
 
-  let pushReadError;
-  let pushChecks = [];
-  try {
-    pushChecks = latestPushCheckPerWorkflow(
-      await adapters.readPushChecks(repo, sourceSha)
-    );
-  } catch (error) {
-    pushReadError = {
-      name: "Source validation",
-      detail: `Unable to read push checks: ${error.message}`,
-    };
-  }
-  const pushCheckBlockers = pushChecks
-    .filter((check) => !pushCheckPassed(check))
-    .map((check) => ({
-      detail:
-        check.status === "completed"
-          ? (check.conclusion ?? "unknown")
-          : check.status,
-      name: check.workflowName,
-      url: check.url,
-    }));
+  const { mergedFinalCandidate, pushCheckBlockers, pushChecks } =
+    await readSourceValidation({ adapters, repo, sourceSha });
   const currentChange = changeBaseSha
     ? buildCurrentChangeFacts({
         baseRef: options.changeBase,
@@ -199,9 +191,6 @@ export async function runProductionReleaseStatus(input = {}) {
         sourceSha,
       })
     : null;
-  if (pushReadError) {
-    pushCheckBlockers.push(pushReadError);
-  }
   if (currentChange?.error) {
     pushCheckBlockers.push({
       name: "Current-change plan",
@@ -225,7 +214,7 @@ export async function runProductionReleaseStatus(input = {}) {
   const scopedPendingScopes = currentChange?.pendingScopes ?? pendingScopes;
   const workflowMapping = releaseWorkflowMapping(scopedPendingScopes);
 
-  const result = {
+  return {
     blockers,
     history: {
       ...history,
@@ -242,16 +231,16 @@ export async function runProductionReleaseStatus(input = {}) {
     repo,
     scopeBasis,
     sourceSha,
-    sourceValidation: describeSourceValidation(pushChecks, pushCheckBlockers),
+    sourceValidation: describeSourceValidation(
+      pushChecks,
+      pushCheckBlockers,
+      mergedFinalCandidate
+    ),
+    sourceValidationEvidence:
+      mergedFinalCandidate ?? describePushCheckEvidence(pushChecks),
     state: resolveReleaseState(blockers, scopedPendingScopes),
     workflowMapping,
   };
-  write(
-    options.json
-      ? `${JSON.stringify(result, null, 2)}\n`
-      : formatReleaseStatus(result)
-  );
-  return blockers.length > 0 ? 1 : 0;
 }
 
 function mergeGuardedLocalReleaseSources(input) {
@@ -374,6 +363,7 @@ function describeReleaseComponent(input) {
     input;
   const unknown = (reason) => ({
     ...releaseSource,
+    evidence: describeComponentEvidence(releaseSource),
     scope,
     state: "unknown",
     reason,
@@ -399,8 +389,13 @@ function describeReleaseComponent(input) {
     );
   }
   if (releaseSource.receipt && releaseSource.receipt.status !== "verified") {
+    const receipt = releaseSource.receipt;
+    const recovery =
+      receipt.application === "applied" && receipt.identity
+        ? "Rerun the same guarded command at the retained source so current tooling can verify and complete that exact attempt; do not request a redeploy."
+        : "Reconcile the retained attempt under current guarded tooling. Use the documented Remote Agent partial recovery only when its exact retained evidence qualifies; otherwise ship an evidence-backed forward fix. Do not replace the attempt or bypass the guard.";
     return unknown(
-      `Local release is ${releaseSource.receipt.status}; reconcile the recorded component before releasing again.`
+      `Local release is ${receipt.status}/${receipt.application}; ${recovery}`
     );
   }
   let entry = plansByBase.get(releaseSource.sha);
@@ -417,12 +412,54 @@ function describeReleaseComponent(input) {
     plansByBase.set(releaseSource.sha, entry);
   }
   if (entry.error) {
-    return unknown(entry.error);
+    return unknown(
+      `${entry.error} Current release contracts rejected this historical baseline. Use current-main guarded tooling for an evidence-backed forward fix, or the documented same-source recovery path when its retained receipt qualifies; never run older release guards or bypass the receipt.`
+    );
   }
   return {
     ...releaseSource,
+    changedPaths: entry.plan.changedPaths,
+    evidence: describeComponentEvidence(releaseSource),
     scope,
     state: entry.plan.scopes.includes(scope) ? "pending" : "current",
+  };
+}
+
+function describeComponentEvidence(releaseSource) {
+  if (!releaseSource) {
+    return {
+      artifact: null,
+      receiptEvidenceSha: null,
+      result: "unknown",
+      runUrl: null,
+      sourceSha: null,
+      version: null,
+    };
+  }
+  const identity = releaseSource.receipt?.identity;
+  const workerDeployment =
+    identity?.kind === "worker-deployment" ? identity : null;
+  const cliRelease = identity?.kind === "cli-release" ? identity : null;
+  const workerVersions =
+    identity?.kind === "worker"
+      ? identity.versions
+          .map((entry) => `${entry.versionId}:${String(entry.percentage)}%`)
+          .join(",")
+      : null;
+  return {
+    artifact:
+      workerDeployment?.deploymentId ?? cliRelease?.artifact.sha256 ?? null,
+    receiptEvidenceSha: releaseSource.evidenceSha ?? null,
+    result:
+      releaseSource.receipt?.status ??
+      (releaseSource.source === "override" ? "declared" : "success"),
+    runUrl: releaseSource.url ?? null,
+    sourceSha: releaseSource.sha ?? null,
+    version:
+      workerDeployment?.versionId ??
+      workerDeployment?.projectionTag ??
+      cliRelease?.version ??
+      workerVersions,
   };
 }
 
@@ -580,14 +617,173 @@ function resolveReleaseState(blockers, pendingScopes) {
   return "current";
 }
 
-function describeSourceValidation(pushChecks, pushCheckBlockers) {
+function describeSourceValidation(
+  pushChecks,
+  pushCheckBlockers,
+  mergedFinalCandidate
+) {
+  if (mergedFinalCandidate) {
+    return `exact merged PR Final Candidate passed for PR #${String(mergedFinalCandidate.pullRequestNumber)} (head ${mergedFinalCandidate.headSha}, base ${mergedFinalCandidate.baseSha}, tree ${mergedFinalCandidate.treeSha})`;
+  }
   if (pushChecks.length === 0) {
-    return "no push check evidence; confirm exact Final Candidate evidence";
+    return "no push check evidence and exact merged Final Candidate evidence is unavailable";
   }
   if (pushCheckBlockers.length === 0) {
     return "recorded push checks passed";
   }
   return "recorded push checks are not green";
+}
+
+function describePushCheckEvidence(pushChecks) {
+  return {
+    checks: pushChecks.map((check) => ({
+      conclusion: check.conclusion ?? null,
+      status: check.status,
+      url: check.url ?? null,
+      workflowName: check.workflowName,
+    })),
+    kind: "push-checks",
+    result:
+      pushChecks.length > 0 && pushChecks.every(pushCheckPassed)
+        ? "passed"
+        : "unverified",
+  };
+}
+
+async function readSourceValidation(input) {
+  let pushChecks;
+  try {
+    pushChecks = latestPushCheckPerWorkflow(
+      await input.adapters.readPushChecks(input.repo, input.sourceSha)
+    );
+  } catch (error) {
+    return {
+      mergedFinalCandidate: undefined,
+      pushChecks: [],
+      pushCheckBlockers: [
+        {
+          name: "Source validation",
+          detail: `Unable to read push checks: ${error.message}`,
+        },
+      ],
+    };
+  }
+  const pushCheckBlockers = pushChecks
+    .filter((check) => !pushCheckPassed(check))
+    .map((check) => ({
+      detail:
+        check.status === "completed"
+          ? (check.conclusion ?? "unknown")
+          : check.status,
+      name: check.workflowName,
+      url: check.url,
+    }));
+  if (pushChecks.length > 0) {
+    return { mergedFinalCandidate: undefined, pushCheckBlockers, pushChecks };
+  }
+  try {
+    return {
+      mergedFinalCandidate: await readMergedFinalCandidateEvidence(input),
+      pushCheckBlockers,
+      pushChecks,
+    };
+  } catch (error) {
+    pushCheckBlockers.push({
+      name: "Source validation",
+      detail: `No push check evidence and exact merged Final Candidate correlation failed: ${error.message}`,
+    });
+    return { mergedFinalCandidate: undefined, pushCheckBlockers, pushChecks };
+  }
+}
+
+export async function readMergedFinalCandidateEvidence(input) {
+  const pullRequests = await input.adapters.readAssociatedPullRequests(
+    input.repo,
+    input.sourceSha
+  );
+  const matches = pullRequests.filter(
+    (pullRequest) =>
+      pullRequest?.merged_at &&
+      pullRequest.merge_commit_sha === input.sourceSha &&
+      pullRequest.base?.ref === "main"
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      `expected one merged main pull request for ${input.sourceSha}, found ${String(matches.length)}`
+    );
+  }
+  const pullRequest = matches[0];
+  const headSha = requireExactSha(
+    pullRequest.head?.sha,
+    "merged pull request head"
+  );
+  const baseSha = requireExactSha(
+    pullRequest.base?.sha,
+    "merged pull request base"
+  );
+  const [mergeCommit, headCommit, statusResponse] = await Promise.all([
+    input.adapters.readGitCommit(input.repo, input.sourceSha),
+    input.adapters.readGitCommit(input.repo, headSha),
+    input.adapters.readCommitStatuses(input.repo, headSha),
+  ]);
+  const treeSha = requireExactSha(
+    headCommit?.tree?.sha,
+    "merged pull request tree"
+  );
+  const mergeTreeSha = requireExactSha(
+    mergeCommit?.tree?.sha,
+    "merge commit tree"
+  );
+  const parents = (mergeCommit?.parents ?? []).map((parent) => parent.sha);
+  const preservesSquashCandidate =
+    parents.length === 1 && parents[0] === baseSha && mergeTreeSha === treeSha;
+  const preservesMergeCandidate =
+    parents.length === 2 &&
+    parents[0] === baseSha &&
+    parents[1] === headSha &&
+    mergeTreeSha === treeSha;
+  if (!(preservesSquashCandidate || preservesMergeCandidate)) {
+    throw new Error(
+      "merge commit does not preserve the exact Final Candidate base, head and tree"
+    );
+  }
+  const statuses = Array.isArray(statusResponse)
+    ? statusResponse
+    : statusResponse?.statuses;
+  const commitStatuses = Array.isArray(statuses) ? statuses : [];
+  const observation = buildFinalCandidateObservation({
+    annotationsByCheckRunId: new Map(),
+    commitStatuses,
+    jobs: [],
+    pullRequest,
+    run: null,
+  });
+  if (observation.state !== "success") {
+    throw new Error(
+      `merged pull request head ${headSha} has no exact successful OpenMeld Final Candidate status (${observation.reason})`
+    );
+  }
+  const exactStatus = commitStatuses.find(
+    (status) => status.context === "OpenMeld Final Candidate"
+  );
+  return {
+    baseSha,
+    headSha,
+    kind: "merged-final-candidate",
+    mergeSha: input.sourceSha,
+    pullRequestNumber: pullRequest.number,
+    pullRequestUrl: pullRequest.html_url,
+    result: "passed",
+    statusUrl: exactStatus.target_url ?? null,
+    treeSha,
+  };
+}
+
+function requireExactSha(value, label) {
+  if (!EXACT_SOURCE_SHA.test(String(value ?? ""))) {
+    throw new Error(`${label} is not an exact commit SHA`);
+  }
+  return value;
 }
 
 function defaultAdapters() {
@@ -628,6 +824,17 @@ function defaultAdapters() {
           "workflowName,status,conclusion,event,url,createdAt",
         ])
       ).filter((run) => run.event === "push"),
+    readAssociatedPullRequests: (repo, sourceSha) =>
+      runGhJsonAsync([
+        "api",
+        "-H",
+        "Accept: application/vnd.github+json",
+        `repos/${repo}/commits/${sourceSha}/pulls`,
+      ]),
+    readCommitStatuses: (repo, sourceSha) =>
+      runGhJsonAsync(["api", `repos/${repo}/commits/${sourceSha}/status`]),
+    readGitCommit: (repo, sourceSha) =>
+      runGhJsonAsync(["api", `repos/${repo}/git/commits/${sourceSha}`]),
     readLocalReleaseSources: (repo) => {
       assertGuardedLocalEvidenceRepository(repo, resolveCheckoutRepository());
       return readGuardedLocalReleaseSources();
@@ -794,12 +1001,12 @@ function formatReleaseStatus(result) {
   for (const component of result.components) {
     if (component.state === "unknown") {
       lines.push(
-        `- ${component.scope}: unknown — ${component.reason ?? "deployment history not found"}`
+        `- ${component.scope}: unknown — ${component.reason ?? "deployment history not found"}; ${formatComponentEvidence(component.evidence)}`
       );
       continue;
     }
     lines.push(
-      `- ${component.scope}: ${component.state} since ${component.sha.slice(0, 12)}${component.source === "override" ? " (local override)" : ""}`
+      `- ${component.scope}: ${component.state}${component.source === "override" ? " (local override)" : ""}; ${formatComponentEvidence(component.evidence)}`
     );
   }
   for (const issue of result.history.issues) {
@@ -815,6 +1022,17 @@ function formatReleaseStatus(result) {
       : ["- none"])
   );
   return `${lines.join("\n")}\n`;
+}
+
+function formatComponentEvidence(evidence) {
+  return [
+    `source ${evidence?.sourceSha ?? "unknown"}`,
+    `version ${evidence?.version ?? "unavailable"}`,
+    `artifact ${evidence?.artifact ?? "unavailable"}`,
+    `result ${evidence?.result ?? "unknown"}`,
+    `run ${evidence?.runUrl ?? "unavailable"}`,
+    `receipt ${evidence?.receiptEvidenceSha ?? "unavailable"}`,
+  ].join("; ");
 }
 
 function readRequiredArgument(argv, index, option) {

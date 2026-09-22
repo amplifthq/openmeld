@@ -3,6 +3,10 @@ run-name: Deploy Core Worker @ ${{ inputs.release_sha }}
 
 permissions:
   contents: write
+  actions: read
+  checks: read
+  statuses: read
+  pull-requests: read
 
 on:
   workflow_call:
@@ -123,6 +127,7 @@ jobs:
         if: inputs.deployment_mode == 'standard'
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           node ../release-control/scripts/release/hosted-production-preflight.mjs \
@@ -134,6 +139,7 @@ jobs:
         if: inputs.deployment_mode == 'current-stable-cli-projection'
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           node ../release-control/scripts/release/hosted-production-preflight.mjs \

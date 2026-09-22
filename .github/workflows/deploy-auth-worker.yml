@@ -3,6 +3,10 @@ run-name: Deploy Auth Worker @ ${{ inputs.release_sha }}
 
 permissions:
   contents: write
+  actions: read
+  checks: read
+  statuses: read
+  pull-requests: read
 
 on:
   workflow_call:
@@ -87,7 +91,7 @@ jobs:
       - name: Checkout release commit
         uses: actions/checkout@v5
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           path: release-source
           persist-credentials: false
           ref: ${{ inputs.release_sha }}
@@ -112,6 +116,7 @@ jobs:
       - name: Run Auth Worker deployment preflight
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           node ../release-control/scripts/release/hosted-production-preflight.mjs \

@@ -57,7 +57,7 @@ const COMPONENT_WORKFLOWS = [
     ".github/workflows/deploy-remote-agent-worker.yml",
     "deployments list",
   ],
-  ["web", ".github/workflows/deploy-web.yml", "/guide.md"],
+  ["web", ".github/workflows/deploy-web.yml", "production-web-health.mjs"],
 ];
 
 const createIsolatedGitEnvironment = () => {
@@ -889,6 +889,16 @@ test("pins every component deploy to one SHA, runs preflight, and checks health"
     assert.ok(source.includes(`--scope ${scope}`));
     assert.ok(source.includes('--release-source "$PWD"'));
     assert.ok(source.includes('--release-sha "$RELEASE_SHA"'));
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: GitHub expression is literal workflow text.
+    assert.ok(source.includes("GH_TOKEN: ${{ github.token }}"));
+    if (scope === "web") {
+      assert.ok(
+        source.includes(
+          "--artifact-receipt dev-tmp/release-artifact-check/web.json"
+        )
+      );
+      assert.ok(!source.includes("https://openmeld.ai/guide.md"));
+    }
     assert.ok(!source.includes("pnpm run release:preflight:local"));
     assert.ok(!source.includes("pnpm run release:verify:local"));
     assert.ok(

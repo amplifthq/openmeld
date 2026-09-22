@@ -122,6 +122,12 @@ still follows ordinary source, channel and lease guards.
 Unknown application, missing output, unreadable receipts, mismatched targets and
 unresolved legacy records block before a new attempt or deployment. They require
 separate evidence-backed reconciliation, not a new UUID or a status override.
+Recovery always runs current-main guarded control against the retained source
+and current contract. An applied exact identity resumes its remaining read-only
+checks through the same guarded command. If the retained source cannot satisfy
+the current contract, use an evidence-backed forward fix or a documented
+component-specific recovery; never run older guards, replace the receipt, or
+bypass admission to force a rollback.
 For the specific Remote Agent Worker-first/container-image failure, current-main
 tooling provides `release:recover:remote-agent-partial`. It requires the clean
 original release source, the retained failed attempt and its start event, the
@@ -163,6 +169,27 @@ contained in per-component `unknown` results; a genuine current-change planning
 conflict still blocks. JSON and human output retain both scoped and global
 blockers. This is a projection of available recorded deployments, not an
 independent live-production acceptance check.
+
+The baseline is component-specific. Each scope starts from its latest verified
+deployment receipt or legacy hosted deployment evidence, so Database, CLI,
+Workers, and Web may legitimately be at different release sources such as R,
+R2, and R3. The latest CLI tag is only CLI publication evidence; it is never a
+fleet production baseline. Status reports each component's source, platform
+version when recorded, artifact or deployment identity when recorded, and
+result. Unavailable legacy fields remain explicit instead of being inferred
+from another component. Current Worker receipts retain deployment and version
+IDs. Current CLI receipts retain the published version, tag, npm package, and
+verified binary manifest artifact hash. A GitHub workflow URL and the guarded
+receipt commit are reported separately; neither is labeled as the deployed
+artifact. Desktop remains owned by its promoted channel pointer, whose manifest
+already records the release source, app version, candidate hash, and signed
+artifact metadata.
+
+When the merge commit has no push workflow check, status resolves the one
+merged main pull request and requires its exact head, base, and tree to match a
+successful `OpenMeld Final Candidate` status. A missing, ambiguous, conflicted,
+or tree-changing merge is a source-validation blocker; an operator note cannot
+substitute for that correlation.
 
 `--deployed` remains a one-run diagnostic override for historical releases that
 predate these refs. It is not the normal completion path:
@@ -763,6 +790,31 @@ release-readiness gate before irreversible publication; an earlier aggregate
 gate. Database generation, migration truth, remote application, physical
 verification, and optimization remain owned by `db:release:prod` itself.
 
+Whole-train preflight reads every component baseline and proves that all
+pending scopes form one legal receiver/producer order before any Production
+mutation. Each scoped local or hosted preflight repeats receipt-based stage
+admission. A later stage is blocked while an earlier pending prerequisite lacks
+a verified receipt. This check never substitutes the latest CLI tag for Web,
+Database, or Worker deployment evidence.
+
+Whole-train preflight also builds and runs the exact-source Web and Desktop
+artifacts under Workerd SSR. Scoped Web preflight repeats the Web artifact
+admission. The deploy command may reuse only a matching build-input and output
+hash receipt; changed inputs or a Desktop build that replaced Web output force
+a fresh Web build and check. Local Workerd receives a newly generated,
+disposable cookie-signing key only so anonymous SSR can initialize; the receipt
+records that runtime mode and never records the key. Production secret
+readiness remains a separate guard. Formal Web post-deploy health binds the
+live root SSR source and build ID to that exact clean artifact receipt.
+
+The hosted `cloud`/`full` parent job derives its plan from each component's
+receipt and verifies the Web artifact before any Database or Worker job starts.
+Desktop is not part of that hosted scope; its production packaging entrypoint
+verifies its renderer and prerender separately. Artifact reuse is local to a
+checkout with matching inputs and output. A separate hosted deployment runner
+builds and verifies its own output rather than treating another runner's test
+result as proof of its bytes.
+
 Useful examples:
 
 ```sh
@@ -1344,7 +1396,7 @@ Release automation performs only cheap component health checks:
 
 | Component    | Automated post-deploy evidence                                                    |
 | ------------ | --------------------------------------------------------------------------------- |
-| Web          | `https://openmeld.ai/guide.md` responds successfully                              |
+| Web          | Root SSR returns HTML whose source and build metadata match the exact SHA and preflight artifact receipt |
 | Gateway      | `https://gateway.openmeld.ai/health` responds successfully                        |
 | Auth         | `https://auth.openmeld.ai/health` responds successfully                           |
 | Core         | Cloudflare reports the production deployment                                      |

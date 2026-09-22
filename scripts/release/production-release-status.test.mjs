@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   assertGuardedLocalEvidenceRepository,
   parseProductionReleaseStatusArgs,
+  readMergedFinalCandidateEvidence,
   resolveLatestSuccessfulReleaseSources,
   runProductionReleaseStatus,
 } from "./production-release-status.mjs";
@@ -34,13 +35,65 @@ const FULL_RELEASE_RECOMMENDATION_REGEX =
 const DATABASE_RELEASE_RECOMMENDATION_REGEX =
   /Scoped Production Release input: database/u;
 const EXTERNAL_VALIDATION_REGEX =
-  /Source validation: no push check evidence; confirm exact Final Candidate evidence/u;
+  /Source validation: exact merged PR Final Candidate passed/u;
 const RECORDED_VALIDATION_REGEX =
   /Source validation: recorded push checks passed/u;
 const WEB_SCOPE_PATTERN = /web/u;
 const UNRELATED_MISSING_SCOPES_PATTERN = /db, gateway, auth, cli, core/u;
 const REPOSITORY_MISMATCH_PATTERN =
   /does not match the current checkout repository/u;
+const MISSING_EXACT_FINAL_CANDIDATE_PATTERN =
+  /no exact successful OpenMeld Final Candidate status/u;
+
+test("correlates the real PR #1215 squash identity with its exact Final Candidate", async () => {
+  const mergeSha = "43d7b3dea65844dc87475fecb693f7864840e64e";
+  const headSha = "94fa180d4a1101692f0fd7a095abb465a407a127";
+  const baseSha = "2b7cbeb5d531e22bb7292482f3a2ded6f2c2613d";
+  const treeSha = "cae1584e632b2f9f6eb6ee25d786f42804f25756";
+  const evidence = await readMergedFinalCandidateEvidence({
+    adapters: {
+      readAssociatedPullRequests: async () => [
+        {
+          base: { ref: "main", sha: baseSha },
+          head: { sha: headSha },
+          html_url: "https://github.com/amplifthq/openmeld/pull/1215",
+          merge_commit_sha: mergeSha,
+          merged_at: "2026-09-22T02:10:39Z",
+          number: 1215,
+        },
+      ],
+      readCommitStatuses: async () => ({
+        statuses: [
+          {
+            context: "OpenMeld Final Candidate",
+            description: "Passed standard @ 94fa180d4a11 on 2b7cbeb5d531",
+            state: "success",
+            target_url:
+              "https://github.com/amplifthq/openmeld/actions/runs/35678125482",
+          },
+        ],
+      }),
+      readGitCommit: async (_repo, sha) => ({
+        parents: sha === mergeSha ? [{ sha: baseSha }] : [{ sha: baseSha }],
+        tree: { sha: treeSha },
+      }),
+    },
+    repo: "amplifthq/openmeld",
+    sourceSha: mergeSha,
+  });
+
+  assert.deepEqual(evidence, {
+    baseSha,
+    headSha,
+    kind: "merged-final-candidate",
+    mergeSha,
+    pullRequestNumber: 1215,
+    pullRequestUrl: "https://github.com/amplifthq/openmeld/pull/1215",
+    result: "passed",
+    statusUrl: "https://github.com/amplifthq/openmeld/actions/runs/35678125482",
+    treeSha,
+  });
+});
 
 const RELEASE_RUNS = [
   releaseRun({
@@ -454,6 +507,154 @@ test("reports a remote full release as ready when push checks are green", async 
   assert.match(output, FULL_RELEASE_RECOMMENDATION_REGEX);
 });
 
+test("reports component source, version, artifact and result from a verified receipt", async () => {
+  let output = "";
+  const adapters = releaseStatusAdapters({
+    pushChecks: [
+      {
+        conclusion: "success",
+        event: "push",
+        status: "completed",
+        workflowName: "Push Guard",
+      },
+    ],
+  });
+  adapters.readLocalReleaseSources = async () =>
+    new Map([
+      [
+        "web",
+        {
+          evidenceSha: "4".repeat(40),
+          recordedAt: "2026-07-15T21:00:00Z",
+          receipt: {
+            application: "applied",
+            identity: {
+              deploymentId: "deployment-r3",
+              environment: "prod",
+              kind: "worker-deployment",
+              sourceSha: SOURCE_SHA,
+              versionId: "version-r3",
+              workerName: "openmeld-web-prod",
+            },
+            status: "verified",
+          },
+          sha: SOURCE_SHA,
+          source: "guarded-local",
+        },
+      ],
+      [
+        "cli",
+        {
+          evidenceSha: "5".repeat(40),
+          recordedAt: "2026-07-15T21:00:00Z",
+          receipt: {
+            application: "applied",
+            identity: {
+              artifact: {
+                archiveFormat: "gzip",
+                archiveSha256: "7".repeat(64),
+                archiveSizeBytes: 50,
+                archiveUrl: "https://openmeld.ai/cli/openmeld.gz",
+                platform: "darwin-arm64",
+                sha256: "6".repeat(64),
+                sizeBytes: 100,
+                url: "https://openmeld.ai/cli/openmeld",
+              },
+              kind: "cli-release",
+              npmPackage: "openmeld",
+              tagName: "v0.3.217",
+              version: "0.3.217",
+            },
+            status: "verified",
+          },
+          sha: SOURCE_SHA,
+          source: "guarded-local",
+        },
+      ],
+    ]);
+  adapters.buildPlan = () => ({ changedPaths: [], scopes: [] });
+
+  const exitCode = await runProductionReleaseStatus({
+    adapters,
+    argv: ["--ref", "origin/main", "--json"],
+    write: (value) => {
+      output += value;
+    },
+  });
+
+  assert.equal(exitCode, 0, output);
+  const web = JSON.parse(output).components.find(
+    (component) => component.scope === "web"
+  );
+  assert.deepEqual(web.evidence, {
+    artifact: "deployment-r3",
+    receiptEvidenceSha: "4".repeat(40),
+    result: "verified",
+    runUrl: null,
+    sourceSha: SOURCE_SHA,
+    version: "version-r3",
+  });
+  const cli = JSON.parse(output).components.find(
+    (component) => component.scope === "cli"
+  );
+  assert.deepEqual(cli.evidence, {
+    artifact: "6".repeat(64),
+    receiptEvidenceSha: "5".repeat(40),
+    result: "verified",
+    runUrl: null,
+    sourceSha: SOURCE_SHA,
+    version: "0.3.217",
+  });
+});
+
+test("keeps hosted workflow evidence separate from an unknown artifact", async () => {
+  let output = "";
+  const exitCode = await runProductionReleaseStatus({
+    adapters: releaseStatusAdapters({
+      pushChecks: [
+        {
+          conclusion: "success",
+          event: "push",
+          status: "completed",
+          workflowName: "Push Guard",
+        },
+      ],
+    }),
+    argv: ["--ref", "origin/main", "--json"],
+    write: (value) => {
+      output += value;
+    },
+  });
+
+  assert.equal(exitCode, 0, output);
+  const hosted = JSON.parse(output).components.find(
+    (component) => component.source === "github"
+  );
+  assert.equal(hosted.evidence.artifact, null);
+  assert.equal(hosted.evidence.receiptEvidenceSha, null);
+  assert.equal(hosted.evidence.runUrl, hosted.url);
+});
+
+test("fails closed when a merge without push checks cannot match exact Final Candidate identity", async () => {
+  let output = "";
+  const adapters = releaseStatusAdapters({ pushChecks: [] });
+  adapters.readCommitStatuses = async () => ({ statuses: [] });
+
+  const exitCode = await runProductionReleaseStatus({
+    adapters,
+    argv: ["--ref", "origin/main", "--json"],
+    write: (value) => {
+      output += value;
+    },
+  });
+
+  assert.equal(exitCode, 1);
+  assert.match(
+    JSON.parse(output).blockers[0].detail,
+    MISSING_EXACT_FINAL_CANDIDATE_PATTERN
+  );
+});
+
 test("does not require a conditional post-merge workflow for unrelated commits", async () => {
   let output = "";
   const exitCode = await runProductionReleaseStatus({
@@ -487,11 +688,41 @@ test("uses the GitHub database scope name in a partial recommendation", async ()
 });
 
 function releaseStatusAdapters({ pushChecks }) {
+  const headSha = "1".repeat(40);
+  const baseSha = "2".repeat(40);
+  const treeSha = "3".repeat(40);
   return {
     buildPlan: () => ({
       scopes: ["db", "web", "gateway", "auth", "cli", "core", "remote-agent"],
     }),
     readPushChecks: async () => pushChecks,
+    readAssociatedPullRequests: async () => [
+      {
+        base: { ref: "main", sha: baseSha },
+        head: { sha: headSha },
+        html_url: "https://github.com/amplifthq/openmeld/pull/1",
+        merge_commit_sha: SOURCE_SHA,
+        merged_at: "2026-07-15T20:00:00Z",
+        number: 1,
+      },
+    ],
+    readCommitStatuses: async () => ({
+      statuses: [
+        {
+          context: "OpenMeld Final Candidate",
+          description: `Passed standard @ ${headSha.slice(0, 12)} on ${baseSha.slice(0, 12)}`,
+          state: "success",
+          target_url: "https://github.com/amplifthq/openmeld/actions/runs/1",
+        },
+      ],
+    }),
+    readGitCommit: async (_repo, sha) =>
+      sha === SOURCE_SHA
+        ? {
+            parents: [{ sha: baseSha }],
+            tree: { sha: treeSha },
+          }
+        : { parents: [], tree: { sha: treeSha } },
     readJobReleaseSha: async (job) => job.releaseSha,
     readLocalReleaseSources: async () => new Map(),
     readReleaseJobs: async (runId) => JOBS_BY_RUN.get(runId) ?? [],

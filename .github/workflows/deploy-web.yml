@@ -3,6 +3,10 @@ run-name: Deploy Web @ ${{ inputs.release_sha }}
 
 permissions:
   contents: write
+  actions: read
+  checks: read
+  statuses: read
+  pull-requests: read
 
 on:
   workflow_call:
@@ -84,7 +88,7 @@ jobs:
       - name: Checkout release commit
         uses: actions/checkout@v5
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           path: release-source
           persist-credentials: false
           ref: ${{ inputs.release_sha }}
@@ -109,6 +113,7 @@ jobs:
       - name: Run Web deployment preflight
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           node ../release-control/scripts/release/hosted-production-preflight.mjs \
@@ -133,7 +138,9 @@ jobs:
           WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET: ${{ secrets.WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET }}
 
       - name: Verify Web health
-        run: curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 https://openmeld.ai/guide.md > /dev/null
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: node ../release-control/scripts/release/production-web-health.mjs --url https://openmeld.ai --source-sha "$RELEASE_SHA" --artifact-receipt dev-tmp/release-artifact-check/web.json
 
       - name: Retain private browser source maps
         if: always()

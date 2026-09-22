@@ -84,7 +84,7 @@ test("continues every independent check when an injected command fails", async (
   });
 
   assert.equal(result.summary.status, "FAIL");
-  assert.equal(result.checks.length, 9);
+  assert.equal(result.checks.length, 11);
   assert.deepEqual(
     Object.fromEntries(result.checks.map((check) => [check.id, check.status])),
     {
@@ -95,6 +95,8 @@ test("continues every independent check when an injected command fails", async (
       git: "PASS",
       "local-processes": "PASS",
       migrations: "PASS",
+      "production-artifacts": "PASS",
+      "production-train": "PASS",
       "release-order": "PASS",
       "release-ready": "FAIL",
     }
@@ -406,8 +408,8 @@ function fakeCommandResult(key) {
     ["git rev-parse --is-inside-work-tree", "true\n"],
     ["git status --porcelain=v1", ""],
     ["git rev-parse --abbrev-ref HEAD", "codex/retro-landing\n"],
-    ["git rev-parse HEAD", "aaaaaaaa\n"],
-    ["git rev-parse origin/main", "aaaaaaaa\n"],
+    ["git rev-parse HEAD", `${"a".repeat(40)}\n`],
+    ["git rev-parse origin/main", `${"a".repeat(40)}\n`],
     ["git rev-parse --verify v0.2.43^{commit}", "aaaaaaaa\n"],
     ["git rev-list --left-right --count origin/main...HEAD", "0\t0\n"],
     ["git diff --name-only v0.2.43 --", ""],
@@ -426,6 +428,18 @@ function fakeCommandResult(key) {
       "No migrations to apply.\n",
     ],
     ["pnpm exec wrangler whoami", "You are logged in with an OAuth Token.\n"],
+    [
+      `node scripts/release/production-artifact-check.mjs --scope web --source-sha ${"a".repeat(40)}`,
+      '{"scope":"web"}\n',
+    ],
+    [
+      `node scripts/release/production-artifact-check.mjs --scope desktop --source-sha ${"a".repeat(40)}`,
+      '{"scope":"desktop"}\n',
+    ],
+    [
+      `node scripts/release/production-stage-admission.mjs --scope db,cli,auth,web,gateway,core,remote-agent --source-sha ${"a".repeat(40)}`,
+      "Production stage admission passed\n",
+    ],
   ]);
   if (!outputByCommand.has(key)) {
     throw new Error(`Unexpected command: ${key}`);

@@ -3,6 +3,10 @@ run-name: Scoped Production Release ${{ inputs.scope }} @ ${{ inputs.release_sha
 
 permissions:
   contents: write
+  actions: read
+  checks: read
+  statuses: read
+  pull-requests: read
 
 on:
   workflow_dispatch:
@@ -95,6 +99,7 @@ jobs:
         if: inputs.scope == 'cloud' || inputs.scope == 'full'
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_SCOPE: ${{ inputs.scope }}
           RELEASE_SHA: ${{ inputs.release_sha }}
         working-directory: release-source

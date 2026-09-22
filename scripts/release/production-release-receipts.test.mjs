@@ -20,6 +20,7 @@ const UNRESOLVED_ERROR = /unresolved|reconcil/iu;
 const SOURCE = "a".repeat(40);
 const ATTEMPT = "00000000-0000-4000-8000-000000000001";
 const WORKER_VERSION = "23863082-db0f-4cfe-a91b-69c570ee1578";
+const CLI_ARTIFACT_SHA = "b".repeat(64);
 const FAILURE = /fixture failure|persist|boundary|Worker|completion|executor/u;
 
 function fixture(options = {}) {
@@ -90,7 +91,26 @@ function fixture(options = {}) {
             },
             publishCliRelease: () => {
               effects.push("publish-cli");
-              return cliProjectionResult(SOURCE);
+              return {
+                ...cliProjectionResult(SOURCE),
+                receiptIdentity: {
+                  artifact: {
+                    archiveFormat: "gzip",
+                    archiveSha256: "c".repeat(64),
+                    archiveSizeBytes: 50,
+                    archiveUrl:
+                      "https://openmeld.ai/cli/openmeld-cli-darwin-arm64-0.3.217.gz",
+                    platform: "darwin-arm64",
+                    sha256: CLI_ARTIFACT_SHA,
+                    sizeBytes: 100,
+                    url: "https://openmeld.ai/cli/openmeld-cli-darwin-arm64-0.3.217",
+                  },
+                  kind: "cli-release",
+                  npmPackage: "openmeld",
+                  tagName: "v0.3.217",
+                  version: "0.3.217",
+                },
+              };
             },
           },
           publishEvidence: (event) => {
@@ -172,7 +192,23 @@ test("records CLI and its Core projection together without changing guarded publ
   assert.deepEqual(result.effects, ["publish-cli", "publish-cli"]);
   assert.deepEqual(result.released, ["core", "cli"]);
   assert.equal(result.latest.get("cli").status, "verified");
-  assert.equal(result.latest.get("cli").identity.kind, "release-source");
+  assert.deepEqual(result.latest.get("cli").identity, {
+    artifact: {
+      archiveFormat: "gzip",
+      archiveSha256: "c".repeat(64),
+      archiveSizeBytes: 50,
+      archiveUrl:
+        "https://openmeld.ai/cli/openmeld-cli-darwin-arm64-0.3.217.gz",
+      platform: "darwin-arm64",
+      sha256: CLI_ARTIFACT_SHA,
+      sizeBytes: 100,
+      url: "https://openmeld.ai/cli/openmeld-cli-darwin-arm64-0.3.217",
+    },
+    kind: "cli-release",
+    npmPackage: "openmeld",
+    tagName: "v0.3.217",
+    version: "0.3.217",
+  });
   assert.equal(result.latest.get("core").identity.versionId, WORKER_VERSION);
   assert.equal(
     result.receipts.every((event) => event.scopes.join(",") === "cli,core"),

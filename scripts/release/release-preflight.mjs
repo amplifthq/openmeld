@@ -15,6 +15,7 @@ import {
 } from "./release-version-selection.mjs";
 
 const execFileAsync = promisify(execFile);
+const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const LINE_SPLIT_PATTERN = /\r?\n/u;
 const WHITESPACE_PATTERN = /\s+/u;
 const WRANGLER_DEV_PROCESS_PATTERN =
@@ -91,6 +92,18 @@ function buildCheckSpecs() {
       },
     },
     {
+      id: "production-train",
+      label: "Receipt-based Production train",
+      fix: "Reconcile unresolved component receipts or complete the reported receiver-first prerequisite through its guarded workflow before starting Production.",
+      run: checkProductionTrain,
+    },
+    {
+      id: "production-artifacts",
+      label: "Production Web and Desktop artifacts",
+      fix: "Fix the exact-source production build or Workerd SSR failure; do not start any Production stage until both artifact receipts pass.",
+      run: checkProductionArtifacts,
+    },
+    {
       id: "release-ready",
       label: "Release readiness",
       fix: "Run pnpm run verify:release-ready directly, fix its reported invariant, and rerun preflight.",
@@ -127,6 +140,48 @@ function buildCheckSpecs() {
       run: checkReleaseOrder,
     },
   ];
+}
+
+async function checkProductionArtifacts(context) {
+  const head = normalizeText(
+    (await runRequiredCommand(context, "git", ["rev-parse", "HEAD"])).stdout
+  );
+  if (!EXACT_SHA_PATTERN.test(head)) {
+    throw new Error("Git returned no exact release source SHA.");
+  }
+  for (const scope of ["web", "desktop"]) {
+    await runRequiredCommand(context, "node", [
+      "scripts/release/production-artifact-check.mjs",
+      "--scope",
+      scope,
+      "--source-sha",
+      head,
+    ]);
+  }
+  return {
+    status: "PASS",
+    detail: `Web and Desktop production artifacts passed exact-source Workerd SSR checks at ${abbreviateSha(head)}.`,
+  };
+}
+
+async function checkProductionTrain(context) {
+  const head = normalizeText(
+    (await runRequiredCommand(context, "git", ["rev-parse", "HEAD"])).stdout
+  );
+  if (!EXACT_SHA_PATTERN.test(head)) {
+    throw new Error("Git returned no exact release source SHA.");
+  }
+  await runRequiredCommand(context, "node", [
+    "scripts/release/production-stage-admission.mjs",
+    "--scope",
+    "db,cli,auth,web,gateway,core,remote-agent",
+    "--source-sha",
+    head,
+  ]);
+  return {
+    status: "PASS",
+    detail: `All pending component receipts form one legal guarded train at ${abbreviateSha(head)}.`,
+  };
 }
 
 async function runIndependentCheck(spec, context) {

@@ -26,6 +26,9 @@ const first = run(2),
   second = run(1);
 async function report(overrides = {}) {
   let output = "";
+  const headSha = "1".repeat(40);
+  const baseSha = "2".repeat(40);
+  const treeSha = "3".repeat(40);
   const adapters = {
     resolveRepo: () => "fixture/repo",
     resolveRef: (r) => (r === "base" ? BASE : TARGET),
@@ -38,6 +41,32 @@ async function report(overrides = {}) {
     readJobReleaseSha: async (j) => j.releaseSha,
     readLocalReleaseSources: async () => new Map(),
     readPushChecks: async () => [],
+    readAssociatedPullRequests: async () => [
+      {
+        base: { ref: "main", sha: baseSha },
+        head: { sha: headSha },
+        html_url: "fixture://pull/1",
+        merge_commit_sha: TARGET,
+        merged_at: "2026-09-18T10:00:00Z",
+        number: 1,
+      },
+    ],
+    readCommitStatuses: async () => ({
+      statuses: [
+        {
+          context: "OpenMeld Final Candidate",
+          description: `Passed standard @ ${headSha.slice(0, 12)} on ${baseSha.slice(0, 12)}`,
+          state: "success",
+        },
+      ],
+    }),
+    readGitCommit: async (_repo, sha) =>
+      sha === TARGET
+        ? {
+            parents: [{ sha: baseSha }],
+            tree: { sha: treeSha },
+          }
+        : { parents: [], tree: { sha: treeSha } },
     buildPlan: () => ({ scopes: ["web"], changedPaths: [] }),
     ...overrides,
   };
