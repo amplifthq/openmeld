@@ -24,6 +24,11 @@ on:
         description: "Exact main commit to deploy"
         required: true
         type: string
+      parent_admission_evidence:
+        description: "Same-run release-on-main admission output; omitted for standalone admission"
+        required: false
+        type: string
+        default: ""
       deployment_mode:
         description: "Core deployment mode"
         required: false
@@ -91,6 +96,7 @@ jobs:
         working-directory: release-source
     env:
       OPENMELD_PRODUCTION_TRAIN_SCOPES: ${{ inputs.production_train_scopes }}
+      OPENMELD_PARENT_TRAIN_ADMISSION: ${{ inputs.parent_admission_evidence }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
@@ -114,6 +120,7 @@ jobs:
       - name: Setup repository toolchain
         uses: ./release-control/.github/actions/setup-node-pnpm
         with:
+          node_version: ${{ inputs.parent_admission_evidence && fromJSON(inputs.parent_admission_evidence).buildInputs.node || '24' }}
           control_directory: release-control
           working_directory: release-source
 
