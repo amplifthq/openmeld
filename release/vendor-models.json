@@ -571,7 +571,7 @@
       ]
     },
     "opencode": {
-      "defaultModelId": "opencode/mimo-v2.5-free",
+      "defaultModelId": "opencode/mimo-v2.6-flash-free",
       "models": [
         {
           "id": "opencode/mimo-v2.6-flash-free",
@@ -698,7 +698,7 @@
         {
           "id": "opencode/mimo-v2.5-free",
           "displayName": "OpenCode MiMo V2.5 Free",
-          "unavailable": false,
+          "unavailable": true,
           "supportedReasoningLevels": [],
           "minCliVersion": null
         },

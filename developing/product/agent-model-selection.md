@@ -522,6 +522,39 @@ display name **Qwen3.8 Flash** and the exact variant keys `low`, `medium`, and
 so the catalog entry is checked against observed vendor fields rather than a
 fixture shaped after OpenMeld's manifest.
 
+### 5.8 September 22 local model refresh
+
+Authenticated Cursor 2026.09.18 ACP returns
+`grok-4.7[context=256k,reasoning_effort=high,fast=true]` in matching model
+config options and legacy session inventory. Its reasoning remains part of the
+exact ID; no independent effort selector is introduced.
+
+Grok Build 1.0.40 returns `grok-4.7` and `grok-4.7-build-fast` in both
+initialize and session inventories, with `low`, `medium`, `high`, and `xhigh`
+efforts. Its existing default remains `grok-4.6`; current account inventory
+still gates every prompt.
+
+OpenCode 1.18.31's refreshed provider inventory adds
+`opencode/mimo-v2.6-flash-free`, `opencode-go/grok-4.7`,
+`opencode-go/mimo-v2.6-flash`, and `opencode-go/mimo-v2.6-pro`.
+Only Grok exposes separate variants (`low`, `medium`, `high`, `xhigh`);
+the MiMo entries have none. Provider-shaped captures are retained in
+`packages/schemas/tests/fixtures/local-model-catalog-2026.09.22.json`.
+
+The same complete free-provider inventory no longer contains the former
+default `opencode/mimo-v2.5-free`, and a direct invocation returns
+`ProviderModelNotFoundError`. The default therefore moves to the successfully
+invoked free successor `opencode/mimo-v2.6-flash-free`. The old entry is marked
+unavailable so existing explicit selections use the documented runtime fallback;
+stored Bindings and preferences are not rewritten. Public discovery also lists
+`opencode/deepseek-v4.1-flash`, but the observed free-provider inventory does
+not expose it. That additional route is not authored from marketplace data;
+the existing `opencode-go/deepseek-v4.1-flash` remains selectable.
+
+These are online catalog changes served by Core. The CLI offline snapshot,
+shared schemas, adapter protocols, and local-component version floors are
+unchanged. Provider acceptance and an OpenMeld Wake remain separate evidence.
+
 ---
 
 ## 6. Reusable Selection Logic (Web / CLI / Desktop)

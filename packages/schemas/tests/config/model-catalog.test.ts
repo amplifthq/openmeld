@@ -141,8 +141,13 @@ describe("model catalog schema", () => {
       }
 
       expect(result.data.agentControllers.opencode?.defaultModelId).toBe(
-        "opencode/mimo-v2.5-free"
+        "opencode/mimo-v2.6-flash-free"
       );
+      expect(
+        result.data.agentControllers.opencode?.models.find(
+          (model) => model.id === "opencode/mimo-v2.5-free"
+        )?.unavailable
+      ).toBe(true);
       const opencodeModelIds =
         result.data.agentControllers.opencode?.models.map(
           (model) => model.id
