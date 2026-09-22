@@ -21,7 +21,7 @@ import {
   resourcePolicy,
   WARNING_OBSERVATION_MS,
 } from "./local-resources.mjs";
-import { parseMacMemory } from "./machine-memory.mjs";
+import { effectiveTotalMemory, parseMacMemory } from "./machine-memory.mjs";
 import { buildProcessMatcherContext } from "./process-matchers.mjs";
 import { readProcessRows } from "./process-rows.mjs";
 import { sameProcess, stopProcessTree } from "./process-tree.mjs";
@@ -37,6 +37,14 @@ const HEAVY_PATTERN = /broad builds/u;
 const CRITICAL_PATTERN = /critical/u;
 const READY_PATTERN = /become ready/u;
 const ADMISSION_PATTERN = /previous admission/u;
+
+test("process constraints cannot inflate physical machine capacity", () => {
+  const physical = 8 * 1024 ** 3;
+  for (const unconstrained of [0, Number(2n ** 64n - 1n)]) {
+    assert.equal(effectiveTotalMemory(physical, unconstrained), physical);
+  }
+  assert.equal(effectiveTotalMemory(physical, 4 * 1024 ** 3), 4 * 1024 ** 3);
+});
 
 test(
   "waits through a slow live registry owner without failing startup",
