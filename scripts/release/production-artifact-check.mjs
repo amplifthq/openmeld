@@ -165,7 +165,15 @@ export async function checkProductionArtifact({
   if (dirty && !allowDirty) {
     throw new Error("Artifact admission requires a clean source checkout.");
   }
-  const identity = await artifactInputIdentity(root, scope, sourceSha);
+  // Vite preview may set NODE_ENV while loading its own configuration. Preserve
+  // the caller's actual build inputs instead of hashing preview side effects.
+  const buildInputs = { ...process.env };
+  const identity = await artifactInputIdentity(
+    root,
+    scope,
+    sourceSha,
+    buildInputs
+  );
   const webRoot = path.join(root, "clients/web");
   const output = path.join(webRoot, "dist");
   const receiptPath = path.join(
@@ -182,7 +190,7 @@ export async function checkProductionArtifact({
   if (reusable) {
     return reusable;
   }
-  const env = productionBuildEnvironment(scope, process.env);
+  const env = productionBuildEnvironment(scope, buildInputs);
   // Anonymous local SSR needs the cookie module to initialize, not a real
   // production signing key. Production secret readiness has its own guard.
   env.WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET = randomBytes(32).toString("hex");
@@ -260,7 +268,10 @@ export async function checkProductionArtifact({
       process.env.WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET = priorCookieSecret;
     }
   }
-  if ((await artifactInputIdentity(root, scope, sourceSha)) !== identity) {
+  if (
+    (await artifactInputIdentity(root, scope, sourceSha, buildInputs)) !==
+    identity
+  ) {
     throw new Error(
       "Build inputs changed during artifact verification; no evidence was saved."
     );
