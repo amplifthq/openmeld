@@ -1,5 +1,5 @@
-import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { runOwnedCommand } from "../dev/owned-command.mjs";
 
 export function isCliSkillCheckPath(path) {
   return (
@@ -16,20 +16,17 @@ export function isCliSkillCheckPath(path) {
 
 // Both PR validation and release control use the source checkout as cwd.
 // Turbo reuses the schema build; this never builds Web or signs new content.
-export function checkCliSkill(input = {}) {
-  const run = input.run ?? spawnSync;
+export async function checkCliSkill(input = {}) {
+  const run = input.run ?? runOwnedCommand;
   for (const [command, args] of [
     ["pnpm", ["exec", "turbo", "run", "build", "--filter=@openmeld/schemas"]],
     [process.execPath, ["scripts/release/cli-skill.mjs", "check"]],
   ]) {
-    const result = run(command, args, {
+    const status = await run(command, args, {
       cwd: input.cwd ?? process.cwd(),
-      stdio: "inherit",
+      env: input.env ?? process.env,
     });
-    if (result.error) {
-      throw result.error;
-    }
-    if (result.status !== 0) {
+    if (status !== 0) {
       throw new Error(
         "CLI Skill verification failed. Inspect the error above; for content changes, increment release/openmeld-cli-skill/release.json revision, run node scripts/release/cli-skill.mjs build with the existing signing key, and commit source and generated public files together."
       );
@@ -41,5 +38,10 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  checkCliSkill();
+  checkCliSkill().catch((error) => {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`
+    );
+    process.exitCode = 1;
+  });
 }
