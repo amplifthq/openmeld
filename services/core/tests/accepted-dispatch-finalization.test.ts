@@ -149,11 +149,13 @@ const baseFinalizationCommand = {
 
 describe("accepted dispatch finalization", () => {
   it.each([
-    [false, false],
-    [true, false],
-    [false, true],
-    [true, true],
-  ])("elects one actual Space final claim (reply first: %s, owner refused: %s)", async (replyFirst, ownerRefused) => {
+    [false, null],
+    [true, null],
+    [false, "computer.file_access.owner_declined"],
+    [true, "computer.file_access.owner_declined"],
+    [false, "context.workspace_recovery_declined"],
+    [true, "context.workspace_recovery_declined"],
+  ] as const)("elects one actual Space final claim (reply first: %s, owner refused: %s)", async (replyFirst, ownerRefused) => {
     const spaces = (
       env as unknown as { OPENMELD_SPACES: DurableObjectNamespace<Space> }
     ).OPENMELD_SPACES;
@@ -187,7 +189,7 @@ describe("accepted dispatch finalization", () => {
             sourceEventId: baseFact.sourceEventId,
             status: "failed",
             errorType: "policy",
-            errorCode: "computer.file_access.owner_declined",
+            errorCode: ownerRefused,
             errorMessage: "Private path must not become public copy",
           },
         },
@@ -238,8 +240,8 @@ describe("accepted dispatch finalization", () => {
       if (!replyFirst && ownerRefused) {
         expect(JSON.parse(rows[0]?.payload_json ?? "null").data).toMatchObject({
           noticeType: "wake_stopped",
-          reasonCode: "computer.file_access.owner_declined",
-          text: "Stopped before the Agent started because the Computer owner declined the file access request.",
+          reasonCode: ownerRefused,
+          text: "The Computer owner stopped this task before the Agent started.",
         });
       }
       expect(JSON.parse(rows[0]?.payload_json ?? "null")).toMatchObject(

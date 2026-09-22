@@ -113,6 +113,9 @@ const config = defineConfig(({ command, mode }) => {
 			},
 			cloudflare({
 				viteEnvironment: { name: "ssr" },
+				...(process.env.OPENMELD_RELEASE_ARTIFACT_CHECK === "1"
+					? { remoteBindings: false, persistState: false, inspectorPort: false }
+					: {}),
 				...(isolatedDev
 					? {
 							config(workerConfig) {

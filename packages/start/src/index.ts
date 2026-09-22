@@ -24,3 +24,7 @@ export {
   resolveComputerReplyReadiness,
   shouldUseCompletedPrepareSessionForComputerReadiness,
 } from "./recovery/computer-reply-readiness";
+export {
+  OPENMELD_NODE_ENGINE_RANGE,
+  OPENMELD_SUPPORTED_NODE_MAJORS,
+} from "./setup-node-runtime";

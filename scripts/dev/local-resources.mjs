@@ -306,6 +306,11 @@ export async function acquireLocalResources({
           )
       );
       if (inherited) {
+        if (inherited.bytes < policy.costs[kind]) {
+          throw new Error(
+            `The inherited ${kind} reservation is smaller than this command's memory budget. Start the outer command with OPENMELD_LOCAL_${kind.toUpperCase()}_GIB=${policy.costs[kind] / GIB}.`
+          );
+        }
         return { inherited: true, token: inherited.token };
       }
       const reason = admissionReason({

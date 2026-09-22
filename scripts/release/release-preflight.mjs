@@ -8,6 +8,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
+import { resolveProductionTrain } from "./production-train-artifact-admission.mjs";
 import { selectReleaseReadyPaths } from "./release-ready-paths.mjs";
 import {
   formatCliReleaseVersionResolution,
@@ -15,6 +16,7 @@ import {
 } from "./release-version-selection.mjs";
 
 const execFileAsync = promisify(execFile);
+const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const LINE_SPLIT_PATTERN = /\r?\n/u;
 const WHITESPACE_PATTERN = /\s+/u;
 const WRANGLER_DEV_PROCESS_PATTERN =
@@ -26,6 +28,7 @@ const DEFAULT_ADAPTERS = {
   runCommand: defaultRunCommand,
   runReleaseReady: defaultRunReleaseReady,
 };
+const PRODUCTION_TRAIN_SCOPES_ENV = "OPENMELD_PRODUCTION_TRAIN_SCOPES";
 
 export async function runReleasePreflight(input = {}) {
   const context = {
@@ -91,6 +94,18 @@ function buildCheckSpecs() {
       },
     },
     {
+      id: "production-train",
+      label: "Receipt-based Production train",
+      fix: "Reconcile unresolved component receipts or complete the reported receiver-first prerequisite through its guarded workflow before starting Production.",
+      run: checkProductionTrain,
+    },
+    {
+      id: "production-artifacts",
+      label: "Selected Production artifacts",
+      fix: "Fix the exact-source production build or Workerd SSR failure for the selected train artifact; do not start that train until its artifact receipt passes.",
+      run: checkProductionArtifacts,
+    },
+    {
       id: "release-ready",
       label: "Release readiness",
       fix: "Run pnpm run verify:release-ready directly, fix its reported invariant, and rerun preflight.",
@@ -127,6 +142,80 @@ function buildCheckSpecs() {
       run: checkReleaseOrder,
     },
   ];
+}
+
+async function checkProductionArtifacts(context) {
+  const head = normalizeText(
+    (await runRequiredCommand(context, "git", ["rev-parse", "HEAD"])).stdout
+  );
+  if (!EXACT_SHA_PATTERN.test(head)) {
+    throw new Error("Git returned no exact release source SHA.");
+  }
+  const selection = resolvePreflightSelection(context.env, head);
+  if (selection.artifactScopes.length === 0) {
+    return {
+      status: "SKIP",
+      detail:
+        "The declared Production train has no CLI, Web, or Desktop artifact scope.",
+    };
+  }
+  await runRequiredCommand(context, "node", [
+    "scripts/release/production-train-artifact-admission.mjs",
+    "--scope",
+    selection.artifactScopes.join(","),
+    "--source-sha",
+    head,
+  ]);
+  return {
+    status: "PASS",
+    detail: `${selection.artifactScopes.join(" and ")} production artifacts passed their exact-source runtime checks at ${abbreviateSha(head)}.`,
+  };
+}
+
+async function checkProductionTrain(context) {
+  const head = normalizeText(
+    (await runRequiredCommand(context, "git", ["rev-parse", "HEAD"])).stdout
+  );
+  if (!EXACT_SHA_PATTERN.test(head)) {
+    throw new Error("Git returned no exact release source SHA.");
+  }
+  const selection = resolvePreflightSelection(context.env, head);
+  if (selection.trainScopes.length === 0) {
+    return {
+      status: "SKIP",
+      detail:
+        "The declared preflight selects only Desktop, outside the hosted Production train.",
+    };
+  }
+  await runRequiredCommand(context, "node", [
+    "scripts/release/production-stage-admission.mjs",
+    "--scope",
+    selection.trainScopes.join(","),
+    "--source-sha",
+    head,
+  ]);
+  return {
+    status: "PASS",
+    detail: `Selected component receipts form one legal guarded train (${selection.trainScopes.join(", ")}) at ${abbreviateSha(head)}.`,
+  };
+}
+
+function resolvePreflightSelection(env, sourceSha) {
+  const declaration = String(env[PRODUCTION_TRAIN_SCOPES_ENV] ?? "").trim();
+  if (!declaration) {
+    throw new Error(
+      `Release preflight requires explicit scopes in ${PRODUCTION_TRAIN_SCOPES_ENV}.`
+    );
+  }
+  const train = resolveProductionTrain({
+    env,
+    selectedScopes: declaration,
+    sourceSha,
+  });
+  return {
+    artifactScopes: train.artifactScopes,
+    trainScopes: train.productionScopes,
+  };
 }
 
 async function runIndependentCheck(spec, context) {

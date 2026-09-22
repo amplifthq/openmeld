@@ -72,5 +72,6 @@ jobs:
     with:
       deploy_environment: production
       deployment_mode: current-stable-cli-projection
+      production_train_scopes: core
       release_sha: ${{ inputs.release_sha }}
     secrets: inherit

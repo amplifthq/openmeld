@@ -498,6 +498,7 @@ export {
   RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION,
   runtimeCoordinatorCancellationStateSchema,
   runtimeCoordinatorCancellationStatusSchema,
+  runtimeCoordinatorDeliveryRouteEvidenceSchema,
   runtimeCoordinatorExecutionCreationDiagnosticSchema,
   runtimeCoordinatorExecutionCreationStatusSchema,
   runtimeCoordinatorExecutionEventSchema,

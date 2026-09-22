@@ -301,6 +301,25 @@ test("only a live reservation owner can release startup headroom after readiness
     );
     assert.equal(entries[0].ready, true);
     assert.equal(entries[0].bytes, 6 * 1024 ** 3);
+    await assert.rejects(
+      acquireLocalResources({
+        kind: "stack",
+        gitCommonDir: directory,
+        env: {
+          [RESOURCE_TOKEN]: reservation.token,
+          OPENMELD_LOCAL_STACK_GIB: "7",
+        },
+        readMemory: () => ({
+          totalBytes: 16 * 1024 ** 3,
+          availableBytes: 12 * 1024 ** 3,
+          pressure: "normal",
+        }),
+      }),
+      {
+        message:
+          "The inherited stack reservation is smaller than this command's memory budget. Start the outer command with OPENMELD_LOCAL_STACK_GIB=7.",
+      }
+    );
   } finally {
     await reservation.release();
     rmSync(directory, { recursive: true, force: true });

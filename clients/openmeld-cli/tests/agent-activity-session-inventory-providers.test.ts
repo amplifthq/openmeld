@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readOpenCodeSessionRows } from "../src/agent-activity/opencode-storage";
 import type { ProjectBinding } from "../src/agent-activity/project-bindings";
 import { recordOpenMeldCreatedLocalAgentSession } from "../src/agent-activity/session-inventory-origin-store";
 import {
@@ -591,6 +592,21 @@ describe("Local Agent Session Inventory provider adapters", () => {
         NOW_MS - 1000
       );
     database.close();
+    await expect(
+      readOpenCodeSessionRows(databasePath, "opencode-xdg")
+    ).resolves.toEqual([
+      {
+        id: "opencode-xdg",
+        directory: repositoryPath,
+        title: "XDG native title",
+        time_created: NOW_MS - 2000,
+        time_updated: NOW_MS - 1000,
+        time_archived: null,
+      },
+    ]);
+    await expect(
+      readOpenCodeSessionRows(databasePath, "' OR 1=1 --")
+    ).resolves.toEqual([]);
     launchMocks.opencode.mockResolvedValue({
       candidates: [
         {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,7 @@ import {
   recordNpmPublicationReceipt,
 } from "./npm-publication-receipt.mjs";
 import {
+  admitCliProductionStage,
   assertChannelReadyForVersionOnlyRelease,
   assertCliReleaseVersionTarget,
   buildCoreDeployStepSpec,
@@ -25,10 +26,11 @@ import {
   parseGitStatusPorcelain,
   publishCliReleaseTag,
   resolveCliReleaseTagName,
-  runCliRelease,
+  runCliRelease as runCliReleaseWithAdmission,
   tagCliRelease,
 } from "./release-cli.mjs";
 import {
+  admitCliNpmArtifact,
   probeCliReleaseStages,
   readCompletedCliRelease,
   resolveCoreProjectionTag,
@@ -37,12 +39,24 @@ import {
 import { decideNpmPublishStage } from "./release-stage-probes.mjs";
 
 const execFileAsync = promisify(execFile);
+const runCliRelease = (input = {}) =>
+  runCliReleaseWithAdmission({
+    ...input,
+    env: {
+      OPENMELD_PRODUCTION_TRAIN_SCOPES: "cli",
+      ...(input.env ?? {}),
+    },
+  });
 const PENDING_ALIGNMENT_RE = /Final CLI channel alignment pending/u;
 const VERIFICATION_ONLY_RE = /resumes verification without republishing/u;
 const RECEIPT_CONFLICT_RE = /conflicts with source/u;
 const RECEIPT_SAVE_RE = /Could not save/u;
 const UNCONFIRMED_ACCEPTANCE_RE = /acceptance is unconfirmed/u;
 const INTERRUPTED_PUBLISH_RE = /publish connection interrupted/u;
+const WEB_ARTIFACT_REJECTED_RE = /Web artifact rejected/u;
+const PENDING_CORE_PREREQUISITE_RE = /pending prerequisite core/u;
+const ISOLATED_NPM_CONSUMER_RE = /isolated npm consumer/u;
+const PREPARED_NPM_TARBALL_CHANGED_RE = /tarball changed/u;
 
 const CLI_RELEASE_REFUSED_RE = /CLI release refused/u;
 const DEPLOYS_CORE_RE = /deploys Core/u;
@@ -101,6 +115,64 @@ const NPM_VERSION_FLOOR_FIXTURE = JSON.parse(
 );
 const TEST_CLI_BINARY = Buffer.alloc(100, "b");
 const TEST_CLI_ARCHIVE = gzipSync(TEST_CLI_BINARY);
+
+// Subprocess/network artifact work has its own real tarball consumer tests.
+// These release-owner tests isolate ordering, immutable receipts, and retries.
+const PUBLISHED_CONSUMER_FAILURE = /published consumer cannot install/u;
+const LOCAL_CONSUMER_FAILURE = /consumer install failed/u;
+const ARTIFACT_ADAPTERS = {
+  admitProductionStage: () => Promise.resolve(),
+  checkNpmArtifact: () => Promise.resolve(),
+  prepareNpmArtifact: () =>
+    Promise.resolve({
+      path: join(tmpdir(), "verified openmeld.tgz"),
+      integrity: `sha512-${"A".repeat(86)}==`,
+      cleanup: () => undefined,
+    }),
+  verifyNpmArtifact: () => Promise.resolve(),
+  verifyPreparedNpmArtifact: () => undefined,
+};
+
+test("train npm admission verifies published bytes without requiring a local build", async () => {
+  const { git, repoRoot } = await createReleaseRepo("0.7.96");
+  let localAdmissionCount = 0;
+  let publishedVerificationCount = 0;
+  try {
+    await mkdir(join(repoRoot, "release"), { recursive: true });
+    await writeFile(join(repoRoot, "release/local-components.json"), "{}\n");
+    await git("add", "release/local-components.json");
+    await git("commit", "-m", "add release manifest");
+    const sourceSha = (await git("rev-parse", "HEAD")).stdout.trim();
+    const result = await admitCliNpmArtifact({
+      cwd: repoRoot,
+      sourceSha,
+      adapters: {
+        admitNpmArtifact: () => {
+          localAdmissionCount += 1;
+          throw new Error("published recovery must not build");
+        },
+        runCommand: () =>
+          Promise.resolve({
+            status: 0,
+            stdout: buildCapturedNpmVersionFloorStdout({
+              version: "0.7.96",
+              minRequiredCliVersion: "0.7.96",
+            }),
+            stderr: "",
+          }),
+        verifyNpmArtifact: () => {
+          publishedVerificationCount += 1;
+        },
+      },
+    });
+    assert.equal(result.npm.action, "SKIP");
+    assert.equal(result.npm.criterion, "npm-artifact-consumable");
+    assert.equal(localAdmissionCount, 0);
+    assert.equal(publishedVerificationCount, 1);
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
 
 function buildCapturedNpmVersionFloorStdout(input) {
   return `${JSON.stringify({
@@ -194,6 +266,33 @@ test("parses porcelain status output for release safety checks", () => {
       "?? developing/product/agent-model-selection.md",
     ]
   );
+});
+
+test("runs CLI stage admission from the exact release-source checkout", () => {
+  const calls = [];
+  const output = [];
+  admitCliProductionStage({
+    cwd: "/release-source",
+    env: { PATH: "/test-bin" },
+    repo: "openmeld/openmeld",
+    sourceSha: "a".repeat(40),
+    spawn: (command, args, options) => {
+      calls.push({ command, args, options });
+      return { status: 0, stdout: "Production stage admission passed\n" };
+    },
+    write: (value) => output.push(value),
+  });
+  assert.equal(calls[0].command, process.execPath);
+  assert.deepEqual(calls[0].args.slice(-6), [
+    "--scope",
+    "cli",
+    "--source-sha",
+    "a".repeat(40),
+    "--repo",
+    "openmeld/openmeld",
+  ]);
+  assert.equal(calls[0].options.cwd, "/release-source");
+  assert.deepEqual(output, ["Production stage admission passed\n"]);
 });
 
 test("explains why agents must not release CLI from a dirty worktree", () => {
@@ -331,6 +430,166 @@ test("adds the binary upload step only when release:cli opts in", () => {
       "Publish OpenMeld CLI to npm",
     ]
   );
+});
+
+test("rejects a train Web artifact before any CLI publication mutation", async () => {
+  const { repoRoot } = await createReleaseRepo("0.7.96");
+  const mutations = [];
+  const admissions = [];
+  try {
+    await assert.rejects(
+      runCliRelease({
+        adapters: {
+          admitProductionStage: () => admissions.push("stage"),
+          checkArtifact: () => {
+            admissions.push("web");
+            throw new Error("Web artifact rejected");
+          },
+          checkNpmArtifact: () => admissions.push("npm"),
+          runStep: (step) => mutations.push(step.label),
+        },
+        cwd: repoRoot,
+        env: { OPENMELD_PRODUCTION_TRAIN_SCOPES: "cli,web" },
+        withBinary: true,
+      }),
+      WEB_ARTIFACT_REJECTED_RE
+    );
+    assert.deepEqual(admissions, ["stage", "npm", "web"]);
+    assert.deepEqual(mutations, []);
+  } finally {
+    await rm(repoRoot, { force: true, recursive: true });
+  }
+});
+
+test("blocks the CLI entry on a pending Core prerequisite before artifact or publication work", async () => {
+  const { repoRoot } = await createReleaseRepo("0.7.96");
+  const calls = [];
+  try {
+    await assert.rejects(
+      runCliRelease({
+        adapters: {
+          admitProductionStage: ({ cwd }) => {
+            calls.push(["stage", cwd]);
+            throw new Error("pending prerequisite core");
+          },
+          admitTrainArtifacts: () => calls.push(["artifacts"]),
+          runStep: (step) => calls.push(["mutation", step.label]),
+        },
+        cwd: repoRoot,
+        env: { OPENMELD_PRODUCTION_TRAIN_SCOPES: "core,cli" },
+      }),
+      PENDING_CORE_PREREQUISITE_RE
+    );
+    assert.deepEqual(calls, [["stage", repoRoot]]);
+  } finally {
+    await rm(repoRoot, { force: true, recursive: true });
+  }
+});
+
+test("rejects a bad npm package at the CLI entry before publication work", async () => {
+  const { repoRoot } = await createReleaseRepo("0.7.96");
+  const calls = [];
+  try {
+    await assert.rejects(
+      runCliRelease({
+        adapters: {
+          admitProductionStage: () => calls.push("stage"),
+          checkNpmArtifact: () => {
+            calls.push("npm");
+            throw new Error("isolated npm consumer rejected the package");
+          },
+          runStep: (step) => calls.push(step.label),
+        },
+        cwd: repoRoot,
+        env: { OPENMELD_PRODUCTION_TRAIN_SCOPES: "core,cli" },
+      }),
+      ISOLATED_NPM_CONSUMER_RE
+    );
+    assert.deepEqual(calls, ["stage", "npm"]);
+  } finally {
+    await rm(repoRoot, { force: true, recursive: true });
+  }
+});
+
+test("rehashes the prepared tarball after binary work and before any npm receipt", async () => {
+  const { git, repoRoot } = await createReleaseRepo("0.7.96");
+  const artifactRoot = await mkdtemp(join(tmpdir(), "openmeld-tampered-npm-"));
+  const artifactPath = join(artifactRoot, "openmeld.tgz");
+  const originalBytes = Buffer.from("consumer-proven npm tarball");
+  await writeFile(artifactPath, originalBytes);
+  const integrity = `sha512-${createHash("sha512").update(originalBytes).digest("base64")}`;
+  const receipts = [];
+  const steps = [];
+  try {
+    await mkdir(join(repoRoot, "release"), { recursive: true });
+    await writeFile(join(repoRoot, "release/local-components.json"), "{}\n");
+    await git("add", "release/local-components.json");
+    await git("commit", "-m", "add release manifest");
+    await configureTestOrigin({ git, repoRoot });
+    const coreTag = resolveCoreProjectionTag({ cwd: repoRoot });
+    await assert.rejects(
+      runCliRelease({
+        adapters: {
+          admitProductionStage: () => undefined,
+          checkNpmArtifact: () => undefined,
+          fetch: () =>
+            Promise.resolve(Response.json(buildTestCliManifest("0.7.95"))),
+          prepareNpmArtifact: () =>
+            Promise.resolve({
+              cleanup: () => undefined,
+              integrity,
+              path: artifactPath,
+            }),
+          publishCliReleaseTag: () => steps.push("tag"),
+          readNpmPublicationReceipt: () => null,
+          recordNpmPublicationReceipt: (input) => receipts.push(input.state),
+          runCommand: ({ args, command }) => {
+            const key = [command, ...args].join(" ");
+            if (command === "npm") {
+              return { status: 1, stderr: "npm error code E404", stdout: "" };
+            }
+            if (key.includes("deployments list")) {
+              return {
+                status: 0,
+                stderr: "",
+                stdout: JSON.stringify(WRANGLER_RELEASE_STATE.deployments),
+              };
+            }
+            if (key.includes("versions list")) {
+              return {
+                status: 0,
+                stderr: "",
+                stdout: JSON.stringify(
+                  WRANGLER_RELEASE_STATE.versions.map((version) => ({
+                    ...version,
+                    annotations: { "workers/tag": `${coreTag}-older` },
+                  }))
+                ),
+              };
+            }
+            throw new Error(`Unexpected read-only command: ${key}`);
+          },
+          runStep: (step) => {
+            steps.push(step.label);
+            if (step.label === "Build and upload OpenMeld CLI binary") {
+              writeFileSync(artifactPath, "tampered after verification");
+            }
+          },
+        },
+        cwd: repoRoot,
+        env: { OPENMELD_PRODUCTION_TRAIN_SCOPES: "core,cli" },
+        withBinary: true,
+        write: () => undefined,
+      }),
+      PREPARED_NPM_TARBALL_CHANGED_RE
+    );
+    assert.ok(steps.includes("Build and upload OpenMeld CLI binary"));
+    assert.ok(!steps.includes("Publish OpenMeld CLI to npm"));
+    assert.deepEqual(receipts, []);
+  } finally {
+    await rm(artifactRoot, { force: true, recursive: true });
+    await rm(repoRoot, { force: true, recursive: true });
+  }
 });
 
 test("verifies production Queues before any irreversible CLI release step", () => {
@@ -496,6 +755,7 @@ test("fails a conflicting release tag before starting network probes", async () 
     await assert.rejects(
       runCliRelease({
         adapters: {
+          ...ARTIFACT_ADAPTERS,
           fetch: () => {
             networkProbeStarted = true;
             throw new Error("network probe must not start");
@@ -652,6 +912,7 @@ test("preserves a failed stage error and prints the canonical resume command", a
     await assert.rejects(
       runCliRelease({
         adapters: {
+          ...ARTIFACT_ADAPTERS,
           fetch: (_url, options) => {
             if (options?.method === "HEAD") {
               return new Response(null, {
@@ -738,6 +999,7 @@ test("stops before binary, npm, tag, and Core when the Queue gate fails", async 
     await assert.rejects(
       runCliRelease({
         adapters: {
+          ...ARTIFACT_ADAPTERS,
           fetch: (_url, options) => {
             if (options?.method === "HEAD") {
               return new Response(null, {
@@ -833,6 +1095,7 @@ test("an inconclusive initial npm probe cannot authorize publication", async () 
     await assert.rejects(
       runCliRelease({
         adapters: {
+          ...ARTIFACT_ADAPTERS,
           fetch: (url, options) => {
             const manifest = buildTestCliManifest("0.7.96");
             if (options?.method === "HEAD") {
@@ -920,6 +1183,7 @@ test("a fully completed CLI release rerun skips every stage without side effects
   try {
     const input = {
       adapters: {
+        ...ARTIFACT_ADAPTERS,
         fetch: (url, options) => {
           const manifest = buildTestCliManifest("0.7.96");
           if (options?.method === "HEAD") {
@@ -941,7 +1205,7 @@ test("a fully completed CLI release rerun skips every stage without side effects
           const key = [command, ...args].join(" ");
           if (
             key ===
-            "npm view openmeld@0.7.96 version openmeld.minRequiredCliVersion --json --registry=https://registry.npmjs.org/ --prefer-online"
+            "npm view openmeld@0.7.96 version openmeld.minRequiredCliVersion dependencies optionalDependencies peerDependencies dist --json --registry=https://registry.npmjs.org/ --prefer-online"
           ) {
             return {
               status: 0,
@@ -992,6 +1256,10 @@ test("a fully completed CLI release rerun skips every stage without side effects
 
     assert.equal(result.alignment.action, "SKIP");
     assert.deepEqual(sideEffects, []);
+    input.adapters.verifyNpmArtifact = () =>
+      Promise.reject(new Error("published consumer cannot install"));
+    await assert.rejects(runCliRelease(input), PUBLISHED_CONSUMER_FAILURE);
+    assert.deepEqual(sideEffects, []);
     const rendered = output.join("");
     for (const label of [
       "Verify local-components release manifest",
@@ -1031,6 +1299,7 @@ test("stops before every release mutation when immutable npm metadata is wrong",
     await assert.rejects(
       runCliRelease({
         adapters: {
+          ...ARTIFACT_ADAPTERS,
           fetch: (url, options) => {
             const manifest = buildTestCliManifest("0.7.96");
             if (options?.method === "HEAD") {
@@ -1108,6 +1377,7 @@ test("stops before every release mutation when immutable R2 metadata is wrong", 
     await assert.rejects(
       runCliRelease({
         adapters: {
+          ...ARTIFACT_ADAPTERS,
           fetch: (url, options) => {
             const manifest = buildTestCliManifest("0.7.96");
             manifest.channels.stable.minRequiredCliVersion = "0.7.95";
@@ -1219,6 +1489,7 @@ test("stops before every release mutation when immutable binary completion is un
       await assert.rejects(
         runCliRelease({
           adapters: {
+            ...ARTIFACT_ADAPTERS,
             fetch: releaseCase.fetch,
             runCommand: ({ args, command }) => {
               const key = [command, ...args].join(" ");
@@ -1282,6 +1553,7 @@ test("stops before every release mutation when the stable CLI channel is ahead",
     await assert.rejects(
       runCliRelease({
         adapters: {
+          ...ARTIFACT_ADAPTERS,
           fetch: (url, options) => {
             const manifest = buildTestCliManifest("0.3.132");
             if (options?.method === "HEAD") {
@@ -1353,6 +1625,7 @@ test("resumes a newer CLI target after slow command probes without reading old a
 
   const result = await probeCliReleaseStages({
     adapters: {
+      ...ARTIFACT_ADAPTERS,
       fetch: async (url, options) => {
         // HTTP progress resumes only after synchronous subprocesses yield.
         await Promise.resolve();
@@ -1570,6 +1843,7 @@ for (const interrupted of [false, true]) {
       const waits = [];
       const output = [];
       const adapters = {
+        ...ARTIFACT_ADAPTERS,
         fetch: (url, options) => {
           if (options?.method === "HEAD") {
             return new Response(null, {
@@ -1622,6 +1896,9 @@ for (const interrupted of [false, true]) {
           steps.push(step.label);
           if (step.label === "Publish OpenMeld CLI to npm") {
             assert.equal(readNpmPublicationReceipt(receipt), "attempted");
+            assert.equal(step.command, "npm");
+            assert.equal(step.args[0], "publish");
+            assert.equal(step.args[1], join(tmpdir(), "verified openmeld.tgz"));
             published += 1;
             if (interrupted) {
               throw new Error("publish connection interrupted");
@@ -1645,6 +1922,13 @@ for (const interrupted of [false, true]) {
           adapters,
           write: (text) => output.push(text),
         });
+      adapters.prepareNpmArtifact = () =>
+        Promise.reject(new Error("consumer install failed before publication"));
+      await assert.rejects(run(), LOCAL_CONSUMER_FAILURE);
+      assert.equal(readNpmPublicationReceipt(receipt), null);
+      assert.equal(published, 0);
+      assert.equal(coreDeployed, false);
+      adapters.prepareNpmArtifact = ARTIFACT_ADAPTERS.prepareNpmArtifact;
       await assert.rejects(
         run(),
         interrupted ? INTERRUPTED_PUBLISH_RE : PENDING_ALIGNMENT_RE
@@ -1765,6 +2049,7 @@ test("stops before every release mutation when the manifest is not the exact can
       await assert.rejects(
         runCliRelease({
           adapters: {
+            ...ARTIFACT_ADAPTERS,
             fetch: (url, options) => {
               const manifest = buildTestCliManifest(stableVersion, {
                 minRequiredCliVersion: targetVersion,

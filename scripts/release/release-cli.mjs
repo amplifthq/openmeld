@@ -21,6 +21,9 @@ const DIRTY_PATH_PREVIEW_LIMIT = 24;
 const LINE_SPLIT_REGEX = /\r?\n/u;
 const CANONICAL_RELEASE_VERSION_PATTERN =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
+const PRODUCTION_STAGE_ADMISSION_PATH = fileURLToPath(
+  new URL("./production-stage-admission.mjs", import.meta.url)
+);
 
 export function parseGitStatusPorcelain(output) {
   return String(output)
@@ -132,14 +135,8 @@ export function buildPreTagCliReleaseStepSpecs(input = {}) {
     });
   }
   steps.push({
-    args: [
-      "--filter",
-      "./clients/openmeld-cli",
-      "run",
-      "publish:npm",
-      "--registry=https://registry.npmjs.org/",
-    ],
-    command: "pnpm",
+    args: ["publish", "--registry=https://registry.npmjs.org/"],
+    command: "npm",
     label: "Publish OpenMeld CLI to npm",
   });
   return steps;
@@ -244,11 +241,57 @@ function readTagCommit(input) {
 }
 
 export async function runCliRelease(input = {}) {
+  const cwd = input.cwd ?? process.cwd();
+  const env = input.env ?? process.env;
+  const sourceSha = String(
+    env.RELEASE_SHA ??
+      execFileSync(gitBinary(), ["rev-parse", "HEAD"], {
+        cwd,
+        encoding: "utf8",
+      }).trim()
+  ).trim();
+  const admitProductionStage =
+    input.adapters?.admitProductionStage ?? admitCliProductionStage;
+  await admitProductionStage({
+    cwd,
+    env,
+    repo: env.GITHUB_REPOSITORY,
+    sourceSha,
+    write: input.write,
+  });
+  const admitTrainArtifacts =
+    input.adapters?.admitTrainArtifacts ??
+    (async (admissionInput, dependencies) => {
+      const admission = await import(
+        "./production-train-artifact-admission.mjs"
+      );
+      return await admission.admitProductionTrainArtifacts(
+        admissionInput,
+        dependencies
+      );
+    });
+  await admitTrainArtifacts(
+    { env, root: cwd, selectedScopes: "cli", sourceSha },
+    {
+      ...(input.adapters?.buildPlan
+        ? { buildPlan: input.adapters.buildPlan }
+        : {}),
+      ...(input.adapters?.checkArtifact
+        ? { checkArtifact: input.adapters.checkArtifact }
+        : {}),
+      ...(input.adapters?.checkNpmArtifact
+        ? { checkNpmArtifact: input.adapters.checkNpmArtifact }
+        : {}),
+      ...(input.adapters?.readHeadSha
+        ? { readHeadSha: input.adapters.readHeadSha }
+        : {}),
+    }
+  );
   if (input.next || input.version) {
-    assertCleanWorktree({ cwd: input.cwd });
+    assertCleanWorktree({ cwd });
     const resolution = await resolveCliReleaseVersion({
-      cwd: input.cwd,
-      env: input.env,
+      cwd,
+      env,
       explicitVersion: input.version,
       fetch: input.adapters?.fetch ?? input.fetch,
       next: input.next,
@@ -264,6 +307,8 @@ export async function runCliRelease(input = {}) {
   }
   return await runResumableCliRelease({
     ...input,
+    cwd,
+    env,
     release: {
       assertChannelReadyForVersionOnlyRelease,
       assertCleanWorktree,
@@ -273,6 +318,32 @@ export async function runCliRelease(input = {}) {
       runStep,
     },
   });
+}
+
+export function admitCliProductionStage(input) {
+  const args = [
+    PRODUCTION_STAGE_ADMISSION_PATH,
+    "--scope",
+    "cli",
+    "--source-sha",
+    input.sourceSha,
+    ...(input.repo ? ["--repo", input.repo] : []),
+  ];
+  const result = (input.spawn ?? spawnSync)(process.execPath, args, {
+    cwd: input.cwd,
+    encoding: "utf8",
+    env: input.env,
+    maxBuffer: 20 * 1024 * 1024,
+  });
+  if (result.error || result.status !== 0) {
+    throw new Error(
+      `Production CLI stage admission failed: ${result.error?.message ?? result.stderr?.trim() ?? `exit ${String(result.status)}`}`
+    );
+  }
+  const output = String(result.stdout ?? "");
+  if (output) {
+    (input.write ?? ((value) => process.stdout.write(value)))(output);
+  }
 }
 
 export function assertCliReleaseVersionTarget(input = {}) {

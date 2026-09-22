@@ -34,6 +34,7 @@ import {
   executeRemoteAgentToolDefinition,
   toBoundedRemoteAgentToolResult,
 } from "./tool-execution";
+import { isRemoteAgentNativeCapability } from "./tool-presentation";
 
 export async function getRemoteAgentFlueTools(input: {
   callLimit?: number;
@@ -57,7 +58,7 @@ export async function getRemoteAgentFlueTools(input: {
   turnEnvelope?: RemoteAgentTurnEnvelope | null;
 }) {
   if (input.replyRecovery) {
-    return [];
+    return { tools: [], capabilities: [], deferredToolCount: 0 };
   }
   const callLimit =
     input.callLimit ??
@@ -116,14 +117,19 @@ export async function getRemoteAgentFlueTools(input: {
           }
         )
       : [];
-  const directTools = [...definitions, ...capabilityDiscoveryDefinitions].map(
-    (definition) =>
-      toFlueTool({
-        callLimit,
-        definition,
-        storage: input.storage,
-        submissionId: input.submissionId,
-      })
+  const nativeDefinitions = definitions.filter((definition) =>
+    isRemoteAgentNativeCapability(definition.name)
+  );
+  const directTools = [
+    ...nativeDefinitions,
+    ...capabilityDiscoveryDefinitions,
+  ].map((definition) =>
+    toFlueTool({
+      callLimit,
+      definition,
+      storage: input.storage,
+      submissionId: input.submissionId,
+    })
   );
   if (!input.env?.LOADER) {
     throw new Error("Remote Agent Code Mode Worker Loader is unavailable.");
@@ -138,7 +144,11 @@ export async function getRemoteAgentFlueTools(input: {
     storage: input.storage,
     submissionId: input.submissionId,
   });
-  return [...directTools, codeModeTool];
+  return {
+    capabilities: definitions,
+    tools: [...directTools, codeModeTool],
+    deferredToolCount: definitions.length - nativeDefinitions.length,
+  };
 }
 
 function toFlueTool(input: {
