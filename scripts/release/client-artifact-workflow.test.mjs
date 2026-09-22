@@ -6,6 +6,146 @@ import { parse } from "yaml";
 import { admissionReason, resourcePolicy } from "../dev/local-resources.mjs";
 import { productionBuildEnvironment } from "./production-artifact-check.mjs";
 
+const expression = (value) => `${"$"}{{ ${value} }}`;
+const workflow = (name) =>
+  parse(
+    readFileSync(new URL(`../../.github/${name}`, import.meta.url), "utf8")
+  );
+
+test("coordinated release hands trusted parent outputs to every child and retains standalone admission", () => {
+  const parent = workflow("workflows/release-on-main.yml");
+  const validation = parent.jobs.validate_release_source;
+  const issue = validation.steps.filter((step) =>
+    step.run?.includes("--issue-parent-evidence")
+  );
+  assert.equal(issue.length, 1);
+  assert.equal(issue[0].id, "train_admission");
+  assert.equal(issue[0].if, undefined);
+  assert.equal(
+    validation.outputs.parent_admission_evidence,
+    expression("steps.train_admission.outputs.parent_admission_evidence")
+  );
+  for (const [name, file] of [
+    ["core", "core-worker"],
+    ["web", "web"],
+    ["auth", "auth-worker"],
+    ["gateway", "gateway-worker"],
+    ["remote_agent", "remote-agent-worker"],
+  ]) {
+    const job = parent.jobs[name];
+    assert.ok(job.needs.includes("validate_release_source"));
+    assert.ok(
+      job.if.includes("needs.validate_release_source.result == 'success'")
+    );
+    assert.equal(
+      job.with.parent_admission_evidence,
+      expression(
+        "needs.validate_release_source.outputs.parent_admission_evidence"
+      )
+    );
+    const child = workflow(`workflows/deploy-${file}.yml`);
+    assert.equal(
+      child.on.workflow_call.inputs.parent_admission_evidence.required,
+      false
+    );
+    assert.equal(
+      child.on.workflow_call.inputs.parent_admission_evidence.default,
+      ""
+    );
+    // Job-level propagation also covers the nested hosted preflight admission.
+    assert.equal(
+      child.jobs.deploy.env.OPENMELD_PARENT_TRAIN_ADMISSION,
+      expression("inputs.parent_admission_evidence")
+    );
+    const admission = child.jobs.deploy.steps.find(
+      (step) => step.name === "Admit declared production train artifacts"
+    );
+    assert.equal(admission.if, undefined);
+    assert.ok(
+      admission.run.includes(
+        "node ../release-control/scripts/release/production-train-artifact-admission.mjs"
+      )
+    );
+  }
+  assert.equal(parent.jobs.database.needs, "validate_release_source");
+  const dbCall = parent.jobs.database.steps.find((step) =>
+    step.uses?.endsWith("/shared-db-gate")
+  );
+  assert.equal(
+    dbCall.with.parent_admission_evidence,
+    expression(
+      "needs.validate_release_source.outputs.parent_admission_evidence"
+    )
+  );
+  const db = workflow("actions/shared-db-gate/action.yml");
+  for (const step of db.runs.steps) {
+    assert.equal(
+      step.env.OPENMELD_PARENT_TRAIN_ADMISSION,
+      expression("inputs.parent_admission_evidence")
+    );
+  }
+  assert.ok(
+    db.runs.steps[1].run.includes(
+      'node "$GITHUB_ACTION_PATH/../../../scripts/release/production-db.mjs"'
+    )
+  );
+});
+
+test("Web handoff downloads only the immutable same-run snapshot and verifies it before preflight or deployment", () => {
+  const parent = workflow("workflows/release-on-main.yml");
+  const validation = parent.jobs.validate_release_source;
+  const upload = validation.steps.find((step) => step.id === "web_artifact");
+  assert.equal(upload.uses, "actions/upload-artifact@v4");
+  assert.equal(
+    upload.if,
+    "steps.train_admission.outputs.has_web_artifact == 'true'"
+  );
+  assert.equal(upload.with["if-no-files-found"], "error");
+  assert.equal(upload.with["include-hidden-files"], true);
+  assert.equal(upload.with.overwrite, undefined);
+  assert.deepEqual(upload.with.path.trim().split("\n"), [
+    "release-source/dev-tmp/release-artifact-check/web.json",
+    "release-source/dev-tmp/release-artifact-check/artifacts/web/",
+  ]);
+  assert.equal(
+    validation.outputs.parent_web_artifact_id,
+    expression("steps.web_artifact.outputs.artifact-id")
+  );
+  assert.equal(
+    parent.jobs.web.with.parent_web_artifact_id,
+    expression("needs.validate_release_source.outputs.parent_web_artifact_id")
+  );
+  const web = workflow("workflows/deploy-web.yml").jobs.deploy;
+  assert.equal(
+    web.env.OPENMELD_PARENT_WEB_ARTIFACT_ID,
+    expression("inputs.parent_web_artifact_id")
+  );
+  const downloadIndex = web.steps.findIndex(
+    (step) => step.uses === "actions/download-artifact@v4"
+  );
+  const download = web.steps[downloadIndex];
+  assert.equal(download.if, "inputs.parent_admission_evidence != ''");
+  assert.deepEqual(download.with, {
+    "artifact-ids": expression("inputs.parent_web_artifact_id"),
+    "merge-multiple": true,
+    path: "release-source/dev-tmp/release-artifact-check",
+  });
+  assert.equal(
+    web.steps[downloadIndex - 1].name,
+    "Admit declared production train artifacts"
+  );
+  assert.ok(
+    web.steps[downloadIndex + 1].run.includes("--restore-web-artifact")
+  );
+  assert.equal(web.steps[downloadIndex + 1].if, download.if);
+  assert.ok(
+    downloadIndex + 1 <
+      web.steps.findIndex(
+        (step) => step.name === "Run Web deployment preflight"
+      )
+  );
+});
+
 test("manual client artifact validation excludes the broad diagnostic jobs", () => {
   const workflow = parse(
     readFileSync(

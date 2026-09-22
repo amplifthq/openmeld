@@ -201,7 +201,11 @@ Full command logs remain in the evidence artifact. The schema owner is
 Existing trusted task-input reuse remains available to specialized affected
 plans; standard FC no longer selects those broad tasks. Full confidence executes
 its full gate. Database/release readiness and deployment/health/smoke results are
-never reused. A green FC proves only its recorded selected checks.
+never reused. The same-run Production train artifact handoff in
+[Production Release](production-release.md) verifies parent admission evidence
+and, for Web, the actual snapshot bytes; it does not reuse FC, deployment,
+reconciliation or smoke evidence. A green FC proves only its recorded selected
+checks.
 
 Each task owns its implementation, risk assessment, and authorized delivery.
 CI does not require a reviewer count, central coordinator, waiting period, or

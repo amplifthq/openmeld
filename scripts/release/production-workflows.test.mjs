@@ -210,7 +210,9 @@ test("threads one explicit production train through every hosted mutation entry"
   assert.ok(databaseAction.includes("--scope db"));
   assert.ok(
     databaseAction.indexOf("production-train-artifact-admission.mjs") <
-      databaseAction.indexOf("run db:release:prod")
+      databaseAction.indexOf(
+        'node "$GITHUB_ACTION_PATH/../../../scripts/release/production-db.mjs"'
+      )
   );
   assert.ok(coreRecovery.includes("production_train_scopes: core"));
 });
@@ -700,7 +702,12 @@ test("runs the production database exactly once through its shared entrypoint", 
   assert.equal(separation.usesReleaseSource, true);
   assert.ok(dispatcher.includes(GITHUB_TOKEN_INPUT));
   assert.ok(dispatcher.includes("working_directory: release-source"));
-  assert.equal(databaseAction.match(/run db:release:prod/gu)?.length, 1);
+  assert.equal(
+    databaseAction.match(
+      /node "\$GITHUB_ACTION_PATH\/\.\.\/\.\.\/\.\.\/scripts\/release\/production-db\.mjs"/gu
+    )?.length,
+    1
+  );
   assert.ok(!databaseAction.includes("pnpm db:check"));
   assert.ok(!databaseAction.includes("pnpm db:migrate:prod"));
   assert.ok(!databaseAction.includes("pnpm db:optimize:prod"));

@@ -899,10 +899,41 @@ complete train for artifact admission, while its production packaging entrypoint
 verifies its renderer and prerender separately. Web and Desktop artifact
 snapshots remain component-specific recovery evidence: restoring one component
 selects that component's exact source and matching receipt without changing the
-other component's baseline. Artifact reuse is local to a checkout with matching
-source, build inputs, and output hash. A separate hosted deployment runner
-builds and verifies its own output rather than treating another runner's test
-result as proof of its bytes.
+other component's baseline.
+
+Within one coordinated `release-on-main.yml` run, `validate_release_source`
+performs the complete train admission once before any Production mutation.
+Only that job issues `production-train-admission` evidence through its protected
+job output. Consumers require the exact source, declared train and artifact
+scopes, repository, main workflow identity, trusted control SHA, run ID and
+attempt, clean Git tree, lockfile hash, and Node/platform/architecture.
+The evidence retains the inspected CLI tarball integrity and each renderer's
+build-input, output and receipt hashes, including its Workerd SSR runtime.
+This is artifact admission evidence, not a deployment or reconciliation receipt.
+
+Component workflows and their nested preflight calls verify that output without
+repeating complete train builds or npm consumer installation. The Database
+action invokes the existing Database entrypoint from trusted control against the
+release-source checkout so historical source cannot select an older admission
+implementation. Its database steps and guards are unchanged.
+The Web job additionally downloads the parent's immutable same-run artifact ID,
+verifies the receipt, actual build inputs and snapshot bytes, and restores the
+admitted Web output before its existing preflight, deploy and health gates.
+Other components do not download Web bytes. Desktop publication and CLI
+publication remain separate paths with their existing checks.
+
+Missing, malformed or mismatched parent evidence, or a missing/corrupt Web
+snapshot, fails closed; it cannot silently fall back to rebuilding. Independent
+component callers without parent evidence retain complete admission. There is
+no cross-run cache or reuse: a partial rerun whose attempt differs from the
+parent proof must rerun the full coordinated workflow. Existing local snapshot
+reuse still requires matching source, build inputs and output hash.
+
+While waiting for Actions, use bounded waits or backoff and read compact job
+status first. Read detailed logs only when a job changes state or a failure
+needs diagnosis; do not repeatedly fetch unchanged full logs. Finish the current
+stage before preparing the next one. In particular, defer Desktop, signing and
+environment preparation until that stage is actually selected and ready.
 
 Working-folder recovery introduces a Core cancellation receiver that must be
 healthy before the new CLI/Service can emit that outcome. Use the guarded

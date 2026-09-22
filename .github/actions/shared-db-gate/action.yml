@@ -8,6 +8,10 @@ inputs:
   release_sha:
     description: Exact release-source commit
     required: true
+  parent_admission_evidence:
+    description: Same-run release-on-main admission output; omitted for standalone admission
+    required: false
+    default: ""
   working_directory:
     description: Exact release-source checkout
     required: false
@@ -21,6 +25,7 @@ runs:
       env:
         DB_RELEASE_WORKING_DIRECTORY: ${{ inputs.working_directory }}
         OPENMELD_PRODUCTION_TRAIN_SCOPES: ${{ inputs.production_train_scopes }}
+        OPENMELD_PARENT_TRAIN_ADMISSION: ${{ inputs.parent_admission_evidence }}
         RELEASE_SHA: ${{ inputs.release_sha }}
       run: |
         set -euo pipefail
@@ -35,4 +40,9 @@ runs:
         DB_RELEASE_WORKING_DIRECTORY: ${{ inputs.working_directory }}
         OPENMELD_DB_EXECUTION_MODE: prod
         OPENMELD_PRODUCTION_TRAIN_SCOPES: ${{ inputs.production_train_scopes }}
-      run: pnpm --dir "$DB_RELEASE_WORKING_DIRECTORY" run db:release:prod
+        OPENMELD_PARENT_TRAIN_ADMISSION: ${{ inputs.parent_admission_evidence }}
+        RELEASE_SHA: ${{ inputs.release_sha }}
+      run: |
+        set -euo pipefail
+        cd "$DB_RELEASE_WORKING_DIRECTORY"
+        node "$GITHUB_ACTION_PATH/../../../scripts/release/production-db.mjs"

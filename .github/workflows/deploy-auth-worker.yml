@@ -24,6 +24,11 @@ on:
         description: "Exact main commit to deploy"
         required: true
         type: string
+      parent_admission_evidence:
+        description: "Same-run release-on-main admission output; omitted for standalone admission"
+        required: false
+        type: string
+        default: ""
 
 jobs:
   validate_release_source:
@@ -78,6 +83,7 @@ jobs:
         working-directory: release-source
     env:
       OPENMELD_PRODUCTION_TRAIN_SCOPES: ${{ inputs.production_train_scopes }}
+      OPENMELD_PARENT_TRAIN_ADMISSION: ${{ inputs.parent_admission_evidence }}
       BETTER_AUTH_OPENMELD_SECRET: ci_codegen_only_secret_please_do_not_use_1234567890
       AUTH_WORKER_NODE_ENV: development
       BETTER_AUTH_URL: http://localhost:8788
