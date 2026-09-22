@@ -6,6 +6,10 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { buildFinalCandidateObservation } from "../ci/final-candidate-observer.mjs";
+import {
+  buildTrustedGitHubRepositoryUrl,
+  createTrustedGitEnvironment,
+} from "../ci/trusted-git-network.mjs";
 import { buildProductionReleasePlan } from "./production-release.mjs";
 import { readGuardedLocalReleaseSources } from "./production-release-evidence.mjs";
 import {
@@ -968,7 +972,7 @@ function defaultAdapters() {
       runGhJsonAsync(["api", `repos/${repo}/git/commits/${sourceSha}`]),
     readLocalReleaseSources: (repo) => {
       assertGuardedLocalEvidenceRepository(repo, resolveCheckoutRepository());
-      return readGuardedLocalReleaseSources();
+      return readGuardedReleaseSourcesForStatus({ repo });
     },
     readJobReleaseSha: async (job, repo, run) => {
       const titleSource = RELEASE_TITLE_SOURCE_REGEX.exec(
@@ -1026,6 +1030,36 @@ function defaultAdapters() {
       );
     },
   };
+}
+
+export function readGuardedReleaseSourcesForStatus(input) {
+  const environment = input.environment ?? process.env;
+  if (environment.GITHUB_ACTIONS !== "true") {
+    return readGuardedLocalReleaseSources({ cwd: input.cwd, environment });
+  }
+  if (
+    environment.GITHUB_REPOSITORY?.toLowerCase() !== input.repo.toLowerCase()
+  ) {
+    throw new Error(
+      "Hosted release evidence must belong to the workflow repository."
+    );
+  }
+  const github = {
+    repository: input.repo,
+    serverUrl: environment.GITHUB_SERVER_URL,
+    token: environment.GH_TOKEN,
+  };
+  // GH_TOKEN authenticates gh, but Git does not consume it. Keep the existing
+  // trusted HTTPS credential scoped to this reader's Git children only.
+  return readGuardedLocalReleaseSources({
+    cwd: input.cwd,
+    environment,
+    gitEnvironment: createTrustedGitEnvironment(environment, {
+      ...github,
+      authenticate: true,
+    }),
+    remote: buildTrustedGitHubRepositoryUrl(github),
+  });
 }
 
 export function assertGuardedLocalEvidenceRepository(

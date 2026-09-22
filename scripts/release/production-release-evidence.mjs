@@ -95,7 +95,10 @@ export function publishGuardedLocalReleaseEvidence(input) {
 }
 
 export function readGuardedLocalReleaseSources(input = {}) {
-  const context = resolveContext(input);
+  const context = {
+    ...resolveContext(input),
+    gitEnvironment: input.gitEnvironment,
+  };
   return new Map(
     [...readGuardedLocalReleaseEvidence(context)].map(([scope, evidence]) => [
       scope,
@@ -404,9 +407,11 @@ function runGit(context, args, options = {}) {
   const result = spawnSync("git", args, {
     cwd: context.cwd,
     encoding: "utf8",
-    env: createProductionScopeLeaseGitEnvironment(context.environment, {
-      authenticate: true,
-    }),
+    env:
+      context.gitEnvironment ??
+      createProductionScopeLeaseGitEnvironment(context.environment, {
+        authenticate: true,
+      }),
     stdio: ["ignore", "pipe", "pipe"],
   });
   const outcome = {
