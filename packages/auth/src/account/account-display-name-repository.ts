@@ -1,6 +1,5 @@
 import { type createD1Db, openMeldProfiles, users } from "@openmeld/db/auth";
-import type { InferSelectModel } from "drizzle-orm";
-import { and, eq, exists } from "drizzle-orm";
+import { and, eq, exists, type InferSelectModel } from "@openmeld/db/query";
 import { AccountDisplayNameInvariantError } from "./account-display-name-errors";
 
 export type DefaultHumanProfileRecord = InferSelectModel<

@@ -200,8 +200,8 @@ changes membership or deletes messages. Legacy paused progress resumes.
    Documents remain their ongoing management homes. The old Organization-entry
    onboarding dialog is retired; two onboarding surfaces must not compete.
 10. **Concrete language and visual demonstration.** User copy says Slack,
-    Lark, GitHub, Codex, or Claude Code instead of internal categories such as
-    "coding agents." Each recommendation has a concise visual demonstration.
+    Lark, GitHub, Codex, Claude Code, or Antigravity instead of internal
+    categories such as "coding agents." Each recommendation has a concise visual demonstration.
     Copy stays short enough to scan; the UI must not rely on paragraphs to
     explain the product.
 11. **Membership is never gated by machine setup.** Joining an Organization or

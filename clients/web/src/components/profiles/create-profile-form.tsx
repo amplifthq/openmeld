@@ -8,6 +8,7 @@ import {
 import type {
 	AgentControllerCollaborationMode,
 	AgentControllerPermissionMode,
+	AgentControllerUsageLimits,
 	AgentProfileBindingOpenCodePermission,
 	ModelCatalog,
 	ModelCatalogModel,
@@ -114,9 +115,33 @@ export type AgentProfileLocalAgentEmptyState = {
 	onRetry?: () => void;
 };
 
+export type AgentProfileLocalAgentSelectionState = {
+	agentId: string;
+	blocksCreation: boolean;
+	canEnable?: boolean;
+	displayName: string;
+	guideHref?: string;
+	kind:
+		| "available"
+		| "checking"
+		| "check_failed"
+		| "computer"
+		| "disabled"
+		| "not_installed"
+		| "signed_out"
+		| "unavailable";
+	manageHref?: string | null;
+	message?: string | null;
+	onEnable?: () => Promise<void>;
+	onRetry?: () => void;
+	selectionKey?: string;
+	usageLimits?: AgentControllerUsageLimits;
+	usageLoading?: boolean;
+};
+
 // Presentational, route-free Create Profile form. All state lives in the
-// parent dialog; this component only renders an available kind choice, the
-// name input, the agent binding radio, and the recoverable error block. It
+// parent dialog; this component only renders the kind choice, the name input,
+// the agent catalog and Binding state, and the recoverable error block. It
 // performs no navigation, no StartFlow reads/writes, and no mutation.
 export type CreateProfileFormProps = {
 	remoteProfileName?: string;
@@ -158,6 +183,7 @@ export type CreateProfileFormProps = {
 	modelCompatibilityContext?: AgentProfileModelCompatibilityContext | null;
 	localFolderPickerDeviceId: string | null;
 	localAgentEmptyState?: AgentProfileLocalAgentEmptyState;
+	localAgentSelectionState?: AgentProfileLocalAgentSelectionState | null;
 	projectSelectionBlockReason?: string | null;
 	onUseManagedWorkspace?: () => void;
 	projectSelectionSlot?: ReactNode;

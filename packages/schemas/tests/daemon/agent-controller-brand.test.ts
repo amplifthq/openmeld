@@ -13,6 +13,7 @@ describe("builtin agent controller brand registry", () => {
       "claude-code",
       "grok-build",
       "opencode",
+      "antigravity",
       "openclaw",
       "cursor",
     ]);
@@ -32,6 +33,9 @@ describe("builtin agent controller brand registry", () => {
     );
     expect(resolveBuiltinAgentControllerBrand("builtin:opencode")).toEqual(
       BUILTIN_AGENT_CONTROLLER_BRANDS.opencode
+    );
+    expect(resolveBuiltinAgentControllerBrand("builtin:antigravity")).toEqual(
+      BUILTIN_AGENT_CONTROLLER_BRANDS.antigravity
     );
     expect(resolveBuiltinAgentControllerBrand("builtin:cursor")).toEqual(
       BUILTIN_AGENT_CONTROLLER_BRANDS.cursor

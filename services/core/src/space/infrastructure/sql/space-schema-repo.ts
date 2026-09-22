@@ -350,6 +350,17 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
     )
   `);
 
+  // Additive, idempotent migration: historical bytes are never read or rewritten.
+  if (
+    !listTableColumnNames(sql, "space_file_revisions").has(
+      "image_dimensions_json"
+    )
+  ) {
+    sql.exec(
+      "ALTER TABLE space_file_revisions ADD COLUMN image_dimensions_json TEXT NULL"
+    );
+  }
+
   sql.exec(`
     CREATE TABLE IF NOT EXISTS space_file_mutations (
       client_mutation_id TEXT PRIMARY KEY,

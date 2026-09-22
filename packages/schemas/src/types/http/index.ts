@@ -1082,6 +1082,7 @@ export type {
   SpaceFileContentQuery,
   SpaceFileDescriptor,
   SpaceFileEntry,
+  SpaceFileImageDimensions,
   SpaceFileListOriginFilter,
   SpaceFileMutationErrorCode,
   SpaceFileOrigin,

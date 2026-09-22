@@ -126,6 +126,18 @@ export async function authorizeSpaceJoinAccess(input: {
   ) {
     return { ok: true, reason: "unprotected_space" };
   }
+  const authenticatedGrant = resolveAuthenticatedProtectedSpaceAccessGrant({
+    context: input.context,
+    hasActiveMemberForOwnerUserId: input.hasActiveMemberForOwnerUserId,
+    meta: input.meta,
+    readMemberByProfileId: input.readMemberByProfileId,
+  });
+  if (authenticatedGrant) {
+    return { ok: true, reason: authenticatedGrant };
+  }
+  if (resolveSpaceMetaLinkJoinPolicy(input.meta) === "invite_only") {
+    return { ok: false, code: "space.membership_required" };
+  }
   if (!input.meta.passwordProof) {
     return { ok: false, code: "space.password_required" };
   }

@@ -2047,14 +2047,21 @@ describe("space-members-service", () => {
     );
   });
 
-  it("rejects removing the active creator", () => {
+  it("rejects removing an active Space owner", () => {
     const sql = new MutableSqlStorage();
-    const metaRecord = createMetaRecord({
-      spaceId: "space-members-remove-creator",
-      createdAt: "2026-03-06T12:40:00.000Z",
-      updatedAt: "2026-03-06T12:40:00.000Z",
-      creator: createHumanCreator("hum-members-remove-creator", "Space Host"),
-    });
+    const metaRecord = {
+      ...createMetaRecord({
+        spaceId: "space-members-remove-creator",
+        createdAt: "2026-03-06T12:40:00.000Z",
+        updatedAt: "2026-03-06T12:40:00.000Z",
+        creator: createHumanCreator(
+          "hum-members-remove-creator",
+          "Space Host",
+          { ownerUserId: "owner-remove-creator-1" }
+        ),
+      }),
+      ownerUserIds: ["owner-remove-creator-1"],
+    };
 
     upsertSpaceCreatorMember({
       sql: sql as unknown as SqlStorage,
@@ -2069,13 +2076,13 @@ describe("space-members-service", () => {
         spaceId: metaRecord.spaceId,
         memberProfileIds: ["hum-members-remove-creator"],
         actorProfileId: "hum-members-operator",
-        actorOwnerUserId: "owner-remove-creator-1",
+        actorOwnerUserId: "owner-operator",
         metaRecord,
         nowIso: "2026-03-06T12:41:00.000Z",
       })
     ).toThrowError(
       expect.objectContaining<Partial<SpaceMembersUseCaseError>>({
-        code: "space.members.creator_forbidden",
+        code: "space.members.owner_forbidden",
         status: 400,
       })
     );
@@ -2147,14 +2154,19 @@ describe("space-members-service", () => {
     ]);
   });
 
-  it("rejects creator leave and treats absent actors as already absent", () => {
+  it("rejects owner leave and treats absent actors as already absent", () => {
     const sql = new MutableSqlStorage();
-    const metaRecord = createMetaRecord({
-      spaceId: "space-members-leave-creator",
-      createdAt: "2026-03-06T13:00:00.000Z",
-      updatedAt: "2026-03-06T13:00:00.000Z",
-      creator: createHumanCreator("hum-members-leave-creator", "Space Host"),
-    });
+    const metaRecord = {
+      ...createMetaRecord({
+        spaceId: "space-members-leave-creator",
+        createdAt: "2026-03-06T13:00:00.000Z",
+        updatedAt: "2026-03-06T13:00:00.000Z",
+        creator: createHumanCreator("hum-members-leave-creator", "Space Host", {
+          ownerUserId: "owner-host",
+        }),
+      }),
+      ownerUserIds: ["owner-host"],
+    };
 
     upsertSpaceCreatorMember({
       sql: sql as unknown as SqlStorage,
@@ -2174,7 +2186,7 @@ describe("space-members-service", () => {
       })
     ).toThrowError(
       expect.objectContaining<Partial<SpaceMembersUseCaseError>>({
-        code: "space.leave_space.creator_forbidden",
+        code: "space.leave_space.owner_forbidden",
         status: 400,
       })
     );

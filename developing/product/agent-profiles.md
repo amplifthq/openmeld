@@ -584,7 +584,8 @@ Cursor uses five controller-native presets over its ACP interface:
 - **Run Everything** launches `cursor-agent --force acp`, requires explicit
   confirmation, and still respects explicit Cursor deny rules.
 
-When a running Codex, Claude Code, Grok Build, Cursor, or OpenCode turn asks for permission,
+When a running Codex, Claude Code, Grok Build, Cursor, OpenCode, or Antigravity
+turn asks for permission,
 asks a structured question, or finishes a plan that needs review, OpenMeld
 pauses that same Wake and presents the request in its Space. The Binding owner
 can answer there without opening the controller's terminal. OpenMeld returns
@@ -607,10 +608,14 @@ A dispatch-scoped first-party OpenMeld Space Action is not a general controller
 command approval. OpenMeld may make its own `reply`, `status`, and `stay_silent`
 tools approval-free because they can write only one validated proposal for the
 current dispatch and still require RuntimeCoordinator publication. OpenMeld
-must not extend that exception to shell strings, arbitrary `openmeld` commands,
-filesystem access, network access, or another dispatch. `Ask for approval`
-therefore remains authoritative for ordinary Codex actions without blocking the
-Agent's chosen Space outcome.
+may require Antigravity's final response to match a dispatch-scoped structured
+output schema because its CLI has no proven per-invocation structured-tool
+configuration surface. After validating that `reply`, `status`, or `silent`
+outcome, the trusted adapter invokes the same dispatch-owned writer without a
+shell. The model never receives a new command permission, and ordinary shell,
+filesystem, network, and MCP actions remain under the controller's native
+policy. `Ask for approval` therefore remains authoritative for ordinary
+controller actions without blocking the Agent's chosen Space outcome.
 
 Only the Binding owner may see request details or answer. Other authenticated
 Space members may see that the Agent Profile is waiting for its owner, but not
@@ -832,6 +837,24 @@ editor. Permission review opens customization and the Permissions editor,
 focusing the confirmation control. Working-folder blockers offer a one-click
 OpenMeld-managed folder action that clears the Project selection and prevents
 late defaults from overwriting that explicit choice.
+
+Web creation always presents the complete built-in Local Agent catalog in the
+canonical order: Codex, Claude Code, Grok Build, OpenCode, Antigravity, then
+Cursor. Catalog visibility is product discovery, not evidence that an Agent is
+installed, enabled, signed in, or ready. Selecting an unavailable entry keeps it
+selected for inspection while the Binding target remains unset. A full-width
+dashed recovery panel then names the exact blocker and offers the nearest direct
+action: the Agent-specific install guide, an inline enable switch, sign-in or
+setup guidance, or a retry for unknown Computer evidence. Creation becomes
+available only after the existing canonical eligibility projection provides a
+valid local Binding target.
+
+The selected Local Agent's Usage summary appears at the far right of the Agent
+name row above Advanced Agent Settings. It consumes the already loaded local
+runtime projection and its query cache; opening creation must not start a second
+provider Usage request. A small skeleton may replace only that summary while
+the projection is loading. Missing or unsupported Usage leaves the rest of the
+form interactive and does not create another readiness rule.
 
 For a new Web session, a remembered Project id alone is not enough to restore a
 working folder: it does not confirm a connection on the selected computer.

@@ -48,6 +48,9 @@ patchedDependencies:
   better-sqlite3@13.0.3:
     hash: 74420479c01f8102174bc66a4f86231957cbee7c327adfd18a7bbd8f6d0a27bc
     path: patches/better-sqlite3@13.0.3.patch
+  img-fx@0.5.1:
+    hash: cde9f5928427d1a770d5fb30f1b48c3296e82dfca283cbda5b927be9898af3b6
+    path: patches/img-fx@0.5.1.patch
   thinking-orbs@0.3.1:
     hash: 1d2410bd054a0bbf76633d101f3ad9e0e088bed08e1470176fc51bdb7e45d9c3
     path: patches/thinking-orbs@0.3.1.patch
@@ -258,6 +261,9 @@ importers:
         specifier: 'catalog:'
         version: 4.6.5
     devDependencies:
+      '@openmeld/adapter-antigravity':
+        specifier: workspace:*
+        version: link:../../runtime/adapters/antigravity
       '@openmeld/adapter-claude-code':
         specifier: workspace:*
         version: link:../../runtime/adapters/claude-code
@@ -558,6 +564,9 @@ importers:
       frimousse:
         specifier: 0.3.0
         version: 0.3.0(react@19.2.4)(typescript@5.9.3)
+      img-fx:
+        specifier: 0.5.1
+        version: 0.5.1(patch_hash=cde9f5928427d1a770d5fb30f1b48c3296e82dfca283cbda5b927be9898af3b6)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(three@0.185.1)
       liquid-gooey:
         specifier: 0.2.1
         version: 0.2.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -1117,6 +1126,10 @@ importers:
         version: 3.2.4(@types/debug@4.1.13)(@types/node@24.10.13)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.2.0))(lightningcss@1.32.0)(msw@2.12.10(@types/node@24.10.13)(typescript@5.9.3))(tsx@4.21.0)(yaml@2.9.0)
 
   packages/utils:
+    dependencies:
+      image-dimensions:
+        specifier: 2.6.0
+        version: 2.6.0
     devDependencies:
       '@types/node':
         specifier: ^24.3.0
@@ -1133,6 +1146,16 @@ importers:
       vitest:
         specifier: ~3.2.0
         version: 3.2.4(@types/debug@4.1.13)(@types/node@24.10.13)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.2.0))(lightningcss@1.32.0)(msw@2.12.10(@types/node@24.10.13)(typescript@5.9.3))(tsx@4.21.0)(yaml@2.9.0)
+
+  runtime/adapters/antigravity:
+    dependencies:
+      '@openmeld/adapter-core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^24.3.0
+        version: 24.10.13
 
   runtime/adapters/claude-code:
     dependencies:
@@ -1243,6 +1266,9 @@ importers:
 
   runtime/local-service:
     dependencies:
+      '@openmeld/adapter-antigravity':
+        specifier: workspace:*
+        version: link:../adapters/antigravity
       '@openmeld/adapter-claude-code':
         specifier: workspace:*
         version: link:../adapters/claude-code
@@ -9437,6 +9463,18 @@ packages:
   ignore@7.0.5:
     resolution: {integrity: sha512-Hs59xBNfUIunMFgWAbGX5cq6893IbWg4KnrjbYwX3tx0ztorVgTDA6B2sxf8ejHJ4wz8BqGUMYlnzNBer5NvGg==}
     engines: {node: '>= 4'}
+
+  image-dimensions@2.6.0:
+    resolution: {integrity: sha512-j1cgVnvl0ltv7tYImMYMlrkYeDB43oSUiQv3zodkImsFbJWmJZ6M5e5N9k5/8zdMVjrtYzRbmcqTqpxvyh29vw==}
+    engines: {node: '>=18'}
+    hasBin: true
+
+  img-fx@0.5.1:
+    resolution: {integrity: sha512-CXIFGoGgK5F80d8I+VXZ96dmfkWqb4EGpecAIVXVXhuUVqCe1571Xhf5oGZ4qmTce0UoTfNMKLQDOgSAbIbH0w==}
+    peerDependencies:
+      react: '>=18.0.0'
+      react-dom: '>=18.0.0'
+      three: '>=0.149.0'
 
   immer@10.2.0:
     resolution: {integrity: sha512-d/+XTN3zfODyjr89gM3mPq1WNX2B8pYsu7eORitdwyA2sBubnTl3laYlBk4sXY5FUa5qTZGBDPJICVbvqzjlbw==}
@@ -22200,6 +22238,14 @@ snapshots:
   ignore@5.3.2: {}
 
   ignore@7.0.5: {}
+
+  image-dimensions@2.6.0: {}
+
+  img-fx@0.5.1(patch_hash=cde9f5928427d1a770d5fb30f1b48c3296e82dfca283cbda5b927be9898af3b6)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(three@0.185.1):
+    dependencies:
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+      three: 0.185.1
 
   immer@10.2.0: {}
 

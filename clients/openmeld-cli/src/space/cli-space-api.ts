@@ -8,7 +8,7 @@ export type {
 
 export function createCliSpaceApi(
   baseUrl: string,
-  options: { organizationId?: string } = {}
+  options: Parameters<typeof createCliApiClientFoundation>[1] = {}
 ): SpaceApi {
   return createSpaceApi(createCliApiClientFoundation(baseUrl, options));
 }

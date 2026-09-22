@@ -1050,7 +1050,7 @@ describe("handleDispatchQueueBatch", () => {
       };
     }
     if (
-      input.normalizedSql.includes("space_index_spaces") &&
+      input.normalizedSql.includes("profile_organization_id") &&
       input.normalizedSql.includes("openmeld_profiles")
     ) {
       const organizationId =
@@ -3313,6 +3313,7 @@ describe("handleDispatchQueueBatch", () => {
     });
     const body = message.body as OpenMeldDaemonDispatchQueueMessage;
     body.deliveryRecoveryReason = "route_lost";
+    body.organizationId = "org-default";
     const bindingId = `binding-${body.targetProfileId}`;
     const openMeldServiceRuntimeId = `runtime-${body.targetProfileId}`;
     vi.mocked(

@@ -4,6 +4,7 @@ import {
   spaceFileActorSchema,
   spaceFileDescriptorSchema,
   spaceFileEntrySchema,
+  spaceFileImageDimensionsSchema,
 } from "@openmeld/schemas";
 import type {
   CommitSpaceFileWriteInput,
@@ -12,6 +13,7 @@ import type {
   SpaceFileAuditEvent,
   SpaceFileDescriptor,
   SpaceFileEntry,
+  SpaceFileImageDimensions,
   SpaceFileListOriginFilter,
   SpaceFileMutationErrorCode,
   SpaceFileOrigin,
@@ -40,6 +42,7 @@ type SpaceFileEntryRow = {
 };
 
 type SpaceFileRevisionRow = {
+  image_dimensions_json: string | null;
   revision_id: string;
   file_id: string;
   revision: number;
@@ -178,6 +181,7 @@ export class SpaceFileRepository {
             mime_type,
             size_bytes,
             created_at_ms,
+            image_dimensions_json,
             created_by_json
           FROM space_file_revisions
           WHERE file_id = ?
@@ -207,6 +211,7 @@ export class SpaceFileRepository {
             mime_type,
             size_bytes,
             created_at_ms,
+            image_dimensions_json,
             created_by_json
           FROM space_file_revisions
           WHERE file_id = ? AND revision = ?
@@ -547,6 +552,7 @@ export class SpaceFileRepository {
   commitWrite(input: {
     actor: SpaceFileActor;
     auditEvent: SpaceFileAuditEvent;
+    imageDimensions?: SpaceFileImageDimensions;
     nowMs: number;
     write: CommitSpaceFileWriteInput;
   }): SpaceFileDescriptor {
@@ -632,8 +638,9 @@ export class SpaceFileRepository {
             size_bytes,
             created_at_ms,
             created_by_json,
-            client_mutation_id
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            client_mutation_id,
+            image_dimensions_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         input.write.revisionId,
         input.write.fileId,
@@ -642,7 +649,12 @@ export class SpaceFileRepository {
         input.write.sizeBytes,
         input.nowMs,
         actorJson,
-        input.write.clientMutationId
+        input.write.clientMutationId,
+        input.write.mimeType.startsWith("image/") && input.imageDimensions
+          ? JSON.stringify(
+              spaceFileImageDimensionsSchema.parse(input.imageDimensions)
+            )
+          : null
       );
       const file = this.getFile(input.write.fileId);
       new SpaceFileUpdateRepository(this.sql).enqueue(file, input.nowMs);
@@ -734,6 +746,7 @@ export class SpaceFileRepository {
             mime_type,
             size_bytes,
             created_at_ms,
+            image_dimensions_json,
             created_by_json
           FROM space_file_revisions
           WHERE file_id = ?
@@ -969,7 +982,14 @@ export class SpaceFileRepository {
 }
 
 function readRevisionRow(row: SpaceFileRevisionRow): SpaceFileRevision {
+  const imageDimensions =
+    row.image_dimensions_json === null
+      ? undefined
+      : spaceFileImageDimensionsSchema.parse(
+          JSON.parse(row.image_dimensions_json)
+        );
   return {
+    ...(imageDimensions ? { imageDimensions } : {}),
     id: row.revision_id,
     fileId: row.file_id,
     revision: Number(row.revision),

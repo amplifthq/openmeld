@@ -5,6 +5,7 @@ import { clearSpaceConversationPositions } from "#/lib/space-conversation-positi
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import { userQueryKeys } from "#/query/query-keys";
+import { clearSpaceFileImageResources } from "#/query/spaces/space-file-image-resource";
 
 export const ACCOUNT_AUTH_CHANGE_STORAGE_KEY =
 	"openmeld.auth.account-change.v1";
@@ -22,6 +23,7 @@ export async function resetAccountScopedQueriesAfterAuthChange(
 		queryPersistence?: BrowserQueryPersistenceController;
 	}
 ): Promise<void> {
+	clearSpaceFileImageResources(queryClient);
 	if (!options?.preserveComposerDrafts) {
 		clearAllComposerDrafts();
 	}

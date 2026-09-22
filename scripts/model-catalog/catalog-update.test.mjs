@@ -3,7 +3,12 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { parseCodexModels, prepareUpdate } from "./catalog-update.mjs";
 import { combineUpdates } from "./collect-update.mjs";
-import { assertAdditionsOnly, publicationDecision } from "./publish-update.mjs";
+import {
+  assertAdditionsOnly,
+  findLatestScanComment,
+  publicationDecision,
+  renderLatestScanComment,
+} from "./publish-update.mjs";
 import { discoveryCandidates, renderBatchReview } from "./review.mjs";
 
 const existing = {
@@ -140,17 +145,34 @@ test("upstream model instructions are excluded from the handoff", () => {
   assert.equal(Object.hasOwn(parsed.facts, "model_messages"), false);
 });
 
-test("review ownership and a declined exact proposal prevent bot churn", () => {
+test("open review refresh and a declined exact proposal prevent branch churn", () => {
   const fingerprint = "a".repeat(64);
   const base = { controller: "codex", fingerprint, changed: true };
+  const openPull = {
+    state: "OPEN",
+    headRefName: "codex/catalog-update-codex-older",
+    url: "https://github.com/amplifthq/openmeld/pull/1138",
+  };
   assert.equal(
     publicationDecision({
       ...base,
-      pulls: [
-        { state: "OPEN", headRefName: "codex/catalog-update-codex-older" },
-      ],
+      changed: false,
+      pulls: [openPull, openPull],
     }),
-    "review-in-progress"
+    "update-review"
+  );
+  assert.throws(() =>
+    publicationDecision({
+      ...base,
+      pulls: [
+        openPull,
+        {
+          ...openPull,
+          headRefName: "codex/catalog-update-another-review",
+          url: "https://github.com/amplifthq/openmeld/pull/1204",
+        },
+      ],
+    })
   );
   assert.equal(
     publicationDecision({
@@ -168,6 +190,30 @@ test("review ownership and a declined exact proposal prevent bot churn", () => {
     publicationDecision({ ...base, fingerprint: "b".repeat(64), pulls: [] }),
     "create"
   );
+});
+
+test("latest scan handoff updates only the bot-owned stable comment", () => {
+  const runUrl = "https://github.com/amplifthq/openmeld/actions/runs/123";
+  const rendered = renderLatestScanComment(
+    "# Model catalog update\n\nFresh evidence.\n",
+    runUrl
+  );
+  assert.ok(rendered.includes("Latest model catalog scan"));
+  assert.ok(rendered.includes(runUrl));
+  assert.ok(rendered.includes("Fresh evidence."));
+  const human = {
+    id: 1,
+    user: { login: "lumpinif" },
+    body: rendered,
+  };
+  const bot = {
+    id: 2,
+    user: { login: "github-actions[bot]" },
+    body: rendered,
+  };
+  assert.equal(findLatestScanComment([human]), null);
+  assert.equal(findLatestScanComment([human, bot]), bot);
+  assert.throws(() => findLatestScanComment([bot, { ...bot, id: 3 }]));
 });
 
 test("publication rejects a default change even when the catalog itself is valid", () => {

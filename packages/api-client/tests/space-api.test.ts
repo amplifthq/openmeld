@@ -1,6 +1,8 @@
 import {
   OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
+  OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
   OPENMELD_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
 } from "@openmeld/gateway-contract";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
@@ -1430,6 +1432,8 @@ describe("api-client space api", () => {
             "x-openmeld-agent-reply-placement": "1",
             [OPENMELD_HEADER_SPACE_ADDRESSING_VERSION]:
               OPENMELD_SPACE_ADDRESSING_VERSION,
+            [OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION]:
+              OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
           },
         }),
       })
@@ -2162,6 +2166,16 @@ describe("api-client space api", () => {
         fileName: "diagram.png",
       },
     ];
+    const files = [
+      {
+        fileId: "file-1",
+        revision: 1,
+        name: "diagram.png",
+        mimeType: "image/png",
+        sizeBytes: 1024,
+        imageDimensions: { width: 800, height: 600 },
+      },
+    ];
     const transport = vi.fn(() =>
       Promise.resolve(
         new Response(
@@ -2204,6 +2218,7 @@ describe("api-client space api", () => {
       timeoutMs: 30_000,
       text: "hello",
       attachments,
+      files,
       messageEnvelope: {
         activationTargets: [],
         referenceTargets: ["11111111-1111-4111-8111-111111111111"],
@@ -2230,10 +2245,21 @@ describe("api-client space api", () => {
             "x-openmeld-agent-reply-placement": "1",
             [OPENMELD_HEADER_SPACE_ADDRESSING_VERSION]:
               OPENMELD_SPACE_ADDRESSING_VERSION,
+            [OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION]:
+              OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
           },
           body: JSON.stringify({
             text: "hello",
             attachments,
+            files: [
+              {
+                fileId: "file-1",
+                revision: 1,
+                name: "diagram.png",
+                mimeType: "image/png",
+                sizeBytes: 1024,
+              },
+            ],
             messageEnvelope: {
               activationTargets: [],
               referenceTargets: ["11111111-1111-4111-8111-111111111111"],
@@ -2247,6 +2273,7 @@ describe("api-client space api", () => {
         }),
       })
     );
+    expect(files[0]?.imageDimensions).toEqual({ width: 800, height: 600 });
   });
 
   it("forwards per-request timeouts when posting thread messages", async () => {
@@ -2287,6 +2314,16 @@ describe("api-client space api", () => {
         transport,
       })
     );
+    const files = [
+      {
+        fileId: "file-1",
+        revision: 1,
+        name: "diagram.png",
+        mimeType: "image/png",
+        sizeBytes: 1024,
+        imageDimensions: { width: 800, height: 600 },
+      },
+    ];
 
     await api.postThreadSignal({
       spaceId: "space-123",
@@ -2296,6 +2333,7 @@ describe("api-client space api", () => {
       body: {
         text: "thread reply",
         clientMessageId: "client-message-thread-1",
+        files,
         messageEnvelope: {
           activationTargets: [],
           referenceTargets: ["11111111-1111-4111-8111-111111111111"],
@@ -2312,6 +2350,15 @@ describe("api-client space api", () => {
         init: expect.objectContaining({
           body: JSON.stringify({
             text: "thread reply",
+            files: [
+              {
+                fileId: "file-1",
+                revision: 1,
+                name: "diagram.png",
+                mimeType: "image/png",
+                sizeBytes: 1024,
+              },
+            ],
             messageEnvelope: {
               activationTargets: [],
               referenceTargets: ["11111111-1111-4111-8111-111111111111"],
@@ -2325,10 +2372,13 @@ describe("api-client space api", () => {
             "x-openmeld-agent-reply-placement": "1",
             [OPENMELD_HEADER_SPACE_ADDRESSING_VERSION]:
               OPENMELD_SPACE_ADDRESSING_VERSION,
+            [OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION]:
+              OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
           },
         }),
       })
     );
+    expect(files[0]?.imageDimensions).toEqual({ width: 800, height: 600 });
   });
 
   it("reads Wake progress through the shared space api", async () => {

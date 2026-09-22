@@ -40,13 +40,13 @@ const NUMERIC_SEMVER_IDENTIFIER_RE = /^\d+$/u;
 // Core owns this monotonic compatibility floor separately from the latest
 // release's advisory policy, so a later optional release can never make an
 // older unsafe Service eligible for new Wake work again.
-// 0.3.216 also rejects an OpenCode resume before provider execution when the
-// native Session belongs to a different folder than the admitted workspace.
-const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.216";
+// 0.3.217 refreshes Service admission after update/draining and carries the
+// required Codex MCP startup behavior before Core admits new Wake work.
+const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.217";
 // Keep the last published floor active while its replacement is not yet on the
-// stable channel. Once 0.3.216 is published, the newer floor remains active
+// stable channel. Once 0.3.217 is published, the newer floor remains active
 // even if a later release returns to an advisory policy.
-const PREVIOUS_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.214";
+const PREVIOUS_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.216";
 
 type ServiceUpdateDecision = {
   reasonCodes: string[];
