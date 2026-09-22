@@ -139,7 +139,8 @@ changes only the sidebar; the open conversation, draft, and reading position
 remain mounted. View choice is remembered in this browser per account and
 Organization. It does not change another member's layout.
 
-Conversation rows leave the preview blank when no message exists. Preview text
+Conversation rows leave the preview blank when no message exists, preserving its
+line height so titles and action controls stay aligned. Preview text
 is quieter than the title: dark mode slightly reduces its muted color opacity;
 light mode preserves readable preview contrast and slightly strengthens the
 unselected title instead. Selected and unread titles retain foreground emphasis.
@@ -1328,7 +1329,9 @@ trailing-aligned, content-sized bubble with a responsive maximum width; a
 message placed on the left uses the available transcript width beside its avatar.
 Both placements keep their content leading-aligned. Ordinary Spaces put the
 speaker's avatar beside the name and bubble, with the name aligned to the avatar's
-top and the bubble below it. Names use regular-weight, muted, extra-small text.
+top and the bubble below it. Names use regular-weight, muted, extra-small text;
+the name line compensates for the font's ascent inset to align its visible ink
+slightly above the avatar top.
 Direct Messages, including Center
 Agent chats, use content-sized bubbles with a dedicated avatar column. The first
 message in a speaker run aligns the avatar with the bubble's top; subsequent
@@ -4288,9 +4291,9 @@ bounded, owner-only error projection and sensitive-data exclusions still apply.
 
 Message rhythm follows the existing speaker grouping instead of the current
 member's alignment. Message content sits 2 pixels above its reserved footer. A
-consecutive message from the same speaker starts 2 pixels after the preceding
+consecutive message from the same speaker starts 1 pixel after the preceding
 footer. When the speaker changes or the existing conversation grouping starts a
-new run, the adjacent run edges contribute 4 pixels each for an 8-pixel group
+new run, the adjacent run edges contribute 2 pixels each for a 4-pixel group
 boundary. Date separators, system regions, and other real section boundaries
 keep their wider spacing. The reserved footer height remains stable while its
 hover actions change opacity, so pointer interaction does not move later

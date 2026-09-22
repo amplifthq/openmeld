@@ -276,6 +276,12 @@ html[data-space-self-message-alignment="left"]
   display: flex;
 }
 
+/* Offset the name line's font ascent inset so its visible text sits just above the avatar
+   top, while removing the same space above the bubble. Avatars stay anchored. */
+[data-slot="message-content"]:not([data-direct-message]) > [data-slot="message-header"] {
+  margin-block-start: -5px;
+}
+
 [data-direct-message] > [data-slot="message-header"] {
   position: absolute;
   inset-block-start: 0;

@@ -2078,8 +2078,8 @@ describe("SpaceConversationPanel", () => {
 		// vertical rhythm. Hover coloring must live on the per-message row so one
 		// message never highlights the whole run (including its shared header).
 		expect(agentMessage?.className).toContain("px-0");
-		expect(agentMessage?.className).toContain("pt-1");
-		expect(agentMessage?.className).toContain("pb-1");
+		expect(agentMessage?.className).toContain("pt-0.5");
+		expect(agentMessage?.className).toContain("pb-0.5");
 		expect(agentMessage?.className).not.toContain("py-2");
 		expect(agentMessage?.className).not.toContain("hover:bg-muted/35");
 		expect(agentMessage?.className).not.toContain("focus-within:bg-muted/35");
@@ -2094,8 +2094,8 @@ describe("SpaceConversationPanel", () => {
 		expect(selfMessage?.className).not.toContain("hover:bg-muted/35");
 		expect(selfMessage?.className).not.toContain("focus-within:bg-muted/35");
 		expect(selfMessage?.className).not.toContain("rounded-sm");
-		expect(selfMessage?.className).toContain("pt-1");
-		expect(selfMessage?.className).toContain("pb-1");
+		expect(selfMessage?.className).toContain("pt-0.5");
+		expect(selfMessage?.className).toContain("pb-0.5");
 		expect(selfMessage?.className).not.toContain("py-2");
 		expect(agentMessage?.getAttribute("data-space-self-message")).toBe("false");
 		expect(selfMessage?.getAttribute("data-space-self-message")).toBe("true");
@@ -2187,13 +2187,13 @@ describe("SpaceConversationPanel", () => {
 			.getByText("Last consecutive message")
 			.closest("[data-slot='message']");
 
-		expect(firstMessage?.className).toContain("pt-1");
+		expect(firstMessage?.className).toContain("pt-0.5");
 		expect(firstMessage?.className).toContain("pb-0");
 		expect(firstMessage?.className).not.toContain("py-2");
-		expect(middleMessage?.className).toContain("pt-0.5");
+		expect(middleMessage?.className).toContain("pt-px");
 		expect(middleMessage?.className).toContain("pb-0");
-		expect(lastMessage?.className).toContain("pt-0.5");
-		expect(lastMessage?.className).toContain("pb-1");
+		expect(lastMessage?.className).toContain("pt-px");
+		expect(lastMessage?.className).toContain("pb-0.5");
 		expect(lastMessage?.className).not.toContain("py-2");
 	});
 
