@@ -5,10 +5,47 @@ import {
   modelCatalogSchema,
 } from "../../src/index";
 import cursorModelCatalogCapture from "../fixtures/cursor-model-catalog-2026.09.10.json";
+import localModelCatalogCapture from "../fixtures/local-model-catalog-2026.09.22.json";
 import openCodeGoQwen38Flash from "../fixtures/opencode-go-qwen3.8-flash-1.18.25.json";
 import openCodeModelCatalogCapture from "../fixtures/opencode-model-catalog-1.18.31.json";
 
 describe("model catalog schema", () => {
+  it("preserves the new local models' authenticated IDs and reasoning options", () => {
+    const { agentControllers } = modelCatalogSchema.parse(vendorModelCatalog);
+    const { cursor, grokBuild, opencode } = localModelCatalogCapture;
+    for (const model of cursor.availableModels) {
+      expect(cursor.configOptions).toContainEqual({
+        value: model.modelId,
+        name: model.name,
+      });
+      expect(agentControllers.cursor?.models).toContainEqual(
+        expect.objectContaining({
+          id: model.modelId,
+          unavailable: false,
+          supportedReasoningLevels: [],
+        })
+      );
+    }
+    for (const model of grokBuild.sessionModels) {
+      expect(grokBuild.initializeModels).toContainEqual(model);
+      const selected = agentControllers["grok-build"]?.models.find(
+        (entry) => entry.id === model.modelId
+      );
+      expect(selected?.unavailable).toBe(false);
+      expect(selected?.supportedReasoningLevels.toSorted()).toEqual(
+        model._meta.reasoningEfforts.map((effort) => effort.id).toSorted()
+      );
+    }
+    for (const model of opencode) {
+      expect(agentControllers.opencode?.models).toContainEqual(
+        expect.objectContaining({
+          id: `${model.providerID}/${model.id}`,
+          unavailable: model.status !== "active",
+          supportedReasoningLevels: Object.keys(model.variants),
+        })
+      );
+    }
+  });
   it("rejects unavailable creation recommendations and unsupported reasoning", () => {
     for (const creationDefaults of [
       { modelId: "missing", reasoningLevel: null },
@@ -36,16 +73,16 @@ describe("model catalog schema", () => {
       ).toBe(true);
       expect(result.data.agentControllers["grok-build"]).toMatchObject({
         defaultModelId: "grok-4.6",
-        models: [
-          {
+        models: expect.arrayContaining([
+          expect.objectContaining({
             id: "grok-4.6",
             supportedReasoningLevels: ["low", "medium", "high", "xhigh"],
-          },
-          {
+          }),
+          expect.objectContaining({
             id: "grok-4.5",
             supportedReasoningLevels: ["low", "medium", "high"],
-          },
-        ],
+          }),
+        ]),
       });
 
       for (const [id, displayName, supportedReasoningLevels, minCliVersion] of [

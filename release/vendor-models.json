@@ -255,6 +255,22 @@
       "defaultModelId": "grok-4.6",
       "models": [
         {
+          "id": "grok-4.7",
+          "displayName": "Grok 4.7",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
+          "minCliVersion": null
+        },
+        {
+          "id": "grok-4.7-build-fast",
+          "displayName": "Grok 4.7 Fast",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
+          "minCliVersion": null
+        },
+        {
           "id": "grok-4.6",
           "displayName": "Grok 4.6",
           "unavailable": false,
@@ -273,6 +289,14 @@
     "cursor": {
       "defaultModelId": "default[]",
       "models": [
+        {
+          "id": "grok-4.7[context=256k,reasoning_effort=high,fast=true]",
+          "displayName": "Grok 4.7 — High Fast",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
         {
           "id": "claude-opus-5[thinking=true,context=300k,effort=high,fast=false]",
           "displayName": "Claude Opus 5",
@@ -549,6 +573,38 @@
     "opencode": {
       "defaultModelId": "opencode/mimo-v2.5-free",
       "models": [
+        {
+          "id": "opencode/mimo-v2.6-flash-free",
+          "displayName": "OpenCode MiMo V2.6 Flash Free",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/grok-4.7",
+          "displayName": "Grok 4.7",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/mimo-v2.6-flash",
+          "displayName": "MiMo V2.6 Flash",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/mimo-v2.6-pro",
+          "displayName": "MiMo V2.6 Pro",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
         {
           "id": "opencode-go/deepseek-v4.1-flash",
           "displayName": "DeepSeek V4.1 Flash",
