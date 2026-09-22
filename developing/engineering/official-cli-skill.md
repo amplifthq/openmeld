@@ -33,6 +33,15 @@ Commit the authoring files and generated public files together.
 runs before every Web build. Ordinary content-only changes select Web delivery,
 without changing CLI or Service bytes.
 
+`pnpm run verify:cli-skill` reuses Turbo's schema build cache and runs that
+same read-only check without building Web. Focused PR feedback and Final
+Candidate select it for Skill source, public artifacts, signing/check scripts,
+and related schema or dependency changes. Unrelated PRs do not run it.
+The whole-train `release:preflight` checks it before starting Production
+mutations, including trains that later build Desktop's renderer. Scoped Web
+preflight also checks it before deployment. A failed check requires a new
+signed revision; validation never signs or rewrites content automatically.
+
 The signing private key is never tracked or deployed to Web. Local publication
 uses `~/.config/openmeld-release/cli-skill-signing.pem` (owner-only access), or
 an explicitly supplied `OPENMELD_CLI_SKILL_SIGNING_KEY_FILE`. The initial key

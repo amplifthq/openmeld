@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { isCliSkillCheckPath } from "../release/cli-skill-check.mjs";
 
 const DOCUMENTATION_PATH =
   /^(?:AGENTS\.md$|CLAUDE\.md$|README\.md$|CHANGELOG\.md$|(?:developing|docs)\/.*\.md$|changelog\/|\.agents\/skills\/.*(?:\.md|\/UPSTREAM\.json|\/LICENSE)$|\.claude\/.*\.md$)/u;
@@ -33,6 +34,9 @@ export function resolveUnitTestScript(
 
 export function planPrChecks(paths, options = {}) {
   const commands = [];
+  if (paths.some(isCliSkillCheckPath)) {
+    commands.push(["run", "verify:cli-skill"]);
+  }
   if (paths.some((file) => DOCUMENTATION_PATH.test(file))) {
     commands.push(["run", "verify:docs", "--", "--strict"]);
   }

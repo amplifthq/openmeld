@@ -551,6 +551,17 @@ export function buildProductionVerifyStepSpecs(input) {
 
 export function buildProductionPreflightStepSpecs(input) {
   const steps = buildCommonReleaseStepSpecs(input.changedPaths);
+  if (input.scopes.includes("web")) {
+    steps.unshift({
+      args: ["run", "verify:cli-skill"],
+      command: "pnpm",
+      controlArgs: [],
+      controlCommand: "node",
+      controlNodeArgs: [],
+      controlPath: "scripts/release/cli-skill-check.mjs",
+      label: "Verify signed CLI Skill content",
+    });
+  }
   if (input.scopes.includes("gateway")) {
     steps.push(productionQueueVerificationStep("gateway"));
   }

@@ -16,6 +16,7 @@ const CONTROL_PATH_PATTERNS = [
   /^scripts\/dev\/turbo-affected(?:\.test)?\.mjs$/u,
   /^scripts\/dev\/affected-workspaces(?:\.test)?\.mjs$/u,
   /^scripts\/dev\/verify-pr(?:\.test)?\.mjs$/u,
+  /^scripts\/release\/cli-skill(?:-check)?\.mjs$/u,
   /^packages\/schemas\/src\/schemas\/ci\/final-candidate\.ts$/u,
 ];
 

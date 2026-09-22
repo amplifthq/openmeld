@@ -84,12 +84,13 @@ test("continues every independent check when an injected command fails", async (
   });
 
   assert.equal(result.summary.status, "FAIL");
-  assert.equal(result.checks.length, 8);
+  assert.equal(result.checks.length, 9);
   assert.deepEqual(
     Object.fromEntries(result.checks.map((check) => [check.id, check.status])),
     {
       "branch-policy": "PASS",
       channel: "PASS",
+      "cli-skill": "PASS",
       credentials: "PASS",
       git: "PASS",
       "local-processes": "PASS",
@@ -108,6 +109,39 @@ test("continues every independent check when an injected command fails", async (
     )
   );
   assert.match(output, SUMMARY_HEADER_PATTERN);
+});
+
+test("rejects the whole release preflight when signed Skill content is stale", async () => {
+  const result = await runReleasePreflight({
+    adapters: {
+      readFile: fakeReadFile,
+      readR2CliVersion: async () => "0.2.43",
+      runCommand: ({ command, args }) => {
+        const key = [command, ...args].join(" ");
+        return key === "pnpm run verify:cli-skill"
+          ? {
+              status: 1,
+              stderr: "Published revisions are immutable",
+              stdout: "",
+            }
+          : fakeCommandResult(key);
+      },
+      runReleaseReady: async () => ({
+        status: 0,
+        stderr: "",
+        stdout: "ready\n",
+      }),
+    },
+    cwd: "/repo",
+    env: { CLOUDFLARE_ACCOUNT_ID: "present", CLOUDFLARE_API_TOKEN: "present" },
+    homeDirectory: "/home/test",
+    write: () => undefined,
+  });
+  assert.equal(
+    result.checks.find((check) => check.id === "cli-skill").status,
+    "FAIL"
+  );
+  assert.equal(result.summary.status, "FAIL");
 });
 
 test("reports npm and R2 drift with the shared next-version decision", async () => {
@@ -365,6 +399,10 @@ function fakeReadFile(path) {
 
 function fakeCommandResult(key) {
   const outputByCommand = new Map([
+    [
+      "pnpm run verify:cli-skill",
+      "Official CLI Skill revision 4: check passed\n",
+    ],
     ["git rev-parse --is-inside-work-tree", "true\n"],
     ["git status --porcelain=v1", ""],
     ["git rev-parse --abbrev-ref HEAD", "codex/retro-landing\n"],
