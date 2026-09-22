@@ -80,6 +80,38 @@ These are representative end-to-end checks, not a claim that every new model
 completed an OpenMeld Wake. All six non-Cursor additions have separate native
 execution evidence.
 
+## September 23: Claude Opus 5.5
+
+The [official Claude Code changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md)
+introduces `claude-opus-5-5` in 2.1.280. The
+[Anthropic effort contract](https://platform.claude.com/docs/en/build-with-claude/effort)
+supports `low`, `medium`, `high`, `xhigh`, and `max` for this model.
+The local catalog adds that exact ID and version floor without changing the
+default. A temporary official 2.1.280 installation was used for an invocation;
+OAuth authentication failed before inference. The user explicitly requested
+skipping further Claude Code execution testing. Local inference and a Local
+Agent Wake are therefore unverified, not successful.
+
+The live [OpenRouter catalog](https://openrouter.ai/api/v1/models) exposes
+`anthropic/claude-opus-5.5`, including tools, 1M context, 128K maximum output,
+and `high` effort. The captured response is retained in
+`services/remote-agent/tests/fixtures/openrouter-opus-5.5-2026-09-23.json`.
+Center and Remote share this route with OpenMeld's existing 16,384 output
+budget. The catalog schema tests (9) and hosted adapter tests (15) pass,
+including serialized tool continuation against the captured capabilities.
+
+In the same disposable local lane, the Center Agent's Anthropic picker offered
+Opus 5.5; saving and refreshing preserved the selection. The public CLI saved
+the personal Remote Agent's selection, and its Web Profile displayed Opus 5.5.
+Both normal Web conversations completed tool continuations and visibly replied.
+Provider completion logs confirm the exact Opus 5.5 ID, tool-use responses,
+and final text responses; public CLI history confirms publication:
+
+| Agent | Space | Reply signal | Reply text |
+| --- | --- | --- | --- |
+| Center | `f2f20c8548eeb08001cc3d8a0bf451799a1278bc9be3f8a2a3d8241848300e4c` | `94086553-7fad-43af-aef5-461947e2a28a` | `OPUS_55_CENTER_OK` |
+| Remote | `a92ecf5d627d7901f5af0a791cb50bc84ea500a03de6a4cc6e627589714ceb97` | `abacbd79-00de-4c9d-ac49-885a72531fc2` | `OPUS_55_REMOTE_OK` |
+
 ## Contract and rollout
 
 The local additions change the online catalog served by Core. The fixed CLI
@@ -88,7 +120,7 @@ Binding writers, runtime authorities, database changes, or contract epochs.
 Existing model availability checks still intersect catalog choices with the
 computer's native inventory. The scoped architecture rules remain satisfied.
 
-The same PR also adds the five requested hosted models and shared Fluid
+The same PR also adds six hosted models, including Opus 5.5, and shared Fluid
 Provider/Model selectors for Center Agent and Remote Agents. That shared
 catalog mapping needs Core deployed before Web. Model catalog tests (9),
 shared selection tests (8), Core catalog tests (2), Changelog validation, and
