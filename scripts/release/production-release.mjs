@@ -240,6 +240,14 @@ export function resolveProductionCompatibilityDependencies(
   const invitation = isSpaceInvitationReceiverFirstDiff(changedPaths);
   const dependencyGroups = [
     {
+      enabled: isWorkingFolderRecoveryDiff(changedPaths),
+      edges: [["core", "cli"]],
+    },
+    {
+      enabled: isNpmSetupArtifactDiff(changedPaths),
+      edges: [["cli", "web"]],
+    },
+    {
       enabled: isCenterAgentEvidenceDiff(changedPaths),
       edges: [["core", "remote-agent"]],
     },
@@ -411,13 +419,28 @@ export function resolveProductionCompatibilityDependencies(
 }
 
 export function resolveProductionCompatibilityReceiverWitnesses(changedPaths) {
+  const witnesses = isWorkingFolderRecoveryDiff(changedPaths)
+    ? [
+        {
+          receiver: "core",
+          producer: "cli",
+          receiverPaths: [
+            "packages/schemas/src/working-folder-recovery.ts",
+            "packages/schemas/src/public-agent-failure-reason.ts",
+            "services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts",
+            "services/core/src/runtime-transport/application/local-agent-stream.ts",
+            "services/core/src/space/transport/do/space.ts",
+          ],
+        },
+      ]
+    : [];
   if (
     !(
       isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
       changedPaths.some(isRemoteAgentReceiverFirstContractPath)
     )
   ) {
-    return [];
+    return witnesses;
   }
   const receiverPaths = [
     ...REMOTE_AGENT_WORKER_REQUEST_SCHEMA_PATHS,
@@ -426,13 +449,30 @@ export function resolveProductionCompatibilityReceiverWitnesses(changedPaths) {
   ].filter((path) => changedPaths.includes(path));
   return receiverPaths.length > 0
     ? [
+        ...witnesses,
         {
           producer: "core",
           receiver: "remote-agent",
           receiverPaths,
         },
       ]
-    : [];
+    : witnesses;
+}
+
+function isWorkingFolderRecoveryDiff(paths) {
+  return [
+    "packages/schemas/src/working-folder-recovery.ts",
+    "services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts",
+    "clients/openmeld-cli/src/local-service/continuation/working-folder-recovery.ts",
+  ].every((file) => paths.includes(file));
+}
+
+function isNpmSetupArtifactDiff(paths) {
+  return [
+    "scripts/release/npm-cli-artifact.mjs",
+    "clients/openmeld-cli/package.json",
+    "clients/web/src/lib/setup-bootstrap-script.ts",
+  ].every((file) => paths.includes(file));
 }
 const RETIRED_TASK_INBOX_PRODUCER_PATH =
   "services/core/src/center-agent-tasks/application/center-agent-task-inbox-producer.ts";
@@ -745,6 +785,7 @@ export function buildProductionVerifyStepSpecs(input) {
       !input.taskInboxRetired &&
       !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
       !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
+      !isWorkingFolderRecoveryDiff(input.changedPaths) &&
       !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
       !isSpaceTaskReceiverFirstDiff(input.changedPaths) &&
       !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
@@ -839,6 +880,7 @@ export function buildProductionPreflightStepSpecs(input) {
     !input.taskInboxRetired &&
     !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
     !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
+    !isWorkingFolderRecoveryDiff(input.changedPaths) &&
     !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
     !isPeopleComputersReceiverFirstDiff(input.changedPaths) &&
     !isSpaceTaskReceiverFirstDiff(input.changedPaths) &&
@@ -975,6 +1017,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   for (const scope of orderedScopes) {
     const start = steps.length;
     appendProductionDeployScopeSteps({
+      coreReceiverFirst: isWorkingFolderRecoveryDiff(changedPaths),
       deployOrderProfile,
       releaseSha: input.releaseSha,
       scope,
@@ -1077,6 +1120,7 @@ function appendProductionDeployScopeSteps(input) {
   if (input.scope === "core") {
     if (
       input.selected.has("cli") ||
+      input.coreReceiverFirst ||
       input.deployOrderProfile === "inbox-task-retirement-producer-first" ||
       input.deployOrderProfile ===
         "remote-agent-and-inbox-task-retirement-first" ||
@@ -1087,7 +1131,10 @@ function appendProductionDeployScopeSteps(input) {
       input.deployOrderProfile === "space-task-receivers-first" ||
       input.deployOrderProfile === "space-invitation-receivers-first"
     ) {
-      if (!doesCliReleaseOwnCoreProjection(input.deployOrderProfile)) {
+      if (
+        input.coreReceiverFirst ||
+        !doesCliReleaseOwnCoreProjection(input.deployOrderProfile)
+      ) {
         input.steps.push(
           {
             args: [
@@ -1178,7 +1225,44 @@ function resolveProductionDeployScopeOrder(
       "Personal Remote Agent tools require the Core receiver before Remote Agent deployment."
     );
   }
-  return order.filter((scope) => selected.has(scope));
+  const preferred = order.filter((scope) => selected.has(scope));
+  if (
+    !(
+      isWorkingFolderRecoveryDiff(changedPaths) ||
+      isNpmSetupArtifactDiff(changedPaths)
+    )
+  ) {
+    return preferred;
+  }
+  // Keep the existing profile's preference for independent components. These
+  // added contracts must compose with every existing receiver direction, not
+  // silently override an opposite profile (for example Caller Context).
+  const dependencies = resolveProductionCompatibilityDependencies(
+    changedPaths,
+    taskInboxRetired
+  ).filter(
+    ([receiver, producer]) => selected.has(receiver) && selected.has(producer)
+  );
+  const remaining = new Set(preferred);
+  const result = [];
+  while (remaining.size > 0) {
+    const next = preferred.find(
+      (scope) =>
+        remaining.has(scope) &&
+        !dependencies.some(
+          ([receiver, producer]) =>
+            producer === scope && remaining.has(receiver)
+        )
+    );
+    if (!next) {
+      throw new Error(
+        "Incompatible release dependencies require separate receiver-first stages. Inspect the component receipts before choosing a forward release."
+      );
+    }
+    result.push(next);
+    remaining.delete(next);
+  }
+  return result;
 }
 
 function resolveProductionDeployOrderProfile(

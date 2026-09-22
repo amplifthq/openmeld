@@ -2,9 +2,153 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildProductionReleasePlan,
   resolveProductionCompatibilityDependencies,
   resolveProductionCompatibilityReceiverWitnesses,
 } from "./production-release.mjs";
+import { assertProductionStageAdmission } from "./production-stage-admission.mjs";
+
+const FOLDER_RECOVERY = [
+  "packages/schemas/src/working-folder-recovery.ts",
+  "services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts",
+  "clients/openmeld-cli/src/local-service/continuation/working-folder-recovery.ts",
+];
+const NPM_SETUP = [
+  "scripts/release/npm-cli-artifact.mjs",
+  "clients/openmeld-cli/package.json",
+  "clients/web/src/lib/setup-bootstrap-script.ts",
+];
+const PENDING_RECEIVER = /pending prerequisite/u;
+const CONTRACT_CYCLE = /incompatible.*dependencies/iu;
+
+test("deploys the cancellation receiver before CLI and verified npm before Web", () => {
+  const plan = buildProductionReleasePlan({
+    changedPaths: [...FOLDER_RECOVERY, ...NPM_SETUP],
+    sourceSha: "a".repeat(40),
+    scope: "core,cli,web",
+  });
+  assert.deepEqual(plan.compatibilityDependencies, [
+    ["core", "cli"],
+    ["cli", "web"],
+  ]);
+  assert.deepEqual(plan.deployScopeOrder, ["core", "cli", "web"]);
+  const core = plan.deploySteps.findIndex(
+    (step) =>
+      step.label === "Deploy Core with the current published CLI projection"
+  );
+  const cli = plan.deploySteps.findIndex(
+    (step) => step.internalOperation === "publish-cli"
+  );
+  const web = plan.deploySteps.findIndex((step) => step.label === "Deploy Web");
+  assert.ok(core >= 0 && cli > core && web > cli);
+  const coreOnly = buildProductionReleasePlan({
+    changedPaths: FOLDER_RECOVERY,
+    sourceSha: "a".repeat(40),
+    scope: "core",
+  });
+  assert.ok(
+    coreOnly.deploySteps.some(
+      (step) =>
+        step.label === "Deploy Core with the current published CLI projection"
+    )
+  );
+  assert.ok(
+    !coreOnly.preflightSteps.some(
+      (step) => step.label === "Verify Core CLI channel compatibility"
+    )
+  );
+});
+
+test("staged recovery and npm rollout require receipts, not unrelated backlog", () => {
+  const dependencies = resolveProductionCompatibilityDependencies([
+    ...FOLDER_RECOVERY,
+    ...NPM_SETUP,
+  ]);
+  const components = ["core", "cli", "web", "gateway"].map((scope) => ({
+    scope,
+    state: "pending",
+    sha: "b".repeat(40),
+    compatibilityDependencies: dependencies,
+  }));
+  const admit = (scope) =>
+    assertProductionStageAdmission({
+      components,
+      selectedScopes: [scope],
+      sourceSha: "a".repeat(40),
+    });
+  assert.throws(() => admit("cli"), PENDING_RECEIVER);
+  assert.throws(() => admit("web"), PENDING_RECEIVER);
+  components[0].state = "current";
+  assert.doesNotThrow(() => admit("cli"));
+  assert.throws(() => admit("web"), PENDING_RECEIVER);
+  components[1].state = "current";
+  assert.doesNotThrow(() => admit("web"));
+});
+
+test("refuses opposite cancellation and caller-context dependencies", () => {
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        changedPaths: [
+          ...FOLDER_RECOVERY,
+          "packages/schemas/src/schemas/protocol/space-caller-context.ts",
+          "services/core/src/space/transport/do/space.ts",
+          "clients/openmeld-cli/src/local-service/dispatch/parse-dispatch-task.ts",
+        ],
+        sourceSha: "a".repeat(40),
+        scope: "auth,remote-agent,core,cli",
+      }),
+    CONTRACT_CYCLE
+  );
+});
+
+test("accepts an already deployed folder-recovery receiver only with matching evidence", () => {
+  const sourceSha = "a".repeat(40);
+  const baselineSha = "b".repeat(40);
+  const witnesses =
+    resolveProductionCompatibilityReceiverWitnesses(FOLDER_RECOVERY);
+  const witness = witnesses.find(
+    ({ receiver, producer }) => receiver === "core" && producer === "cli"
+  );
+  assert.ok(witness);
+  assert.ok(
+    witness.receiverPaths.includes(
+      "packages/schemas/src/working-folder-recovery.ts"
+    )
+  );
+  assert.ok(
+    witness.receiverPaths.includes(
+      "services/core/src/runtime-transport/application/local-agent-stream.ts"
+    )
+  );
+  const components = [
+    { scope: "core", state: "pending", sha: baselineSha },
+    {
+      scope: "cli",
+      state: "pending",
+      sha: baselineSha,
+      compatibilityDependencies: [["core", "cli"]],
+      compatibilityReceiverWitnesses: [
+        {
+          ...witness,
+          evidence: { baselineSha, targetSha: sourceSha, result: "match" },
+        },
+      ],
+    },
+  ];
+  const admit = () =>
+    assertProductionStageAdmission({
+      components,
+      selectedScopes: ["cli"],
+      sourceSha,
+    });
+  assert.doesNotThrow(admit);
+  components[1].compatibilityReceiverWitnesses[0].evidence.result = "mismatch";
+  assert.throws(admit, PENDING_RECEIVER);
+  components[1].compatibilityReceiverWitnesses[0].evidence.result = "match";
+  components[0].sha = "c".repeat(40);
+  assert.throws(admit, PENDING_RECEIVER);
+});
 
 const SPACE_TASK_RECEIVERS = [
   "packages/schemas/src/schemas/http/space-tasks.ts",
