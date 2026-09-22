@@ -10,6 +10,29 @@ import {
 
 const CIRCULAR_ALIAS = /Circular test script alias/u;
 
+test("checks signed Skill inputs in feedback and PR validation without checking unrelated edits", () => {
+  for (const feedback of [true, false]) {
+    for (const [path, selected] of [
+      ["release/openmeld-cli-skill/playbooks/agent-onboarding.md", true],
+      ["clients/web/public/skills/openmeld-cli/channel.json", true],
+      ["scripts/release/cli-skill.mjs", true],
+      ["scripts/release/cli-skill-check.mjs", true],
+      ["packages/schemas/src/official-cli-skill.ts", true],
+      ["packages/schemas/src/index.ts", true],
+      ["pnpm-lock.yaml", true],
+      ["clients/web/src/sidebar.tsx", false],
+      ["developing/engineering/official-cli-skill.md", false],
+    ]) {
+      const commands = planPrChecks([path], { feedback });
+      assert.equal(
+        commands.some((args) => args.join(" ") === "run verify:cli-skill"),
+        selected,
+        path
+      );
+    }
+  }
+});
+
 test("automatic draft feedback cannot start the full affected lane", () => {
   const workflow = parse(
     readFileSync(
@@ -141,9 +164,12 @@ test("shared contracts and SQL migrations retain downstream validation", () => {
     "services/core/src/index.ts",
   ]) {
     const commands = planPrChecks([file]);
-    assert.equal(commands.length, 2);
-    assert.ok(commands[0].includes("check"));
-    assert.ok(commands[1].includes("test"));
+    const affectedCommands = commands.filter((args) =>
+      args.includes("scripts/dev/turbo-affected.mjs")
+    );
+    assert.equal(affectedCommands.length, 2);
+    assert.ok(affectedCommands[0].includes("check"));
+    assert.ok(affectedCommands[1].includes("test"));
     assert.ok(commands.every((args) => !args.includes("--changed-only")));
   }
 });

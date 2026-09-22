@@ -93,7 +93,13 @@ function buildHostedPreflightFixture(extraControlScripts = []) {
 }
 
 test("current control preflights a historical release source that predates the control", async () => {
-  const fixture = buildHostedPreflightFixture();
+  const fixture = buildHostedPreflightFixture([
+    {
+      path: "scripts/release/cli-skill-check.mjs",
+      content:
+        'import { readFileSync } from "node:fs"; if (readFileSync("product.txt", "utf8") !== "historical product\\n") process.exit(94);\n',
+    },
+  ]);
   try {
     await runHostedProductionPreflight({
       controlRoot: fixture.controlRoot,
@@ -123,6 +129,31 @@ test("current control preflights a historical release source that predates the c
       ),
       false
     );
+  } finally {
+    fixture.remove();
+  }
+});
+
+test("a Skill verification failure stops hosted Web preflight before later steps", async () => {
+  const fixture = buildHostedPreflightFixture();
+  const steps = [];
+  try {
+    await assert.rejects(
+      runHostedProductionPreflight({
+        controlRoot: fixture.controlRoot,
+        releaseSha: fixture.releaseSha,
+        releaseSource: fixture.releaseSource,
+        scope: "web",
+        adapters: {
+          runControlStep: (step) => {
+            steps.push(step.label);
+            throw new Error("signed revision mismatch");
+          },
+        },
+      }),
+      { message: "signed revision mismatch" }
+    );
+    assert.deepEqual(steps, ["Verify signed CLI Skill content"]);
   } finally {
     fixture.remove();
   }
