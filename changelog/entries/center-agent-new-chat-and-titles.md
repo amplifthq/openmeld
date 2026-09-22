@@ -16,3 +16,7 @@ The sidebar resize highlight now extends evenly toward both edges.
 Direct messages keep avatars beside the message bubbles and leave out repeated
 names and Agent attribution. Your avatar follows your left or right message
 preference, and message actions keep their own row below each bubble.
+
+Group conversations also place avatars beside messages, with smaller, muted
+names above the bubbles. Spacing between messages is tighter in both group
+conversations and direct messages, while actions retain their own row.

@@ -66,7 +66,7 @@ function MessageHeader({ className, ...props }: ComponentProps<"div">) {
 	return (
 		<div
 			className={cn(
-				"mb-1.5 flex min-w-0 max-w-full items-center px-2.5 font-medium text-muted-foreground text-xs group-has-data-[variant=ghost]/message:px-0",
+				"mb-1 flex min-w-0 max-w-full items-start px-2.5 font-normal text-muted-foreground text-xs group-has-data-[variant=ghost]/message:px-0",
 				className
 			)}
 			data-slot="message-header"

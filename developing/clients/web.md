@@ -1320,8 +1320,11 @@ Appearance also owns the browser-local **Your messages** placement used by
 every Space, Direct Message, Center Agent, and thread conversation that
 renders the shared message primitives. A message placed on the right uses a
 trailing-aligned, content-sized bubble with a responsive maximum width; a
-message placed on the left uses the full available transcript width. Both
-placements keep their content leading-aligned. Direct Messages, including Center
+message placed on the left uses the available transcript width beside its avatar.
+Both placements keep their content leading-aligned. Ordinary Spaces put the
+speaker's avatar beside the name and bubble, with the name aligned to the avatar's
+top and the bubble below it. Names use regular-weight, muted, extra-small text.
+Direct Messages, including Center
 Agent chats, use content-sized bubbles with a dedicated avatar column. The first
 message in a speaker run aligns the avatar with the bubble's top; subsequent
 messages retain the same column. Names and runtime/owner attribution are omitted
@@ -4280,9 +4283,9 @@ bounded, owner-only error projection and sensitive-data exclusions still apply.
 
 Message rhythm follows the existing speaker grouping instead of the current
 member's alignment. Message content sits 2 pixels above its reserved footer. A
-consecutive message from the same speaker starts 4 pixels after the preceding
+consecutive message from the same speaker starts 2 pixels after the preceding
 footer. When the speaker changes or the existing conversation grouping starts a
-new run, the adjacent run edges contribute 6 pixels each for a 12-pixel group
+new run, the adjacent run edges contribute 4 pixels each for an 8-pixel group
 boundary. Date separators, system regions, and other real section boundaries
 keep their wider spacing. The reserved footer height remains stable while its
 hover actions change opacity, so pointer interaction does not move later

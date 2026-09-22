@@ -636,11 +636,11 @@ describe("SpaceThreadPanel", () => {
 			.getByText("Second consecutive thread message")
 			.closest("[data-slot='message']");
 
-		expect(firstMessage?.className).toContain("pt-1.5");
+		expect(firstMessage?.className).toContain("pt-1");
 		expect(firstMessage?.className).toContain("pb-0");
 		expect(firstMessage?.className).not.toContain("py-2");
-		expect(secondMessage?.className).toContain("pt-1");
-		expect(secondMessage?.className).toContain("pb-1.5");
+		expect(secondMessage?.className).toContain("pt-0.5");
+		expect(secondMessage?.className).toContain("pb-1");
 		expect(secondMessage?.className).not.toContain("py-2");
 	});
 

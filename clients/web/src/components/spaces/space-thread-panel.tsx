@@ -1516,29 +1516,33 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 						<MessageHeader
 							className={cn(
 								"flex-wrap gap-x-1.5 gap-y-1 px-0",
-								input.isDirectMessage && !input.isFirstInGroup && "hidden"
+								!input.isFirstInGroup && "hidden"
 							)}
 						>
-							<SpaceMessageProfileAvatar
-								agentControllerPending={input.item.actorAgentControllerPending}
-								agentControllerRef={input.item.actorAgentControllerRef}
-								avatarImageUrl={resolveThreadMessageAvatarImageUrl({
-									item: input.item,
-									selfAvatarImageUrl: input.selfAvatarImageUrl,
-									selfProfileId: input.selfProfileId,
-								})}
-								displayName={input.item.actorName}
-								isCenterAgent={
-									input.item.actorProfileKind === "agent" &&
-									input.item.actorProfileId === input.centerAgentProfileId
-								}
-								profileId={input.item.actorProfileId}
-								profileKind={input.item.actorProfileKind}
-								working={isSpaceMessageAgentWorking(input.item)}
-							/>
+							<span data-slot="message-speaker-avatar">
+								<SpaceMessageProfileAvatar
+									agentControllerPending={
+										input.item.actorAgentControllerPending
+									}
+									agentControllerRef={input.item.actorAgentControllerRef}
+									avatarImageUrl={resolveThreadMessageAvatarImageUrl({
+										item: input.item,
+										selfAvatarImageUrl: input.selfAvatarImageUrl,
+										selfProfileId: input.selfProfileId,
+									})}
+									displayName={input.item.actorName}
+									isCenterAgent={
+										input.item.actorProfileKind === "agent" &&
+										input.item.actorProfileId === input.centerAgentProfileId
+									}
+									profileId={input.item.actorProfileId}
+									profileKind={input.item.actorProfileKind}
+									working={isSpaceMessageAgentWorking(input.item)}
+								/>
+							</span>
 							{!input.isDirectMessage && (
 								<>
-									<span className="min-w-0 truncate font-bold text-foreground text-sm">
+									<span className="min-w-0 truncate font-normal text-muted-foreground text-xs">
 										{input.item.actorName}
 									</span>
 									{agentAttribution ? (

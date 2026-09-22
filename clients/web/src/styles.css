@@ -259,11 +259,21 @@ html[data-space-self-message-alignment="left"]
   }
 }
 
-/* Direct messages keep an avatar column beside the first bubble in a run.
+/* Messages keep an avatar column beside the first header or bubble in a run.
    Reserve it on every row so grouped messages and actions stay aligned. */
-[data-slot="message-content"][data-direct-message] {
+[data-slot="message-content"] {
   position: relative;
   padding-inline-start: 2rem;
+}
+
+[data-slot="message-content"]:not([data-direct-message]) [data-slot="message-speaker-avatar"] {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+}
+
+[data-slot="message-speaker-avatar"] {
+  display: flex;
 }
 
 [data-direct-message] > [data-slot="message-header"] {
@@ -281,13 +291,15 @@ html[data-space-self-message-alignment="left"]
 }
 
 html[data-space-self-message-alignment="right"]
-  [data-space-self-message="true"] > [data-direct-message] {
+  [data-space-self-message="true"] > [data-slot="message-content"] {
   padding-inline-start: 0;
   padding-inline-end: 2rem;
 }
 
 html[data-space-self-message-alignment="right"]
-  [data-space-self-message="true"] [data-direct-message] > [data-slot="message-header"] {
+  [data-space-self-message="true"] [data-direct-message] > [data-slot="message-header"],
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"] [data-slot="message-content"]:not([data-direct-message]) [data-slot="message-speaker-avatar"] {
   inset-inline-start: auto;
   inset-inline-end: 0;
 }
