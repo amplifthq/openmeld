@@ -40,13 +40,13 @@ const NUMERIC_SEMVER_IDENTIFIER_RE = /^\d+$/u;
 // Core owns this monotonic compatibility floor separately from the latest
 // release's advisory policy, so a later optional release can never make an
 // older unsafe Service eligible for new Wake work again.
-// 0.3.217 refreshes Service admission after update/draining and carries the
-// required Codex MCP startup behavior before Core admits new Wake work.
-const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.217";
+// 0.3.218 carries Antigravity permission intent into native CLI invocation.
+// Earlier Services cannot accept the new permission values for Wake work.
+const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.218";
 // Keep the last published floor active while its replacement is not yet on the
-// stable channel. Once 0.3.217 is published, the newer floor remains active
+// stable channel. Once 0.3.218 is published, the newer floor remains active
 // even if a later release returns to an advisory policy.
-const PREVIOUS_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.216";
+const PREVIOUS_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.217";
 
 type ServiceUpdateDecision = {
   reasonCodes: string[];

@@ -245,6 +245,7 @@ vi.mock("#/query/config/model-catalog", () => ({
 			schemaVersion: 1,
 			updatedAt: "2026-06-18T00:00:00.000Z",
 			agentControllers: {
+				antigravity: vendorModelCatalog.agentControllers.antigravity,
 				"center-agent": vendorModelCatalog.agentControllers["center-agent"],
 				codex: {
 					defaultModelId: "gpt-5.5",
@@ -2352,6 +2353,64 @@ describe("CreateProfileDialog", () => {
 		);
 		expect(screen.getByTestId("local-agent-logo-grok-build")).toBeTruthy();
 		expect(screen.queryByText("Adel")).toBeNull();
+	});
+
+	it("opens Antigravity model and permission controls with native choices", async () => {
+		renderCurrentCreateProfileDialog({
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "antigravity",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+			]),
+		});
+		fireEvent.click(await screen.findByRole("radio", { name: "Antigravity" }));
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: CUSTOMIZE_AGENT_BUTTON_PATTERN,
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Edit Model" }));
+		fireEvent.click(await screen.findByRole("combobox", { name: "Model" }));
+		expect(
+			await screen.findByRole("option", {
+				name: "Claude Sonnet 4.6 (Thinking)",
+			})
+		).toBeTruthy();
+		expect(
+			screen.getByRole("option", { name: "GPT-OSS 120B (Medium)" })
+		).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("option", { name: "Claude Sonnet 4.6 (Thinking)" })
+		);
+		fireEvent.keyDown(document, { key: "Escape" });
+		fireEvent.click(screen.getByRole("button", { name: "Edit Permissions" }));
+		fireEvent.click(
+			await screen.findByRole("combobox", {
+				name: "Antigravity permissions mode",
+			})
+		);
+		expect(
+			await screen.findByRole("option", { name: "Accept edits" })
+		).toBeTruthy();
+		expect(
+			screen.getByRole("option", { name: "Bypass permissions" })
+		).toBeTruthy();
+		fireEvent.click(screen.getByRole("option", { name: "Accept edits" }));
+		fireEvent.keyDown(document, { key: "Escape" });
+		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+		await waitFor(() => {
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({
+						agentControllerRef: "builtin:antigravity",
+						modelId: "claude-sonnet-4-6",
+						agentControllerPermissionMode: "antigravity:acceptEdits",
+					}),
+				})
+			);
+		});
 	});
 
 	it("links an uninstalled Antigravity selection to its exact guide", async () => {

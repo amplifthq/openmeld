@@ -588,15 +588,41 @@ surface continue to use the exact dispatch-scoped CLI fallback.
 
 Antigravity CLI does not currently expose a proven per-invocation structured-
 tool configuration surface. During an action-enabled dispatch, the adapter
-therefore adds a unique temporary workspace plugin whose invocation hook tells
-the model to return one `reply`, `status`, or `silent` outcome through
+therefore appends the dispatch publication contract to the invocation prompt,
+asking for one `reply`, `status`, or `silent` outcome through
 Antigravity's native JSON-schema output. The adapter validates that structured
 result and invokes the same dispatch-owned action writer directly without a
 shell. It grants the model no additional tool permission; all shell, file,
 network, and ambient MCP actions continue through Antigravity's normal
-permission policy. The adapter removes the plugin after the invocation and
-never writes Antigravity's user settings or the user's project customization
-files.
+permission policy. Publication requires no Skill read. Additional user-requested
+OpenMeld operations still use the official Skill under normal permissions.
+The prompt identifies the same working folder used to launch the CLI. The
+adapter must not add an auxiliary workspace for instruction delivery: an
+Antigravity conversation can retain that directory and resolve later file
+tasks there. It never writes Antigravity's user settings or the user's project
+customization files.
+
+Antigravity's Binding permission intent is passed to every new or resumed CLI
+invocation using its native mode/approval flags. This changes no Space action
+authorization and grants nothing beyond the owner's explicitly selected mode.
+The four `antigravity:*` permission values require an updated CLI/Service;
+older strict schemas reject those values. Both the CLI command contract and
+Service runtime epoch advance; the formal local-component release must mark
+both components required. Keep version stamps in that release PR.
+
+Use the existing receiver-first Core deployment when this change ships with a
+Service-to-Core addition such as workspace-recovery decline. Its immutable
+published-manifest override preserves the previous image-geometry epoch for
+old Services while also accepting the new Antigravity epoch. During this stage,
+Core rejects all new `antigravity:*` permission writes at Binding, creation
+request, and remembered-default boundaries. An omitted mode remains unchanged.
+Readiness diagnostics report the same effective epoch as runtime admission.
+After the new CLI/Service artifacts exist, the normal final Core projection
+enables those writers and requires the new epoch for new Wake work. Old Core
+does not accept the new Service epoch: the receiver deployment must precede
+Service publication. Never infer safety merely from the delayed version floor.
+Already accepted work keeps its existing lifecycle; unknown permission values
+must never silently fall back to another mode.
 
 OpenClaw Gateway does not expose a per-turn plugin-injection surface. During an
 action-enabled dispatch, the adapter therefore runs the same OpenClaw Session
@@ -1827,6 +1853,11 @@ Catalog consumption rules:
   during admission is persisted on a later read if the local principal still
   matches. A new Service process resolves its own startup principal. Remote
   authorization checks still decide whether the bearer session is valid.
+  During a same-account setup transition, a Service admitted for the candidate
+  login reads that exact candidate's credential snapshot. It must not replace
+  the candidate with the previous committed login just because both share an
+  account. The Execution Host independently verifies the same session identity;
+  commit and rollback remain owned by the existing auth transition journal.
 - One OpenMeld Service process reuses a verified credential for the same
   committed login, storage reference, lane, auth origin, client and account.
   Organization selection and display-only profile changes update context

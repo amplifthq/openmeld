@@ -9,6 +9,21 @@ import {
 
 describe("Agent Controller Permission Mode CLI input", () => {
   it("normalizes controller-native permission mode slugs", () => {
+    for (const [slug, mode] of [
+      ["default", "antigravity:default"],
+      ["accept-edits", "antigravity:acceptEdits"],
+      ["plan", "antigravity:plan"],
+      ["bypass-permissions", "antigravity:bypassPermissions"],
+    ] as const) {
+      expect(
+        normalizeAgentControllerPermissionModeCliInput({
+          agentControllerRef: "builtin:antigravity",
+          flagName: "--agent-controller-permission-mode",
+          value: slug,
+        })
+      ).toBe(mode);
+      expect(formatAgentControllerPermissionModeForCli(mode)).toBe(slug);
+    }
     expect(
       normalizeAgentControllerPermissionModeCliInput({
         agentControllerRef: "builtin:codex",
@@ -54,7 +69,7 @@ describe("Agent Controller Permission Mode CLI input", () => {
 
   it("keeps command help aligned with every supported controller-native value", () => {
     expect(formatAgentControllerPermissionModeHelp()).toBe(
-      "Agent Controller Permission Mode. Claude Code: ask-permissions|accept-edits|plan|auto|dont-ask|bypass-permissions. Codex: ask-for-approval|approve-for-me|full-access|custom-config. Cursor: default|plan|ask|auto-review|run-everything. Grok Build: default|accept-edits|plan|auto|dont-ask|bypass-permissions."
+      "Agent Controller Permission Mode. Antigravity: default|accept-edits|plan|bypass-permissions. Claude Code: ask-permissions|accept-edits|plan|auto|dont-ask|bypass-permissions. Codex: ask-for-approval|approve-for-me|full-access|custom-config. Cursor: default|plan|ask|auto-review|run-everything. Grok Build: default|accept-edits|plan|auto|dont-ask|bypass-permissions."
     );
   });
 
@@ -81,16 +96,19 @@ describe("Agent Controller Permission Mode CLI input", () => {
     );
   });
 
-  it("requires explicit confirmation for dangerous permission modes in non-interactive runs", async () => {
+  it.each([
+    ["builtin:codex", "full-access"],
+    ["builtin:antigravity", "bypass-permissions"],
+  ])("requires explicit confirmation for %s in non-interactive runs", async (agentControllerRef, mode) => {
     await expect(
       resolveAgentControllerPermissionModeInput({
-        agentControllerRef: "builtin:codex",
+        agentControllerRef,
         allowPrompt: false,
-        agentControllerPermissionModeInput: "full-access",
+        agentControllerPermissionModeInput: mode,
         flagName: "--agent-controller-permission-mode",
       })
     ).rejects.toThrow(
-      "--agent-controller-permission-mode full-access requires --confirm-dangerous-agent-controller-permission-mode."
+      `--agent-controller-permission-mode ${mode} requires --confirm-dangerous-agent-controller-permission-mode.`
     );
   });
 });

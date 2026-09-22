@@ -715,7 +715,11 @@ export function AgentControllerPermissionModeFields(input: {
 		agentControllerRef,
 	});
 	if (options.length === 0) {
-		return null;
+		return (
+			<p className="text-muted-foreground text-sm">
+				Permission options are not available for this agent.
+			</p>
+		);
 	}
 	const selectedOption =
 		options.find((option) => option.value === input.value) ?? options[0];
@@ -810,7 +814,12 @@ export function AgentProfileModelSelectionFields(
 	const state = resolveAgentProfileModelSelectionState(input);
 
 	if (!state) {
-		return null;
+		return (
+			<p className="text-muted-foreground text-sm">
+				Model options are not available right now. Close this panel and try
+				again.
+			</p>
+		);
 	}
 
 	return (
