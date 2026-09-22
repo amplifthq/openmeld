@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
 import {
   acquireProductionScopeLease,
@@ -1038,6 +1038,35 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   return steps;
 }
 
+export function buildCoreReceiverStepSpecs(releaseSha) {
+  const script = "scripts/release/deploy-core-current-cli-projection.mjs";
+  const source = releaseSha ? ["--release-sha", releaseSha] : [];
+  return [
+    {
+      command: "node",
+      args: [script, "--deployment-only", ...source],
+      controlPath: script,
+      label: "Deploy Core with the current published CLI projection",
+      workerDeploymentArgs: [
+        "--config",
+        "services/core/wrangler.jsonc",
+        "--env",
+        "prod",
+      ],
+      releaseScope: "core",
+      completesReleaseScope: false,
+    },
+    {
+      command: "node",
+      args: [script, "--verify-only", ...source],
+      controlPath: script,
+      label: "Verify Core receiver stable identity alignment",
+      releaseScope: "core",
+      completesReleaseScope: true,
+    },
+  ];
+}
+
 function annotateReleaseScope(steps, start, scope) {
   for (let index = start; index < steps.length; index += 1) {
     steps[index] = {
@@ -1137,26 +1166,7 @@ function appendProductionDeployScopeSteps(input) {
         input.coreReceiverFirst ||
         !doesCliReleaseOwnCoreProjection(input.deployOrderProfile)
       ) {
-        input.steps.push(
-          {
-            args: [
-              "scripts/release/deploy-core-current-cli-projection.mjs",
-              ...(input.releaseSha ? ["--release-sha", input.releaseSha] : []),
-            ],
-            command: "node",
-            label: "Deploy Core with the current published CLI projection",
-            workerDeploymentArgs: [
-              "--config",
-              "services/core/wrangler.jsonc",
-              "--env",
-              "prod",
-            ],
-          },
-          workerDeploymentHealthStep({
-            args: ["--config", "services/core/wrangler.jsonc", "--env", "prod"],
-            label: "Verify Core deployment is visible",
-          })
-        );
+        input.steps.push(...buildCoreReceiverStepSpecs(input.releaseSha));
       }
       return;
     }
@@ -2291,7 +2301,13 @@ export function assertProductionReleaseSource(input) {
 
 function runStep(step) {
   process.stdout.write(`\n[production-release] ${step.label}\n`);
-  const result = spawnSync(resolveCommandBinary(step.command), step.args, {
+  const args = step.controlPath
+    ? [
+        fileURLToPath(new URL(`../../${step.controlPath}`, import.meta.url)),
+        ...step.args.slice(1),
+      ]
+    : step.args;
+  const result = spawnSync(resolveCommandBinary(step.command), args, {
     cwd: step.cwd,
     env: step.env ?? process.env,
     stdio: "inherit",

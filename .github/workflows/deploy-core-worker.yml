@@ -186,9 +186,12 @@ jobs:
 
       - name: Recover Core with the current stable CLI projection
         if: inputs.deployment_mode == 'current-stable-cli-projection'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          CORE_LEASE_SHA: ${{ steps.scope_lease.outputs.lease_sha }}
         run: >-
-          node scripts/release/deploy-core-current-cli-projection.mjs
-          --release-sha "${{ inputs.release_sha }}"
+          node ../release-control/scripts/release/hosted-core-receiver.mjs
 
       - name: Verify Core deployment is visible
         run: pnpm exec wrangler deployments list --config services/core/wrangler.jsonc --env prod --json > /dev/null
