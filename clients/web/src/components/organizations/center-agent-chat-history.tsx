@@ -109,7 +109,7 @@ export function CenterAgentChatHistory({
 						{titleAction ? (
 							<span
 								aria-hidden="true"
-								className="w-0 shrink-0 group-focus-within/chat-title:w-7 group-hover/chat-title:w-7 [@media(hover:none)]:w-7"
+								className="w-0 shrink-0 transition-[width] delay-150 duration-0 group-focus-within/chat-title:w-7 group-focus-within/chat-title:delay-0 group-hover/chat-title:w-7 group-hover/chat-title:delay-0 motion-reduce:delay-0 [@media(hover:none)]:w-7"
 							/>
 						) : null}
 					</DropdownMenuTrigger>
@@ -226,8 +226,8 @@ export function CenterAgentChatHistory({
 				</FluidDropdownMenuContent>
 			</DropdownMenu>
 			{titleAction ? (
-				<span className="absolute top-1/2 right-1 flex -translate-y-1/2">
-					<span className="pointer-events-none flex opacity-0 transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] [transform:translateX(-3px)] group-focus-within/chat-title:pointer-events-auto group-focus-within/chat-title:opacity-100 group-focus-within/chat-title:transition-none group-hover/chat-title:pointer-events-auto group-hover/chat-title:opacity-100 motion-reduce:transform-none motion-reduce:transition-none group-focus-within/chat-title:[transform:translateX(0)] group-hover/chat-title:[transform:translateX(0)] [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:transform-none [@media(hover:none)]:opacity-100">
+				<span className="pointer-events-none absolute top-1/2 right-1 flex -translate-y-1/2 overflow-clip">
+					<span className="pointer-events-none flex opacity-0 blur-[2px] transition-[opacity,transform,filter] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] [transform:translateX(-8px)] group-focus-within/chat-title:pointer-events-auto group-focus-within/chat-title:opacity-100 group-focus-within/chat-title:blur-none group-focus-within/chat-title:transition-none group-hover/chat-title:pointer-events-auto group-hover/chat-title:opacity-100 group-hover/chat-title:blur-none motion-reduce:transform-none motion-reduce:blur-none motion-reduce:transition-none group-focus-within/chat-title:[transform:translateX(0)] group-hover/chat-title:[transform:translateX(0)] [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:transform-none [@media(hover:none)]:opacity-100 [@media(hover:none)]:blur-none">
 						{titleAction}
 					</span>
 				</span>

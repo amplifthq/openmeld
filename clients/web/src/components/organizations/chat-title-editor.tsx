@@ -23,6 +23,7 @@ export function ChatTitleEditor(input: {
 		<>
 			<Button
 				aria-label="Rename chat"
+				className="rounded-full"
 				disabled={input.disabled}
 				onClick={() => {
 					setName(input.title === "New chat" ? "" : input.title);
