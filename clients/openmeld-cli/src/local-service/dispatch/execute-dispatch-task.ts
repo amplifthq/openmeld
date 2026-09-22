@@ -4832,16 +4832,13 @@ async function runDispatchRuntimeExecution(input: {
 }): Promise<Awaited<ReturnType<typeof runRuntimeTask>>> {
   await input.onNativeTurnStarted();
   const result = await runRuntimeTask({
-    ...(input.parsedTask.executionContext ||
-    input.agentControllerConversationOverride
-      ? {
-          agentContextOverride: {
-            agentControllerConversationId: input.contextId,
-            agentControllerConversationOverride:
-              input.agentControllerConversationOverride ?? null,
-          },
-        }
-      : {}),
+    // Admission/continuation already selected the conversation. An explicit
+    // null means start fresh, not permission to restore a retained ledger ID.
+    agentContextOverride: {
+      agentControllerConversationId: input.contextId,
+      agentControllerConversationOverride:
+        input.agentControllerConversationOverride ?? null,
+    },
     io: input.io,
     ...(input.onInteractionRequest
       ? { onInteractionRequest: input.onInteractionRequest }
