@@ -80,6 +80,11 @@ release. `Source validation` reports exact-SHA push evidence when present and
 otherwise tells the operator to confirm exact Final Candidate evidence. Use
 `--json` for automation.
 
+Read-only GitHub history requests retry a failed page at most twice for HTTP
+500, 502, 503, or 504, retaining pages already read. Exhausted retries,
+permissions failures and malformed collections remain incomplete evidence and
+fail closed; no mutation receives this retry policy.
+
 In GitHub Actions, the status reader uses the step's `GH_TOKEN` with the
 workflow repository and server identity to read private Git receipt refs.
 The existing trusted HTTPS helper supplies credentials only to those Git
@@ -135,6 +140,14 @@ checks through the same guarded command. If the retained source cannot satisfy
 the current contract, use an evidence-backed forward fix or a documented
 component-specific recovery; never run older guards, replace the receipt, or
 bypass admission to force a rollback.
+
+For local recovery after a control-only fix, keep the approved product checkout
+clean and invoke the current-main `scripts/release/production-release.mjs` by
+absolute path with the product checkout as the working directory. The executor
+honors each step's declared control interpreter, Node flags and arguments, and
+sets its verification root to the product source. Worker target resolution loads
+the pinned Wrangler parser from that source's installed dependencies; the
+minimal trusted-control checkout does not own product tool dependencies.
 
 Core receiver deployment uses the current trusted control's two-step receipt
 executor. After Cloudflare confirms the newly admitted version at 100% traffic,
@@ -306,6 +319,16 @@ safe superset for shared package changes. Development-only dependencies do not
 expand production release scope. Review the plan. An operator may narrow it
 with an explicit scope only when the changed contract and mixed-version behavior
 prove that narrower rollout is safe.
+
+Inbox notification observations add Core -> Gateway -> Web compatibility
+dependencies when the shared Inbox schema and Core observation owner change
+together. The existing dependency scheduler composes these edges with other
+contracts, including Remote Agent -> Core, and rejects cycles. Automatic scope
+selection includes all three components; a separate caller stage requires a
+verified receiver receipt. This additive observation API has the opposite
+direction from the older Core-written Inbox source-target contract below; do
+not infer one from the shared schema path alone. Desktop promotion retains its
+existing cloud-first gate.
 
 The planner selects the `remote-agent-receiver-first` deploy-order profile when
 the diff contains one of these explicit Core-to-Remote-Agent receiver owners:
