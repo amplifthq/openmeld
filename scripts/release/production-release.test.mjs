@@ -1140,16 +1140,21 @@ test("keeps deployment preflight cheap while preserving release invariants", () 
   });
   assert.deepEqual(
     webSteps.map((step) => step.label),
-    ["Verify Cloudflare environment contracts", "Check retired identifiers"]
+    [
+      "Verify signed CLI Skill content",
+      "Verify Cloudflare environment contracts",
+      "Check retired identifiers",
+    ]
   );
-  assert.deepEqual(webSteps[0]?.args, [
+  assert.deepEqual(webSteps[1]?.args, [
     "run",
     "verify:cloudflare:env-contract",
     "--",
     "--profile",
     "production",
   ]);
-  assert.deepEqual(webSteps[0]?.controlArgs, ["--profile", "production"]);
+  assert.deepEqual(webSteps[1]?.controlArgs, ["--profile", "production"]);
+  assert.equal(webSteps[0]?.controlPath, "scripts/release/cli-skill-check.mjs");
 
   const coreSteps = buildProductionPreflightStepSpecs({
     changedPaths: [],

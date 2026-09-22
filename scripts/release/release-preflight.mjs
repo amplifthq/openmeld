@@ -79,6 +79,18 @@ function buildCheckSpecs() {
       run: checkBranchPolicy,
     },
     {
+      id: "cli-skill",
+      label: "Signed CLI Skill content",
+      fix: "Run pnpm run verify:cli-skill; commit a new signed revision with its source before starting any Production stage.",
+      run: async (context) => {
+        await runRequiredCommand(context, "pnpm", ["run", "verify:cli-skill"]);
+        return {
+          status: "PASS",
+          detail: "Signed CLI Skill matches its source.",
+        };
+      },
+    },
+    {
       id: "release-ready",
       label: "Release readiness",
       fix: "Run pnpm run verify:release-ready directly, fix its reported invariant, and rerun preflight.",

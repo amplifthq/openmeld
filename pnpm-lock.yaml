@@ -631,6 +631,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: 'catalog:'
         version: 5.20260908.1
+      '@openmeld/adapter-core':
+        specifier: workspace:*
+        version: link:../../runtime/adapters/core
       '@tailwindcss/typography':
         specifier: ^0.5.16
         version: 0.5.19(tailwindcss@4.1.18)
