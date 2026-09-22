@@ -17,13 +17,11 @@ import {
   agentTaskObservationRedriveQueueMessageSchema,
   buildRuntimeCoordinatorExecutionId,
   buildRuntimeCoordinatorFinalizationCommandId,
-  COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   computerFileAccessDaemonFrameSchema,
   computerFileAccessPolicyResultSchema,
   daemonStreamFrameSchema,
-  isComputerFileAccessOwnerCancellation,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
   localAgentReasoningPreferencesSchema,
   localFolderPickerDaemonFrameSchema,
@@ -50,6 +48,7 @@ import {
   RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
   RUNTIME_COORDINATOR_TOKEN_DIAGNOSTIC_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  resolveLocalExecutionOwnerCancellationReason,
   runtimeCoordinatorFailurePublicationOutcomeSchema,
   runtimeCoordinatorFinalizationClaimReadSchema,
   runtimeCoordinatorFinalizationCommandSchema,
@@ -5695,11 +5694,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         input.command.runtimeCoordinatorExecutionId
       ),
       publishedSignalId: claim.data.publishedSignalId,
-      reasonCode: isComputerFileAccessOwnerCancellation(
-        input.command.acceptedResult.taskResult.payload
-      )
-        ? COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE
-        : RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+      reasonCode:
+        resolveLocalExecutionOwnerCancellationReason(
+          input.command.acceptedResult.taskResult.payload
+        ) ?? RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
       runtimeCoordinatorExecutionId:
         input.command.runtimeCoordinatorExecutionId,
       spaceId: input.command.spaceId,
@@ -5753,14 +5751,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
   }
 
-  private async verifyComputerFileAccessOwnerCancellation(input: {
+  private async verifyLocalExecutionOwnerCancellation(input: {
     command: RuntimeCoordinatorFinalizationCommand;
     commandState: RuntimeCoordinatorRunCommandState | null;
     db: D1Database;
     projection: RuntimeCoordinatorExecutionRecord | null;
   }): Promise<boolean> {
     if (
-      !isComputerFileAccessOwnerCancellation(
+      !resolveLocalExecutionOwnerCancellationReason(
         input.command.acceptedResult.taskResult.payload
       )
     ) {
@@ -5796,7 +5794,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         result.executionTokenFingerprint ===
           input.command.acceptedResult.executionTokenFingerprint &&
         result.targetProfileId === input.command.targetProfileId &&
-        isComputerFileAccessOwnerCancellation(result.taskResult.payload)
+        resolveLocalExecutionOwnerCancellationReason(
+          result.taskResult.payload
+        ) ===
+          resolveLocalExecutionOwnerCancellationReason(
+            input.command.acceptedResult.taskResult.payload
+          )
       )
     ) {
       throw new Error("runtime_coordinator.owner_cancellation_unverified");
@@ -5819,17 +5822,18 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const commandState = await this.readRuntimeCoordinatorRunCommandState(
       input.command.runtimeCoordinatorExecutionId
     );
-    const ownerCancellation =
-      await this.verifyComputerFileAccessOwnerCancellation({
-        ...input,
-        commandState,
-        projection,
-      });
+    const ownerCancellation = await this.verifyLocalExecutionOwnerCancellation({
+      ...input,
+      commandState,
+      projection,
+    });
     if (!projection) {
       return null;
     }
     const stopReasonCode = ownerCancellation
-      ? COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE
+      ? (resolveLocalExecutionOwnerCancellationReason(
+          input.command.acceptedResult.taskResult.payload
+        ) ?? RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE)
       : RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE;
     const wakeStopRequested =
       ownerCancellation ||

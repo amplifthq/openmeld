@@ -773,37 +773,43 @@ folder or replace the session automatically.
 
 ### Working Folder Recovery
 
-A working-folder conflict must give the owner an actionable choice beside the
-failed Wake. The Profile's identity and Space memberships survive recovery.
+A working-folder conflict gives the owner an actionable choice in the Wake
+before the Agent starts. The Profile's identity and Space memberships survive recovery.
 The owner can continue the previous conversation in its verified original
 folder, start a new conversation in the currently selected folder, or leave the
-failed task without retrying it. Starting a new conversation preserves the old
+task without running it. Starting a new conversation preserves the old
 native history and explicitly warns that it will not carry into the new one.
 Neither choice changes the execution Computer.
 
 Normal Wakes require no extra confirmation. Only a verified conflict opens a
-recovery decision. The local Service verifies the native conversation and its
+recovery decision. A targeted read of the existing native session store avoids
+starting a second controller just to inspect its folder. The local Service verifies the native conversation and its
 folder, current Computer file access, and the expected execution target before
 applying a choice. Paths stay within the existing owner-only local-control
 boundary. A missing folder or unavailable Computer stays actionable and does
 not trigger an inferred substitute or credential change.
 
-Web and the Desktop renderer share the same recovery view. Human CLI and Agent
-View consume the same typed options and mutation, with an explicit choice in
-non-interactive use. A client must not implement recovery by independently
-clearing a conversation and updating workspace settings.
+Web and the Desktop renderer reuse the existing question card. Human CLI and
+Agent View consume the same typed interaction through `openmeld space respond`,
+with an explicit response and exact request identity in non-interactive use.
+A client must not implement recovery by independently clearing a conversation
+and updating workspace settings.
 
-The source owns one durable pending decision and its resolution. Inbox projects
-that decision as Needs action for the Profile owner, using the existing delivery
+RuntimeCoordinator owns the existing durable pending interaction and its
+resolution. Inbox projects that question as Needs action for the Profile owner, using the existing delivery
 preferences. Reading or dismissing the Inbox item does not resolve the decision.
 The requester can see that the owner needs to act without gaining local paths or
 management permissions. Repeated reports do not create repeated reminders.
 
-Retry keeps the original failed Wake and submits its original task as a new,
-idempotent attempt. Accepting that attempt resolves the decision but does not
-claim the task has finished. Success, another failure, and an explicit choice
-not to retry all have a concise visible outcome. A stale or repeated action
-cannot start duplicate work or change a newer conversation.
+Answering continues the same accepted task; it does not repost its prompt or
+create a second Wake. Continuing the previous folder applies to that task only
+and does not silently change Default Project. A successful new conversation
+uses the existing result-owned Binding update for subsequent Wakes. The old
+native history remains saved. The existing eight-hour interaction expiry,
+response-delivery watchdog, owner authorization, and exact-response idempotency
+apply. Stop, expiry, Service loss, and final reply follow normal visible outcome
+publication. Previously terminal Wakes remain terminal; a new Wake receives the
+new preflight choice without rewriting their history.
 
 The current computer resolves Project intent through its own local state:
 

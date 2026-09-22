@@ -101,6 +101,10 @@ import type { Presenter } from "../../runtime/presenter/types";
 import { fetchSpaceMeta } from "../../space/meta-api";
 import { resolveProviderRuntimeDispatchContinuation } from "../continuation/provider-runtime-continuation";
 import {
+  resolveRecoveredLedgerConversation,
+  resolveWorkingFolderRecovery,
+} from "../continuation/working-folder-recovery";
+import {
   emitRunLine,
   normalizeOptionalText,
   toErrorMessage,
@@ -1139,6 +1143,20 @@ export async function handleDispatchDeliverFrame(input: {
       routeConfig,
       targetProfileId: parsedTask.targetProfileId,
     });
+    const folderRecovery = await resolveWorkingFolderRecovery({
+      agentControllerRef: parsedTask.agentControllerRef,
+      nativeSessionId: parsedTask.agentControllerConversationId,
+      hasExecutionContext: Boolean(parsedTask.executionContext),
+      workingDirectory: dispatchRuntimeContext.providerRuntimeWorkingDirectory,
+      policy: await readComputerFileAccessPolicy(
+        input.computerFileAccessStorePath
+      ),
+      onInteractionRequest,
+    });
+    dispatchRuntimeContext = {
+      providerRuntimeWorkingDirectory: folderRecovery.workingDirectory,
+    };
+    await currentSocketRef.confirmExecutionAdmission?.(input.deliverRequest);
     const skillPreflight = await ensureDispatchControllerOpenMeldSkill({
       agentControllerRef: parsedTask.agentControllerRef,
     });
@@ -1264,11 +1282,18 @@ export async function handleDispatchDeliverFrame(input: {
       ),
     });
     contextLookupKey = dispatchLedgerContext.contextLookupKey;
-    currentExecutionState = dispatchLedgerContext.currentExecutionState;
-    existingContextId = dispatchLedgerContext.existingContextId;
+    const recoveredConversation = resolveRecoveredLedgerConversation({
+      startNewConversation: folderRecovery.startNewConversation,
+      bindingConversationId: parsedTask.agentControllerConversationId,
+      currentExecutionState: dispatchLedgerContext.currentExecutionState,
+      existingContextId: dispatchLedgerContext.existingContextId,
+    });
+    currentExecutionState = recoveredConversation.currentExecutionState;
+    existingContextId = recoveredConversation.existingContextId;
     effectiveAgentControllerConversationId =
       resolveEffectiveAgentControllerConversationId({
-        agentControllerConversationId: parsedTask.agentControllerConversationId,
+        agentControllerConversationId:
+          recoveredConversation.bindingConversationId,
         existingContextId,
       });
     workspaceUse = await markExecutionContextWorkspaceInUse({

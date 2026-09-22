@@ -686,6 +686,12 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     cliUpdateAction: "joining a public Organization Space",
     serviceAction: null,
   },
+  "space.respond": {
+    signInAction: "answering a task’s request",
+    profileAction: "answering a task’s request",
+    cliUpdateAction: "answering a task’s request",
+    serviceAction: null,
+  },
   "space.wake_progress": {
     signInAction: "reading live Wake progress",
     profileAction: "reading live Wake progress",

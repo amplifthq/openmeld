@@ -399,3 +399,11 @@ export {
   webPerformancePolicySchema,
   webPerformanceReportSchema,
 } from "./web-performance";
+export {
+  buildWorkingFolderRecoveryQuestion,
+  isWorkingFolderRecoveryDecline,
+  isWorkingFolderRecoveryQuestion,
+  resolveLocalExecutionOwnerCancellationReason,
+  WORKING_FOLDER_RECOVERY_DECLINED,
+  WORKING_FOLDER_RECOVERY_QUESTION_ID,
+} from "./working-folder-recovery";
