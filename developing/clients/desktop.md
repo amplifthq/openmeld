@@ -999,9 +999,10 @@ For production renderer verification, run `pnpm desktop:renderer:production`
 from the clean candidate checkout. This builds the production Web renderer,
 runs its Workerd SSR entry locally, validates the prerendered shell and compiled
 target, and records source/input/output identity in `dev-tmp/release-artifact-check`.
-The renderer-only Node heap can be overridden with
-`OPENMELD_DESKTOP_NODE_HEAP_MB`; its default and override must fit machine
-headroom and the heavy-work reservation, including 1 GiB of non-heap overhead.
+Web and Desktop artifact checks share a 4 GiB renderer Node heap, overridable
+with `OPENMELD_RENDERER_NODE_HEAP_MB` or `NODE_OPTIONS`. The default and override
+must fit machine headroom and the heavy-work reservation, including 1 GiB of
+non-heap overhead.
 `OPENMELD_LOCAL_HEAVY_GIB` can set that reservation explicitly. An inherited
 reservation cannot silently grow. This command neither signs nor publishes.
 

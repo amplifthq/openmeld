@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { parse } from "yaml";
-import { rendererBuildEnvironment } from "../desktop/renderer-build.mjs";
-import { resourcePolicy } from "../dev/local-resources.mjs";
+import { admissionReason, resourcePolicy } from "../dev/local-resources.mjs";
+import { productionBuildEnvironment } from "./production-artifact-check.mjs";
 
 test("manual client artifact validation excludes the broad diagnostic jobs", () => {
   const workflow = parse(
@@ -29,7 +30,9 @@ test("manual client artifact validation excludes the broad diagnostic jobs", () 
   assert.equal(job.if, "inputs.scope == 'release-artifacts'");
   assert.equal(job.steps[0].with.ref, `${"$"}{{ github.sha }}`);
   assert.equal(job.steps[0].with["persist-credentials"], false);
-  const check = job.steps.find((step) => step.run);
+  const check = job.steps.find((step) =>
+    step.run?.includes("production-artifact-check.mjs")
+  );
   const command = check.run;
   assert.ok(command.includes('--scope desktop --source-sha "$GITHUB_SHA"'));
   assert.ok(command.includes('--scope web --source-sha "$GITHUB_SHA"'));
@@ -43,20 +46,74 @@ test("manual client artifact validation excludes the broad diagnostic jobs", () 
   assert.equal(job.env.OPENMELD_HOME, undefined);
 });
 
-test("hosted renderer fits the observed runner startup budget without bypassing admission", () => {
-  const workflow = parse(
+test("Production and Deep Confidence share an explicit heap within available runner capacity", () => {
+  const diagnostic = parse(
     readFileSync(
       new URL("../../.github/workflows/deep-confidence.yml", import.meta.url),
       "utf8"
     )
   );
-  // Run 35719672053 reported 8.1 GiB available on its 14 GiB macOS runner.
-  // A 7 GiB reservation plus 1.4 GiB headroom waited without starting Vite.
-  const memoryBytes = 14 * 1024 ** 3;
-  const env = rendererBuildEnvironment(
-    workflow.jobs["release-artifacts"].env,
-    memoryBytes
+  const production = parse(
+    readFileSync(
+      new URL("../../.github/workflows/release-on-main.yml", import.meta.url),
+      "utf8"
+    )
   );
-  const policy = resourcePolicy(env, memoryBytes);
-  assert.ok(policy.costs.heavy + policy.headroomBytes <= 8.1 * 1024 ** 3);
+  const productionJob = production.jobs.validate_release_source;
+  const diagnosticJob = diagnostic.jobs["release-artifacts"];
+  assert.equal(diagnosticJob["runs-on"], productionJob["runs-on"]);
+  // Ubuntu run 35742137329 measured 7,291,916,288 available bytes. Use the
+  // private runner's 8 GiB capacity ceiling to conservatively budget headroom.
+  const memoryBytes = 8 * 1024 ** 3;
+  for (const [job, entrypoint] of [
+    [productionJob, "production-train-artifact-admission.mjs"],
+    [diagnosticJob, "production-artifact-check.mjs"],
+  ]) {
+    const step = job.steps.find((item) => item.run?.includes(entrypoint));
+    const workflowEnv = { ...job.env, ...step.env };
+    assert.equal(workflowEnv.NODE_OPTIONS, undefined);
+    assert.equal(workflowEnv.OPENMELD_RENDERER_NODE_HEAP_MB, undefined);
+    for (const scope of ["web", "desktop"]) {
+      const env = productionBuildEnvironment(
+        scope,
+        workflowEnv,
+        memoryBytes,
+        "linux"
+      );
+      const policy = resourcePolicy(env, memoryBytes, "linux");
+      assert.equal(env.NODE_OPTIONS, "--max-old-space-size=4096");
+      assert.equal(env.OPENMELD_LOCAL_HEAVY_GIB, "5");
+      const admission = {
+        kind: "heavy",
+        entries: [],
+        rows: [],
+        policy,
+        pressure: "unknown",
+      };
+      assert.equal(
+        admissionReason({ ...admission, availableBytes: 7_291_916_288 }),
+        null
+      );
+      assert.ok(
+        admissionReason({ ...admission, availableBytes: 6 * 1024 ** 3 })
+      );
+      assert.equal(
+        env.OPENMELD_DESKTOP_TARGET,
+        scope === "desktop" ? "production" : undefined
+      );
+    }
+  }
+  const env = productionBuildEnvironment("web", {}, memoryBytes, "linux");
+  const heapLimit = Number(
+    execFileSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        'import { getHeapStatistics } from "node:v8"; console.log(getHeapStatistics().heap_size_limit);',
+      ],
+      { env: { ...process.env, ...env }, encoding: "utf8" }
+    )
+  );
+  assert.ok(heapLimit >= 4096 * 1024 ** 2 && heapLimit < 5 * 1024 ** 3);
 });
