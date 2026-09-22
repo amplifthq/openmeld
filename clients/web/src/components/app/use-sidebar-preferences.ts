@@ -107,6 +107,7 @@ export function useSidebarPreferences(
 		},
 		disabled: !query.data || mutation.isPending,
 		isError: query.isError,
+		isFetching: query.isFetching,
 		retry: query.refetch,
 	};
 }

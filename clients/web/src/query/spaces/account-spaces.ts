@@ -19,9 +19,8 @@ import {
 	type AccountSpaceSections,
 	listAccountSpaceItems,
 } from "#/lib/spaces/account-spaces";
-import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { baseQueryOptions } from "#/query/query-config";
-import { spaceQueryKeys } from "./status";
+import { spaceActiveWakeProgressSummaryQueryOptions } from "./active-wake-progress";
 
 const ACCOUNT_SPACE_ACTIVE_WAKE_POLL_INTERVAL_MS = 15_000;
 // Newly invited members have no live connection to that Space yet. Refresh
@@ -112,35 +111,20 @@ export function accountSpaceActiveWakeSummaryQueryOptions(input: {
 				data: { profileId: input.profileId },
 			});
 			if (import.meta.env.DEV) {
-				const api = createUnscopedWebSpaceApi({
-					openMeldProfileId: input.profileId,
-				});
 				const local = await withLocalAccountRuntimeFixtures(
 					summary,
 					input.profileId,
 					(spaceId) =>
-						api.getActiveWakeProgress({
-							spaceId,
-							includeTiming: true,
-							includeSourceContext: true,
-							includePreviewText: true,
-							includeWaitReason: true,
-							includeDeviceWait: true,
-							includePageInfo: true,
-							includeWakeStopEligibility: true,
-						})
+						client.fetchQuery(
+							spaceActiveWakeProgressSummaryQueryOptions({
+								enabled: true,
+								spaceId,
+								openMeldProfileId: input.profileId,
+							})
+						)
 				);
-				// Publish detailed snapshots before exposing their account-level entries,
-				// so Priority never needs a visit to discover an approval or working state.
-				for (const snapshot of local.progress) {
-					client.setQueryData(
-						spaceQueryKeys.activeWakeProgressSummary(
-							snapshot.spaceId,
-							input.profileId
-						),
-						snapshot.data
-					);
-				}
+				// Use the normal detail reader so account refreshes retain the same
+				// presentation lifetime and outcome evidence as opened Spaces.
 				return { browserRequestStartedAtMonotonicMs, summary: local.summary };
 			}
 			return { browserRequestStartedAtMonotonicMs, summary };

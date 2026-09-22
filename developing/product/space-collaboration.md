@@ -793,6 +793,31 @@ session operations. Browser acceptance, explicit execution steering and release
 continuity remain incomplete release gates. Task retirement is deferred; its
 existing product and tools remain available during this upgrade.
 
+### Center Agent session titles
+
+New private Center Agent sessions start as **New chat**. After a Human's message
+is accepted on the main timeline, Space may generate a concise default title
+through a separate no-tool model request. This work is never awaited by message
+publication, Wake admission, or the Center Agent execution loop. It cannot alter
+conversation context, steering, tools, replies, or the selected Agent model.
+
+The fixed model is `z-ai/glm-5.3-flash` through the existing OpenRouter
+AI Gateway connection, with temperature zero, low reasoning, structured
+JSON, a 15-second request deadline, and bounded input/output. Titles use the
+message's language, capture the action and subject, preserve meaningful names
+and identifiers, and contain at most 64 characters. Output is validated rather
+than cut mid-title. Greetings without a topic return no title. No model request
+reads attachments, URLs, other sessions, or hidden Agent context.
+
+Space owns the generated default in its existing name field and projects it
+through the Space index. Auth-owned personal titles take precedence and are
+never written by generation. Generic DM metadata mutations remain forbidden;
+the dedicated internal naming path does not grant new public mutation rights.
+Only an active Human in the current designated Center Agent pair can trigger it.
+Existing non-default names are preserved. Failed or empty results keep **New
+chat**; later Human messages can retry, capped at three persisted attempts per
+Space. No automatic historical title rewrite or periodic regeneration occurs.
+
 ### Ordinary Direct Message opening
 
 Opening a Direct Message is idempotent within a generation. OpenMeld first

@@ -2641,15 +2641,7 @@ async function resolveRuntimeRouteSnapshot(input: {
           status: "online",
         }),
         agentWakeRouteRegistration,
-        wakeRouteStatus: {
-          connectionGeneration: result.connectionGeneration,
-          daemonSessionId: result.daemonSessionId,
-          deviceId: result.deviceId,
-          lane: toWakeRouteLane(result.lane),
-          lastHeartbeatMs: result.lastHeartbeatMs,
-          leaseEpoch: result.leaseEpoch,
-          status: "ready",
-        },
+        ...resolveWakeRouteAdmissionSnapshot(result, input.generatedAt),
         hasFreshRouteLease: false,
         localWakeRouteReport: toNullableLocalWakeRouteReport(
           result.localWakeRouteReport
@@ -2767,6 +2759,37 @@ function toNullableLocalWakeRouteReport(
   report: LocalWakeRouteReport | undefined
 ): LocalWakeRouteReport | null {
   return report ?? null;
+}
+
+function resolveWakeRouteAdmissionSnapshot(
+  result: Extract<RuntimeTransportLookupRouteResponse, { online: true }>,
+  generatedAt: string
+): Pick<RuntimeRouteSnapshot, "wakeRouteStatus" | "routeEvidence"> {
+  // A live socket can keep reporting accepted work while the Service drains
+  // or waits for its host. It is not a route for a new Wake.
+  if (result.acceptingDispatches === false) {
+    return {
+      routeEvidence: {
+        deviceId: result.deviceId,
+        lane: result.lane,
+        observedAt: generatedAt,
+        reasonCodes: ["local_service.not_accepting_wakes"],
+        status: "unavailable",
+      },
+      wakeRouteStatus: { status: "unavailable" },
+    };
+  }
+  return {
+    wakeRouteStatus: {
+      connectionGeneration: result.connectionGeneration,
+      daemonSessionId: result.daemonSessionId,
+      deviceId: result.deviceId,
+      lane: toWakeRouteLane(result.lane),
+      lastHeartbeatMs: result.lastHeartbeatMs,
+      leaseEpoch: result.leaseEpoch,
+      status: "ready",
+    },
+  };
 }
 
 function createSkippedRuntimeRouteSnapshot(input: {

@@ -2,6 +2,7 @@
 import json
 import sqlite3
 import uuid
+from fixtures import message_previews
 
 CASES = ["Done. The updated designs are ready for your review.",
          "I reviewed the onboarding flow and left notes about keyboard navigation and focus order.",
@@ -37,3 +38,4 @@ def seed(context):
                             "type": "signal.text", "data": {"text": body}}
                 db.execute("INSERT OR REPLACE INTO space_signals (id,ts,type,profile_id,profile_kind,client_message_id,payload_json) VALUES (?,?,?,?,?,?,?)",
                            (mid, ts, "signal.text", sender, kind, mid, json.dumps(envelope)))
+        message_previews.refresh(context, sid)

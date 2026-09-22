@@ -15,6 +15,8 @@ import {
   inboxItemRouteParamsSchema,
   inboxMessageNotificationPreferencesQuerySchema,
   inboxMessageNotificationPreferencesResponseSchema,
+  inboxNotificationObservationsQuerySchema,
+  inboxNotificationObservationsResponseSchema,
   inboxNotificationPreferencesResponseSchema,
   inboxSummaryQuerySchema,
   inboxSummaryResponseSchema,
@@ -47,6 +49,7 @@ import {
   buildInboxItemReadPath,
   buildInboxMarkAllReadPath,
   buildInboxMessageNotificationPreferencesPath,
+  buildInboxNotificationObservationsPath,
   buildInboxPath,
   buildInboxPreferencesPath,
   buildInboxSummaryPath,
@@ -59,6 +62,22 @@ import type { CreateInboxApi, InboxRequestInput } from "./types";
 export const createInboxApi: CreateInboxApi = (
   client: OpenMeldApiClientFoundation
 ) => ({
+  observeNotifications: async (input = {}) => {
+    const query = requireValidInput(
+      inboxNotificationObservationsQuerySchema,
+      { cursor: input.cursor, limit: input.limit },
+      "Inbox notification observation request is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      method: "GET",
+      operation: "inbox.notification_observations",
+      headers: inboxSourceTargetVersionHeaders(),
+      schema: inboxNotificationObservationsResponseSchema,
+      invalidMessage: "Invalid Inbox notification observation response",
+      url: buildInboxNotificationObservationsPath(query),
+    });
+  },
   feed: async (input = {}) => {
     const {
       requestContext: _context,

@@ -795,7 +795,7 @@ describe("ConversationsSidebar", () => {
 		).toBeTruthy();
 	});
 
-	it("[S11] keeps cached Spaces visible when a foreground refresh fails", async () => {
+	it("[S11] keeps cached conversations visible and recovers a failed refresh through its retry", async () => {
 		focusManager.setFocused(false);
 		listAccountSpaceItemsMock
 			.mockResolvedValueOnce({
@@ -831,7 +831,25 @@ describe("ConversationsSidebar", () => {
 
 		expect(screen.getByRole("link", { name: "Existing" })).toBeTruthy();
 		expect(
-			screen.queryByText("OpenMeld could not load your spaces.")
+			screen.getByText(
+				"Couldn't refresh conversations. Showing saved conversations."
+			)
+		).toBeTruthy();
+		listAccountSpaceItemsMock.mockResolvedValue({
+			pinnedItems: [],
+			spaceItems: [
+				createAccountSpaceItem({
+					spaceId: "space-recovered",
+					spaceName: "Recovered",
+				}),
+			],
+		});
+		fireEvent.click(screen.getByLabelText("Retry conversations"));
+		await screen.findByText("Recovered");
+		expect(
+			screen.queryByText(
+				"Couldn't refresh conversations. Showing saved conversations."
+			)
 		).toBeNull();
 	});
 

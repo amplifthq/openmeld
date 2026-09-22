@@ -196,8 +196,9 @@ describe("SpaceThreadPanel", () => {
 		);
 	});
 
-	it("reads the visible reply only in the open Thread scope", async () => {
+	it("reads the visible focused reply only in the open Thread scope", async () => {
 		vi.useFakeTimers();
+		const focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
 		const originalHitTest = document.elementFromPoint;
 		Object.defineProperty(document, "elementFromPoint", {
 			configurable: true,
@@ -235,6 +236,7 @@ describe("SpaceThreadPanel", () => {
 			await act(async () => vi.advanceTimersByTimeAsync(1));
 			expect(onViewedThroughTs).toHaveBeenCalledExactlyOnceWith(latestTs);
 		} finally {
+			focus.mockRestore();
 			geometry.mockRestore();
 			Object.defineProperty(document, "elementFromPoint", {
 				configurable: true,
@@ -431,6 +433,51 @@ describe("SpaceThreadPanel", () => {
 			expect(button.className).toContain("bg-transparent");
 		}
 	});
+	it.each([
+		"sig-root",
+		"sig-thread-reply",
+	])("only offers main-conversation navigation for the Thread root (%s)", async (signalId) => {
+		const details = createMinimalMessageDetailsResponse();
+		useQueryMock.mockReturnValue({
+			data: {
+				...details,
+				message: { ...details.message, signalId },
+				query: { ...details.query, signalId },
+			},
+			isError: false,
+			isPending: false,
+		});
+		const onShowMessageInMain = vi.fn();
+		const onClose = vi.fn();
+		renderThreadPanel({
+			onClose,
+			onShowMessageInMain,
+			signals: [createTextSignal({ id: signalId })],
+			spaceTimelineItems: [],
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
+		const dialog = await screen.findByRole("dialog", {
+			name: "Message details",
+		});
+		const jump = within(dialog).queryByRole("button", {
+			name: "Show message in Messages",
+		});
+		if (signalId === "sig-root") {
+			expect(jump).not.toBeNull();
+			fireEvent.click(jump as HTMLElement);
+			expect(onShowMessageInMain).toHaveBeenCalledWith("sig-root");
+			await waitFor(() =>
+				expect(
+					screen.queryByRole("dialog", { name: "Message details" })
+				).toBeNull()
+			);
+		} else {
+			expect(jump).toBeNull();
+			expect(onShowMessageInMain).not.toHaveBeenCalled();
+		}
+		expect(onClose).not.toHaveBeenCalled();
+	});
+
 	it("uses the member Agent identity in Message details opened from a thread", async () => {
 		const details = createMinimalMessageDetailsResponse();
 		useQueryMock.mockReturnValue({
@@ -636,11 +683,11 @@ describe("SpaceThreadPanel", () => {
 			.getByText("Second consecutive thread message")
 			.closest("[data-slot='message']");
 
-		expect(firstMessage?.className).toContain("pt-1.5");
+		expect(firstMessage?.className).toContain("pt-0.5");
 		expect(firstMessage?.className).toContain("pb-0");
 		expect(firstMessage?.className).not.toContain("py-2");
-		expect(secondMessage?.className).toContain("pt-1");
-		expect(secondMessage?.className).toContain("pb-1.5");
+		expect(secondMessage?.className).toContain("pt-px");
+		expect(secondMessage?.className).toContain("pb-0.5");
 		expect(secondMessage?.className).not.toContain("py-2");
 	});
 

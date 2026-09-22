@@ -279,10 +279,10 @@ function useRemoteAgentDraft(form: CreateProfileFormProps) {
 			: "Your Remote Agent";
 	const remoteName =
 		form.remoteProfileName ?? editedRemoteName ?? defaultRemoteName;
-	const [remoteModel, setRemoteModel] = useState("");
+	const [remoteModel, setRemoteModel] = useState<string | null>(null);
 	const intent = useRef<{ fingerprint: string; key: string } | null>(null);
 	const catalog = form.modelCatalog?.agentControllers["center-agent"];
-	const remoteModelId = remoteModel || catalog?.defaultModelId;
+	const remoteModelId = remoteModel ?? catalog?.defaultModelId;
 	const remoteReady = Boolean(
 		remoteName.trim() &&
 			catalog?.models.some(
@@ -309,7 +309,7 @@ function useRemoteAgentDraft(form: CreateProfileFormProps) {
 	return {
 		remoteName,
 		setRemoteName,
-		remoteModel,
+		remoteModel: remoteModelId ?? "",
 		setRemoteModel,
 		remoteReady,
 		submitRemote,

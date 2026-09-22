@@ -16,7 +16,6 @@ describe("space panel width storage", () => {
 	it("uses the product-defined Members and Thread resize limits", () => {
 		expect(SPACE_PANEL_WIDTH_METRICS.members.minWidth).toBe("17rem");
 		expect(SPACE_PANEL_WIDTH_METRICS.members.defaultWidth).toBe("20rem");
-		expect(SPACE_PANEL_WIDTH_METRICS.thread.maxWidth).toBe("30rem");
 	});
 
 	it("keeps Members widths independent by Space and separate from Thread", () => {
@@ -30,7 +29,7 @@ describe("space panel width storage", () => {
 			spaceId: "space-b",
 			width: "30rem",
 		});
-		writeSpacePanelWidth({ panel: "thread", width: "29rem" });
+		writeSpacePanelWidth({ panel: "thread", width: "50rem" });
 
 		expect(readSpacePanelWidth({ panel: "members", spaceId: "space-a" })).toBe(
 			"24rem"
@@ -38,7 +37,7 @@ describe("space panel width storage", () => {
 		expect(readSpacePanelWidth({ panel: "members", spaceId: "space-b" })).toBe(
 			"30rem"
 		);
-		expect(readSpacePanelWidth({ panel: "thread" })).toBe("29rem");
+		expect(readSpacePanelWidth({ panel: "thread" })).toBe("50rem");
 		expect(
 			window.localStorage.getItem(
 				resolveSpacePanelWidthStorageKey({
@@ -124,7 +123,7 @@ describe("space panel width storage", () => {
 			"352px"
 		);
 		expect(clampSpacePanelWidth({ panel: "thread", width: "999px" })).toBe(
-			"480px"
+			"960px"
 		);
 	});
 });

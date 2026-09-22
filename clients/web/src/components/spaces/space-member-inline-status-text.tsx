@@ -113,9 +113,9 @@ export function SpaceAgentAvailabilityIndicator(input: {
 			{indicatorDot}
 		</Link>
 	) : (
-		<span {...commonProps} role="img">
+		<button {...commonProps} type="button">
 			{indicatorDot}
-		</span>
+		</button>
 	);
 
 	return (

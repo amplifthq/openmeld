@@ -3865,15 +3865,20 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           (sessionAfterHeartbeat?.executionCompatibility?.reasonCode ?? null) ||
         previousCompatibilityStatus !==
           (sessionAfterHeartbeat?.executionCompatibility?.status ?? null);
+      const changedReadinessProfileIds = diffSessionReadinessComponents(
+        snapshotBeforeHeartbeat,
+        snapshotSessionReadinessComponents(sessionAfterHeartbeat)
+      );
       if (
         response.staleLeases.length > 0 ||
         serviceVersionChanged ||
-        compatibilityChanged
+        compatibilityChanged ||
+        changedReadinessProfileIds.length > 0
       ) {
         // A service-version or execution-compatibility change is a
         // session-level fact that shifts the verdict of every carried
-        // profile, so it keeps the full fan-out. Stale leases alone only
-        // change the verdicts of the affected profiles.
+        // profile, so it keeps the full fan-out. The component diff handles
+        // registration and admission changes; stale leases add their profiles.
         const profileIds =
           serviceVersionChanged || compatibilityChanged
             ? [
@@ -3884,10 +3889,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
               ]
             : [
                 ...response.staleLeases.map((lease) => lease.profileId),
-                ...diffSessionReadinessComponents(
-                  snapshotBeforeHeartbeat,
-                  snapshotSessionReadinessComponents(sessionAfterHeartbeat)
-                ),
+                ...changedReadinessProfileIds,
               ];
         this.publishAgentReadinessInvalidated({
           profileIds,

@@ -46,6 +46,7 @@ import { AgentCard } from "./agent-card";
 export const AgentProfileSidebarItem = memo(AgentProfileSidebarItemComponent);
 
 export function AgentProfileSidebarItemComponent(input: {
+	selection?: import("./agent-list-selection").AgentCardSelection;
 	variant?: "sidebar" | "card";
 	avatarSize?: number;
 	agentControllerRef: string | null;
@@ -163,6 +164,7 @@ export function AgentProfileSidebarItemComponent(input: {
 							working={input.operationalContext?.status === "working"}
 						/>
 					)}
+					selection={input.selection}
 				/>
 			</FluidNavMenuItem>
 		);

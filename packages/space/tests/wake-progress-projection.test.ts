@@ -3,6 +3,7 @@ import {
   AGENT_REPLY_FINAL_PURPOSE,
   AGENT_REPLY_PREVIEW_PURPOSE,
   AGENT_REPLYING_PURPOSE,
+  buildWorkingFolderRecoveryQuestion,
   DISPATCH_ACTIVITY_DISPATCHING_PURPOSE,
   DISPATCH_ACTIVITY_FAILED_PURPOSE,
   DISPATCH_ACTIVITY_RETRYING_PURPOSE,
@@ -82,7 +83,18 @@ describe("Wake progress projection", () => {
   it.each([
     AGENT_REPLYING_PURPOSE,
     AGENT_REPLY_PREVIEW_PURPOSE,
-  ])("keeps Core Stop eligibility while applying %s presentation updates", (purpose) => {
+  ])("keeps Core interaction and Stop controls while applying %s presentation updates", (purpose) => {
+    const request = {
+      ...buildWorkingFolderRecoveryQuestion({
+        previousFolder: "available",
+        previousFolderLabel: "original",
+        selectedFolderLabel: "selected",
+      }),
+      v: 1 as const,
+      interactionId: "folder-choice",
+      requestedAtMs: 10,
+      expiresAtMs: 60_000,
+    };
     const current = createWakeProgressItem({
       clientMessageId: "client-message-1",
       dispatchId: "dispatch-1",
@@ -91,6 +103,15 @@ describe("Wake progress projection", () => {
       targetLabel: "Center Agent",
       targetProfileId: TARGET_PROFILE_ID,
       updatedAtMs: 10,
+      runtimeCoordinatorExecutionId: "execution-1",
+      pendingInteraction: {
+        canRespond: true,
+        expiresAtMs: request.expiresAtMs,
+        interactionId: request.interactionId,
+        kind: request.kind,
+        requestedAtMs: request.requestedAtMs,
+        request,
+      },
       wakeStopEligibility: {
         controlMode: "cancel",
         reasonCode: null,
@@ -116,14 +137,31 @@ describe("Wake progress projection", () => {
       signals: [signal],
     });
     expect(items[0]?.wakeStopEligibility).toEqual(current.wakeStopEligibility);
+    expect(items[0]?.pendingInteraction).toEqual(current.pendingInteraction);
+    expect(items[0]?.runtimeCoordinatorExecutionId).toBe("execution-1");
     expect(
       applyWakeProgressSignals({ currentItems: [], signals: [signal] })[0]
         ?.wakeStopEligibility
     ).toBeUndefined();
+    expect(
+      applyWakeProgressSignals({ currentItems: [], signals: [signal] })[0]
+        ?.pendingInteraction
+    ).toBeUndefined();
+    const otherExecution = applyWakeProgressSignals({
+      currentItems: [{ ...current, dispatchId: "another-dispatch" }],
+      signals: [signal],
+    }).find((item) => item.dispatchId === "dispatch-1");
+    expect(otherExecution?.pendingInteraction).toBeUndefined();
+    expect(otherExecution?.runtimeCoordinatorExecutionId).toBeUndefined();
     const revoked = mergeWakeProgressItems({
       currentItems: items,
       incomingItems: [
-        { ...current, updatedAtMs: 30, wakeStopEligibility: null },
+        {
+          ...current,
+          updatedAtMs: 30,
+          wakeStopEligibility: null,
+          pendingInteraction: null,
+        },
       ],
     });
     expect(
@@ -132,6 +170,19 @@ describe("Wake progress projection", () => {
         signals: [{ ...signal, ts: 40 }],
       })[0]?.wakeStopEligibility
     ).toBeNull();
+    expect(
+      applyWakeProgressSignals({
+        currentItems: revoked,
+        signals: [{ ...signal, ts: 40 }],
+      })[0]?.pendingInteraction
+    ).toBeNull();
+    const { pendingInteraction: _pending, ...withoutInteraction } = current;
+    expect(
+      mergeWakeProgressItems({
+        currentItems: items,
+        incomingItems: [{ ...withoutInteraction, updatedAtMs: 50 }],
+      })[0]?.pendingInteraction
+    ).toBeUndefined();
   });
 
   beforeEach(() => {
