@@ -36,7 +36,6 @@ export {
   localAgentReasoningStateSchema,
   OPENMELD_REASONING_STREAM_HEADER,
 } from "./http/local-agent-reasoning";
-
 export {
   HUMAN_PRESENCE_HEARTBEAT_MS,
   HUMAN_PRESENCE_IDLE_MS,
@@ -58,6 +57,12 @@ export {
   spaceHistoryNavigationQuerySchema,
   spaceHistoryNavigationSchema,
 } from "./http/space-history-navigation";
+export {
+  CENTER_AGENT_SESSION_TITLE_INPUT_MAX_LENGTH,
+  CENTER_AGENT_SESSION_TITLE_MAX_LENGTH,
+  generateCenterAgentSessionTitleInputSchema,
+  generateCenterAgentSessionTitleResponseSchema,
+} from "./runtime/center-agent-session-title";
 
 export const OPENMELD_SCHEMA_VERSION = 1 as const;
 

@@ -31,7 +31,6 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
-import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import { useSpaceConversationOpenPaint } from "#/lib/observability/use-space-open-paint";
 import { getSpaceConversationHistorySignalId } from "#/lib/space-conversation-position";
@@ -1022,6 +1021,7 @@ function renderPanelConversationBody(input: {
 			panel.actionableAgentInteractionPlacement
 		),
 		isAgentRecoveryPending: panel.isAgentRecoveryPending,
+		isDirectMessage: panel.isDirectMessage,
 		isCenterAgentDirectMessage:
 			presentation.messageStateTuningVisibility.isCenterAgentDirectMessage,
 		isSendingMessage: panel.isSendingMessage,
@@ -2165,6 +2165,7 @@ function ComposerError(input: { panel: SpaceConversationPanelResolvedProps }) {
 }
 
 function renderConversationBody(input: {
+	isDirectMessage: boolean;
 	activeThreadRootSignalIds: ReadonlySet<string>;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
@@ -2435,6 +2436,7 @@ function renderConversationBody(input: {
 						isAgentRecoveryPending={input.isAgentRecoveryPending}
 						isCenterAgentDirectMessage={input.isCenterAgentDirectMessage}
 						isCreatingThread={input.isCreatingThread}
+						isDirectMessage={input.isDirectMessage}
 						isPersonalContext={input.isPersonalContext === true}
 						loadedMainTimelineSignalIds={input.loadedMainTimelineSignalIds}
 						membersSnapshot={input.membersSnapshot}
@@ -2528,6 +2530,7 @@ function resolveConversationEntryKey(entry: SpaceConversationEntry): string {
 }
 
 type ConversationBubbleRunInput = {
+	isDirectMessage: boolean;
 	activeThreadRootSignalIds: ReadonlySet<string>;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
@@ -2790,10 +2793,12 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 									"w-full min-w-0 gap-0",
 									SPACE_MESSAGE_SURFACE_WIDTH_CLASS
 								)}
+								directMessage={input.isDirectMessage}
 							>
 								{index === 0 ? (
 									<MessageHeader className="px-0">
 										<ConversationSpeakerHeader
+											avatarOnly={input.isDirectMessage}
 											centerAgentProfileId={input.centerAgentProfileId}
 											detailsDialog={detailsDialog}
 											isCenterAgentDirectMessage={
@@ -3033,6 +3038,7 @@ function ConversationBubbleContent(input: {
 }
 
 function ConversationSpeakerHeader(input: {
+	avatarOnly: boolean;
 	centerAgentProfileId: string | null;
 	detailsDialog: ReturnType<typeof useSpaceProfileDetailsPopover>;
 	isCenterAgentDirectMessage: boolean;
@@ -3052,35 +3058,41 @@ function ConversationSpeakerHeader(input: {
 	});
 	const content = (
 		<>
-			<SpaceMessageProfileAvatar
-				agentControllerPending={input.run.speaker.agentControllerPending}
-				agentControllerRef={input.run.speaker.agentControllerRef}
-				avatarImageUrl={
-					input.run.speaker.avatarImageUrl ??
-					(input.run.speaker.profileId === input.selfProfileId
-						? input.selfAvatarImageUrl
-						: null)
-				}
-				displayName={input.run.speaker.displayName}
-				isCenterAgent={isCenterAgentRun}
-				profileId={input.run.speaker.profileId}
-				profileKind={input.run.speaker.profileKind}
-				working={input.run.items.some(isSpaceMessageAgentWorking)}
-			/>
-			<span className="min-w-0 break-words font-bold text-foreground text-sm">
-				{input.run.speaker.displayName}
+			<span data-slot="message-speaker-avatar">
+				<SpaceMessageProfileAvatar
+					agentControllerPending={input.run.speaker.agentControllerPending}
+					agentControllerRef={input.run.speaker.agentControllerRef}
+					avatarImageUrl={
+						input.run.speaker.avatarImageUrl ??
+						(input.run.speaker.profileId === input.selfProfileId
+							? input.selfAvatarImageUrl
+							: null)
+					}
+					displayName={input.run.speaker.displayName}
+					isCenterAgent={isCenterAgentRun}
+					profileId={input.run.speaker.profileId}
+					profileKind={input.run.speaker.profileKind}
+					working={input.run.items.some(isSpaceMessageAgentWorking)}
+				/>
 			</span>
-			<RemoteAgentIndicator
-				agentControllerRef={input.run.speaker.agentControllerRef}
-			/>
-			{agentAttribution ? (
+			{!input.avatarOnly && (
 				<>
-					<span className="shrink-0 text-muted-foreground">·</span>
-					<span className="min-w-0 text-muted-foreground">
-						{agentAttribution}
+					<span className="min-w-0 break-words font-normal text-muted-foreground text-xs">
+						{input.run.speaker.displayName}
 					</span>
+					<RemoteAgentIndicator
+						agentControllerRef={input.run.speaker.agentControllerRef}
+					/>
+					{agentAttribution ? (
+						<>
+							<span className="shrink-0 text-muted-foreground">·</span>
+							<span className="min-w-0 text-muted-foreground">
+								{agentAttribution}
+							</span>
+						</>
+					) : null}
 				</>
-			) : null}
+			)}
 		</>
 	);
 	if (!input.detailsDialog.canOpenProfileDetails) {
@@ -3093,10 +3105,7 @@ function ConversationSpeakerHeader(input: {
 	const trigger = (
 		<button
 			aria-label={`Check ${input.run.speaker.displayName} Profile`}
-			className={cn(
-				APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
-				"inline-flex min-w-0 max-w-full cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 self-start rounded-md text-left text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-			)}
+			className="inline-flex min-w-0 max-w-full cursor-pointer touch-manipulation flex-wrap items-start gap-x-1.5 gap-y-1 self-start rounded-md text-left font-normal text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 max-lg:min-h-6 max-lg:min-w-6"
 			type="button"
 		>
 			{content}

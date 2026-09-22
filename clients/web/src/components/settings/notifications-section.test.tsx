@@ -123,11 +123,13 @@ describe("NotificationsSection", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("requests browser permission only after the user chooses Enable", async () => {
+	it("requests browser permission only after the user turns notifications on", async () => {
 		renderNotificationsSection();
 
 		expect(requestPermissionMock).not.toHaveBeenCalled();
-		fireEvent.click(screen.getByRole("button", { name: "Enable" }));
+		fireEvent.click(
+			screen.getByRole("switch", { name: "Browser notifications" })
+		);
 
 		await waitFor(() => {
 			expect(requestPermissionMock).toHaveBeenCalledOnce();
@@ -165,7 +167,9 @@ describe("NotificationsSection", () => {
 		expect(
 			updateCurrentInboxNotificationPreferencesMock
 		).not.toHaveBeenCalled();
-		fireEvent.click(screen.getByRole("button", { name: "Enable" }));
+		fireEvent.click(
+			screen.getByRole("switch", { name: "Browser notifications" })
+		);
 		await waitFor(() =>
 			expect(
 				screen
