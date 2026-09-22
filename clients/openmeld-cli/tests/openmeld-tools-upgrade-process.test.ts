@@ -80,6 +80,7 @@ describe("OpenMeld Tools upgrade process", () => {
           OPENMELD_INTERNAL_TOOLS_UPDATE_TARGET_SERVICE_VERSION: "0.3.104",
         }),
         stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
       })
     );
   });
