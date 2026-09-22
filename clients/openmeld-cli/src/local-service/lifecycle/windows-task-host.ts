@@ -76,7 +76,9 @@ ${WINDOWS_TASK_HOST_SOURCE}
 '@ -OutputAssembly $temporaryHost -OutputType WindowsApplication -ErrorAction Stop
   if ($task -and $task.State -eq 4) { throw 'OpenMeld cannot replace a background task while it is running.' }
   if ([IO.File]::Exists($hostPath)) {
-    [IO.File]::Replace($temporaryHost, $hostPath, $null)
+    # PowerShell coerces bare $null to an empty string for this .NET parameter.
+    # Pass a real null backup path; an empty path breaks repeat setup/repair.
+    [IO.File]::Replace($temporaryHost, $hostPath, [NullString]::Value)
   } else {
     [IO.File]::Move($temporaryHost, $hostPath)
   }
