@@ -9,6 +9,7 @@ import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext as putRemoteAgentCallbackContextProjection,
   type RemoteAgentCallbackContext,
+  type RemoteAgentConditionalWrite,
   readRemoteAgentCallbackContext,
   recordRemoteAgentWorkLoopCheckpoint,
 } from "../agent-core/callback-context";
@@ -936,6 +937,12 @@ describe("Center Agent stream observation", () => {
         text: "The durable owner answer won.",
       })
     );
+    expect(
+      await readRemoteAgentCallbackContext(
+        harness.resolveDependencies().storage,
+        SUBMISSION_ID
+      )
+    ).toMatchObject({ modelId: "winner/model" });
   });
 
   it("publishes the owner answer when a different success wins the CAS", async () => {
@@ -1552,6 +1559,23 @@ class TerminalCasRaceStorage extends InMemoryDurableObjectStorage {
 
   winNextExecutionCas(key: string, value: unknown): void {
     this.nextWinner = { key, value };
+  }
+
+  override async compareAndSetPair<A, B>(
+    first: RemoteAgentConditionalWrite<A>,
+    second: RemoteAgentConditionalWrite<B>
+  ): Promise<boolean> {
+    if (this.nextWinner?.key === first.key) {
+      const winner = this.nextWinner;
+      this.nextWinner = null;
+      await this.put(first.key, winner.value);
+      await this.put(second.key, {
+        ...second.expectedValue,
+        modelId: "winner/model",
+      });
+      return false;
+    }
+    return await super.compareAndSetPair(first, second);
   }
 
   override async compareAndSet<T>(

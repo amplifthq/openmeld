@@ -1,26 +1,58 @@
+diff --git a/dist/agent-coordinator-BEWH2ojV.d.mts b/dist/agent-coordinator-BEWH2ojV.d.mts
+index a1c49aa943d9a1a451ed69130be063cb3fab7e6d..ba6db9b0714661dd7f224474bacc5bcb53a8be40 100644
+--- a/dist/agent-coordinator-BEWH2ojV.d.mts
++++ b/dist/agent-coordinator-BEWH2ojV.d.mts
+@@ -1,6 +1,17 @@
+ import { t as AttachmentStore } from "./attachment-store-BTESG7ao.mjs";
+ import { C as FlueContextInternal, W as ConversationStreamStore, g as createAgentSubmissionSessionHandler, r as AgentSubmissionStore } from "./agent-execution-store-BoXvwktA.mjs";
+ import { o as SqlStorage } from "./observation-DnfaXl2A.mjs";
++import { n as AgentSubmission } from "./agent-execution-store-BoXvwktA.mjs";
++import { Z as PromptUsage } from "./types-BAqOl5NC.mjs";
++export interface AgentSubmissionProjection extends AgentSubmission {
++  /** Read-only exact-submission result, present only after canonical success. */
++  readonly completedOutput?: {
++    readonly submissionId: string;
++    readonly text: string;
++    readonly model?: { readonly id: string; readonly provider?: string };
++    readonly usage?: PromptUsage;
++  };
++}
+ //#region src/cloudflare/agent-coordinator.d.ts
+ declare const CLOUDFLARE_AGENT_INTERNAL_DISPATCH_PATH = "/__flue/internal/dispatch";
+ declare const CLOUDFLARE_AGENT_INTERNAL_INSTANCE_INFO_PATH = "/__flue/internal/instance-info";
+@@ -56,6 +67,7 @@ interface CloudflareAgentRuntimeOptions {
+   readonly runWithInstanceContext: <T>(instance: CloudflareAgentInstance, agentName: string, callback: () => T) => T;
+ }
+ interface CloudflareAgentRuntime {
++  readSubmission(instance: CloudflareAgentInstance, submissionId: string): Promise<AgentSubmissionProjection | null>;
+   prepare(options: {
+     readonly storage: CloudflareAgentStorage;
+     readonly className: string;
 diff --git a/dist/agent-coordinator-BdFpbgNh.mjs b/dist/agent-coordinator-BdFpbgNh.mjs
-index 4ccecda0df695372eb52b3a7c41f59ef6930ae37..576146646eeec196a55c11bd6ece0ee2188cd657 100644
+index 4ccecda0df695372eb52b3a7c41f59ef6930ae37..c03522d69606acf8afe5cba112372927e1bbeb3c 100644
 --- a/dist/agent-coordinator-BdFpbgNh.mjs
 +++ b/dist/agent-coordinator-BdFpbgNh.mjs
-@@ -2,6 +2,7 @@ import { A as SubmissionConflictError, H as formatErrorForLog, N as SubmissionTi
+@@ -1,7 +1,9 @@
+ import { A as SubmissionConflictError, H as formatErrorForLog, N as SubmissionTimeoutError, V as describeErrorChain, X as generateAttemptId, ft as interceptExecution, k as SubmissionAbortedError, n as AgentInstanceNotFoundError, p as InvalidRequestError, t as AgentInstanceExistsError, ut as isKeyDerivedSubmissionId, z as classifyError } from "./errors-CsDcT_C4.mjs";
  import { S as handleAgentRequest, b as handleAgentConversationRead, et as agentStreamPath, ft as createSessionStorageKey, v as handleAgentAttachmentRead, x as assertAgentDispatchAdmissionInput, y as handleAgentConversationHead } from "./dispatch-Dohpn4Ea.mjs";
  import { r as drainGlobalEventDeliveries, t as createCoordinatorEventEmitter } from "./events-BhCLb2HD.mjs";
++import { readCompletedSubmissionOutput } from "./dispatch-Dohpn4Ea.mjs";
  import { n as createMcpConnectionCache } from "./mcp-Bpamf0G-.mjs";
 +import { recordUnreadySubmissionFailure } from "./conversation-stream-store-B2RVviYM.mjs";
  import { D as SUBMISSION_HARNESS_NAME, O as SUBMISSION_SESSION_NAME, _ as submissionSyntheticRequest, a as admitInstanceContact, c as createDispatchAgentSubmissionInput, d as isInstanceContactRejection, f as materializeSubmissionAttachments, g as settleUnclaimableSubmission, h as serializeSubmissionError, l as ensureInstanceIdentity, m as reconcileInterruptedSubmission, n as SqliteConversationStreamStore, o as adoptKeyedSubmissionReplay, p as processSubmission, s as createDirectAgentSubmissionInput, u as finalizePendingSettlement, v as unreadySubmissionDeadline } from "./conversation-stream-store-B2RVviYM.mjs";
  import { n as ensureSqlAgentExecutionTables, r as ConversationRecordWriter, t as createSqlAgentExecutionStoreFromSql } from "./sql-agent-execution-store-CS3_7p5s.mjs";
  import { n as SqliteAttachmentStore, r as ensureSqlAttachmentTable } from "./sql-attachment-store-CjtLrhTN.mjs";
-@@ -92,6 +93,9 @@ function createCloudflareAgentRuntime(options) {
+@@ -92,6 +94,9 @@ function createCloudflareAgentRuntime(options) {
  		onRequest(instance, request) {
  			return getCoordinator(instance).onRequest(request);
  		},
 +		readSubmission(instance, submissionId) {
-+			return getCoordinator(instance).submissions.getSubmission(submissionId);
++			return getCoordinator(instance).readSubmission(submissionId);
 +		},
  		onFiberRecovered(instance, ctx, inherited) {
  			return getCoordinator(instance).onFiberRecovered(ctx, inherited);
  		},
-@@ -231,7 +235,8 @@ var CloudflareAgentCoordinator = class {
+@@ -231,7 +236,8 @@ var CloudflareAgentCoordinator = class {
  		if (isInternalDispatchRequest(request)) return this.admitDispatch(request);
  		if (isInternalInstanceInfoRequest(request)) return this.instanceInfo();
  		if (isAbortRequest(request, this.agentName, this.instance.name)) {
@@ -30,7 +62,23 @@ index 4ccecda0df695372eb52b3a7c41f59ef6930ae37..576146646eeec196a55c11bd6ece0ee2
  			return Response.json({ aborted });
  		}
  		const method = request.method;
-@@ -368,7 +373,7 @@ var CloudflareAgentCoordinator = class {
+@@ -279,6 +285,15 @@ var CloudflareAgentCoordinator = class {
+ 	get submissions() {
+ 		return this.prepared.submissionStore;
+ 	}
++	async readSubmission(submissionId) {
++		const submission = await this.submissions.getSubmission(submissionId);
++		if (!submission) return null;
++		if (submission.input.agent !== this.agentName || submission.input.id !== this.instance.name) throw new Error("[flue] Submission projection has mismatched conversation authority.");
++		// This is the read-side fold, not ensureConversationWriter: observation
++		// must not create a stream, acquire a producer, render, or execute work.
++		const completedOutput = await readCompletedSubmissionOutput(this.prepared.conversationStreamStore, agentStreamPath(this.agentName, this.instance.name), submission);
++		return completedOutput ? { ...submission, completedOutput } : submission;
++	}
+ 	runWithInstanceContext(callback) {
+ 		return this.options.runWithInstanceContext(this.instance, this.agentName, callback);
+ 	}
+@@ -368,7 +383,7 @@ var CloudflareAgentCoordinator = class {
  				const found = this.options.agents.find((record) => record.name === submission.input.agent)?.agent;
  				const agent = found && submission.input.agent === this.agentName && submission.input.id === this.instance.name ? found : void 0;
  				if (!agent) {
@@ -39,7 +87,7 @@ index 4ccecda0df695372eb52b3a7c41f59ef6930ae37..576146646eeec196a55c11bd6ece0ee2
  					console.error("[flue:submission-reconciliation]", {
  						agentName: this.agentName,
  						instanceId: this.instance.name,
-@@ -390,7 +395,7 @@ var CloudflareAgentCoordinator = class {
+@@ -390,7 +405,7 @@ var CloudflareAgentCoordinator = class {
  					await this.materializeSubmissionConversation(submission.input, agent);
  					await this.submissions.markSubmissionCanonicalReady(submission.submissionId);
  				} catch (error) {
@@ -48,7 +96,7 @@ index 4ccecda0df695372eb52b3a7c41f59ef6930ae37..576146646eeec196a55c11bd6ece0ee2
  					this.logSubmissionReconciliationFailure(submission, "materialize_submission", error);
  				}
  			}
-@@ -447,8 +452,8 @@ var CloudflareAgentCoordinator = class {
+@@ -447,8 +462,8 @@ var CloudflareAgentCoordinator = class {
  	* (another isolate settled first, or a racing claim made the row runnable)
  	* falls back to the deferral logging so nothing is silently dropped.
  	*/
@@ -59,7 +107,7 @@ index 4ccecda0df695372eb52b3a7c41f59ef6930ae37..576146646eeec196a55c11bd6ece0ee2
  		console.error("[flue:submission-reconciliation]", {
  			agentName: this.agentName,
  			instanceId: this.instance.name,
-@@ -617,6 +622,13 @@ var CloudflareAgentCoordinator = class {
+@@ -617,6 +632,13 @@ var CloudflareAgentCoordinator = class {
  		this.conversationWriter = void 0;
  		this.conversationWriterCreation = void 0;
  	}
@@ -483,7 +531,7 @@ index 2f43ad32984bcad628fedecc76ca0fbcf23c0877..56d9b322d2dd769faecf626e3ad11979
  			kind: submission.kind,
  			reason: "aborted",
 diff --git a/dist/dispatch-Dohpn4Ea.mjs b/dist/dispatch-Dohpn4Ea.mjs
-index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..34e722a1e00b196974aa8b633abb7f7ad0e50d63 100644
+index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..956bbb20ae2909be2967e7aa238b20ac4f63e3d2 100644
 --- a/dist/dispatch-Dohpn4Ea.mjs
 +++ b/dist/dispatch-Dohpn4Ea.mjs
 @@ -4,6 +4,7 @@ import { n as isValibotSchema } from "./schema-DIDpvZZa.mjs";
@@ -739,7 +787,39 @@ index 8bb091a2f818b2eee4d944bc85028cee6145f0e2..34e722a1e00b196974aa8b633abb7f7a
  function projectConversationUi(conversation, streamOffset) {
  	const messages = [];
  	const byId = /* @__PURE__ */ new Map();
-@@ -2942,7 +3024,7 @@ function assertDurability(definition, label) {
+@@ -2879,6 +2961,31 @@ async function readSubmissionReply(options) {
+ 	};
+ 	return replyFromSnapshot(snapshot, options.submissionId);
+ }
++export async function readCompletedSubmissionOutput(store, path, submission) {
++	if (submission.status !== "settled" || submission.error) return void 0;
++	const state = await getConversationFoldHost(store, path).getStateAtHead();
++	const settlement = state.recordsById.get(`record_${submission.kind}-submission:${submission.submissionId}:settled`);
++	if (settlement?.type !== "submission_settled" || settlement.outcome !== "completed" || settlement.submissionId !== submission.submissionId) return void 0;
++	const conversation = state.conversations.get(settlement.conversationId);
++	if (!conversation || [...conversation.inProgressMessages.values()].some((message) => message.submissionId === submission.submissionId)) return void 0;
++	// Materialized entries retain the recorded usage after the settle barrier
++	// replaces attempt-scoped records with dedupe stubs. Never reconstruct a
++	// terminal answer from transient deltas or a different submission's reply.
++	const steps = [...conversation.entries.values()].filter((entry) => entry.type === "message" && entry.submissionId === submission.submissionId && entry.message.role === "assistant");
++	const final = steps.at(-1)?.message;
++	if (!final || final.stopReason === "error" || final.stopReason === "aborted") return void 0;
++	let usage;
++	for (const step of steps) {
++		const recorded = fromProviderUsage(step.message.usage);
++		if (recorded) usage = usage ? addUsage(usage, recorded) : recorded;
++	}
++	return {
++		submissionId: submission.submissionId,
++		text: final.content.filter((block) => block.type === "text").map((block) => block.text).join("\n"),
++		...typeof final.model === "string" ? { model: { id: final.model, ...typeof final.provider === "string" ? { provider: final.provider } : {} } } : {},
++		...usage ? { usage } : {}
++	};
++}
+ /**
+ * Extract a submission's reply from a materialized conversation snapshot.
+ * Shared by {@link readSubmissionReply} and the Cloudflare client, which reads
+@@ -2942,7 +3049,7 @@ function assertDurability(definition, label) {
  	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} durability must be a configuration object.`);
  	for (const key of Object.keys(definition)) if (key !== "maxAttempts" && key !== "timeoutMs") throw new Error(`[flue] ${label} durability received unknown field "${key}".`);
  	assertPositiveInteger(definition.maxAttempts, `${label} durability.maxAttempts`);
@@ -760,6 +840,18 @@ index a8f2280ec735a56f4de512eb5799fa835f070540..547e1a315ea90c5c1e76f344c53a69f2
  import * as v from "valibot";
  import { Env, Handler, Hono } from "hono";
  import { AgentTool } from "@earendil-works/pi-agent-core";
+diff --git a/dist/internal.d.mts b/dist/internal.d.mts
+index 23e4bbb42348056b950a6cb82ad817ce2891dd23..25afbf0025538889a22755b59d4ca7da5e079153 100644
+--- a/dist/internal.d.mts
++++ b/dist/internal.d.mts
+@@ -6,6 +6,7 @@ import { F as toHttpResponse, P as configureErrorRendering, m as RuntimeUnavaila
+ import { r as agentStreamPath } from "./stream-offsets-sRUtb-M2.mjs";
+ import { a as runWithInstrumentationOwner, n as InstrumentationOwner, r as createInstrumentationOwner } from "./instrumentation-DOeU_zDN.mjs";
+ import { i as createCloudflareAgentRuntime, n as CLOUDFLARE_AGENT_INTERNAL_INSTANCE_INFO_PATH, t as CLOUDFLARE_AGENT_INTERNAL_DISPATCH_PATH } from "./agent-coordinator-BEWH2ojV.mjs";
++export type { AgentSubmissionProjection } from "./agent-coordinator-BEWH2ojV.mjs";
+ import { a as configureFlueRuntime, c as RuntimeActivityGate, i as NodeRuntime, l as RuntimeActivityLease, n as CloudflareRuntime, r as FlueRuntime, u as createRuntimeActivityGate } from "./flue-app-DdUB937J.mjs";
+ import { a as bashFactoryToSandbox, c as hasProvider, d as resetModelsForTests, f as resolveModel, g as ConversationStreamWireChunk, h as ConversationStreamChunk, m as AgentConversationSnapshot, p as setProvider, u as registerBuiltinProviderModule } from "./sandbox-DDnz8bIa.mjs";
+ import { c as resetFlueAgentRegistrationForTests, l as resolveAgentIdentity, o as getRegisteredFlueAgents, r as FlueAgentRegistration, s as registerFlueAgents, t as AGENT_IDENTITY_PATTERN, u as resolveAgentInitialDataSchema } from "./registration-B4lyBWbA.mjs";
 diff --git a/dist/sql-agent-execution-store-CS3_7p5s.mjs b/dist/sql-agent-execution-store-CS3_7p5s.mjs
 index 9a8b8c34e42e58ae0debd0159e144cd7be2e4b84..a2e26a2a13ff6b31e4997ca6da5bbf57a8c57706 100644
 --- a/dist/sql-agent-execution-store-CS3_7p5s.mjs

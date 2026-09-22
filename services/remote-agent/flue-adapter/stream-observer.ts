@@ -456,6 +456,7 @@ async function handleCenterAgentPromptCompletion(input: {
     ? buildRemoteAgentExecutionIdentity(callbackContext)
     : null;
   const usage = normalizeFluePromptUsage(input.event.usage);
+  const completionMetadata = { modelId: extractModelId(input.event), usage };
   const observedFailure = resolveObservedRemoteAgentTerminalFailure({
     event: input.event,
     hasAssistantText: hasAssistantText || !!callbackContext?.workLoopCheckpoint,
@@ -469,6 +470,7 @@ async function handleCenterAgentPromptCompletion(input: {
   const settledExecution =
     callbackContext?.workLoopCheckpoint && !terminalFailure && executionIdentity
       ? await completeRemoteAgentExecutionState({
+          completionMetadata,
           identity: executionIdentity,
           nowMs: completedAtMs,
           storage,
@@ -476,6 +478,7 @@ async function handleCenterAgentPromptCompletion(input: {
           checkpoint: callbackContext.workLoopCheckpoint,
         })
       : await settleRemoteAgentPromptExecution({
+          completionMetadata,
           assistantText,
           executionIdentity,
           hasAssistantText,
@@ -582,6 +585,10 @@ async function resolveAuthoritativeRemoteAgentPromptOutcome(input: {
 }
 
 async function settleRemoteAgentPromptExecution(input: {
+  completionMetadata: {
+    modelId: ReturnType<typeof extractModelId>;
+    usage: ReturnType<typeof normalizeFluePromptUsage>;
+  };
   assistantText: string;
   executionIdentity: ReturnType<
     typeof buildRemoteAgentExecutionIdentity
@@ -596,6 +603,7 @@ async function settleRemoteAgentPromptExecution(input: {
   }
   if (input.isError || !input.hasAssistantText) {
     return await completeRemoteAgentExecutionState({
+      completionMetadata: input.completionMetadata,
       identity: input.executionIdentity,
       nowMs: Date.now(),
       status: "failed",
@@ -606,6 +614,7 @@ async function settleRemoteAgentPromptExecution(input: {
     });
   }
   return await completeRemoteAgentExecutionState({
+    completionMetadata: input.completionMetadata,
     completedText: input.assistantText,
     identity: input.executionIdentity,
     nowMs: Date.now(),

@@ -107,6 +107,24 @@ the new package, remove an adaptation only when the upstream behavior fulfills
 its contract, and exercise the affected cancellation, observation, compaction,
 recovery and steering boundaries. A clean patch apply alone proves none of them.
 
+The exact-submission read projection also exposes completed output only after
+the canonical settlement record confirms success. It folds the existing stream
+without opening a producer, rendering the Agent, or starting another execution.
+The final assistant entry supplies text/model, and recorded assistant entries
+rebuild cross-attempt usage even after the settlement barrier releases full
+attempt records. Running, missing, failed, or mismatched submissions cannot
+supply a successful result. Recovery uses the normal Computer cleanup and
+execution-owner CAS before projecting that result to Core; cancellation and
+requested safety failures still win over an uncommitted success.
+
+Normal completion and recovery atomically persist the execution owner with the
+existing callback model/usage fields in one conditional SQL update. This keeps
+both stored record shapes readable by the previous patched release; it does
+not add a second completion ledger. A losing observer cannot replace the
+winner's metadata. Successful, failed, and stopped outcomes retain known usage,
+with the owner's stable completion time as the existing usage-record key so
+callback retries do not count consumption again. Missing usage is not zero.
+
 OpenMeld consumes observation deltas rather than Flue's public conversation
 stream. When a failed assistant step is replaced, the first replacement text
 delta carries a prefix derived from the official conversation UI projection.

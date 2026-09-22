@@ -369,6 +369,17 @@ failing the inspection step forever. Terminal recovery does not need a rendered
 advisory to commit the canonical settlement. A later live session repairs its
 interrupted conversation tail without blindly repeating unknown external effects.
 
+Canonical runtime completion and OpenMeld result delivery are separate facts.
+When a restart lands between them, the pinned runtime's read-only submission
+projection supplies the exact settled answer, model, and recorded usage. The
+existing OpenMeld reconciler rechecks callback authority, performs Computer
+cleanup, and competes for the existing execution-owner CAS; it never adopts a
+streamed draft or overwrites a cancellation or safety failure. The owner and
+existing callback model/usage fields are written atomically, preserving their
+previous persisted shapes. Callback retries reuse the owner's completion time
+for usage records, including failed and stopped work with known consumption.
+No parallel execution truth or new publication path is introduced.
+
 Model-visible tool results must cross an OpenMeld-owned bounded persistence
 boundary before Flue stores them in the conversation session. A direct tool
 result that exceeds that boundary returns one compact structured failure that
