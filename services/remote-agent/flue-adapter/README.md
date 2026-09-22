@@ -12,7 +12,7 @@ is not a future release strategy.
 
 ## Retained package adaptations
 
-`patches/@flue__runtime@2.0.3.patch` retains seven explicit contracts:
+`patches/@flue__runtime@2.0.3.patch` retains eight explicit contracts:
 
 1. A zero durability timeout disables total wall-clock expiration. Recovery
    attempts remain bounded. Healthy long-running work must not fail because
@@ -50,6 +50,17 @@ is not a future release strategy.
    idempotent, and unresolved inputs participate in the existing recovery
    seam. The application must retain accepted inputs and enforce sender
    permissions; this runtime seam alone does not enable Web steering.
+
+8. Tool presentation is consistent before provider serialization. A narrow
+   `AgentStatics.projectResourceSignal` extension transforms only reserved
+   framework resource/environment signals in model context, never canonical
+   records. Live steering, joined inputs, restored histories and compaction
+   share the renderer. Upstream 2.0.3 has no public hook at this provenance
+   boundary; a provider-payload string replacement cannot distinguish user
+   quotations from framework events. Flue also mounts `task` only with declared
+   subagents. OpenMeld registers only its native subset; deferred capabilities
+   remain in its one authorized catalog for discovery and Code Mode. Skill
+   activation and supporting-file reads remain framework-owned and usable.
 
 Beta registry initialization, async defineAgent, implicit sandbox discovery,
 global provider registration, and permissive orphan-record reduction are not
@@ -93,11 +104,21 @@ additional boundary.
 Upstream 0.2.1 still uses the same unacknowledged unread-handle path; upgrading
 alone does not establish this contract.
 
-These seven Flue adaptations are maintained integration code, not a completed
+These eight Flue adaptations are maintained integration code, not a completed
 escape from upstream internals. On each Flue upgrade, compare the patch with
 the new package, remove an adaptation only when the upstream behavior fulfills
 its contract, and exercise the affected cancellation, observation, compaction,
 recovery and steering boundaries. A clean patch apply alone proves none of them.
+
+For the Flue 2.1.0 upgrade, retain the registration boundary, the trusted
+resource-signal projection (or an equivalent upstream public hook), and
+conditional task mounting. Do not restore provider-side clipping. Run
+`tool-catalog-contract.test.ts`, `tool-catalog-compaction.test.ts`,
+`tool-catalog-loop.test.ts`, the existing capability/Code Mode authorization
+tests, and the real-provider opt-in loop. The retained pre-fix SQLite fixture
+must stay unchanged; recreating it with the new implementation loses the
+old-session regression. The Node executor proves orchestration and real Core
+policy, not Worker Loader isolation or deployed Space publication.
 
 The footprint reader is a pinned, read-only aggregate over Flue's inline and
 spilled batches. It does not write runtime state or derive execution truth.

@@ -11,7 +11,6 @@ import { getCloudflareContext } from "@flue/runtime/cloudflare";
 import type { CenterAgentModelRoute } from "@openmeld/schemas/types";
 import * as z from "zod/v4";
 import { readRemoteAgentCallbackContext } from "../agent-core/callback-context";
-import { REMOTE_AGENT_CONNECTOR_TOOL_NAMES } from "../agent-core/connector-tools";
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
@@ -23,10 +22,12 @@ import {
 } from "../agent-core/model";
 import { REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING } from "../agent-core/openrouter-provider-routing";
 import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
-import { REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES } from "./capability-discovery";
 import { emitCenterAgentPerformanceMilestone } from "./center-agent-performance-observability";
 import { emitRemoteAgentExecutionStageEvidence } from "./cloudflare-runtime-evidence";
-import { getRemoteAgentExecutionSubmissionId } from "./execution-context";
+import {
+  getRemoteAgentDeferredToolCount,
+  getRemoteAgentExecutionSubmissionId,
+} from "./execution-context";
 import {
   projectProviderCompletion,
   providerCompletionOperation,
@@ -812,16 +813,7 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
           "Remote Agent OpenRouter request payload must be an object."
         );
       }
-      const originalToolCount = Array.isArray(resolvedPayload.tools)
-        ? resolvedPayload.tools.length
-        : 0;
-      const compactedTools = exposeRemoteAgentBootstrapTools(
-        resolvedPayload.tools
-      );
-      const preparedPayload =
-        compactedTools === resolvedPayload.tools
-          ? resolvedPayload
-          : { ...resolvedPayload, tools: compactedTools };
+      const preparedPayload = resolvedPayload;
       const durationMs = Date.now() - startedAtMs;
       const messageCount = Array.isArray(preparedPayload.messages)
         ? preparedPayload.messages.length
@@ -829,6 +821,18 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
       const toolCount = Array.isArray(preparedPayload.tools)
         ? preparedPayload.tools.length
         : 0;
+      // Compaction and other tool-free model calls share the execution scope
+      // but cannot invoke the deferred catalog without its Code Mode entry.
+      const hasCodeMode =
+        Array.isArray(preparedPayload.tools) &&
+        preparedPayload.tools.some(
+          (tool: unknown) =>
+            isRecord(tool) &&
+            isRecord(tool.function) &&
+            tool.function.name === "codemode"
+        );
+      const availableToolCount =
+        toolCount + (hasCodeMode ? getRemoteAgentDeferredToolCount() : 0);
       const currentProvider = isRecord(preparedPayload.provider)
         ? preparedPayload.provider
         : {};
@@ -852,13 +856,13 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
         inputBytes: measurement.inputBytes,
         messageCount,
         modelId: model?.id ?? null,
-        originalToolCount,
+        availableToolCount,
         sessionAffinity: Boolean(sessionId),
         submissionId,
         toolCount,
       });
       await reportRemoteAgentProviderStage(reportStage, {
-        availableToolCount: originalToolCount,
+        availableToolCount,
         durationMs,
         inputBytes: measurement.inputBytes,
         messageCount,
@@ -920,61 +924,6 @@ function enforceRemoteAgentProviderContextCapacity(input: {
     capacity: input.capacity,
     measurement: input.measurement,
   });
-}
-
-const REMOTE_AGENT_CODE_MODE_TOOL_NAME = "codemode";
-const REMOTE_AGENT_SKILL_ACTIVATION_TOOL_NAME = "activate_skill";
-const REMOTE_AGENT_FOUNDATIONAL_READ_TOOL_NAMES = [
-  "openmeld_list_organization_members",
-] as const;
-const REMOTE_AGENT_ALWAYS_DIRECT_TOOL_NAME_SET = new Set<string>([
-  ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
-  ...REMOTE_AGENT_CONNECTOR_TOOL_NAMES,
-  ...REMOTE_AGENT_FOUNDATIONAL_READ_TOOL_NAMES,
-  REMOTE_AGENT_SKILL_ACTIVATION_TOOL_NAME,
-  // Foundational Computer operations must be usable in a fresh conversation,
-  // without requiring the model to discover that it has its own Computer.
-  // This filters the authorized catalog; it never adds unavailable tools.
-  "read",
-  "write",
-  "edit",
-  "bash",
-  "grep",
-  "glob",
-  "computer_command",
-]);
-
-function exposeRemoteAgentBootstrapTools(tools: unknown): unknown {
-  if (!Array.isArray(tools)) {
-    return tools;
-  }
-  const codeModeTools = tools.filter(isRemoteAgentCodeModeProviderTool);
-  if (codeModeTools.length === 0) {
-    return tools;
-  }
-  if (codeModeTools.length !== 1) {
-    throw new Error(
-      "A Remote Agent capability catalog requires exactly one Code Mode tool."
-    );
-  }
-  const alwaysDirectTools = tools.filter(
-    (tool) =>
-      isRecord(tool) &&
-      tool.type === "function" &&
-      isRecord(tool.function) &&
-      typeof tool.function.name === "string" &&
-      REMOTE_AGENT_ALWAYS_DIRECT_TOOL_NAME_SET.has(tool.function.name)
-  );
-  return [...alwaysDirectTools, ...codeModeTools];
-}
-
-function isRemoteAgentCodeModeProviderTool(tool: unknown): boolean {
-  return (
-    isRecord(tool) &&
-    tool.type === "function" &&
-    isRecord(tool.function) &&
-    tool.function.name === REMOTE_AGENT_CODE_MODE_TOOL_NAME
-  );
 }
 
 async function reportRemoteAgentProviderStage(
