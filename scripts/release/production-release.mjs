@@ -2301,15 +2301,24 @@ export function assertProductionReleaseSource(input) {
 
 function runStep(step) {
   process.stdout.write(`\n[production-release] ${step.label}\n`);
+  const command = step.controlPath
+    ? (step.controlCommand ?? step.command)
+    : step.command;
   const args = step.controlPath
     ? [
+        ...(step.controlNodeArgs ?? []),
         fileURLToPath(new URL(`../../${step.controlPath}`, import.meta.url)),
-        ...step.args.slice(1),
+        ...(step.controlArgs ?? step.args.slice(1)),
       ]
     : step.args;
-  const result = spawnSync(resolveCommandBinary(step.command), args, {
+  const result = spawnSync(resolveCommandBinary(command), args, {
     cwd: step.cwd,
-    env: step.env ?? process.env,
+    env: {
+      ...(step.env ?? process.env),
+      ...(step.controlPath
+        ? { OPENMELD_VERIFICATION_ROOT: step.cwd ?? process.cwd() }
+        : {}),
+    },
     stdio: "inherit",
   });
   if (result.error) {
@@ -2317,7 +2326,7 @@ function runStep(step) {
   }
   if (result.status !== 0) {
     throw new Error(
-      `${step.command} ${step.args.join(" ")} failed with exit code ${String(result.status)}`
+      `${command} ${args.join(" ")} failed with exit code ${String(result.status)}`
     );
   }
 }
