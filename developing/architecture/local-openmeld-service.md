@@ -2365,10 +2365,10 @@ Wake work, even when the latest release itself is advisory. This keeps healthy
 supported Services eligible without allowing a later optional release to
 re-enable a known-broken Service or announcing an unavailable recovery target.
 
-The current monotonic floor is OpenMeld Service `0.3.153`. It is the first
-supported baseline that reports current working-folder facts and keeps reply
-observation owned by the accepted Wake, in addition to the existing startup
-recovery, managed-update, and active Permission/Wake behavior. Once the stable
+The current monotonic floor is OpenMeld Service `0.3.217`. It is the first
+supported baseline that refreshes Service admission after update or draining
+and carries the required Codex MCP startup behavior, in addition to the existing
+working-folder facts and dispatch-owned reply observation. Once the stable
 release manifest activates that floor, Core projects every connected older
 Service as `update_required` and blocks new Wake admission without terminating
 work already accepted by RuntimeCoordinator. The user-visible `requiredVersion`
@@ -2378,7 +2378,7 @@ Before the stable release manifest reaches the source floor, Core leaves that
 newer floor inactive rather than projecting `requiredVersion` above
 `latestVersion`. A later advisory release may raise that remediation target,
 but it must not lower or bypass an active compatibility floor. A Service already
-at `0.3.153` remains supported and receives only the advisory update policy of a
+at `0.3.217` remains supported and receives only the advisory update policy of a
 newer release.
 
 Wake Stop local control is an affected Service capability. A Core/Web deployment

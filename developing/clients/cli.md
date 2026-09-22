@@ -461,6 +461,12 @@ ready here. The CLI resolves the computer's existing Organization identity and
 passes it into the shared creation request; Core remains responsible for final
 Computer, Local Agent, Project, and Binding validation. Teammate-owned requests
 require an explicit `--computer`, and the CLI never guesses another computer.
+An explicit `--computer` accepts only the exact `computerId` returned by
+`openmeld org computers --view agent`. That value is the device ID used by this
+command. A Connected Computer record ID and an Agent Profile ID belong to
+different records and fail before the creation request is submitted. Other
+profile-scoped commands require a full current Profile ID; display names such
+as `Human` are not implicit aliases unless that command documents one.
 
 The executor completes new-Session identity creation, exact native Resume, and
 provider-native Fork after Agent Activity and the local Binding path verify the

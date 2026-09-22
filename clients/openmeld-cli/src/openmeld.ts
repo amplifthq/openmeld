@@ -4985,7 +4985,10 @@ profileCmd
     "--owner <userId>",
     "Agent owner: self (creating for other members is not available)"
   )
-  .option("--computer <computerId>", "Exact Computer for your Agent")
+  .option(
+    "--computer <computerId>",
+    "Exact computerId from `openmeld org computers --view agent`"
+  )
   .option("--project <projectId>", "Default Project for the new Agent")
   .option(
     "--no-default-project",
