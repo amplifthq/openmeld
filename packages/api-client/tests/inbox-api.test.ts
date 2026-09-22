@@ -39,6 +39,33 @@ const ITEM = {
 };
 
 describe("api-client Inbox API", () => {
+  it("round-trips notification observation cursors through a bounded strict response", async () => {
+    const page = {
+      organizationId: "org-1",
+      items: [ITEM],
+      cursor: "next-position",
+      hasMore: true,
+    };
+    const transport = vi.fn<OpenMeldApiClientTransport>(() =>
+      Promise.resolve(jsonResponse(page))
+    );
+    const api = createInboxApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    expect(
+      await api.observeNotifications({ cursor: "position+/=", limit: 50 })
+    ).toEqual(page);
+    const url = new URL(transport.mock.calls[0]?.[0].url ?? "");
+    expect(url.pathname).toBe("/v1/inbox/notification-observations");
+    expect(url.searchParams.get("cursor")).toBe("position+/=");
+    expect(url.searchParams.get("limit")).toBe("50");
+    await expect(api.observeNotifications({ limit: 101 })).rejects.toThrow();
+    expect(transport).toHaveBeenCalledOnce();
+  });
+
   it("sends full-dataset filters and frozen mutations through strict shared contracts", async () => {
     const page = {
       organizationId: "org-1",

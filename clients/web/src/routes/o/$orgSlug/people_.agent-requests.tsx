@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod/v4";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { PeopleAndAgentsPage } from "#/components/profiles/people-and-agents-page";
-import { buildOrganizationPeoplePath } from "#/lib/organizations/organization-routes";
+import { buildOrganizationAgentsPath } from "#/lib/organizations/organization-routes";
 import { buildAgentProfilePath } from "#/lib/profile-routes";
 
 const searchSchema = z.object({ requestId: z.string().optional() });
@@ -25,7 +25,7 @@ function AgentRequestsRoute() {
 				return navigate({
 					to: profileId
 						? buildAgentProfilePath({ orgSlug, profileId })
-						: buildOrganizationPeoplePath(orgSlug),
+						: buildOrganizationAgentsPath(orgSlug),
 				});
 			}}
 		/>

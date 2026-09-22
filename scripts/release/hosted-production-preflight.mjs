@@ -52,8 +52,12 @@ export async function runHostedProductionPreflight(input) {
     );
   }
   const steps = input.currentStableCliProjection
-    ? buildCoreCurrentCliProjectionPreflightStepSpecs([])
-    : buildProductionPreflightStepSpecs({ changedPaths: [], scopes });
+    ? buildCoreCurrentCliProjectionPreflightStepSpecs([], releaseSha)
+    : buildProductionPreflightStepSpecs({
+        changedPaths: [],
+        releaseSha,
+        scopes,
+      });
   const runControlStep =
     input.adapters?.runControlStep ?? defaultRunControlStep;
 

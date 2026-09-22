@@ -4,7 +4,25 @@ import {
   formatNpmPackageAcquisitionFailureDiagnosis,
 } from "../src/runtime/npm-package-acquisition-diagnostics";
 
+const UNRELATED_RECOVERY = /proxy|permissions|reach.*registry/iu;
+
 describe("npm package acquisition diagnostics", () => {
+  it.each([
+    "catalog:",
+    "workspace:*",
+  ])("identifies an unpublished dependency reference instead of blaming the network: %s", (specifier) => {
+    const diagnosis = diagnoseNpmPackageAcquisitionFailure({
+      text: [
+        "npm http fetch GET 200 https://registry.npmmirror.com/openmeld",
+        "npm error code EUNSUPPORTEDPROTOCOL",
+        `npm error Unsupported URL Type "${specifier.split(":")[0]}:": ${specifier}`,
+      ].join("\n"),
+    });
+    expect(diagnosis?.code).toBe("npm_package_dependency_invalid");
+    expect(diagnosis?.message).toContain("dependency reference");
+    expect(diagnosis?.nextSteps.join(" ")).not.toMatch(UNRELATED_RECOVERY);
+  });
+
   it("classifies unreachable local proxy npm fetch failures", () => {
     const diagnosis = diagnoseNpmPackageAcquisitionFailure({
       text: [

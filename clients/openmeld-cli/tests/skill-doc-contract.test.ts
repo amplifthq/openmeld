@@ -241,7 +241,7 @@ describe("openmeld-cli skill docs contract", () => {
     }
   });
 
-  it("teaches Local Agents the auditable Agent Profile request workflow", async () => {
+  it("teaches Local Agents the self-owned Agent Profile request workflow", async () => {
     const docs = [await readFile(COMMANDS_REFERENCE_PATH, "utf8")].map(
       normalizeMarkdownWhitespace
     );
@@ -249,15 +249,16 @@ describe("openmeld-cli skill docs contract", () => {
     for (const raw of docs) {
       expect(raw).toContain("openmeld profiles create");
       expect(raw).toContain("openmeld profiles requests list");
-      expect(raw).toContain("openmeld profiles requests approve");
       expect(raw).toContain("openmeld profiles requests cancel");
+      expect(raw).toContain("openmeld profiles requests retry");
       expect(raw).toContain("--native-session");
       expect(raw).toContain("provider-native Session ID");
       expect(raw).toContain("--source local-agent");
       expect(raw).toContain("--request-key");
-      expect(raw).toContain("never-allow");
-      expect(raw).toContain("ask-every-time");
-      expect(raw).toContain("automatically-allow");
+      expect(raw).toContain("Creating for another member is not available");
+      expect(raw).not.toContain("openmeld profiles requests approve");
+      expect(raw).not.toContain("openmeld profiles requests decline");
+      expect(raw).not.toContain("openmeld profiles requests preferences");
     }
   });
 

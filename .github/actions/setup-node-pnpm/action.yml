@@ -2,6 +2,10 @@ name: Setup Node.js and pnpm
 description: Install the repository-pinned Node.js and pnpm toolchain with the shared pnpm store cache.
 
 inputs:
+  node_version:
+    description: Node version; admission consumers use their parent's exact version
+    required: false
+    default: "24"
   control_directory:
     description: Optional trusted control checkout that needs only the canonical schema parser
     required: false
@@ -23,7 +27,7 @@ runs:
     - name: Setup Node.js
       uses: actions/setup-node@v5
       with:
-        node-version: "24"
+        node-version: ${{ inputs.node_version }}
         cache: pnpm
         cache-dependency-path: ${{ inputs.working_directory }}/pnpm-lock.yaml
 

@@ -108,6 +108,7 @@ describe("builtin agent controller definitions", () => {
     );
 
     expect(supportByAgentId).toEqual({
+      antigravity: { contractVersion: 1, mode: "unsupported" },
       "claude-code": { contractVersion: 1, mode: "unsupported" },
       codex: {
         contractVersion: 1,

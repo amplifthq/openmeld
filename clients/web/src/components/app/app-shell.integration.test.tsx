@@ -47,8 +47,7 @@ vi.mock("#/components/settings/app-settings-dialog", async () => {
 	};
 });
 
-const SPACES_TAB_NAME = /Spaces/;
-const SPACE_OR_SPACES_TAB_NAME = /^Spaces?$/;
+const BROWSE_SPACES_TAB_NAME = "Browse spaces";
 const TEAM_TAB_NAME = /Team/;
 const SETTINGS_TAB_NAME = /Settings/;
 const TEST_ACCOUNT = {
@@ -310,7 +309,7 @@ describe("AppShell", () => {
 		);
 	});
 
-	it("hides the Spaces tab on start routes when the selected profile has no joined spaces", async () => {
+	it("hides Browse spaces while keeping conversations available when no spaces are joined", async () => {
 		useRouterStateMock.mockReturnValue("/o/acme");
 		setRenderedAppSection("start");
 
@@ -320,8 +319,9 @@ describe("AppShell", () => {
 			await screen.findByRole("tab", { name: TEAM_TAB_NAME })
 		).toBeTruthy();
 		expect(
-			screen.queryByRole("tab", { name: SPACE_OR_SPACES_TAB_NAME })
+			screen.queryByRole("tab", { name: BROWSE_SPACES_TAB_NAME })
 		).toBeNull();
+		expect(screen.getByRole("tab", { name: "Spaces" })).toBeTruthy();
 		expect(screen.getByRole("tab", { name: TEAM_TAB_NAME })).toBeTruthy();
 		expect(screen.queryByRole("tab", { name: SETTINGS_TAB_NAME })).toBeNull();
 	});
@@ -347,7 +347,9 @@ describe("AppShell", () => {
 
 		renderAppShell();
 
-		const spacesTab = await screen.findByRole("tab", { name: SPACES_TAB_NAME });
+		const spacesTab = await screen.findByRole("tab", {
+			name: BROWSE_SPACES_TAB_NAME,
+		});
 		const peopleTab = screen.getByRole("tab", { name: TEAM_TAB_NAME });
 		expect(spacesTab.compareDocumentPosition(peopleTab)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING

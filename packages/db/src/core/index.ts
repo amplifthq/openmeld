@@ -113,6 +113,7 @@ export {
   CORE_PROJECT_SCHEMA_DEFINITION_PATH,
   CORE_ROUTINE_SCHEMA_DEFINITION_PATH,
   CORE_SPACE_ATTACHMENT_SCHEMA_DEFINITION_PATH,
+  CORE_SPACE_TASK_GITHUB_SCHEMA_DEFINITION_PATH,
   getCoreDbMigrationSources,
   getCoreDbSchemaSources,
 } from "./fact-metadata.ts";
@@ -187,3 +188,7 @@ export {
   spaceOwnerMemberReferences,
 } from "./space-index.schema.ts";
 export { spaceInvitations } from "./space-invitation.schema.ts";
+export {
+  githubAppWebhookDeliveries,
+  spaceTaskGitHubIssueLinks,
+} from "./space-task-github.schema.ts";

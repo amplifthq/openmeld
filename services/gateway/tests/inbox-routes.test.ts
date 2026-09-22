@@ -76,6 +76,44 @@ const HUMAN_MENTION_ITEM = {
 };
 
 describe("Inbox routes", () => {
+  it("routes bounded notification observations through verified Core context and rejects client scope", async () => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/inbox/notification-observations?cursor=position&limit=50"
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      organizationId: "org-1",
+      items: [ITEM],
+      cursor: "next-position",
+      hasMore: false,
+    });
+    expect(coreRpc.observeInboxNotifications).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cursor: "position",
+        limit: 50,
+        context: expect.any(Object),
+      })
+    );
+    for (const query of [
+      "limit=101",
+      "recipientUserId=other",
+      "organizationId=other",
+    ]) {
+      const invalid = await app.fetch(
+        new Request(`http://local/v1/inbox/notification-observations?${query}`),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(invalid.status).toBe(400);
+    }
+    expect(coreRpc.observeInboxNotifications).toHaveBeenCalledOnce();
+  });
+
   it("accepts native update observations only through a session-bound native transport and validates the complete account-source body", async () => {
     const { coreRpc, env } = makeEnv();
     const body = {
@@ -811,6 +849,12 @@ describe("Inbox routes", () => {
 
 function makeEnv() {
   const coreRpc = {
+    observeInboxNotifications: vi.fn(async () => ({
+      organizationId: "org-1",
+      items: [ITEM],
+      cursor: "next-position",
+      hasMore: false,
+    })),
     reportDesktopUpdateObservation: vi.fn(async () => ({
       accepted: true,
       sequence: 1,

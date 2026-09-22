@@ -79,10 +79,12 @@ export function searchSpaceMessages(
   }
 ) {
   // Literal substring search works inside words and unsegmented CJK text.
-  if ([...input.query.trim()].length < 3) {
-    return { signals: [], nextCursor: null, threadRoots: {} };
-  }
-  const match = `"${input.query.trim().replaceAll('"', '""')}"`;
+  const query = input.query.trim();
+  const shortQuery = [...query].length < 3;
+  const searchClause = shortQuery
+    ? "instr(lower(f.text), lower(?)) > 0"
+    : "space_message_search MATCH ?";
+  const searchValue = shortQuery ? query : `"${query.replaceAll('"', '""')}"`;
   const rows = sql
     .exec<{
       id: string;
@@ -94,9 +96,9 @@ export function searchSpaceMessages(
       JOIN space_signals s ON s.rowid = f.rowid
       LEFT JOIN space_thread_signal_placements p ON p.signal_id = s.id AND p.placement = 'thread'
       LEFT JOIN space_threads t ON t.thread_id = p.thread_id
-      WHERE space_message_search MATCH ? AND (? IS NULL OR s.rowid < ?)
+      WHERE ${searchClause} AND (? IS NULL OR s.rowid < ?)
       ORDER BY s.rowid DESC LIMIT ?`,
-      match,
+      searchValue,
       input.before,
       input.before,
       input.limit + 1

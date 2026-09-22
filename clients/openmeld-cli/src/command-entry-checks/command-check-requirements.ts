@@ -666,6 +666,12 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     REQUIRED_SIGN_IN,
     CONFIRM_SELECTED_PROFILE
   ),
+  "space.respond": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
   "space.wake_progress": buildCommandChecks(
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,

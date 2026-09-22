@@ -10,10 +10,7 @@ import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery"
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { CenterAgentDirectMessageIntro } from "#/components/spaces/center-agent-direct-message-intro";
-import {
-	SpaceHeaderIdentityIcon,
-	SpaceWindowHeader,
-} from "#/components/spaces/space-header";
+import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import type { SpaceView } from "#/components/spaces/space-view";
 import {
 	ComposerFileDiscoveryError,
@@ -37,6 +34,7 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
+import { CenterAgentChatHistory } from "./center-agent-chat-history";
 import { CenterAgentHeaderTabs } from "./center-agent-header-navigation";
 import { CenterAgentOptimisticConversation } from "./center-agent-optimistic-conversation";
 import { ChatTitleEditor } from "./chat-title-editor";
@@ -122,36 +120,35 @@ export function CenterAgentNewChat({
 			if (!mounted.current) {
 				return;
 			}
-			sidebar
-				.updateAsync((preferences) => {
-					const chats = preferences.chats ?? EMPTY_CHAT_PREFERENCES;
-					return {
-						...preferences,
-						chats: {
-							...chats,
-							titles: {
-								...chats.titles,
-								[session.spaceId]: (
-									titleDraft.content.text ||
-									text ||
-									attachments.files[0]?.fileName ||
-									"New chat"
-								).slice(0, 160),
+			if (titleDraft.content.text || group) {
+				sidebar
+					.updateAsync((preferences) => {
+						const chats = preferences.chats ?? EMPTY_CHAT_PREFERENCES;
+						return {
+							...preferences,
+							chats: {
+								...chats,
+								titles: titleDraft.content.text
+									? {
+											...chats.titles,
+											[session.spaceId]: titleDraft.content.text.slice(0, 160),
+										}
+									: chats.titles,
+								groups: chats.groups.map((item) =>
+									item.id === group && !item.spaceIds.includes(session.spaceId)
+										? { ...item, spaceIds: [...item.spaceIds, session.spaceId] }
+										: item
+								),
 							},
-							groups: chats.groups.map((item) =>
-								item.id === group && !item.spaceIds.includes(session.spaceId)
-									? { ...item, spaceIds: [...item.spaceIds, session.spaceId] }
-									: item
-							),
-						},
-					};
-				})
-				.catch((cause: unknown) => {
-					console.error("Could not name or group the new chat", cause);
-					toast.error(
-						"Your chat is open, but its name and group couldn't be saved. You can update them in the sidebar."
-					);
-				});
+						};
+					})
+					.catch((cause: unknown) => {
+						console.error("Could not name or group the new chat", cause);
+						toast.error(
+							"Your chat is open, but its name and group couldn't be saved. You can update them in the sidebar."
+						);
+					});
+			}
 			queryClient.setQueryData(
 				centerAgentDirectMessageSpaceProjectionQueryOptions({
 					enabled: true,
@@ -274,7 +271,6 @@ export function CenterAgentNewChat({
 				}
 				header={
 					<SpaceWindowHeader
-						leadingControl={<SpaceHeaderIdentityIcon isDirectMessage />}
 						navigation={
 							<CenterAgentHeaderTabs
 								activeSectionId="chat"
@@ -293,16 +289,22 @@ export function CenterAgentNewChat({
 						}
 						secondaryContentClassName="overflow-x-auto"
 						title={titleDraft.content.text || "New chat"}
-						titleAdornment={
-							<ChatTitleEditor
+						titleControl={
+							<CenterAgentChatHistory
 								disabled={send.isPending}
-								onSave={(title) => {
-									titleDraft.setContent((current) => ({
-										...current,
-										text: title,
-									}));
-								}}
 								title={titleDraft.content.text || "New chat"}
+								titleAction={
+									<ChatTitleEditor
+										disabled={send.isPending}
+										onSave={(title) => {
+											titleDraft.setContent((current) => ({
+												...current,
+												text: title,
+											}));
+										}}
+										title={titleDraft.content.text || "New chat"}
+									/>
+								}
 							/>
 						}
 					/>

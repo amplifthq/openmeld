@@ -1,7 +1,24 @@
 import type { SpaceApi } from "@openmeld/api-client";
 import { QueryClient } from "@tanstack/react-query";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { spaceFileContentQueryOptions } from "./space-files";
+
+const clients: QueryClient[] = [];
+beforeEach(() => {
+	vi.stubGlobal(
+		"URL",
+		class extends URL {
+			static createObjectURL = vi.fn(() => "blob:downloaded-image");
+			static revokeObjectURL = vi.fn();
+		}
+	);
+});
+afterEach(() => {
+	for (const client of clients.splice(0)) {
+		client.clear();
+	}
+	vi.unstubAllGlobals();
+});
 
 describe("spaceFileContentQueryOptions", () => {
 	it("reuses one authorized download across message and file previews", async () => {
@@ -14,6 +31,7 @@ describe("spaceFileContentQueryOptions", () => {
 			downloadFileContent,
 		} as Pick<SpaceApi, "downloadFileContent">;
 		const queryClient = new QueryClient();
+		clients.push(queryClient);
 		const options = spaceFileContentQueryOptions({
 			api,
 			fileId: "file-1",

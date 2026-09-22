@@ -1,7 +1,110 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-16T16:16:02Z",
+  "updatedAt": "2026-09-22T18:20:30Z",
   "agentControllers": {
+    "antigravity": {
+      "defaultModelId": "gemini-3.8-flash-high",
+      "models": [
+        {
+          "id": "gemini-3.8-flash-high",
+          "displayName": "Gemini 3.8 Flash (High)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.8-flash-medium",
+          "displayName": "Gemini 3.8 Flash (Medium)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.8-flash-low",
+          "displayName": "Gemini 3.8 Flash (Low)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.7-flash-high",
+          "displayName": "Gemini 3.7 Flash (High)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.7-flash-medium",
+          "displayName": "Gemini 3.7 Flash (Medium)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.7-flash-low",
+          "displayName": "Gemini 3.7 Flash (Low)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.6-flash-high",
+          "displayName": "Gemini 3.6 Flash (High)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.6-flash-medium",
+          "displayName": "Gemini 3.6 Flash (Medium)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.6-flash-low",
+          "displayName": "Gemini 3.6 Flash (Low)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.1-pro-high",
+          "displayName": "Gemini 3.1 Pro (High)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gemini-3.1-pro-low",
+          "displayName": "Gemini 3.1 Pro (Low)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "claude-sonnet-4-6",
+          "displayName": "Claude Sonnet 4.6 (Thinking)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "claude-opus-4-6-thinking",
+          "displayName": "Claude Opus 4.6 (Thinking)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        },
+        {
+          "id": "gpt-oss-120b-medium",
+          "displayName": "GPT-OSS 120B (Medium)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "1.2.7"
+        }
+      ]
+    },
     "codex": {
       "defaultModelId": "gpt-5.6-sol",
       "creationDefaults": {
@@ -23,6 +126,29 @@
             "ultra"
           ],
           "minCliVersion": "0.153.0"
+        },
+        {
+          "id": "gpt-6-sol",
+          "displayName": "GPT-6 Sol",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "minCliVersion": "0.155.1"
+        },
+        {
+          "id": "gpt-6-luna",
+          "displayName": "GPT-6 Luna",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "0.155.1"
         },
         {
           "id": "gpt-5.6-sol",
@@ -97,6 +223,14 @@
       },
       "models": [
         {
+          "id": "claude-opus-5-5",
+          "displayName": "Claude Opus 5.5",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "2.1.280"
+        },
+        {
           "id": "claude-fable-5-1",
           "displayName": "Claude Fable 5.1",
           "badgeLabel": "New",
@@ -152,6 +286,22 @@
       "defaultModelId": "grok-4.6",
       "models": [
         {
+          "id": "grok-4.7",
+          "displayName": "Grok 4.7",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
+          "minCliVersion": null
+        },
+        {
+          "id": "grok-4.7-build-fast",
+          "displayName": "Grok 4.7 Fast",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
+          "minCliVersion": null
+        },
+        {
           "id": "grok-4.6",
           "displayName": "Grok 4.6",
           "unavailable": false,
@@ -170,6 +320,14 @@
     "cursor": {
       "defaultModelId": "default[]",
       "models": [
+        {
+          "id": "grok-4.7[context=256k,reasoning_effort=high,fast=true]",
+          "displayName": "Grok 4.7 — High Fast",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
         {
           "id": "claude-opus-5[thinking=true,context=300k,effort=high,fast=false]",
           "displayName": "Claude Opus 5",
@@ -444,8 +602,40 @@
       ]
     },
     "opencode": {
-      "defaultModelId": "opencode/mimo-v2.5-free",
+      "defaultModelId": "opencode/mimo-v2.6-flash-free",
       "models": [
+        {
+          "id": "opencode/mimo-v2.6-flash-free",
+          "displayName": "OpenCode MiMo V2.6 Flash Free",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/grok-4.7",
+          "displayName": "Grok 4.7",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/mimo-v2.6-flash",
+          "displayName": "MiMo V2.6 Flash",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "opencode-go/mimo-v2.6-pro",
+          "displayName": "MiMo V2.6 Pro",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
         {
           "id": "opencode-go/deepseek-v4.1-flash",
           "displayName": "DeepSeek V4.1 Flash",
@@ -539,7 +729,7 @@
         {
           "id": "opencode/mimo-v2.5-free",
           "displayName": "OpenCode MiMo V2.5 Free",
-          "unavailable": false,
+          "unavailable": true,
           "supportedReasoningLevels": [],
           "minCliVersion": null
         },
@@ -936,6 +1126,104 @@
       },
       "models": [
         {
+          "id": "openai/gpt-6-sol",
+          "displayName": "GPT-6 Sol",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1050000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "high"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["high"],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6-luna",
+          "displayName": "GPT-6 Luna",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1050000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "high"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["high"],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-6-astra",
+          "displayName": "GPT-6 Astra",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1050000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "high"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["high"],
+          "minCliVersion": null
+        },
+        {
+          "id": "openai/gpt-5.6-sol",
+          "displayName": "GPT-5.6 Sol",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1050000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "high"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["high"],
+          "minCliVersion": null
+        },
+        {
+          "id": "anthropic/claude-fable-5.1",
+          "displayName": "Claude Fable 5.1",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1000000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "high"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["high"],
+          "minCliVersion": null
+        },
+        {
+          "id": "anthropic/claude-fable-5",
+          "displayName": "Claude Fable 5",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1000000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "high"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["high"],
+          "minCliVersion": null
+        },
+        {
+          "id": "x-ai/grok-4.7",
+          "displayName": "Grok 4.7",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 500000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "high"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["high"],
+          "minCliVersion": null
+        },
+        {
           "id": "deepseek/deepseek-v4.1-flash",
           "displayName": "DeepSeek V4.1 Flash",
           "hostedRuntime": {
@@ -970,6 +1258,20 @@
             "provider": "openrouter",
             "inputModalities": ["text", "image"],
             "contextWindow": 1050000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "high"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["high"],
+          "minCliVersion": null
+        },
+        {
+          "id": "anthropic/claude-opus-5.5",
+          "displayName": "Claude Opus 5.5",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1000000,
             "maxOutputTokens": 16384,
             "reasoningLevel": "high"
           },

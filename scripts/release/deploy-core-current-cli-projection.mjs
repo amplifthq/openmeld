@@ -14,8 +14,15 @@ import {
 import { buildCoreVersionReleaseStepSpecs } from "../cloudflare/core-version-deployment.mjs";
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
 import { deriveCoreProjectionTag } from "./core-projection-tag.mjs";
-import { probeCliReleaseStages } from "./release-cli-resume.mjs";
-import { recordCoreDeploymentOutput } from "./worker-deployment-evidence.mjs";
+import {
+  probeCliBinaryStage,
+  probeCoreProjectionStage,
+} from "./release-cli-resume.mjs";
+import { verifyStableNpmIdentity } from "./stable-npm-identity.mjs";
+import {
+  assertCoreDeploymentContext,
+  recordCoreDeploymentOutput,
+} from "./worker-deployment-evidence.mjs";
 
 const RELEASE_MANIFEST_PATH = "release/local-components.json";
 const RELEASE_MANIFEST_DEFINE =
@@ -179,11 +186,8 @@ export async function readCurrentCliProjectionTarget(input = {}) {
   });
 }
 
-export async function deployCoreWithCurrentCliProjection(input = {}) {
-  const cwd = input.cwd ?? process.cwd();
-  const env = input.env ?? process.env;
-  const write = input.write ?? ((value) => process.stdout.write(value));
-  const adapters = {
+function createReceiverAdapters(input, cwd, env) {
+  return {
     fetchChannelManifest:
       input.adapters?.fetchChannelManifest ?? fetchCliChannelManifest,
     readTagCommit:
@@ -220,10 +224,47 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
       input.adapters?.runStartupAdmission ?? runCoreStartupAdmission,
     runStep:
       input.adapters?.runStep ?? ((step) => runStep({ ...step, cwd, env })),
-    verifyAlignment: input.adapters?.verifyAlignment,
   };
+}
+
+export async function deployCoreWithCurrentCliProjection(input = {}) {
+  const cwd = input.cwd ?? process.cwd();
+  const env = input.env ?? process.env;
+  const write = input.write ?? ((value) => process.stdout.write(value));
+  const adapters = createReceiverAdapters(input, cwd, env);
 
   const target = await readCurrentCliProjectionTarget({ cwd, adapters });
+  if (
+    Number(Boolean(input.dryRun)) +
+      Number(Boolean(input.verifyOnly)) +
+      Number(Boolean(input.deploymentOnly)) !==
+    1
+  ) {
+    throw new Error("Select exactly one receiver execution mode.");
+  }
+  if (!input.dryRun && input.releaseSha !== adapters.readHeadSha()) {
+    throw new Error(
+      "Core receiver release SHA does not match checked-out HEAD."
+    );
+  }
+  if (input.deploymentOnly) {
+    assertCoreDeploymentContext({
+      env,
+      sourceSha: input.releaseSha,
+      projectionTag: target.expectedCoreTag,
+      workerName: "openmeld-core-prod",
+    });
+  }
+  if (input.verifyOnly) {
+    const result = await verifyCurrentCliProjectionAlignment({
+      cwd,
+      env,
+      ...target,
+      adapters: { ...adapters, fetch: input.adapters?.fetch ?? fetch },
+    });
+    write(`${JSON.stringify(result, null, 2)}\n`);
+    return result;
+  }
   write(
     [
       "\n[production-release] Resolved immutable stable CLI projection",
@@ -288,15 +329,6 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
     command: "pnpm",
     label: "Verify Core deployment is visible",
   });
-  await (adapters.verifyAlignment ?? verifyCurrentCliProjectionAlignment)({
-    adapters: {
-      fetch: input.adapters?.fetch ?? fetch,
-      runCommand: adapters.runCommand,
-    },
-    cwd,
-    env,
-    ...target,
-  });
   recordCoreDeploymentOutput({
     env,
     sourceSha: input.releaseSha,
@@ -307,26 +339,37 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
 }
 
 export async function verifyCurrentCliProjectionAlignment(input) {
-  const decisions = await probeCliReleaseStages({
-    adapters: input.adapters,
+  const probe = {
+    adapters: {
+      fetch,
+      runCommand: (command) =>
+        runReadOnlyCommand({ ...command, cwd: input.cwd, env: input.env }),
+      ...input.adapters,
+    },
     cwd: input.cwd,
     env: input.env,
-    tag: {
-      action: "SKIP",
-      criterion: "immutable-stable-channel-tag",
-      reason: `${input.tagName} resolved to ${input.tagCommitSha}`,
-    },
     target: {
       coreTag: input.expectedCoreTag,
       headSha: input.tagCommitSha,
       tagName: input.tagName,
       version: input.channelVersion,
+      serviceVersion: input.releaseManifest.components.service.bundleVersion,
+      minRequiredCliVersion:
+        input.releaseManifest.components.cli.packageVersion,
     },
+  };
+  const npm = await verifyStableNpmIdentity({
+    fetch: probe.adapters.fetch,
+    version: input.channelVersion,
+    sourceSha: input.tagCommitSha,
   });
-  if (decisions.alignment.action !== "SKIP") {
+  const core = await probeCoreProjectionStage(probe);
+  const binary = await probeCliBinaryStage(probe);
+  const decisions = { npm, core, binary };
+  if (core.action !== "SKIP" || binary.action !== "SKIP") {
     throw new Error(
       [
-        `Core projection recovery failed final release alignment: ${decisions.alignment.reason}.`,
+        "Core receiver failed immutable stable identity alignment.",
         `R2: ${decisions.binary.reason}`,
         `npm: ${decisions.npm.reason}`,
         `Core: ${decisions.core.reason}`,
@@ -405,6 +448,10 @@ function parseArguments(argumentsList) {
     const value = argumentsList[index + 1];
     if (argument === "--dry-run") {
       options.dryRun = true;
+    } else if (argument === "--deployment-only") {
+      options.deploymentOnly = true;
+    } else if (argument === "--verify-only") {
+      options.verifyOnly = true;
     } else if (argument === "--release-sha") {
       if (!(value && !value.startsWith("--"))) {
         throw new Error("--release-sha requires a value");

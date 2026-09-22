@@ -5,8 +5,8 @@ import { ensureSpaceInboxProjectionSelectionsTable } from "./space-inbox-project
 import { ensureSpaceReactionTables } from "./space-reaction-repo";
 import { ensureSpaceTaskTables } from "./space-task-repo";
 
-export const SPACE_SQL_SCHEMA_VERSION = 43;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v43";
+export const SPACE_SQL_SCHEMA_VERSION = 45;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v45";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -22,6 +22,7 @@ const SPACE_META_GUIDE_COLUMN = "guide";
 const SPACE_META_LINK_JOIN_POLICY_COLUMN = "link_join_policy";
 const SPACE_META_GUIDELINES_LEGACY_COLUMN = "guidelines";
 const SPACE_CURSORS_MENTION_ALIAS_COLUMN = "mention_alias";
+const SPACE_FILE_ENTRIES_ORIGIN_COLUMN = "origin";
 const SPACE_SIGNALS_CLIENT_MESSAGE_ID_COLUMN = "client_message_id";
 export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   ensureSpaceSchemaMigrationsTable(sql);
@@ -327,9 +328,12 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
       created_by_json TEXT NOT NULL,
       updated_by_json TEXT NOT NULL,
       trashed_at_ms INTEGER NULL,
-      trashed_by_json TEXT NULL
+      trashed_by_json TEXT NULL,
+      origin TEXT NULL
+        CHECK (origin IS NULL OR origin IN ('artifact', 'chat_upload'))
     )
   `);
+  ensureSpaceFileEntriesOriginColumn(sql);
 
   sql.exec(`
     CREATE TABLE IF NOT EXISTS space_file_revisions (
@@ -345,6 +349,17 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
       UNIQUE (file_id, client_mutation_id)
     )
   `);
+
+  // Additive, idempotent migration: historical bytes are never read or rewritten.
+  if (
+    !listTableColumnNames(sql, "space_file_revisions").has(
+      "image_dimensions_json"
+    )
+  ) {
+    sql.exec(
+      "ALTER TABLE space_file_revisions ADD COLUMN image_dimensions_json TEXT NULL"
+    );
+  }
 
   sql.exec(`
     CREATE TABLE IF NOT EXISTS space_file_mutations (
@@ -697,6 +712,59 @@ function ensureSpaceCursorsMentionAliasColumn(sql: SqlStorage): void {
   sql.exec(`
     ALTER TABLE space_cursors
     ADD COLUMN mention_alias TEXT NULL
+  `);
+}
+
+function ensureSpaceFileEntriesOriginColumn(sql: SqlStorage): void {
+  const columnNames = listTableColumnNames(sql, "space_file_entries");
+  if (!columnNames.has(SPACE_FILE_ENTRIES_ORIGIN_COLUMN)) {
+    sql.exec(`
+      ALTER TABLE space_file_entries
+      ADD COLUMN origin TEXT NULL
+        CHECK (origin IS NULL OR origin IN ('artifact', 'chat_upload'))
+    `);
+  }
+  // Unconditional and idempotent, matching the
+  // `ensureSpaceMetaAccessModeColumn` repair pattern: this must run every
+  // time this function runs, not only on the call that just added the
+  // column. A database that already has the column from an earlier,
+  // interrupted, or previously buggy schema pass can still have NULL file
+  // rows; gating the backfill on "column was just added" would leave those
+  // rows unrepaired forever. `SPACE_SQL_SCHEMA_VERSION` is bumped whenever
+  // this repair logic changes so a durable database that already recorded
+  // an older version (even one that ran a stale copy of this function)
+  // re-enters this whole migration and gets repaired.
+  backfillSpaceFileEntriesOrigin(sql);
+}
+
+/**
+ * Every file row that predates this column was written by the same code
+ * path the current "artifact" write default now uses explicitly — chat
+ * uploads only gained a distinct write path (and always set `origin`
+ * themselves) in the same change that added this column. There is no
+ * reliable signal in existing rows that would let this backfill tell a
+ * historical chat upload apart from historical deliberately-created work,
+ * so every pre-existing file defaults to 'artifact', matching the
+ * repository's create-time default and keeping historical files visible in
+ * the default Files view instead of hiding them behind a filter that did
+ * not exist when they were created.
+ *
+ * Folders never carry an origin (they are excluded from this UPDATE by the
+ * `kind = 'file'` guard) and are never affected by the origin filter.
+ *
+ * After this backfill runs, a NULL origin on a file row is not normal
+ * historical data — it is an exceptional/corrupt state that must fail
+ * closed (stay out of the default "artifact" view) rather than being
+ * silently reclassified. This UPDATE is itself the repair for that state:
+ * it is safe and correct to run on every schema pass, whether the column
+ * was just added, already existed with every row classified, or already
+ * existed with some rows still NULL from an earlier incomplete run.
+ */
+function backfillSpaceFileEntriesOrigin(sql: SqlStorage): void {
+  sql.exec(`
+    UPDATE space_file_entries
+    SET origin = 'artifact'
+    WHERE kind = 'file' AND origin IS NULL
   `);
 }
 

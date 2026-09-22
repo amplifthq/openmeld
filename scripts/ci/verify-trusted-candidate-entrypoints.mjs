@@ -7,6 +7,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import { isFinalCandidateControlPath } from "./final-candidate-control-paths.mjs";
+import { projectFinalCandidateControl } from "./final-candidate-control-projection.mjs";
 
 const LINE_SPLIT_PATTERN = /\r?\n/u;
 
@@ -35,6 +36,7 @@ export function verifyTrustedCandidateEntrypoints(input) {
 function collectControlPaths(trustedRoot, candidateRoot) {
   return [
     ...new Set([
+      ".npmrc",
       "pnpm-workspace.yaml",
       ...listTrackedControls(trustedRoot),
       ...listTrackedControls(candidateRoot),
@@ -58,16 +60,18 @@ function listTrackedControls(root) {
 function controlProjection(root, relativePath) {
   const absolutePath = path.join(root, relativePath);
   if (!existsSync(absolutePath)) {
-    return "missing";
+    return projectFinalCandidateControl(relativePath, null);
   }
-  if (relativePath.endsWith("package.json")) {
-    const manifest = JSON.parse(readFileSync(absolutePath, "utf8"));
-    return JSON.stringify({
-      packageManager: manifest.packageManager ?? null,
-      scripts: manifest.scripts ?? {},
-    });
-  }
-  return readFileSync(absolutePath, "utf8");
+  return projectFinalCandidateControl(
+    relativePath,
+    readFileSync(absolutePath, "utf8"),
+    (relatedPath) => {
+      const relatedAbsolutePath = path.join(root, relatedPath);
+      return existsSync(relatedAbsolutePath)
+        ? readFileSync(relatedAbsolutePath, "utf8")
+        : null;
+    }
+  );
 }
 
 function parseOptions(argv) {

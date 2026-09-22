@@ -1392,6 +1392,12 @@ Grok 4.5, DeepSeek V4 Flash, or any other primary models. If all providers for
 the exact model fail, the turn still ends in one visible failure. Public-web
 research uses the same exact-model provider-rerouting rule.
 
+The separate session-title RPC uses the fixed `z-ai/glm-5.3-flash` helper model
+with low reasoning and structured output. It runs outside the conversation and
+execution queue, cannot call tools, and never blocks or changes the primary
+turn. Its bounded failure leaves the default chat title; see
+[session titles](space-collaboration.md#center-agent-session-titles).
+
 Provider registration is scoped by Organization and frozen route identity.
 Flue/pi-ai capability metadata, AI Gateway headers, usage attribution, and
 reasoning behavior must be read through that scoped provider id rather than a
@@ -1441,15 +1447,16 @@ sequence. These stages must not run concurrently: each can temporarily hold a
 large provider or schema object, and overlapping them raises peak isolate
 memory without improving the resulting prompt or capability set.
 
-The complete authorized direct-tool catalog remains the single source for
-execution, capability discovery, and Code Mode. Whenever that catalog includes
-progressive discovery and Code Mode, every tool-capable primary model receives
+The complete authorized capability catalog remains the single source for
+execution, capability discovery, and Code Mode. Before Flue registration,
+OpenMeld derives the native subset from that catalog and an explicit calling
+policy. Every tool-capable primary model receives
 the same stable provider bootstrap: `codemode`, the always-direct capability
 search and describe tools, the three generic Connected App tools, and the
 bounded read-only member tools, plus the
 authorized foundational Computer tools (`read`, `write`, `edit`, `bash`, `grep`,
 `glob`, and `computer_command`). Computer operations remain directly usable in
-a fresh chat without first requiring a discovery call; the provider filter
+a fresh chat without first requiring a discovery call; the registration policy
 never adds a tool absent from the authorized turn catalog. These
 foundational reads stay direct because supported models must be able to inspect
 the requester's current OpenMeld state even when they do not first invoke a
@@ -1470,12 +1477,28 @@ user request or become a second semantic owner.
 The generated Code Mode catalog still contains every active direct tool,
 and every direct or inner call re-enters the same
 cancellation, authorization, confirmation, audit, usage, and result-bounding
-paths. This is provider-payload compaction, not capability removal or a second
-tool policy. Provider context capacity is checked against the frozen model
-route rather than a universal tool-count limit. A generic payload without Code
-Mode is left intact, while a progressive catalog with more than one Code Mode
-entry fails fast. The source tool list is never mutated, so retries and
-diagnostics retain the admitted capability evidence.
+paths. Deferred capabilities are not registered as native Flue tools. The
+provider adapter preserves the framework's final tool interface without a
+second filter. Provider context capacity is checked against the frozen model
+route rather than a universal tool-count limit. Diagnostics count the final
+native interface plus the materialized deferred capabilities as available,
+and report the native count separately.
+
+Flue adds Skill activation and supporting-file reads only from mounted,
+authorized Skills. Its task tool is present only when subagents are declared;
+Center Agent declares no subagents or implicit sandbox. Result-schema tools
+remain owned by Flue's explicit result-call boundary, which Center does not use.
+
+The pinned framework's model-context projection exposes a narrow
+`projectResourceSignal` seam for reserved, framework-authored resource and
+environment events. OpenMeld renders their tool catalogs as historical
+registration facts, not current calling authority. This applies to live
+steering, restored context and compaction input without changing canonical
+history. User text, quotations, tool calls/results and existing summaries are
+not rewritten. Current native schemas and capability discovery are authoritative;
+execution-time checks still reject revoked permissions. Existing summaries may
+contain historical availability claims and remain historical context, never
+authorization. Newly compacted histories use the same trusted event projection.
 
 For a task with multiple external effects, direct calls or Code Mode await each
 write in the requested or dependency order. Each distinct write receives its

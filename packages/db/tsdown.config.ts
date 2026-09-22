@@ -8,6 +8,7 @@ export default defineConfig({
     "core-facts": "src/core-facts.ts",
     diagnostics: "src/diagnostics.ts",
     facts: "src/facts.ts",
+    query: "src/query.ts",
     tooling: "src/tooling.ts",
   },
   outDir: "dist",

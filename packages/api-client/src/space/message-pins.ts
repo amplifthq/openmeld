@@ -9,6 +9,7 @@ import type {
   SpaceMessagePinMutation,
 } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
+import { currentSpaceFileHeaders } from "./addressing-contract";
 import type { SpaceRequestInput } from "./types";
 
 export async function readOrUpdateSpaceFilePins(
@@ -19,9 +20,13 @@ export async function readOrUpdateSpaceFilePins(
     url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/file-pins`,
     operation: "space.file-pins",
     method: input.mutation ? "PATCH" : "GET",
+    headers: currentSpaceFileHeaders(),
     ...(input.mutation
       ? {
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...currentSpaceFileHeaders(),
+          },
           body: JSON.stringify(
             spaceFilePinMutationSchema.parse(input.mutation)
           ),

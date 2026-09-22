@@ -21,6 +21,65 @@ describe("SpaceAgentInteractionCard", () => {
 		cleanup();
 	});
 
+	it.each([
+		[
+			"start_new_conversation",
+			"Start a new conversation",
+			"Continue task",
+			"Response sent",
+		],
+		["leave_task", "Stop this task", "Stop task", "Stop requested"],
+	])("submits the explicit folder choice %s without claiming task completion", async (optionId, label, button, acknowledgement) => {
+		const onRespond = vi.fn().mockResolvedValue(undefined);
+		render(
+			<SpaceAgentInteractionCard
+				item={createWakeProgressItem({
+					canRespond: true,
+					request: {
+						v: 1,
+						interactionId: "folder-choice",
+						requestedAtMs: 1000,
+						expiresAtMs: 2000,
+						kind: "question",
+						title: "Choose where to continue",
+						questions: [
+							{
+								questionId: "working_folder_recovery",
+								prompt: "Which conversation should this task use?",
+								multiple: false,
+								allowOther: false,
+								options: [
+									{
+										optionId: "start_new_conversation",
+										label: "Start a new conversation",
+									},
+									{ optionId: "leave_task", label: "Stop this task" },
+								],
+							},
+						],
+					},
+				})}
+				onRespond={onRespond}
+			/>
+		);
+		expect(onRespond).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("radio", { name: label }));
+		fireEvent.click(screen.getByRole("button", { name: button }));
+		await screen.findByText(acknowledgement);
+		expect(onRespond).toHaveBeenCalledOnce();
+		expect(onRespond).toHaveBeenCalledWith({
+			interactionId: "folder-choice",
+			runtimeCoordinatorExecutionId: "rce_interaction",
+			response: {
+				kind: "question",
+				answers: [
+					{ questionId: "working_folder_recovery", values: [optionId] },
+				],
+			},
+		});
+		expect(screen.queryByText("Task completed")).toBeNull();
+	});
+
 	it("shows permission context and submits the selected permission option", async () => {
 		const onRespond = vi.fn().mockResolvedValue(undefined);
 		render(

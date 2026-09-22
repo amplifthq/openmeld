@@ -519,6 +519,23 @@ new tool to select main explicitly. This is a cloud-only capability: old/new
 CLI, Service, and Skills retain setup, Wake, Space actions, trace and recovery
 contracts. No local contract epoch or local component stamp changes are needed.
 
+## Center Agent session title generation
+
+`generateCenterAgentSessionTitle` is an additive, internal Core-to-Remote-Agent
+service-binding RPC. Its strict request and response live in `packages/schemas`.
+Space supplies bounded persisted message text and filenames; the receiver returns
+a validated short title or no topic. It has no tool, session, or Wake authority.
+The existing Space name and index projection carry the result, and existing
+metadata invalidations refresh readers. Auth personal titles retain precedence.
+
+Deploy the Remote Agent receiver before Core and Web. New Core with an older
+receiver keeps message publication working and leaves the default title when
+the optional RPC is unavailable. Older Core does not call the new receiver.
+Rollback Web/Core before removing the receiver. No public HTTP, WebSocket,
+native delivery, CLI, Service, or Skill payload changes; old and new clients
+retain setup, Wake, Space actions, and diagnostics interoperability. No database
+migration, contract epoch, local component stamp, or new binding is required.
+
 ## Hosted reply recovery rollout
 
 The optional `replyRecovery` field on Remote Agent submit requests is owned by
@@ -655,10 +672,24 @@ GitHub issue association is additive Remote Agent plus Space Task contract.
 Creating an issue from a shared Space records a linked Task through the
 existing create/mutate RPCs when the Task list can confirm whether that issue
 is already linked; the GitHub issue remains GitHub-owned. Closing
-the issue through `github_update_issue` cancels still-active linked Tasks
-through the Space writer. Completing or canceling a Task does not PATCH
-GitHub from Core. Old Remote Agent builds simply omit the association. Deploy
-schema consumers in Web, Gateway, and Core before the Remote Agent producer.
+the issue through `github_update_issue` or a verified GitHub App webhook
+cancels still-active linked Tasks through the Space writer. Completing or
+canceling a Task does not PATCH GitHub from Core. Old Remote Agent builds
+simply omit the association.
+
+Gateway `POST /github/app/webhook` forwards the raw body and GitHub delivery
+headers to Core `verifyGitHubAppWebhook`. Core verifies
+`X-Hub-Signature-256` with `GITHUB_OPENMELD_WEBHOOK_SECRET`, accepts `ping`,
+ignores uninteresting events, and enqueues `kind: "github_app_webhook"` on
+the existing daemon-dispatch queue. The Space Durable Object
+`rpcApplyGitHubIssueObservation` path has no member context and does not
+start a model turn. Deploy D1 migration 0180 before Core and Gateway
+consumers. A missing webhook secret fails closed. Old Gateway builds simply
+lack the route; old Core builds reject the new RPC. No local-component
+upgrade is required.
+
+Deploy schema consumers in Web, Gateway, and Core before the Remote Agent
+producer.
 
 The local Space Action MCP adds non-final Task tools alongside its one required
 final Space action. This is an additive CLI/OpenMeld Service/adapter contract
@@ -1191,6 +1222,30 @@ exactly or admission fails. A plan is disclosure policy, not member authority,
 tool authority, a conversation id, or a substitute for source authorization.
 
 ### Inbox contracts
+
+`GET /v1/inbox/notification-observations` and Core `observeInboxNotifications`
+use the strict shared Inbox observation query, response and cursor schemas.
+Core derives the recipient/Organization from active membership, validates cursor
+scope and current source access, and reads a bounded insertion-ordered page from
+existing `inbox_items`. Initial requests return an empty baseline; continuation
+pins a finite upper row position until that window is consumed. Occurrence time
+is not an insertion position. Inbox uses soft clearing; this volatile cursor is
+not a durable cross-database-rebuild checkpoint. Browser reload starts a new
+baseline while its existing pending delivery ids remain recoverable.
+
+This endpoint is a read projection, not an unread writer or cross-device delivery
+lock. It returns current source facts and targets; no existing list/get/summary
+response changes. Web retains eligible ids in its existing scoped pending ledger
+before advancing. Browser delivery receipts require `show`, and aborting the
+current feed closes unacknowledged attempts. Storage availability is client-local
+capability, never a replacement for account preferences or Core read state.
+
+Contract impact: deploy **Core, then Gateway, then Web and the matching Desktop
+renderer**. New callers require the new receiver; do not expose them first or
+fall back to the lossy first-page reader. Roll back callers before the endpoint.
+Old Web/Desktop continue using unchanged APIs. No database migration, new Inbox
+table, CLI/Service/Skills contract floor, Wake/setup/trace change, or native IPC
+change is required; existing workstation execution can continue unchanged.
 
 The additive `/v1/inbox/feed` and `/v1/inbox/feed/state` endpoints use the shared
 `inbox-feed` HTTP/RPC contracts. Filters, counts, rank, group identity, request
@@ -2581,6 +2636,76 @@ construct only authenticated Gateway download paths; the contract does not
 define a public attachment URL.
 
 ### Space File Contracts
+
+**Revision image geometry.** Revision descriptors and message file references
+may include `imageDimensions: { width, height }`. Both positive integer axes must
+be present, at most 32,768 each, with at most 128 Mi pixels of area. Absence is
+valid for historical, unsupported, or unsafe metadata; zero, partial, or guessed
+geometry is not valid. These are display-oriented dimensions, not an EXIF-blind
+raw rectangle. Existing raw-byte writes, download routes, authentication, and
+file/revision identities are unchanged.
+
+All stored producers converge on the Space Durable Object's final revision
+commit. After initial authorization and before the transactional commit, it
+reads at most 128 KiB through at most 16 private R2 ranges of the exact immutable
+original. It then rechecks access and the existing revision fence. JPEG, PNG,
+and WebP EXIF orientation is normalized; GIF geometry is supported. Unsupported
+container transforms, invalid metadata, and exhausted metadata budgets remain
+unknown. Transport failure is not disguised as corrupt metadata. Original bytes
+are neither decoded nor rewritten. Restore reads the copied original through
+the same path; mutation replay preserves the already committed geometry. Browser
+selection uses the same bounded reader only for local presentation, never as
+server authority. Core rebuilds message references from their authorized stored
+revision, ignoring untrusted supplied geometry.
+
+**Contract Impact Audit — image geometry (#1200).** The producer is Core's Space
+revision owner. Consumers include Web, API client response parsers, Gateway,
+CLI and Service execution/result readers. Remote Agent does not consume display
+geometry. Core projects it out of Remote Agent file-tool and Space-context RPC
+responses, including nested revisions and message file references, while
+preserving original bytes and canonical Space records. The private native-file
+write RPC applies the same projection. Gateway-facing RPC methods return geometry
+only for `spaceImageGeometryVersion === "1"`. Gateway declares that version to
+Core and independently checks `x-openmeld-space-image-geometry-version: 1` on
+HTTP callers. Missing or unknown versions receive the legacy shape. API clients
+declare this header for file and message reads/mutations, including search.
+WebSocket readers declare `spaceImageGeometry: true` in the existing hello
+capabilities; the Space session persists that declaration across hibernation.
+Origin capability negotiation remains independent. The shared geometry projection
+preserves non-JSON RPC resources and never changes stored revisions or messages.
+Client authoring requests omit display geometry even when the local preview has
+it. Gateway also removes it before forwarding authoring requests to Core. Core
+reconstructs file references from authorized canonical revisions, so this does
+not trust client geometry or alter the visible result. A new client can safely
+author against an older strict receiver without retrying a rejected request.
+
+Native delivery already resolves Space files into explicit original-byte
+attachments before freezing submit-turn requests. Those attachment descriptors
+contain identity, MIME type, object key and byte size, not display geometry.
+The frozen request, execution-recovery copy and replay retain that compatible
+shape. No rejection-triggered fallback or Remote Agent capability is needed.
+The optional field is backward-compatible for new readers of old data, but old
+strict readers can reject new responses and signals. Therefore the CLI command
+and Service compatibility identities are both advanced to
+`2026-09-image-geometry-v1`, and the daemon execution epoch advances to
+`runtime-transport-epoch-2026-09-image-geometry`. Skills content is unchanged.
+These markers flow through the existing local-component compatibility and
+execution-admission machinery; they do not assert that a release was published.
+
+Rollout may deploy Core before Gateway and Web: old Gateway receives legacy RPC
+output from new Core; old Web/CLI receives legacy HTTP or WebSocket output; new
+readers accept missing optional geometry from old servers. This composes with
+short-query Core/Gateway receivers before Web and private evidence Core receivers
+before Remote Agent callers. The signed CLI release publishes compatible local
+components before activating its Core execution-epoch projection. Existing local
+component identities and admission fences remain authoritative.
+
+Gateway/Web/CLI readers may roll back while the negotiated Core boundary stays
+in place. Do not roll Core back below this compatibility bridge after geometry
+has been persisted in messages: old internal readers are not certified for that
+canonical shape. Recover with the bridge retained, or a forward fix. Never erase
+canonical geometry, drop the nullable column, or rewrite stored messages for a
+rollback. No D1 migration or new public image transport is introduced.
 
 `packages/schemas` owns the Space File entry and revision descriptors, mutation
 bodies and responses, raw upload query, list query, content limits, error-code
@@ -4381,6 +4506,36 @@ still align with the delivery and the owning current-membership projection.
 must not choose the memory subject. Missing or conflicting frozen scope fails
 closed.
 
+### Private Center Agent evidence-read contracts
+
+The additive schemas `center-agent-evidence.ts`, `agent-activity-overview.ts`,
+`center-agent-routine-evidence.ts`, and `center-agent-memory-search.ts` under
+`packages/schemas/src/schemas/http/` own the private Audit Log adapter, Activity
+overview, historical/exact Routine diagnostics, and explicit retained-memory
+read. Their types are derived and used by Core receivers and Remote Agent
+parsers. Core's private Center Agent entrypoint exposes these methods; Gateway
+does not. The human journal, Web/CLI Activity snapshot, Routine HTTP history,
+`lastRun`, interactive turn-diagnostic restrictions, and automatic memory turn
+envelope remain unchanged.
+
+The model supplies only read intent and bounded selectors, never principal,
+member, Organization, graph/episode selector, or arbitrary submission authority.
+Core reauthorizes the designated Agent and represented member, then resolves
+source access and the current reply audience. The explicit memory response may
+include authorized structured OpenMeld Space/signal references; this is a
+separate contract from the automatic turn envelope, which still excludes them.
+Every supporting source of a synthesized fact must pass before its text or any
+reference becomes visible in the ordinary tool result. Runtime summaries include
+only allowlisted timestamps/counts, not tool names or raw provider content.
+
+Mixed versions fail explicitly: deploy these Core receivers before the Remote
+Agent callers, and remove callers before rolling receivers back. New callers
+must not fall back to the human Audit Log endpoint or the unbounded-for-tools
+legacy snapshot. Existing callers continue using retained old receivers and
+shapes. No Gateway/Web/CLI wire change, new database migration, local component
+bundle update, or workstation hard cut is introduced by these private reads.
+This ordering is a compatibility contract, not authorization to deploy.
+
 ### Information Protection Contracts
 
 `packages/agent-runtime/src/information-protection-prompt.ts` is the single
@@ -5924,9 +6079,9 @@ Service projection `required` even when the latest artifact is advisory:
   Core behavior tests; an ordinary advisory release cannot lower or bypass it.
   The initial floor was `0.3.15`: Service `0.3.14` can report an online
   heartbeat without registering execution routes. The current floor is
-  `0.3.153`: earlier Services cannot provide the current working-folder facts
-  or dispatch-owned reply observation required by the current workstation
-  runtime. The floor blocks only new unsafe admission; RuntimeCoordinator keeps
+  `0.3.217`: earlier Services do not refresh admission after update or draining
+  and do not carry the required Codex MCP startup behavior. The floor blocks
+  only new unsafe admission; RuntimeCoordinator keeps
   accepted work authoritative, and Service update and reconnect controls remain
   available so the Computer can recover.
   A supported version below the latest release remains advisory when
@@ -6738,6 +6893,21 @@ service, and provider-account facts decide availability.
 Shared contract truth lives in `packages/schemas`.
 
 Shared database truth lives in `packages/db`.
+
+Consumers building predicates for those shared tables import the required
+operators and inferred-record types from `@openmeld/db/query`. That entrypoint
+re-exports Drizzle directly from the same package that owns the tables and D1
+factory; it is not another ORM, query implementation, or database authority.
+Its ESM and declaration outputs keep Drizzle external, and it must not import
+Node-only SQLite tooling into Worker consumers.
+
+Do not combine a shared table with query helpers or inferred-record types from
+a consumer-local Drizzle installation. pnpm may resolve the same Drizzle version
+with different optional SQLite peers, creating incompatible private/protected
+type identities. Auth retains its declared Drizzle dependency for Better Auth's
+peer contract, but its own repositories use `@openmeld/db/query`. Fix this
+boundary without coercing types, editing dependency links, or undoing the
+separately validated SQLite 13 runtime/install fixes.
 
 The durable mental model is:
 

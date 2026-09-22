@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import testConfig from "../../vitest.config";
+import { imageLoadingEffectModule } from "../image-loading-effect-module";
 
 const require = createRequire(import.meta.url);
 const externalStorePath = path.dirname(
@@ -52,6 +53,7 @@ export default defineConfig({
 		],
 	},
 	plugins: [
+		imageLoadingEffectModule(),
 		{
 			name: "conversation-preview-data",
 			enforce: "pre",

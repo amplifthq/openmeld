@@ -1251,6 +1251,9 @@ async function runSpawnedCommand(input: {
 }> {
   return await new Promise((resolve, reject) => {
     const child = spawn(input.command, input.args, {
+      // Preserve inherited terminal output, but never allocate a new console
+      // when the same upgrade path runs under the background maintenance task.
+      windowsHide: true,
       stdio:
         input.forwardOutput && input.useInheritedOutput
           ? ["ignore", "inherit", "inherit"]

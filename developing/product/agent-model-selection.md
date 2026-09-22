@@ -109,6 +109,13 @@ becomes a first-class, user-selectable property of an Agent Profile.
    served read-only by core; the CLI keeps an embedded snapshot as offline
    fallback only. Changing the catalog is a core deploy, not a CLI publish and
    not a DB edit.
+
+   Antigravity is included in both catalogs. Its exact model IDs come from
+   `agy models`; the September 22, 2026 CLI 1.2.7 capture lists 14 choices
+   covering Gemini, Claude, and GPT-OSS. Gemini High/Medium/Low variants and
+   GPT-OSS Medium are distinct native model IDs, not OpenMeld aliases.
+   The hosted catalog must not omit a controller that exists only in the CLI
+   offline snapshot: Web reads the hosted catalog, not the offline snapshot.
 9. **Do not bump the dispatch queue schema.** The selection rides binding
    metadata down to the daemon and is resolved locally.
 10. **Selection logic is shared headless code**, not duplicated per client.
@@ -300,12 +307,18 @@ Run `pnpm verify:model-catalog` for the collector and real disposable-Git
 publication/recovery tests. A pushed branch whose PR creation failed is recovered
 without rewriting it; external branch changes stop automatic recovery.
 
-One open catalog bot PR is a review handoff: subsequent runs leave its
-branch and body untouched so a coding agent can safely continue there. A closed
-PR suppresses the same combined source fingerprint; changed facts may produce a new
-proposal. Merging the evidence snapshot acknowledges that revision, including
-when the reviewer elects to make no product change. Collection timestamps alone
-do not trigger another proposal. There is no bot force-push or auto-merge.
+One open catalog bot PR is the active review inbox. Subsequent successful Actions
+runs leave its branch and body untouched so a coding agent can safely continue
+there, but upsert one bot-owned **Latest model catalog scan** comment with the
+newest generated brief and the current Actions run link. A local publisher
+invocation without an Actions run context leaves the open PR untouched rather
+than authoring that bot marker under a human account. This refresh happens even when
+the scan has no deterministic additions, so the PR always exposes fresh evidence
+without rewriting reviewer-owned commits. A closed PR suppresses the same combined
+source fingerprint; materially changed facts may produce a new proposal. Merging
+the evidence snapshot acknowledges that revision, including when the reviewer
+elects to make no product change. Collection timestamps alone do not trigger a
+new proposal after the prior PR is closed. There is no bot force-push or auto-merge.
 
 The reviewing coding agent reads the captured evidence first, decides
 `creationDefaults`, presentation and adapter changes, and fills only actual
@@ -357,10 +370,11 @@ is a hosted-runtime policy catalog, not a local Agent Profile controller:
 
 - `defaultModelId` is the system default resolved for each new Center Agent
   turn. The current default is `z-ai/glm-5.3-flash` (**GLM 5.3 Flash**).
-- The curated list covers six model vendors: OpenAI (GPT-5.6 Terra and GPT-5.6
-  Luna), Anthropic (Claude Opus 5 and Claude Sonnet 5), Google (Gemini 3.8 Flash,
+- The curated list covers six model vendors: OpenAI (GPT-6 Astra, GPT-5.6 Sol,
+  GPT-5.6 Terra, and GPT-5.6 Luna), Anthropic (Claude Fable 5.1, Claude Fable 5,
+  Claude Opus 5, and Claude Sonnet 5), Google (Gemini 3.8 Flash,
   Gemini 3.5 Flash Lite, and Gemini 3.1 Pro Preview), DeepSeek (V4.1 Flash and
-  V4 Flash), xAI (Grok 4.6 and Grok 4.5), and Z.ai (GLM 5.3 Flash). Exact
+  V4 Flash), xAI (Grok 4.7, Grok 4.6, and Grok 4.5), and Z.ai (GLM 5.3 Flash). Exact
   OpenRouter IDs remain in `release/vendor-models.json`; a preview model remains
   labeled Preview.
 - A hosted model may declare one optional `badgeLabel` as catalog-owned
@@ -411,11 +425,26 @@ continuation through the actual provider adapter before network dispatch.
 This proves local contract compatibility, not live provider availability or
 successful hosted execution for a particular account.
 
+The September 22 expansion adds GPT-6 Astra, GPT-5.6 Sol, Claude Fable 5.1,
+Claude Fable 5, and Grok 4.7 using the same capacity and reasoning policy.
+Their captured OpenRouter metadata is retained in
+`services/remote-agent/tests/fixtures/openrouter-hosted-models-2026-09-22.json`.
+Both Center Agent and personal Remote Agent choices use this hosted catalog;
+there is no second Remote Agent model list. Existing defaults, saved model IDs,
+and the image helper remain unchanged. Shared edit capabilities, Web model
+editing, and Core Binding validation resolve `hosted:remote-agent` to the
+`center-agent` catalog through `getAgentControllerModelCatalogId`; the actual
+Remote Agent controller and Binding identity remain `hosted:remote-agent`.
+
 No catalog schema changes are required. Older Web clients can show the expanded
 flat list; the provider-aware Web client can also consume the older catalog.
 Core deployment publishes the added choices; Web deployment publishes the
 two-level picker. Existing Remote Agent route readers consume the same frozen
-fields. CLI, Service, and local Agent settings are unaffected.
+fields. Model edits use the existing owner-authorized Binding command and
+execution admission; no schema or local runtime contract changes are needed.
+Deploy Core before exposing the Remote Agent edit control in Web because the
+older Core validator does not recognize this shared catalog mapping. Local
+Agent settings and ongoing hosted executions retain their existing behavior.
 
 ### 5.6 GLM 5.3 Flash hosted verification
 
@@ -493,7 +522,70 @@ display name **Qwen3.8 Flash** and the exact variant keys `low`, `medium`, and
 so the catalog entry is checked against observed vendor fields rather than a
 fixture shaped after OpenMeld's manifest.
 
+### 5.8 September 22 local model refresh
+
+Authenticated Cursor 2026.09.18 ACP returns
+`grok-4.7[context=256k,reasoning_effort=high,fast=true]` in matching model
+config options and legacy session inventory. Its reasoning remains part of the
+exact ID; no independent effort selector is introduced.
+
+Grok Build 1.0.40 returns `grok-4.7` and `grok-4.7-build-fast` in both
+initialize and session inventories, with `low`, `medium`, `high`, and `xhigh`
+efforts. Its existing default remains `grok-4.6`; current account inventory
+still gates every prompt.
+
+OpenCode 1.18.31's refreshed provider inventory adds
+`opencode/mimo-v2.6-flash-free`, `opencode-go/grok-4.7`,
+`opencode-go/mimo-v2.6-flash`, and `opencode-go/mimo-v2.6-pro`.
+Only Grok exposes separate variants (`low`, `medium`, `high`, `xhigh`);
+the MiMo entries have none. Provider-shaped captures are retained in
+`packages/schemas/tests/fixtures/local-model-catalog-2026.09.22.json`.
+
+The same complete free-provider inventory no longer contains the former
+default `opencode/mimo-v2.5-free`, and a direct invocation returns
+`ProviderModelNotFoundError`. The default therefore moves to the successfully
+invoked free successor `opencode/mimo-v2.6-flash-free`. The old entry is marked
+unavailable so existing explicit selections use the documented runtime fallback;
+stored Bindings and preferences are not rewritten. Public discovery also lists
+`opencode/deepseek-v4.1-flash`, but the observed free-provider inventory does
+not expose it. That additional route is not authored from marketplace data;
+the existing `opencode-go/deepseek-v4.1-flash` remains selectable.
+
+These are online catalog changes served by Core. The CLI offline snapshot,
+shared schemas, adapter protocols, and local-component version floors are
+unchanged. Provider acceptance and an OpenMeld Wake remain separate evidence.
+
 ---
+
+### 5.9 Claude Opus 5.5
+
+The September 23 catalog adds `claude-opus-5-5` for Claude Code 2.1.280
+or later, as published in the official Claude Code changelog. Anthropic's
+effort contract supports `low`, `medium`, `high`, `xhigh`, and `max`.
+The existing Claude Code default remains unchanged.
+
+Center Agent and personal Remote Agents share the OpenRouter route
+`anthropic/claude-opus-5.5`. Captured OpenRouter metadata confirms tool calling,
+text/image input, a 1M context window, and the existing hosted `high` effort.
+OpenMeld retains its 16,384 output-token budget, below the provider's 128K
+limit. This is a Core-served catalog addition; it changes neither the fixed
+CLI offline snapshot nor any adapter or execution contract.
+
+### 5.10 GPT-6 Sol and Luna
+
+The September 23 refresh adds `gpt-6-sol` and `gpt-6-luna` for Codex.
+An authenticated Codex 0.155.1 `model/list` establishes the exact IDs and
+reasoning efforts: Sol supports `low`, `medium`, `high`, `xhigh`, `max`, and
+`ultra`; Luna supports the same list except `ultra`. The catalog uses 0.155.1
+as the verified client floor; it is not a claim about the earliest upstream
+release that could run either model. Existing creation defaults stay unchanged.
+
+The shared hosted routes are `openai/gpt-6-sol` and `openai/gpt-6-luna`.
+Captured OpenRouter metadata establishes 1,050,000 context tokens, text/image
+input, tool calling, and `high` reasoning. OpenMeld retains its 16,384 output
+budget. Direct OpenAI Chat Completions has a separate tool/effort limitation;
+OpenRouter is the actual hosted boundary and must pass live tool continuation
+before support is claimed. The API model names alone are not adapter evidence.
 
 ## 6. Reusable Selection Logic (Web / CLI / Desktop)
 

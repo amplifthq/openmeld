@@ -3,6 +3,7 @@ import { AuthCard } from "#/components/auth/auth-card";
 import { AuthPageShell } from "#/components/auth/auth-page-shell";
 import { guardAnonymousOnlyRoute } from "#/lib/auth-entry-guard";
 import { ADD_ACCOUNT_AUTH_INTENT } from "#/lib/auth-intent";
+import { isSocialOAuthCallbackError } from "#/lib/auth-sign-in-error";
 
 export const Route = createFileRoute("/magic-link")({
 	validateSearch: (
@@ -41,9 +42,22 @@ export const Route = createFileRoute("/magic-link")({
 	component: MagicLinkRoute,
 });
 
+export function magicLinkRouteShowsVerification(search: {
+	error?: string;
+	token?: string;
+}): boolean {
+	if (search.token) {
+		return true;
+	}
+	// A social OAuth `error` belongs to `/login`. Treating it as a magic-link
+	// verification failure shows "Verification Failed" for a canceled provider
+	// sign-in. A magic-link verification error still starts verification.
+	return Boolean(search.error) && !isSocialOAuthCallbackError(search.error);
+}
+
 function MagicLinkRoute() {
 	const search = Route.useSearch();
-	const hasToken = Boolean(search.token || search.error);
+	const hasToken = magicLinkRouteShowsVerification(search);
 
 	return (
 		<AuthPageShell>

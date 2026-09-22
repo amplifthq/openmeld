@@ -25,9 +25,99 @@ import {
 	isSpaceOutcomeNoticeItem,
 	isSpaceTimelineCatchUpAnchorSignal,
 	mergeSpaceTimelineEnvelopes,
+	resolveSpaceConversationItemKey,
 } from "./timeline";
 
 describe("space timeline helpers", () => {
+	it("keeps message presentation identity across failure, retry, and either acknowledgement transport", () => {
+		const base = createTextSignal({
+			id: "pending:upload-one",
+			ts: 10,
+			text: "Screenshot",
+		});
+		if (base.type !== "signal.text") {
+			throw new Error("Expected a text signal fixture.");
+		}
+		const ids = [
+			"pending:upload-one",
+			"failed:upload-one",
+			"pending:upload-one",
+			"canonical-signal",
+		];
+		const items = ids.map((id) => {
+			const [item] = buildSpaceTimelineItems({
+				envelopes: [
+					{
+						...base,
+						id,
+						data: { ...base.data, meta: { clientMessageId: "upload-one" } },
+					},
+				],
+				membersSnapshot: createMembersSnapshot(),
+			});
+			if (!item) {
+				throw new Error("Expected a visible message.");
+			}
+			return item;
+		});
+		expect(new Set(items.map(resolveSpaceConversationItemKey)).size).toBe(1);
+		expect(items.map((item) => item.id)).toEqual(ids);
+		const item = items[0];
+		if (!item) {
+			throw new Error("Expected the pending message.");
+		}
+		expect(
+			resolveSpaceConversationItemKey({
+				...item,
+				actorProfileId: "other-author",
+			})
+		).not.toBe(resolveSpaceConversationItemKey(item));
+		expect(
+			resolveSpaceConversationItemKey({ ...item, spaceId: "other-space" })
+		).not.toBe(resolveSpaceConversationItemKey(item));
+	});
+
+	it.each([
+		"composer-file:local-image",
+		"canonical-image",
+	])("retains a failed submission's preview before and after file publication (%s)", (fileId) => {
+		const base = createTextSignal({
+			id: "failed:upload-one",
+			ts: 10,
+			text: "Screenshot",
+		});
+		if (base.type !== "signal.text") {
+			throw new Error("Expected a text signal fixture.");
+		}
+		const [item] = buildSpaceTimelineItems({
+			envelopes: [
+				{
+					...base,
+					data: {
+						...base.data,
+						files: [
+							{
+								fileId,
+								revision: 1,
+								name: "screenshot.png",
+								mimeType: "image/png",
+								sizeBytes: 60_000,
+							},
+						],
+					},
+				},
+			],
+			membersSnapshot: createMembersSnapshot(),
+			pendingFilePreviewUrlsById: new Map([[fileId, "blob:selected-image"]]),
+		});
+		expect(item?.files?.[0]).toMatchObject({
+			fileId,
+			isLocal: fileId.startsWith("composer-file:"),
+			localPreviewUrl: "blob:selected-image",
+		});
+		expect(item?.deliveryState).toBe("failed");
+	});
+
 	it("deduplicates envelopes by id and keeps them in ascending order", () => {
 		const first = createTextSignal({
 			id: "sig-2",

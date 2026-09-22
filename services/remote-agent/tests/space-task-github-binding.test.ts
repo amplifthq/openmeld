@@ -1,5 +1,6 @@
 import {
   describeLinkedGitHubIssueClosePrompt,
+  mutateSpaceTaskBodySchema,
   SPACE_TASK_EXTERNAL_WORK_ITEM_LIMIT_ERROR_CODE,
   SPACE_TASK_LIST_MAX_ITEMS,
   spaceTaskMutationReceiptSchema,
@@ -219,9 +220,18 @@ describe("GitHub issue Space Task binding", () => {
       phase: "canceled",
       revision: 4,
     });
-    const mutateSpaceTask = vi.fn(async (input: { body: { action: string } }) =>
-      receiptFor(input.body.action === "cancel" ? canceled : observed)
-    );
+    const observedActions: string[] = [];
+    const mutateSpaceTask = vi.fn((input: unknown) => {
+      const body = mutateSpaceTaskBodySchema.parse(
+        input && typeof input === "object" && "body" in input
+          ? input.body
+          : null
+      );
+      observedActions.push(body.action);
+      return Promise.resolve(
+        receiptFor(body.action === "cancel" ? canceled : observed)
+      );
+    });
 
     const summary = await applyGitHubIssueSpaceTaskBinding({
       actionId: "github.update_issue",
@@ -247,9 +257,7 @@ describe("GitHub issue Space Task binding", () => {
       },
     });
 
-    expect(
-      mutateSpaceTask.mock.calls.map((call) => call[0].body.action)
-    ).toEqual(["observe_external_work_item", "cancel"]);
+    expect(observedActions).toEqual(["observe_external_work_item", "cancel"]);
     expect(summary?.closedTaskIds).toEqual([canceled.taskId]);
     expect(describeLinkedGitHubIssueClosePrompt(canceled)).toBeNull();
   });

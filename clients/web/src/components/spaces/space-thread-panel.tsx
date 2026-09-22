@@ -293,6 +293,7 @@ type SpaceThreadPanelProps = {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	modelCatalog: ModelCatalog | null;
 	onClose: () => void;
+	onShowMessageInMain?: (signalId: string) => void;
 	onComposeExpiredDeviceWait?: ComposeExpiredDeviceWait;
 	onAgentRecoveryAction: (
 		plan: SpaceAgentProfileBindingRecoveryPlan
@@ -577,6 +578,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 				className={input.className}
 				id="space-thread-panel"
 				maxWidth={panelWidth.maxWidth}
+				minRemainingWidth={512}
 				minWidth={panelWidth.minWidth}
 				onWidthChange={panelWidth.onWidthChange}
 				open={input.open ?? input.activeThread !== null}
@@ -600,6 +602,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 					ephemeralActivityItems={scopedActivityItems}
 					errorMessage={input.signalsErrorMessage}
 					firstUnreadSignalId={firstUnreadSignalId}
+					isDirectMessage={input.isDirectMessage === true}
 					isLoading={input.signalsIsLoading}
 					isPersonalContext={input.isPersonalContext === true}
 					items={threadTimelineItems}
@@ -684,7 +687,10 @@ function ThreadSelectedMessageDetails(input: {
 	return (
 		<SpaceMessageDetailsDrawer
 			agentRecoveryPlansByProfileId={panelInput.agentRecoveryPlansByProfileId}
-			canJumpToMessage={() => false}
+			canJumpToMessage={(signalId) =>
+				Boolean(panelInput.onShowMessageInMain) &&
+				signalId === input.activeThread?.rootSignalId
+			}
 			diagnosticReportStatus={resolveMessageDetailsDiagnosticReportStatus({
 				isPending: panelInput.isDiagnosticReportPending(
 					input.messageDetailsItem.id
@@ -696,7 +702,7 @@ function ThreadSelectedMessageDetails(input: {
 			isPersonalContext={panelInput.isPersonalContext}
 			item={input.messageDetailsItem}
 			onAgentRecoveryAction={panelInput.onAgentRecoveryAction}
-			onJumpToMessage={() => undefined}
+			onJumpToMessage={(signalId) => panelInput.onShowMessageInMain?.(signalId)}
 			onOpenChange={(open) => {
 				if (!open) {
 					input.onClose();
@@ -1104,6 +1110,7 @@ function resolveThreadComputerSetupPresentation(input: {
 }
 
 function ThreadTimeline(input: {
+	isDirectMessage: boolean;
 	messageScrollActionRef: { current: SpaceMessageScrollAction | null };
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
@@ -1263,6 +1270,7 @@ function ThreadTimeline(input: {
 										}
 										computerSetupContext={input.computerSetupContext}
 										ephemeralActivityItems={input.ephemeralActivityItems}
+										isDirectMessage={input.isDirectMessage}
 										isFirstInGroup={messageGroupPosition.isFirstInGroup}
 										isLastInGroup={messageGroupPosition.isLastInGroup}
 										isPersonalContext={input.isPersonalContext}
@@ -1307,6 +1315,7 @@ function ThreadTimeline(input: {
 }
 
 const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
+	isDirectMessage: boolean;
 	centerAgentProfileId: string | null;
 	computerSetupActionSignalId: string | null;
 	computerSetupContext?: CenterAgentComputerSetupContext;
@@ -1507,36 +1516,50 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 							"w-full min-w-0 gap-0",
 							SPACE_MESSAGE_SURFACE_WIDTH_CLASS
 						)}
+						directMessage={input.isDirectMessage}
 					>
-						<MessageHeader className="flex-wrap gap-x-1.5 gap-y-1 px-0">
-							<SpaceMessageProfileAvatar
-								agentControllerPending={input.item.actorAgentControllerPending}
-								agentControllerRef={input.item.actorAgentControllerRef}
-								avatarImageUrl={resolveThreadMessageAvatarImageUrl({
-									item: input.item,
-									selfAvatarImageUrl: input.selfAvatarImageUrl,
-									selfProfileId: input.selfProfileId,
-								})}
-								displayName={input.item.actorName}
-								isCenterAgent={
-									input.item.actorProfileKind === "agent" &&
-									input.item.actorProfileId === input.centerAgentProfileId
-								}
-								profileId={input.item.actorProfileId}
-								profileKind={input.item.actorProfileKind}
-								working={isSpaceMessageAgentWorking(input.item)}
-							/>
-							<span className="min-w-0 truncate font-bold text-foreground text-sm">
-								{input.item.actorName}
+						<MessageHeader
+							className={cn(
+								"flex-wrap gap-x-1.5 gap-y-1 px-0",
+								!input.isFirstInGroup && "hidden"
+							)}
+						>
+							<span data-slot="message-speaker-avatar">
+								<SpaceMessageProfileAvatar
+									agentControllerPending={
+										input.item.actorAgentControllerPending
+									}
+									agentControllerRef={input.item.actorAgentControllerRef}
+									avatarImageUrl={resolveThreadMessageAvatarImageUrl({
+										item: input.item,
+										selfAvatarImageUrl: input.selfAvatarImageUrl,
+										selfProfileId: input.selfProfileId,
+									})}
+									displayName={input.item.actorName}
+									isCenterAgent={
+										input.item.actorProfileKind === "agent" &&
+										input.item.actorProfileId === input.centerAgentProfileId
+									}
+									profileId={input.item.actorProfileId}
+									profileKind={input.item.actorProfileKind}
+									working={isSpaceMessageAgentWorking(input.item)}
+								/>
 							</span>
-							{agentAttribution ? (
+							{!input.isDirectMessage && (
 								<>
-									<span className="shrink-0 text-muted-foreground">·</span>
-									<span className="min-w-0 text-muted-foreground">
-										{agentAttribution}
+									<span className="min-w-0 truncate font-normal text-muted-foreground text-xs">
+										{input.item.actorName}
 									</span>
+									{agentAttribution ? (
+										<>
+											<span className="shrink-0 text-muted-foreground">·</span>
+											<span className="min-w-0 text-muted-foreground">
+												{agentAttribution}
+											</span>
+										</>
+									) : null}
 								</>
-							) : null}
+							)}
 						</MessageHeader>
 						<Bubble align={messageAlign}>
 							<BubbleContent

@@ -17,7 +17,7 @@ describe("model catalog config", () => {
       "z-ai/glm-5.3-flash"
     );
     expect(catalog.agentControllers.opencode?.defaultModelId).toBe(
-      "opencode/mimo-v2.5-free"
+      "opencode/mimo-v2.6-flash-free"
     );
   });
 
@@ -50,7 +50,7 @@ describe("model catalog config", () => {
           defaultModelId: "default[]",
         },
         opencode: {
-          defaultModelId: "opencode/mimo-v2.5-free",
+          defaultModelId: "opencode/mimo-v2.6-flash-free",
         },
         "center-agent": {
           defaultModelId: "z-ai/glm-5.3-flash",

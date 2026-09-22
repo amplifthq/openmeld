@@ -1,3 +1,4 @@
+import { cn } from "@openmeld/ui/lib/utils";
 import type { ReactNode } from "react";
 
 export function AppEmptyState(input: {
@@ -5,9 +6,15 @@ export function AppEmptyState(input: {
 	title: string;
 	description: ReactNode;
 	actions?: ReactNode;
+	className?: string;
 }) {
 	return (
-		<section className="flex min-h-64 flex-col items-center justify-center rounded-md border border-border/70 border-dashed bg-card/25 px-6 py-10 text-center">
+		<section
+			className={cn(
+				"flex min-h-64 flex-col items-center justify-center rounded-md border border-border/70 border-dashed bg-card/25 px-6 py-10 text-center",
+				input.className
+			)}
+		>
 			<span className="grid size-10 place-items-center rounded-md border border-border/70 bg-background/45 text-muted-foreground">
 				{input.icon}
 			</span>

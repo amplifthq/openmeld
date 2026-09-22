@@ -89,9 +89,9 @@ describe("Core scheduled task dispatcher", () => {
       scanned: 0,
     }));
     const retryRoutineWorkflowStarts = vi.fn(async () => ({
+      checked: 0,
       errors: 0,
       scanned: 0,
-      started: 0,
     }));
     const retryAgentTaskContinuations = vi.fn(async () => ({
       enqueuedCount: 1,
@@ -477,9 +477,9 @@ describe("Core scheduled task dispatcher", () => {
       scanned: 0,
     }));
     const retryRoutineWorkflowStarts = vi.fn(async () => ({
+      checked: 0,
       errors: 0,
       scanned: 0,
-      started: 0,
     }));
     const runWakeEvidenceRetention = vi.fn(async () => ({
       ran: false,

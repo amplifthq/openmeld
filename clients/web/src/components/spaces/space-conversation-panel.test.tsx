@@ -2078,15 +2078,15 @@ describe("SpaceConversationPanel", () => {
 		// vertical rhythm. Hover coloring must live on the per-message row so one
 		// message never highlights the whole run (including its shared header).
 		expect(agentMessage?.className).toContain("px-0");
-		expect(agentMessage?.className).toContain("pt-1.5");
-		expect(agentMessage?.className).toContain("pb-1.5");
+		expect(agentMessage?.className).toContain("pt-0.5");
+		expect(agentMessage?.className).toContain("pb-0.5");
 		expect(agentMessage?.className).not.toContain("py-2");
 		expect(agentMessage?.className).not.toContain("hover:bg-muted/35");
 		expect(agentMessage?.className).not.toContain("focus-within:bg-muted/35");
 		expect(agentMessage?.className).not.toContain("rounded-sm");
 		expect(agentMessage?.textContent).toContain("Runner");
 		expect(agentMessage?.textContent).toContain("Agent reply");
-		expect(agentHeader?.className ?? "").toContain("mb-1.5");
+		expect(agentHeader?.className ?? "").toContain("mb-1");
 		expect(agentHeader?.className ?? "").not.toContain("hover:bg-muted/35");
 		expect(agentRow?.className).toContain("hover:bg-transparent");
 		expect(agentRow?.className).toContain("focus-within:bg-transparent");
@@ -2094,8 +2094,8 @@ describe("SpaceConversationPanel", () => {
 		expect(selfMessage?.className).not.toContain("hover:bg-muted/35");
 		expect(selfMessage?.className).not.toContain("focus-within:bg-muted/35");
 		expect(selfMessage?.className).not.toContain("rounded-sm");
-		expect(selfMessage?.className).toContain("pt-1.5");
-		expect(selfMessage?.className).toContain("pb-1.5");
+		expect(selfMessage?.className).toContain("pt-0.5");
+		expect(selfMessage?.className).toContain("pb-0.5");
 		expect(selfMessage?.className).not.toContain("py-2");
 		expect(agentMessage?.getAttribute("data-space-self-message")).toBe("false");
 		expect(selfMessage?.getAttribute("data-space-self-message")).toBe("true");
@@ -2187,13 +2187,13 @@ describe("SpaceConversationPanel", () => {
 			.getByText("Last consecutive message")
 			.closest("[data-slot='message']");
 
-		expect(firstMessage?.className).toContain("pt-1.5");
+		expect(firstMessage?.className).toContain("pt-0.5");
 		expect(firstMessage?.className).toContain("pb-0");
 		expect(firstMessage?.className).not.toContain("py-2");
-		expect(middleMessage?.className).toContain("pt-1");
+		expect(middleMessage?.className).toContain("pt-px");
 		expect(middleMessage?.className).toContain("pb-0");
-		expect(lastMessage?.className).toContain("pt-1");
-		expect(lastMessage?.className).toContain("pb-1.5");
+		expect(lastMessage?.className).toContain("pt-px");
+		expect(lastMessage?.className).toContain("pb-0.5");
 		expect(lastMessage?.className).not.toContain("py-2");
 	});
 
@@ -3360,8 +3360,9 @@ describe("SpaceConversationPanel", () => {
 		).toBe("https://example.com/felix.png");
 		expect(avatar.className).toContain("size-6");
 		expect(avatar.className).toContain("after:border-0");
-		expect(profileName.className).toContain("font-bold");
-		expect(profileName.className).toContain("text-sm");
+		expect(profileName.className).toContain("font-normal");
+		expect(profileName.className).toContain("text-xs");
+		expect(profileName.className).toContain("text-muted-foreground");
 		expect(screen.getByText(expectedTime)).toBeTruthy();
 		expect(messageBubble?.textContent).not.toContain(expectedTime);
 	});
@@ -4668,7 +4669,7 @@ describe("SpaceConversationPanel", () => {
 			name: "Check Felix Profile",
 		});
 		expect(profileHeader.className).toContain("touch-manipulation");
-		expect(profileHeader.className).toContain("max-lg:min-h-11");
+		expect(profileHeader.className).toContain("max-lg:min-h-6");
 		expect(profileHeader.textContent).toContain("Felix");
 		expect(profileHeader.textContent).not.toContain(expectedTime);
 		const messageRow = screen

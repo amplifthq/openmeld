@@ -24,7 +24,7 @@ export function evaluateLocalCandidateReadiness(input) {
     !blocked &&
     (input.availableBytes < CONSTRAINED_DISK_FLOOR_BYTES ||
       otherActiveProcessCount > 0 ||
-      input.memory?.pressure === "constrained");
+      ["warning", "critical"].includes(input.memory?.pressure));
   let state = "available";
   if (blocked) {
     state = "blocked";

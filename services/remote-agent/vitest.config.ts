@@ -1,5 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import { buildLazyRuntimeModules } from "../core/scripts/build-lazy-runtime-modules.mjs";
+
+// Cross-Core capability tests use the real RPC and retained-memory owners.
+// Prepare their request-only modules through the same entry as Core tests.
+await buildLazyRuntimeModules();
 
 export default defineConfig({
   resolve: {

@@ -19,6 +19,7 @@ import {
   remoteAgentWorkerSubmitTurnRequestSchema,
 } from "@openmeld/schemas";
 import { summarizeAgentActivityDigest } from "../agent-core/agent-activity-digest";
+import { generateCenterAgentSessionTitle } from "../agent-core/center-agent-session-title";
 import {
   type CenterAgentNamespace,
   cancelExecutionInCenterAgent,
@@ -38,6 +39,9 @@ import {
 const env = workerEnv as unknown as CloudflareBindings;
 
 export default {
+  async generateCenterAgentSessionTitle(input: unknown) {
+    return await generateCenterAgentSessionTitle({ env, request: input });
+  },
   async pluginRuntime(input: unknown) {
     return await executePluginRuntime(input, {
       baseUrl: env.OPENMELD_CONNECTORS_BASE_URL,

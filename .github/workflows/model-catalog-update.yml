@@ -47,7 +47,7 @@ jobs:
           path: dev-tmp/catalog-update
           retention-days: 30
           if-no-files-found: ignore
-      - name: Create review handoff
+      - name: Publish review handoff
         env:
           GH_TOKEN: ${{ github.token }}
           HUSKY: '0'

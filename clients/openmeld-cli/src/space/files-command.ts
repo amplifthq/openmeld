@@ -45,7 +45,11 @@ type PreparedSpaceFilesContext = Exclude<
 };
 
 export async function runSpaceFilesList(
-  input: SpaceFilesCommandInput & { folder?: string; trash?: boolean }
+  input: SpaceFilesCommandInput & {
+    all?: boolean;
+    folder?: string;
+    trash?: boolean;
+  }
 ): Promise<void> {
   const context = await prepareSpaceFilesContext(input, "listing Space files");
   if (!context) {
@@ -62,6 +66,7 @@ export async function runSpaceFilesList(
         query: {
           ...(input.trash ? {} : { parentId: normalizeFolderId(input.folder) }),
           view: input.trash ? "trash" : "active",
+          origin: input.all ? "all" : "artifact",
         },
         ...(spacePassword === undefined ? {} : { spacePassword }),
       }),
@@ -217,6 +222,7 @@ export async function runSpaceFilesUpload(
         mimeType: resolveMimeType(input.mimeType, input.file),
         bytes,
         clientMutationId: randomUUID(),
+        origin: "artifact",
         ...(spacePassword === undefined ? {} : { spacePassword }),
       }),
   });

@@ -1,6 +1,7 @@
 import {
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
+  resolveAgentWakeAvailability,
 } from "@openmeld/agent-runtime";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
@@ -28,7 +29,7 @@ const AVAILABLE_CODEX_AGENT_CONTROLLER_INTERFACE =
 // These readiness fixtures represent a supported Service. Keep the version
 // explicit so a release manifest that still describes the previous public
 // version cannot silently turn unrelated readiness tests into update tests.
-const CURRENT_SERVICE_VERSION = "0.3.214";
+const CURRENT_SERVICE_VERSION = "0.3.218";
 const COMPATIBLE_DAEMON_EXECUTION_CONTRACT = {
   expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
@@ -136,7 +137,10 @@ describe.each([
     }
   });
 
-  it("uses the Core primary Binding capability as the only profile execution target", async () => {
+  it.each([
+    true,
+    false,
+  ])("uses the Core Binding and current Service admission for Wakeability (accepting=%s)", async (acceptingDispatches) => {
     const harness = createSqliteD1Harness();
     applyReadinessMigrations(harness);
     try {
@@ -198,11 +202,40 @@ describe.each([
           routeDeviceId: "device-current",
           routeLane: "dev-local",
           workingFolderBindingId: "bind_22222222-2222-4222-8222-222222222222",
+          acceptingDispatches,
         }),
         generatedAt: GENERATED_AT,
         profileId: AGENT_PROFILE_ID,
       });
 
+      if (!acceptingDispatches) {
+        expect(readiness.agentExecutionReadiness).toMatchObject({
+          displayState: "not_ready",
+          primaryAction: "check_status",
+          facts: {
+            localService: { reachable: true },
+            route: { online: false },
+          },
+        });
+        expect(readiness.spaceMemberAgentExecutionReadiness.displayState).toBe(
+          "not_ready"
+        );
+        expect(readiness.daemonRouteObservation.status).toBe("online");
+        expect(readiness.agentWakeRouteRegistration.status).toBe("registered");
+        expect(
+          resolveAgentWakeAvailability({
+            ...readiness,
+            readiness: readiness.agentExecutionReadiness,
+          })
+        ).toMatchObject({
+          category: "unavailable",
+          reasonCode: "local_service.not_accepting_wakes",
+          status: "unavailable_for_wake",
+          summary: "This computer isn't accepting new tasks.",
+          isRefreshing: false,
+        });
+        return;
+      }
       expect(readiness.agentExecutionReadiness).toMatchObject({
         displayState: "ready",
         facts: {
@@ -956,6 +989,7 @@ function applyReadinessMigrations(
 }
 
 function createReadinessEnv(input: {
+  acceptingDispatches?: boolean;
   db: D1Database;
   ownerServiceDeviceIds?: readonly string[];
   ownerServiceSessions?: readonly { deviceId: string; lane: string }[];
@@ -978,6 +1012,7 @@ function createReadinessEnv(input: {
       }),
     },
     OPENMELD_RUNTIME_TRANSPORT: createRuntimeTransportNamespace({
+      acceptingDispatches: input.acceptingDispatches,
       ownerServiceDeviceIds: input.ownerServiceDeviceIds ?? [],
       ownerServiceSessions: input.ownerServiceSessions ?? null,
       routeDeviceId: input.routeDeviceId,
@@ -989,6 +1024,7 @@ function createReadinessEnv(input: {
 }
 
 function createRuntimeTransportNamespace(input: {
+  acceptingDispatches?: boolean;
   ownerServiceDeviceIds: readonly string[];
   ownerServiceSessions: readonly { deviceId: string; lane: string }[] | null;
   routeDeviceId: string | null;
@@ -1043,6 +1079,7 @@ function createRuntimeTransportNamespace(input: {
 
           return Promise.resolve(
             Response.json({
+              acceptingDispatches: input.acceptingDispatches,
               capabilities: {},
               connectionGeneration: 1,
               daemonSessionId: "session-1",

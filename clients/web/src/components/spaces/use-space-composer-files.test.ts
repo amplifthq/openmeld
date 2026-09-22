@@ -1,9 +1,19 @@
 import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	act,
+	cleanup,
+	type RenderHookOptions,
+	renderHook as renderBareHook,
+	waitFor,
+} from "@testing-library/react";
+import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraft } from "#/lib/spaces/composer-file-drafts";
+import type { CachedSpaceFileContent } from "#/query/spaces/space-file-image-resource";
+import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import { useSpaceComposerFiles } from "./use-space-composer-attachments";
 
 type SpaceApi = ReturnType<typeof createUnscopedWebSpaceApi>;
@@ -66,8 +76,26 @@ vi.mock("#/lib/spaces/composer-file-drafts", () => ({
 		[...drafts.values()].filter((draft) => ids.includes(draft.id)),
 }));
 
-afterEach(() => {
+const queryClient = new QueryClient({
+	defaultOptions: { queries: { retry: false } },
+});
+
+function renderHook<Result, Props>(
+	callback: (props: Props) => Result,
+	options?: RenderHookOptions<Props>
+) {
+	return renderBareHook(callback, {
+		...options,
+		wrapper: ({ children }) =>
+			createElement(QueryClientProvider, { client: queryClient }, children),
+	});
+}
+
+afterEach(async () => {
 	cleanup();
+	await Promise.resolve();
+	queryClient.clear();
+	vi.unstubAllGlobals();
 	vi.clearAllMocks();
 	drafts.clear();
 	draftReadGates.clear();
@@ -101,6 +129,65 @@ function setup() {
 		}
 	);
 }
+
+it("hands each original image to its canonical revision before consuming duplicate-named selections", async () => {
+	let sequence = 0;
+	const revoke = vi.fn();
+	vi.stubGlobal(
+		"URL",
+		class extends URL {
+			static createObjectURL = vi.fn(() => `blob:selected-${++sequence}`);
+			static revokeObjectURL = revoke;
+		}
+	);
+	const hook = setup();
+	api.publishComposerUpload.mockImplementation(({ uploadId }) => {
+		const descriptor = createPublishedFile();
+		const fileId = `file:${uploadId}`;
+		return Promise.resolve({
+			...descriptor,
+			id: fileId,
+			name: "photo.png",
+			latestRevision: {
+				...descriptor.latestRevision,
+				fileId,
+				mimeType: "image/png",
+			},
+		});
+	});
+	const originals = [
+		new File(["first"], "photo.png", { type: "image/png" }),
+		new File(["other"], "photo.png", { type: "image/png" }),
+	];
+	await act(async () => hook.result.current.addFiles(originals));
+	let submitted: readonly SpaceComposerFile[] = [];
+	act(() => {
+		submitted = hook.result.current.beginSubmission();
+	});
+	const sources = new Map(
+		submitted.map((file, index) => [file.localId, originals[index]])
+	);
+	await act(async () => {
+		const result = await hook.result.current.publishReadyFiles(submitted);
+		hook.result.current.consumePublishedFiles(result.publishedLocalIds);
+		hook.result.current.finishSubmission(submitted);
+		for (const local of submitted) {
+			const fileId = `file:${local.localId.replace("composer-file:", "")}`;
+			const cached = queryClient.getQueryData<CachedSpaceFileContent>(
+				spaceFileQueryKeys.content("space-1", fileId, 1)
+			);
+			expect(cached?.bytes).toBe(sources.get(local.localId));
+			expect(cached?.imagePreview?.getSnapshot()).toBe(local.previewUrl);
+			expect(result.previewUrlsByFileId.get(fileId)).toBe(local.previewUrl);
+		}
+	});
+	expect(hook.result.current.files).toHaveLength(0);
+	expect(revoke).not.toHaveBeenCalled();
+	hook.unmount();
+	await Promise.resolve();
+	queryClient.clear();
+	expect(revoke).toHaveBeenCalledTimes(2);
+});
 
 it("hands local new-chat drafts to the Space upload owner once with their original identities", async () => {
 	setup();
@@ -901,6 +988,7 @@ function createPublishedFile(): Awaited<
 		id: "file-1",
 		kind: "file",
 		name: "first.txt",
+		origin: "chat_upload",
 		path: "/first.txt",
 		spaceId: "space-1",
 		parentId: null,
