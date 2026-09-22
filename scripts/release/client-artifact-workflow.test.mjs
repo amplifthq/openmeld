@@ -29,7 +29,9 @@ test("manual client artifact validation excludes the broad diagnostic jobs", () 
   assert.equal(job.if, "inputs.scope == 'release-artifacts'");
   assert.equal(job.steps[0].with.ref, `${"$"}{{ github.sha }}`);
   assert.equal(job.steps[0].with["persist-credentials"], false);
-  const check = job.steps.find((step) => step.run);
+  const check = job.steps.find((step) =>
+    step.run?.includes("production-artifact-check.mjs")
+  );
   const command = check.run;
   assert.ok(command.includes('--scope desktop --source-sha "$GITHUB_SHA"'));
   assert.ok(command.includes('--scope web --source-sha "$GITHUB_SHA"'));

@@ -143,7 +143,7 @@ jobs:
   release-artifacts:
     name: Production client artifacts
     if: inputs.scope == 'release-artifacts'
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       OPENMELD_ARTIFACT_SCOPES: ${{ inputs.artifact_scopes }}
@@ -157,6 +157,8 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
       - uses: ./.github/actions/setup-node-pnpm
+      - name: Report effective client artifact runner memory
+        run: node --input-type=module -e 'import { readMachineMemory } from "./scripts/dev/machine-memory.mjs"; console.log(JSON.stringify(readMachineMemory()));'
       - name: Run exact-source renderer, prerender, and Workerd SSR checks
         shell: bash
         env:
