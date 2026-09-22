@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-22T13:39:47.597Z",
+  "updatedAt": "2026-09-22T19:39:21.398Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-antigravity-permissions-v1",
-      "packageVersion": "0.3.218",
-      "updatePolicy": "required",
-      "reason": "Require the Antigravity permission command contract after compatible Core receivers are deployed; update, diagnostics and self-rescue remain available."
+      "packageVersion": "0.3.219",
+      "updatePolicy": "available",
+      "reason": "Existing setup, Wake, Space actions and diagnostics remain compatible with old and new cloud services."
     },
     "service": {
-      "bundleHash": "eea57e35d0d4af681db4c6a86c0498d25ce44f930e147a12080a39f2413ac849",
-      "bundleVersion": "0.3.218",
+      "bundleHash": "10060c7df5d313715e922bcfe96f8b82821414a1ef4c0ce6b1b9abbcfc24527b",
+      "bundleVersion": "0.3.219",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-antigravity-permissions",
       "serviceContractVersion": "openmeld-service-contract-2026-09-antigravity-permissions-v1",
-      "updatePolicy": "required",
-      "reason": "Require the Antigravity permission runtime epoch for new Wake work after receiver-first Core and verified publication; preserve accepted work and self-rescue."
+      "updatePolicy": "available",
+      "reason": "The shared package changes preserve transport and admission contracts; accepted and new Wake work remain safe with either cloud version."
     },
     "skills": {
       "bundleHash": "c3ce8a2e5928354908a505326ccdc68b65f7a3e305792d595982fd0a41c33e7e",
