@@ -395,7 +395,8 @@ function QuestionInteraction(input: {
 	const canContinue = values.length > 0;
 	const isLastQuestion = questionIndex === input.request.questions.length - 1;
 	const questionSubmitLabel = isLastQuestion ? "Submit answers" : "Next";
-	const submitLabel = isWorkingFolderRecoveryQuestion(input.request)
+	const isFolderRecovery = isWorkingFolderRecoveryQuestion(input.request);
+	const submitLabel = isFolderRecovery
 		? resolveFolderChoiceLabel(values[0])
 		: questionSubmitLabel;
 
@@ -431,7 +432,10 @@ function QuestionInteraction(input: {
 
 	return (
 		<>
-			<ApprovalCardBody key={question.questionId}>
+			<ApprovalCardBody
+				className={isFolderRecovery ? "max-h-none" : undefined}
+				key={question.questionId}
+			>
 				<InteractionDescription request={input.request} />
 				<div className="flex items-center justify-between gap-3">
 					{question.header ? (

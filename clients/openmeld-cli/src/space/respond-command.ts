@@ -3,6 +3,7 @@ import { agentInteractionResponseSchema } from "@openmeld/schemas";
 import type {
   AgentInteractionRequest,
   AgentInteractionResponse,
+  WakeProgressItem,
 } from "@openmeld/schemas/types";
 import { buildCommandAuthenticationPromptMessage } from "../auth/command-auth";
 import { buildOpenMeldRequestContextFromProfile } from "../config/openmeld-request-context";
@@ -97,6 +98,7 @@ export async function runSpaceRespond(input: {
           execution: item.runtimeCoordinatorExecutionId,
           interaction: item.pendingInteraction?.interactionId,
           targetProfileId: item.targetProfileId,
+          sourceContext: item.sourceContext ?? null,
           request: item.pendingInteraction?.request,
         })),
         nextAction:
@@ -163,7 +165,15 @@ export async function runSpaceRespond(input: {
 }
 
 function parseResponse(value: string): AgentInteractionResponse {
-  const parsed = agentInteractionResponseSchema.safeParse(JSON.parse(value));
+  let json: unknown;
+  try {
+    json = JSON.parse(value);
+  } catch {
+    throw new Error(
+      "--response must contain valid JSON. Read the pending request with --view agent, then send one of its offered answers."
+    );
+  }
+  const parsed = agentInteractionResponseSchema.safeParse(json);
   if (!parsed.success) {
     throw new Error(
       "The response does not match an available answer. Read the pending request and try again."
@@ -172,16 +182,15 @@ function parseResponse(value: string): AgentInteractionResponse {
   return parsed.data;
 }
 
-async function choosePendingTask<
-  T extends {
-    targetLabel: string;
-  },
->(items: T[]): Promise<T | undefined> {
+async function choosePendingTask(
+  items: WakeProgressItem[]
+): Promise<WakeProgressItem | undefined> {
   const index = await select({
     message: "Which task needs your response?",
     options: items.map((item, index) => ({
       value: index,
       label: item.targetLabel,
+      hint: item.sourceContext?.messagePreview ?? item.message,
     })),
   });
   return isCancel(index) ? undefined : items[index];
