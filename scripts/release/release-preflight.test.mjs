@@ -91,6 +91,14 @@ test("continues every independent check when an injected command fails", async (
   assert.equal(result.summary.status, "FAIL");
   assert.equal(result.checks.length, 11);
   assert.deepEqual(
+    commands.filter(
+      (command) => command.includes("artifact") && command.startsWith("node ")
+    ),
+    [
+      `node scripts/release/production-train-artifact-admission.mjs --scope cli,desktop,web --source-sha ${"a".repeat(40)}`,
+    ]
+  );
+  assert.deepEqual(
     Object.fromEntries(result.checks.map((check) => [check.id, check.status])),
     {
       "branch-policy": "PASS",
@@ -369,7 +377,7 @@ test("a database-only preflight admits only the database train and skips Web bui
   );
   assert.ok(
     !commands.some((command) =>
-      command.includes("production-artifact-check.mjs")
+      command.includes("production-train-artifact-admission.mjs")
     )
   );
 });
@@ -484,12 +492,8 @@ function fakeCommandResult(key) {
     ],
     ["pnpm exec wrangler whoami", "You are logged in with an OAuth Token.\n"],
     [
-      `node scripts/release/production-artifact-check.mjs --scope web --source-sha ${"a".repeat(40)}`,
-      '{"scope":"web"}\n',
-    ],
-    [
-      `node scripts/release/production-artifact-check.mjs --scope desktop --source-sha ${"a".repeat(40)}`,
-      '{"scope":"desktop"}\n',
+      `node scripts/release/production-train-artifact-admission.mjs --scope cli,desktop,web --source-sha ${"a".repeat(40)}`,
+      '{"artifacts":{"cli":"verified","desktop":"verified","web":"verified"}}\n',
     ],
     [
       `node scripts/release/production-stage-admission.mjs --scope db,cli,auth,web,gateway,core,remote-agent --source-sha ${"a".repeat(40)}`,

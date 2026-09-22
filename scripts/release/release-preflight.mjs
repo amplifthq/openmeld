@@ -156,21 +156,19 @@ async function checkProductionArtifacts(context) {
     return {
       status: "SKIP",
       detail:
-        "The declared Production train has no Web or Desktop artifact scope.",
+        "The declared Production train has no CLI, Web, or Desktop artifact scope.",
     };
   }
-  for (const scope of selection.artifactScopes) {
-    await runRequiredCommand(context, "node", [
-      "scripts/release/production-artifact-check.mjs",
-      "--scope",
-      scope,
-      "--source-sha",
-      head,
-    ]);
-  }
+  await runRequiredCommand(context, "node", [
+    "scripts/release/production-train-artifact-admission.mjs",
+    "--scope",
+    selection.artifactScopes.join(","),
+    "--source-sha",
+    head,
+  ]);
   return {
     status: "PASS",
-    detail: `${selection.artifactScopes.join(" and ")} production artifacts passed exact-source Workerd SSR checks at ${abbreviateSha(head)}.`,
+    detail: `${selection.artifactScopes.join(" and ")} production artifacts passed their exact-source runtime checks at ${abbreviateSha(head)}.`,
   };
 }
 
