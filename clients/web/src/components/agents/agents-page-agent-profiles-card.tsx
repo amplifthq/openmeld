@@ -7,6 +7,7 @@ import {
 } from "@openmeld/agent-profile";
 import {
 	type AgentWakeAvailabilityCategory,
+	getAgentControllerModelCatalogId,
 	getAgentControllerPermissionModeDisplayMetadata,
 	parseAgentControllerRef,
 	resolveAgentControllerPermissionModeForController,
@@ -5322,7 +5323,9 @@ function createAgentProfileEditStateForController(input: {
 		},
 		modelSelection: capabilities.modelSelection.editable
 			? {
-					agentControllerId: parsedAgentControllerRef.id,
+					agentControllerId: getAgentControllerModelCatalogId(
+						parsedAgentControllerRef
+					),
 					agentControllerRef: input.agentControllerRef,
 					modelId: "",
 					reasoningLevel: "",

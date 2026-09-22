@@ -431,13 +431,20 @@ Their captured OpenRouter metadata is retained in
 `services/remote-agent/tests/fixtures/openrouter-hosted-models-2026-09-22.json`.
 Both Center Agent and personal Remote Agent choices use this hosted catalog;
 there is no second Remote Agent model list. Existing defaults, saved model IDs,
-and the image helper remain unchanged.
+and the image helper remain unchanged. Shared edit capabilities, Web model
+editing, and Core Binding validation resolve `hosted:remote-agent` to the
+`center-agent` catalog through `getAgentControllerModelCatalogId`; the actual
+Remote Agent controller and Binding identity remain `hosted:remote-agent`.
 
 No catalog schema changes are required. Older Web clients can show the expanded
 flat list; the provider-aware Web client can also consume the older catalog.
 Core deployment publishes the added choices; Web deployment publishes the
 two-level picker. Existing Remote Agent route readers consume the same frozen
-fields. CLI, Service, and local Agent settings are unaffected.
+fields. Model edits use the existing owner-authorized Binding command and
+execution admission; no schema or local runtime contract changes are needed.
+Deploy Core before exposing the Remote Agent edit control in Web because the
+older Core validator does not recognize this shared catalog mapping. Local
+Agent settings and ongoing hosted executions retain their existing behavior.
 
 ### 5.6 GLM 5.3 Flash hosted verification
 
