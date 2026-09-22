@@ -584,6 +584,12 @@ function describeComponentEvidence(releaseSource) {
     artifact:
       workerDeployment?.deploymentId ?? cliRelease?.artifact.sha256 ?? null,
     receiptEvidenceSha: releaseSource.evidenceSha ?? null,
+    ...(releaseSource.reconciliation
+      ? {
+          reconciliation: releaseSource.reconciliation,
+          reconciliationEvidenceSha: releaseSource.reconciliationEvidenceSha,
+        }
+      : {}),
     result:
       releaseSource.receipt?.status ??
       (releaseSource.source === "override" ? "declared" : "success"),

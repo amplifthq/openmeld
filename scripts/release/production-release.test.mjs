@@ -239,7 +239,7 @@ test("deploys Space Task RPC and HTTP receivers before their real callers", () =
     plan.deploySteps.map((step) => step.label),
     [
       "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
+      "Verify Core receiver stable identity alignment",
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
       "Deploy Web",
@@ -252,6 +252,7 @@ test("deploys Space Task RPC and HTTP receivers before their real callers", () =
   );
   assert.deepEqual(plan.deploySteps[0].args, [
     "scripts/release/deploy-core-current-cli-projection.mjs",
+    "--deployment-only",
     "--release-sha",
     REMOTE_SOURCE_SHA,
   ]);
@@ -280,7 +281,7 @@ test("allows a Space Task receiver stage with the immutable published CLI projec
     );
     assert.equal(
       plan.deploySteps[1].label,
-      "Verify Core deployment is visible"
+      "Verify Core receiver stable identity alignment"
     );
     assert.ok(
       !plan.deploySteps.some((step) => step.internalOperation === "publish-cli")
@@ -791,7 +792,7 @@ test("deploys the Wake Progress opt-in receiver chain before its CLI caller", ()
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
       "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
+      "Verify Core receiver stable identity alignment",
       "Publish CLI and deploy its Core release projection",
       "Verify final R2/npm/Core alignment",
     ]
@@ -1504,7 +1505,7 @@ test("stages Space invitation receivers before publishing the CLI caller", () =>
     assert.deepEqual(labels.slice(0, 5), [
       "Synchronize production database",
       "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
+      "Verify Core receiver stable identity alignment",
       "Deploy Auth Worker",
       "Verify Auth Worker health",
     ]);
@@ -1547,7 +1548,7 @@ test("combines invitation and Service receivers while keeping conflicting writer
   assert.deepEqual(labels, [
     "Synchronize production database",
     "Deploy Core with the current published CLI projection",
-    "Verify Core deployment is visible",
+    "Verify Core receiver stable identity alignment",
     "Deploy Auth Worker",
     "Verify Auth Worker health",
     "Deploy Gateway Worker",
@@ -1635,7 +1636,7 @@ test("keeps the Center Agent Task CLI behind every cloud receiver", () => {
       "Deploy Remote Agent Worker",
       "Verify Remote Agent deployment is visible",
       "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
+      "Verify Core receiver stable identity alignment",
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
       "Deploy Web",
@@ -1671,7 +1672,7 @@ test("deploys the Context Scope Plan receiver before Core and keeps the CLI last
       "Deploy Auth Worker",
       "Verify Auth Worker health",
       "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
+      "Verify Core receiver stable identity alignment",
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
       "Deploy Web",
@@ -1682,6 +1683,7 @@ test("deploys the Context Scope Plan receiver before Core and keeps the CLI last
   );
   assert.deepEqual(plan.deploySteps[5]?.args, [
     "scripts/release/deploy-core-current-cli-projection.mjs",
+    "--deployment-only",
     "--release-sha",
     REMOTE_SOURCE_SHA,
   ]);
@@ -1715,7 +1717,7 @@ for (const changedPaths of [
       plan.deploySteps.map((step) => step.label),
       [
         "Deploy Core with the current published CLI projection",
-        "Verify Core deployment is visible",
+        "Verify Core receiver stable identity alignment",
         "Deploy Gateway Worker",
         "Verify Gateway Worker health",
         "Deploy Web",
@@ -1818,7 +1820,7 @@ test("deploys a strict Local Service runtime receiver before publishing the CLI"
         "Deploy Gateway Worker",
         "Verify Gateway Worker health",
         "Deploy Core with the current published CLI projection",
-        "Verify Core deployment is visible",
+        "Verify Core receiver stable identity alignment",
         "Deploy Remote Agent Worker",
         "Verify Remote Agent deployment is visible",
         "Publish CLI and deploy its Core release projection",
@@ -2031,7 +2033,7 @@ test("deploys worker-response and activity readers before the Remote Agent produ
       "Deploy Auth Worker",
       "Verify Auth Worker health",
       "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
+      "Verify Core receiver stable identity alignment",
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
       "Deploy Web",
@@ -2151,7 +2153,7 @@ test("deploys Inbox Message Channel receivers before the Core writer", () => {
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
       "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
+      "Verify Core receiver stable identity alignment",
       "Publish CLI and deploy its Core release projection",
       "Verify final R2/npm/Core alignment",
     ]
@@ -2180,7 +2182,7 @@ test("deploys Agent Interaction Inbox receivers before the Core writer", () => {
       "Deploy Gateway Worker",
       "Verify Gateway Worker health",
       "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
+      "Verify Core receiver stable identity alignment",
       "Publish CLI and deploy its Core release projection",
       "Verify final R2/npm/Core alignment",
     ]
