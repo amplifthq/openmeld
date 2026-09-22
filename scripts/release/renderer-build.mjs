@@ -1,10 +1,9 @@
-import { totalmem } from "node:os";
-import { pathToFileURL } from "node:url";
 import {
   acquireLocalResources,
   RESOURCE_TOKEN,
   resourcePolicy,
 } from "../dev/local-resources.mjs";
+import { readMachineMemory } from "../dev/machine-memory.mjs";
 import { runOwnedCommand } from "../dev/owned-command.mjs";
 
 const MIB = 1024 ** 2;
@@ -12,9 +11,10 @@ const HEAP_OPTION = /(?:^|\s)--max[-_]old[-_]space[-_]size(?:=|\s+)(\d+)/gu;
 
 export function rendererBuildEnvironment(
   env = process.env,
-  memoryBytes = totalmem()
+  memoryBytes = readMachineMemory().totalBytes,
+  platform = process.platform
 ) {
-  const policy = resourcePolicy(env, memoryBytes);
+  const policy = resourcePolicy(env, memoryBytes, platform);
   const machineLimit =
     Math.floor((memoryBytes - policy.headroomBytes) / MIB) - 1024;
   const reservationLimit = env.OPENMELD_LOCAL_HEAVY_GIB
@@ -24,14 +24,16 @@ export function rendererBuildEnvironment(
   const existing = [...(env.NODE_OPTIONS ?? "").matchAll(HEAP_OPTION)].at(
     -1
   )?.[1];
-  const heap = Number(
-    env.OPENMELD_DESKTOP_NODE_HEAP_MB ??
-      existing ??
-      Math.min(6144, Math.floor(limit / 2))
-  );
-  if (!Number.isSafeInteger(heap) || heap < 512 || heap > limit) {
+  const heap = Number(env.OPENMELD_RENDERER_NODE_HEAP_MB ?? existing ?? 4096);
+  if (
+    !Number.isSafeInteger(heap) ||
+    heap < 512 ||
+    heap > limit ||
+    (env.OPENMELD_LOCAL_HEAVY_GIB &&
+      policy.costs.heavy + policy.headroomBytes > memoryBytes)
+  ) {
     throw new Error(
-      `Desktop Node heap must be 512..${limit} MiB within the machine and heavy-work budget. Set OPENMELD_DESKTOP_NODE_HEAP_MB and, if needed, OPENMELD_LOCAL_HEAVY_GIB.`
+      `Renderer Node heap must be 512..${limit} MiB within the machine and heavy-work budget. Set OPENMELD_RENDERER_NODE_HEAP_MB and, if needed, OPENMELD_LOCAL_HEAVY_GIB.`
     );
   }
   return {
@@ -44,7 +46,19 @@ export function rendererBuildEnvironment(
 }
 
 export async function buildProductionRenderer(root, env = process.env) {
-  const buildEnv = rendererBuildEnvironment(env);
+  const memory = readMachineMemory();
+  const buildEnv = rendererBuildEnvironment(env, memory.totalBytes);
+  const policy = resourcePolicy(buildEnv, memory.totalBytes);
+  console.log(
+    `[renderer-build] ${JSON.stringify({
+      ...memory,
+      heapMiB: Number(
+        [...buildEnv.NODE_OPTIONS.matchAll(HEAP_OPTION)].at(-1)[1]
+      ),
+      reservationBytes: policy.costs.heavy,
+      headroomBytes: policy.headroomBytes,
+    })}`
+  );
   const resources = await acquireLocalResources({
     kind: "heavy",
     repoRoot: root,
@@ -59,21 +73,13 @@ export async function buildProductionRenderer(root, env = process.env) {
         env: {
           ...buildEnv,
           [RESOURCE_TOKEN]: resources.token,
-          OPENMELD_DESKTOP_TARGET: "production",
         },
       }
     );
     if (code !== 0) {
-      throw new Error(`Desktop production renderer build failed (${code}).`);
+      throw new Error(`Production client renderer build failed (${code}).`);
     }
   } finally {
     await resources.release();
   }
-}
-
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-  await buildProductionRenderer(process.cwd());
 }
