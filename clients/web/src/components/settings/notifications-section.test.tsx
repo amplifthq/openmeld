@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -7,6 +8,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { markInboxNotificationItemPending } from "#/lib/inbox/client-notifications";
 import { inboxQueryKeys } from "#/query/organizations/inbox";
 import { NotificationsSection } from "./notifications-section";
 
@@ -141,7 +143,10 @@ describe("NotificationsSection", () => {
 		).toBe("true");
 	});
 
-	it("shows paused storage delivery without rewriting the preference and clears the error after recovery", async () => {
+	it.each([
+		"read",
+		"write",
+	] as const)("shows paused storage delivery after %s failure without rewriting consent and recovers only after storage works", async (failure) => {
 		renderNotificationsSection();
 		fireEvent.click(screen.getByRole("button", { name: "Enable" }));
 		await waitFor(() =>
@@ -151,16 +156,38 @@ describe("NotificationsSection", () => {
 					.getAttribute("aria-checked")
 			).toBe("true")
 		);
+		const beforeFailure = Object.entries(window.localStorage);
 		const original = Storage.prototype.getItem;
-		const read = vi
-			.spyOn(Storage.prototype, "getItem")
-			.mockImplementation(function (this: Storage, key) {
-				if (key === "openmeld.inbox.browser-notifications.delivered-item-ids") {
-					throw new DOMException("blocked", "SecurityError");
-				}
-				return original.call(this, key);
+		const storageFailure =
+			failure === "read"
+				? vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (
+						this: Storage,
+						key
+					) {
+						if (
+							key === "openmeld.inbox.browser-notifications.delivered-item-ids"
+						) {
+							throw new DOMException("blocked", "SecurityError");
+						}
+						return original.call(this, key);
+					})
+				: vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+						throw new DOMException("Storage full", "QuotaExceededError");
+					});
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		if (failure === "write") {
+			act(() => {
+				expect(
+					markInboxNotificationItemPending({
+						itemId: "pending",
+						userId: "user-123",
+						organizationId: "organization-123",
+					})
+				).toBe(false);
 			});
-		fireEvent.focus(window);
+		} else {
+			fireEvent.focus(window);
+		}
 		expect(await screen.findByText(STORAGE_PAUSED_PATTERN)).toBeTruthy();
 		expect(
 			screen
@@ -173,7 +200,9 @@ describe("NotificationsSection", () => {
 				"openmeld.inbox.browser-notifications.enabled:user-123"
 			)
 		).toBe("enabled");
-		read.mockRestore();
+		fireEvent.focus(window);
+		expect(screen.queryByText(STORAGE_PAUSED_PATTERN)).toBeTruthy();
+		storageFailure.mockRestore();
 		fireEvent.focus(window);
 		await waitFor(() =>
 			expect(screen.queryByText(STORAGE_PAUSED_PATTERN)).toBeNull()
@@ -183,6 +212,7 @@ describe("NotificationsSection", () => {
 				.getByRole("button", { name: "Show an example" })
 				.hasAttribute("disabled")
 		).toBe(false);
+		expect(Object.entries(window.localStorage)).toEqual(beforeFailure);
 	});
 
 	it("saves the account message default independently and exposes the enabled example", async () => {

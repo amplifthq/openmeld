@@ -30,7 +30,7 @@ export type InboxNotificationSettings = {
 };
 
 export const INBOX_NOTIFICATION_STORAGE_UNAVAILABLE_MESSAGE =
-	"Notifications are paused because OpenMeld can’t access this browser’s site storage. Allow site storage, then reload. Your notification preference has not been changed.";
+	"Notifications are paused because OpenMeld can’t use this browser’s site storage. Check that site storage is allowed and has free space. OpenMeld will retry automatically. Your notification preference has not been changed.";
 
 export function resolveClientNotificationDescription(
 	permission: InboxNotificationSettings["permission"]
@@ -86,6 +86,12 @@ const DELIVERED_ITEM_IDS_KEY =
 const PENDING_ITEM_KEY_PREFIX =
 	"openmeld.inbox.browser-notifications.pending-item";
 const MAX_DELIVERED_ITEM_IDS = 200;
+const PENDING_ITEM_VALUE = "pending";
+const STORAGE_PROBE_KEY_PREFIX =
+	"openmeld.inbox.browser-notifications.storage-probe:";
+// This tab's observed storage health, not consent or a second retry ledger.
+// Retain the failed key so an unrelated same-value write cannot claim recovery.
+let failedPendingWriteKey: string | null = null;
 
 export function readInboxNotificationSettings(input: {
 	userId: string;
@@ -100,7 +106,9 @@ export function readInboxNotificationSettings(input: {
 	const permission = readInboxNotificationPermission();
 	const preference = readInboxBrowserPreference(input);
 	const storageUnavailable =
-		preference === "unavailable" || !canReadInboxNotificationStorage();
+		preference === "unavailable" ||
+		failedPendingWriteKey !== null ||
+		!canReadInboxNotificationStorage();
 	return {
 		enabled: permission === "granted" && preference !== false,
 		permission,
@@ -364,10 +372,15 @@ export function markInboxNotificationItemPending(input: {
 	if (typeof window === "undefined") {
 		return false;
 	}
+	const key = buildPendingItemKey(input);
 	try {
-		window.localStorage.setItem(buildPendingItemKey(input), "pending");
+		window.localStorage.setItem(key, PENDING_ITEM_VALUE);
+		if (failedPendingWriteKey === key) {
+			setPendingWriteFailure(null);
+		}
 		return true;
 	} catch (error) {
+		setPendingWriteFailure(key);
 		logPendingInboxNotificationWriteFailure(input, error);
 		return false;
 	}
@@ -402,7 +415,16 @@ export function subscribeInboxNotificationSettings(
 			onChange();
 		}
 	};
-	const handleVisibilityChange = () => onChange();
+	const handleFocus = () => {
+		recheckPendingWriteAvailability();
+		onChange();
+	};
+	const handleVisibilityChange = () => {
+		if (document.visibilityState === "visible") {
+			recheckPendingWriteAvailability();
+		}
+		onChange();
+	};
 	let notificationPermissionStatus: PermissionStatus | null = null;
 	let unsubscribed = false;
 	const subscribeToNotificationPermission = () => {
@@ -433,7 +455,7 @@ export function subscribeInboxNotificationSettings(
 	window.addEventListener("storage", handleStorage);
 	window.addEventListener(PREFERENCE_CHANGE_EVENT, onChange);
 	window.addEventListener(DESKTOP_NOTIFICATION_SETTINGS_EVENT, onChange);
-	window.addEventListener("focus", onChange);
+	window.addEventListener("focus", handleFocus);
 	window.addEventListener("blur", onChange);
 	document.addEventListener("visibilitychange", handleVisibilityChange);
 	if (!getDesktopPlatform()) {
@@ -445,7 +467,7 @@ export function subscribeInboxNotificationSettings(
 		window.removeEventListener("storage", handleStorage);
 		window.removeEventListener(PREFERENCE_CHANGE_EVENT, onChange);
 		window.removeEventListener(DESKTOP_NOTIFICATION_SETTINGS_EVENT, onChange);
-		window.removeEventListener("focus", onChange);
+		window.removeEventListener("focus", handleFocus);
 		window.removeEventListener("blur", onChange);
 		document.removeEventListener("visibilitychange", handleVisibilityChange);
 	};
@@ -483,6 +505,46 @@ function readInboxBrowserPreference(input: {
 			error: error instanceof Error ? error.message : String(error),
 		});
 		return "unavailable";
+	}
+}
+
+function setPendingWriteFailure(key: string | null): void {
+	const wasUnavailable = failedPendingWriteKey !== null;
+	failedPendingWriteKey = key;
+	if (wasUnavailable !== (key !== null)) {
+		window.dispatchEvent(new Event(PREFERENCE_CHANGE_EVENT));
+	}
+}
+
+function recheckPendingWriteAvailability(): void {
+	if (failedPendingWriteKey === null || getDesktopPlatform()) {
+		return;
+	}
+	try {
+		// Probe only on a lifecycle event after a real failure, never in a React
+		// snapshot read. A fresh, disposable key tests allocation, not a no-op.
+		const key = `${STORAGE_PROBE_KEY_PREFIX}${crypto.randomUUID()}`;
+		const value = PENDING_ITEM_VALUE.padEnd(
+			Math.max(
+				PENDING_ITEM_VALUE.length,
+				failedPendingWriteKey.length + PENDING_ITEM_VALUE.length - key.length
+			),
+			"."
+		);
+		const storage = window.localStorage;
+		storage.setItem(key, value);
+		let verified = false;
+		try {
+			verified = storage.getItem(key) === value;
+		} finally {
+			storage.removeItem(key);
+		}
+		if (verified) {
+			setPendingWriteFailure(null);
+		}
+	} catch {
+		// Reading or focusing is not recovery evidence. Keep the original pause;
+		// the observer will retry its actual pending write at the retained cursor.
 	}
 }
 

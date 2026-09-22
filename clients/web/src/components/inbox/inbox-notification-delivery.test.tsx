@@ -8,7 +8,10 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readPendingInboxNotificationItemIds } from "#/lib/inbox/client-notifications";
+import {
+	readInboxNotificationSettings,
+	readPendingInboxNotificationItemIds,
+} from "#/lib/inbox/client-notifications";
 import { InboxNotificationListener } from "./inbox-notification-listener";
 
 const network = vi.hoisted(() => ({
@@ -168,6 +171,67 @@ describe("Notification observation to browser delivery", () => {
 		).toEqual(new Set(rows.slice(1).map((value) => value.id)));
 		expect(network.get).toHaveBeenCalled();
 		expect(rows.every((value) => value.readAt === null)).toBe(true);
+	});
+
+	it("keeps a partially retained page recoverable while write-failure feedback updates the mounted listener", async () => {
+		const preferenceKey = "openmeld.inbox.browser-notifications.enabled:user";
+		window.localStorage.setItem(preferenceKey, "enabled");
+		await mount();
+		rows.push(item("retained"), item("write-failed"));
+		const originalSet = Storage.prototype.setItem;
+		let remainingWrites = 1;
+		const write = vi
+			.spyOn(Storage.prototype, "setItem")
+			.mockImplementation(function (this: Storage, key, value) {
+				if (this.getItem(key) !== value && remainingWrites-- <= 0) {
+					throw new DOMException("Storage full", "QuotaExceededError");
+				}
+				originalSet.call(this, key, value);
+			});
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		try {
+			await refresh();
+			expect(readInboxNotificationSettings(identity).unavailableReason).toBe(
+				"storage_unavailable"
+			);
+			expect(readPendingInboxNotificationItemIds(identity)).toEqual(
+				new Set(["retained"])
+			);
+			expect(notifications).toHaveLength(0);
+			fireEvent.focus(window);
+			await refresh();
+			expect(readInboxNotificationSettings(identity).unavailableReason).toBe(
+				"storage_unavailable"
+			);
+			expect(notifications).toHaveLength(0);
+			expect(
+				network.observe.mock.calls
+					.slice(1)
+					.every(([input]) => input.cursor === "0")
+			).toBe(true);
+			write.mockRestore();
+			await refresh();
+			await waitFor(() => expect(notifications).toHaveLength(2));
+			await waitFor(() =>
+				expect(readPendingInboxNotificationItemIds(identity).size).toBe(0)
+			);
+			expect(
+				notifications.map((notification) => notification.title).sort()
+			).toEqual(["retained", "write-failed"]);
+			expect(readInboxNotificationSettings(identity)).toMatchObject({
+				enabled: true,
+				permission: "granted",
+			});
+			expect(
+				readInboxNotificationSettings(identity).unavailableReason
+			).toBeUndefined();
+			expect(window.localStorage.getItem(preferenceKey)).toBe("enabled");
+			await refresh();
+			expect(notifications).toHaveLength(2);
+		} finally {
+			write.mockRestore();
+			fireEvent.focus(window);
+		}
 	});
 
 	it("retains an asynchronous display failure for retry and aborts an unacknowledged display on unmount", async () => {

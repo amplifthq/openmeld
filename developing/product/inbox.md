@@ -888,9 +888,15 @@ optional delivery channels:
   pending ledger. Network or storage failure holds the cursor for retry; reload
   recovers retained pending ids and establishes a fresh observation baseline.
   Settings distinguish the saved preference from storage availability: blocked
-  reads show a paused error, disable unusable controls/sample delivery, and never
-  rewrite the member's preference. Focus or permission/settings refresh rechecks
-  availability after recovery.
+  reads or a failed pending-record write show a paused error, disable unusable
+  controls/sample delivery, and never rewrite the member's preference. Write
+  failures notify mounted settings subscribers immediately, including when reads
+  still succeed because storage is full. The observer keeps polling at its
+  retained cursor; successfully saving the failed pending record clears the pause.
+  A focused/visible window may also verify recovery with a fresh temporary write,
+  readback, and removal sized for the failed record. Reads and unrelated same-value
+  writes are not recovery evidence. Snapshot reads never perform recovery writes;
+  probes never change saved preferences, pending ids, or the observation cursor.
 - **Desktop notifications** independently deliver the same eligible Core Inbox
   items while the authenticated GUI is running, including unfocused, minimized,
   and hidden windows. Quit ends GUI delivery and does not stop the Service.

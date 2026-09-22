@@ -2,8 +2,13 @@ import type {
 	InboxItem,
 	InboxNotificationObservationsResponse,
 } from "@openmeld/schemas/types";
+import { act, cleanup, fireEvent, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readPendingInboxNotificationItemIds } from "./client-notifications";
+import { useInboxNotificationSettings } from "#/components/inbox/use-inbox-notification-settings";
+import {
+	markInboxNotificationItemPending,
+	readPendingInboxNotificationItemIds,
+} from "./client-notifications";
 import { createInboxNotificationObserver } from "./notification-observer";
 
 const read = vi.hoisted(() => vi.fn());
@@ -47,6 +52,8 @@ describe("Inbox notification observation", () => {
 		read.mockReset();
 	});
 	afterEach(() => {
+		cleanup();
+		vi.unstubAllGlobals();
 		vi.restoreAllMocks();
 		window.localStorage.clear();
 	});
@@ -89,28 +96,81 @@ describe("Inbox notification observation", () => {
 		expect(readPendingInboxNotificationItemIds(identity).size).toBe(0);
 	});
 
-	it("does not advance past an item whose pending record could not be saved", async () => {
+	it("publishes pending-write failure to settings and recovers at the retained cursor without changing consent", async () => {
+		vi.stubGlobal("Notification", { permission: "granted" });
+		const preferenceKey = "openmeld.inbox.browser-notifications.enabled:user";
+		window.localStorage.setItem(preferenceKey, "enabled");
+		markInboxNotificationItemPending({
+			...identity,
+			itemId: "already-pending",
+		});
+		const { result } = renderHook(() =>
+			useInboxNotificationSettings(identity.userId)
+		);
 		const observer = createInboxNotificationObserver(identity);
 		read
 			.mockResolvedValueOnce(page("baseline"))
 			.mockResolvedValue(page("next", [item("pending")]));
 		await observer();
+		const originalSet = Storage.prototype.setItem;
 		const write = vi
 			.spyOn(Storage.prototype, "setItem")
-			.mockImplementationOnce(() => {
-				throw new DOMException("Storage full", "QuotaExceededError");
+			.mockImplementation(function (this: Storage, key, value) {
+				// A same-value write is a no-op even when no new record fits.
+				if (this.getItem(key) !== value) {
+					throw new DOMException("Storage full", "QuotaExceededError");
+				}
+				originalSet.call(this, key, value);
 			});
 		vi.spyOn(console, "warn").mockImplementation(() => undefined);
-		await expect(observer()).rejects.toThrow("site storage");
-		write.mockRestore();
-		await observer();
-		expect(read.mock.calls.slice(1).map(([input]) => input.cursor)).toEqual([
-			"baseline",
-			"baseline",
-		]);
-		expect(readPendingInboxNotificationItemIds(identity)).toEqual(
-			new Set(["pending"])
-		);
+		try {
+			await act(async () => {
+				await expect(observer()).rejects.toThrow("site storage");
+			});
+			expect(result.current.canDeliver).toBe(false);
+			expect(result.current.error).toContain("Notifications are paused");
+			expect(result.current.settings).toMatchObject({
+				enabled: true,
+				permission: "granted",
+				unavailableReason: "storage_unavailable",
+			});
+			fireEvent.focus(window);
+			expect(result.current.canDeliver).toBe(false);
+			await act(async () => {
+				markInboxNotificationItemPending({
+					...identity,
+					itemId: "already-pending",
+				});
+				await expect(observer()).rejects.toThrow("site storage");
+			});
+			expect(result.current.canDeliver).toBe(false);
+			write.mockRestore();
+			// An actual retry, without a focus event or a new observer, proves recovery.
+			await act(async () => {
+				await observer();
+			});
+			expect(result.current.canDeliver).toBe(true);
+			expect(result.current.error).toBeNull();
+			expect(window.localStorage.getItem(preferenceKey)).toBe("enabled");
+			expect(read.mock.calls.slice(1).map(([input]) => input.cursor)).toEqual([
+				"baseline",
+				"baseline",
+				"baseline",
+			]);
+			expect(readPendingInboxNotificationItemIds(identity)).toEqual(
+				new Set(["already-pending", "pending"])
+			);
+			await act(async () => {
+				await observer();
+			});
+			expect(read.mock.lastCall?.[0].cursor).toBe("next");
+		} finally {
+			write.mockRestore();
+			// Exercise public recovery so availability cannot leak into another test.
+			await act(async () => {
+				await observer();
+			});
+		}
 	});
 
 	it("discards an aborted page before retaining items or advancing its cursor", async () => {
