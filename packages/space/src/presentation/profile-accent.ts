@@ -27,6 +27,7 @@ export type SpaceProfileAccent = {
 };
 
 const BUILTIN_CONTROLLER_DISPLAY_NAME_BY_ID = {
+  antigravity: "Antigravity",
   "claude-code": "Claude Code",
   codex: "Codex",
   cursor: "Cursor",

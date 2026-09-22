@@ -5,6 +5,7 @@ export const helloCapabilitiesSchema = z.object({
   agentReplyPlacement: z.boolean().optional(),
   liveSignalHistory: z.boolean().optional(),
   spaceMessageAddressing: z.boolean().optional(),
+  spaceImageGeometry: z.boolean().optional(),
 });
 
 export const helloSchema = z.object({

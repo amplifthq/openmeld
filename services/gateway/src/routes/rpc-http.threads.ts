@@ -4,6 +4,7 @@ import {
   jsonErrorResponse,
   OPENMELD_HEADER_SPACE_PASSWORD,
   OPENMELD_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
   toErrorMessage,
 } from "@openmeld/gateway-contract";
 import {
@@ -59,7 +60,8 @@ function handleListThreads(c: Context<HonoBindings>): Promise<Response> {
           spaceId,
           spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
         },
-        OPENMELD_SPACE_ADDRESSING_VERSION
+        OPENMELD_SPACE_ADDRESSING_VERSION,
+        OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
       ),
     responseSchema: listSpaceThreadsResponseSchema,
   });
@@ -83,7 +85,8 @@ function handleGetThread(c: Context<HonoBindings>): Promise<Response> {
           threadId,
           spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
         },
-        OPENMELD_SPACE_ADDRESSING_VERSION
+        OPENMELD_SPACE_ADDRESSING_VERSION,
+        OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
       ),
     responseSchema: getSpaceThreadResponseSchema,
   });
@@ -147,7 +150,8 @@ function handleListThreadSignals(c: Context<HonoBindings>): Promise<Response> {
           threadId,
           spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
         },
-        OPENMELD_SPACE_ADDRESSING_VERSION
+        OPENMELD_SPACE_ADDRESSING_VERSION,
+        OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
       ),
     responseSchema: listSpaceThreadSignalsResponseSchema,
   });

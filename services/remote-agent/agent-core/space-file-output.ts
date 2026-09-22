@@ -48,6 +48,7 @@ export async function publishRemoteAgentOutputFile(input: {
           fileId,
           mimeType: input.mimeType,
           name: input.name,
+          origin: "artifact" as const,
           parentId: null,
           revisionId,
           sizeBytes: input.bytes.byteLength,

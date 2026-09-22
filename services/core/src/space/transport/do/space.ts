@@ -6,7 +6,9 @@ import {
 } from "@openmeld/agent-runtime";
 import {
   OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
+  OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
   OPENMELD_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
 } from "@openmeld/gateway-contract";
 import type {
   Profile,
@@ -32,7 +34,6 @@ import {
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdFromDigest,
-  COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   clearSpaceReasoningReplaySchema,
   commitSpaceFileWriteInputSchema,
@@ -55,7 +56,6 @@ import {
   getSpaceUpdatesInputSchema,
   getSpaceWakeProgressInputSchema,
   getSpaceWakeTraceWaterfallInputSchema,
-  isComputerFileAccessOwnerCancellation,
   isHostedAgentRuntimeKind,
   listSignalsQuerySchema,
   listSpaceThreadSignalsQuerySchema,
@@ -83,6 +83,7 @@ import {
   remoteAgentWorkerCancellationResponseSchema,
   remoteAgentWorkerExecutionInputResponseSchema,
   removeSpaceMembersBodySchema,
+  resolveLocalExecutionOwnerCancellationReason,
   resolveMappedPublicAgentFailureReason,
   resolveNativeReplyPlacementInputSchema,
   resolveSingleSpaceMentionLabels,
@@ -131,6 +132,7 @@ import {
   spaceThreadContextSchema,
   spaceViewerMembershipResponseSchema,
   toLegacySpaceAddressingWireValue,
+  toLegacySpaceImageGeometryWireValue,
   toSpaceSignalReadWireValue,
   updateSpaceFileEntryBodySchema,
   validateSpaceSignalClientMessageIdPolicy,
@@ -502,6 +504,7 @@ import {
 import { handlePatchCursorUseCase } from "../../application/space-cursor-service";
 import { resolveSpaceDispatchConversationContinuityScope } from "../../application/space-dispatch-conversation-continuity";
 import { buildSpaceFileAuditEvent } from "../../application/space-file-audit";
+import { readStoredSpaceFileImageDimensions } from "../../application/space-file-image-metadata";
 import { hashSpaceFileStream } from "../../application/space-file-stream";
 import { SpaceFileUploads } from "../../application/space-file-uploads";
 import { prepareSpaceInboxCandidateForCenterAgent } from "../../application/space-inbox-center-agent-candidate";
@@ -532,6 +535,7 @@ import {
 } from "../../application/space-members-service";
 import { projectSpaceMessageDetails } from "../../application/space-message-details";
 import {
+  buildNextSpaceMetaRecord,
   handlePatchMetaUseCase,
   handlePatchMetaWithPasswordAtomicUseCase,
 } from "../../application/space-meta-service";
@@ -560,6 +564,8 @@ import {
   readSpaceStatusSummaryUseCase,
 } from "../../application/space-status-service";
 import {
+  type ApplyGitHubIssueObservationInput,
+  type ApplyGitHubIssueObservationResult,
   type CreateSpaceTaskContext,
   SpaceTaskService,
 } from "../../application/space-task-service";
@@ -596,6 +602,7 @@ import {
   readSpaceDispatchTrace as readSpaceDispatchTraceFromRepo,
   type SpaceDispatchLedgerStatus,
 } from "../../infrastructure/d1/space-dispatch-read-repo";
+import { projectSpaceTaskGitHubIssueLinks } from "../../infrastructure/d1/space-task-github-issue-link-repo";
 import {
   clearDispatchOutboxPoisonFailure,
   createDispatchOutboxRecord,
@@ -2336,6 +2343,20 @@ type PatchSpaceMetaInput = {
   initializeIfAbsent?: boolean;
 };
 
+type InitializeSpaceMetaWithOwnersInput = {
+  creator: SpaceCreator;
+  name: string;
+  organizationId: string;
+  owners?: ResolvedSpaceMemberProfile[];
+  spaceId: string;
+  visibility: "public" | "private";
+};
+
+type InitializeSpaceMetaWithOwnersResponse =
+  | { meta: SpaceMeta; status: "created" | "existing" }
+  | { reason: string; status: "owners_invalid" }
+  | { status: "owners_required" };
+
 type TextSignalClientMessageResolution =
   | {
       signal: Extract<SignalEnvelope, { type: "signal.text" }>;
@@ -2640,8 +2661,8 @@ export class Space extends DurableObject<CoreBindings> {
     }
   }
 
-  fetch(request: Request): Promise<Response> {
-    return handleErrors(request, () => {
+  async fetch(request: Request): Promise<Response> {
+    const response = await handleErrors(request, () => {
       const url = new URL(request.url);
       this.updateSpaceIdFromQuery(url);
       const internalRedriveDispatchId =
@@ -2724,6 +2745,7 @@ export class Space extends DurableObject<CoreBindings> {
         },
       });
     });
+    return projectSpaceImageGeometryHttpResponse(request, response);
   }
 
   async rpcListSpaceFiles(input: {
@@ -2750,6 +2772,7 @@ export class Space extends DurableObject<CoreBindings> {
       spaceId: this.spaceId,
       parentId: input.query?.parentId,
       view: input.query?.view,
+      origin: input.query?.origin ?? "artifact",
       canWrite,
     });
   }
@@ -2950,6 +2973,9 @@ export class Space extends DurableObject<CoreBindings> {
             revision: pending.revision,
             mimeType: revision.mimeType,
             sizeBytes: revision.sizeBytes,
+            ...(revision.imageDimensions
+              ? { imageDimensions: revision.imageDimensions }
+              : {}),
           },
         ],
         messageEnvelope: normalizeMessageEnvelope({
@@ -3200,70 +3226,88 @@ export class Space extends DurableObject<CoreBindings> {
               },
             };
           }
-          const target = metadata.target;
-          const baseRevision =
-            target.kind === "file" ? null : target.baseRevision;
-          const createFields =
-            target.kind === "file"
-              ? { name: target.name, parentId: target.parentId }
-              : {};
-          const write = {
-            spaceId: this.spaceId,
-            fileId:
-              target.kind === "file"
-                ? await buildSpaceFileEntryIdForMutation(
-                    target.clientMutationId
-                  )
-                : target.fileId,
-            baseRevision,
-            clientMutationId: target.clientMutationId,
+          return await this.finishSpaceFileUploadWrite({
+            bucket,
+            key,
             mimeType: metadata.mimeType,
+            object,
             sizeBytes: metadata.sizeBytes,
-            ...createFields,
-            revisionId: await buildSpaceFileRevisionIdFromDigest({
-              baseRevision,
-              clientMutationId: target.clientMutationId,
-              mimeType: metadata.mimeType,
-              contentDigest: await hashSpaceFileStream(object.body),
-              ...createFields,
-            }),
-          };
-          const prepared = await this.rpcPrepareSpaceFileWrite({
             spaceAccess: input.spaceAccess,
-            write,
+            target: metadata.target,
           });
-          if (prepared.committedFile) {
-            return { file: prepared.committedFile };
-          }
-          const source = await bucket.get(key);
-          if (!source) {
-            throw new Error("The uploaded file is unavailable.");
-          }
-          await bucket.put(prepared.objectKey, source.body, {
-            httpMetadata: { contentType: metadata.mimeType },
-          });
-          try {
-            return {
-              file: await this.rpcCommitSpaceFileWrite({
-                spaceAccess: input.spaceAccess,
-                write,
-              }),
-            };
-          } catch (error) {
-            const committed = this.spaceFileRepository.resolveCommittedWrite(
-              write.clientMutationId,
-              write.fileId
-            );
-            if (committed) {
-              return { file: committed };
-            }
-            await bucket.delete(prepared.objectKey);
-            throw error;
-          }
         },
       });
     } finally {
       await this.syncSpaceBackgroundAlarm();
+    }
+  }
+
+  private async finishSpaceFileUploadWrite(input: {
+    bucket: R2Bucket;
+    key: string;
+    mimeType: string;
+    object: R2ObjectBody;
+    sizeBytes: number;
+    spaceAccess: SpaceAccessContext;
+    target: Exclude<SpaceFileUploadMetadata["target"], { kind: "composer" }>;
+  }): Promise<{ file: SpaceFileDescriptor }> {
+    const { bucket, mimeType, object, target } = input;
+    const baseRevision = target.kind === "file" ? null : target.baseRevision;
+    const createFields =
+      target.kind === "file"
+        ? { name: target.name, parentId: target.parentId }
+        : {};
+    const write = {
+      spaceId: this.spaceId,
+      fileId:
+        target.kind === "file"
+          ? await buildSpaceFileEntryIdForMutation(target.clientMutationId)
+          : target.fileId,
+      baseRevision,
+      clientMutationId: target.clientMutationId,
+      mimeType,
+      sizeBytes: input.sizeBytes,
+      ...createFields,
+      ...(target.kind === "file" ? { origin: target.origin } : {}),
+      revisionId: await buildSpaceFileRevisionIdFromDigest({
+        baseRevision,
+        clientMutationId: target.clientMutationId,
+        mimeType,
+        contentDigest: await hashSpaceFileStream(object.body),
+        ...createFields,
+      }),
+    };
+    const prepared = await this.rpcPrepareSpaceFileWrite({
+      spaceAccess: input.spaceAccess,
+      write,
+    });
+    if (prepared.committedFile) {
+      return { file: prepared.committedFile };
+    }
+    const source = await bucket.get(input.key);
+    if (!source) {
+      throw new Error("The uploaded file is unavailable.");
+    }
+    await bucket.put(prepared.objectKey, source.body, {
+      httpMetadata: { contentType: mimeType },
+    });
+    try {
+      return {
+        file: await this.rpcCommitSpaceFileWrite({
+          spaceAccess: input.spaceAccess,
+          write,
+        }),
+      };
+    } catch (error) {
+      const committed = this.spaceFileRepository.resolveCommittedWrite(
+        write.clientMutationId,
+        write.fileId
+      );
+      if (committed) {
+        return { file: committed };
+      }
+      await bucket.delete(prepared.objectKey);
+      throw error;
     }
   }
 
@@ -3319,6 +3363,25 @@ export class Space extends DurableObject<CoreBindings> {
   }): Promise<SpaceFileDescriptor> {
     const write = commitSpaceFileWriteInputSchema.parse(input.write);
     this.applySpaceRef(write.spaceId);
+    await this.requireSpaceFileWriteActor(input.spaceAccess);
+    const committed = this.runSpaceFileRepositoryOperation(() =>
+      this.spaceFileRepository.prepareWrite(write)
+    );
+    const imageDimensions = committed
+      ? committed.latestRevision.imageDimensions
+      : await readStoredSpaceFileImageDimensions({
+          bucket: this.env.OPENMELD_SPACE_ATTACHMENTS,
+          objectKey: buildSpaceFileObjectKey({
+            organizationId: this.requireSpaceFileMetaRecord().organizationId,
+            spaceId: this.spaceId,
+            fileId: write.fileId,
+            revisionId: write.revisionId,
+          }),
+          mimeType: write.mimeType,
+          sizeBytes: write.sizeBytes,
+        });
+    // Membership can change while R2 header ranges are read. The repository
+    // performs the final revision/CAS check inside the commit transaction.
     const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
     const nowMs = Date.now();
     const auditEvent = this.buildSuccessfulSpaceFileAuditEvent({
@@ -3340,6 +3403,7 @@ export class Space extends DurableObject<CoreBindings> {
       this.spaceFileRepository.commitWrite({
         actor,
         auditEvent,
+        imageDimensions,
         nowMs,
         write,
       })
@@ -3523,6 +3587,9 @@ export class Space extends DurableObject<CoreBindings> {
         name: resolved.file.name,
         mimeType: resolved.revision.mimeType,
         sizeBytes: resolved.revision.sizeBytes,
+        ...(resolved.revision.imageDimensions
+          ? { imageDimensions: resolved.revision.imageDimensions }
+          : {}),
       };
     });
   }
@@ -4065,15 +4132,14 @@ export class Space extends DurableObject<CoreBindings> {
     );
     const ownerCancellation =
       noticeType === "wake_stopped" &&
-      isComputerFileAccessOwnerCancellation(
+      resolveLocalExecutionOwnerCancellationReason(
         command.acceptedResult.taskResult.payload
       );
     let reasonCode: string;
     let text: string;
     if (ownerCancellation) {
-      reasonCode = COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE;
-      text =
-        "Stopped before the Agent started because the Computer owner declined the file access request.";
+      reasonCode = ownerCancellation;
+      text = "The Computer owner stopped this task before the Agent started.";
     } else if (noticeType === "wake_stopped") {
       reasonCode = "runtime_coordinator.wake_stop_requested";
       text = buildSystemNoticeText({
@@ -6824,6 +6890,27 @@ export class Space extends DurableObject<CoreBindings> {
     return readSpaceRpcJsonOrThrow(response);
   }
 
+  async rpcGetEvidenceReadContext(input: GetSpaceMetaInput): Promise<{
+    meta: SpaceMeta;
+    isDirectMessage: boolean;
+  }> {
+    // Reuse normal member authorization. Keep DM internals out of the public
+    // metadata DTO; expose only the canonical current audience fact.
+    const meta = await this.rpcGetMeta(input);
+    const record = this.readSpaceMetaRecord();
+    const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    });
+    return {
+      meta,
+      isDirectMessage: isDirectMessageSpace({
+        purpose: record?.purpose,
+        directMessageConvertedAt: record?.directMessage?.convertedAt,
+        activeMemberCount: activeMembers.length,
+      }),
+    };
+  }
+
   async rpcMessagePins(
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse> {
@@ -6932,6 +7019,7 @@ export class Space extends DurableObject<CoreBindings> {
             if (receipt.applied) {
               await this.broadcastSpaceTasksChanged("space.task.created");
             }
+            await this.projectSpaceTaskGitHubIssueLinks(receipt.task, []);
             return receipt;
           }),
       }
@@ -6958,6 +7046,34 @@ export class Space extends DurableObject<CoreBindings> {
       }
     );
     return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcApplyGitHubIssueObservation(
+    input: ApplyGitHubIssueObservationInput
+  ): Promise<ApplyGitHubIssueObservationResult> {
+    this.applySpaceRef(input.spaceId);
+    let previousItems: SpaceTask["externalWorkItems"] = [];
+    try {
+      previousItems = this.spaceTaskService.read(input.taskId).task
+        .externalWorkItems;
+    } catch (error) {
+      if (
+        !(error instanceof SpaceTaskWorkflowError) ||
+        error.code !== "space_task.not_found"
+      ) {
+        throw error;
+      }
+    }
+    const result = this.spaceTaskService.applyGitHubIssueObservation(input);
+    if (result.task && (result.observed || result.canceled)) {
+      await this.broadcastSpaceTasksChanged(
+        result.canceled
+          ? "space.task.cancel"
+          : "space.task.observe_external_work_item"
+      );
+      await this.projectSpaceTaskGitHubIssueLinks(result.task, previousItems);
+    }
+    return result;
   }
 
   async rpcFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse> {
@@ -6997,6 +7113,8 @@ export class Space extends DurableObject<CoreBindings> {
     context: CoreRpcContextInput,
     taskContext: SpaceTaskMutationContext
   ): Promise<SpaceTaskMutationReceipt> {
+    const previousItems = this.spaceTaskService.read(input.taskId).task
+      .externalWorkItems;
     const receipt = this.spaceTaskService.mutate(
       input.taskId,
       input.body,
@@ -7005,6 +7123,7 @@ export class Space extends DurableObject<CoreBindings> {
     if (receipt.applied) {
       await this.broadcastSpaceTasksChanged(`space.task.${input.body.action}`);
     }
+    await this.projectSpaceTaskGitHubIssueLinks(receipt.task, previousItems);
     await this.requestTaskExecutionStopAfterCancellation({
       context,
       request: input,
@@ -7290,6 +7409,33 @@ export class Space extends DurableObject<CoreBindings> {
           : null;
       },
     };
+  }
+
+  private async projectSpaceTaskGitHubIssueLinks(
+    task: SpaceTask,
+    previousItems: SpaceTask["externalWorkItems"]
+  ): Promise<void> {
+    const db = projectionsDb(this.bindings);
+    const organizationId = this.readSpaceMetaRecord()?.organizationId?.trim();
+    if (!(db && organizationId)) {
+      return;
+    }
+    try {
+      await projectSpaceTaskGitHubIssueLinks({
+        db,
+        nowMs: Date.now(),
+        organizationId,
+        previousItems,
+        spaceId: this.spaceId,
+        task,
+      });
+    } catch (error) {
+      console.warn("[core.space.task_github_issue_link_projection_failed]", {
+        error: error instanceof Error ? error.message : String(error),
+        spaceId: this.spaceId,
+        taskId: task.taskId,
+      });
+    }
   }
 
   private buildSpaceTaskCreateContext(
@@ -9917,6 +10063,128 @@ export class Space extends DurableObject<CoreBindings> {
       ? await this.dispatchInitializeMetaRequest(request)
       : await this.dispatchMetaRequest(request);
     return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcInitializeSpaceMetaWithOwners(
+    input: InitializeSpaceMetaWithOwnersInput
+  ): Promise<InitializeSpaceMetaWithOwnersResponse> {
+    this.applySpaceRef(input.spaceId);
+    const result = await this.ctx.blockConcurrencyWhile(async () => {
+      try {
+        const existing = this.readSpaceMetaRecord();
+        if (existing) {
+          return {
+            ok: true as const,
+            value: {
+              meta: toPublicSpaceMeta(
+                existing,
+                this.ctx.storage.sql.databaseSize
+              ),
+              status: "existing" as const,
+            },
+          };
+        }
+        if (input.owners === undefined) {
+          return {
+            ok: true as const,
+            value: { status: "owners_required" as const },
+          };
+        }
+
+        const ownerByUserId = new Map<string, ResolvedSpaceMemberProfile>();
+        for (const owner of input.owners) {
+          const ownerUserId = normalizeOptionalText(owner.ownerUserId);
+          if (!(ownerUserId && owner.profileKind === "human")) {
+            throw new Error(
+              "A system-initialized Space must have human organization owners."
+            );
+          }
+          ownerByUserId.set(ownerUserId, owner);
+        }
+        const owners = [...ownerByUserId.entries()]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([, owner]) => owner);
+        if (owners.length === 0) {
+          throw new Error(
+            "A system-initialized Space must have current organization owners."
+          );
+        }
+
+        const now = new Date().toISOString();
+        const record = buildNextSpaceMetaRecord({
+          existing: null,
+          metaUpdate: {
+            hasAccessMode: false,
+            hasCreator: true,
+            creator: input.creator,
+            hasGuide: false,
+            hasName: true,
+            name: input.name,
+            hasOrganizationId: true,
+            organizationId: input.organizationId,
+            hasPurpose: false,
+            hasVisibility: true,
+            visibility: input.visibility,
+          },
+          now,
+          spaceId: input.spaceId,
+        });
+        const initialized = await this.initializeOwnedSpace(
+          {
+            ...record,
+            ownerUserIds: owners.map((owner) => owner.ownerUserId as string),
+          },
+          { requireOrganizationOwnerRole: true }
+        );
+        upsertSpaceCreatorFromCurrentMeta({
+          sql: this.ctx.storage.sql,
+          spaceId: this.spaceId,
+        });
+        addSpaceMembersUseCase({
+          actorDisplayName: input.creator.profileName,
+          actorProfileId: input.creator.profileId,
+          env: this.bindings,
+          liveSessions: this.sessions.values(),
+          members: owners,
+          spaceId: this.spaceId,
+          sql: this.ctx.storage.sql,
+        });
+        await this.projectCurrentSpaceIndexSnapshot("space.created");
+        return {
+          ok: true as const,
+          value: {
+            meta: toPublicSpaceMeta(
+              initialized,
+              this.ctx.storage.sql.databaseSize
+            ),
+            status: "created" as const,
+          },
+        };
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          (error.message ===
+            "A system-initialized Space must have human organization owners." ||
+            error.message ===
+              "A system-initialized Space must have current organization owners." ||
+            error.message ===
+              "The initial Space owners must be current organization owners.")
+        ) {
+          return {
+            ok: true as const,
+            value: {
+              reason: error.message,
+              status: "owners_invalid" as const,
+            },
+          };
+        }
+        return { error, ok: false as const };
+      }
+    });
+    if (!result.ok) {
+      throw result.error;
+    }
+    return result.value;
   }
 
   async rpcInitializeDirectMessageMeta(
@@ -15660,18 +15928,43 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   private async initializeOwnedSpace(
-    record: SpaceMetaRecord
+    record: SpaceMetaRecord,
+    options?: { requireOrganizationOwnerRole?: boolean }
   ): Promise<SpaceMetaRecord> {
     const existing = this.readSpaceMetaRecord();
     if (existing) {
       return existing;
     }
-    const userId = record.creator?.ownerUserId;
-    if (!userId) {
+    const ownerUserIds = [
+      ...new Set(
+        (
+          record.ownerUserIds ??
+          (record.creator?.ownerUserId ? [record.creator.ownerUserId] : [])
+        )
+          .map((ownerUserId) => normalizeOptionalText(ownerUserId))
+          .filter((ownerUserId): ownerUserId is string => Boolean(ownerUserId))
+      ),
+    ].sort();
+    if (ownerUserIds.length === 0) {
       throw new Error("A Space must have an organization member as its owner.");
     }
-    await this.protectSpaceOwnerMembership(record.organizationId, userId);
-    return initializeSpaceMetaRecordIfAbsent(this.ctx.storage.sql, record);
+    if (options?.requireOrganizationOwnerRole) {
+      await this.protectInitialOrganizationOwnerMemberships(
+        record.organizationId,
+        ownerUserIds
+      );
+    } else {
+      for (const ownerUserId of ownerUserIds) {
+        await this.protectSpaceOwnerMembership(
+          record.organizationId,
+          ownerUserId
+        );
+      }
+    }
+    return initializeSpaceMetaRecordIfAbsent(this.ctx.storage.sql, {
+      ...record,
+      ownerUserIds,
+    });
   }
 
   private async protectSpaceOwnerMembership(
@@ -15699,6 +15992,48 @@ export class Space extends DurableObject<CoreBindings> {
       )
       .bind(this.spaceId, member.id)
       .run();
+  }
+
+  private async protectInitialOrganizationOwnerMemberships(
+    organizationId: string,
+    ownerUserIds: readonly string[]
+  ): Promise<void> {
+    const db = identityDb(this.bindings);
+    if (!db) {
+      throw new Error("Space ownership storage is unavailable.");
+    }
+    const memberResults = await db.batch(
+      ownerUserIds.map((ownerUserId) =>
+        db
+          .prepare(
+            "SELECT id FROM members WHERE organization_id = ? AND user_id = ? AND role = 'owner' LIMIT 1"
+          )
+          .bind(organizationId, ownerUserId)
+      )
+    );
+    const memberIds = memberResults
+      .map((result) => (result.results[0] as { id?: unknown } | undefined)?.id)
+      .filter(
+        (memberId): memberId is string =>
+          typeof memberId === "string" && memberId.length > 0
+      );
+    if (memberIds.length !== ownerUserIds.length) {
+      throw new Error(
+        "The initial Space owners must be current organization owners."
+      );
+    }
+    // Validate the full owner set before installing any protection. D1 batches
+    // the restrictive references atomically, and the foreign key rejects a
+    // concurrent membership deletion before Space truth is committed.
+    await db.batch(
+      memberIds.map((memberId) =>
+        db
+          .prepare(
+            "INSERT OR IGNORE INTO space_owner_member_references (space_id, member_id) VALUES (?, ?)"
+          )
+          .bind(this.spaceId, memberId)
+      )
+    );
   }
 
   private async projectCurrentSpaceIndexSnapshot(
@@ -17545,6 +17880,9 @@ export class Space extends DurableObject<CoreBindings> {
         revision: file.latestRevision.revision,
         mimeType: file.latestRevision.mimeType,
         sizeBytes: file.latestRevision.sizeBytes,
+        ...(file.latestRevision.imageDimensions
+          ? { imageDimensions: file.latestRevision.imageDimensions }
+          : {}),
       }));
     for (const decision of mergedReadyDecisions) {
       outboxRecords.push(
@@ -21049,6 +21387,31 @@ export class Space extends DurableObject<CoreBindings> {
   }
 }
 
+/** The HTTP dispatcher serves protocol JSON, never file-content bytes. */
+async function projectSpaceImageGeometryHttpResponse(
+  request: Request,
+  response: Response
+): Promise<Response> {
+  if (
+    request.headers.get(OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION) ===
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION ||
+    !response.headers.get("content-type")?.includes("application/json")
+  ) {
+    return response;
+  }
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  headers.delete("etag");
+  return Response.json(
+    toLegacySpaceImageGeometryWireValue(await response.json()),
+    {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    }
+  );
+}
+
 function spaceAddressingJsonResponse(
   request: Request,
   value: unknown,
@@ -21072,7 +21435,11 @@ function spaceAddressingWireValueForSession(
   value: unknown,
   session: Session
 ): unknown {
-  const readValue = toSpaceSignalReadWireValue(value);
+  const readValue = toSpaceSignalReadWireValue(
+    session.supportsSpaceImageGeometry
+      ? value
+      : toLegacySpaceImageGeometryWireValue(value)
+  );
   return session.supportsSpaceMessageAddressing
     ? readValue
     : toLegacySpaceAddressingWireValue(readValue);

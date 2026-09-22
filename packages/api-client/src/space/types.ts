@@ -209,6 +209,7 @@ export type SpaceApi = {
       clientMutationId: string;
       mimeType: string;
       name: string;
+      origin: "artifact" | "chat_upload";
       parentId?: string | null;
       onProgress?: (uploadedBytes: number, totalBytes: number) => void;
     }

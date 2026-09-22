@@ -75,6 +75,7 @@ export async function runOpenMeldToolsUpgradeProcess(
   return await new Promise((resolve, reject) => {
     let stdout = "";
     const child = spawn(command, [...argsPrefix, "maintenance-upgrade"], {
+      windowsHide: true,
       env: {
         ...process.env,
         ...buildOpenMeldToolsUpdateContextEnv(context),

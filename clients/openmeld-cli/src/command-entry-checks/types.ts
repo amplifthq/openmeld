@@ -168,6 +168,7 @@ export type CommandEntryName =
   | "space.list.organization"
   | "space.join.self_serve"
   | "space.wake_progress"
+  | "space.respond"
   | "space.wake_stop"
   | "space.password"
   | "space.guide"

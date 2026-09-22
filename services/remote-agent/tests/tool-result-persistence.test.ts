@@ -50,7 +50,7 @@ const INSTANCE_ID = "space-tool-result-budget";
 const MODEL_ID = "tool-result-budget-model";
 const PROVIDER_ID = "tool-result-budget-provider";
 const STREAM_PATH = `agents/${AGENT_NAME}/${INSTANCE_ID}`;
-const TOOL_NAME = "test_oversized_read";
+const TOOL_NAME = "read";
 const CANONICAL_BATCH_SAFE_BUDGET_BYTES = 512 * 1024;
 
 describe("Remote Agent canonical tool result persistence", () => {
@@ -74,7 +74,7 @@ describe("Remote Agent canonical tool result persistence", () => {
     }
     const identity = buildRemoteAgentExecutionIdentity(context);
     let reads = 0;
-    const tools = await getRemoteAgentFlueTools({
+    const { tools } = await getRemoteAgentFlueTools({
       codeModeRuntime: TEST_CODE_MODE_RUNTIME,
       coreWorker: {},
       env: { LOADER: TEST_CODE_MODE_LOADER },
@@ -149,7 +149,7 @@ describe("Remote Agent canonical tool result persistence", () => {
   ])("finishes more than 64 real tool turns across SDK compaction (personal=%s)", async (personalAgent) => {
     const storage = await createToolExecutionStorage();
     const receipts: number[] = [];
-    const tools = await getRemoteAgentFlueTools({
+    const { tools } = await getRemoteAgentFlueTools({
       codeModeRuntime: TEST_CODE_MODE_RUNTIME,
       coreWorker: {
         personalRemoteAgentSpaceTool: () =>
@@ -258,7 +258,7 @@ describe("Remote Agent canonical tool result persistence", () => {
       input: object({}),
       name: TOOL_NAME,
     };
-    const tools = await getRemoteAgentFlueTools({
+    const { tools } = await getRemoteAgentFlueTools({
       codeModeRuntime: TEST_CODE_MODE_RUNTIME,
       coreWorker: {},
       env: { LOADER: TEST_CODE_MODE_LOADER },

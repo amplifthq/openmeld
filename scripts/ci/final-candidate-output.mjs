@@ -183,6 +183,24 @@ export function shortSha(value) {
   return String(value ?? "unresolved").slice(0, 12);
 }
 
+export function isTrustedControlRefuse(evidence) {
+  return (evidence?.results ?? []).some(
+    (result) =>
+      result.id === "trusted-control-entrypoints" && result.status === "failed"
+  );
+}
+
+export function describeFinalCandidateFailure(headSha, baseSha, evidence) {
+  if (isTrustedControlRefuse(evidence)) {
+    return `Control drifted @ ${shortSha(headSha)} on ${shortSha(baseSha)}; use local explicit bootstrap`;
+  }
+  return `Failed @ ${shortSha(headSha)} on ${shortSha(baseSha)}; inspect evidence`;
+}
+
+export function shouldFailPublisherJob(success, evidence) {
+  return !(success || isTrustedControlRefuse(evidence));
+}
+
 function formatDuration(durationMs) {
   if (!Number.isFinite(durationMs)) {
     return "unknown";

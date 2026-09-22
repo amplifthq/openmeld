@@ -23,7 +23,6 @@ import {
   type WakeRouteStatus,
 } from "@openmeld/agent-runtime";
 import {
-  CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   isHostedAgentControllerRef,
 } from "@openmeld/schemas";
@@ -62,6 +61,7 @@ import {
   identityDb,
   localStateDb,
 } from "../../lib/bindings";
+import { resolveCoreRuntimeContractRollout } from "../../local-components/runtime-contract-rollout";
 import { resolveLocalComponentUpdateProjection } from "../../local-components/update-projection";
 import { resolveRemoteAgentRuntimeAvailability } from "../../remote-agent/application/remote-agent-runtime-policy";
 import {
@@ -2199,7 +2199,7 @@ function createServiceEvidenceFromCompatibility(
   if (compatibility.status === "compatible") {
     return {
       executionCompatible: true,
-      expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+      expectedEpoch: compatibility.expectedEpoch,
       observedEpoch: compatibility.observedEpoch,
       reasonCodes: [],
       source: "runtime_transport",
@@ -2208,7 +2208,7 @@ function createServiceEvidenceFromCompatibility(
 
   return {
     executionCompatible: false,
-    expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+    expectedEpoch: compatibility.expectedEpoch,
     observedEpoch: compatibility.observedEpoch,
     reasonCodes: ["service.update_required", compatibility.reasonCode],
     source: "runtime_transport",
@@ -2275,7 +2275,7 @@ function doesBindingRuntimeMatchTargetRuntime(input: {
 function createNotCheckedServiceEvidence(): AgentExecutionServiceEvidence {
   return {
     executionCompatible: true,
-    expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+    expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
     observedEpoch: null,
     reasonCodes: [],
     source: "not_checked",
@@ -2285,7 +2285,7 @@ function createNotCheckedServiceEvidence(): AgentExecutionServiceEvidence {
 function createUnavailableServiceEvidence(): AgentExecutionServiceEvidence {
   return {
     executionCompatible: true,
-    expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+    expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
     observedEpoch: null,
     reasonCodes: [],
     source: "unavailable",
@@ -2409,7 +2409,7 @@ function toSpaceMemberAgentExecutionReadiness(
       },
       service: {
         executionCompatible: readiness.facts.service.executionCompatible,
-        expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+        expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
         observedEpoch: readiness.facts.service.observedEpoch,
         reasonCodes: [...readiness.facts.service.reasonCodes],
         source: readiness.facts.service.source,

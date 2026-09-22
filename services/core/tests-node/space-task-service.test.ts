@@ -172,4 +172,91 @@ describe("Space Task service brief updates", () => {
       },
     ]);
   });
+
+  it("cancels an active linked Task from a GitHub close observation and does not reopen it", () => {
+    const { events, service } = createService();
+    const created = service.create(
+      {
+        assigneeProfileId: agent.profileId,
+        externalWorkItems: [
+          {
+            lastObservedAt: "2026-09-20T00:00:00.000Z",
+            lastObservedState: "open",
+            number: 1143,
+            owner: "amplifthq",
+            provider: "github",
+            repo: "openmeld",
+            url: "https://github.com/amplifthq/openmeld/issues/1143",
+          },
+        ],
+        operationId: "create-linked-task-2",
+        title: "Follow GitHub issue #1143",
+      },
+      {
+        actor: requester,
+        isSpaceOwner: true,
+        requestedBy: requester,
+        resolveMember: (profileId) => members.get(profileId) ?? null,
+      }
+    );
+    const closed = service.applyGitHubIssueObservation({
+      cancelOperationId: "github-issue-cancel:amplifthq:openmeld:1143",
+      identity: { number: 1143, owner: "amplifthq", repo: "openmeld" },
+      observeOperationId: "github-issue-observe-closed:amplifthq:openmeld:1143",
+      observedAt: "2026-09-20T12:00:00.000Z",
+      observedState: "closed",
+      taskId: created.task.taskId,
+    });
+    expect(closed).toMatchObject({
+      canceled: true,
+      observed: true,
+      skipReason: null,
+    });
+    expect(closed.task?.phase).toBe("canceled");
+    expect(closed.task?.externalWorkItems[0]?.lastObservedState).toBe("closed");
+    expect(events.map((event) => event.type)).toEqual([
+      "created",
+      "external_work_item_observed",
+      "canceled",
+    ]);
+
+    const replay = service.applyGitHubIssueObservation({
+      cancelOperationId: "github-issue-cancel:amplifthq:openmeld:1143",
+      identity: { number: 1143, owner: "amplifthq", repo: "openmeld" },
+      observeOperationId: "github-issue-observe-closed:amplifthq:openmeld:1143",
+      observedAt: "2026-09-20T12:00:00.000Z",
+      observedState: "closed",
+      taskId: created.task.taskId,
+    });
+    expect(replay.task?.phase).toBe("canceled");
+    expect(events).toHaveLength(3);
+
+    const reopened = service.applyGitHubIssueObservation({
+      cancelOperationId: "github-issue-cancel:amplifthq:openmeld:1143:reopen",
+      identity: { number: 1143, owner: "amplifthq", repo: "openmeld" },
+      observeOperationId: "github-issue-observe-open:amplifthq:openmeld:1143",
+      observedAt: "2026-09-20T13:00:00.000Z",
+      observedState: "open",
+      taskId: created.task.taskId,
+    });
+    expect(reopened.canceled).toBe(false);
+    expect(reopened.observed).toBe(true);
+    expect(reopened.task?.phase).toBe("canceled");
+    expect(reopened.task?.externalWorkItems[0]?.lastObservedState).toBe("open");
+    expect(
+      service.applyGitHubIssueObservation({
+        cancelOperationId: "github-issue-cancel:missing",
+        identity: { number: 1143, owner: "amplifthq", repo: "openmeld" },
+        observeOperationId: "github-issue-observe-closed:missing",
+        observedAt: "2026-09-20T12:00:00.000Z",
+        observedState: "closed",
+        taskId: "tsk_99999999-9999-4999-8999-999999999999",
+      })
+    ).toMatchObject({
+      canceled: false,
+      observed: false,
+      skipReason: "not_found",
+      task: null,
+    });
+  });
 });

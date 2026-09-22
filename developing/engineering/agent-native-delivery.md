@@ -122,12 +122,48 @@ plan is the authority for selected/skipped commands, reasons, and durations:
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
 ```
 
+When local resource admission cannot safely start a production client build,
+the existing manual Deep Confidence workflow can run only the required client
+artifacts on an isolated hosted runner:
+
+```sh
+gh workflow run deep-confidence.yml --ref <candidate-branch> \
+  -f scope=release-artifacts -f artifact_scopes=web,desktop
+```
+
+Choose `web` or `desktop` when only that artifact is needed. This mode skips
+the broad diagnostic jobs, runs the same exact-source renderer/prerender and
+Workerd SSR entrypoints, and retains their source/input/output receipts. It
+uses read-only repository access and no production credentials. Match the run's
+head SHA to the candidate; these checks do not replace FC or deployed smoke.
+
 Trusted control installs only the shared evidence parser's production
 dependencies. The result publisher does not restore the full development store;
 restoring that cache costs more than installing its small runtime. Candidate
 dependencies stay isolated and complete for the selected checks. This setup is
 the same for all PR scopes, confidence levels, merge groups, and local fallback;
 it does not change validation coverage or grant candidate code write credentials.
+
+Hosted `trusted-control-entrypoints` compares the current-main control
+projection, not every workspace or lockfile byte. The isolated installer
+consumes the candidate lockfile with `--frozen-lockfile --ignore-scripts` and
+rebuilds only native dependencies from the trusted `pnpm-workspace.yaml`
+allowlist. A catalog or override that only changes resolved JavaScript packages
+is not control drift. Changes to Final Candidate workflows, trusted
+entrypoints, install wrappers, project `.npmrc`, `package.json`
+`packageManager` or scripts, the Turbo task graph, or workspace fields that
+change what native code may run (`allowBuilds`, `onlyBuiltDependencies`,
+`patchedDependencies`, and equivalents, including the referenced patch files)
+still refuse hosted certification. Native-build and patch settings are parsed
+fail-closed, including valid flow-style and complex-key YAML. The isolated
+command wrapper also forces a trusted `script-shell` so a candidate `.npmrc`
+cannot rewrite how later `pnpm run` checks execute. Those pull requests use
+the documented local explicit bootstrap. When that refuse happens, the
+required `OpenMeld Final Candidate` status names the control refuse and the
+bootstrap path. The Final Candidate Runner job also stays red because the
+runner still exits after the control check. The publisher job does not add a
+third lookalike product-test failure. The merge gate remains that one required
+status; this is not a second delivery process.
 
 A non-draft PR targeting `main` starts standard FC on opening, new commits,
 reopening, or marking ready; no label is needed. To retry after diagnosing a
@@ -217,6 +253,9 @@ The local development commands it invokes may wait for shared worktree
 capacity as described in
 [Resource Discipline](development-workflow.md#resource-discipline). Waiting
 affects execution timing, not candidate identity or validation requirements.
+The preflight reports macOS warning and critical pressure separately; both
+remain informational here. Development admission owns the quiet-swap observation
+for warning-pressure starts, and broad local builds still wait for normal pressure.
 The narrow `Dev lifecycle` workflow additionally exercises process ownership
 and resource arbitration on macOS, Linux and Windows when development scripts
 change. It uses disposable processes, requires no cloud credentials, and does
@@ -351,6 +390,13 @@ Anything not run, with reason
   incomplete, with its original submission evidence preserved across runners.
   Resume verification without resubmitting an accepted or uncertain publish;
   follow the npm recovery boundary in `production-release.md`.
+
+For CLI publication, source builds and registry version existence do not prove
+that an npm user can install the release. The release owner must validate and
+publish the same portable tarball, as defined in
+[npm submission and availability](production-release.md#npm-submission-and-availability).
+Windows compatibility CI also consumes that artifact and exercises the generated
+PowerShell bootstrap; signed-in computer and Wake acceptance remain separate.
 
 ## Agent Experience Occurrence Feedback
 

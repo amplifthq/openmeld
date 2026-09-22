@@ -1,4 +1,7 @@
-import { OPENMELD_SPACE_ADDRESSING_VERSION } from "@openmeld/gateway-contract";
+import {
+  OPENMELD_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+} from "@openmeld/gateway-contract";
 import {
   listSignalsQuerySchema,
   readListSignalsQueryRawValues,
@@ -100,7 +103,8 @@ export function registerBootstrapRoute(app: Hono<HonoBindings>): void {
       execute: async () => {
         const result = (await c.var.coreRpc.getSpaceBootstrapWithTiming(
           rpcInput,
-          OPENMELD_SPACE_ADDRESSING_VERSION
+          OPENMELD_SPACE_ADDRESSING_VERSION,
+          OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
         )) as SpaceBootstrapWithTimingResult;
         const supported = c.req.header(AGENT_REPLY_PLACEMENT_HEADER) === "1";
         return {

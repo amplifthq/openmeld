@@ -353,6 +353,7 @@ import {
   runSpaceSelfServeJoin,
 } from "./space/organization-space-command";
 import { getRemovedCcCliInputMessage } from "./space/removed-addressing";
+import { runSpaceRespond } from "./space/respond-command";
 import { runSpaceResult } from "./space/result-command";
 import {
   resolveSpaceEntryCommandTarget,
@@ -3196,6 +3197,41 @@ withSpaceProfileOption(
 
 withSpaceProfileOption(
   spaceCmd
+    .command("respond")
+    .description("Review and answer a task waiting for you in this Space.")
+    .argument("<space>", "Space ID (64-character hex)")
+    .option("--execution <id>", "Exact execution from the pending request")
+    .option("--interaction <id>", "Exact interaction from the pending request")
+    .option(
+      "--response <json>",
+      "Explicit response JSON; omit to review the available choices"
+    )
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "respond"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () =>
+      await runSpaceRespond({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: String(space),
+        password: cliOptions.password,
+        view,
+        execution: normalizeOptionalString(opts.execution) ?? undefined,
+        interaction: normalizeOptionalString(opts.interaction) ?? undefined,
+        response: normalizeOptionalString(opts.response) ?? undefined,
+        entryChecksHandled: true,
+      }),
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
     .command("wake-progress")
     .description(
       "Read live Wake progress for this Space; use result or service trace after execution."
@@ -4985,7 +5021,10 @@ profileCmd
     "--owner <userId>",
     "Agent owner: self (creating for other members is not available)"
   )
-  .option("--computer <computerId>", "Exact Computer for your Agent")
+  .option(
+    "--computer <computerId>",
+    "Exact computerId from `openmeld org computers --view agent`"
+  )
   .option("--project <projectId>", "Default Project for the new Agent")
   .option(
     "--no-default-project",

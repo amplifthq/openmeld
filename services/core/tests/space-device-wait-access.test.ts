@@ -34,6 +34,7 @@ describe("device waiting Wake Space authority", () => {
     "members_only",
     "protected",
   ] as const)("rechecks live access and preserves member authorization across password rotation (%s)", async (accessMode) => {
+    await ensureOrganizationMember();
     const namespace = (env as CoreBindings).OPENMELD_SPACES;
     const id = namespace.newUniqueId();
     const spaceId = id.toString();
@@ -258,3 +259,61 @@ describe("device waiting Wake Space authority", () => {
     });
   });
 });
+
+async function ensureOrganizationMember(): Promise<void> {
+  const nowMs = Date.now();
+  const db = (env as CoreBindings).OPENMELD_DB;
+  if (!db) {
+    throw new Error("Expected OPENMELD_DB in the Core test environment.");
+  }
+  await db.batch([
+    db
+      .prepare(
+        `
+        INSERT OR IGNORE INTO users (
+          id,
+          name,
+          email,
+          email_verified,
+          created_at,
+          updated_at
+        )
+        VALUES (?, 'Device Wait Requester', ?, 1, ?, ?)
+      `
+      )
+      .bind(
+        "requester-owner",
+        "device-wait-requester@openmeld.test",
+        nowMs,
+        nowMs
+      ),
+    db
+      .prepare(
+        `
+        INSERT OR IGNORE INTO organizations (id, name, slug, created_at)
+        VALUES ('org-device-wait', 'Device Wait Test', 'device-wait-test', ?)
+      `
+      )
+      .bind(nowMs),
+    db
+      .prepare(
+        `
+        INSERT OR IGNORE INTO members (
+          id,
+          organization_id,
+          user_id,
+          role,
+          created_at
+        )
+        VALUES (
+          'member-device-wait-requester',
+          'org-device-wait',
+          'requester-owner',
+          'member',
+          ?
+        )
+      `
+      )
+      .bind(nowMs),
+  ]);
+}

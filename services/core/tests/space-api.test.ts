@@ -4,8 +4,12 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   applyOpenMeldRequestContextHeaders,
   OPENMELD_EXPECTED_FORWARDED_BY,
+  OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
   OPENMELD_HEADER_SPACE_PASSWORD,
   OPENMELD_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
 } from "@openmeld/gateway-contract";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
@@ -6609,6 +6613,194 @@ describe("OpenMeld Core", () => {
     bob.close(1000, "done");
   });
 
+  it("preserves image geometry negotiation across WebSocket hibernation", async () => {
+    const spaceId = await createSpace({
+      name: `websocket-image-geometry-${Date.now()}`,
+    });
+    const legacyProfile = {
+      kind: "human",
+      profileId: "legacy-geometry-viewer",
+      profileName: "Legacy Geometry Viewer",
+    };
+    const currentProfile = {
+      kind: "human",
+      profileId: "current-geometry-viewer",
+      profileName: "Current Geometry Viewer",
+    };
+    const legacy = await openPendingSpaceSocket(spaceId, legacyProfile);
+    const current = await openPendingSpaceSocket(spaceId, currentProfile);
+    const legacyAck = waitForJsonMessage(
+      legacy,
+      (data) => data.type === "system.hello.ack"
+    );
+    const currentAck = waitForJsonMessage(
+      current,
+      (data) => data.type === "system.hello.ack"
+    );
+    legacy.send(JSON.stringify({ type: "hello", profile: legacyProfile }));
+    current.send(
+      JSON.stringify({
+        type: "hello",
+        profile: currentProfile,
+        capabilities: { spaceImageGeometry: true },
+      })
+    );
+    await Promise.all([legacyAck, currentAck]);
+
+    const fileId = randomUUID();
+    const signalText = "Image geometry after hibernation";
+    const findBroadcast = (data: Record<string, unknown>) => {
+      const signal =
+        data.type === "space.signal"
+          ? (data.signal as Record<string, unknown> | undefined)
+          : data;
+      return (
+        signal?.type === "signal.text" &&
+        (signal.data as { text?: string } | undefined)?.text === signalText
+      );
+    };
+    const legacyReceives = waitForJsonMessage(legacy, findBroadcast);
+    const currentReceives = waitForJsonMessage(current, findBroadcast);
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const context = createRpcContext({
+      requestId: "websocket-image-geometry",
+      profileId: DEFAULT_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      profileName: "Test User",
+      ownerUserId: "owner-test-default",
+    });
+    const spaceAccess = createAuthenticatedSpaceAccessContext({
+      requestContext: context,
+      spaceId,
+    });
+
+    await runInDurableObject(stub, async (_instance, state) => {
+      const repository = new SpaceFileRepository(state.storage);
+      repository.commitWrite({
+        actor: {
+          profileId: DEFAULT_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          displayName: "Test User",
+          ownerUserId: "owner-test-default",
+        },
+        auditEvent: {
+          actorKind: "authenticated",
+          actorProfileId: DEFAULT_HUMAN_PROFILE_ID,
+          entryId: fileId,
+          errorCode: null,
+          eventId: "websocket-image-geometry-file",
+          occurredAtMs: Date.now(),
+          operation: "content_write",
+          operationId: "websocket-image-geometry-file",
+          organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+          representedHumanProfileId: null,
+          requestId: "websocket-image-geometry-file",
+          result: "succeeded",
+          revisionId: "websocket-image-geometry-revision",
+          spaceId,
+        },
+        imageDimensions: { width: 1200, height: 800 },
+        nowMs: Date.now(),
+        write: {
+          spaceId,
+          fileId,
+          revisionId: "websocket-image-geometry-revision",
+          name: "landscape.png",
+          parentId: null,
+          baseRevision: null,
+          clientMutationId: "websocket-image-geometry-file",
+          mimeType: "image/png",
+          sizeBytes: 1024,
+        },
+      });
+
+      // A fresh Durable Object instance restores both sessions exclusively
+      // from their hibernation attachments before broadcasting this signal.
+      const restarted = new Space(state, env as unknown as CoreBindings);
+      await restarted.rpcPostSignal({
+        authoringPolicy: "system_emitted",
+        context,
+        files: [
+          {
+            fileId,
+            revision: 1,
+            name: "untrusted.png",
+            mimeType: "application/octet-stream",
+            sizeBytes: 1,
+          },
+        ],
+        profile: {
+          kind: "human",
+          profileId: DEFAULT_HUMAN_PROFILE_ID,
+          profileName: "Test User",
+        },
+        spaceAccess,
+        spaceId,
+        text: signalText,
+      });
+    });
+
+    const [legacyMessage, currentMessage] = await Promise.all([
+      legacyReceives,
+      currentReceives,
+    ]);
+    expect(JSON.stringify(legacyMessage)).not.toContain("imageDimensions");
+    expect(currentMessage).toMatchObject({
+      data: {
+        files: [
+          {
+            fileId,
+            imageDimensions: { width: 1200, height: 800 },
+            mimeType: "image/png",
+            name: "landscape.png",
+            revision: 1,
+            sizeBytes: 1024,
+          },
+        ],
+      },
+      type: "signal.text",
+    });
+
+    const legacyHistoryResponse = await fetchSpaceDoWithOpenMeldAuth({
+      path: "/signals",
+      spaceId,
+    });
+    const currentHistoryResponse = await fetchSpaceDoWithOpenMeldAuth(
+      { path: "/signals", spaceId },
+      {
+        headers: {
+          [OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION]:
+            OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+        },
+      }
+    );
+    expect(legacyHistoryResponse.status).toBe(200);
+    expect(currentHistoryResponse.status).toBe(200);
+    const legacyHistory = await legacyHistoryResponse.json();
+    const currentHistory = await currentHistoryResponse.json();
+    expect(JSON.stringify(legacyHistory)).not.toContain("imageDimensions");
+    expect(currentHistory).toMatchObject({
+      signals: expect.arrayContaining([
+        expect.objectContaining({
+          data: expect.objectContaining({
+            files: [
+              expect.objectContaining({
+                fileId,
+                imageDimensions: { width: 1200, height: 800 },
+              }),
+            ],
+            text: signalText,
+          }),
+          type: "signal.text",
+        }),
+      ]),
+    });
+
+    legacy.close(1000, "done");
+    current.close(1000, "done");
+  });
+
   it("flushes one queued invalidation per topic after the client hello", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
@@ -8877,6 +9069,110 @@ describe("OpenMeld Core", () => {
     expect(patchedCursor.role).toBe("assistant");
   });
 
+  it("negotiates image geometry and origin on Core Space File HTTP reads", async () => {
+    const spaceId = await createSpace({
+      name: `file-http-compatibility-${Date.now()}`,
+    });
+    const fileId = randomUUID();
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    await runInDurableObject(stub, (_instance, state) => {
+      new SpaceFileRepository(state.storage).commitWrite({
+        actor: {
+          profileId: DEFAULT_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          displayName: "Test User",
+          ownerUserId: "owner-test-default",
+        },
+        auditEvent: {
+          actorKind: "authenticated",
+          actorProfileId: DEFAULT_HUMAN_PROFILE_ID,
+          entryId: fileId,
+          errorCode: null,
+          eventId: "file-http-compatibility",
+          occurredAtMs: Date.now(),
+          operation: "content_write",
+          operationId: "file-http-compatibility",
+          organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+          representedHumanProfileId: null,
+          requestId: "file-http-compatibility",
+          result: "succeeded",
+          revisionId: "file-http-compatibility-revision",
+          spaceId,
+        },
+        imageDimensions: { width: 1600, height: 900 },
+        nowMs: Date.now(),
+        write: {
+          spaceId,
+          fileId,
+          revisionId: "file-http-compatibility-revision",
+          name: "launch.png",
+          parentId: null,
+          baseRevision: null,
+          clientMutationId: "file-http-compatibility",
+          mimeType: "image/png",
+          origin: "chat_upload",
+          sizeBytes: 2048,
+        },
+      });
+    });
+
+    const url = `${BASE_URL}/v1/spaces/${spaceId}/files/${fileId}`;
+    const [legacyResponse, geometryResponse, originResponse, currentResponse] =
+      await Promise.all([
+        fetchWithOpenMeldAuth(url),
+        fetchWithOpenMeldAuth(url, {
+          headers: {
+            [OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION]:
+              OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+          },
+        }),
+        fetchWithOpenMeldAuth(url, {
+          headers: {
+            [OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION]:
+              OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+          },
+        }),
+        fetchWithOpenMeldAuth(url, {
+          headers: {
+            [OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION]:
+              OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+            [OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION]:
+              OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+          },
+        }),
+      ]);
+    expect(legacyResponse.status).toBe(200);
+    expect(geometryResponse.status).toBe(200);
+    expect(originResponse.status).toBe(200);
+    expect(currentResponse.status).toBe(200);
+    const legacy = await legacyResponse.json();
+    const geometry = await geometryResponse.json();
+    const origin = await originResponse.json();
+    const current = await currentResponse.json();
+    expect(JSON.stringify(legacy)).not.toContain("imageDimensions");
+    expect(JSON.stringify(legacy)).not.toContain("origin");
+    expect(geometry).toMatchObject({
+      file: {
+        latestRevision: {
+          imageDimensions: { width: 1600, height: 900 },
+        },
+      },
+    });
+    expect(JSON.stringify(geometry)).not.toContain("origin");
+    expect(JSON.stringify(origin)).not.toContain("imageDimensions");
+    expect(origin).toMatchObject({ file: { origin: "chat_upload" } });
+    expect(current).toMatchObject({
+      file: {
+        id: fileId,
+        latestRevision: {
+          imageDimensions: { width: 1600, height: 900 },
+        },
+        origin: "chat_upload",
+      },
+    });
+  });
+
   it("publishes a canonical Space File without requiring a text note", async () => {
     const spaceId = await createSpace({ name: `file-only-${Date.now()}` });
     const context = createRpcContext({
@@ -8983,7 +9279,7 @@ describe("OpenMeld Core", () => {
     ).resolves.toMatchObject({ id: writes[1]?.fileId });
 
     const result = await stub.rpcListSpaceFiles({
-      query: { view: "active" },
+      query: { view: "active", origin: "all" },
       spaceAccess,
       spaceId,
     });

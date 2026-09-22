@@ -68,9 +68,14 @@ heartbeat and alarm owner. A compatible, dispatch-accepting live session first
 establishes expected availability. The existing lease TTL is the reconnect grace;
 initial registration, explicit unknown state, user stop and controlled update do
 not establish a fault. One durable incident and a bounded projection retry slice
-survive Hub restart and D1 failure. A ready heartbeat ends the same item; read and
-Dismiss never end it. Device re-enrollment is rechecked on registration generation
-change. The source does not write any Wake result or RuntimeCoordinator decision.
+survive Hub restart and D1 failure. Recovery uses the same owner-Service online
+evidence as Computer connection status, not socket presence, dispatch admission
+or execution compatibility. Confirmed connectivity ends the same incident and
+removes its priority and pending-action contribution without a user visit.
+Read and Dismiss remain unchanged; an unread ended incident is ordinary history,
+not a yellow request. Device re-enrollment is rechecked on registration generation
+change. Recovery does not resolve other Computers, lanes, Agent issues or Wake
+failures, and the source writes no Wake result or RuntimeCoordinator decision.
 
 Desktop Main observes the existing native updater and reports installed/applicable
 release facts through the session-bound account endpoint. It retains one local

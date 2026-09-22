@@ -118,9 +118,13 @@ function makeEnv(input?: { expiresAtMs?: number }) {
   const get = vi.fn(
     async (): Promise<{
       arrayBuffer: () => Promise<ArrayBuffer>;
+      body: ReadableStream<Uint8Array>;
+      size: number;
       customMetadata: ReturnType<typeof createStageMetadata>;
     } | null> => ({
       arrayBuffer: async () => Uint8Array.from(BYTES).buffer,
+      body: new Blob([Uint8Array.from(BYTES).buffer]).stream(),
+      size: BYTES.byteLength,
       customMetadata: createStageMetadata(input?.expiresAtMs),
     })
   );
@@ -357,6 +361,8 @@ describe("Core Space Composer upload RPC", () => {
     });
     bucket.get.mockResolvedValue({
       arrayBuffer: async () => Uint8Array.from(restagedBytes).buffer,
+      body: new Blob([Uint8Array.from(restagedBytes).buffer]).stream(),
+      size: restagedBytes.byteLength,
       customMetadata: {
         ...createStageMetadata(),
         sizeBytes: String(restagedBytes.byteLength),

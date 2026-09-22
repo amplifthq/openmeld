@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION,
   runtimeCoordinatorCancellationStateSchema,
+  runtimeCoordinatorDeliveryRouteEvidenceSchema,
   runtimeCoordinatorExecutionEventSchema,
   runtimeCoordinatorExecutionRecordSchema,
 } from "../../src";
@@ -95,6 +96,26 @@ describe("runtime coordinator execution schemas", () => {
         observedAtMs: 1_805_000_000_100,
       }).success
     ).toBe(true);
+  });
+
+  it("accepts only bounded delivery-route facts in coordinator event evidence", () => {
+    const evidence = {
+      acceptingDispatches: "not_accepting",
+      owner: "matching",
+      profileLease: "matching",
+      profileRoute: "registered",
+      session: "matching",
+      socket: "present",
+    } as const;
+    expect(
+      runtimeCoordinatorDeliveryRouteEvidenceSchema.parse(evidence)
+    ).toEqual(evidence);
+    expect(
+      runtimeCoordinatorDeliveryRouteEvidenceSchema.safeParse({
+        ...evidence,
+        rawSocket: "must never enter diagnostics",
+      }).success
+    ).toBe(false);
   });
 });
 

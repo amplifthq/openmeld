@@ -26,6 +26,9 @@ const first = run(2),
   second = run(1);
 async function report(overrides = {}) {
   let output = "";
+  const headSha = "1".repeat(40);
+  const baseSha = "2".repeat(40);
+  const treeSha = "3".repeat(40);
   const adapters = {
     resolveRepo: () => "fixture/repo",
     resolveRef: (r) => (r === "base" ? BASE : TARGET),
@@ -38,6 +41,32 @@ async function report(overrides = {}) {
     readJobReleaseSha: async (j) => j.releaseSha,
     readLocalReleaseSources: async () => new Map(),
     readPushChecks: async () => [],
+    readAssociatedPullRequests: async () => [
+      {
+        base: { ref: "main", sha: baseSha },
+        head: { sha: headSha },
+        html_url: "fixture://pull/1",
+        merge_commit_sha: TARGET,
+        merged_at: "2026-09-18T10:00:00Z",
+        number: 1,
+      },
+    ],
+    readCommitStatuses: async () => ({
+      statuses: [
+        {
+          context: "OpenMeld Final Candidate",
+          description: `Passed standard @ ${headSha.slice(0, 12)} on ${baseSha.slice(0, 12)}`,
+          state: "success",
+        },
+      ],
+    }),
+    readGitCommit: async (_repo, sha) =>
+      sha === TARGET
+        ? {
+            parents: [{ sha: baseSha }],
+            tree: { sha: treeSha },
+          }
+        : { parents: [], tree: { sha: treeSha } },
     buildPlan: () => ({ scopes: ["web"], changedPaths: [] }),
     ...overrides,
   };
@@ -146,12 +175,69 @@ test("older unavailable source does not override a newer known completed deploym
         id === 2 ? "2026-09-18T12:00:00Z" : "2026-09-18T11:00:00Z"
       ),
     ],
-    buildPlan: () => ({ scopes: ["web"], changedPaths: [] }),
+    buildPlan: () => ({
+      scopes: ["web"],
+      changedPaths: [],
+      compatibilityDependencies: [["core", "web"]],
+    }),
   });
   assert.equal(code, 0);
   assert.equal(result.components.find((c) => c.scope === "web").sha, WEB);
+  assert.deepEqual(
+    result.components.find((c) => c.scope === "web").compatibilityDependencies,
+    [["core", "web"]]
+  );
   assert.equal(result.history.complete, false);
   assert.equal(result.history.issues.length, 1);
+});
+
+test("proves a pending receiver contract from its verified historical source", async () => {
+  const receiverPath =
+    "services/remote-agent/flue-adapter/execution-reconciliation.ts";
+  const { code, result } = await report({
+    readReleaseRuns: async () => [first],
+    readReleaseJobs: async () => [
+      job("Deploy Core Worker", OLD, "2026-09-18T11:00:00Z"),
+      job("Deploy Remote Agent Worker", WEB, "2026-09-18T12:00:00Z"),
+    ],
+    buildPlan: ({ base }) => {
+      if (base === OLD) {
+        return {
+          changedPaths: [],
+          compatibilityDependencies: [["remote-agent", "core"]],
+          compatibilityReceiverWitnesses: [
+            {
+              producer: "core",
+              receiver: "remote-agent",
+              receiverPaths: [receiverPath],
+            },
+          ],
+          scopes: ["core"],
+        };
+      }
+      return {
+        changedPaths:
+          base === WEB ? ["services/remote-agent/src/unrelated-log.ts"] : [],
+        scopes: base === WEB ? ["remote-agent"] : [],
+      };
+    },
+    compareGitPathContents: ({ fromSha, paths, toSha }) => {
+      assert.equal(fromSha, WEB);
+      assert.deepEqual(paths, [receiverPath]);
+      assert.equal(toSha, TARGET);
+      return true;
+    },
+  });
+  assert.equal(code, 0);
+  assert.deepEqual(
+    result.components.find((component) => component.scope === "core")
+      .compatibilityReceiverWitnesses[0].evidence,
+    {
+      baselineSha: WEB,
+      result: "match",
+      targetSha: TARGET,
+    }
+  );
 });
 
 test("unverified local deployment replaces older hosted success without appearing current", async () => {
@@ -173,4 +259,55 @@ test("unverified local deployment replaces older hosted success without appearin
   const web = result.components.find((c) => c.scope === "web");
   assert.equal(web.state, "unknown");
   assert.equal(web.receipt.status, "failed");
+});
+
+test("reports only exact applied Worker receipts as guarded health resume candidates", async () => {
+  const operationKey = "4".repeat(64);
+  const attemptId = "00000000-0000-4000-8000-000000000004";
+  const { code, result } = await report({
+    readLocalReleaseSources: async () =>
+      new Map([
+        [
+          "web",
+          {
+            sha: TARGET,
+            recordedAt: "2026-09-18T13:00:00Z",
+            source: "guarded-local",
+            receipt: {
+              application: "applied",
+              attemptId,
+              componentIndex: 0,
+              identity: {
+                deploymentId: "deployment-r3",
+                environment: "prod",
+                kind: "worker-deployment",
+                proof: "command-output",
+                sourceSha: TARGET,
+                versionId: "version-r3",
+                workerName: "openmeld-web-prod",
+              },
+              operationKey,
+              startedAt: "2026-09-18T12:59:00.000Z",
+              status: "failed",
+            },
+          },
+        ],
+      ]),
+  });
+
+  assert.equal(code, 1);
+  const web = result.components.find((component) => component.scope === "web");
+  assert.equal(web.state, "unknown");
+  assert.deepEqual(web.recovery, {
+    admission: "candidate",
+    attemptId,
+    componentIndex: 0,
+    kind: "guarded-health-resume",
+    operationKey,
+    sourceSha: TARGET,
+  });
+  assert.deepEqual(
+    result.blockers.find((blocker) => blocker.scope === "web").scopes,
+    ["web"]
+  );
 });

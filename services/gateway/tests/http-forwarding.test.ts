@@ -1,6 +1,8 @@
 import {
   OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
+  OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
   OPENMELD_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
 } from "@openmeld/gateway-contract";
 import {
   createDaemonRouteObservationSummary,
@@ -2368,7 +2370,8 @@ describe("gateway http forwarding", () => {
           proof: expect.objectContaining({ kind: "none" }),
         }),
       },
-      OPENMELD_SPACE_ADDRESSING_VERSION
+      OPENMELD_SPACE_ADDRESSING_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
     expect(rpc.getSpaceMembers).not.toHaveBeenCalled();
   });
@@ -2415,7 +2418,8 @@ describe("gateway http forwarding", () => {
           proof: expect.objectContaining({ kind: "none" }),
         }),
       },
-      OPENMELD_SPACE_ADDRESSING_VERSION
+      OPENMELD_SPACE_ADDRESSING_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
     expect(rpc.getSpaceBootstrap).not.toHaveBeenCalled();
     expect(rpc.getSpaceStatus).not.toHaveBeenCalled();
@@ -4486,7 +4490,24 @@ describe("gateway http forwarding", () => {
     const { env, rpc, authRpc } = makeEnv({
       coreOverrides: {
         listSignals: vi.fn(async () => ({
-          signals: [{ type: "signal.text", data: { text: "ok" } }],
+          signals: [
+            {
+              type: "signal.text",
+              data: {
+                text: "ok",
+                files: [
+                  {
+                    fileId: "file-1",
+                    revision: 1,
+                    name: "diagram.png",
+                    mimeType: "image/png",
+                    sizeBytes: 1024,
+                    imageDimensions: { width: 800, height: 600 },
+                  },
+                ],
+              },
+            },
+          ],
           nextCursor: null,
         })),
       },
@@ -4503,15 +4524,52 @@ describe("gateway http forwarding", () => {
     const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      signals: [{ type: "signal.text", data: { text: "ok" } }],
+      signals: [
+        {
+          type: "signal.text",
+          data: {
+            text: "ok",
+            files: [
+              {
+                fileId: "file-1",
+                revision: 1,
+                name: "diagram.png",
+                mimeType: "image/png",
+                sizeBytes: 1024,
+              },
+            ],
+          },
+        },
+      ],
       nextCursor: null,
+    });
+
+    const capableResponse = await app.fetch(
+      new Request("http://local/v1/spaces/demo/signals", {
+        headers: {
+          [OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION]:
+            OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+        },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    await expect(capableResponse.json()).resolves.toMatchObject({
+      signals: [
+        {
+          data: {
+            files: [{ imageDimensions: { width: 800, height: 600 } }],
+          },
+        },
+      ],
     });
     expect(rpc.listSignals).toHaveBeenCalledWith(
       {
         spaceId: "demo",
         spaceAccess: expectedAuthenticatedSpaceAccess("demo"),
       },
-      OPENMELD_SPACE_ADDRESSING_VERSION
+      OPENMELD_SPACE_ADDRESSING_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
     expect(authRpc.resolveRequestAuth).toHaveBeenCalledWith(
       expect.objectContaining({ requestId: "req-123" })
@@ -4535,7 +4593,8 @@ describe("gateway http forwarding", () => {
         spaceId: "demo",
         spaceAccess: expectedAuthenticatedSpaceAccess("demo", "pass-01"),
       },
-      OPENMELD_SPACE_ADDRESSING_VERSION
+      OPENMELD_SPACE_ADDRESSING_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 
@@ -4597,7 +4656,8 @@ describe("gateway http forwarding", () => {
         recent: true,
         spaceAccess: expectedAuthenticatedSpaceAccess("demo"),
       },
-      OPENMELD_SPACE_ADDRESSING_VERSION
+      OPENMELD_SPACE_ADDRESSING_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 
@@ -5127,12 +5187,23 @@ describe("gateway http forwarding", () => {
 
   it("forwards POST /signals using the shared normal message body contract", async () => {
     const { env, rpc } = makeEnv();
+    const body = {
+      text: "hello",
+      files: [
+        {
+          fileId: "file-1",
+          revision: 1,
+          name: "diagram.png",
+          mimeType: "image/png",
+          sizeBytes: 1024,
+          imageDimensions: { width: 800, height: 600 },
+        },
+      ],
+    };
     const request = new Request("http://local/v1/spaces/demo/signals", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        text: "hello",
-      }),
+      body: JSON.stringify(body),
     });
 
     const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
@@ -5146,11 +5217,22 @@ describe("gateway http forwarding", () => {
           profileName: "Mira",
         },
         text: "hello",
+        files: [
+          {
+            fileId: "file-1",
+            revision: 1,
+            name: "diagram.png",
+            mimeType: "image/png",
+            sizeBytes: 1024,
+          },
+        ],
         authoringPolicy: "user_authored",
         context: EXPECTED_CORE_CONTEXT,
       },
-      undefined
+      undefined,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
+    expect(body.files[0]?.imageDimensions).toEqual({ width: 800, height: 600 });
   });
 
   it("forwards POST /signals attachment references to Core", async () => {
@@ -5190,7 +5272,8 @@ describe("gateway http forwarding", () => {
         authoringPolicy: "user_authored",
         context: EXPECTED_CORE_CONTEXT,
       },
-      undefined
+      undefined,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 
@@ -5305,7 +5388,8 @@ describe("gateway http forwarding", () => {
         },
         context: EXPECTED_CORE_CONTEXT,
       },
-      undefined
+      undefined,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 
@@ -5349,7 +5433,8 @@ describe("gateway http forwarding", () => {
         },
         context: EXPECTED_CORE_CONTEXT,
       },
-      undefined
+      undefined,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 
@@ -5432,7 +5517,8 @@ describe("gateway http forwarding", () => {
         },
         context: EXPECTED_CORE_CONTEXT,
       },
-      undefined
+      undefined,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 
@@ -5499,7 +5585,8 @@ describe("gateway http forwarding", () => {
           mentionTargets: [humanMentionTargetId],
         }),
       }),
-      OPENMELD_SPACE_ADDRESSING_VERSION
+      OPENMELD_SPACE_ADDRESSING_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 
@@ -5929,7 +6016,8 @@ describe("gateway http forwarding", () => {
         password: "secret-updates",
         context: EXPECTED_CORE_CONTEXT,
       },
-      OPENMELD_SPACE_ADDRESSING_VERSION
+      OPENMELD_SPACE_ADDRESSING_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 
@@ -5970,7 +6058,8 @@ describe("gateway http forwarding", () => {
         dispatchId: "dispatch-1",
         context: EXPECTED_CORE_CONTEXT,
       },
-      OPENMELD_SPACE_ADDRESSING_VERSION
+      OPENMELD_SPACE_ADDRESSING_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 
@@ -5992,7 +6081,8 @@ describe("gateway http forwarding", () => {
         resultRef: "dispatch-result:result-1",
         context: EXPECTED_CORE_CONTEXT,
       },
-      OPENMELD_SPACE_ADDRESSING_VERSION
+      OPENMELD_SPACE_ADDRESSING_VERSION,
+      OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
     );
   });
 

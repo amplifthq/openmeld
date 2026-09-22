@@ -31,6 +31,8 @@ const ROUTINE_WORKFLOW_RETRY = {
   timeout: "1 minute",
 } as const;
 
+const ROUTINE_CALLBACK_WAIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 type RoutineRunWorkflowParams = { runId: string };
 
 export class RoutineRunWorkflow extends WorkflowEntrypoint<
@@ -78,10 +80,13 @@ export class RoutineRunWorkflow extends WorkflowEntrypoint<
         status: "blocked",
       };
     }
-    const callbackEvent = await step.waitForEvent<RemoteAgentCoreCallbackBody>(
-      ROUTINE_WORKFLOW_STEPS.waitForCallback,
-      { type: ROUTINE_WORKFLOW_CALLBACK_EVENTS.initial }
-    );
+    const callbackEvent =
+      await waitForRoutineCallback<RemoteAgentCoreCallbackBody>(
+        step,
+        ROUTINE_WORKFLOW_STEPS.waitForCallback,
+        ROUTINE_WORKFLOW_CALLBACK_EVENTS.initial,
+        { env: this.env, runId }
+      );
     const callback = remoteAgentCoreCallbackBodySchema.parse(
       callbackEvent.payload
     );
@@ -106,9 +111,11 @@ export class RoutineRunWorkflow extends WorkflowEntrypoint<
       return { status: "completed" };
     }
     const continuationEvent =
-      await step.waitForEvent<RoutineWorkflowContinuationEventPayload>(
+      await waitForRoutineCallback<RoutineWorkflowContinuationEventPayload>(
+        step,
         ROUTINE_WORKFLOW_STEPS.waitForContinuationCallback,
-        { type: ROUTINE_WORKFLOW_CALLBACK_EVENTS.continuation }
+        ROUTINE_WORKFLOW_CALLBACK_EVENTS.continuation,
+        { env: this.env, runId }
       );
     const continuation = routineWorkflowContinuationEventPayloadSchema.parse(
       continuationEvent.payload
@@ -163,6 +170,47 @@ export class RoutineRunWorkflow extends WorkflowEntrypoint<
         })
     );
     return { status: "completed" };
+  }
+}
+
+async function waitForRoutineCallback<T extends Rpc.Serializable<T>>(
+  step: WorkflowStep,
+  name: string,
+  type: string,
+  context: { env: CoreBindings; runId: string }
+) {
+  for (;;) {
+    try {
+      return await step.waitForEvent<T>(name, {
+        type,
+        timeout: ROUTINE_CALLBACK_WAIT_WINDOW_MS,
+      });
+    } catch (error) {
+      // Workerd's RPC boundary serializes the timeout subclass as Error with
+      // its original name in the message (also exercised by the Workers tests).
+      if (
+        !(
+          error instanceof Error &&
+          (error.name === "WorkflowTimeoutError" ||
+            (error.name === "Error" &&
+              error.message ===
+                `WorkflowTimeoutError: Execution timed out after ${ROUTINE_CALLBACK_WAIT_WINDOW_MS}ms`))
+        )
+      ) {
+        throw error;
+      }
+      // A platform wait window is not an execution deadline. Each repeated
+      // wait is durably indexed by Workflows; admission is never replayed.
+      emitRoutineWorkflowRuntimeEvidence(context.env, {
+        event: "callback_wait_renewed",
+        reasonCode:
+          type === ROUTINE_WORKFLOW_CALLBACK_EVENTS.initial
+            ? "workflow.initial_callback_wait_renewed"
+            : "workflow.continuation_callback_wait_renewed",
+        runId: context.runId,
+        status: "started",
+      });
+    }
   }
 }
 

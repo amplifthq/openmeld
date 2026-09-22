@@ -16,21 +16,127 @@ function command(binary, args) {
   }).trim();
 }
 
-export function publicationDecision({ pulls, fingerprint, changed }) {
-  const prefix = "codex/catalog-update-batch-";
-  if (
-    pulls.some(
-      (pr) =>
-        pr.state === "OPEN" &&
-        pr.headRefName.startsWith("codex/catalog-update-")
-    )
-  ) {
-    return "review-in-progress";
+const CATALOG_BRANCH_PREFIX = "codex/catalog-update-";
+const LATEST_SCAN_MARKER = "<!-- openmeld:model-catalog-latest-scan -->";
+
+export function openCatalogPull(pulls) {
+  const matches = [
+    ...new Map(
+      pulls
+        .filter(
+          (pr) =>
+            pr.state === "OPEN" &&
+            pr.headRefName.startsWith(CATALOG_BRANCH_PREFIX)
+        )
+        .map((pr) => [pr.url, pr])
+    ).values(),
+  ];
+  if (matches.length > 1) {
+    throw new Error("Multiple open model catalog review PRs found");
   }
+  return matches[0] ?? null;
+}
+
+export function publicationDecision({ pulls, fingerprint, changed }) {
+  if (openCatalogPull(pulls)) {
+    return "update-review";
+  }
+  const prefix = "codex/catalog-update-batch-";
   if (pulls.some((pr) => pr.headRefName === `${prefix}${fingerprint}`)) {
     return "already-proposed";
   }
   return changed ? "create" : "unchanged";
+}
+
+export function renderLatestScanComment(review, runUrl) {
+  const source = runUrl ? `Source run: ${runUrl}\n\n` : "";
+  return `${LATEST_SCAN_MARKER}
+## Latest model catalog scan
+
+This comment is updated in place after every successful model-catalog scan while this review PR remains open. The PR branch and body are intentionally left untouched so in-progress reviewer changes are never rewritten.
+
+${source}> Raw evidence for this refresh is preserved in the workflow artifact. Snapshot paths mentioned in the generated brief below describe the proposal layout; they are not rewritten onto an already-owned PR branch.
+
+${review}`;
+}
+
+export function findLatestScanComment(comments) {
+  const matches = comments.filter(
+    (comment) =>
+      comment.user?.login === "github-actions[bot]" &&
+      typeof comment.body === "string" &&
+      comment.body.includes(LATEST_SCAN_MARKER)
+  );
+  if (matches.length > 1) {
+    throw new Error("Multiple bot-owned latest model catalog comments found");
+  }
+  return matches[0] ?? null;
+}
+
+function pullCoordinates(url) {
+  const parsed = new URL(url);
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  const number = Number(segments[3]);
+  if (
+    parsed.hostname !== "github.com" ||
+    segments.length !== 4 ||
+    segments[2] !== "pull" ||
+    !Number.isSafeInteger(number) ||
+    number < 1
+  ) {
+    throw new Error(`Unexpected pull request URL: ${url}`);
+  }
+  return {
+    number,
+    repository: `${segments[0]}/${segments[1]}`,
+  };
+}
+
+function workflowRunUrl() {
+  const serverUrl = process.env.GITHUB_SERVER_URL;
+  const repository = process.env.GITHUB_REPOSITORY;
+  const runId = process.env.GITHUB_RUN_ID;
+  return serverUrl && repository && runId
+    ? `${serverUrl}/${repository}/actions/runs/${runId}`
+    : null;
+}
+
+async function updateOpenReview(pull, output, runUrl) {
+  const { number, repository } = pullCoordinates(pull.url);
+  const review = await readFile(resolve(output, "review.md"), "utf8");
+  const commentPath = resolve(output, "latest-scan-comment.md");
+  await writeFile(commentPath, renderLatestScanComment(review, runUrl));
+  const commentPages = JSON.parse(
+    command("gh", [
+      "api",
+      "--paginate",
+      "--slurp",
+      `repos/${repository}/issues/${number}/comments?per_page=100`,
+    ])
+  );
+  const existing = findLatestScanComment(commentPages.flat());
+  if (existing) {
+    command("gh", [
+      "api",
+      "--method",
+      "PATCH",
+      `repos/${repository}/issues/comments/${existing.id}`,
+      "-F",
+      `body=@${commentPath}`,
+    ]);
+    console.log(`review-updated ${pull.url}`);
+    return;
+  }
+  command("gh", [
+    "pr",
+    "comment",
+    String(number),
+    "--repo",
+    repository,
+    "--body-file",
+    commentPath,
+  ]);
+  console.log(`review-comment-created ${pull.url}`);
 }
 
 export function assertAdditionsOnly(current, catalog, evidences) {
@@ -194,6 +300,15 @@ export async function publishUpdate(output) {
     fingerprint,
     changed: result.changed,
   });
+  if (decision === "update-review") {
+    const runUrl = workflowRunUrl();
+    if (!runUrl) {
+      console.log("review-in-progress");
+      return;
+    }
+    await updateOpenReview(openCatalogPull(pulls), output, runUrl);
+    return;
+  }
   if (decision !== "create") {
     console.log(decision);
     return;

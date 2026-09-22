@@ -1,4 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { realpath } from "node:fs/promises";
 import { connect, createServer } from "node:net";
 import { loadavg } from "node:os";
 import {
@@ -269,7 +270,7 @@ async function forkOpenCodeSessionWithClient(input: {
   openCodeWorkdir: string;
   sourceSessionId: string;
 }): Promise<string> {
-  const session = await input.client.session.fork(
+  const sourceSession = await input.client.session.get(
     {
       directory: input.openCodeWorkdir,
       sessionID: input.sourceSessionId,
@@ -279,7 +280,26 @@ async function forkOpenCodeSessionWithClient(input: {
       throwOnError: true,
     }
   );
-  return readOpenCodeSessionId(session);
+  const { directory } = await readOpenCodeSessionForWorkingDirectory({
+    session: sourceSession,
+    workingDirectory: input.openCodeWorkdir,
+  });
+  const session = await input.client.session.fork(
+    {
+      directory,
+      sessionID: input.sourceSessionId,
+    },
+    {
+      responseStyle: "data",
+      throwOnError: true,
+    }
+  );
+  return (
+    await readOpenCodeSessionForWorkingDirectory({
+      session,
+      workingDirectory: input.openCodeWorkdir,
+    })
+  ).sessionId;
 }
 
 async function startHealthyOpenCodeServer(
@@ -510,13 +530,13 @@ async function runOpenCodeServerTurn(input: {
   previewEmitted: boolean;
   sessionId: string;
 }> {
-  const sessionId = await resolveOpenCodeSessionId(input);
+  const { directory, sessionId } = await resolveOpenCodeSession(input);
   input.server.emitProviderConversationObserved(
     normalizeOptionalText(input.observedSessionId) ?? sessionId
   );
   const interactionHandler = new OpenCodeInteractionHandler({
     client: input.client,
-    directory: input.openCodeWorkdir,
+    directory,
     onInteractionRequest: input.onInteractionRequest,
   });
   const eventAbortController = new AbortController();
@@ -537,7 +557,7 @@ async function runOpenCodeServerTurn(input: {
   const textByPartId = new Map<string, string>();
   let previewEmitted = false;
   const subscription = await input.client.event.subscribe(
-    { directory: input.openCodeWorkdir },
+    { directory },
     {
       signal: eventAbortController.signal,
     }
@@ -584,7 +604,7 @@ async function runOpenCodeServerTurn(input: {
       await Promise.race([
         input.client.session.promptAsync(
           {
-            directory: input.openCodeWorkdir,
+            directory,
             ...(model ? { model } : {}),
             parts: [
               {
@@ -622,7 +642,7 @@ async function runOpenCodeServerTurn(input: {
       await input.client.session
         .abort(
           {
-            directory: input.openCodeWorkdir,
+            directory,
             sessionID: sessionId,
           },
           {
@@ -648,7 +668,7 @@ async function runOpenCodeServerTurn(input: {
     }
     const output = await readOpenCodeTurnOutput({
       client: input.client,
-      directory: input.openCodeWorkdir,
+      directory,
       promptMessageId,
       sessionId,
     });
@@ -687,12 +707,12 @@ async function waitForOpenCodeEventLoopCleanup(
   ]);
 }
 
-async function resolveOpenCodeSessionId(input: {
+async function resolveOpenCodeSession(input: {
   client: ReturnType<typeof createOpencodeClient>;
   conversationPolicy?: ConversationPolicy;
   openCodeWorkdir: string;
   sessionId: string | null;
-}): Promise<string> {
+}): Promise<{ directory: string; sessionId: string }> {
   if (input.sessionId) {
     const session = await input.client.session.get(
       {
@@ -704,7 +724,10 @@ async function resolveOpenCodeSessionId(input: {
         throwOnError: true,
       }
     );
-    return readOpenCodeSessionId(session);
+    return readOpenCodeSessionForWorkingDirectory({
+      session,
+      workingDirectory: input.openCodeWorkdir,
+    });
   }
   const parsedModel = parseOpenCodeSessionModel(input.conversationPolicy);
   const session = await input.client.session.create(
@@ -718,7 +741,50 @@ async function resolveOpenCodeSessionId(input: {
       throwOnError: true,
     }
   );
-  return readOpenCodeSessionId(session);
+  return readOpenCodeSessionForWorkingDirectory({
+    session,
+    workingDirectory: input.openCodeWorkdir,
+  });
+}
+
+async function readOpenCodeSessionForWorkingDirectory(input: {
+  session: unknown;
+  workingDirectory: string;
+}): Promise<{ directory: string; sessionId: string }> {
+  const session = toRecord(unwrapSdkData(input.session));
+  const sessionId = readOpenCodeSessionId(input.session);
+  const directory = normalizeOptionalText(session?.directory);
+  if (!directory) {
+    throw new OpenCodeServerTransportError({
+      code: "protocol.invalid",
+      errorType: "adapter",
+      message: "OpenCode did not return the conversation's working folder.",
+    });
+  }
+  let sameDirectory: boolean;
+  try {
+    const [sessionPath, workingPath] = await Promise.all([
+      realpath(directory),
+      realpath(input.workingDirectory),
+    ]);
+    sameDirectory = sessionPath === workingPath;
+  } catch {
+    throw new OpenCodeServerTransportError({
+      code: "context.workspace_unavailable",
+      errorType: "adapter",
+      message:
+        "This OpenCode session's working folder is unavailable. Restore that folder, or create a new Agent with a new session here.",
+    });
+  }
+  if (!sameDirectory) {
+    throw new OpenCodeServerTransportError({
+      code: "context.workspace_mismatch",
+      errorType: "adapter",
+      message:
+        "This OpenCode session uses another working folder. Restore that folder for this Agent, or create a new Agent with a new session here.",
+    });
+  }
+  return { directory, sessionId };
 }
 
 type OpenCodeTurnState = {

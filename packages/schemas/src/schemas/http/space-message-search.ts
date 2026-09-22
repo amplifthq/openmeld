@@ -7,9 +7,9 @@ export const spaceMessageSearchQuerySchema = z.strictObject({
   q: z
     .string()
     .trim()
-    .min(3)
+    .min(1)
     .max(200)
-    .refine((value) => [...value].length >= 3, "Enter at least 3 characters."),
+    .refine((value) => [...value].length >= 1, "Enter at least 1 character."),
   cursor: z
     .string()
     .regex(/^[1-9]\d*$/)
@@ -45,13 +45,28 @@ export const messageSearchCursorSchema = z.strictObject({
     )
     .max(4),
 });
-export const messageSearchQuerySchema = z.strictObject({
-  q: spaceMessageSearchQuerySchema.shape.q,
-  cursor: z.string().max(4096).optional(),
-  spaceId: z.string().min(1).max(256).optional(),
-  scope: z.enum(["messages", "inbox"]).default("messages"),
-});
-export const messageSearchRpcInputSchema = messageSearchQuerySchema.extend({
+const validateMessageSearchLength = (
+  input: { q: string; spaceId?: string },
+  context: z.RefinementCtx
+) => {
+  if (!input.spaceId && [...input.q].length < 3) {
+    context.addIssue({
+      code: "custom",
+      message: "Enter at least 3 characters for workspace search.",
+      path: ["q"],
+    });
+  }
+};
+
+export const messageSearchQuerySchema = z
+  .strictObject({
+    q: spaceMessageSearchQuerySchema.shape.q,
+    cursor: z.string().max(4096).optional(),
+    spaceId: z.string().min(1).max(256).optional(),
+    scope: z.enum(["messages", "inbox"]).default("messages"),
+  })
+  .superRefine(validateMessageSearchLength);
+export const messageSearchRpcInputSchema = messageSearchQuerySchema.safeExtend({
   context: openMeldRequestContextSchema,
 });
 export const messageSearchResponseSchema = z.strictObject({

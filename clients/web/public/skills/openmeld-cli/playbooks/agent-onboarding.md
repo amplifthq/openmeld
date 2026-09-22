@@ -119,6 +119,21 @@ sign-in is separate from Cursor IDE sign-in. Its permission values are
 explicit confirmation. Use the exact model ID offered by ACP. Cursor includes
 reasoning in that exact model ID and has no independent reasoning setting.
 
+For Antigravity, install the official CLI, sign in once, and let OpenMeld read
+the same non-interactive account and weekly Usage projection used by the
+Computer UI:
+
+```bash
+agy --version
+agy --print /usage
+openmeld agents detect --view agent
+```
+
+Antigravity uses the `builtin:antigravity` controller. Its executable is `agy`;
+do not substitute Gemini CLI or a Gemini API key. A successful `/usage` result
+proves the current Antigravity CLI account can report its quota, not that a
+future Wake will succeed.
+
 Treat `openmeld service status --view agent` as the live local-service health check.
 Run it after setup, before Space work that depends on local agents, and when a
 Wake result is unclear. For one wakeable Agent Profile, run:

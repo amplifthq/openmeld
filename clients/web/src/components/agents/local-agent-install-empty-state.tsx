@@ -19,7 +19,7 @@ export function LocalAgentInstallEmptyState(input: {
 			<p className="font-medium text-sm">No supported agents detected</p>
 			<p className="max-w-md text-muted-foreground text-xs leading-5">
 				{input.description ??
-					"Install an agent such as Codex or Claude Code on this computer to get started."}
+					"Install a supported local agent on this computer to get started."}
 			</p>
 			<MagnifyingDock
 				aria-label="Supported agents"

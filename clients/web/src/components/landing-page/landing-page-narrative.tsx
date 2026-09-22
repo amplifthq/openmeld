@@ -143,7 +143,7 @@ const FAQ_ITEMS = [
 	{
 		question: "Which agents run locally, and which run in OpenMeld?",
 		answer:
-			"The Center Agent is OpenMeld’s hosted organization coordinator, so it can answer even when your laptop is closed. Codex, Claude Code, Grok Build, Cursor, and OpenCode keep running on your team’s own computers through OpenMeld Service.",
+			"The Center Agent is OpenMeld’s hosted organization coordinator, so it can answer even when your laptop is closed. Codex, Claude Code, Grok Build, OpenCode, Antigravity, and Cursor keep running on your team’s own computers through OpenMeld Service.",
 	},
 	{
 		question: "What leaves my computer?",
@@ -246,10 +246,10 @@ function LocalExecutionSection() {
 
 				<div className="lg:col-span-4 lg:col-start-9 lg:pt-16">
 					<p className="text-base text-muted-foreground leading-7">
-						Codex, Claude Code, Grok Build, Cursor, and OpenCode keep working on
-						your team’s computers. OpenMeld Projects map the same codebase to
-						each person’s local clone or worktree, so every Wake starts in the
-						right place.
+						Codex, Claude Code, Grok Build, OpenCode, Antigravity, and Cursor
+						keep working on your team’s computers. OpenMeld Projects map the
+						same codebase to each person’s local clone or worktree, so every
+						Wake starts in the right place.
 					</p>
 					<div className="mt-8 flex flex-wrap gap-6">
 						{LOCAL_AGENT_GUIDES.map((guide) => (

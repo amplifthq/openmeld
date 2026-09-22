@@ -206,10 +206,7 @@ async function resolveRequestComputerId(options: {
       title: "Local Agent Needed",
     });
   }
-  if (requestedComputerId) {
-    return requestedComputerId;
-  }
-  if (targetOwnerUserId !== context.callerUserId) {
+  if (!requestedComputerId && targetOwnerUserId !== context.callerUserId) {
     throw new ProfileCreationRequestCliError({
       code: "profile.creation_request.computer_required",
       message: "Creating an Agent for a teammate requires their Computer.",
@@ -219,14 +216,25 @@ async function resolveRequestComputerId(options: {
     });
   }
 
-  const currentComputerId = await readCurrentLocalDeviceId();
+  const selectedComputerId =
+    requestedComputerId ?? (await readCurrentLocalDeviceId());
   const computers = await context.api.getCurrentComputers();
   const currentComputer = computers.computers.find(
     (computer) =>
-      computer.computerId === currentComputerId &&
-      computer.ownerUserId === context.callerUserId
+      computer.computerId === selectedComputerId &&
+      computer.ownerUserId === targetOwnerUserId
   );
   if (!currentComputer) {
+    if (requestedComputerId) {
+      throw new ProfileCreationRequestCliError({
+        code: "profile.creation_request.computer_id_invalid",
+        message:
+          "--computer must be a Computer ID from this Organization's computer inventory.",
+        nextStep:
+          "Run `openmeld org computers --view agent`, then pass its exact `computerId`. That inventory value is the device ID accepted here; a Connected Computer record ID or Profile ID is not interchangeable.",
+        title: "Computer ID Invalid",
+      });
+    }
     throw new ProfileCreationRequestCliError({
       code: "profile.creation_request.current_computer_unavailable",
       message:

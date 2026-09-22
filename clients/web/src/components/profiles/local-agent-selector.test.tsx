@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocalAgentSelector } from "./local-agent-selector";
 
@@ -107,6 +113,189 @@ describe("LocalAgentSelector", () => {
 		expect(onChange).toHaveBeenCalledWith("claude-code");
 	});
 
+	it("keeps known choices selectable while their current status loads", () => {
+		render(
+			<LocalAgentSelector
+				choices={CHOICES}
+				disabled={false}
+				isResolving
+				onChange={vi.fn()}
+				selectionState={{
+					agentId: "codex",
+					blocksCreation: true,
+					displayName: "Codex",
+					kind: "checking",
+				}}
+				value="codex"
+			/>
+		);
+
+		expect(screen.getAllByRole("radio")).toHaveLength(2);
+		expect(screen.getByRole("radio", { name: CODEX_RADIO_NAME })).toBeTruthy();
+		expect(screen.getByLabelText("Checking Codex")).toBeTruthy();
+	});
+
+	it("links an uninstalled selection to its exact install guide", () => {
+		render(
+			<LocalAgentSelector
+				choices={CHOICES}
+				disabled={false}
+				isResolving={false}
+				onChange={vi.fn()}
+				selectionState={{
+					agentId: "claude-code",
+					blocksCreation: true,
+					displayName: "Claude Code",
+					guideHref: "/guides/local-agents/claude-code",
+					kind: "not_installed",
+				}}
+				value="claude-code"
+			/>
+		);
+
+		expect(
+			screen.getByText("Install Claude Code on this computer.")
+		).toBeTruthy();
+		expect(
+			screen
+				.getByRole("link", { name: "Open install guide" })
+				.getAttribute("href")
+		).toBe("/guides/local-agents/claude-code");
+	});
+
+	it("turns on the exact disabled local agent inline and settles pending state", async () => {
+		const onEnable = vi.fn().mockResolvedValue(undefined);
+		render(
+			<LocalAgentSelector
+				choices={CHOICES}
+				disabled={false}
+				isResolving={false}
+				onChange={vi.fn()}
+				selectionState={{
+					agentId: "codex",
+					blocksCreation: true,
+					canEnable: true,
+					displayName: "Codex",
+					kind: "disabled",
+					onEnable,
+				}}
+				value="codex"
+			/>
+		);
+
+		fireEvent.click(screen.getByRole("switch", { name: "Enable Codex" }));
+		expect(onEnable).toHaveBeenCalledOnce();
+		await waitFor(() =>
+			expect(
+				screen
+					.getByRole("switch", { name: "Enable Codex" })
+					.hasAttribute("data-unchecked")
+			).toBe(true)
+		);
+	});
+
+	it("does not carry a pending enable request to another local agent", () => {
+		let finishEnable: (() => void) | undefined;
+		const onEnable = vi.fn(
+			() =>
+				new Promise<void>((resolve) => {
+					finishEnable = resolve;
+				})
+		);
+		const props = {
+			choices: CHOICES,
+			disabled: false,
+			isResolving: false,
+			onChange: vi.fn(),
+			selectionState: {
+				agentId: "codex",
+				blocksCreation: true,
+				canEnable: true,
+				displayName: "Codex",
+				kind: "disabled" as const,
+				onEnable,
+				selectionKey: "computer-1:dev-local:codex",
+			},
+			value: "codex",
+		};
+		const { rerender } = render(<LocalAgentSelector {...props} />);
+
+		fireEvent.click(screen.getByRole("switch", { name: "Enable Codex" }));
+		expect(
+			screen
+				.getByRole("switch", { name: "Enable Codex" })
+				.hasAttribute("data-checked")
+		).toBe(true);
+
+		rerender(
+			<LocalAgentSelector
+				{...props}
+				selectionState={{
+					...props.selectionState,
+					agentId: "claude-code",
+					displayName: "Claude Code",
+					onEnable: vi.fn().mockResolvedValue(undefined),
+					selectionKey: "computer-1:dev-local:claude-code",
+				}}
+				value="claude-code"
+			/>
+		);
+
+		expect(
+			screen
+				.getByRole("switch", { name: "Enable Claude Code" })
+				.hasAttribute("data-unchecked")
+		).toBe(true);
+		finishEnable?.();
+	});
+
+	it("does not show a late enable error on another computer", async () => {
+		let rejectEnable: ((error: Error) => void) | undefined;
+		const onEnable = vi.fn(
+			() =>
+				new Promise<void>((_resolve, reject) => {
+					rejectEnable = reject;
+				})
+		);
+		const props = {
+			choices: CHOICES,
+			disabled: false,
+			isResolving: false,
+			onChange: vi.fn(),
+			selectionState: {
+				agentId: "codex",
+				blocksCreation: true,
+				canEnable: true,
+				displayName: "Codex",
+				kind: "disabled" as const,
+				onEnable,
+				selectionKey: "computer-1:dev-local:codex",
+			},
+			value: "codex",
+		};
+		const { rerender } = render(<LocalAgentSelector {...props} />);
+
+		fireEvent.click(screen.getByRole("switch", { name: "Enable Codex" }));
+		rerender(
+			<LocalAgentSelector
+				{...props}
+				selectionState={{
+					...props.selectionState,
+					onEnable: vi.fn().mockResolvedValue(undefined),
+					selectionKey: "computer-2:dev-local:codex",
+				}}
+			/>
+		);
+		rejectEnable?.(new Error("Computer 1 rejected the request"));
+
+		await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+		expect(
+			screen
+				.getByRole("switch", { name: "Enable Codex" })
+				.hasAttribute("data-unchecked")
+		).toBe(true);
+	});
+
 	it("keeps the choices in one native radio group for keyboard navigation", () => {
 		const onChange = vi.fn();
 		render(
@@ -150,7 +339,7 @@ describe("LocalAgentSelector", () => {
 		expect(screen.getByText("Set up local agents")).toBeTruthy();
 		expect(
 			screen.getByText(
-				"No local agents are available to select. Set up a local agent such as Codex or Claude Code, then return to finish creating your Agent."
+				"No local agents are available to select. Set up a supported local agent, then return to finish creating your Agent."
 			)
 		).toBeTruthy();
 		expect(screen.queryByRole("radio")).toBeNull();

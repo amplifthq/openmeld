@@ -3341,6 +3341,32 @@ export async function listRemoteAgentNativeDeliveryTurnDiagnostics(input: {
   );
 }
 
+/** Read only: the Run's persisted pointer, not chronology, selects its result owner. */
+export async function listRemoteAgentRoutineDeliveryDiagnosticRecords(input: {
+  db: D1Database;
+  organizationId: string;
+  routineRunId: string;
+  currentDeliveryId: string | null;
+}): Promise<{
+  deliveries: RemoteAgentNativeDeliveryRecord[];
+  truncated: boolean;
+}> {
+  const rows = await input.db
+    .prepare(
+      `${REMOTE_AGENT_NATIVE_DELIVERY_SELECT}
+      WHERE organization_id = ? AND routine_run_id = ?
+      ORDER BY CASE WHEN delivery_id = ? THEN 0 ELSE 1 END,
+        created_at_ms ASC, delivery_id ASC
+      LIMIT 9`
+    )
+    .bind(input.organizationId, input.routineRunId, input.currentDeliveryId)
+    .all<RemoteAgentNativeDeliveryRow>();
+  return {
+    deliveries: rows.results.slice(0, 8).map(mapNativeDeliveryRow),
+    truncated: rows.results.length > 8,
+  };
+}
+
 export async function readRemoteAgentNativeDeliveryByDeliveryId(input: {
   db: D1Database;
   deliveryId: string;

@@ -109,6 +109,13 @@ becomes a first-class, user-selectable property of an Agent Profile.
    served read-only by core; the CLI keeps an embedded snapshot as offline
    fallback only. Changing the catalog is a core deploy, not a CLI publish and
    not a DB edit.
+
+   Antigravity is included in both catalogs. Its exact model IDs come from
+   `agy models`; the September 22, 2026 CLI 1.2.7 capture lists 14 choices
+   covering Gemini, Claude, and GPT-OSS. Gemini High/Medium/Low variants and
+   GPT-OSS Medium are distinct native model IDs, not OpenMeld aliases.
+   The hosted catalog must not omit a controller that exists only in the CLI
+   offline snapshot: Web reads the hosted catalog, not the offline snapshot.
 9. **Do not bump the dispatch queue schema.** The selection rides binding
    metadata down to the daemon and is resolved locally.
 10. **Selection logic is shared headless code**, not duplicated per client.
@@ -300,12 +307,18 @@ Run `pnpm verify:model-catalog` for the collector and real disposable-Git
 publication/recovery tests. A pushed branch whose PR creation failed is recovered
 without rewriting it; external branch changes stop automatic recovery.
 
-One open catalog bot PR is a review handoff: subsequent runs leave its
-branch and body untouched so a coding agent can safely continue there. A closed
-PR suppresses the same combined source fingerprint; changed facts may produce a new
-proposal. Merging the evidence snapshot acknowledges that revision, including
-when the reviewer elects to make no product change. Collection timestamps alone
-do not trigger another proposal. There is no bot force-push or auto-merge.
+One open catalog bot PR is the active review inbox. Subsequent successful Actions
+runs leave its branch and body untouched so a coding agent can safely continue
+there, but upsert one bot-owned **Latest model catalog scan** comment with the
+newest generated brief and the current Actions run link. A local publisher
+invocation without an Actions run context leaves the open PR untouched rather
+than authoring that bot marker under a human account. This refresh happens even when
+the scan has no deterministic additions, so the PR always exposes fresh evidence
+without rewriting reviewer-owned commits. A closed PR suppresses the same combined
+source fingerprint; materially changed facts may produce a new proposal. Merging
+the evidence snapshot acknowledges that revision, including when the reviewer
+elects to make no product change. Collection timestamps alone do not trigger a
+new proposal after the prior PR is closed. There is no bot force-push or auto-merge.
 
 The reviewing coding agent reads the captured evidence first, decides
 `creationDefaults`, presentation and adapter changes, and fills only actual

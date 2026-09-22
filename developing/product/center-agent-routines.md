@@ -426,13 +426,36 @@ as an emergency rollback or for explicit Organization ids through
 affects only later claims. An existing Run never changes engine or falls back
 from Workflow to Legacy.
 
+### Reliability ownership
+
+| Responsibility | Owner | Evidence required before moving on |
+| --- | --- | --- |
+| One scheduled occurrence | Core scheduler and atomic D1 claim | Unique Routine/occurrence Run and advanced schedule |
+| Durable admission retries | Run Workflow using shared native delivery | Confirmed submission id, or an explicit terminal/blocked outcome |
+| Agent execution and progress | Remote Agent native runtime | Exact execution lifecycle; a scheduler or wait timeout cannot override it |
+| Callback validation and publication | Shared native-delivery service | Matching identity, frozen destination, and idempotent publication receipt |
+| Durable finalization after callback handoff | Run Workflow | Cached callback retained while the exact finalization step retries |
+| Visible Run outcome | Core projection from the current native delivery | Current delivery owns the result; an earlier continuation cannot finalize it |
+
+Center and personal Remote Agent Routines share these owners. A Workflow is
+retained because it owns durable finalization after the callback sender has
+received acknowledgement, including a rejected continuation. Removing it would
+require another durable finalization owner; direct callback handling alone is
+not an equivalent simplification. No new scheduler or execution framework is
+introduced for future Team or Local Agent support. A future Local executor must
+use RuntimeCoordinator for execution rather than copying the hosted runtime.
+
 Both engines keep D1 as Routine and Run product truth and use the same Remote
 Agent admission, Run idempotency key, callback validation, target snapshot, and
 Space publication code. The `legacy` engine uses Core's bounded pre-ACK
 recovery scans and the compatibility Queue for admission and publication
 recovery; an accepted execution is never failed by that Queue. The `workflow`
 engine creates one Cloudflare Workflow instance whose id is the Run id, retries
-the idempotent worker submission step, and waits durably for the validated
+the idempotent worker submission step until the ledger contains a confirmed
+submission id. A saved request alone is not admission evidence: an unknown
+worker acknowledgement leaves that step retryable using the same idempotency
+key, while a validated callback may recover the acknowledgement. The Workflow
+then waits durably for the validated
 callback event without a fixed total callback deadline. When the initial Center
 Agent registers an all-terminal delegated continuation, Core records that
 initial callback without publishing or terminalizing the Run, waits for one
@@ -453,8 +476,18 @@ an errored instance, Core restarts only a recognized failed phase: callback
 finalization, continuation callback finalization, or continuation failure
 finalization restarts from its exact finalization step so the received event
 remains cached; an idempotent submission failure may restart from the beginning.
-An
-unknown error phase or explicitly terminated instance fails closed for operator
+Phase recognition accepts the exact owned error name, or Workerd's serialized
+outer `Error` envelope beginning with that same phase name. It never searches
+nested causes or infers a phase from a generic platform timeout. This keeps
+retry exhaustion recoverable across the actual Worker RPC boundary.
+Initial and continuation callback waits renew their one-day platform wait
+window when `WorkflowTimeoutError` is thrown inside the Workflow. This preserves
+the acknowledged submission and earlier finalization without restarting the
+instance. A wait timeout is not an Agent execution failure and must not re-admit
+the turn or fail the Run. Other errors propagate for inspection. Older failed
+instances still require operator inspection; this does not authorize guessing
+a restart point from a serialized error message.
+An unknown error phase or explicitly terminated instance fails closed for operator
 inspection rather than erasing durable progress. This recovery must not execute
 or terminalize the Run through the legacy path. Workflow state is an execution
 mechanism and operational diagnostic, not a second Routine registry or Run
@@ -466,6 +499,14 @@ routine storage after D1 and the destination hold the durable outcome. The
 full paid-plan error window preserves operator inspection for failures that
 must remain fail closed. Terminal-state retention does not limit an active
 callback wait or shorten D1 Run history.
+
+Workflow recovery scans use a bounded, least-recently-checked batch. Checking
+an already waiting instance is not starting another execution. Apply the
+additive `workflow_last_checked_at_ms` migration before deploying the Core
+scanner; old Core versions can ignore this scheduling-only column on rollback.
+No CLI, Local Service, Remote Agent payload, or public Routine schema changes
+are required. Existing errored instances still follow the phase-recognition
+rules above; deploying this code does not rewrite their cached steps.
 
 `UNIQUE(routineId, scheduledFor)` is the idempotency fence for a recorded
 occurrence or aggregate overdue range. The claim/advance update also compares
@@ -896,6 +937,39 @@ reason code and rejection message immediately instead of collapsing into an
 ACK recovery timeout. Diagnostics may include identifiers, timestamps, state,
 bounded reason codes, publication pointers, and retry evidence. They must not log Routine
 instructions, prompt bodies, credentials, or arbitrary worker payloads.
+
+### Center Agent historical evidence reads
+
+`openmeld_list_routine_runs` lists a bounded page of retained Center Agent Run
+history for an exact Routine. It reuses the existing historical owner, including
+retained Runs after definition deletion, and provides `nextBeforeScheduledFor`
+for older occurrences. `openmeld_list_routines.lastRun` remains unchanged.
+Personal Agent Runs are not included by this Center Agent reader.
+
+`openmeld_read_routine_run_diagnostics` takes only an exact Run ID; Core resolves
+the Organization, linked native deliveries, and the persisted current
+`nativeDeliveryId` result owner. It returns at most eight linked deliveries,
+prioritizing that pointer rather than assuming the earliest or latest delivery
+owns the result. Continuation therefore does not make the completed first
+attempt look like the final answer. History truncation and a missing recorded
+owner are explicit.
+
+Readouts separate canonical Run state, frozen `scheduledFor`/destination
+snapshots, native-delivery admission and lifecycle, sanitized runtime timestamps
+and counts, and publication. These are independent owner observations, not an
+atomic or exhaustive history. Submitted does not prove worker admission;
+completed generation does not prove publication; pausing future scheduling does
+not prove an in-flight Run stopped. Skipped, failed, not recorded, unavailable,
+and redacted evidence remain distinct. Runtime tool names, arguments, transcript
+content, raw provider payloads, Routine instructions, and raw failure details are
+not included in these Organization-level diagnostics.
+
+Current member/source/reply-audience authorization governs Space and signal
+references. Slack and other Message Channel destination locators are explicitly
+unsupported in this read, rather than assumed public or absent. This read path
+never submits, recovers, replays, retries, repairs, stops, or publishes work.
+The admission and execution recovery implementation merged in #1198 remains the
+single owner of those effects.
 
 ## Mixed-Version Deployment Windows
 

@@ -40,7 +40,10 @@ export const DEVELOPMENT_SECRET_SOURCES = [
   },
   {
     config: "dev",
-    optionalSecrets: ["GITHUB_OPENMELD_API_TOKEN"],
+    optionalSecrets: [
+      "GITHUB_OPENMELD_API_TOKEN",
+      "GITHUB_OPENMELD_WEBHOOK_SECRET",
+    ],
     project: "openmeld-core",
     requiredSecrets: [
       "SLACK_OPENMELD_BOT_TOKEN",
@@ -169,6 +172,10 @@ const OPTIONAL_CAPABILITY_DESCRIPTIONS = new Map([
   [
     "GITHUB_OPENMELD_API_TOKEN",
     "GitHub metadata reads use the anonymous rate limit when absent.",
+  ],
+  [
+    "GITHUB_OPENMELD_WEBHOOK_SECRET",
+    "GitHub App webhook deliveries are rejected until this secret is set.",
   ],
   [
     "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN",

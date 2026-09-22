@@ -24,6 +24,7 @@ const SPACE_STREAM_HELLO_CAPABILITIES = {
 	agentReplyPlacement: true,
 	liveSignalHistory: true,
 	spaceMessageAddressing: true,
+	spaceImageGeometry: true,
 } as const;
 
 type AcceptableWebSocket = WebSocket & {

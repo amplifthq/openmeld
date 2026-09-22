@@ -247,6 +247,16 @@ account preferences as the sidebar. The open conversation remains readable and
 the success message explains where to recover it; no destructive confirmation
 or shared-history deletion is involved.
 
+The conversation header exposes message search as the same compact icon action
+used by its neighboring tools, with an accessible label and tooltip. Its dialog
+accepts a single character when scoped to the current Space, presents centered
+dashed initial, no-result, and full-error states, and keeps workspace-wide and
+Inbox search at a three-character minimum. One framed result region is retained
+while empty or reporting a full error. Empty and full-error content is centered
+with its recovery action. Real results keep the same region height without its
+empty-state border or background; they remain top-aligned with normal padding,
+the shared Fluid moving hover highlight, and Fluid ScrollArea edge fading.
+
 Your Spaces and the sidebar render active memberships from the account Space
 index. The Organization discovery snapshot must not veto a newer account index
 entry. The account index refreshes every five seconds in the foreground so a
@@ -2555,9 +2565,13 @@ physical computer; it must never silently move a draft to another computer.
 **Create Agent** opens the full-width `/o/:orgSlug/new-agent` view so reload,
 back, and forward preserve the user's location. Space, People, and other compact
 entry points use the dialog composition. Both surfaces use the same creation
-controller and generator components: **Choose a Local Agent** is available, and
-**Remote Agent** is disabled with **Coming soon**. Local setup offers a connected
-computer's Agent or **Connect Computer**. A concrete local Agent and computer
+controller and generator components: **Choose a Local Agent** always presents
+Codex, Claude Code, Grok Build, OpenCode, Antigravity, and Cursor in that order,
+and **Remote Agent** is disabled with **Coming soon**. The complete catalog is
+visible and selectable even when a Local Agent is not installed, is disabled,
+is signed out, or has not finished checking. Selecting one is an inspection
+choice; only the existing canonical eligibility projection can provide the
+Binding choice used for creation. A concrete eligible local Agent and computer
 are required before creation; there is no **Choose later** path.
 Core rejects new Web creation requests without that target before creating an
 identity. Existing request retries and intentional CLI manual profiles retain
@@ -2577,6 +2591,15 @@ preset or guesses between multiple connections on one Computer.
 While local agents are loading, the heading
 reports checking instead of prematurely asking the user to connect a computer.
 The form keeps its actions separate through spacing without a footer divider.
+An unavailable selected Local Agent renders one full-width dashed recovery
+panel below the catalog. The panel names the concrete reason and offers the
+Agent-specific install guide, an inline enable switch, concise sign-in/setup
+guidance, or a retry as appropriate. It must not hide the choice or replace the
+whole page with loading. An available selection shows its cached Usage summary
+at the far right of the editable default-name row above Advanced Agent
+Settings. Only that summary may show a skeleton while its already requested
+runtime projection loads; the form remains interactive and Web does not issue
+a duplicate provider Usage request.
 An unfinished browser-local draft may prefill that first decision, but the first
 new local-Agent or execution-target choice dismisses restoration for the current
 open flow so later renders cannot reverse the user's click.
@@ -3613,6 +3636,65 @@ working-folder choice in Agent settings clears that Profile's remaining draft
 and marker. Neither case may change the durable request back to creation, call
 Auth, or hide the unfinished choice behind a completed badge.
 
+## Space Image Presentation
+
+A selected image keeps its presentation identity through staging, publication,
+message failure/retry, and HTTP or live acknowledgement. Message actions still
+use canonical signal IDs; the rendered message key includes Space, author, and
+client message identity. Each published file is matched to its explicit local
+selection, never to its name or position. Canonical cache admission occurs before
+posting the message, so either acknowledgement transport finds the original.
+
+The existing non-persisted `space-files` TanStack Query cache owns immutable
+original bytes. Composer, thumbnail, and focused viewer subscribe to a shared
+object-URL handle; releasing the composer does not revoke a displayed image.
+Warm cache reads return the same handle during render, without a loading effect
+or effect-created URL. A local File is transferred without conversion. Idle
+originals have a five-minute GC lifetime and a 32-image/128-MiB retention budget;
+mounted consumers are not evicted by that idle budget. The resource registry
+contains handles, not a second copy of bytes. It is scoped to the QueryClient.
+
+Logout, account/Organization cache clearing, Space access rejection, and an
+authoritative file denial revoke active handles before discarding cached bytes.
+Deletion of one file clears its revisions; folder deletion clears the Space's
+image resources because not every descendant is in the current listing.
+Revocation notifies already decoded composer and focused-view images as well as
+message thumbnails. In-flight reads cannot repopulate a cleared account cache.
+Binary bytes and object URLs are never admitted to persisted display histories.
+
+One frame owns loading, decoded image, error, and retry. Valid display-oriented
+revision geometry reserves the aspect ratio, bounded to a 512-pixel box without
+upscaling; legacy/unsupported metadata uses a fixed 288-by-192 fallback. That
+initial geometry stays fixed for the mount even if metadata arrives later.
+Multi-image cells are explicitly square and use `object-contain`, preserving the
+whole long screenshot. Decode completion is source/attempt fenced. A decode
+failure is recoverable with an explicit retry, not an indefinite skeleton.
+
+Genuinely cold, active image loads use the pinned `img-fx` `ImageGeneration`
+component through a lazy adapter. `images=[]` and `autoReveal=false` keep private
+sources and decoding in the application; there is no artificial completion or
+reveal delay. The stable frame remains observed after loading and failure.
+Offscreen/background, reduced-motion, unavailable-WebGL, initialization-failure,
+and context-loss states retain the static frame without an active renderer.
+The small pinned package patch surfaces shared-context loss and avoids creating
+WebGL before checking the required 2D output context. Normal package cleanup
+owns GPU disposal; the application does not implement a second shader renderer.
+
+The effect is an explicitly emitted, content-addressed module loaded by native
+`import()` through a small failure-isolated adapter. A failed effect download
+returns the static frame without emitting Vite's critical-route preload error,
+refreshing the application, or delaying the original image. The build owns its
+hashed URL and relative addressing; no URL-pattern exception or temporary global
+error suppression changes recovery for actual application chunks. Build tests
+execute emitted code with the effect chunk missing and verify that a separate
+critical import still emits its normal recovery event.
+
+Unit and controller integration tests cover resource ownership, geometry,
+acknowledgement ordering, decode retry, and privacy. Browser/native visual smoke
+is a separate acceptance gate, including the previously reported PNG grey
+preview; header metadata and jsdom tests alone do not establish that incident's
+root cause or verify GPU rendering.
+
 ## Space And Thread Presentation
 
 Web presents a Space as a collaboration room and visible outcome surface.
@@ -3860,6 +3942,18 @@ the conversation, canonical image references retain the familiar inline image
 preview and morph into a focused full-size view when selected; non-image
 references remain file cards, and both presentations lead to the same canonical
 entry in Files.
+
+The active Files list defaults to artifacts only (see the Space Files origin
+contract above); it never applies this filter to Trash. A **Show chat
+uploads** toggle beside Trash switches the request to `origin=all` and updates
+the subtitle to say chat uploads are included; toggling back, or switching to
+another view (Trash and back), returns to the default — the toggle is local
+Files-view state and never survives a `changeView` call. When chat uploads
+are shown, each file whose `origin` is exactly `"chat_upload"` carries a
+**Chat upload** badge next to its name so the distinction stays visible in
+the row, not only in the toggle state. A file with no recorded origin never
+gets this badge; the fail-closed default list does not extend to asserting a
+source it does not actually know.
 
 Markdown creation and editing reuse the exact rich Plate surface owned by the
 Organization Documents experience. Both surfaces persist one CommonMark + GFM
@@ -4604,9 +4698,10 @@ and system notices keep their recorded event semantics.
 
 At the latest messages, the Space header presents a two-row hierarchy. The first
 row contains the Space name, access mode, live connection indicator, and
-right-aligned actions. The second row contains Messages and Files below the
-Space name. Those view labels align with the Space name and use a flat active
-underline that overlays the header divider. The Members action shows the active
+right-aligned actions. The second row contains the available Space views
+(Messages, Tasks, and Files) below the Space name. Those view labels align with
+the Space name and use a flat active underline that overlays the header divider.
+The Members action shows the active
 member total from the Space member projection. The header and Space sidebar do
 not repeat `Joined as` or an aggregate live-human count; speaking identity stays
 with the composer when a choice is available, and per-member presence belongs
@@ -4617,18 +4712,27 @@ trailing edge of the second header row so the Space name remains identifiable;
 it stays visually separate from the **Messages** and **Files** view control and
 returns to the primary action group at wider breakpoints.
 
-While reading earlier messages in a Space, a small scroll switches the header
-fully into one compact row. Messages and Files move upward between the sidebar
-toggle and the title, separated from the title by a vertical divider. There is
-no scroll-progress interpolation and no diagonal travel. The same layout applies
-inside Desk windows; width checks use layout coordinates, unaffected by canvas
-zoom. Long titles truncate. Insufficient width and mobile setup recall retain
-the complete two-row layout. Direct messages retain their existing headers.
-Messages and Files share the same expanded/compact preference per Organization,
-Profile, and Space. Returning to the latest messages expands the header. A new
+While reading earlier messages in a Space, scrolling at least 64 CSS pixels
+away from the latest messages switches the header directly into one compact
+row. Messages, Tasks, and Files appear between the sidebar toggle and the title,
+separated from the title by a vertical divider. There is no entrance animation,
+position transition, or scroll-progress interpolation, regardless of motion
+preferences. The header expands only when the reader returns within 16 CSS
+pixels of the latest messages. This distance hysteresis absorbs small scrolls
+and avoids toggling at the threshold without a timer-based debounce.
+The same layout applies inside Desk windows; width checks use layout coordinates,
+unaffected by canvas zoom. Long titles truncate. Insufficient width and mobile
+setup recall retain the complete two-row layout. Direct messages retain their
+existing headers.
+All Space views share the expanded/compact preference per Organization, Profile,
+and Space. Switching views or replacing the message scroller rebinds input
+observation without clearing the header layout or compensating the reading
+anchor again. Only an actual layout endpoint change adjusts the message viewport.
+Layout cleanup belongs to the header's lifetime, not to view changes. A new
 preference starts expanded; obsolete intermediate-position preferences are not
-reused. Files does not drive compaction. A short vertical entrance runs once
-per collapse, with no travel under reduced motion.
+reused. Tasks and Files do not drive compaction, and programmatic message
+restoration does not count as user scroll input after rebinding.
+
 Message-header visibility observations update the read-through scheduler directly rather
 than publishing React state through the Space controller. Scrolling away cancels
 the pending read immediately without rerendering the transcript. Space/Profile

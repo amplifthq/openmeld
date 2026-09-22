@@ -1,4 +1,5 @@
 import { finalCandidateEvidenceSchema } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
+import { isCliSkillCheckPath } from "../release/cli-skill-check.mjs";
 import {
   isEngineeringOnlySchemaPath,
   isReleaseReadyPath,
@@ -25,6 +26,8 @@ const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
   "scripts/ci/final-candidate-bootstrap.test.mjs",
   "scripts/ci/final-candidate-output.mjs",
   "scripts/ci/final-candidate-control-paths.mjs",
+  "scripts/ci/final-candidate-control-projection.mjs",
+  "scripts/ci/final-candidate-control-yaml.mjs",
   "scripts/ci/final-candidate-policy.mjs",
   "scripts/ci/final-candidate-policy.test.mjs",
   "scripts/ci/final-candidate-publisher.mjs",
@@ -54,6 +57,7 @@ const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
 ]);
 const REPOSITORY_CONTROL_PREFIXES = [".github/", ".husky/", "scripts/"];
 const REPOSITORY_CONTROL_PATHS = new Set([
+  ".npmrc",
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
@@ -193,6 +197,15 @@ export function createFinalCandidatePlan(input) {
 }
 
 function selectPrimaryChecks(context, selectedChecks, skippedChecks) {
+  if (context.changedPaths.some(isCliSkillCheckPath)) {
+    selectedChecks.push(
+      check(
+        "cli-skill-integrity",
+        ["pnpm", "run", "verify:cli-skill"],
+        "Signed CLI Skill content must match its source before merge."
+      )
+    );
+  }
   if (context.docsOnly) {
     selectedChecks.push(
       check(
