@@ -11,6 +11,23 @@ const LINES = /\r?\n/u;
 const CONTEXT = "OPENMELD_RELEASE_RECEIPT_CONTEXT";
 const MAX_PLATFORM_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
+export function assertCoreDeploymentContext(input) {
+  const context = productionWorkerDeploymentContextSchema.parse(
+    JSON.parse(input.env?.[CONTEXT] ?? "null")
+  );
+  if (
+    context.sourceSha !== input.sourceSha ||
+    context.projectionTag !== input.projectionTag ||
+    context.workerName !== input.workerName ||
+    !input.env?.WRANGLER_OUTPUT_FILE_PATH
+  ) {
+    throw new Error(
+      "Core deployment requires its exact guarded receipt context."
+    );
+  }
+  return context;
+}
+
 // The Core admission owner already returns the exact uploaded version, including
 // its atomic-migration branch. Forward that fact at the DEPLOY boundary without
 // changing admission, profiling, bundling or the projection selected by that owner.

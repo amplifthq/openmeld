@@ -1,0 +1,35 @@
+{
+  "channels": {
+    "stable": {
+      "minRequiredCliVersion": "0.3.217",
+      "platforms": {
+        "darwin-arm64": {
+          "sha256": "6d4e7719f746b475a26d022f77b638239a6a511040e2d1089e60bd8755e2f800",
+          "sizeBytes": 70383952,
+          "url": "https://openmeld.ai/cli/download/openmeld-cli-darwin-arm64-0.3.217",
+          "archiveFormat": "gzip",
+          "archiveSha256": "e6e1a1067240eb5badab553f9a22bb281db283a46138c2734bd58314648ad15f",
+          "archiveSizeBytes": 26455412,
+          "archiveUrl": "https://openmeld.ai/cli/download/openmeld-cli-darwin-arm64-0.3.217.gz",
+          "codeIdentifier": "sh.openmeld.cli",
+          "deltas": [
+            {
+              "fromSha256": "b5f0dc1b6c6c137bc32b60ce71d8b058cf759ac09c94ba282d100c60980ac7a0",
+              "fromSizeBytes": 70433488,
+              "fromVersion": "0.3.216",
+              "patchCompression": "gzip",
+              "patchFormat": "block-ranges-v1",
+              "patchPayloadSizeBytes": 10205317,
+              "patchSha256": "5f317d82c85d61abdc01fdfda483c8b7077df6f62f73da9caf0313fc8bb714a4",
+              "patchSizeBytes": 3385414,
+              "patchUrl": "https://openmeld.ai/cli/download/openmeld-cli-darwin-arm64-0.3.217-delta-from-0.3.216.gz"
+            }
+          ],
+          "teamIdentifier": "38FFHDPA3B"
+        }
+      },
+      "version": "0.3.217"
+    }
+  },
+  "schemaVersion": 1
+}

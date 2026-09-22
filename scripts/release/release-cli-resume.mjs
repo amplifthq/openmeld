@@ -545,7 +545,7 @@ function resolveCliReleaseTarget(input) {
   };
 }
 
-async function probeCliBinaryStage(input) {
+export async function probeCliBinaryStage(input) {
   try {
     const manifest = await fetchCliChannelManifest({
       fetch: input.adapters.fetch,
@@ -791,7 +791,7 @@ function probeReleaseTagStage(input) {
   });
 }
 
-async function probeCoreProjectionStage(input) {
+export async function probeCoreProjectionStage(input) {
   let deploymentsResult;
   let versionsResult;
   try {
