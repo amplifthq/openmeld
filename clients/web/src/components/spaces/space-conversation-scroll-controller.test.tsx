@@ -1,16 +1,71 @@
 import { render } from "@testing-library/react";
+import { createRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { SpaceConversationSendScrollController } from "./space-conversation-scroll-controller";
+import {
+	SpaceConversationSendScrollController,
+	type SpaceMessageScrollAction,
+	SpaceMessageScrollController,
+} from "./space-conversation-scroll-controller";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 
 const scrollToEndMock = vi.hoisted(() => vi.fn());
+const scrollToMessageMock = vi.hoisted(() => vi.fn());
 const onSendStart = vi.fn();
 
 vi.mock("@shadcn/react/message-scroller", () => ({
 	useMessageScroller: () => ({
 		scrollToEnd: scrollToEndMock,
+		scrollToMessage: scrollToMessageMock,
 	}),
 }));
+
+describe("SpaceMessageScrollController", () => {
+	beforeEach(() => scrollToEndMock.mockReset());
+
+	it("releases a focus spacer when a newer message arrives", () => {
+		const viewport = document.createElement("div");
+		const spacer = document.createElement("div");
+		spacer.dataset.messageScrollerSpacer = "";
+		spacer.style.height = "240px";
+		viewport.appendChild(spacer);
+		const actionRef = createRef<SpaceMessageScrollAction | null>();
+		const view = render(
+			<SpaceMessageScrollController
+				actionRef={actionRef}
+				latestMessageId="message-1"
+				scrollElement={viewport}
+			/>
+		);
+		view.rerender(
+			<SpaceMessageScrollController
+				actionRef={actionRef}
+				latestMessageId="message-2"
+				scrollElement={viewport}
+			/>
+		);
+		expect(scrollToEndMock).toHaveBeenCalledWith({ behavior: "auto" });
+	});
+
+	it("keeps the reading position when no focus spacer exists", () => {
+		const viewport = document.createElement("div");
+		const actionRef = createRef<SpaceMessageScrollAction | null>();
+		const view = render(
+			<SpaceMessageScrollController
+				actionRef={actionRef}
+				latestMessageId="message-1"
+				scrollElement={viewport}
+			/>
+		);
+		view.rerender(
+			<SpaceMessageScrollController
+				actionRef={actionRef}
+				latestMessageId="message-2"
+				scrollElement={viewport}
+			/>
+		);
+		expect(scrollToEndMock).not.toHaveBeenCalled();
+	});
+});
 
 describe("SpaceConversationSendScrollController", () => {
 	beforeEach(() => {
