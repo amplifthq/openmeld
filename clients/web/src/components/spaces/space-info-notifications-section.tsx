@@ -21,10 +21,12 @@ export function SpaceInfoNotificationsSection() {
 	if (!(currentUserId && settings)) {
 		return null;
 	}
-	const statusDescription = resolveSpaceInfoNotificationStatusDescription({
-		enabled: settings.enabled,
-		permission: settings.permission,
-	});
+	const statusDescription = settings.unavailableReason
+		? "Paused. Browser site storage is unavailable."
+		: resolveSpaceInfoNotificationStatusDescription({
+				enabled: settings.enabled,
+				permission: settings.permission,
+			});
 
 	return (
 		<section className="min-w-0 border-border/60 border-t pt-4">

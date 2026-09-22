@@ -16,6 +16,7 @@ import {
   rpcMarkInboxItemRead,
   rpcMarkSpaceInboxReadThrough,
   rpcMutateInboxFeed,
+  rpcObserveInboxNotifications,
   rpcUpdateInboxMessageNotificationPreferences,
 } from "../src/inbox/transport/rpc/inbox-rpc";
 import type { CoreBindings } from "../src/lib/bindings";
@@ -25,6 +26,51 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox Core RPC", () => {
+  it("binds notification observations to the authenticated recipient and rejects injected scope", async () => {
+    const harness = createInboxHarness();
+    try {
+      const env = { OPENMELD_DB: harness.db } as unknown as CoreBindings;
+      const baseline = await rpcObserveInboxNotifications(env, {
+        context: contextFor("user-1"),
+      });
+      const saved = await seedItem(harness.db, "user-1", true, {
+        version: 1,
+        recipientReasons: ["thread_reply"],
+        agentProfileIds: [],
+      });
+      const page = await rpcObserveInboxNotifications(env, {
+        context: contextFor("user-1"),
+        cursor: baseline.cursor,
+      });
+      expect(page.items.map((item) => item.id)).toEqual([saved.itemId]);
+      expect(page.items[0]?.sourceTarget).toHaveProperty(
+        "replyToRecipient",
+        true
+      );
+      expect(page.items[0]?.sourceFacts?.recipientReasons).toEqual([
+        "thread_reply",
+      ]);
+      await expect(
+        rpcObserveInboxNotifications(env, {
+          context: contextFor("user-2"),
+          cursor: baseline.cursor,
+        })
+      ).rejects.toMatchObject({ status: 400 });
+      await expect(
+        rpcObserveInboxNotifications(env, { context: contextFor("outsider") })
+      ).rejects.toMatchObject({ status: 403 });
+      await expect(
+        rpcObserveInboxNotifications(env, {
+          context: contextFor("user-1"),
+          // @ts-expect-error Recipients can only come from verified membership.
+          recipientUserId: "user-2",
+        })
+      ).rejects.toMatchObject({ status: 400 });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("binds the attention feed and its frozen mutations to verified membership, not client-selected recipients", async () => {
     const harness = createInboxHarness();
     try {

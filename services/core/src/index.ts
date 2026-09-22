@@ -447,6 +447,7 @@ import {
   rpcMarkInboxItemRead,
   rpcMarkSpaceInboxReadThrough,
   rpcMutateInboxFeed,
+  rpcObserveInboxNotifications,
   rpcUpdateInboxMessageNotificationPreferences,
   rpcUpdateInboxNotificationPreferences,
 } from "./inbox/transport/rpc/inbox-rpc";
@@ -1514,6 +1515,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: ListInboxItemsRpcInput
   ): Promise<ListInboxItemsResponse> {
     return rpcListInboxItems(this.env, input);
+  }
+
+  observeInboxNotifications(
+    input: import("@openmeld/schemas/types").ObserveInboxNotificationsRpcInput
+  ) {
+    return rpcObserveInboxNotifications(this.env, input);
   }
 
   dismissInboxItem(
@@ -4062,6 +4069,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: ListInboxItemsRpcInput
   ): Promise<ListInboxItemsResponse> {
     return super.listInboxItems(input);
+  }
+
+  observeInboxNotifications(
+    input: import("@openmeld/schemas/types").ObserveInboxNotificationsRpcInput
+  ) {
+    return super.observeInboxNotifications(input);
   }
 
   dismissInboxItem(

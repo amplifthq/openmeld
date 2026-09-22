@@ -36,6 +36,7 @@ export function NotificationsSection() {
 	const account = useAppShellAccount();
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const {
+		canDeliver: browserExampleEnabled,
 		error: notificationError,
 		isPending: notificationPending,
 		setEnabled: updateNotifications,
@@ -140,7 +141,7 @@ export function NotificationsSection() {
 						<div className="flex items-center gap-3">
 							{settings.permission !== "unknown" && (
 								<BrowserNotificationExample
-									enabled={settings.enabled}
+									enabled={browserExampleEnabled}
 									key={currentUserId}
 									onStatusChange={(status) =>
 										setBrowserExample({ userId: currentUserId, status })

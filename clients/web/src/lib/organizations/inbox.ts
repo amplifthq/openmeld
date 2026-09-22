@@ -11,6 +11,8 @@ import type {
 	InboxFeedQuery,
 	InboxFeedResponse,
 	InboxMessageNotificationPreferencesResponse,
+	InboxNotificationObservationsQuery,
+	InboxNotificationObservationsResponse,
 	InboxNotificationPreferencesResponse,
 	InboxPresentation,
 	InboxSummaryResponse,
@@ -69,6 +71,21 @@ export async function mutateCurrentInboxFeed(
 	return await runInboxOperation(async () => {
 		const { organizationId, ...body } = input;
 		return await createWebInboxApi(organizationId).mutateFeed(body);
+	});
+}
+
+export async function observeCurrentInboxNotifications(
+	input: InboxNotificationObservationsQuery & {
+		organizationId: string;
+		signal?: AbortSignal;
+	}
+): Promise<InboxNotificationObservationsResponse> {
+	return await runInboxOperation(async () => {
+		const { organizationId, ...query } = input;
+		const response =
+			await createWebInboxApi(organizationId).observeNotifications(query);
+		assertOrganizationMatch(response.organizationId, organizationId);
+		return response;
 	});
 }
 

@@ -25,7 +25,7 @@ export function ClientNotificationControl(input: {
 			aria-busy={input.disabled}
 			aria-label={label}
 			checked={input.settings.enabled}
-			disabled={input.disabled}
+			disabled={input.disabled || Boolean(input.settings.unavailableReason)}
 			onCheckedChange={input.onChange}
 		/>
 	);
