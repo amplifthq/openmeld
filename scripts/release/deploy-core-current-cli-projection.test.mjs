@@ -242,12 +242,11 @@ test("the receiver bridge binds candidate source separately from the retained CL
       capture.read().versionId,
       "fb18a6dd-5ee3-43fd-aa64-087346c6bfd3"
     );
+    // Admission already applied 100% traffic; the bridge must not deploy again.
     assert.deepEqual(events, [
       "channel",
       "Build Core receiver dependencies",
       "Verify Core Worker bundle module graph",
-      "Deploy the startup-admitted Core version",
-      "Synchronize Core triggers",
       "Verify Core deployment is visible",
     ]);
   } finally {
