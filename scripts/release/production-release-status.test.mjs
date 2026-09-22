@@ -1,9 +1,21 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
   assertGuardedLocalEvidenceRepository,
   parseProductionReleaseStatusArgs,
+  readGuardedReleaseSourcesForStatus,
   readMergedFinalCandidateEvidence,
   resolveLatestSuccessfulReleaseSources,
   runProductionReleaseStatus,
@@ -44,6 +56,92 @@ const REPOSITORY_MISMATCH_PATTERN =
   /does not match the current checkout repository/u;
 const MISSING_EXACT_FINAL_CANDIDATE_PATTERN =
   /no exact successful OpenMeld Final Candidate status/u;
+const HOSTED_RECEIPT_AUTH_FAILURE = /requires a token|workflow repository/u;
+
+test(
+  "hosted status authenticates private Git receipt reads without persisting credentials",
+  {
+    skip:
+      process.platform === "win32" &&
+      "Production release runners use Linux or macOS",
+  },
+  () => {
+    const root = mkdtempSync(path.join(tmpdir(), "openmeld-status-git-auth-"));
+    const bin = path.join(root, "bin");
+    const log = path.join(root, "git.json");
+    const token = "fixture-status-token-not-real";
+    const repositoryUrl = "https://github.com/amplifthq/openmeld.git";
+    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    try {
+      execFileSync(realGit, ["init", "--quiet", root]);
+      const configPath = path.join(root, ".git", "config");
+      const configBefore = readFileSync(configPath, "utf8");
+      mkdirSync(bin);
+      const fakeGit = path.join(bin, "git");
+      writeFileSync(
+        fakeGit,
+        [
+          "#!/usr/bin/env node",
+          'const {execFileSync}=require("node:child_process");',
+          'const {writeFileSync}=require("node:fs");',
+          "const args=process.argv.slice(2);",
+          `const auth=execFileSync(${JSON.stringify(realGit)},["config","--get-urlmatch","http.extraheader",args[2]],{encoding:"utf8"}).trim();`,
+          "writeFileSync(process.env.STATUS_GIT_LOG,JSON.stringify({args,auth,rawToken:process.env.GH_TOKEN,trace:process.env.GIT_TRACE_CURL}));",
+          'if(args[0]!=="ls-remote" || !auth.startsWith("AUTHORIZATION: basic "))process.exit(128);',
+          "",
+        ].join("\n")
+      );
+      chmodSync(fakeGit, 0o755);
+      const environment = {
+        ...process.env,
+        GH_TOKEN: token,
+        GITHUB_ACTIONS: "true",
+        GITHUB_REPOSITORY: "amplifthq/openmeld",
+        GITHUB_SERVER_URL: "https://github.com",
+        GIT_TRACE_CURL: "1",
+        PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        STATUS_GIT_LOG: log,
+      };
+      const result = readGuardedReleaseSourcesForStatus({
+        cwd: root,
+        environment,
+        repo: "amplifthq/openmeld",
+      });
+      assert.equal(result.size, 0);
+      const observed = JSON.parse(readFileSync(log, "utf8"));
+      assert.deepEqual(observed.args, [
+        "ls-remote",
+        "--refs",
+        repositoryUrl,
+        "refs/heads/openmeld-production-release-evidence/*",
+      ]);
+      assert.equal(
+        observed.auth,
+        `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`
+      );
+      assert.equal(observed.rawToken, undefined);
+      assert.equal(observed.trace, undefined);
+      assert.equal(readFileSync(configPath, "utf8"), configBefore);
+      assert.equal(environment.GH_TOKEN, token);
+      for (const overrides of [
+        { GH_TOKEN: "" },
+        { GITHUB_REPOSITORY: "another/repository" },
+      ]) {
+        assert.throws(
+          () =>
+            readGuardedReleaseSourcesForStatus({
+              cwd: root,
+              environment: { ...environment, ...overrides },
+              repo: "amplifthq/openmeld",
+            }),
+          HOSTED_RECEIPT_AUTH_FAILURE
+        );
+      }
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  }
+);
 
 test("correlates the real PR #1215 squash identity with its exact Final Candidate", async () => {
   const mergeSha = "43d7b3dea65844dc87475fecb693f7864840e64e";
