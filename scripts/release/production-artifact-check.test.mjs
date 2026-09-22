@@ -7,12 +7,44 @@ import test from "node:test";
 import {
   artifactInputIdentity,
   artifactOutputIdentity,
+  assertArtifactCheckout,
 } from "./production-artifact-check.mjs";
 import { checkProductionWeb } from "./production-web-health.mjs";
 
 const SSR_ERROR = /SSR/u;
 const SOURCE_ERROR = /source/u;
 const DIRTY_ERROR = /dirty/u;
+const CHECKOUT_ERROR = /checkout changed/u;
+
+test("artifact evidence rejects a moved HEAD or newly dirty checkout", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "artifact-checkout-"));
+  const git = (...args) =>
+    execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  try {
+    git("init", "--quiet");
+    git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "fixture"
+    );
+    const sha = git("rev-parse", "HEAD");
+    assertArtifactCheckout(root, sha);
+    await writeFile(path.join(root, "unexpected.txt"), "changed");
+    assert.throws(() => assertArtifactCheckout(root, sha), CHECKOUT_ERROR);
+    assertArtifactCheckout(root, sha, true);
+    assert.throws(
+      () => assertArtifactCheckout(root, "0".repeat(40), true),
+      CHECKOUT_ERROR
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("Web health requires rendered HTML from the exact clean source, not guide.md or stale HTML", async () => {
   const sourceSha = "a".repeat(40);

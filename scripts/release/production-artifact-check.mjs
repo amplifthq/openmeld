@@ -276,6 +276,7 @@ export async function checkProductionArtifact({
       "Build inputs changed during artifact verification; no evidence was saved."
     );
   }
+  assertArtifactCheckout(root, sourceSha, allowDirty);
   const receipt = {
     scope,
     sourceSha,
@@ -289,6 +290,19 @@ export async function checkProductionArtifact({
   await mkdir(path.dirname(receiptPath), { recursive: true });
   await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
   return receipt;
+}
+
+export function assertArtifactCheckout(root, sourceSha, allowDirty = false) {
+  const read = (args) =>
+    execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  if (
+    read(["rev-parse", "HEAD"]) !== sourceSha ||
+    (!allowDirty && read(["status", "--porcelain"]))
+  ) {
+    throw new Error(
+      "Source checkout changed during artifact verification; no evidence was saved."
+    );
+  }
 }
 
 if (
