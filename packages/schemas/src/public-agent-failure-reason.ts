@@ -1123,6 +1123,17 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "prepare_setup",
     },
     {
+      availabilityBadgeLabel: "Unavailable",
+      availabilitySummary: "This computer isn't accepting new tasks.",
+      availabilityTooltip: "Not accepting new tasks",
+      body: (targetName) =>
+        `${formatPossessiveTargetName(targetName)} computer isn't accepting new tasks. Open Computer details to check its status.`,
+      kind: "local_service",
+      patterns: ["=local_service.not_accepting_wakes"],
+      primaryActionId: "check_status",
+      recoveryTarget: "computer",
+    },
+    {
       availabilityBadgeLabel: "Reconnecting",
       availabilitySummary: "Computer is reconnecting.",
       availabilityTooltip: "Reconnecting Computer",
