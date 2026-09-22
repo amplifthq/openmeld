@@ -376,6 +376,13 @@ Anything not run, with reason
   Resume verification without resubmitting an accepted or uncertain publish;
   follow the npm recovery boundary in `production-release.md`.
 
+For CLI publication, source builds and registry version existence do not prove
+that an npm user can install the release. The release owner must validate and
+publish the same portable tarball, as defined in
+[npm submission and availability](production-release.md#npm-submission-and-availability).
+Windows compatibility CI also consumes that artifact and exercises the generated
+PowerShell bootstrap; signed-in computer and Wake acceptance remain separate.
+
 ## Agent Experience Occurrence Feedback
 
 Task collaboration uses focused, agent-chosen `[OpenMeld Dev]` Spaces only when
