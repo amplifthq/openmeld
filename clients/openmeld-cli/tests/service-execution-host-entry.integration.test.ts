@@ -12,6 +12,7 @@ import {
   buildStoredAuthSessionIdentity,
   getAuthSessionState,
   setAuthSession,
+  withAdmittedServiceSession,
 } from "../src/config/auth-session";
 import { upsertDaemonServiceContract } from "../src/config/daemon-service-contract";
 import { createExecutionHostClient } from "../src/local-service/execution-host/channel";
@@ -135,26 +136,42 @@ describe("real execution Host entry", () => {
   });
 
   it.each([
-    false,
-    true,
-  ])("starts the real Host with empty inventory, preserving account transition=%s", async (transitionPending) => {
+    "none",
+    "same-account",
+    "other-account",
+  ])("starts the real Host with empty inventory, preserving account transition=%s", async (transitionKind) => {
     await setAuthSession({
       accessToken: "fixture-old",
       authBaseUrl: origin,
       clientId: "fixture-client",
       user: { id: "old-account" },
     });
-    const transition = transitionPending
-      ? await beginAuthSessionTransition({
-          accessToken: "fixture-new",
-          authBaseUrl: origin,
-          clientId: "fixture-client",
-          user: { id: "new-account" },
-        })
-      : null;
-    const session = (await getAuthSessionState()).session;
-    if (!session?.user?.id) {
+    const transition =
+      transitionKind !== "none"
+        ? await beginAuthSessionTransition({
+            accessToken: "fixture-new",
+            authBaseUrl: origin,
+            clientId: "fixture-client",
+            user: {
+              id:
+                transitionKind === "other-account"
+                  ? "new-account"
+                  : "old-account",
+            },
+          })
+        : null;
+    const candidate = (await getAuthSessionState()).session;
+    if (!candidate?.user?.id) {
       throw new Error("Isolated fixture session missing");
+    }
+    // Match the Service runner: bind its startup login before reading the
+    // identity that the separately launched Host independently verifies.
+    const session = await withAdmittedServiceSession(
+      candidate,
+      async () => (await getAuthSessionState()).session
+    );
+    if (!session?.user?.id) {
+      throw new Error("Admitted fixture session missing");
     }
     const contract = await upsertDaemonServiceContract({
       ownerUserId: session.user.id,
@@ -213,7 +230,7 @@ describe("real execution Host entry", () => {
       expect(await running.exit, running.stderr()).toBe(0);
       await transition?.commit();
       expect((await getAuthSessionState()).session?.user?.id).toBe(
-        transitionPending ? "new-account" : "old-account"
+        transitionKind === "other-account" ? "new-account" : "old-account"
       );
     } finally {
       client.dispose();

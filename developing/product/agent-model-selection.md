@@ -109,6 +109,13 @@ becomes a first-class, user-selectable property of an Agent Profile.
    served read-only by core; the CLI keeps an embedded snapshot as offline
    fallback only. Changing the catalog is a core deploy, not a CLI publish and
    not a DB edit.
+
+   Antigravity is included in both catalogs. Its exact model IDs come from
+   `agy models`; the September 22, 2026 CLI 1.2.7 capture lists 14 choices
+   covering Gemini, Claude, and GPT-OSS. Gemini High/Medium/Low variants and
+   GPT-OSS Medium are distinct native model IDs, not OpenMeld aliases.
+   The hosted catalog must not omit a controller that exists only in the CLI
+   offline snapshot: Web reads the hosted catalog, not the offline snapshot.
 9. **Do not bump the dispatch queue schema.** The selection rides binding
    metadata down to the daemon and is resolved locally.
 10. **Selection logic is shared headless code**, not duplicated per client.

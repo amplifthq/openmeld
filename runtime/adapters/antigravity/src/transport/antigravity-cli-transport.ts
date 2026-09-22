@@ -1,4 +1,5 @@
 import type {
+  AdapterDispatchRequest,
   AdapterDispatchTelemetry,
   AdapterErrorType,
   AdapterPreviewCallback,
@@ -54,7 +55,7 @@ export class AntigravityCliTransportError extends Error {
 }
 
 export async function invokeAntigravityCliTransport(input: {
-  addDir?: string | null;
+  agentControllerPermissionMode?: AdapterDispatchRequest["agentControllerPermissionMode"];
   conversationPolicy?: ConversationPolicy;
   env?: Record<string, string | undefined>;
   jsonSchema?: string | null;
@@ -77,7 +78,7 @@ export async function invokeAntigravityCliTransport(input: {
   }
   const invocation = buildCliLaunchInvocation({
     args: buildAntigravityArgs({
-      addDir: input.addDir,
+      agentControllerPermissionMode: input.agentControllerPermissionMode,
       conversationPolicy: input.conversationPolicy,
       jsonSchema: input.jsonSchema,
       prompt,
@@ -240,7 +241,7 @@ function classifyAntigravityPermissionFailure(
 }
 
 export function buildAntigravityArgs(input: {
-  addDir?: string | null;
+  agentControllerPermissionMode?: AdapterDispatchRequest["agentControllerPermissionMode"];
   conversationPolicy?: ConversationPolicy;
   jsonSchema?: string | null;
   prompt: string;
@@ -254,10 +255,6 @@ export function buildAntigravityArgs(input: {
     "--print-timeout",
     "0",
   ];
-  const addDir = normalizeOptionalText(input.addDir);
-  if (addDir) {
-    args.push("--add-dir", addDir);
-  }
   const jsonSchema = normalizeOptionalText(input.jsonSchema);
   if (jsonSchema) {
     args.push("--json-schema", jsonSchema);
@@ -282,7 +279,20 @@ export function buildAntigravityArgs(input: {
     }
     args.push("--effort", effort);
   }
-  if (input.conversationPolicy?.collaborationMode === "plan") {
+  const permissionMode = input.agentControllerPermissionMode;
+  if (permissionMode === "antigravity:acceptEdits") {
+    args.push("--mode", "accept-edits");
+  } else if (permissionMode === "antigravity:plan") {
+    args.push("--mode", "plan");
+  } else if (permissionMode === "antigravity:bypassPermissions") {
+    args.push("--dangerously-skip-permissions");
+  } else if (permissionMode && permissionMode !== "antigravity:default") {
+    throw new AntigravityCliTransportError({
+      code: "permission.mode.unsupported",
+      errorType: "config",
+      message: `permission.mode.unsupported: Antigravity cannot apply '${permissionMode}'`,
+    });
+  } else if (input.conversationPolicy?.collaborationMode === "plan") {
     args.push("--mode", "plan");
   }
   return args;

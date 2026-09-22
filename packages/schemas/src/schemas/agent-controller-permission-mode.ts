@@ -1,6 +1,10 @@
 import * as z from "zod/v4";
 
 export const agentControllerPermissionModeSchema = z.enum([
+  "antigravity:default",
+  "antigravity:acceptEdits",
+  "antigravity:plan",
+  "antigravity:bypassPermissions",
   "claude-code:default",
   "claude-code:acceptEdits",
   "claude-code:plan",

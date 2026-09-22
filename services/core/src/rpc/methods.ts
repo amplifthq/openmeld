@@ -44,7 +44,6 @@ import {
   CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES,
   CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
   CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT,
-  CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   canonicalizeAgentControllerRef,
   centerAgentAddAgentProfilesToSpaceBodySchema,
   centerAgentAddAgentProfilesToSpaceResponseSchema,
@@ -985,6 +984,7 @@ import {
   projectionsDb,
   wakeEvidenceDb,
 } from "../lib/bindings";
+import { resolveCoreRuntimeContractRollout } from "../local-components/runtime-contract-rollout";
 import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
 import {
   rpcCenterAgentListOpportunities as centerAgentListOpportunities,
@@ -24666,7 +24666,7 @@ export function projectTeamSafeOrganizationDirectoryReadiness(
         },
         service: {
           executionCompatible: false,
-          expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+          expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
           observedEpoch: null,
           reasonCodes: [],
           source: "not_checked",

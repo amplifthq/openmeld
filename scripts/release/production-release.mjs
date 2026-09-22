@@ -508,8 +508,10 @@ const LOCAL_SERVICE_RUNTIME_TRANSPORT_SCHEMA_PATH =
   "packages/schemas/src/schemas/daemon/runtime-transport.ts";
 const LOCAL_SERVICE_RUNTIME_CORE_RECEIVER_PATH_PREFIX =
   "services/core/src/runtime-transport/";
-const LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIX =
-  "clients/openmeld-cli/src/local-service/";
+const LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIXES = [
+  "clients/openmeld-cli/src/local-service/",
+  "runtime/adapters/",
+];
 const CONNECT_COMPUTER_DEVICE_AUTH_SCHEMA_PATH =
   "packages/schemas/src/schemas/http/auth-device-authorization.ts";
 const CONNECT_COMPUTER_CLI_RECEIVER_PATH =
@@ -1738,7 +1740,9 @@ function isLocalServiceRuntimeReceiverFirstDiff(changedPaths) {
         path.startsWith(LOCAL_SERVICE_RUNTIME_CORE_RECEIVER_PATH_PREFIX)
       ) &&
       changedPaths.some((path) =>
-        path.startsWith(LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIX)
+        LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIXES.some((prefix) =>
+          path.startsWith(prefix)
+        )
       ))
   );
 }

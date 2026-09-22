@@ -1786,57 +1786,66 @@ test("routes a local Core release through startup admission at the exact source 
 });
 
 test("deploys a strict Local Service runtime receiver before publishing the CLI", () => {
-  const changedPaths = [
-    "packages/schemas/src/schemas/daemon/runtime-transport.ts",
-    "services/core/src/runtime-transport/application/runtime-transport-dispatch-service.ts",
+  for (const producerPath of [
     "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
-  ];
-  const plan = buildProductionReleasePlan({
-    affectedPackages: [],
-    base: "previous-release",
-    changedPaths,
-    scope: "auth,core,gateway,web,remote-agent,cli",
-    sourceSha: REMOTE_SOURCE_SHA,
-  });
+    "runtime/adapters/antigravity/src/transport/antigravity-cli-transport.ts",
+  ]) {
+    const changedPaths = [
+      "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+      "services/core/src/runtime-transport/application/runtime-transport-dispatch-service.ts",
+      producerPath,
+    ];
+    const plan = buildProductionReleasePlan({
+      affectedPackages: [],
+      base: "previous-release",
+      changedPaths,
+      scope: "auth,core,gateway,web,remote-agent,cli",
+      sourceSha: REMOTE_SOURCE_SHA,
+    });
 
-  assert.equal(plan.deployOrderProfile, "local-service-runtime-receiver-first");
-  assert.deepEqual(
-    plan.deploySteps.map((step) => step.label),
-    [
-      "Deploy Auth Worker",
-      "Verify Auth Worker health",
-      "Deploy Web",
-      "Verify Web health",
-      "Deploy Gateway Worker",
-      "Verify Gateway Worker health",
-      "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
-      "Deploy Remote Agent Worker",
-      "Verify Remote Agent deployment is visible",
-      "Publish CLI and deploy its Core release projection",
-      "Verify final R2/npm/Core alignment",
-    ]
-  );
-  const staged = buildProductionReleasePlan({
-    affectedPackages: [],
-    base: "previous-release",
-    changedPaths,
-    scope: "core,gateway",
-    sourceSha: REMOTE_SOURCE_SHA,
-  });
-  assert.ok(
-    staged.deploySteps.some(
-      (step) =>
-        step.label === "Deploy Core with the current published CLI projection"
-    )
-  );
-  for (const steps of [staged.verifySteps, staged.preflightSteps]) {
     assert.equal(
-      steps.some(
-        (step) => step.label === "Verify Core CLI channel compatibility"
-      ),
-      false
+      plan.deployOrderProfile,
+      "local-service-runtime-receiver-first"
     );
+    assert.deepEqual(plan.compatibilityDependencies, [["core", "cli"]]);
+    assert.deepEqual(
+      plan.deploySteps.map((step) => step.label),
+      [
+        "Deploy Auth Worker",
+        "Verify Auth Worker health",
+        "Deploy Web",
+        "Verify Web health",
+        "Deploy Gateway Worker",
+        "Verify Gateway Worker health",
+        "Deploy Core with the current published CLI projection",
+        "Verify Core deployment is visible",
+        "Deploy Remote Agent Worker",
+        "Verify Remote Agent deployment is visible",
+        "Publish CLI and deploy its Core release projection",
+        "Verify final R2/npm/Core alignment",
+      ]
+    );
+    const staged = buildProductionReleasePlan({
+      affectedPackages: [],
+      base: "previous-release",
+      changedPaths,
+      scope: "core,gateway",
+      sourceSha: REMOTE_SOURCE_SHA,
+    });
+    assert.ok(
+      staged.deploySteps.some(
+        (step) =>
+          step.label === "Deploy Core with the current published CLI projection"
+      )
+    );
+    for (const steps of [staged.verifySteps, staged.preflightSteps]) {
+      assert.equal(
+        steps.some(
+          (step) => step.label === "Verify Core CLI channel compatibility"
+        ),
+        false
+      );
+    }
   }
 });
 

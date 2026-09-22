@@ -6,7 +6,8 @@ import {
 } from "@openmeld/agent-runtime";
 import { modelCatalogSchema } from "@openmeld/schemas";
 import type { ModelCatalog } from "@openmeld/schemas/types";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import publishedManifest from "../../../release/local-components.json";
 import {
   type AgentProfileBindingCommandStore,
   AgentProfileBindingModelSelectionValidationError,
@@ -31,6 +32,42 @@ const OTHER_OWNER = {
 } as const;
 
 describe("Agent Profile Binding command service", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("does not persist new permission values during the receiver-only rollout", async () => {
+    const receiverManifest = structuredClone(publishedManifest);
+    receiverManifest.components.service.runtimeContractEpoch =
+      "runtime-transport-epoch-2026-09-image-geometry";
+    vi.stubGlobal(
+      "OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON",
+      JSON.stringify(receiverManifest)
+    );
+    const bindingStore = createInMemoryBindingStore();
+    const command = createValidCommandInput({
+      agentControllerRef: "builtin:antigravity",
+    });
+    await expect(
+      ensurePrimaryAgentProfileBinding({
+        ...command,
+        agentControllerPermissionMode: "antigravity:acceptEdits",
+        bindingStore,
+      })
+    ).rejects.toThrow("Antigravity permission settings are not available yet");
+    expect(bindingStore.records).toHaveLength(0);
+    await ensurePrimaryAgentProfileBinding({ ...command, bindingStore });
+    await expect(
+      updatePrimaryAgentProfileBindingAgentControllerPermissionMode({
+        agentProfileId: "agent-profile-1",
+        agentControllerPermissionMode: "antigravity:plan",
+        bindingStore,
+        nowMs: 3000,
+        ownerAuthorization: { owner: OWNER, status: "allowed" },
+        profileOwnerValidation: { owner: OWNER, status: "valid" },
+      })
+    ).rejects.toThrow("Antigravity permission settings are not available yet");
+    expect(bindingStore.records[0]?.agentControllerPermissionMode).toBeNull();
+    expect(bindingStore.records[0]?.updatedAtMs).toBe(2000);
+  });
   it("creates a routable enabled primary Binding when all required evidence passes", async () => {
     const runtimeLookupInput = ownerAccountRuntimeLookupInput();
     const openMeldServiceRuntimeId = createAuthorityOpenMeldServiceRuntimeId({

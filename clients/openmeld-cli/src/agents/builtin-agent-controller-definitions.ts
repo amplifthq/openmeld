@@ -128,7 +128,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       interrupt: true,
       modelSelection: true,
       nativeEventStream: true,
-      permissionModes: false,
+      permissionModes: true,
       structuredUserInput: false,
     },
     conversationOccupancy: { contractVersion: 1, mode: "unsupported" },
