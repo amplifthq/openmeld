@@ -61,7 +61,7 @@ export function SpaceWindowHeader(input: {
 	const content = (
 		<div
 			className={cn(
-				"group/space-header relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 px-[var(--app-page-inline-padding)] data-[compact=true]:grid-cols-[auto_auto_minmax(0,1fr)_auto] data-[compact=true]:grid-rows-[var(--space-conversation-title-height)]",
+				"group/space-header relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-1 px-[var(--app-page-inline-padding)] data-[compact=true]:grid-cols-[auto_auto_minmax(0,1fr)_auto] data-[compact=true]:grid-rows-[var(--space-conversation-title-height)]",
 				hasSecondaryRow
 					? "grid-rows-[minmax(0,var(--space-conversation-title-height))_minmax(0,var(--space-conversation-navigation-height))]"
 					: "grid-rows-1",

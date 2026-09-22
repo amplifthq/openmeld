@@ -81,7 +81,7 @@ export function CenterAgentChatHistory({
 		<h1
 			className={cn(
 				buttonVariants({ variant: "ghost" }),
-				"group/chat-title h-auto min-w-0 max-w-[28rem] shrink gap-0 rounded-full p-0 text-lg transition-none hover:shadow-sm",
+				"group/chat-title relative h-auto min-w-0 max-w-[28rem] shrink gap-0 rounded-full p-0 text-lg transition-none hover:shadow-sm",
 				open && "bg-muted shadow-sm"
 			)}
 		>
@@ -98,14 +98,20 @@ export function CenterAgentChatHistory({
 				<TooltipHint content={open ? undefined : "Open chat history"}>
 					<DropdownMenuTrigger
 						aria-label={`Open chat history: ${title}`}
-						className="flex min-w-0 items-center gap-2 rounded-full px-3 py-1 text-lg outline-none focus-visible:ring-1 focus-visible:ring-ring/50 disabled:opacity-50"
+						className="flex min-w-0 items-center rounded-full px-2 py-1 text-lg outline-none focus-visible:ring-1 focus-visible:ring-ring/50 disabled:opacity-50"
 						disabled={disabled}
 					>
 						<span className="truncate">{title}</span>
 						<CaretDownIcon
 							aria-hidden="true"
-							className="size-3.5 shrink-0 text-muted-foreground"
+							className="ml-1 size-3.5 shrink-0 text-muted-foreground"
 						/>
+						{titleAction ? (
+							<span
+								aria-hidden="true"
+								className="w-0 shrink-0 group-focus-within/chat-title:w-7 group-hover/chat-title:w-7 [@media(hover:none)]:w-7"
+							/>
+						) : null}
 					</DropdownMenuTrigger>
 				</TooltipHint>
 				<FluidDropdownMenuContent
@@ -220,8 +226,10 @@ export function CenterAgentChatHistory({
 				</FluidDropdownMenuContent>
 			</DropdownMenu>
 			{titleAction ? (
-				<span className="mr-1 flex shrink-0 opacity-0 group-focus-within/chat-title:opacity-100 group-hover/chat-title:opacity-100 [@media(hover:none)]:opacity-100">
-					{titleAction}
+				<span className="absolute top-1/2 right-1 flex -translate-y-1/2">
+					<span className="pointer-events-none flex opacity-0 transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] [transform:translateX(-3px)] group-focus-within/chat-title:pointer-events-auto group-focus-within/chat-title:opacity-100 group-focus-within/chat-title:transition-none group-hover/chat-title:pointer-events-auto group-hover/chat-title:opacity-100 motion-reduce:transform-none motion-reduce:transition-none group-focus-within/chat-title:[transform:translateX(0)] group-hover/chat-title:[transform:translateX(0)] [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:transform-none [@media(hover:none)]:opacity-100">
+						{titleAction}
+					</span>
 				</span>
 			) : null}
 		</h1>

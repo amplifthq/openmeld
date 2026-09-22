@@ -12,3 +12,7 @@ in its language, generated in the background without delaying the conversation.
 Names you choose yourself always take priority.
 
 The sidebar resize highlight now extends evenly toward both edges.
+
+Direct messages keep avatars beside the message bubbles and leave out repeated
+names and Agent attribution. Your avatar follows your left or right message
+preference, and message actions keep their own row below each bubble.

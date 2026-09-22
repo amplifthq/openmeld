@@ -158,8 +158,10 @@ Center Agent conversation titles open a searchable Fluid dropdown of the current
 Organization's authorized private Center Agent sessions, including personally
 archived chats. It reads every session-list page and uses Auth-owned personal
 names before Space names. The shared Scroll Area bounds the menu height and
-fades overflowing edges. The title trigger reserves its padding and chevron in
-every state, so hover and opening never move adjacent header controls. Selecting
+fades overflowing edges. The title's leading edge stays fixed. Its chevron follows
+the title without an empty rename slot; hovering reveals the rename icon after
+the chevron with a short opacity/transform transition. Keyboard focus and touch
+also expose rename, and reduced motion disables the transition. Selecting
 history navigates to the exact Space; a new draft omits the redundant New chat action.
 
 Selecting only Center Agent in New message, or **New chat** in an existing
@@ -1319,7 +1321,15 @@ every Space, Direct Message, Center Agent, and thread conversation that
 renders the shared message primitives. A message placed on the right uses a
 trailing-aligned, content-sized bubble with a responsive maximum width; a
 message placed on the left uses the full available transcript width. Both
-placements keep their content leading-aligned. Every speaker's message uses
+placements keep their content leading-aligned. Direct Messages, including Center
+Agent chats, use content-sized bubbles with a dedicated avatar column. The first
+message in a speaker run aligns the avatar with the bubble's top; subsequent
+messages retain the same column. Names and runtime/owner attribution are omitted
+from DM speaker headers, while avatar Profile Details remain available. The
+current member's avatar follows the same left/right Appearance preference as
+their bubble. Main timeline, threads, and pending first messages share this
+layout. Actions remain below each bubble in the existing reserved footer row.
+Every speaker's message uses
 the same semantic radius and content inset. Other speakers use a quiet muted
 surface; the current member uses a soft tint of the shared blue `unread` color,
 with theme-specific opacity. Message boundaries remain visible in either theme.

@@ -166,6 +166,7 @@ html[data-space-self-message-alignment="left"]
 
 html[data-space-self-message-alignment="left"]
   [data-space-self-message="true"]
+  > [data-slot="message-content"]:not([data-direct-message])
   [data-slot="bubble"] {
   align-self: flex-start;
   inline-size: 100%;
@@ -174,6 +175,7 @@ html[data-space-self-message-alignment="left"]
 
 html[data-space-self-message-alignment="left"]
   [data-space-self-message="true"]
+  > [data-slot="message-content"]:not([data-direct-message])
   [data-slot="bubble-content"] {
   inline-size: 100%;
   max-inline-size: 100%;
@@ -255,6 +257,44 @@ html[data-space-self-message-alignment="left"]
     [data-slot="bubble"] {
     max-inline-size: min(88%, 52rem);
   }
+}
+
+/* Direct messages keep an avatar column beside the first bubble in a run.
+   Reserve it on every row so grouped messages and actions stay aligned. */
+[data-slot="message-content"][data-direct-message] {
+  position: relative;
+  padding-inline-start: 2rem;
+}
+
+[data-direct-message] > [data-slot="message-header"] {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  margin-block-end: 0;
+}
+
+[data-direct-message] [data-slot="bubble"],
+[data-direct-message] [data-slot="bubble-content"] {
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  align-self: flex-start;
+}
+
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"] > [data-direct-message] {
+  padding-inline-start: 0;
+  padding-inline-end: 2rem;
+}
+
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"] [data-direct-message] > [data-slot="message-header"] {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+}
+
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"] [data-direct-message] [data-slot="bubble"] {
+  align-self: flex-end;
 }
 
 @media (min-width: 1280px) {
