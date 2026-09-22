@@ -135,6 +135,51 @@ checks through the same guarded command. If the retained source cannot satisfy
 the current contract, use an evidence-backed forward fix or a documented
 component-specific recovery; never run older guards, replace the receipt, or
 bypass admission to force a rollback.
+
+Core receiver deployment uses the current trusted control's two-step receipt
+executor. After Cloudflare confirms the newly admitted version at 100% traffic,
+it persists `applied` before checking stable channel alignment. An alignment
+failure retains `failed/applied`; the same source, operation, projection and
+active deployment may resume alignment without another upload or deployment.
+
+Historical stable alignment verifies the registry version/source and downloaded
+tarball integrity, immutable tag and tagged local-components manifest, R2 binary
+identity, and active Core projection. It reports historical non-portable npm
+dependencies without treating them as a new candidate packaging failure. Missing
+or unreadable registry evidence still fails. New CLI publication retains every
+strict portability, clean consumer, native SQLite, retained-tarball hash and
+published-byte verification gate, entirely in the official GitHub OIDC lane.
+
+The exact Stage A incident from run `35752925516`, attempt 1, has one reviewed
+reconciliation-only entrypoint:
+
+```sh
+node /path/to/current-main-control/scripts/release/core-receiver-reconciliation.mjs \
+  --release-source /path/to/clean-product-checkout
+```
+
+The product checkout must remain at
+`567c820e470de965b4ba5e3ab303fd02340e5ca8`. Add `--verify-only` to inspect the
+evidence before merging the control change; that mode writes no release evidence.
+The writing mode requires clean current-main control and the existing Core lease.
+It independently verifies the original failed run/job, admitted startup artifact
+and its pinned digest, immutable `v0.3.217` tag/manifest, and exact active Core
+deployment `297033ac-2c4f-4e28-807d-70e4145fc965` with version
+`b7a853b8-b272-436c-bce9-084645846f3b` at 100% traffic and the old projection.
+Any replacement or intervening deployment refuses reconciliation.
+
+The earlier local failed/unknown Core receipt is also retained. Its exact source
+was subsequently completed by official CLI Release run `35528171693`; that run
+must independently verify before the old receipt can be superseded. The new
+canonical receipt uses `proof=reconciled-hosted` and links an immutable schema 5
+provenance commit as its second Git parent. Its first parent preserves the prior
+receipt. The reconciliation attempt starts when reconciliation runs, not when
+Stage A ran. It records the original run, control, artifact, deployment time and
+superseded receipt explicitly; it never claims the old runner wrote a receipt.
+Alignment failure retains applied/failed evidence; retry reuses that same
+reconciliation attempt. This command cannot upload or deploy a Cloudflare Worker.
+After completion, rerun release status and CLI stage admission before publication.
+
 For the specific Remote Agent Worker-first/container-image failure, current-main
 tooling provides `release:recover:remote-agent-partial`. It requires the clean
 original release source, the retained failed attempt and its start event, the

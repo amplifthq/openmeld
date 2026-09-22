@@ -1091,7 +1091,9 @@ test("routes stable CLI projection recovery through the guarded Core workflow", 
   assert.ok(!recovery.includes("deploy-auth-worker.yml"));
   assert.ok(!recovery.includes("deploy-web.yml"));
   assert.ok(
-    core.includes("node scripts/release/deploy-core-current-cli-projection.mjs")
+    core.includes(
+      "node ../release-control/scripts/release/hosted-core-receiver.mjs"
+    )
   );
   assert.ok(core.includes("pnpm run evidence:startup:core"));
   assert.match(core, LOCAL_CORE_STARTUP_DIAGNOSTIC);
