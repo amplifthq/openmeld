@@ -101,7 +101,7 @@ export const productionWorkerDeploymentIdentitySchema = z.strictObject({
   versionId: z.string().min(1).max(200),
   sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
   projectionTag: z.string().min(1).max(200).optional(),
-  proof: z.enum(["command-output", "cli-projection"]),
+  proof: z.enum(["command-output", "cli-projection", "reconciled-hosted"]),
 });
 
 export const productionCliReleaseIdentitySchema = z.strictObject({
@@ -220,6 +220,31 @@ const commonEvidenceFields = {
   sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
 };
 
+export const coreReceiverReconciliationSchema = z.strictObject({
+  kind: z.literal("reconciled-hosted-core-receiver"),
+  repository: z.literal("amplifthq/openmeld"),
+  runId: z.number().int().positive(),
+  runAttempt: z.number().int().positive(),
+  jobId: z.number().int().positive(),
+  controlSha: z.string().regex(/^[0-9a-f]{40}$/u),
+  deployedAt: z.iso.datetime({ offset: true }),
+  supersededReceipt: z.strictObject({
+    evidenceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+    sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+    completionRunId: z.number().int().positive(),
+  }),
+  startupArtifact: z.strictObject({
+    id: z.number().int().positive(),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+    startupTimeMs: z.number().nonnegative(),
+  }),
+  stableProjection: z.strictObject({
+    tagName: z.string().min(1),
+    sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+    manifestSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+  }),
+});
+
 export const productionReleaseEvidenceSchema = z
   .discriminatedUnion("schemaVersion", [
     z.strictObject({ ...commonEvidenceFields, schemaVersion: z.literal(1) }),
@@ -238,8 +263,31 @@ export const productionReleaseEvidenceSchema = z
       schemaVersion: z.literal(4),
       receipt: recoveredComponentReceiptSchema,
     }),
+    z.strictObject({
+      ...commonEvidenceFields,
+      schemaVersion: z.literal(5),
+      receipt: correlatedComponentReceiptSchema,
+      reconciliation: coreReceiverReconciliationSchema,
+    }),
   ])
   .superRefine((evidence, context) => {
+    if (
+      evidence.schemaVersion === 5 &&
+      (evidence.scope !== "core" ||
+        evidence.receipt.status !== "applied" ||
+        evidence.receipt.application !== "applied" ||
+        evidence.receipt.identity?.kind !== "worker-deployment" ||
+        evidence.receipt.identity.sourceSha !== evidence.sourceSha ||
+        evidence.receipt.identity.workerName !== "openmeld-core-prod" ||
+        evidence.receipt.identity.proof !== "reconciled-hosted" ||
+        !evidence.receipt.identity.projectionTag)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Reconciliation requires an applied exact-source Core receiver identity.",
+      });
+    }
     if (evidence.schemaVersion === 4 && evidence.scope !== "remote-agent") {
       context.addIssue({
         code: "custom",

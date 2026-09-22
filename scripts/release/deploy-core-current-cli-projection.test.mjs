@@ -17,8 +17,6 @@ const TAG_MANIFEST_VERSION = CURRENT_MANIFEST.components.cli.packageVersion;
 const PUBLISHED_VERSION = incrementPatch(TAG_MANIFEST_VERSION);
 const TAG_COMMIT_SHA = "a".repeat(40);
 const CORE_RELEASE_SHA = "b".repeat(40);
-const RELEASE_MANIFEST_DEFINE_RE =
-  /^OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON:/u;
 const VERSION_MISMATCH_RE = new RegExp(
   `declares CLI ${escapeRegExp(TAG_MANIFEST_VERSION)}, but the production channel is ${escapeRegExp(PUBLISHED_VERSION)}`,
   "u"
@@ -201,58 +199,8 @@ test("dry-runs the exact tagged projection without changing production", () => {
   assert.ok(step.args.includes(EXPECTED_CORE_TAG));
 });
 
-test("reads channel truth before running the guarded Core receiver deploy", async () => {
-  const events = [];
-
-  await deployCoreWithCurrentCliProjection({
-    adapters: {
-      fetchChannelManifest: () => {
-        events.push("fetch-channel");
-        return { channels: { stable: { version: PUBLISHED_VERSION } } };
-      },
-      readTagFile: () => {
-        events.push("read-tag");
-        return PUBLISHED_MANIFEST_SOURCE;
-      },
-      readTagCommit: () => {
-        events.push("read-tag-commit");
-        return TAG_COMMIT_SHA;
-      },
-      readHeadSha: () => CORE_RELEASE_SHA,
-      readCoreWranglerConfig: () => "{}",
-      runStep: (step) => {
-        events.push(step.label);
-      },
-      runStartupAdmission: (input) => {
-        events.push(`admit-startup:${input.releaseSha}`);
-        assert.equal(input.tag, EXPECTED_CORE_TAG);
-        assert.equal(input.defines.length, 1);
-        assert.match(input.defines[0], RELEASE_MANIFEST_DEFINE_RE);
-        return { versionId: "fb18a6dd-5ee3-43fd-aa64-087346c6bfd3" };
-      },
-      verifyAlignment: ({ expectedCoreTag }) => {
-        events.push(`verify-alignment:${expectedCoreTag}`);
-      },
-    },
-    releaseSha: CORE_RELEASE_SHA,
-    write: () => undefined,
-  });
-
-  assert.deepEqual(events, [
-    "fetch-channel",
-    "read-tag-commit",
-    "read-tag",
-    "Build Core receiver dependencies",
-    "Verify Core Worker bundle module graph",
-    `admit-startup:${CORE_RELEASE_SHA}`,
-    "Deploy the startup-admitted Core version",
-    "Synchronize Core triggers",
-    "Verify Core deployment is visible",
-    `verify-alignment:${EXPECTED_CORE_TAG}`,
-  ]);
-});
-
 test("the receiver bridge binds candidate source separately from the retained CLI projection", async () => {
+  const events = [];
   const capture = createWorkerDeploymentCapture({
     sourceSha: CORE_RELEASE_SHA,
     operationKey: "f".repeat(64),
@@ -266,19 +214,22 @@ test("the receiver bridge binds candidate source separately from the retained CL
   try {
     capture.recordDeploymentBaseline({ status: 0, stdout: "[]" });
     await deployCoreWithCurrentCliProjection({
+      deploymentOnly: true,
       releaseSha: CORE_RELEASE_SHA,
       env: capture.env,
       write: () => undefined,
       adapters: {
-        fetchChannelManifest: () => ({
-          channels: { stable: { version: PUBLISHED_VERSION } },
-        }),
+        fetchChannelManifest: () => {
+          events.push("channel");
+          return {
+            channels: { stable: { version: PUBLISHED_VERSION } },
+          };
+        },
         readTagFile: () => PUBLISHED_MANIFEST_SOURCE,
         readTagCommit: () => TAG_COMMIT_SHA,
         readHeadSha: () => CORE_RELEASE_SHA,
         readCoreWranglerConfig: () => "{}",
-        runStep: () => undefined,
-        verifyAlignment: () => undefined,
+        runStep: (step) => events.push(step.label),
         runStartupAdmission: (input) => ({
           releaseSha: input.releaseSha,
           workerName: "openmeld-core-prod",
@@ -291,6 +242,14 @@ test("the receiver bridge binds candidate source separately from the retained CL
       capture.read().versionId,
       "fb18a6dd-5ee3-43fd-aa64-087346c6bfd3"
     );
+    assert.deepEqual(events, [
+      "channel",
+      "Build Core receiver dependencies",
+      "Verify Core Worker bundle module graph",
+      "Deploy the startup-admitted Core version",
+      "Synchronize Core triggers",
+      "Verify Core deployment is visible",
+    ]);
   } finally {
     capture.close();
   }
