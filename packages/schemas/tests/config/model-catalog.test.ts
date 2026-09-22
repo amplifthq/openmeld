@@ -120,6 +120,7 @@ describe("model catalog schema", () => {
       }
 
       for (const [id, displayName, minCliVersion, badgeLabel] of [
+        ["claude-opus-5-5", "Claude Opus 5.5", "2.1.280", "New"],
         ["claude-fable-5-1", "Claude Fable 5.1", "2.1.257", "New"],
         ["claude-fable-5", "Claude Fable 5", "2.1.170", null],
         ["claude-opus-5", "Claude Opus 5", "2.1.219", null],

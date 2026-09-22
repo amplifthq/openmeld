@@ -20,6 +20,7 @@ import {
 } from "../flue-adapter/model";
 import capturedModels from "./fixtures/openrouter-center-agent-models-2026-09-14.json";
 import additionalModels from "./fixtures/openrouter-hosted-models-2026-09-22.json";
+import opus55 from "./fixtures/openrouter-opus-5.5-2026-09-23.json";
 
 const catalog = modelCatalogSchema.parse(catalogJson);
 
@@ -42,6 +43,7 @@ describe("curated Center Agent provider models", () => {
   it.each([
     ...capturedModels.data,
     ...additionalModels.data,
+    ...opus55.data,
   ])("routes $id with captured capabilities and a tool continuation", async (evidence) => {
     const resolved = resolveCenterAgentModelRoute({
       catalog,
@@ -185,7 +187,7 @@ describe("curated Center Agent provider models", () => {
         ? [choice.preference.modelId]
         : []
     );
-    expect(ids).toHaveLength(17);
+    expect(ids).toHaveLength(18);
     expect([...new Set(ids.map((id) => id.split("/")[0]))].sort()).toEqual([
       "anthropic",
       "deepseek",

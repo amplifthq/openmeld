@@ -200,6 +200,14 @@
       },
       "models": [
         {
+          "id": "claude-opus-5-5",
+          "displayName": "Claude Opus 5.5",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "2.1.280"
+        },
+        {
           "id": "claude-fable-5-1",
           "displayName": "Claude Fable 5.1",
           "badgeLabel": "New",
@@ -1199,6 +1207,20 @@
             "provider": "openrouter",
             "inputModalities": ["text", "image"],
             "contextWindow": 1050000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "high"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["high"],
+          "minCliVersion": null
+        },
+        {
+          "id": "anthropic/claude-opus-5.5",
+          "displayName": "Claude Opus 5.5",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1000000,
             "maxOutputTokens": 16384,
             "reasoningLevel": "high"
           },

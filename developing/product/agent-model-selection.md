@@ -557,6 +557,20 @@ unchanged. Provider acceptance and an OpenMeld Wake remain separate evidence.
 
 ---
 
+### 5.9 Claude Opus 5.5
+
+The September 23 catalog adds `claude-opus-5-5` for Claude Code 2.1.280
+or later, as published in the official Claude Code changelog. Anthropic's
+effort contract supports `low`, `medium`, `high`, `xhigh`, and `max`.
+The existing Claude Code default remains unchanged.
+
+Center Agent and personal Remote Agents share the OpenRouter route
+`anthropic/claude-opus-5.5`. Captured OpenRouter metadata confirms tool calling,
+text/image input, a 1M context window, and the existing hosted `high` effort.
+OpenMeld retains its 16,384 output-token budget, below the provider's 128K
+limit. This is a Core-served catalog addition; it changes neither the fixed
+CLI offline snapshot nor any adapter or execution contract.
+
 ## 6. Reusable Selection Logic (Web / CLI / Desktop)
 
 **Problem:** today the Web and CLI create-profile flows are duplicated with no
