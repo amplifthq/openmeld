@@ -1,7 +1,34 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+
+const schemaOutputs = ["desktop-client.js", "desktop-release.js"];
+if (
+  schemaOutputs.some(
+    (name) =>
+      !existsSync(
+        fileURLToPath(
+          new URL(`../../packages/schemas/dist/${name}`, import.meta.url)
+        )
+      )
+  )
+) {
+  const pnpmArgs = ["--filter", "@openmeld/schemas", "build"];
+  const packageManager = process.env.npm_execpath;
+  const result = packageManager
+    ? spawnSync(process.execPath, [packageManager, ...pnpmArgs], {
+        stdio: "inherit",
+      })
+    : spawnSync("pnpm", pnpmArgs, {
+        stdio: "inherit",
+        shell: process.platform === "win32",
+      });
+  if (result.status !== 0) {
+    throw new Error("Desktop release tests require built schemas");
+  }
+}
 
 const legacyPublicationDisabled =
   /Legacy unsigned Desktop publication is disabled/u;
@@ -24,7 +51,7 @@ test("legacy unsigned upload refuses publication before reading artifacts", () =
   assert.match(result.stderr, legacyPublicationDisabled);
 });
 
-import {
+const {
   assertDesktopPromotionVersion,
   buildDesktopCandidateMetadata,
   buildDesktopPreviewMetadata,
@@ -37,7 +64,7 @@ import {
   resolveDesktopReleaseCommand,
   uploadDesktopCandidate,
   verifyDesktopPublicArtifact,
-} from "./desktop-preview.mjs";
+} = await import("./desktop-preview.mjs");
 
 test("Desktop publisher checks the named production token and exact bucket before touching an installer", async () => {
   const accountId = "a".repeat(32);
