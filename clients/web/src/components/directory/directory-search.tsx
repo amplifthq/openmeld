@@ -7,6 +7,7 @@ export function DirectorySearch(input: {
 	label: string;
 	value: string;
 	onChange: (value: string) => void;
+	variant?: "ghost" | "secondary";
 }) {
 	const [open, setOpen] = useState(false);
 	const focus = useCallback(
@@ -37,7 +38,7 @@ export function DirectorySearch(input: {
 				aria-label="Close search"
 				onClick={close}
 				size="icon-sm"
-				variant="ghost"
+				variant={input.variant ?? "ghost"}
 			>
 				<XIcon />
 			</Button>
@@ -47,7 +48,7 @@ export function DirectorySearch(input: {
 			aria-label={input.label}
 			onClick={() => setOpen(true)}
 			size="icon-sm"
-			variant="ghost"
+			variant={input.variant ?? "ghost"}
 		>
 			<MagnifyingGlassIcon />
 		</Button>
