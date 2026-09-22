@@ -1255,6 +1255,11 @@ connected/offline flicker.
 Socket presence is delivery evidence, not online evidence. Delivery (route
 lookup for an actual Wake dispatch) requires a live socket; the online verdict
 must not, because hibernation makes socket references transient by design.
+Computer disconnect Inbox recovery reuses this owner-Service online predicate.
+It must not keep a connection incident open because dispatch admission or
+execution compatibility is not ready. Initial fault detection still requires
+prior expected availability and the lease grace; recovery ends only the matching
+incident, not an Agent readiness issue or a historical Wake failure.
 When a delivery socket disappears but the service lease is still fresh (a recent
 heartbeat within the TTL), Runtime Transport holds the affected Agent Profile
 route on `Checking`: the lease is liveness evidence that the service is online
