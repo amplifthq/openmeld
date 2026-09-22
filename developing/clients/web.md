@@ -1186,9 +1186,12 @@ current-conversation notification or automatically mark a message read.
   setting on unless the member has explicitly turned it off. **Not now** only
   dismisses the introduction for that member in that browser, and Settings and
   Space Info remain the durable discovery and control surfaces.
-  Storage-read failures appear as paused delivery, independently of the saved
-  switch value. The sample and unusable switch are disabled without saving a new
-  preference; a later focus/settings refresh can clear the error.
+  Storage-read and pending-record write failures appear as paused delivery,
+  independently of the saved switch value. The sample and unusable switch stay
+  disabled without saving a new preference. After a write failure, bounded
+  background observation refreshes and focus/visibility events verify allocation
+  with a temporary write/readback/removal before clearing the pause, even if the
+  originally failed message is already read.
 - **Play OpenMeld sounds** is a member- and browser-local preference that
   defaults on. Web plays `ready` for ordinary directly addressed updates and
   `chime` for urgent or open action-required notifications, only after the

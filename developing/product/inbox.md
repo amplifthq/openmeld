@@ -893,7 +893,10 @@ optional delivery channels:
   failures notify mounted settings subscribers immediately, including when reads
   still succeed because storage is full. The observer keeps polling at its
   retained cursor; successfully saving the failed pending record clears the pause.
-  A focused/visible window may also verify recovery with a fresh temporary write,
+  Each authorized observation refresh with delivery enabled also checks recovery
+  once while a write failure is recorded, including empty pages in a hidden tab.
+  Recovery cannot depend on the failed item remaining unread or accessible.
+  Refresh and focus/visibility checks use the same fresh temporary write,
   readback, and removal sized for the failed record. Reads and unrelated same-value
   writes are not recovery evidence. Snapshot reads never perform recovery writes;
   probes never change saved preferences, pending ids, or the observation cursor.

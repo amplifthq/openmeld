@@ -234,6 +234,97 @@ describe("Notification observation to browser delivery", () => {
 		}
 	});
 
+	it("recovers through background polling after the failed item is read elsewhere without rebuilding the observer", async () => {
+		vi.useFakeTimers();
+		vi.spyOn(document, "hasFocus").mockReturnValue(false);
+		const preferenceKey = "openmeld.inbox.browser-notifications.enabled:user";
+		window.localStorage.setItem(preferenceKey, "enabled");
+		const initialStorage = Object.entries(window.localStorage);
+		const originalSet = Storage.prototype.setItem;
+		let storageFull = true;
+		const probeKeys: string[] = [];
+		const write = vi
+			.spyOn(Storage.prototype, "setItem")
+			.mockImplementation(function (this: Storage, key, value) {
+				if (
+					key.startsWith("openmeld.inbox.browser-notifications.storage-probe:")
+				) {
+					probeKeys.push(key);
+				}
+				if (storageFull && this.getItem(key) !== value) {
+					throw new DOMException("Storage full", "QuotaExceededError");
+				}
+				originalSet.call(this, key, value);
+			});
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		try {
+			render(
+				<QueryClientProvider client={client}>
+					<InboxNotificationListener {...identity} organizationSlug="test" />
+				</QueryClientProvider>
+			);
+			await act(() => vi.advanceTimersByTimeAsync(1));
+			expect(network.observe).toHaveBeenCalledOnce();
+			const failedItem = item("A");
+			rows.push(failedItem);
+			await act(() => vi.advanceTimersByTimeAsync(10_000));
+			expect(readInboxNotificationSettings(identity).unavailableReason).toBe(
+				"storage_unavailable"
+			);
+			expect(readPendingInboxNotificationItemIds(identity).size).toBe(0);
+			expect(notifications).toHaveLength(0);
+
+			// Core now reports A as read. It must never be retained or notified again.
+			failedItem.readAt = "2026-09-22T01:00:00Z";
+			await act(() => vi.advanceTimersByTimeAsync(10_000));
+			expect(
+				network.observe.mock.calls.slice(1).map(([input]) => input.cursor)
+			).toEqual(["0", "0"]);
+			expect(readInboxNotificationSettings(identity).unavailableReason).toBe(
+				"storage_unavailable"
+			);
+			storageFull = false;
+			// Even an empty page must allow recovery, with no focus/visibility event.
+			await act(() => vi.advanceTimersByTimeAsync(10_000));
+			expect(Object.entries(window.localStorage)).toEqual(initialStorage);
+			expect(
+				readInboxNotificationSettings(identity).unavailableReason
+			).toBeUndefined();
+			expect(probeKeys).toHaveLength(2);
+			expect(new Set(probeKeys).size).toBe(2);
+			rows.push(item("B"));
+			await act(() => vi.advanceTimersByTimeAsync(10_000));
+			await act(() => vi.advanceTimersByTimeAsync(1));
+			expect(notifications.map((notification) => notification.title)).toEqual([
+				"B",
+			]);
+			expect(
+				readInboxNotificationSettings(identity).unavailableReason
+			).toBeUndefined();
+			expect(readPendingInboxNotificationItemIds(identity).size).toBe(0);
+			await act(() => vi.advanceTimersByTimeAsync(20_000));
+			expect(notifications.map((notification) => notification.title)).toEqual([
+				"B",
+			]);
+			expect(probeKeys).toHaveLength(2);
+			expect(
+				network.observe.mock.calls.filter(
+					([input]) => input.cursor === undefined
+				)
+			).toHaveLength(1);
+			expect(window.localStorage.getItem(preferenceKey)).toBe("enabled");
+			expect(document.visibilityState).toBe("hidden");
+			expect(document.hasFocus()).toBe(false);
+		} finally {
+			write.mockRestore();
+			// Cleanup the module-local failure even when the pre-fix assertion fails.
+			fireEvent.focus(window);
+			cleanup();
+			client.clear();
+			vi.useRealTimers();
+		}
+	});
+
 	it("retains an asynchronous display failure for retry and aborts an unacknowledged display on unmount", async () => {
 		autoShow = false;
 		const view = await mount();

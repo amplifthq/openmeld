@@ -7,6 +7,7 @@ import { observeCurrentInboxNotifications } from "#/lib/organizations/inbox";
 import {
 	INBOX_NOTIFICATION_STORAGE_UNAVAILABLE_MESSAGE,
 	markInboxNotificationItemPending,
+	recheckPendingWriteAvailability,
 } from "./client-notifications";
 
 /** One bounded page per refresh. Core owns insertion order; the existing pending
@@ -36,6 +37,11 @@ export function createInboxNotificationObserver(input: {
 			)
 		) {
 			throw new Error("Inbox notification observation scope mismatch.");
+		}
+		if (input.deliveryEnabled) {
+			// Once per authorized refresh, including empty pages. The failed item may
+			// now be read, resolved, or inaccessible, so it cannot own recovery.
+			recheckPendingWriteAvailability();
 		}
 		for (const item of response.items) {
 			if (

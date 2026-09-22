@@ -516,13 +516,13 @@ function setPendingWriteFailure(key: string | null): void {
 	}
 }
 
-function recheckPendingWriteAvailability(): void {
+export function recheckPendingWriteAvailability(): void {
 	if (failedPendingWriteKey === null || getDesktopPlatform()) {
 		return;
 	}
 	try {
-		// Probe only on a lifecycle event after a real failure, never in a React
-		// snapshot read. A fresh, disposable key tests allocation, not a no-op.
+		// Probe only on a lifecycle event or bounded observation refresh after a
+		// real failure, never in a React snapshot read. A fresh key tests allocation.
 		const key = `${STORAGE_PROBE_KEY_PREFIX}${crypto.randomUUID()}`;
 		const value = PENDING_ITEM_VALUE.padEnd(
 			Math.max(
@@ -543,8 +543,8 @@ function recheckPendingWriteAvailability(): void {
 			setPendingWriteFailure(null);
 		}
 	} catch {
-		// Reading or focusing is not recovery evidence. Keep the original pause;
-		// the observer will retry its actual pending write at the retained cursor.
+		// Reading or focusing is not recovery evidence. Keep the pause; the next
+		// observation refresh can probe again even if the failed item became read.
 	}
 }
 
