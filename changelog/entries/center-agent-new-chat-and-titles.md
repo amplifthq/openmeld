@@ -23,3 +23,7 @@ conversations and direct messages, while actions retain their own row.
 
 Sidebar message previews are easier to distinguish from conversation titles,
 and empty conversations no longer show placeholder preview text.
+
+From a Thread's original message details, choose **Show message in Messages**
+to locate and highlight it in the main conversation while keeping the Thread
+open, including when the original message is outside the loaded history.

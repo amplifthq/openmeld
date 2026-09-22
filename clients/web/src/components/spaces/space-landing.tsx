@@ -1531,6 +1531,47 @@ function SpaceColdLoadingComposer(input: {
 	);
 }
 
+function useThreadRootMainFocus(input: SpaceLandingInput) {
+	// Reuse main-message focus without changing the route-owned Thread selection.
+	// A later route navigation must supersede this local presentation request.
+	const focusScope = JSON.stringify([
+		input.spaceId,
+		input.profileId,
+		input.initialFocusInteractionId,
+		input.initialFocusSignalId,
+		input.initialFocusThreadRootSignalId,
+		input.initialFocusRequestId,
+	]);
+	const [mainMessageFocus, setMainMessageFocus] = useState<{
+		scope: string;
+		signalId: string;
+		requestId: string;
+	} | null>(null);
+	if (mainMessageFocus && mainMessageFocus.scope !== focusScope) {
+		setMainMessageFocus(null);
+	}
+	const conversationInput =
+		mainMessageFocus?.scope === focusScope
+			? {
+					...input,
+					initialFocusInteractionId: undefined,
+					initialFocusSignalId: mainMessageFocus.signalId,
+					initialFocusThreadRootSignalId: undefined,
+					initialFocusRequestId: mainMessageFocus.requestId,
+				}
+			: input;
+	return {
+		conversationInput,
+		onShowMessageInMain: (signalId: string) => {
+			setMainMessageFocus({
+				scope: focusScope,
+				signalId,
+				requestId: crypto.randomUUID(),
+			});
+		},
+	};
+}
+
 function SpaceLandingReady({
 	controller,
 	input,
@@ -1540,6 +1581,8 @@ function SpaceLandingReady({
 	input: SpaceLandingInput;
 	state: SpaceLandingState;
 }) {
+	const { conversationInput, onShowMessageInMain } =
+		useThreadRootMainFocus(input);
 	const {
 		accountProfiles,
 		currentSpaceIsCenterAgentDirectMessage,
@@ -1841,7 +1884,7 @@ function SpaceLandingReady({
 							currentProfileName={currentProfileName}
 							currentSpaceControls={currentSpaceControls}
 							historyErrorMessage={historyErrorMessage}
-							input={input}
+							input={conversationInput}
 							pendingActionSurface={pendingActionSurface}
 							prepareSetupHref={prepareSetupHref}
 							state={state}
@@ -1858,6 +1901,7 @@ function SpaceLandingReady({
 								}
 								currentSpaceControls={currentSpaceControls}
 								input={input}
+								onShowMessageInMain={onShowMessageInMain}
 								pendingActionSurface={threadPendingActionSurface}
 								prepareSetupHref={prepareSetupHref}
 								state={state}
@@ -2729,6 +2773,7 @@ function SpaceLandingSecondaryPanels({
 	currentProfileIsActiveSpaceMember,
 	currentSpaceControls,
 	input,
+	onShowMessageInMain,
 	pendingActionSurface,
 	prepareSetupHref,
 	state,
@@ -2744,6 +2789,7 @@ function SpaceLandingSecondaryPanels({
 	currentProfileIsActiveSpaceMember: boolean;
 	currentSpaceControls: ReturnType<typeof resolveCurrentSpaceControls>;
 	input: SpaceLandingInput;
+	onShowMessageInMain: (signalId: string) => void;
 	pendingActionSurface?: ReactNode;
 	prepareSetupHref?: string;
 	state: SpaceLandingState;
@@ -2889,6 +2935,7 @@ function SpaceLandingSecondaryPanels({
 				}
 				onSend={controller.onThreadSend}
 				onSendText={controller.onThreadSendText}
+				onShowMessageInMain={onShowMessageInMain}
 				onViewedThroughTs={
 					input.readingEnabled === false || !spaceInboxReadPosition.isReady
 						? undefined

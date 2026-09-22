@@ -293,6 +293,7 @@ type SpaceThreadPanelProps = {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	modelCatalog: ModelCatalog | null;
 	onClose: () => void;
+	onShowMessageInMain?: (signalId: string) => void;
 	onComposeExpiredDeviceWait?: ComposeExpiredDeviceWait;
 	onAgentRecoveryAction: (
 		plan: SpaceAgentProfileBindingRecoveryPlan
@@ -685,7 +686,10 @@ function ThreadSelectedMessageDetails(input: {
 	return (
 		<SpaceMessageDetailsDrawer
 			agentRecoveryPlansByProfileId={panelInput.agentRecoveryPlansByProfileId}
-			canJumpToMessage={() => false}
+			canJumpToMessage={(signalId) =>
+				Boolean(panelInput.onShowMessageInMain) &&
+				signalId === input.activeThread?.rootSignalId
+			}
 			diagnosticReportStatus={resolveMessageDetailsDiagnosticReportStatus({
 				isPending: panelInput.isDiagnosticReportPending(
 					input.messageDetailsItem.id
@@ -697,7 +701,7 @@ function ThreadSelectedMessageDetails(input: {
 			isPersonalContext={panelInput.isPersonalContext}
 			item={input.messageDetailsItem}
 			onAgentRecoveryAction={panelInput.onAgentRecoveryAction}
-			onJumpToMessage={() => undefined}
+			onJumpToMessage={(signalId) => panelInput.onShowMessageInMain?.(signalId)}
 			onOpenChange={(open) => {
 				if (!open) {
 					input.onClose();
