@@ -4,6 +4,9 @@ type ImageEffectModule = typeof import("./space-image-loading-effect");
 const staticEffect: ImageEffectModule = { default: () => null };
 
 export async function loadSpaceImageEffect(): Promise<ImageEffectModule> {
+	if (imageEffectUrl === null) {
+		return staticEffect;
+	}
 	try {
 		// The build emits this chunk explicitly. Keep the native import so only
 		// this optional module bypasses Vite's global critical-asset recovery.

@@ -8,6 +8,8 @@ import { build } from "vite";
 import { expect, it } from "vitest";
 import { imageLoadingEffectModule } from "../scripts/image-loading-effect-module";
 
+const emittedImageEffectPattern = /^space-image-loading-effect-.*\.mjs$/;
+
 it("bundles a lazy optional effect whose failure cannot become a critical Vite preload error", async () => {
 	const root = await mkdtemp(path.join(tmpdir(), "openmeld-image-effect-"));
 	const loader = path.resolve(
@@ -90,6 +92,57 @@ it("bundles a lazy optional effect whose failure cannot become a critical Vite p
 		const failed = run();
 		expect(failed).toContain('{"result":null,"errors":0}');
 		expect(failed).toContain('{"criticalErrors":1}');
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+it("keeps the browser-only image effect out of server bundles", async () => {
+	const root = await mkdtemp(
+		path.join(tmpdir(), "openmeld-server-image-effect-")
+	);
+	const loader = path.resolve(
+		import.meta.dirname,
+		"../src/components/spaces/load-space-image-effect.ts"
+	);
+	const effect = path.join(root, "effect.ts");
+	const output = path.join(root, "dist");
+	try {
+		await writeFile(
+			effect,
+			"export default function effect() { return 'effect'; }"
+		);
+		await writeFile(
+			path.join(root, "server-entry.ts"),
+			`import { loadSpaceImageEffect } from ${JSON.stringify(loader)}; export default async () => (await loadSpaceImageEffect()).default();`
+		);
+		await build({
+			configFile: false,
+			root,
+			publicDir: false,
+			logLevel: "silent",
+			plugins: [imageLoadingEffectModule(effect)],
+			build: {
+				ssr: path.join(root, "server-entry.ts"),
+				outDir: output,
+				target: "esnext",
+				minify: false,
+				rollupOptions: {
+					output: {
+						entryFileNames: "server-entry.mjs",
+						chunkFileNames: "[name]-[hash].mjs",
+					},
+				},
+			},
+		});
+
+		const serverEntry = await import(
+			`${pathToFileURL(path.join(output, "server-entry.mjs")).href}?${Date.now()}`
+		);
+		expect(await serverEntry.default()).toBeNull();
+		expect(await readdir(output)).not.toContainEqual(
+			expect.stringMatching(emittedImageEffectPattern)
+		);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}

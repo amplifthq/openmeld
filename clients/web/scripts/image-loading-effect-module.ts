@@ -28,6 +28,9 @@ export function imageLoadingEffectModule(
 			if (id !== resolvedId) {
 				return null;
 			}
+			if (this.environment.config.consumer === "server") {
+				return "export default null;";
+			}
 			if (!building) {
 				return `export default ${JSON.stringify(`/@fs/${normalizePath(effectFile)}`)};`;
 			}
