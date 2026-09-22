@@ -182,6 +182,27 @@ function buildVerifyEmailWebUrl(
   }
 }
 
+const AUTH_ERROR_LANDING_PATH = "/login";
+
+// Better Auth's own default `/api/auth/error` page is a raw developer-facing
+// HTML page (see https://better-auth.com/docs/reference/options#erroru-rl).
+// Every browser-visible redirect failure that cannot recover a per-flow
+// `errorCallbackURL` — including an abandoned or canceled OAuth sign-in,
+// where the callback's `state` can no longer be verified — must land on this
+// product page instead, so it never looks like OpenMeld crashed. Login owns
+// classifying the arriving `?error=` code into a calm "sign-in didn't
+// complete" state versus a real, visible failure (see
+// `clients/web/src/lib/auth-sign-in-error.ts`); Better Auth still fails
+// closed either way by never creating a session on a state/callback error.
+function buildAuthErrorLandingUrl(webAppUrl: string): string {
+  try {
+    return new URL(AUTH_ERROR_LANDING_PATH, webAppUrl).toString();
+  } catch {
+    const sanitizedBaseUrl = webAppUrl.replace(TRAILING_SLASH_PATTERN, "");
+    return `${sanitizedBaseUrl}${AUTH_ERROR_LANDING_PATH}`;
+  }
+}
+
 function resolveVerificationRedirectTarget(sourceUrl: string | undefined) {
   const parsedSourceUrl = parseUrl(sourceUrl);
   if (!parsedSourceUrl) {
@@ -925,6 +946,9 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
   return {
     baseURL: validated.BETTER_AUTH_URL,
     secret: validated.BETTER_AUTH_OPENMELD_SECRET,
+    onAPIError: {
+      errorURL: buildAuthErrorLandingUrl(validated.WEB_APP_URL),
+    },
     trustedOrigins: async (request) =>
       resolveTrustedOrigins({
         baseAuthUrl: validated.BETTER_AUTH_URL,
