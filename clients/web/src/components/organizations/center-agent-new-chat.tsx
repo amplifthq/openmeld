@@ -37,6 +37,7 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
+import { CenterAgentChatHistory } from "./center-agent-chat-history";
 import { CenterAgentHeaderTabs } from "./center-agent-header-navigation";
 import { CenterAgentOptimisticConversation } from "./center-agent-optimistic-conversation";
 import { ChatTitleEditor } from "./chat-title-editor";
@@ -301,6 +302,12 @@ export function CenterAgentNewChat({
 										text: title,
 									}));
 								}}
+								title={titleDraft.content.text || "New chat"}
+							/>
+						}
+						titleControl={
+							<CenterAgentChatHistory
+								disabled={send.isPending}
 								title={titleDraft.content.text || "New chat"}
 							/>
 						}

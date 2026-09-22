@@ -17,11 +17,7 @@ import {
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
-import {
-	ChatCircleTextIcon,
-	PlusIcon,
-	WarningIcon,
-} from "@phosphor-icons/react";
+import { ChatCircleTextIcon, WarningIcon } from "@phosphor-icons/react";
 import { Fragment, type ReactNode, useState } from "react";
 import {
 	AppModuleSidebarToggle,
@@ -52,6 +48,7 @@ export function SpaceWindowHeader(input: {
 	secondaryContentClassName?: string;
 	subtitleItems?: readonly SpaceWindowHeaderSubtitleItem[];
 	title: string;
+	titleControl?: ReactNode;
 	// Rendered immediately after the title, kept shrink-0 so the live-status
 	// indicator stays pinned to the name while the title truncates.
 	titleAdornment?: ReactNode;
@@ -89,16 +86,18 @@ export function SpaceWindowHeader(input: {
 				)}
 				data-slot="space-window-header-title"
 			>
-				<TooltipHint content={readingHeader ? input.title : undefined}>
-					<h1
-						className={cn(
-							"truncate font-medium text-lg",
-							readingHeader && "max-w-[28rem]"
-						)}
-					>
-						{input.title}
-					</h1>
-				</TooltipHint>
+				{input.titleControl ?? (
+					<TooltipHint content={readingHeader ? input.title : undefined}>
+						<h1
+							className={cn(
+								"truncate font-medium text-lg",
+								readingHeader && "max-w-[28rem]"
+							)}
+						>
+							{input.title}
+						</h1>
+					</TooltipHint>
+				)}
 				{input.titleAdornment ?? null}
 			</div>
 
@@ -166,6 +165,7 @@ function resolveHeaderTitle(
 export function SpaceHeader(input: {
 	conversationTitle?: string;
 	conversationTitleAction?: (title: string) => ReactNode;
+	conversationTitleControl?: (title: string) => ReactNode;
 	accessModeErrorMessage: string | null;
 	canManageSpaceAccess: boolean;
 	canManageSpaceName: boolean;
@@ -188,7 +188,6 @@ export function SpaceHeader(input: {
 	isLoadingMessages?: boolean;
 	managementControl?: ReactNode;
 	showChatSettingsMenu?: boolean;
-	newChatPath?: string;
 	// Forces an immediate live-stream reconnect; wired to the manual retry control
 	// on the degraded status indicator.
 	onReconnectLiveUpdates?: () => void;
@@ -314,17 +313,7 @@ export function SpaceHeader(input: {
 						{input.showChatSettingsMenu ? (
 							<SpaceHeaderNavigationMenu
 								ariaLabel="Center Agent menu"
-								items={
-									input.newChatPath
-										? [
-												{
-													icon: PlusIcon,
-													label: "New Chat",
-													to: input.newChatPath,
-												},
-											]
-										: []
-								}
+								items={[]}
 								onOpenConversationInformation={() => {
 									setSettingsInitialSection("general");
 									setActiveDialog("settings");
@@ -448,6 +437,7 @@ export function SpaceHeader(input: {
 					) : null}
 				</span>
 			}
+			titleControl={input.conversationTitleControl?.(spaceName)}
 		/>
 	);
 }

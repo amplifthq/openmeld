@@ -46,6 +46,7 @@ import {
 	UnsavedChangesGuard,
 } from "#/components/forms/unsaved-changes-guard";
 import { usePublishInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
+import { CenterAgentChatHistory } from "#/components/organizations/center-agent-chat-history";
 import { CenterAgentHeaderTabs } from "#/components/organizations/center-agent-header-navigation";
 import { useAccountAvatar } from "#/hooks/account.hooks";
 import {
@@ -70,7 +71,6 @@ import {
 } from "#/lib/openmeld-api/client";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import {
-	buildOrganizationCenterAgentChatPath,
 	buildOrganizationSpacePath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
@@ -1727,6 +1727,16 @@ function SpaceLandingReady({
 							canManageSpaceName={currentSpaceControls.canManageSpaceName}
 							conversationTitle={input.conversationTitle}
 							conversationTitleAction={input.conversationTitleAction}
+							conversationTitleControl={
+								currentSpaceIsCenterAgentDirectMessage && input.orgSlug
+									? (title) => (
+											<CenterAgentChatHistory
+												spaceId={controller.status.spaceId}
+												title={title}
+											/>
+										)
+									: undefined
+							}
 							currentProfileId={input.profileId}
 							currentProfileName={currentProfileName}
 							deleteSpaceErrorMessage={controller.deleteSpaceErrorMessage}
@@ -1750,13 +1760,6 @@ function SpaceLandingReady({
 								</>
 							}
 							membersControl={input.isGuest ? undefined : membersControl}
-							newChatPath={
-								currentSpaceIsCenterAgentDirectMessage && input.orgSlug
-									? buildOrganizationCenterAgentChatPath(input.orgSlug, {
-											draft: "new",
-										})
-									: undefined
-							}
 							notificationControl={
 								<SpaceNotificationMenu
 									isGuest={input.isGuest}
