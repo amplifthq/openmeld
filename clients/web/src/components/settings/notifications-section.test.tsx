@@ -150,7 +150,9 @@ describe("NotificationsSection", () => {
 		"write",
 	] as const)("shows paused storage delivery after %s failure without rewriting consent and recovers only after storage works", async (failure) => {
 		renderNotificationsSection();
-		fireEvent.click(screen.getByRole("button", { name: "Enable" }));
+		fireEvent.click(
+			screen.getByRole("switch", { name: "Browser notifications" })
+		);
 		await waitFor(() =>
 			expect(
 				screen
