@@ -20,7 +20,7 @@
     "test": "vitest run --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:full": "pnpm run test && pnpm run test:integration",
-    "deploy": "pnpm run build:prod && dotenv -e ../../.env -o -- wrangler deploy --env=prod",
+    "deploy": "node ../../scripts/release/production-artifact-check.mjs --scope web && dotenv -e ../../.env -o -- wrangler deploy --env=prod",
     "deploy:stg": "pnpm run build:stg && wrangler deploy --env=stg",
     "sync:config:prod": "pnpm run deploy",
     "sync:config:stg": "pnpm run deploy:stg",

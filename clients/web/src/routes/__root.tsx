@@ -88,6 +88,18 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 		return {
 			meta: [
 				{
+					name: "openmeld-source-sha",
+					content: WEB_ERROR_BUILD.sha ?? "local",
+				},
+				{
+					name: "openmeld-build-id",
+					content: WEB_ERROR_BUILD.id ?? "development",
+				},
+				{
+					name: "openmeld-build-dirty",
+					content: String(WEB_ERROR_BUILD.dirty),
+				},
+				{
 					charSet: "utf-8",
 				},
 				{

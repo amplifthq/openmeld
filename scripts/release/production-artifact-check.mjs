@@ -1,0 +1,303 @@
+import { execFileSync } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
+import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { parseArgs } from "node:util";
+import { buildProductionRenderer } from "../desktop/renderer-build.mjs";
+import { desktopWebBuildIdentity } from "../desktop/web-build-identity.mjs";
+import { runOwnedCommand } from "../dev/owned-command.mjs";
+import {
+  checkProductionWeb,
+  validateSsrPage,
+} from "./production-web-health.mjs";
+
+const ENV_FILE = /^\.env(?:\.|$)/u;
+const BUILD_ENV =
+  /^(VITE_|CLOUDFLARE_ENV$|OPENMELD_DESKTOP_(TARGET|PILOT|NODE_HEAP_MB)$|OPENMELD_DEV_ISOLATED$|OPENMELD_GATEWAY_URL$|NODE_OPTIONS$|NODE_ENV$|BETTER_AUTH_URL$|WEB_APP_URL$)/u;
+
+function productionBuildEnvironment(scope, env) {
+  return {
+    ...env,
+    CLOUDFLARE_ENV: "prod",
+    OPENMELD_RELEASE_ARTIFACT_CHECK: "1",
+    OPENMELD_DESKTOP_PILOT: undefined,
+    OPENMELD_DESKTOP_TARGET: scope === "desktop" ? "production" : undefined,
+  };
+}
+
+const repositoryRoot = () =>
+  execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  }).trim();
+
+async function hashTree(directory, hash = createHash("sha256"), prefix = "") {
+  for (const name of (await readdir(directory)).sort()) {
+    const filename = path.join(directory, name);
+    const relative = `${prefix}/${name}`;
+    const stat = await lstat(filename);
+    if (stat.isSymbolicLink()) {
+      throw new Error("Release build output must not contain symbolic links.");
+    }
+    hash.update(relative).update("\0");
+    if (stat.isDirectory()) {
+      await hashTree(filename, hash, relative);
+    } else {
+      hash.update(await readFile(filename)).update("\0");
+    }
+  }
+  return hash;
+}
+
+export async function artifactOutputIdentity(webRoot) {
+  const hash = await hashTree(path.join(webRoot, "dist"));
+  return hash
+    .update(await readFile(path.join(webRoot, ".wrangler/deploy/config.json")))
+    .digest("hex");
+}
+
+export async function artifactInputIdentity(
+  root,
+  scope,
+  sourceSha,
+  env = process.env
+) {
+  const hash = createHash("sha256").update(desktopWebBuildIdentity(root));
+  const files = execFileSync(
+    "git",
+    [
+      "ls-files",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "-z",
+      "scripts/release",
+      "scripts/dev",
+      "package.json",
+      "pnpm-workspace.yaml",
+      "turbo.json",
+    ],
+    { cwd: root, encoding: "utf8" }
+  )
+    .split("\0")
+    .filter(Boolean)
+    .sort();
+  for (const file of new Set(files)) {
+    hash.update(file).update("\0");
+    try {
+      hash.update(await readFile(path.join(root, file)));
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+  for (const directory of [root, path.join(root, "clients/web")]) {
+    for (const name of (await readdir(directory))
+      .filter((name) => ENV_FILE.test(name))
+      .sort()) {
+      hash
+        .update(path.relative(root, path.join(directory, name)))
+        .update(await readFile(path.join(directory, name)));
+    }
+  }
+  // Values are hashed, never retained in evidence (some build inputs are secrets).
+  const inputs = Object.fromEntries(
+    Object.entries(productionBuildEnvironment(scope, env))
+      .filter(([key]) => BUILD_ENV.test(key))
+      .sort(([a], [b]) => a.localeCompare(b))
+  );
+  return hash
+    .update(
+      JSON.stringify({
+        scope,
+        sourceSha,
+        node: process.version,
+        platform: process.platform,
+        arch: process.arch,
+        inputs,
+      })
+    )
+    .digest("hex");
+}
+
+async function reusableArtifact(receiptPath, webRoot, identity, allowDirty) {
+  try {
+    const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
+    if (
+      receipt.inputIdentity === identity &&
+      receipt.allowDirty === allowDirty &&
+      receipt.artifactSha256 === (await artifactOutputIdentity(webRoot))
+    ) {
+      return { ...receipt, reused: true };
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT" && !(error instanceof SyntaxError)) {
+      throw error;
+    }
+  }
+  return null;
+}
+
+export async function checkProductionArtifact({
+  root = repositoryRoot(),
+  scope,
+  sourceSha,
+  allowDirty = false,
+}) {
+  if (!["web", "desktop"].includes(scope)) {
+    throw new Error("Choose --scope web or desktop.");
+  }
+  const head = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: root,
+    encoding: "utf8",
+  }).trim();
+  sourceSha ??= head;
+  if (sourceSha !== head) {
+    throw new Error("Artifact source must be the checked-out release SHA.");
+  }
+  const dirty = execFileSync("git", ["status", "--porcelain"], {
+    cwd: root,
+    encoding: "utf8",
+  }).trim();
+  if (dirty && !allowDirty) {
+    throw new Error("Artifact admission requires a clean source checkout.");
+  }
+  const identity = await artifactInputIdentity(root, scope, sourceSha);
+  const webRoot = path.join(root, "clients/web");
+  const output = path.join(webRoot, "dist");
+  const receiptPath = path.join(
+    root,
+    "dev-tmp/release-artifact-check",
+    `${scope}.json`
+  );
+  const reusable = await reusableArtifact(
+    receiptPath,
+    webRoot,
+    identity,
+    allowDirty
+  );
+  if (reusable) {
+    return reusable;
+  }
+  const env = productionBuildEnvironment(scope, process.env);
+  // Anonymous local SSR needs the cookie module to initialize, not a real
+  // production signing key. Production secret readiness has its own guard.
+  env.WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET = randomBytes(32).toString("hex");
+  if (scope === "desktop") {
+    await buildProductionRenderer(root, env);
+  } else if (
+    (await runOwnedCommand(
+      "pnpm",
+      ["--dir", "clients/web", "run", "build:prod"],
+      { cwd: root, env }
+    )) !== 0
+  ) {
+    throw new Error("Production Web build failed.");
+  }
+
+  // Vite's Cloudflare preview consumes the generated output configuration and
+  // runs that bundle in local Workerd, including SSR imports and asset modules.
+  const require = createRequire(path.join(webRoot, "package.json"));
+  const { preview } = await import(pathToFileURL(require.resolve("vite")).href);
+  const priorPreviewMode = process.env.OPENMELD_RELEASE_ARTIFACT_CHECK;
+  const priorCookieSecret = process.env.WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET;
+  process.env.OPENMELD_RELEASE_ARTIFACT_CHECK = "1";
+  process.env.WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET =
+    env.WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET;
+  let server;
+  let ssr;
+  try {
+    server = await preview({
+      root: webRoot,
+      mode: "production",
+      preview: { host: "127.0.0.1", port: 0, open: false },
+    });
+    const address = server.httpServer.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Workerd preview did not open a local listener.");
+    }
+    ssr = await checkProductionWeb({
+      url: `http://127.0.0.1:${address.port}`,
+      sourceSha,
+      allowDirty,
+    });
+    if (scope === "desktop") {
+      const marker = JSON.parse(
+        await readFile(path.join(output, "client/desktop-build.json"), "utf8")
+      );
+      if (
+        marker.webBuild !== desktopWebBuildIdentity(root) ||
+        marker.installedTarget?.kind !== "production"
+      ) {
+        throw new Error(
+          "Desktop renderer identity or production target is incorrect."
+        );
+      }
+      validateSsrPage({
+        status: 200,
+        contentType: "text/html",
+        html: await readFile(path.join(output, "client/_shell.html"), "utf8"),
+        sourceSha,
+        allowDirty,
+      });
+    }
+  } finally {
+    await server?.close();
+    if (priorPreviewMode === undefined) {
+      Reflect.deleteProperty(process.env, "OPENMELD_RELEASE_ARTIFACT_CHECK");
+    } else {
+      process.env.OPENMELD_RELEASE_ARTIFACT_CHECK = priorPreviewMode;
+    }
+    if (priorCookieSecret === undefined) {
+      Reflect.deleteProperty(
+        process.env,
+        "WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET"
+      );
+    } else {
+      process.env.WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET = priorCookieSecret;
+    }
+  }
+  if ((await artifactInputIdentity(root, scope, sourceSha)) !== identity) {
+    throw new Error(
+      "Build inputs changed during artifact verification; no evidence was saved."
+    );
+  }
+  const receipt = {
+    scope,
+    sourceSha,
+    inputIdentity: identity,
+    artifactSha256: await artifactOutputIdentity(webRoot),
+    ssr,
+    allowDirty,
+    runtime: "local-workerd-disposable-cookie-key",
+    verifiedAt: new Date().toISOString(),
+  };
+  await mkdir(path.dirname(receiptPath), { recursive: true });
+  await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
+  return receipt;
+}
+
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  const { values } = parseArgs({
+    options: {
+      scope: { type: "string" },
+      "source-sha": { type: "string" },
+      "allow-dirty": { type: "boolean", default: false },
+    },
+  });
+  console.log(
+    JSON.stringify(
+      await checkProductionArtifact({
+        scope: values.scope,
+        sourceSha: values["source-sha"],
+        allowDirty: values["allow-dirty"],
+      })
+    )
+  );
+}
