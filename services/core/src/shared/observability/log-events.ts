@@ -4,6 +4,8 @@ export const CORE_LOG_EVENTS = {
     "runtime_transport_client_request_timeout",
   runtimeTransportConnectionGenerationResultRejected:
     "runtime_transport_connection_generation_result_rejected",
+  runtimeTransportDeliveryRouteAssessed:
+    "runtime_transport_delivery_route_assessed",
   runtimeTransportStaleLeaseResultRejected:
     "runtime_transport_stale_lease_result_rejected",
   dispatchExecutionDaemonDelivered: "dispatch_execution_daemon_delivered",

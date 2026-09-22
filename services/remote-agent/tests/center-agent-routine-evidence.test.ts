@@ -434,6 +434,29 @@ describe("Routine evidence through normal member tools", () => {
     expect(JSON.stringify(channel)).not.toContain("private-channel");
   });
 
+  it("reveals a recorded publication only while the exact Space message remains readable", async () => {
+    const f = await fixture();
+    const publishedSignalId = "retained-routine-result";
+    f.harness.run({
+      sql: "UPDATE routine_runs SET published_signal_id = ? WHERE id = 'old-run'",
+      params: [publishedSignalId],
+    });
+    f.signals.set(EVIDENCE_SPACE_ID, new Set([publishedSignalId]));
+
+    expect((await f.read()).run.publication).toEqual({
+      status: "recorded",
+      signalId: publishedSignalId,
+    });
+
+    // Retention and deletion both remove the canonical Space message while
+    // leaving the historical Run pointer intact.
+    f.signals.get(EVIDENCE_SPACE_ID)?.delete(publishedSignalId);
+    expect((await f.read()).run.publication).toEqual({
+      status: "recorded",
+      signalId: null,
+    });
+  });
+
   it("rejects unknown and personal Runs identically, revoked members and caller-supplied submission IDs", async () => {
     const f = await fixture();
     await expect(f.read("missing")).rejects.toMatchObject({ status: 404 });

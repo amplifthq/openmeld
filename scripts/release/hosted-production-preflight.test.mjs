@@ -76,6 +76,24 @@ function buildHostedPreflightFixture(extraControlScripts = []) {
     ),
     "#!/usr/bin/env node\nprocess.exit(0);\n"
   );
+  writeFileSync(
+    path.join(
+      repository,
+      "scripts",
+      "release",
+      "production-stage-admission.mjs"
+    ),
+    "#!/usr/bin/env node\nprocess.exit(0);\n"
+  );
+  writeFileSync(
+    path.join(
+      repository,
+      "scripts",
+      "release",
+      "production-train-artifact-admission.mjs"
+    ),
+    "#!/usr/bin/env node\nprocess.exit(0);\n"
+  );
   for (const script of extraControlScripts) {
     writeFileSync(path.join(repository, script.path), script.content);
   }
@@ -147,13 +165,19 @@ test("a Skill verification failure stops hosted Web preflight before later steps
         adapters: {
           runControlStep: (step) => {
             steps.push(step.label);
-            throw new Error("signed revision mismatch");
+            if (step.label === "Verify signed CLI Skill content") {
+              throw new Error("signed revision mismatch");
+            }
           },
         },
       }),
       { message: "signed revision mismatch" }
     );
-    assert.deepEqual(steps, ["Verify signed CLI Skill content"]);
+    assert.deepEqual(steps, [
+      "Admit receipt-based Production train stage",
+      "Verify declared Production train artifacts",
+      "Verify signed CLI Skill content",
+    ]);
   } finally {
     fixture.remove();
   }

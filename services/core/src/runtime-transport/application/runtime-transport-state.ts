@@ -3,7 +3,9 @@ import type {
   DaemonServiceLane,
   LocalWakeRouteReport,
   OpenMeldDaemonTaskResultEnvelope,
+  RuntimeCoordinatorDeliveryRouteEvidence,
   RuntimeTransportCapabilities,
+  RuntimeTransportDeliverDispatchRequest,
   RuntimeTransportDeliverDispatchResponse,
   RuntimeTransportDeliveryExecutionIdentity,
   RuntimeTransportDispatchLifecyclePhase,
@@ -141,6 +143,11 @@ export type RuntimeTransportMutableState = {
     string,
     {
       attemptId: string;
+      routeWitness: Promise<{
+        evidence: RuntimeCoordinatorDeliveryRouteEvidence;
+        observedAtMs: number;
+        request: RuntimeTransportDeliverDispatchRequest;
+      }>;
       response: Promise<RuntimeTransportDeliverDispatchResponse>;
     }
   >;

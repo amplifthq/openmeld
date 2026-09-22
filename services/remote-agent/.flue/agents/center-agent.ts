@@ -98,6 +98,10 @@ import {
 import { readRemoteAgentRuntimeDiagnostics } from "../../flue-adapter/runtime-diagnostics";
 import { disabledNoNetworkSandbox } from "../../flue-adapter/sandbox";
 import { createRemoteAgentSqlStorage } from "../../flue-adapter/storage";
+import {
+  projectRemoteAgentResourceSignal,
+  REMOTE_AGENT_TOOL_CALLING_CONTRACT,
+} from "../../flue-adapter/tool-presentation";
 import { getRemoteAgentFlueTools } from "../../flue-adapter/tools";
 
 installRemoteAgentExecutionInstrumentation();
@@ -188,7 +192,7 @@ async function prepareCenterAgentRender() {
             submissionId: executionContext.submissionId,
             turnEnvelope,
           })
-        : [],
+        : { tools: [], deferredToolCount: 0 },
     markProgress: async () => {
       if (!executionContext) {
         return;
@@ -321,7 +325,8 @@ async function prepareCenterAgentRender() {
       turnEnvelope,
     }),
     skills: materialization.skills,
-    tools: materialization.tools,
+    tools: materialization.tools.tools,
+    deferredToolCount: materialization.tools.deferredToolCount,
   };
 }
 
@@ -349,10 +354,11 @@ export function CenterAgentV2() {
   for (const tool of resources.tools) {
     useTool(tool);
   }
-  return resources.instructions;
+  return `${resources.instructions}\n\n${REMOTE_AGENT_TOOL_CALLING_CONTRACT}`;
 }
 
 CenterAgentV2.agentName = "center-agent-v2";
+CenterAgentV2.projectResourceSignal = projectRemoteAgentResourceSignal;
 CenterAgentV2.durability = CENTER_AGENT_DURABILITY;
 // Every admitted OpenMeld turn currently carries a separate authority and
 // terminal callback. Never silently absorb another turn into that authority.

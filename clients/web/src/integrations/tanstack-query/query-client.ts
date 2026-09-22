@@ -1,9 +1,41 @@
-import { QueryClient } from "@tanstack/react-query";
+import type { WebApplicationErrorQueryCategory } from "@openmeld/schemas";
+import { QueryCache, QueryClient, type QueryKey } from "@tanstack/react-query";
+import { reportClientQueryError } from "#/lib/observability/application-error-client";
 
 let browserQueryClient: QueryClient | undefined;
 
 export function createAppQueryClient() {
-	return new QueryClient();
+	return new QueryClient({
+		queryCache: new QueryCache({
+			onError: (error, query) => {
+				const category = resolveApplicationErrorQueryCategory(query.queryKey);
+				if (category) {
+					reportClientQueryError(error, category);
+				}
+			},
+		}),
+	});
+}
+
+function resolveApplicationErrorQueryCategory(
+	queryKey: QueryKey
+): WebApplicationErrorQueryCategory | null {
+	if (queryKey[0] === "inbox") {
+		return "inbox";
+	}
+	if (queryKey[0] !== "spaces") {
+		return null;
+	}
+	if (queryKey[1] === "account-spaces") {
+		return "account_spaces";
+	}
+	if (queryKey[1] === "members") {
+		return "space_members";
+	}
+	if (queryKey[1] === "updates") {
+		return "space_live";
+	}
+	return null;
 }
 
 export function resolveAppQueryClient(options?: { isServer?: boolean }) {

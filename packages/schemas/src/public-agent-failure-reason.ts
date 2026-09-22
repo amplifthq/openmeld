@@ -1307,6 +1307,42 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "computer",
     },
     {
+      body: "This task did not start because its conversation uses a different folder. Send it again to choose how to continue. The previous conversation is saved.",
+      kind: "request_ended",
+      patterns: [
+        "=context.workspace_mismatch",
+        "=context.workspace_unavailable",
+        "=context.workspace_recovery_changed",
+        "=context.workspace_recovery_unanswered",
+      ],
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: null,
+    },
+    {
+      body: "The Computer owner stopped this task before the Agent started. The previous conversation is saved.",
+      kind: "request_ended",
+      patterns: ["=context.workspace_recovery_declined"],
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: null,
+    },
+    {
+      body: "OpenMeld could not read this conversation’s folder. Open the conversation in OpenCode, then try this task again.",
+      kind: "request_ended",
+      patterns: ["=context.workspace_verification_unavailable"],
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: null,
+    },
+    {
+      body: "This task ended while waiting for a response. Send it again when you’re ready.",
+      kind: "request_ended",
+      patterns: [
+        "=interaction.expired",
+        "=runtime_coordinator.interaction_expired",
+      ],
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: null,
+    },
+    {
       body: "This agent is missing its local workspace on this device. Run `openmeld doctor --repair`, then `openmeld setup --profile <agent-profile-id>`, and try again.",
       kind: "local_agent_prepare",
       patterns: ["workspace.missing", "profile.workspace.missing"],

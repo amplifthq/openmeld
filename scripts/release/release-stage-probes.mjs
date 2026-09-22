@@ -1,5 +1,5 @@
 import { cliBinaryCompressedReleaseSchema } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
-
+import { assertNpmRuntimeDependencies } from "./npm-cli-artifact.mjs";
 import { compareSemverCore } from "./release-semver.mjs";
 
 const NO_PENDING_D1_MIGRATIONS_PATTERN = /No migrations to apply[.!]?/iu;
@@ -201,6 +201,14 @@ export function decideNpmPublishStage(input) {
   const published = parseNpmPackageProjection(input.stdout);
   const publishedVersion = published.version;
   if (publishedVersion === input.targetVersion) {
+    try {
+      assertNpmRuntimeDependencies(JSON.parse(input.stdout));
+    } catch (error) {
+      return {
+        action: "FAIL",
+        reason: `npm openmeld@${input.targetVersion} is not consumable: ${error instanceof Error ? error.message : String(error)} Publish a corrected new version instead of retrying this immutable package.`,
+      };
+    }
     if (
       input.targetMinRequiredCliVersion &&
       published.minRequiredCliVersion !== input.targetMinRequiredCliVersion

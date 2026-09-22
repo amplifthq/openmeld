@@ -16,7 +16,7 @@ const PUBLISHER_FAILURE_PATTERN = /Candidate job concluded failure/u;
 test("a premature release stamp fails early with canonical exact evidence and a command log", async () => {
   const fixture = await createCandidateFixture();
   try {
-    await stampRelease(fixture, "0.3.154");
+    await stampRelease(fixture, "0.3.218");
     const evidencePath = path.join(fixture.root, "evidence/final.json");
 
     assert.throws(
@@ -116,11 +116,11 @@ async function createCandidateFixture() {
   await mkdir(path.join(root, "release"), { recursive: true });
   await writeFile(
     path.join(root, "clients/openmeld-cli/package.json"),
-    `${JSON.stringify({ name: "openmeld", version: "0.3.153" }, null, 2)}\n`
+    `${JSON.stringify({ name: "openmeld", version: "0.3.217" }, null, 2)}\n`
   );
   await writeFile(
     path.join(root, "release/local-components.json"),
-    `${JSON.stringify(buildManifest("0.3.153"), null, 2)}\n`
+    `${JSON.stringify(buildManifest("0.3.217"), null, 2)}\n`
   );
   git("init", "--quiet");
   git("add", ".");

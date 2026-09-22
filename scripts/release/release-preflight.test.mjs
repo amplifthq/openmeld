@@ -16,6 +16,10 @@ const SUMMARY_HEADER_PATTERN = /Release preflight summary/u;
 const VERSION_DRIFT_RE = /WARNING: CLI channel version drift/u;
 const NEXT_0_2_45_RE = /next 0\.2\.45/u;
 const WRANGLER_AUTHENTICATION_PATTERN = /Wrangler authentication/u;
+const TRAIN_ENV = {
+  OPENMELD_PRODUCTION_TRAIN_SCOPES:
+    "db,cli,auth,web,gateway,core,remote-agent,desktop",
+};
 const NPM_CAPTURE = JSON.parse(
   await readFile(
     new URL("./fixtures/npm-view-openmeld-0.2.43.json", import.meta.url),
@@ -73,6 +77,7 @@ test("continues every independent check when an injected command fails", async (
     },
     cwd: "/repo",
     env: {
+      ...TRAIN_ENV,
       CLOUDFLARE_ACCOUNT_ID: "present",
       CLOUDFLARE_API_TOKEN: "present",
       CLOUDFLARE_D1_DATABASE_ID: "present",
@@ -84,7 +89,15 @@ test("continues every independent check when an injected command fails", async (
   });
 
   assert.equal(result.summary.status, "FAIL");
-  assert.equal(result.checks.length, 9);
+  assert.equal(result.checks.length, 11);
+  assert.deepEqual(
+    commands.filter(
+      (command) => command.includes("artifact") && command.startsWith("node ")
+    ),
+    [
+      `node scripts/release/production-train-artifact-admission.mjs --scope cli,desktop,web --source-sha ${"a".repeat(40)}`,
+    ]
+  );
   assert.deepEqual(
     Object.fromEntries(result.checks.map((check) => [check.id, check.status])),
     {
@@ -95,6 +108,8 @@ test("continues every independent check when an injected command fails", async (
       git: "PASS",
       "local-processes": "PASS",
       migrations: "PASS",
+      "production-artifacts": "PASS",
+      "production-train": "PASS",
       "release-order": "PASS",
       "release-ready": "FAIL",
     }
@@ -133,7 +148,11 @@ test("rejects the whole release preflight when signed Skill content is stale", a
       }),
     },
     cwd: "/repo",
-    env: { CLOUDFLARE_ACCOUNT_ID: "present", CLOUDFLARE_API_TOKEN: "present" },
+    env: {
+      ...TRAIN_ENV,
+      CLOUDFLARE_ACCOUNT_ID: "present",
+      CLOUDFLARE_API_TOKEN: "present",
+    },
     homeDirectory: "/home/test",
     write: () => undefined,
   });
@@ -155,7 +174,7 @@ test("reports npm and R2 drift with the shared next-version decision", async () 
         Promise.resolve({ status: 0, stderr: "", stdout: "ready\n" }),
     },
     cwd: "/repo",
-    env: {},
+    env: TRAIN_ENV,
     homeDirectory: "/home/test",
     write: () => undefined,
   });
@@ -181,7 +200,7 @@ test("accepts verified Wrangler OAuth without Cloudflare environment credentials
         Promise.resolve({ status: 0, stderr: "", stdout: "ready\n" }),
     },
     cwd: "/repo",
-    env: {},
+    env: TRAIN_ENV,
     homeDirectory: "/home/test",
     write: () => undefined,
   });
@@ -219,6 +238,7 @@ test("accepts Wrangler authentication backed by explicit Cloudflare environment 
     },
     cwd: "/repo",
     env: {
+      ...TRAIN_ENV,
       CLOUDFLARE_ACCOUNT_ID: "present",
       CLOUDFLARE_API_TOKEN: "present",
     },
@@ -266,6 +286,7 @@ test("fails closed when Wrangler authentication and the remote migration probe f
     },
     cwd: "/repo",
     env: {
+      ...TRAIN_ENV,
       CLOUDFLARE_ACCOUNT_ID: "present",
       CLOUDFLARE_API_TOKEN: "present",
     },
@@ -306,7 +327,7 @@ test("fails Git readiness when HEAD is ahead of origin/main", async () => {
         Promise.resolve({ status: 0, stderr: "", stdout: "ready\n" }),
     },
     cwd: "/repo",
-    env: {},
+    env: TRAIN_ENV,
     homeDirectory: "/home/test",
     write: () => undefined,
   });
@@ -315,6 +336,50 @@ test("fails Git readiness when HEAD is ahead of origin/main", async () => {
   assert.equal(gitCheck?.status, "FAIL");
   assert.match(gitCheck?.detail ?? "", AHEAD_ONE_PATTERN);
   assert.equal(result.summary.status, "FAIL");
+});
+
+test("a database-only preflight admits only the database train and skips Web builds", async () => {
+  const commands = [];
+  const result = await runReleasePreflight({
+    adapters: {
+      readFile: fakeReadFile,
+      readR2CliVersion: async () => "0.2.43",
+      runCommand: ({ args, command }) => {
+        const key = [command, ...args].join(" ");
+        commands.push(key);
+        return fakeCommandResult(key);
+      },
+      runReleaseReady: () =>
+        Promise.resolve({ status: 0, stderr: "", stdout: "ready\n" }),
+    },
+    cwd: "/repo",
+    env: {
+      CLOUDFLARE_ACCOUNT_ID: "present",
+      CLOUDFLARE_API_TOKEN: "present",
+      OPENMELD_PRODUCTION_TRAIN_SCOPES: "db",
+    },
+    homeDirectory: "/home/test",
+    write: () => undefined,
+  });
+
+  assert.equal(
+    result.checks.find((check) => check.id === "production-train")?.status,
+    "PASS"
+  );
+  assert.equal(
+    result.checks.find((check) => check.id === "production-artifacts")?.status,
+    "SKIP"
+  );
+  assert.ok(
+    commands.includes(
+      `node scripts/release/production-stage-admission.mjs --scope db --source-sha ${"a".repeat(40)}`
+    )
+  );
+  assert.ok(
+    !commands.some((command) =>
+      command.includes("production-train-artifact-admission.mjs")
+    )
+  );
 });
 
 test("runs release readiness only in a cleaned temporary snapshot", async () => {
@@ -406,8 +471,8 @@ function fakeCommandResult(key) {
     ["git rev-parse --is-inside-work-tree", "true\n"],
     ["git status --porcelain=v1", ""],
     ["git rev-parse --abbrev-ref HEAD", "codex/retro-landing\n"],
-    ["git rev-parse HEAD", "aaaaaaaa\n"],
-    ["git rev-parse origin/main", "aaaaaaaa\n"],
+    ["git rev-parse HEAD", `${"a".repeat(40)}\n`],
+    ["git rev-parse origin/main", `${"a".repeat(40)}\n`],
     ["git rev-parse --verify v0.2.43^{commit}", "aaaaaaaa\n"],
     ["git rev-list --left-right --count origin/main...HEAD", "0\t0\n"],
     ["git diff --name-only v0.2.43 --", ""],
@@ -426,6 +491,18 @@ function fakeCommandResult(key) {
       "No migrations to apply.\n",
     ],
     ["pnpm exec wrangler whoami", "You are logged in with an OAuth Token.\n"],
+    [
+      `node scripts/release/production-train-artifact-admission.mjs --scope cli,desktop,web --source-sha ${"a".repeat(40)}`,
+      '{"artifacts":{"cli":"verified","desktop":"verified","web":"verified"}}\n',
+    ],
+    [
+      `node scripts/release/production-stage-admission.mjs --scope db,cli,auth,web,gateway,core,remote-agent --source-sha ${"a".repeat(40)}`,
+      "Production stage admission passed\n",
+    ],
+    [
+      `node scripts/release/production-stage-admission.mjs --scope db --source-sha ${"a".repeat(40)}`,
+      "Production stage admission passed\n",
+    ],
   ]);
   if (!outputByCommand.has(key)) {
     throw new Error(`Unexpected command: ${key}`);

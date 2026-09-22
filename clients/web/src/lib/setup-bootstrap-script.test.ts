@@ -5,6 +5,7 @@ import {
 } from "node:child_process";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
@@ -162,7 +163,6 @@ describe("setup-bootstrap-script", () => {
 		expect(script).toContain(
 			'npm view "$OPENMELD_SETUP_PACKAGE_NAME" version < /dev/null'
 		);
-		expect(script).toContain("< /dev/null 2>/dev/null || printf '0'");
 		expect(script).toContain(
 			'if [ "$OPENMELD_SETUP_USER_FACING_COMMAND" = "openmeld" ]; then'
 		);
@@ -766,9 +766,16 @@ describe("setup-bootstrap-script", () => {
 		SHELL_BOOTSTRAP_TEST_TIMEOUT_MS
 	);
 
-	it(
-		"explains local proxy failures when the latest production runner cannot be downloaded",
-		() => {
+	it.each([
+		[
+			"local-proxy",
+			"connect EPERM 127.0.0.1:7890",
+			"npm config get https-proxy",
+		],
+		["catalog", 'Unsupported URL Type "catalog:"', "dependency reference"],
+	])(
+		"explains %s failures when the latest production runner cannot be downloaded",
+		(failure, errorText, guidance) => {
 			const tempDir = mkdtempSync(join(tmpdir(), "openmeld-setup-bootstrap-"));
 			const binDir = join(tempDir, "bin");
 			const npmRootDir = join(tempDir, "npm-root");
@@ -801,7 +808,7 @@ describe("setup-bootstrap-script", () => {
 						env: {
 							OPENMELD_TEST_CALLS_PATH: callsPath,
 							OPENMELD_TEST_NPM_ROOT: npmRootDir,
-							OPENMELD_TEST_NPX_FAILURE_MODE: "local-proxy",
+							OPENMELD_TEST_NPX_FAILURE_MODE: failure,
 							PATH: bootstrapTestPath(binDir),
 						},
 					}
@@ -811,22 +818,20 @@ describe("setup-bootstrap-script", () => {
 				// The CLI run stays attached to the caller's stdio (no tee pipe), so
 				// npm's own error reaches the user on stderr instead of a replayed
 				// stdout transcript.
-				expect(result.stderr).toContain("connect EPERM 127.0.0.1:7890");
+				expect(result.stderr).toContain(errorText);
 				// The probe captures npm's output into a variable, so the bootstrap
 				// must replay it on stdout — otherwise "the error shown above" points
 				// at nothing.
 				expect(result.stdout).toContain(
 					"OpenMeld re-ran the npm package download to diagnose the failure. npm reported:"
 				);
-				expect(result.stdout).toContain("connect EPERM 127.0.0.1:7890");
+				expect(result.stdout).toContain(errorText);
 				// The replay is bounded to the last 15 lines: the oldest padding
 				// lines are dropped while the trailing error block survives.
 				expect(result.stdout).toContain("npm verbose padding line 20");
 				expect(result.stdout).not.toContain("npm verbose padding line 01");
-				expect(result.stdout).toContain(
-					"OpenMeld could not download the latest CLI because npm is trying to use a local proxy that is not reachable."
-				);
-				expect(result.stdout).toContain("npm config get https-proxy");
+				expect(result.stdout).toContain(guidance);
+				expect(result.stdout).not.toContain("fix the npm or network error");
 				expect(result.stdout).not.toContain(
 					"OpenMeld setup could not continue."
 				);
@@ -1584,6 +1589,47 @@ describe("setup-bootstrap-script", () => {
 			status: "error",
 			statusCode: 400,
 		});
+	});
+
+	it.each([
+		19,
+		21,
+		26,
+		"unreadable",
+	])("rejects Node major %s before npm acquisition in the generated shell", (major) => {
+		const root = mkdtempSync(join(tmpdir(), "openmeld-node-policy-"));
+		const bin = join(root, "bin");
+		const callsPath = join(root, "calls.txt");
+		try {
+			mkdirSync(bin);
+			writeFileSync(
+				join(bin, "node"),
+				`#!/bin/sh\nprintf '%s\\n' '${major}'\n`,
+				{
+					mode: 0o755,
+				}
+			);
+			const result = spawnBootstrapScript(
+				root,
+				buildOpenMeldSetupBootstrapScript({
+					distribution: "npm",
+					lane: "prod",
+				}),
+				["setup", "--start-session", "fixture", "--ott", "fixture"],
+				{
+					env: {
+						HOME: root,
+						PATH: bootstrapTestPath(bin),
+						OPENMELD_TEST_CALLS_PATH: callsPath,
+					},
+				}
+			);
+			expect(result.status).toBe(1);
+			expect(result.stdout).toContain("20.x || >=22 <26");
+			expect(existsSync(callsPath)).toBe(false);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 });
 

@@ -984,6 +984,27 @@ The local pilot Web build leaves client JavaScript unminified so DevTools can
 set exact line breakpoints in hydration and application error callbacks. Normal
 Web builds retain their default minification.
 
+Installed Desktop also keeps a bounded Main-owned transport record at
+`<userData>/diagnostics/transport.json` (at most 200 events, private file
+permissions). It records route templates, HTTP status, validated request IDs,
+request duration, app version, renderer fingerprint, and native Space socket
+connect/open/error/close/cancel events. A process-local salted correlation value
+connects socket reconnects without retaining Space IDs. URL parameters, arbitrary
+path segments, cookies, message content, response bodies, exception text, and
+socket close text are excluded. This records transport outcomes; it does not
+infer an updater failure or change query retries, authentication, or reconnect
+ownership. The shared Web consumer still owns recovery and snapshot refresh.
+
+For production renderer verification, run `pnpm desktop:renderer:production`
+from the clean candidate checkout. This builds the production Web renderer,
+runs its Workerd SSR entry locally, validates the prerendered shell and compiled
+target, and records source/input/output identity in `dev-tmp/release-artifact-check`.
+The renderer-only Node heap can be overridden with
+`OPENMELD_DESKTOP_NODE_HEAP_MB`; its default and override must fit machine
+headroom and the heavy-work reservation, including 1 GiB of non-heap overhead.
+`OPENMELD_LOCAL_HEAVY_GIB` can set that reservation explicitly. An inherited
+reservation cannot silently grow. This command neither signs nor publishes.
+
 GUI data lives under `<OPENMELD_HOME>/desktop/mock-keychain-user-data` as a
 stable, isolated local test profile. Main sets and verifies Electron's
 `userData` path before Better Auth constructs storage. The launcher also passes

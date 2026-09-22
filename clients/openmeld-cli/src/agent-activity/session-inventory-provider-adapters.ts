@@ -21,7 +21,10 @@ import type {
 } from "@openmeld/schemas/types";
 import { readRecentAgentActivityHookStatus } from "./hook-projection-store";
 import { resolveObservedAgentActivityBinding } from "./observer-adapters";
-import { resolveOpenCodeDatabasePath } from "./opencode-storage";
+import {
+  readOpenCodeSessionRows,
+  resolveOpenCodeDatabasePath,
+} from "./opencode-storage";
 import type { ProjectBinding } from "./project-bindings";
 import { normalizeSharedSessionTitle } from "./provider-session-titles";
 import {
@@ -32,9 +35,6 @@ import {
 const PROVIDER_PROBE_TIMEOUT_MS = 5000;
 const PROVIDER_DISCOVERY_TIMEOUT_MS = 30_000;
 const MAX_JSON_RPC_LINE_BYTES = 8 * 1024 * 1024;
-const OPENCODE_SESSION_QUERY = `SELECT id, directory, title, time_created, time_updated, time_archived
-  FROM session
-  ORDER BY time_updated DESC, id ASC`;
 const CODEX_THREAD_SOURCE_KINDS = [
   "cli",
   "vscode",
@@ -806,46 +806,6 @@ export async function discoverOpenCodeRetainedSessions(input: {
     });
   }
   return stableSessions(result);
-}
-
-async function readOpenCodeSessionRows(
-  databasePath: string
-): Promise<Record<string, unknown>[]> {
-  if (typeof process.versions.bun === "string") {
-    // @ts-expect-error bun:sqlite exists only in the standalone Bun runtime.
-    const bunSqlite = await import("bun:sqlite");
-    const { Database } = bunSqlite as {
-      Database: new (
-        path: string,
-        options: { create: boolean; readonly: boolean }
-      ) => {
-        close: () => void;
-        query: (sql: string) => { all: () => Record<string, unknown>[] };
-      };
-    };
-    const database = new Database(databasePath, {
-      create: false,
-      readonly: true,
-    });
-    try {
-      return database.query(OPENCODE_SESSION_QUERY).all();
-    } finally {
-      database.close();
-    }
-  }
-  const { default: Database } = await import("better-sqlite3");
-  const database = new Database(databasePath, {
-    fileMustExist: true,
-    readonly: true,
-  });
-  try {
-    return database.prepare(OPENCODE_SESSION_QUERY).all() as Record<
-      string,
-      unknown
-    >[];
-  } finally {
-    database.close();
-  }
 }
 
 async function discoverGrokBuild(input: {
