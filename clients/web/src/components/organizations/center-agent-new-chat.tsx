@@ -122,33 +122,35 @@ export function CenterAgentNewChat({
 			if (!mounted.current) {
 				return;
 			}
-			sidebar
-				.updateAsync((preferences) => {
-					const chats = preferences.chats ?? EMPTY_CHAT_PREFERENCES;
-					return {
-						...preferences,
-						chats: {
-							...chats,
-							titles: titleDraft.content.text
-								? {
-										...chats.titles,
-										[session.spaceId]: titleDraft.content.text.slice(0, 160),
-									}
-								: chats.titles,
-							groups: chats.groups.map((item) =>
-								item.id === group && !item.spaceIds.includes(session.spaceId)
-									? { ...item, spaceIds: [...item.spaceIds, session.spaceId] }
-									: item
-							),
-						},
-					};
-				})
-				.catch((cause: unknown) => {
-					console.error("Could not name or group the new chat", cause);
-					toast.error(
-						"Your chat is open, but its name and group couldn't be saved. You can update them in the sidebar."
-					);
-				});
+			if (titleDraft.content.text || group) {
+				sidebar
+					.updateAsync((preferences) => {
+						const chats = preferences.chats ?? EMPTY_CHAT_PREFERENCES;
+						return {
+							...preferences,
+							chats: {
+								...chats,
+								titles: titleDraft.content.text
+									? {
+											...chats.titles,
+											[session.spaceId]: titleDraft.content.text.slice(0, 160),
+										}
+									: chats.titles,
+								groups: chats.groups.map((item) =>
+									item.id === group && !item.spaceIds.includes(session.spaceId)
+										? { ...item, spaceIds: [...item.spaceIds, session.spaceId] }
+										: item
+								),
+							},
+						};
+					})
+					.catch((cause: unknown) => {
+						console.error("Could not name or group the new chat", cause);
+						toast.error(
+							"Your chat is open, but its name and group couldn't be saved. You can update them in the sidebar."
+						);
+					});
+			}
 			queryClient.setQueryData(
 				centerAgentDirectMessageSpaceProjectionQueryOptions({
 					enabled: true,
