@@ -22,7 +22,7 @@ export function DirectorySearch(input: {
 		<>
 			<Input
 				aria-label={input.label}
-				className="h-8 w-52 min-w-0 max-w-full"
+				className="h-7 w-52 min-w-0 max-w-full"
 				onChange={(event) => input.onChange(event.target.value)}
 				onKeyDown={(event) => {
 					if (event.key === "Escape") {
