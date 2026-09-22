@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -6,10 +7,15 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DropdownMenu, DropdownMenuTrigger } from "#components/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuRadioGroup,
+  DropdownMenuTrigger,
+} from "#components/dropdown-menu";
 import {
   FluidDropdownMenuContent,
   FluidDropdownMenuItem,
+  FluidDropdownMenuRadioItem,
 } from "./dropdown-menu";
 
 // jsdom has no active Web Animations for Base UI to wait for.
@@ -109,5 +115,46 @@ describe("FluidDropdownMenu", () => {
       expect(screen.queryByRole("menu")).toBeNull();
       expect(document.activeElement).toBe(trigger);
     });
+  });
+
+  it("shares hover feedback across radio choices without losing selection or keyboard semantics", async () => {
+    const onValueChange = vi.fn();
+    render(
+      <DropdownMenu defaultOpen>
+        <DropdownMenuTrigger>Notifications</DropdownMenuTrigger>
+        <FluidDropdownMenuContent>
+          <DropdownMenuRadioGroup
+            defaultValue="all"
+            onValueChange={onValueChange}
+          >
+            <FluidDropdownMenuRadioItem index={0} value="all">
+              All messages
+            </FluidDropdownMenuRadioItem>
+            <FluidDropdownMenuRadioItem index={1} value="muted">
+              Mute
+            </FluidDropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+        </FluidDropdownMenuContent>
+      </DropdownMenu>
+    );
+    const menu = await screen.findByRole("menu");
+    const all = screen.getByRole("menuitemradio", { name: "All messages" });
+    const mute = screen.getByRole("menuitemradio", { name: "Mute" });
+    expect(all.getAttribute("aria-checked")).toBe("true");
+    const list = menu.querySelector(
+      '[data-slot="fluid-action-list"]'
+    ) as HTMLElement;
+    fireEvent.mouseEnter(list);
+    fireEvent.mouseMove(list, { clientY: 50 });
+    await waitFor(() => expect(mute.getAttribute("data-hovered")).toBe("true"));
+    expect(
+      menu.querySelectorAll('[data-slot="fluid-action-list-hover-indicator"]')
+    ).toHaveLength(1);
+    act(() => all.focus());
+    fireEvent.keyDown(all, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(mute);
+    fireEvent.click(mute);
+    expect(onValueChange.mock.calls[0]?.[0]).toBe("muted");
+    expect(mute.getAttribute("aria-checked")).toBe("true");
   });
 });

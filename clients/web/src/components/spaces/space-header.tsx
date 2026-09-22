@@ -123,7 +123,7 @@ export function SpaceWindowHeader(input: {
 				>
 					{input.navigation ? (
 						<div
-							className="flex h-full shrink-0 items-center group-data-[compact=true]/space-header:col-start-2 group-data-[compact=true]/space-header:row-start-1"
+							className="-mx-2 flex h-full shrink-0 items-center px-2 group-data-[compact=true]/space-header:col-start-2 group-data-[compact=true]/space-header:row-start-1 group-data-[compact=true]/space-header:mx-0"
 							data-slot="space-window-header-navigation"
 						>
 							{input.navigation}

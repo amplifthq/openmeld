@@ -1,6 +1,5 @@
 "use client";
 
-import { Button } from "@openmeld/ui/components/button";
 import { Switch } from "@openmeld/ui/components/switch";
 import type { InboxNotificationSettings } from "#/lib/inbox/client-notifications";
 
@@ -21,20 +20,9 @@ export function ClientNotificationControl(input: {
 			<Switch aria-label="Browser notifications" checked={false} disabled />
 		);
 	}
-	if (input.settings.permission === "default") {
-		return (
-			<Button
-				disabled={input.disabled}
-				onClick={() => input.onChange(true)}
-				size="sm"
-				variant="outline"
-			>
-				{input.disabled ? "Enabling…" : "Enable"}
-			</Button>
-		);
-	}
 	return (
 		<Switch
+			aria-busy={input.disabled}
 			aria-label={label}
 			checked={input.settings.enabled}
 			disabled={input.disabled}
