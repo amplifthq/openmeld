@@ -2,8 +2,12 @@ import type {
   MessageChannelConversationLocator,
   RemoteAgentCoreCallbackBody,
   RemoteAgentNativeDeliveryDeadlineProbeQueueMessage,
+  RemoteAgentStreamDeltaCallbackBody,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
+import { createRemoteAgentCallbackContext } from "../../remote-agent/agent-core/callback-context";
+import { createRemoteAgentStreamPublisher } from "../../remote-agent/flue-adapter/streaming";
+import { InMemoryDurableObjectStorage } from "../../remote-agent/tests/storage";
 import {
   readAgentTaskCompletionSubscription,
   registerAgentTaskCompletionSubscription,
@@ -55,6 +59,265 @@ const PROVIDER_PUBLICATION_KEY = "message_channel_publication_1";
 const SUBMISSION_ID = "submission_message_channel_1";
 
 describe("Remote Agent Message Channel publication", () => {
+  it.each([
+    { rollover: false, failure: "first" },
+    { rollover: true, failure: "first" },
+    { rollover: false, failure: "partial" },
+    { rollover: true, failure: "partial" },
+    { rollover: false, failure: "unknown" },
+    { rollover: true, failure: "unknown" },
+  ] as const)("preserves revision backoff and recovery ($failure, rollover=$rollover)", async ({
+    rollover,
+    failure,
+  }) => {
+    const harness = createSqliteD1Harness();
+    applyMessageChannelPublicationMigrations(harness);
+    seedConnection(harness, "connected");
+    let nowMs = 2000;
+    let rejectUntilMs = 0;
+    let partialApplied = false;
+    let cardCount = 0;
+    const cards = new Map<string, string>();
+    const mutateCard: MessageChannelProviderAdapter["updateWorkingCard"] = ({
+      cardId,
+      text,
+    }) => {
+      if (nowMs < rejectUntilMs) {
+        if (failure === "unknown") {
+          // The provider applied the request, but its response was lost.
+          cards.set(cardId, text);
+          return Promise.resolve({
+            status: "outcome_unknown",
+            reasonCode: "lark.card_finalize_outcome_unknown",
+          });
+        }
+        if (
+          failure === "partial" &&
+          cardId === "card_working_lark_1" &&
+          !partialApplied
+        ) {
+          partialApplied = true;
+          cards.set(cardId, text);
+          return Promise.resolve({ status: "published" });
+        }
+        return Promise.resolve({
+          status: "failed",
+          reasonCode: "lark.card_finalize_http_429",
+          retryAfterMs: 1000,
+        });
+      }
+      cards.set(cardId, text);
+      return Promise.resolve({ status: "published" });
+    };
+    const adapter = createAdapter("lark", {
+      updateWorkingCard: vi.fn(mutateCard),
+      finalizeWorkingCard: vi.fn(mutateCard),
+      createWorkingCard: vi.fn(({ initialText }) => {
+        const cardId = `continued-card-${++cardCount}`;
+        cards.set(cardId, initialText);
+        return Promise.resolve({ status: "created" as const, cardId });
+      }),
+      publishWorkingCard: vi.fn(async () => ({
+        status: "published" as const,
+        resultId: `continued-message-${cardCount}`,
+      })),
+    });
+    const registry = createMessageChannelProviderRegistry([adapter]);
+    const read = async () => {
+      const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+        db: harness.db,
+        idempotencyKey: IDEMPOTENCY_KEY,
+      });
+      if (!delivery) {
+        throw new Error("Missing delivery.");
+      }
+      return delivery;
+    };
+    const stream = async (sequence: number, textSnapshot: string) =>
+      publishRemoteAgentMessageChannelCardStreamDelta({
+        delivery: await read(),
+        evidenceDb: harness.db,
+        providerDb: harness.db,
+        registry,
+        nowMs,
+        sequence,
+        textSnapshot,
+      });
+    const replacement = rollover ? "B".repeat(62_000) : "Corrected answer.";
+    const expectedDelay = failure === "unknown" ? 40 : 1000;
+    const retryResponse = {
+      status: "retryable",
+      ...(failure === "unknown" ? {} : { retryAfterMs: 1000 }),
+    };
+    const sleep = vi.fn(async (delayMs: number) => {
+      const pending = await read();
+      const fence = {
+        providerProgressState: "update_claimed",
+        providerProgressClaimId: pending.providerProgressClaimId,
+        providerProgressPublicationIdempotencyKey:
+          pending.providerProgressPublicationIdempotencyKey,
+        providerProgressPendingSequence: 2,
+        providerProgressCardHistory: { pendingSnapshot: replacement },
+      };
+      expect(pending).toMatchObject(fence);
+      expect(pending.providerProgressClaimId).toBeTruthy();
+      // Replaying the same operation must retain its frozen snapshot and UUID,
+      // including changes made by an earlier, partially successful attempt.
+      const earlyRetry = await stream(2, replacement);
+      expect(earlyRetry).toMatchObject(retryResponse);
+      if (failure === "unknown") {
+        expect(earlyRetry).not.toHaveProperty("retryAfterMs");
+      }
+      expect(await stream(3, "A newer snapshot.")).toMatchObject({
+        status: "retryable",
+      });
+      expect(await read()).toMatchObject(fence);
+      expect(delayMs).toBe(expectedDelay);
+      nowMs += delayMs;
+    });
+    const publisher = createRemoteAgentStreamPublisher({ sleep });
+    const context = createRemoteAgentCallbackContext({
+      request: createVerifiedMessageChannelWorkerRequest(),
+      nowMs,
+      ack: {
+        accepted: true,
+        createdAt: nowMs,
+        idempotencyKey: IDEMPOTENCY_KEY,
+        requestId: SUBMISSION_ID,
+        submissionId: SUBMISSION_ID,
+        status: "pending",
+      },
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    const submitRemoteAgentStreamDelta = vi.fn(
+      (body: RemoteAgentStreamDeltaCallbackBody) =>
+        stream(
+          body.sequence,
+          "snapshot" in body ? body.snapshot : body.textSnapshot
+        )
+    );
+    const push = (delta: string, replaceTextPrefix?: string) =>
+      publisher.push({
+        context,
+        storage,
+        coreWorker: { submitRemoteAgentStreamDelta },
+        kind: "text",
+        delta,
+        replaceTextPrefix,
+        observedAtMs: nowMs,
+      });
+    try {
+      await createAcceptedMessageChannelDeliveryWithSentWorkingCard(harness.db);
+      expect(await push("X", "X".repeat(30_999))).toMatchObject({
+        status: "published",
+        sequence: 1,
+      });
+      expect((await read()).providerProgressRolloverIndex).toBe(1);
+      rejectUntilMs = nowMs + expectedDelay;
+      if (rollover) {
+        // Long final answers can roll over again after the sender's 32 KiB
+        // stream snapshot limit. Exercise that reachable callback path.
+        const finalize = async () =>
+          completeRemoteAgentNativeDelivery(
+            buildEnv(harness.db),
+            {
+              ...createCompletedCallback(),
+              spaceId: (await read()).spaceId,
+              text: replacement,
+            },
+            {
+              messageChannelNowMs: () => nowMs,
+              messageChannelProviderRegistry: registry,
+            }
+          );
+        const first = await finalize();
+        expect(first).toMatchObject(retryResponse);
+        if (failure === "unknown") {
+          expect(first).not.toHaveProperty("retryAfterMs");
+        }
+        if (failure === "partial") {
+          expect(partialApplied).toBe(true);
+          expect(cards.get("card_working_lark_1")).not.toContain("XXX");
+        }
+        const pending = await read();
+        expect(pending).toMatchObject({
+          providerProgressState: "rollover_finalize_claimed",
+          providerProgressPendingSequence: 2,
+          providerProgressCardHistory: { pendingSnapshot: replacement },
+        });
+        expect(pending.providerProgressClaimId).toBeTruthy();
+        expect(await finalize()).toMatchObject(retryResponse);
+        expect(await read()).toMatchObject({
+          providerProgressState: pending.providerProgressState,
+          providerProgressClaimId: pending.providerProgressClaimId,
+          providerProgressPublicationIdempotencyKey:
+            pending.providerProgressPublicationIdempotencyKey,
+          providerProgressPendingSequence: 2,
+          providerProgressCardHistory: { pendingSnapshot: replacement },
+        });
+        nowMs += expectedDelay;
+        expect(await finalize()).toMatchObject({ status: "accepted" });
+        expect(await read()).toMatchObject({
+          status: "completed",
+          finalPublicationState: "published",
+        });
+        expect([...cards.values()].join("")).toBe(replacement);
+        expect((await read()).providerProgressCardHistory).not.toHaveProperty(
+          "pendingSnapshot"
+        );
+        expect(adapter.publishReply).not.toHaveBeenCalled();
+        return;
+      }
+      if (failure === "partial") {
+        expect(await stream(2, replacement)).toMatchObject(retryResponse);
+        expect(partialApplied).toBe(true);
+        expect(cards.get("card_working_lark_1")).not.toContain("XXX");
+      }
+      submitRemoteAgentStreamDelta.mockClear();
+      expect(
+        await push(replacement.slice(-1), replacement.slice(0, -1))
+      ).toMatchObject({ status: "published", sequence: 2 });
+      expect(sleep).toHaveBeenCalledExactlyOnceWith(expectedDelay);
+      expect(
+        submitRemoteAgentStreamDelta.mock.calls.map(([body]) => body.sequence)
+      ).toEqual([2, 2]);
+      expect(await read()).toMatchObject({
+        providerProgressState: "sent",
+        providerProgressSequence: 2,
+        providerProgressPendingSequence: null,
+      });
+      expect((await read()).providerProgressCardHistory).not.toHaveProperty(
+        "pendingSnapshot"
+      );
+      nowMs += 500;
+      expect(await push(" More details.")).toMatchObject({
+        status: "published",
+        sequence: 3,
+      });
+      expect(sleep).toHaveBeenCalledTimes(1);
+      expect(
+        await completeRemoteAgentNativeDelivery(
+          buildEnv(harness.db),
+          {
+            ...createCompletedCallback(),
+            spaceId: (await read()).spaceId,
+            text: "Final answer.",
+          },
+          {
+            messageChannelNowMs: () => nowMs,
+            messageChannelProviderRegistry: registry,
+          }
+        )
+      ).toMatchObject({ status: "accepted" });
+      expect((await read()).status).toBe("completed");
+      expect([...cards.values()].join("\n")).not.toContain("XXX");
+      expect(cards.get(`continued-card-${cardCount}`)).toBe("Final answer.");
+      expect(adapter.publishReply).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
   it.each([
     { provider: "lark", streamReplacement: true, scenario: "short" },
     { provider: "feishu", streamReplacement: true, scenario: "short" },

@@ -226,6 +226,9 @@ async function finalizeCurrentCard(input: {
       text: input.evidence.head,
     });
   }
+  // Keep provider backoff even when cross-retry recovery must retain the claim.
+  const retryAfterMs =
+    publication.status === "failed" ? publication.retryAfterMs : undefined;
   if (previous.revised && publication.status === "failed") {
     publication = {
       status: "outcome_unknown",
@@ -261,7 +264,7 @@ async function finalizeCurrentCard(input: {
       }),
       "Message Channel ambiguous rollover finalize lost its durable claim"
     );
-    return retryable(delivery, publication.reasonCode);
+    return retryable(delivery, publication.reasonCode, retryAfterMs);
   }
   const delivery = await requireTransition(
     markRemoteAgentMessageChannelProviderCardRolloverFinalizeFailed({

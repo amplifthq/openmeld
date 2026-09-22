@@ -205,6 +205,9 @@ async function publishClaimedCardUpdate(input: {
       text: revision.active.head,
     });
   }
+  // Keep provider backoff even when cross-retry recovery must retain the claim.
+  const retryAfterMs =
+    result.status === "failed" ? result.retryAfterMs : undefined;
   if (previous.revised && result.status === "failed") {
     result = { status: "outcome_unknown", reasonCode: result.reasonCode };
   }
@@ -267,9 +270,7 @@ async function publishClaimedCardUpdate(input: {
   return remoteAgentStreamDeltaCallbackResponseSchema.parse({
     lastSequence: input.delivery.providerProgressSequence ?? 0,
     reasonCode: result.reasonCode,
-    ...(result.status !== "failed" || result.retryAfterMs === undefined
-      ? {}
-      : { retryAfterMs: result.retryAfterMs }),
+    ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
     status: "retryable",
   });
 }
