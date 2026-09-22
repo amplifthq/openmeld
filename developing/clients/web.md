@@ -1404,18 +1404,22 @@ verbatim so an older Web build can still expose it. Options are derived only
 from Core-projected choices, not from a separate browser model catalog.
 Changing Provider clears an incompatible draft and disables Save until a model
 is selected. It never selects a model automatically or persists the filter.
-Provider and search state reset across Organizations.
+Provider state resets across Organizations.
 
-**All providers** supports cross-vendor search and retains the **OpenMeld default**
-option. Within a provider, search filters only that vendor's models. Search
-matches friendly name, vendor label, or exact catalog ID without displaying raw
-IDs or admitting free-text models.
-The saved choice comes first; a persistent current-model label remains visible
-even when a search has no matches. Selecting a candidate only changes the local
-draft. The current label changes after the Binding save succeeds. The searchable
-picker uses the installed Base UI Combobox because Fluid Select has no search
-input; Base UI owns keyboard navigation, focus, and dismissal. Reopening clears
-the search so the full catalog can be compared again.
+**All providers** shows the curated list and retains the **OpenMeld default**
+option. Both fields reuse Fluid Select through the Web-owned
+`HostedModelSelect`; provider filtering replaces the separate searchable
+Combobox so the small curated list uses one selection interaction and appearance.
+The saved choice comes first, and a persistent current-model label remains
+visible while browsing another provider. Selecting a candidate only changes the
+local draft. The current label changes after the Binding save succeeds.
+
+Personal Remote Agent creation and model editing reuse this same two-level
+selector and hosted catalog. They store the explicitly selected model ID.
+Changing to another provider clears an incompatible draft and requires a new
+model choice before Create or Save; an empty draft must not silently select
+the system default. Local Agent model controls keep their controller-owned
+models, compatibility checks, and reasoning choices.
 
 Before saving a changed selection, inline copy explains that it affects new
 turns across the workspace, including existing conversations, while admitted
