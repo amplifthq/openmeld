@@ -112,6 +112,58 @@ and final text responses; public CLI history confirms publication:
 | Center | `f2f20c8548eeb08001cc3d8a0bf451799a1278bc9be3f8a2a3d8241848300e4c` | `94086553-7fad-43af-aef5-461947e2a28a` | `OPUS_55_CENTER_OK` |
 | Remote | `a92ecf5d627d7901f5af0a791cb50bc84ea500a03de6a4cc6e627589714ceb97` | `abacbd79-00de-4c9d-ac49-885a72531fc2` | `OPUS_55_REMOTE_OK` |
 
+## September 23: GPT-6 Sol and Luna
+
+Official [Sol](https://developers.openai.com/api/docs/models/gpt-6-sol),
+[Luna](https://developers.openai.com/api/docs/models/gpt-6-luna), and
+[Codex model documentation](https://developers.openai.com/codex/models) confirm
+the releases. Codex 0.155.1's authenticated `model/list` returns `gpt-6-sol`
+with low/medium/high/xhigh/max/ultra and `gpt-6-luna` with
+low/medium/high/xhigh/max. The captured native response is retained in
+`packages/schemas/tests/fixtures/codex-gpt-6-sol-luna-2026.09.23.json`.
+The catalog's 0.155.1 floor is the verified client version, not an asserted
+earliest upstream requirement. Neither existing default changes.
+
+OpenRouter initially exposed Sol while Luna's endpoint list was empty; a later
+fresh capture listed both `openai/gpt-6-sol` and `openai/gpt-6-luna` with tools,
+high effort, 1,050,000 context tokens and 128,000 maximum output tokens.
+The captured response lives in
+`services/remote-agent/tests/fixtures/openrouter-gpt-6-sol-luna-2026-09-23.json`.
+The existing OpenRouter adapter successfully executed tools at high effort for
+both models. This was verified against OpenRouter itself rather than inferred
+from the direct OpenAI Chat Completions tool/effort restriction.
+
+Both native Codex invocations returned the requested marker. In the disposable
+local lane, normal `setup --local-agent codex` connected the temporary official
+0.155.1 install without changing the user's global Codex install. Profile
+`agt_41ba9e5d-e925-466b-84db-1e59092399cd` was created with Sol/low, then
+switched to Luna/low through the public CLI. Both actual Wakes published into
+the local acceptance Space; public traces report `delivered=true`,
+`visible_reply`, and `reply.delivered`. Web shows both replies and the saved
+Luna/low selection.
+
+| Local model | Client message | Reply signal |
+| --- | --- | --- |
+| Sol | `55d9154e-058d-4767-b178-d65691afe4c0` | `e27e6afe-0eb3-4c04-b628-fb1ec0f9c045` |
+| Luna | `bdee90bc-1c86-405b-8f1f-863236d19778` | `d1cc0323-4aec-44b5-9f1f-e71e7280195b` |
+
+The shared Web Center picker displays both models under OpenAI. Both were
+saved and used in normal conversations. The personal Remote Agent was likewise
+switched between both models through the public CLI. All four hosted
+conversations performed read-only tool continuations and published their
+requested marker; exact-model provider logs and public Space history agree.
+
+| Hosted path | Reply signal | Reply text |
+| --- | --- | --- |
+| Sol Center | `2b271193-18dd-4ea9-833a-513487b686b6` | `GPT6_SOL_CENTER_OK` |
+| Luna Center | `ba2c6d27-7c52-4077-a37f-eda7a7af8a1f` | `GPT6_LUNA_CENTER_OK` |
+| Sol Remote | `4a34facf-f517-4f1b-a91b-dbf3e12df250` | `GPT6_SOL_REMOTE_OK` |
+| Luna Remote | `0a9604ea-81d2-4378-ae25-bc2805be9dcd` | `GPT6_LUNA_REMOTE_OK` |
+
+Focused schema catalog tests (9), hosted adapter tests (17), and Changelog
+validation pass. These changes only extend the Core-served catalog; no local
+adapter, offline snapshot, protocol, database, or execution authority changes.
+
 ## Contract and rollout
 
 The local additions change the online catalog served by Core. The fixed CLI
@@ -120,7 +172,7 @@ Binding writers, runtime authorities, database changes, or contract epochs.
 Existing model availability checks still intersect catalog choices with the
 computer's native inventory. The scoped architecture rules remain satisfied.
 
-The same PR also adds six hosted models, including Opus 5.5, and shared Fluid
+The same PR also adds eight hosted models, including GPT-6 Sol/Luna and Opus 5.5, and shared Fluid
 Provider/Model selectors for Center Agent and Remote Agents. That shared
 catalog mapping needs Core deployed before Web. Model catalog tests (9),
 shared selection tests (8), Core catalog tests (2), Changelog validation, and
