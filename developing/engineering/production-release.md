@@ -80,6 +80,13 @@ release. `Source validation` reports exact-SHA push evidence when present and
 otherwise tells the operator to confirm exact Final Candidate evidence. Use
 `--json` for automation.
 
+In GitHub Actions, the status reader uses the step's `GH_TOKEN` with the
+workflow repository and server identity to read private Git receipt refs.
+The existing trusted HTTPS helper supplies credentials only to those Git
+children; checkout credentials stay unpersisted. Missing credentials or a
+repository mismatch remain admission failures. Local reads retain the
+workstation's existing Git authentication.
+
 The resolved source SHA is the cutoff for that release. Commits that reach
 `main` after the cutoff belong to the next release; do not restart or widen an
 already-running release merely to chase a newer `main`.
