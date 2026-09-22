@@ -5881,6 +5881,9 @@ function resolveAgentProfileEditModelId(input: {
 	if (selectedModelId) {
 		return selectedModelId;
 	}
+	if (input.modelSelection.agentControllerId === "center-agent") {
+		return null;
+	}
 	return (
 		normalizeAgentProfileEditText(
 			input.modelCatalog?.agentControllers[
