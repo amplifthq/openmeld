@@ -157,6 +157,7 @@ test("manual client artifact validation excludes the broad diagnostic jobs", () 
   assert.deepEqual(workflow.on.workflow_dispatch.inputs.scope.options, [
     "full",
     "release-artifacts",
+    "artifact-handoff",
   ]);
   for (const name of [
     "verify",
@@ -164,7 +165,7 @@ test("manual client artifact validation excludes the broad diagnostic jobs", () 
     "cli-integration",
     "runtime",
   ]) {
-    assert.equal(workflow.jobs[name].if, "inputs.scope != 'release-artifacts'");
+    assert.equal(workflow.jobs[name].if, "inputs.scope == 'full'");
   }
   const job = workflow.jobs["release-artifacts"];
   assert.equal(job.if, "inputs.scope == 'release-artifacts'");
@@ -208,6 +209,10 @@ test("Production and Deep Confidence share an explicit heap within available run
   for (const [job, entrypoint] of [
     [productionJob, "production-train-artifact-admission.mjs"],
     [diagnosticJob, "production-artifact-check.mjs"],
+    [
+      diagnostic.jobs.validate_release_source,
+      "production-train-admission-handoff.mjs",
+    ],
   ]) {
     const step = job.steps.find((item) => item.run?.includes(entrypoint));
     const workflowEnv = { ...job.env, ...step.env };
@@ -256,4 +261,75 @@ test("Production and Deep Confidence share an explicit heap within available run
     )
   );
   assert.ok(heapLimit >= 4096 * 1024 ** 2 && heapLimit < 5 * 1024 ** 3);
+});
+
+test("handoff acceptance uses separate clean jobs and the production artifact transport with no mutation credentials", () => {
+  const diagnostic = workflow("workflows/deep-confidence.yml");
+  const production = workflow("workflows/release-on-main.yml");
+  const parent = diagnostic.jobs.validate_release_source;
+  const child = diagnostic.jobs.verify_web_admission;
+  assert.deepEqual(diagnostic.permissions, { contents: "read" });
+  assert.equal(child.needs, "validate_release_source");
+  for (const job of [parent, child]) {
+    assert.equal(job.if, "inputs.scope == 'artifact-handoff'");
+    assert.equal(job["runs-on"], "ubuntu-latest");
+    assert.equal(job.environment, undefined);
+    assert.equal(job.permissions, undefined);
+    assert.equal(JSON.stringify(job).includes("secrets."), false);
+    const checkouts = job.steps.filter(
+      (step) => step.uses === "actions/checkout@v5"
+    );
+    assert.deepEqual(
+      checkouts.map((step) => step.with.path),
+      ["release-control", "release-source"]
+    );
+    for (const step of checkouts) {
+      assert.equal(step.with.ref, expression("github.sha"));
+      assert.equal(step.with["persist-credentials"], false);
+    }
+  }
+  const upload = parent.steps.find((step) => step.id === "snapshot");
+  const productionUpload = production.jobs.validate_release_source.steps.find(
+    (step) => step.id === "web_artifact"
+  );
+  assert.equal(upload.uses, productionUpload.uses);
+  assert.equal(upload.with.path, productionUpload.with.path);
+  assert.equal(upload.with["include-hidden-files"], true);
+  assert.equal(upload.with["if-no-files-found"], "error");
+  assert.equal(
+    parent.outputs.parent_admission_evidence,
+    expression("steps.admission.outputs.parent_admission_evidence")
+  );
+  assert.equal(
+    parent.outputs.parent_web_artifact_id,
+    expression("steps.snapshot.outputs.artifact-id")
+  );
+  const download = child.steps.find(
+    (step) => step.uses === "actions/download-artifact@v4"
+  );
+  assert.deepEqual(download.with, {
+    "artifact-ids": expression(
+      "needs.validate_release_source.outputs.parent_web_artifact_id"
+    ),
+    "merge-multiple": true,
+    path: "release-source/dev-tmp/release-artifact-check",
+  });
+  const issue = parent.steps.find((step) => step.id === "admission");
+  const verify = child.steps.find((step) =>
+    step.run?.endsWith("production-train-admission-handoff.mjs verify")
+  );
+  assert.equal(
+    issue.run,
+    "node ../release-control/scripts/release/production-train-admission-handoff.mjs issue"
+  );
+  assert.equal(
+    verify.env.OPENMELD_PARENT_TRAIN_ADMISSION,
+    expression(
+      "needs.validate_release_source.outputs.parent_admission_evidence"
+    )
+  );
+  assert.equal(
+    verify.env.OPENMELD_PARENT_WEB_ARTIFACT_ID,
+    download.with["artifact-ids"]
+  );
 });

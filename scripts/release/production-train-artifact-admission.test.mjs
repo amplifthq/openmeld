@@ -196,6 +196,27 @@ test("the CLI admits an explicit selected scope at the checked-out source", () =
 });
 
 async function coordinatedFixture() {
+  // These fixtures hash tiny synthetic artifacts; CI's own Node heap is not a
+  // renderer budget. Isolate both process.env consumers and spawned commands.
+  const resourceEnv = {
+    NODE_OPTIONS: "--max-old-space-size=512",
+    OPENMELD_RENDERER_NODE_HEAP_MB: "512",
+    OPENMELD_LOCAL_HEAVY_GIB: "1.5",
+    OPENMELD_LOCAL_MEMORY_HEADROOM_GIB: "1",
+  };
+  const previousEnv = Object.fromEntries(
+    Object.keys(resourceEnv).map((key) => [key, process.env[key]])
+  );
+  after(() => {
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        Reflect.deleteProperty(process.env, key);
+      } else {
+        process.env[key] = value;
+      }
+    }
+  });
+  Object.assign(process.env, resourceEnv);
   const root = await mkdtemp(path.join(tmpdir(), "train-admission-"));
   after(() => rm(root, { recursive: true, force: true }));
   const git = (...args) =>

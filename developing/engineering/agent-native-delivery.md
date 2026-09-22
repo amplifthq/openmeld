@@ -137,6 +137,24 @@ Workerd SSR entrypoints, and retains their source/input/output receipts. It
 uses read-only repository access and no production credentials. Match the run's
 head SHA to the candidate; these checks do not replace FC or deployed smoke.
 
+For same-run Web artifact handoff acceptance, use the read-only two-job mode:
+
+```sh
+gh workflow run deep-confidence.yml --ref <candidate-branch> -f scope=artifact-handoff
+```
+
+The parent builds and checks a real Web artifact with Workerd SSR. A separate
+runner downloads the immutable snapshot, verifies/restores it, and repeats the
+artifact preflight with `reused: true` and an unchanged output hash. It also
+requires rejection of a wrong-source receipt, corrupted receipt/snapshot, and
+diagnostic evidence presented to the Production verifier. The harness binds
+its actual Deep Confidence identity through the admission test adapter; it
+does not impersonate or widen Production's main-only workflow identity.
+Both jobs retain JSON evidence and use read-only repository access, disposable
+OpenMeld state, and no Production environment, credentials, deploy or publisher.
+This proves that transport and reuse path, not production rollout duration,
+component deployment, CLI/Desktop publication, or Product Smoke.
+
 Trusted control installs only the shared evidence parser's production
 dependencies. The result publisher does not restore the full development store;
 restoring that cache costs more than installing its small runtime. Candidate
