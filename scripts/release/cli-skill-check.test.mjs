@@ -6,7 +6,9 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,6 +24,7 @@ const REPOSITORY_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const SOURCE = "release/openmeld-cli-skill";
 const PUBLIC = "clients/web/public/skills/openmeld-cli";
 const VERIFICATION_FAILURE = /CLI Skill verification failed/u;
+const PROBE_FAILURE = /verifier ran and rejected content/u;
 const CHECK_PASSED = /check passed/u;
 const CONTENT_FAILURE =
   /Published revisions are immutable|Published Skill signature is invalid|Generated Skill file differs/u;
@@ -64,7 +67,9 @@ test("propagates verifier failures without launching a package manager", () => {
 });
 
 test("the real wrapper keeps control and source separate with no pnpm on PATH", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "openmeld skill process "));
+  const root = realpathSync(
+    mkdtempSync(path.join(tmpdir(), "openmeld skill process "))
+  );
   try {
     const control = path.join(root, "control with spaces");
     const source = path.join(root, "source with spaces");
@@ -92,6 +97,32 @@ test("the real wrapper keeps control and source separate with no pnpm on PATH", 
     const result = runWrapper(source, wrapper);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout, "exact historical product\n");
+    writeFixtureFile(
+      control,
+      "scripts/release/cli-skill.mjs",
+      'throw new Error("verifier ran and rejected content");\n'
+    );
+    const linkedControl = path.join(root, "linked control");
+    // Directory junctions exercise the same entry-path mismatch on Windows
+    // without requiring permission to create file symlinks.
+    symlinkSync(
+      control,
+      linkedControl,
+      process.platform === "win32" ? "junction" : "dir"
+    );
+    for (const entry of [
+      wrapper,
+      path.join(linkedControl, "scripts/release/cli-skill-check.mjs"),
+    ]) {
+      const rejected = runWrapper(source, entry);
+      assert.notEqual(
+        rejected.status,
+        0,
+        `Verifier must reject through ${entry}`
+      );
+      assert.match(rejected.stderr, PROBE_FAILURE);
+      assert.match(rejected.stderr, VERIFICATION_FAILURE);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
