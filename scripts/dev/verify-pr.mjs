@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { isWorkerZodImportCheckPath } from "../cloudflare/worker-zod-import-contract.mjs";
 import { isCliSkillCheckPath } from "../release/cli-skill-check.mjs";
 
 const DOCUMENTATION_PATH =
@@ -34,6 +35,9 @@ export function resolveUnitTestScript(
 
 export function planPrChecks(paths, options = {}) {
   const commands = [];
+  if (paths.some(isWorkerZodImportCheckPath)) {
+    commands.push(["run", "verify:worker-zod-imports"]);
+  }
   if (paths.some(isCliSkillCheckPath)) {
     commands.push(["run", "verify:cli-skill"]);
   }

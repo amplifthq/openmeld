@@ -534,7 +534,10 @@ the optional RPC is unavailable. Older Core does not call the new receiver.
 Rollback Web/Core before removing the receiver. No public HTTP, WebSocket,
 native delivery, CLI, Service, or Skill payload changes; old and new clients
 retain setup, Wake, Space actions, and diagnostics interoperability. No database
-migration, contract epoch, local component stamp, or new binding is required.
+migration, contract epoch, or new binding is required. Packaged shared-input
+changes still follow the base-aware local-component stamp and publication rules
+in [Production Release](../engineering/production-release.md); an unchanged
+wire contract does not exempt changed bundle inputs from release readiness.
 
 ## Hosted reply recovery rollout
 
