@@ -3,6 +3,7 @@ import {
   buildCenterAgentOrganizationMemoryRef,
   CENTER_AGENT_ORGANIZATION_MEMORY_DEFAULT_ENABLED,
   type CenterAgentMemoryPolicy,
+  type CenterAgentMemoryReadRepository,
   type CenterAgentMemoryRepository,
 } from "./contract";
 
@@ -13,8 +14,51 @@ type MemoryPolicyRow = {
 
 export function createD1CenterAgentMemoryRepository(
   db: D1Database
-): CenterAgentMemoryRepository {
+): CenterAgentMemoryRepository & CenterAgentMemoryReadRepository {
   return {
+    async readActiveSubjects(input) {
+      const policy = await this.readPolicy(input.organizationId);
+      const member = buildCenterAgentMemberMemoryRef({
+        organizationId: input.organizationId,
+        memberId: input.speakerMember.memberId,
+        userId: input.speakerMember.userId,
+      });
+      const organization = buildCenterAgentOrganizationMemoryRef(input);
+      const rows = await db
+        .prepare(`
+        SELECT subject_id, zep_user_id, zep_graph_id, updated_at_ms
+        FROM center_agent_memory_subjects
+        WHERE organization_id = ? AND provider = 'zep_cloud' AND status = 'active'
+          AND deleted_at_ms IS NULL
+          AND ((subject_kind = 'member' AND member_id = ? AND member_user_id = ?)
+            OR (subject_kind = 'organization' AND ? = 1))
+        LIMIT 2
+      `)
+        .bind(
+          input.organizationId,
+          input.speakerMember.memberId,
+          input.speakerMember.userId,
+          policy.organizationMemoryOptIn ? 1 : 0
+        )
+        .all<{
+          subject_id: string;
+          zep_user_id: string | null;
+          zep_graph_id: string | null;
+          updated_at_ms: number;
+        }>();
+      // Use existing active subjects only. A read never creates/revives a graph
+      // or trusts a provider selector that differs from its canonical owner.
+      return [member, organization].flatMap((ref) => {
+        const row = rows.results.find(
+          (row) =>
+            row.subject_id === ref.subjectId &&
+            row.zep_user_id === (ref.zepUserId ?? null) &&
+            row.zep_graph_id === (ref.zepGraphId ?? null)
+        );
+        return row ? [{ ...ref, updatedAtMs: row.updated_at_ms }] : [];
+      });
+    },
+
     async markMemberDeleted(input) {
       const result = await db
         .prepare(

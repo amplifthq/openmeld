@@ -4,6 +4,7 @@ declare module "cloudflare:test" {
     OPENMELD_LARK_CHANNEL_CONNECTOR: DurableObjectNamespace<
       import("../src/remote-agent/transport/lark/lark-channel-connector").LarkChannelConnector
     >;
+    OPENMELD_SPACE_ATTACHMENTS: R2Bucket;
     OPENMELD_ORGANIZATION_SKILLS: R2Bucket;
     OPENMELD_SPACES: unknown;
     TEST_MIGRATIONS: D1Migration[];

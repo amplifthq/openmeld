@@ -447,8 +447,10 @@ must not be presented as a successful rollback.
 The legacy Overview and Changes surfaces continue to consume the bounded
 Activity snapshot contract.
 
-Web, CLI, and the Center Agent consume one Core-owned snapshot contract for
-that historical presence view.
+Web and CLI consume the existing Core-owned bounded snapshot contract for
+that presence view. The Center Agent's private tool consumes a smaller
+projection of the same authorized snapshot; it does not replace the Web/CLI
+contract or create a second Activity owner.
 Snapshots are Organization-scoped and may filter by Project, member, provider,
 and status. They return an explicit `asOfMs`, staleness, active sessions,
 recent evidence, Projects, and digests.
@@ -473,6 +475,22 @@ ordinary-member public snapshot without first linking an OpenMeld account. The
 snapshot already excludes paths, prompts, transcripts, and private provider
 metadata. The tool cannot mutate Projects, stop sessions, claim work, Wake an
 agent, or write Space content.
+
+`openmeld_read_agent_activity` returns the private bounded overview: at most
+12 Project summaries, 16 sessions, eight digests, and 16 recent events, with a
+32 KiB structured JSON budget before the runtime's 128 KiB result boundary.
+Presentation text may be shortened, but identifiers, citations, and source
+timestamps are not shortened. Whole records may be omitted; coverage reports
+which source caps were reached and how many records were removed from the
+already bounded snapshot. These are not Organization-wide totals. Provider
+metadata is excluded. Member/provider/status filters explicitly exclude digests
+that cannot be attributed to those filters.
+
+Use `openmeld_list_agent_activity_sessions` for further current sessions with
+its own authorized filters and opaque cursor. It is a live Session Inventory,
+not a continuation of overview digests/events or a frozen historical snapshot.
+Never increase the global result limit, truncate serialized JSON, reconstruct
+usage totals from this sample, or treat no rows as proof of no activity.
 
 The Center Agent's existing operational record is named **Audit Log**. Do not
 reuse `Activity` for audit journal entries.

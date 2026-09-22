@@ -85,6 +85,7 @@ it.skipIf(process.platform !== "darwin")(
         id: "report",
         kind: "file",
         name: "report.txt",
+        origin: "artifact",
         path: "/report.txt",
         spaceId: identity.space,
         parentId: null,

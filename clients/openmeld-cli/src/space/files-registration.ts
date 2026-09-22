@@ -163,6 +163,11 @@ export function registerSpaceFilesCommands(spaceCommand: Command): void {
         .argument("<space>", "Space ID (64-character hex)")
         .option("--folder <folder-id>", "Folder ID, or root", "root")
         .option("--trash", "List items in Trash", false)
+        .option(
+          "--all",
+          "Also include files shared as chat uploads, not just artifacts",
+          false
+        )
     )
   ).action(async (space, opts, command: Command) => {
     await runFilesCommand(command, opts, "list", async (common) => {
@@ -171,6 +176,7 @@ export function registerSpaceFilesCommands(spaceCommand: Command): void {
         space: String(space).trim(),
         folder: opts.folder,
         trash: opts.trash === true,
+        all: opts.all === true,
       });
     });
   });

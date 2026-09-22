@@ -44,7 +44,6 @@ import {
   CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES,
   CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
   CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT,
-  CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   canonicalizeAgentControllerRef,
   centerAgentAddAgentProfilesToSpaceBodySchema,
   centerAgentAddAgentProfilesToSpaceResponseSchema,
@@ -83,6 +82,7 @@ import {
   centerAgentPostSlackThreadMessageBodySchema,
   centerAgentPostSpaceMessageBodySchema,
   centerAgentPostSpaceMessageResponseSchema,
+  centerAgentReadAuditJournalRpcInputSchema,
   centerAgentReadConnectorActionOperationBodySchema,
   centerAgentReadConnectorActionOperationResponseSchema,
   centerAgentReadDispatchHistoryBodySchema,
@@ -406,6 +406,7 @@ import type {
   CenterAgentPostSpaceMessageBody,
   CenterAgentPostSpaceMessageResponse,
   CenterAgentReadAgentActivityToolRpcInput,
+  CenterAgentReadAuditJournalRpcInput,
   CenterAgentReadChangelogToolRpcInput,
   CenterAgentReadConnectorActionOperationBody,
   CenterAgentReadConnectorActionOperationResponse,
@@ -804,6 +805,7 @@ import {
   type CenterAgentOrganizationMember,
   prepareCenterAgentOrganizationMemberRequest,
 } from "../center-agent/application/anonymous-member-request";
+import { projectCenterAgentAuditJournalEvidence } from "../center-agent/application/audit-journal-evidence";
 import {
   areCenterAgentContextLoadSelectionsEqual,
   CenterAgentContextLoadReceiptError,
@@ -982,6 +984,7 @@ import {
   projectionsDb,
   wakeEvidenceDb,
 } from "../lib/bindings";
+import { resolveCoreRuntimeContractRollout } from "../local-components/runtime-contract-rollout";
 import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
 import {
   rpcCenterAgentListOpportunities as centerAgentListOpportunities,
@@ -11401,6 +11404,35 @@ function centerAgentAuditProjectionOptions(
   };
 }
 
+export async function rpcCenterAgentReadAuditJournal(
+  env: CoreBindings,
+  input: CenterAgentReadAuditJournalRpcInput
+) {
+  const parsed = centerAgentReadAuditJournalRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: "A verified member audit read request is required.",
+      status: 400,
+    });
+  }
+  const prepared = await prepareCenterAgentRepresentedMemberRequest(
+    env,
+    parsed.data.context,
+    parsed.data.speakerMember
+  );
+  const journal = await readCenterAgentAuditJournalForOrganization(
+    env,
+    parsed.data,
+    prepared.authorization.activeOrganization.organizationId
+  );
+  return await projectCenterAgentAuditJournalEvidence({
+    env,
+    journal,
+    prepared,
+  });
+}
+
 export async function rpcListCenterAgentAuditJournal(
   env: CoreBindings,
   input: ListCenterAgentAuditJournalInput
@@ -11410,6 +11442,19 @@ export async function rpcListCenterAgentAuditJournal(
     context,
     env,
   });
+  return await readCenterAgentAuditJournalForOrganization(
+    env,
+    input,
+    activeOrganization.organizationId
+  );
+}
+
+async function readCenterAgentAuditJournalForOrganization(
+  env: CoreBindings,
+  input: ListCenterAgentAuditJournalQuery,
+  organizationId: string
+): Promise<ListCenterAgentAuditJournalResponse> {
+  const activeOrganization = { organizationId };
   const parsed = listCenterAgentAuditJournalQuerySchema.safeParse({
     ...(input.actionSet === undefined ? {} : { actionSet: input.actionSet }),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
@@ -12228,6 +12273,7 @@ export async function rpcCenterAgentCheckAgentProfileReadiness(
   });
   const parsed = centerAgentCheckAgentProfileReadinessBodySchema.safeParse({
     agentProfileId: input.agentProfileId,
+    onBehalfOf: input.onBehalfOf,
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -12240,7 +12286,14 @@ export async function rpcCenterAgentCheckAgentProfileReadiness(
   }
   const response = await checkAgentProfileReadinessOperation({
     agentProfileId: parsed.data.agentProfileId,
-    deps: buildCenterAgentProductOperationDeps(env, authorization),
+    deps: buildCenterAgentProductOperationDeps(
+      env,
+      authorization,
+      await resolveCenterAgentProductOperationOwner(
+        authorization,
+        parsed.data.onBehalfOf
+      )
+    ),
   });
   const validated =
     centerAgentCheckAgentProfileReadinessResponseSchema.safeParse(response);
@@ -14500,6 +14553,7 @@ export async function rpcCenterAgentListSpaceFiles(
       query: {
         parentId: request.parentId ?? null,
         view: request.view ?? "active",
+        origin: request.origin ?? "artifact",
       },
       spaceId: request.spaceId,
     })
@@ -14629,6 +14683,7 @@ export async function rpcCenterAgentSaveSpaceFile(
       ? {
           name: request.name,
           parentId: request.parentId ?? null,
+          origin: "artifact",
         }
       : {}),
     revisionId,
@@ -20230,6 +20285,7 @@ export async function rpcPublishSpaceComposerUpload(
       fileId,
       mimeType: staged.descriptor.mimeType,
       name: staged.descriptor.name,
+      origin: "chat_upload",
       parentId: null,
       revisionId,
       sizeBytes: staged.descriptor.sizeBytes,
@@ -24610,7 +24666,7 @@ export function projectTeamSafeOrganizationDirectoryReadiness(
         },
         service: {
           executionCompatible: false,
-          expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+          expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
           observedEpoch: null,
           reasonCodes: [],
           source: "not_checked",

@@ -11,6 +11,7 @@ import {
 import { dirname, join } from "node:path";
 import { desktopAuthIdentity } from "../../packages/schemas/src/desktop-auth-identity.ts";
 import { desktopDevelopmentContextSchema } from "../../packages/schemas/src/desktop-development.ts";
+import { desktopAppName } from "../desktop/app-name.ts";
 import { desktopWebBuildIdentity } from "../desktop/web-build-identity.mjs";
 import { runOwnedCommand } from "./owned-command.mjs";
 
@@ -26,7 +27,7 @@ export function desktopDevelopmentPlan(lane, launch, arch = process.arch) {
     gatewayOrigin: launch.env.OPENMELD_GATEWAY_URL,
   });
   const identity = desktopAuthIdentity(false, undefined, context.webOrigin);
-  const name = `OpenMeld Dev ${lane.laneId}`;
+  const name = desktopAppName(identity.authScheme);
   const appPath = join(
     lane.repoRoot,
     "clients/desktop/dist/development",
@@ -181,11 +182,13 @@ export function verifyDesktopBundle(plan) {
     [];
   if (
     info.CFBundleIdentifier !== plan.identity.authScheme ||
+    info.CFBundleName !== desktopAppName(plan.identity.authScheme) ||
+    info.CFBundleDisplayName !== desktopAppName(plan.identity.authScheme) ||
     !schemes.includes(plan.identity.authScheme) ||
     !existsSync(plan.executable)
   ) {
     throw new Error(
-      "Development bundle does not declare this worktree's exact callback identity."
+      "Development bundle does not declare this worktree's exact callback identity and application name."
     );
   }
   execFileSync("codesign", ["--verify", "--deep", "--strict", plan.appPath], {

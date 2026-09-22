@@ -376,6 +376,9 @@ const createSystemWakePublishingHarness = (input: {
       if (query.includes("FROM space_cursors")) {
         return { toArray: () => [] };
       }
+      if (query.includes("FROM space_file_pins")) {
+        return [];
+      }
       if (query.includes("SELECT signal_id")) {
         const key = `${String(params[0])}:${String(params[1])}`;
         return {
@@ -459,6 +462,14 @@ const createSystemWakePublishingHarness = (input: {
   const broadcastSignal = vi.fn();
   const flushPendingDispatchOutbox = vi.fn(async () => undefined);
   const waitUntil = vi.fn();
+  const identityDb = {
+    prepare: vi.fn(() => ({
+      bind: vi.fn(() => ({
+        first: vi.fn(async () => null),
+      })),
+    })),
+  } as unknown as D1Database;
+  const bindings = { OPENMELD_DB: identityDb } as CoreBindings;
   const space = Object.create(Space.prototype) as {
     publishTextSignal: (
       signal: SignalEnvelope,
@@ -469,7 +480,7 @@ const createSystemWakePublishingHarness = (input: {
     ) => Promise<void>;
   };
   Object.defineProperties(space, {
-    bindings: { value: {} },
+    bindings: { value: bindings },
     broadcastSignal: { value: broadcastSignal },
     ctx: {
       value: {
@@ -481,6 +492,7 @@ const createSystemWakePublishingHarness = (input: {
       },
     },
     durableObjectId: { value: spaceId },
+    env: { value: bindings },
     flushPendingDispatchOutbox: { value: flushPendingDispatchOutbox },
     lastPostCleanupAtMs: { value: 0, writable: true },
     lastRetentionWarningAtMs: { value: 0, writable: true },
@@ -550,7 +562,10 @@ const buildWakeProgressItemFromLookupTrace = async (
     readWakeProgressPreAgentWakeStopEligibility: () => Promise<WakeStopEligibilityReadModel | null>;
     readWakeProgressRuntimeDeviceDisplayName: () => Promise<string | null>;
   };
+  const bindings = {} as CoreBindings;
   Object.defineProperties(space, {
+    bindings: { value: bindings },
+    env: { value: bindings },
     readSpaceDispatchTrace: {
       value: vi.fn(async () => ({ trace })),
     },
@@ -4577,7 +4592,7 @@ describe("space signal service", () => {
     });
   });
 
-  it("keeps RuntimeCoordinator running Wake progress fresh when legacy dispatch evidence is stale", async () => {
+  it("keeps RuntimeCoordinator running Wake progress fresh and omits an unproven start time", async () => {
     const runtimeCoordinatorUpdatedAtMs = Date.parse(
       "2026-03-04T00:21:00.000Z"
     );
@@ -4631,10 +4646,10 @@ describe("space signal service", () => {
       failureReasonCode: null,
       message: "@Codex Agent is working on this computer...",
       phase: "running",
-      startedAtMs: Date.parse("2026-03-04T00:00:00.000Z"),
       terminal: false,
       updatedAtMs: runtimeCoordinatorEventObservedAtMs,
     });
+    expect(item).not.toHaveProperty("startedAtMs");
   });
 
   it("only projects the conversation occupancy wait reason when the caller opts in", async () => {

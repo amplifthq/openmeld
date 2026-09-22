@@ -60,11 +60,22 @@
       "id": "antigravity",
       "displayName": "Antigravity",
       "category": "builtin",
-      "skillsDir": ".agent/skills",
-      "globalSkillsDir": "${HOME}/.gemini/antigravity/skills",
+      "skillsDir": ".agents/skills",
+      "globalSkillsDir": [
+        "${HOME}/.gemini/antigravity-cli/skills",
+        "${HOME}/.gemini/antigravity/skills"
+      ],
       "detection": {
         "mode": "any",
         "checks": [
+          {
+            "kind": "commandExists",
+            "value": "agy"
+          },
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.gemini/antigravity-cli"
+          },
           {
             "kind": "pathExists",
             "value": "${HOME}/.gemini/antigravity"
@@ -75,9 +86,33 @@
         "skillsInstallable": true
       },
       "runtime": {
-        "supported": false,
-        "adapters": []
-      }
+        "supported": true,
+        "adapters": [
+          {
+            "adapterId": "antigravity",
+            "controllerRefMatcher": {
+              "kind": "contains",
+              "values": ["antigravity"]
+            },
+            "transportModes": ["local-cli"],
+            "capabilityDeclaration": {
+              "executionContextVersion": 2,
+              "streamingCapability": "preview_capable",
+              "imageInputCapability": "unsupported",
+              "runtimeWorkingDirectoryMode": "spawn_cwd",
+              "preparationRequirement": "none",
+              "continuationCapability": "standard",
+              "workspaceResumeBehavior": "validate_only"
+            }
+          }
+        ]
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "transportModes": ["local-cli"],
+      "defaultTransportMode": "local-cli",
+      "defaultStreamingMode": "stream"
     },
     {
       "id": "augment",

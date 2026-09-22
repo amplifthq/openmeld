@@ -40,13 +40,16 @@ const isRuntimeTransportSessionFresh = (
   nowMs: number
 ): boolean => nowMs - session.lastHeartbeatMs <= LEASE_TTL_MS;
 
-const isRuntimeTransportSessionExplicitlyStopped = (
+/** Computer connectivity is lease evidence, independent of delivery or execution readiness. */
+export const isRuntimeTransportSessionOnline = (
   session: Pick<
     RuntimeTransportSessionState,
-    "acceptingDispatches" | "stopCause"
-  >
+    "lastHeartbeatMs" | "acceptingDispatches" | "stopCause"
+  >,
+  nowMs: number
 ): boolean =>
-  session.acceptingDispatches === false && session.stopCause === "user_stop";
+  isRuntimeTransportSessionFresh(session, nowMs) &&
+  !(session.acceptingDispatches === false && session.stopCause === "user_stop");
 
 export const compareRuntimeTransportSessionsByFreshness = (
   left: RuntimeTransportSessionState,
@@ -843,8 +846,7 @@ export const lookupOwnerService = (
     .filter(
       (session) =>
         session.ownerUserId === request.ownerUserId &&
-        isRuntimeTransportSessionFresh(session, nowMs) &&
-        !isRuntimeTransportSessionExplicitlyStopped(session)
+        isRuntimeTransportSessionOnline(session, nowMs)
     )
     .sort(compareRuntimeTransportSessionsByFreshness)
     .map((session) => ({

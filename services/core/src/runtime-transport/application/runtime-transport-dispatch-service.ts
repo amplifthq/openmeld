@@ -4,6 +4,7 @@ import type {
   DaemonExecutionCompatibility,
   OpenMeldDaemonTaskResultEnvelope,
   OpenMeldRequestContext,
+  RuntimeCoordinatorDeliveryRouteEvidence,
   RuntimeCoordinatorFinalizationCommand,
   RuntimeCoordinatorFinalizationOutcome,
   RuntimeTransportDeliverDispatchRequest,
@@ -49,6 +50,12 @@ type DispatchServiceDependencies = {
   onAcceptedDeliverySent?: (
     request: RuntimeTransportDeliverDispatchRequest
   ) => void;
+  onDeliveryRouteAssessed?: (input: {
+    evidence: RuntimeCoordinatorDeliveryRouteEvidence;
+    observedAtMs: number;
+    request: RuntimeTransportDeliverDispatchRequest;
+    response: RuntimeTransportDeliverDispatchResponse;
+  }) => void;
   sendFrame: (
     socket: WebSocket,
     input: {
@@ -217,20 +224,30 @@ export const deliverDispatch = async (
   deps.reapExpiredLeases(nowMs);
 
   if (state.ownerUserId && state.ownerUserId !== request.ownerUserId) {
-    return {
-      accepted: false,
-      status: "rejected",
-      reasonCode: "daemon.session.reject_conflict",
-    };
+    return returnDeliveryDecision({
+      deps,
+      request,
+      state,
+      response: {
+        accepted: false,
+        status: "rejected",
+        reasonCode: "daemon.session.reject_conflict",
+      },
+    });
   }
 
   const lease = state.profileLeasesByProfileId.get(request.profileId);
   if (!lease) {
-    return {
-      accepted: false,
-      status: "rejected",
-      reasonCode: "daemon.profile.offline",
-    };
+    return returnDeliveryDecision({
+      deps,
+      request,
+      state,
+      response: {
+        accepted: false,
+        status: "rejected",
+        reasonCode: "daemon.profile.offline",
+      },
+    });
   }
 
   const leaseMatched = isLeaseMatch({
@@ -240,11 +257,16 @@ export const deliverDispatch = async (
     actualLeaseEpoch: request.leaseEpoch,
   });
   if (!leaseMatched) {
-    return {
-      accepted: false,
-      status: "rejected",
-      reasonCode: "daemon.session.stale_lease",
-    };
+    return returnDeliveryDecision({
+      deps,
+      request,
+      state,
+      response: {
+        accepted: false,
+        status: "rejected",
+        reasonCode: "daemon.session.stale_lease",
+      },
+    });
   }
 
   const leaseCompatibilityRejection = rejectIncompatibleDaemonExecution({
@@ -253,7 +275,12 @@ export const deliverDispatch = async (
     source: "lease",
   });
   if (leaseCompatibilityRejection) {
-    return leaseCompatibilityRejection;
+    return returnDeliveryDecision({
+      deps,
+      request,
+      response: leaseCompatibilityRejection,
+      state,
+    });
   }
 
   const existingPending = state.pendingDispatches.get(dispatchAttemptKey);
@@ -272,11 +299,16 @@ export const deliverDispatch = async (
       connectionGeneration: request.connectionGeneration,
       leaseEpoch: request.leaseEpoch,
     });
-    return {
-      accepted: true,
-      status: "already_pending",
-      existingAttemptId: existingPending.attemptId,
-    };
+    return returnDeliveryDecision({
+      deps,
+      request,
+      state,
+      response: {
+        accepted: true,
+        status: "already_pending",
+        existingAttemptId: existingPending.attemptId,
+      },
+    });
   }
 
   const pendingSameDispatchTask = findPendingDispatchForSameDispatchTask(
@@ -292,11 +324,16 @@ export const deliverDispatch = async (
       leaseEpoch: request.leaseEpoch,
       pendingAttemptId: pendingSameDispatchTask.attemptId,
     });
-    return {
-      accepted: true,
-      status: "already_pending",
-      existingAttemptId: pendingSameDispatchTask.attemptId,
-    };
+    return returnDeliveryDecision({
+      deps,
+      request,
+      state,
+      response: {
+        accepted: true,
+        status: "already_pending",
+        existingAttemptId: pendingSameDispatchTask.attemptId,
+      },
+    });
   }
 
   const existingCompleted = findCompletedDispatchResultByDispatchTask(
@@ -318,27 +355,42 @@ export const deliverDispatch = async (
         completedReceivedAtMs: existingCompleted.receivedAtMs,
       }
     );
-    return {
-      accepted: true,
-      status: "already_completed",
-      completedAttemptId: existingCompleted.attemptId,
-    };
+    return returnDeliveryDecision({
+      deps,
+      request,
+      state,
+      response: {
+        accepted: true,
+        status: "already_completed",
+        completedAttemptId: existingCompleted.attemptId,
+      },
+    });
   }
 
   const session = state.sessionsById.get(request.daemonSessionId);
   if (!session?.socket) {
-    return {
-      accepted: false,
-      status: "rejected",
-      reasonCode: "daemon.profile.offline",
-    };
+    return returnDeliveryDecision({
+      deps,
+      request,
+      state,
+      response: {
+        accepted: false,
+        status: "rejected",
+        reasonCode: "daemon.profile.offline",
+      },
+    });
   }
   if (session.connectionGeneration !== request.connectionGeneration) {
-    return {
-      accepted: false,
-      status: "rejected",
-      reasonCode: "daemon.session.connection_replaced",
-    };
+    return returnDeliveryDecision({
+      deps,
+      request,
+      state,
+      response: {
+        accepted: false,
+        status: "rejected",
+        reasonCode: "daemon.session.connection_replaced",
+      },
+    });
   }
 
   const sessionCompatibilityRejection = rejectIncompatibleDaemonExecution({
@@ -347,7 +399,12 @@ export const deliverDispatch = async (
     source: "session",
   });
   if (sessionCompatibilityRejection) {
-    return sessionCompatibilityRejection;
+    return returnDeliveryDecision({
+      deps,
+      request,
+      response: sessionCompatibilityRejection,
+      state,
+    });
   }
 
   // Delivery preparation contains asynchronous fences. Serialize the whole
@@ -359,24 +416,57 @@ export const deliverDispatch = async (
   const inFlightKey = buildInFlightDispatchDeliveryKey(request);
   const existingInFlight = state.inFlightDispatchDeliveries.get(inFlightKey);
   if (existingInFlight) {
-    const response = await existingInFlight.response;
-    return response.accepted
-      ? {
-          accepted: true,
-          existingAttemptId: existingInFlight.attemptId,
-          status: "already_pending",
-        }
-      : response;
+    const [response, routeWitness] = await Promise.all([
+      existingInFlight.response,
+      existingInFlight.routeWitness,
+    ]);
+    const duplicateResponse: RuntimeTransportDeliverDispatchResponse =
+      response.accepted
+        ? {
+            accepted: true,
+            existingAttemptId: existingInFlight.attemptId,
+            status: "already_pending",
+          }
+        : response;
+    deps.onDeliveryRouteAssessed?.({
+      ...routeWitness,
+      request,
+      response: duplicateResponse,
+    });
+    return duplicateResponse;
   }
 
+  let resolveRouteWitness: (witness: {
+    evidence: RuntimeCoordinatorDeliveryRouteEvidence;
+    observedAtMs: number;
+    request: RuntimeTransportDeliverDispatchRequest;
+  }) => void = () => undefined;
+  const routeWitness = new Promise<{
+    evidence: RuntimeCoordinatorDeliveryRouteEvidence;
+    observedAtMs: number;
+    request: RuntimeTransportDeliverDispatchRequest;
+  }>((resolve) => {
+    resolveRouteWitness = resolve;
+  });
   const responsePromise = finalizeDeliveryAgainstSessionBoundRequest({
-    deps,
+    deps: {
+      ...deps,
+      onDeliveryRouteAssessed: (assessment) => {
+        resolveRouteWitness({
+          evidence: assessment.evidence,
+          observedAtMs: assessment.observedAtMs,
+          request: assessment.request,
+        });
+        deps.onDeliveryRouteAssessed?.(assessment);
+      },
+    },
     nowMs,
     request,
     state,
   });
   const inFlight = {
     attemptId: request.attemptId,
+    routeWitness,
     response: responsePromise,
   };
   state.inFlightDispatchDeliveries.set(inFlightKey, inFlight);
@@ -387,6 +477,84 @@ export const deliverDispatch = async (
       state.inFlightDispatchDeliveries.delete(inFlightKey);
     }
   }
+};
+
+export const projectRuntimeTransportDeliveryRouteEvidence = (input: {
+  request: RuntimeTransportDeliverDispatchRequest;
+  state: RuntimeTransportMutableState;
+}): RuntimeCoordinatorDeliveryRouteEvidence => {
+  const lease = input.state.profileLeasesByProfileId.get(
+    input.request.profileId
+  );
+  const session = input.state.sessionsById.get(input.request.daemonSessionId);
+  let owner: RuntimeCoordinatorDeliveryRouteEvidence["owner"] = "unclaimed";
+  if (input.state.ownerUserId) {
+    owner =
+      input.state.ownerUserId === input.request.ownerUserId
+        ? "matching"
+        : "mismatched";
+  }
+  let profileLease: RuntimeCoordinatorDeliveryRouteEvidence["profileLease"] =
+    "missing";
+  if (lease) {
+    profileLease = isLeaseMatch({
+      expectedDaemonSessionId: lease.daemonSessionId,
+      expectedLeaseEpoch: lease.leaseEpoch,
+      actualDaemonSessionId: input.request.daemonSessionId,
+      actualLeaseEpoch: input.request.leaseEpoch,
+    })
+      ? "matching"
+      : "mismatched";
+  }
+  let sessionStatus: RuntimeCoordinatorDeliveryRouteEvidence["session"] =
+    "missing";
+  let acceptingDispatches: RuntimeCoordinatorDeliveryRouteEvidence["acceptingDispatches"] =
+    "unknown";
+  let profileRoute: RuntimeCoordinatorDeliveryRouteEvidence["profileRoute"] =
+    "unknown";
+  if (session) {
+    sessionStatus =
+      session.connectionGeneration === input.request.connectionGeneration
+        ? "matching"
+        : "connection_replaced";
+    acceptingDispatches =
+      session.acceptingDispatches === false ? "not_accepting" : "accepting";
+    profileRoute = session.profileIds.has(input.request.profileId)
+      ? "registered"
+      : "not_registered";
+  }
+  return {
+    owner,
+    profileLease,
+    session: sessionStatus,
+    socket: session?.socket ? "present" : "missing",
+    acceptingDispatches,
+    profileRoute,
+  };
+};
+
+const returnDeliveryDecision = (input: {
+  deps: DispatchServiceDependencies;
+  request: RuntimeTransportDeliverDispatchRequest;
+  response: RuntimeTransportDeliverDispatchResponse;
+  state: RuntimeTransportMutableState;
+  witness?: {
+    evidence: RuntimeCoordinatorDeliveryRouteEvidence;
+    observedAtMs: number;
+  };
+}): RuntimeTransportDeliverDispatchResponse => {
+  input.deps.onDeliveryRouteAssessed?.({
+    evidence:
+      input.witness?.evidence ??
+      projectRuntimeTransportDeliveryRouteEvidence({
+        request: input.request,
+        state: input.state,
+      }),
+    observedAtMs: input.witness?.observedAtMs ?? Date.now(),
+    request: input.request,
+    response: input.response,
+  });
+  return input.response;
 };
 
 const PROFILE_CONFIGURATION_CONVERGENCE_REFRESH_REASON =
@@ -479,11 +647,16 @@ const finalizeDeliveryAgainstSessionBoundRequest = async (input: {
     ? await input.deps.prepareAcceptedDelivery(sessionBoundRequest.request)
     : { ok: true as const, request: sessionBoundRequest.request };
   if (!preparedDelivery.ok) {
-    return {
-      accepted: false,
-      status: "rejected",
-      reasonCode: preparedDelivery.reasonCode,
-    };
+    return returnDeliveryDecision({
+      deps: input.deps,
+      request: sessionBoundRequest.request,
+      state: input.state,
+      response: {
+        accepted: false,
+        status: "rejected",
+        reasonCode: preparedDelivery.reasonCode,
+      },
+    });
   }
 
   const currentRoute = resolveCurrentDeliveryRouteFence({
@@ -491,16 +664,36 @@ const finalizeDeliveryAgainstSessionBoundRequest = async (input: {
     state: input.state,
   });
   if (!currentRoute.ok) {
-    return currentRoute.response;
+    return returnDeliveryDecision({
+      deps: input.deps,
+      request: preparedDelivery.request,
+      response: currentRoute.response,
+      state: input.state,
+    });
   }
   const currentSessionBoundRequest = resolveProfileConfigurationFence({
     request: preparedDelivery.request,
     session: currentRoute.session,
   });
   if (!currentSessionBoundRequest.ok) {
-    return currentSessionBoundRequest.response;
+    return returnDeliveryDecision({
+      deps: input.deps,
+      request: preparedDelivery.request,
+      response: currentSessionBoundRequest.response,
+      state: input.state,
+    });
   }
   const acceptedRequest = currentSessionBoundRequest.request;
+  // Freeze the final admission facts before socket delivery. sendFrame may
+  // synchronously replace the connection or throw, but this witness must stay
+  // bound to the decision that admitted this exact request.
+  const routeWitness = {
+    evidence: projectRuntimeTransportDeliveryRouteEvidence({
+      request: acceptedRequest,
+      state: input.state,
+    }),
+    observedAtMs: Date.now(),
+  };
 
   input.state.pendingDispatches.set(
     buildDispatchAttemptKey(
@@ -526,17 +719,29 @@ const finalizeDeliveryAgainstSessionBoundRequest = async (input: {
         acceptedRequest.attemptId
       )
     );
-    return {
-      accepted: false,
-      status: "rejected",
-      reasonCode: "daemon.profile.offline",
-    };
+    return returnDeliveryDecision({
+      deps: input.deps,
+      request: acceptedRequest,
+      state: input.state,
+      witness: routeWitness,
+      response: {
+        accepted: false,
+        status: "rejected",
+        reasonCode: "daemon.profile.offline",
+      },
+    });
   }
 
-  return {
-    accepted: true,
-    status: "delivered",
-  };
+  return returnDeliveryDecision({
+    deps: input.deps,
+    request: acceptedRequest,
+    state: input.state,
+    witness: routeWitness,
+    response: {
+      accepted: true,
+      status: "delivered",
+    },
+  });
 };
 
 const resolveCurrentDeliveryRouteFence = (input: {
@@ -705,10 +910,19 @@ const resolveSessionBoundDispatchRequestWithConvergence = async (input: {
     session: startSession,
   });
   if (!startSession || startAssessment.state !== "converging") {
-    return resolveProfileConfigurationFence({
+    const result = resolveProfileConfigurationFence({
       request: input.request,
       session: startSession,
     });
+    if (!result.ok) {
+      returnDeliveryDecision({
+        deps: input.deps,
+        request: input.request,
+        response: result.response,
+        state: input.state,
+      });
+    }
+    return result;
   }
 
   const timeoutMs =
@@ -744,6 +958,12 @@ const resolveSessionBoundDispatchRequestWithConvergence = async (input: {
       );
       // Fail fast on live transport evidence instead of waiting out the full
       // window and misreporting a dead/replaced session as not-synced.
+      returnDeliveryDecision({
+        deps: input.deps,
+        request: input.request,
+        response: nudgeFailureResponse,
+        state: input.state,
+      });
       return {
         ok: false,
         response: nudgeFailureResponse,
@@ -790,10 +1010,19 @@ const resolveSessionBoundDispatchRequestWithConvergence = async (input: {
 
   // The fence owns the final verdict and diagnostics so a timed-out wait can
   // never produce a different rejection shape than a plain not-synced check.
-  return resolveProfileConfigurationFence({
+  const result = resolveProfileConfigurationFence({
     request: input.request,
     session: input.state.sessionsById.get(input.request.daemonSessionId),
   });
+  if (!result.ok) {
+    returnDeliveryDecision({
+      deps: input.deps,
+      request: input.request,
+      response: result.response,
+      state: input.state,
+    });
+  }
+  return result;
 };
 
 const resolveProfileConfigurationFence = (input: {

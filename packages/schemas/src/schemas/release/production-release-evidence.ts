@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { cliBinaryCompressedReleaseSchema } from "../http/cli-binary-manifest.ts";
 import { productionReleaseScopeSchema } from "./production-scope-lease.ts";
 
 const workerIdentitySchema = z
@@ -103,6 +104,22 @@ export const productionWorkerDeploymentIdentitySchema = z.strictObject({
   proof: z.enum(["command-output", "cli-projection"]),
 });
 
+export const productionCliReleaseIdentitySchema = z.strictObject({
+  kind: z.literal("cli-release"),
+  version: z.string().min(1).max(200),
+  tagName: z.string().min(1).max(200),
+  npmPackage: z.literal("openmeld"),
+  artifact: cliBinaryCompressedReleaseSchema.extend({
+    platform: z.string().min(1).max(100),
+  }),
+});
+
+const productionAppliedIdentitySchema = z.union([
+  productionWorkerDeploymentIdentitySchema,
+  productionCliReleaseIdentitySchema,
+  z.strictObject({ kind: z.literal("release-source") }),
+]);
+
 export const correlatedComponentReceiptSchema = z
   .strictObject({
     attemptId: z.uuid(),
@@ -111,12 +128,7 @@ export const correlatedComponentReceiptSchema = z
     startedAt: z.iso.datetime(),
     status: z.enum(["started", "applied", "verified", "failed"]),
     application: z.enum(["unknown", "applied"]),
-    identity: z
-      .union([
-        productionWorkerDeploymentIdentitySchema,
-        z.strictObject({ kind: z.literal("release-source") }),
-      ])
-      .optional(),
+    identity: productionAppliedIdentitySchema.optional(),
   })
   .superRefine((receipt, context) => {
     if (

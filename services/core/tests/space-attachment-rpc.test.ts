@@ -16,6 +16,9 @@ import {
 const coreEnv = env as unknown as CoreBindings;
 const UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MEMBERSHIP_REQUIRED_RPC_ERROR_PATTERN =
+  /HTTP 403.*space\.membership_required/;
+const SPACE_FORBIDDEN_RPC_ERROR_PATTERN = /HTTP 403.*space\.forbidden/;
 
 describe("Space attachment Core RPC", () => {
   it("records and resolves an attachment for an active Space member", async () => {
@@ -62,12 +65,18 @@ describe("Space attachment Core RPC", () => {
     const nonMemberContext = await addOrganizationMember({
       organizationId: fixture.organizationId,
     });
-    const spaceIds = [
-      await createPublicSpace(fixture.memberContext),
-      await createProtectedSpace(fixture.memberContext),
+    const spaces = [
+      {
+        errorPattern: MEMBERSHIP_REQUIRED_RPC_ERROR_PATTERN,
+        spaceId: await createPublicSpace(fixture.memberContext),
+      },
+      {
+        errorPattern: SPACE_FORBIDDEN_RPC_ERROR_PATTERN,
+        spaceId: await createProtectedSpace(fixture.memberContext),
+      },
     ];
 
-    for (const spaceId of spaceIds) {
+    for (const { errorPattern, spaceId } of spaces) {
       await expect(
         rpcRecordSpaceAttachment(coreEnv, {
           context: nonMemberContext,
@@ -75,10 +84,7 @@ describe("Space attachment Core RPC", () => {
           sizeBytes: 3,
           spaceId,
         })
-      ).rejects.toMatchObject({
-        code: "space.forbidden",
-        status: 403,
-      });
+      ).rejects.toThrow(errorPattern);
     }
   });
 

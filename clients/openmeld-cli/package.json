@@ -1,8 +1,8 @@
 {
   "$schema": "https://www.schemastore.org/package.json",
   "name": "openmeld",
-  "version": "0.3.215",
-  "openMeldReleaseDate": "2026-09-20",
+  "version": "0.3.218",
+  "openMeldReleaseDate": "2026-09-22",
   "description": "OpenMeld CLI - https://openmeld.ai",
   "license": "MIT",
   "type": "module",
@@ -24,11 +24,10 @@
   ],
   "scripts": {
     "build": "tsdown && node scripts/build-macos-keychain-addon.mjs --copy-npm",
-    "prepack": "pnpm -C ../.. run verify:release-ready -- --force && pnpm run verify:pack-readme",
+    "prepack": "pnpm -C ../.. run verify:release-ready -- --force",
     "deploy": "pnpm -C ../.. run release:deploy:local -- --scope cli",
-    "publish:npm": "npm publish",
-    "prepublishOnly": "pnpm run verify:pack-readme",
-    "verify:pack-readme": "node scripts/verify-npm-pack-readme.mjs",
+    "prepublishOnly": "node -e \"throw new Error('Publish the verified tarball through the root release:deploy:local -- --scope cli entrypoint, not this source directory.')\"",
+    "verify:npm-artifact": "node ../../scripts/release/npm-cli-artifact.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "biome check --no-errors-on-unmatched ./ && tsc -p tsconfig.json --noEmit",
     "test": "vitest run --config vitest.config.ts",
@@ -53,6 +52,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@openmeld/adapter-antigravity": "workspace:*",
     "@openmeld/adapter-claude-code": "workspace:*",
     "@openmeld/adapter-codex": "workspace:*",
     "@openmeld/adapter-core": "workspace:*",
@@ -85,6 +85,6 @@
   },
   "openmeld": {
     "releaseLine": "openmeld-greenfield-2026-07",
-    "minRequiredCliVersion": "0.3.198"
+    "minRequiredCliVersion": "0.3.218"
   }
 }

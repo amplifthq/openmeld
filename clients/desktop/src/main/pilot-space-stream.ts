@@ -9,6 +9,7 @@ import {
   desktopSpaceStreamInputSchema,
 } from "@openmeld/schemas";
 import WebSocket from "ws";
+import type { TransportObservation } from "./transport-diagnostics";
 
 /** Transport only: the shared Web consumer owns reconnect and snapshot refresh. */
 export function createPilotSpaceStreams(input: {
@@ -17,15 +18,18 @@ export function createPilotSpaceStreams(input: {
   cookie(): string;
   installed?: boolean;
   ensureCompatible?: () => Promise<void>;
+  observe?: (event: TransportObservation) => void;
 }) {
-  const sockets = new Map<string, { socket?: WebSocket }>();
+  const sockets = new Map<string, { socket?: WebSocket; spaceId: string }>();
   return {
     open(raw: unknown, emit: (event: DesktopSpaceStreamEvent) => void) {
       const request = desktopSpaceStreamInputSchema.parse(raw);
       if (sockets.has(request.id)) {
         throw new Error("Space stream is already open.");
       }
-      const entry: { socket?: WebSocket } = {};
+      const entry: { socket?: WebSocket; spaceId: string } = {
+        spaceId: request.spaceId,
+      };
       sockets.set(request.id, entry);
       const connect = () => {
         if (sockets.get(request.id) !== entry) {
@@ -37,6 +41,11 @@ export function createPilotSpaceStreams(input: {
         );
         url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
         url.searchParams.set("profileId", request.profileId);
+        input.observe?.({
+          kind: "stream",
+          spaceId: request.spaceId,
+          event: "connecting",
+        });
         const socket = new WebSocket(url, {
           followRedirects: false,
           headers: {
@@ -55,7 +64,14 @@ export function createPilotSpaceStreams(input: {
             emit(event);
           }
         };
-        socket.on("open", () => publish({ id: request.id, type: "open" }));
+        socket.on("open", () => {
+          input.observe?.({
+            kind: "stream",
+            spaceId: request.spaceId,
+            event: "open",
+          });
+          publish({ id: request.id, type: "open" });
+        });
         socket.on("message", (data, binary) => {
           if (binary) {
             socket.close(1003, "Space streams require text frames");
@@ -63,8 +79,21 @@ export function createPilotSpaceStreams(input: {
           }
           publish({ id: request.id, type: "message", data: data.toString() });
         });
-        socket.on("error", () => publish({ id: request.id, type: "error" }));
+        socket.on("error", () => {
+          input.observe?.({
+            kind: "stream",
+            spaceId: request.spaceId,
+            event: "error",
+          });
+          publish({ id: request.id, type: "error" });
+        });
         socket.on("close", (code, reason) => {
+          input.observe?.({
+            kind: "stream",
+            spaceId: request.spaceId,
+            event: "close",
+            code,
+          });
           publish({
             id: request.id,
             type: "close",
@@ -87,6 +116,11 @@ export function createPilotSpaceStreams(input: {
         .ensureCompatible()
         .then(connect)
         .catch((error: unknown) => {
+          input.observe?.({
+            kind: "stream",
+            spaceId: request.spaceId,
+            event: "admission",
+          });
           if (sockets.get(request.id) === entry) {
             sockets.delete(request.id);
           }
@@ -102,14 +136,26 @@ export function createPilotSpaceStreams(input: {
     },
     close(raw: unknown) {
       const id = desktopSpaceStreamIdSchema.parse(raw);
-      const socket = sockets.get(id)?.socket;
+      const entry = sockets.get(id);
       sockets.delete(id);
-      socket?.terminate();
+      if (entry) {
+        input.observe?.({
+          kind: "stream",
+          spaceId: entry.spaceId,
+          event: "cancelled",
+        });
+      }
+      entry?.socket?.terminate();
     },
     closeAll() {
       const active = [...sockets.values()];
       sockets.clear();
       for (const entry of active) {
+        input.observe?.({
+          kind: "stream",
+          spaceId: entry.spaceId,
+          event: "cancelled",
+        });
         entry.socket?.terminate();
       }
     },

@@ -1,8 +1,9 @@
 import type { CoreBindings } from "../lib/bindings";
-import { listPendingRoutineWorkflowRunIds } from "./routine-repository";
+import { claimRoutineWorkflowCheckBatch } from "./routine-repository";
 import {
   ROUTINE_WORKFLOW_ERROR_NAMES,
   ROUTINE_WORKFLOW_STEPS,
+  resolveRoutineWorkflowErrorName,
 } from "./routine-workflow-contract";
 import { emitRoutineWorkflowRuntimeEvidence } from "./routine-workflow-observability";
 
@@ -69,7 +70,8 @@ export async function ensureRoutineRunWorkflowStarted(input: {
     throw error;
   }
   if (existingStatus.status === "errored") {
-    const restart = resolveRoutineWorkflowRestart(existingStatus.error?.name);
+    const phase = resolveRoutineWorkflowErrorName(existingStatus.error);
+    const restart = resolveRoutineWorkflowRestart(phase ?? undefined);
     if (!restart) {
       emitRoutineWorkflowRuntimeEvidence(input.env, {
         errorName: existingStatus.error?.name ?? null,
@@ -96,7 +98,7 @@ export async function ensureRoutineRunWorkflowStarted(input: {
     }
     emitRoutineWorkflowRuntimeEvidence(input.env, {
       event: "instance_restarted",
-      reasonCode: `workflow.restarted.${existingStatus.error?.name ?? "unknown"}`,
+      reasonCode: `workflow.restarted.${phase}`,
       runId: input.runId,
       status: "succeeded",
     });
@@ -172,16 +174,18 @@ export async function retryPendingRoutineRunWorkflowStarts(input: {
   db: D1Database;
   env: CoreBindings;
   limit?: number;
-}): Promise<{ errors: number; scanned: number; started: number }> {
-  const runIds = await listPendingRoutineWorkflowRunIds({
+  nowMs?: number;
+}): Promise<{ checked: number; errors: number; scanned: number }> {
+  const runIds = await claimRoutineWorkflowCheckBatch({
     db: input.db,
     limit: input.limit ?? 50,
+    nowMs: input.nowMs ?? Date.now(),
   });
-  const summary = { errors: 0, scanned: runIds.length, started: 0 };
+  const summary = { checked: 0, errors: 0, scanned: runIds.length };
   for (const runId of runIds) {
     try {
       await ensureRoutineRunWorkflowStarted({ env: input.env, runId });
-      summary.started += 1;
+      summary.checked += 1;
     } catch (error) {
       summary.errors += 1;
       console.warn("[core.routine.workflow.start_retry_failed]", {

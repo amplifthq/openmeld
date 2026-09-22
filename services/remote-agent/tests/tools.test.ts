@@ -2728,8 +2728,12 @@ describe("remote agent OpenMeld tool catalog", () => {
     const centerAgentReadPeopleComputers = vi.fn(async () =>
       listComputersResponse()
     );
+    const centerAgentCheckAgentProfileReadiness = vi.fn();
     const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { centerAgentReadPeopleComputers },
+      coreWorker: {
+        centerAgentReadPeopleComputers,
+        centerAgentCheckAgentProfileReadiness,
+      },
       storage: await createStorageWithPendingContext(request),
       turnEnvelope: request.turnEnvelope,
     });
@@ -2738,6 +2742,12 @@ describe("remote agent OpenMeld tool catalog", () => {
       executeTool(tools, "openmeld_list_computers", {})
     ).rejects.toThrow("only in your direct conversation");
     expect(centerAgentReadPeopleComputers).not.toHaveBeenCalled();
+    await expect(
+      executeTool(tools, "openmeld_check_agent_profile_readiness", {
+        agentProfileId: AGENT_PROFILE_ID,
+      })
+    ).rejects.toThrow("private conversation");
+    expect(centerAgentCheckAgentProfileReadiness).not.toHaveBeenCalled();
   });
 
   it("uses provider-linked member identity for requester-private Computer diagnostics", async () => {
@@ -5970,7 +5980,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       },
       input: { projectId: "project-1" },
       response: agentActivitySnapshotResponse(),
-      rpcName: "centerAgentReadAgentActivity",
+      rpcName: "centerAgentReadAgentActivityOverview",
       toolName: "openmeld_read_agent_activity",
     },
     {
@@ -6084,10 +6094,14 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_respond_to_opportunity",
     },
     {
-      expectedPayload: { actionSet: "v21", limit: 25 },
+      expectedPayload: {
+        actionSet: "v21",
+        limit: 25,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
       input: { limit: 25 },
       response: auditJournalResponse(),
-      rpcName: "listCenterAgentAuditJournal",
+      rpcName: "centerAgentReadAuditJournal",
       toolName: "openmeld_read_center_agent_activity",
     },
     {
@@ -6140,14 +6154,22 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_read_space_context",
     },
     {
-      expectedPayload: { parentId: null, spaceId: SPACE_ID },
+      expectedPayload: {
+        parentId: null,
+        requestedOriginModel: "origin_aware",
+        spaceId: SPACE_ID,
+      },
       input: { parentId: null, spaceId: SPACE_ID },
       response: listSpaceFilesResponse(),
       rpcName: "centerAgentListSpaceFiles",
       toolName: "openmeld_list_space_files",
     },
     {
-      expectedPayload: { spaceId: SPACE_ID, view: "trash" },
+      expectedPayload: {
+        requestedOriginModel: "origin_aware",
+        spaceId: SPACE_ID,
+        view: "trash",
+      },
       input: { spaceId: SPACE_ID, view: "trash" },
       response: { ...listSpaceFilesResponse(), entries: [], view: "trash" },
       rpcName: "centerAgentListSpaceFiles",
@@ -6156,6 +6178,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     {
       expectedPayload: {
         fileId: "file-1",
+        requestedOriginModel: "origin_aware",
         revision: 1,
         spaceId: SPACE_ID,
       },
@@ -6168,6 +6191,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       expectedPayload: {
         fileId: "file-1",
         includeHistory: true,
+        requestedOriginModel: "origin_aware",
         spaceId: SPACE_ID,
       },
       input: { fileId: "file-1", includeHistory: true, spaceId: SPACE_ID },
@@ -6186,6 +6210,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         content: "# Release brief\n\nReady for review.",
         fileId: "file-1",
         mimeType: "text/markdown",
+        requestedOriginModel: "origin_aware",
         spaceId: SPACE_ID,
       },
       input: {
@@ -6207,6 +6232,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         clientMutationId: "create-planning-folder",
         name: "Planning",
         parentId: null,
+        requestedOriginModel: "origin_aware",
         spaceId: SPACE_ID,
       },
       input: {
@@ -6229,6 +6255,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         baseRevision: 3,
         clientMutationId: "restore-release-brief-r1",
         fileId: "file-1",
+        requestedOriginModel: "origin_aware",
         revision: 1,
         spaceId: SPACE_ID,
       },
@@ -6470,6 +6497,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     {
       expectedPayload: {
         agentProfileId: AGENT_PROFILE_ID,
+        onBehalfOf,
       },
       input: {
         agentProfileId: AGENT_PROFILE_ID,
@@ -7042,6 +7070,12 @@ function organizationSpaceDirectoryResponse() {
 
 function auditJournalResponse() {
   return {
+    coverage: {
+      kind: "bounded_recent_journal",
+      references: "authorized_space_references_only",
+      contextDetails: "not_included",
+      historicalCompleteness: "not_claimed",
+    },
     entries: [
       {
         action: "create_space",
@@ -7121,6 +7155,27 @@ function turnDiagnosticsResponse() {
 
 function agentActivitySnapshotResponse() {
   return {
+    coverage: {
+      kind: "bounded_current_snapshot",
+      history: "not_included",
+      providerMetadata: "not_included",
+      textShortened: false,
+      omittedFromSnapshot: {
+        projects: 0,
+        sessions: 0,
+        digests: 0,
+        recentEvents: 0,
+      },
+      sourceLimitReached: {
+        projects: false,
+        sessions: false,
+        digests: false,
+        recentEvents: false,
+      },
+      digestsExcludedBySessionFilters: false,
+      continuation: "openmeld_list_agent_activity_sessions",
+      continuationScope: "live_session_inventory_not_snapshot_or_history",
+    },
     asOfMs: TEST_NOW_MS,
     digests: [],
     digestsTruncated: false,

@@ -8,6 +8,7 @@ import {
   spaceFileEntryIdSchema,
   spaceFileMimeTypeSchema,
   spaceFileNameSchema,
+  spaceFileOriginSchema,
 } from "./space-files";
 
 export const SPACE_FILE_UPLOAD_PART_BYTES = 8 * 1024 * 1024;
@@ -27,6 +28,7 @@ export const spaceFileUploadMetadataSchema = z.object({
       clientMutationId: spaceFileClientMutationIdSchema,
       name: spaceFileNameSchema,
       parentId: spaceFileEntryIdSchema.nullable(),
+      origin: spaceFileOriginSchema.optional(),
     }),
     z.object({
       kind: z.literal("revision"),

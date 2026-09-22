@@ -39,6 +39,21 @@ const createPlan = (changedPaths, overrides = {}) =>
 
 const checkIds = (plan) => plan.selectedChecks.map((check) => check.id);
 
+test("Final Candidate checks signed Skill Markdown even when the diff is documentation-only", () => {
+  for (const [path, selected] of [
+    ["release/openmeld-cli-skill/playbooks/agent-onboarding.md", true],
+    ["clients/web/public/skills/openmeld-cli/releases/4/SKILL.md", true],
+    ["developing/engineering/official-cli-skill.md", false],
+    ["clients/web/src/sidebar.tsx", false],
+  ]) {
+    assert.equal(
+      checkIds(createPlan([path])).includes("cli-skill-integrity"),
+      selected,
+      path
+    );
+  }
+});
+
 test("selects a cheap documentation-only gate without pretending unit tests add value", () => {
   const plan = createPlan(["AGENTS.md", "developing/README.md"]);
 
@@ -271,6 +286,26 @@ test("full confidence does not repeat its affected unit and integration subsets"
   assert.ok(!ids.includes("affected-code-checks"));
   assert.ok(!ids.includes("affected-unit-tests"));
   assert.ok(!ids.includes("affected-integration-tests"));
+});
+
+test("a lockfile-only local current-main plan is not a control-plane refuse", () => {
+  const plan = createPlan(["pnpm-lock.yaml"], {
+    controlTrust: "current-main",
+    mode: "local",
+    planSourceSha: BASE_SHA,
+  });
+
+  assert.ok(!checkIds(plan).includes("trusted-control-entrypoints"));
+  assert.ok(checkIds(plan).includes("repository-contracts"));
+});
+
+test("hosted still verifies control entrypoints on a lockfile-only candidate", () => {
+  const plan = createPlan(["pnpm-lock.yaml"], {
+    mode: "remote",
+    planSourceSha: BASE_SHA,
+  });
+
+  assert.ok(checkIds(plan).includes("trusted-control-entrypoints"));
 });
 
 test("a hosted plan adds a trusted current-main entrypoint check", () => {

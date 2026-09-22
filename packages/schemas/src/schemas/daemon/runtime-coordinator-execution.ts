@@ -117,6 +117,20 @@ export const runtimeCoordinatorLegacyPointersSchema = z.strictObject({
   leaseEpoch: nullablePositiveIntegerSchema,
 });
 
+/**
+ * Secret-free facts observed at the final Runtime Transport delivery boundary.
+ * These fields explain one exact delivery decision; they are not a second
+ * readiness projection or execution authority.
+ */
+export const runtimeCoordinatorDeliveryRouteEvidenceSchema = z.strictObject({
+  owner: z.enum(["matching", "unclaimed", "mismatched"]),
+  profileLease: z.enum(["matching", "missing", "mismatched"]),
+  session: z.enum(["matching", "missing", "connection_replaced"]),
+  socket: z.enum(["present", "missing"]),
+  acceptingDispatches: z.enum(["accepting", "not_accepting", "unknown"]),
+  profileRoute: z.enum(["registered", "not_registered", "unknown"]),
+});
+
 export const runtimeCoordinatorExecutionRecordSchema = z
   .strictObject({
     runtimeCoordinatorExecutionId: boundedIdentifierSchema,

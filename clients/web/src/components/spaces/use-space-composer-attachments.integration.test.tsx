@@ -1,10 +1,12 @@
 import "fake-indexeddb/auto";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
 	fireEvent,
-	render,
-	renderHook,
+	type RenderHookOptions,
+	render as renderBare,
+	renderHook as renderBareHook,
 	screen,
 	waitFor,
 } from "@testing-library/react";
@@ -30,8 +32,28 @@ vi.mock("#/lib/spaces/api", () => ({
 	createUnscopedWebSpaceApi: () => api,
 }));
 
-afterEach(() => {
+const queryClient = new QueryClient({
+	defaultOptions: { queries: { retry: false } },
+});
+function QueryWrapper({ children }: { children: ReactNode }) {
+	return (
+		<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+	);
+}
+function render(element: ReactNode) {
+	return renderBare(element, { wrapper: QueryWrapper });
+}
+function renderHook<Result, Props>(
+	callback: (props: Props) => Result,
+	options?: RenderHookOptions<Props>
+) {
+	return renderBareHook(callback, { ...options, wrapper: QueryWrapper });
+}
+
+afterEach(async () => {
 	cleanup();
+	await Promise.resolve();
+	queryClient.clear();
 	vi.restoreAllMocks();
 	Object.defineProperty(globalThis, "indexedDB", {
 		configurable: true,

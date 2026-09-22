@@ -57,6 +57,8 @@
     "desktop:status": "node scripts/dev/desktop-pilot.mjs status",
     "desktop:stop": "node scripts/dev/desktop-pilot.mjs stop",
     "desktop:web": "node scripts/dev/desktop-web.mjs",
+    "desktop:renderer:production": "node scripts/release/production-artifact-check.mjs --scope desktop",
+    "test:cli-skill": "node scripts/release/cli-skill-test.mjs",
     "desktop:start:prod": "OPENMELD_ENV_PRESET=prod OPENMELD_USER_FACING_CLI_COMMAND=openmeld OPENMELD_BIN=openmeld OPENMELD_GATEWAY_URL=https://gateway.openmeld.ai OPENMELD_AUTH_URL=https://auth.openmeld.ai WEB_APP_URL=https://openmeld.ai pnpm -C clients/desktop dev",
     "desktop:start:canary": "node scripts/dev/desktop-pilot.mjs canary",
     "desktop:canary": "pnpm run desktop:start:canary",
@@ -99,10 +101,11 @@
     "cli:binary:smoke": "node --experimental-strip-types scripts/e2e/cli-binary-smoke.mjs",
     "cli:binary:prod-smoke": "pnpm --filter @openmeld/schemas build && node --experimental-strip-types scripts/e2e/cli-binary-prod-setup-smoke.mjs",
     "verify:release-ready": "node scripts/release/verify-release-ready.mjs",
+    "verify:cli-skill": "node scripts/release/cli-skill-check.mjs",
     "sync:theme-background": "node scripts/ui/sync-theme-background.mjs",
     "verify:theme-background": "node --test scripts/ui/sync-theme-background.test.mjs && node scripts/ui/sync-theme-background.mjs --check",
     "verify:worker-zod-imports": "node --test scripts/cloudflare/worker-zod-import-contract.test.mjs && node scripts/cloudflare/worker-zod-import-contract.mjs",
-    "verify:release-workflows": "pnpm --filter @openmeld/schemas build && node --test scripts/ci/check-candidate-code-quality.test.mjs scripts/ci/download-prior-final-candidate-evidence.test.mjs scripts/ci/final-candidate-bootstrap.test.mjs scripts/ci/final-candidate-observer.test.mjs scripts/ci/final-candidate-policy.test.mjs scripts/ci/final-candidate-publisher.test.mjs scripts/ci/final-candidate-release-policy.test.mjs scripts/ci/final-candidate-resource-policy.test.mjs scripts/ci/final-candidate-reuse.test.mjs scripts/ci/final-candidate-workflow.test.mjs scripts/ci/final-candidate.test.mjs scripts/ci/install-isolated-candidate-dependencies.test.mjs scripts/ci/local-final-candidate-readiness.test.mjs scripts/ci/merge-group-final-candidate-workflow.test.mjs scripts/ci/resolve-approved-native-builds.test.mjs scripts/ci/trusted-final-candidate-entrypoint.test.mjs scripts/ci/trusted-git-network.test.mjs scripts/ci/verify-trusted-candidate-entrypoints.test.mjs scripts/dev/affected-workspaces.test.mjs scripts/dev/verify-pr.test.mjs scripts/dev/pre-push.test.mjs scripts/dev/dev-status.test.mjs scripts/release/pre-push-release-ready.test.mjs scripts/release/verify-release-ready.test.mjs scripts/release/production-db.test.mjs scripts/release/production-release.test.mjs scripts/release/production-release-evidence.test.mjs scripts/release/production-release-status.test.mjs scripts/release/production-scope-lease.test.mjs scripts/release/hosted-fleet-plan-admission.test.mjs scripts/release/production-workflows.test.mjs scripts/release/staging-release.test.mjs scripts/release/hosted-production-preflight.test.mjs scripts/release/cli-release-workflow.test.mjs scripts/release/release-cli.test.mjs",
+    "verify:release-workflows": "pnpm --filter @openmeld/schemas build && node --test scripts/ci/check-candidate-code-quality.test.mjs scripts/ci/download-prior-final-candidate-evidence.test.mjs scripts/ci/final-candidate-bootstrap.test.mjs scripts/ci/final-candidate-observer.test.mjs scripts/ci/final-candidate-policy.test.mjs scripts/ci/final-candidate-publisher.test.mjs scripts/ci/final-candidate-release-policy.test.mjs scripts/ci/final-candidate-resource-policy.test.mjs scripts/ci/final-candidate-reuse.test.mjs scripts/ci/final-candidate-workflow.test.mjs scripts/ci/final-candidate.test.mjs scripts/ci/install-isolated-candidate-dependencies.test.mjs scripts/ci/local-final-candidate-readiness.test.mjs scripts/ci/merge-group-final-candidate-workflow.test.mjs scripts/ci/resolve-approved-native-builds.test.mjs scripts/ci/trusted-final-candidate-entrypoint.test.mjs scripts/ci/trusted-git-network.test.mjs scripts/ci/verify-trusted-candidate-entrypoints.test.mjs scripts/dev/affected-workspaces.test.mjs scripts/dev/verify-pr.test.mjs scripts/dev/pre-push.test.mjs scripts/dev/dev-status.test.mjs scripts/release/pre-push-release-ready.test.mjs scripts/release/verify-release-ready.test.mjs scripts/release/cli-skill-check.test.mjs scripts/release/cli-skill-history.test.mjs scripts/release/cli-skill-test.test.mjs scripts/release/production-db.test.mjs scripts/release/preflight-core-current-cli-projection.test.mjs scripts/release/production-train-artifact-admission.test.mjs scripts/release/production-release-compatibility-dependencies.test.mjs scripts/release/production-compatibility-witness.test.mjs scripts/release/hosted-cli-release.test.mjs scripts/release/production-artifact-check.test.mjs scripts/release/production-stage-admission.test.mjs scripts/desktop/renderer-build.test.mjs scripts/release/production-release.test.mjs scripts/release/production-release-evidence.test.mjs scripts/release/production-release-status.test.mjs scripts/release/production-scope-lease.test.mjs scripts/release/hosted-fleet-plan-admission.test.mjs scripts/release/production-workflows.test.mjs scripts/release/client-artifact-workflow.test.mjs scripts/release/staging-release.test.mjs scripts/release/hosted-production-preflight.test.mjs scripts/release/cli-release-workflow.test.mjs scripts/release/release-cli.test.mjs",
     "verify:doppler-environment": "node --test scripts/dev/doppler-environment.test.mjs scripts/dev/dev-isolated.test.mjs",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
@@ -194,6 +197,7 @@
   "packageManager": "pnpm@10.30.0",
   "sherif": {
     "ignoreDependency": [
+      "better-sqlite3",
       "vite@8.1.2"
     ]
   },

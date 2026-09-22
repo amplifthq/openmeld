@@ -52,6 +52,8 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 		setFolderDialogOpen,
 		setMarkdownFileDialogOpen,
 		setParentId,
+		showChatUploads,
+		toggleShowChatUploads,
 		trashEntry,
 		uploadFiles,
 		view,
@@ -168,9 +170,11 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 				onRename={(entry) => setEntryDialog({ entry, kind: "rename" })}
 				onRestore={restoreEntry}
 				onRetry={() => filesQuery.refetch()}
+				onToggleShowChatUploads={toggleShowChatUploads}
 				onTrash={(entry) => setEntryDialog({ entry, kind: "trash" })}
 				onUploadFiles={uploadFiles}
 				onViewChange={changeView}
+				showChatUploads={showChatUploads}
 				spaceId={input.spaceId}
 				view={view}
 			/>
@@ -219,6 +223,7 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 								parentId,
 								clientMutationId: crypto.randomUUID(),
 								mimeType: "text/markdown",
+								origin: "artifact",
 								bytes: new TextEncoder().encode(content),
 							}),
 						(file) => {

@@ -22,6 +22,10 @@ export type RuntimeCoordinatorLegacyPointers = import("zod/v4").infer<
   typeof import("../../schemas/daemon/runtime-coordinator-execution")["runtimeCoordinatorLegacyPointersSchema"]
 >;
 
+export type RuntimeCoordinatorDeliveryRouteEvidence = import("zod/v4").infer<
+  typeof import("../../schemas/daemon/runtime-coordinator-execution")["runtimeCoordinatorDeliveryRouteEvidenceSchema"]
+>;
+
 export type RuntimeCoordinatorExecutionRecord = import("zod/v4").infer<
   typeof import("../../schemas/daemon/runtime-coordinator-execution")["runtimeCoordinatorExecutionRecordSchema"]
 >;

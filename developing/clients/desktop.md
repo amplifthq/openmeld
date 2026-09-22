@@ -173,7 +173,24 @@ Open app restores the renderer's existing route rather than choosing a new
 home. The menu does not expose the version, a separate Web app row, or Service
 lifecycle controls. Quitting the GUI retains the independent Service lifecycle.
 The unread preview uses one bounded, whitespace-normalized native label rather
-than a wrapping macOS sublabel. AppKit owns content-sized menu width; no custom
+than a wrapping macOS sublabel. Main supplies compact display text; the native
+menu retains ownership of layout, system appearance, and interaction. A complete
+source-title and excerpt row stays intact when it fits the shared 32-unit budget.
+Only an overflowing row limits the source to 12 units and gives the excerpt the
+remaining space after the separator and ellipses. Wide Latin and non-ASCII
+graphemes each count as two units. With no excerpt, the source can use the full
+row; with no source, no separator appears. Short content receives no padding or
+artificial minimum width and can lay out naturally. Relative time appears in the
+existing disabled Latest unread heading; conversation context stays in the full
+accessible label.
+
+AppKit owns the final content-sized menu width. These conservative text units
+are an OpenMeld formatting heuristic, not an official platform value or a pixel
+maximum for the whole menu. Other menu items, badges, fonts, and system layout
+can establish a natural width floor. The visual acceptance ceiling is about half
+of the whole menu in the original Desktop 0.1.5 screenshot at the same display
+scale, not a ratio recalculated from each test string. Native measurement is
+UNVERIFIED and deferred by the owner to the unified post-merge smoke. No custom
 minimum/maximum-width window is introduced. The full preview remains available
 in the tooltip and accessible label. Truncation preserves grapheme boundaries.
 The native menu keeps its current snapshot while open, so a refresh cannot
@@ -682,6 +699,10 @@ Native background controls are folded and appear only for a positively matching
 device. Missing, unreadable, and explicitly different accounts remain distinct;
 unavailable control capabilities are not evidence of an old version. A global
 Connect this Mac action does not identify a selected remote Computer as local.
+The shared Local agents cards include Antigravity alongside Codex, Claude Code,
+Grok Build, OpenCode, and Cursor, using the same canonical order and the same
+status, enablement, Usage, and details projection as Web. Desktop does not keep
+a second Local Agent catalog or infer readiness from whether a logo is shown.
 
 This pilot restriction applies to the shared Computer presentation and cloud
 transport as well as native IPC. `canConfigureLocalComputer` removes unsupported
@@ -963,6 +984,27 @@ The local pilot Web build leaves client JavaScript unminified so DevTools can
 set exact line breakpoints in hydration and application error callbacks. Normal
 Web builds retain their default minification.
 
+Installed Desktop also keeps a bounded Main-owned transport record at
+`<userData>/diagnostics/transport.json` (at most 200 events, private file
+permissions). It records route templates, HTTP status, validated request IDs,
+request duration, app version, renderer fingerprint, and native Space socket
+connect/open/error/close/cancel events. A process-local salted correlation value
+connects socket reconnects without retaining Space IDs. URL parameters, arbitrary
+path segments, cookies, message content, response bodies, exception text, and
+socket close text are excluded. This records transport outcomes; it does not
+infer an updater failure or change query retries, authentication, or reconnect
+ownership. The shared Web consumer still owns recovery and snapshot refresh.
+
+For production renderer verification, run `pnpm desktop:renderer:production`
+from the clean candidate checkout. This builds the production Web renderer,
+runs its Workerd SSR entry locally, validates the prerendered shell and compiled
+target, and records source/input/output identity in `dev-tmp/release-artifact-check`.
+The renderer-only Node heap can be overridden with
+`OPENMELD_DESKTOP_NODE_HEAP_MB`; its default and override must fit machine
+headroom and the heavy-work reservation, including 1 GiB of non-heap overhead.
+`OPENMELD_LOCAL_HEAVY_GIB` can set that reservation explicitly. An inherited
+reservation cannot silently grow. This command neither signs nor publishes.
+
 GUI data lives under `<OPENMELD_HOME>/desktop/mock-keychain-user-data` as a
 stable, isolated local test profile. Main sets and verifies Electron's
 `userData` path before Better Auth constructs storage. The launcher also passes
@@ -1098,17 +1140,24 @@ The app's `Info.plist` declares the existing development Auth return scheme from
 `packages/schemas`, as macOS requires for packaged URL callbacks; no new scheme
 or Auth authority is introduced.
 
-Output is under `clients/desktop/dist/private`, with `Private` in both app and
-DMG names. This target writes no preview/update manifest and has no publisher.
-It does not bundle CLI, Service, credentials, lane state, or worktree asset paths.
-The legacy preview build remains a separate paused distribution path.
+Output is under `clients/desktop/dist/private`. The `.app` name follows the
+unified [Desktop Application Names](desktop-app-identity.md) contract:
+`OpenMeld Dev.app` for the private development identity, or
+`OpenMeld Dev wt-<id>.app` when the selected identity belongs to a worktree.
+The DMG filename is configured separately in
+`electron-builder.private.config.mjs`; it is currently
+`OpenMeld-Desktop-Private-${version}-macos-${arch}-unsigned.dmg`. Do not infer
+the DMG filename from the application display name. This target writes no
+preview/update manifest and has no publisher. It does not bundle CLI, Service,
+credentials, lane state, or worktree asset paths. The legacy preview build
+remains a separate paused distribution path.
 
 Launch the built or copied app from an already configured, matching worktree:
 
 ```sh
-pnpm desktop:start:package "/path/to/OpenMeld Desktop Private.app"
+pnpm desktop:start:package "/path/to/OpenMeld Dev.app"
 # Explicit canary preset, using the same worktree lane:
-pnpm desktop:start:package "/path/to/OpenMeld Desktop Private.app" canary
+pnpm desktop:start:package "/path/to/OpenMeld Dev wt-<id>.app" canary
 ```
 
 This extends the existing root launcher: it verifies lane ownership and the

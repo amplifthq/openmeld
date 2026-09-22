@@ -4568,7 +4568,7 @@ export type RoutineWorkflowSubmission =
       organizationId: string;
       spaceId: string;
       status: "waiting";
-      submissionId: string | null;
+      submissionId: string;
     };
 
 export async function ensureRemoteAgentRoutineWorkflowSubmission(input: {
@@ -4646,10 +4646,9 @@ export async function ensureRemoteAgentRoutineWorkflowSubmission(input: {
   const submissionId = delivery
     ? resolveActiveRemoteAgentSubmissionId(delivery)
     : null;
-  const request = delivery?.workerSubmitRequest;
-  if (!(delivery && (submissionId || request))) {
+  if (!(delivery && submissionId)) {
     throw new Error(
-      `Workflow Routine Run ${run.id} has no durable Remote Agent submission`
+      `Workflow Routine Run ${run.id} has no acknowledged Remote Agent submission`
     );
   }
   return {

@@ -1,3 +1,9 @@
+import {
+  OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
+  OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+} from "@openmeld/gateway-contract";
 import { MAX_TEXT_LENGTH, normalizeProfileId } from "@openmeld/protocol";
 import {
   centerAgentOrganizationMemoryPolicyResponseSchema,
@@ -19,6 +25,8 @@ import {
   spaceAccessModeSchema,
   spaceFileRevisionNumberSchema,
   spaceOrganizationVisibilitySchema,
+  toLegacySpaceFilesOriginWireValue,
+  toLegacySpaceImageGeometryWireValue,
   trashSpaceFileEntryBodySchema,
   trashSpaceFileEntryResponseSchema,
   updateCenterAgentOrganizationMemoryPolicyBodySchema,
@@ -216,9 +224,11 @@ async function handleListSpaceFiles(
   }
   const parentId = c.req.query("parentId");
   const view = c.req.query("view");
+  const origin = c.req.query("origin");
   const query = listSpaceFilesQuerySchema.safeParse({
     ...(parentId === undefined ? {} : { parentId }),
     ...(view === undefined ? {} : { view }),
+    ...(origin === undefined ? {} : { origin }),
   });
   if (!query.success) {
     return invalidSpaceFilesPayload(c, query.error.issues[0]?.message);
@@ -229,7 +239,10 @@ async function handleListSpaceFiles(
       spaceId: target.spaceId,
       query: query.data,
     });
-    return c.json(listSpaceFilesResponseSchema.parse(response));
+    return spaceFileJsonResponse(
+      c,
+      listSpaceFilesResponseSchema.parse(response)
+    );
   } catch (error) {
     return mapRpcHttpError(c, error);
   }
@@ -255,7 +268,10 @@ async function handleRestoreSpaceFileEntry(
       spaceAccess: target.spaceAccess,
       spaceId: target.spaceId,
     });
-    return c.json(restoreSpaceFileEntryResponseSchema.parse(response));
+    return spaceFileJsonResponse(
+      c,
+      restoreSpaceFileEntryResponseSchema.parse(response)
+    );
   } catch (error) {
     return mapRpcHttpError(c, error);
   }
@@ -288,7 +304,10 @@ async function handleRestoreSpaceFileRevision(
       spaceAccess: target.spaceAccess,
       spaceId: target.spaceId,
     });
-    return c.json(restoreSpaceFileRevisionResponseSchema.parse({ file }));
+    return spaceFileJsonResponse(
+      c,
+      restoreSpaceFileRevisionResponseSchema.parse({ file })
+    );
   } catch (error) {
     return mapRpcHttpError(c, error);
   }
@@ -330,7 +349,7 @@ async function handleGetSpaceFile(c: Context<HonoBindings>): Promise<Response> {
       spaceAccess: target.spaceAccess,
       spaceId: target.spaceId,
     });
-    return c.json(getSpaceFileResponseSchema.parse({ file }));
+    return spaceFileJsonResponse(c, getSpaceFileResponseSchema.parse({ file }));
   } catch (error) {
     return mapRpcHttpError(c, error);
   }
@@ -349,7 +368,10 @@ async function handleListSpaceFileRevisions(
       spaceAccess: target.spaceAccess,
       spaceId: target.spaceId,
     });
-    return c.json(listSpaceFileRevisionsResponseSchema.parse(response));
+    return spaceFileJsonResponse(
+      c,
+      listSpaceFileRevisionsResponseSchema.parse(response)
+    );
   } catch (error) {
     return mapRpcHttpError(c, error);
   }
@@ -375,7 +397,10 @@ async function handleUpdateSpaceFileEntry(
       spaceAccess: target.spaceAccess,
       spaceId: target.spaceId,
     });
-    return c.json(updateSpaceFileEntryResponseSchema.parse(response));
+    return spaceFileJsonResponse(
+      c,
+      updateSpaceFileEntryResponseSchema.parse(response)
+    );
   } catch (error) {
     return mapRpcHttpError(c, error);
   }
@@ -467,6 +492,23 @@ function invalidSpaceFilesPayload(
     },
     400
   );
+}
+
+function spaceFileJsonResponse(
+  c: Context<HonoBindings>,
+  canonicalValue: unknown
+): Response {
+  const geometryValue =
+    c.req.header(OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION) ===
+    OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
+      ? canonicalValue
+      : toLegacySpaceImageGeometryWireValue(canonicalValue);
+  const wireValue =
+    c.req.header(OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION) ===
+    OPENMELD_SPACE_FILES_ORIGIN_VERSION
+      ? geometryValue
+      : toLegacySpaceFilesOriginWireValue(geometryValue);
+  return c.json(wireValue);
 }
 
 async function handleReadCurrentOrganizationCenterAgentMemoryPolicy(

@@ -16,6 +16,10 @@ import {
   type OpenMeldLock,
   releaseLock,
 } from "../../config/lock";
+import {
+  WINDOWS_TASK_HOST_INSTALL_SCRIPT,
+  WINDOWS_TASK_HOST_SUFFIX,
+} from "./windows-task-host";
 
 // Task Scheduler runs in the signed-in user's session, with that user's tokens
 // and ordinary permissions. No password, elevation, or third-party service host.
@@ -33,6 +37,7 @@ $scheduler = New-Object -ComObject 'Schedule.Service'
 $scheduler.Connect()
 $folder = $scheduler.GetFolder('\')
 $name = $r.name + '-' + $sid
+$hostPath = $r.legacyScript + '${WINDOWS_TASK_HOST_SUFFIX}'
 $task = $null
 try { $task = $folder.GetTask($name) } catch {
   if ($_.Exception.GetBaseException().HResult -ne -2147024894) { throw }
@@ -41,7 +46,8 @@ if ($task) {
   $principal = $task.Definition.Principal
   $taskSid = $principal.UserId
   if ($taskSid -notmatch '^S-\d-') { $taskSid = ([Security.Principal.NTAccount]$taskSid).Translate([Security.Principal.SecurityIdentifier]).Value }
-  if ($taskSid -ne $sid -or $principal.LogonType -ne 3 -or $principal.RunLevel -ne 0 -or $task.Definition.Actions.Count -ne 1 -or $task.Definition.Actions.Item(1).Path -ne (Join-Path $PSHOME 'powershell.exe')) {
+  $actionPath = $task.Definition.Actions.Item(1).Path
+  if ($taskSid -ne $sid -or $principal.LogonType -ne 3 -or $principal.RunLevel -ne 0 -or $task.Definition.Actions.Count -ne 1 -or ($actionPath -ne (Join-Path $PSHOME 'powershell.exe') -and $actionPath -ne $hostPath)) {
     throw 'An existing OpenMeld task uses a different user or launch configuration. Resolve that installation before continuing.'
   }
 }
@@ -55,6 +61,8 @@ switch ($r.operation) {
   'install' {
     if ($legacy -and $legacy.State -ne 'Stopped') { throw 'The previous OpenMeld Service must finish stopping before migration.' }
     if ($task -and $task.State -eq 4) { throw 'OpenMeld cannot replace a background task while it is running.' }
+    if ($r.executable -ne (Join-Path $PSHOME 'powershell.exe')) { throw 'OpenMeld tasks must launch the system PowerShell action.' }
+    ${WINDOWS_TASK_HOST_INSTALL_SCRIPT}
     $definition = $scheduler.NewTask(0)
     $definition.RegistrationInfo.Description = 'OpenMeld background process for the signed-in user.'
     $definition.Principal.UserId = $sid
@@ -79,7 +87,7 @@ switch ($r.operation) {
       $timer.Repetition.Interval = 'PT1H'
     }
     $action = $definition.Actions.Create(0)
-    $action.Path = $r.executable
+    $action.Path = $hostPath
     $action.Arguments = $r.arguments
     $action.WorkingDirectory = $r.workingDirectory
     $task = $folder.RegisterTaskDefinition($name, $definition, 6, $sid, $null, 3, $null)

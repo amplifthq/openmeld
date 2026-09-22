@@ -1,0 +1,12 @@
+diff --git a/package.json b/package.json
+index 3be238a5696295ac0e225209b118d0ad994b01b9..c9261beb5c0e225209b118d0ad994b01b9 100644
+--- a/package.json
++++ b/package.json
+@@ -46,6 +46,7 @@
+     "sqlite3": "^5.1.6"
+   },
+   "scripts": {
++    "install": "node -e \"const fs=require('node:fs');const path=require('node:path');const report=process.report?.getReport?.();const musl=process.platform==='linux'&&!report?.header?.glibcVersionRuntime;const target=(musl?'linuxmusl':process.platform)+'-'+process.arch;if(!fs.existsSync(path.join('prebuilds',target+'.node'))){process.stderr.write('better-sqlite3 has no bundled prebuild for '+target+'; refusing to compile from source.\\n');process.exit(1)}\"",
+     "build-release": "node-gyp clean && node-gyp rebuild --release --force_build=1",
+     "build-debug": "node-gyp clean && node-gyp rebuild --debug --force_build=1",
+     "test": "mocha --exit --slow=75 --timeout=5000",

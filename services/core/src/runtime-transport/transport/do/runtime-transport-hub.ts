@@ -17,13 +17,11 @@ import {
   agentTaskObservationRedriveQueueMessageSchema,
   buildRuntimeCoordinatorExecutionId,
   buildRuntimeCoordinatorFinalizationCommandId,
-  COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE,
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   computerFileAccessDaemonFrameSchema,
   computerFileAccessPolicyResultSchema,
   daemonStreamFrameSchema,
-  isComputerFileAccessOwnerCancellation,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
   localAgentReasoningPreferencesSchema,
   localFolderPickerDaemonFrameSchema,
@@ -50,6 +48,7 @@ import {
   RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
   RUNTIME_COORDINATOR_TOKEN_DIAGNOSTIC_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  resolveLocalExecutionOwnerCancellationReason,
   runtimeCoordinatorFailurePublicationOutcomeSchema,
   runtimeCoordinatorFinalizationClaimReadSchema,
   runtimeCoordinatorFinalizationCommandSchema,
@@ -186,6 +185,7 @@ import type {
   OpenMeldToolsControlCapability,
   OpenMeldToolsControlResult,
   PostSpaceDispatchOutboxRedriveResponse,
+  RuntimeCoordinatorDeliveryRouteEvidence,
   RuntimeCoordinatorExecutionEventType,
   RuntimeCoordinatorExecutionRecord,
   RuntimeCoordinatorExecutionStatus,
@@ -337,6 +337,7 @@ import {
 } from "../../../rpc/space-signal-emitter";
 import { readCurrentRuntimeAgentControllerReport } from "../../../runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
 import { emitCoreFinalVisibleOutcomeRuntimeEvidence } from "../../../shared/observability/final-visible-outcome-evidence";
+import { CORE_LOG_EVENTS } from "../../../shared/observability/log-events";
 import { readAcceptedDispatchFinalizationFact } from "../../../space/infrastructure/d1/accepted-dispatch-finalization-repo";
 import { listActiveSpaceIdsForProfileFromSpaceIndex } from "../../../space-index/space-index-repository";
 import { legacyContextAssociationFromBinding } from "../../application/agent-profile-context-migration";
@@ -5695,11 +5696,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         input.command.runtimeCoordinatorExecutionId
       ),
       publishedSignalId: claim.data.publishedSignalId,
-      reasonCode: isComputerFileAccessOwnerCancellation(
-        input.command.acceptedResult.taskResult.payload
-      )
-        ? COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE
-        : RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
+      reasonCode:
+        resolveLocalExecutionOwnerCancellationReason(
+          input.command.acceptedResult.taskResult.payload
+        ) ?? RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE,
       runtimeCoordinatorExecutionId:
         input.command.runtimeCoordinatorExecutionId,
       spaceId: input.command.spaceId,
@@ -5753,14 +5753,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
   }
 
-  private async verifyComputerFileAccessOwnerCancellation(input: {
+  private async verifyLocalExecutionOwnerCancellation(input: {
     command: RuntimeCoordinatorFinalizationCommand;
     commandState: RuntimeCoordinatorRunCommandState | null;
     db: D1Database;
     projection: RuntimeCoordinatorExecutionRecord | null;
   }): Promise<boolean> {
     if (
-      !isComputerFileAccessOwnerCancellation(
+      !resolveLocalExecutionOwnerCancellationReason(
         input.command.acceptedResult.taskResult.payload
       )
     ) {
@@ -5796,7 +5796,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         result.executionTokenFingerprint ===
           input.command.acceptedResult.executionTokenFingerprint &&
         result.targetProfileId === input.command.targetProfileId &&
-        isComputerFileAccessOwnerCancellation(result.taskResult.payload)
+        resolveLocalExecutionOwnerCancellationReason(
+          result.taskResult.payload
+        ) ===
+          resolveLocalExecutionOwnerCancellationReason(
+            input.command.acceptedResult.taskResult.payload
+          )
       )
     ) {
       throw new Error("runtime_coordinator.owner_cancellation_unverified");
@@ -5819,17 +5824,18 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const commandState = await this.readRuntimeCoordinatorRunCommandState(
       input.command.runtimeCoordinatorExecutionId
     );
-    const ownerCancellation =
-      await this.verifyComputerFileAccessOwnerCancellation({
-        ...input,
-        commandState,
-        projection,
-      });
+    const ownerCancellation = await this.verifyLocalExecutionOwnerCancellation({
+      ...input,
+      commandState,
+      projection,
+    });
     if (!projection) {
       return null;
     }
     const stopReasonCode = ownerCancellation
-      ? COMPUTER_FILE_ACCESS_OWNER_CANCELLED_REASON_CODE
+      ? (resolveLocalExecutionOwnerCancellationReason(
+          input.command.acceptedResult.taskResult.payload
+        ) ?? RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE)
       : RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE;
     const wakeStopRequested =
       ownerCancellation ||
@@ -11300,9 +11306,20 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       null;
     const acceptedDeliveryRequests: RuntimeTransportDeliverDispatchRequest[] =
       [];
+    const deliveryRouteAssessment: {
+      current: {
+        evidence: RuntimeCoordinatorDeliveryRouteEvidence;
+        observedAtMs: number;
+        request: RuntimeTransportDeliverDispatchRequest;
+        response: RuntimeTransportDeliverDispatchResponse;
+      } | null;
+    } = { current: null };
     const response = await deliverDispatch(this.state, parsed.data, {
       onAcceptedDeliverySent: (request) => {
         acceptedDeliveryRequests.push(request);
+      },
+      onDeliveryRouteAssessed: (assessment) => {
+        deliveryRouteAssessment.current = assessment;
       },
       prepareAcceptedDelivery: async (request) => {
         const prepared =
@@ -11317,6 +11334,18 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       resolvePendingResultWaiters: this.resolvePendingResultWaiters,
       cleanupCompletedResults: this.cleanupCompletedResults,
     });
+    if (!response.accepted && deliveryRouteAssessment.current) {
+      console.info("[core.runtime_transport.delivery_route_assessed]", {
+        event: CORE_LOG_EVENTS.runtimeTransportDeliveryRouteAssessed,
+        attemptId: parsed.data.attemptId,
+        dispatchId: parsed.data.dispatchId,
+        observedAtMs: deliveryRouteAssessment.current.observedAtMs,
+        runtimeCoordinatorExecutionId:
+          parsed.data.payload.runtimeCoordinatorExecutionId,
+        reasonCode: response.reasonCode,
+        ...deliveryRouteAssessment.current.evidence,
+      });
+    }
     const acceptedDeliveryRequest = acceptedDeliveryRequests[0] ?? null;
     if (!response.accepted && preparedDeliveryRequest) {
       await this.rollbackRuntimeCoordinatorUnsentDelivery(
@@ -11329,6 +11358,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
     await this.recordRuntimeCoordinatorDeliveryProjection({
+      deliveryRouteAssessment: deliveryRouteAssessment.current,
       request: acceptedDeliveryRequest ?? parsed.data,
       response,
     });
@@ -13622,6 +13652,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
 
   private async recordRuntimeCoordinatorDeliveryProjection(input: {
+    deliveryRouteAssessment: {
+      evidence: RuntimeCoordinatorDeliveryRouteEvidence;
+      observedAtMs: number;
+    } | null;
     request: Parameters<typeof deliverDispatch>[1];
     response: RuntimeTransportDeliverDispatchResponse;
   }): Promise<void> {
@@ -13683,6 +13717,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         payload: {
           accepted: input.response.accepted,
           deliveryStatus: input.response.status,
+          ...(input.deliveryRouteAssessment
+            ? {
+                deliveryRouteEvidence: input.deliveryRouteAssessment.evidence,
+                deliveryRouteObservedAtMs:
+                  input.deliveryRouteAssessment.observedAtMs,
+              }
+            : {}),
         },
         reasonCode:
           "reasonCode" in input.response ? input.response.reasonCode : null,
@@ -13862,7 +13903,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     if (pending.request.expiresAtMs <= Date.now()) {
       return {
-        message: "This local agent interaction has expired.",
+        message: "This request expired. Send the task again when you’re ready.",
         ok: false,
         status: "expired",
       };

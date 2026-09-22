@@ -6,6 +6,7 @@ import {
 } from "../../computers/computer-connection-inbox";
 import {
   compareRuntimeTransportSessionsByFreshness,
+  isRuntimeTransportSessionOnline,
   LEASE_TTL_MS,
 } from "./runtime-transport-session-service";
 import type { RuntimeTransportSessionState } from "./runtime-transport-state";
@@ -25,13 +26,8 @@ type RecordState = {
 };
 type Observation = Pick<
   RuntimeTransportSessionState,
-  | "ownerUserId"
-  | "deviceId"
-  | "lane"
-  | "lastHeartbeatMs"
-  | "acceptingDispatches"
-  | "stopCause"
-> & { available: boolean; registrationKey: string };
+  "ownerUserId" | "deviceId" | "lane" | "lastHeartbeatMs" | "stopCause"
+> & { online: boolean; ready: boolean; registrationKey: string };
 type Pending = {
   incident: ComputerConnectionIncident;
   nextAttemptAtMs: number;
@@ -56,7 +52,7 @@ export function createComputerConnectionIncidents(input: {
     for (const [key, observation] of observations) {
       const previous = stored.get(key);
       if (
-        !observation.available ||
+        !observation.ready ||
         previous?.registrationKey === observation.registrationKey
       ) {
         continue;
@@ -148,19 +144,20 @@ export function createComputerConnectionIncidents(input: {
         if (observations.has(key)) {
           continue;
         }
+        const online = isRuntimeTransportSessionOnline(session, observedAtMs);
         observations.set(key, {
           registrationKey: `${session.daemonSessionId}:${session.connectionGeneration}`,
           ownerUserId: session.ownerUserId,
           deviceId: session.deviceId,
           lane: session.lane,
           lastHeartbeatMs: session.lastHeartbeatMs,
-          acceptingDispatches: session.acceptingDispatches,
           stopCause: session.stopCause,
-          available:
+          online,
+          ready:
+            online &&
             Boolean(session.socket) &&
             session.acceptingDispatches === true &&
-            session.executionCompatibility.status === "compatible" &&
-            observedAtMs - session.lastHeartbeatMs <= LEASE_TTL_MS,
+            session.executionCompatibility.status === "compatible",
         });
       }
       const work = tail
@@ -199,13 +196,6 @@ function advanceComputerIncident(
   if (observation && observation.ownerUserId !== previous.ownerUserId) {
     throw new Error("Computer incident account mismatch");
   }
-  if (observation?.available) {
-    return {
-      ...previous,
-      expectedUntilMs: observation.lastHeartbeatMs + LEASE_TTL_MS + 1,
-      incident: endIncident(previous.incident, "restored", nowMs),
-    };
-  }
   if (
     observation?.stopCause === "user_stop" ||
     observation?.stopCause === "controlled_service_update"
@@ -214,6 +204,22 @@ function advanceComputerIncident(
       ...previous,
       expectedUntilMs: null,
       incident: endIncident(previous.incident, "deactivated", nowMs),
+    };
+  }
+  if (observation?.online) {
+    // A connected Computer ends its disconnect incident even while dispatch
+    // admission or execution compatibility needs separate attention. Only a
+    // ready session establishes an expectation; unknown state resets it.
+    const expectsAvailability =
+      observation.ready ||
+      (previous.expectedUntilMs !== null &&
+        observation.stopCause !== "unknown");
+    return {
+      ...previous,
+      expectedUntilMs: expectsAvailability
+        ? observation.lastHeartbeatMs + LEASE_TTL_MS + 1
+        : null,
+      incident: endIncident(previous.incident, "restored", nowMs),
     };
   }
   if (observation?.stopCause === "unknown") {

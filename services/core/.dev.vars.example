@@ -3,6 +3,10 @@
 # per-IP request budget.
 GITHUB_OPENMELD_API_TOKEN=
 
+# Shared secret for the OpenMeld GitHub App webhook. Gateway forwards signed
+# deliveries to Core; issue close/reopen observations update linked Space Tasks.
+GITHUB_OPENMELD_WEBHOOK_SECRET=
+
 # Hosted Center Agent Slack channel: bot token Core uses to call the Slack
 # Web API (users.info identity mapping, chat.postMessage thread replies).
 SLACK_OPENMELD_BOT_TOKEN=

@@ -1,5 +1,6 @@
 const LOCAL_AGENT_DISPLAY_SPLIT_PATTERN = /[-_]/u;
 const LOCAL_AGENT_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+	antigravity: "Antigravity",
 	"claude-code": "Claude Code",
 	codex: "Codex",
 	cursor: "Cursor",

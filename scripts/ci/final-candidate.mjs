@@ -9,6 +9,7 @@ import { FINAL_CANDIDATE_EVIDENCE_VERSION } from "../../packages/schemas/src/sch
 import { settleHostedCandidateRuns } from "./final-candidate-handoff.mjs";
 import {
   appendWorkflowSummary,
+  describeFinalCandidateFailure,
   printPlan,
   renderEvidenceSummary,
   resolveEvidencePath,
@@ -539,7 +540,11 @@ function describeFinalStatus(evidence, publicationErrors) {
   if (evidence.conclusion === "success" && publicationErrors.length === 0) {
     return `Passed ${summarizeRisk(evidence.riskTags)} @ ${shortSha(evidence.headSha)} on ${shortSha(evidence.baseSha)}`;
   }
-  return `Failed @ ${shortSha(evidence.headSha)} on ${shortSha(evidence.baseSha)}; inspect evidence`;
+  return describeFinalCandidateFailure(
+    evidence.headSha,
+    evidence.baseSha,
+    evidence
+  );
 }
 
 function createEvidence(input) {

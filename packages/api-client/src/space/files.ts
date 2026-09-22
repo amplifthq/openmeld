@@ -35,6 +35,7 @@ import {
   OpenMeldApiClientInvalidResponseError,
   readApiClientTextResponse,
 } from "../errors";
+import { currentSpaceFileHeaders } from "./addressing-contract";
 import {
   buildSpaceComposerUploadPath,
   buildSpaceComposerUploadPublishPath,
@@ -97,6 +98,7 @@ async function uploadMultipart(
         method: "POST",
         operation: "space.files.upload",
         headers: {
+          ...currentSpaceFileHeaders(),
           "content-type": part
             ? "application/octet-stream"
             : "application/json",
@@ -211,6 +213,19 @@ export async function listSpaceFiles(
       },
     });
   }
+  const requestedOrigin = input.query?.origin ?? "artifact";
+  if (response.origin !== requestedOrigin) {
+    throw new OpenMeldApiClientInvalidResponseError({
+      message: `Space Files returned the ${response.origin} filter while ${requestedOrigin} was requested.`,
+      operation: "space.files.list",
+      status: 200,
+      rawBody: JSON.stringify(response),
+      schemaIssue: {
+        message: "The response origin filter did not match the request.",
+        path: ["origin"],
+      },
+    });
+  }
   return response;
 }
 
@@ -249,7 +264,10 @@ export async function createSpaceFolder(
     url: buildSpaceFileFoldersPath(input.spaceId),
     operation: "space.files.folder.create",
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": "application/json",
+    },
     body: JSON.stringify(input.body),
     schema: createSpaceFolderResponseSchema,
     invalidMessage: "invalid Space folder create response",
@@ -268,7 +286,10 @@ export async function updateSpaceFileEntry(
     url: buildSpaceFileEntryPath(input.spaceId, input.entryId),
     operation: "space.files.entry.update",
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": "application/json",
+    },
     body: JSON.stringify(input.body),
     schema: updateSpaceFileEntryResponseSchema,
     invalidMessage: "invalid Space file update response",
@@ -288,7 +309,10 @@ export async function trashSpaceFileEntry(
     url: buildSpaceFileEntryPath(input.spaceId, input.entryId),
     operation: "space.files.entry.trash",
     method: "DELETE",
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": "application/json",
+    },
     body: JSON.stringify({ clientMutationId: input.clientMutationId }),
     schema: trashSpaceFileEntryResponseSchema,
     invalidMessage: "invalid Space file trash response",
@@ -307,7 +331,10 @@ export async function restoreSpaceFileEntry(
     url: buildSpaceFileRestorePath(input.spaceId, input.entryId),
     operation: "space.files.entry.restore",
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": "application/json",
+    },
     body: JSON.stringify({ clientMutationId: input.clientMutationId }),
     schema: restoreSpaceFileEntryResponseSchema,
     invalidMessage: "invalid Space file restore response",
@@ -333,7 +360,10 @@ export async function restoreSpaceFileRevision(
     ),
     operation: "space.files.revision.restore",
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": "application/json",
+    },
     body: JSON.stringify({
       baseRevision: input.baseRevision,
       clientMutationId: input.clientMutationId,
@@ -351,6 +381,12 @@ export async function uploadSpaceFile(
     clientMutationId: string;
     mimeType: string;
     name: string;
+    /**
+     * The one canonical fact distinguishing a chat upload from an artifact.
+     * Required so every caller of this route makes that choice explicitly
+     * instead of leaving the file unclassified.
+     */
+    origin: "artifact" | "chat_upload";
     parentId?: string | null;
     onProgress?: (uploadedBytes: number, totalBytes: number) => void;
   }
@@ -366,6 +402,7 @@ export async function uploadSpaceFile(
         kind: "file",
         clientMutationId: input.clientMutationId,
         name: input.name,
+        origin: input.origin,
         parentId: input.parentId ?? null,
       },
       await mutationUploadId(input.clientMutationId)
@@ -380,7 +417,10 @@ export async function uploadSpaceFile(
     url: buildSpaceFileUploadPath(input),
     operation: "space.files.upload",
     method: "POST",
-    headers: { "content-type": mimeType },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": mimeType,
+    },
     body,
     schema: uploadSpaceFileResponseSchema,
     invalidMessage: "invalid Space file upload response",
@@ -416,7 +456,10 @@ export async function stageSpaceComposerUpload(
   const response = await client.requestJson({
     ...requestFields(input),
     body,
-    headers: { "content-type": mimeType },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": mimeType,
+    },
     invalidMessage: "invalid Space Composer upload response",
     method: "PUT",
     operation: "space.composer_uploads.stage",
@@ -436,7 +479,10 @@ export async function publishSpaceComposerUpload(
   const response = await client.requestJson({
     ...requestFields(input),
     body: JSON.stringify({ clientMutationId: input.clientMutationId }),
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": "application/json",
+    },
     invalidMessage: "invalid Space Composer upload publication response",
     method: "POST",
     operation: "space.composer_uploads.publish",
@@ -498,7 +544,10 @@ export async function updateSpaceFileContent(
     }),
     operation: "space.files.content.update",
     method: "PUT",
-    headers: { "content-type": mimeType },
+    headers: {
+      ...currentSpaceFileHeaders(),
+      "content-type": mimeType,
+    },
     body,
     schema: uploadSpaceFileResponseSchema,
     invalidMessage: "invalid Space file content update response",
@@ -553,6 +602,7 @@ function requestFields(input: SpaceRequestInput) {
     requestContext: input.requestContext,
     signal: input.signal,
     timeoutMs: input.timeoutMs,
+    headers: currentSpaceFileHeaders(),
     ...(input.spacePassword === undefined
       ? {}
       : { spacePassword: input.spacePassword }),

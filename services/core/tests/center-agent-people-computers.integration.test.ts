@@ -10,6 +10,7 @@ import type {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
+  rpcCenterAgentCheckAgentProfileReadiness,
   rpcCenterAgentListLocalAgentConnectionCandidates,
   rpcCenterAgentReadPeopleComputers,
   rpcCenterAgentRequestOpenMeldToolsUpdate,
@@ -17,6 +18,60 @@ import {
 
 describe("Center Agent PeopleComputers authorization", () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it("reads readiness as the represented owner and rejects missing, revoked or different owners", async () => {
+    const fixture = await seedFixture();
+    const agentProfileId = `agt_${crypto.randomUUID()}`;
+    const resolveProfileById = vi
+      .fn<
+        NonNullable<
+          NonNullable<
+            CoreBindings["OPENMELD_AUTH_WORKER"]
+          >["resolveProfileById"]
+        >
+      >()
+      .mockResolvedValue({
+        ok: true,
+        profile: {
+          profileId: agentProfileId,
+          profileKind: "agent",
+          profileName: "Member Agent",
+          profileHandle: "member-agent",
+          ownerUserId: fixture.member.userId,
+          status: "active",
+        },
+      });
+    const coreEnv = {
+      ...fixture.coreEnv,
+      OPENMELD_AUTH_WORKER: { resolveProfileById },
+    } as CoreBindings;
+    const request = {
+      agentProfileId,
+      context: fixture.context,
+      onBehalfOf: { profileId: fixture.member.profileId },
+    };
+    await expect(
+      rpcCenterAgentCheckAgentProfileReadiness(coreEnv, request)
+    ).resolves.toMatchObject({ agentProfileId, canReply: false });
+    await expect(
+      rpcCenterAgentCheckAgentProfileReadiness(coreEnv, {
+        agentProfileId,
+        context: fixture.context,
+      })
+    ).rejects.toThrow("verified requesting member");
+    await expect(
+      rpcCenterAgentCheckAgentProfileReadiness(coreEnv, {
+        ...request,
+        onBehalfOf: { profileId: fixture.owner.profileId },
+      })
+    ).rejects.toThrow("agent profile not found");
+    await env.OPENMELD_DB.prepare("DELETE FROM members WHERE id = ?")
+      .bind(fixture.member.memberId)
+      .run();
+    await expect(
+      rpcCenterAgentCheckAgentProfileReadiness(coreEnv, request)
+    ).rejects.toThrow("requesting member is no longer available");
+  });
 
   it("returns only the represented member's inventory without claiming a current computer", async () => {
     const fixture = await seedFixture();

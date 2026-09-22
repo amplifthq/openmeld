@@ -51,6 +51,21 @@ const publicViewJoinPasswordMeta: SpaceMetaRecord = {
   ...protectedMeta,
   accessMode: "public_view_join_password",
 };
+const publicInviteOnlyMeta: SpaceMetaRecord = {
+  v: 1,
+  spaceId: "space-1",
+  organizationId: "org-1",
+  visibility: "private",
+  accessMode: "public",
+  linkJoinPolicy: "invite_only",
+  creator: {
+    profileId: "usr_felix",
+    kind: "human",
+    ownerUserId: "owner-1",
+  },
+  createdAt: nowIso,
+  updatedAt: nowIso,
+};
 
 function createMemberRecord(input: {
   ownerUserId: string;
@@ -250,6 +265,44 @@ describe("space access policy", () => {
         verifySpacePasswordProof: async () => false,
       })
     ).resolves.toEqual({ ok: false, code: "space.password_required" });
+  });
+
+  it("keeps direct member additions available when link joining is invite-only", async () => {
+    await expect(
+      authorizeSpaceJoinAccess({
+        context: requestContext,
+        meta: publicInviteOnlyMeta,
+        readMemberByProfileId: (profileId) =>
+          profileId === requestContext.actorContext.openMeldProfileId
+            ? createMemberRecord({
+                ownerUserId: requestContext.actorContext.ownerUserId,
+                profileId,
+              })
+            : null,
+        hasActiveMemberForOwnerUserId: () => false,
+        verifySpacePasswordProof: async () => false,
+      })
+    ).resolves.toEqual({ ok: true, reason: "active_member_profile" });
+  });
+
+  it("does not turn an invite-only link into a password join", async () => {
+    await expect(
+      authorizeSpaceJoinAccess({
+        context: {
+          actorContext: {
+            openMeldProfileId: "agt_22222222-2222-4222-8222-222222222222",
+            ownerUserId: "owner-2",
+            profileKind: "agent",
+            requestId: "req-invite-only-outsider",
+          },
+        },
+        meta: { ...protectedMeta, linkJoinPolicy: "invite_only" },
+        readMemberByProfileId: () => null,
+        hasActiveMemberForOwnerUserId: () => false,
+        spacePassword: "correct-password",
+        verifySpacePasswordProof: async () => true,
+      })
+    ).resolves.toEqual({ ok: false, code: "space.membership_required" });
   });
 
   it("allows public view with password-gated join when the Space password is valid", async () => {

@@ -1314,6 +1314,7 @@ export const centerAgentUpdateAgentProfileRuntimeSettingsBodySchema = z
 
 export const centerAgentCheckAgentProfileReadinessBodySchema = z.strictObject({
   agentProfileId: agentProfileIdSchema,
+  onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
 });
 
 export const centerAgentListAgentProfileCreationDefaultsBodySchema =

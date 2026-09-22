@@ -19,6 +19,7 @@ const executionSubmissionStorage = new AsyncLocalStorage<string>();
 let instrumentationInstalled = false;
 type PreparedExecutionResources = {
   beforeModel?: () => Promise<void>;
+  deferredToolCount?: number;
   [name: string]: unknown;
 };
 let prepareExecution: (() => Promise<PreparedExecutionResources>) | undefined;
@@ -93,6 +94,10 @@ export function installRemoteAgentExecutionInstrumentation(): void {
 
 export function getRemoteAgentExecutionSubmissionId(): string | null {
   return executionSubmissionStorage.getStore() ?? null;
+}
+
+export function getRemoteAgentDeferredToolCount(): number {
+  return executionResources.getStore()?.deferredToolCount ?? 0;
 }
 
 export function runWithRemoteAgentSubmissionExecution<T>(

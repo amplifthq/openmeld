@@ -3,6 +3,7 @@ import type {
   AgentProfileCreationPreferenceSelection,
   ModelCatalog,
 } from "@openmeld/schemas/types";
+import { assertAgentControllerPermissionModeReleased } from "../../local-components/runtime-contract-rollout";
 import { readProjectRecord } from "../../projects/project-repository";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import {
@@ -49,6 +50,9 @@ export async function rememberAgentProfileCreationDefaults(input: {
   selection: AgentProfileCreationPreferenceSelection;
   userId: string;
 }): Promise<AgentProfileCreationDefaultsRecord> {
+  assertAgentControllerPermissionModeReleased(
+    input.selection.agentControllerPermissionMode
+  );
   if (input.selection.defaultProjectId) {
     const project = await readProjectRecord({
       db: input.db,

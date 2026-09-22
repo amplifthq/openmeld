@@ -43,3 +43,16 @@ test("blocks only a critical disk floor that could destabilize the workstation",
   assert.equal(readiness.blocked, true);
   assert.match(renderLocalCandidateReadiness(readiness), SAFETY_FLOOR_PATTERN);
 });
+
+test("warning and critical memory remain visible without changing the FC disk-only gate", () => {
+  for (const pressure of ["warning", "critical"]) {
+    const readiness = evaluateLocalCandidateReadiness({
+      activeStacks: [],
+      availableBytes: 20 * GIBIBYTE,
+      candidateRoot: "/work/candidate",
+      memory: { pressure },
+    });
+    assert.equal(readiness.state, "constrained");
+    assert.equal(readiness.blocked, false);
+  }
+});
