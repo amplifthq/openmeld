@@ -289,22 +289,22 @@ export function CenterAgentNewChat({
 						}
 						secondaryContentClassName="overflow-x-auto"
 						title={titleDraft.content.text || "New chat"}
-						titleAdornment={
-							<ChatTitleEditor
-								disabled={send.isPending}
-								onSave={(title) => {
-									titleDraft.setContent((current) => ({
-										...current,
-										text: title,
-									}));
-								}}
-								title={titleDraft.content.text || "New chat"}
-							/>
-						}
 						titleControl={
 							<CenterAgentChatHistory
 								disabled={send.isPending}
 								title={titleDraft.content.text || "New chat"}
+								titleAction={
+									<ChatTitleEditor
+										disabled={send.isPending}
+										onSave={(title) => {
+											titleDraft.setContent((current) => ({
+												...current,
+												text: title,
+											}));
+										}}
+										title={titleDraft.content.text || "New chat"}
+									/>
+								}
 							/>
 						}
 					/>

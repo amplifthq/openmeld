@@ -1733,6 +1733,7 @@ function SpaceLandingReady({
 											<CenterAgentChatHistory
 												spaceId={controller.status.spaceId}
 												title={title}
+												titleAction={input.conversationTitleAction?.(title)}
 											/>
 										)
 									: undefined

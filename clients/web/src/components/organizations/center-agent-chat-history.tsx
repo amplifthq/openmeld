@@ -1,4 +1,4 @@
-import { Button } from "@openmeld/ui/components/button";
+import { buttonVariants } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
 	DropdownMenuTrigger,
@@ -8,10 +8,11 @@ import {
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
+import { cn } from "@openmeld/ui/lib/utils";
 import { CaretDownIcon, PlusIcon } from "@phosphor-icons/react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
@@ -22,10 +23,12 @@ export function CenterAgentChatHistory({
 	title,
 	spaceId,
 	disabled = false,
+	titleAction,
 }: {
 	title: string;
 	spaceId?: string;
 	disabled?: boolean;
+	titleAction?: ReactNode;
 }) {
 	const { currentOrganization: organization } = useAppOrganization();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
@@ -76,7 +79,13 @@ export function CenterAgentChatHistory({
 		});
 	};
 	return (
-		<h1 className="min-w-0 max-w-[28rem] font-medium text-lg">
+		<h1
+			className={cn(
+				buttonVariants({ variant: "ghost" }),
+				"group/chat-title h-auto min-w-0 max-w-[28rem] shrink gap-0 rounded-full p-0 text-lg transition-none hover:shadow-sm",
+				open && "bg-muted shadow-sm"
+			)}
+		>
 			<DropdownMenu
 				modal={false}
 				onOpenChange={(next) => {
@@ -95,13 +104,8 @@ export function CenterAgentChatHistory({
 				<TooltipHint content={open ? undefined : "Open chat history"}>
 					<DropdownMenuTrigger
 						aria-label={`Open chat history: ${title}`}
+						className="flex min-w-0 items-center gap-2 rounded-full px-3 py-1 text-lg outline-none focus-visible:ring-1 focus-visible:ring-ring/50 disabled:opacity-50"
 						disabled={disabled}
-						render={
-							<Button
-								className="h-auto min-w-0 max-w-full shrink gap-2 rounded-full px-3 py-1 text-lg transition-none hover:shadow-sm data-popup-open:shadow-sm"
-								variant="ghost"
-							/>
-						}
 					>
 						<span className="truncate">{title}</span>
 						<CaretDownIcon
@@ -221,6 +225,11 @@ export function CenterAgentChatHistory({
 					) : null}
 				</FluidDropdownMenuContent>
 			</DropdownMenu>
+			{titleAction ? (
+				<span className="mr-1 flex shrink-0 opacity-0 group-focus-within/chat-title:opacity-100 group-hover/chat-title:opacity-100 [@media(hover:none)]:opacity-100">
+					{titleAction}
+				</span>
+			) : null}
 		</h1>
 	);
 }
