@@ -1315,12 +1315,31 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
         "=context.workspace_recovery_changed",
         "=context.workspace_recovery_unanswered",
       ],
+      preferMappedReasonOverDetail: true,
       recoveryTarget: null,
     },
     {
       body: "The Computer owner stopped this task before the Agent started. The previous conversation is saved.",
       kind: "request_ended",
       patterns: ["=context.workspace_recovery_declined"],
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: null,
+    },
+    {
+      body: "OpenMeld could not read this conversation’s folder. Open the conversation in OpenCode, then try this task again.",
+      kind: "request_ended",
+      patterns: ["=context.workspace_verification_unavailable"],
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: null,
+    },
+    {
+      body: "This task ended while waiting for a response. Send it again when you’re ready.",
+      kind: "request_ended",
+      patterns: [
+        "=interaction.expired",
+        "=runtime_coordinator.interaction_expired",
+      ],
+      preferMappedReasonOverDetail: true,
       recoveryTarget: null,
     },
     {

@@ -101,16 +101,23 @@ it("exposes the pending choices to Agents without answering automatically", asyn
     expect.objectContaining({
       code: "space.respond.needs_action",
       payload: expect.objectContaining({
-        requests: [
+        items: [
           expect.objectContaining({
-            execution: "execution-1",
-            interaction: "folder-choice",
-            request,
+            runtimeCoordinatorExecutionId: "execution-1",
+            pendingInteraction: expect.objectContaining({
+              interactionId: "folder-choice",
+              request,
+            }),
           }),
         ],
       }),
     })
   );
+  expect(
+    getActiveSpaceWakeProgressResponseSchema.safeParse(
+      mocks.data.mock.calls[0]?.[0].payload
+    ).success
+  ).toBe(true);
 });
 
 it("sends the explicit answer with its exact execution and interaction", async () => {

@@ -93,17 +93,13 @@ export async function runSpaceRespond(input: {
     presenter.data({
       code: "space.respond.needs_action",
       payload: {
-        status: "needs_action",
-        requests: pending.map((item) => ({
-          execution: item.runtimeCoordinatorExecutionId,
-          interaction: item.pendingInteraction?.interactionId,
-          targetProfileId: item.targetProfileId,
-          sourceContext: item.sourceContext ?? null,
-          request: item.pendingInteraction?.request,
-        })),
-        nextAction:
-          "Choose an offered answer, then run space respond with --execution, --interaction, and --response containing the response JSON. No answer has been submitted.",
+        ...read.result,
+        items: pending,
       },
+    });
+    presenter.line({
+      code: "space.respond.next_action",
+      text: 'No answer has been submitted. Use the item’s runtimeCoordinatorExecutionId for --execution and pendingInteraction.interactionId for --interaction. For a question, pass --response JSON shaped as {"kind":"question","answers":[{"questionId":"<questionId>","values":["<optionId>"]}]}, using IDs from pendingInteraction.request.',
     });
     return;
   }

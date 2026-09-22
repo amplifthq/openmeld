@@ -290,7 +290,8 @@ view fabricates a final answer or starts a second turn.
 `openmeld space respond <space>` reads the same owner-private pending questions
 as Web and Desktop. Human View offers the available single-choice answers in
 the terminal. Agent View or non-interactive invocation returns the pending
-requests without selecting an answer. Explicit automation supplies `--execution`,
+requests in the existing `GetActiveSpaceWakeProgressResponse` shape without
+selecting an answer. Explicit automation supplies `--execution`,
 `--interaction`, and `--response` JSON from that request. Core remains the sole
 response authority and rejects stale, unauthorized, or conflicting answers.
 An accepted response is reported as sent; it is never described as a completed

@@ -766,7 +766,7 @@ MVP.
 
 An existing OpenCode session remains bound to its native working folder. If
 that folder does not resolve to the Agent's current effective working folder,
-Wake fails before prompting or forking the session. Working Folder Recovery
+Wake must resolve the conflict before prompting or forking the session. Working Folder Recovery
 lets the owner explicitly choose the verified original folder or a new
 conversation for the same Agent Profile. OpenMeld does not run in the former
 folder or replace the session automatically.

@@ -13866,7 +13866,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     if (pending.request.expiresAtMs <= Date.now()) {
       return {
-        message: "This local agent interaction has expired.",
+        message: "This request expired. Send the task again when you’re ready.",
         ok: false,
         status: "expired",
       };
