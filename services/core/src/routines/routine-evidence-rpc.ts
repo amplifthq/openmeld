@@ -145,6 +145,11 @@ async function projectRun(
       coverage = space ? "available" : "redacted";
     }
   }
+  const publishedSignalReadable = Boolean(
+    space &&
+      run.publishedSignalId &&
+      (await access.canReadSignal(space.spaceId, run.publishedSignalId))
+  );
   return {
     id: run.id,
     routineId: run.routineId,
@@ -160,7 +165,7 @@ async function projectRun(
     },
     publication: {
       status: run.publishedSignalId ? "recorded" : "not_recorded",
-      signalId: space ? run.publishedSignalId : null,
+      signalId: publishedSignalReadable ? run.publishedSignalId : null,
     },
   };
 }
