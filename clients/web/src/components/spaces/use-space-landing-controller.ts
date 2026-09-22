@@ -123,6 +123,7 @@ import {
 	readSpaceMembers,
 	spaceMembersQueryOptions,
 } from "#/query/spaces/members";
+import { clearSpaceFileImageResources } from "#/query/spaces/space-file-image-resource";
 import { spaceQueryKeys, spaceStatusQueryOptions } from "#/query/spaces/status";
 import {
 	spaceThreadSignalsQueryOptions,
@@ -353,9 +354,9 @@ function createPendingOutgoingSignal(input: {
 }): PendingOutgoingSignal {
 	// Browser-only attachment placeholders are replaced with server references
 	// before publication. Their local ids must never enter an API request.
-	const localFiles = (input.composerFiles ?? []).filter(
-		(file) => file.status !== "failed"
-	);
+	// A failed upload is still the same selected image during a message retry.
+	// Admission and publication validate readiness; presentation must not erase it.
+	const localFiles = input.composerFiles ?? [];
 	const files =
 		input.files ??
 		localFiles.map((file) => ({
@@ -364,6 +365,9 @@ function createPendingOutgoingSignal(input: {
 			name: file.fileName,
 			mimeType: file.mimeType,
 			sizeBytes: file.upload?.sizeBytes ?? 0,
+			...(file.imageDimensions
+				? { imageDimensions: file.imageDimensions }
+				: {}),
 		}));
 	const previewUrls = new Map(input.filePreviewUrlsById);
 	for (const file of localFiles) {
@@ -1052,13 +1056,11 @@ function useClearRejectedSpaceConversationCache(input: {
 		[]
 	);
 	useEffect(() => {
-		if (
-			!(
-				input.currentAccessRejection &&
-				input.organizationId &&
-				input.organizationSlug
-			)
-		) {
+		if (!input.currentAccessRejection) {
+			return;
+		}
+		clearSpaceFileImageResources(input.queryClient, input.spaceId);
+		if (!(input.organizationId && input.organizationSlug)) {
 			return;
 		}
 		queryPersistence
@@ -3285,6 +3287,7 @@ export function useSpaceLandingController(input: {
 			}).leaveSpace({
 				spaceId: input.spaceId,
 			});
+			clearSpaceFileImageResources(queryClient, input.spaceId);
 			const historyReason =
 				response.status === "already_absent"
 					? "leave_space_already_absent"
@@ -3459,6 +3462,7 @@ export function useSpaceLandingController(input: {
 				spaceId: input.spaceId,
 			});
 			deleted = true;
+			clearSpaceFileImageResources(queryClient, input.spaceId);
 
 			try {
 				await removeDeletedSpaceFromAccountHistory({

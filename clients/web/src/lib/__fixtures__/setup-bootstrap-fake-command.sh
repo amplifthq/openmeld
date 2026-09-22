@@ -20,14 +20,19 @@ json_string_or_null() {
 run_fake_openmeld() {
   append_call "$*"
 
-  if [ "$OPENMELD_TEST_COMMAND" = "npx" ] && [ "${OPENMELD_TEST_NPX_FAILURE_MODE:-}" = "local-proxy" ]; then
+  if [ "$OPENMELD_TEST_COMMAND" = "npx" ] && [ -n "${OPENMELD_TEST_NPX_FAILURE_MODE:-}" ]; then
     # Zero-padded noise lines let tests assert the bootstrap replays only a
     # bounded tail of this output.
     for OPENMELD_TEST_PADDING_INDEX in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20; do
       printf 'npm verbose padding line %s\n' "$OPENMELD_TEST_PADDING_INDEX" >&2
     done
-    printf 'npm error code EPERM\n' >&2
-    printf 'npm error FetchError: request to https://registry.npmjs.org/openmeld failed, reason: connect EPERM 127.0.0.1:7890-Local (0.0.0.0:0)\n' >&2
+    if [ "$OPENMELD_TEST_NPX_FAILURE_MODE" = "catalog" ]; then
+      printf 'npm error code EUNSUPPORTEDPROTOCOL\n' >&2
+      printf 'npm error Unsupported URL Type "catalog:": catalog:\n' >&2
+    else
+      printf 'npm error code EPERM\n' >&2
+      printf 'npm error FetchError: request to https://registry.npmjs.org/openmeld failed, reason: connect EPERM 127.0.0.1:7890-Local (0.0.0.0:0)\n' >&2
+    fi
     exit 1
   fi
 

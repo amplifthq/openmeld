@@ -176,7 +176,8 @@ export const initializeSpaceMetaRecordIfAbsent = (
     directMessageJson,
     creatorJson,
     JSON.stringify(
-      record.creator?.ownerUserId ? [record.creator.ownerUserId] : []
+      record.ownerUserIds ??
+        (record.creator?.ownerUserId ? [record.creator.ownerUserId] : [])
     ),
     organizationId,
     visibility,

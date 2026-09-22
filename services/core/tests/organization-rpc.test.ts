@@ -6506,6 +6506,7 @@ describe("organization Core RPC", () => {
   });
 
   it("records attributed connector write attempts and outcomes in Core", async () => {
+    const connectionName = "github-user-a";
     const db = createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
@@ -6515,6 +6516,14 @@ describe("organization Core RPC", () => {
           organizationId: "org-a",
         }),
       ],
+      connectorConnection: {
+        connectionName,
+        organizationId: "org-a",
+        scope: "member",
+        service: "github",
+        status: "active",
+        userId: "user-a",
+      },
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
     const env = buildEnv({ db });
@@ -6549,6 +6558,7 @@ describe("organization Core RPC", () => {
       await expect(
         rpcCenterAgentRecordConnectorActionAudit(env, {
           actionId: "github.create_issue",
+          connectionName,
           context,
           operationId: `batch:abcdef:${outcome}`,
           outcome,
@@ -7417,7 +7427,7 @@ describe("organization Core RPC", () => {
     });
     expect(spaceStub.rpcListSpaceFiles).toHaveBeenCalledWith(
       expect.objectContaining({
-        query: { parentId: null, view: "trash" },
+        query: { parentId: null, view: "trash", origin: "artifact" },
         spaceAccess: expect.objectContaining({
           actor: expect.objectContaining({
             kind: "authenticated",
@@ -7430,6 +7440,108 @@ describe("organization Core RPC", () => {
         }),
       })
     );
+  });
+
+  it("projects Remote Agent file responses without display geometry and negotiates origin independently", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId: JOINED_PRIVATE_SPACE_ID,
+          spaceName: "Launch Room",
+          visibility: "private",
+        }),
+      ],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const originBearingFile = {
+      createdAt: "2026-08-23T00:00:00.000Z",
+      createdBy: {
+        displayName: "Ava",
+        profileId: HUMAN_PROFILE_ID,
+        profileKind: "human" as const,
+      },
+      id: "file-1",
+      kind: "file" as const,
+      latestRevision: {
+        imageDimensions: { width: 300, height: 900 },
+        createdAt: "2026-08-23T00:00:00.000Z",
+        createdBy: {
+          displayName: "Ava",
+          profileId: HUMAN_PROFILE_ID,
+          profileKind: "human" as const,
+        },
+        fileId: "file-1",
+        id: "revision-1",
+        mimeType: "text/markdown",
+        revision: 1,
+        sizeBytes: 12,
+      },
+      name: "brief.md",
+      origin: "artifact" as const,
+      parentId: null,
+      path: "/brief.md",
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+      trashedAt: null,
+      trashedBy: null,
+      updatedAt: "2026-08-23T00:00:00.000Z",
+      updatedBy: {
+        displayName: "Ava",
+        profileId: HUMAN_PROFILE_ID,
+        profileKind: "human" as const,
+      },
+    };
+    spaceStub.rpcListSpaceFiles.mockResolvedValue({
+      breadcrumbs: [{ id: null, name: "Files" }],
+      capabilities: { canRead: true as const, canWrite: true },
+      entries: [originBearingFile],
+      origin: "artifact" as const,
+      parentId: null,
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+      view: "active" as const,
+    } as unknown as Awaited<ReturnType<typeof spaceStub.rpcListSpaceFiles>>);
+    const env = buildEnv({ db, spaceStub });
+    const context = buildCenterAgentContext({
+      activeOrganizationId: "org-a",
+      profileId: AGENT_PROFILE_ID,
+      profileKind: "agent",
+      userId: "user-a",
+    });
+    const entrypoint = createCenterAgentRpcEntrypoint(env);
+
+    // An already-published Remote Agent has no `requestedOriginModel` field
+    // and never sends it — this is exactly that shape.
+    const legacy = await entrypoint.centerAgentListSpaceFiles({
+      context,
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+    });
+    const current = await entrypoint.centerAgentListSpaceFiles({
+      context,
+      requestedOriginModel: "origin_aware",
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+    });
+
+    expect(JSON.stringify(legacy)).not.toContain("origin");
+    expect(legacy.entries[0]).not.toHaveProperty("origin");
+    expect(current).toMatchObject({
+      entries: [{ origin: "artifact" }],
+      origin: "artifact",
+    });
+    expect(JSON.stringify(legacy)).not.toContain("imageDimensions");
+    expect(JSON.stringify(current)).not.toContain("imageDimensions");
+    expect(originBearingFile.latestRevision.imageDimensions).toEqual({
+      width: 300,
+      height: 900,
+    });
   });
 
   it("rejects Center Agent Space context reads outside the active Organization", async () => {
@@ -11512,6 +11624,14 @@ function createOrganizationRpcDb(input: {
     typeof centerAgentDesignationRow
   > | null;
   centerAgentAuditJournal?: CenterAgentAuditJournalTestRow[];
+  connectorConnection?: {
+    connectionName: string;
+    organizationId: string;
+    scope: "member" | "shared";
+    service: "github" | "gmail";
+    status: "active" | "disconnected";
+    userId: string | null;
+  };
   dispatchLedgerEntries?: DispatchLedgerTestEntry[];
   memberActivities?: Array<{
     humanProfileId: string;
@@ -11681,6 +11801,7 @@ function createOrganizationRpcDb(input: {
                 input.centerAgentDesignationReadbackOverride,
               centerAgentMemoryPolicyRows,
               centerAgentPublicationRows,
+              connectorConnection: input.connectorConnection,
               informationProtectionPolicyRows,
               members: input.members,
               nativeDeliveries: input.nativeDeliveries,
@@ -12313,6 +12434,9 @@ function resolveFirstRow(input: {
     }
   >;
   centerAgentPublicationRows: CenterAgentPublicationOperationTestRow[];
+  connectorConnection?: Parameters<
+    typeof createOrganizationRpcDb
+  >[0]["connectorConnection"];
   informationProtectionPolicyRows: Map<
     string,
     {
@@ -12339,6 +12463,41 @@ function resolveFirstRow(input: {
   }>;
   spaces?: ReturnType<typeof spaceRow>[];
 }) {
+  if (input.normalizedSql.includes("from connector_connections")) {
+    const organizationId = String(input.args[0] ?? "");
+    const connectionName = String(input.args[1] ?? "");
+    const connection = input.connectorConnection;
+    if (
+      !connection ||
+      connection.organizationId !== organizationId ||
+      connection.connectionName !== connectionName
+    ) {
+      return null;
+    }
+    if (input.normalizedSql.includes("access_policy")) {
+      const activeOnly = Number(input.args[2] ?? 0) === 1;
+      if (activeOnly && connection.status !== "active") {
+        return null;
+      }
+      return {
+        access_policy: null,
+        access_revision: 1,
+        scope: connection.scope,
+      };
+    }
+    return {
+      connection_name: connection.connectionName,
+      created_at_ms: TEST_NOW_MS,
+      disconnected_at_ms: null,
+      organization_id: connection.organizationId,
+      scope: connection.scope,
+      service: connection.service,
+      status: connection.status,
+      updated_at_ms: TEST_NOW_MS,
+      user_id: connection.userId,
+    };
+  }
+
   if (
     input.normalizedSql.includes("from openmeld_profiles as profiles") &&
     input.normalizedSql.includes("profiles.owner_user_id = ?") &&
@@ -14019,7 +14178,13 @@ function createSpaceStub(
     rpcPatchMeta: patchSpaceMeta,
     rpcPatchMetaWithPasswordAtomic: patchSpaceMeta,
     rpcListSpaceFiles: vi.fn(
-      (request: { query?: { view?: "active" | "trash" }; spaceId: string }) =>
+      (request: {
+        query?: {
+          view?: "active" | "trash";
+          origin?: "artifact" | "all";
+        };
+        spaceId: string;
+      }) =>
         Promise.resolve({
           breadcrumbs:
             request.query?.view === "trash"
@@ -14033,6 +14198,7 @@ function createSpaceStub(
           parentId: null,
           spaceId: request.spaceId,
           view: request.query?.view ?? "active",
+          origin: request.query?.origin ?? "artifact",
         })
     ),
     rpcListSignals: vi.fn(listSignals),

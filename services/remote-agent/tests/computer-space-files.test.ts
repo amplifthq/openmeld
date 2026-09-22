@@ -41,6 +41,7 @@ describe("Computer Space file transfer", () => {
       id: "file_input",
       kind: "file",
       name: "input.bin",
+      origin: "artifact",
       path: "/input.bin",
       parentId: null,
       spaceId: request.spaceId,

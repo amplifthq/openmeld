@@ -23,7 +23,6 @@ import {
   type WakeRouteStatus,
 } from "@openmeld/agent-runtime";
 import {
-  CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   isHostedAgentControllerRef,
 } from "@openmeld/schemas";
@@ -62,6 +61,7 @@ import {
   identityDb,
   localStateDb,
 } from "../../lib/bindings";
+import { resolveCoreRuntimeContractRollout } from "../../local-components/runtime-contract-rollout";
 import { resolveLocalComponentUpdateProjection } from "../../local-components/update-projection";
 import { resolveRemoteAgentRuntimeAvailability } from "../../remote-agent/application/remote-agent-runtime-policy";
 import {
@@ -2199,7 +2199,7 @@ function createServiceEvidenceFromCompatibility(
   if (compatibility.status === "compatible") {
     return {
       executionCompatible: true,
-      expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+      expectedEpoch: compatibility.expectedEpoch,
       observedEpoch: compatibility.observedEpoch,
       reasonCodes: [],
       source: "runtime_transport",
@@ -2208,7 +2208,7 @@ function createServiceEvidenceFromCompatibility(
 
   return {
     executionCompatible: false,
-    expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+    expectedEpoch: compatibility.expectedEpoch,
     observedEpoch: compatibility.observedEpoch,
     reasonCodes: ["service.update_required", compatibility.reasonCode],
     source: "runtime_transport",
@@ -2275,7 +2275,7 @@ function doesBindingRuntimeMatchTargetRuntime(input: {
 function createNotCheckedServiceEvidence(): AgentExecutionServiceEvidence {
   return {
     executionCompatible: true,
-    expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+    expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
     observedEpoch: null,
     reasonCodes: [],
     source: "not_checked",
@@ -2285,7 +2285,7 @@ function createNotCheckedServiceEvidence(): AgentExecutionServiceEvidence {
 function createUnavailableServiceEvidence(): AgentExecutionServiceEvidence {
   return {
     executionCompatible: true,
-    expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+    expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
     observedEpoch: null,
     reasonCodes: [],
     source: "unavailable",
@@ -2409,7 +2409,7 @@ function toSpaceMemberAgentExecutionReadiness(
       },
       service: {
         executionCompatible: readiness.facts.service.executionCompatible,
-        expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+        expectedEpoch: resolveCoreRuntimeContractRollout().expectedEpoch,
         observedEpoch: readiness.facts.service.observedEpoch,
         reasonCodes: [...readiness.facts.service.reasonCodes],
         source: readiness.facts.service.source,
@@ -2641,15 +2641,7 @@ async function resolveRuntimeRouteSnapshot(input: {
           status: "online",
         }),
         agentWakeRouteRegistration,
-        wakeRouteStatus: {
-          connectionGeneration: result.connectionGeneration,
-          daemonSessionId: result.daemonSessionId,
-          deviceId: result.deviceId,
-          lane: toWakeRouteLane(result.lane),
-          lastHeartbeatMs: result.lastHeartbeatMs,
-          leaseEpoch: result.leaseEpoch,
-          status: "ready",
-        },
+        ...resolveWakeRouteAdmissionSnapshot(result, input.generatedAt),
         hasFreshRouteLease: false,
         localWakeRouteReport: toNullableLocalWakeRouteReport(
           result.localWakeRouteReport
@@ -2767,6 +2759,37 @@ function toNullableLocalWakeRouteReport(
   report: LocalWakeRouteReport | undefined
 ): LocalWakeRouteReport | null {
   return report ?? null;
+}
+
+function resolveWakeRouteAdmissionSnapshot(
+  result: Extract<RuntimeTransportLookupRouteResponse, { online: true }>,
+  generatedAt: string
+): Pick<RuntimeRouteSnapshot, "wakeRouteStatus" | "routeEvidence"> {
+  // A live socket can keep reporting accepted work while the Service drains
+  // or waits for its host. It is not a route for a new Wake.
+  if (result.acceptingDispatches === false) {
+    return {
+      routeEvidence: {
+        deviceId: result.deviceId,
+        lane: result.lane,
+        observedAt: generatedAt,
+        reasonCodes: ["local_service.not_accepting_wakes"],
+        status: "unavailable",
+      },
+      wakeRouteStatus: { status: "unavailable" },
+    };
+  }
+  return {
+    wakeRouteStatus: {
+      connectionGeneration: result.connectionGeneration,
+      daemonSessionId: result.daemonSessionId,
+      deviceId: result.deviceId,
+      lane: toWakeRouteLane(result.lane),
+      lastHeartbeatMs: result.lastHeartbeatMs,
+      leaseEpoch: result.leaseEpoch,
+      status: "ready",
+    },
+  };
 }
 
 function createSkippedRuntimeRouteSnapshot(input: {

@@ -348,6 +348,28 @@ test("fails closed when an immutable npm package has the wrong required floor", 
   );
 });
 
+test("rejects a visible release with unresolved runtime dependencies before publication can be skipped", () => {
+  for (const field of [
+    "dependencies",
+    "optionalDependencies",
+    "peerDependencies",
+  ]) {
+    const decision = decideNpmPublishStage({
+      status: 0,
+      stdout: JSON.stringify({
+        ...NPM_VERSION_FLOOR_FIXTURE.response,
+        [field]: { zod: "catalog:" },
+      }),
+      targetVersion: NPM_VERSION_FLOOR_FIXTURE.response.version,
+      targetMinRequiredCliVersion:
+        NPM_VERSION_FLOOR_FIXTURE.response["openmeld.minRequiredCliVersion"],
+    });
+    assert.equal(decision.action, "FAIL");
+    assert.ok(decision.reason.includes(`${field}.zod`));
+    assert.ok(decision.reason.includes("new version"));
+  }
+});
+
 test("runs npm publication when the target version does not exist", () => {
   assert.deepEqual(
     decideNpmPublishStage({

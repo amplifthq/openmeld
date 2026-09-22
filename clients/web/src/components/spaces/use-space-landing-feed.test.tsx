@@ -684,6 +684,14 @@ describe("useSpaceLandingFeed transport freshness", () => {
 
 	it("refreshes Space identity without refetching members after metadata changes", async () => {
 		const { membersRefetch, queryClient, statusRefetch } = renderFeed();
+		const sessionsKey = [
+			"center-agent",
+			"org-1",
+			"human-1",
+			"sessions",
+			"sidebar",
+		];
+		queryClient.setQueryData(sessionsKey, { pages: [] });
 		const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
 		await openLatestSocket();
 
@@ -707,6 +715,7 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		});
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 		expect(membersRefetch).not.toHaveBeenCalled();
+		expect(queryClient.getQueryState(sessionsKey)?.isInvalidated).toBe(true);
 	});
 
 	it("refreshes Space Files without refetching members after file changes", async () => {

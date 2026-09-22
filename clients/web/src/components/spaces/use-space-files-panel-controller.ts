@@ -16,6 +16,10 @@ import {
 	createUnscopedWebSpaceApi,
 } from "#/lib/spaces/api";
 import { baseQueryOptions } from "#/query/query-config";
+import {
+	clearSpaceFileImage,
+	clearSpaceFileImageResources,
+} from "#/query/spaces/space-file-image-resource";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import type { SpaceFileLeaveGuard } from "./space-file-detail";
 import type { SpaceFileEntryDialogState } from "./space-file-dialogs";
@@ -56,6 +60,7 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const [parentId, setParentId] = useState<string | null>(ROOT_FOLDER_ID);
 	const [view, setView] = useState<"active" | "trash">("active");
+	const [showChatUploads, setShowChatUploads] = useState(false);
 	const [selectedFile, setSelectedFile] = useState<SpaceFileDescriptor | null>(
 		null
 	);
@@ -117,12 +122,13 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 			cancelled = true;
 		};
 	}, [api, input.fileToOpen, input.spaceId, selectFile]);
+	const origin = showChatUploads ? "all" : "artifact";
 	const filesQuery = useQuery({
-		queryKey: spaceFileQueryKeys.folder(input.spaceId, parentId, view),
+		queryKey: spaceFileQueryKeys.folder(input.spaceId, parentId, view, origin),
 		queryFn: async ({ signal }) =>
 			await api.listFiles({
 				spaceId: input.spaceId,
-				query: { parentId, view },
+				query: { parentId, view, origin },
 				signal,
 			}),
 		gcTime: baseQueryOptions.gcTime,
@@ -184,6 +190,7 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 							declaredMimeType: file.type,
 							fileName: file.name,
 						}),
+						origin: "artifact",
 						bytes: file,
 						onProgress: (bytes) => {
 							uploaded.set(file, bytes);
@@ -254,13 +261,20 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 		}
 	};
 	const trashEntry = async (entry: SpaceFileEntry) => {
-		const succeeded = await runAction("trash-entry", async () =>
-			api.trashFileEntry({
+		const succeeded = await runAction("trash-entry", async () => {
+			const response = await api.trashFileEntry({
 				spaceId: input.spaceId,
 				entryId: entry.id,
 				clientMutationId: crypto.randomUUID(),
-			})
-		);
+			});
+			if (entry.kind === "file") {
+				clearSpaceFileImage(queryClient, input.spaceId, entry.id);
+			} else {
+				// A folder mutation can revoke descendants absent from this listing.
+				clearSpaceFileImageResources(queryClient, input.spaceId);
+			}
+			return response;
+		});
 		if (succeeded) {
 			setEntryDialog({ kind: "closed" });
 			if (selectedFile?.id === entry.id) {
@@ -285,6 +299,14 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 		selectFile(null);
 		setActionError(null);
 		setView(nextView);
+		// The chat-uploads toggle is a filter on the active Files list. Trash
+		// (and any other view switch) starts from the default artifact-only
+		// state instead of silently inheriting a toggle the new view has no
+		// control to show or explain.
+		setShowChatUploads(false);
+	};
+	const toggleShowChatUploads = () => {
+		setShowChatUploads((current) => !current);
 	};
 
 	return {
@@ -313,6 +335,8 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 		setMarkdownFileDialogOpen,
 		setParentId,
 		selectFile,
+		showChatUploads,
+		toggleShowChatUploads,
 		trashEntry,
 		uploadFiles,
 		view,

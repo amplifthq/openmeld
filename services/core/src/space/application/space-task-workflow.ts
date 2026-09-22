@@ -567,7 +567,7 @@ function observeExternalWorkItem({
   }
   const current = task.externalWorkItems[existingIndex];
   if (!current) {
-    fail(
+    return fail(
       "space_task.external_work_item_not_found",
       "This Task is not linked to that GitHub issue.",
       404
@@ -590,6 +590,87 @@ function observeExternalWorkItem({
     detail: formatSpaceTaskGitHubIssueLabel(command),
     now,
   });
+}
+
+export function applyGitHubIssueProviderObservation(input: {
+  now?: string;
+  observedAt: string;
+  observedState: SpaceTaskExternalWorkItem["lastObservedState"];
+  identity: {
+    number: number;
+    owner: string;
+    repo: string;
+  };
+  task: SpaceTask;
+}): {
+  cancel: SpaceTaskMutationResult | null;
+  observe: SpaceTaskMutationResult | null;
+  skipReason: "not_linked" | "stale" | null;
+} {
+  const existingIndex = matchingExternalWorkItemIndex(
+    input.task.externalWorkItems,
+    {
+      ...input.identity,
+      provider: "github",
+    }
+  );
+  if (existingIndex < 0) {
+    return { cancel: null, observe: null, skipReason: "not_linked" };
+  }
+  const current = input.task.externalWorkItems[existingIndex];
+  if (!current) {
+    return { cancel: null, observe: null, skipReason: "not_linked" };
+  }
+  if (current.lastObservedAt && current.lastObservedAt > input.observedAt) {
+    return { cancel: null, observe: null, skipReason: "stale" };
+  }
+  const now = input.now ?? input.observedAt;
+  const needsObserve =
+    current.lastObservedState !== input.observedState ||
+    current.lastObservedAt !== input.observedAt;
+  const observe = needsObserve
+    ? finishMutation({
+        current: input.task,
+        next: {
+          ...input.task,
+          externalWorkItems: input.task.externalWorkItems.map((item, index) =>
+            index === existingIndex
+              ? {
+                  ...item,
+                  lastObservedAt: input.observedAt,
+                  lastObservedState: input.observedState,
+                }
+              : item
+          ),
+        },
+        eventType: "external_work_item_observed",
+        detail: formatSpaceTaskGitHubIssueLabel(current),
+        now,
+      })
+    : null;
+  const observedTask = observe?.task ?? input.task;
+  if (
+    input.observedState !== "closed" ||
+    observedTask.phase === "done" ||
+    observedTask.phase === "canceled"
+  ) {
+    return { cancel: null, observe, skipReason: null };
+  }
+  return {
+    cancel: finishMutation({
+      current: observedTask,
+      next: {
+        ...observedTask,
+        needsHumanDecision: false,
+        phase: "canceled",
+      },
+      eventType: "canceled",
+      detail: `GitHub issue ${formatSpaceTaskGitHubIssueLabel(current)} was closed.`,
+      now,
+    }),
+    observe,
+    skipReason: null,
+  };
 }
 
 function continueTaskRework({

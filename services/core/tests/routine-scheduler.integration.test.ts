@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { CENTER_AGENT_ROUTINE_LIMIT } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
+import { claimRoutineWorkflowCheckBatch } from "../src/routines/routine-repository";
 import {
   ROUTINE_CLAIM_WATCHDOG_TIMEOUT_MS,
   runRoutineSchedulerTick,
@@ -21,6 +22,56 @@ afterEach(async () => {
 });
 
 describe("Core Routine scheduler", () => {
+  it("rotates bounded Workflow checks past stuck Runs without changing execution state", async () => {
+    const nowMs = Date.parse("2026-07-12T12:01:00.000Z");
+    const fixture = await seedDueRoutine({
+      cronExpression: "*/5 * * * *",
+      nextDueAt: nowMs,
+      suffix: crypto.randomUUID(),
+    });
+    const runIds = [0, 1, 2].map(() => `routine_run_${crypto.randomUUID()}`);
+    await env.OPENMELD_DB.batch(
+      runIds.map((id, index) =>
+        env.OPENMELD_DB.prepare(`
+      INSERT INTO routine_runs (id, routine_id, organization_id, scheduled_for, status,
+        routine_name_snapshot, execution_engine, started_at_ms)
+      VALUES (?, ?, ?, ?, 'submitted', 'Recovery rotation', 'workflow', ?)
+    `).bind(
+          id,
+          fixture.routineId,
+          fixture.organizationId,
+          nowMs + index,
+          nowMs + index
+        )
+      )
+    );
+    const first = await claimRoutineWorkflowCheckBatch({
+      db: env.OPENMELD_DB,
+      limit: 2,
+      nowMs: nowMs + 10,
+    });
+    expect(new Set(first)).toEqual(new Set(runIds.slice(0, 2)));
+    const second = await claimRoutineWorkflowCheckBatch({
+      db: env.OPENMELD_DB,
+      limit: 2,
+      nowMs: nowMs + 10,
+    });
+    expect(second).toEqual([runIds[2]]);
+    const nextTick = await claimRoutineWorkflowCheckBatch({
+      db: env.OPENMELD_DB,
+      limit: 2,
+      nowMs: nowMs + 60_000,
+    });
+    expect(new Set(nextTick)).toEqual(new Set(runIds.slice(0, 2)));
+    const rows = await env.OPENMELD_DB.prepare(
+      "SELECT status, failure_code FROM routine_runs WHERE routine_id = ?"
+    )
+      .bind(fixture.routineId)
+      .all();
+    expect(rows.results).toEqual(
+      runIds.map(() => ({ status: "submitted", failure_code: null }))
+    );
+  });
   it("keeps global tick capacity independent from one Organization's Routine limit", async () => {
     const nowMs = Date.parse("2026-07-12T12:01:00.000Z");
     for (let index = 0; index <= CENTER_AGENT_ROUTINE_LIMIT; index += 1) {

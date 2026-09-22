@@ -1,6 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { runOwnedCommand } from "../dev/owned-command.mjs";
+import { checkProductionArtifact } from "../release/production-artifact-check.mjs";
 import { buildInstalledPlatformPlan } from "./installed-platform.ts";
 import { readInstalledDesktopTarget } from "./installed-target.ts";
 import { stageDesktopRenderer } from "./private-package.mjs";
@@ -25,6 +26,13 @@ const plan = buildInstalledPlatformPlan({
   target,
   signedMode,
 });
+if (productionSource) {
+  await checkProductionArtifact({
+    root,
+    scope: "desktop",
+    sourceSha: productionSource.releaseSha,
+  });
+}
 const staged = stageDesktopRenderer(root, target);
 if (productionSource) {
   writeFileSync(

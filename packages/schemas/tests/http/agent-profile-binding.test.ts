@@ -307,6 +307,10 @@ describe("agent profile binding http schemas", () => {
 
   it("keeps Agent Controller Permission Mode values explicit and rejects unsupported spellings", () => {
     expect(agentControllerPermissionModeSchema.options).toEqual([
+      "antigravity:default",
+      "antigravity:acceptEdits",
+      "antigravity:plan",
+      "antigravity:bypassPermissions",
       "claude-code:default",
       "claude-code:acceptEdits",
       "claude-code:plan",

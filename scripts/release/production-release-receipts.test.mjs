@@ -12,7 +12,11 @@ import {
   executeProductionDeploySteps,
   executeWithProductionScopeLeases,
 } from "./production-release.mjs";
-import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
+import {
+  describeGuardedReceiptRecoveryCandidate,
+  executeRecordedProductionDeploySteps,
+} from "./production-release-receipts.mjs";
+import { runProductionStageAdmission } from "./production-stage-admission.mjs";
 
 const IDENTITY_ERROR = /output|correlat|identity|Worker|target/iu;
 const BASELINE_ERROR = /baseline/iu;
@@ -20,6 +24,7 @@ const UNRESOLVED_ERROR = /unresolved|reconcil/iu;
 const SOURCE = "a".repeat(40);
 const ATTEMPT = "00000000-0000-4000-8000-000000000001";
 const WORKER_VERSION = "23863082-db0f-4cfe-a91b-69c570ee1578";
+const CLI_ARTIFACT_SHA = "b".repeat(64);
 const FAILURE = /fixture failure|persist|boundary|Worker|completion|executor/u;
 
 function fixture(options = {}) {
@@ -90,7 +95,26 @@ function fixture(options = {}) {
             },
             publishCliRelease: () => {
               effects.push("publish-cli");
-              return cliProjectionResult(SOURCE);
+              return {
+                ...cliProjectionResult(SOURCE),
+                receiptIdentity: {
+                  artifact: {
+                    archiveFormat: "gzip",
+                    archiveSha256: "c".repeat(64),
+                    archiveSizeBytes: 50,
+                    archiveUrl:
+                      "https://openmeld.ai/cli/openmeld-cli-darwin-arm64-0.3.217.gz",
+                    platform: "darwin-arm64",
+                    sha256: CLI_ARTIFACT_SHA,
+                    sizeBytes: 100,
+                    url: "https://openmeld.ai/cli/openmeld-cli-darwin-arm64-0.3.217",
+                  },
+                  kind: "cli-release",
+                  npmPackage: "openmeld",
+                  tagName: "v0.3.217",
+                  version: "0.3.217",
+                },
+              };
             },
           },
           publishEvidence: (event) => {
@@ -142,6 +166,126 @@ test("records health failure after application without claiming the version was 
   assert.equal(result.latest.has("gateway"), false);
 });
 
+test("a failed applied receipt resumes health under the same lease without redeploying", async () => {
+  const options = { scopes: ["web"], failureAt: "Verify Web health" };
+  const result = fixture(options);
+
+  await assert.rejects(result.run, FAILURE);
+  const failedSource = {
+    receipt: result.latest.get("web"),
+    sha: SOURCE,
+  };
+  const recovery = describeGuardedReceiptRecoveryCandidate(failedSource);
+  assert.deepEqual(recovery, {
+    admission: "candidate",
+    attemptId: ATTEMPT,
+    componentIndex: 0,
+    kind: "guarded-health-resume",
+    operationKey: failedSource.receipt.operationKey,
+    sourceSha: SOURCE,
+  });
+  await admitRecovery(recovery);
+
+  options.failureAt = undefined;
+  await result.run();
+
+  assert.equal(
+    result.effects.filter((effect) => effect === "Deploy Web").length,
+    1
+  );
+  assert.equal(
+    result.effects.filter((effect) => effect === "Verify Web health").length,
+    2
+  );
+  assert.equal(result.latest.get("web").status, "verified");
+  assert.equal(result.released.filter((scope) => scope === "web").length, 2);
+});
+
+test("health recovery rejects operation drift before any second-run effect", async () => {
+  const options = { scopes: ["web"], failureAt: "Verify Web health" };
+  const result = fixture(options);
+  await assert.rejects(result.run, FAILURE);
+  const effectsAfterFailure = [...result.effects];
+  await admitRecovery(
+    describeGuardedReceiptRecoveryCandidate({
+      receipt: result.latest.get("web"),
+      sha: SOURCE,
+    })
+  );
+
+  options.failureAt = undefined;
+  options.steps = buildProductionDeployStepSpecs(["web"]).map((step) =>
+    step.label === "Verify Web health"
+      ? { ...step, args: [...step.args, "--operation-drift"] }
+      : step
+  );
+  await assert.rejects(result.run, UNRESOLVED_ERROR);
+
+  assert.deepEqual(result.effects, effectsAfterFailure);
+  assert.equal(result.latest.get("web").status, "failed");
+});
+
+async function admitRecovery(recovery) {
+  return await runProductionStageAdmission({
+    collectStatus: async () => ({
+      blockers: [
+        {
+          detail: "retained failed/applied receipt",
+          name: "web deployment evidence",
+          scope: "web",
+          scopes: ["web"],
+        },
+      ],
+      components: [
+        {
+          reason: "retained failed/applied receipt",
+          recovery,
+          scope: "web",
+          state: "unknown",
+        },
+      ],
+      sourceValidationBlockers: [],
+    }),
+    scope: "web",
+    sourceSha: SOURCE,
+    write: () => undefined,
+  });
+}
+
+test("recovery candidates require exact applied Worker receipt identity", () => {
+  const receipt = {
+    application: "applied",
+    attemptId: ATTEMPT,
+    componentIndex: 0,
+    identity: {
+      deploymentId: "deployment",
+      environment: "prod",
+      kind: "worker-deployment",
+      proof: "command-output",
+      sourceSha: SOURCE,
+      versionId: "version",
+      workerName: "openmeld-web-prod",
+    },
+    operationKey: "d".repeat(64),
+    startedAt: "2026-09-22T00:00:00.000Z",
+    status: "failed",
+  };
+  for (const source of [
+    { sha: "short", receipt },
+    { sha: SOURCE, receipt: { ...receipt, application: "unknown" } },
+    { sha: SOURCE, receipt: { ...receipt, identity: undefined } },
+    {
+      sha: SOURCE,
+      receipt: {
+        ...receipt,
+        identity: { ...receipt.identity, sourceSha: "b".repeat(40) },
+      },
+    },
+  ]) {
+    assert.equal(describeGuardedReceiptRecoveryCandidate(source), null);
+  }
+});
+
 test("stops safely on receipt or identity failure, retaining the last durable event", async () => {
   for (const receiptFailure of ["started", "applied", "verified"]) {
     const result = fixture({ scopes: ["web", "gateway"], receiptFailure });
@@ -172,7 +316,23 @@ test("records CLI and its Core projection together without changing guarded publ
   assert.deepEqual(result.effects, ["publish-cli", "publish-cli"]);
   assert.deepEqual(result.released, ["core", "cli"]);
   assert.equal(result.latest.get("cli").status, "verified");
-  assert.equal(result.latest.get("cli").identity.kind, "release-source");
+  assert.deepEqual(result.latest.get("cli").identity, {
+    artifact: {
+      archiveFormat: "gzip",
+      archiveSha256: "c".repeat(64),
+      archiveSizeBytes: 50,
+      archiveUrl:
+        "https://openmeld.ai/cli/openmeld-cli-darwin-arm64-0.3.217.gz",
+      platform: "darwin-arm64",
+      sha256: CLI_ARTIFACT_SHA,
+      sizeBytes: 100,
+      url: "https://openmeld.ai/cli/openmeld-cli-darwin-arm64-0.3.217",
+    },
+    kind: "cli-release",
+    npmPackage: "openmeld",
+    tagName: "v0.3.217",
+    version: "0.3.217",
+  });
   assert.equal(result.latest.get("core").identity.versionId, WORKER_VERSION);
   assert.equal(
     result.receipts.every((event) => event.scopes.join(",") === "cli,core"),

@@ -73,11 +73,18 @@ export async function invokeOpenCodeCliTransport(input: {
       message: "schema.invalid: prompt is required",
     });
   }
+  if (normalizeOptionalText(input.sessionId)) {
+    throw new OpenCodeCliTransportError({
+      code: "context.resume_requires_server",
+      errorType: "adapter",
+      message:
+        "An existing OpenCode conversation requires the server connection to verify its working folder.",
+    });
+  }
 
   const args = buildOpenCodeArgs({
     conversationPolicy: input.conversationPolicy,
     prompt,
-    sessionId: normalizeOptionalText(input.sessionId),
     workdir: input.openCodeWorkdir,
   });
   const invocation = buildCliLaunchInvocation({
@@ -87,7 +94,7 @@ export async function invokeOpenCodeCliTransport(input: {
 
   let latestOutput = "";
   let latestResultIsError = false;
-  let resolvedSessionId = normalizeOptionalText(input.sessionId);
+  let resolvedSessionId: string | null = null;
   const providerErrorMessages: string[] = [];
   const invokedAtMs = Date.now();
   let firstStdoutAtMs: number | null = null;
@@ -265,7 +272,7 @@ export async function invokeOpenCodeCliTransport(input: {
       firstStderrAtMs,
       firstStdoutAtMs,
       invokedAtMs,
-      resumedContext: normalizeOptionalText(input.sessionId) !== null,
+      resumedContext: false,
     }),
   };
 }
@@ -273,7 +280,6 @@ export async function invokeOpenCodeCliTransport(input: {
 const buildOpenCodeArgs = (input: {
   conversationPolicy?: ConversationPolicy;
   prompt: string;
-  sessionId: string | null;
   workdir: string;
 }): string[] => {
   const args = [
@@ -284,9 +290,6 @@ const buildOpenCodeArgs = (input: {
     "--dir",
     input.workdir,
   ];
-  if (input.sessionId) {
-    args.push("--session", input.sessionId);
-  }
   const model = normalizeOptionalText(input.conversationPolicy?.model);
   if (model) {
     args.push("--model", model);

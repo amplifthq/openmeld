@@ -1,0 +1,15 @@
+{
+  "object": "chat.completion",
+  "model": "z-ai/glm-5.3-flash",
+  "provider": "CoreWeave",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+        "role": "assistant",
+        "content": "{\"title\":\"审查 PR #1048 和 #1047\"}"
+      }
+    }
+  ]
+}

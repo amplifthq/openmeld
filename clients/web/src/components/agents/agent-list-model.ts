@@ -8,18 +8,20 @@ import type {
 	GetAgentExecutionReadinessResponse,
 	ModelCatalog,
 } from "@openmeld/schemas/types";
+import { modelBrandName } from "#/components/models/model-brand";
 import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
 import { resolveAgentProfileModel } from "#/lib/profiles/agent-profile-model-display";
 
 export type AgentListSort = "recent" | "created" | "name";
-export type AgentListFacet = "controller" | "model";
+export type AgentListFacet = "type" | "controller" | "model";
 export type AgentListFilters = Record<AgentListFacet, string[]>;
 export type AgentListGrouping = "none" | "controller" | "model";
 export const EMPTY_AGENT_LIST_FILTERS: AgentListFilters = {
+	type: [],
 	controller: [],
 	model: [],
 };
-export const AGENT_LIST_FACETS = ["controller", "model"] as const;
+export const AGENT_LIST_FACETS = ["type", "controller", "model"] as const;
 export type AgentListItem = {
 	profile: AuthProfileView;
 	lastTaskActivityAt: string | null;
@@ -27,6 +29,8 @@ export type AgentListItem = {
 	type: string;
 	controller: string;
 	model: string;
+	modelBrand: string | null;
+	agentControllerRef: string | null;
 	searchText: string;
 };
 
@@ -99,6 +103,8 @@ export function buildAgentListItem(input: {
 		type: controller ? runtimeType : "Unknown type",
 		controller: controller ? controllerName : "Unknown Controller",
 		model: model.catalogModel?.displayName ?? model.modelId ?? "Unknown model",
+		modelBrand: modelBrandName(model.modelId, model.catalogModel?.displayName),
+		agentControllerRef: ref,
 	};
 	return {
 		...item,
@@ -110,6 +116,8 @@ export function buildAgentListItem(input: {
 				item.type,
 				item.controller,
 				item.model,
+				model.modelId,
+				item.modelBrand,
 			].join(" ")
 		),
 	};

@@ -291,6 +291,34 @@ export const inboxItemSchema = inboxItemWireSchema.transform((item) => ({
   kind: normalizeInboxItemWireKind(item.kind),
 }));
 
+export const inboxNotificationObservationCursorSchema = z
+  .strictObject({
+    version: z.literal(1),
+    organizationId: identifierSchema,
+    recipientUserId: identifierSchema,
+    afterRowId: z.number().int().nonnegative(),
+    throughRowId: z.number().int().nonnegative(),
+  })
+  .refine((cursor) => cursor.afterRowId <= cursor.throughRowId);
+
+/** A read position over insertions, not a delivery receipt or an unread store. */
+export const inboxNotificationObservationsQuerySchema = z.strictObject({
+  cursor: z.string().trim().min(1).max(4096).optional(),
+  limit: z.coerce.number().int().min(1).max(INBOX_LIST_MAX_LIMIT).optional(),
+});
+
+export const inboxNotificationObservationsResponseSchema = z.strictObject({
+  organizationId: identifierSchema,
+  items: z.array(inboxItemSchema).max(INBOX_LIST_MAX_LIMIT),
+  cursor: z.string().min(1).max(4096),
+  hasMore: z.boolean(),
+});
+
+export const observeInboxNotificationsRpcInputSchema =
+  inboxNotificationObservationsQuerySchema.extend({
+    context: openMeldRequestContextSchema,
+  });
+
 export const listInboxItemsQuerySchema = z.strictObject({
   cursor: z.string().trim().min(1).max(1024).optional(),
   limit: z.coerce.number().int().min(1).max(INBOX_LIST_MAX_LIMIT).optional(),

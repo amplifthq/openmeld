@@ -63,6 +63,7 @@ it("discovers every packaged Wake tool before recording a reply", async () => {
       "status",
       "stay_silent",
       "submit_task_result",
+      "working_copy",
     ]);
     expect(
       catalog.tools.find((tool) => tool.name === "read_file")?.inputSchema

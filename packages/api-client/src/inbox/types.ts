@@ -5,6 +5,8 @@ import type {
   InboxFeedQuery,
   InboxFeedResponse,
   InboxMessageNotificationPreferencesResponse,
+  InboxNotificationObservationsQuery,
+  InboxNotificationObservationsResponse,
   InboxNotificationPreferencesResponse,
   InboxPresentation,
   InboxSummaryResponse,
@@ -30,6 +32,9 @@ export type InboxRequestInput = {
 };
 
 export type InboxApi = {
+  observeNotifications: (
+    input?: InboxRequestInput & InboxNotificationObservationsQuery
+  ) => Promise<InboxNotificationObservationsResponse>;
   feed: (
     input?: InboxRequestInput & InboxFeedQuery
   ) => Promise<InboxFeedResponse>;

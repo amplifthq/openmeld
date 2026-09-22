@@ -3,6 +3,7 @@ import { handleDispatchQueueBatch } from "../../dispatch/transport/queue/dispatc
 import type { CoreBindings } from "../../lib/bindings";
 import { handleRemoteAgentMessageChannelEventQueueMessage } from "../../remote-agent/transport/queue/message-channel-event-queue-consumer";
 import { handleRemoteAgentSlackEventQueueMessage } from "../../remote-agent/transport/queue/slack-event-queue-consumer";
+import { handleGitHubAppWebhookQueueMessage } from "../../space/transport/queue/github-app-webhook-queue-consumer";
 
 export async function handleCoreQueueBatch(input: {
   batch: MessageBatch<unknown>;
@@ -34,7 +35,14 @@ export async function handleCoreQueueBatch(input: {
           message,
           queueName: input.batch.queue,
         });
-    if (!messageChannelHandled) {
+    const githubHandled = messageChannelHandled
+      ? true
+      : await handleGitHubAppWebhookQueueMessage({
+          env: input.env,
+          message,
+          queueName: input.batch.queue,
+        });
+    if (!githubHandled) {
       dispatchMessages.push(message);
     }
   }

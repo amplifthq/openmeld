@@ -3988,18 +3988,35 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
-  it("forwards canonical Space File image bytes without creating a second attachment", async () => {
+  it("freezes and retries canonical Space File image bytes without display geometry or a second attachment", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
-    const workerSubmit = vi.fn(async () => ({
-      accepted: true,
-      createdAt: 1001,
-      requestId: "req_space_file_image",
-      status: "pending" as const,
-      submissionId: "sub_space_file_image",
-    }));
+    let submissionAttempts = 0;
+    const workerSubmit = vi.fn(
+      async (request: RemoteAgentWorkerSubmitTurnRequest) => {
+        const frozen = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey: request.idempotencyKey,
+        });
+        expect(frozen?.workerSubmitRequest).toEqual(request);
+        expect(frozen?.executionRecoverySubmitRequest).toEqual(request);
+        expect(JSON.stringify(request)).not.toContain("imageDimensions");
+        submissionAttempts += 1;
+        if (submissionAttempts === 1) {
+          throw new Error("simulated RPC disconnect after admission");
+        }
+        return {
+          accepted: true,
+          createdAt: 1001,
+          requestId: "req_space_file_image",
+          status: "pending" as const,
+          submissionId: "sub_space_file_image",
+        };
+      }
+    );
     const file = {
       fileId: "space-file-whiteboard",
+      imageDimensions: { width: 300, height: 900 },
       mimeType: "image/png",
       name: "whiteboard.png",
       revision: 2,
@@ -4018,6 +4035,7 @@ describe("Remote Agent native delivery callback service", () => {
         id: file.fileId,
         kind: "file" as const,
         latestRevision: {
+          imageDimensions: file.imageDimensions,
           createdAt: "2026-08-23T00:00:00.000Z",
           createdBy: actor,
           fileId: file.fileId,
@@ -4037,6 +4055,7 @@ describe("Remote Agent native delivery callback service", () => {
         "org/org_1/space/space-file/files/space-file-whiteboard/revisions/revision-whiteboard-2",
       organizationId: "org_1",
       revision: {
+        imageDimensions: file.imageDimensions,
         createdAt: "2026-08-23T00:00:00.000Z",
         createdBy: actor,
         fileId: file.fileId,
@@ -4087,6 +4106,50 @@ describe("Remote Agent native delivery callback service", () => {
           }),
         }),
       });
+      const persisted = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+        db: harness.db,
+        idempotencyKey: "idem_1",
+      });
+      expect(persisted?.workerSubmitRequest).toEqual(
+        workerSubmit.mock.calls[0]?.[0]
+      );
+      expect(persisted?.executionRecoverySubmitRequest).toEqual(
+        workerSubmit.mock.calls[0]?.[0]
+      );
+      expect(
+        JSON.stringify(persisted?.executionRecoverySubmitRequest)
+      ).not.toContain("imageDimensions");
+      expect(spaceFileContent.file.latestRevision.imageDimensions).toEqual({
+        width: 300,
+        height: 900,
+      });
+      await submitRemoteAgentNativeDelivery({
+        binding: createBinding(),
+        db: harness.db,
+        env,
+        executionAttemptId: "attempt_1",
+        message: createDispatchMessage({
+          sourceSignalSnapshot: {
+            files: [file],
+            profileId: HUMAN_PROFILE_ID,
+            profileKind: "human",
+            text: "What changed on this whiteboard?",
+          },
+        }),
+        nowMs: 1002,
+      });
+      expect(workerSubmit).toHaveBeenCalledTimes(2);
+      expect(workerSubmit.mock.calls[1]?.[0]).toEqual(
+        workerSubmit.mock.calls[0]?.[0]
+      );
+      expect(
+        (
+          await readRemoteAgentNativeDeliveryByIdempotencyKey({
+            db: harness.db,
+            idempotencyKey: "idem_1",
+          })
+        )?.executionRecoverySubmitRequest
+      ).toEqual(persisted?.executionRecoverySubmitRequest);
       expect(workerSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           messages: [

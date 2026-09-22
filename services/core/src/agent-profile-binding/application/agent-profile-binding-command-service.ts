@@ -3,6 +3,7 @@ import {
   type AgentProfileBindingProfileOwnerValidationResult,
   type AuthorityOpenMeldServiceRuntimeId,
   createAuthorityOpenMeldServiceRuntimeId,
+  getAgentControllerModelCatalogId,
   parseAgentControllerRef,
   type RuntimeAgentControllerReport,
   type RuntimeLookupInput,
@@ -24,6 +25,7 @@ import type {
   OpenCodePermissionConfig,
 } from "@openmeld/schemas/types";
 import { readModelCatalog as readCoreModelCatalog } from "../../config/model-catalog";
+import { assertAgentControllerPermissionModeReleased } from "../../local-components/runtime-contract-rollout";
 import type { AcceptedRuntimeAgentControllerReport } from "../../runtime-registry/application/runtime-agent-controller-report-service";
 import {
   lookupRuntime,
@@ -730,7 +732,7 @@ function resolveModelSelectionPatch(input: {
     );
     const controller = parsedControllerRef
       ? (input.readModelCatalog ?? readCoreModelCatalog)().agentControllers[
-          parsedControllerRef.id
+          getAgentControllerModelCatalogId(parsedControllerRef)
         ]
       : undefined;
     const supportedModels =
@@ -866,6 +868,7 @@ function resolveAgentControllerPermissionModePatch(input: {
       status: "rejected",
     };
   }
+  assertAgentControllerPermissionModeReleased(parsed.data);
   return {
     patch: {
       agentControllerPermissionMode: parsed.data,

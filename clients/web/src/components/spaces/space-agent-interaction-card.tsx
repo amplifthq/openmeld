@@ -1,3 +1,7 @@
+import {
+	isWorkingFolderRecoveryDecline,
+	isWorkingFolderRecoveryQuestion,
+} from "@openmeld/schemas";
 import type {
 	AgentControllerPermissionMode,
 	AgentInteractionQuestion,
@@ -63,7 +67,9 @@ export function SpaceAgentInteractionCard(input: {
 	const pendingInteraction = input.item.pendingInteraction;
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [isSubmitting, setIsSubmitting] = useState(false);
-	const [submitted, setSubmitted] = useState(false);
+	const [submission, setSubmission] = useState<"continue" | "stop" | null>(
+		null
+	);
 
 	if (!pendingInteraction) {
 		return null;
@@ -97,7 +103,12 @@ export function SpaceAgentInteractionCard(input: {
 				response,
 				runtimeCoordinatorExecutionId,
 			});
-			setSubmitted(true);
+			setSubmission(
+				isWorkingFolderRecoveryQuestion(request) &&
+					isWorkingFolderRecoveryDecline(response)
+					? "stop"
+					: "continue"
+			);
 			if (permissionMode) {
 				input.onPermissionModeUpdate?.({
 					permissionMode,
@@ -115,16 +126,18 @@ export function SpaceAgentInteractionCard(input: {
 		}
 	};
 
-	if (submitted) {
+	if (submission) {
 		return (
 			<InteractionShell
 				kind={pendingInteraction.kind}
 				presentation={input.presentation}
 				targetLabel={input.item.targetLabel}
-				title="Response sent"
+				title={submission === "stop" ? "Stop requested" : "Response sent"}
 			>
 				<p aria-live="polite" className="text-muted-foreground text-sm">
-					Waiting for {input.item.targetLabel} to continue.
+					{submission === "stop"
+						? "Waiting for confirmation that this task has stopped."
+						: `Waiting for ${input.item.targetLabel} to continue.`}
 				</p>
 			</InteractionShell>
 		);
@@ -381,6 +394,11 @@ function QuestionInteraction(input: {
 	const values = question ? resolveQuestionDraftValues(question, draft) : [];
 	const canContinue = values.length > 0;
 	const isLastQuestion = questionIndex === input.request.questions.length - 1;
+	const questionSubmitLabel = isLastQuestion ? "Submit answers" : "Next";
+	const isFolderRecovery = isWorkingFolderRecoveryQuestion(input.request);
+	const submitLabel = isFolderRecovery
+		? resolveFolderChoiceLabel(values[0])
+		: questionSubmitLabel;
 
 	const updateDraft = (nextDraft: QuestionDraft) => {
 		if (!question) {
@@ -414,7 +432,10 @@ function QuestionInteraction(input: {
 
 	return (
 		<>
-			<ApprovalCardBody key={question.questionId}>
+			<ApprovalCardBody
+				className={isFolderRecovery ? "max-h-none" : undefined}
+				key={question.questionId}
+			>
 				<InteractionDescription request={input.request} />
 				<div className="flex items-center justify-between gap-3">
 					{question.header ? (
@@ -463,11 +484,15 @@ function QuestionInteraction(input: {
 					}}
 					type="button"
 				>
-					{isLastQuestion ? "Submit answers" : "Next"}
+					{submitLabel}
 				</Button>
 			</ApprovalCardFooter>
 		</>
 	);
+}
+
+function resolveFolderChoiceLabel(choice: string | undefined): string {
+	return choice === "leave_task" ? "Stop task" : "Continue task";
 }
 
 function QuestionOptions(input: {

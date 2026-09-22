@@ -28,6 +28,7 @@ const FILE: SpaceFileDescriptor = {
     sizeBytes: 5,
   },
   name: "notes.txt",
+  origin: "chat_upload",
   parentId: null,
   path: "/notes.txt",
   spaceId: "space-1",

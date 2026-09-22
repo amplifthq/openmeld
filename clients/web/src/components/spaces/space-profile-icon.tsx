@@ -40,6 +40,7 @@ export function SpaceProfileIcon(input: {
 	profileId: string;
 	profileKind: "agent" | "human";
 	profileName: string;
+	showPresence?: boolean;
 	size?: keyof typeof SPACE_PROFILE_ICON_SIZE_CLASS_NAMES;
 }) {
 	const size = input.size ?? "xs";
@@ -72,7 +73,7 @@ export function SpaceProfileIcon(input: {
 					profileName={input.profileName}
 					size={SPACE_PROFILE_ICON_SIZE_PIXELS[size]}
 				/>
-				{size !== "inline" && (
+				{input.showPresence !== false && size !== "inline" && (
 					<HumanPresenceIndicator
 						large={size === "md" || size === "lg"}
 						status={presence.get(input.profileId)}

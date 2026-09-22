@@ -135,7 +135,7 @@ describe("Remote Agent Code Mode", () => {
     const runtime = createRuntime({
       executorOptions: [],
       execute: async (tools) => {
-        const tool = tools.test_computer;
+        const tool = tools.read;
         if (!tool?.execute) {
           throw new Error("Computer missing from Code Mode");
         }
@@ -144,7 +144,7 @@ describe("Remote Agent Code Mode", () => {
         };
       },
     });
-    const tools = await getRemoteAgentFlueTools({
+    const { tools } = await getRemoteAgentFlueTools({
       personalAgent: true,
       storage,
       submissionId: SUBMISSION_ID,
@@ -153,7 +153,7 @@ describe("Remote Agent Code Mode", () => {
       codeModeRuntime: runtime,
       sandboxDefinitions: [
         {
-          name: "test_computer",
+          name: "read",
           description: "Use computer",
           input: strictObject({ code: string() }),
           execute,
@@ -161,11 +161,11 @@ describe("Remote Agent Code Mode", () => {
       ],
     });
     const names = tools.map((tool) => tool.name);
-    expect(names).toContain("web_search");
-    expect(names).toContain("openmeld_read_org_documents");
+    expect(names).not.toContain("web_search");
+    expect(names).not.toContain("openmeld_read_org_documents");
     expect(names).not.toContain("openmeld_create_project");
-    expect(names).toContain("openmeld_create_routine");
-    const direct = tools.find((tool) => tool.name === "test_computer");
+    expect(names).not.toContain("openmeld_create_routine");
+    const direct = tools.find((tool) => tool.name === "read");
     const codeMode = tools.find((tool) => tool.name === "codemode");
     if (!(direct && codeMode)) {
       throw new Error("Expected both execution paths");

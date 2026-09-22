@@ -30,6 +30,8 @@ const DATABASE_PROBE_FAILED_ERROR_PATTERN =
   /could not prove that the Production database is current.*authentication failed/su;
 const DATABASE_PROBE_INCONCLUSIVE_ERROR_PATTERN =
   /could not prove that the Production database is current/su;
+const REQUIRED_PRODUCTION_TRAIN_INPUT =
+  /production_train_scopes:\n\s+description: [^\n]+\n\s+required: true\n\s+type: string/u;
 
 test("keeps the trusted GitHub release publication-only and focused on CLI and Core", () => {
   const source = readRepoFile(".github/workflows/cli-release.yml");
@@ -51,6 +53,35 @@ test("keeps the trusted GitHub release publication-only and focused on CLI and C
   assert.ok(source.includes("if: github.ref == 'refs/heads/main'"));
   assert.ok(source.includes("group: cli-production-release"));
   assert.equal(source.match(/cancel-in-progress: false/gu)?.length, 2);
+});
+
+test("passes the explicit production train into hosted CLI admission", () => {
+  const workflow = readRepoFile(".github/workflows/cli-release.yml");
+  const hostedRelease = readRepoFile("scripts/release/hosted-cli-release.mjs");
+  const cliRelease = readRepoFile("scripts/release/release-cli.mjs");
+  const trainInput = workflow
+    .split("      production_train_scopes:")[1]
+    ?.split("\n\nconcurrency:")[0];
+
+  assert.match(workflow, REQUIRED_PRODUCTION_TRAIN_INPUT);
+  assert.ok(!trainInput?.includes("default:"));
+  assert.ok(
+    workflow.includes(
+      `OPENMELD_PRODUCTION_TRAIN_SCOPES: ${GITHUB_EXPRESSION_PREFIX} inputs.production_train_scopes }}`
+    )
+  );
+  assert.ok(hostedRelease.includes("env: releaseEnvironment"));
+  assert.ok(cliRelease.includes("admitTrainArtifacts"));
+  assert.ok(cliRelease.includes('selectedScopes: "cli"'));
+  for (const permission of [
+    "actions: read",
+    "checks: read",
+    "statuses: read",
+    "pull-requests: read",
+  ]) {
+    assert.ok(workflow.includes(permission));
+  }
+  assert.ok(hostedRelease.includes("GH_TOKEN: token"));
 });
 
 test("keeps the signed and notarized CLI publisher fail closed", () => {

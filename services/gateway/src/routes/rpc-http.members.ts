@@ -1,4 +1,7 @@
-import { OPENMELD_SPACE_ADDRESSING_VERSION } from "@openmeld/gateway-contract";
+import {
+  OPENMELD_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+} from "@openmeld/gateway-contract";
 import {
   leaveSpaceResponseSchema,
   postSpaceMembersResponseSchema,
@@ -100,7 +103,8 @@ export function registerMembersRoutes(app: Hono<HonoBindings>): void {
             spaceId,
             spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
           },
-          OPENMELD_SPACE_ADDRESSING_VERSION
+          OPENMELD_SPACE_ADDRESSING_VERSION,
+          OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
         );
       },
       responseSchema: spaceMemberDirectorySchema,

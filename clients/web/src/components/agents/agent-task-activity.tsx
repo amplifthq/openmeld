@@ -99,21 +99,18 @@ export function AgentTaskActivitySummary({ profileId }: { profileId: string }) {
 		return null;
 	}
 	const context = activity?.operationalContext;
+	if (context?.status !== "working" && context?.status !== "paused") {
+		return null;
+	}
 	const current = navigation?.current;
 	const active = context?.status === "working";
 	const queued =
 		context && "waitingCount" in context ? context.waitingCount : 0;
-	let label = "No current task";
+	let label = "Waiting to continue";
 	if (isError) {
 		label = "Activity unavailable";
-	} else if (!activity || context?.status === "checking") {
-		label = "Checking activity…";
-	} else if (!context) {
-		label = "Current activity unavailable";
 	} else if (active) {
 		label = "Active task";
-	} else if (context?.status === "paused") {
-		label = "Waiting to continue";
 	}
 	return (
 		<section
@@ -136,11 +133,6 @@ export function AgentTaskActivitySummary({ profileId }: { profileId: string }) {
 				) : null}
 			</div>
 			<AgentTaskActivityTime timestamp={activity?.lastTaskActivityAt} />
-			{activity?.lastTaskActivityAt === null ? (
-				<span className="text-muted-foreground text-xs">
-					No recorded task activity in the past 30 days
-				</span>
-			) : null}
 		</section>
 	);
 }

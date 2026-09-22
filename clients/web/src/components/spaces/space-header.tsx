@@ -25,7 +25,7 @@ import {
 } from "#/components/app/app-module-sidebar";
 import { MessageSearchButton } from "#/components/search/message-search";
 import type { SpaceLiveState } from "#/lib/spaces/timeline";
-import { ChatArchiveButton } from "./chat-archive-button";
+import { ChatHeaderMenu } from "./chat-header-menu";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import { SpaceHeaderNavigationMenu } from "./space-header-navigation-menu";
 import { SpacePinsRecallAction } from "./space-pins";
@@ -48,6 +48,7 @@ export function SpaceWindowHeader(input: {
 	secondaryContentClassName?: string;
 	subtitleItems?: readonly SpaceWindowHeaderSubtitleItem[];
 	title: string;
+	titleControl?: ReactNode;
 	// Rendered immediately after the title, kept shrink-0 so the live-status
 	// indicator stays pinned to the name while the title truncates.
 	titleAdornment?: ReactNode;
@@ -60,7 +61,7 @@ export function SpaceWindowHeader(input: {
 	const content = (
 		<div
 			className={cn(
-				"group/space-header relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 px-[var(--app-page-inline-padding)] data-[compact=true]:grid-cols-[auto_auto_minmax(0,1fr)_auto] data-[compact=true]:grid-rows-[var(--space-conversation-title-height)]",
+				"group/space-header relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-1 px-[var(--app-page-inline-padding)] data-[compact=true]:grid-cols-[auto_auto_minmax(0,1fr)_auto] data-[compact=true]:grid-rows-[var(--space-conversation-title-height)]",
 				hasSecondaryRow
 					? "grid-rows-[minmax(0,var(--space-conversation-title-height))_minmax(0,var(--space-conversation-navigation-height))]"
 					: "grid-rows-1",
@@ -85,16 +86,18 @@ export function SpaceWindowHeader(input: {
 				)}
 				data-slot="space-window-header-title"
 			>
-				<TooltipHint content={readingHeader ? input.title : undefined}>
-					<h1
-						className={cn(
-							"truncate font-medium text-lg",
-							readingHeader && "max-w-[28rem]"
-						)}
-					>
-						{input.title}
-					</h1>
-				</TooltipHint>
+				{input.titleControl ?? (
+					<TooltipHint content={readingHeader ? input.title : undefined}>
+						<h1
+							className={cn(
+								"truncate font-medium text-lg",
+								readingHeader && "max-w-[28rem]"
+							)}
+						>
+							{input.title}
+						</h1>
+					</TooltipHint>
+				)}
 				{input.titleAdornment ?? null}
 			</div>
 
@@ -120,7 +123,7 @@ export function SpaceWindowHeader(input: {
 				>
 					{input.navigation ? (
 						<div
-							className="motion-safe:group-data-[compact=true]/space-header:slide-in-from-bottom-2 flex h-full shrink-0 items-center group-data-[compact=true]/space-header:col-start-2 group-data-[compact=true]/space-header:row-start-1 motion-safe:group-data-[compact=true]/space-header:animate-in motion-safe:group-data-[compact=true]/space-header:duration-150"
+							className="-mx-2 flex h-full shrink-0 items-center px-2 group-data-[compact=true]/space-header:col-start-2 group-data-[compact=true]/space-header:row-start-1 group-data-[compact=true]/space-header:mx-0"
 							data-slot="space-window-header-navigation"
 						>
 							{input.navigation}
@@ -159,9 +162,37 @@ function resolveHeaderTitle(
 	return conversationTitle ?? (spaceName?.trim() || "Untitled space");
 }
 
+function ConversationHeaderMenu(input: {
+	profileId?: string;
+	spaceId: string;
+	isDirectMessage: boolean;
+	isCenterAgent?: boolean;
+	onOpenSettings: () => void;
+}) {
+	const ariaLabel = input.isCenterAgent ? "Center Agent menu" : "Chat menu";
+	if (input.isDirectMessage && input.profileId) {
+		return (
+			<ChatHeaderMenu
+				ariaLabel={ariaLabel}
+				onOpenConversationInformation={input.onOpenSettings}
+				profileId={input.profileId}
+				spaceId={input.spaceId}
+			/>
+		);
+	}
+	return (
+		<SpaceHeaderNavigationMenu
+			ariaLabel={ariaLabel}
+			items={[]}
+			onOpenConversationInformation={input.onOpenSettings}
+		/>
+	);
+}
+
 export function SpaceHeader(input: {
 	conversationTitle?: string;
 	conversationTitleAction?: (title: string) => ReactNode;
+	conversationTitleControl?: (title: string) => ReactNode;
 	accessModeErrorMessage: string | null;
 	canManageSpaceAccess: boolean;
 	canManageSpaceName: boolean;
@@ -233,6 +264,7 @@ export function SpaceHeader(input: {
 		directMessageConvertedAt: input.status.directMessageConvertedAt,
 		purpose: input.status.spacePurpose,
 	});
+	const showChatMenu = input.showChatSettingsMenu || isDirectMessage;
 	const handleDialogOpenChange = (
 		dialog: "settings" | "share",
 		open: boolean
@@ -271,12 +303,6 @@ export function SpaceHeader(input: {
 							profileId={input.currentProfileId}
 							spaceId={input.status.spaceId}
 						/>
-						{isDirectMessage && input.currentProfileId ? (
-							<ChatArchiveButton
-								profileId={input.currentProfileId}
-								spaceId={input.status.spaceId}
-							/>
-						) : null}
 						{input.membersControl ?? null}
 						{input.hideShareControl === true ? null : (
 							<SpaceShareDialog
@@ -306,14 +332,16 @@ export function SpaceHeader(input: {
 								visibility={input.status.organizationVisibility}
 							/>
 						)}
-						{input.showChatSettingsMenu ? (
-							<SpaceHeaderNavigationMenu
-								ariaLabel="Center Agent menu"
-								items={[]}
-								onOpenConversationInformation={() => {
+						{showChatMenu ? (
+							<ConversationHeaderMenu
+								isCenterAgent={input.isCenterAgentDirectMessage}
+								isDirectMessage={isDirectMessage}
+								onOpenSettings={() => {
 									setSettingsInitialSection("general");
 									setActiveDialog("settings");
 								}}
+								profileId={input.currentProfileId}
+								spaceId={input.status.spaceId}
 							/>
 						) : null}
 						<SpaceSettingsDialog
@@ -364,7 +392,7 @@ export function SpaceHeader(input: {
 							}}
 							open={activeDialog === "settings"}
 							openMeldProfileId={input.currentProfileId}
-							showTrigger={!input.showChatSettingsMenu}
+							showTrigger={!showChatMenu}
 							spaceId={input.status.spaceId}
 							visibility={input.status.organizationVisibility}
 						/>
@@ -403,7 +431,7 @@ export function SpaceHeader(input: {
 				</>
 			}
 			leadingControl={
-				isDirectMessage ? (
+				isDirectMessage && !input.isCenterAgentDirectMessage ? (
 					<SpaceHeaderIdentityIcon isDirectMessage />
 				) : undefined
 			}
@@ -416,7 +444,8 @@ export function SpaceHeader(input: {
 			title={spaceName}
 			titleAdornment={
 				<span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">
-					{input.conversationTitleAction?.(spaceName)}
+					{!input.conversationTitleControl &&
+						input.conversationTitleAction?.(spaceName)}
 					{input.isCenterAgentDirectMessage || isDirectMessage
 						? null
 						: renderSpaceAccessModeHeaderLabel(input.status)}
@@ -433,6 +462,7 @@ export function SpaceHeader(input: {
 					) : null}
 				</span>
 			}
+			titleControl={input.conversationTitleControl?.(spaceName)}
 		/>
 	);
 }

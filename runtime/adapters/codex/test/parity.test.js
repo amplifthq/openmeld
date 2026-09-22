@@ -949,6 +949,8 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    return;",
       "  }",
       "  if (message.method === 'thread/start') {",
+      "    const requiredMcpFailure = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_REQUIRED_MCP_FAILURE;",
+      "    if (requiredMcpFailure) { write({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: requiredMcpFailure } }); return; }",
       "    const hangingThreadStartAttempts = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_HANG_THREAD_START_ATTEMPTS ?? '0');",
       "    if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_DIAGNOSTICS === '1') {",
       "      process.stderr.write('DEBUG session_init.mcp_manager_init: new secret=private-test-secret /private/customer-repo\\n');",
@@ -1620,6 +1622,49 @@ test("invokeCodexAppServerTransport keeps the controller process out of the work
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("codex app-server reports required MCP startup failure as task setup", async () => {
+  const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-required-mcp-"));
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+  const originalError =
+    "error creating thread: required MCP servers failed to initialize: openmeld_internal_dispatch_space_action";
+
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    await assert.rejects(
+      invokeCodexAppServerTransport({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: fixtureDir,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_REQUIRED_MCP_FAILURE: originalError,
+        },
+        prompt: "start the required task tools",
+        taskId: "task-required-mcp-failure",
+        threadId: null,
+      }),
+      (error) => {
+        assert.equal(
+          error.code,
+          "execution_context.mcp_server_initialization_failed"
+        );
+        assert.equal(error.errorType, "config");
+        assert.equal(error.rpcErrorCode, -32_603);
+        assert.equal(error.originalError, originalError);
+        assert.equal(
+          error.message,
+          "execution_context.mcp_server_initialization_failed: required tools could not start"
+        );
+        return true;
+      }
+    );
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
   }
 });
 

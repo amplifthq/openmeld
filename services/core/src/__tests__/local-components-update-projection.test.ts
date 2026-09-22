@@ -265,46 +265,138 @@ describe("local component update projection", () => {
     });
   });
 
-  it("requires Service 0.3.214 before admitting new Wake work", () => {
-    const releaseManifest = createReleaseManifest({
-      serviceBundleVersion: "0.3.214",
-      serviceUpdatePolicy: "available",
-    });
-    const unsupported = resolveLocalComponentUpdateProjection({
+  it.each([
+    {
+      installedVersion: "0.3.215",
+      latestVersion: "0.3.217",
+      requiredVersion: "0.3.217",
+      setupAction: "update_service",
+      status: "update_required",
+      updatePolicy: "required",
+      wakeBlocked: true,
+    },
+    {
+      installedVersion: "0.3.217",
+      latestVersion: "0.3.217",
+      requiredVersion: null,
+      setupAction: "none",
+      status: "current",
+      updatePolicy: "available",
+      wakeBlocked: false,
+    },
+    {
+      installedVersion: "0.3.215",
+      latestVersion: "0.3.217",
+      requiredVersion: "0.3.217",
+      setupAction: "update_service",
+      status: "update_required",
+      updatePolicy: "required",
+      wakeBlocked: true,
+    },
+    {
+      installedVersion: "0.3.216",
+      latestVersion: "0.3.217",
+      requiredVersion: "0.3.217",
+      setupAction: "update_service",
+      status: "update_required",
+      updatePolicy: "required",
+      wakeBlocked: true,
+    },
+    {
+      installedVersion: "0.3.217",
+      latestVersion: "0.3.217",
+      requiredVersion: null,
+      setupAction: "none",
+      status: "current",
+      updatePolicy: "available",
+      wakeBlocked: false,
+    },
+    {
+      installedVersion: "0.3.216",
+      latestVersion: "0.3.218",
+      requiredVersion: "0.3.218",
+      setupAction: "update_service",
+      status: "update_required",
+      updatePolicy: "required",
+      wakeBlocked: true,
+    },
+    {
+      installedVersion: "0.3.217",
+      latestVersion: "0.3.218",
+      requiredVersion: "0.3.218",
+      setupAction: "update_service",
+      status: "update_required",
+      updatePolicy: "required",
+      wakeBlocked: true,
+    },
+    {
+      installedVersion: "0.3.218",
+      latestVersion: "0.3.219",
+      requiredVersion: null,
+      setupAction: "none",
+      status: "update_available",
+      updatePolicy: "available",
+      wakeBlocked: false,
+    },
+  ] as const)("projects the monotonic Service floor for $installedVersion against available $latestVersion", ({
+    installedVersion,
+    latestVersion,
+    requiredVersion,
+    setupAction,
+    status,
+    updatePolicy,
+    wakeBlocked,
+  }) => {
+    const projection = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-06-04T00:00:00.000Z",
-      releaseManifest,
+      releaseManifest: createReleaseManifest({
+        serviceBundleVersion: latestVersion,
+        serviceUpdatePolicy: "available",
+      }),
       serviceConnected: true,
-      serviceVersion: "0.3.213",
-    });
-    const supported = resolveLocalComponentUpdateProjection({
-      generatedAt: "2026-06-04T00:00:00.000Z",
-      releaseManifest,
-      serviceConnected: true,
-      serviceVersion: "0.3.214",
+      serviceVersion: installedVersion,
     });
 
-    expect(unsupported).toMatchObject({
+    expect(projection).toMatchObject({
+      setupAction,
+      service: {
+        installedVersion,
+        latestVersion,
+        requiredVersion,
+        status,
+        updatePolicy,
+        wakeBlocked,
+      },
+    });
+  });
+
+  it.each([
+    { installedVersion: null, reasonCode: "service.version_not_reported" },
+    { installedVersion: "unknown", reasonCode: "service.version_invalid" },
+  ] as const)("keeps the published Service floor fail-closed for unprovable version $installedVersion", ({
+    installedVersion,
+    reasonCode,
+  }) => {
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-06-04T00:00:00.000Z",
+      releaseManifest: createReleaseManifest({
+        serviceBundleVersion: "0.3.217",
+        serviceUpdatePolicy: "available",
+      }),
+      serviceConnected: true,
+      serviceVersion: installedVersion,
+    });
+
+    expect(projection).toMatchObject({
       setupAction: "update_service",
       service: {
-        installedVersion: "0.3.213",
-        latestVersion: "0.3.214",
-        reasonCodes: ["service.version_outdated"],
-        requiredVersion: "0.3.214",
+        installedVersion,
+        latestVersion: "0.3.217",
+        reasonCodes: [reasonCode],
+        requiredVersion: "0.3.217",
         status: "update_required",
         updatePolicy: "required",
         wakeBlocked: true,
-      },
-    });
-    expect(supported).toMatchObject({
-      setupAction: "none",
-      service: {
-        installedVersion: "0.3.214",
-        latestVersion: "0.3.214",
-        reasonCodes: ["service.bundle_hash_not_reported"],
-        requiredVersion: null,
-        status: "current",
-        updatePolicy: "available",
-        wakeBlocked: false,
       },
     });
   });
@@ -369,56 +461,6 @@ describe("local component update projection", () => {
       service: {
         installedVersion: "0.3.126-alpha.1",
         requiredVersion: "0.7.28",
-        status: "update_required",
-        updatePolicy: "required",
-        wakeBlocked: true,
-      },
-    });
-  });
-
-  it("does not activate the Core floor before its matching Service release is installable", () => {
-    const projection = resolveLocalComponentUpdateProjection({
-      generatedAt: "2026-06-04T00:00:00.000Z",
-      releaseManifest: createReleaseManifest({
-        serviceBundleVersion: "0.3.213",
-        serviceUpdatePolicy: "available",
-      }),
-      serviceConnected: true,
-      serviceVersion: "0.3.213",
-    });
-
-    expect(projection).toMatchObject({
-      setupAction: "none",
-      service: {
-        installedVersion: "0.3.213",
-        latestVersion: "0.3.213",
-        reasonCodes: ["service.bundle_hash_not_reported"],
-        requiredVersion: null,
-        status: "current",
-        updatePolicy: "available",
-        wakeBlocked: false,
-      },
-    });
-  });
-
-  it("activates the Core floor when the matching Service release is installable", () => {
-    const projection = resolveLocalComponentUpdateProjection({
-      generatedAt: "2026-06-04T00:00:00.000Z",
-      releaseManifest: createReleaseManifest({
-        serviceBundleVersion: "0.3.214",
-        serviceUpdatePolicy: "available",
-      }),
-      serviceConnected: true,
-      serviceVersion: "0.3.213",
-    });
-
-    expect(projection).toMatchObject({
-      setupAction: "update_service",
-      service: {
-        installedVersion: "0.3.213",
-        latestVersion: "0.3.214",
-        reasonCodes: ["service.version_outdated"],
-        requiredVersion: "0.3.214",
         status: "update_required",
         updatePolicy: "required",
         wakeBlocked: true,

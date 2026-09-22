@@ -54,6 +54,7 @@ import {
   configureInstalledUserData,
   configurePilotUserData,
 } from "./pilot-user-data";
+import { createTransportDiagnostics } from "./transport-diagnostics";
 
 declare const __OPENMELD_DESKTOP_WEB_BUILD__: string;
 declare const __OPENMELD_DESKTOP_DEVELOPMENT_CONTEXT__: unknown;
@@ -161,6 +162,11 @@ export function initializeDesktopPilot(
     webOrigin,
   });
   let sessionRevision = 0;
+  const transportDiagnostics = createTransportDiagnostics({
+    directory: join(app.getPath("userData"), "diagnostics"),
+    version: app.getVersion(),
+    webBuild: platform.webBuild,
+  });
   let desktopUpdateAccountChanged: (() => void) | null = null;
   const auth = createPilotAuth(
     webOrigin,
@@ -183,6 +189,7 @@ export function initializeDesktopPilot(
     cookie: auth.cookie,
     installed: Boolean(installedTarget),
     ensureCompatible,
+    observe: transportDiagnostics.record,
   });
   const notifications = createPilotNotifications({
     auth,
@@ -295,6 +302,7 @@ export function initializeDesktopPilot(
           cloudRequest: auth.cloudRequest,
           readLocalComputer,
           ensureCompatible,
+          observe: transportDiagnostics.record,
         }
       );
       let latestConnectionProgress: DesktopComputerConnectionProgress | null =

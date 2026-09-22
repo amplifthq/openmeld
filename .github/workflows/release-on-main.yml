@@ -3,6 +3,10 @@ run-name: Scoped Production Release ${{ inputs.scope }} @ ${{ inputs.release_sha
 
 permissions:
   contents: write
+  actions: read
+  checks: read
+  statuses: read
+  pull-requests: read
 
 on:
   workflow_dispatch:
@@ -28,6 +32,10 @@ on:
           - remote-agent
           - cloud
           - full
+      production_train_scopes:
+        description: "Comma-separated complete release train; use the selected component for an independent release"
+        required: true
+        type: string
 
 jobs:
   reject_non_main:
@@ -44,6 +52,10 @@ jobs:
     name: Validate Immutable Main Release Source
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    outputs:
+      production_train_scopes: ${{ inputs.production_train_scopes }}
+      parent_admission_evidence: ${{ steps.train_admission.outputs.parent_admission_evidence }}
+      parent_web_artifact_id: ${{ steps.web_artifact.outputs.artifact-id }}
     steps:
       - name: Checkout main history
         uses: actions/checkout@v5
@@ -74,8 +86,7 @@ jobs:
             exit 1
           fi
 
-      - name: Checkout release source for fleet-order admission
-        if: inputs.scope == 'cloud' || inputs.scope == 'full'
+      - name: Checkout release source for train admission
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
@@ -84,17 +95,54 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.release_sha }}
 
-      - name: Setup fleet-order planner
-        if: inputs.scope == 'cloud' || inputs.scope == 'full'
+      - name: Setup release train admission
         uses: ./release-control/.github/actions/setup-node-pnpm
         with:
           control_directory: release-control
           working_directory: release-source
 
+      - name: Admit the complete production train before Production mutation
+        id: train_admission
+        shell: bash
+        env:
+          OPENMELD_PRODUCTION_TRAIN_SCOPES: ${{ inputs.production_train_scopes }}
+          RELEASE_SCOPE: ${{ inputs.scope }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        working-directory: release-source
+        run: |
+          set -euo pipefail
+          case "$RELEASE_SCOPE" in
+            database) selected_scopes="db" ;;
+            database-auth) selected_scopes="db,auth" ;;
+            database-core) selected_scopes="db,core" ;;
+            core-current-cli-projection) selected_scopes="core" ;;
+            cloud) selected_scopes="auth,web,gateway,core,remote-agent" ;;
+            full) selected_scopes="db,auth,web,gateway,core,remote-agent" ;;
+            *) selected_scopes="$RELEASE_SCOPE" ;;
+          esac
+          node ../release-control/scripts/release/production-train-artifact-admission.mjs \
+            --source-sha "$RELEASE_SHA" \
+            --scope "$selected_scopes" \
+            --issue-parent-evidence
+
+      - name: Preserve the admitted Web snapshot for this run
+        id: web_artifact
+        if: steps.train_admission.outputs.has_web_artifact == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-train-web-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            release-source/dev-tmp/release-artifact-check/web.json
+            release-source/dev-tmp/release-artifact-check/artifacts/web/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Admit the hosted fleet deployment order before Production mutation
         if: inputs.scope == 'cloud' || inputs.scope == 'full'
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_SCOPE: ${{ inputs.scope }}
           RELEASE_SHA: ${{ inputs.release_sha }}
         working-directory: release-source
@@ -156,6 +204,7 @@ jobs:
       - name: Setup repository toolchain
         uses: ./release-control/.github/actions/setup-node-pnpm
         with:
+          node_version: ${{ fromJSON(needs.validate_release_source.outputs.parent_admission_evidence).buildInputs.node }}
           control_directory: release-control
           working_directory: release-source
 
@@ -173,6 +222,9 @@ jobs:
       - name: Generate, migrate, verify, and optimize production database
         uses: ./release-control/.github/actions/shared-db-gate
         with:
+          parent_admission_evidence: ${{ needs.validate_release_source.outputs.parent_admission_evidence }}
+          production_train_scopes: ${{ needs.validate_release_source.outputs.production_train_scopes }}
+          release_sha: ${{ inputs.release_sha }}
           working_directory: release-source
 
       - name: Release shared Database release lease
@@ -200,7 +252,10 @@ jobs:
       (needs.auth.result == 'success' || needs.auth.result == 'skipped')
     uses: ./.github/workflows/deploy-web.yml
     with:
+      parent_web_artifact_id: ${{ needs.validate_release_source.outputs.parent_web_artifact_id }}
+      parent_admission_evidence: ${{ needs.validate_release_source.outputs.parent_admission_evidence }}
       deploy_environment: production
+      production_train_scopes: ${{ needs.validate_release_source.outputs.production_train_scopes }}
       release_sha: ${{ inputs.release_sha }}
     secrets: inherit
 
@@ -219,7 +274,9 @@ jobs:
       (needs.web.result == 'success' || needs.web.result == 'skipped')
     uses: ./.github/workflows/deploy-gateway-worker.yml
     with:
+      parent_admission_evidence: ${{ needs.validate_release_source.outputs.parent_admission_evidence }}
       deploy_environment: production
+      production_train_scopes: ${{ needs.validate_release_source.outputs.production_train_scopes }}
       release_sha: ${{ inputs.release_sha }}
     secrets: inherit
 
@@ -239,7 +296,9 @@ jobs:
       (needs.database.result == 'success' || needs.database.result == 'skipped')
     uses: ./.github/workflows/deploy-auth-worker.yml
     with:
+      parent_admission_evidence: ${{ needs.validate_release_source.outputs.parent_admission_evidence }}
       deploy_environment: production
+      production_train_scopes: ${{ needs.validate_release_source.outputs.production_train_scopes }}
       release_sha: ${{ inputs.release_sha }}
     secrets: inherit
 
@@ -266,8 +325,10 @@ jobs:
       (needs.auth.result == 'success' || needs.auth.result == 'skipped')
     uses: ./.github/workflows/deploy-core-worker.yml
     with:
+      parent_admission_evidence: ${{ needs.validate_release_source.outputs.parent_admission_evidence }}
       deploy_environment: production
       deployment_mode: ${{ inputs.scope == 'core-current-cli-projection' && 'current-stable-cli-projection' || 'standard' }}
+      production_train_scopes: ${{ needs.validate_release_source.outputs.production_train_scopes }}
       release_sha: ${{ inputs.release_sha }}
     secrets: inherit
 
@@ -292,6 +353,8 @@ jobs:
       (needs.core.result == 'success' || needs.core.result == 'skipped')
     uses: ./.github/workflows/deploy-remote-agent-worker.yml
     with:
+      parent_admission_evidence: ${{ needs.validate_release_source.outputs.parent_admission_evidence }}
       deploy_environment: production
+      production_train_scopes: ${{ needs.validate_release_source.outputs.production_train_scopes }}
       release_sha: ${{ inputs.release_sha }}
     secrets: inherit

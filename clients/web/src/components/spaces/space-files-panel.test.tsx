@@ -139,7 +139,9 @@ describe("SpaceFilesPanel", () => {
 		expect(screen.getByText("View only")).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "New" })).toBeNull();
 		expect(
-			screen.getByText("Shared with the people and agents in this Space.")
+			screen.getByText(
+				"Shared with the people and agents in this Space. Files shared in chat are hidden; show them below."
+			)
 		).toBeTruthy();
 	});
 
@@ -326,6 +328,127 @@ describe("SpaceFilesPanel", () => {
 				expect.objectContaining({ name: "research.txt" })
 			)
 		);
+	});
+
+	it("defaults Files to artifacts only and reveals chat uploads only after an explicit toggle", async () => {
+		renderPanel();
+
+		await screen.findByText("launch-notes.md");
+		expect(spaceApiMocks.listFiles).toHaveBeenCalledWith(
+			expect.objectContaining({
+				query: { parentId: null, view: "active", origin: "artifact" },
+			})
+		);
+		expect(
+			screen.getByText(
+				"Shared with the people and agents in this Space. Files shared in chat are hidden; show them below."
+			)
+		).toBeTruthy();
+
+		fireEvent.click(screen.getByRole("button", { name: "Show chat uploads" }));
+
+		await waitFor(() =>
+			expect(spaceApiMocks.listFiles).toHaveBeenCalledWith(
+				expect.objectContaining({
+					query: { parentId: null, view: "active", origin: "all" },
+				})
+			)
+		);
+		expect(
+			screen.getByRole("button", { name: "Hide chat uploads" })
+		).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Shared with the people and agents in this Space, including files shared in chat."
+			)
+		).toBeTruthy();
+	});
+
+	it("badges only explicit chat uploads, never an unclassified file, once shown", async () => {
+		const artifactFile = { ...FILE, id: "artifact-1", origin: "artifact" };
+		const chatUploadFile = {
+			...FILE,
+			id: "chat-upload-1",
+			name: "screenshot.png",
+			origin: "chat_upload",
+		};
+		const unclassifiedFile = {
+			...FILE,
+			id: "unclassified-1",
+			name: "legacy.txt",
+			origin: null,
+		};
+		spaceApiMocks.listFiles.mockResolvedValue({
+			spaceId: "space-1",
+			parentId: null,
+			view: "active",
+			breadcrumbs: [{ id: null, name: "Files" }],
+			entries: [artifactFile, chatUploadFile, unclassifiedFile],
+			capabilities: { canRead: true, canWrite: true },
+		});
+		renderPanel();
+
+		await screen.findByText("launch-notes.md");
+		fireEvent.click(screen.getByRole("button", { name: "Show chat uploads" }));
+
+		expect(await screen.findByText("screenshot.png")).toBeTruthy();
+		expect(screen.getByText("legacy.txt")).toBeTruthy();
+		expect(screen.getAllByText("Chat upload")).toHaveLength(1);
+		const chatUploadRow = screen.getByText("screenshot.png").closest("li");
+		expect(chatUploadRow?.textContent).toContain("Chat upload");
+		const unclassifiedRow = screen.getByText("legacy.txt").closest("li");
+		expect(unclassifiedRow?.textContent).not.toContain("Chat upload");
+	});
+
+	it("resets the chat-uploads toggle when switching to Trash", async () => {
+		spaceApiMocks.listFiles.mockImplementation(
+			async ({ query }: { query: { view?: "active" | "trash" } }) =>
+				query.view === "trash"
+					? {
+							breadcrumbs: [
+								{ id: null, name: "Files" },
+								{ id: null, name: "Trash" },
+							],
+							capabilities: { canRead: true as const, canWrite: true },
+							entries: [],
+							parentId: null,
+							spaceId: "space-1",
+							view: "trash" as const,
+						}
+					: {
+							breadcrumbs: [{ id: null, name: "Files" }],
+							capabilities: { canRead: true as const, canWrite: true },
+							entries: [FILE],
+							parentId: null,
+							spaceId: "space-1",
+							view: "active" as const,
+						}
+		);
+		renderPanel();
+
+		await screen.findByText("launch-notes.md");
+		fireEvent.click(screen.getByRole("button", { name: "Show chat uploads" }));
+		expect(
+			await screen.findByRole("button", { name: "Hide chat uploads" })
+		).toBeTruthy();
+
+		fireEvent.click(await screen.findByRole("button", { name: "Trash" }));
+		await screen.findByText("Trash is empty");
+		expect(
+			screen.queryByRole("button", { name: "Hide chat uploads" })
+		).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "Back to Files" }));
+		await screen.findByText("launch-notes.md");
+		// The toggle does not survive the round trip through Trash: Files
+		// starts back at the default artifact-only state instead of silently
+		// restoring the "show chat uploads" filter Trash never displayed.
+		expect(
+			await screen.findByRole("button", { name: "Show chat uploads" })
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Hide chat uploads" })
+		).toBeNull();
 	});
 
 	it("keeps deleted entries in one recoverable Trash view", async () => {
@@ -557,7 +680,7 @@ describe("SpaceFilesPanel", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
 		expect(
 			await screen.findByText(
-				"Shared with the people and agents in this Space."
+				"Shared with the people and agents in this Space. Files shared in chat are hidden; show them below."
 			)
 		).toBeTruthy();
 	});

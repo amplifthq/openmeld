@@ -85,7 +85,7 @@ describe("built-in agent executable detection", () => {
     });
   });
 
-  it("keeps a detected built-in agent ready when its executable probe times out", async () => {
+  it("keeps a timed-out install detected without treating an unverified launch as ready", async () => {
     await withTempHome(async (home) => {
       await mkdir(join(home, ".codex"), { recursive: true });
 
@@ -100,20 +100,18 @@ describe("built-in agent executable detection", () => {
         const state = await resolveAgentTargetState("codex");
         const elapsedMs = Date.now() - startedAt;
 
-        // A command that exists on PATH but never completes its --version
-        // probe (timeout, or a real-world OS permission block like macOS
-        // Gatekeeper) is still evidence the agent is installed on this
-        // computer. An incomplete check must preserve that install evidence;
-        // only a completed negative check may relabel it as needing repair.
+        // Detection preserves the installed candidate, but a new launch
+        // contract must be verified before OpenMeld can use it.
         expect(state).toMatchObject({
           agentId: "codex",
           detected: true,
-          launchStatus: "ready",
-          launchStatusDetail: null,
+          launchStatus: "needs_repair",
+          launchStatusDetail:
+            "OpenMeld couldn't finish checking whether this Codex install can start. Try again.",
           selectable: true,
           selectableReason: null,
         });
-        expect(state?.launchContract).not.toBeNull();
+        expect(state?.launchContract).toBeNull();
         expect(elapsedMs).toBeLessThan(1500);
       });
     });

@@ -145,12 +145,16 @@ GitHub issues filed from a shared Space through OpenMeld's GitHub tools are
 associated with a Space Task when the Task list can confirm whether that issue
 is already linked. The issue body receives an OpenMeld Task
 reference, and the Task stores the repository and issue number. Closing that
-issue through those same GitHub tools closes still-active linked Tasks.
+issue through those same GitHub tools, or through a verified GitHub App
+webhook after the issue is already linked, cancels still-active linked Tasks
+and refreshes the Task-owned last observed issue state. Reopening the issue
+refreshes that observation and does not reopen a completed or canceled Task.
 Closing or completing a Task does not silently patch GitHub; the Task result
 prompts the Agent or person to close the linked issue when it is still open.
-This is authorized tool-path association, not an import of every GitHub issue
-and not provider-event observation. Linear objects remain links. Automatic
-webhook follow-up stays deferred and must not be implied by a linked URL.
+This is authorized association for already-linked issues, not an import of
+every GitHub issue and not Task creation from GitHub events. Linear objects
+remain links. Webhook deliveries grant no new execution authority and do not
+start Agent work.
 
 ## Editing and Recalling Messages
 
@@ -421,6 +425,23 @@ fallback is `An agent is working`, not a guessed participant.
 
 ## Space Files
 
+### Image previews
+
+Selecting and sending an image preserves the same original through pending,
+failed/retried, and accepted message presentation. Publication or message
+acknowledgement does not itself close an open viewer, replace a usable image
+with a skeleton, or fetch a second copy. Filenames are labels, not identity:
+two selected files with the same name remain distinct.
+
+Loading, ready, and error states occupy the same frame. Known dimensions reserve
+the displayed aspect ratio; older or unsupported images use a stable fallback.
+A long screenshot remains fully visible within a multi-image cell, and the
+focused viewer uses original bytes. A genuinely cold image has a loading effect
+only while active; reduced-motion and unavailable graphics have a static
+placeholder. Errors expose a retry action rather than perpetual loading.
+Current access checks still apply, and access revocation removes cached private
+pixels even from an already open preview.
+
 ### Selected work handoffs
 
 A selected work handoff is an ordinary Space Message or Thread reply with one
@@ -513,6 +534,46 @@ Agent Computer remain separate owners:
   not migrate them into Files or use that legacy write path for new Web/CLI
   uploads.
 - the Center Agent Computer is its private durable working environment.
+
+Every Space File records one canonical **origin**: **artifact** (created in
+Files, uploaded through the Files upload control or CLI `space files upload`,
+or written by an Agent) or **chat upload** (sent as a message attachment
+through the Composer or CLI `space send --file`). Origin is set once at file
+creation and never changes on a later revision, an update, a trash, or a
+restore. The Files list defaults to artifacts only so chat screenshots and
+pasted images do not bury deliberate work; a **Show chat uploads** toggle
+(`origin=all`, CLI `--all`) reveals chat uploads without leaving Files, and
+toggling it off — or switching to Trash, which resets the toggle — returns
+to the default. Folders are structural, never carry an origin, and are always
+shown regardless of this filter.
+
+A caller (old CLI, old Web build, or any request written before this field
+existed) that omits `origin` when creating a file gets **artifact**, matching
+the create behavior this feature preceded; the shared HTTP contract keeps
+`origin` optional on requests specifically so no client is required to send
+it before a service can roll safely. Reading responses is negotiated, not a
+bare additive field: a caller must explicitly declare it understands
+`origin` (a request header for Web/CLI, an explicit RPC field for Center
+Agent tools) before any response includes it; a caller that predates this
+distinction and never declares the capability keeps receiving the exact
+pre-origin response shape indefinitely, so it is never forced to update —
+see the Space Files Origin Classification Contract Impact Audit in
+`developing/engineering/development-workflow.md` for the exact negotiation
+mechanism and supported matrix. A pre-existing file created before this
+distinction existed was migrated to **artifact** in the same schema step
+that added the column, since there is no reliable signal in that historical
+data to recover a chat upload from deliberately created work. After that
+migration, a file with no recorded origin is exceptional/corrupt data, not
+normal history, and the read path still fails closed on it exactly like a
+chat upload: it stays out of the default artifacts view until an explicit
+`origin=all` read asks for it, and the Web badge never claims it is a known
+chat upload. This is strictly a list-time presentation filter; it does not
+trash, delete, or move chat uploads, and every chat upload remains reachable
+there. The Move-to-folder destination picker also reads with `origin=all`
+for the same presentation-only reason — folders are exempt from this filter
+regardless — and that read is never an authorization or visibility decision;
+who may move a file into a folder stays owned by the ordinary per-request
+access checks.
 
 The Space Files MVP does not project files into Resources/Documents or the
 Center Agent Computer. A later explicit **Copy to Organization Files** action
@@ -732,6 +793,31 @@ session operations. Browser acceptance, explicit execution steering and release
 continuity remain incomplete release gates. Task retirement is deferred; its
 existing product and tools remain available during this upgrade.
 
+### Center Agent session titles
+
+New private Center Agent sessions start as **New chat**. After a Human's message
+is accepted on the main timeline, Space may generate a concise default title
+through a separate no-tool model request. This work is never awaited by message
+publication, Wake admission, or the Center Agent execution loop. It cannot alter
+conversation context, steering, tools, replies, or the selected Agent model.
+
+The fixed model is `z-ai/glm-5.3-flash` through the existing OpenRouter
+AI Gateway connection, with temperature zero, low reasoning, structured
+JSON, a 15-second request deadline, and bounded input/output. Titles use the
+message's language, capture the action and subject, preserve meaningful names
+and identifiers, and contain at most 64 characters. Output is validated rather
+than cut mid-title. Greetings without a topic return no title. No model request
+reads attachments, URLs, other sessions, or hidden Agent context.
+
+Space owns the generated default in its existing name field and projects it
+through the Space index. Auth-owned personal titles take precedence and are
+never written by generation. Generic DM metadata mutations remain forbidden;
+the dedicated internal naming path does not grant new public mutation rights.
+Only an active Human in the current designated Center Agent pair can trigger it.
+Existing non-default names are preserved. Failed or empty results keep **New
+chat**; later Human messages can retry, capped at three persisted attempts per
+Space. No automatic historical title rewrite or periodic regeneration occurs.
+
 ### Ordinary Direct Message opening
 
 Opening a Direct Message is idempotent within a generation. OpenMeld first
@@ -795,6 +881,10 @@ Organization's settled metrics into one deterministic public Space named
 the current designated Center Agent presentation. It is not a Wake, a Center
 Agent turn, execution evidence, or a second copy of Space truth. Report data
 ownership belongs to `developing/architecture/data-and-observability.md`.
+On first creation, the Space bootstraps all current Organization owners as its
+human Owners while preserving the Center Agent as creator and report author.
+Later runs use the Space-owned `ownerUserIds` authority and do not resynchronize
+ownership from Organization roles.
 
 This specialization is not yet a complete Space contract. The implementation
 creates an ordinary Space without a durable purpose marker or server-enforced

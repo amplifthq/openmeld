@@ -1,5 +1,5 @@
 import { type createD1Db, openMeldProfiles, users } from "@openmeld/db/auth";
-import { and, eq, exists, isNull } from "drizzle-orm";
+import { and, eq, exists, isNull } from "@openmeld/db/query";
 
 export type AccountAvatarMutationRecord = {
   avatar: string | null;

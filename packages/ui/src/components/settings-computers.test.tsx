@@ -8,6 +8,7 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 import { TooltipProvider } from "#components/tooltip";
 import {
+  SettingsComputerSummaryCardContent,
   SettingsLocalAgentsCard,
   SettingsLocalAgentUsageDockItem,
   SettingsLocalAgentUsageLimits,
@@ -25,10 +26,47 @@ const LOW_WEEKLY_USAGE_GAUGE_NAME =
 const STALE_USAGE_GAUGE_NAME = /Codex Last-known usage, 35% left, Stale/u;
 const USAGE_UNSUPPORTED_COPY = /Usage unsupported/u;
 const OPENCODE_GO_SUMMARY_NAME = /OpenCode Go usage, 12% left, Low/u;
+const LOCAL_AGENT_LOGO_TEST_ID = /^local-agent-logo-/u;
 
 afterEach(cleanup);
 
 describe("Settings Local Agent usage limits", () => {
+  it("caps computer agent previews at five and names the hidden agent on hover", async () => {
+    render(
+      <TooltipProvider>
+        <SettingsComputerSummaryCardContent
+          lastSeenLabel="Now"
+          localAgents={[
+            { agentId: "codex", displayName: "Codex" },
+            { agentId: "claude-code", displayName: "Claude Code" },
+            { agentId: "grok-build", displayName: "Grok Build" },
+            { agentId: "opencode", displayName: "OpenCode" },
+            { agentId: "antigravity", displayName: "Antigravity" },
+            { agentId: "cursor", displayName: "Cursor" },
+          ]}
+          name="My computer"
+          platformLabel="macOS"
+          status={null}
+        />
+      </TooltipProvider>
+    );
+
+    expect(screen.getAllByTestId(LOCAL_AGENT_LOGO_TEST_ID)).toHaveLength(5);
+    expect(screen.queryByTestId("local-agent-logo-cursor")).toBeNull();
+    const antigravity = screen.getByTestId(
+      "local-agent-logo-antigravity"
+    ).parentElement;
+    expect(antigravity).toBeTruthy();
+    fireEvent.pointerEnter(antigravity as HTMLElement, {
+      pointerType: "mouse",
+    });
+    fireEvent.mouseEnter(antigravity as HTMLElement);
+    fireEvent.mouseMove(antigravity as HTMLElement);
+    expect(
+      await screen.findByText("Antigravity · Also supports Cursor")
+    ).toBeTruthy();
+  });
+
   it("distinguishes a pending local-agent inventory, a failed read, and a confirmed empty inventory", () => {
     const props = { description: "Local agents on this computer", rows: [] };
     const { rerender } = render(<SettingsLocalAgentsCard {...props} loading />);
