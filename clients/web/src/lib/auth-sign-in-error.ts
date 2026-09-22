@@ -13,7 +13,34 @@
 //   specific failure so it gets noticed and fixed, not silently swallowed.
 //
 // This module is the one place that decides which bucket an error code falls
-// into, so Login and any other renderer reach the same conclusion.
+// into. Only `/login` presents that decision. Social sign-in always sends
+// Better Auth's per-flow `errorCallbackURL` here, because Better Auth prefers
+// that recovered URL over `onAPIError.errorURL`. `/sign-up` and `/magic-link`
+// must not receive or interpret these codes.
+export const SOCIAL_OAUTH_ERROR_LANDING_PATH = "/login";
+
+const SOCIAL_OAUTH_CALLBACK_ERROR_CODES = new Set([
+	"access_denied",
+	"account_already_linked_to_different_user",
+	"account_not_linked",
+	"email_doesn't_match",
+	"email_not_found",
+	"internal_server_error",
+	"invalid_callback_request",
+	"invalid_code",
+	"no_callback_url",
+	"no_code",
+	"oauth_provider_not_found",
+	"signup_disabled",
+	"state_invalid",
+	"state_mismatch",
+	"state_not_found",
+	"unable_to_create_session",
+	"unable_to_create_user",
+	"unable_to_get_user_info",
+	"unable_to_link_account",
+]);
+
 const ABANDONED_SIGN_IN_ERROR_CODES = new Set([
 	// The OAuth/SSO callback state could not be verified. Better Auth collapses
 	// several distinct causes into this one wire code: the verification record
@@ -37,6 +64,18 @@ export type SignInErrorPresentation =
 	| { kind: "none" }
 	| { kind: "abandoned" }
 	| { kind: "failed"; message: string };
+
+export function resolveSocialOAuthErrorCallbackURL(pageUrl: string): string {
+	const page = new URL(pageUrl);
+	return new URL(SOCIAL_OAUTH_ERROR_LANDING_PATH, page.origin).toString();
+}
+
+export function isSocialOAuthCallbackError(
+	error: string | null | undefined
+): boolean {
+	const code = error?.trim();
+	return Boolean(code && SOCIAL_OAUTH_CALLBACK_ERROR_CODES.has(code));
+}
 
 export function classifySignInError(
 	error: string | null | undefined
