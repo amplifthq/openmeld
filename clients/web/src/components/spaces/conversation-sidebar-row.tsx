@@ -99,7 +99,7 @@ type ConversationRowPreview = {
 };
 
 const CONVERSATION_PREVIEW_CLASS_NAME =
-	"min-h-4 truncate font-normal text-muted-foreground text-xs leading-4 dark:text-muted-foreground/90";
+	"min-h-4 truncate font-normal text-muted-foreground/90 text-xs leading-4 dark:text-muted-foreground/80";
 
 export function ConversationSidebarRow(input: ConversationSidebarRowProps) {
 	if (input.conversation.kind === "space") {
