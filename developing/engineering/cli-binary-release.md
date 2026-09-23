@@ -26,7 +26,7 @@ node scripts/release/build-cli-binary.mjs
 ```
 
 - The build reads `clients/openmeld-cli/package.json` as the only version source.
-- The current output is written under `clients/openmeld-cli/dist/binary/`.
+- The current output is written under `cli/dist/`, outside the npm package.
 - The artifact name is `openmeld-cli-<platform>-<version>`.
 - Local and production download channels also publish
   `openmeld-cli-<platform>-<version>.gz`. Setup and current binary CLI upgrades
@@ -42,7 +42,9 @@ node scripts/release/build-cli-binary.mjs
   version, size, and sha256 all match that previous release. Any base, download,
   parse, reconstruction, or final-hash failure automatically falls back to the
   complete gzip archive.
-- The supported platform for this milestone is `darwin-arm64`.
+- The production binary channel currently supports `darwin-arm64`. Windows x64
+  builds are native acceptance artifacts until signing, managed installation,
+  update recovery, and client acquisition are accepted and released.
 - The binary distribution marker is injected at compile time by `bun build --compile`.
 - Release builds minify bundled code while preserving function and class names
   for diagnostics. This reduces the current executable by about 4.4 MiB and
@@ -84,6 +86,34 @@ node scripts/release/build-cli-binary.mjs
   even when the current terminal still resolves the older npm command;
   an already-authoritative command adds no npm install or network round trip.
 
+### Windows native carrier acceptance
+
+On a Windows x64 build machine, build the console CLI and GUI-subsystem
+background Service from the same production entry:
+
+```powershell
+node scripts/release/build-cli-binary.mjs --platform windows-x64
+node scripts/release/build-cli-binary.mjs --platform windows-x64 --background
+```
+
+Artifacts are `cli/dist/openmeld-cli-windows-x64-<version>.exe` and
+`cli/dist/openmeld-service-windows-x64-<version>.exe`. The builder verifies their
+actual PE subsystem values; a build flag alone is not sufficient evidence.
+The Windows acceptance workflow pins Bun 1.4.2: the previous 1.3.14 Windows
+compiler returned before applying `--windows-hide-console`. This does not change
+the macOS publisher's toolchain.
+
+`native-artifacts` in Windows compatibility exercises the real Service/private
+Host channel, account fencing and shutdown, plus compiled SQLite and Agent SDK
+protocol boundaries. Its child consumption environment uses disposable user
+state and Windows-system-only PATH. Build tools on the hosted runner are not a
+clean standard-user environment, and the protocol peer is not model inference.
+Any failed native acceptance step fails its job. Artifacts are unsigned and
+retained for bounded review, not published to a product channel.
+
+The implementation status and exact native evidence live in
+[Windows Computer Connection Design](../architecture/windows-computer-connection-design.md).
+
 ### Local Web Setup Download Smoke
 
 Use this when you need to manually test the same download shape that production
@@ -119,7 +149,7 @@ http://127.0.0.1:3197/cli/download/openmeld-cli-darwin-arm64-<version>.gz
   manifest download, gzip download and verification, decompression, final
   executable verification, `install-self`, managed CLI path, and
   `openmeld setup`.
-- Directly running `clients/openmeld-cli/dist/binary/<artifact>` is useful for
+- Directly running `cli/dist/<artifact>` is useful for
   CLI debugging, but it does not test the Web setup download, manifest, sha256,
   or managed install path.
 
