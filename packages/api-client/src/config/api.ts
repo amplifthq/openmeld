@@ -13,7 +13,7 @@ export const createConfigApi: CreateConfigApi = (
 
 export async function getModelCatalog(client: OpenMeldApiClientFoundation) {
   return await client.requestJson({
-    url: buildModelCatalogPath(),
+    url: `${buildModelCatalogPath()}?retirement=1`,
     operation: "config.model_catalog.read",
     method: "GET",
     schema: getModelCatalogResponseSchema,

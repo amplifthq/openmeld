@@ -59,6 +59,28 @@ const DETAILED_PROVIDER_FAILURE_SUMMARY_RE =
 
 describe("public agent failure reason mapping", () => {
   it.each([
+    "model.retired",
+    "model.unavailable",
+  ])("offers model recovery for %s without a reconnect instruction", (errorCode) => {
+    const recovery = resolvePublicAgentFailureRecovery({
+      errorCode,
+      targetLabel: "Research",
+    });
+    expect(recovery).toMatchObject({
+      recoveryTarget: "agents",
+      primaryActionId: "change_model",
+      primaryActionLabel: "Change model",
+    });
+    expect(
+      resolvePublicAgentAvailabilityCopy(errorCode)?.availabilityBadgeLabel
+    ).toBe("Unavailable");
+    expect(recovery?.body).not.toContain("Reconnect");
+    if (errorCode === "model.unavailable") {
+      expect(recovery?.body).not.toContain("no longer offered");
+    }
+  });
+
+  it.each([
     [
       "execution_context.project_repository_required",
       "connected Git repository",
@@ -519,7 +541,9 @@ describe("public agent failure reason mapping", () => {
     "unsupported_model",
   ] as const)("maps unsupported-model reason code %s to an actionable next step", (reasonCode) => {
     expect(resolveMappedPublicAgentFailureReason(reasonCode)).toBe(
-      UNSUPPORTED_MODEL_COPY
+      reasonCode === "model.unavailable"
+        ? "This model is unavailable. Check this agent's model and account settings."
+        : UNSUPPORTED_MODEL_COPY
     );
   });
 

@@ -42,7 +42,7 @@ describe("api-client config api", () => {
     expect(result.agentControllers.codex?.defaultModelId).toBe("gpt-5.5");
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/config/model-catalog",
+        url: "https://gateway.openmeld.invalid/v1/config/model-catalog?retirement=1",
         operation: "config.model_catalog.read",
         init: expect.objectContaining({
           method: "GET",
