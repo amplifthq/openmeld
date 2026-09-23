@@ -2,7 +2,13 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -147,6 +153,19 @@ export function buildCliBinary(input = {}) {
 
   if (platform.startsWith("darwin-")) {
     buildMacOsKeychainAddon({ env: process.env, platform: "darwin" });
+  }
+  if (platform.startsWith("windows-")) {
+    const name = "openmeld-windows-process.exe";
+    const helper = path.join(resolveDefaultCliBinaryOutDir(), name);
+    if (!existsSync(helper)) {
+      throw new Error(
+        "Build the native Windows process helper before compiling the carrier."
+      );
+    }
+    const destination = path.join(outDir, name);
+    if (path.resolve(helper) !== path.resolve(destination)) {
+      copyFileSync(helper, destination);
+    }
   }
 
   const result = spawnSync(

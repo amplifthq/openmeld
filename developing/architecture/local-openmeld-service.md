@@ -1347,7 +1347,15 @@ kill arbitrary same-name processes. Provider permission enforcement remains
 separate. Work delegated through external brokers such as WMI or a remote
 machine is not claimed to be a normal descendant of this Job. Native provider
 sandbox/nested-Job compatibility requires Windows acceptance. The fixed helper
-uses system PowerShell and a reviewed native API bridge; denial by enterprise
+is a prebuilt Native AOT executable over the same reviewed Win32 API bridge;
+it also reads process creation FILETIME through an opened process handle.
+Windows builds compile it with the pinned SDK before packaging. Consumers do
+not install .NET or compile C# during Agent launch or cleanup. Node/npm reads
+the package's `dist/native/openmeld-windows-process.exe`; a compiled carrier
+requires that executable alongside the CLI/Service in the same version bundle.
+There is no runtime PowerShell fallback for missing helper artifacts. The
+Task Scheduler task-host migration is a separate lifecycle boundary below;
+this change does not retire it or establish its timeout's cause. Denial by enterprise
 policy is a visible launch failure, never permission to fall back uncontained.
 
 A long-lived or multi-thread Agent Controller whose request protocol carries an

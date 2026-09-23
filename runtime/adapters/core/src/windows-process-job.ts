@@ -6,7 +6,6 @@ import {
 import { randomUUID } from "node:crypto";
 import { win32 } from "node:path";
 import { promisify } from "node:util";
-import { gzipSync } from "node:zlib";
 import { windowsProcessJobRequestSchema } from "@openmeld/schemas";
 import type { AgentControllerProcessCleanupResult } from "./agent-controller-process.js";
 import { normalizeCommandEnvironment } from "./process-environment.js";
@@ -15,55 +14,14 @@ import {
   quoteWindowsProcessArgument,
   resolveWindowsCommandPath,
 } from "./process-launch.js";
-import { WINDOWS_PROCESS_JOB_NATIVE_SOURCE } from "./windows-process-job-native.js";
 import {
-  powerShellEncodedArguments,
-  readWindowsProcessStartFileTime,
-  resolveWindowsPowerShellPath,
-} from "./windows-system.js";
+  WINDOWS_NATIVE_PROCESS_REQUEST_ENV as REQUEST_ENV,
+  resolveWindowsNativeProcessHelper,
+} from "./windows-native-process.js";
+import { readWindowsProcessStartFileTime } from "./windows-system.js";
 
-const REQUEST_ENV = "OPENMELD_NATIVE_JOB_REQUEST";
 const DRAIN_RECEIPT = "openmeld-windows-job-drained-v1";
 const CLEANUP_TIMEOUT_MS = 15_000;
-// Fixed implementation code is compressed only to fit Windows' argv limit.
-// Neither user commands nor credentials become PowerShell/C# source text.
-const COMPRESSED_SOURCE = gzipSync(
-  Buffer.from(WINDOWS_PROCESS_JOB_NATIVE_SOURCE, "utf8")
-).toString("base64");
-export const WINDOWS_PROCESS_JOB_SCRIPT = `
-$ErrorActionPreference = 'Stop'
-$ProgressPreference = 'SilentlyContinue'
-$WarningPreference = 'SilentlyContinue'
-$phase = 'decode_request'
-try {
-  $raw = [Environment]::GetEnvironmentVariable('${REQUEST_ENV}', 'Process')
-  [Environment]::SetEnvironmentVariable('${REQUEST_ENV}', $null, 'Process')
-  $r = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($raw)))
-  $compressed = New-Object IO.MemoryStream(,([Convert]::FromBase64String('${COMPRESSED_SOURCE}')))
-  $gzip = New-Object IO.Compression.GZipStream($compressed, [IO.Compression.CompressionMode]::Decompress)
-  $reader = New-Object IO.StreamReader($gzip, [Text.Encoding]::UTF8)
-  try { $source = $reader.ReadToEnd() } finally { $reader.Dispose(); $compressed.Dispose() }
-  $phase = 'compile_helper'
-  Add-Type -TypeDefinition $source -ErrorAction Stop
-  if ($r.operation -eq 'drain') {
-    $phase = 'drain_job'
-    [OpenMeldProcessJobV1]::VerifyDrained($r.jobName)
-    [Console]::Write('${DRAIN_RECEIPT}')
-    exit 0
-  }
-  if ($r.operation -ne 'launch') { throw 'Unknown process operation' }
-  $phase = 'launch_job'
-  $exitCode = [OpenMeldProcessJobV1]::Run($r.jobName, $r.executable, $r.commandLine, $r.workingDirectory, $r.ownerPid, $r.ownerStartedAt)
-  exit $exitCode
-} catch {
-  $cause = $_.Exception.GetBaseException()
-  $code = $(if ($cause -is [ComponentModel.Win32Exception]) { $cause.NativeErrorCode } else { $cause.GetType().Name })
-  # Compiler failures also produce Win32Exception. Use fixed phase labels, not
-  # exception messages that can include paths or request data.
-  [Console]::Error.WriteLine('openmeld.windows_process.failed: ' + $code + ' (' + $phase + ')')
-  exit 125
-}
-`;
 
 export function spawnWindowsJobProcess(input: {
   invocation: NativeCommandInvocation;
@@ -116,17 +74,13 @@ export function spawnWindowsJobProcess(input: {
       "The Windows controller arguments exceed the native launch envelope. Send large input through stdin instead."
     );
   }
-  const powershell = resolveWindowsPowerShellPath(env);
-  const child = spawn(
-    powershell,
-    powerShellEncodedArguments(WINDOWS_PROCESS_JOB_SCRIPT),
-    {
-      cwd: input.cwd,
-      env: { ...env, [REQUEST_ENV]: payload },
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    }
-  );
+  const helper = resolveWindowsNativeProcessHelper();
+  const child = spawn(helper, [], {
+    cwd: input.cwd,
+    env: { ...env, [REQUEST_ENV]: payload },
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+  });
   const closed = new Promise<void>((resolve) =>
     child.once("close", () => resolve())
   );
@@ -168,23 +122,18 @@ export function spawnWindowsJobProcess(input: {
           operation: "drain",
           jobName,
         });
-        const { stdout } = await promisify(execFile)(
-          powershell,
-          powerShellEncodedArguments(WINDOWS_PROCESS_JOB_SCRIPT),
-          {
-            env: {
-              ...env,
-              [REQUEST_ENV]: Buffer.from(
-                JSON.stringify(drain),
-                "utf8"
-              ).toString("base64"),
-            },
-            encoding: "utf8",
-            windowsHide: true,
-            timeout: CLEANUP_TIMEOUT_MS,
-            maxBuffer: 4096,
-          }
-        );
+        const { stdout } = await promisify(execFile)(helper, [], {
+          env: {
+            ...env,
+            [REQUEST_ENV]: Buffer.from(JSON.stringify(drain), "utf8").toString(
+              "base64"
+            ),
+          },
+          encoding: "utf8",
+          windowsHide: true,
+          timeout: CLEANUP_TIMEOUT_MS,
+          maxBuffer: 4096,
+        });
         if (stdout !== DRAIN_RECEIPT) {
           throw new Error(
             "Windows returned an invalid process cleanup receipt."

@@ -92,12 +92,19 @@ On a Windows x64 build machine, build the console CLI and GUI-subsystem
 background Service from the same production entry:
 
 ```powershell
+node scripts/release/build-windows-process-helper.mjs
 node scripts/release/build-cli-binary.mjs --platform windows-x64
 node scripts/release/build-cli-binary.mjs --platform windows-x64 --background
 ```
 
 Artifacts are `cli/dist/openmeld-cli-windows-x64-<version>.exe` and
-`cli/dist/openmeld-service-windows-x64-<version>.exe`. The builder verifies their
+`cli/dist/openmeld-service-windows-x64-<version>.exe`, with the shared
+`cli/dist/openmeld-windows-process.exe` next to them. The native helper is built
+with .NET SDK 10.0.401 / Native AOT on Windows; it needs no user-installed .NET
+runtime or compiler. Both the binary version bundle and npm's `dist/native`
+must carry that helper. Signing and multi-platform publication assembly remain
+part of the installation/release gate; these development artifacts must not be
+published as a complete Windows channel. The builder verifies the carriers'
 actual PE subsystem values; a build flag alone is not sufficient evidence.
 The Windows acceptance workflow pins Bun 1.4.2: the previous 1.3.14 Windows
 compiler returned before applying `--windows-hide-console`. This does not change

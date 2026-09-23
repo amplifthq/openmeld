@@ -10,6 +10,10 @@ export const windowsProcessJobRequestSchema = z.discriminatedUnion(
   "operation",
   [
     z.strictObject({
+      operation: z.literal("identity"),
+      pid: z.number().int().positive(),
+    }),
+    z.strictObject({
       operation: z.literal("launch"),
       jobName,
       executable: text,

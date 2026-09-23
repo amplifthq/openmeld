@@ -1,7 +1,14 @@
 // biome-ignore-all lint/suspicious/noMisplacedAssertion: Standalone native acceptance entrypoint; failed assertions must exit nonzero.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,7 +27,12 @@ const repo = path.resolve(
 const evidence = path.join(repo, "dev-tmp/windows-native-evidence");
 await mkdir(evidence, { recursive: true });
 const version = resolveCliPackageVersion();
+// The process helper is part of the delivered version bundle, shared by both
+// product executables and the compiled component peers.
+const helper = path.join(repo, "cli/dist/openmeld-windows-process.exe");
+await copyFile(helper, path.join(evidence, "openmeld-windows-process.exe"));
 const binaries = {};
+binaries.helper = { path: helper, ...collectCliBinaryMetadata(helper) };
 for (const name of ["windows-agent-sdk", "windows-native-runtime"]) {
   const outFile = path.join(evidence, `${name}.exe`);
   const build = spawnSync(
