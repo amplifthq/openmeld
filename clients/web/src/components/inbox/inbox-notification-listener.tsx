@@ -52,6 +52,9 @@ import {
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 
 const INBOX_NOTIFICATION_POLL_INTERVAL_MS = 10_000;
+// The cursor response is empty between events; only a new Space message
+// refreshes the full account Space directory.
+const VISIBLE_INBOX_OBSERVATION_POLL_INTERVAL_MS = 1000;
 const INBOX_NOTIFICATION_RETRY_INTERVAL_MS = 10_000;
 const INBOX_NOTIFICATION_PENDING_FETCH_CONCURRENCY = 6;
 const EMPTY_RECOVERED_PENDING_ITEMS: NotificationInboxItem[] = [];
@@ -171,7 +174,6 @@ export function InboxNotificationListener(input: {
 	const desktop = getDesktopPlatform();
 	const notificationFeed = useMemo(
 		() => ({
-			enabled: notificationsEnabled,
 			read: createInboxNotificationObserver({
 				deliveryEnabled: notificationsEnabled,
 				organizationId: input.organizationId,
@@ -188,18 +190,24 @@ export function InboxNotificationListener(input: {
 			notificationsEnabled,
 		],
 		queryFn: ({ signal }) => notificationFeed.read(signal),
-		enabled: notificationFeed.enabled || Boolean(desktop),
+		enabled: true,
 		gcTime: 0,
 		staleTime: 0,
 		refetchInterval: (query) => {
-			if (!notificationsEnabled || (desktop && !query.state.data?.hasMore)) {
-				return false;
+			if (query.state.data?.hasMore) {
+				return VISIBLE_INBOX_OBSERVATION_POLL_INTERVAL_MS;
 			}
-			return query.state.data?.hasMore
-				? 1000
-				: INBOX_NOTIFICATION_POLL_INTERVAL_MS;
+			if (
+				typeof document !== "undefined" &&
+				document.visibilityState === "visible"
+			) {
+				return VISIBLE_INBOX_OBSERVATION_POLL_INTERVAL_MS;
+			}
+			return notificationsEnabled && !desktop
+				? INBOX_NOTIFICATION_POLL_INTERVAL_MS
+				: false;
 		},
-		refetchIntervalInBackground: true,
+		refetchIntervalInBackground: notificationsEnabled,
 	});
 	const feedIdentity = `${input.organizationId}:${input.organizationSlug}:${input.userId}:${notificationsEnabled}`;
 	const deliveryAbortRef = useRef<{
@@ -217,6 +225,9 @@ export function InboxNotificationListener(input: {
 	} else if (itemsQuery.data) {
 		latestUnreadStatus = "ready";
 	}
+	// An empty cursor poll updates dataUpdatedAt but cannot change the native
+	// preview. Only a cursor advance should trigger another native Inbox read.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: dataUpdatedAt is a payload for cursor changes, not a refresh trigger.
 	useLayoutEffect(() => {
 		if (!desktop) {
 			return;
@@ -235,7 +246,9 @@ export function InboxNotificationListener(input: {
 					statusLabel: computer?.statusLabel ?? "Checking…",
 					statusTone: trayComputerStatusTone,
 				},
-				inboxRefreshRevision: itemsQuery.dataUpdatedAt,
+				inboxRefreshRevision: itemsQuery.data?.cursor
+					? itemsQuery.dataUpdatedAt
+					: undefined,
 				latestUnreadStatus,
 				navigationKey,
 				unreadCount,
@@ -252,7 +265,7 @@ export function InboxNotificationListener(input: {
 		trayComputerStatusTone,
 		desktop,
 		latestUnreadStatus,
-		itemsQuery.dataUpdatedAt,
+		itemsQuery.data?.cursor,
 		notificationsEnabled,
 		attention,
 		unreadCount,
@@ -511,7 +524,7 @@ export function InboxNotificationListener(input: {
 			primedRef.current = false;
 			primedFeedIdentityRef.current = feedIdentity;
 		}
-		if (!(notificationsEnabled && itemsQuery.data)) {
+		if (!itemsQuery.data) {
 			return;
 		}
 		const currentItems = mergeInboxNotificationItems({
@@ -519,46 +532,64 @@ export function InboxNotificationListener(input: {
 			recoveredPendingItems,
 		});
 		if (!primedRef.current) {
-			primeInboxNotificationFeed({
+			if (notificationsEnabled) {
+				primeInboxNotificationFeed({
+					items: currentItems,
+					observedItemIds,
+					organizationId: input.organizationId,
+					pendingItemIds: readPendingInboxNotificationItemIds({
+						organizationId: input.organizationId,
+						userId: input.userId,
+					}),
+					settledItemIds,
+					userId: input.userId,
+				});
+			} else {
+				markObservedInboxItems(currentItems, observedItemIds);
+			}
+			primedRef.current = true;
+		}
+		const sawNewSpaceMessage = currentItems.some(
+			(item) => item.kind === "space_message" && !observedItemIds.has(item.id)
+		);
+		let sawNewItem = false;
+		if (notificationsEnabled) {
+			sawNewItem = processInboxNotificationItems({
+				signal: deliveryAbortRef.current?.controller.signal,
+				navigate,
+				deliveryAttempt: deliveryRetryRevision,
+				deliveryContextRef,
+				feedIdentity,
+				inFlightItemIds,
 				items: currentItems,
 				observedItemIds,
 				organizationId: input.organizationId,
-				pendingItemIds: readPendingInboxNotificationItemIds({
-					organizationId: input.organizationId,
-					userId: input.userId,
-				}),
+				organizationSlug: input.organizationSlug,
+				pathname,
+				scheduleDeliveryRetry,
 				settledItemIds,
 				userId: input.userId,
+				visibleConversation,
 			});
-			primedRef.current = true;
+		} else {
+			sawNewItem = markObservedInboxItems(currentItems, observedItemIds);
 		}
-		const sawNewItem = processInboxNotificationItems({
-			signal: deliveryAbortRef.current?.controller.signal,
-			navigate,
-			deliveryAttempt: deliveryRetryRevision,
-			deliveryContextRef,
-			feedIdentity,
-			inFlightItemIds,
-			items: currentItems,
-			observedItemIds,
-			organizationId: input.organizationId,
-			organizationSlug: input.organizationSlug,
-			pathname,
-			scheduleDeliveryRetry,
-			settledItemIds,
-			userId: input.userId,
-			visibleConversation,
-		});
-		if (sawNewItem) {
+		if (sawNewSpaceMessage) {
 			// The Inbox item is only a refresh signal. Read the current Space
 			// directory so its preview catches up when a notification arrives.
 			queryClient
-				.invalidateQueries({ queryKey: accountSpaceQueryKeys.all })
+				.invalidateQueries({
+					queryKey: accountSpaceQueryKeys.all,
+					predicate: (query) =>
+						query.queryKey[3] === "account" || query.queryKey[3] === "profile",
+				})
 				.catch((error: unknown) => {
 					console.warn("[openmeld.web.space.directory_refresh_failed]", {
 						error: error instanceof Error ? error.message : String(error),
 					});
 				});
+		}
+		if (sawNewItem) {
 			invalidateInboxFacts({
 				organizationId: input.organizationId,
 				queryClient,
@@ -592,6 +623,20 @@ export function InboxNotificationListener(input: {
 }
 
 type NotificationInboxItem = Parameters<typeof isInboxNotificationEligible>[0];
+
+function markObservedInboxItems(
+	items: readonly NotificationInboxItem[],
+	observedItemIds: Set<string>
+): boolean {
+	let sawNewItem = false;
+	for (const item of items) {
+		if (!observedItemIds.has(item.id)) {
+			observedItemIds.add(item.id);
+			sawNewItem = true;
+		}
+	}
+	return sawNewItem;
+}
 
 type NotificationDeliveryContext = {
 	enabled: boolean;

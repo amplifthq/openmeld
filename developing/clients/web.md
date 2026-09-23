@@ -1192,6 +1192,10 @@ empty baseline, not historical replay; subsequent pages are retained before the
 cursor advances. This avoids first-page loss during bursts and delayed source
 projection. A visible Web window must also have document focus to suppress its
 current-conversation notification or automatically mark a message read.
+While visible, the same lightweight cursor is checked every second even when
+browser notifications are off. A new Space message invalidates the account
+Space directory, which remains the authority for sidebar previews; the five
+second directory poll still covers membership and delayed projections.
 
 ### Notification settings
 
