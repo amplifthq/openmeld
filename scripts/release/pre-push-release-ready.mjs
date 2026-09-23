@@ -6,7 +6,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import {
   assertCurrentVersionedReleaseBranch,
-  isVersionedReleaseBranchRef,
+  isReleaseBranchRef,
 } from "./release-branch-policy.mjs";
 import { selectPrePushReleaseVerificationPaths } from "./release-ready-paths.mjs";
 
@@ -44,7 +44,7 @@ export function resolvePrePushReleaseMode(input) {
     updates.some(
       (update) =>
         update.remoteRef === MAIN_REF ||
-        isVersionedReleaseBranchRef(update.remoteRef) ||
+        isReleaseBranchRef(update.remoteRef) ||
         !update.remoteRef.startsWith(BRANCH_REF_PREFIX)
     )
   ) {
@@ -198,8 +198,7 @@ function run() {
   assertPushedObjectsMatchHead(pushUpdates);
   assertReleaseVerificationWorktreeClean();
 
-  const releaseBranchName =
-    resolvePushedVersionedReleaseBranchName(pushUpdates);
+  const releaseBranchName = resolvePushedReleaseBranchName(pushUpdates);
   const baseSha = releaseBranchName ? resolveExactBaseSha() : null;
   if (releaseBranchName) {
     assertCurrentVersionedReleaseBranch({
@@ -223,7 +222,7 @@ function run() {
   process.exitCode = result.status ?? 1;
 }
 
-function resolvePushedVersionedReleaseBranchName(input) {
+export function resolvePushedReleaseBranchName(input) {
   const updates = parsePushUpdates(input) ?? [];
   const branchNames = [
     ...new Set(
@@ -231,14 +230,14 @@ function resolvePushedVersionedReleaseBranchName(input) {
         .filter(
           (update) =>
             !ZERO_SHA_PATTERN.test(update.localSha) &&
-            isVersionedReleaseBranchRef(update.remoteRef)
+            isReleaseBranchRef(update.remoteRef)
         )
         .map((update) => update.remoteRef.slice(BRANCH_REF_PREFIX.length))
     ),
   ];
   if (branchNames.length > 1) {
     throw new Error(
-      "A single push cannot designate more than one versioned release branch."
+      "A single push cannot designate more than one release branch."
     );
   }
   return branchNames[0] ?? null;

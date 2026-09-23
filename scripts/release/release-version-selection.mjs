@@ -51,7 +51,7 @@ export async function resolveCliReleaseVersion(input = {}) {
       [
         `--next could not determine a release version: ${formatError(error)}`,
         "No version was selected because both npm and R2 channel facts are required.",
-        "Next: restore network and credentials, then run `pnpm run release:preflight` or retry the same command.",
+        "Next: restore network and credentials, then retry the same command.",
       ].join("\n")
     );
   }
