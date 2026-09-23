@@ -4,7 +4,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -36,15 +36,10 @@ const loader = join(
 // continue to use source and do not require a pre-existing dist directory.
 const packaged = process.env.OPENMELD_TEST_HOST_ARTIFACT === "packaged";
 const binary = process.env.OPENMELD_TEST_HOST_ARTIFACT === "binary";
-const binaryPath = fileURLToPath(
-  new URL(
-    `../dist/binary/openmeld-cli-darwin-arm64-${(require("../package.json") as { version: string }).version}`,
-    import.meta.url
-  )
-);
-if (binary && (process.platform !== "darwin" || process.arch !== "arm64")) {
+const binaryPath = process.env.OPENMELD_TEST_HOST_BINARY ?? "";
+if (binary && !(binaryPath && isAbsolute(binaryPath))) {
   throw new Error(
-    "This compiled-artifact acceptance requires darwin-arm64; no other platform is implied."
+    "Compiled-artifact acceptance requires the exact absolute OPENMELD_TEST_HOST_BINARY path."
   );
 }
 const entry = fileURLToPath(

@@ -21,10 +21,11 @@ const DEFAULT_CLI_BINARY_OUT_DIR_SEGMENTS = ["cli", "dist"];
 const DISTRIBUTION_DEFINE = '__OPENMELD_DISTRIBUTION__="binary"';
 
 // Bun --compile cross-target ids keyed by our <os>-<arch> platform tokens.
-// Only darwin-arm64 is produced today; the map is the single extension point
-// for future platforms (工单: build script keeps a platform parameter).
+// Build support is not publication support. Windows must pass native artifact
+// acceptance before the release channel or an installer advertises it.
 export const SUPPORTED_CLI_BINARY_PLATFORMS = {
   "darwin-arm64": "bun-darwin-arm64",
+  "windows-x64": "bun-windows-x64",
 };
 export const DEFAULT_CLI_BINARY_PLATFORM = "darwin-arm64";
 
@@ -39,7 +40,9 @@ export function resolveCliBinaryOutDir(outDir, repoRoot = REPO_ROOT) {
 }
 
 export function resolveCliBinaryArtifactName(input) {
-  return `openmeld-cli-${input.platform}-${input.version}`;
+  const role = input.background ? "service" : "cli";
+  const extension = input.platform.startsWith("windows-") ? ".exe" : "";
+  return `openmeld-${role}-${input.platform}-${input.version}${extension}`;
 }
 
 export function resolveCliPackageVersion(repoRoot = REPO_ROOT) {
@@ -57,11 +60,17 @@ export function resolveCliPackageVersion(repoRoot = REPO_ROOT) {
 }
 
 export function buildBunCompileArgs(input) {
+  if (input.background && !input.bunTarget.startsWith("bun-windows-")) {
+    throw new Error(
+      "The background subsystem is supported only for Windows targets."
+    );
+  }
   return [
     "build",
     input.entry,
     "--compile",
     `--target=${input.bunTarget}`,
+    ...(input.background ? ["--windows-hide-console"] : []),
     "--define",
     DISTRIBUTION_DEFINE,
     "--define",
@@ -93,7 +102,11 @@ export function collectCliBinaryMetadata(filePath) {
 }
 
 function parseArgs(argv) {
-  const args = { platform: DEFAULT_CLI_BINARY_PLATFORM, outDir: null };
+  const args = {
+    platform: DEFAULT_CLI_BINARY_PLATFORM,
+    outDir: null,
+    background: false,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--platform") {
@@ -102,6 +115,8 @@ function parseArgs(argv) {
     } else if (arg === "--out-dir") {
       args.outDir = argv[index + 1];
       index += 1;
+    } else if (arg === "--background") {
+      args.background = true;
     }
   }
   return args;
@@ -118,18 +133,22 @@ export function buildCliBinary(input = {}) {
   const version = input.version ?? resolveCliPackageVersion();
   const outDir = resolveCliBinaryOutDir(input.outDir);
   mkdirSync(outDir, { recursive: true });
-  const artifactName = resolveCliBinaryArtifactName({ platform, version });
+  const artifactName = resolveCliBinaryArtifactName({
+    platform,
+    version,
+    background: input.background,
+  });
   const outFile = path.join(outDir, artifactName);
 
-  buildMacOsKeychainAddon({
-    env: process.env,
-    platform: platform.startsWith("darwin-") ? "darwin" : process.platform,
-  });
+  if (platform.startsWith("darwin-")) {
+    buildMacOsKeychainAddon({ env: process.env, platform: "darwin" });
+  }
 
   const result = spawnSync(
     "bun",
     buildBunCompileArgs({
       bunTarget,
+      background: input.background,
       entry: CLI_ENTRY,
       outFile,
       version,
@@ -176,12 +195,19 @@ export function smokeCliBinary(outFile) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
+  const nativePlatform = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
+  if (args.platform !== nativePlatform) {
+    throw new Error(
+      `Build and acceptance must run natively on ${args.platform}; this machine is ${nativePlatform}.`
+    );
+  }
   const built = buildCliBinary({
     outDir: args.outDir,
     platform: args.platform,
+    background: args.background,
   });
-  const smokeVersion = smokeCliBinary(built.outFile);
-  if (smokeVersion !== built.version) {
+  const smokeVersion = args.background ? null : smokeCliBinary(built.outFile);
+  if (!args.background && smokeVersion !== built.version) {
     throw new Error(
       `Built binary reports version ${smokeVersion}, expected ${built.version}.`
     );

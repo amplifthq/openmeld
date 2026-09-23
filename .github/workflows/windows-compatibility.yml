@@ -7,6 +7,7 @@ on:
       - clients/desktop/**
       - clients/web/src/desktop/**
       - runtime/adapters/**
+      - runtime/local-service/**
       - packages/schemas/**
       - packages/start/**
       - scripts/desktop/**
@@ -14,6 +15,7 @@ on:
       - scripts/release/npm-cli-*
       - scripts/release/release-cli*
       - scripts/release/release-stage-probes*
+      - scripts/release/build-cli-binary*
       - clients/web/src/lib/setup-bootstrap-script*
       - clients/web/src/lib/__fixtures__/setup-bootstrap-*
       - clients/web/src/routes/setup*
@@ -35,6 +37,60 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  native-artifacts:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: pnpm install --frozen-lockfile
+      - name: Build workspace dependencies
+        run: pnpm exec turbo run build --filter=openmeld^... --concurrency=1
+      - name: Record native build identity
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dev-tmp/windows-native-evidence | Out-Null
+          @{
+            sha = (git rev-parse HEAD)
+            run = '${{ github.run_id }}'
+            attempt = '${{ github.run_attempt }}'
+            image = $env:ImageOS
+            imageVersion = $env:ImageVersion
+            node = (node --version)
+            bun = (bun --version)
+          } | ConvertTo-Json | Set-Content dev-tmp/windows-native-evidence/identity.json
+      - name: Build console and console-free Windows artifacts
+        run: |
+          node scripts/release/build-cli-binary.mjs --platform windows-x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/release/build-cli-binary.mjs --platform windows-x64 --background
+      - name: Exercise the actual background executable's inherited Host channel
+        shell: pwsh
+        run: |
+          $version = (Get-Content clients/openmeld-cli/package.json | ConvertFrom-Json).version
+          $env:OPENMELD_TEST_HOST_ARTIFACT = 'binary'
+          $env:OPENMELD_TEST_HOST_BINARY = (Resolve-Path "cli/dist/openmeld-service-windows-x64-$version.exe").Path
+          pnpm --dir clients/openmeld-cli exec vitest run --config vitest.integration.config.ts tests/service-execution-host-entry.integration.test.ts
+      - name: Preserve native acceptance evidence and exact unsigned artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-native-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dev-tmp/windows-native-evidence/
+            cli/dist/*.exe
+          retention-days: 14
+          if-no-files-found: error
+
   native-contracts:
     runs-on: windows-latest
     timeout-minutes: 20
