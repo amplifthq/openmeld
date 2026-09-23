@@ -1164,7 +1164,6 @@ function hasExactly(actual, expected) {
 function formatReleaseStatus(result) {
   const lines = [
     "Production release status",
-    "Coverage: Database, cloud, CLI. Desktop is tracked by platform promotion pointers.",
     `Source: ${result.sourceSha}`,
     `Repository: ${result.repo}`,
     `Deployment state (${result.scopeBasis}): ${result.state}`,

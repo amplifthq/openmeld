@@ -67,12 +67,13 @@ immutable candidate with source, version, and artifact hash. Read all three
 without changing them:
 
 ```sh
+pnpm --filter @openmeld/schemas build
 doppler --silent run --project openmeld-release --config prd \
   --only-secrets CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN \
-  --no-fallback -- pnpm run release:desktop-preview:status
+  --no-fallback -- node scripts/release/desktop-preview.mjs status
 ```
 
-After its local schema build, the status command prints one JSON line per
+After the local schema build, the status command prints one JSON line per
 platform and exits nonzero if a pointer or candidate cannot be read or
 validated. A confirmed absent pointer is
 `unpublished`; a read failure is `unknown`. Public download and updater pages

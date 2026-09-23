@@ -834,7 +834,7 @@ function printUsage() {
       "Usage:",
       "  pnpm run release:desktop-preview:build",
       "  OPENMELD_DESKTOP_RELEASE_SHA=<approved-merged-release-sha> pnpm run release:desktop-preview:upload-candidate",
-      "  pnpm run release:desktop-preview:status",
+      "  node scripts/release/desktop-preview.mjs status (after building @openmeld/schemas)",
       "",
     ].join("\n")
   );
