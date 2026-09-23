@@ -491,6 +491,38 @@ describe("BrowserQueryPersistenceController", () => {
 		).toEqual(profileBHistory);
 	});
 
+	it("uses a complete in-memory Space view without reopening its saved snapshot", async () => {
+		const store = createTestStore();
+		const queryClient = createQueryClient();
+		const controller = createBrowserQueryPersistenceController({
+			restoreBudgetMs: 100,
+			store,
+		});
+		const scope = {
+			organizationId: "organization-a",
+			organizationSlug: "organization-a",
+			ownerAccountId: "account-a",
+			queryClient,
+		};
+		await controller.activateAuthorizedScope(scope);
+		queryClient.setQueryData(spaceQueryKeys.history("space-a", "profile-a"), {
+			envelopes: [],
+			nextCursor: null,
+		});
+		queryClient.setQueryData(
+			spaceQueryKeys.displaySnapshot("space-a", "profile-a"),
+			{ status: { spaceId: "space-a" } }
+		);
+		const createStorage = vi.spyOn(store, "createStorage");
+		await controller.restoreSpaceConversation({
+			...scope,
+			spaceId: "space-a",
+			openMeldProfileId: "profile-a",
+		});
+		expect(createStorage).not.toHaveBeenCalled();
+		controller.deactivate();
+	});
+
 	it("keeps saving the open Space while another Space is restored for prefetch", async () => {
 		const store = createTestStore();
 		const queryClient = createQueryClient();

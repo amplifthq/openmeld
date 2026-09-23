@@ -494,6 +494,13 @@ export function createBrowserQueryPersistenceController(
 				)
 		);
 		observeSpaceOpen(spaceId, { cache: hasDisplay ? "memory" : "cold" });
+		// Route prefetch only needs a display snapshot. Re-reading and validating
+		// the saved segment on every warm revisit delays the route and repeats the
+		// same work again when the mounted Space activates its save subscription.
+		// Activation still checks disk for newer cross-window data.
+		if (readOnly && hasDisplay) {
+			return Promise.resolve();
+		}
 		const operation = runExclusive(async () => {
 			if (
 				activeOwnerAccountId !== ownerAccountId ||
