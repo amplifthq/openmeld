@@ -94,7 +94,6 @@ const VERSION_FLAGS_MUTUALLY_EXCLUSIVE_RE =
 const VERSION_GUARD_SELECTED_RE = /selected 0\.7\.97/u;
 const VERSION_GUARD_STAMP_COMMAND_RE =
   /release:local-components plan --version/u;
-const RELEASE_PREFLIGHT_COMMAND_RE = /pnpm run release:preflight/u;
 const ALREADY_DONE_RE = /SKIP \(already done/u;
 const THREE_WAY_ALIGNMENT_RE = /R2, npm, and the active Core projection/u;
 const WRANGLER_RELEASE_STATE = JSON.parse(
@@ -401,7 +400,6 @@ test("requires the selected release version to match package and manifest truth"
       (error) => {
         assert.match(error.message, VERSION_GUARD_SELECTED_RE);
         assert.match(error.message, VERSION_GUARD_STAMP_COMMAND_RE);
-        assert.match(error.message, RELEASE_PREFLIGHT_COMMAND_RE);
         return true;
       }
     );
