@@ -5573,8 +5573,13 @@ normal verified download and repair path. Manifest and artifact downloads retry
 temporary transfer failures within a small bounded window, deleting partial
 output before each retry; integrity verification still decides whether the
 download is accepted. A legacy manifest without archive fields still uses the
-verified raw executable. Windows and explicit `?dist=npm` setup use the npm
-distribution. The bootstrap is only the
+verified raw executable. Windows x64 binary setup downloads the CLI and native
+process companion, verifies exact size/hash and Authenticode publisher for both,
+and follows the shared installer's receipt to the managed command. Its readable
+PowerShell 5.1 command contains setup's exit and environment in a child shell;
+the caller's terminal remains open. Windows acquisition requires a published,
+signed Windows channel and must not be rolled out ahead of that channel.
+Explicit `?dist=npm` remains the package distribution. The bootstrap is only the
 setup entry, not necessarily the long-term command prefix. The final
 `setup.complete` event is the owner for follow-up commands:
 
@@ -5590,7 +5595,7 @@ CLI entry as `openmeld`. Setup is lane-scoped. The generated prompt and final
 bootstrap output must tell the agent the exact CLI command prefix for follow-up
 commands, such as `openmeld-dev` for local development or
 `$HOME/.openmeld/bin/openmeld` for production binary setup. The prompt may show
-`npx -y openmeld@latest` only for Windows, explicit `?dist=npm`, or npm recovery.
+`npx -y openmeld@latest` only for explicit `?dist=npm` or npm recovery.
 The agent must use the final prefix for `whoami`, service diagnostics, and later
 Space operations instead of guessing a lane.
 
@@ -5791,7 +5796,7 @@ expires, Web shows an explicit OpenMeld release-side failure instead of a false
 completion checkmark or an endless spinner.
 
 The human-facing command is the Web-generated setup command. On supported macOS
-it defaults to binary setup. For Windows, explicit `?dist=npm`, or npm recovery,
+and Windows x64 it selects binary setup. For explicit `?dist=npm` or npm recovery,
 the package-based command is:
 
 ```text

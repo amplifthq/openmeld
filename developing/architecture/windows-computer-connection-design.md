@@ -260,6 +260,20 @@ inference, signed distribution and installed Desktop acceptance remain separate.
 
 ## References
 
+Web binary acquisition now shares the native signature/publisher function with
+CLI/Desktop. Its readable command still uses a child PowerShell so setup cannot
+exit the caller's terminal. Local command/bootstrap tests passed 63 cases and Web
+TypeScript passed. A native, ephemeral-runner-only signed fixture now exercises
+download, publisher/hash rejection, install receipt, Unicode/quote forwarding,
+stderr and original exit status; it is pending run 35905445352. This fixture
+does not sign or certify an OpenMeld production release.
+
+The platform tabs now use the same shared label rendering, with Beta in a
+trailing slot. An isolated Chrome presentation check rendered the actual setup
+card: both labels are 12px, the badge remains 10px, and mouse/arrow-key changes
+switch the command and instructions. This proves the card presentation only,
+not a signed-in connection or a completed setup operation.
+
 - [Product model](../product/product-model.md), [Service owner](local-openmeld-service.md), [transport owner](agent-transport-contract.md), [Desktop owner](../clients/desktop.md), [CLI release](../engineering/cli-binary-release.md), [delivery](../engineering/agent-native-delivery.md).
 - [Task Scheduler security contexts](https://learn.microsoft.com/en-us/windows/win32/taskschd/security-contexts-for-running-tasks) and [logon types](https://learn.microsoft.com/en-us/windows/win32/api/taskschd/ne-taskschd-task_logon_type).
 - [Windows interactive services](https://learn.microsoft.com/en-us/windows/win32/services/interactive-services).
