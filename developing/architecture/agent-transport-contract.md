@@ -2134,7 +2134,7 @@ must return `space.action.delivery_only_unsupported` or
 `space.action.delivery_only_unverified` before sending a correction prompt. The
 existing terminal failure path remains responsible for a visible failure. This
 does not disable normal reply/silence tools or their correctable input errors.
-Current Cursor/Grok Build ACP and Antigravity CLI correction paths take this
+Current Cursor ACP and Antigravity CLI correction paths take this
 explicit safe-stop branch; their ordinary modes are not silently changed to
 Ask/Plan. A new native restriction may replace that branch only with actual
 controller evidence, not a headless-only flag or an output schema alone.
@@ -2158,6 +2158,16 @@ dispatch MCP connection. This keeps large-result continuation readable and
 preserves real rejection/receipt semantics. Connection loss requires receipt
 reconciliation before another final action; cancellation and session end fence
 further calls. Config inspection itself must not execute ambient plugins.
+
+Grok ACP correction uses a fresh native agent with only delivery-tool dispatch
+wrappers. Its tool profile does not by itself prohibit file-backed arguments;
+an isolated native config snapshot adds Read and other business-action denials.
+The original selected mode, HOME, cwd, configuration values, policy sources and
+native approval flow remain authoritative. The adapter checks the original and
+scoped native configuration before starting a session, then verifies the actual
+profile, hooks and ready MCP catalog before prompting. Unknown custom profiles,
+ambient hooks/plugins or unverifiable policy fail closed. A snapshot is not a
+new publication or credential authority and is removed after process closure.
 
 An isolated correction receives the complete prior result as private context,
 not a UI-sized preview that assumes the old conversation is available. It still

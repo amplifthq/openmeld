@@ -2,6 +2,7 @@ import { realpath, stat } from "node:fs/promises";
 import type {
   AcpJsonRpcError,
   AdapterDispatchDiagnostics,
+  AdapterDispatchSpaceTools,
   AdapterDispatchTelemetry,
   AdapterErrorType,
   AdapterInteractionCallback,
@@ -30,6 +31,11 @@ import {
   isGrokBuildQuestionMethod,
   resolveGrokBuildAcpInteraction,
 } from "./grok-build-acp-interactions.js";
+import {
+  type GrokBuildDeliveryScope,
+  prepareGrokBuildDeliveryScope,
+  verifyGrokBuildDeliveryScope,
+} from "./grok-build-delivery-only.js";
 
 type GrokBuildModel = {
   currentEffort: string | null;
@@ -133,6 +139,7 @@ export async function probeGrokBuildAcpInterface(input: {
 
 export async function invokeGrokBuildAcpTransport(input: {
   agentControllerPermissionMode?: AgentControllerPermissionMode;
+  spaceActionTools?: AdapterDispatchSpaceTools;
   conversationPolicy?: ConversationPolicy;
   env?: Record<string, string | undefined>;
   grokBuildTimeoutMs: number | null;
@@ -148,14 +155,15 @@ export async function invokeGrokBuildAcpTransport(input: {
   streamingMode?: AdapterStreamingMode;
   taskId: string;
 }): Promise<GrokBuildAcpTransportResult> {
-  if (isDispatchSpaceActionDeliveryOnly(input.env)) {
-    // Grok's CLI --tools filter is headless-only, not an ACP scope contract.
-    // An agent profile also does not prove ambient hooks/MCPs are restricted.
+  const deliveryOnly =
+    input.spaceActionTools?.deliveryOnly ||
+    isDispatchSpaceActionDeliveryOnly(input.env);
+  if (deliveryOnly && !input.spaceActionTools?.deliveryOnly) {
     throw new GrokBuildAcpTransportError({
       code: "space.action.delivery_only_unsupported",
       errorType: "config",
       message:
-        "This Grok Build ACP path cannot verify a delivery-only tool scope. No correction turn was started; the original conversation and permission mode are unchanged.",
+        "The current Wake's delivery capability is missing. No correction turn was started.",
     });
   }
   const prompt = normalizeOptionalText(input.prompt);
@@ -168,16 +176,39 @@ export async function invokeGrokBuildAcpTransport(input: {
   }
   const workdir = await resolveCanonicalDirectory(input.grokBuildWorkdir);
   const invokedAtMs = Date.now();
-  const session = new GrokBuildAcpSession({ ...input, workdir });
+  const deliveryScope = await prepareOptionalDeliveryScope(
+    { ...input, workdir },
+    Boolean(deliveryOnly)
+  );
+  let session: GrokBuildAcpSession;
+  try {
+    session = new GrokBuildAcpSession({
+      ...input,
+      workdir,
+      deliveryScope,
+      env: deliveryScope?.env ?? input.env,
+    });
+  } catch (error) {
+    await deliveryScope?.close();
+    throw error;
+  }
   try {
     session.start();
     await session.initialize({ collectUsageLimits: false });
     const existingSessionId = normalizeOptionalText(input.sessionId);
     const descriptor = await session.openSession({
       requestedModelId: normalizeOptionalText(input.conversationPolicy?.model),
-      sessionId: existingSessionId,
+      sessionId: deliveryScope ? null : existingSessionId,
     });
-    session.emitProviderConversationObserved(descriptor.sessionId);
+    await verifyOptionalDeliveryScope(
+      deliveryScope,
+      session,
+      descriptor.sessionId
+    );
+    const continuitySessionId = deliveryScope
+      ? (existingSessionId ?? descriptor.sessionId)
+      : descriptor.sessionId;
+    session.emitProviderConversationObserved(continuitySessionId);
     await session.applyModelSelection({
       descriptor,
       reasoningEffort: normalizeOptionalText(
@@ -218,7 +249,7 @@ export async function invokeGrokBuildAcpTransport(input: {
     return {
       diagnostics: { modelNegotiation: descriptor.diagnostics },
       output,
-      sessionId: descriptor.sessionId,
+      sessionId: continuitySessionId,
       telemetry: session.buildTelemetry({
         invokedAtMs,
         previewEmitted:
@@ -234,8 +265,57 @@ export async function invokeGrokBuildAcpTransport(input: {
       session.readDiagnostics()
     );
   } finally {
-    await session.closeProcess();
+    try {
+      await session.closeProcess();
+    } finally {
+      await deliveryScope?.close();
+    }
   }
+}
+
+async function prepareOptionalDeliveryScope(
+  input: Parameters<typeof prepareGrokBuildDeliveryScope>[0],
+  enabled: boolean
+): Promise<GrokBuildDeliveryScope | undefined> {
+  if (!enabled) {
+    return undefined;
+  }
+  try {
+    return await prepareGrokBuildDeliveryScope(input);
+  } catch (error) {
+    throw deliveryScopeError(error);
+  }
+}
+
+async function verifyOptionalDeliveryScope(
+  scope: GrokBuildDeliveryScope | undefined,
+  session: GrokBuildAcpSession,
+  sessionId: string
+): Promise<void> {
+  if (!scope) {
+    return;
+  }
+  try {
+    await verifyGrokBuildDeliveryScope({
+      scope,
+      sessionId,
+      request: (method, params) => session.request(method, params),
+    });
+  } catch (error) {
+    throw deliveryScopeError(error);
+  }
+}
+
+function deliveryScopeError(error: unknown): GrokBuildAcpTransportError {
+  return new GrokBuildAcpTransportError({
+    code: "space.action.delivery_only_unverified",
+    errorType: "config",
+    message:
+      toRecord(error)?.code === "space.action.delivery_only_unverified" &&
+      error instanceof Error
+        ? error.message
+        : "The native delivery configuration could not be verified.",
+  });
 }
 
 const PROVIDER_USAGE_EXHAUSTED_ERROR_CODE = "grok-build.quota_or_entitlement";
@@ -308,6 +388,7 @@ class GrokBuildAcpSession {
 
   constructor(input: {
     agentControllerPermissionMode?: AgentControllerPermissionMode;
+    deliveryScope?: GrokBuildDeliveryScope;
     env?: Record<string, string | undefined>;
     grokBuildTimeoutMs: number | null;
     launchContract: RuntimeAgentControllerLaunchContract;
@@ -447,6 +528,13 @@ class GrokBuildAcpSession {
         : await this.request("session/new", {
             cwd: this.#input.workdir,
             mcpServers: buildAcpDispatchSpaceActionMcpServers(this.#input.env),
+            ...(this.#input.deliveryScope
+              ? {
+                  _meta: {
+                    agentProfile: this.#input.deliveryScope.profilePath,
+                  },
+                }
+              : {}),
           });
     } catch (error) {
       if (input.sessionId && isContextNotFoundError(error)) {

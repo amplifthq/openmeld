@@ -175,6 +175,7 @@ function createDefaultGrokBuildInvoke(input: {
           agentControllerPermissionMode:
             dispatchInput.agentControllerPermissionMode,
           conversationPolicy: dispatchInput.conversationPolicy,
+          spaceActionTools: dispatchInput.spaceActionTools,
           env: dispatchInput.env,
           grokBuildTimeoutMs,
           grokBuildWorkdir:

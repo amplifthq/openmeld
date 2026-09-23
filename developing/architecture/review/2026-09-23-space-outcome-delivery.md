@@ -54,15 +54,38 @@ remains the only writer; no private prose is automatically published.
 | OpenCode server | Native pure-mode fork | Copies original permission rules and appends negative non-delivery rules; reads them back before the prompt. No forced final-tool grants or external plugins. |
 | OpenClaw local | Fresh native session and temporary verified plugin configuration | Shared current schemas and persistent dispatch MCP connection; business tools/external plugins disabled, explicit deny preserved, original canonical session unchanged. |
 | Cursor ACP | Explicit safe stop before controller/session execution | Current adapter has no verified delivery-only scope; it does not replace the user's mode with Ask/Plan. Normal reply and input correction remain supported. |
-| Grok Build ACP | Explicit safe stop before controller/session execution | A headless-only tool filter or agent profile is not proof of ACP/hook/MCP isolation. Normal reply remains supported. |
+| Grok Build ACP | Fresh native restricted-agent session and temporary config snapshot | Verified native tool/permission sources, preserved selected mode and original deny/ask rules, delivery MCP only. File-backed use_tool input is denied natively. Incompatible ambient hooks/plugins/configuration still stop before a prompt. |
 | Antigravity CLI | Explicit safe stop before controller/session execution | JSON output constraints do not restrict prior business actions. Normal structured final outcomes remain supported. |
 
-The last three rows are implemented compatibility guards, **not successful
-automatic correction**. This follows the agreed rule that an unverified carrier
+The Cursor and Antigravity rows are implemented compatibility guards, **not
+successful automatic correction**. This follows the agreed rule that an unverified carrier
 must not rerun business work. Independent review must keep this product limit
 visible; do not close #1250 or mark Ready on a claim that all seven carriers have
-equivalent successful recovery. Extending those three native paths requires
+equivalent successful recovery. Extending those two native paths requires
 new verified operation boundaries rather than weakening the guard.
+
+## Grok ACP implementation checkpoint
+
+Grok 1.0.40 (eb1a2256660d) now supports conditional native delivery correction.
+The adapter creates a fresh session, supplies the current tool schemas, and
+verifies the selected profile, empty hook inventory, and exact ready MCP catalog
+before submitting a prompt. It does not resume or replace the canonical session.
+
+Native experiments found that root CLI deny flags and GROK_CONFIG overlays do
+not enforce Read restrictions in ACP. The native use_tool wrapper accepts file
+arguments even when no file tool is offered. The implementation therefore uses
+a temporary native config snapshot with additional deny rules, while retaining
+HOME, cwd, other native policy/credential sources and original config values.
+It verifies that every existing permission source is still loaded. The original
+config is never rewritten by the adapter. Closing the process removes only its
+owned snapshot and profile. No final-tool approval grant is added.
+
+Eight actual-executable scenarios passed: approved reply, explicit refusal,
+user-selected Plan, file-input rejection, Full Access, file-input rejection even
+under Full Access, an existing native MCP deny, and an ambient startup hook.
+They use dummy credentials and a loopback scripted provider, not a real Space.
+These are new adapter-boundary proofs; final PR CI and full acceptance remain
+separate. Initial failing probes are retained in the session evidence.
 
 ## Reproducible native acceptance
 
@@ -75,6 +98,7 @@ OPENMELD_TEST_CODEX_BIN=/absolute/path/to/codex node --test runtime/adapters/cod
 OPENMELD_TEST_CLAUDE_BIN=/absolute/path/to/claude node --test runtime/adapters/claude-code/test/delivery-only-native.test.js
 OPENMELD_TEST_OPENCODE_BIN=/absolute/path/to/opencode node --test runtime/adapters/opencode/test/delivery-only-native.test.js
 OPENMELD_TEST_OPENCLAW_BIN=/absolute/path/to/openclaw node --test runtime/adapters/openclaw/test/delivery-only-native.test.js
+OPENMELD_TEST_GROK_BUILD_BIN=/absolute/path/to/grok node --test runtime/adapters/grok-build/test/delivery-only-native.test.js
 ```
 
 Use the actual executable, not an unrelated terminal wrapper. On this workstation
