@@ -16,6 +16,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { subscribeAgentReadinessInvalidations } from "#/lib/agents/agent-readiness-invalidation-bus";
+import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
 	readSpaceCursorLastSeenTs,
@@ -438,6 +439,34 @@ describe("useSpaceLandingFeed transport freshness", () => {
 
 	it("still routes business signals to the timeline after the PONG fast-path", async () => {
 		const { queryClient, view } = renderFeed();
+		const accountSpaces: AccountSpaceSections = {
+			pinnedItems: [
+				{
+					spaceId: "space-123",
+					spaceName: "Product planning",
+					organizationId: "org-1",
+					openProfileId: "11111111-1111-1111-1111-111111111111",
+					openProfileName: "Mira",
+					visibility: "private",
+					spacePurpose: null,
+					lastJoinedAt: "2026-09-23T00:00:00.000Z",
+					joinedProfiles: [],
+					pinnedAt: null,
+					pinnedProfileIds: [],
+					activeAgentCount: null,
+					activeHumanCount: null,
+					activeMemberCount: null,
+				},
+			],
+			spaceItems: [],
+		};
+		queryClient.setQueryData(
+			accountSpaceQueryKeys.items(
+				"11111111-1111-1111-1111-111111111111",
+				"account"
+			),
+			accountSpaces
+		);
 		await openLatestSocket();
 
 		await act(async () => {
@@ -448,6 +477,14 @@ describe("useSpaceLandingFeed transport freshness", () => {
 
 		expect(view.result.current.timelineEnvelopes).toHaveLength(1);
 		expect(view.result.current.timelineEnvelopes[0]?.id).toBe("sig-1");
+		expect(
+			queryClient.getQueryData<AccountSpaceSections>(
+				accountSpaceQueryKeys.items(
+					"11111111-1111-1111-1111-111111111111",
+					"account"
+				)
+			)?.pinnedItems[0]?.messagePreview?.text
+		).toBe("Hello from the stream");
 		expect(
 			queryClient
 				.getQueryData<SpaceHistorySnapshot>(

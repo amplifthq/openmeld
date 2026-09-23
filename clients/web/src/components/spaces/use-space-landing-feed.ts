@@ -32,7 +32,10 @@ import {
 	mergeSpaceTimelineEnvelopes,
 	type SpaceLiveState,
 } from "#/lib/spaces/timeline";
-import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
+import {
+	accountSpaceQueryKeys,
+	updateAccountSpaceAcceptedMessage,
+} from "#/query/spaces/account-spaces";
 import {
 	readSpaceHistory,
 	SPACE_UPDATES_LIMIT,
@@ -1510,6 +1513,16 @@ function handleLiveSignalMessage(input: {
 		incoming: [input.message.signal],
 		setState: input.setTimelineEnvelopes,
 	});
+	if (
+		newSignals.length > 0 &&
+		shouldRecordLiveSignalAsCatchUpAnchor(input.message)
+	) {
+		updateAccountSpaceAcceptedMessage(
+			input.queryClient,
+			input.openMeldProfileId,
+			input.message.signal
+		);
+	}
 	scheduleRefetchesForSignals({
 		wakeFinalOutcomeHandledByCallback: Boolean(
 			input.onWakeFinalOutcomeFactsRefreshRef.current
