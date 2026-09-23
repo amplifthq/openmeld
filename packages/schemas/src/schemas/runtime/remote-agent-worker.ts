@@ -64,6 +64,21 @@ export function buildPersonalRemoteAgentConversationId(input: {
   ].join("|");
 }
 
+/** A scheduled Run owns its execution history independently of its result destination. */
+export function buildRemoteAgentRoutineRunConversationId(input: {
+  agentProfileId: string;
+  organizationId: string;
+  runId: string;
+}): string {
+  const parts = [input.organizationId, input.agentProfileId, input.runId].map(
+    (value) => nonEmptyStringSchema.max(256).parse(value)
+  );
+  return [
+    "remote-agent-routine-run.v1",
+    ...parts.map((value) => `${value.length}:${value}`),
+  ].join("|");
+}
+
 export function buildRemoteAgentRuntimeConversationId(input: {
   generation: number;
   logicalConversationId: string;
@@ -448,16 +463,26 @@ export const remoteAgentWorkerSubmitTurnRequestV4Schema = z
           path: ["spaceDispatchContext"],
         });
       }
+      const legacyConversationId =
+        buildPersonalRemoteAgentConversationId(request);
+      const runConversationId =
+        request.turnEnvelope.trigger.source === "routine"
+          ? buildRemoteAgentRoutineRunConversationId({
+              agentProfileId: request.agentProfileId,
+              organizationId: request.organizationId,
+              runId: request.turnEnvelope.trigger.runId,
+            })
+          : null;
       if (
         request.conversationIdentity.agentProfileId !==
           request.agentProfileId ||
-        request.conversationId !==
-          buildPersonalRemoteAgentConversationId(request)
+        (request.conversationId !== legacyConversationId &&
+          request.conversationId !== runConversationId)
       ) {
         context.addIssue({
           code: "custom",
           message:
-            "Personal Agent conversations must match the Organization, Agent Profile, and Space.",
+            "Personal Agent conversations must match their Organization, Agent Profile, and source conversation or Routine Run.",
           path: ["conversationIdentity"],
         });
       }

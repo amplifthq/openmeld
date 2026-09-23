@@ -101,7 +101,7 @@ Use these owner documents:
 | Desktop preview download page, R2 artifact binding, and production Web download/update routes | `developing/clients/desktop.md`, `developing/clients/web.md`, `developing/engineering/development-workflow.md` |
 | CLI binary release, R2 manifest, Web download route, and setup `dist=` distribution switch | `developing/engineering/cli-binary-release.md`, `developing/clients/cli.md`, `developing/clients/web.md` |
 | Agent-native development, Final Candidate validation, Actions-unavailable fallback, optional review support, merge, release concurrency, health, smoke, evidence, and failure recovery | `developing/engineering/agent-native-delivery.md` |
-| Production release lane selection, scoped local/GitHub deploys, D1 production sequencing, CLI rollout choice, health checks, and release reporting | `developing/engineering/production-release.md` |
+| Production release lane selection, scoped local/GitHub deploys, D1 and CLI rollout, Desktop impact assessment, health checks, and release reporting | `developing/engineering/production-release.md` |
 | OpenMeld Changelog authoring, publication, historical backfill, generated projections, and GitHub release-note handoff | `developing/engineering/changelog.md`, then `.agents/skills/openmeld-changelog/SKILL.md` |
 | Environment variables, Doppler local development, secret ownership, contributor onboarding, and production secret readiness | `developing/engineering/environment-and-secrets.md` |
 | Internal staging scope, isolation, guarded deployment, and staging evidence | `developing/engineering/staging-environment.md` |
@@ -200,9 +200,11 @@ change must leave those signals cleaner and less ambiguous.
 
 - Before starting a task, re-read the user goal and choose the scoped owner docs
   that apply.
-- Before requesting final validation, merging, or releasing, follow the complete
-  lifecycle in `developing/engineering/agent-native-delivery.md`. Do not infer a
-  second delivery process from workflow YAML, tool output, or old task history.
+- For a single or batch merge-and-release task, start at
+  [Merge and Release Task](developing/engineering/agent-native-delivery.md#merge-and-release-task),
+  then follow the linked lifecycle and component-specific release rules. Do not
+  infer a second delivery process from workflow YAML, tool output, or old task
+  history.
 - When an Agent personally encounters a problem in any OpenMeld product
   surface, App, client, Service, runtime, integration, developer workflow,
   CI/CD, release, or validation path, record that occurrence through
