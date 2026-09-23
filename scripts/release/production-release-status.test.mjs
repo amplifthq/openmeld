@@ -46,6 +46,8 @@ const FULL_RELEASE_RECOMMENDATION_REGEX =
   /CLI Release owns the CLI and required Core projection; Scoped Production Release inputs are separate: database, web, gateway, auth, remote-agent/u;
 const PLANNED_WEB_STAGE = /Receipt-based pending train: web/u;
 const PLANNING_ONLY = /Planning snapshot only/u;
+const DESKTOP_STATUS_COVERAGE =
+  /Desktop is tracked by platform promotion pointers/u;
 const DATABASE_RELEASE_RECOMMENDATION_REGEX =
   /Scoped Production Release input: database/u;
 const EXTERNAL_VALIDATION_REGEX =
@@ -364,6 +366,7 @@ test("one status read can plan a stage without collecting release history again"
   });
   assert.equal(code, 0);
   assert.equal(reads, 1);
+  assert.match(output, DESKTOP_STATUS_COVERAGE);
   assert.match(output, PLANNED_WEB_STAGE);
   assert.match(output, PLANNING_ONLY);
 });

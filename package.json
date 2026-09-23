@@ -67,6 +67,7 @@
     "desktop:package:acceptance": "node scripts/desktop/package-mode.mjs acceptance",
     "desktop:package:production-preview": "node scripts/desktop/package-mode.mjs production-preview",
     "release:desktop-preview:upload-candidate": "pnpm --filter @openmeld/schemas build && node scripts/release/desktop-preview.mjs upload-candidate",
+    "release:desktop-preview:status": "pnpm --filter @openmeld/schemas build && node scripts/release/desktop-preview.mjs status",
     "desktop:start:package": "node scripts/dev/desktop-pilot.mjs --app",
     "openmeld:dev": "node scripts/dev/openmeld-dev.mjs",
     "openmeld:dev:install": "node scripts/dev/openmeld-dev-shortcut.mjs install",

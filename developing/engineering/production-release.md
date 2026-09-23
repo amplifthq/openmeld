@@ -5,10 +5,11 @@
 - Purpose: Define component-specific planning, ordering, commands, gates, and
   recovery for OpenMeld production releases without turning every change into
   a fleet rollout.
-- Read this when: You are planning or executing a local production deploy, a
-  GitHub production deploy, a production D1 migration, or a CLI publish.
+- Read this when: You are planning or executing a local or GitHub production
+  deploy, a D1 migration, a CLI publish, or Desktop release assessment.
 - Update this when: Release scopes, workflow inputs, production ordering,
-  database gates, CLI publication, health checks, or release evidence changes.
+  database gates, CLI publication, Desktop coverage, health checks, or release
+  evidence changes.
 - Do not use this for: Feature-specific smoke steps, local development lanes,
   database ownership, or CLI binary implementation details.
 - Source of truth: This file owns production release scopes, implementation
@@ -45,6 +46,41 @@ Do not redeploy unrelated services for ceremony. Broader validation may be
 appropriate for a cross-service contract change, but broader validation does
 not require a broader production rollout.
 
+### Desktop release coverage
+
+The scoped planner and `release:status` cover Database, cloud services, and
+CLI; neither `cloud` nor `full` publishes Desktop. For the same exact merged
+range, assess Desktop separately against its last promoted source on each
+supported platform. A direct Desktop Main or packaging change must be present
+in the promoted release on each affected platform; publish it if missing. A
+Web, shared-package, lockfile, or Desktop-build-script change enters Desktop
+impact review because those paths feed its renderer/build identity; publish
+only when the built Desktop or its installed behavior actually changes. Record
+a concrete exclusion reason when it does not.
+Compare the candidate's source with the product merge by ancestry; a later
+release-only version commit can include an earlier product merge.
+
+The authoritative release state is each platform's promoted R2 pointer:
+`desktop/promoted.json` for macOS and
+`desktop/promoted-windows-{x64,arm64}.json` for Windows. Each points to an
+immutable candidate with source, version, and artifact hash. Read all three
+without changing them:
+
+```sh
+doppler --silent run --project openmeld-release --config prd \
+  --only-secrets CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN \
+  --no-fallback -- pnpm run release:desktop-preview:status
+```
+
+After its local schema build, the status command prints one JSON line per
+platform and exits nonzero if a pointer or candidate cannot be read or
+validated. A confirmed absent pointer is
+`unpublished`; a read failure is `unknown`. Public download and updater pages
+are separate user-facing checks. Keep candidate upload, promotion, and
+[installed update acceptance](../clients/desktop.md#installed-a-to-b-release-acceptance)
+as separate facts; use the [Desktop release workflow](development-workflow.md#desktop-preview-release-workflow)
+for their publication steps.
+
 ## Choose The Release Lane
 
 | Current situation                                                                                                                           | Use                                                                                 | Why                                                                                                                   |
@@ -78,7 +114,8 @@ running. It does not dispatch a workflow, deploy a component, or edit a release
 file. Its `Deployment state` describes deployment history, not permission to
 release. `Source validation` reports exact-SHA push evidence when present and
 otherwise tells the operator to confirm exact Final Candidate evidence. Use
-`--json` for automation.
+`--json` for automation. Desktop is outside this status result; complete its
+[platform assessment](#desktop-release-coverage) before closing the release task.
 For one read-only planning pass, add `--plan-stage <scope>` to print the
 selected stage's prerequisite decision from the same status snapshot. This
 avoids an immediate second history collection while planning. It is not the

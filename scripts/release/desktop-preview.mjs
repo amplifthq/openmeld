@@ -23,6 +23,7 @@ import {
   desktopCandidateUpdateArtifact,
   desktopPromotedReleaseKey,
   desktopPromotedReleaseSchema,
+  desktopReleasePlatformSchema,
 } from "../../packages/schemas/dist/desktop-release.js";
 import {
   readInstalledDesktopPlatform,
@@ -32,6 +33,7 @@ import { desktopProductionSource } from "../desktop/signed-package.ts";
 import {
   checkDesktopPublisher,
   DEFAULT_R2_BUCKET_NAME,
+  desktopPublisherCredentials,
 } from "./desktop-publisher.mjs";
 import { DEFAULT_APPLE_TEAM_ID } from "./macos-cli-signing.mjs";
 import {
@@ -519,6 +521,59 @@ export function readDesktopReleaseObject(repoRoot, key, env = process.env) {
   );
 }
 
+async function readPromotedDesktopCandidate(platform, readObject) {
+  const rawPointer = await readObject(desktopPromotedReleaseKey(platform));
+  if (rawPointer === null) {
+    return null;
+  }
+  const pointer = desktopPromotedReleaseSchema.parse(rawPointer);
+  const candidate = desktopCandidateManifestSchema.parse(
+    await readObject(desktopCandidateManifestKey(pointer.candidate))
+  );
+  if (
+    candidate.sha256 !== pointer.candidate ||
+    candidate.platform !== platform ||
+    !desktopCandidateUpdateArtifact(candidate)
+  ) {
+    throw new Error("Invalid promoted Desktop candidate.");
+  }
+  return candidate;
+}
+
+export async function readDesktopReleaseStatus({
+  repoRoot = process.cwd(),
+  env = process.env,
+  readObject = (key) => readDesktopReleaseObject(repoRoot, key, env),
+} = {}) {
+  const results = [];
+  for (const platform of desktopReleasePlatformSchema.options) {
+    try {
+      const candidate = await readPromotedDesktopCandidate(
+        platform,
+        readObject
+      );
+      if (candidate === null) {
+        results.push({ platform, state: "unpublished" });
+        continue;
+      }
+      results.push({
+        platform,
+        state: "promoted",
+        version: candidate.version,
+        sourceSha: candidate.releaseSha,
+        candidate: candidate.sha256,
+      });
+    } catch (error) {
+      results.push({
+        platform,
+        state: "unknown",
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return results;
+}
+
 export async function commitDesktopPromotion({
   repoRoot,
   manifest,
@@ -541,22 +596,11 @@ export async function commitDesktopPromotion({
     sourceSha: manifest.releaseSha,
   });
   try {
-    const current = await readObject(pointerKey);
-    let currentVersion = null;
-    if (current !== null) {
-      const pointer = desktopPromotedReleaseSchema.parse(current);
-      const candidate = desktopCandidateManifestSchema.parse(
-        await readObject(desktopCandidateManifestKey(pointer.candidate))
-      );
-      if (
-        candidate.sha256 !== pointer.candidate ||
-        candidate.platform !== manifest.platform ||
-        !desktopCandidateUpdateArtifact(candidate)
-      ) {
-        throw new Error("Invalid promoted Desktop candidate.");
-      }
-      currentVersion = candidate.version;
-    }
+    const current = await readPromotedDesktopCandidate(
+      manifest.platform,
+      readObject
+    );
+    const currentVersion = current?.version ?? null;
     if ((currentVersion ?? "none") !== expectedVersion) {
       throw new Error(
         "Promoted Desktop version changed or could not be verified."
@@ -790,6 +834,7 @@ function printUsage() {
       "Usage:",
       "  pnpm run release:desktop-preview:build",
       "  OPENMELD_DESKTOP_RELEASE_SHA=<approved-merged-release-sha> pnpm run release:desktop-preview:upload-candidate",
+      "  pnpm run release:desktop-preview:status",
       "",
     ].join("\n")
   );
@@ -808,6 +853,15 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
       await uploadDesktopCandidate();
     } else if (command === "promote") {
       await promoteDesktopCandidate(process.argv[3], process.argv[4]);
+    } else if (command === "status") {
+      const { env } = desktopPublisherCredentials();
+      const results = await readDesktopReleaseStatus({ env });
+      for (const result of results) {
+        process.stdout.write(`${JSON.stringify(result)}\n`);
+      }
+      if (results.some((result) => result.state === "unknown")) {
+        process.exitCode = 1;
+      }
     } else {
       printUsage();
       process.exitCode = 1;
