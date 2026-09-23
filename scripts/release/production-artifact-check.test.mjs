@@ -11,12 +11,17 @@ import {
   reusableArtifact,
   saveArtifactSnapshot,
 } from "./production-artifact-check.mjs";
-import { checkProductionWeb } from "./production-web-health.mjs";
+import {
+  checkProductionWeb,
+  waitForProductionWeb,
+} from "./production-web-health.mjs";
 
 const SSR_ERROR = /SSR/u;
 const SOURCE_ERROR = /source/u;
 const DIRTY_ERROR = /dirty/u;
 const CHECKOUT_ERROR = /checkout changed/u;
+const WEB_HEALTH_TIMEOUT_ERROR =
+  /did not match the verified release within 3000ms: Web SSR deployment source/u;
 
 async function writeArtifactOutput(webRoot, label) {
   await rm(path.join(webRoot, "dist"), { force: true, recursive: true });
@@ -134,6 +139,58 @@ test("Web health requires rendered HTML from the exact clean source, not guide.m
     run(html.replace('content="false"', 'content="true"')),
     DIRTY_ERROR
   );
+});
+
+test("Web health waits briefly for the deployed SSR page to serve the verified artifact", async () => {
+  const sourceSha = "a".repeat(40);
+  const page = (sha, buildId) =>
+    `<html><head><meta name="openmeld-source-sha" content="${sha}"/><meta name="openmeld-build-id" content="${buildId}"/><meta name="openmeld-build-dirty" content="false"/></head><body>OpenMeld<script src="/assets/a.js"></script></body></html>`;
+  let requests = 0;
+  let elapsedMs = 0;
+  const options = {
+    url: "https://web.example",
+    sourceSha,
+    expectedBuildId: "verified-build",
+    now: () => elapsedMs,
+    sleepImpl: (ms) => {
+      elapsedMs += ms;
+    },
+    retryDelayMs: 1000,
+    maxWaitMs: 3000,
+    fetchImpl: () => {
+      requests += 1;
+      return new Response(
+        requests === 1
+          ? page("b".repeat(40), "old-build")
+          : page(sourceSha, "verified-build"),
+        { headers: { "content-type": "text/html" } }
+      );
+    },
+  };
+
+  assert.deepEqual(await waitForProductionWeb(options), {
+    sourceSha,
+    buildId: "verified-build",
+    status: 200,
+  });
+  assert.equal(requests, 2);
+  assert.equal(elapsedMs, 1000);
+
+  requests = 0;
+  elapsedMs = 0;
+  await assert.rejects(
+    waitForProductionWeb({
+      ...options,
+      fetchImpl: () => {
+        requests += 1;
+        return new Response(page("b".repeat(40), "old-build"), {
+          headers: { "content-type": "text/html" },
+        });
+      },
+    }),
+    WEB_HEALTH_TIMEOUT_ERROR
+  );
+  assert.equal(requests, 4);
 });
 
 test("artifact reuse identity changes with source, production target, build inputs and ignored env files", async () => {

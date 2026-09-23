@@ -269,6 +269,8 @@ export const openMeldDaemonSyncRouteCatalogStatusSchema = z.enum([
 ]);
 
 export const DAEMON_PROFILE_SKIP_REASON_VALUES = [
+  "model.retired",
+  "model.unavailable",
   "projection.missing",
   "controller.registry.disabled",
   "controller.launch.needs_repair",

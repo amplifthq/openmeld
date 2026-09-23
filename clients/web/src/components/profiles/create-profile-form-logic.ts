@@ -2,6 +2,8 @@ import {
 	getAgentControllerPermissionModeDisplayMetadata,
 	listAgentControllerCollaborationModeOptions,
 	resolveAgentControllerModelCompatibility,
+	resolveAgentControllerUsageProviderId,
+	resolveModelAvailability,
 } from "@openmeld/agent-runtime";
 import type {
 	AgentControllerPermissionMode,
@@ -205,6 +207,43 @@ export function resolveCreateProfileSubmitBlock(
 	return null;
 }
 
+export function resolveModelRetirementDisplay(
+	model: ModelCatalogModel | null | undefined,
+	context?: AgentProfileModelCompatibilityContext | null
+) {
+	const notice = model?.retirement;
+	if (!notice) {
+		return null;
+	}
+	if (
+		context?.agentControllerRef &&
+		context.agentControllerRef !== notice.scope.controllerRef
+	) {
+		return null;
+	}
+	if (
+		notice.scope.authType &&
+		context?.authType &&
+		notice.scope.authType !== context.authType
+	) {
+		return null;
+	}
+	const providerId = context?.agentControllerRef
+		? resolveAgentControllerUsageProviderId({
+				agentControllerRef: context.agentControllerRef,
+				modelId: model.id,
+			})
+		: null;
+	if (
+		notice.scope.providerId &&
+		providerId &&
+		notice.scope.providerId !== providerId
+	) {
+		return null;
+	}
+	return notice;
+}
+
 export function resolveModelCompatibility(input: {
 	controller: NonNullable<ModelCatalog["agentControllers"][string]>;
 	context?: AgentProfileModelCompatibilityContext | null;
@@ -213,6 +252,21 @@ export function resolveModelCompatibility(input: {
 	const model = input.controller.models.find(
 		(candidate) => candidate.id === input.modelId
 	);
+	const availability = resolveModelAvailability(model, {
+		agentControllerRef: input.context?.agentControllerRef ?? "",
+		authType: input.context?.authType,
+		providerId: resolveAgentControllerUsageProviderId({
+			agentControllerRef: input.context?.agentControllerRef ?? "",
+			modelId: input.modelId,
+		}),
+	});
+	if (!availability.available) {
+		return {
+			knownIncompatible: true,
+			message: availability.message,
+			status: "catalog_unavailable",
+		};
+	}
 	const compatibility = resolveAgentControllerModelCompatibility({
 		controller: input.controller,
 		installedVersion: input.context?.installedVersion ?? null,

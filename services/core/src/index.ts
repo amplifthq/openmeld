@@ -11,6 +11,8 @@ import type {
 } from "@openmeld/protocol";
 import {
   type ListCenterAgentSessionsResponse,
+  type ModelCatalogReadOptions,
+  modelCatalogReadOptionsSchema,
   peopleComputerTargetSchema,
   SPACE_FILES_ORIGIN_CAPABILITY_TOKEN,
   toLegacySpaceAddressingWireValue,
@@ -1778,8 +1780,8 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return { ok: true, service: "openmeld-core" } as const;
   }
 
-  getModelCatalog(): GetModelCatalogResponse {
-    return readModelCatalog();
+  getModelCatalog(options?: ModelCatalogReadOptions): GetModelCatalogResponse {
+    return readModelCatalog(modelCatalogReadOptionsSchema.parse(options ?? {}));
   }
 
   readChangelog(input: ReadChangelogInput): Promise<ChangelogQueryResponse> {

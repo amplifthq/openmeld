@@ -78,15 +78,20 @@ becomes a first-class, user-selectable property of an Agent Profile.
    is explicitly cataloged. Cursor ACP's `default[]` model is one such ID; it is
    shown as **Auto** and is not silently substituted for another selection.
 4. **Runtime default per agent controller**, maintained through `defaultModelId`,
-   remains the unset-profile/runtime fallback. Optional `creationDefaults`
+   remains the unset-profile default, never an explicit-selection fallback. Optional `creationDefaults`
    independently selects the model and reasoning proposed at first creation;
    without it, creation uses `defaultModelId` with model-default reasoning.
    Interactive selectors present the runtime default model once as
    `<model> (default)` rather than adding a second abstract controller-default
    option. Choosing an independent reasoning effort materializes the concrete
    model ID because reasoning validity is model-specific.
-5. **Single availability flag.** A catalog model is either usable or
-   `unavailable`. No separate deprecated/retired states.
+5. **Reviewed availability, never a shutdown clock.** The existing global
+   `unavailable` flag remains. Optional `retirement` records an `announced`
+   notice or a separately confirmed `withdrawn` decision, with exact controller,
+   provider/sign-in scope, date meaning, HTTPS source and verification time.
+   Announced dates are advisory even after they pass. Only a reviewed withdrawal
+   with matching execution evidence blocks use. Keep old model identity and
+   explicit selections; never silently replace them with the default.
 6. **No computed "latest" concept.** The optional catalog-owned `badgeLabel`
    is reviewed presentation metadata, such as `New`, and appears beside local
    model options and the selected value. It does not change defaults, ordering,
@@ -339,6 +344,81 @@ Reviewed bot proposals follow the same maintenance workflow above. A catalog-onl
 change selects Core; a proposal that also changes the offline snapshot, a schema
 reader, or a controller adapter selects the corresponding additional components.
 
+### Practical retirement and recovery
+
+The existing Action's retirement recheck section includes all currently cataloged
+models, independent of the new-model discovery cutoff. It preserves reviewed
+notices and extracts relevant official passages. A reviewer records **stopped,
+postponed, or unconfirmed** in the PR before changing authored policy. Missing
+inventory, generic 404s, failed collection and `not_before` dates are never proof
+of withdrawal. Coverage gaps remain explicit; the collector cannot claim to
+monitor unconfigured controllers. Automatic publication remains additions-only.
+
+The initial reviewed cases are Codex `gpt-5.4` and `gpt-5.4-mini` (withdrawn from
+ChatGPT sign-in on 2026-08-31), and `gpt-5.5` (announced for 2026-10-14). The
+[official source](https://learn.chatgpt.com/docs/models#deprecated-codex-models)
+was rechecked on 2026-09-23. These notices do not disable API-key access or
+same-name models in other controllers. The default model is unchanged.
+
+Core composes applicable confirmed model unavailability into existing Wakeability
+and dispatch admission. It does not rewrite Profile status, Binding selection,
+manual disabling, history or an in-flight outcome. Fresh identity-matched account
+reports establish sign-in scope; unknown scope is not proof of retirement. The
+local route guard rejects explicit selections marked globally unavailable or
+withdrawn for the entire controller, and supplies no fallback model. Route
+construction has installation settings, not fresh sign-in/provider evidence;
+it does not independently enforce account-scoped withdrawal. Do not infer that
+scope from a controller name, launch configuration, or old account snapshot.
+A registered route is not Wake admission: Core remains the scoped decision
+owner. Unset native Codex resumes remain native; OpenMeld does not guess
+that thread's effective model. Provider failures on that path still receive
+recovery guidance, not a fabricated global retirement verdict.
+
+Model settings show the notice and retain an unavailable current selection.
+Wake failures and Agent recovery actions open that exact Profile. The model card
+is labeled **Change model** when a relevant notice exists. A viewer known not to
+manage the Agent is told to ask its owner. Codex's captured model-not-found and
+ChatGPT-account-unsupported responses map conservatively to `model.unavailable`;
+they do not establish retirement or persist a global provider/account blocker.
+
+Normal accepted controller reports, successful user model edits, and explicit
+unbinding reconcile one source-owned Inbox issue per affected Profile/model
+episode. Owner-only source facts name both `agentProfileIds` and the exact
+`personalAgentProfileIds`; normal Inbox access checks still verify current
+personal ownership and Organization before listing or counting an item. It is
+ordinary Needs action, not urgent email. Projection uses the current Binding rather than
+an old report's model, deduplicates refreshes, and resolves only the relevant
+model issue after a change. Unknown same-model account evidence retains the
+issue. A successful authoritative read that finds no enabled Binding clears the
+model issue; a failed read or unverified owner does not. Unbind reconciles while
+holding target-mutation admission, including no-op retries after an earlier
+projection failure. Read state and historical rows stay intact; no old work is
+resumed.
+Unscoped legacy Profiles retain inline recovery but do not gain a guessed
+Organization Inbox destination. Offline Profiles are reconciled when their normal
+account report returns; this is not an immediate global notification sweep.
+
+#### Retirement contract rollout
+
+New clients request `GET /v1/config/model-catalog?retirement=1`; legacy requests
+receive the unchanged strict version-1 shape with retirement omitted. Core RPC
+accepts the equivalent optional read preference. New clients tolerate an old
+server returning the legacy projection. `creationDefaults` remains private.
+New `model.retired` / `model.unavailable` routing reasons and short recovery copy
+are shared schema/runtime contracts, not a new public availability enum. Deploy
+accepting Core/Gateway readers before publishing the updated local Service/CLI;
+Web readers may precede Core because the added metadata is optional. Older local
+components retain their previous fallback/error behavior; this PR must not be
+described as a pure catalog-only rollout or protection for all offline clients.
+Core admission can block a known explicit selection with reliable legacy account
+evidence, but missing evidence still does not authorize a guessed block.
+
+No database migration, dispatch payload, permission contract, Service lifecycle
+or automatic update policy changes. Local component changes need the normal
+release manifest stamp and release-ready validation before publishing; production
+smoke and release are separate from this Draft PR. No policy depends on a local
+clock reaching the advisory date.
+
 ### 5.4 Claude Opus 5 vendor verification
 
 The 2026-07-30 catalog update follows the official Claude Code contract:
@@ -545,7 +625,7 @@ The same complete free-provider inventory no longer contains the former
 default `opencode/mimo-v2.5-free`, and a direct invocation returns
 `ProviderModelNotFoundError`. The default therefore moves to the successfully
 invoked free successor `opencode/mimo-v2.6-flash-free`. The old entry is marked
-unavailable so existing explicit selections use the documented runtime fallback;
+unavailable. Existing explicit selections now require a user model change;
 stored Bindings and preferences are not rewritten. Public discovery also lists
 `opencode/deepseek-v4.1-flash`, but the observed free-provider inventory does
 not expose it. That additional route is not authored from marketplace data;
@@ -612,8 +692,8 @@ reasoning only under a model) and exports pure functions and view-model types:
 - `resolveSelectableModels(catalog, agentControllerId)` → list of
   `{ id, displayName, isDefault, isUnavailable }`.
 - `resolveEffectiveModel(profileSelection, catalog)` → the model that will
-  actually be used (late-binds an unset/`unavailable` selection to the
-  controller default).
+  actually be used (uses the controller default only for unset new sessions;
+  unavailable explicit selections return a rejection, not another model).
 - `resolveSupportedReasoningLevels(catalog, agentControllerId, modelId)` → the
   reasoning options menu (empty when the vendor has no per-call control).
 - `validateSelection(selection, catalog)` → advisory issues for client guidance;
@@ -787,9 +867,9 @@ delivery and preserves the previous behavior during rollout.
 
 | | Pass model | Pass reasoning | Fallback | Error classification |
 |---|---|---|---|---|
-| **Claude Code** ([Claude Agent SDK transport](../../runtime/adapters/claude-code/src/transport/claude-agent-sdk-transport.ts), legacy argv in [buildClaudeArgs](../../runtime/adapters/claude-code/src/transport/claude-cli-transport.ts)) | `model` SDK option / `--model <pinned id>` | `effort` SDK option / `--effort <level>` | `fallbackModel` SDK option / `--fallback-model <controller default>` (native) | Classifies invalid/retired models as `config.invalid`, temporary availability separately, and a signal-terminated CLI process as `provider.process_terminated` |
-| **Codex** ([CLI transport](../../runtime/adapters/codex/src/transport/codex-cli-transport.ts), [App Server transport](../../runtime/adapters/codex/src/transport/codex-app-server-transport.ts)) | Explicit Binding selection: CLI `-m <pinned id>` (also on `exec resume`); App Server `thread/resume.model` and `turn/start.model`. New conversation with no selection: catalog default. Existing thread with no selection: omit the override. | Explicit Binding selection: CLI `-c model_reasoning_effort=<level>`; App Server `turn/start.effort`. Existing thread with no selection: omit the override. | resolve explicit `unavailable` → default before dispatch | Already classifies bad model → `config.invalid` |
-| **OpenCode** ([buildOpenCodeArgs](../../runtime/adapters/opencode/src/transport/opencode-cli-transport.ts)) | `--model <provider/model>` | `--variant <level>` where the level comes from OpenCode model variants | resolve `unavailable` → default before dispatch | Use OpenCode provider error classification; provider/model errors must stay visible |
+| **Claude Code** ([Claude Agent SDK transport](../../runtime/adapters/claude-code/src/transport/claude-agent-sdk-transport.ts), legacy argv in [buildClaudeArgs](../../runtime/adapters/claude-code/src/transport/claude-cli-transport.ts)) | `model` SDK option / `--model <pinned id>` | `effort` SDK option / `--effort <level>` | No alternative fallback is passed for explicit user selections | Classifies invalid/retired models as `config.invalid`, temporary availability separately, and a signal-terminated CLI process as `provider.process_terminated` |
+| **Codex** ([CLI transport](../../runtime/adapters/codex/src/transport/codex-cli-transport.ts), [App Server transport](../../runtime/adapters/codex/src/transport/codex-app-server-transport.ts)) | Explicit Binding selection: CLI `-m <pinned id>` (also on `exec resume`); App Server `thread/resume.model` and `turn/start.model`. New conversation with no selection: catalog default. Existing thread with no selection: omit the override. | Explicit Binding selection: CLI `-c model_reasoning_effort=<level>`; App Server `turn/start.effort`. Existing thread with no selection: omit the override. | Reject explicit unavailable selection before dispatch, without substitution | Captured model-access failures use `model.unavailable`; they are not global retirement proof |
+| **OpenCode** ([buildOpenCodeArgs](../../runtime/adapters/opencode/src/transport/opencode-cli-transport.ts)) | `--model <provider/model>` | `--variant <level>` where the level comes from OpenCode model variants | Reject explicit unavailable selection before dispatch | Use OpenCode provider error classification; provider/model errors must stay visible |
 | **Cursor** ([Cursor ACP transport](../../runtime/adapters/cursor/src/transport/cursor-acp-transport.ts)) | `session/set_config_option` with `configId: "model"`, `type: "id"`, and the exact model ID returned in the session's model config option; fall back to legacy `session/set_model` only when ACP explicitly reports that the standard method is unavailable | Not exposed independently by Cursor ACP; reasoning-bearing variants remain part of the exact model ID | Catalog defaults to Cursor's `default[]` (**Auto**); the adapter validates the requested ID against one complete session inventory | Reject a complete inventory that excludes the requested ID as `model.unavailable`; classify a still-missing or conflicting inventory as `model.inventory_unavailable`; reject independent reasoning as `model.reasoning_unsupported` |
 | **Grok Build** ([Grok ACP transport](../../runtime/adapters/grok-build/src/transport/grok-build-acp-transport.ts)) | ACP session model selection using the exact model ID advertised by the authenticated account | ACP effort selection using an effort advertised for that exact live model | No adapter-side substitute after live negotiation; an unavailable explicit model or effort fails before `session/prompt` | Reject incomplete or conflicting live inventory as `model.inventory_unavailable`, a missing requested model as `model.unavailable`, and an unsupported effort as `model.reasoning_unsupported` |
 
@@ -821,23 +901,17 @@ an optional `unselectedModelCommandTemplate`. Codex uses the latter when the
 Binding has no explicit model selection, so its copy-paste resume hint preserves
 the thread-owned model instead of injecting the current catalog default.
 
-### 8.2 Resilience — one mechanism, three problems
+### 8.2 Resilience — preserve the selected model
 
-A single fallback path covers pinned-ID retirement, CLI-version-floor misses,
-and multi-device divergence:
+Reviewed unavailability rejects explicit intent before dispatch; a provider
+model-access failure stays visible with the appropriate recovery action. Neither
+case authorizes a different model or automatic rerun. The maintained controller
+default applies only where the unset/new-session contract calls for it. A native
+Codex resume without explicit intent keeps its thread-owned model.
 
-- **Proactive:** when the catalog marks a model `unavailable`, the effective
-  model late-binds to the controller default before dispatch.
-- **Reactive:** Claude uses native `--fallback-model`; Codex relies on the
-  proactive path plus its `config.invalid` classifier (an optional single retry
-  to the controller default is a possible fast-follow).
-- The controller default is the last line of defense and must always be a valid,
-  maintained ID.
-- Runtime fallback is only the final defense against catalog-version drift or a
-  previously stored selection becoming unavailable. It must not silently accept
-  a catalog-invalid explicit Binding write.
-- A model failure is a **dispatch-level outcome**, never a service-down signal;
-  it must not affect liveness or reap a lease.
+A model failure is a **dispatch-level outcome**, never a service-down signal;
+it must not affect liveness or reap a lease. Model compatibility and account
+scope remain distinct: unknown evidence is not proof of retirement.
 
 ### 8.3 Create / maintain profile UX
 

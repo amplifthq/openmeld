@@ -135,6 +135,7 @@ describe("Runtime Agent Controller reporting submission", () => {
       email: "felix@example.com",
       label: "Felix's ChatGPT account",
       status: "authenticated",
+      type: "chatgpt",
     },
     agentControllerRef: "builtin:codex",
     capabilities: {

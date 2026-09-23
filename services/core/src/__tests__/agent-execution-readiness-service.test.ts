@@ -30,6 +30,9 @@ import {
   readPrimaryAgentProfileBindingRecord,
   readPrimaryAgentProfileBindingRecordByControllerConversation,
 } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { resolveCurrentAgentModelAvailability } from "../config/agent-model-availability";
+// biome-ignore lint/performance/noNamespaceImport: Spy on the reviewed catalog, not execution policy.
+import * as modelCatalogSource from "../config/model-catalog";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as daemonTransportClient from "../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import {
@@ -1715,6 +1718,142 @@ describe("Core Agent Execution Readiness", () => {
     expect(listOwnedDeviceExecutionTargetRecords).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["announced", "chatgpt", false],
+    ["withdrawn", "chatgpt", true],
+    ["withdrawn", "apiKey", false],
+    ["withdrawn", undefined, false],
+  ] as const)("uses reviewed %s scope for %s at canonical Wake admission", async (status, authType, blocked) => {
+    const catalog = modelCatalogSource.readAuthoredModelCatalog();
+    const model = catalog.agentControllers.codex?.models.find(
+      (entry) => entry.id === "gpt-5.4"
+    );
+    if (!model) {
+      throw new Error("Fixture needs GPT-5.4");
+    }
+    model.retirement = {
+      status,
+      date: { value: "2000-01-01", kind: "on" },
+      scope: { controllerRef: "builtin:codex", authType: "chatgpt" },
+      sourceUrl: "https://example.com/official-notice",
+      verifiedAt: GENERATED_AT,
+    };
+    vi.spyOn(modelCatalogSource, "readAuthoredModelCatalog").mockReturnValue(
+      catalog
+    );
+    mockReadyBindingAndRuntime(
+      "agt_retirement",
+      "builtin:codex",
+      "existing-thread",
+      model.id
+    );
+    mockOnlineRoute("device-1");
+    const report = createRuntimeReportWithUsage(
+      createUsageLimit({ status: "available", usedPercent: 42 })
+    );
+    vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValueOnce([
+      {
+        ...report,
+        agentControllerInterface: {
+          ...report.agentControllerInterface,
+          auth: {
+            status: "authenticated",
+            ...(authType ? { type: authType } : {}),
+          },
+        },
+      },
+    ]);
+    const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+      env: createCoreEnv({
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: true,
+          profile: createActiveAgentProfile({
+            profileId: "agt_retirement",
+            profileName: "Research",
+          }),
+        }),
+      }),
+      generatedAt: GENERATED_AT,
+      profileId: "agt_retirement",
+    });
+    const reason = resolveAgentWakeAdmissionBlockReasonCode(
+      readiness.agentExecutionReadiness
+    );
+    if (blocked) {
+      expect(reason).toBe("model.retired");
+      expect(
+        resolveAgentWakeAvailability({
+          agentControllerRef: readiness.agentControllerRef,
+          agentWakeRouteRegistration: readiness.agentWakeRouteRegistration,
+          readiness: readiness.agentExecutionReadiness,
+          wakeRouteStatus: readiness.wakeRouteStatus,
+        })
+      ).toMatchObject({
+        status: "unavailable_for_wake",
+        reasonCode: "model.retired",
+      });
+    } else {
+      expect(reason).toBeNull();
+      expect(readiness.agentExecutionReadiness.reasonCodes).not.toContain(
+        "model.retired"
+      );
+    }
+  });
+
+  it("does not apply withdrawal using stale or another runtime's account evidence", () => {
+    const catalog = modelCatalogSource.readAuthoredModelCatalog();
+    const model = catalog.agentControllers.codex?.models.find(
+      (entry) => entry.id === "gpt-5.4"
+    );
+    if (!model) {
+      throw new Error("Fixture needs GPT-5.4");
+    }
+    model.retirement = {
+      status: "withdrawn",
+      date: null,
+      scope: { controllerRef: "builtin:codex", authType: "chatgpt" },
+      sourceUrl: "https://example.com/official-notice",
+      verifiedAt: GENERATED_AT,
+    };
+    const report = createRuntimeReportWithUsage(
+      createUsageLimit({ status: "available", usedPercent: 42 })
+    );
+    const currentReport = {
+      ...report,
+      agentControllerInterface: {
+        ...report.agentControllerInterface,
+        auth: { status: "authenticated" as const, type: "chatgpt" },
+      },
+    };
+    const input = {
+      catalog,
+      currentReport,
+      modelId: model.id,
+      agentControllerRef: "builtin:codex",
+      openMeldServiceRuntimeId: "runtime-1",
+      nowMs: GENERATED_AT_MS,
+    };
+    expect(resolveCurrentAgentModelAvailability(input)).toMatchObject({
+      available: false,
+      reasonCode: "model.retired",
+    });
+    expect(
+      resolveCurrentAgentModelAvailability({
+        ...input,
+        openMeldServiceRuntimeId: "other-runtime",
+      })
+    ).toEqual({ available: true });
+    expect(
+      resolveCurrentAgentModelAvailability({
+        ...input,
+        nowMs: report.expiresAtMs,
+      })
+    ).toEqual({ available: true });
+    expect(
+      resolveCurrentAgentModelAvailability({ ...input, modelId: null })
+    ).toEqual({ available: true });
+  });
+
   it("projects fresh exhausted Usage as unavailable Wakeability before a Wake", async () => {
     mockReadyBindingAndRuntime("agt_usage_exhausted", "builtin:codex");
     mockOnlineRoute("device-1");
@@ -1895,11 +2034,19 @@ describe("Core Agent Execution Readiness", () => {
   });
 
   it("checks only the provider selected by an OpenCode binding", async () => {
+    const model = modelCatalogSource
+      .readAuthoredModelCatalog()
+      .agentControllers.opencode?.models.find(
+        (entry) => entry.id.startsWith("opencode-go/") && !entry.unavailable
+      );
+    if (!model) {
+      throw new Error("Fixture requires a cataloged OpenCode Go model");
+    }
     mockReadyBindingAndRuntime(
       "agt_opencode_provider_usage",
       "builtin:opencode",
       undefined,
-      "opencode-go/qwen3-coder"
+      model.id
     );
     mockOnlineRoute("device-1");
     const selectedProviderLimit = {
@@ -2494,7 +2641,7 @@ function mockReadyBindingAndRuntime(
     },
     reasonCode: null,
     openMeldServiceRuntimeId: "runtime-1",
-    ...(modelId ? { modelSelection: { modelId } } : {}),
+    ...(modelId ? { modelId } : {}),
     updatedAtMs: 1,
   });
   vi.mocked(readRuntimeRegistryRecordByRuntimeId).mockResolvedValue({

@@ -9,6 +9,8 @@ import {
 	buildProfileHomeRoutes,
 } from "#/lib/profile-routes";
 
+import { AgentModelRecoveryAction } from "./agent-model-recovery-action";
+
 export type SpaceAgentProfileBindingRecoveryPlan = Extract<
 	AgentProfileReplyRecoveryPlan,
 	{
@@ -40,6 +42,15 @@ export function SpaceAgentRecoveryActionControl(input: {
 
 	if (plan.kind === "none") {
 		return null;
+	}
+	if (plan.primaryActionId === "change_model") {
+		return (
+			<AgentModelRecoveryAction
+				className={input.className}
+				orgSlug={orgSlug}
+				profileId={plan.profileId}
+			/>
+		);
 	}
 	if (plan.primaryActionId === "manage_cursor_plan") {
 		return (

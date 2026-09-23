@@ -81,6 +81,14 @@ export type AgentWakeAdmissionTerminalDecision = {
 const exactWakeAdmissionTerminalDecisions: Readonly<
   Record<string, Omit<AgentWakeAdmissionTerminalDecision, "reasonCode">>
 > = {
+  "model.retired": {
+    publicationCategory: "agent_profile_unavailable",
+    userRecoveryAction: "review_agent_settings",
+  },
+  "model.unavailable": {
+    publicationCategory: "agent_profile_unavailable",
+    userRecoveryAction: "review_agent_settings",
+  },
   "agent_profile_binding.missing": {
     publicationCategory: "binding_required",
     userRecoveryAction: "set_up_agent_binding",
@@ -1047,6 +1055,26 @@ function createUnavailableWakeAvailability(
     );
   }
 
+  const modelReason = pickKnownReasonCode(readiness, [
+    "model.retired",
+    "model.unavailable",
+  ]);
+  if (modelReason) {
+    return createAvailability(
+      readiness,
+      {
+        ...unavailableWakeAvailabilityFallbackCopy,
+        category: "unavailable",
+        isRefreshing: false,
+        label: "Model unavailable",
+        phase: "provider_blocked",
+        reasonCode: modelReason,
+        status: "unavailable_for_wake",
+      },
+      { copyReasonCode: modelReason }
+    );
+  }
+
   if (hasReasonCode(readiness, "usage_exhausted")) {
     return createAvailability(readiness, {
       ...unavailableWakeAvailabilityFallbackCopy,
@@ -1435,6 +1463,10 @@ function isPublicOfflineReasonCode(reasonCode: string): boolean {
 // service, and account facts (developing/architecture owner docs - evidence
 // sync health is owner-only diagnostics, not public availability).
 function isPublicUnavailableReasonCode(reasonCode: string): boolean {
+  if (reasonCode === "model.retired" || reasonCode === "model.unavailable") {
+    return true;
+  }
+
   if (reasonCode === "controller.interface.check_failed") {
     return false;
   }

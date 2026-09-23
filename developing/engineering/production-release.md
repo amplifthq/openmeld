@@ -904,10 +904,9 @@ OPENMELD_PRODUCTION_TRAIN_SCOPES=core pnpm run release:preflight:local -- --scop
 Every preflight checks the cheap repository release contracts. Core additionally
 fails closed unless the production CLI channel can satisfy the local-component
 version it will project. The CLI publisher still owns the mandatory final
-release-readiness gate before irreversible publication; an earlier aggregate
-`release:preflight` result is diagnostic evidence and does not discharge that
-gate. Database generation, migration truth, remote application, physical
-verification, and optimization remain owned by `db:release:prod` itself.
+release-readiness gate before irreversible publication. Database generation,
+migration truth, remote application, physical verification, and optimization
+remain owned by `db:release:prod` itself.
 
 Whole-train preflight reads every component baseline and proves that all
 pending scopes satisfy their actual receiver/producer compatibility dependencies
@@ -1303,9 +1302,8 @@ The command requires a clean worktree and runs exactly this sequence:
 
 Local release operators may authenticate Wrangler with its supported OAuth
 login. Automated release lanes provide `CLOUDFLARE_ACCOUNT_ID` and
-`CLOUDFLARE_API_TOKEN` instead. The release preflight verifies the active
-Wrangler authentication and then proves access to the configured production D1
-target with the read-only remote migration list. It does not require local
+`CLOUDFLARE_API_TOKEN` instead. `db:release:prod` proves access to the configured
+production D1 target with the read-only remote migration list. It does not require local
 schema generation or `db:check` to use production Drizzle HTTP credentials.
 
 Database release is selected only when committed schema or migration truth
@@ -1331,8 +1329,7 @@ Read `developing/engineering/cli-binary-release.md` for artifact and Apple
 credential details.
 
 Before publication, set `OPENMELD_PRODUCTION_TRAIN_SCOPES` to the complete
-intended train (`cli` for an independent CLI publication), run
-`pnpm run release:preflight`, then inspect the
+intended train (`cli` for an independent CLI publication), then inspect the
 base-aware local-component plan:
 
 ```sh
@@ -1398,10 +1395,11 @@ For GitHub, use `.github/workflows/cli-release.yml`:
 
 1. for a normal CLI publication, run `release_path=normal` directly;
 2. the workflow runs the `release_ready` gate before publication;
-3. use `release:verify:local -- --scope cli` for an earlier complete go/no-go
-   decision or handoff;
-4. use `Scoped Production Release` separately when the release card also
+3. use `Scoped Production Release` separately when the release card also
    requires database or cloud fleet changes.
+
+Use `release:verify:local -- --scope cli` only when an earlier full go/no-go
+decision or handoff is needed; it is not a default extra gate.
 
 The workflow publishes the signed and notarized binary, R2 manifest, npm
 package, tag, and Core projection. It does not migrate the database or redeploy
