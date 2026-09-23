@@ -470,8 +470,10 @@ describe("remote agent system prompt", () => {
       "GitHub is not included in openmeld_list_connected_apps"
     );
     expect(prompt).toContain(
-      "when that matching GitHub tool is not exposed directly, call it through Code Mode"
+      "Call through Code Mode when an entry is not exposed directly"
     );
+    expect(prompt).toContain("github_list_actions/github_execute_action");
+    expect(prompt).toContain("neither may silently fall back to the other");
     expect(prompt).toContain(
       "when the tool needed to complete the request is not exposed directly"
     );

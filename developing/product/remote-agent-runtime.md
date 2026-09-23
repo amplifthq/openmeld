@@ -2347,6 +2347,27 @@ text, arbitrary input keys, or model-provided target values as permission.
 GitHub remains on its dedicated tools and is never routed through the generic
 executor.
 
+`github_list_actions` and `github_execute_action` complement the existing named
+GitHub tools. They use the same executable OpenConnector runtime catalog and
+schema projection as App discovery, while retaining explicit Organization or
+requester selection with no fallback. The GitHub catalog defaults to 25 entries
+and returns a real continuation offset. A current executable action, such as
+`github.get_workflow_job_logs`, needs no new business-specific wrapper; a missing
+or catalog-only action is not emulated. Scopes in discovery are requirements,
+not proof of repository access. Runtime execution returns exact provider data
+and its execution-owned output schema, under the shared bounded-result boundary;
+named segmented file/search tools remain available for their bounded projections.
+No omitted provider log prefix or harness excerpt is advertised as retrievable.
+
+The catalog executor shares the existing GitHub operation identity, claim,
+provider idempotency key, destructive preview, and result recovery path. Current
+catalog effects govern new operations and restricted-context calls; known GitHub
+delete/merge protection cannot be downgraded by metadata. Read-only connections,
+member research, unlinked Message Channel identity, and Routine restrictions
+remain enforced. Verified ordinary retries use the frozen operation and output
+schema without requiring today's catalog or selecting another connection.
+These contracts apply to direct tools and Code Mode, not a required task plan.
+
 Before every new action operation that is eligible to run, Remote Agent asks
 Core to resolve an active connection inside the turn Organization. A Routine
 destructive action is rejected before operation lookup. An exact eligible retry
