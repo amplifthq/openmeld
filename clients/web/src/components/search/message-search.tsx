@@ -1,6 +1,10 @@
 "use client";
 
 import {
+	OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
+	OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+} from "@openmeld/gateway-contract";
+import {
 	type MessageSearchResponse,
 	messageSearchResponseSchema,
 	sanitizeSignalTextPreview,
@@ -12,12 +16,19 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
+import {
+	FluidActionList,
+	FluidActionListItem,
+} from "@openmeld/ui/fluid/action-list";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
-import { MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { cn } from "@openmeld/ui/lib/utils";
+import { MagnifyingGlassIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { AppEmptyState } from "#/components/app/app-empty-state";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import {
 	useAppOrganization,
@@ -41,12 +52,26 @@ export function MessageSearchButton(input: {
 	if (!organization) {
 		return null;
 	}
+	const label = input.scope === "inbox" ? "Search Inbox" : "Search messages";
 	return (
 		<>
-			<Button onClick={() => setOpen(true)} size="sm" variant="secondary">
-				<MagnifyingGlassIcon />
-				{input.scope === "inbox" ? "Search Inbox" : "Search messages"}
-			</Button>
+			{input.spaceId ? (
+				<TooltipHint content={label}>
+					<Button
+						aria-label={label}
+						onClick={() => setOpen(true)}
+						size="icon-sm"
+						variant="ghost"
+					>
+						<MagnifyingGlassIcon />
+					</Button>
+				</TooltipHint>
+			) : (
+				<Button onClick={() => setOpen(true)} size="sm" variant="secondary">
+					<MagnifyingGlassIcon />
+					{label}
+				</Button>
+			)}
 			<MessageSearchDialog {...input} onOpenChange={setOpen} open={open} />
 		</>
 	);
@@ -99,16 +124,17 @@ export function useMessageSearch(input: {
 	const profileId = input.profileId ?? defaultHumanProfile?.openMeldProfileId;
 	const { isComposing } = input;
 	const searchText = input.draft.trim();
+	const minimumQueryLength = input.spaceId ? 1 : 3;
 	const [settledQuery, setSettledQuery] = useState("");
 	const query = !isComposing && settledQuery === searchText ? settledQuery : "";
 	useEffect(() => {
 		setSettledQuery("");
-		if (isComposing || [...searchText].length < 3) {
+		if (isComposing || [...searchText].length < minimumQueryLength) {
 			return;
 		}
 		const timer = setTimeout(() => setSettledQuery(searchText), 300);
 		return () => clearTimeout(timer);
-	}, [searchText, isComposing]);
+	}, [searchText, isComposing, minimumQueryLength]);
 	const results = useInfiniteQuery({
 		queryKey: [
 			"message-search",
@@ -119,7 +145,7 @@ export function useMessageSearch(input: {
 			input.scope,
 			query,
 		],
-		enabled: Boolean([...query].length >= 3 && profileId),
+		enabled: Boolean([...query].length >= minimumQueryLength && profileId),
 		initialPageParam: undefined as string | undefined,
 		queryFn: ({ pageParam, signal }) => {
 			const params = new URLSearchParams({
@@ -138,6 +164,10 @@ export function useMessageSearch(input: {
 			}).requestJson({
 				url: `/v1/messages/search?${params}`,
 				operation: "messages.search",
+				headers: {
+					[OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION]:
+						OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+				},
 				signal,
 				schema: messageSearchResponseSchema,
 				invalidMessage: "Message search is unavailable. Refresh and try again.",
@@ -174,7 +204,7 @@ export function useMessageSearch(input: {
 	// One search spans several requests; gaps between pages are not completion.
 	const searching = Boolean(
 		!isComposing &&
-			[...searchText].length >= 3 &&
+			[...searchText].length >= minimumQueryLength &&
 			!isError &&
 			(!query || results.isPending || isFetching || continueAutomatically)
 	);
@@ -192,6 +222,7 @@ export function useMessageSearch(input: {
 		query,
 		searchText,
 		resultCount,
+		minimumQueryLength,
 		profileId,
 		currentOrganization,
 	};
@@ -215,9 +246,21 @@ function MessageSearchContents(input: {
 		query,
 		searchText,
 		resultCount,
+		minimumQueryLength,
 		profileId,
 		currentOrganization,
 	} = useMessageSearch({ ...input, draft, isComposing });
+	const showInitialState = Boolean(input.spaceId && !searchText);
+	const showNoResults = Boolean(
+		query &&
+			!searching &&
+			!results.isError &&
+			!results.hasNextPage &&
+			resultCount === 0
+	);
+	const showFullErrorState = results.isError && resultCount === 0;
+	const showCenteredState =
+		showInitialState || showNoResults || showFullErrorState;
 	return (
 		<>
 			<Input
@@ -237,70 +280,131 @@ function MessageSearchContents(input: {
 				value={draft}
 			/>
 			<ScrollArea
-				className="min-h-32 flex-1"
+				className={cn(
+					"min-h-32 flex-1 rounded-md",
+					showCenteredState &&
+						"border border-border/70 border-dashed bg-card/25"
+				)}
+				contentClassName={showCenteredState ? "h-full" : undefined}
+				scrollFade
 				viewportProps={{ "aria-label": "Message search results" }}
 			>
-				<div className="space-y-2 py-2">
-					{activities.map((item) => (
-						<Link
-							className="block rounded-md border p-3 hover:bg-accent focus-visible:outline-2"
-							key={item.id}
-							onClick={() => input.onOpenChange(false)}
-							to={inboxSearchHref(currentOrganization.slug, item.id)}
+				<div
+					className={cn(
+						"space-y-2 p-2",
+						showCenteredState && "flex h-full flex-col justify-center space-y-0"
+					)}
+				>
+					{showInitialState && (
+						<AppEmptyState
+							className="h-full min-h-0 border-0 bg-transparent"
+							description="Results will appear here."
+							icon={<MagnifyingGlassIcon />}
+							title="Start typing to search"
+						/>
+					)}
+					{resultCount > 0 && (
+						<FluidActionList
+							aria-label="Search results"
+							className="gap-1"
+							hoverIndicatorClassName="rounded-md bg-interaction-hover"
 						>
-							<p className="font-medium text-sm">{item.title}</p>
-							<p className="line-clamp-3 text-muted-foreground text-sm">
-								{item.preview}
-							</p>
-						</Link>
-					))}
-					{matches.map((match) => (
-						<Link
-							className="block rounded-md border p-3 hover:bg-accent focus-visible:outline-2"
-							key={`${match.signal.spaceId}:${match.signal.id}`}
-							onClick={() => input.onOpenChange(false)}
-							to={messageSearchHref(match, currentOrganization.slug, profileId)}
-						>
-							<p className="truncate font-medium text-sm">
-								{match.spaceName ?? "Conversation"}
-							</p>
-							<p className="line-clamp-3 text-sm">
-								{sanitizeSignalTextPreview(match.signal.data.text) ?? "Message"}
-							</p>
-							<p className="mt-1 text-muted-foreground text-xs">
-								{match.signal.profile.profileName} ·{" "}
-								{new Date(match.signal.ts).toLocaleString()}
-							</p>
-						</Link>
-					))}
+							{activities.map((item, index) => (
+								<FluidActionListItem
+									className="block w-full rounded-md p-3 text-left"
+									index={index}
+									key={item.id}
+									onClick={() => input.onOpenChange(false)}
+									render={
+										<Link
+											to={inboxSearchHref(currentOrganization.slug, item.id)}
+										/>
+									}
+								>
+									<p className="font-medium text-sm">{item.title}</p>
+									<p className="line-clamp-3 text-muted-foreground text-sm">
+										{item.preview}
+									</p>
+								</FluidActionListItem>
+							))}
+							{matches.map((match, index) => (
+								<FluidActionListItem
+									className="block w-full rounded-md p-3 text-left"
+									index={activities.length + index}
+									key={`${match.signal.spaceId}:${match.signal.id}`}
+									onClick={() => input.onOpenChange(false)}
+									render={
+										<Link
+											to={messageSearchHref(
+												match,
+												currentOrganization.slug,
+												profileId
+											)}
+										/>
+									}
+								>
+									<p className="truncate font-medium text-sm">
+										{match.spaceName ?? "Conversation"}
+									</p>
+									<p className="line-clamp-3 text-sm">
+										{sanitizeSignalTextPreview(match.signal.data.text) ??
+											"Message"}
+									</p>
+									<p className="mt-1 text-muted-foreground text-xs">
+										{match.signal.profile.profileName} ·{" "}
+										{new Date(match.signal.ts).toLocaleString()}
+									</p>
+								</FluidActionListItem>
+							))}
+						</FluidActionList>
+					)}
 					<div
 						aria-live="polite"
-						className="min-h-5 text-muted-foreground text-sm"
+						className={cn(
+							"text-muted-foreground text-sm",
+							showCenteredState ? "sr-only" : "min-h-5"
+						)}
 					>
-						{!isComposing &&
-							[...searchText].length < 3 &&
+						{!(input.spaceId || isComposing) &&
+							[...searchText].length < minimumQueryLength &&
 							"Use at least 3 characters."}
 						{searching && "Searching…"}
-						{query &&
-							!searching &&
-							!results.isError &&
-							!results.hasNextPage &&
-							resultCount === 0 &&
-							`No matches for “${query}”. Try another phrase.`}
 					</div>
+					{showNoResults && (
+						<AppEmptyState
+							className="h-full min-h-0 border-0 bg-transparent"
+							description="Try another search."
+							icon={<MagnifyingGlassIcon />}
+							title={`No messages found for “${query}”`}
+						/>
+					)}
 					{results.isError && (
-						<div role="alert">
-							<p className="text-sm">
-								Unable to finish searching. Your results may be incomplete.
-							</p>
-							<Button
-								className="mt-2"
-								onClick={() => results.refetch()}
-								size="sm"
-								variant="secondary"
-							>
-								Try again
-							</Button>
+						<div
+							className={showFullErrorState ? "h-full" : undefined}
+							role="alert"
+						>
+							<AppEmptyState
+								actions={
+									<Button
+										onClick={() => results.refetch()}
+										size="sm"
+										variant="secondary"
+									>
+										Try again
+									</Button>
+								}
+								className={cn(
+									"border-0 bg-transparent",
+									showFullErrorState ? "h-full min-h-0" : "min-h-48"
+								)}
+								description={
+									resultCount > 0
+										? "Some results may be missing."
+										: "Try again to search this conversation."
+								}
+								icon={<WarningCircleIcon />}
+								title="Unable to finish searching"
+							/>
 						</div>
 					)}
 				</div>

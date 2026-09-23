@@ -17,7 +17,7 @@ function BubbleGroup({ className, ...props }: ComponentProps<"div">) {
 }
 
 const bubbleVariants = cva(
-	"group/bubble relative flex w-full min-w-0 max-w-full flex-col gap-1 data-[align=end]:self-end group-data-[align=end]/message:self-end",
+	"group/bubble relative flex w-fit min-w-0 max-w-full flex-col gap-1 data-[align=end]:self-end group-data-[align=end]/message:self-end",
 	{
 		defaultVariants: {
 			variant: "space",

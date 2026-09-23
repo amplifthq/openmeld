@@ -472,6 +472,16 @@ logged, retained, or projected. Other connected OpenCode providers are
 Failure to read OpenCode Go usage produces provider-scoped `unavailable`
 evidence without failing the rest of the Computer inventory.
 
+Antigravity has native Usage support through its signed-in CLI. OpenMeld runs
+`agy --print /usage` as the background ACI probe and parses each reported
+weekly quota independently, preserving the provider label, remaining
+percentage, and reset time supplied by Antigravity. The adapter converts the
+reported remaining percentage into the shared used-percentage contract and
+marks an exact zero remaining as exhausted. Authentication failure becomes the
+existing signed-out ACI state; malformed, timed-out, or otherwise unreadable
+output becomes `unavailable` without failing another Local Agent. The probe
+does not create an OpenMeld Agent Profile, Binding, Wake, or conversation.
+
 Provider-access evidence is provider-neutral and carries its provider, stable
 reason code, observation time, and `wake_failure` source. The Service forwards
 it with the exact Agent Profile, Binding, device, runtime lane, OpenMeld Service
@@ -572,9 +582,47 @@ read does not record an action or finish the Wake. The configuration forwards th
 dispatch identity, and fails closed when the action context is absent, expired,
 or mismatched. Fresh and resumed controller conversations use the same tool
 boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, and OpenClaw use
-their controller-native tool extension point and the same dispatch-owned action
-writer. Controllers without a proven structured-tool surface continue to use
-the exact dispatch-scoped CLI fallback.
+their controller-native tool extension point and the same
+dispatch-owned action writer. Controllers without a proven structured-tool
+surface continue to use the exact dispatch-scoped CLI fallback.
+
+Antigravity CLI does not currently expose a proven per-invocation structured-
+tool configuration surface. During an action-enabled dispatch, the adapter
+therefore appends the dispatch publication contract to the invocation prompt,
+asking for one `reply`, `status`, or `silent` outcome through
+Antigravity's native JSON-schema output. The adapter validates that structured
+result and invokes the same dispatch-owned action writer directly without a
+shell. It grants the model no additional tool permission; all shell, file,
+network, and ambient MCP actions continue through Antigravity's normal
+permission policy. Publication requires no Skill read. Additional user-requested
+OpenMeld operations still use the official Skill under normal permissions.
+The prompt identifies the same working folder used to launch the CLI. The
+adapter must not add an auxiliary workspace for instruction delivery: an
+Antigravity conversation can retain that directory and resolve later file
+tasks there. It never writes Antigravity's user settings or the user's project
+customization files.
+
+Antigravity's Binding permission intent is passed to every new or resumed CLI
+invocation using its native mode/approval flags. This changes no Space action
+authorization and grants nothing beyond the owner's explicitly selected mode.
+The four `antigravity:*` permission values require an updated CLI/Service;
+older strict schemas reject those values. Both the CLI command contract and
+Service runtime epoch advance; the formal local-component release must mark
+both components required. Keep version stamps in that release PR.
+
+Use the existing receiver-first Core deployment when this change ships with a
+Service-to-Core addition such as workspace-recovery decline. Its immutable
+published-manifest override preserves the previous image-geometry epoch for
+old Services while also accepting the new Antigravity epoch. During this stage,
+Core rejects all new `antigravity:*` permission writes at Binding, creation
+request, and remembered-default boundaries. An omitted mode remains unchanged.
+Readiness diagnostics report the same effective epoch as runtime admission.
+After the new CLI/Service artifacts exist, the normal final Core projection
+enables those writers and requires the new epoch for new Wake work. Old Core
+does not accept the new Service epoch: the receiver deployment must precede
+Service publication. Never infer safety merely from the delayed version floor.
+Already accepted work keeps its existing lifecycle; unknown permission values
+must never silently fall back to another mode.
 
 OpenClaw Gateway does not expose a per-turn plugin-injection surface. During an
 action-enabled dispatch, the adapter therefore runs the same OpenClaw Session
@@ -1805,6 +1853,11 @@ Catalog consumption rules:
   during admission is persisted on a later read if the local principal still
   matches. A new Service process resolves its own startup principal. Remote
   authorization checks still decide whether the bearer session is valid.
+  During a same-account setup transition, a Service admitted for the candidate
+  login reads that exact candidate's credential snapshot. It must not replace
+  the candidate with the previous committed login just because both share an
+  account. The Execution Host independently verifies the same session identity;
+  commit and rollback remain owned by the existing auth transition journal.
 - One OpenMeld Service process reuses a verified credential for the same
   committed login, storage reference, lane, auth origin, client and account.
   Organization selection and display-only profile changes update context
@@ -2108,6 +2161,38 @@ of the macOS LaunchAgent session. Locking the screen does not mean logging out.
 Task registration is process supervision, not Service readiness: startup still
 requires the current Service lease, account/lane alignment, and Core connection.
 
+Both the main and maintenance tasks start a lane-owned Windows-subsystem host,
+not a console-subsystem PowerShell process. The host creates the existing system
+PowerShell action with `UseShellExecute=false` and `CreateNoWindow=true`, waits
+for it, and returns its exit code without detaching or breaking Task Scheduler
+process ownership. `-WindowStyle Hidden` and the task's `Hidden` setting are not
+substitutes for preventing a console at process creation. The existing encoded
+action remains the only command/environment configuration and retains its log;
+outer PowerShell/host failures are appended beside the host as `<host>.log`.
+
+The encoded Windows action has one canonical four-field contract: `executable`,
+`args`, `env`, and `logPath`. Its serializer projects and validates those fields
+rather than serializing a wider Service or maintenance registration spec.
+`workingDirectory` belongs to the Task Scheduler action, and `pendingJobPath`
+is maintenance registration metadata; neither is an encoded execution field.
+Readers narrowly accept the historical string-valued copies of these two fields
+from released writers, discard them, and return the canonical action. Unknown
+fields and malformed required or historical values still fail validation. This
+read compatibility permits status, ownership checks, and normal guarded repair
+of an existing task without deleting it or changing its user, permissions, or
+console-free host. The compatibility decoder does not create another execution
+configuration or make registration a claim of Service readiness.
+
+Guarded installation compiles fixed bundled C# source with Windows PowerShell
+5.1's .NET compiler into a temporary WindowsApplication and atomically installs
+it at `<lane legacy script>.task-host-v1.exe`. Main and maintenance tasks have
+separate hosts, so neither replaces the other's running image. Compilation or
+replacement failure stops installation without falling back to a visible
+console, changing security policy, or requiring elevation. Read-only status
+never compiles. An owned stopped legacy PowerShell task is upgraded through the
+same install path; running tasks must first drain/stop under existing lifecycle
+rules. No new account, password storage, WSH dependency, or scheduler is added.
+
 The Windows adapter retains the serialized `windows-service` controller identifier
 for supported local-state and wire readers; that identifier does not imply SCM.
 New installations do not register batch files as SCM executables. A legacy SCM
@@ -2310,7 +2395,12 @@ and the entry script; a v1 response from an older Windows CLI does not prove
 support. The old macOS v1 response is unchanged. A running carrier must also
 confirm the authenticated control capability. Existing Windows tasks must use
 the current SID's interactive token, ordinary privileges, and the expected
-single system-PowerShell action before any task mutation is permitted.
+single action before any task mutation is permitted. Its executable must be
+either system PowerShell (the supported legacy task) or this lane/task's exact
+`task-host-v1.exe` path. Other executables remain refused. Pre-host CLI versions
+cannot manage a migrated task and fail closed; use the matching newer CLI for
+setup, repair and control. Cloud, Service transport, Wake and diagnostic payloads
+are unchanged by this local launch-carrier change.
 
 ### Registration reconciliation
 
@@ -2343,10 +2433,10 @@ Wake work, even when the latest release itself is advisory. This keeps healthy
 supported Services eligible without allowing a later optional release to
 re-enable a known-broken Service or announcing an unavailable recovery target.
 
-The current monotonic floor is OpenMeld Service `0.3.153`. It is the first
-supported baseline that reports current working-folder facts and keeps reply
-observation owned by the accepted Wake, in addition to the existing startup
-recovery, managed-update, and active Permission/Wake behavior. Once the stable
+The current monotonic floor is OpenMeld Service `0.3.217`. It is the first
+supported baseline that refreshes Service admission after update or draining
+and carries the required Codex MCP startup behavior, in addition to the existing
+working-folder facts and dispatch-owned reply observation. Once the stable
 release manifest activates that floor, Core projects every connected older
 Service as `update_required` and blocks new Wake admission without terminating
 work already accepted by RuntimeCoordinator. The user-visible `requiredVersion`
@@ -2356,7 +2446,7 @@ Before the stable release manifest reaches the source floor, Core leaves that
 newer floor inactive rather than projecting `requiredVersion` above
 `latestVersion`. A later advisory release may raise that remediation target,
 but it must not lower or bypass an active compatibility floor. A Service already
-at `0.3.153` remains supported and receives only the advisory update policy of a
+at `0.3.217` remains supported and receives only the advisory update policy of a
 newer release.
 
 Wake Stop local control is an affected Service capability. A Core/Web deployment

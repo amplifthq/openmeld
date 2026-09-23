@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { cliBinaryCompressedReleaseSchema } from "../http/cli-binary-manifest.ts";
 import { productionReleaseScopeSchema } from "./production-scope-lease.ts";
 
 const workerIdentitySchema = z
@@ -100,8 +101,24 @@ export const productionWorkerDeploymentIdentitySchema = z.strictObject({
   versionId: z.string().min(1).max(200),
   sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
   projectionTag: z.string().min(1).max(200).optional(),
-  proof: z.enum(["command-output", "cli-projection"]),
+  proof: z.enum(["command-output", "cli-projection", "reconciled-hosted"]),
 });
+
+export const productionCliReleaseIdentitySchema = z.strictObject({
+  kind: z.literal("cli-release"),
+  version: z.string().min(1).max(200),
+  tagName: z.string().min(1).max(200),
+  npmPackage: z.literal("openmeld"),
+  artifact: cliBinaryCompressedReleaseSchema.extend({
+    platform: z.string().min(1).max(100),
+  }),
+});
+
+const productionAppliedIdentitySchema = z.union([
+  productionWorkerDeploymentIdentitySchema,
+  productionCliReleaseIdentitySchema,
+  z.strictObject({ kind: z.literal("release-source") }),
+]);
 
 export const correlatedComponentReceiptSchema = z
   .strictObject({
@@ -111,12 +128,7 @@ export const correlatedComponentReceiptSchema = z
     startedAt: z.iso.datetime(),
     status: z.enum(["started", "applied", "verified", "failed"]),
     application: z.enum(["unknown", "applied"]),
-    identity: z
-      .union([
-        productionWorkerDeploymentIdentitySchema,
-        z.strictObject({ kind: z.literal("release-source") }),
-      ])
-      .optional(),
+    identity: productionAppliedIdentitySchema.optional(),
   })
   .superRefine((receipt, context) => {
     if (
@@ -132,8 +144,71 @@ export const correlatedComponentReceiptSchema = z
       });
     }
   });
+const remoteAgentRecoverySchema = z.strictObject({
+  id: z.uuid(),
+  originalEvidenceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+  startedAt: z.iso.datetime(),
+  baseline: z.strictObject({
+    workerDeploymentId: z.string().min(1).max(200),
+    workerVersionId: z.string().min(1).max(200),
+    containerId: z.string().min(1).max(200),
+    containerVersion: z.number().int().nonnegative(),
+    containerImage: z.string().min(1).max(500),
+  }),
+  completed: z
+    .strictObject({
+      containerVersion: z.number().int().nonnegative(),
+      containerImage: z.string().min(1).max(500),
+      observedAt: z.iso.datetime(),
+      activeRolloutId: z.null(),
+      healthyInstances: z.number().int().positive(),
+      activeInstances: z.number().int().nonnegative(),
+    })
+    .optional(),
+  observedAfterFailure: z
+    .strictObject({
+      workerDeploymentId: z.string().min(1).max(200),
+      workerVersionId: z.string().min(1).max(200),
+      containerVersion: z.number().int().nonnegative(),
+      containerImage: z.string().min(1).max(500),
+      observedAt: z.iso.datetime(),
+    })
+    .optional(),
+});
+
+// The canonical receipt stays v3 for older release readers. This v4 proof is
+// its second Git parent; the first parent preserves the original failed event.
+// The baseline never attributes the partial Worker to the failed command.
+export const recoveredComponentReceiptSchema = z
+  .strictObject({
+    attemptId: z.uuid(),
+    componentIndex: z.number().int().nonnegative(),
+    operationKey: z.string().regex(/^[0-9a-f]{64}$/u),
+    startedAt: z.iso.datetime(),
+    status: z.enum(["verified", "failed"]),
+    application: z.enum(["unknown", "applied"]),
+    identity: productionWorkerDeploymentIdentitySchema.optional(),
+    recovery: remoteAgentRecoverySchema,
+  })
+  .superRefine((receipt, context) => {
+    if (
+      (receipt.status === "verified" &&
+        (receipt.application !== "applied" ||
+          !receipt.identity ||
+          !receipt.recovery.completed)) ||
+      (receipt.status === "failed" &&
+        (receipt.application !== "unknown" || receipt.identity))
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Recovery receipt requires a verified Worker and container target.",
+      });
+    }
+  });
 export const productionComponentReceiptSchema = z.union([
   correlatedComponentReceiptSchema,
+  recoveredComponentReceiptSchema,
   legacyComponentReceiptSchema,
 ]);
 
@@ -144,6 +219,31 @@ const commonEvidenceFields = {
   scope: productionReleaseScopeSchema,
   sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
 };
+
+export const coreReceiverReconciliationSchema = z.strictObject({
+  kind: z.literal("reconciled-hosted-core-receiver"),
+  repository: z.literal("amplifthq/openmeld"),
+  runId: z.number().int().positive(),
+  runAttempt: z.number().int().positive(),
+  jobId: z.number().int().positive(),
+  controlSha: z.string().regex(/^[0-9a-f]{40}$/u),
+  deployedAt: z.iso.datetime({ offset: true }),
+  supersededReceipt: z.strictObject({
+    evidenceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+    sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+    completionRunId: z.number().int().positive(),
+  }),
+  startupArtifact: z.strictObject({
+    id: z.number().int().positive(),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+    startupTimeMs: z.number().nonnegative(),
+  }),
+  stableProjection: z.strictObject({
+    tagName: z.string().min(1),
+    sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+    manifestSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+  }),
+});
 
 export const productionReleaseEvidenceSchema = z
   .discriminatedUnion("schemaVersion", [
@@ -158,10 +258,45 @@ export const productionReleaseEvidenceSchema = z
       schemaVersion: z.literal(3),
       receipt: correlatedComponentReceiptSchema,
     }),
+    z.strictObject({
+      ...commonEvidenceFields,
+      schemaVersion: z.literal(4),
+      receipt: recoveredComponentReceiptSchema,
+    }),
+    z.strictObject({
+      ...commonEvidenceFields,
+      schemaVersion: z.literal(5),
+      receipt: correlatedComponentReceiptSchema,
+      reconciliation: coreReceiverReconciliationSchema,
+    }),
   ])
   .superRefine((evidence, context) => {
     if (
-      evidence.schemaVersion === 3 &&
+      evidence.schemaVersion === 5 &&
+      (evidence.scope !== "core" ||
+        evidence.receipt.status !== "applied" ||
+        evidence.receipt.application !== "applied" ||
+        evidence.receipt.identity?.kind !== "worker-deployment" ||
+        evidence.receipt.identity.sourceSha !== evidence.sourceSha ||
+        evidence.receipt.identity.workerName !== "openmeld-core-prod" ||
+        evidence.receipt.identity.proof !== "reconciled-hosted" ||
+        !evidence.receipt.identity.projectionTag)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Reconciliation requires an applied exact-source Core receiver identity.",
+      });
+    }
+    if (evidence.schemaVersion === 4 && evidence.scope !== "remote-agent") {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Partial recovery is limited to the Remote Agent release scope.",
+      });
+    }
+    if (
+      (evidence.schemaVersion === 3 || evidence.schemaVersion === 4) &&
       evidence.receipt.identity?.kind === "worker-deployment" &&
       evidence.receipt.identity.sourceSha !== evidence.sourceSha
     ) {

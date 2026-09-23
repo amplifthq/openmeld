@@ -4,8 +4,12 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   applyOpenMeldRequestContextHeaders,
   OPENMELD_EXPECTED_FORWARDED_BY,
+  OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
   OPENMELD_HEADER_SPACE_PASSWORD,
   OPENMELD_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
 } from "@openmeld/gateway-contract";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
@@ -40,6 +44,7 @@ import {
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import {
   rpcAddSpaceMembers,
+  rpcCenterAgentCreateSpace,
   rpcCenterAgentPostSpaceMessage,
   rpcCreateCenterAgentContextManifest,
   rpcCreateSpace,
@@ -423,6 +428,243 @@ async function ensureTestCenterAgentDesignation(input: {
     .bind(input.organizationId, input.agentProfileId, input.ownerUserId, nowMs)
     .run();
 }
+
+describe("Delegated Space initialization", () => {
+  it.each([
+    false,
+    true,
+  ])("commits owner membership and metadata together (password: %s)", async (passwordProtected) => {
+    const organizationId = randomUUID();
+    const ownerUserId = randomUUID();
+    const ownerProfileId = randomUUID();
+    const creatorProfileId = `agt_${randomUUID()}`;
+    await ensureTestOrganizationMembership({
+      organizationId,
+      userId: ownerUserId,
+    });
+    await insertTestPrimaryHumanProfile({
+      ownerUserId,
+      profileId: ownerProfileId,
+    });
+    await ensureTestCenterAgentDesignation({
+      agentProfileId: creatorProfileId,
+      agentProfileName: "Center Agent",
+      organizationId,
+      ownerUserId,
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const agentContext = createRpcContext({
+      activeOrganizationId: organizationId,
+      profileId: creatorProfileId,
+      profileKind: "agent",
+      profileName: "Center Agent",
+      requestId: randomUUID(),
+    });
+    const created = await rpcCenterAgentCreateSpace(env as CoreBindings, {
+      context: agentContext,
+      name: "Delegated Room",
+      onBehalfOf: { profileId: ownerProfileId },
+      ...(passwordProtected ? { password: "owner-test-password" } : {}),
+      visibility: "private",
+    });
+    const spaceId = created.spaceId;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const state = await runInDurableObject(stub, (_instance, doState) => ({
+      ownerStatus:
+        [
+          ...doState.storage.sql.exec<{ status: string }>(
+            "SELECT status FROM space_members WHERE profile_id = ?",
+            ownerProfileId
+          ),
+        ][0]?.status ?? null,
+      creatorStatus:
+        [
+          ...doState.storage.sql.exec<{ status: string }>(
+            "SELECT status FROM space_members WHERE profile_id = ?",
+            creatorProfileId
+          ),
+        ][0]?.status ?? null,
+    }));
+    expect(state).toEqual({
+      ownerStatus: "active",
+      creatorStatus: "active",
+    });
+    const meta = await stub.rpcGetMeta({
+      context: createRpcContext({
+        activeOrganizationId: organizationId,
+        profileId: ownerProfileId,
+        profileKind: "human",
+        ownerUserId,
+        requestId: randomUUID(),
+      }),
+      spaceId,
+    });
+    expect(meta.ownerUserIds).toContain(ownerUserId);
+    expect(meta.creator?.profileId).toBe(creatorProfileId);
+    expect(meta.visibility).toBe("private");
+    expect(meta.accessMode).toBe(
+      passwordProtected ? "protected" : "members_only"
+    );
+    expect(
+      await env.OPENMELD_DB.prepare(
+        "SELECT COUNT(*) AS count FROM space_owner_member_references WHERE space_id = ?"
+      )
+        .bind(spaceId)
+        .first<{ count: number }>()
+    ).toMatchObject({ count: 1 });
+    const responseLostEnv = {
+      ...env,
+      OPENMELD_SPACES: {
+        newUniqueId: () => namespace.idFromString(spaceId),
+        idFromString: (id: string) => namespace.idFromString(id),
+        get: () => ({
+          rpcPatchMeta: () =>
+            Promise.reject(new Error("simulated response loss")),
+          rpcPatchMetaWithPasswordAtomic: () =>
+            Promise.reject(new Error("simulated response loss")),
+          rpcCheckSpaceOwnerDeparture: (
+            input: Parameters<Space["rpcCheckSpaceOwnerDeparture"]>[0]
+          ) => stub.rpcCheckSpaceOwnerDeparture(input),
+        }),
+      } as unknown as DurableObjectNamespace<Space>,
+    } as CoreBindings;
+    await expect(
+      rpcCenterAgentCreateSpace(responseLostEnv, {
+        context: agentContext,
+        name: "Delegated Room",
+        onBehalfOf: { profileId: ownerProfileId },
+        ...(passwordProtected ? { password: "owner-test-password" } : {}),
+        visibility: "private",
+      })
+    ).rejects.toThrow("simulated response loss");
+    expect(
+      await env.OPENMELD_DB.prepare(
+        "SELECT COUNT(*) AS count FROM space_owner_member_references WHERE space_id = ?"
+      )
+        .bind(spaceId)
+        .first<{ count: number }>()
+    ).toMatchObject({ count: 1 });
+  });
+
+  it("rolls back metadata when the initial owner member write fails", async () => {
+    const organizationId = randomUUID();
+    const ownerUserId = randomUUID();
+    const ownerProfileId = randomUUID();
+    const creatorProfileId = `agt_${randomUUID()}`;
+    await ensureTestOrganizationMembership({
+      organizationId,
+      userId: ownerUserId,
+    });
+    await insertTestPrimaryHumanProfile({
+      ownerUserId,
+      profileId: ownerProfileId,
+    });
+    await ensureTestCenterAgentDesignation({
+      agentProfileId: creatorProfileId,
+      agentProfileName: "Center Agent",
+      organizationId,
+      ownerUserId,
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const spaceId = namespace.newUniqueId().toString();
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const context = createRpcContext({
+      activeOrganizationId: organizationId,
+      profileId: creatorProfileId,
+      profileKind: "agent",
+      profileName: "Center Agent",
+      requestId: randomUUID(),
+    });
+    const testEnv = {
+      ...env,
+      OPENMELD_SPACES: {
+        newUniqueId: () => namespace.idFromString(spaceId),
+        idFromString: (id: string) => namespace.idFromString(id),
+        get: (id: DurableObjectId) => namespace.get(id),
+      } as DurableObjectNamespace<Space>,
+    } as CoreBindings;
+    // Fail the actual Space SQL insert, after metadata initialization begins.
+    await runInDurableObject(stub, (_instance, doState) => {
+      doState.storage.sql.exec(
+        `CREATE TRIGGER fail_initial_owner BEFORE INSERT ON space_members
+        WHEN NEW.profile_id = '${ownerProfileId}'
+        BEGIN SELECT RAISE(ABORT, 'injected initial owner failure'); END`
+      );
+    });
+    const failure = await rpcCenterAgentCreateSpace(testEnv, {
+      context,
+      name: "Delegated Room",
+      onBehalfOf: { profileId: ownerProfileId },
+      visibility: "private",
+    }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain(
+      "injected initial owner failure"
+    );
+    const freshStub = namespace.get(namespace.idFromString(spaceId));
+    const failedState = await runInDurableObject(
+      freshStub,
+      (_instance, doState) => {
+        const state = {
+          metaCount:
+            [
+              ...doState.storage.sql.exec<{ count: number }>(
+                "SELECT COUNT(*) AS count FROM space_meta"
+              ),
+            ][0]?.count ?? 0,
+          memberCount:
+            [
+              ...doState.storage.sql.exec<{ count: number }>(
+                "SELECT COUNT(*) AS count FROM space_members"
+              ),
+            ][0]?.count ?? 0,
+        };
+        doState.storage.sql.exec("DROP TRIGGER fail_initial_owner");
+        return state;
+      }
+    );
+    expect(failedState).toEqual({ metaCount: 0, memberCount: 0 });
+    expect(
+      await env.OPENMELD_DB.prepare(
+        "SELECT COUNT(*) AS count FROM space_owner_member_references WHERE space_id = ?"
+      )
+        .bind(spaceId)
+        .first<{ count: number }>()
+    ).toMatchObject({ count: 0 });
+    await rpcCenterAgentCreateSpace(testEnv, {
+      context,
+      name: "Delegated Room",
+      onBehalfOf: { profileId: ownerProfileId },
+      visibility: "private",
+    });
+    const retried = await runInDurableObject(
+      freshStub,
+      (_instance, doState) => ({
+        meta:
+          [
+            ...doState.storage.sql.exec<{ count: number }>(
+              "SELECT COUNT(*) AS count FROM space_meta"
+            ),
+          ][0]?.count ?? 0,
+        ownerStatus:
+          [
+            ...doState.storage.sql.exec<{ status: string }>(
+              "SELECT status FROM space_members WHERE profile_id = ?",
+              ownerProfileId
+            ),
+          ][0]?.status ?? null,
+      })
+    );
+    expect(retried).toEqual({ meta: 1, ownerStatus: "active" });
+    expect(
+      await env.OPENMELD_DB.prepare(
+        "SELECT COUNT(*) AS count FROM space_owner_member_references WHERE space_id = ?"
+      )
+        .bind(spaceId)
+        .first<{ count: number }>()
+    ).toMatchObject({ count: 1 });
+  });
+});
 
 async function insertTestManagedCenterAgentProfile(input: {
   agentProfileId: string;
@@ -6609,6 +6851,194 @@ describe("OpenMeld Core", () => {
     bob.close(1000, "done");
   });
 
+  it("preserves image geometry negotiation across WebSocket hibernation", async () => {
+    const spaceId = await createSpace({
+      name: `websocket-image-geometry-${Date.now()}`,
+    });
+    const legacyProfile = {
+      kind: "human",
+      profileId: "legacy-geometry-viewer",
+      profileName: "Legacy Geometry Viewer",
+    };
+    const currentProfile = {
+      kind: "human",
+      profileId: "current-geometry-viewer",
+      profileName: "Current Geometry Viewer",
+    };
+    const legacy = await openPendingSpaceSocket(spaceId, legacyProfile);
+    const current = await openPendingSpaceSocket(spaceId, currentProfile);
+    const legacyAck = waitForJsonMessage(
+      legacy,
+      (data) => data.type === "system.hello.ack"
+    );
+    const currentAck = waitForJsonMessage(
+      current,
+      (data) => data.type === "system.hello.ack"
+    );
+    legacy.send(JSON.stringify({ type: "hello", profile: legacyProfile }));
+    current.send(
+      JSON.stringify({
+        type: "hello",
+        profile: currentProfile,
+        capabilities: { spaceImageGeometry: true },
+      })
+    );
+    await Promise.all([legacyAck, currentAck]);
+
+    const fileId = randomUUID();
+    const signalText = "Image geometry after hibernation";
+    const findBroadcast = (data: Record<string, unknown>) => {
+      const signal =
+        data.type === "space.signal"
+          ? (data.signal as Record<string, unknown> | undefined)
+          : data;
+      return (
+        signal?.type === "signal.text" &&
+        (signal.data as { text?: string } | undefined)?.text === signalText
+      );
+    };
+    const legacyReceives = waitForJsonMessage(legacy, findBroadcast);
+    const currentReceives = waitForJsonMessage(current, findBroadcast);
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const context = createRpcContext({
+      requestId: "websocket-image-geometry",
+      profileId: DEFAULT_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      profileName: "Test User",
+      ownerUserId: "owner-test-default",
+    });
+    const spaceAccess = createAuthenticatedSpaceAccessContext({
+      requestContext: context,
+      spaceId,
+    });
+
+    await runInDurableObject(stub, async (_instance, state) => {
+      const repository = new SpaceFileRepository(state.storage);
+      repository.commitWrite({
+        actor: {
+          profileId: DEFAULT_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          displayName: "Test User",
+          ownerUserId: "owner-test-default",
+        },
+        auditEvent: {
+          actorKind: "authenticated",
+          actorProfileId: DEFAULT_HUMAN_PROFILE_ID,
+          entryId: fileId,
+          errorCode: null,
+          eventId: "websocket-image-geometry-file",
+          occurredAtMs: Date.now(),
+          operation: "content_write",
+          operationId: "websocket-image-geometry-file",
+          organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+          representedHumanProfileId: null,
+          requestId: "websocket-image-geometry-file",
+          result: "succeeded",
+          revisionId: "websocket-image-geometry-revision",
+          spaceId,
+        },
+        imageDimensions: { width: 1200, height: 800 },
+        nowMs: Date.now(),
+        write: {
+          spaceId,
+          fileId,
+          revisionId: "websocket-image-geometry-revision",
+          name: "landscape.png",
+          parentId: null,
+          baseRevision: null,
+          clientMutationId: "websocket-image-geometry-file",
+          mimeType: "image/png",
+          sizeBytes: 1024,
+        },
+      });
+
+      // A fresh Durable Object instance restores both sessions exclusively
+      // from their hibernation attachments before broadcasting this signal.
+      const restarted = new Space(state, env as unknown as CoreBindings);
+      await restarted.rpcPostSignal({
+        authoringPolicy: "system_emitted",
+        context,
+        files: [
+          {
+            fileId,
+            revision: 1,
+            name: "untrusted.png",
+            mimeType: "application/octet-stream",
+            sizeBytes: 1,
+          },
+        ],
+        profile: {
+          kind: "human",
+          profileId: DEFAULT_HUMAN_PROFILE_ID,
+          profileName: "Test User",
+        },
+        spaceAccess,
+        spaceId,
+        text: signalText,
+      });
+    });
+
+    const [legacyMessage, currentMessage] = await Promise.all([
+      legacyReceives,
+      currentReceives,
+    ]);
+    expect(JSON.stringify(legacyMessage)).not.toContain("imageDimensions");
+    expect(currentMessage).toMatchObject({
+      data: {
+        files: [
+          {
+            fileId,
+            imageDimensions: { width: 1200, height: 800 },
+            mimeType: "image/png",
+            name: "landscape.png",
+            revision: 1,
+            sizeBytes: 1024,
+          },
+        ],
+      },
+      type: "signal.text",
+    });
+
+    const legacyHistoryResponse = await fetchSpaceDoWithOpenMeldAuth({
+      path: "/signals",
+      spaceId,
+    });
+    const currentHistoryResponse = await fetchSpaceDoWithOpenMeldAuth(
+      { path: "/signals", spaceId },
+      {
+        headers: {
+          [OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION]:
+            OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+        },
+      }
+    );
+    expect(legacyHistoryResponse.status).toBe(200);
+    expect(currentHistoryResponse.status).toBe(200);
+    const legacyHistory = await legacyHistoryResponse.json();
+    const currentHistory = await currentHistoryResponse.json();
+    expect(JSON.stringify(legacyHistory)).not.toContain("imageDimensions");
+    expect(currentHistory).toMatchObject({
+      signals: expect.arrayContaining([
+        expect.objectContaining({
+          data: expect.objectContaining({
+            files: [
+              expect.objectContaining({
+                fileId,
+                imageDimensions: { width: 1200, height: 800 },
+              }),
+            ],
+            text: signalText,
+          }),
+          type: "signal.text",
+        }),
+      ]),
+    });
+
+    legacy.close(1000, "done");
+    current.close(1000, "done");
+  });
+
   it("flushes one queued invalidation per topic after the client hello", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
@@ -8265,6 +8695,196 @@ describe("OpenMeld Core", () => {
     });
   });
 
+  it.each([
+    false,
+    true,
+  ])("generates a Center chat title without blocking messages, including a topic after a greeting: %s", async (greetingFirst) => {
+    const organizationId = `org-title-${randomUUID()}`;
+    const ownerUserId = `user-title-${randomUUID()}`;
+    const humanProfileId = randomUUID();
+    const agentProfileId = `agt_${randomUUID()}`;
+    await ensureTestCenterAgentDesignation({
+      agentProfileId,
+      agentProfileName: "Center Agent",
+      organizationId,
+      ownerUserId,
+    });
+    await insertTestPrimaryHumanProfile({
+      ownerUserId,
+      profileId: humanProfileId,
+    });
+    const context = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId,
+      profileId: humanProfileId,
+      profileKind: "human",
+      profileName: "Title tester",
+      requestId: "title-test",
+    });
+    const session = await rpcOpenCenterAgentDirectMessageSpace(
+      env as CoreBindings,
+      { context, sessionCreationId: randomUUID() }
+    );
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(session.spaceId));
+    await runInDurableObject(stub, async (_instance, state) => {
+      let resolveTitle!: (value: { title: string | null }) => void;
+      let started!: () => void;
+      const titleStarted = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const generate = vi
+        .fn<
+          NonNullable<
+            NonNullable<
+              CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"]
+            >["generateCenterAgentSessionTitle"]
+          >
+        >()
+        .mockResolvedValue({ title: "Compare cloud hosting costs" })
+        .mockImplementationOnce(async () => {
+          started();
+          return await new Promise<{ title: string | null }>((resolve) => {
+            resolveTitle = resolve;
+          });
+        });
+      const restarted = new Space(state, {
+        ...env,
+        OPENMELD_REMOTE_AGENT_WORKER: {
+          generateCenterAgentSessionTitle: generate,
+        },
+      } as CoreBindings);
+      const post = (
+        text: string,
+        authoringPolicy: "user_authored" | "system_emitted" = "user_authored"
+      ) =>
+        restarted.rpcPostSignal({
+          context,
+          spaceId: session.spaceId,
+          profile: {
+            kind: "human",
+            profileId: humanProfileId,
+            profileName: "Title tester",
+          },
+          authoringPolicy,
+          text,
+        });
+      await post("System greeting", "system_emitted");
+      expect(generate).not.toHaveBeenCalled();
+      const firstText = greetingFirst ? "hi" : "Compare cloud hosting costs";
+      const first = await post(firstText);
+      expect(first.data).toMatchObject({ text: firstText });
+      await titleStarted;
+      await post("Compare cloud hosting and storage costs");
+      expect(generate).toHaveBeenCalledTimes(1);
+      resolveTitle({
+        title: greetingFirst ? null : "Compare cloud hosting costs",
+      });
+      await vi.waitFor(() => {
+        const row = state.storage.sql
+          .exec<{ name: string }>("SELECT name FROM space_meta")
+          .toArray()[0];
+        expect(row?.name).toBe("Compare cloud hosting costs");
+      });
+      await post("Also compare support costs");
+      expect(generate).toHaveBeenCalledTimes(greetingFirst ? 2 : 1);
+    });
+    await vi.waitFor(async () => {
+      const list = await rpcListCenterAgentSessions(env as CoreBindings, {
+        context,
+      });
+      expect(
+        list.sessions.find((item) => item.spaceId === session.spaceId)?.name
+      ).toBe("Compare cloud hosting costs");
+    });
+  });
+
+  it.each([
+    "unavailable",
+    "no topic",
+    "invalid output",
+  ])("keeps title failures out of message publication and bounds retries across restart: %s", async (scenario) => {
+    const organizationId = `org-title-failure-${randomUUID()}`;
+    const ownerUserId = `user-title-failure-${randomUUID()}`;
+    const humanProfileId = randomUUID();
+    await ensureTestCenterAgentDesignation({
+      agentProfileId: `agt_${randomUUID()}`,
+      agentProfileName: "Center Agent",
+      organizationId,
+      ownerUserId,
+    });
+    await insertTestPrimaryHumanProfile({
+      ownerUserId,
+      profileId: humanProfileId,
+    });
+    const context = createRpcContext({
+      activeOrganizationId: organizationId,
+      ownerUserId,
+      profileId: humanProfileId,
+      profileKind: "human",
+      profileName: "Title tester",
+      requestId: "title-failure",
+    });
+    const session = await rpcOpenCenterAgentDirectMessageSpace(
+      env as CoreBindings,
+      { context, sessionCreationId: randomUUID() }
+    );
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    await runInDurableObject(
+      namespace.get(namespace.idFromString(session.spaceId)),
+      async (_instance, state) => {
+        const generate = vi.fn(() => {
+          if (scenario === "unavailable") {
+            return Promise.reject(new Error("Provider unavailable"));
+          }
+          return Promise.resolve({
+            title: scenario === "no topic" ? null : "x".repeat(65),
+          });
+        });
+        const bindings = {
+          ...env,
+          OPENMELD_REMOTE_AGENT_WORKER: {
+            generateCenterAgentSessionTitle: generate,
+          },
+        } as CoreBindings;
+        const pending: Promise<unknown>[] = [];
+        const waitUntil = state.waitUntil.bind(state);
+        const capture = vi
+          .spyOn(state, "waitUntil")
+          .mockImplementation((promise) => {
+            pending.push(promise);
+            waitUntil(promise);
+          });
+        try {
+          for (let attempt = 0; attempt < 4; attempt++) {
+            const restarted = new Space(state, bindings);
+            const posted = await restarted.rpcPostSignal({
+              context,
+              spaceId: session.spaceId,
+              profile: {
+                kind: "human",
+                profileId: humanProfileId,
+                profileName: "Title tester",
+              },
+              authoringPolicy: "user_authored",
+              text: `Message ${attempt}`,
+            });
+            expect(posted.data).toMatchObject({ text: `Message ${attempt}` });
+            await Promise.all(pending.splice(0));
+          }
+          expect(generate).toHaveBeenCalledTimes(3);
+          expect(
+            state.storage.sql
+              .exec<{ name: string }>("SELECT name FROM space_meta")
+              .toArray()[0]?.name
+          ).toBe("New chat");
+        } finally {
+          capture.mockRestore();
+        }
+      }
+    );
+  });
+
   it("opens the default Center chat and independent idempotent sessions through the real Space DO", async () => {
     const organizationId = `org-center-dm-${randomUUID()}`;
     const ownerUserId = `user-center-dm-${randomUUID()}`;
@@ -8877,6 +9497,110 @@ describe("OpenMeld Core", () => {
     expect(patchedCursor.role).toBe("assistant");
   });
 
+  it("negotiates image geometry and origin on Core Space File HTTP reads", async () => {
+    const spaceId = await createSpace({
+      name: `file-http-compatibility-${Date.now()}`,
+    });
+    const fileId = randomUUID();
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    await runInDurableObject(stub, (_instance, state) => {
+      new SpaceFileRepository(state.storage).commitWrite({
+        actor: {
+          profileId: DEFAULT_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          displayName: "Test User",
+          ownerUserId: "owner-test-default",
+        },
+        auditEvent: {
+          actorKind: "authenticated",
+          actorProfileId: DEFAULT_HUMAN_PROFILE_ID,
+          entryId: fileId,
+          errorCode: null,
+          eventId: "file-http-compatibility",
+          occurredAtMs: Date.now(),
+          operation: "content_write",
+          operationId: "file-http-compatibility",
+          organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+          representedHumanProfileId: null,
+          requestId: "file-http-compatibility",
+          result: "succeeded",
+          revisionId: "file-http-compatibility-revision",
+          spaceId,
+        },
+        imageDimensions: { width: 1600, height: 900 },
+        nowMs: Date.now(),
+        write: {
+          spaceId,
+          fileId,
+          revisionId: "file-http-compatibility-revision",
+          name: "launch.png",
+          parentId: null,
+          baseRevision: null,
+          clientMutationId: "file-http-compatibility",
+          mimeType: "image/png",
+          origin: "chat_upload",
+          sizeBytes: 2048,
+        },
+      });
+    });
+
+    const url = `${BASE_URL}/v1/spaces/${spaceId}/files/${fileId}`;
+    const [legacyResponse, geometryResponse, originResponse, currentResponse] =
+      await Promise.all([
+        fetchWithOpenMeldAuth(url),
+        fetchWithOpenMeldAuth(url, {
+          headers: {
+            [OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION]:
+              OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+          },
+        }),
+        fetchWithOpenMeldAuth(url, {
+          headers: {
+            [OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION]:
+              OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+          },
+        }),
+        fetchWithOpenMeldAuth(url, {
+          headers: {
+            [OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION]:
+              OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+            [OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION]:
+              OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+          },
+        }),
+      ]);
+    expect(legacyResponse.status).toBe(200);
+    expect(geometryResponse.status).toBe(200);
+    expect(originResponse.status).toBe(200);
+    expect(currentResponse.status).toBe(200);
+    const legacy = await legacyResponse.json();
+    const geometry = await geometryResponse.json();
+    const origin = await originResponse.json();
+    const current = await currentResponse.json();
+    expect(JSON.stringify(legacy)).not.toContain("imageDimensions");
+    expect(JSON.stringify(legacy)).not.toContain("origin");
+    expect(geometry).toMatchObject({
+      file: {
+        latestRevision: {
+          imageDimensions: { width: 1600, height: 900 },
+        },
+      },
+    });
+    expect(JSON.stringify(geometry)).not.toContain("origin");
+    expect(JSON.stringify(origin)).not.toContain("imageDimensions");
+    expect(origin).toMatchObject({ file: { origin: "chat_upload" } });
+    expect(current).toMatchObject({
+      file: {
+        id: fileId,
+        latestRevision: {
+          imageDimensions: { width: 1600, height: 900 },
+        },
+        origin: "chat_upload",
+      },
+    });
+  });
+
   it("publishes a canonical Space File without requiring a text note", async () => {
     const spaceId = await createSpace({ name: `file-only-${Date.now()}` });
     const context = createRpcContext({
@@ -8983,7 +9707,7 @@ describe("OpenMeld Core", () => {
     ).resolves.toMatchObject({ id: writes[1]?.fileId });
 
     const result = await stub.rpcListSpaceFiles({
-      query: { view: "active" },
+      query: { view: "active", origin: "all" },
       spaceAccess,
       spaceId,
     });
@@ -11370,6 +12094,125 @@ describe("OpenMeld Core", () => {
         dispatchId: "dispatch-openclaw-auth-1",
       },
     });
+  });
+
+  it("keeps a pre-agent stop notice in the originating thread when its publisher lacks thread context", async () => {
+    const spaceId = await createSpace({ name: "thread-stop-placement" });
+    const postText = async (url: string, text: string) => {
+      const response = await fetchWithOpenMeldAuth(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "signal.text", data: { text } }),
+      });
+      expect(response.status).toBe(200);
+      const signal = parseEnvelope(await response.json());
+      if (!isTextSignalEnvelope(signal)) {
+        throw new Error("Expected a text signal");
+      }
+      return signal;
+    };
+    const root = await postText(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      "Thread root"
+    );
+    const createThreadResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/threads`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          clientMutationId: `create-thread-${randomUUID()}`,
+          rootSignalId: root.id,
+        }),
+      }
+    );
+    expect(createThreadResponse.status).toBe(200);
+    const createdThread = (await createThreadResponse.json()) as {
+      thread: { threadId: string };
+    };
+    const threadUrl = `${BASE_URL}/v1/spaces/${spaceId}/threads/${createdThread.thread.threadId}/signals`;
+    const sourceResponse = await fetchWithOpenMeldAuth(threadUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clientMessageId: `thread-wake-${randomUUID()}`,
+        text: "Wake from this thread",
+      }),
+    });
+    expect(sourceResponse.status).toBe(200);
+    const sourcePayload = (await sourceResponse.json()) as {
+      signal?: SignalEnvelope;
+    };
+    const source = sourcePayload.signal;
+    if (!(source && isTextSignalEnvelope(source))) {
+      throw new Error("Expected a thread text signal");
+    }
+    const targetProfileId = "agt_99999999-9999-4999-8999-999999999999";
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const dispatch = await runInDurableObject(stub, (_instance, state) => {
+      const record = createDispatchOutboxRecord({
+        bindingEnabled: true,
+        bindingState: "bound",
+        dispatchPolicy: "mention_only",
+        nowMs: Date.now(),
+        ruleId: "wake_explicit_activation",
+        ruleReason: "Explicit Wake target",
+        ruleSource: "registry",
+        senderProfileId: DEFAULT_HUMAN_PROFILE_ID,
+        sourceEventId: source.id,
+        sourceSignalSnapshot: {
+          profileId: DEFAULT_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          text: source.data.text,
+        },
+        spaceId,
+        targetProfileId,
+      });
+      insertDispatchOutboxRecord(state.storage.sql, record);
+      return record;
+    });
+    const requestContext = createRpcContext({
+      requestId: "rpc-thread-pre-agent-stop",
+      profileId: "openmeld-system",
+      profileKind: "system",
+      profileName: "OpenMeld System",
+    });
+    const stopped = await rpcPostSystemNoticeSignal(
+      env as unknown as CoreBindings,
+      {
+        spaceId,
+        finalOutcomeAuthority: "runtime_coordinator_wake_stop_publication",
+        context: requestContext,
+        profile: {
+          kind: "system",
+          profileId: "openmeld-system",
+          profileName: "OpenMeld System",
+        },
+        data: {
+          noticeType: "wake_stopped",
+          actorProfileId: targetProfileId,
+          dispatchId: dispatch.dispatchId,
+          generatedBy: "openmeld",
+          text: "This Wake was stopped before execution.",
+        },
+        spaceAccess: createDispatchContinuationSpaceAccessContext({
+          dispatchId: dispatch.dispatchId,
+          requestContext,
+          sourceSignalId: source.id,
+          spaceId,
+          targetProfileId,
+        }),
+      }
+    );
+    const threadResponse = await fetchWithOpenMeldAuth(threadUrl);
+    expect(threadResponse.status).toBe(200);
+    const threadHistory = (await threadResponse.json()) as {
+      signals?: SignalEnvelope[];
+    };
+    expect(threadHistory.signals?.map((signal) => signal.id)).toContain(
+      stopped.id
+    );
   });
 
   it("returns not found for a missing updates anchor signal", async () => {

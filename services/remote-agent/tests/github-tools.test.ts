@@ -1,6 +1,7 @@
 import {
   centerAgentConnectorConnectionSelectionSchema,
   openConnectorRuntimeActionSuccessEnvelopeSchema,
+  spaceTaskSchema,
 } from "@openmeld/schemas";
 import { digestCanonicalJson } from "@openmeld/utils";
 import { safeParse } from "valibot";
@@ -16,6 +17,7 @@ import {
   REMOTE_AGENT_GITHUB_READ_TOOL_NAMES,
   REMOTE_AGENT_GITHUB_TOOL_NAMES,
   type RemoteAgentGitHubToolName,
+  readStableGitHubIssueObservationAt,
 } from "../agent-core/github-tools";
 import { toBoundedRemoteAgentToolResult } from "../flue-adapter/tool-execution";
 import {
@@ -61,6 +63,46 @@ function getRemoteAgentGitHubToolDefinitions(
 }
 
 describe("Remote Agent GitHub tools", () => {
+  it("reuses the first issue observation time when a completed provider write is replayed", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const operationId = "provider-write-1";
+    const scope = "org-1:agent-1:connection-1";
+    expect(
+      await readStableGitHubIssueObservationAt({
+        data: { updated_at: "2026-09-22T12:00:00Z" },
+        operationId,
+        scope,
+        storage,
+      })
+    ).toBe("2026-09-22T12:00:00.000Z");
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-09-22T12:00:00.000Z"));
+      const first = await readStableGitHubIssueObservationAt({
+        data: { number: 1143 },
+        operationId,
+        scope,
+        storage,
+      });
+      vi.setSystemTime(new Date("2026-09-22T12:05:00.000Z"));
+      const replay = await readStableGitHubIssueObservationAt({
+        data: { number: 1143 },
+        operationId,
+        scope,
+        storage,
+      });
+      const otherOrganization = await readStableGitHubIssueObservationAt({
+        data: { number: 1143 },
+        operationId,
+        scope: "org-2:agent-1:connection-1",
+        storage,
+      });
+      expect(replay).toBe(first);
+      expect(otherOrganization).not.toBe(first);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("registers the practical repository, source, collaboration, and CI toolset", () => {
     const tools = getRemoteAgentGitHubToolDefinitions({
       coreWorker: {},
@@ -2173,6 +2215,238 @@ describe("Remote Agent GitHub tools", () => {
         input: issue,
       }),
     });
+  });
+
+  it("records a linked Space Task after creating an issue in a shared Space", async () => {
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...createSubmitTurnRequest().turnEnvelope,
+        organization: {
+          ...createSubmitTurnRequest().turnEnvelope.organization,
+          webUrl: "https://app.openmeld.example/o/acme",
+        },
+        space: {
+          id: "space_shared",
+          isCenterAgentDm: false,
+          kind: "space",
+          name: "Delivery",
+        },
+      },
+    });
+    const storage = await createStorage(request);
+    const createdTask = spaceTaskSchema.parse({
+      assignee: {
+        ownerUserId: "user_1",
+        profileId: "agt_11111111-1111-4111-8111-111111111111",
+        profileKind: "agent",
+        profileName: "Builder",
+      },
+      automaticReworkRounds: 0,
+      completionConditions: [
+        "The GitHub issue is resolved or this Space stops tracking it.",
+      ],
+      createdAt: "2026-09-20T00:00:00.000Z",
+      createdBy: {
+        ownerUserId: "user_1",
+        profileId: "agt_11111111-1111-4111-8111-111111111111",
+        profileKind: "agent",
+        profileName: "Builder",
+      },
+      description: "Linked GitHub issue openmeld/app#7.",
+      externalWorkItems: [
+        {
+          lastObservedAt: "2026-09-20T00:00:00.000Z",
+          lastObservedState: "open",
+          number: 7,
+          owner: "openmeld",
+          provider: "github",
+          repo: "app",
+          url: "https://github.com/openmeld/app/issues/7",
+        },
+      ],
+      needsHumanDecision: false,
+      phase: "to_do",
+      requestedBy: {
+        ownerUserId: "user_1",
+        profileId: "agt_11111111-1111-4111-8111-111111111111",
+        profileKind: "agent",
+        profileName: "Builder",
+      },
+      result: null,
+      review: null,
+      reviewer: null,
+      revision: 1,
+      sourceSignalId: null,
+      spaceId: "space_shared",
+      taskId: "tsk_55555555-5555-4555-8555-555555555555",
+      threadId: null,
+      title: "Track connector bug",
+      updatedAt: "2026-09-20T00:00:00.000Z",
+    });
+    const createSpaceTask = vi.fn(async () => ({
+      applied: true,
+      event: {
+        actor: createdTask.createdBy,
+        createdAt: createdTask.createdAt,
+        detail: createdTask.title,
+        eventId: "tse_55555555-5555-4555-8555-555555555555",
+        fromPhase: null,
+        operationId: "github-issue-create:openmeld:app:7",
+        taskId: createdTask.taskId,
+        taskRevision: 1,
+        toPhase: "to_do",
+        type: "created",
+      },
+      task: createdTask,
+    }));
+    const fetchMock = vi.fn<typeof fetch>((url) => {
+      const href = String(url);
+      if (href.includes("github.update_issue")) {
+        return Promise.resolve(
+          testOpenConnectorSuccessResponse({
+            actionId: "github.update_issue",
+            data: { number: 7 },
+            outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+          })
+        );
+      }
+      return Promise.resolve(
+        testOpenConnectorSuccessResponse({
+          actionId: "github.create_issue",
+          data: {
+            html_url: "https://github.com/openmeld/app/issues/7",
+            number: 7,
+            title: "Track connector bug",
+          },
+          outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+        })
+      );
+    });
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
+      coreWorker: {
+        createSpaceTask,
+        getSpaceTask: vi.fn(),
+        listSpaceTasks: vi.fn(async () => ({ tasks: [], truncated: false })),
+        mutateSpaceTask: vi.fn(),
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({ ownerDisplayName: "Mira", userId: "user_mira" })
+        ),
+      },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "github_create_issue", {
+        owner: "openmeld",
+        repo: "app",
+        title: "Track connector bug",
+      })
+    ).resolves.toMatchObject({
+      spaceTask: { created: true, task: { taskId: createdTask.taskId } },
+      status: "completed",
+    });
+    expect(createSpaceTask).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
+      "https://connectors.example.test/v1/actions/github.create_issue",
+      "https://connectors.example.test/v1/actions/github.update_issue",
+    ]);
+  });
+
+  it.each([
+    {
+      createError: "Task store unavailable.",
+      expectedCreateCalls: 1,
+      expectedSpaceTask: {
+        created: false,
+        reason: "Task store unavailable.",
+        task: null,
+      },
+      list: { tasks: [], truncated: false },
+      name: "Task create fails",
+    },
+    {
+      createError: null,
+      expectedCreateCalls: 0,
+      expectedSpaceTask: {
+        code: "space_task.external_work_item_limit",
+        created: false,
+        task: null,
+      },
+      list: { tasks: [], truncated: true },
+      name: "Task list is truncated",
+    },
+  ])("returns a failed Space Task association when $name", async ({
+    createError,
+    expectedCreateCalls,
+    expectedSpaceTask,
+    list,
+  }) => {
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...createSubmitTurnRequest().turnEnvelope,
+        space: {
+          id: "space_shared",
+          isCenterAgentDm: false,
+          kind: "space",
+          name: "Delivery",
+        },
+      },
+    });
+    const storage = await createStorage(request);
+    const createSpaceTask = vi.fn(() => {
+      if (createError) {
+        throw new Error(createError);
+      }
+      throw new Error("createSpaceTask should not run.");
+    });
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      testOpenConnectorSuccessResponse({
+        actionId: "github.create_issue",
+        data: {
+          html_url: "https://github.com/openmeld/app/issues/7",
+          number: 7,
+          title: "Track connector bug",
+        },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
+    );
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
+      coreWorker: {
+        createSpaceTask,
+        getSpaceTask: vi.fn(),
+        listSpaceTasks: vi.fn(async () => list),
+        mutateSpaceTask: vi.fn(),
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({
+            ownerDisplayName: "Mira",
+            userId: "user_mira",
+          })
+        ),
+      },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "github_create_issue", {
+        owner: "openmeld",
+        repo: "app",
+        title: "Track connector bug",
+      })
+    ).resolves.toMatchObject({
+      spaceTask: expectedSpaceTask,
+      status: "completed",
+    });
+    expect(createSpaceTask).toHaveBeenCalledTimes(expectedCreateCalls);
   });
 
   it.each([

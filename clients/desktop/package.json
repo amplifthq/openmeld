@@ -1,8 +1,8 @@
 {
   "$schema": "https://www.schemastore.org/package.json",
   "name": "@openmeld/desktop",
-  "productName": "OpenMeld",
-  "version": "0.1.4",
+  "productName": "OpenMeld Dev",
+  "version": "0.1.8",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
@@ -41,12 +41,12 @@
     "semver": "7.7.4",
     "ws": "^8.18.3",
     "yaml": "2.8.2",
-    "zod": "^4.3.6"
+    "zod": "catalog:"
   },
   "build": {
     "forceCodeSigning": true,
-    "appId": "sh.openmeld.desktop",
-    "productName": "OpenMeld",
+    "appId": "sh.openmeld.desktop.dev",
+    "productName": "OpenMeld Dev",
     "directories": {
       "output": "dist/release"
     },
@@ -60,7 +60,8 @@
     "mac": {
       "category": "public.app-category.productivity",
       "extendInfo": {
-        "CFBundleDisplayName": "OpenMeld"
+        "CFBundleName": "OpenMeld Dev",
+        "CFBundleDisplayName": "OpenMeld Dev"
       },
       "icon": "resources/icon.icns",
       "identity": "-",

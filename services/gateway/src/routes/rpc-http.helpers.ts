@@ -3,7 +3,11 @@ import {
   contextAuditFields,
   jsonErrorResponse,
   OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
+  OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
   OPENMELD_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
   toErrorMessage,
   withRequestIdHeader,
 } from "@openmeld/gateway-contract";
@@ -18,7 +22,10 @@ import {
   SPACE_ACCESS_VERSION_HEADER,
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_FILE_ERROR_CODES,
+  SPACE_TASK_ERROR_CODES,
   toLegacySpaceAddressingWireValue,
+  toLegacySpaceFilesOriginWireValue,
+  toLegacySpaceImageGeometryWireValue,
 } from "@openmeld/schemas";
 import { getSpaceAccessRequestId } from "@openmeld/space";
 import type { Context } from "hono";
@@ -37,6 +44,7 @@ type ExecuteRpcRouteInput = {
   spaceId?: string;
   execute: () => Promise<unknown>;
   includeLegacySpaceAddressingWireFields?: boolean;
+  includeLegacySpaceFilesOriginWireFields?: boolean;
   onInvalidSuccessPayload?: () => void;
   onValidatedSuccess?: (input: {
     payload: unknown;
@@ -78,6 +86,7 @@ type ExecutePublicRpcRouteInput = {
   method: RpcHttpMethod;
   execute: () => Promise<unknown>;
   includeLegacySpaceAddressingWireFields?: boolean;
+  includeLegacySpaceFilesOriginWireFields?: boolean;
   retryMode?: "transient" | "none";
   responseSchema?: z.ZodType<unknown>;
   successStatus?: number;
@@ -191,6 +200,7 @@ const DIRECT_GATEWAY_ERROR_CODES = [
   "space.publication_mode.owner_required",
   "space.publication_mode.password_not_configured",
   ...SPACE_FILE_ERROR_CODES,
+  ...SPACE_TASK_ERROR_CODES,
   "attachment_too_large",
   "attachment_type_unsupported",
   "attachment_content_mismatch",
@@ -267,11 +277,21 @@ export async function executeRpcRoute(
       result,
       status,
     });
-    const responsePayload =
+    const addressingProjected =
       input.includeLegacySpaceAddressingWireFields &&
       !supportsCurrentSpaceAddressing(c.req.raw.headers)
         ? toLegacySpaceAddressingWireValue(validatedResult.payload)
         : validatedResult.payload;
+    const originProjected =
+      input.includeLegacySpaceFilesOriginWireFields &&
+      !supportsSpaceFilesOriginCapability(c.req.raw.headers)
+        ? toLegacySpaceFilesOriginWireValue(addressingProjected)
+        : addressingProjected;
+    const responsePayload = supportsSpaceImageGeometryCapability(
+      c.req.raw.headers
+    )
+      ? originProjected
+      : toLegacySpaceImageGeometryWireValue(originProjected);
     return withRequestIdHeader(
       Response.json(
         projectSpaceAccessResponse(responsePayload, route, c.req.raw.headers),
@@ -326,11 +346,21 @@ export async function executePublicRpcRoute(
       requestId,
     });
 
-    const responsePayload =
+    const addressingProjected =
       input.includeLegacySpaceAddressingWireFields &&
       !supportsCurrentSpaceAddressing(c.req.raw.headers)
         ? toLegacySpaceAddressingWireValue(validatedResult.payload)
         : validatedResult.payload;
+    const originProjected =
+      input.includeLegacySpaceFilesOriginWireFields &&
+      !supportsSpaceFilesOriginCapability(c.req.raw.headers)
+        ? toLegacySpaceFilesOriginWireValue(addressingProjected)
+        : addressingProjected;
+    const responsePayload = supportsSpaceImageGeometryCapability(
+      c.req.raw.headers
+    )
+      ? originProjected
+      : toLegacySpaceImageGeometryWireValue(originProjected);
     return withRequestIdHeader(
       Response.json(
         projectSpaceAccessResponse(responsePayload, route, c.req.raw.headers),
@@ -378,6 +408,31 @@ export function supportsCurrentSpaceAddressing(headers: Headers): boolean {
   return (
     headers.get(OPENMELD_HEADER_SPACE_ADDRESSING_VERSION) ===
     OPENMELD_SPACE_ADDRESSING_VERSION
+  );
+}
+
+/**
+ * Whether the caller declared it understands `origin` on Space Files
+ * responses. An already-published Web build or CLI never sends this header,
+ * so `executeRpcRoute`/`executePublicRpcRoute` downgrade the response to the
+ * pre-origin shape for it (see `includeLegacySpaceFilesOriginWireFields`).
+ * The two raw Space Files routes that bypass those helpers
+ * (`uploadSpaceFile`, `updateSpaceFileContent` in `rpc-http.space-files.ts`)
+ * call this directly.
+ */
+export function supportsSpaceFilesOriginCapability(headers: Headers): boolean {
+  return (
+    headers.get(OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION) ===
+    OPENMELD_SPACE_FILES_ORIGIN_VERSION
+  );
+}
+
+export function supportsSpaceImageGeometryCapability(
+  headers: Headers
+): boolean {
+  return (
+    headers.get(OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION) ===
+    OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
   );
 }
 

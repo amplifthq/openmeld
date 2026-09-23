@@ -4,6 +4,7 @@ import {
 } from "@openmeld/schemas";
 import type { SpaceMessageMutationBody } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
+import { currentSpaceImageGeometryHeaders } from "./addressing-contract";
 import type { SpaceRequestInput } from "./types";
 
 export function mutateSpaceMessage(
@@ -17,7 +18,10 @@ export function mutateSpaceMessage(
     url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/messages/${encodeURIComponent(input.signalId)}`,
     operation: "space.message.change",
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...currentSpaceImageGeometryHeaders(),
+    },
     body: JSON.stringify(spaceMessageMutationBodySchema.parse(input.body)),
     requestContext: input.requestContext,
     signal: input.signal,

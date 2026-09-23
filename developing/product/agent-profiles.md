@@ -469,6 +469,14 @@ remain inside technical details.
 Outcome copy must not imply that Agent Controller Permission Mode changes Space
 access, Agent availability, or separate Computer file-access limits.
 
+Antigravity uses native per-invocation modes: Default preserves the CLI's
+configured permissions, Accept edits passes `--mode accept-edits`, Plan passes
+`--mode plan`, and Bypass permissions passes `--dangerously-skip-permissions`
+with explicit owner confirmation. Headless requests cannot present approval
+prompts; actions requiring approval are denied by the CLI. Plan is not a
+filesystem sandbox. These settings apply to subsequent invocations, including
+resumed conversations; Antigravity does not support live permission updates.
+
 Owners may edit Binding-level runtime settings while a Wake is running. The
 accepted Binding id and configuration revision remain the dispatch's immutable
 starting identity, so changing model, reasoning, collaboration, or
@@ -584,7 +592,8 @@ Cursor uses five controller-native presets over its ACP interface:
 - **Run Everything** launches `cursor-agent --force acp`, requires explicit
   confirmation, and still respects explicit Cursor deny rules.
 
-When a running Codex, Claude Code, Grok Build, Cursor, or OpenCode turn asks for permission,
+When a running Codex, Claude Code, Grok Build, Cursor, OpenCode, or Antigravity
+turn asks for permission,
 asks a structured question, or finishes a plan that needs review, OpenMeld
 pauses that same Wake and presents the request in its Space. The Binding owner
 can answer there without opening the controller's terminal. OpenMeld returns
@@ -607,10 +616,14 @@ A dispatch-scoped first-party OpenMeld Space Action is not a general controller
 command approval. OpenMeld may make its own `reply`, `status`, and `stay_silent`
 tools approval-free because they can write only one validated proposal for the
 current dispatch and still require RuntimeCoordinator publication. OpenMeld
-must not extend that exception to shell strings, arbitrary `openmeld` commands,
-filesystem access, network access, or another dispatch. `Ask for approval`
-therefore remains authoritative for ordinary Codex actions without blocking the
-Agent's chosen Space outcome.
+may require Antigravity's final response to match a dispatch-scoped structured
+output schema because its CLI has no proven per-invocation structured-tool
+configuration surface. After validating that `reply`, `status`, or `silent`
+outcome, the trusted adapter invokes the same dispatch-owned writer without a
+shell. The model never receives a new command permission, and ordinary shell,
+filesystem, network, and MCP actions remain under the controller's native
+policy. `Ask for approval` therefore remains authoritative for ordinary
+controller actions without blocking the Agent's chosen Space outcome.
 
 Only the Binding owner may see request details or answer. Other authenticated
 Space members may see that the Agent Profile is waiting for its owner, but not
@@ -759,6 +772,53 @@ the profile to a Project, or move the profile's current controller session.
 Remote Agent and Center Agent Profiles do not show or use this field in the
 MVP.
 
+An existing OpenCode session remains bound to its native working folder. If
+that folder does not resolve to the Agent's current effective working folder,
+Wake must resolve the conflict before prompting or forking the session. Working Folder Recovery
+lets the owner explicitly choose the verified original folder or a new
+conversation for the same Agent Profile. OpenMeld does not run in the former
+folder or replace the session automatically.
+
+### Working Folder Recovery
+
+A working-folder conflict gives the owner an actionable choice in the Wake
+before the Agent starts. The Profile's identity and Space memberships survive recovery.
+The owner can continue the previous conversation in its verified original
+folder, start a new conversation in the currently selected folder, or leave the
+task without running it. Starting a new conversation preserves the old
+native history and explicitly warns that it will not carry into the new one.
+Neither choice changes the execution Computer.
+
+Normal Wakes require no extra confirmation. Only a verified conflict opens a
+recovery decision. A targeted read of the existing native session store avoids
+starting a second controller just to inspect its folder. The local Service verifies the native conversation and its
+folder, current Computer file access, and the expected execution target before
+applying a choice. Paths stay within the existing owner-only local-control
+boundary. A missing folder or unavailable Computer stays actionable and does
+not trigger an inferred substitute or credential change.
+
+Web and the Desktop renderer reuse the existing question card. Human CLI and
+Agent View consume the same typed interaction through `openmeld space respond`,
+with an explicit response and exact request identity in non-interactive use.
+A client must not implement recovery by independently clearing a conversation
+and updating workspace settings.
+
+RuntimeCoordinator owns the existing durable pending interaction and its
+resolution. Inbox projects that question as Needs action for the Profile owner, using the existing delivery
+preferences. Reading or dismissing the Inbox item does not resolve the decision.
+The requester can see that the owner needs to act without gaining local paths or
+management permissions. Repeated reports do not create repeated reminders.
+
+Answering continues the same accepted task; it does not repost its prompt or
+create a second Wake. Continuing the previous folder applies to that task only
+and does not silently change Default Project. A successful new conversation
+uses the existing result-owned Binding update for subsequent Wakes. The old
+native history remains saved. The existing eight-hour interaction expiry,
+response-delivery watchdog, owner authorization, and exact-response idempotency
+apply. Stop, expiry, Service loss, and final reply follow normal visible outcome
+publication. Previously terminal Wakes remain terminal; a new Wake receives the
+new preflight choice without rewriting their history.
+
 The current computer resolves Project intent through its own local state:
 
 ```text
@@ -825,6 +885,24 @@ editor. Permission review opens customization and the Permissions editor,
 focusing the confirmation control. Working-folder blockers offer a one-click
 OpenMeld-managed folder action that clears the Project selection and prevents
 late defaults from overwriting that explicit choice.
+
+Web creation always presents the complete built-in Local Agent catalog in the
+canonical order: Codex, Claude Code, Grok Build, OpenCode, Antigravity, then
+Cursor. Catalog visibility is product discovery, not evidence that an Agent is
+installed, enabled, signed in, or ready. Selecting an unavailable entry keeps it
+selected for inspection while the Binding target remains unset. A full-width
+dashed recovery panel then names the exact blocker and offers the nearest direct
+action: the Agent-specific install guide, an inline enable switch, sign-in or
+setup guidance, or a retry for unknown Computer evidence. Creation becomes
+available only after the existing canonical eligibility projection provides a
+valid local Binding target.
+
+The selected Local Agent's Usage summary appears at the far right of the Agent
+name row above Advanced Agent Settings. It consumes the already loaded local
+runtime projection and its query cache; opening creation must not start a second
+provider Usage request. A small skeleton may replace only that summary while
+the projection is loading. Missing or unsupported Usage leaves the rest of the
+form interactive and does not create another readiness rule.
 
 For a new Web session, a remembered Project id alone is not enough to restore a
 working folder: it does not confirm a connection on the selected computer.

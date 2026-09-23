@@ -1,5 +1,5 @@
 import { type createD1Db, members, users } from "@openmeld/db/auth";
-import { and, eq, exists } from "drizzle-orm";
+import { and, eq, exists } from "@openmeld/db/query";
 
 export type SetLastSelectedOrganizationInput = {
   organizationId: string;

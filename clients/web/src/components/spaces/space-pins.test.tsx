@@ -59,6 +59,7 @@ const files: SpaceFilePinsResponse = {
 				spaceId: "space-1",
 				parentId: null,
 				name: "notes.md",
+				origin: "artifact",
 				path: "/notes.md",
 				kind: "file",
 				createdAt: date,

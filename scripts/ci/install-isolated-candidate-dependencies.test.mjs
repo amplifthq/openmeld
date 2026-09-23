@@ -114,6 +114,61 @@ test(
 );
 
 test(
+  "isolated pnpm run does not honor candidate script-shell that fakes success",
+  { skip: !supportsLinuxCandidateInstall() },
+  () => {
+    const fixture = createLinuxWrapperFixture();
+    try {
+      writeFileSync(
+        path.join(fixture.candidateRoot, "package.json"),
+        `${JSON.stringify({
+          packageManager: "pnpm@10.30.0",
+          private: true,
+          scripts: {
+            prove: `node -e ${JSON.stringify(
+              `require("node:fs").writeFileSync(${JSON.stringify(fixture.marker)}, "ran"); process.exit(37)`
+            )}`,
+          },
+        })}\n`
+      );
+      writeFileSync(
+        path.join(fixture.candidateRoot, "candidate-shell.sh"),
+        "#!/bin/sh\nexit 0\n"
+      );
+      chmodSync(path.join(fixture.candidateRoot, "candidate-shell.sh"), 0o755);
+      writeFileSync(
+        path.join(fixture.candidateRoot, ".npmrc"),
+        "script-shell=./candidate-shell.sh\n"
+      );
+
+      // FC itself runs inside the trusted wrapper. Its inherited shell setting
+      // must not protect this deliberately unwrapped attack control as well.
+      const unwrapped = spawnSync("pnpm", ["run", "prove"], {
+        cwd: fixture.candidateRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          NPM_CONFIG_SCRIPT_SHELL: undefined,
+          npm_config_script_shell: undefined,
+        },
+      });
+      assert.equal(
+        unwrapped.status,
+        0,
+        `${unwrapped.stdout}\n${unwrapped.stderr}`
+      );
+      assert.equal(existsSync(fixture.marker), false);
+
+      const wrapped = runCandidateCommand(fixture, ["pnpm", "run", "prove"]);
+      assert.equal(wrapped.status, 37, `${wrapped.stdout}\n${wrapped.stderr}`);
+      assert.equal(readFileSync(fixture.marker, "utf8"), "ran");
+    } finally {
+      fixture.cleanup();
+    }
+  }
+);
+
+test(
   "Linux empty-store workspace install rebuilds and loads the repository-approved better-sqlite3 binary",
   { skip: !supportsLinuxCandidateInstall(), timeout: 180_000 },
   () => {
@@ -203,6 +258,36 @@ function supportsLinuxCandidateInstall() {
   }
   const pnpmVersion = spawnSync("pnpm", ["--version"], { encoding: "utf8" });
   return pnpmVersion.status === 0 && pnpmVersion.stdout.trim() === "10.30.0";
+}
+
+function createLinuxWrapperFixture() {
+  const root = mkdtempSync(
+    path.join(tmpdir(), "openmeld-linux-candidate-wrapper-")
+  );
+  const candidateRoot = path.join(root, "untrusted-candidate");
+  const candidateHome = path.join(root, "candidate-home");
+  const trustedRoot = path.join(root, "trusted-control");
+  mkdirSync(candidateRoot);
+  mkdirSync(candidateHome, { recursive: true });
+  mkdirSync(path.join(trustedRoot, "scripts", "ci"), { recursive: true });
+  const destination = path.join(trustedRoot, "scripts", "ci", WRAPPER_SCRIPT);
+  cpSync(path.join(SCRIPT_DIR, WRAPPER_SCRIPT), destination);
+  chmodSync(destination, 0o755);
+  return {
+    candidateHome,
+    candidateRoot,
+    cleanup: () => rmSync(root, { force: true, recursive: true }),
+    environment: {
+      ...process.env,
+      OPENMELD_AFFECTED_BASE: "b".repeat(40),
+      OPENMELD_CANDIDATE_HOME: candidateHome,
+      OPENMELD_CANDIDATE_ROOT: candidateRoot,
+      OPENMELD_TRUSTED_CONTROL_ROOT: trustedRoot,
+    },
+    marker: path.join(root, "candidate-script-ran.log"),
+    root,
+    trustedRoot,
+  };
 }
 
 function createLinuxInstallFixture() {

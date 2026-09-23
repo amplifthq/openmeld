@@ -167,7 +167,7 @@ export function CenterAgentOptimisticConversation(input: {
 									className="py-1.5"
 									data-space-self-message="true"
 								>
-									<MessageContent className="gap-0">
+									<MessageContent className="gap-0" directMessage>
 										<MessageHeader className="h-6 px-0">
 											{input.selfProfile ? (
 												<div className="flex items-center gap-1.5">
@@ -178,12 +178,9 @@ export function CenterAgentOptimisticConversation(input: {
 														profileId={input.selfProfile.openMeldProfileId}
 														profileKind="human"
 													/>
-													<span className="font-bold text-foreground text-sm">
-														{input.selfProfile.profileName}
-													</span>
 												</div>
 											) : (
-												<Skeleton className="h-4 w-24 animate-none" />
+												<Skeleton className="size-6 animate-none rounded-full" />
 											)}
 										</MessageHeader>
 										<Bubble align="end">

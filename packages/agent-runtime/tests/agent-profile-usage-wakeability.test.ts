@@ -353,7 +353,10 @@ describe("resolveAgentProfileUsageWakeability", () => {
   });
 
   it("keeps one versioned Usage support matrix for Core and the Local Service", () => {
-    expect(AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION).toBe(2);
+    expect(AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION).toBe(3);
+    expect(resolveAgentControllerUsageLimitSupport("builtin:antigravity")).toBe(
+      "native"
+    );
     expect(resolveAgentControllerUsageLimitSupport("builtin:codex")).toBe(
       "native"
     );

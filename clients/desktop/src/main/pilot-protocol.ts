@@ -22,6 +22,7 @@ import {
   desktopWorkingFolderTarget,
   isPilotLocalControlRequest,
 } from "./pilot-local-control-policy";
+import type { TransportObservation } from "./transport-diagnostics";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html",
@@ -62,6 +63,7 @@ type PilotProtocolOptions = {
   ) => Promise<Response>;
   ensureCompatible?: () => Promise<void>;
   readLocalComputer?: () => Promise<DesktopLocalComputer>;
+  observe?: (event: TransportObservation) => void;
 };
 
 export function createPilotProtocol(input: PilotProtocolOptions) {
@@ -82,7 +84,7 @@ export function createPilotProtocol(input: PilotProtocolOptions) {
       if (sourceRefusal) {
         return sourceRefusal;
       }
-      return await forwardCloud(request, url, input);
+      return await observeCloudRequest(request, url, input);
     }
     if (
       url.pathname.startsWith("/api/") ||
@@ -95,6 +97,39 @@ export function createPilotProtocol(input: PilotProtocolOptions) {
     }
     return await readAsset(request, url, input.assets);
   };
+}
+
+async function observeCloudRequest(
+  request: Request,
+  url: URL,
+  input: PilotProtocolOptions
+) {
+  const started = performance.now();
+  let observed = false;
+  const observe = (event: TransportObservation) => {
+    observed = true;
+    input.observe?.(event);
+  };
+  const admission = (status?: number) => {
+    if (!observed) {
+      observe({
+        kind: "request",
+        pathname: url.pathname,
+        method: request.method,
+        outcome: "admission",
+        status,
+        elapsedMs: performance.now() - started,
+      });
+    }
+  };
+  try {
+    const response = await forwardCloud(request, url, { ...input, observe });
+    admission(response.status);
+    return response;
+  } catch (error) {
+    admission();
+    throw error;
+  }
 }
 
 const TRAILING_SLASHES = /\/+$/u;
@@ -179,14 +214,68 @@ async function forwardCloud(
       { status: 409 }
     );
   }
-  const upstream =
-    url.pathname.startsWith("/v1/") && input.cloudRequest
-      ? await input.cloudRequest(url.pathname + url.search, cloudRequest)
-      : await input.fetch(new URL(url.pathname + url.search, input.webOrigin), {
-          ...cloudRequest,
-          redirect: "manual",
-        });
-  return sanitizeCloudResponse(upstream, Boolean(nativeAccountRead));
+  return await fetchCloudResponse(
+    request,
+    url,
+    input,
+    cloudRequest,
+    nativeAccountRead
+  );
+}
+
+async function fetchCloudResponse(
+  request: Request,
+  url: URL,
+  input: PilotProtocolOptions,
+  cloudRequest: { method: string; headers: Headers; body?: ArrayBuffer },
+  nativeAccountRead: boolean
+) {
+  const started = performance.now();
+  let upstream: Response;
+  try {
+    upstream =
+      url.pathname.startsWith("/v1/") && input.cloudRequest
+        ? await input.cloudRequest(url.pathname + url.search, cloudRequest)
+        : await input.fetch(
+            new URL(url.pathname + url.search, input.webOrigin),
+            {
+              ...cloudRequest,
+              redirect: "manual",
+            }
+          );
+  } catch (error) {
+    input.observe?.({
+      kind: "request",
+      pathname: url.pathname,
+      method: request.method,
+      outcome: "network",
+      elapsedMs: performance.now() - started,
+    });
+    throw error;
+  }
+  const response = await sanitizeCloudResponse(
+    upstream,
+    Boolean(nativeAccountRead)
+  );
+  input.observe?.({
+    kind: "request",
+    pathname: url.pathname,
+    method: request.method,
+    outcome: httpOutcome(response),
+    status: response.status,
+    requestId:
+      upstream.headers.get("x-openmeld-request-id") ??
+      upstream.headers.get("x-request-id"),
+    elapsedMs: performance.now() - started,
+  });
+  return response;
+}
+
+function httpOutcome(response: Response) {
+  if (response.ok) {
+    return "ok";
+  }
+  return [401, 403].includes(response.status) ? "authentication" : "http";
 }
 
 async function readCloudBody(request: Request) {

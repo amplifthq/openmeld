@@ -9,6 +9,10 @@ import {
   type CenterAgentMemoryService,
   createCenterAgentMemoryService,
 } from "./memory-service";
+import {
+  type RetainedMemoryRead,
+  searchRetainedCenterAgentMemory,
+} from "./retained-memory-search";
 import { createZepCenterAgentMemoryAdapter } from "./zep-memory-adapter";
 
 export function createCoreCenterAgentMemoryService(
@@ -34,6 +38,27 @@ export function createCoreCenterAgentMemoryService(
           ...ledgerInput,
         }),
     },
+    repository: createD1CenterAgentMemoryRepository(db),
+  });
+}
+
+export async function readCoreCenterAgentRetainedMemory(
+  env: CoreBindings,
+  input: {
+    organizationId: string;
+    speakerMember: { memberId: string; userId: string };
+    query: string;
+    limit: number;
+  }
+): Promise<RetainedMemoryRead> {
+  const db = identityDb(env);
+  const apiKey = normalizeOptionalText(env.ZEP_OPENMELD_API_KEY);
+  if (!(db && apiKey)) {
+    return { items: [], status: "unavailable" };
+  }
+  return await searchRetainedCenterAgentMemory({
+    ...input,
+    adapter: createZepCenterAgentMemoryAdapter({ apiKey }),
     repository: createD1CenterAgentMemoryRepository(db),
   });
 }

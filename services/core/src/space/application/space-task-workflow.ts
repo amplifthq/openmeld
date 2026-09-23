@@ -1,8 +1,16 @@
+import {
+  formatSpaceTaskGitHubIssueLabel,
+  SPACE_TASK_EXTERNAL_WORK_ITEM_MAX_ITEMS,
+  spaceTaskActionSchema,
+  spaceTaskExternalWorkItemIdentityKey,
+} from "@openmeld/schemas";
 import type {
   MutateSpaceTaskBody,
   SpaceTask,
+  SpaceTaskAction,
   SpaceTaskActor,
   SpaceTaskEventType,
+  SpaceTaskExternalWorkItem,
 } from "@openmeld/schemas/types";
 
 export class SpaceTaskWorkflowError extends Error {
@@ -118,9 +126,115 @@ const requireActiveTask = (task: SpaceTask): void => {
  * (already the human decision) and a human assignee receiving feedback are
  * both outside the budget and return the Task to In progress directly.
  */
-const isAutomaticReworkCycle = (task: SpaceTask): boolean =>
-  task.reviewer?.profileKind === "agent" &&
-  task.assignee?.profileKind === "agent";
+const isAutomaticReworkCycle = (
+  task: SpaceTask,
+  actor: SpaceTaskActor
+): boolean =>
+  actor.profileKind === "agent" && task.assignee?.profileKind === "agent";
+
+function assertSpaceTaskActionAllowed(
+  task: SpaceTask,
+  action: SpaceTaskAction,
+  context: SpaceTaskMutationContext
+): void {
+  switch (action) {
+    case "assign":
+    case "update_brief":
+    case "cancel":
+    case "attach_external_work_item":
+      requireManager(task, context);
+      requireActiveTask(task);
+      return;
+    case "set_reviewer":
+      requireRequesterOrOwner(task, context);
+      requireActiveTask(task);
+      if (task.phase === "in_review") {
+        fail(
+          "space_task.review_in_progress",
+          "Complete the current review before changing the reviewer."
+        );
+      }
+      return;
+    case "mark_in_progress":
+      requireAssignee(task, context);
+      if (task.phase !== "to_do") {
+        fail(
+          "space_task.invalid_transition",
+          "Only a Task in To do can move to In progress."
+        );
+      }
+      return;
+    case "submit_result":
+      requireAssignee(task, context);
+      if (task.phase !== "in_progress") {
+        fail(
+          "space_task.invalid_transition",
+          "Only a Task in progress can submit a result."
+        );
+      }
+      return;
+    case "review":
+      requireReviewer(task, context);
+      if (task.phase !== "in_review" || !task.result) {
+        fail(
+          "space_task.invalid_transition",
+          "This Task does not have a result awaiting review."
+        );
+      }
+      return;
+    case "reopen":
+      requireRequesterOrOwner(task, context);
+      if (task.phase !== "done" && task.phase !== "canceled") {
+        fail(
+          "space_task.invalid_transition",
+          "Only a completed or canceled Task can be reopened."
+        );
+      }
+      return;
+    case "continue_rework":
+      requireRequesterOrOwner(task, context);
+      if (context.actor.profileKind !== "human") {
+        fail(
+          "space_task.human_decision_required",
+          "A human requester or Space owner must authorize more rework.",
+          403
+        );
+      }
+      if (task.phase !== "in_review" || !task.needsHumanDecision) {
+        fail(
+          "space_task.invalid_transition",
+          "This Task is not waiting for a human rework decision."
+        );
+      }
+      return;
+    case "detach_external_work_item":
+    case "observe_external_work_item":
+      requireManager(task, context);
+      return;
+    default:
+      fail("space_task.invalid_action", "Unsupported Task action.", 400);
+  }
+}
+
+export function projectSpaceTaskAllowedActions(
+  task: SpaceTask,
+  context: SpaceTaskMutationContext | null
+): SpaceTaskAction[] {
+  if (!context) {
+    return [];
+  }
+  return spaceTaskActionSchema.options.filter((action) => {
+    try {
+      assertSpaceTaskActionAllowed(task, action, context);
+      return true;
+    } catch (error) {
+      if (error instanceof SpaceTaskWorkflowError) {
+        return false;
+      }
+      throw error;
+    }
+  });
+}
 
 const resolveMember = (
   context: SpaceTaskMutationContext,
@@ -171,8 +285,6 @@ function assignTask({
   now,
   task,
 }: CommandHandlerInput<"assign">): SpaceTaskMutationResult {
-  requireManager(task, context);
-  requireActiveTask(task);
   const assignee = command.assigneeProfileId
     ? resolveMember(context, command.assigneeProfileId)
     : null;
@@ -203,12 +315,9 @@ function assignTask({
 
 function updateTaskBrief({
   command,
-  context,
   now,
   task,
 }: CommandHandlerInput<"update_brief">): SpaceTaskMutationResult {
-  requireManager(task, context);
-  requireActiveTask(task);
   if (
     command.title === undefined &&
     command.description === undefined &&
@@ -243,14 +352,6 @@ function setTaskReviewer({
   now,
   task,
 }: CommandHandlerInput<"set_reviewer">): SpaceTaskMutationResult {
-  requireRequesterOrOwner(task, context);
-  requireActiveTask(task);
-  if (task.phase === "in_review") {
-    fail(
-      "space_task.review_in_progress",
-      "Complete the current review before changing the reviewer."
-    );
-  }
   const reviewer = command.reviewerProfileId
     ? resolveMember(context, command.reviewerProfileId)
     : null;
@@ -271,17 +372,9 @@ function setTaskReviewer({
 }
 
 function markTaskInProgress({
-  context,
   now,
   task,
 }: CommandHandlerInput<"mark_in_progress">): SpaceTaskMutationResult {
-  requireAssignee(task, context);
-  if (task.phase !== "to_do") {
-    fail(
-      "space_task.invalid_transition",
-      "Only a Task in To do can move to In progress."
-    );
-  }
   return finishMutation({
     current: task,
     next: { ...task, phase: "in_progress" },
@@ -296,14 +389,7 @@ function submitTaskResult({
   now,
   task,
 }: CommandHandlerInput<"submit_result">): SpaceTaskMutationResult {
-  requireAssignee(task, context);
-  if (task.phase !== "in_progress") {
-    fail(
-      "space_task.invalid_transition",
-      "Only a Task in progress can submit a result."
-    );
-  }
-  const resultRevision = (task.result?.resultRevision ?? 0) + 1;
+  const resultRevision = task.revision + 1;
   return finishMutation({
     current: task,
     next: {
@@ -330,7 +416,6 @@ function reviewTaskResult({
   now,
   task,
 }: CommandHandlerInput<"review">): SpaceTaskMutationResult {
-  requireReviewer(task, context);
   if (
     !sameActor(task.reviewer, context.actor.profileId) &&
     context.isSpaceOwner &&
@@ -346,6 +431,12 @@ function reviewTaskResult({
     return fail(
       "space_task.invalid_transition",
       "This Task does not have a result awaiting review."
+    );
+  }
+  if (command.expectedResultRevision !== task.result.resultRevision) {
+    fail(
+      "space_task.result_revision_conflict",
+      "The submitted result changed. Read the current result before reviewing it."
     );
   }
   if (command.decision === "changes_requested" && !command.feedback) {
@@ -371,7 +462,7 @@ function reviewTaskResult({
       now,
     });
   }
-  if (!isAutomaticReworkCycle(task)) {
+  if (!isAutomaticReworkCycle(task, context.actor)) {
     return finishMutation({
       current: task,
       next: {
@@ -405,12 +496,9 @@ function reviewTaskResult({
 
 function cancelTask({
   command,
-  context,
   now,
   task,
 }: CommandHandlerInput<"cancel">): SpaceTaskMutationResult {
-  requireManager(task, context);
-  requireActiveTask(task);
   return finishMutation({
     current: task,
     next: { ...task, phase: "canceled", needsHumanDecision: false },
@@ -422,17 +510,9 @@ function cancelTask({
 
 function reopenTask({
   command,
-  context,
   now,
   task,
 }: CommandHandlerInput<"reopen">): SpaceTaskMutationResult {
-  requireRequesterOrOwner(task, context);
-  if (task.phase !== "done" && task.phase !== "canceled") {
-    fail(
-      "space_task.invalid_transition",
-      "Only a completed or canceled Task can be reopened."
-    );
-  }
   return finishMutation({
     current: task,
     next: {
@@ -449,26 +529,222 @@ function reopenTask({
   });
 }
 
+function matchingExternalWorkItemIndex(
+  items: readonly SpaceTaskExternalWorkItem[],
+  identity: {
+    number: number;
+    owner: string;
+    provider: string;
+    repo: string;
+  }
+): number {
+  const key = spaceTaskExternalWorkItemIdentityKey(identity);
+  return items.findIndex(
+    (item) => spaceTaskExternalWorkItemIdentityKey(item) === key
+  );
+}
+
+function attachExternalWorkItem({
+  command,
+  now,
+  task,
+}: CommandHandlerInput<"attach_external_work_item">): SpaceTaskMutationResult {
+  const existingIndex = matchingExternalWorkItemIndex(
+    task.externalWorkItems,
+    command.item
+  );
+  if (existingIndex >= 0) {
+    const nextItems = task.externalWorkItems.map((item, index) =>
+      index === existingIndex ? command.item : item
+    );
+    return finishMutation({
+      current: task,
+      next: { ...task, externalWorkItems: nextItems },
+      eventType: "external_work_item_observed",
+      detail: formatSpaceTaskGitHubIssueLabel(command.item),
+      now,
+    });
+  }
+  if (
+    task.externalWorkItems.length >= SPACE_TASK_EXTERNAL_WORK_ITEM_MAX_ITEMS
+  ) {
+    fail(
+      "space_task.external_work_item_limit",
+      `A Task can link at most ${SPACE_TASK_EXTERNAL_WORK_ITEM_MAX_ITEMS} GitHub issues.`,
+      400
+    );
+  }
+  return finishMutation({
+    current: task,
+    next: {
+      ...task,
+      externalWorkItems: [...task.externalWorkItems, command.item],
+    },
+    eventType: "external_work_item_attached",
+    detail: formatSpaceTaskGitHubIssueLabel(command.item),
+    now,
+  });
+}
+
+function detachExternalWorkItem({
+  command,
+  now,
+  task,
+}: CommandHandlerInput<"detach_external_work_item">): SpaceTaskMutationResult {
+  const existingIndex = matchingExternalWorkItemIndex(
+    task.externalWorkItems,
+    command
+  );
+  if (existingIndex < 0) {
+    fail(
+      "space_task.external_work_item_not_found",
+      "This Task is not linked to that GitHub issue.",
+      404
+    );
+  }
+  return finishMutation({
+    current: task,
+    next: {
+      ...task,
+      externalWorkItems: task.externalWorkItems.filter(
+        (_item, index) => index !== existingIndex
+      ),
+    },
+    eventType: "external_work_item_detached",
+    detail: formatSpaceTaskGitHubIssueLabel(command),
+    now,
+  });
+}
+
+function observeExternalWorkItem({
+  command,
+  now,
+  task,
+}: CommandHandlerInput<"observe_external_work_item">): SpaceTaskMutationResult {
+  const existingIndex = matchingExternalWorkItemIndex(
+    task.externalWorkItems,
+    command
+  );
+  if (existingIndex < 0) {
+    fail(
+      "space_task.external_work_item_not_found",
+      "This Task is not linked to that GitHub issue.",
+      404
+    );
+  }
+  const current = task.externalWorkItems[existingIndex];
+  if (!current) {
+    return fail(
+      "space_task.external_work_item_not_found",
+      "This Task is not linked to that GitHub issue.",
+      404
+    );
+  }
+  const nextItem: SpaceTaskExternalWorkItem = {
+    ...current,
+    lastObservedAt: command.lastObservedAt ?? now,
+    lastObservedState: command.lastObservedState,
+  };
+  return finishMutation({
+    current: task,
+    next: {
+      ...task,
+      externalWorkItems: task.externalWorkItems.map((item, index) =>
+        index === existingIndex ? nextItem : item
+      ),
+    },
+    eventType: "external_work_item_observed",
+    detail: formatSpaceTaskGitHubIssueLabel(command),
+    now,
+  });
+}
+
+export function applyGitHubIssueProviderObservation(input: {
+  now?: string;
+  observedAt: string;
+  observedState: SpaceTaskExternalWorkItem["lastObservedState"];
+  identity: {
+    number: number;
+    owner: string;
+    repo: string;
+  };
+  task: SpaceTask;
+}): {
+  cancel: SpaceTaskMutationResult | null;
+  observe: SpaceTaskMutationResult | null;
+  skipReason: "not_linked" | "stale" | null;
+} {
+  const existingIndex = matchingExternalWorkItemIndex(
+    input.task.externalWorkItems,
+    {
+      ...input.identity,
+      provider: "github",
+    }
+  );
+  if (existingIndex < 0) {
+    return { cancel: null, observe: null, skipReason: "not_linked" };
+  }
+  const current = input.task.externalWorkItems[existingIndex];
+  if (!current) {
+    return { cancel: null, observe: null, skipReason: "not_linked" };
+  }
+  if (current.lastObservedAt && current.lastObservedAt > input.observedAt) {
+    return { cancel: null, observe: null, skipReason: "stale" };
+  }
+  const now = input.now ?? input.observedAt;
+  const needsObserve =
+    current.lastObservedState !== input.observedState ||
+    current.lastObservedAt !== input.observedAt;
+  const observe = needsObserve
+    ? finishMutation({
+        current: input.task,
+        next: {
+          ...input.task,
+          externalWorkItems: input.task.externalWorkItems.map((item, index) =>
+            index === existingIndex
+              ? {
+                  ...item,
+                  lastObservedAt: input.observedAt,
+                  lastObservedState: input.observedState,
+                }
+              : item
+          ),
+        },
+        eventType: "external_work_item_observed",
+        detail: formatSpaceTaskGitHubIssueLabel(current),
+        now,
+      })
+    : null;
+  const observedTask = observe?.task ?? input.task;
+  if (
+    input.observedState !== "closed" ||
+    observedTask.phase === "done" ||
+    observedTask.phase === "canceled"
+  ) {
+    return { cancel: null, observe, skipReason: null };
+  }
+  return {
+    cancel: finishMutation({
+      current: observedTask,
+      next: {
+        ...observedTask,
+        needsHumanDecision: false,
+        phase: "canceled",
+      },
+      eventType: "canceled",
+      detail: `GitHub issue ${formatSpaceTaskGitHubIssueLabel(current)} was closed.`,
+      now,
+    }),
+    observe,
+    skipReason: null,
+  };
+}
+
 function continueTaskRework({
   command,
-  context,
   now,
   task,
 }: CommandHandlerInput<"continue_rework">): SpaceTaskMutationResult {
-  requireRequesterOrOwner(task, context);
-  if (context.actor.profileKind !== "human") {
-    fail(
-      "space_task.human_decision_required",
-      "A human requester or Space owner must authorize more rework.",
-      403
-    );
-  }
-  if (task.phase !== "in_review" || !task.needsHumanDecision) {
-    fail(
-      "space_task.invalid_transition",
-      "This Task is not waiting for a human rework decision."
-    );
-  }
   return finishMutation({
     current: task,
     next: { ...task, phase: "in_progress", needsHumanDecision: false },
@@ -491,6 +767,7 @@ export function mutateSpaceTask(input: {
       `This Task changed from revision ${command.expectedRevision} to ${task.revision}. Refresh it and try again.`
     );
   }
+  assertSpaceTaskActionAllowed(task, command.action, context);
   const now = input.now ?? new Date().toISOString();
   switch (command.action) {
     case "assign":
@@ -511,6 +788,12 @@ export function mutateSpaceTask(input: {
       return reopenTask({ command, context, now, task });
     case "continue_rework":
       return continueTaskRework({ command, context, now, task });
+    case "attach_external_work_item":
+      return attachExternalWorkItem({ command, context, now, task });
+    case "detach_external_work_item":
+      return detachExternalWorkItem({ command, context, now, task });
+    case "observe_external_work_item":
+      return observeExternalWorkItem({ command, context, now, task });
     default:
       return fail("space_task.invalid_action", "Unsupported Task action.", 400);
   }

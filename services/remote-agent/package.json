@@ -44,7 +44,7 @@
     "ai": "6.0.219",
     "hono": "^4.11.7",
     "valibot": "1.4.0",
-    "zod": "^4.3.6"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@babel/core": "8.0.1",
@@ -53,6 +53,7 @@
     "@cloudflare/workers-types": "catalog:",
     "@flue/cli": "2.0.3",
     "@flue/vite": "2.0.3",
+    "@openmeld/core": "workspace:*",
     "dotenv-cli": "^11.0.0",
     "rolldown": "1.1.4",
     "typescript": "^5.9.3",

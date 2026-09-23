@@ -17,6 +17,8 @@ import {
   inboxItemRouteParamsSchema,
   inboxMessageNotificationPreferencesQuerySchema,
   inboxMessageNotificationPreferencesResponseSchema,
+  inboxNotificationObservationsQuerySchema,
+  inboxNotificationObservationsResponseSchema,
   inboxNotificationPreferencesResponseSchema,
   inboxSummaryQuerySchema,
   inboxSummaryResponseSchema,
@@ -72,6 +74,31 @@ const SPACE_INBOX_CONVERSATION_COUNTS_VERSIONS = new Set([
 ]);
 
 export function registerInboxRoutes(app: Hono<HonoBindings>): void {
+  app.get(`${INBOX_ROUTE}/notification-observations`, (c) => {
+    const route = `${INBOX_ROUTE}/notification-observations`;
+    const query = inboxNotificationObservationsQuerySchema.safeParse(
+      c.req.query()
+    );
+    if (!query.success) {
+      return invalidPayloadResponse(
+        c,
+        route,
+        "GET",
+        query.error.issues[0]?.message
+      );
+    }
+    return executeRpcRoute({
+      c,
+      method: "GET",
+      route,
+      responseSchema: inboxNotificationObservationsResponseSchema,
+      execute: () =>
+        c.var.coreRpc.observeInboxNotifications({
+          ...query.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
   app.get(INBOX_FEED_ROUTE, (c) => {
     const query = inboxFeedQuerySchema.safeParse(c.req.query());
     if (!query.success) {

@@ -89,6 +89,8 @@ export {
   toCompatibleSpaceAddressingRequestWireValue,
   toLegacySpaceAddressingWireValue,
 } from "./compatibility/legacy-space-addressing-wire";
+export { toLegacySpaceFilesOriginWireValue } from "./compatibility/legacy-space-files-origin-wire";
+export { toLegacySpaceImageGeometryWireValue } from "./compatibility/legacy-space-image-geometry-wire";
 export { toSpaceSignalReadWireValue } from "./compatibility/space-signal-read-wire";
 export {
   type ComputerConnectionIntent,
@@ -173,6 +175,7 @@ export {
   desktopWindowsBuildSchema,
   resolveDesktopReleasePlatform,
 } from "./desktop-release";
+export * from "./desktop-transport-diagnostics";
 export * from "./desktop-updater";
 export {
   buildOpenMeldNavigationAction,
@@ -384,8 +387,13 @@ export type * from "./types/index";
 export {
   WEB_APPLICATION_ERROR_MAX_BYTES,
   WEB_APPLICATION_ERROR_PATH,
+  type WebApplicationErrorQueryCategory,
+  type WebApplicationErrorQueryDiagnostic,
   type WebApplicationErrorReport,
   type WebApplicationErrorSource,
+  webApplicationErrorQueryCategorySchema,
+  webApplicationErrorQueryCodeSchema,
+  webApplicationErrorQueryDiagnosticSchema,
   webApplicationErrorReportSchema,
   webApplicationErrorSourceSchema,
   webApplicationErrorSummarySchema,
@@ -397,3 +405,11 @@ export {
   webPerformancePolicySchema,
   webPerformanceReportSchema,
 } from "./web-performance";
+export {
+  buildWorkingFolderRecoveryQuestion,
+  isWorkingFolderRecoveryDecline,
+  isWorkingFolderRecoveryQuestion,
+  resolveLocalExecutionOwnerCancellationReason,
+  WORKING_FOLDER_RECOVERY_DECLINED,
+  WORKING_FOLDER_RECOVERY_QUESTION_ID,
+} from "./working-folder-recovery";

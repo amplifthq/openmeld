@@ -48,11 +48,16 @@ export function publishGuardedLocalReleaseEvidence(input) {
       sourceSha,
       input.receipts?.[scope]
     );
-    if (isRecordedReceipt(current?.metadata, metadata)) {
+    const prepared = prepareEvidenceProof(context, current, metadata, {
+      recoveryProof: input.recoveryProof?.[scope],
+      reconciliation: input.reconciliation?.[scope],
+    });
+    if (!prepared) {
       continue;
     }
+    const { proofSha } = prepared;
     pending.push({
-      evidenceSha: createEvidenceCommit(context, current, metadata),
+      evidenceSha: createEvidenceCommit(context, current, metadata, proofSha),
       expectedSha: current?.evidenceSha ?? "",
       metadata,
       ref: evidenceRef(scope),
@@ -85,8 +90,55 @@ export function publishGuardedLocalReleaseEvidence(input) {
   };
 }
 
+function prepareEvidenceProof(context, current, metadata, input) {
+  const recoveryProof = input.recoveryProof;
+  let proofMetadata;
+  if (input.reconciliation) {
+    proofMetadata = createReconciliationProofMetadata(
+      context,
+      current,
+      metadata,
+      input.reconciliation
+    );
+  } else if (recoveryProof) {
+    proofMetadata = createRecoveryProofMetadata(
+      context,
+      current,
+      metadata,
+      recoveryProof
+    );
+  }
+  if (
+    isRecordedReceipt(
+      current?.metadata,
+      metadata,
+      Boolean(recoveryProof),
+      Boolean(input.reconciliation)
+    )
+  ) {
+    return null;
+  }
+  let proofSha;
+  if (proofMetadata) {
+    proofSha = createEvidenceCommit(context, current, proofMetadata);
+  } else if (
+    current?.metadata.receipt?.attemptId === metadata.receipt?.attemptId
+  ) {
+    proofSha = current?.reconciliationProofSha;
+  }
+  if (metadata.receipt?.identity?.proof === "reconciled-hosted" && !proofSha) {
+    throw new Error(
+      "Reconciled identity requires its retained hosted provenance."
+    );
+  }
+  return { proofSha };
+}
+
 export function readGuardedLocalReleaseSources(input = {}) {
-  const context = resolveContext(input);
+  const context = {
+    ...resolveContext(input),
+    gitEnvironment: input.gitEnvironment,
+  };
   return new Map(
     [...readGuardedLocalReleaseEvidence(context)].map(([scope, evidence]) => [
       scope,
@@ -100,7 +152,15 @@ export function readGuardedLocalReleaseSources(input = {}) {
           : {}),
         sha: evidence.metadata.sourceSha,
         source: "guarded-local",
-        url: undefined,
+        url: evidence.reconciliation
+          ? `https://github.com/${evidence.reconciliation.repository}/actions/runs/${evidence.reconciliation.runId}`
+          : undefined,
+        ...(evidence.reconciliation
+          ? {
+              reconciliation: evidence.reconciliation,
+              reconciliationEvidenceSha: evidence.reconciliationProofSha,
+            }
+          : {}),
       },
     ])
   );
@@ -161,9 +221,99 @@ function readGuardedLocalReleaseEvidence(context, selectedScopes) {
       evidenceSha,
       metadata,
       ref,
+      ...readReconciliationProof(context, evidenceSha, metadata),
     });
   }
   return evidenceByScope;
+}
+
+function createReconciliationProofMetadata(
+  context,
+  current,
+  metadata,
+  reconciliation
+) {
+  if (metadata.schemaVersion !== 3 || metadata.receipt.status !== "applied") {
+    throw new Error(
+      "Reconciliation must first retain an applied identity, never fabricate an original start event."
+    );
+  }
+  if (
+    current?.evidenceSha !== reconciliation.supersededReceipt.evidenceSha ||
+    current.metadata.sourceSha !== reconciliation.supersededReceipt.sourceSha ||
+    current.metadata.receipt?.status !== "failed" ||
+    current.metadata.receipt.application !== "unknown" ||
+    Date.parse(current.metadata.recordedAt) >=
+      Date.parse(reconciliation.deployedAt)
+  ) {
+    throw new Error(
+      "Reconciliation must preserve the exact superseded historical receipt."
+    );
+  }
+  return productionReleaseEvidenceSchema.parse({
+    ...metadata,
+    recordedAt: context.now.toISOString(),
+    schemaVersion: 5,
+    reconciliation,
+  });
+}
+
+function readReconciliationProof(context, evidenceSha, metadata) {
+  const parents = runGit(context, [
+    "rev-list",
+    "--parents",
+    "-n",
+    "1",
+    evidenceSha,
+  ])
+    .stdout.trim()
+    .split(WHITESPACE_PATTERN);
+  if (parents.length < 3) {
+    if (metadata.receipt?.identity?.proof === "reconciled-hosted") {
+      throw new Error("Reconciled identity is missing its hosted provenance.");
+    }
+    return {};
+  }
+  const proofSha = parents[2];
+  const message = runGit(context, [
+    "show",
+    "-s",
+    "--format=%B",
+    proofSha,
+  ]).stdout.trim();
+  const raw = JSON.parse(message);
+  if (raw.schemaVersion !== 5) {
+    if (metadata.receipt?.identity?.proof === "reconciled-hosted") {
+      throw new Error("Reconciled identity has the wrong provenance schema.");
+    }
+    return {};
+  }
+  const proof = productionReleaseEvidenceSchema.parse(raw);
+  if (
+    proof.scope !== metadata.scope ||
+    proof.sourceSha !== metadata.sourceSha ||
+    proof.receipt.attemptId !== metadata.receipt?.attemptId ||
+    proof.receipt.operationKey !== metadata.receipt?.operationKey ||
+    proof.receipt.startedAt !== metadata.receipt?.startedAt ||
+    proof.receipt.componentIndex !== metadata.receipt?.componentIndex ||
+    runGit(context, ["show", "-s", "--format=%P", proofSha]).stdout.trim() !==
+      proof.reconciliation.supersededReceipt.evidenceSha ||
+    runGit(context, ["rev-parse", `${proofSha}^{tree}`]).stdout.trim() !==
+      runGit(context, [
+        "rev-parse",
+        `${metadata.sourceSha}^{tree}`,
+      ]).stdout.trim() ||
+    JSON.stringify(proof.receipt.identity) !==
+      JSON.stringify(metadata.receipt?.identity)
+  ) {
+    throw new Error(
+      "Reconciled provenance does not match the canonical applied receiver."
+    );
+  }
+  return {
+    reconciliation: proof.reconciliation,
+    reconciliationProofSha: proofSha,
+  };
 }
 
 function resolveContext(input) {
@@ -172,6 +322,7 @@ function resolveContext(input) {
     environment: input.environment ?? process.env,
     now: input.now ? new Date(input.now) : new Date(),
     remote: input.remote ?? "origin",
+    gitEnvironment: input.gitEnvironment,
   };
   if (Number.isNaN(context.now.getTime())) {
     throw new Error("Guarded local release evidence requires a valid time.");
@@ -199,7 +350,51 @@ function createEvidenceMetadata(context, scope, sourceSha, receipt) {
   });
 }
 
-function isRecordedReceipt(current, next) {
+function createRecoveryProofMetadata(context, current, next, receipt) {
+  if (
+    next.scope !== "remote-agent" ||
+    current?.metadata.schemaVersion !== 3 ||
+    current.metadata.receipt?.status !== "failed" ||
+    current.metadata.receipt.application !== "unknown" ||
+    next.schemaVersion !== 3 ||
+    !["verified", "failed"].includes(next.receipt?.status) ||
+    receipt.recovery?.originalEvidenceSha !== current.evidenceSha ||
+    receipt.attemptId !== next.receipt.attemptId ||
+    receipt.operationKey !== next.receipt.operationKey ||
+    receipt.startedAt !== next.receipt.startedAt ||
+    receipt.componentIndex !== next.receipt.componentIndex ||
+    receipt.status !== next.receipt.status ||
+    receipt.application !== next.receipt.application ||
+    JSON.stringify(receipt.identity) !==
+      JSON.stringify(next.receipt.identity) ||
+    (next.receipt.status === "failed" &&
+      (next.receipt.application !== "unknown" || next.receipt.identity)) ||
+    (next.receipt.status === "verified" &&
+      (next.receipt.application !== "applied" ||
+        receipt.identity?.kind !== "worker-deployment" ||
+        receipt.identity.workerName !== "openmeld-remote-agent-prod"))
+  ) {
+    throw new Error(
+      "Recovery proof must match the exact retained failed Remote Agent attempt and completion."
+    );
+  }
+  return productionReleaseEvidenceSchema.parse({
+    evidenceId: randomUUID(),
+    kind: EVIDENCE_KIND,
+    recordedAt: context.now.toISOString(),
+    schemaVersion: 4,
+    scope: next.scope,
+    sourceSha: next.sourceSha,
+    receipt,
+  });
+}
+
+function isRecordedReceipt(
+  current,
+  next,
+  recoveryProved = false,
+  reconciliationProved = false
+) {
   if (!current) {
     return false;
   }
@@ -215,7 +410,8 @@ function isRecordedReceipt(current, next) {
   if (
     previous &&
     previous.status !== "verified" &&
-    previous.attemptId !== next.receipt.attemptId
+    previous.attemptId !== next.receipt.attemptId &&
+    !reconciliationProved
   ) {
     throw new Error(
       "An unresolved component attempt cannot be replaced; reconcile its deployment first."
@@ -240,14 +436,18 @@ function isRecordedReceipt(current, next) {
         "An existing component event cannot be rewritten with different evidence."
       );
     }
-    return true;
+    return !recoveryProved;
   }
   if (Date.parse(next.recordedAt) < Date.parse(current.recordedAt)) {
     throw new Error(
       "Refusing an older component receipt; reconcile the latest deployment evidence first."
     );
   }
-  const recovered = validateCorrelationTransition(current, next);
+  const recovered = validateCorrelationTransition(
+    current,
+    next,
+    recoveryProved
+  );
   if (previous?.attemptId === next.receipt.attemptId) {
     const order = { started: 0, applied: 1, verified: 2, failed: 2 };
     if (
@@ -264,7 +464,7 @@ function isRecordedReceipt(current, next) {
   return false;
 }
 
-function validateCorrelationTransition(current, next) {
+function validateCorrelationTransition(current, next, recoveryProved) {
   const previous = current.receipt;
   if (
     current.schemaVersion !== 3 ||
@@ -284,6 +484,9 @@ function validateCorrelationTransition(current, next) {
       "A correlated component attempt cannot change its target or applied identity."
     );
   }
+  if (recoveryProved) {
+    return previous.status === "failed" && previous.application === "unknown";
+  }
   return (
     previous.status === "failed" &&
     previous.application === "applied" &&
@@ -292,11 +495,17 @@ function validateCorrelationTransition(current, next) {
   );
 }
 
-function createEvidenceCommit(context, current, metadata) {
+function createEvidenceCommit(context, current, metadata, proofSha) {
   const parentSha = current?.evidenceSha ?? metadata.sourceSha;
   const result = spawnSync(
     "git",
-    ["commit-tree", `${metadata.sourceSha}^{tree}`, "-p", parentSha],
+    [
+      "commit-tree",
+      `${metadata.sourceSha}^{tree}`,
+      "-p",
+      parentSha,
+      ...(proofSha ? ["-p", proofSha] : []),
+    ],
     {
       cwd: context.cwd,
       encoding: "utf8",
@@ -343,9 +552,11 @@ function runGit(context, args, options = {}) {
   const result = spawnSync("git", args, {
     cwd: context.cwd,
     encoding: "utf8",
-    env: createProductionScopeLeaseGitEnvironment(context.environment, {
-      authenticate: true,
-    }),
+    env:
+      context.gitEnvironment ??
+      createProductionScopeLeaseGitEnvironment(context.environment, {
+        authenticate: true,
+      }),
     stdio: ["ignore", "pipe", "pipe"],
   });
   const outcome = {

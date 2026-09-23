@@ -38,6 +38,7 @@ import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-a
 import type { SpaceView } from "./space-view";
 import { SpaceViewTabs } from "./space-view-tabs";
 
+const COMPACT_TIME_PATTERN = /^\d{2}:\d{2}$/;
 type SpaceConversationPanelInput = ComponentProps<
 	typeof SpaceConversationPanel
 >;
@@ -2086,7 +2087,7 @@ describe("SpaceConversationPanel", () => {
 		expect(agentMessage?.className).not.toContain("rounded-sm");
 		expect(agentMessage?.textContent).toContain("Runner");
 		expect(agentMessage?.textContent).toContain("Agent reply");
-		expect(agentHeader?.className ?? "").toContain("mb-1.5");
+		expect(agentHeader?.className ?? "").toContain("mb-0.5");
 		expect(agentHeader?.className ?? "").not.toContain("hover:bg-muted/35");
 		expect(agentRow?.className).toContain("hover:bg-transparent");
 		expect(agentRow?.className).toContain("focus-within:bg-transparent");
@@ -2123,11 +2124,10 @@ describe("SpaceConversationPanel", () => {
 		expect(selfScrollerItem?.getAttribute("data-scroll-anchor")).toBe("false");
 	});
 
-	it("shows every grouped message's own timestamp in its reserved footer", () => {
+	it("shows only the first message's compact time in a grouped run", () => {
 		const firstCreatedAtMs = Date.UTC(2026, 4, 27, 10, 0, 0);
 		const secondCreatedAtMs = Date.UTC(2026, 4, 27, 10, 3, 0);
 		const firstTimeText = formatTestTime(firstCreatedAtMs);
-		const secondTimeText = formatTestTime(secondCreatedAtMs);
 
 		renderSpaceConversationPanel({
 			readOnly: false,
@@ -2145,16 +2145,21 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		for (const [messageText, timestamp] of [
-			["First message in the run", firstTimeText],
-			["Second message in the run", secondTimeText],
-		] as const) {
-			const row = screen
-				.getByText(messageText)
-				.closest("[data-message-row-id]");
-			const time = within(row as HTMLElement).getByText(timestamp);
-			expect(time.closest('[data-slot="message-footer"]')).not.toBeNull();
-		}
+		const firstMessage = screen.getByText("First message in the run");
+		const firstContent = firstMessage.closest('[data-slot="message-content"]');
+		expect(
+			within(firstContent as HTMLElement)
+				.getByText(firstTimeText)
+				.closest('[data-slot="message-header"]')
+		).not.toBeNull();
+		expect(firstContent?.querySelector("time")?.textContent).toMatch(
+			COMPACT_TIME_PATTERN
+		);
+		const secondMessage = screen.getByText("Second message in the run");
+		const secondContent = secondMessage.closest(
+			'[data-slot="message-content"]'
+		);
+		expect(secondContent?.querySelector("time")).toBeNull();
 	});
 	it("removes external gaps between consecutive bubbles in the same run", () => {
 		renderSpaceConversationPanel({
@@ -2190,9 +2195,9 @@ describe("SpaceConversationPanel", () => {
 		expect(firstMessage?.className).toContain("pt-1.5");
 		expect(firstMessage?.className).toContain("pb-0");
 		expect(firstMessage?.className).not.toContain("py-2");
-		expect(middleMessage?.className).toContain("pt-1");
+		expect(middleMessage?.className).toContain("pt-px");
 		expect(middleMessage?.className).toContain("pb-0");
-		expect(lastMessage?.className).toContain("pt-1");
+		expect(lastMessage?.className).toContain("pt-px");
 		expect(lastMessage?.className).toContain("pb-1.5");
 		expect(lastMessage?.className).not.toContain("py-2");
 	});
@@ -2598,6 +2603,42 @@ describe("SpaceConversationPanel", () => {
 		expect(scrollerContent?.className).not.toContain("mx-auto");
 		expect(scrollerContent?.className).not.toContain("max-w-3xl");
 		expect(scrollerContent?.className).not.toContain("max-w-6xl");
+	});
+
+	it("keeps direct-message times in each message toolbar instead of above the bubbles", () => {
+		renderSpaceConversationPanel({
+			isDirectMessage: true,
+			timelineItems: [
+				createTimelineItem({
+					createdAtMs: Date.UTC(2026, 8, 23, 10, 7),
+					id: "dm-first",
+					text: "First DM message",
+				}),
+				createTimelineItem({
+					createdAtMs: Date.UTC(2026, 8, 23, 10, 9),
+					id: "dm-second",
+					text: "Second DM message",
+				}),
+			],
+		});
+
+		const rows = ["dm-first", "dm-second"].map((id) =>
+			document.querySelector(`[data-message-row-id="${id}"]`)
+		);
+		for (const row of rows) {
+			expect(row).toBeTruthy();
+			expect(
+				row?.querySelector('[data-slot="message-footer"] time')?.textContent
+			).toMatch(COMPACT_TIME_PATTERN);
+			expect(
+				row
+					?.closest('[data-slot="message-content"]')
+					?.querySelector('[data-slot="message-header"] time')
+			).toBeNull();
+		}
+		expect(rows[0]?.querySelector("time")?.textContent).not.toBe(
+			rows[1]?.querySelector("time")?.textContent
+		);
 	});
 
 	it("keeps the scroll viewport full width and constrains only messages and the composer", () => {
@@ -3360,8 +3401,9 @@ describe("SpaceConversationPanel", () => {
 		).toBe("https://example.com/felix.png");
 		expect(avatar.className).toContain("size-6");
 		expect(avatar.className).toContain("after:border-0");
-		expect(profileName.className).toContain("font-bold");
-		expect(profileName.className).toContain("text-sm");
+		expect(profileName.className).toContain("font-normal");
+		expect(profileName.className).toContain("text-xs");
+		expect(profileName.className).toContain("text-muted-foreground");
 		expect(screen.getByText(expectedTime)).toBeTruthy();
 		expect(messageBubble?.textContent).not.toContain(expectedTime);
 	});
@@ -4526,8 +4568,10 @@ describe("SpaceConversationPanel", () => {
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-wake']");
 		const footer = row?.querySelector("[data-slot='message-footer']");
-		expect(footer?.className).toContain("justify-end");
-		expect(footer?.className).not.toContain("justify-start");
+		expect(footer?.className).toContain("absolute");
+		expect(
+			row?.closest('[data-slot="message"]')?.getAttribute("data-align")
+		).toBe("end");
 		expect(row?.querySelector("[data-testid='space-outcome-row']")).toBeNull();
 	});
 
@@ -4558,8 +4602,10 @@ describe("SpaceConversationPanel", () => {
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-wake']");
 		const footer = row?.querySelector("[data-slot='message-footer']");
-		expect(footer?.className).toContain("justify-start");
-		expect(footer?.className).not.toContain("justify-end");
+		expect(footer?.className).toContain("absolute");
+		expect(
+			row?.closest('[data-slot="message"]')?.getAttribute("data-align")
+		).toBe("start");
 		expect(row?.querySelector("[data-testid='space-outcome-row']")).toBeNull();
 	});
 
@@ -4668,13 +4714,16 @@ describe("SpaceConversationPanel", () => {
 			name: "Check Felix Profile",
 		});
 		expect(profileHeader.className).toContain("touch-manipulation");
-		expect(profileHeader.className).toContain("max-lg:min-h-11");
 		expect(profileHeader.textContent).toContain("Felix");
 		expect(profileHeader.textContent).not.toContain(expectedTime);
 		const messageRow = screen
 			.getByText("Message from Felix")
 			.closest("[data-message-row-id]");
-		expect(messageRow?.querySelector("time")?.textContent).toBe(expectedTime);
+		expect(
+			messageRow
+				?.closest('[data-slot="message-content"]')
+				?.querySelector("time")?.textContent
+		).toBe(expectedTime);
 		expect(
 			profileHeader.contains(
 				screen.getByTestId(`space-human-profile-avatar-${profileId}`)
@@ -5646,8 +5695,8 @@ function createMatchMediaMock(matches = false): typeof window.matchMedia {
 
 function formatTestTime(createdAtMs: number): string {
 	return new Intl.DateTimeFormat("en-US", {
-		hour: "numeric",
+		hour: "2-digit",
 		minute: "2-digit",
-		second: "2-digit",
+		hourCycle: "h23",
 	}).format(createdAtMs);
 }

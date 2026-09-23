@@ -7,6 +7,7 @@ import path from "node:path";
 import process from "node:process";
 
 import { isFinalCandidateControlPath } from "./final-candidate-control-paths.mjs";
+import { projectFinalCandidateControl } from "./final-candidate-control-projection.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const LINE_SPLIT_PATTERN = /\r?\n/u;
@@ -22,7 +23,11 @@ function run() {
     baseSha,
     headSha,
     candidateRoot
-  ).filter(isFinalCandidateControlPath);
+  ).filter(
+    (relativePath) =>
+      isFinalCandidateControlPath(relativePath) &&
+      hasControlProjectionDrift(candidateRoot, baseSha, headSha, relativePath)
+  );
   const bootstrap = resolveControlSelection({
     baseSha,
     bootstrapControlSha: parsed.bootstrapControlSha,
@@ -301,6 +306,33 @@ function resolveCommit(value, cwd) {
     cwd,
     encoding: "utf8",
   }).trim();
+}
+
+function hasControlProjectionDrift(cwd, baseSha, headSha, relativePath) {
+  return (
+    projectCommitControl(cwd, baseSha, relativePath) !==
+    projectCommitControl(cwd, headSha, relativePath)
+  );
+}
+
+function projectCommitControl(cwd, sha, relativePath) {
+  return projectFinalCandidateControl(
+    relativePath,
+    readCommitFile(cwd, sha, relativePath),
+    (relatedPath) => readCommitFile(cwd, sha, relatedPath)
+  );
+}
+
+function readCommitFile(cwd, sha, relativePath) {
+  const result = spawnSync("git", ["show", `${sha}:${relativePath}`], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.status !== 0) {
+    return null;
+  }
+  return result.stdout;
 }
 
 function resolveChangedPaths(baseSha, headSha, cwd) {

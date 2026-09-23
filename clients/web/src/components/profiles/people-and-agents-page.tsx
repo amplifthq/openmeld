@@ -1,4 +1,6 @@
 import { SkeletonTable } from "@openmeld/ui/components/skeleton-content";
+import { agentCreationNeedsAttention } from "#/components/agents/agent-creation-history-model";
+import { deleteAgentProfiles } from "#/components/agents/delete-agent-profiles";
 import { readPendingAgentProfileCreationLocalSetup } from "#/lib/profiles/agent-profile-creation-local-setup";
 
 ("use client");
@@ -550,19 +552,21 @@ function AgentsWorkspaceHome(input: {
 	const optimisticCreations = Array.isArray(optimisticCreationsQuery.data)
 		? optimisticCreationsQuery.data
 		: [];
-	const pendingRequestCount =
+	const creationAttentionCount =
 		requestsQuery.data?.requests?.filter(
 			(request) =>
 				request.requesterUserId === input.currentUserId &&
 				request.targetOwnerUserId === input.currentUserId &&
-				(["pending", "approved", "failed"].includes(request.status) ||
+				agentCreationNeedsAttention(
+					request,
 					Boolean(
 						readPendingAgentProfileCreationLocalSetup({
 							organizationId: input.organizationId,
 							requestId: request.id,
 							storageScope: input.recovery.storageScope,
 						})
-					))
+					)
+				)
 		).length ?? 0;
 	const selectCreatedProfile = useEffectEvent(input.onSelectProfile);
 	useEffect(() => {
@@ -658,6 +662,7 @@ function AgentsWorkspaceHome(input: {
 				organizationAgentProjection.agentControllerRefByProfileId
 			}
 			agentProfiles={agentProfiles}
+			creationAttentionCount={creationAttentionCount}
 			creationRequests={[
 				...optimisticCreations,
 				...(requestsQuery.data?.requests ?? []),
@@ -669,7 +674,6 @@ function AgentsWorkspaceHome(input: {
 				organizationAgentProjection.ownerAvatarUrlByUserId
 			}
 			pendingProfileIds={pendingProfileIds}
-			pendingRequestCount={pendingRequestCount}
 			profilesErrorMessage={profilesErrorMessage}
 			profilesStatus={profilesStatus}
 			queryClient={queryClient}
@@ -704,7 +708,7 @@ function AgentsWorkspaceHomeView(input: {
 	>;
 	ownerAvatarUrlByUserId: ReadonlyMap<string, string | null>;
 	pendingProfileIds: ReadonlySet<string>;
-	pendingRequestCount: number;
+	creationAttentionCount: number;
 	profilesErrorMessage: string | undefined;
 	profilesStatus: "error" | "loading" | "ready";
 	queryClient: ReturnType<typeof useQueryClient>;
@@ -725,6 +729,7 @@ function AgentsWorkspaceHomeView(input: {
 			canCreateAgent={
 				!workspace.ownerId || workspace.ownerId === workspace.currentUserId
 			}
+			creationAttentionCount={input.creationAttentionCount}
 			creationRequests={input.creationRequests}
 			currentUserId={workspace.currentUserId}
 			directoryProfiles={
@@ -743,6 +748,15 @@ function AgentsWorkspaceHomeView(input: {
 			members={workspace.profileDirectoryQuery.data?.members ?? []}
 			modelCatalog={workspace.modelCatalog}
 			onCreateAgent={workspace.onCreateAgent}
+			onDeleteProfiles={(profiles) =>
+				deleteAgentProfiles({
+					profiles,
+					currentUserId: workspace.currentUserId,
+					organizationId: workspace.organizationId,
+					queryClient: input.queryClient,
+					storageScope: workspace.recovery.storageScope,
+				})
+			}
 			onDismissCreation={(id) =>
 				removeOptimisticAgentProfileCreation({
 					id,
@@ -756,7 +770,6 @@ function AgentsWorkspaceHomeView(input: {
 			onSelectProfile={workspace.onSelectProfile}
 			onViewChange={workspace.onViewChange}
 			operationalContextByProfileId={input.operationalContextByProfileId}
-			pendingRequestCount={input.pendingRequestCount}
 			person={workspace.person}
 			profiles={input.sidebarAgentProfiles}
 			profilesErrorMessage={input.profilesErrorMessage}

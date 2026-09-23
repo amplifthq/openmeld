@@ -4,7 +4,6 @@ import {
 } from "../../agent-execution-readiness-impact-taxonomy";
 import * as z from "../../lazy-zod";
 import { daemonRouteObservationSummarySchema } from "../daemon/route-observation-summary";
-import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "../daemon/runtime-transport";
 import { daemonServiceLaneSchema } from "../daemon/service-contract";
 import { openMeldDaemonProviderAccessEvidenceProviderSchema } from "../daemon/task-result";
 import { agentProfileIdSchema } from "../protocol/profile";
@@ -262,7 +261,7 @@ export const agentExecutionReadinessSchema = z.strictObject({
     }),
     service: z.strictObject({
       executionCompatible: z.boolean(),
-      expectedEpoch: z.literal(CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH),
+      expectedEpoch: trimmedNonEmptyStringSchema,
       observedEpoch: z.union([trimmedNonEmptyStringSchema, z.null()]),
       reasonCodes: z.array(trimmedNonEmptyStringSchema),
       source: z.enum(["runtime_transport", "not_checked", "unavailable"]),

@@ -443,6 +443,8 @@ function truncateMemoryText(
   };
 }
 
+export { withTimeout as withCenterAgentMemoryTimeout };
+
 async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,

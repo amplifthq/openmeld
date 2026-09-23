@@ -4,6 +4,7 @@ import type * as React from "react";
 import {
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioItem,
   DropdownMenuSubContent,
 } from "#components/dropdown-menu";
 import { FluidActionList, FluidActionListItem } from "#fluid/action-list";
@@ -15,6 +16,13 @@ type FluidDropdownMenuContentProps = React.ComponentProps<
 
 type FluidDropdownMenuItemProps = Omit<
   React.ComponentProps<typeof DropdownMenuItem>,
+  "nativeButton" | "render"
+> & {
+  index: number;
+};
+
+type FluidDropdownMenuRadioItemProps = Omit<
+  React.ComponentProps<typeof DropdownMenuRadioItem>,
   "nativeButton" | "render"
 > & {
   index: number;
@@ -55,12 +63,32 @@ function FluidDropdownMenuItem({
   );
 }
 
+function FluidDropdownMenuRadioItem({
+  className,
+  index,
+  ...props
+}: FluidDropdownMenuRadioItemProps) {
+  return (
+    <DropdownMenuRadioItem
+      {...props}
+      className={cn(
+        "w-full justify-start text-left focus:bg-transparent",
+        className
+      )}
+      nativeButton
+      render={<FluidActionListItem index={index} />}
+    />
+  );
+}
+
 export {
   FluidDropdownMenuSubContent,
   FluidDropdownMenuContent,
   FluidDropdownMenuItem,
+  FluidDropdownMenuRadioItem,
   type FluidDropdownMenuContentProps,
   type FluidDropdownMenuItemProps,
+  type FluidDropdownMenuRadioItemProps,
 };
 
 function FluidDropdownMenuSubContent({

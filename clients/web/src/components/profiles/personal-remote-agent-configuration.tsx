@@ -1,13 +1,11 @@
 "use client";
 
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-} from "@openmeld/ui/fluid/select";
 import { BrainIcon, CheckIcon } from "@phosphor-icons/react";
 import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
+import {
+	HostedModelSelect,
+	personalRemoteModelChoices,
+} from "#/components/models/hosted-model-select";
 import {
 	AgentConfigurationCard,
 	AgentConfigurationGrid,
@@ -23,14 +21,11 @@ export function PersonalRemoteAgentConfiguration(input: {
 	onModelChange: (model: string) => void;
 }) {
 	const catalog = input.form.modelCatalog?.agentControllers["center-agent"];
-	const models =
-		catalog?.models.filter(
-			(choice) => choice.hostedRuntime && !choice.unavailable
-		) ?? [];
-	const modelId = input.model || catalog?.defaultModelId || "";
+	const models = personalRemoteModelChoices(input.form.modelCatalog);
+	const modelId = input.model;
 	const modelName =
-		models.find((choice) => choice.id === modelId)?.displayName ??
-		"Loading models…";
+		models.find((choice) => choice.value === modelId)?.label ??
+		(catalog ? "Choose a model" : "Loading models…");
 	return (
 		<div className="grid min-w-0 gap-5">
 			<div className="grid justify-items-start gap-2 pt-2">
@@ -66,25 +61,12 @@ export function PersonalRemoteAgentConfiguration(input: {
 					label="Model"
 					summary={modelName}
 				>
-					<Select
+					<HostedModelSelect
+						choices={models}
 						disabled={input.form.isSubmitting || !catalog}
 						onValueChange={input.onModelChange}
 						value={modelId}
-					>
-						<SelectTrigger
-							aria-label="Model"
-							className="h-10 w-full px-3 text-sm"
-							displayValue={modelName}
-						/>
-						<SelectContent className="max-h-64">
-							{models.map((choice, index) => (
-								<SelectItem index={index} key={choice.id} value={choice.id}>
-									{choice.displayName}
-									{choice.id === catalog?.defaultModelId ? " (default)" : ""}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+					/>
 				</AgentConfigurationCard>
 			</AgentConfigurationGrid>
 		</div>

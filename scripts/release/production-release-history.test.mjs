@@ -95,3 +95,49 @@ test("reports bounded, denied and malformed history without fabricating complete
     assert.equal(result.items.length, failure === "malformed" ? 0 : 100);
   }
 });
+
+test("retries only a transient failed page and preserves incomplete evidence on exhaustion", async () => {
+  for (const status of [500, 502, 503, 504, 403]) {
+    for (const recovers of [true, false]) {
+      const pages = [];
+      const delays = [];
+      let failedPageCalls = 0;
+      const result = await readGithubCollection({
+        endpoint: "repos/test/repo/actions/runs/42/jobs?filter=all",
+        key: "jobs",
+        wait: (milliseconds) => delays.push(milliseconds),
+        readJson: (endpoint) => {
+          const page = Number(
+            new URL(endpoint, "https://api.github.com").searchParams.get("page")
+          );
+          pages.push(page);
+          if (page === 1) {
+            return {
+              total_count: 101,
+              jobs: Array.from({ length: 100 }, (_, index) => ({
+                id: index + 1,
+              })),
+            };
+          }
+          failedPageCalls += 1;
+          if (!recovers || failedPageCalls === 1) {
+            // Sanitized gh stderr captured from the failed production status read.
+            throw new Error(
+              `Command failed: gh api ${endpoint}\ngh: Server Error (HTTP ${status})\n`
+            );
+          }
+          return { total_count: 101, jobs: [{ id: 101 }] };
+        },
+      });
+      const recovered = recovers && status !== 403;
+      assert.equal(result.complete, recovered);
+      assert.equal(result.items.length, recovered ? 101 : 100);
+      assert.equal(result.pagesRead, recovered ? 2 : 1);
+      assert.equal(pages.filter((page) => page === 1).length, 1);
+      const transientCalls = recovers ? 2 : 3;
+      assert.equal(failedPageCalls, status === 403 ? 1 : transientCalls);
+      assert.equal(delays.length, failedPageCalls - 1);
+      assert.ok(delays.every((delay) => delay > 0 && delay <= 2000));
+    }
+  }
+});

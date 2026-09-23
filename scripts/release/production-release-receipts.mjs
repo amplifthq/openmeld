@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { productionComponentReceiptSchema } from "../../packages/schemas/src/schemas/release/production-release-evidence.ts";
 import {
   publishGuardedLocalReleaseEvidence,
   readGuardedLocalReleaseSources,
@@ -57,22 +58,13 @@ export async function executeRecordedProductionDeploySteps(input) {
           group,
         })
       : null;
-    const operationKey = createHash("sha256")
-      .update(
-        JSON.stringify({
-          sourceSha: input.sourceSha,
-          scope: group.scope,
-          target,
-          steps: group.steps.map((step) => ({
-            command: step.command,
-            args: step.args,
-            internalOperation: step.internalOperation,
-          })),
-        })
-      )
-      .digest("hex");
+    const operationKey = releaseComponentOperationKey({
+      sourceSha: input.sourceSha,
+      group,
+      target,
+    });
     const context = { ...input, group, target, operationKey };
-    const previous = selectResumableComponent(context, retained);
+    const previous = selectGuardedReceiptRecovery(context, retained);
     if (previous) {
       await verifyRetainedComponent(context, previous);
     }
@@ -88,7 +80,48 @@ export async function executeRecordedProductionDeploySteps(input) {
   }
 }
 
-function selectResumableComponent(input, retained) {
+export function releaseComponentOperationKey(input) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        sourceSha: input.sourceSha,
+        scope: input.group.scope,
+        target: input.target,
+        steps: input.group.steps.map((step) => ({
+          command: step.command,
+          args: step.args,
+          internalOperation: step.internalOperation,
+        })),
+      })
+    )
+    .digest("hex");
+}
+
+export function describeGuardedReceiptRecoveryCandidate(source) {
+  const receipt = productionComponentReceiptSchema.safeParse(source?.receipt);
+  if (
+    !(
+      EXACT_SOURCE_SHA.test(source?.sha ?? "") &&
+      receipt.success &&
+      ["applied", "failed"].includes(receipt.data.status)
+    ) ||
+    receipt.data.application !== "applied" ||
+    receipt.data.identity?.kind !== "worker-deployment" ||
+    receipt.data.identity.sourceSha !== source.sha
+  ) {
+    return null;
+  }
+  return {
+    admission: "candidate",
+    attemptId: receipt.data.attemptId,
+    componentIndex: receipt.data.componentIndex,
+    kind: "guarded-health-resume",
+    operationKey: receipt.data.operationKey,
+    sourceSha: source.sha,
+  };
+}
+
+export function selectGuardedReceiptRecovery(input, retained) {
   const scopes =
     input.group.scope === "cli" ? ["cli", "core"] : [input.group.scope];
   const pending = scopes
@@ -197,7 +230,7 @@ async function resumeComponent(input) {
   });
 }
 
-function groupReleaseSteps(steps) {
+export function groupReleaseSteps(steps) {
   const groups = [];
   let group;
   for (const step of steps) {
@@ -303,7 +336,12 @@ async function executeComponent(input) {
             identities = new Map(
               scopes
                 .filter((scope) => !capture || scope === "cli")
-                .map((scope) => [scope, { kind: "release-source" }])
+                .map((scope) => [
+                  scope,
+                  scope === "cli"
+                    ? requireCliReleaseIdentity(result)
+                    : { kind: "release-source" },
+                ])
             );
             if (capture) {
               const expected = capture.read(
@@ -352,4 +390,13 @@ async function executeComponent(input) {
     }
     await record("verified");
   }
+}
+
+function requireCliReleaseIdentity(result) {
+  if (result?.receiptIdentity?.kind !== "cli-release") {
+    throw new Error(
+      "CLI publication completed without its verified version and artifact identity."
+    );
+  }
+  return result.receiptIdentity;
 }

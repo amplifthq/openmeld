@@ -2,6 +2,7 @@ import type { AuthProfileView } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
 	type AgentListItem,
+	buildAgentListItem,
 	EMPTY_AGENT_LIST_FILTERS,
 	matchesAgentListItem,
 	sortAgentListItems,
@@ -36,6 +37,8 @@ function item(
 		type: "Local Agent",
 		controller: "Codex",
 		model: "GPT",
+		modelBrand: "OpenAI",
+		agentControllerRef: "builtin:codex",
 		searchText: "alex codex",
 	};
 }
@@ -87,5 +90,50 @@ describe("shared Agent lists", () => {
 			matchesAgentListItem({ ...old, controller: "Cursor" }, filters)
 		).toBe(false);
 		expect(matchesAgentListItem(old, filters, "Jordan")).toBe(false);
+	});
+	it("searches model and provider independently of the Agent name and narrows Local or Remote", () => {
+		const codex = buildAgentListItem({
+			profile: fresh.profile,
+			agentControllerRef: "builtin:codex",
+			modelCatalog: {
+				schemaVersion: 1,
+				updatedAt: "2026-09-01T00:00:00Z",
+				agentControllers: {
+					codex: {
+						defaultModelId: "gpt-5.6-sol",
+						models: [
+							{
+								id: "gpt-5.6-sol",
+								displayName: "GPT-5.6 Sol",
+								unavailable: false,
+								supportedReasoningLevels: [],
+								minCliVersion: null,
+							},
+						],
+					},
+				},
+			},
+		});
+		expect(
+			matchesAgentListItem(codex, EMPTY_AGENT_LIST_FILTERS, "OpenAI")
+		).toBe(true);
+		expect(
+			matchesAgentListItem(codex, EMPTY_AGENT_LIST_FILTERS, "GPT 5.6")
+		).toBe(true);
+		expect(
+			matchesAgentListItem(codex, {
+				...EMPTY_AGENT_LIST_FILTERS,
+				type: ["Local Agent"],
+			})
+		).toBe(true);
+		expect(
+			matchesAgentListItem(codex, {
+				...EMPTY_AGENT_LIST_FILTERS,
+				type: ["Remote Agent"],
+			})
+		).toBe(false);
+		expect(
+			buildAgentListItem({ profile: fresh.profile }).modelBrand
+		).toBeNull();
 	});
 });

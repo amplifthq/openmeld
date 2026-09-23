@@ -1,5 +1,8 @@
 const DEFAULT_PACKAGE_NAME = "openmeld";
 
+const UNRESOLVED_PACKAGE_DEPENDENCY_PATTERN =
+  /Unsupported URL Type ["'](?:catalog|workspace):["']/iu;
+
 const LOCAL_PROXY_FAILURE_PATTERN =
   /\b(?:connect\s+(?:EPERM|ECONNREFUSED|ECONNRESET|ETIMEDOUT)\s+(?:127\.0\.0\.1|localhost)(?::\d+)?|reason:\s*connect\s+(?:EPERM|ECONNREFUSED|ECONNRESET|ETIMEDOUT)\s+(?:127\.0\.0\.1|localhost)(?::\d+)?)/iu;
 const NPM_CACHE_OR_LOG_PERMISSION_PATTERN =
@@ -8,6 +11,7 @@ const NPM_REGISTRY_FAILURE_PATTERN = /registry\.npmjs\.org/iu;
 
 export type NpmPackageAcquisitionFailureDiagnosis = {
   code:
+    | "npm_package_dependency_invalid"
     | "npm_local_proxy_unreachable"
     | "npm_cache_or_log_unwritable"
     | "npm_registry_fetch_failed";
@@ -24,6 +28,18 @@ export function diagnoseNpmPackageAcquisitionFailure(input: {
     return null;
   }
   const packageName = input.packageName ?? DEFAULT_PACKAGE_NAME;
+
+  if (UNRESOLVED_PACKAGE_DEPENDENCY_PATTERN.test(text)) {
+    return {
+      code: "npm_package_dependency_invalid",
+      message:
+        "npm found a dependency reference that cannot be installed outside its development workspace.",
+      nextSteps: [
+        "Share the package version and the npm error above with OpenMeld support. Remove device codes and other credentials from the log first.",
+        "Retry with a fresh setup command after the corrected CLI release is available. Reinstalling Node.js or resetting OpenMeld does not fix this dependency error.",
+      ],
+    };
+  }
 
   if (LOCAL_PROXY_FAILURE_PATTERN.test(text)) {
     return {

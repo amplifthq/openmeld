@@ -9,7 +9,10 @@ import {
   readSignalEntryById,
 } from "../infrastructure/sql/space-signal-repo";
 import { readSpaceThreadSignalPlacementBySignalId } from "../infrastructure/sql/space-thread-repo";
-import { isFormalSpaceUpdateSignal } from "../rules/formal-space-update";
+import {
+  isFormalSpaceUpdateSignal,
+  VISIBLE_SPACE_TIMELINE_SIGNAL_TYPES,
+} from "../rules/formal-space-update";
 import { parseStoredSignal } from "../rules/parsers/stored-signal";
 import { redactSignalForViewer } from "../rules/privacy/agent-profile-visibility";
 
@@ -76,56 +79,71 @@ function collectSignalsAfterAnchor(input: {
       SPACE_UPDATES_SCAN_FLOOR_LIMIT
     )
   );
-  const page = listSignalEntriesAfterAnchor(input.sql, {
-    afterSignalId: input.afterSignalId,
-    limit: scanLimit,
-  });
-  if (!page) {
-    throw new SpaceUpdatesAnchorNotFoundError(input.afterSignalId);
-  }
-
   const signals: SignalEnvelope[] = [];
-  for (const [, rawSignal] of page.entries) {
-    const signal = parseStoredSignal(rawSignal);
-    const changedMessageId = readChangedMessageId(signal);
-    if (!(signal && (isFormalSpaceUpdateSignal(signal) || changedMessageId))) {
-      continue;
+  let cursor = input.afterSignalId;
+  while (signals.length < input.limit) {
+    const page = listSignalEntriesAfterAnchor(input.sql, {
+      afterSignalId: cursor,
+      limit: scanLimit,
+      filters: {
+        signalTypes: VISIBLE_SPACE_TIMELINE_SIGNAL_TYPES,
+        includeMutationCursors: true,
+      },
+    });
+    if (!page) {
+      throw new SpaceUpdatesAnchorNotFoundError(cursor);
     }
-    const placement = readSpaceThreadSignalPlacementBySignalId(
-      input.sql,
-      signal.id
-    );
-    if (placement?.placement === "thread") {
-      continue;
-    }
-    if (changedMessageId) {
-      const entry = readSignalEntryById(input.sql, changedMessageId);
-      const current = entry ? parseStoredSignal(entry[1]) : null;
-      if (current) {
-        signals.push(
-          redactSignalForViewer({
-            signal: current,
-            viewerOwnerUserId: input.viewerOwnerUserId,
-            viewerProfileId: input.viewerProfileId,
-            creatorProfileIdByProfileId:
-              input.viewerCreatorProfileIdsByProfileId,
-          })
-        );
+    for (const [, rawSignal] of page.entries) {
+      signals.push(...readVisibleUpdateSignals(input, rawSignal));
+      if (signals.length >= input.limit) {
+        break;
       }
     }
-    signals.push(
-      redactSignalForViewer({
-        signal,
-        viewerOwnerUserId: input.viewerOwnerUserId,
-        viewerProfileId: input.viewerProfileId,
-        creatorProfileIdByProfileId: input.viewerCreatorProfileIdsByProfileId,
-      })
-    );
-    if (signals.length >= input.limit) {
+    if (page.entries.length < scanLimit || !page.lastSignalId) {
       break;
     }
+    cursor = page.lastSignalId;
   }
   return signals;
+}
+
+function readVisibleUpdateSignals(
+  input: {
+    sql: SqlStorage;
+    viewerOwnerUserId?: string;
+    viewerProfileId?: string;
+    viewerCreatorProfileIdsByProfileId?: Record<string, string | null>;
+  },
+  rawSignal: string
+): SignalEnvelope[] {
+  const signal = parseStoredSignal(rawSignal);
+  const changedMessageId = readChangedMessageId(signal);
+  if (!(signal && (isFormalSpaceUpdateSignal(signal) || changedMessageId))) {
+    return [];
+  }
+  const placement = readSpaceThreadSignalPlacementBySignalId(
+    input.sql,
+    signal.id
+  );
+  if (placement?.placement === "thread") {
+    return [];
+  }
+  const changedEntry = changedMessageId
+    ? readSignalEntryById(input.sql, changedMessageId)
+    : null;
+  const changedSignal = changedEntry
+    ? parseStoredSignal(changedEntry[1])
+    : null;
+  const redact = (visibleSignal: SignalEnvelope) =>
+    redactSignalForViewer({
+      signal: visibleSignal,
+      viewerOwnerUserId: input.viewerOwnerUserId,
+      viewerProfileId: input.viewerProfileId,
+      creatorProfileIdByProfileId: input.viewerCreatorProfileIdsByProfileId,
+    });
+  return changedSignal
+    ? [redact(changedSignal), redact(signal)]
+    : [redact(signal)];
 }
 
 function readChangedMessageId(signal: SignalEnvelope | null): string | null {

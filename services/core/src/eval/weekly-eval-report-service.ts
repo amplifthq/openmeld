@@ -3,8 +3,10 @@ import type { Profile } from "@openmeld/protocol";
 import type {
   OpenMeldRequestContext,
   OrganizationWeeklyEvalMetrics,
+  ResolvedSpaceMemberProfile,
 } from "@openmeld/schemas/types";
 import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
+import { readResolvedOrganizationOwnerHumanSpaceMember } from "../center-agent/center-agent-repository";
 import type { CoreBindings } from "../lib/bindings";
 import { identityDb, projectionsDb } from "../lib/bindings";
 import { resolveNamedSpaceId } from "../rpc/space-ref";
@@ -101,6 +103,7 @@ export async function runWeeklyEvalReport(input: {
   });
 
   const { context, profile, spaceId } = await ensureQualitySpace({
+    db: identityDatabase,
     env: input.env,
     publisher,
   });
@@ -257,6 +260,7 @@ async function readOfficialOrganizationEvalPublisher(
 }
 
 async function ensureQualitySpace(input: {
+  db: D1Database;
   env: CoreBindings;
   publisher: EvalReportPublisher;
 }): Promise<{
@@ -286,19 +290,38 @@ async function ensureQualitySpace(input: {
     profileName: input.publisher.profileName,
   };
   const stub = input.env.OPENMELD_SPACES.get(objectId);
-  const meta = await stub.rpcPatchMeta({
-    context,
+  const initializationInput = {
     creator: {
-      kind: "agent",
+      kind: "agent" as const,
       profileId: input.publisher.profileId,
       profileName: input.publisher.profileName,
     },
-    initializeIfAbsent: true,
     name: QUALITY_SPACE_NAME,
     organizationId: input.publisher.organizationId,
     spaceId,
-    visibility: "public",
-  });
+    visibility: "public" as const,
+  };
+  const initialization =
+    await stub.rpcInitializeSpaceMetaWithOwners(initializationInput);
+  const initialized =
+    initialization.status === "owners_required"
+      ? await stub.rpcInitializeSpaceMetaWithOwners({
+          ...initializationInput,
+          owners: await readCurrentOrganizationOwnerMembers({
+            db: input.db,
+            organizationId: input.publisher.organizationId,
+          }),
+        })
+      : initialization;
+  if (initialized.status === "owners_required") {
+    throw new Error(
+      "Weekly eval Quality Space initialization requires organization owners"
+    );
+  }
+  if (initialized.status === "owners_invalid") {
+    throw new Error(initialized.reason);
+  }
+  const meta = initialized.meta;
   if (meta.organizationId !== input.publisher.organizationId) {
     throw new Error(
       `Weekly eval Quality Space ${spaceId} belongs to a different Organization`
@@ -311,6 +334,46 @@ async function ensureQualitySpace(input: {
   }
 
   return { context, profile, spaceId };
+}
+
+async function readCurrentOrganizationOwnerMembers(input: {
+  db: D1Database;
+  organizationId: string;
+}): Promise<ResolvedSpaceMemberProfile[]> {
+  const ownerRows = await input.db
+    .prepare(
+      `
+        SELECT user_id
+        FROM members
+        WHERE organization_id = ?
+          AND role = 'owner'
+        ORDER BY user_id ASC
+      `
+    )
+    .bind(input.organizationId)
+    .all<{ user_id: string }>();
+  if (ownerRows.results.length === 0) {
+    throw new Error(
+      "Weekly eval Quality Space requires a current organization owner"
+    );
+  }
+
+  const owners = await Promise.all(
+    ownerRows.results.map(async (row) => {
+      const owner = await readResolvedOrganizationOwnerHumanSpaceMember({
+        db: input.db,
+        organizationId: input.organizationId,
+        ownerUserId: row.user_id,
+      });
+      if (!owner) {
+        throw new Error(
+          "Weekly eval Quality Space owner must have an active Human Profile"
+        );
+      }
+      return owner;
+    })
+  );
+  return owners;
 }
 
 function buildWeeklyEvalClientMessageId(input: {

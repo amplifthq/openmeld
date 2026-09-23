@@ -38,6 +38,13 @@ type AgentControllerConversationCapability = z.infer<
 export const BUILTIN_AGENT_CONTROLLER_CONVERSATION_CAPABILITY_BY_CONTROLLER_ID: Readonly<
   Record<string, AgentControllerConversationCapability>
 > = {
+  antigravity: {
+    discover: "unsupported",
+    externalImport: "by_ref_id",
+    fork: "unsupported",
+    resume: "by_ref_id",
+    turnOverride: "unsupported",
+  },
   codex: {
     discover: "unsupported",
     externalImport: "by_ref_id",

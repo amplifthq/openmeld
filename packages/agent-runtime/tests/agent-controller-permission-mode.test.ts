@@ -86,6 +86,14 @@ describe("Agent Controller Permission Mode", () => {
 
   it("marks bypass as a warning option that requires explicit confirmation", () => {
     expect(
+      getAgentControllerPermissionModeDisplayMetadata(
+        "antigravity:bypassPermissions",
+        {
+          agentControllerRef: "builtin:antigravity",
+        }
+      )
+    ).toMatchObject({ requiresExplicitConfirmation: true, tone: "warning" });
+    expect(
       getAgentControllerPermissionModeDisplayMetadata("codex:fullAccess", {
         agentControllerRef: "builtin:codex",
       })

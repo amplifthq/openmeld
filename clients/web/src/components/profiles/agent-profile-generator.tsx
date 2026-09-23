@@ -3,6 +3,8 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
+import { SettingsLocalAgentUsageSummary } from "@openmeld/ui/components/settings-computers";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	Tooltip,
 	TooltipContent,
@@ -22,11 +24,8 @@ import {
 } from "@phosphor-icons/react";
 import { useId, useRef, useState } from "react";
 import { SpinnerButton } from "#/components/spinner-button";
+import { LOCAL_AGENT_INSTALL_GUIDE_IDS } from "#/lib/local-agent-install-guides";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
-import {
-	AgentCreationComputerRecoveryPanel,
-	agentCreationComputerActionLabel,
-} from "./agent-creation-computer-recovery";
 import { AgentNameEditor } from "./agent-name-editor";
 import {
 	AgentProfileConfigurationCards,
@@ -85,7 +84,7 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 			className="-mx-3 flex min-h-0 min-w-0 flex-1 flex-col"
 			data-testid="create-profile-panel"
 			onSubmit={(event) => {
-				if (computerRecovery) {
+				if (!remote && submitBlock) {
 					event.preventDefault();
 					return;
 				}
@@ -135,11 +134,8 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 						remoteAvailable={Boolean(form.remoteAgentCreation)}
 					/>
 					<TabPanel className="grid min-w-0 gap-5" value="local">
-						{computerRecovery ? (
-							<AgentCreationComputerRecoveryPanel recovery={computerRecovery} />
-						) : null}
 						<LocalAgentConfiguration
-							computerRecovery={Boolean(computerRecovery)}
+							computerRecovery={computerRecovery}
 							configurationExpanded={configurationExpanded}
 							form={form}
 							openSection={openSection}
@@ -179,28 +175,14 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 				) : (
 					<span />
 				)}
-				{computerRecovery ? (
-					!computerRecovery.setup && (
-						<Button
-							disabled={
-								form.isSubmitting || computerRecovery.state === "checking"
-							}
-							onClick={computerRecovery.onStart}
-							type="button"
-						>
-							{agentCreationComputerActionLabel(computerRecovery)}
-						</Button>
-					)
-				) : (
-					<AgentCreationSubmitActions
-						form={form}
-						openConfigurationSection={openConfigurationSection}
-						remote={remote}
-						remoteReady={remoteReady}
-						submitBlock={submitBlock}
-						submitBlockReasonId={submitBlockReasonId}
-					/>
-				)}
+				<AgentCreationSubmitActions
+					form={form}
+					openConfigurationSection={openConfigurationSection}
+					remote={remote}
+					remoteReady={remoteReady}
+					submitBlock={submitBlock}
+					submitBlockReasonId={submitBlockReasonId}
+				/>
 			</div>
 		</form>
 	);
@@ -297,10 +279,10 @@ function useRemoteAgentDraft(form: CreateProfileFormProps) {
 			: "Your Remote Agent";
 	const remoteName =
 		form.remoteProfileName ?? editedRemoteName ?? defaultRemoteName;
-	const [remoteModel, setRemoteModel] = useState("");
+	const [remoteModel, setRemoteModel] = useState<string | null>(null);
 	const intent = useRef<{ fingerprint: string; key: string } | null>(null);
 	const catalog = form.modelCatalog?.agentControllers["center-agent"];
-	const remoteModelId = remoteModel || catalog?.defaultModelId;
+	const remoteModelId = remoteModel ?? catalog?.defaultModelId;
 	const remoteReady = Boolean(
 		remoteName.trim() &&
 			catalog?.models.some(
@@ -327,7 +309,7 @@ function useRemoteAgentDraft(form: CreateProfileFormProps) {
 	return {
 		remoteName,
 		setRemoteName,
-		remoteModel,
+		remoteModel: remoteModelId ?? "",
 		setRemoteModel,
 		remoteReady,
 		submitRemote,
@@ -408,14 +390,9 @@ function resolveGeneratorBindingChoices(
 	if (form.agentBindingChoices) {
 		return [...form.agentBindingChoices];
 	}
-	const agentIds = [...form.availableLocalAgentIds];
-	if (
-		form.lockLocalAgentSelection &&
-		form.boundAgentId &&
-		!agentIds.includes(form.boundAgentId)
-	) {
-		agentIds.unshift(form.boundAgentId);
-	}
+	const agentIds = form.lockLocalAgentSelection
+		? [form.boundAgentId].filter(Boolean)
+		: [...LOCAL_AGENT_INSTALL_GUIDE_IDS];
 	return agentIds.map((agentId) => {
 		const label = formatLocalAgentDisplayName(agentId);
 		return {
@@ -437,44 +414,94 @@ function LocalAgentConfiguration({
 	openSection,
 }: {
 	form: CreateProfileFormProps;
-	computerRecovery: boolean;
+	computerRecovery: CreateProfileFormProps["computerRecovery"];
 	surface: "dialog" | "page";
 	configurationExpanded: boolean;
 	setConfigurationExpanded: (expanded: boolean) => void;
 	setOpenSection: (section: AgentProfileConfigurationSection | null) => void;
 	openSection: AgentProfileConfigurationSection | null;
 }) {
+	const selectionBlocked =
+		form.localAgentSelectionState?.blocksCreation === true;
 	return (
-		<div
-			className={computerRecovery ? "hidden" : "grid min-w-0 gap-5"}
-			hidden={Boolean(computerRecovery)}
-		>
+		<div className="grid min-w-0 gap-5">
 			<LocalAgentSelector
 				choices={resolveGeneratorBindingChoices(form)}
+				computerRecovery={computerRecovery}
 				computerSlot={form.agentComputerSlot}
 				disabled={form.isSubmitting}
 				emptyState={form.localAgentEmptyState}
 				isResolving={form.isResolvingLocalAgents}
 				locked={form.lockLocalAgentSelection}
 				onChange={form.onChangeAgentBindingValue ?? form.onChangeBoundAgentId}
+				selectionState={form.localAgentSelectionState}
 				surface={surface}
 				value={form.agentBindingValue ?? form.boundAgentId}
 			/>
-			{form.boundAgentId ? (
-				<AgentNameEditor
-					disabled={form.isSubmitting}
-					onChange={form.onChangeProfileName}
-					value={form.profileName}
-				/>
+			{form.boundAgentId && !selectionBlocked ? (
+				<div className="flex min-w-0 flex-wrap items-start justify-between gap-x-4 gap-y-2">
+					<AgentNameEditor
+						className="flex-1"
+						disabled={form.isSubmitting}
+						onChange={form.onChangeProfileName}
+						value={form.profileName}
+					/>
+					<SelectedLocalAgentUsage state={form.localAgentSelectionState} />
+				</div>
 			) : null}
-			<AdvancedSetup
-				expanded={configurationExpanded}
-				form={form}
-				onExpandedChange={setConfigurationExpanded}
-				onOpenSectionChange={setOpenSection}
-				openSection={openSection}
-			/>
+			{selectionBlocked ? null : (
+				<AdvancedSetup
+					expanded={configurationExpanded}
+					form={form}
+					onExpandedChange={setConfigurationExpanded}
+					onOpenSectionChange={setOpenSection}
+					openSection={openSection}
+				/>
+			)}
 		</div>
+	);
+}
+
+function SelectedLocalAgentUsage(input: {
+	state: CreateProfileFormProps["localAgentSelectionState"];
+}) {
+	const state = input.state;
+	if (!state) {
+		return null;
+	}
+	if (state.usageLoading) {
+		return (
+			<output
+				aria-label={`Loading ${state.displayName} usage`}
+				className="flex h-12 shrink-0 items-center"
+			>
+				<Skeleton aria-hidden="true" className="h-3 w-24" />
+			</output>
+		);
+	}
+	const limits = state.usageLimits;
+	if (!limits?.length) {
+		return (
+			<span className="flex h-12 shrink-0 items-center text-muted-foreground text-xs">
+				Usage not reported
+			</span>
+		);
+	}
+	if (limits.every((limit) => limit.usedPercent === null)) {
+		const unsupported = limits.every((limit) => limit.status === "unsupported");
+		return (
+			<span className="flex h-12 shrink-0 items-center text-muted-foreground text-xs">
+				{unsupported ? "Usage unsupported" : "Usage unavailable"}
+			</span>
+		);
+	}
+	return (
+		<span className="flex h-12 shrink-0 items-center">
+			<SettingsLocalAgentUsageSummary
+				agentName={state.displayName}
+				limits={limits}
+			/>
+		</span>
 	);
 }
 

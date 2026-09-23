@@ -12,6 +12,7 @@ import {
 } from "../space/application/space-task-service";
 import {
   mutateSpaceTask,
+  projectSpaceTaskAllowedActions,
   type SpaceTaskMutationContext,
   type SpaceTaskWorkflowError,
 } from "../space/application/space-task-workflow";
@@ -78,6 +79,7 @@ const task = (overrides: Partial<SpaceTask> = {}): SpaceTask => ({
   review: null,
   automaticReworkRounds: 0,
   needsHumanDecision: false,
+  externalWorkItems: [],
   revision: 1,
   createdAt: "2026-09-15T00:00:00.000Z",
   updatedAt: "2026-09-15T00:00:00.000Z",
@@ -134,7 +136,7 @@ describe("Space Task workflow", () => {
     expect(reassigned.assignee).toEqual(secondAgent);
   });
 
-  it("completes immediately when the stated completion boundary has no reviewer", () => {
+  it("completes without a reviewer and never reuses a result identity after reopening", () => {
     const submitted = apply(
       task({ phase: "in_progress" }),
       {
@@ -147,9 +149,42 @@ describe("Space Task workflow", () => {
     );
     expect(submitted.phase).toBe("done");
     expect(submitted.result).toMatchObject({
-      resultRevision: 1,
+      resultRevision: submitted.revision,
       submittedBy: agent,
     });
+    const reopened = apply(
+      submitted,
+      {
+        action: "reopen",
+        expectedRevision: submitted.revision,
+        operationId: "reopen-completed",
+        reason: "A new deliverable is required",
+      },
+      requester
+    );
+    const restarted = apply(
+      reopened,
+      {
+        action: "mark_in_progress",
+        expectedRevision: reopened.revision,
+        operationId: "restart-completed",
+      },
+      agent
+    );
+    const resubmitted = apply(
+      restarted,
+      {
+        action: "submit_result",
+        expectedRevision: restarted.revision,
+        operationId: "resubmit-completed",
+        summary: "New verified result",
+      },
+      agent
+    );
+    expect(resubmitted.result?.resultRevision).toBe(resubmitted.revision);
+    expect(resubmitted.result?.resultRevision).toBeGreaterThan(
+      submitted.result?.resultRevision ?? 0
+    );
   });
 
   it("routes Agent review round trips back twice and then requires a human decision", () => {
@@ -170,6 +205,7 @@ describe("Space Task workflow", () => {
         current,
         {
           action: "review",
+          expectedResultRevision: current.revision,
           decision: "changes_requested",
           expectedRevision: current.revision,
           feedback: `Fix ${resultRevision}`,
@@ -240,6 +276,7 @@ describe("Space Task workflow", () => {
         current,
         {
           action: "review",
+          expectedResultRevision: current.revision,
           decision: "changes_requested",
           expectedRevision: current.revision,
           feedback: `Fix ${resultRevision}`,
@@ -301,10 +338,15 @@ describe("Space Task workflow", () => {
     );
   });
 
-  it("requires an attributed reason when a human Space owner overrides review", () => {
+  it.each([
+    "accepted",
+    "changes_requested",
+  ] as const)("requires an attributed reason for a human owner %s override and honors that human decision", (decision) => {
     const awaitingReview = task({
       phase: "in_review",
-      reviewer: humanReviewer,
+      reviewer: agentReviewer,
+      automaticReworkRounds: 2,
+      needsHumanDecision: true,
       result: {
         resultRevision: 1,
         summary: "Verified result",
@@ -317,7 +359,8 @@ describe("Space Task workflow", () => {
         task: awaitingReview,
         command: {
           action: "review",
-          decision: "accepted",
+          expectedResultRevision: 1,
+          decision,
           expectedRevision: 1,
           operationId: "owner-review-without-reason",
         },
@@ -333,14 +376,89 @@ describe("Space Task workflow", () => {
       task: awaitingReview,
       command: {
         action: "review",
-        decision: "accepted",
+        expectedResultRevision: 1,
+        decision,
         expectedRevision: 1,
         feedback: "Owner override: required reviewer is unavailable.",
         operationId: "owner-review-with-reason",
       },
       context: context(requester, true),
     }).task;
-    expect(accepted.phase).toBe("done");
+    expect(accepted.phase).toBe(
+      decision === "accepted" ? "done" : "in_progress"
+    );
+    expect(accepted.needsHumanDecision).toBe(false);
+    expect(accepted.review?.reviewedBy).toEqual(requester);
+  });
+
+  it("rejects review of a different result even with the latest Task revision", () => {
+    const awaitingReview = task({
+      phase: "in_review",
+      reviewer: humanReviewer,
+      revision: 5,
+      result: {
+        resultRevision: 2,
+        summary: "A new result the reviewer has not read",
+        submittedAt: "2026-09-15T01:00:00.000Z",
+        submittedBy: agent,
+      },
+    });
+    expect(() =>
+      mutateSpaceTask({
+        task: awaitingReview,
+        command: {
+          action: "review",
+          decision: "accepted",
+          expectedRevision: 5,
+          expectedResultRevision: 1,
+          operationId: "stale-result-review",
+        },
+        context: context(humanReviewer),
+      })
+    ).toThrowError(
+      expect.objectContaining<Partial<SpaceTaskWorkflowError>>({
+        code: "space_task.result_revision_conflict",
+        status: 409,
+      })
+    );
+  });
+
+  it("projects owner review authority while hiding actions from unrelated and public viewers", () => {
+    const awaitingReview = task({
+      phase: "in_review",
+      reviewer: agentReviewer,
+      result: {
+        resultRevision: 1,
+        summary: "Submitted result",
+        submittedAt: "2026-09-15T01:00:00.000Z",
+        submittedBy: agent,
+      },
+    });
+    expect(
+      projectSpaceTaskAllowedActions(
+        awaitingReview,
+        context(humanReviewer, true)
+      )
+    ).toContain("review");
+    expect(
+      projectSpaceTaskAllowedActions(awaitingReview, context(agentReviewer))
+    ).toEqual(["review"]);
+    expect(
+      projectSpaceTaskAllowedActions(awaitingReview, context(humanReviewer))
+    ).toEqual([]);
+    expect(projectSpaceTaskAllowedActions(awaitingReview, null)).toEqual([]);
+    expect(
+      projectSpaceTaskAllowedActions(
+        task({ phase: "canceled" }),
+        context(agent)
+      )
+    ).not.toContain("submit_result");
+    expect(
+      projectSpaceTaskAllowedActions(
+        task({ phase: "canceled" }),
+        context(requester)
+      )
+    ).toContain("reopen");
   });
 
   it("replays an exact create operation without duplicating the Task or event", () => {
@@ -394,5 +512,82 @@ describe("Space Task workflow", () => {
         code: "space_task.operation_conflict",
       })
     );
+  });
+});
+
+const githubIssue = {
+  lastObservedAt: "2026-09-20T00:00:00.000Z",
+  lastObservedState: "open" as const,
+  number: 1143,
+  owner: "amplifthq",
+  provider: "github" as const,
+  repo: "openmeld",
+  url: "https://github.com/amplifthq/openmeld/issues/1143",
+};
+
+describe("Space Task GitHub issue links", () => {
+  it("attaches a GitHub issue, rejects a second distinct copy, and observes close after cancel", () => {
+    const linked = apply(
+      task(),
+      {
+        action: "attach_external_work_item",
+        expectedRevision: 1,
+        item: githubIssue,
+        operationId: "attach-1",
+      },
+      requester
+    );
+    expect(linked.externalWorkItems).toEqual([githubIssue]);
+
+    const refreshed = apply(
+      linked,
+      {
+        action: "attach_external_work_item",
+        expectedRevision: 2,
+        item: {
+          ...githubIssue,
+          lastObservedAt: "2026-09-20T01:00:00.000Z",
+          owner: "AmpliftHQ",
+        },
+        operationId: "attach-2",
+      },
+      requester
+    );
+    expect(refreshed.externalWorkItems).toHaveLength(1);
+    expect(refreshed.externalWorkItems[0]?.lastObservedAt).toBe(
+      "2026-09-20T01:00:00.000Z"
+    );
+
+    const canceled = apply(
+      refreshed,
+      {
+        action: "cancel",
+        expectedRevision: 3,
+        operationId: "cancel-1",
+        reason: "GitHub issue amplifthq/openmeld#1143 was closed.",
+      },
+      requester
+    );
+    expect(canceled.phase).toBe("canceled");
+
+    const observed = apply(
+      canceled,
+      {
+        action: "observe_external_work_item",
+        expectedRevision: 4,
+        lastObservedState: "closed",
+        number: 1143,
+        operationId: "observe-1",
+        owner: "amplifthq",
+        provider: "github",
+        repo: "openmeld",
+      },
+      requester,
+      "2026-09-20T02:00:00.000Z"
+    );
+    expect(observed.externalWorkItems[0]).toMatchObject({
+      lastObservedAt: "2026-09-20T02:00:00.000Z",
+      lastObservedState: "closed",
+    });
   });
 });

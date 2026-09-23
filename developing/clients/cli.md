@@ -287,6 +287,16 @@ Center Agent Chat. Agent View returns the structured pending interaction and
 stable Space, Signal, client-message, and target-profile identifiers. Neither
 view fabricates a final answer or starts a second turn.
 
+`openmeld space respond <space>` reads the same owner-private pending questions
+as Web and Desktop. Human View offers the available single-choice answers in
+the terminal. Agent View or non-interactive invocation returns the pending
+requests in the existing `GetActiveSpaceWakeProgressResponse` shape without
+selecting an answer. Explicit automation supplies `--execution`,
+`--interaction`, and `--response` JSON from that request. Core remains the sole
+response authority and rejects stale, unauthorized, or conflicting answers.
+An accepted response is reported as sent; it is never described as a completed
+task. `space wake-progress` and the Space retain the final outcome path.
+
 `OpenMeld Service` means the local background service only. Local service lifecycle
 and service diagnosis belong under:
 
@@ -461,6 +471,12 @@ ready here. The CLI resolves the computer's existing Organization identity and
 passes it into the shared creation request; Core remains responsible for final
 Computer, Local Agent, Project, and Binding validation. Teammate-owned requests
 require an explicit `--computer`, and the CLI never guesses another computer.
+An explicit `--computer` accepts only the exact `computerId` returned by
+`openmeld org computers --view agent`. That value is the device ID used by this
+command. A Connected Computer record ID and an Agent Profile ID belong to
+different records and fail before the creation request is submitted. Other
+profile-scoped commands require a full current Profile ID; display names such
+as `Human` are not implicit aliases unless that command documents one.
 
 The executor completes new-Session identity creation, exact native Resume, and
 provider-native Fork after Agent Activity and the local Binding path verify the
@@ -628,6 +644,15 @@ npm install -g openmeld@latest && openmeld setup --view agent
 
 Use `npx -y openmeld@latest setup` only for npm bootstrap or fallback when the
 global `openmeld` command is not installed yet.
+
+Generated POSIX and Windows bootstrap commands use the shared start package's
+supported Node policy; the CLI package engine declaration is checked against
+that policy. Reject unsupported majors before acquisition instead of promising
+that any newer Node version works. Native npm exit codes own success/failure,
+including Windows PowerShell 5.1 stderr warnings. An unresolved catalog or
+workspace dependency is a package-acquisition error, not evidence that the user
+must reset OpenMeld, reinstall Node or change network settings. Preserve the
+original npm error and direct users to a corrected CLI release.
 
 Do not ask a human user to run an Agent View setup command from Web. Do not ask
 an agent to use Human View when the agent needs structured `setup.complete`
@@ -1020,7 +1045,7 @@ requires the Codex App Server permission profile and actual access probe.
 the current Space filesystem. The MVP commands are:
 
 ```text
-openmeld space files list <space-id> [--folder <folder-id>] [--json]
+openmeld space files list <space-id> [--folder <folder-id>] [--all] [--json]
 openmeld space files read <space-id> <file-id> [--revision <n>]
 openmeld space files upload <space-id> <local-path> [--name <name>] [--folder <folder-id>]
 openmeld space files write <space-id> <file-id> --base-revision <n> (--file <local-path> | --stdin)
@@ -1077,6 +1102,14 @@ actions stay in Messages. Creating assigns the current Agent by default and
 leaves the Task in To do; starting, result submission, review, and cancellation
 are explicit revision-bound writes. Task cancellation may request the existing
 Wake Stop path, but the Task receipt never claims that a process stopped.
+`review_task` also requires `expectedResultRevision` from the exact submitted
+result the Agent read. A Task or result revision conflict requires reading the
+changed Task and making a new decision; clients never silently retry the old
+decision against a newer revision. Older CLI/Service Task review tools without
+this field must be upgraded and fail closed on the new server contract.
+The Space owns delivery of review and rework handoffs through normal Wake
+admission. A successful Task transition must not prompt the Agent to publish a
+second manual Wake for that transition.
 
 An Agent chooses exactly one dispatch-scoped OpenMeld Space Action as a Wake's
 final outcome. A supported controller receives first-party `reply`, `status`,
@@ -1931,6 +1964,18 @@ Use scoped owner documents for deeper rules:
 - `space files list --trash`, `space files history`, `space files restore`, and
   `space files restore-version` consume the same member-only Trash and immutable
   revision contract as Web; restoring a version creates a new latest revision.
+- `space files list` defaults to artifacts only, matching Web's default; pass
+  `--all` to also see files shared as chat uploads. `space files upload` always
+  records the new file as an artifact; `space send --file` and
+  `space action reply --file` always record theirs as chat uploads. A CLI
+  build that predates this classification omits `origin` on upload; Core
+  treats that omission as `artifact`, matching the pre-feature create
+  default, so an old CLI keeps working against new Core without an update.
+  Reading `origin` back is negotiated: a current CLI declares an explicit
+  capability header on every Space Files request and gets `origin` in the
+  response; a CLI build that predates this feature never declares it and
+  keeps getting the exact pre-origin response shape it already parses, so
+  it is never forced to update.
 - Status commands must remain read-only.
 - Mutating commands must be explicit and lane-scoped.
 - `openmeld routines` exposes exactly eight commands, uses an explicit target

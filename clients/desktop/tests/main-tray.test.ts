@@ -177,6 +177,7 @@ const electronMock = vi.hoisted(() => {
   const app = {
     dock: { setIcon: vi.fn() },
     enableSandbox: vi.fn(),
+    getName: vi.fn(() => "OpenMeld"),
     getVersion: vi.fn(() => desktopVersion),
     isPackaged: false,
     on: vi.fn(),
@@ -394,6 +395,8 @@ beforeEach(() => {
   electronMock.windowInstances.length = 0;
   electronMock.app.enableSandbox.mockClear();
   electronMock.app.dock.setIcon.mockClear();
+  electronMock.app.getName.mockReset();
+  electronMock.app.getName.mockReturnValue("OpenMeld");
   electronMock.app.getVersion.mockClear();
   electronMock.app.on.mockClear();
   electronMock.app.quit.mockClear();
@@ -583,8 +586,14 @@ describe("main tray behavior", () => {
     expect(window?.maximize).toHaveBeenCalledOnce();
   });
 
-  it("applies OpenMeld identity to native app, menu, and window surfaces", async () => {
+  it.each([
+    "OpenMeld",
+    "OpenMeld Test",
+    "OpenMeld Dev",
+    "OpenMeld Dev wt-7574cf217e3a",
+  ])("preserves %s on every native application surface", async (appName) => {
     setTestPlatform("darwin");
+    electronMock.app.getName.mockReturnValue(appName);
 
     await importMain();
 
@@ -596,10 +605,10 @@ describe("main tray behavior", () => {
       submenu?: Array<{ label?: string }>;
     }>;
 
-    expect(electronMock.app.setName).toHaveBeenCalledWith("OpenMeld");
+    expect(electronMock.app.setName).toHaveBeenCalledWith(appName);
     expect(electronMock.app.setAboutPanelOptions).toHaveBeenCalledWith(
       expect.objectContaining({
-        applicationName: "OpenMeld",
+        applicationName: appName,
         applicationVersion: electronMock.desktopVersion,
         version: electronMock.desktopVersion,
       })
@@ -609,14 +618,25 @@ describe("main tray behavior", () => {
     );
     expect(window?.options).toMatchObject({
       icon: electronMock.appIcon,
-      title: "OpenMeld",
+      title: appName,
     });
     expect(applicationMenu.at(0)).toEqual(
-      expect.objectContaining({ label: "OpenMeld" })
+      expect.objectContaining({ label: appName })
     );
     expect(applicationMenu.at(0)?.submenu?.map((item) => item.label)).toEqual(
-      expect.arrayContaining(["About OpenMeld", "Settings...", "Quit OpenMeld"])
+      expect.arrayContaining([
+        `About ${appName}`,
+        `Hide ${appName}`,
+        "Settings...",
+        `Quit ${appName}`,
+      ])
     );
+    expect(electronMock.trayInstances.at(0)?.setToolTip).toHaveBeenCalledWith(
+      appName
+    );
+    expect(trayMenuItem(`Quit ${appName}`)).toBeDefined();
+    trayMenuItem(`Quit ${appName}`)?.click?.();
+    expect(electronMock.app.quit).toHaveBeenCalledOnce();
   });
 
   it("opens OpenMeld only from the explicit tray menu item", async () => {
@@ -832,12 +852,12 @@ describe("main tray behavior", () => {
   function trayMenuTemplate():
     | Array<{
         accessibilityLabel?: string;
-        badge?: { content?: string; type?: string };
         click?: () => void;
         enabled?: boolean;
         icon?: unknown;
         label?: string;
         sublabel?: string;
+        toolTip?: string;
         type?: string;
       }>
     | undefined {
@@ -845,18 +865,18 @@ describe("main tray behavior", () => {
     return tray?.setContextMenu.mock.calls.at(-1)?.[0] as
       | Array<{
           accessibilityLabel?: string;
-          badge?: { content?: string; type?: string };
           click?: () => void;
           enabled?: boolean;
           icon?: unknown;
           label?: string;
           sublabel?: string;
+          toolTip?: string;
           type?: string;
         }>
       | undefined;
   }
 
-  function trayMenuItem(label: string): { click?: () => void } | undefined {
+  function trayMenuItem(label: string) {
     return trayMenuTemplate()?.find((item) => item.label === label);
   }
 
@@ -868,7 +888,7 @@ describe("main tray behavior", () => {
       "Loading notifications…",
       "Open Inbox",
       "Open App",
-      "Computer",
+      "Computer — Checking…",
       "Settings…",
       "Quit OpenMeld",
     ]);
@@ -881,7 +901,7 @@ describe("main tray behavior", () => {
       "Open Inbox",
       "separator",
       "Open App",
-      "Computer",
+      "Computer — Checking…",
       "Settings…",
       "separator",
       "Quit OpenMeld",
@@ -916,9 +936,9 @@ describe("main tray behavior", () => {
       expect.objectContaining({
         accessibilityLabel:
           "Update available. Version 0.1.5 is available to download.",
-        badge: { type: "updates", count: 1 },
       })
     );
+    expect(available).not.toHaveProperty("badge");
     available?.click?.();
     expect(updaterMock.controller.showNative).toHaveBeenCalledOnce();
 
@@ -975,7 +995,7 @@ describe("main tray behavior", () => {
     expect(trayMenuLabels()).toEqual([
       "Open Inbox",
       "Open App",
-      "Computer",
+      "Computer — Checking…",
       "Settings…",
       "Quit OpenMeld",
     ]);
@@ -985,7 +1005,7 @@ describe("main tray behavior", () => {
     expect(trayMenuLabels()).not.toContain("No unread messages");
   });
 
-  it("keeps the Computer status on the same native menu row", async () => {
+  it("keeps Computer status inline so the preview can use the menu width", async () => {
     setTestPlatform("darwin");
     setTestSystemVersion("14.4");
     await importMain();
@@ -995,12 +1015,51 @@ describe("main tray behavior", () => {
       unreadCount: 0,
     });
 
-    expect(trayMenuItem("Computer")).toEqual(
+    expect(trayMenuItem("Computer — Checking…")).toEqual(
       expect.objectContaining({
         accessibilityLabel: "Computer, Checking…",
-        badge: { type: "none", content: "Checking…" },
       })
     );
+    expect(trayMenuItem("Computer — Checking…")).not.toHaveProperty("badge");
+    inboxTitle.setContext?.({
+      computer: {
+        available: true,
+        statusLabel: "Connected",
+        statusTone: "connected",
+      },
+      unreadCount: 0,
+    });
+    expect(
+      (trayMenuItem("Computer — Connected")?.icon as { dataUrl: string })
+        .dataUrl
+    ).toContain("%2334d399");
+    inboxTitle.setContext?.({
+      computer: {
+        available: true,
+        statusLabel: "Disconnected",
+        statusTone: "offline",
+      },
+      unreadCount: 0,
+    });
+    expect(
+      (trayMenuItem("Computer — Disconnected")?.icon as { dataUrl: string })
+        .dataUrl
+    ).toContain("%23d4d4d4");
+    inboxTitle.setContext?.({
+      computer: {
+        available: true,
+        statusLabel: "Checking OpenMeld status",
+        statusTone: "attention",
+      },
+      unreadCount: 0,
+    });
+    expect(
+      (
+        trayMenuItem("Computer — Checking OpenMeld status")?.icon as {
+          dataUrl: string;
+        }
+      ).dataUrl
+    ).toContain("%23fbbf24");
   });
 
   it("keeps Computer status and preview text visible before macOS 14.4", async () => {
@@ -1028,9 +1087,7 @@ describe("main tray behavior", () => {
     });
 
     expect(trayMenuItem("Computer — Connected")).toBeTruthy();
-    expect(
-      trayMenuItem(`${"L".repeat(21)}… · now — ${"p".repeat(19)}`)
-    ).toBeTruthy();
+    expect(trayMenuItem(`${"L".repeat(23)} — ${"p".repeat(19)}`)).toBeTruthy();
   });
 
   it("renders and activates one exact unread preview", async () => {
@@ -1056,8 +1113,10 @@ describe("main tray behavior", () => {
       status: "ready",
     });
 
-    const preview = trayMenuTemplate()?.find((item) =>
-      item.label?.startsWith("Morgan · Design review ·")
+    const preview = trayMenuTemplate()?.find(
+      (item) =>
+        item.accessibilityLabel ===
+        "Morgan · Design review · now — Please check the latest layout."
     );
     preview?.click?.();
 
@@ -1085,7 +1144,7 @@ describe("main tray behavior", () => {
     expect(tray?.closeContextMenu).toHaveBeenCalledOnce();
   });
 
-  it("keeps native preview text within its budgets at grapheme boundaries", async () => {
+  it("shares one compact preview budget without losing full text or graphemes", async () => {
     setTestPlatform("darwin");
     await importMain();
     const cases = [
@@ -1093,51 +1152,116 @@ describe("main tray behavior", () => {
         name: "short text",
         preview: "Short preview",
         title: "Short title",
-        expectedLabel: "Short title · now",
-        expectedPreview: "Short preview",
+        expectedLabel: "Short title — Short preview",
       },
       {
-        name: "exact budgets",
+        name: "source above its overflow allocation still fits in the row",
+        preview: "OK",
+        title: "Amplift Center Agent",
+        expectedLabel: "Amplift Center Agent — OK",
+      },
+      {
+        name: "visible source and message whitespace is normalized",
+        preview: "  Looks   good\nnow  ",
+        title: "  Release   Agent\n ",
+        expectedLabel: "Release Agent — Looks good now",
+      },
+      {
+        name: "complete row exactly at the budget",
         preview: "p".repeat(32),
-        title: "T".repeat(22),
-        expectedLabel: `${"T".repeat(22)} · now`,
-        expectedPreview: "p".repeat(32),
+        title: "T".repeat(12),
+        expectedLabel: `${"T".repeat(12)} — ${"p".repeat(32)}`,
+      },
+      {
+        name: "complete row one unit above the budget",
+        preview: "p".repeat(33),
+        title: "T".repeat(12),
+        expectedLabel: `${"T".repeat(12)} — ${"p".repeat(30)}…`,
       },
       {
         name: "long English text",
         preview: `${"p".repeat(16)}\n${"p".repeat(17)}`,
         title: "T".repeat(31),
-        expectedLabel: `${"T".repeat(21)}… · now`,
-        expectedPreview: `${"p".repeat(16)} ${"p".repeat(14)}…`,
+        expectedLabel: `${"T".repeat(10)}… — ${"p".repeat(16)} ${"p".repeat(13)}…`,
       },
       {
         name: "long Chinese text",
         preview: "文".repeat(33),
         title: "标".repeat(31),
-        expectedLabel: `${"标".repeat(21)}… · now`,
-        expectedPreview: `${"文".repeat(31)}…`,
+        expectedLabel: `${"标".repeat(5)}… — ${"文".repeat(15)}…`,
+      },
+      {
+        name: "wide English text",
+        preview: "W".repeat(32),
+        title: "W".repeat(22),
+        expectedLabel: `${"W".repeat(5)}… — ${"W".repeat(15)}…`,
+      },
+      {
+        name: "short source leaves room for the message",
+        preview: "p".repeat(60),
+        title: "A",
+        expectedLabel: `A — ${"p".repeat(41)}…`,
+      },
+      {
+        name: "long source without a message uses the full row",
+        preview: " \n\t ",
+        title: "T".repeat(60),
+        expectedLabel: `${"T".repeat(46)}…`,
+      },
+      {
+        name: "empty message",
+        preview: "",
+        title: "Alice",
+        expectedLabel: "Alice",
+      },
+      {
+        name: "missing source has no separator",
+        preview: "Message without a source",
+        title: "",
+        expectedLabel: "Message without a source",
+      },
+      {
+        name: "long context and older mixed-language message",
+        preview: "请检查最新发布计划，release notes 已更新。",
+        title: "Amplift Center Agent",
+        contextLabel: "A long project name that belongs in the full context",
+        ageMs: 42 * 24 * 60 * 60 * 1000,
+        expectedTime: "42d",
+        expectedLabel: "Amplift C… — 请检查最新发布计划，release no…",
       },
       {
         name: "ordinary emoji on the truncation boundary",
-        preview: `${"b".repeat(30)}😀x`,
-        title: `${"a".repeat(20)}😀x`,
-        expectedLabel: `${"a".repeat(20)}… · now`,
-        expectedPreview: `${"b".repeat(30)}…`,
+        preview: `${"b".repeat(35)}😀x`,
+        title: `${"a".repeat(10)}😀x`,
+        expectedLabel: `${"a".repeat(10)}… — ${"b".repeat(30)}…`,
       },
       {
         name: "family emoji crossing the truncation boundary",
-        preview: `${"f".repeat(30)}👨‍👩‍👧‍👦x`,
-        title: "Family update",
-        expectedLabel: "Family update · now",
-        expectedPreview: `${"f".repeat(30)}…`,
+        preview: `${"f".repeat(40)}👨‍👩‍👧‍👦xy`,
+        title: "Team",
+        expectedLabel: `Team — ${"f".repeat(37)}…`,
+      },
+      {
+        name: "family emoji fits before the ellipsis",
+        preview: `${"f".repeat(35)}👨‍👩‍👧‍👦xyzz`,
+        title: "Team",
+        expectedLabel: `Team — ${"f".repeat(35)}👨‍👩‍👧‍👦…`,
+      },
+      {
+        name: "combining sequence fits before the ellipsis",
+        preview: `${"c".repeat(35)}e\u0301xyz`,
+        title: "Jose\u0301",
+        expectedLabel: `Jose\u0301 — ${"c".repeat(35)}e\u0301…`,
       },
     ];
 
     for (const testCase of cases) {
       inboxTitle.setPresentation?.({
         item: {
-          contextLabel: "",
-          occurredAt: new Date().toISOString(),
+          contextLabel: testCase.contextLabel ?? "",
+          occurredAt: new Date(
+            Date.now() - (testCase.ageMs ?? 0)
+          ).toISOString(),
           preview: testCase.preview,
           reference: {
             itemId: `item-${testCase.name}`,
@@ -1153,11 +1277,18 @@ describe("main tray behavior", () => {
       const preview = trayMenuTemplate()?.find((item) =>
         item.accessibilityLabel?.endsWith(` — ${testCase.preview}`)
       );
-      expect(preview?.label, testCase.name).toBe(
-        `${testCase.expectedLabel} — ${testCase.expectedPreview}`
+      expect(preview?.label, testCase.name).toBe(testCase.expectedLabel);
+      expect(preview?.toolTip, testCase.name).toBe(testCase.preview);
+      const source = testCase.contextLabel
+        ? `${testCase.title} · ${testCase.contextLabel}`
+        : testCase.title;
+      expect(preview?.accessibilityLabel, testCase.name).toBe(
+        `${source} · ${testCase.expectedTime ?? "now"} — ${testCase.preview}`
       );
+      expect(
+        trayMenuItem(`Latest unread · ${testCase.expectedTime ?? "now"}`)
+      ).toEqual(expect.objectContaining({ enabled: false }));
       expect(preview?.sublabel, testCase.name).toBeUndefined();
-      expect(preview?.label?.length, testCase.name).toBeLessThanOrEqual(63);
       expect(preview?.label, testCase.name).not.toContain("\n");
     }
   });

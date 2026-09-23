@@ -2284,7 +2284,7 @@ describe("Remote Agent Routine native delivery", () => {
     });
   });
 
-  it("lets a Workflow wait for its callback when the worker ACK outcome is unknown", async () => {
+  it("keeps Workflow admission retryable when the worker ACK outcome is unknown", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmitRequest = {
       ...(await buildRoutineWorkerSubmitRequest(fixture)),
@@ -2309,27 +2309,21 @@ describe("Remote Agent Routine native delivery", () => {
       .bind(fixture.runId)
       .run();
     const recoveryAtMs = fixture.nowMs + 60_000;
-    const workerSubmit = vi.fn(() =>
-      Promise.reject(
+    const workerSubmit = vi
+      .fn()
+      .mockRejectedValue(
         new Error("transport disconnected after the worker admitted the turn")
-      )
-    );
+      );
 
     const testEnv = buildEnv({ fixture, workerSubmit });
-    const submission = await ensureRemoteAgentRoutineWorkflowSubmission({
-      db: env.OPENMELD_DB,
-      env: testEnv,
-      nowMs: recoveryAtMs,
-      runId: fixture.runId,
-    });
-    expect(submission).toEqual({
-      dispatchId: fixture.runId,
-      idempotencyKey: fixture.runId,
-      organizationId: fixture.organizationId,
-      spaceId: fixture.spaceId,
-      status: "waiting",
-      submissionId: null,
-    });
+    await expect(
+      ensureRemoteAgentRoutineWorkflowSubmission({
+        db: env.OPENMELD_DB,
+        env: testEnv,
+        nowMs: recoveryAtMs,
+        runId: fixture.runId,
+      })
+    ).rejects.toThrow("has no acknowledged Remote Agent submission");
 
     expect(workerSubmit).toHaveBeenCalledTimes(1);
     await expect(
@@ -2348,13 +2342,35 @@ describe("Remote Agent Routine native delivery", () => {
       }),
     });
 
-    expect(submission.status).toBe("waiting");
     await expect(
       readRoutineRunRecord({ db: env.OPENMELD_DB, runId: fixture.runId })
     ).resolves.toMatchObject({ failureCode: null, status: "submitted" });
     expect(
       testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
     ).not.toHaveBeenCalled();
+
+    workerSubmit.mockResolvedValueOnce({
+      accepted: true,
+      createdAt: fixture.nowMs,
+      idempotencyKey: fixture.runId,
+      status: "pending",
+      submissionId: fixture.submissionId,
+    });
+    await expect(
+      ensureRemoteAgentRoutineWorkflowSubmission({
+        db: env.OPENMELD_DB,
+        env: testEnv,
+        nowMs: recoveryAtMs + 1000,
+        runId: fixture.runId,
+      })
+    ).resolves.toMatchObject({
+      status: "waiting",
+      submissionId: fixture.submissionId,
+    });
+    expect(workerSubmit).toHaveBeenCalledTimes(2);
+    expect(
+      workerSubmit.mock.calls.map(([request]) => request.idempotencyKey)
+    ).toEqual([fixture.runId, fixture.runId]);
   });
 
   it("keeps a Workflow waiting and retains its Routine envelope after worker ACK", async () => {

@@ -1,5 +1,8 @@
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import {
 	WEB_APPLICATION_ERROR_PATH,
+	type WebApplicationErrorQueryCategory,
+	type WebApplicationErrorQueryDiagnostic,
 	type WebApplicationErrorReport,
 	type WebApplicationErrorSource,
 } from "@openmeld/schemas";
@@ -8,6 +11,8 @@ import {
 	WEB_ERROR_BUILD,
 } from "./application-error";
 import { browserDiagnosticContext } from "./space-open";
+
+const DIAGNOSTIC_REQUEST_ID = /^[A-Za-z0-9_.:-]+$/;
 
 let readRouteId: () => string | null = () => null;
 export function setApplicationErrorRouteReader(
@@ -21,7 +26,8 @@ const reported = new Set<string>();
 export function reportClientApplicationError(
 	error: unknown,
 	source: WebApplicationErrorSource,
-	resource?: string
+	resource?: string,
+	query?: WebApplicationErrorQueryDiagnostic
 ): void {
 	if (typeof window === "undefined") {
 		return;
@@ -29,12 +35,12 @@ export function reportClientApplicationError(
 	try {
 		const summary = summarizeApplicationError(error, resource);
 		const routeId = readRouteId();
-		const key = JSON.stringify([routeId, summary]);
+		const key = JSON.stringify([routeId, summary, query]);
 		if (reported.has(key) || reported.size >= 20) {
 			return;
 		}
 		reported.add(key);
-		const report = createApplicationErrorReport(error, source, resource);
+		const report = createApplicationErrorReport(error, source, resource, query);
 		// keepalive allows a small report to outlive the automatic page refresh.
 		// Never retry a failed diagnostic request or report its own failure.
 		sendApplicationErrorReport(report).catch(() => undefined);
@@ -43,10 +49,32 @@ export function reportClientApplicationError(
 	}
 }
 
+export function reportClientQueryError(
+	error: unknown,
+	category: WebApplicationErrorQueryCategory
+): void {
+	const failure = toStructuredApiClientFailure(error);
+	reportClientApplicationError(error, "query", undefined, {
+		category,
+		failure: {
+			code: failure.code,
+			requestId: normalizeDiagnosticRequestId(failure.requestId),
+			status:
+				typeof failure.status === "number" &&
+				Number.isInteger(failure.status) &&
+				failure.status >= 100 &&
+				failure.status <= 599
+					? failure.status
+					: null,
+		},
+	});
+}
+
 function createApplicationErrorReport(
 	error: unknown,
 	source: WebApplicationErrorSource,
-	resource?: string
+	resource?: string,
+	query?: WebApplicationErrorQueryDiagnostic
 ): WebApplicationErrorReport {
 	return {
 		version: 1,
@@ -56,8 +84,18 @@ function createApplicationErrorReport(
 		buildId: WEB_ERROR_BUILD.id,
 		sourceSha: WEB_ERROR_BUILD.sha,
 		routeId: readRouteId(),
+		...(query ? { query } : {}),
 		error: summarizeApplicationError(error, resource),
 	};
+}
+
+function normalizeDiagnosticRequestId(value: string | null): string | null {
+	const normalized = value?.trim() ?? "";
+	return normalized.length > 0 &&
+		normalized.length <= 256 &&
+		DIAGNOSTIC_REQUEST_ID.test(normalized)
+		? normalized
+		: null;
 }
 
 function sendApplicationErrorReport(report: WebApplicationErrorReport) {

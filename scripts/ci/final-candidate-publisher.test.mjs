@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { FINAL_CANDIDATE_EVIDENCE_VERSION } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
+import {
+  describeFinalCandidateFailure,
+  shouldFailPublisherJob,
+} from "./final-candidate-output.mjs";
 import { createFinalCandidatePlan } from "./final-candidate-policy.mjs";
 import { assertEvidenceMatchesExecution } from "./final-candidate-publisher.mjs";
 
@@ -12,6 +16,10 @@ const EMPTY_EVIDENCE_PATTERN =
   /requires at least one selected check|one result for every selected check/u;
 const TRUSTED_PLAN_MISMATCH_PATTERN =
   /does not match the plan recomputed by trusted current main/u;
+const CONTROL_REFUSE_STATUS_PATTERN =
+  /Control drifted @ 222222222222 on 111111111111; use local explicit bootstrap/u;
+const PRODUCT_FAILURE_STATUS_PATTERN =
+  /Failed @ 222222222222 on 111111111111; inspect evidence/u;
 const trustedPlan = createFinalCandidatePlan({
   baseSha: BASE_SHA,
   branchName: "codex/malicious-candidate",
@@ -64,6 +72,40 @@ test("omitted or rewritten selected checks cannot publish green", () => {
   assert.throws(
     () => assertEvidenceMatchesExecution(createInput(rewritten)),
     TRUSTED_PLAN_MISMATCH_PATTERN
+  );
+});
+
+test("control refuse publishes one honest status instead of a second product-test failure", () => {
+  const evidence = createEvidence();
+  const controlCheck = evidence.results.find(
+    (result) => result.id === "trusted-control-entrypoints"
+  );
+  assert.ok(controlCheck);
+  controlCheck.status = "failed";
+  controlCheck.exitCode = 1;
+  controlCheck.stderrTail =
+    "Hosted Final Candidate cannot let the candidate rewrite its own test-control entrypoints.";
+
+  assert.equal(shouldFailPublisherJob(false, evidence), false);
+  assert.match(
+    describeFinalCandidateFailure(HEAD_SHA, BASE_SHA, evidence),
+    CONTROL_REFUSE_STATUS_PATTERN
+  );
+});
+
+test("a product-test failure still fails the publisher job", () => {
+  const evidence = createEvidence();
+  const contracts = evidence.results.find(
+    (result) => result.id === "repository-contracts"
+  );
+  assert.ok(contracts);
+  contracts.status = "failed";
+  contracts.exitCode = 1;
+
+  assert.equal(shouldFailPublisherJob(false, evidence), true);
+  assert.match(
+    describeFinalCandidateFailure(HEAD_SHA, BASE_SHA, evidence),
+    PRODUCT_FAILURE_STATUS_PATTERN
   );
 });
 

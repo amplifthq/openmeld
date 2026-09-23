@@ -25,6 +25,7 @@ import {
   sanitizeDispatchErrorSummary,
 } from "@openmeld/schemas";
 import type {
+  AgentActivityOverviewResponse,
   CenterAgentAuthorizeAnonymousMemberToolResponse,
   CenterAgentAuthorizeAnonymousMemberToolRpcInput,
   CenterAgentCreateOrganizationInviteLinkResponse,
@@ -46,6 +47,8 @@ import type {
   CenterAgentListOrganizationMembersToolRpcInput,
   CenterAgentListProjectsToolResponse,
   CenterAgentListProjectsToolRpcInput,
+  CenterAgentListRoutineRunsToolResponse,
+  CenterAgentListRoutineRunsToolRpcInput,
   CenterAgentListRoutinesToolRpcInput,
   CenterAgentListSlackChannelsBody,
   CenterAgentListSlackChannelsResponse,
@@ -60,6 +63,9 @@ import type {
   CenterAgentPauseRoutineToolRpcInput,
   CenterAgentPrepareRemoveProjectToolResponse,
   CenterAgentPrepareRemoveProjectToolRpcInput,
+  CenterAgentReadAgentActivityToolRpcInput,
+  CenterAgentReadAuditJournalResponse,
+  CenterAgentReadAuditJournalRpcInput,
   CenterAgentReadChangelogToolRpcInput,
   CenterAgentReadConnectorActionOperationBody,
   CenterAgentReadConnectorActionOperationResponse,
@@ -71,6 +77,8 @@ import type {
   CenterAgentReadOrganizationDocumentsRpcInput,
   CenterAgentReadOrganizationSkillsResponse,
   CenterAgentReadOrganizationSkillsRpcInput,
+  CenterAgentReadRoutineRunDiagnosticsResponse,
+  CenterAgentReadRoutineRunDiagnosticsRpcInput,
   CenterAgentReadSlackChannelHistoryBody,
   CenterAgentReadSlackChannelHistoryResponse,
   CenterAgentReadSlackChannelMembersBody,
@@ -98,6 +106,8 @@ import type {
   CenterAgentResumeRoutineToolRpcInput,
   CenterAgentSaveSpaceFileResponse,
   CenterAgentSaveSpaceFileRpcInput,
+  CenterAgentSearchMemoryResponse,
+  CenterAgentSearchMemoryRpcInput,
   CenterAgentSearchSlackMessagesBody,
   CenterAgentSearchSlackMessagesResponse,
   CenterAgentSetAgentProfileDefaultProjectToolResponse,
@@ -283,6 +293,7 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  getSpaceTask?(input: unknown): Promise<unknown>;
   listSpaceTasks?(input: unknown): Promise<unknown>;
   createSpaceTask?(input: unknown): Promise<unknown>;
   mutateSpaceTask?(input: unknown): Promise<unknown>;
@@ -383,6 +394,12 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentDeleteRoutine?(
     input: CenterAgentDeleteRoutineToolRpcInput
   ): Promise<DeleteCenterAgentRoutineResponse>;
+  centerAgentListRoutineRuns?(
+    input: CenterAgentListRoutineRunsToolRpcInput
+  ): Promise<CenterAgentListRoutineRunsToolResponse>;
+  centerAgentReadRoutineRunDiagnostics?(
+    input: CenterAgentReadRoutineRunDiagnosticsRpcInput
+  ): Promise<CenterAgentReadRoutineRunDiagnosticsResponse>;
   centerAgentListRoutines?(
     input: CenterAgentListRoutinesToolRpcInput
   ): Promise<ListCenterAgentRoutinesResponse>;
@@ -506,6 +523,15 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentManageSpaceFiles?(
     input: CenterAgentManageSpaceFilesRpcInput
   ): Promise<CenterAgentManageSpaceFilesResponse>;
+  centerAgentReadAgentActivityOverview?(
+    input: CenterAgentReadAgentActivityToolRpcInput
+  ): Promise<AgentActivityOverviewResponse>;
+  centerAgentSearchMemory?(
+    input: CenterAgentSearchMemoryRpcInput
+  ): Promise<CenterAgentSearchMemoryResponse>;
+  centerAgentReadAuditJournal?(
+    input: CenterAgentReadAuditJournalRpcInput
+  ): Promise<CenterAgentReadAuditJournalResponse>;
   listCenterAgentAuditJournal?(input: unknown): Promise<unknown>;
   centerAgentPostSlackChannelMessage?(input: unknown): Promise<unknown>;
   centerAgentPostSlackFile?(input: unknown): Promise<unknown>;

@@ -1,8 +1,10 @@
 "use client";
 
+import { describeLinkedGitHubIssueClosePrompt } from "@openmeld/schemas/schemas";
 import type {
 	MutateSpaceTaskBody,
 	SpaceMembersSnapshot,
+	SpaceTaskPhase,
 } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -13,6 +15,7 @@ import {
 } from "#/lib/spaces/api";
 import { baseQueryOptions } from "#/query/query-config";
 import { spaceTaskQueryKeys } from "#/query/spaces/space-tasks";
+import { mutateSpaceTaskWithConflictRefresh } from "./space-task-mutation";
 
 export type SpaceTasksPanelProps = {
 	membersSnapshot: SpaceMembersSnapshot | null;
@@ -22,7 +25,10 @@ export type SpaceTasksPanelProps = {
 	spaceId: string;
 };
 
-export function useSpaceTasksPanelController(input: SpaceTasksPanelProps) {
+export function useSpaceTasksPanelController(
+	input: SpaceTasksPanelProps,
+	selection: { phase?: SpaceTaskPhase; taskId: string | null }
+) {
 	const api = useMemo(
 		() =>
 			input.organizationSlug
@@ -42,13 +48,34 @@ export function useSpaceTasksPanelController(input: SpaceTasksPanelProps) {
 	const queryClient = useQueryClient();
 	const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
 	const tasksQuery = useQuery({
-		queryKey: spaceTaskQueryKeys.list(input.spaceId),
+		queryKey: spaceTaskQueryKeys.list(input.spaceId, selection.phase),
 		queryFn: async ({ signal }) =>
-			await api.listTasks({ spaceId: input.spaceId, signal }),
+			await api.listTasks({
+				spaceId: input.spaceId,
+				phase: selection.phase,
+				signal,
+			}),
 		gcTime: baseQueryOptions.gcTime,
 		refetchOnWindowFocus: true,
 		retry: baseQueryOptions.retry,
 		staleTime: 3000,
+	});
+	const detailQuery = useQuery({
+		queryKey: spaceTaskQueryKeys.detail(
+			input.spaceId,
+			selection.taskId ?? "",
+			input.openMeldProfileId
+		),
+		queryFn: async ({ signal }) =>
+			await api.getTask({
+				spaceId: input.spaceId,
+				taskId: selection.taskId ?? "",
+				includeAffordances: true,
+				signal,
+			}),
+		enabled: selection.taskId !== null,
+		staleTime: 0,
+		retry: baseQueryOptions.retry,
 	});
 	const members = useMemo(
 		() =>
@@ -65,10 +92,28 @@ export function useSpaceTasksPanelController(input: SpaceTasksPanelProps) {
 	): Promise<boolean> => {
 		setPendingTaskId(taskId);
 		try {
-			await api.mutateTask({ body, spaceId: input.spaceId, taskId });
+			const receipt = await mutateSpaceTaskWithConflictRefresh({
+				mutate: (mutation) =>
+					api.mutateTask({
+						body: mutation,
+						spaceId: input.spaceId,
+						taskId,
+					}),
+				refresh: () =>
+					queryClient.invalidateQueries({
+						queryKey: spaceTaskQueryKeys.space(input.spaceId),
+					}),
+				request: body,
+			});
 			await queryClient.invalidateQueries({
 				queryKey: spaceTaskQueryKeys.space(input.spaceId),
 			});
+			const githubClosePrompt = describeLinkedGitHubIssueClosePrompt(
+				receipt.task
+			);
+			if (githubClosePrompt) {
+				toast.message(githubClosePrompt);
+			}
 			return true;
 		} catch (error) {
 			toast.error(resolveSpaceTaskErrorMessage(error));
@@ -79,6 +124,7 @@ export function useSpaceTasksPanelController(input: SpaceTasksPanelProps) {
 	};
 
 	return {
+		detailQuery,
 		members,
 		mutateTask,
 		pendingTaskId,

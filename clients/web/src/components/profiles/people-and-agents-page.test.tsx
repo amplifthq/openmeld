@@ -229,7 +229,7 @@ vi.mock("#/components/agents/agent-profiles-workspace", () => ({
 		onCreateAgent: () => void;
 		onSelectProfile: (profileId: string) => void;
 		onViewChange: (view: "agents" | "requests") => void;
-		pendingRequestCount: number;
+		creationAttentionCount: number;
 		profiles: readonly AuthProfileView[];
 		renderProfilesController: () => ReactNode;
 		renderProfileDetail: (profile: AuthProfileView) => ReactNode;
@@ -1072,7 +1072,7 @@ describe("PeopleAndAgentsPage", () => {
 		);
 	});
 
-	it("counts unfinished self-requests without teammate or completed requests", () => {
+	it("counts self-requests needing attention without work in progress or teammate requests", () => {
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
 			const organizationProjection = resolveOrganizationProjectionQuery(
@@ -1137,7 +1137,7 @@ describe("PeopleAndAgentsPage", () => {
 		);
 
 		expect(agentProfilesWorkspaceSpy).toHaveBeenCalledWith(
-			expect.objectContaining({ pendingRequestCount: 2 })
+			expect.objectContaining({ creationAttentionCount: 1 })
 		);
 	});
 

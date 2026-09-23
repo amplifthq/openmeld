@@ -1,3 +1,4 @@
+import { OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION } from "@openmeld/gateway-contract";
 import {
   messageSearchQuerySchema,
   messageSearchResponseSchema,
@@ -19,7 +20,8 @@ export function registerMessageSearchRoutes(app: Hono<HonoBindings>): void {
         c,
         route,
         method: "GET",
-        message: "Enter 3 to 200 characters and use a valid search cursor.",
+        message:
+          "Enter 1 to 200 characters for a Space search, or 3 to 200 characters otherwise, and use a valid search cursor.",
       });
     }
     return executeRpcRoute({
@@ -28,10 +30,13 @@ export function registerMessageSearchRoutes(app: Hono<HonoBindings>): void {
       method: "GET",
       responseSchema: messageSearchResponseSchema,
       execute: () =>
-        c.var.coreRpc.searchMessages({
-          ...query.data,
-          context: buildCoreRpcContext(c),
-        }),
+        c.var.coreRpc.searchMessages(
+          {
+            ...query.data,
+            context: buildCoreRpcContext(c),
+          },
+          OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
+        ),
     });
   });
 }

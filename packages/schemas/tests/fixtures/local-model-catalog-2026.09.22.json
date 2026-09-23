@@ -1,0 +1,252 @@
+{
+  "capture": {
+    "observedAt": "2026-09-22T14:37:13.632Z",
+    "commands": [
+      "cursor-agent acp",
+      "grok agent --no-leader stdio",
+      "opencode models opencode --refresh --verbose",
+      "opencode models opencode-go --verbose"
+    ],
+    "versions": {
+      "cursor": "2026.09.18-9a7762b",
+      "grok-build": "1.0.40",
+      "opencode": "1.18.31"
+    },
+    "scope": "Vendor response fields for newly added models; session identifiers and account metadata omitted."
+  },
+  "cursor": {
+    "configOptions": [
+      {
+        "value": "grok-4.7[context=256k,reasoning_effort=high,fast=true]",
+        "name": "grok-4.7"
+      }
+    ],
+    "availableModels": [
+      {
+        "modelId": "grok-4.7[context=256k,reasoning_effort=high,fast=true]",
+        "name": "grok-4.7"
+      }
+    ]
+  },
+  "grokBuild": {
+    "initializeModels": [
+      {
+        "modelId": "grok-4.7",
+        "name": "Grok 4.7",
+        "description": "SpaceXAI's latest frontier model",
+        "_meta": {
+          "totalContextTokens": 500000,
+          "agentType": "grok-build-plan",
+          "supportsReasoningEffort": true,
+          "reasoningEffort": "high",
+          "reasoningEfforts": [
+            {
+              "id": "xhigh",
+              "value": "xhigh",
+              "label": "Extra High",
+              "description": "Maximum reasoning for the hardest tasks.",
+              "default": false
+            },
+            {
+              "id": "high",
+              "value": "high",
+              "label": "High",
+              "description": "Thorough reasoning and quality. Recommended.",
+              "default": true
+            },
+            {
+              "id": "medium",
+              "value": "medium",
+              "label": "Medium",
+              "description": "Strong quality with a faster turnaround.",
+              "default": false
+            },
+            {
+              "id": "low",
+              "value": "low",
+              "label": "Low",
+              "description": "Fastest responses. Best for simple tasks.",
+              "default": false
+            }
+          ]
+        }
+      },
+      {
+        "modelId": "grok-4.7-build-fast",
+        "name": "Grok 4.7 Fast",
+        "description": "Fast variant. 2x the price.",
+        "_meta": {
+          "totalContextTokens": 500000,
+          "agentType": "grok-build-plan",
+          "supportsReasoningEffort": true,
+          "reasoningEffort": "high",
+          "reasoningEfforts": [
+            {
+              "id": "xhigh",
+              "value": "xhigh",
+              "label": "Extra High",
+              "description": "Maximum reasoning for the hardest tasks.",
+              "default": false
+            },
+            {
+              "id": "high",
+              "value": "high",
+              "label": "High",
+              "description": "Thorough reasoning and quality. Recommended.",
+              "default": true
+            },
+            {
+              "id": "medium",
+              "value": "medium",
+              "label": "Medium",
+              "description": "Strong quality with a faster turnaround.",
+              "default": false
+            },
+            {
+              "id": "low",
+              "value": "low",
+              "label": "Low",
+              "description": "Fastest responses. Best for simple tasks.",
+              "default": false
+            }
+          ]
+        }
+      }
+    ],
+    "sessionModels": [
+      {
+        "modelId": "grok-4.7",
+        "name": "Grok 4.7",
+        "description": "SpaceXAI's latest frontier model",
+        "_meta": {
+          "totalContextTokens": 500000,
+          "agentType": "grok-build-plan",
+          "supportsReasoningEffort": true,
+          "reasoningEffort": "high",
+          "reasoningEfforts": [
+            {
+              "id": "xhigh",
+              "value": "xhigh",
+              "label": "Extra High",
+              "description": "Maximum reasoning for the hardest tasks.",
+              "default": false
+            },
+            {
+              "id": "high",
+              "value": "high",
+              "label": "High",
+              "description": "Thorough reasoning and quality. Recommended.",
+              "default": true
+            },
+            {
+              "id": "medium",
+              "value": "medium",
+              "label": "Medium",
+              "description": "Strong quality with a faster turnaround.",
+              "default": false
+            },
+            {
+              "id": "low",
+              "value": "low",
+              "label": "Low",
+              "description": "Fastest responses. Best for simple tasks.",
+              "default": false
+            }
+          ]
+        }
+      },
+      {
+        "modelId": "grok-4.7-build-fast",
+        "name": "Grok 4.7 Fast",
+        "description": "Fast variant. 2x the price.",
+        "_meta": {
+          "totalContextTokens": 500000,
+          "agentType": "grok-build-plan",
+          "supportsReasoningEffort": true,
+          "reasoningEffort": "high",
+          "reasoningEfforts": [
+            {
+              "id": "xhigh",
+              "value": "xhigh",
+              "label": "Extra High",
+              "description": "Maximum reasoning for the hardest tasks.",
+              "default": false
+            },
+            {
+              "id": "high",
+              "value": "high",
+              "label": "High",
+              "description": "Thorough reasoning and quality. Recommended.",
+              "default": true
+            },
+            {
+              "id": "medium",
+              "value": "medium",
+              "label": "Medium",
+              "description": "Strong quality with a faster turnaround.",
+              "default": false
+            },
+            {
+              "id": "low",
+              "value": "low",
+              "label": "Low",
+              "description": "Fastest responses. Best for simple tasks.",
+              "default": false
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "opencode": [
+    {
+      "id": "mimo-v2.6-flash-free",
+      "providerID": "opencode",
+      "name": "MiMo-V2.6-Flash Free",
+      "status": "active",
+      "variants": {}
+    },
+    {
+      "id": "grok-4.7",
+      "providerID": "opencode-go",
+      "name": "Grok 4.7",
+      "status": "active",
+      "variants": {
+        "low": {
+          "reasoningEffort": "low",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "medium": {
+          "reasoningEffort": "medium",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "high": {
+          "reasoningEffort": "high",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        }
+      }
+    },
+    {
+      "id": "mimo-v2.6-flash",
+      "providerID": "opencode-go",
+      "name": "MiMo-V2.6-Flash",
+      "status": "active",
+      "variants": {}
+    },
+    {
+      "id": "mimo-v2.6-pro",
+      "providerID": "opencode-go",
+      "name": "MiMo-V2.6-Pro",
+      "status": "active",
+      "variants": {}
+    }
+  ]
+}

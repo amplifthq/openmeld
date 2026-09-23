@@ -37,6 +37,7 @@ describe("LocalAgentInstallGuideIndexPage", () => {
 		expect(screen.getByText("Cursor CLI")).toBeTruthy();
 		expect(screen.getByText("Grok Build")).toBeTruthy();
 		expect(screen.getByText("OpenCode")).toBeTruthy();
+		expect(screen.getAllByText("Antigravity").length).toBeGreaterThan(0);
 		expect(screen.queryByText("OpenClaw")).toBeNull();
 		const guideGrid = screen.getByTestId("local-agent-guide-grid");
 		expect(guideGrid.className).toContain("auto-rows-fr");
@@ -44,7 +45,7 @@ describe("LocalAgentInstallGuideIndexPage", () => {
 		expect(guideGrid.className).not.toContain("grid-cols-4");
 		expect(guideGrid.className).not.toContain("grid-cols-5");
 		const guideCards = [...guideGrid.querySelectorAll("a.rounded-md")];
-		expect(guideCards).toHaveLength(5);
+		expect(guideCards).toHaveLength(6);
 		expect(guideCards.every((card) => card.classList.contains("h-full"))).toBe(
 			true
 		);
@@ -53,6 +54,7 @@ describe("LocalAgentInstallGuideIndexPage", () => {
 			expect.stringContaining("Claude Code"),
 			expect.stringContaining("Grok Build"),
 			expect.stringContaining("OpenCode"),
+			expect.stringContaining("Antigravity"),
 			expect.stringContaining("Cursor CLI"),
 		]);
 		expect(

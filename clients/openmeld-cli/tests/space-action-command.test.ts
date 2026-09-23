@@ -592,6 +592,34 @@ describe("OpenMeld Space Action command", () => {
 });
 
 describe("OpenMeld Space Action MCP server", () => {
+  it("rejects a Task review without the exact result revision before invoking the action", async () => {
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const server = createSpaceActionMcpServer();
+    const client = new Client({ name: "openmeld-test", version: "1.0.0" });
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const result = await client.callTool({
+        name: "review_task",
+        arguments: {
+          taskId: "tsk_55555555-5555-4555-8555-555555555555",
+          expectedRevision: 5,
+          decision: "accepted",
+        },
+      });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toContain(
+        "expectedResultRevision"
+      );
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("rejects a self-Wake before recording and accepts the corrected plain reply", async () => {
     const context = createTestContext(
       [

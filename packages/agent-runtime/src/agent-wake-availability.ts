@@ -1105,6 +1105,7 @@ function createUnavailableWakeAvailability(
       "runtime.agent_controller_report_stale",
       "agent_profile_binding.controller_conversation_conflict",
       "agent_profile_binding.missing",
+      "local_service.not_accepting_wakes",
       "route.unavailable",
       "agent_execution.route_unavailable",
     ]),
@@ -1448,6 +1449,7 @@ function isPublicUnavailableReasonCode(reasonCode: string): boolean {
     reasonCode === "service.not_installed" ||
     reasonCode === "service.drifted" ||
     reasonCode === "local_service.identity_mismatch" ||
+    reasonCode === "local_service.not_accepting_wakes" ||
     reasonCode === "background_helper.update_required" ||
     isAgentProfileWorkspaceBlockerReasonCode(reasonCode) ||
     isPublicUnavailableAgentProfileBindingReason(reasonCode) ||

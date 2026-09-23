@@ -302,6 +302,40 @@ describe("weekly Organization eval metrics", () => {
 
   it("publishes one idempotent real report message when the weekly scheduled task is triggered", async () => {
     const fixture = await seedOfficialOrganizationCenterAgent();
+    await env.OPENMELD_DB.prepare(
+      "UPDATE members SET role = 'admin' WHERE organization_id = ?"
+    )
+      .bind(fixture.organizationId)
+      .run();
+    await expect(
+      runCoreScheduledTasks({
+        cron: EVAL_WEEKLY_REPORT_CRON,
+        env: env as unknown as CoreBindings,
+        nowMs: Date.parse("2026-07-20T05:00:00.000Z"),
+      })
+    ).rejects.toThrow(
+      "Weekly eval Quality Space requires a current organization owner"
+    );
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const qualityObjectId = resolveNamedSpaceId(
+      namespace,
+      `eval-quality-space-v1:${fixture.organizationId}`
+    );
+    const qualitySpace = namespace.get(qualityObjectId);
+    const emptyMetaCount = await runInDurableObject(
+      qualitySpace,
+      (_instance, state) =>
+        state.storage.sql
+          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM space_meta")
+          .one().count
+    );
+    expect(emptyMetaCount).toBe(0);
+    await env.OPENMELD_DB.prepare(
+      "UPDATE members SET role = 'owner' WHERE organization_id = ?"
+    )
+      .bind(fixture.organizationId)
+      .run();
+
     await createOrganizationWeeklyEvalReport({
       createdAtMs: PERIOD_START_MS,
       db: env.OPENMELD_DB,
@@ -327,6 +361,10 @@ describe("weekly Organization eval metrics", () => {
       nowMs: Date.parse("2026-07-13T05:00:00.000Z"),
     };
     await runCoreScheduledTasks(scheduledInput);
+    const laterOwner = await seedOrganizationOwner({
+      label: "later",
+      organizationId: fixture.organizationId,
+    });
     await seedRuntimeCoordinatorExecution({
       createdAtMs: PERIOD_START_MS + 200,
       spaceId: sourceSpaceId,
@@ -352,18 +390,25 @@ describe("weekly Organization eval metrics", () => {
       failureRate: 0,
     });
 
-    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
-    const qualityObjectId = resolveNamedSpaceId(
-      namespace,
-      `eval-quality-space-v1:${fixture.organizationId}`
-    );
-    const qualitySpace = namespace.get(qualityObjectId);
     const evidence = await runInDurableObject(
       qualitySpace,
       (_instance, state) => {
         const [meta] = state.storage.sql
-          .exec<{ name: string; organization_id: string }>(
-            "SELECT name, organization_id FROM space_meta LIMIT 1"
+          .exec<{
+            creator_json: string;
+            name: string;
+            organization_id: string;
+            owner_user_ids_json: string;
+          }>(
+            "SELECT creator_json, name, organization_id, owner_user_ids_json FROM space_meta LIMIT 1"
+          )
+          .toArray();
+        const members = state.storage.sql
+          .exec<{
+            owner_user_id_snapshot: string | null;
+            profile_id: string;
+          }>(
+            "SELECT owner_user_id_snapshot, profile_id FROM space_members WHERE status = 'active' ORDER BY profile_id ASC"
           )
           .toArray();
         const signals = state.storage.sql
@@ -371,13 +416,37 @@ describe("weekly Organization eval metrics", () => {
             "SELECT payload_json FROM space_signals WHERE type = 'signal.text' ORDER BY ts ASC"
           )
           .toArray();
-        return { meta, signals };
+        return { members, meta, signals };
       }
     );
-    expect(evidence.meta).toEqual({
+    expect(evidence.meta).toMatchObject({
       name: "OpenMeld Quality",
       organization_id: fixture.organizationId,
     });
+    const creator = JSON.parse(evidence.meta?.creator_json ?? "null") as {
+      kind?: string;
+      ownerUserId?: string;
+      profileId?: string;
+    };
+    expect(creator).toMatchObject({
+      kind: "agent",
+      profileId: fixture.profileId,
+    });
+    expect(creator.ownerUserId).toBeUndefined();
+    expect(JSON.parse(evidence.meta?.owner_user_ids_json ?? "null")).toEqual(
+      [...fixture.ownerUserIds].sort()
+    );
+    expect(evidence.members).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ profile_id: fixture.profileId }),
+        ...fixture.ownerProfileIds.map((profileId) =>
+          expect.objectContaining({ profile_id: profileId })
+        ),
+      ])
+    );
+    expect(evidence.members).not.toContainEqual(
+      expect.objectContaining({ profile_id: laterOwner.profileId })
+    );
     expect(evidence.signals).toHaveLength(1);
     const reportSignal = JSON.parse(
       evidence.signals[0]?.payload_json ?? "null"
@@ -398,6 +467,61 @@ describe("weekly Organization eval metrics", () => {
     expect(reportSignal.data?.text).toContain("## Known gaps");
     expect(reportSignal.data?.text).toContain("Repair trigger rate");
     expect(reportSignal.data?.text).toContain("Late ledger facts");
+  });
+
+  it("does not leave owner references when one initial owner is invalid", async () => {
+    const organizationId = `org-eval-owner-atomic-${randomUUID()}`;
+    await seedOrganization(organizationId);
+    const primaryOwner = await seedOrganizationOwner({
+      label: "atomic",
+      organizationId,
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const objectId = namespace.idFromName(`eval-owner-atomic-${randomUUID()}`);
+    const spaceId = objectId.toString();
+    const space = namespace.get(objectId);
+
+    const initialization = await space.rpcInitializeSpaceMetaWithOwners({
+      creator: {
+        kind: "agent",
+        profileId: `agt_${randomUUID()}`,
+        profileName: "Center Agent",
+      },
+      name: "OpenMeld Quality",
+      organizationId,
+      owners: [
+        toResolvedOwnerMember(primaryOwner),
+        {
+          agentControllerRef: null,
+          ownerName: "Former Owner",
+          ownerUserId: `missing-owner-${randomUUID()}`,
+          profileId: randomUUID(),
+          profileKind: "human",
+          profileName: "Former Owner",
+        },
+      ],
+      spaceId,
+      visibility: "public",
+    });
+    expect(initialization).toEqual({
+      reason: "The initial Space owners must be current organization owners.",
+      status: "owners_invalid",
+    });
+
+    const metaCount = await runInDurableObject(
+      space,
+      (_instance, state) =>
+        state.storage.sql
+          .exec<{ count: number }>("SELECT COUNT(*) AS count FROM space_meta")
+          .one().count
+    );
+    const referenceCount = await env.OPENMELD_DB.prepare(
+      "SELECT COUNT(*) AS count FROM space_owner_member_references WHERE space_id = ?"
+    )
+      .bind(spaceId)
+      .first<{ count: number }>();
+    expect(metaCount).toBe(0);
+    expect(referenceCount?.count).toBe(0);
   });
 });
 
@@ -509,38 +633,26 @@ async function seedOrganization(organizationId: string): Promise<void> {
 
 async function seedOfficialOrganizationCenterAgent(): Promise<{
   organizationId: string;
+  ownerProfileIds: string[];
+  ownerUserIds: string[];
   profileId: string;
 }> {
   const organizationId = `org-official-eval-${randomUUID()}`;
-  const ownerUserId = `user-official-eval-${randomUUID()}`;
   const profileId = `agt_${randomUUID()}`;
   const nowMs = Date.now();
+  await env.OPENMELD_DB.prepare(
+    `
+      INSERT INTO organizations (id, name, slug, created_at)
+      VALUES (?, 'OpenMeld', 'openmeld', ?)
+    `
+  )
+    .bind(organizationId, nowMs)
+    .run();
+  const owners = await Promise.all([
+    seedOrganizationOwner({ label: "primary", organizationId }),
+    seedOrganizationOwner({ label: "secondary", organizationId }),
+  ]);
   await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO users (
-          id,
-          name,
-          email,
-          email_verified,
-          created_at,
-          updated_at
-        )
-        VALUES (?, 'Quality Owner', ?, 1, ?, ?)
-      `
-    ).bind(ownerUserId, `quality-${randomUUID()}@example.com`, nowMs, nowMs),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO organizations (id, name, slug, created_at)
-        VALUES (?, 'OpenMeld', 'openmeld', ?)
-      `
-    ).bind(organizationId, nowMs),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO members (id, organization_id, user_id, role, created_at)
-        VALUES (?, ?, ?, 'owner', ?)
-      `
-    ).bind(`member-${randomUUID()}`, organizationId, ownerUserId, nowMs),
     env.OPENMELD_DB.prepare(
       `
         INSERT INTO openmeld_profiles (
@@ -566,7 +678,7 @@ async function seedOfficialOrganizationCenterAgent(): Promise<{
       profileId,
       `quality-center-agent-${randomUUID()}`,
       organizationId,
-      ownerUserId,
+      owners[0]?.userId,
       nowMs,
       nowMs
     ),
@@ -581,9 +693,97 @@ async function seedOfficialOrganizationCenterAgent(): Promise<{
         )
         VALUES (?, ?, NULL, ?, ?)
       `
-    ).bind(organizationId, profileId, ownerUserId, nowMs),
+    ).bind(organizationId, profileId, owners[0]?.userId, nowMs),
   ]);
-  return { organizationId, profileId };
+  return {
+    organizationId,
+    ownerProfileIds: owners.map((owner) => owner.profileId),
+    ownerUserIds: owners.map((owner) => owner.userId),
+    profileId,
+  };
+}
+
+async function seedOrganizationOwner(input: {
+  label: string;
+  organizationId: string;
+}): Promise<{ profileId: string; profileName: string; userId: string }> {
+  const nowMs = Date.now();
+  const profileId = randomUUID();
+  const userId = `user-official-eval-${randomUUID()}`;
+  const profileName = `Quality Owner ${input.label}`;
+  await env.OPENMELD_DB.batch([
+    env.OPENMELD_DB.prepare(
+      `
+        INSERT INTO users (
+          id,
+          name,
+          email,
+          email_verified,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, 1, ?, ?)
+      `
+    ).bind(
+      userId,
+      profileName,
+      `quality-${randomUUID()}@example.com`,
+      nowMs,
+      nowMs
+    ),
+    env.OPENMELD_DB.prepare(
+      `
+        INSERT INTO members (id, organization_id, user_id, role, created_at)
+        VALUES (?, ?, ?, 'owner', ?)
+      `
+    ).bind(`member-${randomUUID()}`, input.organizationId, userId, nowMs),
+    env.OPENMELD_DB.prepare(
+      `
+        INSERT INTO openmeld_profiles (
+          profile_id,
+          profile_name,
+          profile_handle,
+          profile_kind,
+          is_default,
+          status,
+          organization_id,
+          owner_user_id,
+          created_by_user_id,
+          creator_profile_id,
+          source,
+          managed_role,
+          last_used_at,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, 'human', 1, 'active', NULL, ?, ?, NULL, 'auth_bootstrap', NULL, NULL, ?, ?)
+      `
+    ).bind(
+      profileId,
+      profileName,
+      `quality-owner-${randomUUID()}`,
+      userId,
+      userId,
+      nowMs,
+      nowMs
+    ),
+  ]);
+  return { profileId, profileName, userId };
+}
+
+function toResolvedOwnerMember(owner: {
+  profileId: string;
+  profileName: string;
+  userId: string;
+}) {
+  return {
+    agentControllerRef: null,
+    ownerName: owner.profileName,
+    ownerUserId: owner.userId,
+    profileId: owner.profileId,
+    profileKind: "human" as const,
+    profileName: owner.profileName,
+  };
 }
 
 async function seedSpaceIndex(input: {
