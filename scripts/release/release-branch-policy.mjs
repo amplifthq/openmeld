@@ -32,12 +32,9 @@ export function isVersionedReleaseBranchName(value) {
   return parseVersionedReleaseBranchName(value) !== null;
 }
 
-export function isVersionedReleaseBranchRef(value) {
+export function isReleaseBranchRef(value) {
   const ref = String(value ?? "").trim();
-  return (
-    ref.startsWith(BRANCH_REF_PREFIX) &&
-    isVersionedReleaseBranchName(ref.slice(BRANCH_REF_PREFIX.length))
-  );
+  return ref.startsWith(`${BRANCH_REF_PREFIX}codex/release-`);
 }
 
 export function assertVersionedReleaseBranchFacts(input) {

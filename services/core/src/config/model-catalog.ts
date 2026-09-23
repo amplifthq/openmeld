@@ -1,4 +1,7 @@
-import { modelCatalogSchema } from "@openmeld/schemas";
+import {
+  type ModelCatalogReadOptions,
+  modelCatalogSchema,
+} from "@openmeld/schemas";
 import type { ModelCatalog } from "@openmeld/schemas/types";
 import vendorModelCatalog from "../../../../release/vendor-models.json";
 
@@ -12,16 +15,35 @@ export function readAuthoredModelCatalog(): ModelCatalog {
   return parsed.data;
 }
 
-/** Keep creation policy inside Core; old clients validate this response strictly. */
-export function readModelCatalog(): ModelCatalog {
-  const catalog = readAuthoredModelCatalog();
+export function readModelCatalog(
+  options?: ModelCatalogReadOptions
+): ModelCatalog {
+  return projectModelCatalog(readAuthoredModelCatalog(), options);
+}
+
+/** Keep authored policy out of legacy responses; never flatten scoped withdrawal. */
+export function projectModelCatalog(
+  catalog: ModelCatalog,
+  options?: ModelCatalogReadOptions
+): ModelCatalog {
   return {
     ...catalog,
     agentControllers: Object.fromEntries(
       Object.entries(catalog.agentControllers).map(([id, controller]) => {
         const { creationDefaults: _creationDefaults, ...publicController } =
           controller;
-        return [id, publicController];
+        return [
+          id,
+          {
+            ...publicController,
+            models: controller.models.map((model) => {
+              const { retirement, ...legacyModel } = model;
+              return options?.retirement && retirement
+                ? { ...legacyModel, retirement }
+                : legacyModel;
+            }),
+          },
+        ];
       })
     ),
   };
