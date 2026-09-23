@@ -133,6 +133,11 @@ return it to the assignee. Agent-to-Agent handoffs use normal Space Wake
 admission and stop after two automatic rework rounds, then require a human
 requester or Space owner to authorize more work. Task state never substitutes
 for RuntimeCoordinator or native-delivery execution truth.
+Reviews name the exact submitted result revision the reviewer saw. A concurrent
+result or Task change requires a fresh decision; clients do not replay an old
+acceptance against a refreshed revision. A human Space owner can take over an
+Agent-requested Task decision, and approving further rework hands the next
+correction to the assignee through the same Space Wake path.
 
 Task transition messages are idempotent and return to the source Thread when
 one exists. They mention a human reviewer through normal Inbox delivery or
@@ -140,6 +145,11 @@ Wake an Agent reviewer through the existing Space path. Completion posts the
 result back to the original request. Canceling fences later Task mutations and
 requests an authorized Stop for a linked active Agent Wake; an unavailable or
 failed Stop does not undo the Task cancellation or claim that execution ended.
+The Task detail shows the source message, latest review feedback, activity, and
+pending or failed delivery actions. Space persists handoff, completion, and
+linked-issue sync intents with Task transitions and retries them through its
+background alarm. Task cancellation targets recorded Wake references from its
+source and later handoffs, with exact Stop authorization and visible failures.
 
 GitHub issues filed from a shared Space through OpenMeld's GitHub tools are
 associated with a Space Task when the Task list can confirm whether that issue

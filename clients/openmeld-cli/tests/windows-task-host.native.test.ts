@@ -5,7 +5,15 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { windowsUserTaskActionSchema } from "@openmeld/schemas";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  daemonRuntimeRootPath,
+  withDaemonServiceRunLock,
+} from "../src/config/daemon-state";
+import { buildDaemonSystemServiceCommandSpec } from "../src/local-service/lifecycle/daemon-service-command-spec";
+import { resolveDaemonServiceIdentity } from "../src/local-service/lifecycle/daemon-service-identity";
+import { resolveDaemonServiceManager } from "../src/local-service/lifecycle/daemon-service-manager";
 import {
   WINDOWS_TASK_HOST_INSTALL_SCRIPT,
   WINDOWS_TASK_HOST_SUFFIX,
@@ -16,6 +24,11 @@ import {
   windowsPowerShellPath,
   windowsTaskActionArguments,
 } from "../src/local-service/lifecycle/windows-user-task";
+import { withTempHome } from "./helpers/fs";
+import {
+  readTaskActionPayload,
+  withStoredTaskActionPayload,
+} from "./helpers/windows-task-action-fixture";
 
 const execFileAsync = promisify(execFile);
 const nativeArguments = (script: string) => [
@@ -120,21 +133,81 @@ exit 23
       expect(log).toContain("node stderr");
     });
 
+    it("installs the real Service specification and reads it back through the Service manager", async () => {
+      await withTempHome(async () => {
+        process.env.OPENMELD_ENV_PRESET = "dev-local";
+        const manager = await resolveDaemonServiceManager("windows-service");
+        if (!manager) {
+          throw new Error("Native Windows task manager is unavailable.");
+        }
+        const spec = buildDaemonSystemServiceCommandSpec({
+          controller: "windows-service",
+          distribution: "npm",
+        });
+        const identity = resolveDaemonServiceIdentity();
+        const request = {
+          name: identity.windowsServiceName,
+          legacyScript: join(
+            daemonRuntimeRootPath(),
+            `${identity.serviceName}-runner.bat`
+          ),
+        };
+        try {
+          // No start: exercise the actual production install -> status assertion
+          // with a unique dev-local registration and no authenticated Service.
+          await withDaemonServiceRunLock(
+            async () => await manager.install(spec)
+          );
+          const status = await manager.status();
+          expect(status).toMatchObject({
+            installed: true,
+            enabled: true,
+            running: false,
+          });
+          expect(status.commandSpec).toMatchObject({
+            executable: spec.executable,
+            args: spec.args,
+            env: spec.env,
+          });
+          const task = await runWindowsUserTask({
+            ...request,
+            operation: "status",
+          });
+          expect(
+            windowsUserTaskActionSchema.parse(
+              readTaskActionPayload(task.actionArguments ?? "")
+            )
+          ).toEqual(status.commandSpec);
+          // The existing-task ownership reader must also permit a second install.
+          await withDaemonServiceRunLock(
+            async () => await manager.install(spec)
+          );
+        } finally {
+          // Cleanup still works if a future regression breaks manager.status().
+          await runWindowsUserTask({ ...request, operation: "uninstall" });
+        }
+      });
+    }, 60_000);
+
     it("migrates only an owned stopped PowerShell task and retains the per-user hourly policy", async () => {
       const request = {
         name: `OpenMeld-Test-${randomUUID()}`,
         legacyScript: join(root, "legacy.cmd"),
       };
-      const action = windowsTaskActionArguments({
+      const spec = {
         executable: process.execPath,
         args: ["-e", "process.exit(0)"],
         env: { OPENMELD_HOME: root },
         logPath: join(root, "migration.log"),
-      });
+        workingDirectory: root,
+        pendingJobPath: join(root, "service-update.json"),
+      };
+      const action = windowsTaskActionArguments(spec);
+      const storedAction = withStoredTaskActionPayload(action, spec);
       const env = {
         ...process.env,
         OPENMELD_TEST_NAME: request.name,
-        OPENMELD_TEST_ACTION: action,
+        OPENMELD_TEST_ACTION: storedAction,
       };
       const taskLookup = String.raw`
 $ErrorActionPreference='Stop'
@@ -195,6 +268,20 @@ $null=$folder.RegisterTaskDefinition($name,$d,6,$sid,$null,3,$null)
         // silently skip compiling the current fixed source.
         await runWindowsUserTask(install);
         await runWindowsUserTask({ ...request, operation: "disable" });
+        const installed = await runWindowsUserTask({
+          ...request,
+          operation: "status",
+        });
+        expect(
+          windowsUserTaskActionSchema.parse(
+            readTaskActionPayload(installed.actionArguments ?? "")
+          )
+        ).toEqual({
+          executable: spec.executable,
+          args: spec.args,
+          env: spec.env,
+          logPath: spec.logPath,
+        });
         const observed = await powershell(
           `${taskLookup}
 $d=$folder.GetTask($name).Definition

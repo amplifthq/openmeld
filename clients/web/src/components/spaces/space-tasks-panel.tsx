@@ -9,9 +9,12 @@ import {
 	FlowArrowIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
+import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
+import { buildSpaceMessageFocusHref } from "#/lib/spaces/thread-navigation";
 import { SpaceTasksSkeleton } from "./space-panel-skeletons";
 import { SpaceTaskCard } from "./space-task-card";
 import { SpaceTaskDetailDrawer } from "./space-task-detail-drawer";
+import { formatSpaceTaskPhase } from "./space-task-presentation";
 import {
 	type SpaceTasksPanelProps,
 	useSpaceTasksPanelController,
@@ -44,9 +47,10 @@ const ACTIVE_COLUMNS = [
 }[];
 
 export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
-	const { members, mutateTask, pendingTaskId, tasksQuery } =
-		useSpaceTasksPanelController(input);
 	const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+	const [phase, setPhase] = useState<SpaceTaskPhase | undefined>();
+	const { detailQuery, members, mutateTask, pendingTaskId, tasksQuery } =
+		useSpaceTasksPanelController(input, { phase, taskId: selectedTaskId });
 
 	if (tasksQuery.isPending) {
 		return <SpaceTasksSkeleton />;
@@ -73,31 +77,34 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 	}
 
 	const tasks = tasksQuery.data?.tasks ?? [];
-	const activeTaskCount = tasks.filter(
-		(task) => task.phase !== "done" && task.phase !== "canceled"
-	).length;
 	const doneTasks = tasks.filter((task) => task.phase === "done");
 	const canceledTasks = tasks.filter((task) => task.phase === "canceled");
-	const selectedTask =
-		tasks.find((task) => task.taskId === selectedTaskId) ?? null;
+	const selectedTask = resolveSelectedTask(
+		tasks,
+		selectedTaskId,
+		detailQuery.data?.task
+	);
+	const spaceHref = input.organizationSlug
+		? buildOrganizationSpacePath({
+				orgSlug: input.organizationSlug,
+				spaceId: input.spaceId,
+			})
+		: `/spaces/${encodeURIComponent(input.spaceId)}`;
 
 	return (
 		<div className="min-h-0 flex-1 overflow-y-auto">
 			<div className="mx-auto max-w-[1600px] p-4 sm:p-6">
-				<header className="mb-4 flex items-start justify-between gap-4">
-					<div>
-						<h2 className="font-semibold text-base">Tasks</h2>
-						<p className="mt-1 text-muted-foreground text-sm">
-							{activeTaskCount === 0
-								? "No active commitments"
-								: `${activeTaskCount} active ${activeTaskCount === 1 ? "commitment" : "commitments"}`}
-						</p>
-					</div>
-				</header>
+				<TaskBoardHeader
+					onPhaseChange={setPhase}
+					phase={phase}
+					tasks={tasks}
+					truncated={tasksQuery.data?.truncated ?? false}
+				/>
 				{tasksQuery.data?.truncated ? (
 					<p className="mb-4 rounded-md bg-muted px-3 py-2 text-muted-foreground text-sm">
-						Showing the 500 most recently active Tasks. Use a phase filter
-						through the API to inspect older history.
+						{phase
+							? "Showing the 500 most recently updated Tasks in this phase. Older Tasks are not included."
+							: "Showing up to 500 Tasks, with active work first. Choose a phase to inspect its work and history."}
 					</p>
 				) : null}
 
@@ -108,18 +115,30 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 								aria-hidden="true"
 								className="mx-auto size-8 text-muted-foreground"
 							/>
-							<h3 className="mt-3 font-medium text-sm">No Tasks yet</h3>
+							<h3 className="mt-3 font-medium text-sm">
+								{phase
+									? `No ${formatSpaceTaskPhase(phase)} Tasks`
+									: "No Tasks yet"}
+							</h3>
 							<p className="mt-1 text-muted-foreground text-sm leading-6">
-								Tasks begin in Messages when someone gives a person or Agent a
-								clear deliverable. Small questions and quick actions stay in the
-								conversation.
+								{phase ? (
+									"Choose another phase to see more work."
+								) : (
+									<>
+										Tasks begin in Messages when someone gives a person or Agent
+										a clear deliverable. Small questions and quick actions stay
+										in the conversation.
+									</>
+								)}
 							</p>
 						</div>
 					</div>
 				) : (
 					<>
 						<div className="grid items-start gap-4 md:grid-cols-3">
-							{ACTIVE_COLUMNS.map((column) => (
+							{ACTIVE_COLUMNS.filter(
+								(column) => !phase || phase === column.phase
+							).map((column) => (
 								<TaskColumn
 									column={column}
 									key={column.phase}
@@ -139,6 +158,7 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 									<TaskHistory
 										label="Done"
 										onOpenTask={setSelectedTaskId}
+										open={phase === "done"}
 										selectedTaskId={selectedTaskId}
 										selfProfileId={input.openMeldProfileId}
 										tasks={doneTasks}
@@ -146,6 +166,7 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 									<TaskHistory
 										label="Canceled"
 										onOpenTask={setSelectedTaskId}
+										open={phase === "canceled"}
 										selectedTaskId={selectedTaskId}
 										selfProfileId={input.openMeldProfileId}
 										tasks={canceledTasks}
@@ -158,13 +179,16 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 			</div>
 			<SpaceTaskDetailDrawer
 				busy={selectedTask !== null && pendingTaskId === selectedTask.taskId}
-				key={selectedTask?.taskId ?? "closed"}
+				detail={detailQuery.data}
+				error={detailQuery.isError}
+				key={selectedTaskId ?? "closed"}
+				loading={selectedTaskId !== null && detailQuery.isPending}
 				members={members}
 				onMutate={async (body) => {
-					if (!selectedTask) {
+					if (!selectedTaskId) {
 						return false;
 					}
-					return await mutateTask(selectedTask.taskId, body);
+					return await mutateTask(selectedTaskId, body);
 				}}
 				onOpenChange={(open) => {
 					if (!open) {
@@ -172,11 +196,73 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 					}
 				}}
 				onOpenThread={input.onOpenThread}
-				open={selectedTask !== null}
+				onRefresh={() => detailQuery.refetch()}
+				open={selectedTaskId !== null}
 				selfProfileId={input.openMeldProfileId}
+				sourceHref={
+					selectedTask?.sourceSignalId
+						? buildSpaceMessageFocusHref(spaceHref, selectedTask.sourceSignalId)
+						: undefined
+				}
 				task={selectedTask}
 			/>
 		</div>
+	);
+}
+
+function resolveSelectedTask(
+	tasks: readonly SpaceTask[],
+	taskId: string | null,
+	detailTask?: SpaceTask
+): SpaceTask | null {
+	return detailTask ?? tasks.find((task) => task.taskId === taskId) ?? null;
+}
+
+function TaskBoardHeader(input: {
+	onPhaseChange: (phase: SpaceTaskPhase | undefined) => void;
+	phase?: SpaceTaskPhase;
+	tasks: readonly SpaceTask[];
+	truncated: boolean;
+}) {
+	const activeCount = input.tasks.filter(
+		(task) => task.phase !== "done" && task.phase !== "canceled"
+	).length;
+	let summary = "No active commitments";
+	if (input.phase) {
+		summary = `${input.tasks.length}${input.truncated ? "+" : ""} ${formatSpaceTaskPhase(input.phase)} Tasks`;
+	} else if (activeCount > 0) {
+		summary = `${activeCount} active ${activeCount === 1 ? "commitment" : "commitments"}${input.truncated ? " shown" : ""}`;
+	}
+	return (
+		<header className="mb-4 flex items-start justify-between gap-4">
+			<div>
+				<h2 className="font-semibold text-base">Tasks</h2>
+				<p className="mt-1 text-muted-foreground text-sm">{summary}</p>
+			</div>
+			<label className="text-muted-foreground text-xs">
+				Phase
+				<select
+					className="mt-1 block h-8 rounded-md border border-input bg-background px-2 text-foreground text-sm"
+					onChange={(event) =>
+						input.onPhaseChange(
+							event.target.value
+								? (event.target.value as SpaceTaskPhase)
+								: undefined
+						)
+					}
+					value={input.phase ?? ""}
+				>
+					<option value="">All phases</option>
+					{(
+						["to_do", "in_progress", "in_review", "done", "canceled"] as const
+					).map((value) => (
+						<option key={value} value={value}>
+							{formatSpaceTaskPhase(value)}
+						</option>
+					))}
+				</select>
+			</label>
+		</header>
 	);
 }
 
@@ -225,13 +311,19 @@ function TaskColumn(input: {
 }
 
 function TaskHistory(
-	input: Omit<Parameters<typeof TaskColumn>[0], "column"> & { label: string }
+	input: Omit<Parameters<typeof TaskColumn>[0], "column"> & {
+		label: string;
+		open?: boolean;
+	}
 ) {
 	if (input.tasks.length === 0) {
 		return null;
 	}
 	return (
-		<details className="rounded-lg border border-border">
+		<details
+			className="rounded-lg border border-border"
+			open={input.open || undefined}
+		>
 			<summary className="cursor-pointer px-4 py-3 font-medium text-sm">
 				{input.label} · {input.tasks.length}
 			</summary>

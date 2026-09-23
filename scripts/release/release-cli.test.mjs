@@ -49,6 +49,8 @@ const runCliRelease = (input = {}) =>
   });
 const PENDING_ALIGNMENT_RE = /Final CLI channel alignment pending/u;
 const VERIFICATION_ONLY_RE = /resumes verification without republishing/u;
+const NPM_DOWNLOAD_CONFIRMED =
+  /npm availability — CONFIRMED.*downloadable and verified/u;
 const RECEIPT_CONFLICT_RE = /conflicts with source/u;
 const RECEIPT_SAVE_RE = /Could not save/u;
 const UNCONFIRMED_ACCEPTANCE_RE = /acceptance is unconfirmed/u;
@@ -1685,6 +1687,7 @@ test("resumes a newer CLI target after slow command probes without reading old a
 
 test("waits for npm availability after an accepted submission", async () => {
   const waits = [];
+  const progress = [];
   const missingNpmVersion = decideNpmPublishStage({
     status: 1,
     stderr: "npm error code E404",
@@ -1702,6 +1705,7 @@ test("waits for npm availability after an accepted submission", async () => {
     targetMinRequiredCliVersion: "0.7.96",
     targetVersion: "0.7.96",
   });
+  visibleNpmVersion.criterion = "npm-artifact-consumable";
   const npmDecisions = [missingNpmVersion, visibleNpmVersion];
   const final = {
     alignment: { action: "RUN", reason: "npm is incomplete" },
@@ -1720,12 +1724,13 @@ test("waits for npm availability after an accepted submission", async () => {
       waits.push(delayMs);
       return Promise.resolve();
     },
-    write: () => undefined,
+    write: (line) => progress.push(line),
   });
 
   assert.deepEqual(waits, [10_000, 20_000]);
   assert.equal(result.npm.action, "SKIP");
   assert.equal(result.alignment.action, "SKIP");
+  assert.match(progress.join(""), NPM_DOWNLOAD_CONFIRMED);
 });
 
 test("does not wait without a submission or on an inconclusive probe", async () => {

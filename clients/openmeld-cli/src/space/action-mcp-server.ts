@@ -243,7 +243,7 @@ export function createSpaceActionMcpServer(): McpServer {
     {
       title: "Submit a result for a Space Task",
       description:
-        "Submit the concrete result and verification for an in-progress Task. A Task with a reviewer moves to In review; otherwise the stated completion boundary moves it to Done. If the reviewer is an Agent, use your one final reply to wake that reviewer.",
+        "Submit the concrete result and verification for an in-progress Task. A Task with a reviewer moves to In review; otherwise the stated completion boundary moves it to Done. The Space delivers the review handoff to the reviewer.",
       inputSchema: {
         taskId: spaceTaskIdSchema,
         expectedRevision: z.number().int().min(1),
@@ -271,10 +271,11 @@ export function createSpaceActionMcpServer(): McpServer {
     {
       title: "Review a Space Task result",
       description:
-        "Accept the current result or request specific changes as this Task's reviewer. Change requests require feedback. If the assignee is an Agent and the Task returns to In progress, use your one final reply to wake that assignee with the feedback. Do not wake more work when needsHumanDecision is true. Agent-to-Agent rework stops for a human decision after two automatic rounds.",
+        "Accept the exact result you read or request specific changes as this Task's reviewer. Pass that result's resultRevision as expectedResultRevision and the Task's revision as expectedRevision. A conflict requires reading the current Task and deciding again. Change requests require feedback. The Space delivers review and rework handoffs. Agent-to-Agent rework stops for a human decision after two automatic rounds.",
       inputSchema: {
         taskId: spaceTaskIdSchema,
         expectedRevision: z.number().int().min(1),
+        expectedResultRevision: z.number().int().min(1),
         decision: z.enum(["accepted", "changes_requested"]),
         feedback: z.string().trim().min(1).max(8000).nullable().optional(),
       },
@@ -286,13 +287,20 @@ export function createSpaceActionMcpServer(): McpServer {
         openWorldHint: false,
       },
     },
-    async ({ decision, expectedRevision, feedback, taskId }) =>
+    async ({
+      decision,
+      expectedRevision,
+      expectedResultRevision,
+      feedback,
+      taskId,
+    }) =>
       executeTaskAction(() =>
         mutateDispatchSpaceTask({
           taskId,
           body: {
             action: "review",
             expectedRevision,
+            expectedResultRevision,
             decision,
             ...(feedback === undefined ? {} : { feedback }),
           },
