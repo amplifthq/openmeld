@@ -70,6 +70,11 @@ export function buildBunCompileArgs(input) {
     input.entry,
     "--compile",
     `--target=${input.bunTarget}`,
+    // Resolve platform-only imports before Bun walks their native assets.
+    // The target executable cannot change its operating system at runtime.
+    ...(input.bunTarget.startsWith("bun-windows-")
+      ? ["--define", 'process.platform="win32"']
+      : []),
     ...(input.background ? ["--windows-hide-console"] : []),
     "--define",
     DISTRIBUTION_DEFINE,

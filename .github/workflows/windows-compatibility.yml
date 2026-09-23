@@ -79,6 +79,7 @@ jobs:
           $version = (Get-Content clients/openmeld-cli/package.json | ConvertFrom-Json).version
           $env:OPENMELD_TEST_HOST_ARTIFACT = 'binary'
           $env:OPENMELD_TEST_HOST_BINARY = (Resolve-Path "cli/dist/openmeld-service-windows-x64-$version.exe").Path
+          $env:OPENMELD_TEST_ARTIFACT_EVIDENCE = (Resolve-Path dev-tmp/windows-native-evidence).Path
           pnpm --dir clients/openmeld-cli exec vitest run --config vitest.integration.config.ts tests/service-execution-host-entry.integration.test.ts
       - name: Preserve native acceptance evidence and exact unsigned artifacts
         if: always()
