@@ -111,7 +111,6 @@ import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import type { OrganizationSpaceProfileCandidates } from "#/query/organizations/organization-directory";
 import { setSpaceWakeProgressPresentationItems } from "#/query/spaces/active-wake-progress";
 import { createSpaceConversationDisplaySnapshot } from "#/query/spaces/display-snapshot";
-import { buildRemoteCenterAgentReadiness } from "#/test-support/center-agent-readiness";
 import { SpaceEntryConfirmationContext } from "./space-entry-confirmation";
 import {
 	SPACE_LIVE_RECONNECTING_LABEL,
@@ -6237,9 +6236,6 @@ describe("SpaceLanding", () => {
 						profileHandle: addedAgent.mentionAlias ?? "runner",
 						profileId: addedAgent.profileId,
 						profileName: addedAgent.profileName,
-						readiness: buildRemoteCenterAgentReadiness("available", {
-							agentProfileId: addedAgent.profileId,
-						}),
 						status: "active",
 					},
 				],
@@ -19824,9 +19820,6 @@ function createOrganizationDirectoryFixture(input: {
 				profileHandle: "center-agent",
 				profileId: input.centerAgentProfileId,
 				profileName: "Center Agent",
-				readiness: buildRemoteCenterAgentReadiness("available", {
-					agentProfileId: input.centerAgentProfileId,
-				}),
 				status: "active",
 			},
 		],
