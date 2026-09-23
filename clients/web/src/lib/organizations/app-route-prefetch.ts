@@ -79,6 +79,12 @@ export async function prefetchAgentsRouteIdentityData(
 				storageScope: scope.storageScope,
 			})
 		),
+		input.queryClient.prefetchQuery(
+			accountSidebarQueryOptions(
+				scope.currentUserId,
+				scope.currentOrganization.id
+			)
+		),
 	];
 	if (scope.currentOrganization.isPersonal !== true) {
 		queries.push(

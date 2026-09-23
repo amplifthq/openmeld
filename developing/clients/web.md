@@ -2370,6 +2370,9 @@ reads as early as route intent allows, without holding navigation for either
 response. Known member rows and Team cards remain visible while personal
 sidebar preferences load; until those preferences arrive, the list uses its
 default Human-presence sections and saved-group actions stay unavailable. The
+same early reads apply to member details, Agents, and Agent details; Agent
+runtime availability remains a separate current read. Space member popovers
+also stop presenting an expired Computer connection as current. The
 account-and-Organization-scoped browser read cache may restore sidebar layout,
 then refresh it through the existing revisioned server read. It does not persist
 the Profile Directory's mixed identity, activity, and Agent configuration

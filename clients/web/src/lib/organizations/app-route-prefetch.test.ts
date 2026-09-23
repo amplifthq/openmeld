@@ -218,6 +218,9 @@ describe("organization app route prefetch", () => {
 			)
 		).toEqual(organizationProfileDirectory);
 		expect(
+			queryClient.getQueryData(accountSidebarQueryKey("user-1", "org-acme"))
+		).toEqual(expect.objectContaining({ revision: 1 }));
+		expect(
 			queryClient.getQueryData(
 				organizationQueryKeys.agentRuntimeOverview("org-acme")
 			)

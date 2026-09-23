@@ -6,4 +6,4 @@ areas: ["web", "desktop", "people"]
 audiences: ["users"]
 ---
 
-People starts loading before you open the page, keeps known members visible while your sidebar layout refreshes, and restores that layout after a restart. Computer and Agent usage indicators show when their last report needs a fresh check.
+People, member details, and Agents start loading before you open them. Known members stay visible while your sidebar layout refreshes, and that layout returns after a restart. Outdated Computer connections and Agent usage are shown as needing a fresh check.

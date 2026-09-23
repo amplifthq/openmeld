@@ -4,7 +4,6 @@ import type {
 	CenterAgentMemberResearchBatch,
 	MessageChannelProvider,
 	ModelCatalog,
-	OrganizationComputersResponse,
 	OrganizationDirectoryResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
@@ -55,6 +54,7 @@ import {
 	buildPersonalHumanProfileRows,
 	type DirectoryDocumentsStatus,
 	type DirectoryProjectionStatus,
+	resolveCurrentOrganizationComputersProjection,
 	resolveMissingPersonalHumanProfileMessage,
 } from "#/components/directory/directory-human-profile-model";
 import {
@@ -455,7 +455,7 @@ function useDirectoryMembersOverviewModel(
 		isSuccess: documentsQuery.isSuccess,
 	});
 	const { data: organizationComputers, status: computersStatus } =
-		resolveUsableOrganizationComputers(computersQuery);
+		resolveCurrentOrganizationComputersProjection(computersQuery);
 	const currentUserInventoryStatus = resolveDirectoryProjectionStatus(
 		input.recovery.localRuntimesQuery
 	);
@@ -679,25 +679,6 @@ function resolveDirectoryProjectionStatus(input: {
 		return "loading";
 	}
 	return input.isError ? "failed" : "ready";
-}
-
-function resolveUsableOrganizationComputers(input: {
-	data: OrganizationComputersResponse | undefined;
-	isError: boolean;
-	isPending: boolean;
-	isStale: boolean;
-}): {
-	data: OrganizationComputersResponse | null;
-	status: DirectoryProjectionStatus;
-} {
-	const status = resolveDirectoryProjectionStatus({
-		isError: input.isError || input.isStale,
-		isPending: input.isPending,
-	});
-	return {
-		data: status === "ready" ? (input.data ?? null) : null,
-		status,
-	};
 }
 
 function DirectoryInvitePanel(input: {
