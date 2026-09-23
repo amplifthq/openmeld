@@ -12,7 +12,8 @@ const HEAP_OPTION = /(?:^|\s)--max[-_]old[-_]space[-_]size(?:=|\s+)(\d+)/gu;
 export function rendererBuildEnvironment(
   env = process.env,
   memoryBytes = readMachineMemory().totalBytes,
-  platform = process.platform
+  platform = process.platform,
+  defaultHeapMiB = 4096
 ) {
   const policy = resourcePolicy(env, memoryBytes, platform);
   const machineLimit =
@@ -24,7 +25,9 @@ export function rendererBuildEnvironment(
   const existing = [...(env.NODE_OPTIONS ?? "").matchAll(HEAP_OPTION)].at(
     -1
   )?.[1];
-  const heap = Number(env.OPENMELD_RENDERER_NODE_HEAP_MB ?? existing ?? 4096);
+  const heap = Number(
+    env.OPENMELD_RENDERER_NODE_HEAP_MB ?? existing ?? defaultHeapMiB
+  );
   if (
     !Number.isSafeInteger(heap) ||
     heap < 512 ||

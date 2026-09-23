@@ -1,7 +1,13 @@
 import { EventEmitter } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { windowsUserTaskActionSchema } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  readWindowsTaskAction,
+  windowsTaskActionArguments,
+} from "../src/local-service/lifecycle/windows-user-task";
+import { readTaskActionPayload } from "./helpers/windows-task-action-fixture";
 
 const spawnMock = vi.hoisted(() => vi.fn());
 const pruneManagedInstallVersionsMock = vi.hoisted(() => vi.fn());
@@ -201,13 +207,24 @@ describe("daemon service update worker manager", () => {
       urgency: "available",
     };
 
-    await expect(
-      buildDaemonServiceUpdateWorkerSpec(job)
-    ).resolves.toMatchObject({
+    const spec = await buildDaemonServiceUpdateWorkerSpec(job);
+    expect(spec).toMatchObject({
       args: ["service", "update-worker"],
       executable:
         "/tmp/openmeld-home/runtime/daemon/service-manager/OpenMeld Update Worker Binary",
     });
+    const logPath = "/tmp/openmeld-home/worker.log";
+    const encoded = windowsTaskActionArguments({ ...spec, logPath });
+    const expected = {
+      executable: spec.executable,
+      args: spec.args,
+      env: spec.env,
+      logPath,
+    };
+    expect(
+      windowsUserTaskActionSchema.parse(readTaskActionPayload(encoded))
+    ).toEqual(expected);
+    expect(readWindowsTaskAction(encoded)).toEqual(expected);
     expect(resolveDaemonBundleEntryPathFromState).not.toHaveBeenCalled();
   });
 

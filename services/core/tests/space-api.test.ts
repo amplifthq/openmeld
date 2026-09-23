@@ -44,6 +44,7 @@ import {
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import {
   rpcAddSpaceMembers,
+  rpcCenterAgentCreateSpace,
   rpcCenterAgentPostSpaceMessage,
   rpcCreateCenterAgentContextManifest,
   rpcCreateSpace,
@@ -427,6 +428,243 @@ async function ensureTestCenterAgentDesignation(input: {
     .bind(input.organizationId, input.agentProfileId, input.ownerUserId, nowMs)
     .run();
 }
+
+describe("Delegated Space initialization", () => {
+  it.each([
+    false,
+    true,
+  ])("commits owner membership and metadata together (password: %s)", async (passwordProtected) => {
+    const organizationId = randomUUID();
+    const ownerUserId = randomUUID();
+    const ownerProfileId = randomUUID();
+    const creatorProfileId = `agt_${randomUUID()}`;
+    await ensureTestOrganizationMembership({
+      organizationId,
+      userId: ownerUserId,
+    });
+    await insertTestPrimaryHumanProfile({
+      ownerUserId,
+      profileId: ownerProfileId,
+    });
+    await ensureTestCenterAgentDesignation({
+      agentProfileId: creatorProfileId,
+      agentProfileName: "Center Agent",
+      organizationId,
+      ownerUserId,
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const agentContext = createRpcContext({
+      activeOrganizationId: organizationId,
+      profileId: creatorProfileId,
+      profileKind: "agent",
+      profileName: "Center Agent",
+      requestId: randomUUID(),
+    });
+    const created = await rpcCenterAgentCreateSpace(env as CoreBindings, {
+      context: agentContext,
+      name: "Delegated Room",
+      onBehalfOf: { profileId: ownerProfileId },
+      ...(passwordProtected ? { password: "owner-test-password" } : {}),
+      visibility: "private",
+    });
+    const spaceId = created.spaceId;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const state = await runInDurableObject(stub, (_instance, doState) => ({
+      ownerStatus:
+        [
+          ...doState.storage.sql.exec<{ status: string }>(
+            "SELECT status FROM space_members WHERE profile_id = ?",
+            ownerProfileId
+          ),
+        ][0]?.status ?? null,
+      creatorStatus:
+        [
+          ...doState.storage.sql.exec<{ status: string }>(
+            "SELECT status FROM space_members WHERE profile_id = ?",
+            creatorProfileId
+          ),
+        ][0]?.status ?? null,
+    }));
+    expect(state).toEqual({
+      ownerStatus: "active",
+      creatorStatus: "active",
+    });
+    const meta = await stub.rpcGetMeta({
+      context: createRpcContext({
+        activeOrganizationId: organizationId,
+        profileId: ownerProfileId,
+        profileKind: "human",
+        ownerUserId,
+        requestId: randomUUID(),
+      }),
+      spaceId,
+    });
+    expect(meta.ownerUserIds).toContain(ownerUserId);
+    expect(meta.creator?.profileId).toBe(creatorProfileId);
+    expect(meta.visibility).toBe("private");
+    expect(meta.accessMode).toBe(
+      passwordProtected ? "protected" : "members_only"
+    );
+    expect(
+      await env.OPENMELD_DB.prepare(
+        "SELECT COUNT(*) AS count FROM space_owner_member_references WHERE space_id = ?"
+      )
+        .bind(spaceId)
+        .first<{ count: number }>()
+    ).toMatchObject({ count: 1 });
+    const responseLostEnv = {
+      ...env,
+      OPENMELD_SPACES: {
+        newUniqueId: () => namespace.idFromString(spaceId),
+        idFromString: (id: string) => namespace.idFromString(id),
+        get: () => ({
+          rpcPatchMeta: () =>
+            Promise.reject(new Error("simulated response loss")),
+          rpcPatchMetaWithPasswordAtomic: () =>
+            Promise.reject(new Error("simulated response loss")),
+          rpcCheckSpaceOwnerDeparture: (
+            input: Parameters<Space["rpcCheckSpaceOwnerDeparture"]>[0]
+          ) => stub.rpcCheckSpaceOwnerDeparture(input),
+        }),
+      } as unknown as DurableObjectNamespace<Space>,
+    } as CoreBindings;
+    await expect(
+      rpcCenterAgentCreateSpace(responseLostEnv, {
+        context: agentContext,
+        name: "Delegated Room",
+        onBehalfOf: { profileId: ownerProfileId },
+        ...(passwordProtected ? { password: "owner-test-password" } : {}),
+        visibility: "private",
+      })
+    ).rejects.toThrow("simulated response loss");
+    expect(
+      await env.OPENMELD_DB.prepare(
+        "SELECT COUNT(*) AS count FROM space_owner_member_references WHERE space_id = ?"
+      )
+        .bind(spaceId)
+        .first<{ count: number }>()
+    ).toMatchObject({ count: 1 });
+  });
+
+  it("rolls back metadata when the initial owner member write fails", async () => {
+    const organizationId = randomUUID();
+    const ownerUserId = randomUUID();
+    const ownerProfileId = randomUUID();
+    const creatorProfileId = `agt_${randomUUID()}`;
+    await ensureTestOrganizationMembership({
+      organizationId,
+      userId: ownerUserId,
+    });
+    await insertTestPrimaryHumanProfile({
+      ownerUserId,
+      profileId: ownerProfileId,
+    });
+    await ensureTestCenterAgentDesignation({
+      agentProfileId: creatorProfileId,
+      agentProfileName: "Center Agent",
+      organizationId,
+      ownerUserId,
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const spaceId = namespace.newUniqueId().toString();
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const context = createRpcContext({
+      activeOrganizationId: organizationId,
+      profileId: creatorProfileId,
+      profileKind: "agent",
+      profileName: "Center Agent",
+      requestId: randomUUID(),
+    });
+    const testEnv = {
+      ...env,
+      OPENMELD_SPACES: {
+        newUniqueId: () => namespace.idFromString(spaceId),
+        idFromString: (id: string) => namespace.idFromString(id),
+        get: (id: DurableObjectId) => namespace.get(id),
+      } as DurableObjectNamespace<Space>,
+    } as CoreBindings;
+    // Fail the actual Space SQL insert, after metadata initialization begins.
+    await runInDurableObject(stub, (_instance, doState) => {
+      doState.storage.sql.exec(
+        `CREATE TRIGGER fail_initial_owner BEFORE INSERT ON space_members
+        WHEN NEW.profile_id = '${ownerProfileId}'
+        BEGIN SELECT RAISE(ABORT, 'injected initial owner failure'); END`
+      );
+    });
+    const failure = await rpcCenterAgentCreateSpace(testEnv, {
+      context,
+      name: "Delegated Room",
+      onBehalfOf: { profileId: ownerProfileId },
+      visibility: "private",
+    }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain(
+      "injected initial owner failure"
+    );
+    const freshStub = namespace.get(namespace.idFromString(spaceId));
+    const failedState = await runInDurableObject(
+      freshStub,
+      (_instance, doState) => {
+        const state = {
+          metaCount:
+            [
+              ...doState.storage.sql.exec<{ count: number }>(
+                "SELECT COUNT(*) AS count FROM space_meta"
+              ),
+            ][0]?.count ?? 0,
+          memberCount:
+            [
+              ...doState.storage.sql.exec<{ count: number }>(
+                "SELECT COUNT(*) AS count FROM space_members"
+              ),
+            ][0]?.count ?? 0,
+        };
+        doState.storage.sql.exec("DROP TRIGGER fail_initial_owner");
+        return state;
+      }
+    );
+    expect(failedState).toEqual({ metaCount: 0, memberCount: 0 });
+    expect(
+      await env.OPENMELD_DB.prepare(
+        "SELECT COUNT(*) AS count FROM space_owner_member_references WHERE space_id = ?"
+      )
+        .bind(spaceId)
+        .first<{ count: number }>()
+    ).toMatchObject({ count: 0 });
+    await rpcCenterAgentCreateSpace(testEnv, {
+      context,
+      name: "Delegated Room",
+      onBehalfOf: { profileId: ownerProfileId },
+      visibility: "private",
+    });
+    const retried = await runInDurableObject(
+      freshStub,
+      (_instance, doState) => ({
+        meta:
+          [
+            ...doState.storage.sql.exec<{ count: number }>(
+              "SELECT COUNT(*) AS count FROM space_meta"
+            ),
+          ][0]?.count ?? 0,
+        ownerStatus:
+          [
+            ...doState.storage.sql.exec<{ status: string }>(
+              "SELECT status FROM space_members WHERE profile_id = ?",
+              ownerProfileId
+            ),
+          ][0]?.status ?? null,
+      })
+    );
+    expect(retried).toEqual({ meta: 1, ownerStatus: "active" });
+    expect(
+      await env.OPENMELD_DB.prepare(
+        "SELECT COUNT(*) AS count FROM space_owner_member_references WHERE space_id = ?"
+      )
+        .bind(spaceId)
+        .first<{ count: number }>()
+    ).toMatchObject({ count: 1 });
+  });
+});
 
 async function insertTestManagedCenterAgentProfile(input: {
   agentProfileId: string;
