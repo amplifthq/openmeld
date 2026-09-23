@@ -74,6 +74,8 @@ const RETRYABLE_DISPATCH_ERROR_CODES = new Set([
 ]);
 
 const NON_RETRYABLE_DISPATCH_ERROR_CODES = new Set([
+  "model.retired",
+  "model.unavailable",
   "claim_eligibility.",
   "openmeld.space_action.repair_failed",
   "auth.required",

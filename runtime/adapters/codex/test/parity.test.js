@@ -777,6 +777,32 @@ test("codex writer wait backs off when an occupied thread lock is not visible", 
   }
 });
 
+test("codex model-access errors offer recovery without claiming global retirement", async () => {
+  const { classifyCodexProviderAccountFailure } = await import(
+    "../dist/output/codex-provider-failure.js"
+  );
+  for (const message of [
+    "Model not found gpt-5.4",
+    "The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account.",
+  ]) {
+    const failure = classifyCodexProviderAccountFailure({ message });
+    assert.equal(failure.code, "model.unavailable");
+    assert.equal(failure.providerAccessEvidence, undefined);
+    assert.ok(failure.originalError);
+  }
+  for (const message of [
+    "404 Not Found",
+    "The server is temporarily unavailable",
+    "Example: Model not found gpt-5.4",
+  ]) {
+    assert.equal(classifyCodexProviderAccountFailure({ message }), null);
+  }
+  assert.equal(
+    classifyCodexProviderAccountFailure({ message: "401 Unauthorized" }).code,
+    "auth.required"
+  );
+});
+
 test("codex distinguishes subscription access from a transient rate limit", async () => {
   const { classifyCodexProviderAccountFailure } = await import(
     "../dist/output/codex-provider-failure.js"

@@ -242,7 +242,7 @@ describe("Agent Profile Binding command service", () => {
       throw new Error("expected model selection validation error");
     }
     expect(error.message).toBe(
-      `Model "gpt-test-unavailable" is not supported for Agent Controller "builtin:codex". Supported models: ${availableModelIds.join(", ")}.`
+      "This model is unavailable. Check this agent's model settings."
     );
     expect(availableModelIds).not.toContain("gpt-test-unavailable");
     expect(bindingStore.records).toHaveLength(0);
@@ -596,7 +596,9 @@ describe("Agent Profile Binding command service", () => {
         ...command,
         modelId: "gpt-6-astra",
       })
-    ).rejects.toThrow("is not supported");
+    ).rejects.toThrow(
+      "This model is unavailable. Check this agent's model settings."
+    );
     expect(bindingStore.records).toHaveLength(1);
     expect(bindingStore.records[0]?.modelId).toBe("x-ai/grok-4.7");
   });

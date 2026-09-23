@@ -3969,6 +3969,9 @@ function resolveCreateModelCompatibilityContext(input: {
 	return {
 		agentControllerId: input.boundAgentId,
 		controllerDisplayName: formatLocalAgentDisplayName(input.boundAgentId),
+		agentControllerRef,
+		authType:
+			snapshot?.auth.status === "authenticated" ? snapshot.auth.type : null,
 		installedVersion: snapshot?.version ?? null,
 		managePath:
 			input.orgSlug && input.bindingTarget

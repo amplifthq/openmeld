@@ -918,6 +918,10 @@ import { createLocalFolderPickerRpc } from "../computers/local-folder-picker-rpc
 import { createServiceConnectionEvidenceRpc } from "../computers/service-connection-evidence-rpc";
 import { readOwnerServiceConnectionTrace } from "../computers/service-connection-trace";
 import {
+  reconcileAgentModelInbox,
+  reconcileRuntimeAgentModelInboxes,
+} from "../config/agent-model-inbox-reconciliation";
+import {
   readAuthoredModelCatalog,
   readModelCatalog,
 } from "../config/model-catalog";
@@ -5237,6 +5241,18 @@ export async function rpcSubmitRuntimeAgentControllerReports(
           ownerUserId: request.userId,
         });
       }
+    }
+
+    if (result.status === "accepted") {
+      await reconcileRuntimeAgentModelInboxes({
+        env,
+        ownerUserId: request.userId,
+        nowMs: acceptedAtMs,
+        agentControllerRef: result.currentReport.agentControllerRef,
+        openMeldServiceRuntimeId: result.currentReport.openMeldServiceRuntimeId,
+      }).catch((error) =>
+        console.warn("[core.model_inbox.reconcile_failed]", { error })
+      );
     }
 
     reports.push(
@@ -18285,6 +18301,13 @@ export async function rpcUpdateAgentProfilePrimaryBindingModelSelection(
       env,
       mutate: async () =>
         await updatePrimaryAgentProfileBindingModelSelection({
+          runtimeAgentControllerReportStore: {
+            readCurrentReport: async (reportInput) =>
+              await readCurrentRuntimeAgentControllerReport({
+                ...reportInput,
+                db,
+              }),
+          },
           agentProfileId: request.agentProfileId,
           bindingStore: createD1AgentProfileBindingCommandStore({ db }),
           modelId: body.data.modelId,
@@ -18326,6 +18349,14 @@ export async function rpcUpdateAgentProfilePrimaryBindingModelSelection(
       error: toErrorMessage(error),
     });
   });
+  await reconcileAgentModelInbox({
+    env,
+    ownerUserId: request.owner.id,
+    agentProfileId: request.agentProfileId,
+    nowMs: Date.now(),
+  }).catch((error) =>
+    console.warn("[core.model_inbox.reconcile_failed]", { error })
+  );
   return buildAcceptedAgentProfileBindingResponse({
     binding: mapAgentProfileBindingLookupResultToProjection(lookupResult),
     result,
