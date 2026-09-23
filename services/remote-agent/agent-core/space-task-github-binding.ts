@@ -19,7 +19,7 @@ import type {
   SpaceTaskExternalWorkItem,
   SpaceTaskMutationReceipt,
 } from "@openmeld/schemas/types";
-import { mutateSpaceTaskRefreshingOnRevisionConflict } from "./space-task-revision-retry";
+import { mutateSpaceTaskWithObservationConflictRetry } from "./space-task-observation-retry";
 
 export type GitHubIssueSpaceTaskIdentity = {
   number: number;
@@ -177,6 +177,7 @@ export async function applyGitHubIssueSpaceTaskBinding(input: {
   actionId: string;
   actionInput: Record<string, unknown>;
   data: unknown;
+  eventIdentity?: string;
   now?: string;
   ports: SpaceTaskGitHubBindingPorts;
   toolContext: {
@@ -225,8 +226,16 @@ export async function applyGitHubIssueSpaceTaskBinding(input: {
     input.actionId === "github.update_issue" &&
     input.actionInput.state === "closed"
   ) {
+    if (!input.eventIdentity?.trim()) {
+      throw new SpaceTaskGitHubBindingError({
+        code: "space_task.github_event_identity_required",
+        message:
+          "OpenMeld cannot confirm this GitHub issue update's operation identity.",
+      });
+    }
     return await closeSpaceTasksForGitHubIssue({
       identity,
+      eventIdentity: input.eventIdentity,
       now,
       ports: {
         getSpaceTask: input.ports.getSpaceTask,
@@ -354,6 +363,7 @@ async function ensureGitHubIssueAttached(input: {
 }
 
 async function closeSpaceTasksForGitHubIssue(input: {
+  eventIdentity: string;
   identity: GitHubIssueSpaceTaskIdentity;
   now: string;
   ports: Pick<
@@ -384,7 +394,8 @@ async function closeSpaceTasksForGitHubIssue(input: {
         operationId: spaceTaskGitHubIssueOperationId(
           "observe-closed",
           input.identity,
-          task.taskId
+          task.taskId,
+          input.eventIdentity
         ),
         owner: input.identity.owner,
         provider: "github",
@@ -406,7 +417,8 @@ async function closeSpaceTasksForGitHubIssue(input: {
         operationId: spaceTaskGitHubIssueOperationId(
           "cancel",
           input.identity,
-          task.taskId
+          task.taskId,
+          input.eventIdentity
         ),
         reason: `GitHub issue ${formatSpaceTaskGitHubIssueLabel(input.identity)} was closed.`,
       },
@@ -441,7 +453,7 @@ async function mutateLinkedTask(input: {
     context: OpenMeldRequestContext;
   };
 }): Promise<SpaceTaskMutationReceipt> {
-  return await mutateSpaceTaskRefreshingOnRevisionConflict({
+  return await mutateSpaceTaskWithObservationConflictRetry({
     mutate: (mutation) =>
       input.ports.mutateSpaceTask({
         body: mutation,

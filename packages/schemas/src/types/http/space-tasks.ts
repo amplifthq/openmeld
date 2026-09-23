@@ -4,6 +4,7 @@ type SchemaModule = typeof import("../../schemas/http/space-tasks");
 
 export type SpaceTaskId = z.infer<SchemaModule["spaceTaskIdSchema"]>;
 export type SpaceTaskPhase = z.infer<SchemaModule["spaceTaskPhaseSchema"]>;
+export type SpaceTaskAction = z.infer<SchemaModule["spaceTaskActionSchema"]>;
 export type SpaceTaskActor = z.infer<SchemaModule["spaceTaskActorSchema"]>;
 export type SpaceTaskResult = z.infer<SchemaModule["spaceTaskResultSchema"]>;
 export type SpaceTaskReview = z.infer<SchemaModule["spaceTaskReviewSchema"]>;
@@ -23,6 +24,9 @@ export type MutateSpaceTaskBody = z.infer<
 >;
 export type SpaceTaskResponse = z.infer<
   SchemaModule["spaceTaskResponseSchema"]
+>;
+export type SpaceTaskDetailOptions = z.infer<
+  SchemaModule["spaceTaskDetailOptionsSchema"]
 >;
 export type ListSpaceTasksQuery = z.infer<
   SchemaModule["listSpaceTasksQuerySchema"]

@@ -314,6 +314,7 @@ import {
   spaceFileClientMutationIdSchema,
   spaceFileMimeTypeSchema,
   spaceFileNameSchema,
+  spaceTaskDetailOptionsSchema,
   submitRuntimeAgentControllerReportsBodySchema,
   submitRuntimeAgentControllerReportsResponseSchema,
   submitRuntimeProviderConversationProofsBodySchema,
@@ -685,6 +686,7 @@ import type {
   SpaceMessagePinMutation,
   SpaceMessagePinsResponse,
   SpaceSignalAuthoringPolicy,
+  SpaceTaskDetailOptions,
   SpaceTaskMutationReceipt,
   SpaceTaskPhase,
   SpaceTaskResponse,
@@ -25302,15 +25304,17 @@ export type ListSpaceTasksInput = GetSpaceMetaInput & {
   phase?: SpaceTaskPhase;
 };
 
-export type GetSpaceTaskInput = GetSpaceMetaInput & {
-  taskId: string;
-};
+export type GetSpaceTaskInput = GetSpaceMetaInput &
+  SpaceTaskDetailOptions & {
+    taskId: string;
+  };
 
 export type CreateSpaceTaskInput = GetSpaceMetaInput & {
   body: CreateSpaceTaskBody;
 };
 
-export type MutateSpaceTaskInput = GetSpaceTaskInput & {
+export type MutateSpaceTaskInput = GetSpaceMetaInput & {
+  taskId: string;
   body: MutateSpaceTaskBody;
 };
 
@@ -25366,12 +25370,16 @@ export async function rpcGetSpaceTask(
   env: CoreBindings,
   input: GetSpaceTaskInput
 ): Promise<SpaceTaskResponse> {
+  const options = spaceTaskDetailOptionsSchema.parse({
+    includeAffordances: input.includeAffordances,
+  });
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   const context = input.context
     ? await authorizeSpaceTaskRpcContext(env, spaceId, input.context)
     : undefined;
   return await stub.rpcGetTask({
     ...input,
+    ...options,
     spaceId,
     context,
     spaceAccess: resolveRpcSpaceAccess({ ...input, context }),

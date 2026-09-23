@@ -676,13 +676,22 @@ Important execution rules:
   become a second execution authority.
 - Caller authority, owner evidence, Binding evidence, and execution truth come
   from verified Gateway/Core context, not request-body trust.
-- Space owns user-requested Wake Stop authorization. After writable Space access,
-  only the authenticated source-message account or target Agent Profile owner
-  may stop the exact target Wake. Resolve the source from the Space's persisted
-  Signal and account ownership from Auth; caller selectors, member names, and
-  other signed-in accounts are not ownership evidence. Use the same policy for
-  viewer-scoped progress eligibility and the Stop mutation, before native or
-  workstation cancellation side effects. Missing ownership fails closed.
+- Space owns user-requested Wake Stop authorization. For ordinary Stop, after
+  writable Space access, only the authenticated source-message account or target
+  Agent Profile owner may stop the exact target Wake. Resolve the source from
+  the Space's persisted Signal and account ownership from Auth; caller selectors,
+  member names, and other signed-in accounts are not ownership evidence. Use
+  this ordinary policy for viewer-scoped progress eligibility and the ordinary
+  Stop mutation, before native or workstation cancellation side effects.
+- An explicit Space Task cancellation has one additional, Task-scoped Stop
+  authority. The same currently active, Auth-verified actor must have authored
+  the retained cancellation operation, its event ID must match the operation
+  receipt, and the exact source Signal and target Agent must be recorded as a
+  Wake for that Task. A later Task reopen supersedes that cancellation's Stop
+  intent, even if the Task is canceled again. Provider observations carry no
+  actor authority and cannot use this path. This internal delivery exception
+  does not extend ordinary Stop or viewer-scoped progress eligibility; missing
+  actor, operation, Wake, or current-intent evidence fails closed.
   RuntimeCoordinator continues to own execution and the final stopped outcome;
   internal deletion/recovery cancellation is not a user Stop permission grant.
 - Before RuntimeCoordinator links an execution, OpenMeld-owned pre-agent Stop may
