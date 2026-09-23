@@ -176,23 +176,17 @@ html[data-space-self-message-alignment="left"]
   > [data-slot="message-content"]:not([data-direct-message])
   [data-slot="bubble"] {
   align-self: flex-start;
-  inline-size: 100%;
-  max-inline-size: 100%;
 }
 
-html[data-space-self-message-alignment="left"]
-  [data-space-self-message="true"]
-  > [data-slot="message-content"]:not([data-direct-message])
-  [data-slot="bubble-content"] {
-  inline-size: 100%;
-  max-inline-size: 100%;
+[data-slot="message-content"]:not([data-direct-message]) [data-slot="bubble"] {
+  max-inline-size: min(100%, 52rem);
 }
 
 html[data-space-self-message-alignment="right"]
   [data-space-self-message="true"]
   [data-slot="bubble"] {
   inline-size: fit-content;
-  max-inline-size: min(68%, 52rem);
+  max-inline-size: min(68%, calc(100% - 11rem), 52rem);
 }
 
 html[data-space-self-message-alignment="right"]
@@ -262,7 +256,7 @@ html[data-space-self-message-alignment="left"]
   html[data-space-self-message-alignment="right"]
     [data-space-self-message="true"]
     [data-slot="bubble"] {
-    max-inline-size: min(88%, 52rem);
+    max-inline-size: calc(100% - 4rem);
   }
 }
 
@@ -320,6 +314,18 @@ html[data-space-self-message-alignment="right"]
 html[data-space-self-message-alignment="right"]
   [data-space-self-message="true"] [data-direct-message] [data-slot="bubble"] {
   align-self: flex-end;
+}
+
+/* A message can use the available width without consuming the side where its
+   floating actions sit. The phone toolbar has only two visible controls. */
+:root [data-message-row-id] [data-slot="bubble"] {
+  max-inline-size: min(calc(100% - 11rem), 52rem);
+}
+
+@media (max-width: 40rem) {
+  :root [data-message-row-id] [data-slot="bubble"] {
+    max-inline-size: calc(100% - 4rem);
+  }
 }
 
 @media (min-width: 1280px) {

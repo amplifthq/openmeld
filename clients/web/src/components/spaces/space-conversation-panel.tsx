@@ -160,6 +160,7 @@ import {
 	resolveSpaceMessageBubblePresentationClass,
 	resolveSpaceMessageContentLayoutClassName,
 	resolveSpaceMessageRowLayoutClassName,
+	SPACE_MESSAGE_BUBBLE_WIDTH_CLASS,
 	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 	SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS,
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
@@ -2808,6 +2809,12 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 											selfAvatarImageUrl={input.selfAvatarImageUrl}
 											selfProfileId={input.selfProfileId}
 										/>
+										<time
+											className="ml-1 shrink-0 text-muted-foreground text-xs tabular-nums"
+											dateTime={new Date(item.createdAtMs).toISOString()}
+										>
+											{TIMELINE_TIME_FORMATTER.format(item.createdAtMs)}
+										</time>
 									</MessageHeader>
 								) : null}
 								<MessageReactionsProvider
@@ -2930,9 +2937,9 @@ function ConversationBubbleContent(input: {
 	return (
 		<BubbleContent
 			className={cn(
-				"group/message relative flex w-full min-w-0 flex-col gap-2 transition-colors data-[highlighted=true]:border-unread/60 motion-reduce:transition-none",
+				"group/message relative flex min-w-0 flex-col gap-2 transition-colors data-[highlighted=true]:border-unread/60 motion-reduce:transition-none",
 				SPACE_MESSAGE_CONTENT_PADDING_CLASS,
-				SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
+				SPACE_MESSAGE_BUBBLE_WIDTH_CLASS,
 				input.selfMessageContentLayoutClassName,
 				input.bubblePresentationClass
 			)}
@@ -3445,7 +3452,6 @@ function renderConversationMessageFooter(input: {
 						})
 					: undefined
 			}
-			timestamp={TIMELINE_TIME_FORMATTER.format(input.item.createdAtMs)}
 		/>
 	);
 }
@@ -4128,10 +4134,9 @@ function resolveDirectMessageTargetName(
 }
 
 const TIMELINE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
-	hour: "numeric",
+	hour: "2-digit",
 	minute: "2-digit",
-	second: "2-digit",
-	timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+	hourCycle: "h23",
 });
 
 import { buildSpaceTaskSources } from "./space-composer-task-menu";

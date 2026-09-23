@@ -1294,9 +1294,10 @@ Human or Agent text messages, including thread replies. Selecting the same emoji
 again removes only that person's reaction. Multiple people share an emoji count;
 each person can use more than one emoji, once per emoji per message.
 
-Reactions share one row with message actions beneath their source message, before
-its thread preview. On self-authored messages the row starts at the bubble’s left
-edge and stays within its width. Overflow reactions appear in a +N pill that
+Reactions remain beneath their source message, before its thread preview, while
+message actions float beside the bubble's upper edge. On self-authored messages the
+reactions start at the bubble’s left edge and stay within its width. Overflow
+reactions appear in a +N pill that
 opens on hover or click. Emoji groups retain their first-added order while any
 member still uses them; a fully removed group returns at the end if added again. The
 message action bar opens a compact set of common emoji and an optional full

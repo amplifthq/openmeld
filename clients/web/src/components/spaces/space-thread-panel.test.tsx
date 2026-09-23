@@ -25,6 +25,7 @@ import { buildSpaceTimelineItems } from "#/lib/spaces/timeline";
 import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-actions";
 import { SpaceThreadPanel } from "./space-thread-panel";
 
+const COMPACT_TIME_PATTERN = /^\d{2}:\d{2}$/;
 const FAILED_TEXT_PATTERN = /failed/i;
 const REFERENCED_SPACE_ID = "c".repeat(64);
 
@@ -392,7 +393,7 @@ describe("SpaceThreadPanel", () => {
 		expect(screen.queryByText("Couldn't load message details.")).toBeNull();
 	});
 
-	it("uses the shared reserved footer for thread message actions", () => {
+	it("uses the shared floating toolbar for thread message actions", () => {
 		renderThreadPanel();
 
 		const threadMessage = screen
@@ -411,12 +412,13 @@ describe("SpaceThreadPanel", () => {
 		expect(footer).not.toBeNull();
 		expect(messageRow?.contains(footer ?? null)).toBe(true);
 		expect(bubbleRoot?.contains(footer ?? null)).toBe(false);
-		expect(footer?.className).toContain("min-h-7");
-		expect(actions?.className).toContain("opacity-0");
-		expect(actions?.className).toContain("group-hover/message-row:opacity-100");
-		expect(actions?.className).toContain(
+		expect(footer?.className).toContain("absolute");
+		expect(footer?.className).toContain("opacity-0");
+		expect(footer?.className).toContain("group-hover/message-row:opacity-100");
+		expect(footer?.className).toContain(
 			"group-focus-within/message-row:opacity-100"
 		);
+		expect(actions).not.toBeNull();
 		expect(
 			messageRow?.querySelector("[data-slot='message-hover-actions']")
 		).toBeNull();
@@ -682,12 +684,16 @@ describe("SpaceThreadPanel", () => {
 		const secondMessage = screen
 			.getByText("Second consecutive thread message")
 			.closest("[data-slot='message']");
+		expect(firstMessage?.querySelector("time")?.textContent).toMatch(
+			COMPACT_TIME_PATTERN
+		);
+		expect(secondMessage?.querySelector("time")).toBeNull();
 
-		expect(firstMessage?.className).toContain("pt-0.5");
+		expect(firstMessage?.className).toContain("pt-1.5");
 		expect(firstMessage?.className).toContain("pb-0");
 		expect(firstMessage?.className).not.toContain("py-2");
 		expect(secondMessage?.className).toContain("pt-px");
-		expect(secondMessage?.className).toContain("pb-0.5");
+		expect(secondMessage?.className).toContain("pb-1.5");
 		expect(secondMessage?.className).not.toContain("py-2");
 	});
 
@@ -930,8 +936,10 @@ describe("SpaceThreadPanel", () => {
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-thread-wake']");
 		expect(
-			sourceMessage?.querySelector("[data-slot='message-footer']")?.className
-		).toContain("justify-end");
+			sourceMessage
+				?.closest('[data-slot="message"]')
+				?.getAttribute("data-align")
+		).toBe("end");
 
 		rerenderThreadPanel({
 			selfProfileId: "human-profile-1",
@@ -954,8 +962,10 @@ describe("SpaceThreadPanel", () => {
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-thread-wake']");
 		expect(
-			sourceMessage?.querySelector("[data-slot='message-footer']")?.className
-		).toContain("justify-start");
+			sourceMessage
+				?.closest('[data-slot="message"]')
+				?.getAttribute("data-align")
+		).toBe("start");
 	});
 
 	it("gives a stopped Wake a muted outcome row in the thread instead of a destructive one", () => {

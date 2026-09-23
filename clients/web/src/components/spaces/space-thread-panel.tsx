@@ -124,6 +124,7 @@ import {
 	resolveSpaceMessageBubblePresentationClass,
 	resolveSpaceMessageContentLayoutClassName,
 	resolveSpaceMessageRowLayoutClassName,
+	SPACE_MESSAGE_BUBBLE_WIDTH_CLASS,
 	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 	SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS,
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
@@ -1518,55 +1519,60 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 						)}
 						directMessage={input.isDirectMessage}
 					>
-						<MessageHeader
-							className={cn(
-								"flex-wrap gap-x-1.5 gap-y-1 px-0",
-								!input.isFirstInGroup && "hidden"
-							)}
-						>
-							<span data-slot="message-speaker-avatar">
-								<SpaceMessageProfileAvatar
-									agentControllerPending={
-										input.item.actorAgentControllerPending
-									}
-									agentControllerRef={input.item.actorAgentControllerRef}
-									avatarImageUrl={resolveThreadMessageAvatarImageUrl({
-										item: input.item,
-										selfAvatarImageUrl: input.selfAvatarImageUrl,
-										selfProfileId: input.selfProfileId,
-									})}
-									displayName={input.item.actorName}
-									isCenterAgent={
-										input.item.actorProfileKind === "agent" &&
-										input.item.actorProfileId === input.centerAgentProfileId
-									}
-									profileId={input.item.actorProfileId}
-									profileKind={input.item.actorProfileKind}
-									working={isSpaceMessageAgentWorking(input.item)}
-								/>
-							</span>
-							{!input.isDirectMessage && (
-								<>
-									<span className="min-w-0 truncate font-normal text-muted-foreground text-xs">
-										{input.item.actorName}
-									</span>
-									{agentAttribution ? (
-										<>
-											<span className="shrink-0 text-muted-foreground">·</span>
-											<span className="min-w-0 text-muted-foreground">
-												{agentAttribution}
-											</span>
-										</>
-									) : null}
-								</>
-							)}
-						</MessageHeader>
+						{input.isFirstInGroup ? (
+							<MessageHeader className="flex-wrap gap-x-1.5 gap-y-1 px-0">
+								<span data-slot="message-speaker-avatar">
+									<SpaceMessageProfileAvatar
+										agentControllerPending={
+											input.item.actorAgentControllerPending
+										}
+										agentControllerRef={input.item.actorAgentControllerRef}
+										avatarImageUrl={resolveThreadMessageAvatarImageUrl({
+											item: input.item,
+											selfAvatarImageUrl: input.selfAvatarImageUrl,
+											selfProfileId: input.selfProfileId,
+										})}
+										displayName={input.item.actorName}
+										isCenterAgent={
+											input.item.actorProfileKind === "agent" &&
+											input.item.actorProfileId === input.centerAgentProfileId
+										}
+										profileId={input.item.actorProfileId}
+										profileKind={input.item.actorProfileKind}
+										working={isSpaceMessageAgentWorking(input.item)}
+									/>
+								</span>
+								{!input.isDirectMessage && (
+									<>
+										<span className="min-w-0 truncate font-normal text-muted-foreground text-xs">
+											{input.item.actorName}
+										</span>
+										{agentAttribution ? (
+											<>
+												<span className="shrink-0 text-muted-foreground">
+													·
+												</span>
+												<span className="min-w-0 text-muted-foreground">
+													{agentAttribution}
+												</span>
+											</>
+										) : null}
+									</>
+								)}
+								<time
+									className="ml-1 shrink-0 text-muted-foreground text-xs tabular-nums"
+									dateTime={new Date(input.item.createdAtMs).toISOString()}
+								>
+									{THREAD_TIME_FORMATTER.format(input.item.createdAtMs)}
+								</time>
+							</MessageHeader>
+						) : null}
 						<Bubble align={messageAlign}>
 							<BubbleContent
 								className={cn(
-									"group/thread-message relative flex w-full flex-col gap-2 transition-colors motion-reduce:transition-none",
+									"group/thread-message relative flex min-w-0 flex-col gap-2 transition-colors motion-reduce:transition-none",
 									SPACE_MESSAGE_CONTENT_PADDING_CLASS,
-									SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
+									SPACE_MESSAGE_BUBBLE_WIDTH_CLASS,
 									selfMessageContentLayoutClassName,
 									resolveSpaceMessageBubblePresentationClass({
 										isSelf: isSelfMessage,
@@ -1707,7 +1713,6 @@ function ThreadTimelineMessageFooter(input: {
 					organizationSlug: input.organizationSlug,
 				})
 			}
-			timestamp={THREAD_TIME_FORMATTER.format(input.item.createdAtMs)}
 		/>
 	);
 }
@@ -2003,10 +2008,10 @@ function renderAnchoredThreadOutcomeRows(input: {
 	);
 }
 
-const THREAD_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
+const THREAD_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	hour: "2-digit",
 	minute: "2-digit",
-	second: "2-digit",
+	hourCycle: "h23",
 });
 
 import {
