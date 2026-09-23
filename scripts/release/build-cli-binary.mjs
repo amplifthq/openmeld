@@ -172,6 +172,20 @@ export function buildCliBinary(input = {}) {
   if (!existsSync(outFile)) {
     throw new Error(`Expected CLI binary was not created: ${outFile}`);
   }
+  if (platform.startsWith("windows-")) {
+    const bytes = readFileSync(outFile);
+    const pe = bytes.readUInt32LE(0x3c);
+    const expectedSubsystem = input.background ? 2 : 3;
+    if (
+      bytes.toString("ascii", 0, 2) !== "MZ" ||
+      bytes.toString("ascii", pe, pe + 4) !== "PE\0\0" ||
+      bytes.readUInt16LE(pe + 24 + 68) !== expectedSubsystem
+    ) {
+      throw new Error(
+        `Windows artifact has the wrong PE subsystem (expected ${expectedSubsystem}). Use the validated Windows Bun toolchain; a successful compile alone is insufficient.`
+      );
+    }
+  }
 
   return {
     artifactName,

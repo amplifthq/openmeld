@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { invokeClaudeAgentSdkTransport } from "../../../../runtime/adapters/claude-code/src/transport/claude-agent-sdk-transport";
 import { readOpenCodeSessionRows } from "../../src/agent-activity/opencode-storage";
 
-// Separate compiled component acceptance, complementary to the actual shipped
+// Separate compiled component acceptance, complementary to the actual product
 // Service/Host artifact test. This entry is never included in product commands.
 assert.equal(process.platform, "win32");
 assert.ok(process.versions.bun);

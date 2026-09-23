@@ -3,9 +3,9 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   mkdir,
   mkdtemp,
-  readdir,
   readFile,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -24,6 +24,7 @@ import {
   withAdmittedServiceSession,
 } from "../src/config/auth-session";
 import { upsertDaemonServiceContract } from "../src/config/daemon-service-contract";
+import { installDaemon } from "../src/config/daemon-state";
 import {
   requestLocalDaemonServiceUpdateReadiness,
   requestLocalDaemonShutdown,
@@ -106,6 +107,10 @@ describe("real execution Host entry", () => {
       });
       const version = packageJson.version;
       const bundleId = "fixture-binary-bundle";
+      await installDaemon({
+        daemonVersion: version,
+        source: "daemon.command.install",
+      });
       await upsertDaemonServiceContract({
         ownerUserId: "fixture-owner",
         deviceId: "fixture-device",
@@ -120,7 +125,7 @@ describe("real execution Host entry", () => {
         heartbeatMs: 5000,
       });
       // The installer is a later gate. Prepare its validated artifact receipt in
-      // this disposable lane, then run the unmodified published Service command.
+      // this disposable lane, then run the unmodified production Service command.
       const now = new Date().toISOString();
       await restoreDaemonActiveBundleStateSnapshot({
         v: 2,
@@ -165,13 +170,13 @@ describe("real execution Host entry", () => {
       });
       let output = "";
       owned.child.stdout.on("data", (chunk) => {
-        output += chunk.toString();
+        output = (output + chunk.toString()).slice(-1024 * 1024);
       });
       owned.child.stderr.on("data", (chunk) => {
-        output += chunk.toString();
+        output = (output + chunk.toString()).slice(-1024 * 1024);
       });
       const exited = new Promise<number | null>((resolve, reject) => {
-        owned.child.once("exit", resolve);
+        owned.child.once("close", resolve);
         owned.child.once("error", reject);
       });
       exited.catch(() => undefined);
@@ -204,8 +209,12 @@ describe("real execution Host entry", () => {
         failures.push(error);
       } finally {
         if (evidenceDir) {
-          await mkdir(evidenceDir, { recursive: true });
-          await writeFile(join(evidenceDir, "service-artifact.log"), output);
+          try {
+            await mkdir(evidenceDir, { recursive: true });
+            await writeFile(join(evidenceDir, "service-artifact.log"), output);
+          } catch (error) {
+            failures.push(error);
+          }
         }
         owned.terminate("SIGKILL");
         const cleanup = await owned.terminateRemainingDescendants();
@@ -272,7 +281,11 @@ describe("real execution Host entry", () => {
     const process = start(randomUUID(), false);
     expect(await process.exit).toBe(1);
     expect(process.stderr()).toContain("host.inherited_channel_required");
-    expect(await readdir(root)).toEqual([]);
+    // Bun may create its own AppData cache while loading a compiled executable.
+    // The product must still reject public Host invocation before lane state.
+    await expect(stat(join(root, "state"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   it.each([

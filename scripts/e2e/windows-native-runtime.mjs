@@ -97,10 +97,10 @@ const owned = spawnAgentControllerProcess({
 });
 let output = "";
 owned.child.stdout.on("data", (chunk) => {
-  output += chunk.toString();
+  output = (output + chunk.toString()).slice(-1024 * 1024);
 });
 owned.child.stderr.on("data", (chunk) => {
-  output += chunk.toString();
+  output = (output + chunk.toString()).slice(-1024 * 1024);
 });
 const failures = [];
 // The SDK retains its own 30-second deadline; the outer budget includes Job
@@ -109,7 +109,7 @@ let deadline;
 try {
   const code = await Promise.race([
     new Promise((resolve, reject) => {
-      owned.child.once("exit", resolve);
+      owned.child.once("close", resolve);
       owned.child.once("error", reject);
     }),
     new Promise((_, reject) => {
@@ -133,7 +133,11 @@ try {
   failures.push(error);
 } finally {
   clearTimeout(deadline);
-  await writeFile(path.join(evidence, "runtime-components.log"), output);
+  try {
+    await writeFile(path.join(evidence, "runtime-components.log"), output);
+  } catch (error) {
+    failures.push(error);
+  }
   process.stdout.write(output);
   owned.terminate("SIGKILL");
   const cleanup = await owned.terminateRemainingDescendants();
