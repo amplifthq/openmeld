@@ -121,6 +121,18 @@ describe("SpaceMessageBody", () => {
 		expect(link.getAttribute("rel")).toBe("noopener noreferrer");
 	});
 
+	it("shows one blank line between Human paragraphs without changing fenced text", () => {
+		const text =
+			"First paragraph.\n\n  \n\t\nSecond paragraph.\n\n```ts\n\n\nconst value = 1;\n```";
+		const view = render(
+			<SpaceMessageBody item={{ isAgentFinalReply: false, text }} />
+		);
+
+		expect(view.container.querySelector("p")?.textContent).toBe(
+			"First paragraph.\n\nSecond paragraph.\n\n```ts\n\n\nconst value = 1;\n```"
+		);
+	});
+
 	it("makes bare links clickable without treating code or dangerous schemes as links", () => {
 		render(
 			<SpaceMessageBody

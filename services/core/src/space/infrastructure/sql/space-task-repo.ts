@@ -101,7 +101,7 @@ export class SpaceTaskRepository {
       .exec<StoredEventRow>(
         `SELECT event_json FROM space_task_events
          WHERE task_id = ?
-         ORDER BY created_at_ms, event_id`,
+         ORDER BY json_extract(event_json, '$.taskRevision'), event_id`,
         taskId
       )
       .toArray()

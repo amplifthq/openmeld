@@ -27,6 +27,7 @@ type SqlSignalAnchorEntryRow = SqlSignalRow & {
   storage_order: number;
 };
 export type SpaceSignalEntryFilters = {
+  includeMutationCursors?: boolean;
   mainTimelineOnly?: boolean;
   profileIds?: readonly string[];
   signalTypes?: readonly string[];
@@ -848,9 +849,11 @@ function buildSignalFilterWhereClause(
     params.push(...signalTypes);
     // Mutation cursors belong to incremental reads, never consume a visible
     // history page slot just because the durable event uses signal.text.
-    clauses.push(
-      "NOT (profile_kind = 'system' AND COALESCE(json_extract(payload_json, '$.data.meta.purpose'), '') = 'space_message_changed')"
-    );
+    if (!filters?.includeMutationCursors) {
+      clauses.push(
+        "NOT (profile_kind = 'system' AND COALESCE(json_extract(payload_json, '$.data.meta.purpose'), '') = 'space_message_changed')"
+      );
+    }
   }
   if (profileIds.length > 0) {
     clauses.push(`profile_id IN (${profileIds.map(() => "?").join(", ")})`);

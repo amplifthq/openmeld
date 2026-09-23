@@ -30,8 +30,15 @@ const BUILD_ENV =
   /^(VITE_|CLOUDFLARE_ENV$|OPENMELD_DESKTOP_(TARGET|PILOT)$|OPENMELD_RENDERER_NODE_HEAP_MB$|OPENMELD_DEV_ISOLATED$|OPENMELD_GATEWAY_URL$|NODE_OPTIONS$|NODE_ENV$|BETTER_AUTH_URL$|WEB_APP_URL$)/u;
 
 export function productionBuildEnvironment(scope, env, memoryBytes, platform) {
+  const desktopMacBuild =
+    scope === "desktop" && (platform ?? process.platform) === "darwin";
   return {
-    ...rendererBuildEnvironment(env, memoryBytes, platform),
+    ...rendererBuildEnvironment(
+      env,
+      memoryBytes,
+      platform,
+      desktopMacBuild ? 5120 : 4096
+    ),
     CLOUDFLARE_ENV: "prod",
     OPENMELD_RELEASE_ARTIFACT_CHECK: "1",
     OPENMELD_DESKTOP_PILOT: undefined,

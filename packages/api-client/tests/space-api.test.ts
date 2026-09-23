@@ -471,8 +471,19 @@ describe("api-client space api", () => {
       if (request.init?.method === "GET") {
         return Promise.resolve(
           Response.json(
-            request.url.endsWith(task.taskId)
-              ? { task, events: [event] }
+            request.url.includes(`/tasks/${task.taskId}`)
+              ? {
+                  task,
+                  events: [event],
+                  ...(request.url.includes("includeAffordances=1")
+                    ? {
+                        allowedActions: ["cancel"],
+                        pendingActions: [
+                          { kind: "handoff", state: "pending", error: null },
+                        ],
+                      }
+                    : {}),
+                }
               : { tasks: [task], truncated: false }
           )
         );
@@ -493,6 +504,18 @@ describe("api-client space api", () => {
     await expect(
       api.getTask({ spaceId: task.spaceId, taskId: task.taskId })
     ).resolves.toEqual({ task, events: [event] });
+    await expect(
+      api.getTask({
+        spaceId: task.spaceId,
+        taskId: task.taskId,
+        includeAffordances: true,
+      })
+    ).resolves.toMatchObject({
+      task,
+      allowedActions: ["cancel"],
+      pendingActions: [{ kind: "handoff", state: "pending" }],
+    });
+    expect(transport.mock.calls[2]?.[0].url).toContain("includeAffordances=1");
     await expect(
       api.createTask({
         spaceId: task.spaceId,
@@ -517,7 +540,7 @@ describe("api-client space api", () => {
     ).resolves.toMatchObject({ applied: true, task });
 
     expect(transport).toHaveBeenNthCalledWith(
-      4,
+      5,
       expect.objectContaining({
         operation: "space.tasks.mutate",
         init: expect.objectContaining({ method: "PATCH" }),

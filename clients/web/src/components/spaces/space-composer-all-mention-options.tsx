@@ -58,40 +58,44 @@ export function SpaceComposerAllMentionOptions({
 					audience: value,
 					suggestions,
 				});
+				const audienceMention = mentions[0];
+				const targetIds = new Set(
+					audienceMention?.audienceTargets?.map((target) => target.profileId)
+				);
 				return (
 					<InlineComboboxItem
-						disabled={mentions.length === 0}
+						disabled={!audienceMention}
 						key={value}
 						keywords={["all", "everyone"]}
 						onClick={() => {
+							if (!audienceMention) {
+								return;
+							}
 							editor.tf.withoutNormalizing(() => {
-								for (const mention of mentions) {
-									const existing = editor.api
-										.nodes({
-											at: [],
-											match: (node) =>
-												isSpaceComposerProfileElement(node) &&
-												node.profileId === mention.profileId,
-										})
-										.next().value;
-									if (existing) {
-										editor.tf.setNodes(
-											{ relation: mention.relation },
-											{ at: existing[1] }
-										);
-										continue;
-									}
-									editor.tf.insertNodes(mention);
-									editor.tf.move({ unit: "offset" });
-									editor.tf.insertText(" ");
+								const existingPaths = Array.from(
+									editor.api.nodes({
+										at: [],
+										match: (node) =>
+											isSpaceComposerProfileElement(node) &&
+											(node.audienceTargets?.some((target) =>
+												targetIds.has(target.profileId)
+											) ||
+												targetIds.has(node.profileId)),
+									})
+								).map((entry) => entry[1]);
+								for (const path of existingPaths.reverse()) {
+									editor.tf.removeNodes({ at: path });
 								}
+								editor.tf.insertNodes(audienceMention);
+								editor.tf.move({ unit: "offset" });
+								editor.tf.insertText(" ");
 							});
 						}}
 						value={label}
 					>
 						<span className="flex-1">{label}</span>
 						<span className="text-muted-foreground text-xs">
-							{action} · {mentions.length}
+							{action} · {audienceMention?.audienceTargets?.length ?? 0}
 						</span>
 					</InlineComboboxItem>
 				);

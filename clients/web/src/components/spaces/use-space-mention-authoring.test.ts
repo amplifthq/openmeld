@@ -106,6 +106,59 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		window.localStorage.clear();
 	});
 
+	it("restores every target behind a compact audience token after a failed send", () => {
+		const humanId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		const agentId = "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+		const { result } = renderHook(() =>
+			useSpaceMentionAuthoring({
+				composerDraftScope: null,
+				isMembersLoading: false,
+				membersErrorMessage: null,
+				openMeldProfileId: "human-1",
+				snapshot: createSpaceMembersSnapshot({
+					humans: [createSpaceMemberHumanSnapshot({ profileId: humanId })],
+					agents: [createSpaceMemberAgentSnapshot({ profileId: agentId })],
+				}),
+				spaceId: "space-1",
+			})
+		);
+		const authoredMentions = [
+			{
+				audience: "both" as const,
+				end: 4,
+				profileId: humanId,
+				relation: "mention" as const,
+				start: 0,
+				text: "@all",
+			},
+			{
+				audience: "both" as const,
+				end: 4,
+				profileId: agentId,
+				relation: "wake" as const,
+				start: 0,
+				text: "@all",
+			},
+		];
+		act(() =>
+			result.current.onComposerEditorChange({
+				authoredMentions,
+				selection: { end: 12, start: 12 },
+				text: "@all Review",
+			})
+		);
+		const submission = result.current.prepareSubmission("Members unavailable");
+		act(() => result.current.recordPendingSubmission());
+		act(() => result.current.restoreFailedSubmission(submission));
+		expect(result.current.authoredMentions).toEqual(authoredMentions);
+		expect(
+			result.current.prepareSubmission("Members unavailable").messageEnvelope
+		).toMatchObject({
+			activationTargets: [agentId],
+			mentionTargets: [humanId],
+		});
+	});
+
 	it("restores an unsent Space draft after the composer remounts", () => {
 		const firstComposer = renderHook(() =>
 			useSpaceMentionAuthoring({

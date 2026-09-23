@@ -45,6 +45,7 @@ export type SpaceAuthoredMentionInTextOrder = {
 };
 
 export type SpaceComposerAuthoredMentionInTextOrder = {
+  audience?: "people" | "agents" | "both";
   profileId: string;
   relation: MessageMentionType;
   start?: number;
@@ -313,6 +314,11 @@ function normalizeAuthoredMentionsInTextOrder(input: {
 }): PositionedSpaceComposerAuthoredMention[] {
   const normalizedMentions: PositionedSpaceComposerAuthoredMention[] = [];
   let searchStart = 0;
+  let sharedAudienceRange: {
+    audience: "people" | "agents" | "both";
+    start: number;
+    text: string;
+  } | null = null;
 
   for (const mention of input.mentions ?? []) {
     const profileId = normalizeOptionalText(mention.profileId);
@@ -332,11 +338,14 @@ function normalizeAuthoredMentionsInTextOrder(input: {
     }
 
     const declaredStart = mention.start;
-    const hasValidDeclaredStart =
-      Number.isInteger(declaredStart) &&
-      (declaredStart ?? -1) >= searchStart &&
-      input.text.slice(declaredStart, (declaredStart ?? 0) + text.length) ===
-        text;
+    const hasValidDeclaredStart = isDeclaredMentionStartValid({
+      declaredStart,
+      audience: mention.audience,
+      searchStart,
+      sharedAudienceRange,
+      text,
+      sourceText: input.text,
+    });
     if (declaredStart !== undefined && !hasValidDeclaredStart) {
       continue;
     }
@@ -348,15 +357,48 @@ function normalizeAuthoredMentionsInTextOrder(input: {
     }
 
     normalizedMentions.push({
+      ...(mention.audience ? { audience: mention.audience } : {}),
       profileId,
       relation: mention.relation,
       start,
       text,
     });
     searchStart = start + text.length;
+    sharedAudienceRange = mention.audience
+      ? { audience: mention.audience, start, text }
+      : null;
   }
 
   return normalizedMentions;
+}
+
+function isDeclaredMentionStartValid(input: {
+  declaredStart: number | undefined;
+  audience: SpaceComposerAuthoredMentionInTextOrder["audience"];
+  searchStart: number;
+  sharedAudienceRange: {
+    audience: "people" | "agents" | "both";
+    start: number;
+    text: string;
+  } | null;
+  text: string;
+  sourceText: string;
+}): boolean {
+  const start = input.declaredStart;
+  if (!Number.isInteger(start)) {
+    return false;
+  }
+  const sharesAudienceRange =
+    input.audience !== undefined &&
+    input.sharedAudienceRange?.audience === input.audience &&
+    input.sharedAudienceRange.start === start &&
+    input.sharedAudienceRange.text === input.text;
+  return (
+    (start ?? -1) >= 0 &&
+    ((start ?? -1) >= input.searchStart || sharesAudienceRange) &&
+    input.sourceText.slice(start, (start ?? 0) + input.text.length) ===
+      input.text
+  );
 }
 
 function emptyResolvedStructuredTargets(): SpaceResolvedStructuredTargetSet {

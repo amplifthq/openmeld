@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -70,6 +71,54 @@ const FULL_BACKLOG_PATHS = [
 const EVIDENCE_ORDER_ERROR = /evidence tools require the Core RPC receiver/u;
 const SPACE_MESSAGE_SEARCH_SCOPE_ERROR =
   /Web callers require the Gateway and Core short-query receivers/u;
+
+test("local execution honors control interpreter, arguments, and product root", async () => {
+  const root = realpathSync(
+    mkdtempSync(path.join(tmpdir(), "openmeld-control-step-"))
+  );
+  const script = path.join(root, "control.mjs");
+  const output = path.join(root, "observed.json");
+  try {
+    writeFileSync(path.join(root, "package.json"), '{"private":true}\n');
+    // This script is deliberately not executable. Its declared Node interpreter
+    // must run it, with control arguments rather than a package-script alias.
+    writeFileSync(
+      script,
+      `import { writeFileSync } from "node:fs";
+writeFileSync(process.argv[2], JSON.stringify({
+  args: process.argv.slice(3),
+  execArgv: process.execArgv,
+  cwd: process.cwd(),
+  verificationRoot: process.env.OPENMELD_VERIFICATION_ROOT,
+}));`
+    );
+    await executeProductionDeploySteps({
+      cwd: root,
+      steps: [
+        {
+          command: "pnpm",
+          args: ["run", "source-alias-must-not-run"],
+          controlCommand: process.execPath,
+          controlPath: path.relative(
+            path.resolve(import.meta.dirname, "../.."),
+            script
+          ),
+          controlNodeArgs: ["--no-warnings"],
+          controlArgs: [output, "--profile", "production"],
+          label: "Exercise the declared trusted control command",
+        },
+      ],
+    });
+    assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), {
+      args: ["--profile", "production"],
+      execArgv: ["--no-warnings"],
+      cwd: root,
+      verificationRoot: root,
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("orders the complete backlog by its real receiver and producer boundaries", () => {
   const plan = buildProductionReleasePlan({

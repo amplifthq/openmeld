@@ -10,6 +10,10 @@ const itemsRefetch = vi.hoisted(() => vi.fn(async () => undefined));
 const summaryRefetch = vi.hoisted(() => vi.fn(async () => undefined));
 const summaryQueryMock = vi.hoisted(() => vi.fn());
 const desktopPlatformMock = vi.hoisted(() => vi.fn());
+const currentComputerMock = vi.hoisted(() => vi.fn());
+vi.mock("#/components/app/current-computer", () => ({
+	useCurrentComputer: currentComputerMock,
+}));
 vi.mock("#/desktop/platform", () => ({
 	getDesktopPlatform: desktopPlatformMock,
 }));
@@ -145,6 +149,7 @@ describe("InboxNotificationListener", () => {
 	beforeEach(() => {
 		navigateMock.mockReset().mockResolvedValue(undefined);
 		desktopPlatformMock.mockReset().mockReturnValue(null);
+		currentComputerMock.mockReset().mockReturnValue(null);
 		vi.spyOn(document, "hasFocus").mockReturnValue(true);
 		summaryRefetch.mockClear();
 		summaryQueryMock.mockReset().mockReturnValue({
@@ -308,6 +313,61 @@ describe("InboxNotificationListener", () => {
 		expect(showInboxNotificationMock).not.toHaveBeenCalled();
 		view.unmount();
 		expect(setNotificationContext).toHaveBeenLastCalledWith(null);
+	});
+
+	it.each([
+		{
+			name: "connected",
+			statusLabel: "Connected",
+			reason: "ready",
+			expectedTone: "connected",
+		},
+		{
+			name: "offline",
+			statusLabel: "Not connected",
+			reason: null,
+			expectedTone: "offline",
+		},
+		{
+			name: "disconnected",
+			statusLabel: "Disconnected",
+			reason: "service_not_connected",
+			expectedTone: "offline",
+		},
+		{
+			name: "needs attention",
+			statusLabel: "Checking OpenMeld status",
+			reason: "checking",
+			expectedTone: "attention",
+		},
+	])("passes $name Computer tone to the native tray", ({
+		statusLabel,
+		reason,
+		expectedTone,
+	}) => {
+		const setNotificationContext = vi.fn(
+			async (_context: unknown) => undefined
+		);
+		desktopPlatformMock.mockReturnValue({
+			setNotificationContext,
+			onNotificationClick: () => () => undefined,
+			onNotificationPoll: () => () => undefined,
+		});
+		currentComputerMock.mockReturnValue({
+			destination: "/o/amplift/computers",
+			status: reason ? { reason } : null,
+			statusLabel,
+		});
+		renderListener();
+		expect(setNotificationContext).toHaveBeenCalledWith(
+			expect.objectContaining({
+				computer: {
+					available: true,
+					statusLabel,
+					statusTone: expectedTone,
+				},
+			})
+		);
 	});
 
 	it("refreshes the native preview when Inbox content changes without changing the unread count", () => {

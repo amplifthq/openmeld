@@ -767,10 +767,12 @@ export {
 } from "./daemon/task-result";
 export { windowsProcessJobRequestSchema } from "./daemon/windows-process-job";
 export {
+  type WindowsUserTaskAction,
   type WindowsUserTaskRequest,
   windowsUserTaskActionSchema,
   windowsUserTaskRequestSchema,
   windowsUserTaskStatusSchema,
+  windowsUserTaskStoredActionSchema,
 } from "./daemon/windows-user-task";
 export {
   DB_FACT_SCHEMA_VERSION,
@@ -2430,11 +2432,14 @@ export {
   SPACE_TASK_LIST_MAX_ITEMS,
   SPACE_TASK_OPERATION_CONFLICT_ERROR_CODE,
   SPACE_TASK_OPERATION_ID_MAX_CHARS,
+  SPACE_TASK_RESULT_REVISION_CONFLICT_ERROR_CODE,
   SPACE_TASK_RESULT_SUMMARY_MAX_CHARS,
   SPACE_TASK_REVIEW_FEEDBACK_MAX_CHARS,
   SPACE_TASK_REVISION_CONFLICT_ERROR_CODE,
   SPACE_TASK_TITLE_MAX_CHARS,
+  spaceTaskActionSchema,
   spaceTaskActorSchema,
+  spaceTaskDetailOptionsSchema,
   spaceTaskErrorCodeSchema,
   spaceTaskEventSchema,
   spaceTaskEventTypeSchema,

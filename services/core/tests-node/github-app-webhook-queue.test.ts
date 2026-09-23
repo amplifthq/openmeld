@@ -89,14 +89,13 @@ function createLinkHarness() {
 }
 
 describe("Space Task GitHub issue D1 projection", () => {
-  it("indexes attached GitHub issues, hides detached rows, and is case-insensitive", async () => {
+  it("reconciles current GitHub links without an earlier snapshot and is case-insensitive", async () => {
     const harness = createLinkHarness();
     try {
       await projectSpaceTaskGitHubIssueLinks({
         db: harness.db,
         nowMs: 10,
         organizationId: "org-1",
-        previousItems: [],
         spaceId: SPACE_ID,
         task,
       });
@@ -121,14 +120,41 @@ describe("Space Task GitHub issue D1 projection", () => {
         db: harness.db,
         nowMs: 20,
         organizationId: "org-1",
-        previousItems: [githubItem],
+        spaceId: SPACE_ID,
+        task: {
+          ...task,
+          externalWorkItems: [{ ...githubItem, number: 1144 }],
+        },
+      });
+      await expect(
+        listActiveSpaceTaskGitHubIssueLinks({
+          db: harness.db,
+          number: 1143,
+          owner: "amplifthq",
+          repo: "openmeld",
+        })
+      ).resolves.toEqual([]);
+      await expect(
+        listActiveSpaceTaskGitHubIssueLinks({
+          db: harness.db,
+          number: 1144,
+          owner: "amplifthq",
+          repo: "openmeld",
+        })
+      ).resolves.toEqual([
+        expect.objectContaining({ number: 1144, taskId: TASK_ID }),
+      ]);
+      await projectSpaceTaskGitHubIssueLinks({
+        db: harness.db,
+        nowMs: 30,
+        organizationId: "org-1",
         spaceId: SPACE_ID,
         task: { ...task, externalWorkItems: [] },
       });
       await expect(
         listActiveSpaceTaskGitHubIssueLinks({
           db: harness.db,
-          number: 1143,
+          number: 1144,
           owner: "amplifthq",
           repo: "openmeld",
         })
@@ -252,7 +278,6 @@ describe("GitHub App webhook queue consumer", () => {
         db: harness.db,
         nowMs: 10,
         organizationId: "org-1",
-        previousItems: [],
         spaceId: SPACE_ID,
         task,
       });
@@ -260,7 +285,6 @@ describe("GitHub App webhook queue consumer", () => {
         db: harness.db,
         nowMs: 11,
         organizationId: "org-1",
-        previousItems: [],
         spaceId: OTHER_SPACE_ID,
         task: {
           ...task,
@@ -287,12 +311,14 @@ describe("GitHub App webhook queue consumer", () => {
           cancelOperationId: spaceTaskGitHubIssueOperationId(
             "cancel",
             issue,
-            TASK_ID
+            TASK_ID,
+            "delivery-linked"
           ),
           observeOperationId: spaceTaskGitHubIssueOperationId(
             "observe-closed",
             issue,
-            TASK_ID
+            TASK_ID,
+            "delivery-linked"
           ),
           observedState: "closed",
           spaceId: SPACE_ID,
@@ -314,6 +340,36 @@ describe("GitHub App webhook queue consumer", () => {
         },
       });
       expect(rpcApplyGitHubIssueObservation).not.toHaveBeenCalled();
+
+      await processGitHubAppWebhookQueueMessage({
+        env,
+        message: {
+          deliveryId: "delivery-linked-again",
+          event: "issues",
+          gatewayRequestId: "11111111-1111-4111-8111-111111111111",
+          issue: { ...issue, updatedAt: "2026-09-20T14:00:00.000Z" },
+          kind: "github_app_webhook",
+          receivedAtMs: 22,
+          v: 1,
+        },
+      });
+      expect(rpcApplyGitHubIssueObservation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cancelOperationId: spaceTaskGitHubIssueOperationId(
+            "cancel",
+            issue,
+            TASK_ID,
+            "delivery-linked-again"
+          ),
+          observeOperationId: spaceTaskGitHubIssueOperationId(
+            "observe-closed",
+            issue,
+            TASK_ID,
+            "delivery-linked-again"
+          ),
+        })
+      );
+      rpcApplyGitHubIssueObservation.mockClear();
 
       await processGitHubAppWebhookQueueMessage({
         env,

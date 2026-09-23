@@ -54,7 +54,7 @@ describe("SpaceMessageFooter", () => {
 		cleanup();
 	});
 
-	it("keeps the normal action order without an empty overflow menu", () => {
+	it("keeps the normal action order and a compact overflow menu", () => {
 		const view = render(
 			<SpaceMessageFooter
 				addressingTargets={[WAKE_TARGET]}
@@ -62,7 +62,6 @@ describe("SpaceMessageFooter", () => {
 				onCopy={vi.fn()}
 				reply={{ label: "Reply", onSelect: vi.fn() }}
 				thread={{ label: "Reply in thread", onSelect: vi.fn() }}
-				timestamp="11:45 PM"
 			/>
 		);
 
@@ -70,8 +69,8 @@ describe("SpaceMessageFooter", () => {
 			'[data-slot="message-footer-primary-actions"]'
 		);
 		const footer = view.container.querySelector('[data-slot="message-footer"]');
-		expect(footer?.className).toContain("mt-0.5");
-		expect(footer?.className).not.toContain("mt-1");
+		expect(footer?.className).toContain("absolute");
+		expect(footer?.className).toContain("bg-popover");
 		expect(primary).toBeTruthy();
 		expect(
 			within(primary as HTMLElement)
@@ -83,8 +82,9 @@ describe("SpaceMessageFooter", () => {
 			"Reply in thread",
 			"Message addressing",
 			"Message details",
+			"More actions",
 		]);
-		expect(screen.queryByRole("button", { name: "More actions" })).toBeNull();
+		expect(screen.getByRole("button", { name: "More actions" })).toBeTruthy();
 	});
 
 	it("keeps a failed footer compact and moves every secondary action into More", () => {
@@ -97,7 +97,6 @@ describe("SpaceMessageFooter", () => {
 				onCopy={vi.fn()}
 				reply={{ label: "Reply", onSelect: vi.fn() }}
 				thread={{ label: "Reply in thread", onSelect: vi.fn() }}
-				timestamp="11:45 PM"
 			/>
 		);
 
@@ -151,7 +150,6 @@ describe("SpaceMessageFooter", () => {
 				addressingTargets={[]}
 				failureSummary="Agent couldn’t reply"
 				onCopy={vi.fn()}
-				timestamp="11:45 PM"
 			/>
 		);
 
@@ -172,7 +170,6 @@ describe("SpaceMessageFooter", () => {
 				addressingTargets={[WAKE_TARGET]}
 				details={{ hasProblem: false, onSelect: vi.fn() }}
 				onCopy={vi.fn()}
-				timestamp="11:45 PM"
 			/>
 		);
 
