@@ -1,9 +1,10 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   stat,
   writeFile,
@@ -13,6 +14,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { spawnAgentControllerProcess } from "@openmeld/adapter-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import packageJson from "../package.json";
@@ -170,6 +172,22 @@ describe("real execution Host entry", () => {
         join(systemRoot, "System32"),
         join(systemRoot, "System32", "WindowsPowerShell", "v1.0"),
       ].join(";");
+      // Desktop admission must query this real GUI carrier, not infer support
+      // from a version string or a Node executable. This command is read-only.
+      const capability = await promisify(execFile)(
+        binaryPath,
+        ["service", "control-carrier-capability", "--json"],
+        { cwd: root, env, windowsHide: true, timeout: 10_000 }
+      );
+      const capabilityResponse = JSON.parse(capability.stdout);
+      expect(capabilityResponse).toEqual({
+        protocol: "account-checked-service-control-v3",
+        platform: "win32",
+        executable: expect.any(String),
+      });
+      expect(await realpath(capabilityResponse.executable)).toBe(
+        await realpath(binaryPath)
+      );
       env.OPENMELD_DAEMON_RUNTIME_DETACHED = "1";
       env.OPENMELD_DAEMON_RUNTIME_SYSTEM_SERVICE = "1";
       // A fixture-owned Windows Job contains the Service and every descendant.

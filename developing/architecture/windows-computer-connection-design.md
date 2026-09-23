@@ -348,6 +348,37 @@ policy. The previously failing Node entry passed all 13 cases locally, and the
 local-service package built successfully. Hosted evidence for this correction
 must use a later head; earlier native artifact successes do not certify it.
 
+Run [35907980348, attempt 1](https://github.com/amplifthq/openmeld/actions/runs/35907980348)
+checked head `4af0f146c29c6b038728b7d2a68a4561cc5a5782` at merge checkout
+`f663797c253a534c4048e6968fc0fd352effe3c2`, base
+`6c3ae1a6d155f9987a9fbccacb9c460f341238f4`. All signing preparation stages
+completed. All three signed binary bootstrap cases passed: actual readable
+command, install receipt, Unicode/quoted argv, stderr, exit 7, caller survival,
+and rejection of corrupted companion bytes or a different publisher. The npm
+bootstrap 10 cases also passed. Native artifacts, real Service/Host and stopped
+migration passed again ([artifact](https://github.com/amplifthq/openmeld/actions/runs/35907980348/artifacts/10771628303)).
+The overall run **failed** at the known source import in the separate package
+boundary step; that head did not include correction `249a4564d`. The legacy host
+passed on this run, without establishing its historical timeout's cause.
+
+The Desktop admission review also found that the read-only control projection
+accepted only the npm Windows bundle format. Its new binary case first failed
+locally with both controls disabled. The correction probes the aligned GUI
+carrier and requires a distinct v3 capability response, retaining native process
+identity, exact executable matching, unchanged-bundle fencing and authenticated
+running-Service confirmation. Local capability cases now pass 8/8, CLI TypeScript
+passes, and the source Host integration passes 4/4 with its Windows-only case
+skipped. The next native artifact gate must verify the real GUI v3 response with
+system-only PATH before starting the actual Service/Host case.
+
+Contract impact: v1 macOS and v2 Windows npm responses remain supported. v3 is
+an additive private carrier probe variant in `packages/schemas`; old readers
+reject it rather than enabling controls on unverified evidence. The public
+Desktop capability shape, account admission, credentials, device identity,
+Runtime Transport, Prepare, Core/Gateway, Wake and Skills contracts are unchanged.
+The Service owner document now describes binary and retained npm paths separately;
+this change does not move readiness or execution authority to Desktop.
+
 ## References
 
 - [Product model](../product/product-model.md), [Service owner](local-openmeld-service.md), [transport owner](agent-transport-contract.md), [Desktop owner](../clients/desktop.md), [CLI release](../engineering/cli-binary-release.md), [delivery](../engineering/agent-native-delivery.md).

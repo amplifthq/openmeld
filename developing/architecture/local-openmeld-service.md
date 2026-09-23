@@ -2172,7 +2172,7 @@ of the macOS LaunchAgent session. Locking the screen does not mean logging out.
 Task registration is process supervision, not Service readiness: startup still
 requires the current Service lease, account/lane alignment, and Core connection.
 
-Both the main and maintenance tasks start a lane-owned Windows-subsystem host,
+For the retained npm distribution, both tasks start a lane-owned Windows-subsystem host,
 not a console-subsystem PowerShell process. The host creates the existing system
 PowerShell action with `UseShellExecute=false` and `CreateNoWindow=true`, waits
 for it, and returns its exit code without detaching or breaking Task Scheduler
@@ -2424,6 +2424,18 @@ cannot manage a migrated task and fail closed; use the matching newer CLI for
 setup, repair and control. Cloud, Service transport, Wake and diagnostic payloads
 are unchanged by this local launch-carrier change.
 
+Managed Windows binary installations use the same account-admission protocol.
+Their read-only capability probe runs the integrity-aligned active GUI Service
+directly. Its `account-checked-service-control-v3` response identifies that
+executable after verifying native process identity; it has no fictitious Node
+entry script. A binary probe rejects the npm v2 response, and a Node probe
+still requires v2 plus the exact entry script. The active bundle must remain
+unchanged across the probe. A running Service must additionally answer the
+authenticated local control request. Older readers reject the new variant
+and leave controls disabled; the public Desktop capability shape is unchanged.
+Direct GUI task admission retains the same SID, lane, action and process
+ownership checks described above.
+
 ### Registration reconciliation
 
 A successfully confirmed explicit autostart command clears the repair marker
@@ -2518,7 +2530,12 @@ downloading or reinstalling the CLI. A missing, truncated,
 or same-size-but-different executable follows the verified download and
 `install-self` repair path, which also forces Service carrier refresh.
 
-For Windows, explicit `?dist=npm`, or npm recovery, the package-based commands
+Windows binary setup verifies the signed CLI and native helper, then follows
+the shared managed installer receipt. Its GUI Service is a separate selected
+artifact; neither Node nor the console CLI is used as that background carrier.
+This entrypoint requires the accepted Windows artifact channel before rollout.
+
+For explicit `?dist=npm` or npm recovery, the package-based commands
 are:
 
 ```text
