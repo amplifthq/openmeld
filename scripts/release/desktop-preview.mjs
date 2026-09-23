@@ -806,8 +806,6 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
       );
     } else if (command === "upload-candidate") {
       await uploadDesktopCandidate();
-    } else if (command === "publisher-check") {
-      await checkDesktopPublisher();
     } else if (command === "promote") {
       await promoteDesktopCandidate(process.argv[3], process.argv[4]);
     } else {

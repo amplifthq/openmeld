@@ -146,6 +146,13 @@ test("production Desktop packaging refuses a missing publisher credential before
     );
     assert.equal(coldResult.status, 1);
     assert.match(coldResult.stderr, MISSING_RELEASE_CREDENTIALS);
+    const publisherCheck = spawnSync(
+      process.execPath,
+      [path.join(root, "scripts/release/desktop-publisher.mjs")],
+      { cwd: root, encoding: "utf8", env }
+    );
+    assert.equal(publisherCheck.status, 1);
+    assert.match(publisherCheck.stderr, MISSING_RELEASE_CREDENTIALS);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

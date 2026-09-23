@@ -2085,8 +2085,7 @@ After review, protected merge, and selection of the exact release SHA:
    `openmeld-release/prd` credentials:
 
    ```sh
-   pnpm --filter @openmeld/schemas build
-   doppler --silent run --project openmeld-release --config prd --only-secrets CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN --no-fallback -- node scripts/release/desktop-preview.mjs publisher-check
+   doppler --silent run --project openmeld-release --config prd --only-secrets CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN --no-fallback -- node scripts/release/desktop-publisher.mjs
    ```
 
    It confirms the selected account and Desktop bucket with the named release

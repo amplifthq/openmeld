@@ -1,4 +1,6 @@
+import { realpathSync } from "node:fs";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 const CLOUDFLARE_ACCOUNT_ID = /^[a-f0-9]{32}$/u;
 const RELEASE_TOKEN_NAME = "CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN";
@@ -56,4 +58,18 @@ export async function checkDesktopPublisher(input = {}) {
     `[release:desktop-preview] Publisher: openmeld-release/prd; account: ${credentials.accountId}; bucket: ${credentials.bucket}. Bucket read confirmed; upload permission is checked by the guarded publication.\n`
   );
   return credentials.env;
+}
+
+if (
+  process.argv[1] &&
+  realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+) {
+  try {
+    await checkDesktopPublisher();
+  } catch (error) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`
+    );
+    process.exitCode = 1;
+  }
 }
