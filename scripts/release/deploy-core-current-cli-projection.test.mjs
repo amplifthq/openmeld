@@ -42,6 +42,10 @@ const PUBLISHED_MANIFEST = {
   },
 };
 const PUBLISHED_MANIFEST_SOURCE = `${JSON.stringify(PUBLISHED_MANIFEST, null, 2)}\n`;
+const PUBLISHED_PACKAGE_SOURCE = JSON.stringify({
+  version: PUBLISHED_VERSION,
+  openmeld: { minRequiredCliVersion: TAG_MANIFEST_VERSION },
+});
 const EXPECTED_CORE_TAG = deriveCoreProjectionTag({
   commitSha: TAG_COMMIT_SHA,
   releaseManifestSource: PUBLISHED_MANIFEST_SOURCE,
@@ -115,8 +119,10 @@ test("derives the expected Core tag from the immutable tag commit and manifest",
       return TAG_COMMIT_SHA;
     },
     readTagFile: (input) => {
-      reads.push({ ...input, type: "manifest" });
-      return PUBLISHED_MANIFEST_SOURCE;
+      reads.push(input);
+      return input.path === "clients/openmeld-cli/package.json"
+        ? PUBLISHED_PACKAGE_SOURCE
+        : PUBLISHED_MANIFEST_SOURCE;
     },
   });
 
@@ -125,12 +131,16 @@ test("derives the expected Core tag from the immutable tag commit and manifest",
     {
       path: "release/local-components.json",
       tagName: `v${PUBLISHED_VERSION}`,
-      type: "manifest",
+    },
+    {
+      path: "clients/openmeld-cli/package.json",
+      tagName: `v${PUBLISHED_VERSION}`,
     },
   ]);
   assert.deepEqual(target.releaseManifest, PUBLISHED_MANIFEST);
   assert.equal(target.tagCommitSha, TAG_COMMIT_SHA);
   assert.equal(target.tagName, `v${PUBLISHED_VERSION}`);
+  assert.equal(target.minRequiredCliVersion, TAG_MANIFEST_VERSION);
   assert.equal(target.expectedCoreTag, EXPECTED_CORE_TAG);
 });
 
@@ -142,7 +152,10 @@ test("refuses a release tag that does not resolve to an exact commit", () => {
           channels: { stable: { version: PUBLISHED_VERSION } },
         },
         readTagCommit: () => "a".repeat(39),
-        readTagFile: () => PUBLISHED_MANIFEST_SOURCE,
+        readTagFile: (input) =>
+          input.path === "clients/openmeld-cli/package.json"
+            ? PUBLISHED_PACKAGE_SOURCE
+            : PUBLISHED_MANIFEST_SOURCE,
       }),
     INVALID_TAG_COMMIT_RE
   );
@@ -225,7 +238,10 @@ test("the receiver bridge binds candidate source separately from the retained CL
             channels: { stable: { version: PUBLISHED_VERSION } },
           };
         },
-        readTagFile: () => PUBLISHED_MANIFEST_SOURCE,
+        readTagFile: (input) =>
+          input.path === "clients/openmeld-cli/package.json"
+            ? PUBLISHED_PACKAGE_SOURCE
+            : PUBLISHED_MANIFEST_SOURCE,
         readTagCommit: () => TAG_COMMIT_SHA,
         readHeadSha: () => CORE_RELEASE_SHA,
         readCoreWranglerConfig: () => "{}",

@@ -1,5 +1,6 @@
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
 import {
+  buildRemoteAgentRoutineRunConversationId,
   buildRemoteAgentRuntimeConversationId,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_ENTRY_TEXT_MAX_CHARS,
@@ -49,6 +50,21 @@ export function resolveRemoteAgentLogicalConversationId(
   request: RemoteAgentWorkerSubmitTurnRequest
 ): string {
   return request.conversationId ?? request.spaceId;
+}
+
+export function isRemoteAgentRoutineRunConversation(
+  request: RemoteAgentWorkerSubmitTurnRequest
+): boolean {
+  const trigger = request.turnEnvelope.trigger;
+  return (
+    trigger.source === "routine" &&
+    request.conversationId ===
+      buildRemoteAgentRoutineRunConversationId({
+        agentProfileId: request.agentProfileId,
+        organizationId: request.organizationId,
+        runId: trigger.runId,
+      })
+  );
 }
 
 export function resolveRemoteAgentRuntimeConversationId(
@@ -186,6 +202,13 @@ async function readContinuityEntryDrafts(input: {
   generation: number;
   request: Exclude<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>;
 }): Promise<{ entries: ContinuityEntryDraft[]; truncated: boolean }> {
+  if (isRemoteAgentRoutineRunConversation(input.request)) {
+    throw new RemoteAgentConversationContinuitySourceError({
+      code: "remote_agent.routine_run_continuity_unavailable",
+      message:
+        "A Routine Run cannot use its publication destination as execution continuity.",
+    });
+  }
   if (
     input.request.turnEnvelope.trigger.source === "slack" ||
     input.request.turnEnvelope.trigger.source === "message_channel" ||
