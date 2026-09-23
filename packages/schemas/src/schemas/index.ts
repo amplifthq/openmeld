@@ -177,11 +177,14 @@ export {
   getModelCatalogResponseSchema,
   hostedModelInputModalitySchema,
   MODEL_CATALOG_SCHEMA_VERSION,
+  type ModelCatalogReadOptions,
   modelCatalogAgentControllerSchema,
   modelCatalogHostedRuntimePolicySchema,
   modelCatalogHostedRuntimeSchema,
   modelCatalogModelSchema,
+  modelCatalogReadOptionsSchema,
   modelCatalogSchema,
+  modelRetirementNoticeSchema,
 } from "./config/model-catalog";
 export {
   agentControllerConversationCapabilitySchema,

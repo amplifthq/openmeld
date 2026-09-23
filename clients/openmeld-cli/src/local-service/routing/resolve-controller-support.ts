@@ -448,6 +448,12 @@ function buildAcceptedLocalDaemonRouteCandidate(input: {
       catalog: input.modelCatalog,
       modelSelection: input.modelSelection,
     });
+  if (conversationPolicyResolution.status === "rejected") {
+    return buildSkippedLocalDaemonRouteCandidate({
+      profileId: input.profileId,
+      skipReason: conversationPolicyResolution.reasonCode,
+    });
+  }
   return {
     profileId: input.profileId,
     route: {

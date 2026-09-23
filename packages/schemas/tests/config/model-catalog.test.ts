@@ -4,6 +4,7 @@ import {
   MODEL_CATALOG_SCHEMA_VERSION,
   modelCatalogSchema,
 } from "../../src/index";
+import { modelRetirementNoticeSchema } from "../../src/schemas/config/model-catalog";
 import codexGpt6Capture from "../fixtures/codex-gpt-6-sol-luna-2026.09.23.json";
 import cursorModelCatalogCapture from "../fixtures/cursor-model-catalog-2026.09.10.json";
 import localModelCatalogCapture from "../fixtures/local-model-catalog-2026.09.22.json";
@@ -11,6 +12,31 @@ import openCodeGoQwen38Flash from "../fixtures/opencode-go-qwen3.8-flash-1.18.25
 import openCodeModelCatalogCapture from "../fixtures/opencode-model-catalog-1.18.31.json";
 
 describe("model catalog schema", () => {
+  it("keeps lower-bound dates distinct and rejects unsafe or malformed notices", () => {
+    const notice = {
+      status: "announced",
+      date: { value: "2026-10-15", kind: "not_before" },
+      scope: { controllerRef: "builtin:codex", authType: "chatgpt" },
+      sourceUrl: "https://example.com/official-notice",
+      verifiedAt: "2026-09-23T00:00:00Z",
+    };
+    expect(modelRetirementNoticeSchema.parse(notice).date?.kind).toBe(
+      "not_before"
+    );
+    expect(
+      modelRetirementNoticeSchema.safeParse({
+        ...notice,
+        sourceUrl: "javascript:alert(1)",
+      }).success
+    ).toBe(false);
+    expect(
+      modelRetirementNoticeSchema.safeParse({
+        ...notice,
+        date: { value: "2026-02-30", kind: "on" },
+      }).success
+    ).toBe(false);
+  });
+
   it("preserves the new local models' authenticated IDs and reasoning options", () => {
     const { agentControllers } = modelCatalogSchema.parse(vendorModelCatalog);
     for (const model of codexGpt6Capture.data) {
