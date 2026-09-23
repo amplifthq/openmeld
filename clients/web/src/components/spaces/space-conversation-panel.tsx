@@ -809,7 +809,15 @@ function SpaceConversationPanelContent(
 							isSendingMessage={input.isSendingMessage}
 							onSendStart={followLatest}
 						/>
-						<SpaceMessageScrollController actionRef={messageScrollActionRef} />
+						<SpaceMessageScrollController
+							actionRef={messageScrollActionRef}
+							latestMessageId={
+								input.historyNavigation?.activeWindow
+									? null
+									: mainTimelineItems.at(-1)?.id
+							}
+							scrollElement={conversationScrollElement}
+						/>
 						<MessageScroller className="relative min-h-0 flex-1">
 							{input.historyNavigation && (
 								<SpaceHistoryRail

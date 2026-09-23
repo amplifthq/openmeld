@@ -1660,6 +1660,7 @@ export function useSpaceLandingController(input: {
 		initialAgentStreams: bootstrapBelongsToProgressLifetime
 			? (bootstrapQuery.data?.activeAgentStreams ?? [])
 			: [],
+		unreadTargets: input.unreadTargets,
 		history: {
 			isPending: historyPending,
 			isSuccess: historyReady,
