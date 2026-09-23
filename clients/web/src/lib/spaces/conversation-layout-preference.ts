@@ -6,7 +6,7 @@ export const SPACE_CONVERSATION_LAYOUT_ATTRIBUTE =
 export type SpaceConversationLayout = "centered" | "full-width";
 
 export const DEFAULT_SPACE_CONVERSATION_LAYOUT: SpaceConversationLayout =
-	"centered";
+	"full-width";
 
 export function readSpaceConversationLayoutPreference(): SpaceConversationLayout {
 	if (typeof window === "undefined") {

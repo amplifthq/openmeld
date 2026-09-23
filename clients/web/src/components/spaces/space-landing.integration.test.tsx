@@ -15166,6 +15166,7 @@ describe("SpaceLanding", () => {
 			.getByText("DM hello")
 			.closest("[data-message-row-id]");
 		expect(sourceMessage).not.toBeNull();
+		expect(sourceMessage?.textContent).not.toContain("Wake");
 		// Active Wake progress stays at the conversation tail while its source remains visible.
 		const sourceMessageGroup = sourceMessage?.closest("[data-message-row-id]");
 		expect(sourceMessageGroup).not.toBeNull();
