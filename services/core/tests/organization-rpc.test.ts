@@ -3393,10 +3393,14 @@ describe("organization Core RPC", () => {
           userId: "user-a",
         }),
         name: "Planning",
+        onBehalfOf: { profileId: HUMAN_PROFILE_ID },
         visibility: "private",
       })
     ).resolves.toMatchObject({
-      attribution: { actorProfileId: AGENT_PROFILE_ID, onBehalfOf: null },
+      attribution: {
+        actorProfileId: AGENT_PROFILE_ID,
+        onBehalfOf: { profileId: HUMAN_PROFILE_ID, userId: "user-a" },
+      },
       organizationId: "org-a",
       resource: { type: "space" },
     });
@@ -3451,6 +3455,7 @@ describe("organization Core RPC", () => {
           userId: "user-a",
         }),
         name: "After resume",
+        onBehalfOf: { profileId: HUMAN_PROFILE_ID },
         visibility: "private",
       })
     ).resolves.toMatchObject({ organizationId: "org-a" });
@@ -3509,6 +3514,38 @@ describe("organization Core RPC", () => {
     }
   });
 
+  it("rejects Space creation without a represented human before writing", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+    });
+    const spaceStub = createSpaceStub();
+    await expect(
+      rpcCenterAgentCreateSpace(buildEnv({ db, spaceStub }), {
+        context: buildCenterAgentContext({
+          activeOrganizationId: "org-a",
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          profileName: "Center Agent",
+          userId: "user-a",
+        }),
+        name: "No owner",
+        visibility: "private",
+      })
+    ).rejects.toMatchObject({
+      code: "center_agent.represented_member_required",
+      status: 403,
+    });
+    expect(spaceStub.rpcPatchMeta).not.toHaveBeenCalled();
+  });
+
   it("records Center Agent audit entries with on-behalf-of attribution", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [
@@ -3532,14 +3569,6 @@ describe("organization Core RPC", () => {
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    spaceStub.rpcPatchMeta.mockImplementationOnce(async (request) => ({
-      accessMode: "members_only" as const,
-      name: request.name ?? "Untitled space",
-      organizationId: request.organizationId ?? "org-a",
-      passwordProtected: false,
-      spaceId: request.spaceId,
-      visibility: request.visibility ?? "private",
-    }));
     const env = buildEnv({ db, spaceStub });
     const agentContext = buildCenterAgentContext({
       activeOrganizationId: "org-a",
@@ -3575,8 +3604,14 @@ describe("organization Core RPC", () => {
     expect(spaceStub.rpcPatchMeta).toHaveBeenCalledWith(
       expect.objectContaining({
         creator: expect.objectContaining({ profileName: "Codex" }),
+        initialOwnerMember: expect.objectContaining({
+          ownerUserId: "user-a",
+          profileId: HUMAN_PROFILE_ID,
+          profileKind: "human",
+        }),
       })
     );
+    expect(spaceStub.rpcPostMembers).not.toHaveBeenCalled();
 
     await expect(
       rpcListCenterAgentAuditJournal(env, {
@@ -3895,6 +3930,7 @@ describe("organization Core RPC", () => {
     const created = await rpcCenterAgentCreateSpace(env, {
       context,
       name: "Friday Demo",
+      onBehalfOf: { profileId: HUMAN_PROFILE_ID },
       visibility: "private",
     });
     const members = await rpcCenterAgentAddMembersToSpace(env, {
@@ -3939,10 +3975,7 @@ describe("organization Core RPC", () => {
       ],
       spaceId: created.spaceId,
     });
-    expect(agents.membership.addedMemberIds).toEqual([
-      SECOND_AGENT_PROFILE_ID,
-      HUMAN_PROFILE_ID,
-    ]);
+    expect(agents.membership.addedMemberIds).toEqual([SECOND_AGENT_PROFILE_ID]);
     if (wake.publicationStatus === "pending") {
       throw new Error("direct Center Agent Wake must be accepted");
     }
