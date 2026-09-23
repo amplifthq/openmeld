@@ -315,6 +315,12 @@ html[data-space-self-message-alignment="right"]
   container-type: inline-size;
 }
 
+/* An overlaid toolbar can extend above the virtualized item's paint bounds. */
+[data-slot="message-scroller-item"]:has([data-message-row-id]:hover),
+[data-slot="message-scroller-item"]:has([data-message-row-id]:focus-within) {
+  content-visibility: visible;
+}
+
 /* A message can use the available width without consuming the side where its
    floating actions sit. Narrow rows keep only the reaction and overflow controls. */
 :root [data-message-row-id] [data-slot="bubble"] {
@@ -334,6 +340,28 @@ html[data-space-self-message-alignment="right"]
 
   [data-slot="message-footer-standard-actions"] {
     display: none;
+  }
+}
+
+/* Direct messages keep their existing content width. Their time lives in the
+   shared hover toolbar, which can float above a bubble when the side is full. */
+:root [data-direct-message] [data-slot="bubble"] {
+  max-inline-size: 100%;
+}
+
+html[data-space-self-message-alignment="right"]
+  [data-space-self-message="true"]
+  [data-direct-message]
+  [data-slot="bubble"] {
+  max-inline-size: min(68%, 52rem);
+}
+
+@container space-message-row (max-width: 32rem) {
+  html[data-space-self-message-alignment="right"]
+    [data-space-self-message="true"]
+    [data-direct-message]
+    [data-slot="bubble"] {
+    max-inline-size: min(88%, 52rem);
   }
 }
 

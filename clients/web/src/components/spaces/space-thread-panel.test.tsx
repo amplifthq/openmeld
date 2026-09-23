@@ -697,6 +697,35 @@ describe("SpaceThreadPanel", () => {
 		expect(secondMessage?.className).not.toContain("py-2");
 	});
 
+	it("shows direct-message times only in the shared thread toolbars", () => {
+		renderThreadPanel({
+			isDirectMessage: true,
+			signals: [
+				createTextSignal({
+					id: "dm-thread-first",
+					text: "First direct thread message",
+					ts: Date.UTC(2026, 8, 23, 10, 7),
+				}),
+				createTextSignal({
+					id: "dm-thread-second",
+					text: "Second direct thread message",
+					ts: Date.UTC(2026, 8, 23, 10, 9),
+				}),
+			],
+		});
+
+		for (const id of ["dm-thread-first", "dm-thread-second"]) {
+			const row = document.querySelector(`[data-message-row-id="${id}"]`);
+			expect(row).toBeTruthy();
+			expect(
+				row?.querySelector('[data-slot="message-header"] time')
+			).toBeNull();
+			expect(
+				row?.querySelector('[data-slot="message-footer"] time')?.textContent
+			).toMatch(COMPACT_TIME_PATTERN);
+		}
+	});
+
 	it("renders structured Wake targets as inline Agent identities in a read-only thread", () => {
 		renderThreadPanel({
 			membersSnapshot: createWakeReceiptMembersSnapshot(),

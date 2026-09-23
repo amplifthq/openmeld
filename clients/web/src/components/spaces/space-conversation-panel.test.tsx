@@ -2605,6 +2605,42 @@ describe("SpaceConversationPanel", () => {
 		expect(scrollerContent?.className).not.toContain("max-w-6xl");
 	});
 
+	it("keeps direct-message times in each message toolbar instead of above the bubbles", () => {
+		renderSpaceConversationPanel({
+			isDirectMessage: true,
+			timelineItems: [
+				createTimelineItem({
+					createdAtMs: Date.UTC(2026, 8, 23, 10, 7),
+					id: "dm-first",
+					text: "First DM message",
+				}),
+				createTimelineItem({
+					createdAtMs: Date.UTC(2026, 8, 23, 10, 9),
+					id: "dm-second",
+					text: "Second DM message",
+				}),
+			],
+		});
+
+		const rows = ["dm-first", "dm-second"].map((id) =>
+			document.querySelector(`[data-message-row-id="${id}"]`)
+		);
+		for (const row of rows) {
+			expect(row).toBeTruthy();
+			expect(
+				row?.querySelector('[data-slot="message-footer"] time')?.textContent
+			).toMatch(COMPACT_TIME_PATTERN);
+			expect(
+				row
+					?.closest('[data-slot="message-content"]')
+					?.querySelector('[data-slot="message-header"] time')
+			).toBeNull();
+		}
+		expect(rows[0]?.querySelector("time")?.textContent).not.toBe(
+			rows[1]?.querySelector("time")?.textContent
+		);
+	});
+
 	it("keeps the scroll viewport full width and constrains only messages and the composer", () => {
 		const view = renderSpaceConversationPanel({ readOnly: false });
 		let conversation = screen.getByRole("region", {

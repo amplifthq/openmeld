@@ -157,6 +157,7 @@ import {
 } from "./space-message-reactions";
 import { SpaceMessageReadObserver } from "./space-message-read-observer";
 import type { SpaceMessageReferencesById } from "./space-message-reference";
+import { SpaceMessageTime } from "./space-message-time";
 import {
 	groupAnchoredOutcomeNotices,
 	resolveGroupedOutcomeRowText,
@@ -1559,12 +1560,11 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 										) : null}
 									</>
 								)}
-								<time
-									className="ml-1 shrink-0 text-muted-foreground text-xs tabular-nums"
-									dateTime={new Date(input.item.createdAtMs).toISOString()}
-								>
-									{THREAD_TIME_FORMATTER.format(input.item.createdAtMs)}
-								</time>
+								<SpaceMessageTime
+									createdAtMs={input.item.createdAtMs}
+									isDirectMessage={input.isDirectMessage}
+									placement="header"
+								/>
 							</MessageHeader>
 						) : null}
 						<Bubble align={messageAlign}>
@@ -1650,6 +1650,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 							anchoredOutcomeNotices={anchoredOutcomeNotices}
 							failureSummary={failureSummary}
 							hasWakeProblem={hasWakeProblem}
+							isDirectMessage={input.isDirectMessage}
 							item={input.item}
 							messageDetailsItem={messageDetailsItem}
 							onOpenMessageDetails={input.onOpenMessageDetails}
@@ -1673,6 +1674,7 @@ function ThreadTimelineMessageFooter(input: {
 	align: "start" | "end";
 	failureSummary: ReturnType<typeof resolveSpaceMessageFooterFailureSummary>;
 	hasWakeProblem: boolean;
+	isDirectMessage: boolean;
 	item: SpaceTimelineItem;
 	messageDetailsItem: SpaceTimelineItem | null;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
@@ -1705,6 +1707,7 @@ function ThreadTimelineMessageFooter(input: {
 				sourceItem: input.item,
 			}}
 			failureSummary={input.failureSummary}
+			isDirectMessage={input.isDirectMessage}
 			item={input.item}
 			onCopy={() =>
 				copySpaceTimelineItemWithFeedback({
@@ -2007,12 +2010,6 @@ function renderAnchoredThreadOutcomeRows(input: {
 		</>
 	);
 }
-
-const THREAD_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
-	hour: "2-digit",
-	minute: "2-digit",
-	hourCycle: "h23",
-});
 
 import {
 	buildSpaceTaskSources,

@@ -205,6 +205,7 @@ import {
 	resolveSpaceMessageStateTuningVisibility,
 	useSpaceMessageStateTuningPreviewItems,
 } from "./space-message-state-tuning-preview";
+import { SpaceMessageTime } from "./space-message-time";
 import {
 	groupAnchoredOutcomeNotices,
 	resolveGroupedOutcomeRowText,
@@ -2809,12 +2810,11 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 											selfAvatarImageUrl={input.selfAvatarImageUrl}
 											selfProfileId={input.selfProfileId}
 										/>
-										<time
-											className="ml-1 shrink-0 text-muted-foreground text-xs tabular-nums"
-											dateTime={new Date(item.createdAtMs).toISOString()}
-										>
-											{TIMELINE_TIME_FORMATTER.format(item.createdAtMs)}
-										</time>
+										<SpaceMessageTime
+											createdAtMs={item.createdAtMs}
+											isDirectMessage={input.isDirectMessage}
+											placement="header"
+										/>
 									</MessageHeader>
 								) : null}
 								<MessageReactionsProvider
@@ -2860,6 +2860,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 												anchoredOutcomeNotices,
 												canUseMessageActions,
 												hasWakeProblem,
+												isDirectMessage: input.isDirectMessage,
 												isCreatingThread: input.isCreatingThread,
 												item,
 												messageAlign,
@@ -3340,6 +3341,7 @@ function renderConversationMessageFooter(input: {
 	anchoredOutcomeNotices: readonly SpaceTimelineItem[];
 	canUseMessageActions: boolean;
 	hasWakeProblem: boolean;
+	isDirectMessage: boolean;
 	isCreatingThread: boolean;
 	item: SpaceTimelineItem;
 	messageAlign: "end" | "start";
@@ -3402,6 +3404,7 @@ function renderConversationMessageFooter(input: {
 				sourceItem: input.item,
 			}}
 			failureSummary={failureSummary}
+			isDirectMessage={input.isDirectMessage}
 			item={input.item}
 			onCopy={() =>
 				copySpaceTimelineItemWithFeedback({
@@ -4132,11 +4135,5 @@ function resolveDirectMessageTargetName(
 		)?.profileName ?? null
 	);
 }
-
-const TIMELINE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
-	hour: "2-digit",
-	minute: "2-digit",
-	hourCycle: "h23",
-});
 
 import { buildSpaceTaskSources } from "./space-composer-task-menu";

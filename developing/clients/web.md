@@ -4341,10 +4341,14 @@ relation. Graph and the structured message envelope retain that relation for
 agents and diagnostics. Message details remains the drill-in for complete
 execution and failure context.
 
-The first message in a speaker run shows its 24-hour, hour-and-minute time beside
-the speaker name; later messages omit the time in the timeline. Message details
-remains available for an individual message. Message actions form one floating
-toolbar beside the bubble. It prefers the opposite side of a right-aligned
+In an ordinary Space, the first message in a speaker run shows its 24-hour,
+hour-and-minute time beside the speaker name; later messages omit the time in
+the timeline. Direct messages keep the compact avatar-and-bubble layout without
+a separate header time. Each direct message shows its 24-hour, hour-and-minute
+time inside the floating toolbar. Message details remains available for an
+individual message. Message actions form one floating
+toolbar beside the bubble, or just above it when neither side has room. It
+prefers the opposite side of a right-aligned
 self message and the right side of a left-aligned message. Phone widths show
 reaction and More actions beside a narrower bubble, keeping the full set of
 actions available from More. The toolbar does not reserve a footer row or change

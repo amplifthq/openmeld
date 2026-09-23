@@ -50,6 +50,7 @@ import {
 	type useMessageReactions,
 	useMessageReactionsContext,
 } from "./space-message-reactions";
+import { SpaceMessageTime } from "./space-message-time";
 import { useSpaceMessagePinAction } from "./space-pins";
 import { SpaceMessageWakeRecommendation } from "./space-wake-recommendation";
 
@@ -124,6 +125,7 @@ type SpaceMessageFooterProps = {
 	align?: "end" | "start";
 	details?: SpaceMessageFooterDetailsAction;
 	failureSummary?: string | null;
+	isDirectMessage?: boolean;
 	onCopy: () => void;
 	copyDisabled?: boolean;
 	reply?: SpaceMessageFooterAction;
@@ -261,7 +263,7 @@ function resolveToolbarPosition(input: {
 			)
 		),
 		placement: "overlay",
-		top: Math.max(0, bubbleTop - toolbar.height + 4),
+		top: bubbleTop - toolbar.height + 4,
 	};
 }
 
@@ -397,6 +399,13 @@ function MessageFooterActions({
 					persistent={persistent}
 					reactions={reactions}
 				/>
+				{input.item ? (
+					<SpaceMessageTime
+						createdAtMs={input.item.createdAtMs}
+						isDirectMessage={input.isDirectMessage === true}
+						placement="toolbar"
+					/>
+				) : null}
 			</div>
 		</div>
 	);
