@@ -48,9 +48,10 @@ export function NewAgentCreationForm(input: NewAgentCreationFormProps) {
 		enabled: destination === "space",
 		organizationId: input.organizationId,
 	});
-	const selectedSpace = spaces.joined.find(
-		(space) => space.spaceId === selectedSpaceId
-	);
+	const selectedSpace =
+		destination === "space"
+			? spaces.joined.find((space) => space.spaceId === selectedSpaceId)
+			: undefined;
 	let form: ReactNode = null;
 	if (runtime && (destination === "chat" || selectedSpace)) {
 		form =

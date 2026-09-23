@@ -164,6 +164,13 @@ function useNewAgentCreationJourney(input: {
 	const [unacknowledgedIntent] = useState(() =>
 		readAgentCreationIntent(storageScope, currentOrganization.id)
 	);
+	const mountedRef = useRef(false);
+	useEffect(() => {
+		mountedRef.current = true;
+		return () => {
+			mountedRef.current = false;
+		};
+	}, []);
 	const recoveredRequestRef = useRef<string | null>(null);
 	const activeRequestId = input.urlRequestId ?? accepted?.id ?? "";
 	const hasCreation = Boolean(activeRequestId || optimistic);
@@ -193,6 +200,29 @@ function useNewAgentCreationJourney(input: {
 			request: AgentProfileCreationRequest,
 			customWorkingFolderIssue?: string | null
 		) => {
+			if (request.organizationId !== currentOrganization.id) {
+				console.error(
+					"Agent creation response belongs to another organization."
+				);
+				return;
+			}
+			queryClient.setQueryData(
+				agentProfileCreationRequestQueryKeys.request(
+					currentOrganization.id,
+					request.id
+				),
+				request
+			);
+			if (
+				!(
+					mountedRef.current &&
+					isCurrentCreationRoute(currentOrganization.slug, request.id)
+				)
+			) {
+				// The accepted request remains recoverable without interrupting a
+				// later navigation choice.
+				return;
+			}
 			const pendingLocalSetup = readPendingAgentProfileCreationLocalSetup({
 				organizationId: currentOrganization.id,
 				requestId: request.id,
@@ -216,13 +246,6 @@ function useNewAgentCreationJourney(input: {
 			}
 			setAccepted(request);
 			setOptimistic(null);
-			queryClient.setQueryData(
-				agentProfileCreationRequestQueryKeys.request(
-					currentOrganization.id,
-					request.id
-				),
-				request
-			);
 			input
 				.navigate({
 					to: buildOrganizationAgentCreationPath(currentOrganization.slug),

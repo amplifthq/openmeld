@@ -33,11 +33,11 @@ export function RemoteAgentCreationForm(input: {
 			? `${input.accountName}’s Remote Agent`
 			: "Your Remote Agent"
 	);
-	const [chosenModel, setChosenModel] = useState("");
+	const [chosenModel, setChosenModel] = useState<string | null>(null);
 	const intent = useRef<{ fingerprint: string; key: string } | null>(null);
 	const modelId =
-		chosenModel ||
-		catalog?.agentControllers["center-agent"]?.defaultModelId ||
+		chosenModel ??
+		catalog?.agentControllers["center-agent"]?.defaultModelId ??
 		"";
 	const canSubmit = Boolean(
 		name.trim() &&
@@ -64,6 +64,7 @@ export function RemoteAgentCreationForm(input: {
 				},
 				idempotencyKey: intent.current.key,
 				intentStorageScope: input.intentStorageScope,
+				clearIntentOnAcceptance: false,
 				onAccepted: (request) => input.onAccepted(request),
 				onFailed: input.onFailed,
 				onStarted: input.onStarted,
