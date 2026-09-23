@@ -491,6 +491,59 @@ describe("BrowserQueryPersistenceController", () => {
 		).toEqual(profileBHistory);
 	});
 
+	it("keeps saving the open Space while another Space is restored for prefetch", async () => {
+		const store = createTestStore();
+		const queryClient = createQueryClient();
+		const controller = createBrowserQueryPersistenceController({
+			restoreBudgetMs: 100,
+			store,
+			throttleTimeMs: 0,
+		});
+		const scope = {
+			organizationId: "organization-a",
+			organizationSlug: "organization-a",
+			ownerAccountId: "account-a",
+			queryClient,
+		};
+		await controller.activateAuthorizedScope(scope);
+		await controller.activateSpaceConversation({
+			...scope,
+			spaceId: "space-a",
+			openMeldProfileId: "profile-a",
+		});
+		await controller.restoreSpaceConversation({
+			...scope,
+			spaceId: "space-b",
+			openMeldProfileId: "profile-a",
+		});
+		const historyKey = spaceQueryKeys.history("space-a", "profile-a");
+		const history = {
+			envelopes: [createTextSignal("new-message", "space-a", "profile-a")],
+			nextCursor: null,
+		};
+		queryClient.setQueryData(historyKey, history);
+		const storage = store.createStorage({
+			organizationId: "organization-a",
+			ownerAccountId: "account-a",
+			scopeAlias: "organization-a",
+			scopeId: buildSpaceConversationQueryCacheScopeId("space-a", "profile-a"),
+			scopeKind: "space",
+		});
+		await waitForStoredQuery(storage, historyKey);
+		const payload = JSON.parse(
+			(await storage.getItem("tanstack-query-cache")) ?? "null"
+		) as { clientState?: { queries?: unknown[] } };
+		expect(payload.clientState?.queries).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					queryKey: historyKey,
+					state: expect.objectContaining({ data: history }),
+				}),
+			])
+		);
+		controller.deactivate();
+	});
+
 	it("clears only the explicitly rejected Space conversation", async () => {
 		const store = createTestStore();
 		const sourceQueryClient = createQueryClient();

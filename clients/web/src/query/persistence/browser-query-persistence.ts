@@ -90,6 +90,14 @@ export type BrowserQueryPersistenceController = {
 		spaceId: string;
 		openMeldProfileId: string;
 	}) => Promise<void>;
+	restoreSpaceConversation: (input: {
+		organizationId: string;
+		organizationSlug: string;
+		ownerAccountId: string;
+		queryClient: QueryClient;
+		spaceId: string;
+		openMeldProfileId: string;
+	}) => Promise<void>;
 	clearSpaceConversation: (input: {
 		organizationId: string;
 		organizationSlug: string;
@@ -194,6 +202,7 @@ export function createBrowserQueryPersistenceController(
 	};
 
 	const activateSegment = async (options: {
+		readOnly?: boolean;
 		reload?: boolean;
 		organizationId?: string;
 		ownerAccountId: string;
@@ -214,7 +223,9 @@ export function createBrowserQueryPersistenceController(
 			return;
 		}
 
-		current?.unsubscribe?.();
+		if (!options.readOnly) {
+			current?.unsubscribe?.();
+		}
 		const scope: QueryCacheScope = {
 			...(options.organizationId === undefined
 				? {}
@@ -245,14 +256,24 @@ export function createBrowserQueryPersistenceController(
 		knownPersistedQueries.set(resolveKnownQueryKey(segment), segment);
 		segment.activation = restoreAndSubscribe({
 			didRestoreUsableClient: observedPersister.didRestoreUsableClient,
-			isCurrent: () => resolveActiveSegment(options.scopeKind) === segment,
+			isCurrent: () =>
+				options.readOnly
+					? knownPersistedQueries.get(resolveKnownQueryKey(segment)) ===
+							segment &&
+						activeOwnerAccountId === options.ownerAccountId &&
+						organizationSegment?.organizationId === options.organizationId &&
+						organizationSegment?.queryClient === options.queryClient
+					: resolveActiveSegment(options.scopeKind) === segment,
 			maxAgeMs,
 			persister: observedPersister.persister,
 			queryClient: options.queryClient,
 			segment,
+			subscribe: !options.readOnly,
 			targetQueryKeys: options.targetQueryKeys,
 		});
-		setActiveSegment(segment);
+		if (!options.readOnly) {
+			setActiveSegment(segment);
+		}
 
 		await waitWithinRestoreBudget({
 			diagnostics,
@@ -445,6 +466,63 @@ export function createBrowserQueryPersistenceController(
 			console.error("Failed to refresh saved browser views.", error)
 		);
 	});
+	const openSpaceConversation = (
+		{
+			organizationId,
+			organizationSlug,
+			ownerAccountId,
+			queryClient,
+			spaceId,
+			openMeldProfileId,
+		}: Parameters<
+			BrowserQueryPersistenceController["activateSpaceConversation"]
+		>[0],
+		readOnly: boolean
+	) => {
+		const hasDisplay = Boolean(
+			queryClient.getQueryData(
+				spaceQueryKeys.history(spaceId, openMeldProfileId)
+			) &&
+				queryClient.getQueryData(
+					spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId)
+				)
+		);
+		observeSpaceOpen(spaceId, { cache: hasDisplay ? "memory" : "cold" });
+		const operation = runExclusive(async () => {
+			if (
+				activeOwnerAccountId !== ownerAccountId ||
+				organizationSegment?.ownerAccountId !== ownerAccountId ||
+				organizationSegment.organizationId !== organizationId ||
+				organizationSegment.scopeAlias !== organizationSlug ||
+				organizationSegment.queryClient !== queryClient
+			) {
+				return;
+			}
+			await activateSegment({
+				organizationId,
+				ownerAccountId,
+				queryClient,
+				readOnly,
+				scopeAlias: organizationSlug,
+				scopeId: buildSpaceConversationQueryCacheScopeId(
+					spaceId,
+					openMeldProfileId
+				),
+				scopeKind: "space",
+				targetQueryKeys: [
+					spaceQueryKeys.history(spaceId, openMeldProfileId),
+					spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId),
+					spaceQueryKeys.memberDirectoryDisplay(spaceId, openMeldProfileId),
+				],
+			});
+		});
+		return waitWithinRestoreBudget({
+			diagnostics,
+			promise: operation,
+			restoreBudgetMs: input.restoreBudgetMs,
+			scopeKind: "space",
+		});
+	};
 	return {
 		activateAuthorizedScope: ({
 			organizationId,
@@ -546,57 +624,8 @@ export function createBrowserQueryPersistenceController(
 			authorizedScopeActivation = activation;
 			return activation.promise;
 		},
-		activateSpaceConversation: ({
-			organizationId,
-			organizationSlug,
-			ownerAccountId,
-			queryClient,
-			spaceId,
-			openMeldProfileId,
-		}) => {
-			const hasDisplay = Boolean(
-				queryClient.getQueryData(
-					spaceQueryKeys.history(spaceId, openMeldProfileId)
-				) &&
-					queryClient.getQueryData(
-						spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId)
-					)
-			);
-			observeSpaceOpen(spaceId, { cache: hasDisplay ? "memory" : "cold" });
-			const operation = runExclusive(async () => {
-				if (
-					activeOwnerAccountId !== ownerAccountId ||
-					organizationSegment?.ownerAccountId !== ownerAccountId ||
-					organizationSegment.organizationId !== organizationId ||
-					organizationSegment.scopeAlias !== organizationSlug ||
-					organizationSegment.queryClient !== queryClient
-				) {
-					return;
-				}
-				await activateSegment({
-					organizationId,
-					ownerAccountId,
-					queryClient,
-					scopeAlias: organizationSlug,
-					scopeId: buildSpaceConversationQueryCacheScopeId(
-						spaceId,
-						openMeldProfileId
-					),
-					scopeKind: "space",
-					targetQueryKeys: [
-						spaceQueryKeys.history(spaceId, openMeldProfileId),
-						spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId),
-						spaceQueryKeys.memberDirectoryDisplay(spaceId, openMeldProfileId),
-					],
-				});
-			});
-			return waitWithinRestoreBudget({
-				diagnostics,
-				promise: operation,
-				restoreBudgetMs: input.restoreBudgetMs,
-				scopeKind: "space",
-			});
-		},
+		activateSpaceConversation: (space) => openSpaceConversation(space, false),
+		restoreSpaceConversation: (space) => openSpaceConversation(space, true),
 		clearSpaceConversation: async ({
 			organizationId,
 			organizationSlug,
@@ -802,6 +831,7 @@ async function restoreAndSubscribe(input: {
 	persister: Persister;
 	queryClient: QueryClient;
 	segment: ActiveSegment;
+	subscribe: boolean;
 	targetQueryKeys: readonly (readonly unknown[])[];
 }): Promise<void> {
 	const dataUpdatedAtBeforeRestore = new Map(
@@ -903,7 +933,7 @@ async function restoreAndSubscribe(input: {
 			})
 		);
 	}
-	if (!input.isCurrent()) {
+	if (!(input.isCurrent() && input.subscribe)) {
 		return;
 	}
 	const saveOptions = {

@@ -291,7 +291,7 @@ describe("organization app route prefetch", () => {
 		expect(
 			queryClient.getQueryData(spaceQueryKeys.history("space-1", "human-1"))
 		).toEqual({ envelopes: [], nextCursor: null });
-		expect(queryPersistence.activateSpaceConversation).toHaveBeenCalledWith({
+		expect(queryPersistence.restoreSpaceConversation).toHaveBeenCalledWith({
 			organizationId: "org-acme",
 			organizationSlug: "acme",
 			ownerAccountId: "user-1",
@@ -455,7 +455,7 @@ describe("organization app route prefetch", () => {
 			spaceId: "space-1",
 		});
 
-		expect(queryPersistence.activateSpaceConversation).toHaveBeenCalledWith({
+		expect(queryPersistence.restoreSpaceConversation).toHaveBeenCalledWith({
 			organizationId: "org-acme",
 			organizationSlug: "acme",
 			ownerAccountId: "user-1",
@@ -472,7 +472,7 @@ describe("organization app route prefetch", () => {
 	it("starts the current bootstrap only after the saved conversation is restored", async () => {
 		const queryClient = createQueryClient();
 		let finishRestore: (() => void) | undefined;
-		queryPersistence.activateSpaceConversation = vi.fn(
+		queryPersistence.restoreSpaceConversation = vi.fn(
 			async () =>
 				await new Promise<void>((resolve) => {
 					finishRestore = resolve;
@@ -489,7 +489,7 @@ describe("organization app route prefetch", () => {
 		});
 
 		await vi.waitFor(() => {
-			expect(queryPersistence.activateSpaceConversation).toHaveBeenCalledTimes(
+			expect(queryPersistence.restoreSpaceConversation).toHaveBeenCalledTimes(
 				1
 			);
 		});
@@ -517,7 +517,7 @@ describe("organization app route prefetch", () => {
 
 		expect(resolveOrganizationScopeMock).not.toHaveBeenCalled();
 		expect(listStartProfilesMock).not.toHaveBeenCalled();
-		expect(queryPersistence.activateSpaceConversation).toHaveBeenCalledTimes(1);
+		expect(queryPersistence.restoreSpaceConversation).toHaveBeenCalledTimes(1);
 		expect(getBootstrapMock).toHaveBeenCalledTimes(1);
 		expect(getStatusMock).not.toHaveBeenCalled();
 		expect(listSignalEnvelopesMock).not.toHaveBeenCalled();
@@ -538,7 +538,7 @@ describe("organization app route prefetch", () => {
 			readCurrentCenterAgentDirectMessageSpaceProjectionMock
 		).toHaveBeenCalledOnce();
 		expect(openCurrentCenterAgentDirectMessageSpaceMock).not.toHaveBeenCalled();
-		expect(queryPersistence.activateSpaceConversation).toHaveBeenCalledWith({
+		expect(queryPersistence.restoreSpaceConversation).toHaveBeenCalledWith({
 			organizationId: "org-acme",
 			organizationSlug: "acme",
 			ownerAccountId: "user-1",
@@ -570,7 +570,7 @@ describe("organization app route prefetch", () => {
 		});
 
 		expect(openCurrentCenterAgentDirectMessageSpaceMock).not.toHaveBeenCalled();
-		expect(queryPersistence.activateSpaceConversation).not.toHaveBeenCalled();
+		expect(queryPersistence.restoreSpaceConversation).not.toHaveBeenCalled();
 		expect(getBootstrapMock).not.toHaveBeenCalled();
 		expect(getStatusMock).not.toHaveBeenCalled();
 		expect(listSignalEnvelopesMock).not.toHaveBeenCalled();
@@ -587,6 +587,7 @@ function createQueryPersistenceMock(): BrowserQueryPersistenceController {
 	return {
 		activateAuthorizedScope: vi.fn(async () => undefined),
 		activateSpaceConversation: vi.fn(async () => undefined),
+		restoreSpaceConversation: vi.fn(async () => undefined),
 		clearActiveAccount: vi.fn(async () => undefined),
 		clearSpaceConversation: vi.fn(async () => undefined),
 		clearOrganization: vi.fn(async () => undefined),

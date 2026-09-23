@@ -149,7 +149,7 @@ export async function restoreSpaceConversationRouteData(
 	if (!scope) {
 		return;
 	}
-	await input.queryPersistence.activateSpaceConversation({
+	await input.queryPersistence.restoreSpaceConversation({
 		organizationId: scope.currentOrganization.id,
 		organizationSlug: scope.currentOrganization.slug,
 		ownerAccountId: scope.storageScope,
@@ -212,7 +212,7 @@ export async function prefetchKnownSpaceConversationData(
 		openMeldProfileId: string;
 	}
 ): Promise<void> {
-	await input.queryPersistence.activateSpaceConversation({
+	await input.queryPersistence.restoreSpaceConversation({
 		organizationId: input.organizationId,
 		organizationSlug: input.organizationSlug,
 		ownerAccountId: input.ownerAccountId,
