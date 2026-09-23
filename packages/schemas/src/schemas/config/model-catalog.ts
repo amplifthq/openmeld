@@ -2,6 +2,15 @@ import * as z from "zod/v4";
 
 export const MODEL_CATALOG_SCHEMA_VERSION = 1 as const;
 
+/** Older callers receive the unchanged strict version-1 projection. */
+export const modelCatalogReadOptionsSchema = z.strictObject({
+  retirement: z.boolean().optional(),
+  personalRemoteAgentDefault: z.boolean().optional(),
+});
+export type ModelCatalogReadOptions = z.infer<
+  typeof modelCatalogReadOptionsSchema
+>;
+
 const boundedIdentifierSchema = z.string().trim().min(1).max(256);
 const boundedDisplayNameSchema = z.string().trim().min(1).max(256);
 const nullableBoundedIdentifierSchema = boundedIdentifierSchema.nullable();
@@ -27,10 +36,28 @@ export const modelCatalogHostedRuntimeSchema = z.strictObject({
   reasoningLevel: hostedModelReasoningLevelSchema,
 });
 
+/** Reviewed facts only. A date never changes model availability. */
+export const modelRetirementNoticeSchema = z.strictObject({
+  status: z.enum(["announced", "withdrawn"]),
+  date: z
+    .strictObject({ value: z.iso.date(), kind: z.enum(["on", "not_before"]) })
+    .nullable(),
+  scope: z.strictObject({
+    controllerRef: boundedIdentifierSchema,
+    providerId: boundedIdentifierSchema.optional(),
+    authType: boundedIdentifierSchema.optional(),
+  }),
+  sourceUrl: z.url().refine((url) => url.startsWith("https://"), {
+    message: "retirement sources must use HTTPS",
+  }),
+  verifiedAt: z.iso.datetime({ offset: true }),
+});
+
 export const modelCatalogModelSchema = z.strictObject({
   id: boundedIdentifierSchema,
   displayName: boundedDisplayNameSchema,
   badgeLabel: modelCatalogBadgeLabelSchema.optional(),
+  retirement: modelRetirementNoticeSchema.optional(),
   hostedRuntime: modelCatalogHostedRuntimeSchema.optional(),
   unavailable: z.boolean(),
   supportedReasoningLevels: z.array(boundedIdentifierSchema),

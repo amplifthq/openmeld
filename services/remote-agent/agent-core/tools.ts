@@ -4960,7 +4960,9 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           throw new Error("Hosted model catalog is unavailable from Core.");
         }
         const catalog = modelCatalogSchema.parse(
-          await input.coreWorker.getModelCatalog()
+          await input.coreWorker.getModelCatalog({
+            personalRemoteAgentDefault: true,
+          })
         );
         const controller = catalog.agentControllers["center-agent"];
         if (!controller) {

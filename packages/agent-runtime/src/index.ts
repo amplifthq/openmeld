@@ -263,6 +263,13 @@ export {
   getAgentControllerModelCatalogId,
   getPersonalRemoteAgentDefaultModelId,
 } from "./model-catalog";
+export {
+  formatModelRetirementNotice,
+  type ModelAvailabilityDecision,
+  type ModelRetirementContext,
+  matchesModelRetirementScope,
+  resolveModelAvailability,
+} from "./model-retirement";
 export { resolveConversationPolicyFromModelSelection } from "./model-selection";
 export {
   peopleComputerCliCommand,

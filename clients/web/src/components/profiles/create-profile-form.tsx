@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	formatModelRetirementNotice,
 	getAgentControllerPermissionModeDisplayMetadata,
 	listAgentControllerCollaborationModeOptions,
 	listAgentControllerPermissionModeOptions,
@@ -74,6 +75,7 @@ import {
 	resolveAgentProfileConfigurationSummaries,
 	resolveCreateProfileSubmitBlockReason,
 	resolveModelCompatibility,
+	resolveModelRetirementDisplay,
 	resolveSelectedModelCompatibility,
 } from "./create-profile-form-logic";
 import { DitherProfileAvatar } from "./dither-profile-avatar";
@@ -100,6 +102,8 @@ const PROFILE_KIND_TABS = [
 	title: string;
 }[];
 export type AgentProfileModelCompatibilityContext = {
+	agentControllerRef?: string;
+	authType?: string | null;
 	agentControllerId: string;
 	controllerDisplayName: string;
 	installedVersion: string | null;
@@ -897,6 +901,10 @@ export function AgentProfileModelSelectionFields(
 						})}
 					</SelectContent>
 				</Select>
+				<ModelRetirementNotice
+					context={state.modelCompatibilityContext}
+					model={state.selectedModel}
+				/>
 				<ModelCompatibilityNotice
 					compatibility={state.selectedCompatibility}
 					context={state.modelCompatibilityContext}
@@ -938,14 +946,18 @@ function resolveAgentProfileModelSelectionState(
 			? input.modelCompatibilityContext
 			: null;
 	const availableModels = controller.models.filter(
-		(model) => !model.unavailable
+		(model) =>
+			resolveModelCompatibility({
+				controller,
+				context: modelCompatibilityContext,
+				modelId: model.id,
+			}).status !== "catalog_unavailable"
 	);
-	if (availableModels.length === 0) {
-		return null;
-	}
 	const currentUnavailableModel =
 		controller.models.find(
-			(model) => model.id === input.modelId && model.unavailable
+			(model) =>
+				model.id === input.modelId &&
+				!availableModels.some((available) => available.id === model.id)
 		) ?? null;
 	const effectiveModelId = input.modelId || controller.defaultModelId;
 	const selectedModel =
@@ -1164,6 +1176,29 @@ function ModelOptionPresentation({
 	);
 }
 
+function ModelRetirementNotice(input: {
+	model: ModelCatalogModel | null;
+	context: AgentProfileModelCompatibilityContext | null;
+}) {
+	const notice = resolveModelRetirementDisplay(input.model, input.context);
+	if (!notice) {
+		return null;
+	}
+	return (
+		<p className="text-muted-foreground text-xs leading-5">
+			{formatModelRetirementNotice(notice)}{" "}
+			<a
+				className="underline"
+				href={notice.sourceUrl}
+				rel="noreferrer"
+				target="_blank"
+			>
+				Official notice
+			</a>
+		</p>
+	);
+}
+
 function ModelCompatibilityNotice(input: {
 	compatibility: ResolvedModelCompatibility | null;
 	context: AgentProfileModelCompatibilityContext | null;
@@ -1176,7 +1211,8 @@ function ModelCompatibilityNotice(input: {
 			<p className="text-destructive text-xs leading-5">
 				{input.compatibility.message}
 			</p>
-			{input.context?.managePath ? (
+			{input.context?.managePath &&
+			input.compatibility.status !== "catalog_unavailable" ? (
 				<Link
 					className={buttonVariants({ size: "sm", variant: "outline" })}
 					to={input.context.managePath}
