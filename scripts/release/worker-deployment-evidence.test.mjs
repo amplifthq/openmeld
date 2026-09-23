@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
-import { appendFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  appendFileSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   cliProjectionResult,
   FIXTURE_DEPLOYMENT,
@@ -174,6 +187,67 @@ test("production Worker names use Wrangler's actual config resolution", async ()
       target.outputEnvironment,
       scope === "remote-agent" ? null : "prod"
     );
+  }
+});
+
+test("separate trusted control reads the approved source's installed Wrangler", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "openmeld-worker-config-"));
+  const control = path.join(root, "release-control");
+  const source = path.join(root, "release-source");
+  const entry = path.join(
+    control,
+    "scripts/release/worker-deployment-evidence.mjs"
+  );
+  try {
+    mkdirSync(path.dirname(entry), { recursive: true });
+    mkdirSync(path.join(control, "packages"));
+    copyFileSync(
+      new URL("./worker-deployment-evidence.mjs", import.meta.url),
+      entry
+    );
+    // Control owns its schema parser, while only the approved source owns the
+    // real pinned Wrangler dependency, matching the hosted checkout topology.
+    symlinkSync(
+      fileURLToPath(new URL("../../packages/schemas", import.meta.url)),
+      path.join(control, "packages/schemas"),
+      "junction"
+    );
+    mkdirSync(path.join(source, "node_modules"), { recursive: true });
+    symlinkSync(
+      realpathSync(new URL("../../node_modules/wrangler", import.meta.url)),
+      path.join(source, "node_modules/wrangler"),
+      "junction"
+    );
+    writeFileSync(path.join(source, "package.json"), '{"type":"module"}\n');
+    copyFileSync(
+      new URL("../../services/auth/wrangler.jsonc", import.meta.url),
+      path.join(source, "wrangler.jsonc")
+    );
+    const args = ["--config", "wrangler.jsonc", "--env", "prod"];
+    const input = {
+      cwd: source,
+      group: {
+        scope: "auth",
+        steps: [{ workerDeploymentArgs: args }],
+        workerArguments: args,
+      },
+    };
+    const output = execFileSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `const { resolveReceiptWorkerTarget } = await import(${JSON.stringify(pathToFileURL(entry).href)});
+console.log(JSON.stringify(await resolveReceiptWorkerTarget(${JSON.stringify(input)})));`,
+      ],
+      { cwd: control, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+    );
+    const target = JSON.parse(output);
+    assert.equal(target.workerName, "openmeld-auth-prod");
+    assert.equal(target.environment, "prod");
+    assert.deepEqual(target.args, args);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

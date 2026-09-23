@@ -55,6 +55,21 @@ const INBOX_NOTIFICATION_RETRY_INTERVAL_MS = 10_000;
 const INBOX_NOTIFICATION_PENDING_FETCH_CONCURRENCY = 6;
 const EMPTY_RECOVERED_PENDING_ITEMS: NotificationInboxItem[] = [];
 
+function resolveTrayComputerStatusTone(
+	computer: ReturnType<typeof useCurrentComputer>
+): "connected" | "offline" | "attention" {
+	if (computer?.status?.reason === "ready") {
+		return "connected";
+	}
+	if (
+		computer?.status?.reason === "service_not_connected" ||
+		computer?.statusLabel === "Not connected"
+	) {
+		return "offline";
+	}
+	return "attention";
+}
+
 export function InboxNotificationListener(input: {
 	organizationId: string;
 	organizationSlug: string;
@@ -103,6 +118,7 @@ export function InboxNotificationListener(input: {
 	const navigationKey = locationState?.__TSR_key;
 	const visibleConversation = useInboxVisibleConversation();
 	const computer = useCurrentComputer();
+	const trayComputerStatusTone = resolveTrayComputerStatusTone(computer);
 	const [settingsState, setSettingsState] = useState(() => ({
 		enabled: readInboxNotificationSettings({ userId: input.userId }).enabled,
 		userId: input.userId,
@@ -216,6 +232,7 @@ export function InboxNotificationListener(input: {
 				computer: {
 					available: Boolean(computer?.destination),
 					statusLabel: computer?.statusLabel ?? "Checking…",
+					statusTone: trayComputerStatusTone,
 				},
 				inboxRefreshRevision: itemsQuery.dataUpdatedAt,
 				latestUnreadStatus,
@@ -231,6 +248,7 @@ export function InboxNotificationListener(input: {
 		input.organizationSlug,
 		computer?.destination,
 		computer?.statusLabel,
+		trayComputerStatusTone,
 		desktop,
 		latestUnreadStatus,
 		itemsQuery.dataUpdatedAt,

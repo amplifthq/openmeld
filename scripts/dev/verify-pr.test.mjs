@@ -54,6 +54,33 @@ test("automatic draft feedback cannot start the full affected lane", () => {
   assert.ok(runs.every((command) => command.includes("--feedback")));
 });
 
+test("Worker changes select the existing Zod contract guard before expensive tests", () => {
+  for (const feedback of [true, false]) {
+    for (const file of [
+      "services/remote-agent/agent-core/session-title.ts",
+      "services/core/src/index.ts",
+      "packages/schemas/src/index.ts",
+      "scripts/cloudflare/worker-zod-import-contract.mjs",
+    ]) {
+      assert.deepEqual(planPrChecks([file], { feedback })[0], [
+        "run",
+        "verify:worker-zod-imports",
+      ]);
+    }
+    for (const file of [
+      "clients/web/src/index.tsx",
+      "developing/README.md",
+      "services/core/README.md",
+    ]) {
+      assert.ok(
+        !planPrChecks([file], { feedback }).some((args) =>
+          args.includes("verify:worker-zod-imports")
+        )
+      );
+    }
+  }
+});
+
 test("draft feedback checks changed files and related tests without package builds", () => {
   const sources = [
     "clients/web/src/sidebar.tsx",
@@ -134,9 +161,9 @@ test("unsupported package runners execute their own test command instead of sile
       { directory: "services/core", test: "pnpm run test:boundary" },
     ],
   });
-  assert.equal(commands.length, 2);
-  assert.deepEqual(commands[1], ["--dir", "services/core", "run", "test"]);
-  assert.ok(commands[0].includes("biome"));
+  assert.equal(commands.length, 3);
+  assert.deepEqual(commands[2], ["--dir", "services/core", "run", "test"]);
+  assert.ok(commands[1].includes("biome"));
 });
 
 test("documentation and shared skill edits avoid workspace builds and tests", () => {
@@ -189,6 +216,9 @@ test("failed or interrupted checks stop the lane without a green result", () => 
 test("check completes before tests start and each phase keeps bounded parallelism", () => {
   const executed = [];
   runPrChecks(planPrChecks(["services/core/src/index.ts"]), (_binary, args) => {
+    if (args.includes("verify:worker-zod-imports")) {
+      return { status: 0 };
+    }
     executed.push(args);
     assert.ok(args.includes("--concurrency=2"));
     assert.notEqual(args.includes("check"), args.includes("test"));

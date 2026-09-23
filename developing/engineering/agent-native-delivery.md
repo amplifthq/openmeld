@@ -69,6 +69,8 @@ pnpm run verify:pr -- --feedback
 
 It selects changed-file Biome checks, relevant docs/Changelog contracts,
 adjacent Node tests, and related Vitest tests in directly changed workspaces.
+Worker TypeScript changes also run the existing Worker-safe Zod import guard
+before package checks; its owner defines the runtime roots for both lanes.
 Plain package test aliases retain their own config; unsupported runners use
 the package's test command instead of silently skipping tests. Dependency builds
 use Turbo's cache. Test commands run sequentially, Node test files run serially,
@@ -256,6 +258,10 @@ including its publisher, to complete. Cancellation acceptance is not completion.
 An unverifiable owner, API failure, or three-minute handoff timeout blocks local
 publication. This prevents an older hosted failure from overwriting local
 certification without hiding failures or trusting a previous green status.
+After a handoff timeout, wait until that exact hosted workflow has completed,
+including its publisher, then rerun the same unchanged candidate command.
+Do not extend ownership assumptions from an accepted cancellation or publish
+the local status manually.
 Later explicit hosted requests are new validations, not permanently suppressed.
 The first hop fetches depth-one main metadata into an isolated temporary Git
 repository, using blob filtering and a sparse checkout of `scripts/` to load

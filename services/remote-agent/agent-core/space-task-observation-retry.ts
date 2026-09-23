@@ -18,7 +18,8 @@ export function isSpaceTaskRevisionConflictError(error: unknown): boolean {
   );
 }
 
-export async function mutateSpaceTaskRefreshingOnRevisionConflict(input: {
+/** Only provider observation may rebase after a Task revision conflict. */
+export async function mutateSpaceTaskWithObservationConflictRetry(input: {
   mutate: (body: MutateSpaceTaskBody) => Promise<unknown>;
   readCurrentRevision: () => Promise<number>;
   request: MutateSpaceTaskBody;
@@ -28,7 +29,10 @@ export async function mutateSpaceTaskRefreshingOnRevisionConflict(input: {
       await input.mutate(input.request)
     );
   } catch (error) {
-    if (!isSpaceTaskRevisionConflictError(error)) {
+    if (
+      input.request.action !== "observe_external_work_item" ||
+      !isSpaceTaskRevisionConflictError(error)
+    ) {
       throw error;
     }
     const currentRevision = await input.readCurrentRevision();

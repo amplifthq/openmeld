@@ -11,7 +11,7 @@ import {
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { useSurface } from "@openmeld/ui/lib/surface-context";
 import { cn } from "@openmeld/ui/lib/utils";
-import { SpinnerGapIcon, XIcon } from "@phosphor-icons/react";
+import { SpinnerGapIcon, UsersIcon, XIcon } from "@phosphor-icons/react";
 import { MentionInputPlugin, MentionPlugin } from "@platejs/mention/react";
 import { MotionConfig } from "framer-motion";
 import { PathApi, type TElement, TextApi } from "platejs";
@@ -654,6 +654,40 @@ function SpaceComposerProfileToken(
 	// Moving focus into the portaled menu must not move the draft's caret.
 	const relationSelection = useRef(editor.selection);
 	const context = useSpaceComposerEditorContext();
+	if (element.audience) {
+		return (
+			<PlateElement {...props} as="span">
+				<span
+					className={cn(
+						surfaceClasses(surface),
+						"group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md px-1.5 align-baseline text-foreground focus-within:ring-2 focus-within:ring-ring"
+					)}
+					contentEditable={false}
+					data-mention-text={element.mentionText}
+					data-testid="space-composer-audience-token"
+				>
+					<UsersIcon aria-hidden="true" className="size-4 shrink-0" />
+					<span className="font-medium">{element.mentionText}</span>
+					<button
+						aria-label={`Remove ${element.mentionText} from message`}
+						className="pointer-events-none absolute -top-2 -right-2 z-10 inline-flex size-5 items-center justify-center rounded-full bg-popover text-muted-foreground opacity-0 shadow-sm ring-1 ring-border transition-opacity duration-100 ease-out hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/profile-token:pointer-events-auto group-focus-within/profile-token:opacity-100 group-hover/profile-token:pointer-events-auto group-hover/profile-token:opacity-100 motion-reduce:transition-none [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+						onClick={(event) => {
+							event.stopPropagation();
+							removeSpaceComposerToken(editor, element);
+						}}
+						onMouseDown={(event) => {
+							event.preventDefault();
+							event.stopPropagation();
+						}}
+						type="button"
+					>
+						<XIcon aria-hidden="true" className="size-3" />
+					</button>
+				</span>
+				{props.children}
+			</PlateElement>
+		);
+	}
 	const {
 		target,
 		pickerItem,
@@ -838,31 +872,7 @@ function SpaceComposerProfileToken(
 						className="pointer-events-none absolute -top-2 -right-2 z-10 inline-flex size-5 items-center justify-center rounded-full bg-popover text-muted-foreground opacity-0 shadow-sm ring-1 ring-border transition-opacity duration-100 ease-out hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/profile-token:pointer-events-auto group-focus-within/profile-token:opacity-100 group-hover/profile-token:pointer-events-auto group-hover/profile-token:opacity-100 motion-reduce:transition-none [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
 						onClick={(event) => {
 							event.stopPropagation();
-							const path = editor.api.findPath(element);
-							if (!path) {
-								return;
-							}
-							const nextPath = PathApi.next(path);
-							const nextNode = (editor.children as SpaceComposerEditorValue)[
-								nextPath[0]
-							]?.children[nextPath[1] ?? 0];
-
-							editor.tf.withoutNormalizing(() => {
-								if (
-									nextNode &&
-									TextApi.isText(nextNode) &&
-									nextNode.text.startsWith(" ")
-								) {
-									editor.tf.delete({
-										at: {
-											anchor: { offset: 0, path: nextPath },
-											focus: { offset: 1, path: nextPath },
-										},
-									});
-								}
-								editor.tf.removeNodes({ at: path });
-							});
-							editor.tf.focus();
+							removeSpaceComposerToken(editor, element);
 						}}
 						onMouseDown={(event) => {
 							event.preventDefault();
@@ -877,6 +887,32 @@ function SpaceComposerProfileToken(
 			{props.children}
 		</PlateElement>
 	);
+}
+
+function removeSpaceComposerToken(
+	editor: PlateEditor,
+	element: SpaceComposerProfileElement
+): void {
+	const path = editor.api.findPath(element);
+	if (!path) {
+		return;
+	}
+	const nextPath = PathApi.next(path);
+	const nextNode = (editor.children as SpaceComposerEditorValue)[nextPath[0]]
+		?.children[nextPath[1] ?? 0];
+
+	editor.tf.withoutNormalizing(() => {
+		if (nextNode && TextApi.isText(nextNode) && nextNode.text.startsWith(" ")) {
+			editor.tf.delete({
+				at: {
+					anchor: { offset: 0, path: nextPath },
+					focus: { offset: 1, path: nextPath },
+				},
+			});
+		}
+		editor.tf.removeNodes({ at: path });
+	});
+	editor.tf.focus();
 }
 
 function ComposerWakeChecking() {
@@ -1312,6 +1348,10 @@ function isComposerClipboardMention(
 	}
 	const mention = value as Partial<ComposerDraftAuthoredMention>;
 	return (
+		(mention.audience === undefined ||
+			mention.audience === "people" ||
+			mention.audience === "agents" ||
+			mention.audience === "both") &&
 		typeof mention.profileId === "string" &&
 		typeof mention.text === "string" &&
 		Number.isSafeInteger(mention.start) &&
@@ -1460,6 +1500,7 @@ function authoredMentionsEqual(
 		left.every((mention, index) => {
 			const candidate = right[index];
 			return (
+				candidate?.audience === mention.audience &&
 				candidate?.end === mention.end &&
 				candidate.profileId === mention.profileId &&
 				candidate.relation === mention.relation &&

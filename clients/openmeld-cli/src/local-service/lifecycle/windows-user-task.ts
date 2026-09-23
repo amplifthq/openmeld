@@ -5,10 +5,12 @@ import {
   resolveWindowsPowerShellPath,
 } from "@openmeld/adapter-core/windows-system";
 import {
+  type WindowsUserTaskAction,
   type WindowsUserTaskRequest,
   windowsUserTaskActionSchema,
   windowsUserTaskRequestSchema,
   windowsUserTaskStatusSchema,
+  windowsUserTaskStoredActionSchema,
 } from "@openmeld/schemas";
 import { currentDaemonServiceLifecycleLock } from "../../config/daemon-state";
 import {
@@ -132,13 +134,18 @@ export function windowsPowerShellPath(): string {
   return resolveWindowsPowerShellPath();
 }
 
-export function windowsTaskActionArguments(input: {
-  executable: string;
-  args: string[];
-  env: Record<string, string>;
-  logPath: string;
-}): string {
-  const data = Buffer.from(JSON.stringify(input)).toString("base64");
+export function windowsTaskActionArguments(
+  input: WindowsUserTaskAction
+): string {
+  // TypeScript's structural type does not strip fields from a spread spec.
+  // Project and validate the actual wire value before encoding it.
+  const action = windowsUserTaskActionSchema.parse({
+    executable: input.executable,
+    args: input.args,
+    env: input.env,
+    logPath: input.logPath,
+  });
+  const data = Buffer.from(JSON.stringify(action)).toString("base64");
   const script = String.raw`
 $ErrorActionPreference = 'Stop'
 $c = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${data}')))
@@ -188,7 +195,7 @@ export function readWindowsTaskAction(argumentsText: string) {
       "Windows task does not contain an OpenMeld launch command."
     );
   }
-  const action = windowsUserTaskActionSchema.safeParse(
+  const action = windowsUserTaskStoredActionSchema.safeParse(
     JSON.parse(Buffer.from(data, "base64").toString("utf8"))
   );
   if (!action.success) {

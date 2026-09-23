@@ -8,6 +8,7 @@ import {
 import type {
   CreateSpaceTaskBody,
   MutateSpaceTaskBody,
+  SpaceTaskDetailOptions,
   SpaceTaskPhase,
 } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
@@ -33,10 +34,10 @@ export async function listSpaceTasks(
 
 export async function getSpaceTask(
   client: OpenMeldApiClientFoundation,
-  input: SpaceRequestInput & { taskId: string }
+  input: SpaceRequestInput & SpaceTaskDetailOptions & { taskId: string }
 ) {
   return await client.requestJson({
-    url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/tasks/${encodeURIComponent(input.taskId)}`,
+    url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/tasks/${encodeURIComponent(input.taskId)}${input.includeAffordances ? "?includeAffordances=1" : ""}`,
     operation: "space.tasks.get",
     method: "GET",
     requestContext: input.requestContext,

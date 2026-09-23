@@ -534,7 +534,10 @@ the optional RPC is unavailable. Older Core does not call the new receiver.
 Rollback Web/Core before removing the receiver. No public HTTP, WebSocket,
 native delivery, CLI, Service, or Skill payload changes; old and new clients
 retain setup, Wake, Space actions, and diagnostics interoperability. No database
-migration, contract epoch, local component stamp, or new binding is required.
+migration, contract epoch, or new binding is required. Packaged shared-input
+changes still follow the base-aware local-component stamp and publication rules
+in [Production Release](../engineering/production-release.md); an unchanged
+wire contract does not exempt changed bundle inputs from release readiness.
 
 ## Hosted reply recovery rollout
 
@@ -642,9 +645,10 @@ contracts. `externalWorkItems` defaults to `[]`, so stored Task JSON written
 before this field still parses. Gateway authenticates
 `GET/POST /v1/spaces/:spaceId/tasks` and
 `GET/PATCH /v1/spaces/:spaceId/tasks/:taskId`; Core RPC delegates to the owning
-Space Durable Object. Reads and writes require an active human or Agent member
-whose profile ownership matches the authenticated actor. Current Direct
-Messages reject the capability.
+Space Durable Object. Writes require an active human or Agent member whose
+profile ownership matches the authenticated actor. Member reads use the same
+actor boundary; public and shared-link reads use the existing read-only Space
+access contract. Current Direct Messages reject the capability.
 
 Create and mutation requests carry an operation id. Mutations also carry an
 expected revision. The Space Durable Object compares `expectedRevision` in the
@@ -653,13 +657,36 @@ HTTP 409. The SQL `UPDATE` is not a second concurrency authority. Replaying
 the same operation returns `applied: false`; reuse for different input is
 `space_task.operation_conflict` HTTP 409. Attaching too many GitHub issues is
 `space_task.external_work_item_limit`; detaching or observing a missing link is
-`space_task.external_work_item_not_found`. Those four codes belong to
+`space_task.external_work_item_not_found`. Reviews additionally require
+`expectedResultRevision`, identifying the submitted result the reviewer
+actually read. A different result is `space_task.result_revision_conflict`
+HTTP 409, even when the Task revision is current. New results use their
+submission's Task revision as their result revision, so reopening or
+reassigning a Task never reuses an earlier result identity. Those codes belong to
 `gatewayErrorCodeSchema` so mixed-version Gateways pass them through instead of
 wrapping them as `upstream_error`. Other Space Task codes such as
 `space_task.not_found`, `space_task.forbidden`, and `space_task.invalid_action`
 stay wrapped until a caller needs to distinguish them from generic upstream
-failures. Callers refresh the Task and retry once with a new operation id for
-revision conflicts; the writer does not last-write-wins over a stale brief.
+failures. Callers refresh the Task after a revision conflict and require a new
+decision before resubmitting a semantic change. They do not replace
+`expectedRevision` and blindly replay a stale brief or review. A provider
+observation may retry once with a refreshed revision because it reports
+provider-owned state rather than approving a changed Task.
+
+`GET` detail returns the legacy Task and event shape by default. A client may
+request `includeAffordances=1` to receive `allowedActions` and `pendingActions`.
+The former is projected by the same Core workflow preconditions used for
+mutations; it is a current affordance snapshot, not a permission grant. The
+writer rechecks actor, phase, revision, and action-specific input. Public
+readers receive no mutation actions or internal delivery status. Clients treat
+absent fields as empty and fail closed against older Core responses.
+`pendingActions` is a read projection of Task delivery intents with pending or
+failed status. It never reports that a Wake has actually stopped or that a
+provider update occurred merely because a Task changed phase. A canceled Task
+may request Stop for an exact recorded Wake when its retained cancellation
+actor is still an active, Auth-verified member; provider observations grant no
+such Stop authority. Stale handoffs are fenced when their Signal is persisted.
+
 List responses are bounded to 500 Tasks and report `truncated` rather than
 silently claiming complete history. GitHub issue association refuses to treat a
 truncated miss as "not found": it does not create another card and does not skip
@@ -688,12 +715,35 @@ consumers. A missing webhook secret fails closed. Old Gateway builds simply
 lack the route; old Core builds reject the new RPC. No local-component
 upgrade is required.
 
-Deploy schema consumers in Web, Gateway, and Core before the Remote Agent
-producer.
+The exact-result review change is not compatible with old review producers:
+new Core/Gateway reject review requests without `expectedResultRevision`.
+Old strict readers remain compatible because they do not request the optional
+detail fields. Deploy Web and Gateway consumers before Core, then the Remote
+Agent review producer. A new Web against old Core receives no affordances and
+shows no Task controls until Core is upgraded. New review producers fail closed
+against old strict receivers, so keep the mixed-version window short. The CLI
+command contract is bumped and the CLI update is required before the new Core
+release admits that capability.
+Do not infer a result revision on behalf of an old caller. Existing stored
+Tasks remain readable; their result revision is preserved until another
+result is submitted. Wake execution, finalization, Service carrier, and
+dispatch action-record contracts do not change.
+
+GitHub observation and cancellation operation IDs include a stable provider
+event identity. Retries of one event reuse its operation ID; distinct events
+for the same issue and state must not reuse a lifetime-wide operation ID. The
+shared operation ID limit is 512 characters so valid long GitHub owner and
+repository names still fit alongside a Task ID and event identity; deploy
+schema consumers before producers that emit longer IDs. Remote Agent uses the
+GitHub response's `updated_at` when present, or durably retains the first
+observation time under the provider write operation. Replaying that write must
+reuse both its event identity and observation time. A tool-driven issue close
+without a stable provider operation identity fails the Task association closed;
+the observation timestamp is never used as a substitute operation identity.
 
 The local Space Action MCP adds non-final Task tools alongside its one required
-final Space action. This is an additive CLI/OpenMeld Service/adapter contract
-and requires the normal local-component release audit. Remote Agent exposes the
+final Space action. Task review requires the exact-result CLI contract above
+and the normal local-component release audit. Remote Agent exposes the
 same Space-owned HTTP/RPC contract. Neither surface changes Agent Task Handles,
 RuntimeCoordinator envelopes, Wakeability, or final action receipts.
 `space.tasks.manage` is the additive privacy-safe Agent Activity key for the

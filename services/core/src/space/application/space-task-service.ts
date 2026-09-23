@@ -66,12 +66,20 @@ export type SpaceTaskRepositoryPort = Pick<
 
 export class SpaceTaskService {
   private readonly input: {
+    onMutation?: (
+      receipt: SpaceTaskMutationReceipt,
+      previous: SpaceTask | null
+    ) => void;
     repository: SpaceTaskRepositoryPort;
     runTransaction: <T>(callback: () => T) => T;
     spaceId: string;
   };
 
   constructor(input: {
+    onMutation?: (
+      receipt: SpaceTaskMutationReceipt,
+      previous: SpaceTask | null
+    ) => void;
     repository: SpaceTaskRepositoryPort;
     runTransaction: <T>(callback: () => T) => T;
     spaceId: string;
@@ -176,6 +184,7 @@ export class SpaceTaskService {
         requestJson,
         receipt,
       });
+      this.input.onMutation?.(receipt, null);
       return receipt;
     });
   }
@@ -232,6 +241,7 @@ export class SpaceTaskService {
         requestJson,
         receipt,
       });
+      this.input.onMutation?.(receipt, current);
       return receipt;
     });
   }
@@ -266,7 +276,7 @@ export class SpaceTaskService {
       );
       const planned = applyGitHubIssueProviderObservation({
         identity: input.identity,
-        now: input.observedAt,
+        now: new Date().toISOString(),
         observedAt: input.observedAt,
         observedState: input.observedState,
         task: current,
@@ -304,6 +314,7 @@ export class SpaceTaskService {
           receipt,
           requestJson: observeRequestJson,
         });
+        this.input.onMutation?.(receipt, current);
         observedTask = planned.observe.task;
       }
 
@@ -361,6 +372,7 @@ export class SpaceTaskService {
         receipt: cancelReceipt,
         requestJson: cancelRequestJson,
       });
+      this.input.onMutation?.(cancelReceipt, observedTask);
       return {
         canceled: true,
         observed: true,

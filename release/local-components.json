@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-22T19:39:21.398Z",
+  "updatedAt": "2026-09-23T10:56:46.841Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-09-antigravity-permissions-v1",
-      "packageVersion": "0.3.219",
-      "updatePolicy": "available",
-      "reason": "Existing setup, Wake, Space actions and diagnostics remain compatible with old and new cloud services."
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-task-result-review-v1",
+      "packageVersion": "0.3.220",
+      "updatePolicy": "required",
+      "reason": "Older CLI Task review tools omit the exact result revision and cannot safely complete reviews against the new Core contract."
     },
     "service": {
-      "bundleHash": "10060c7df5d313715e922bcfe96f8b82821414a1ef4c0ce6b1b9abbcfc24527b",
-      "bundleVersion": "0.3.219",
+      "bundleHash": "b2cb6b0d143c7cdefb90cfe87c16bcc3c8d4573c969e134494deca35f89c0c70",
+      "bundleVersion": "0.3.220",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-antigravity-permissions",
       "serviceContractVersion": "openmeld-service-contract-2026-09-antigravity-permissions-v1",
       "updatePolicy": "available",
-      "reason": "The shared package changes preserve transport and admission contracts; accepted and new Wake work remain safe with either cloud version."
+      "reason": "The Windows stored-task reader now accepts known historical fields; existing Service transport, Wake, setup, and diagnostic contracts remain compatible across cloud versions."
     },
     "skills": {
       "bundleHash": "c3ce8a2e5928354908a505326ccdc68b65f7a3e305792d595982fd0a41c33e7e",

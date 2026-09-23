@@ -272,6 +272,14 @@ test("Production and Deep Confidence share an explicit heap within available run
       );
     }
   }
+  const desktopMac = productionBuildEnvironment(
+    "desktop",
+    {},
+    48 * 1024 ** 3,
+    "darwin"
+  );
+  assert.equal(desktopMac.NODE_OPTIONS, "--max-old-space-size=5120");
+  assert.equal(desktopMac.OPENMELD_LOCAL_HEAVY_GIB, "6");
   const env = productionBuildEnvironment("web", {}, memoryBytes, "linux");
   const heapLimit = Number(
     execFileSync(

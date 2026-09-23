@@ -8,7 +8,7 @@ export const SPACE_TASK_COMPLETION_CONDITION_MAX_ITEMS = 12;
 export const SPACE_TASK_EXTERNAL_WORK_ITEM_MAX_ITEMS = 12;
 export const SPACE_TASK_RESULT_SUMMARY_MAX_CHARS = 8000;
 export const SPACE_TASK_REVIEW_FEEDBACK_MAX_CHARS = 8000;
-export const SPACE_TASK_OPERATION_ID_MAX_CHARS = 200;
+export const SPACE_TASK_OPERATION_ID_MAX_CHARS = 512;
 export const SPACE_TASK_LIST_MAX_ITEMS = 500;
 
 const optionalTrimmedText = (max: number) =>
@@ -25,6 +25,21 @@ export const spaceTaskPhaseSchema = z.enum([
   "in_review",
   "done",
   "canceled",
+]);
+
+export const spaceTaskActionSchema = z.enum([
+  "assign",
+  "update_brief",
+  "set_reviewer",
+  "mark_in_progress",
+  "submit_result",
+  "review",
+  "cancel",
+  "reopen",
+  "continue_rework",
+  "attach_external_work_item",
+  "detach_external_work_item",
+  "observe_external_work_item",
 ]);
 
 export const spaceTaskActorSchema = z.strictObject({
@@ -110,10 +125,14 @@ export function spaceTaskGitHubIssueOperationId(
     owner: string;
     repo: string;
   },
-  taskId?: string
+  taskId?: string,
+  eventIdentity?: string
 ): string {
   const base = `github-issue-${kind}:${identity.owner.toLowerCase()}:${identity.repo.toLowerCase()}:${identity.number}`;
-  return taskId ? `${base}:${taskId}` : base;
+  const taskOperationId = taskId ? `${base}:${taskId}` : base;
+  return eventIdentity
+    ? `${taskOperationId}:${eventIdentity}`
+    : taskOperationId;
 }
 
 export function describeLinkedGitHubIssueClosePrompt(task: {
@@ -271,6 +290,7 @@ export const mutateSpaceTaskBodySchema = z.discriminatedUnion("action", [
   z.strictObject({
     ...taskMutationBase,
     action: z.literal("review"),
+    expectedResultRevision: z.number().int().min(1),
     decision: spaceTaskReviewSchema.shape.decision,
     feedback: spaceTaskReviewSchema.shape.feedback.optional(),
   }),
@@ -317,10 +337,24 @@ export const mutateSpaceTaskBodySchema = z.discriminatedUnion("action", [
 export const spaceTaskResponseSchema = z.strictObject({
   task: spaceTaskSchema,
   events: z.array(spaceTaskEventSchema),
+  pendingActions: z
+    .array(
+      z.strictObject({
+        kind: z.enum(["handoff", "completion", "stop", "github_projection"]),
+        state: z.enum(["pending", "failed"]),
+        error: z.string().nullable(),
+      })
+    )
+    .optional(),
+  allowedActions: z.array(spaceTaskActionSchema).optional(),
 });
 
 export const listSpaceTasksQuerySchema = z.strictObject({
   phase: spaceTaskPhaseSchema.optional(),
+});
+
+export const spaceTaskDetailOptionsSchema = z.strictObject({
+  includeAffordances: z.boolean().optional(),
 });
 
 export const listSpaceTasksResponseSchema = z.strictObject({
@@ -338,6 +372,8 @@ export const SPACE_TASK_OPERATION_CONFLICT_ERROR_CODE =
   "space_task.operation_conflict" as const;
 export const SPACE_TASK_REVISION_CONFLICT_ERROR_CODE =
   "space_task.revision_conflict" as const;
+export const SPACE_TASK_RESULT_REVISION_CONFLICT_ERROR_CODE =
+  "space_task.result_revision_conflict" as const;
 export const SPACE_TASK_EXTERNAL_WORK_ITEM_LIMIT_ERROR_CODE =
   "space_task.external_work_item_limit" as const;
 export const SPACE_TASK_EXTERNAL_WORK_ITEM_NOT_FOUND_ERROR_CODE =
@@ -346,6 +382,7 @@ export const SPACE_TASK_EXTERNAL_WORK_ITEM_NOT_FOUND_ERROR_CODE =
 export const SPACE_TASK_ERROR_CODES = [
   SPACE_TASK_OPERATION_CONFLICT_ERROR_CODE,
   SPACE_TASK_REVISION_CONFLICT_ERROR_CODE,
+  SPACE_TASK_RESULT_REVISION_CONFLICT_ERROR_CODE,
   SPACE_TASK_EXTERNAL_WORK_ITEM_LIMIT_ERROR_CODE,
   SPACE_TASK_EXTERNAL_WORK_ITEM_NOT_FOUND_ERROR_CODE,
 ] as const;

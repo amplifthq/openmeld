@@ -133,6 +133,11 @@ return it to the assignee. Agent-to-Agent handoffs use normal Space Wake
 admission and stop after two automatic rework rounds, then require a human
 requester or Space owner to authorize more work. Task state never substitutes
 for RuntimeCoordinator or native-delivery execution truth.
+Reviews name the exact submitted result revision the reviewer saw. A concurrent
+result or Task change requires a fresh decision; clients do not replay an old
+acceptance against a refreshed revision. A human Space owner can take over an
+Agent-requested Task decision, and approving further rework hands the next
+correction to the assignee through the same Space Wake path.
 
 Task transition messages are idempotent and return to the source Thread when
 one exists. They mention a human reviewer through normal Inbox delivery or
@@ -140,6 +145,11 @@ Wake an Agent reviewer through the existing Space path. Completion posts the
 result back to the original request. Canceling fences later Task mutations and
 requests an authorized Stop for a linked active Agent Wake; an unavailable or
 failed Stop does not undo the Task cancellation or claim that execution ended.
+The Task detail shows the source message, latest review feedback, activity, and
+pending or failed delivery actions. Space persists handoff, completion, and
+linked-issue sync intents with Task transitions and retries them through its
+background alarm. Task cancellation targets recorded Wake references from its
+source and later handoffs, with exact Stop authorization and visible failures.
 
 GitHub issues filed from a shared Space through OpenMeld's GitHub tools are
 associated with a Space Task when the Task list can confirm whether that issue
@@ -1099,6 +1109,12 @@ Each inline Agent token shows its own Wake or Reference relation, so Web does
 not repeat those relations in a bottom count summary. Human Mentions stay
 visible in the message itself without an Agent relation label. Every Composer
 inline target provides a direct remove action in addition to keyboard deletion.
+The `@all` picker lets a member choose People, Agents, or Both. The Composer
+shows that selection as one `@everyone`, `@agents`, or `@all` token, respectively,
+while retaining every selected current member's Profile ID and relation. One
+token is removed as one unit; the send path still validates and addresses each
+member individually. A saved or restored draft keeps the selected target set,
+so a later membership change does not silently add recipients.
 The system may warn about a possible semantic mismatch, but it must not silently
 convert one structured Agent relation into another. An existing or restored
 Wake draft remains a Wake while the user edits it, but every send attempt checks
@@ -1294,9 +1310,10 @@ Human or Agent text messages, including thread replies. Selecting the same emoji
 again removes only that person's reaction. Multiple people share an emoji count;
 each person can use more than one emoji, once per emoji per message.
 
-Reactions share one row with message actions beneath their source message, before
-its thread preview. On self-authored messages the row starts at the bubble’s left
-edge and stays within its width. Overflow reactions appear in a +N pill that
+Reactions remain beneath their source message, before its thread preview, while
+message actions float beside the bubble's upper edge. On self-authored messages the
+reactions start at the bubble’s left edge and stay within its width. Overflow
+reactions appear in a +N pill that
 opens on hover or click. Emoji groups retain their first-added order while any
 member still uses them; a fully removed group returns at the end if added again. The
 message action bar opens a compact set of common emoji and an optional full
