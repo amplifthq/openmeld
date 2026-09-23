@@ -6305,6 +6305,21 @@ export async function rpcDisableAgentProfilePrimaryBinding(
       });
     }
 
+    // Reconcile even on a no-op retry: the Binding write may have succeeded
+    // before an earlier Inbox projection failed. Keep target-mutation admission
+    // until this current-owner read finishes; never clear by an old model id.
+    await reconcileAgentModelInbox({
+      env,
+      ownerUserId: request.owner.id,
+      agentProfileId: request.agentProfileId,
+      nowMs: Date.now(),
+    }).catch((error) =>
+      console.warn("[core.model_inbox.reconcile_failed]", {
+        agentProfileId: request.agentProfileId,
+        error,
+      })
+    );
+
     return buildDisableAgentProfilePrimaryBindingResponse({
       agentProfileId: request.agentProfileId,
       disabled: Boolean(disabledBinding),

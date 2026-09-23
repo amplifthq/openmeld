@@ -52,7 +52,7 @@ export async function reconcileRuntimeAgentModelInboxes(input: {
   }
 }
 
-/** Called by normal controller reports and a user's successful model edit. */
+/** Called by normal controller reports, model edits and authoritative unbinding. */
 export async function reconcileAgentModelInbox(input: {
   env: CoreBindings;
   ownerUserId: string;
@@ -99,7 +99,23 @@ async function readCurrentSnapshot(input: {
     owner: { id: input.ownerUserId, kind: "owner_account" },
   });
   if (!binding) {
-    return null;
+    // A successful authoritative read proves there is no selected model left.
+    // Missing ownership or a failed Binding read must never claim recovery.
+    return {
+      organizationId: profile.organizationId,
+      ownerUserId: input.ownerUserId,
+      profileId: input.agentProfileId,
+      profileName: profile.profileName,
+      identity: JSON.stringify([
+        profile.organizationId,
+        input.ownerUserId,
+        input.agentProfileId,
+        "unbound",
+      ]),
+      verdict: "clear",
+      occurredAtMs: input.nowMs,
+      message: "",
+    };
   }
   const currentReport = await readCurrentRuntimeAgentControllerReport({
     db,

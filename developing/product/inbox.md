@@ -121,9 +121,14 @@ history, never persistent priority.
 
 Confirmed model issues reuse `system_attention_event` with an exact Agent target
 and `agent-model:` source namespace. The model/Binding owner reconciles them on
-normal controller reports and successful user model edits. They are ordinary
-Needs action, not urgent email. Repeated observations retain the same episode;
-a change clears only that model issue, preserving read state and history.
+normal controller reports, successful user model edits, and explicit unbinding.
+Their owner-only source facts include the exact `personalAgentProfileIds`, not
+just generic Agent relevance, so normal access checks can establish and revoke
+current ownership. They are ordinary Needs action, not urgent email. Repeated
+observations retain the same episode; a change or an authoritatively absent
+Binding clears only that model issue, preserving read state and history.
+Unbind retries also retry reconciliation when the Binding is already absent;
+failed Binding reads and failed/unauthorized unbinds do not claim recovery.
 Unknown same-model account evidence cannot claim recovery. The Inbox projection
 never writes Wakeability, manual Profile enablement or model selection, and
 resolving it does not restart work. Offline Profiles receive the notice when the
