@@ -85,9 +85,21 @@ jobs:
           node scripts/release/build-cli-binary.mjs --platform windows-x64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/release/build-cli-binary.mjs --platform windows-x64 --background
-      - name: Exercise compiled SQLite and the real Claude SDK native protocol
+      - name: Exercise compiled SQLite, SDK protocol, and official Codex
         if: ${{ !cancelled() && steps.artifacts.outcome == 'success' }}
-        run: node scripts/e2e/windows-native-runtime.mjs
+        shell: pwsh
+        run: |
+          $vendor = 'dev-tmp/windows-native-vendor'
+          New-Item -ItemType Directory -Force $vendor | Out-Null
+          $json = npm pack '@openai/codex@0.153.4-win32-x64' --json --pack-destination $vendor
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $package = ($json | ConvertFrom-Json)[0]
+          if ($package.integrity -ne 'sha512-lMkB43kJZH0VFr+hoXc11qqR7QtQIbkr07ALgj4urKL1osNyUyuy1iXd3Vzz2iCYvBUCSw7I0l/W1cEPGx9euQ==') { throw 'The pinned Codex package integrity changed.' }
+          $json | Set-Content dev-tmp/windows-native-evidence/codex-package.json
+          tar -xf (Join-Path $vendor $package.filename) -C $vendor
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:OPENMELD_TEST_CODEX = (Resolve-Path "$vendor/package/vendor/x86_64-pc-windows-msvc/bin/codex.exe").Path
+          node scripts/e2e/windows-native-runtime.mjs
       - name: Exercise the actual background executable's inherited Host channel
         if: ${{ !cancelled() && steps.artifacts.outcome == 'success' }}
         shell: pwsh

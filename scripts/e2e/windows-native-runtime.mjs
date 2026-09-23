@@ -33,7 +33,11 @@ const helper = path.join(repo, "cli/dist/openmeld-windows-process.exe");
 await copyFile(helper, path.join(evidence, "openmeld-windows-process.exe"));
 const binaries = {};
 binaries.helper = { path: helper, ...collectCliBinaryMetadata(helper) };
-for (const name of ["windows-agent-sdk", "windows-native-runtime"]) {
+for (const name of [
+  "windows-agent-sdk",
+  "windows-native-runtime",
+  "windows-native-codex",
+]) {
   const outFile = path.join(evidence, `${name}.exe`);
   const build = spawnSync(
     "bun",
@@ -108,81 +112,102 @@ const env = {
   OPENMELD_ENV_PRESET: "dev-local",
   OPENMELD_GATEWAY_URL: "http://127.0.0.1:9",
   OPENMELD_AUTH_URL: "http://127.0.0.1:9",
+  CODEX_HOME: path.join(root, "codex-home"),
 };
-console.log(
-  JSON.stringify({
-    stage: "component_launch",
-    status: "started",
-    executable: binaries["windows-native-runtime"].path,
-    peer: binaries["windows-agent-sdk"].path,
-    cwd: workspace,
-  })
-);
-const owned = spawnAgentControllerProcess({
-  bin: binaries["windows-native-runtime"].path,
+await mkdir(env.CODEX_HOME);
+await exerciseOwnedComponent({
+  executable: binaries["windows-native-runtime"].path,
   args: [binaries["windows-agent-sdk"].path],
-  cwd: workspace,
-  env,
-  shell: false,
+  log: "runtime-components.log",
+  stages: ["sqlite_readonly", "claude_sdk_native_protocol"],
 });
-console.log(
-  JSON.stringify({ stage: "component_supervisor", pid: owned.child.pid })
+const codex = process.env.OPENMELD_TEST_CODEX;
+assert.ok(
+  codex && path.isAbsolute(codex),
+  "The pinned official Windows Codex artifact is required"
 );
-let output = "";
-owned.child.stdout.on("data", (chunk) => {
-  output = (output + chunk.toString()).slice(-1024 * 1024);
+await exerciseOwnedComponent({
+  executable: binaries["windows-native-codex"].path,
+  args: [codex],
+  log: "official-codex.log",
+  stages: ["official_codex_account_protocol"],
 });
-owned.child.stderr.on("data", (chunk) => {
-  output = (output + chunk.toString()).slice(-1024 * 1024);
-});
-const failures = [];
-// The SDK retains its own 30-second deadline; the outer budget includes Job
-// setup, SQLite and cleanup. It is functional acceptance, not a startup SLA.
-let deadline;
-try {
-  const code = await Promise.race([
-    new Promise((resolve, reject) => {
-      owned.child.once("close", resolve);
-      owned.child.once("error", reject);
-    }),
-    new Promise((_, reject) => {
-      deadline = setTimeout(
-        () =>
-          reject(new Error("Native component acceptance exceeded 45 seconds")),
-        45_000
-      );
-    }),
-  ]);
-  assert.equal(code, 0, output);
-  assert.ok(
-    output.includes('"stage":"sqlite_readonly","status":"passed"'),
-    output
+await rm(root, { recursive: true, force: true });
+
+async function exerciseOwnedComponent(input) {
+  console.log(
+    JSON.stringify({
+      stage: "component_launch",
+      status: "started",
+      executable: input.executable,
+      peer: input.args[0],
+      cwd: workspace,
+    })
   );
-  assert.ok(
-    output.includes('"stage":"claude_sdk_native_protocol","status":"passed"'),
-    output
+  const owned = spawnAgentControllerProcess({
+    bin: input.executable,
+    args: input.args,
+    cwd: workspace,
+    env,
+    shell: false,
+  });
+  console.log(
+    JSON.stringify({ stage: "component_supervisor", pid: owned.child.pid })
   );
-} catch (error) {
-  failures.push(error);
-} finally {
-  clearTimeout(deadline);
+  let output = "";
+  owned.child.stdout.on("data", (chunk) => {
+    output = (output + chunk.toString()).slice(-1024 * 1024);
+  });
+  owned.child.stderr.on("data", (chunk) => {
+    output = (output + chunk.toString()).slice(-1024 * 1024);
+  });
+  const failures = [];
+  // The SDK retains its own 30-second deadline; the outer budget includes Job
+  // setup, SQLite and cleanup. It is functional acceptance, not a startup SLA.
+  let deadline;
   try {
-    await writeFile(path.join(evidence, "runtime-components.log"), output);
+    const code = await Promise.race([
+      new Promise((resolve, reject) => {
+        owned.child.once("close", resolve);
+        owned.child.once("error", reject);
+      }),
+      new Promise((_, reject) => {
+        deadline = setTimeout(
+          () =>
+            reject(
+              new Error("Native component acceptance exceeded 45 seconds")
+            ),
+          45_000
+        );
+      }),
+    ]);
+    assert.equal(code, 0, output);
+    for (const stage of input.stages) {
+      assert.ok(
+        output.includes(`"stage":"${stage}","status":"passed"`),
+        output
+      );
+    }
   } catch (error) {
     failures.push(error);
+  } finally {
+    clearTimeout(deadline);
+    try {
+      await writeFile(path.join(evidence, input.log), output);
+    } catch (error) {
+      failures.push(error);
+    }
+    process.stdout.write(output);
+    owned.terminate("SIGKILL");
+    const cleanup = await owned.terminateRemainingDescendants();
+    if (!cleanup.ok) {
+      failures.push(cleanup.error);
+    }
   }
-  process.stdout.write(output);
-  owned.terminate("SIGKILL");
-  const cleanup = await owned.terminateRemainingDescendants();
-  if (cleanup.ok) {
-    await rm(root, { recursive: true, force: true });
-  } else {
-    failures.push(cleanup.error);
+  if (failures.length) {
+    throw new AggregateError(
+      failures,
+      "Native runtime component acceptance failed"
+    );
   }
-}
-if (failures.length) {
-  throw new AggregateError(
-    failures,
-    "Native runtime component acceptance failed"
-  );
 }
