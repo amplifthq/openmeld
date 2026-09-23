@@ -440,7 +440,10 @@ describe("Delegated Space initialization", () => {
         organizationId,
         userId: ownerUserId,
       });
-      await insertTestPrimaryHumanProfile({ ownerUserId, profileId: ownerProfileId });
+      await insertTestPrimaryHumanProfile({
+        ownerUserId,
+        profileId: ownerProfileId,
+      });
       await insertTestManagedCenterAgentProfile({
         agentProfileId: creatorProfileId,
         organizationId,
@@ -493,13 +496,18 @@ describe("Delegated Space initialization", () => {
       }
       const state = await runInDurableObject(stub, (_instance, doState) => ({
         ownerStatus: [...doState.storage.sql.exec<{ status: string }>(
-          "SELECT status FROM space_members WHERE profile_id = ?", ownerProfileId
+          "SELECT status FROM space_members WHERE profile_id = ?",
+          ownerProfileId
         )][0]?.status ?? null,
         creatorStatus: [...doState.storage.sql.exec<{ status: string }>(
-          "SELECT status FROM space_members WHERE profile_id = ?", creatorProfileId
+          "SELECT status FROM space_members WHERE profile_id = ?",
+          creatorProfileId
         )][0]?.status ?? null,
       }));
-      expect(state).toEqual({ ownerStatus: "active", creatorStatus: "active" });
+      expect(state).toEqual({
+        ownerStatus: "active",
+        creatorStatus: "active",
+      });
       const meta = await stub.rpcGetMeta({
         context: createRpcContext({
           activeOrganizationId: organizationId,
@@ -519,8 +527,14 @@ describe("Delegated Space initialization", () => {
     const ownerUserId = randomUUID();
     const ownerProfileId = randomUUID();
     const creatorProfileId = `agt_${randomUUID()}`;
-    await ensureTestOrganizationMembership({ organizationId, userId: ownerUserId });
-    await insertTestPrimaryHumanProfile({ ownerUserId, profileId: ownerProfileId });
+    await ensureTestOrganizationMembership({
+      organizationId,
+      userId: ownerUserId,
+    });
+    await insertTestPrimaryHumanProfile({
+      ownerUserId,
+      profileId: ownerProfileId,
+    });
     await insertTestManagedCenterAgentProfile({
       agentProfileId: creatorProfileId,
       organizationId,
@@ -566,11 +580,13 @@ describe("Delegated Space initialization", () => {
         BEGIN SELECT RAISE(ABORT, 'injected initial owner failure'); END`
       );
     });
-    await expect(stub.rpcPatchMeta({
-      ...input,
-      accessMode: "members_only",
-      initializeIfAbsent: true,
-    })).rejects.toThrow();
+    await expect(
+      stub.rpcPatchMeta({
+        ...input,
+        accessMode: "members_only",
+        initializeIfAbsent: true,
+      })
+    ).rejects.toThrow();
     const metaCount = await runInDurableObject(stub, (_instance, doState) =>
       [...doState.storage.sql.exec<{ count: number }>(
         "SELECT COUNT(*) AS count FROM space_meta"
@@ -590,7 +606,8 @@ describe("Delegated Space initialization", () => {
         "SELECT COUNT(*) AS count FROM space_meta"
       )][0]?.count ?? 0,
       ownerStatus: [...doState.storage.sql.exec<{ status: string }>(
-        "SELECT status FROM space_members WHERE profile_id = ?", ownerProfileId
+        "SELECT status FROM space_members WHERE profile_id = ?",
+        ownerProfileId
       )][0]?.status ?? null,
     }));
     expect(retried).toEqual({ meta: 1, ownerStatus: "active" });
