@@ -432,49 +432,52 @@ describe("Delegated Space initialization", () => {
   it.each([false, true])(
     "commits owner membership and metadata together (password: %s)",
     async (passwordProtected) => {
-    const organizationId = randomUUID();
-    const ownerUserId = randomUUID();
-    const ownerProfileId = randomUUID();
-    const creatorProfileId = "agt_" + randomUUID();
-    await ensureTestOrganizationMembership({ organizationId, userId: ownerUserId });
-    await insertTestPrimaryHumanProfile({ ownerUserId, profileId: ownerProfileId });
-    await insertTestManagedCenterAgentProfile({
-      agentProfileId: creatorProfileId,
-      organizationId,
-      ownerUserId,
-    });
-    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
-    const spaceId = namespace.newUniqueId().toString();
-    const stub = namespace.get(namespace.idFromString(spaceId));
-    const context = createRpcContext({
-      activeOrganizationId: organizationId,
-      profileId: creatorProfileId,
-      profileKind: "agent",
-      profileName: "Center Agent",
-      requestId: randomUUID(),
-    });
-    const owner = {
-      agentControllerRef: null,
-      ownerName: "Fresh Owner",
-      ownerUserId,
-      profileId: ownerProfileId,
-      profileKind: "human" as const,
-      profileName: "Fresh Owner",
-    };
-    const creator = {
-      kind: "agent" as const,
-      profileId: creatorProfileId,
-      profileName: "Center Agent",
-    };
-    const input = {
-      context,
-      creator,
-      initialOwnerMember: owner,
-      name: "Delegated Room",
-      organizationId,
-      spaceId,
-      visibility: "private" as const,
-    };
+      const organizationId = randomUUID();
+      const ownerUserId = randomUUID();
+      const ownerProfileId = randomUUID();
+      const creatorProfileId = `agt_${randomUUID()}`;
+      await ensureTestOrganizationMembership({
+        organizationId,
+        userId: ownerUserId,
+      });
+      await insertTestPrimaryHumanProfile({ ownerUserId, profileId: ownerProfileId });
+      await insertTestManagedCenterAgentProfile({
+        agentProfileId: creatorProfileId,
+        organizationId,
+        ownerUserId,
+      });
+      const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+      const spaceId = namespace.newUniqueId().toString();
+      const stub = namespace.get(namespace.idFromString(spaceId));
+      const context = createRpcContext({
+        activeOrganizationId: organizationId,
+        profileId: creatorProfileId,
+        profileKind: "agent",
+        profileName: "Center Agent",
+        requestId: randomUUID(),
+      });
+      const owner = {
+        agentControllerRef: null,
+        ownerName: "Fresh Owner",
+        ownerUserId,
+        profileId: ownerProfileId,
+        profileKind: "human" as const,
+        profileName: "Fresh Owner",
+      };
+      const creator = {
+        kind: "agent" as const,
+        profileId: creatorProfileId,
+        profileName: "Center Agent",
+      };
+      const input = {
+        context,
+        creator,
+        initialOwnerMember: owner,
+        name: "Delegated Room",
+        organizationId,
+        spaceId,
+        visibility: "private" as const,
+      };
       if (passwordProtected) {
         await stub.rpcPatchMetaWithPasswordAtomic({
           ...input,
@@ -515,7 +518,7 @@ describe("Delegated Space initialization", () => {
     const organizationId = randomUUID();
     const ownerUserId = randomUUID();
     const ownerProfileId = randomUUID();
-    const creatorProfileId = "agt_" + randomUUID();
+    const creatorProfileId = `agt_${randomUUID()}`;
     await ensureTestOrganizationMembership({ organizationId, userId: ownerUserId });
     await insertTestPrimaryHumanProfile({ ownerUserId, profileId: ownerProfileId });
     await insertTestManagedCenterAgentProfile({
@@ -559,7 +562,7 @@ describe("Delegated Space initialization", () => {
     await runInDurableObject(stub, (_instance, doState) => {
       doState.storage.sql.exec(
         `CREATE TRIGGER fail_initial_owner BEFORE INSERT ON space_members
-        WHEN NEW.profile_id = '` + ownerProfileId + `'
+        WHEN NEW.profile_id = '${ownerProfileId}'
         BEGIN SELECT RAISE(ABORT, 'injected initial owner failure'); END`
       );
     });
