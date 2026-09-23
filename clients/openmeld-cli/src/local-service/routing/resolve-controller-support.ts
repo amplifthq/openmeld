@@ -441,6 +441,11 @@ function buildAcceptedLocalDaemonRouteCandidate(input: {
   const defaults = createDefaultRuntimeAgentControllerSettings(
     input.agentControllerRef
   );
+  // Route construction has installation settings, not fresh account evidence.
+  // Do not infer authType/providerId from the controller or its launch config.
+  // This guard enforces catalog-wide availability without substituting models;
+  // Core evaluates account-scoped withdrawal before admitting a Wake. Having
+  // a local route is not permission to execute that Wake.
   const conversationPolicyResolution =
     resolveConversationPolicyFromModelSelection({
       agentControllerConversationId: input.agentControllerConversationId,

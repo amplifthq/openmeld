@@ -364,8 +364,13 @@ Core composes applicable confirmed model unavailability into existing Wakeabilit
 and dispatch admission. It does not rewrite Profile status, Binding selection,
 manual disabling, history or an in-flight outcome. Fresh identity-matched account
 reports establish sign-in scope; unknown scope is not proof of retirement. The
-local selection resolver rejects unavailable explicit intent and supplies no
-fallback model. Unset native Codex resumes remain native; OpenMeld does not guess
+local route guard rejects explicit selections marked globally unavailable or
+withdrawn for the entire controller, and supplies no fallback model. Route
+construction has installation settings, not fresh sign-in/provider evidence;
+it does not independently enforce account-scoped withdrawal. Do not infer that
+scope from a controller name, launch configuration, or old account snapshot.
+A registered route is not Wake admission: Core remains the scoped decision
+owner. Unset native Codex resumes remain native; OpenMeld does not guess
 that thread's effective model. Provider failures on that path still receive
 recovery guidance, not a fabricated global retirement verdict.
 
@@ -376,12 +381,19 @@ manage the Agent is told to ask its owner. Codex's captured model-not-found and
 ChatGPT-account-unsupported responses map conservatively to `model.unavailable`;
 they do not establish retirement or persist a global provider/account blocker.
 
-Normal accepted controller reports and successful user model edits reconcile one
-source-owned Inbox issue per affected Profile/model episode. It is ordinary
-Needs action, not urgent email. Projection uses the current Binding rather than
+Normal accepted controller reports, successful user model edits, and explicit
+unbinding reconcile one source-owned Inbox issue per affected Profile/model
+episode. Owner-only source facts name both `agentProfileIds` and the exact
+`personalAgentProfileIds`; normal Inbox access checks still verify current
+personal ownership and Organization before listing or counting an item. It is
+ordinary Needs action, not urgent email. Projection uses the current Binding rather than
 an old report's model, deduplicates refreshes, and resolves only the relevant
 model issue after a change. Unknown same-model account evidence retains the
-issue. Read state and historical rows stay intact; no old work is resumed.
+issue. A successful authoritative read that finds no enabled Binding clears the
+model issue; a failed read or unverified owner does not. Unbind reconciles while
+holding target-mutation admission, including no-op retries after an earlier
+projection failure. Read state and historical rows stay intact; no old work is
+resumed.
 Unscoped legacy Profiles retain inline recovery but do not gain a guessed
 Organization Inbox destination. Offline Profiles are reconciled when their normal
 account report returns; this is not an immediate global notification sweep.
