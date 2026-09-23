@@ -2343,17 +2343,15 @@ type PatchSpaceMetaInput = {
   password?: string;
   context?: CoreRpcContextInput;
   initializeIfAbsent?: boolean;
-  initialOwnerUserIds?: string[];
+  initialOwnerMember?: ResolvedSpaceMemberProfile;
 };
 
-function withInitialSpaceOwners(
+function withInitialSpaceOwner(
   record: SpaceMetaRecord,
-  initialOwnerUserIds: readonly string[] | undefined
+  initialOwnerMember: ResolvedSpaceMemberProfile | undefined
 ): SpaceMetaRecord {
-  // A delegated creator (the Center Agent) has no owning member of its own, so
-  // its caller names the represented member as the initial human Space owner.
-  return initialOwnerUserIds && initialOwnerUserIds.length > 0
-    ? { ...record, ownerUserIds: [...initialOwnerUserIds] }
+  return initialOwnerMember?.ownerUserId
+    ? { ...record, ownerUserIds: [initialOwnerMember.ownerUserId] }
     : record;
 }
 
@@ -2417,7 +2415,7 @@ type PatchSpaceMetaWithPasswordAtomicInput = {
   visibility: "public" | "private";
   password: string;
   context?: CoreRpcContextInput;
-  initialOwnerUserIds?: string[];
+  initialOwnerMember?: ResolvedSpaceMemberProfile;
 };
 
 type FinalizeAcceptedDispatchResultInput = {
@@ -10080,10 +10078,7 @@ export class Space extends DurableObject<CoreBindings> {
     });
 
     const response = input.initializeIfAbsent
-      ? await this.dispatchInitializeMetaRequest(
-          request,
-          input.initialOwnerUserIds
-        )
+      ? await this.dispatchInitializeMetaRequest(request, input.initialOwnerMember)
       : await this.dispatchMetaRequest(request);
     return readSpaceRpcJsonOrThrow(response);
   }
@@ -10342,7 +10337,7 @@ export class Space extends DurableObject<CoreBindings> {
     });
     const response = await this.dispatchInitializeMetaWithPasswordRequest(
       request,
-      input.initialOwnerUserIds
+      input.initialOwnerMember
     );
     return readSpaceRpcJsonOrThrow(response);
   }
@@ -13140,7 +13135,7 @@ export class Space extends DurableObject<CoreBindings> {
 
   private dispatchInitializeMetaRequest(
     request: Request,
-    initialOwnerUserIds?: readonly string[]
+    initialOwnerMember?: ResolvedSpaceMemberProfile
   ): Promise<Response> {
     const resolved = this.resolveOpenMeldContextFromRequest(request);
     if (!resolved.ok) {
@@ -13152,7 +13147,7 @@ export class Space extends DurableObject<CoreBindings> {
         this.handlePatchMeta(request, {
           context: resolved.context,
           initializeIfAbsent: true,
-          initialOwnerUserIds,
+          initialOwnerMember,
         })
       );
     }
@@ -13162,7 +13157,7 @@ export class Space extends DurableObject<CoreBindings> {
 
   private dispatchInitializeMetaWithPasswordRequest(
     request: Request,
-    initialOwnerUserIds?: readonly string[]
+    initialOwnerMember?: ResolvedSpaceMemberProfile
   ): Promise<Response> {
     const resolved = this.resolveOpenMeldContextFromRequest(request);
     if (!resolved.ok) {
@@ -13174,7 +13169,7 @@ export class Space extends DurableObject<CoreBindings> {
         this.handlePatchMetaWithPasswordAtomic(
           request,
           resolved.context,
-          initialOwnerUserIds
+          initialOwnerMember
         )
       );
     }
@@ -15426,7 +15421,7 @@ export class Space extends DurableObject<CoreBindings> {
     options: {
       context: CoreRpcContextInput;
       initializeIfAbsent?: boolean;
-      initialOwnerUserIds?: readonly string[] | undefined;
+      initialOwnerMember?: ResolvedSpaceMemberProfile | undefined;
     }
   ): Promise<Response> {
     const body = await request.json().catch(() => null);
@@ -15478,7 +15473,8 @@ export class Space extends DurableObject<CoreBindings> {
       writer: {
         initializeSpaceMetaRecordIfAbsent: (record) =>
           this.initializeOwnedSpace(
-            withInitialSpaceOwners(record, options.initialOwnerUserIds)
+            withInitialSpaceOwner(record, options.initialOwnerMember),
+            { initialOwnerMember: options.initialOwnerMember }
           ),
         readSpaceMetaRecord: () => this.readSpaceMetaRecord(),
         upsertSpaceMetaRecord: (record) =>
@@ -15764,7 +15760,7 @@ export class Space extends DurableObject<CoreBindings> {
   private async handlePatchMetaWithPasswordAtomic(
     request: Request,
     context: CoreRpcContextInput,
-    initialOwnerUserIds?: readonly string[]
+    initialOwnerMember?: ResolvedSpaceMemberProfile
   ): Promise<Response> {
     const body = await request.json().catch(() => null);
     const response = await handlePatchMetaWithPasswordAtomicUseCase({
@@ -15776,7 +15772,8 @@ export class Space extends DurableObject<CoreBindings> {
       writer: {
         initializeSpaceMetaRecordIfAbsent: (record) =>
           this.initializeOwnedSpace(
-            withInitialSpaceOwners(record, initialOwnerUserIds)
+            withInitialSpaceOwner(record, initialOwnerMember),
+            { initialOwnerMember }
           ),
       },
       passwordTooShortResponse: (requestId) =>
@@ -15972,7 +15969,10 @@ export class Space extends DurableObject<CoreBindings> {
 
   private async initializeOwnedSpace(
     record: SpaceMetaRecord,
-    options?: { requireOrganizationOwnerRole?: boolean }
+    options?: {
+      requireOrganizationOwnerRole?: boolean;
+      initialOwnerMember?: ResolvedSpaceMemberProfile | undefined;
+    }
   ): Promise<SpaceMetaRecord> {
     const existing = this.readSpaceMetaRecord();
     if (existing) {
@@ -16004,9 +16004,56 @@ export class Space extends DurableObject<CoreBindings> {
         );
       }
     }
-    return initializeSpaceMetaRecordIfAbsent(this.ctx.storage.sql, {
-      ...record,
-      ownerUserIds,
+    const initializedRecord = { ...record, ownerUserIds };
+    const initialOwnerMember = options?.initialOwnerMember;
+    if (!initialOwnerMember) {
+      return initializeSpaceMetaRecordIfAbsent(
+        this.ctx.storage.sql,
+        initializedRecord
+      );
+    }
+    const db = identityDb(this.bindings);
+    const canonicalOwner =
+      db && initialOwnerMember.ownerUserId
+        ? await readResolvedOrganizationOwnerHumanSpaceMember({
+            db,
+            organizationId: record.organizationId,
+            ownerUserId: initialOwnerMember.ownerUserId,
+          })
+        : null;
+    if (
+      !canonicalOwner ||
+      canonicalOwner.profileId !== initialOwnerMember.profileId ||
+      ownerUserIds.length !== 1 ||
+      ownerUserIds[0] !== canonicalOwner.ownerUserId
+    ) {
+      throw new Error(
+        "The initial Space owner must have an active Human Profile in this Organization."
+      );
+    }
+    // Space-local metadata and both initial members commit together. If the
+    // member write fails, SQL rolls back instead of leaving an inaccessible Space.
+    return this.ctx.storage.transactionSync(() => {
+      const initialized = initializeSpaceMetaRecordIfAbsent(
+        this.ctx.storage.sql,
+        initializedRecord
+      );
+      upsertSpaceCreatorMember({
+        sql: this.ctx.storage.sql,
+        spaceId: this.spaceId,
+        creator: record.creator,
+        addedAt: record.createdAt,
+      });
+      addSpaceMembersUseCase({
+        actorDisplayName: record.creator?.profileName,
+        actorProfileId: record.creator?.profileId ?? canonicalOwner.profileId,
+        env: this.bindings,
+        liveSessions: this.sessions.values(),
+        members: [canonicalOwner],
+        spaceId: this.spaceId,
+        sql: this.ctx.storage.sql,
+      });
+      return initialized;
     });
   }
 
