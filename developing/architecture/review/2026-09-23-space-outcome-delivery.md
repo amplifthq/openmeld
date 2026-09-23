@@ -1,5 +1,15 @@
 # Space outcome delivery — issue #1250
 
+## Agent Context
+
+- Purpose: Track implementation, remaining acceptance work, and evidence for first-line Space outcome delivery in #1250.
+- Read this when: Continuing or reviewing Draft PR #1261 across worktrees and agents.
+- Update this when: The candidate, validation evidence, or remaining acceptance scope changes.
+- Do not use this for: Production acceptance, release authorization, or proof that every native controller was tested.
+- Source of truth: The Space collaboration and Agent transport owner documents define behavior; this note records candidate-specific work and evidence.
+
+Status: Partial implementation in Draft PR #1261; no deployment or first-line acceptance claimed. Remove after the remaining acceptance work is complete and durable behavior/evidence has been incorporated into owner documentation and the PR.
+
 Work branch: `codex/issue-1250-space-outcome-delivery`, Draft PR #1261.
 This is the first implementation line only. Organization-plugin exposure,
 production changes, original-review replay, deployment, merge, and Ready are
