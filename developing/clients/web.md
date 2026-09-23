@@ -1362,8 +1362,12 @@ message in a speaker run aligns the avatar with the bubble's top; subsequent
 messages retain the same column. Names and runtime/owner attribution are omitted
 from DM speaker headers, while avatar Profile Details remain available. The
 current member's avatar follows the same left/right Appearance preference as
-their bubble. Main timeline, threads, and pending first messages share this
-layout. Actions remain below each bubble in the existing reserved footer row.
+their bubble. Main timeline, threads, and pending first messages share the
+speaker and alignment primitives. The main timeline groups consecutive messages
+and floats actions beside or above a bubble without shifting the transcript.
+A Thread shows each message with its own speaker header. Its bubble can use the
+panel width, and its actions occupy a reserved row below the bubble instead of
+reducing the message width.
 Every speaker's message uses
 the same semantic radius and content inset. Other speakers use a quiet muted
 surface; the current member uses a soft tint of the shared blue `unread` color,

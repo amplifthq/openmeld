@@ -126,6 +126,7 @@ type SpaceMessageFooterProps = {
 	details?: SpaceMessageFooterDetailsAction;
 	failureSummary?: string | null;
 	isDirectMessage?: boolean;
+	layout?: "floating" | "inline";
 	onCopy: () => void;
 	copyDisabled?: boolean;
 	reply?: SpaceMessageFooterAction;
@@ -285,8 +286,12 @@ function MessageFooterActions({
 }) {
 	const showPicker = input.reaction && !input.reaction.readOnly;
 	const pending = input.item?.deliveryState === "pending";
+	const inline = input.layout === "inline";
 	const toolbarRef = useRef<HTMLDivElement>(null);
 	useEffect(() => {
+		if (inline) {
+			return;
+		}
 		const toolbar = toolbarRef.current;
 		const row = toolbar?.closest<HTMLElement>("[data-message-row-id]");
 		const bubble = row?.querySelector<HTMLElement>(
@@ -347,14 +352,16 @@ function MessageFooterActions({
 			row.removeEventListener("focusout", onFocusOut);
 			observer?.disconnect();
 		};
-	}, [persistent]);
+	}, [inline, persistent]);
 	return (
 		<div
 			className={cn(
-				"pointer-events-none absolute z-20 flex h-7 w-max max-w-full items-center rounded-md border border-border bg-popover opacity-0 shadow-sm group-focus-within/message-row:pointer-events-auto group-focus-within/message-row:opacity-100 group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 has-[[aria-haspopup][aria-expanded=true]]:pointer-events-auto has-[[aria-haspopup][aria-expanded=true]]:opacity-100 [@media(pointer:coarse)]:pointer-events-auto [@media(pointer:coarse)]:opacity-100",
+				"pointer-events-none z-20 flex h-7 w-max max-w-full items-center rounded-md border border-border bg-popover opacity-0 shadow-sm group-focus-within/message-row:pointer-events-auto group-focus-within/message-row:opacity-100 group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 has-[[aria-haspopup][aria-expanded=true]]:pointer-events-auto has-[[aria-haspopup][aria-expanded=true]]:opacity-100 [@media(pointer:coarse)]:pointer-events-auto [@media(pointer:coarse)]:opacity-100",
+				inline ? "relative mt-1" : "absolute",
 				persistent && "pointer-events-auto opacity-100",
 				persistent && "gap-2"
 			)}
+			data-layout={inline ? "inline" : "floating"}
 			data-persistent={persistent ? "true" : undefined}
 			data-slot="message-footer"
 			ref={toolbarRef}
