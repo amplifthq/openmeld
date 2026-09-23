@@ -6,8 +6,8 @@ import {
   powerShellEncodedArguments,
   resolveWindowsPowerShellPath,
 } from "@openmeld/adapter-core/windows-system";
+import { WINDOWS_ARTIFACT_SIGNATURE_FUNCTION } from "@openmeld/local-service/windows-artifact-script";
 import { windowsPublisherNameSchema } from "@openmeld/schemas";
-import { WINDOWS_ARTIFACT_SIGNATURE_FUNCTION } from "./windows-artifact-script.js";
 
 const SIGNATURE_VERIFIED = "OPENMELD_AUTHENTICODE_VERIFIED";
 const VERIFY_SCRIPT = `
