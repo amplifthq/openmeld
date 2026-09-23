@@ -167,7 +167,7 @@ describe("resolveLocalDaemonRouteCandidate", () => {
     });
   });
 
-  it("keeps the route eligible and late-binds default policy for an unavailable explicit model", () => {
+  it("rejects an unavailable explicit model without constructing a replacement route", () => {
     const result = resolveLocalDaemonRouteCandidate({
       localAdapterContainer: {
         getAdapter: () => ({
@@ -188,16 +188,12 @@ describe("resolveLocalDaemonRouteCandidate", () => {
       profile: createAgentProfile(),
     });
 
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       profileId: "agt-codex",
-      route: {
-        conversationPolicy: {
-          fallbackModel: "gpt-5.5",
-          model: "gpt-5.5",
-        },
-      },
-      status: "accepted",
+      skipReason: "model.unavailable",
+      status: "skipped",
     });
+    expect(result).not.toHaveProperty("route");
   });
 
   it("omits unsupported Agent Controller Permission Modes for OpenClaw routes", () => {
