@@ -38,14 +38,35 @@ export function scrollMessageIntoConversationViewport(input: {
 // coordinates; otherwise its resize observer can keep following the bottom.
 export function SpaceMessageScrollController(input: {
 	actionRef: RefObject<SpaceMessageScrollAction | null>;
+	latestMessageId?: string | null;
+	scrollElement?: HTMLElement | null;
 }) {
-	const { scrollToMessage } = useMessageScroller();
+	const { scrollToEnd, scrollToMessage } = useMessageScroller();
+	const previousLatestMessageIdRef = useRef(input.latestMessageId);
 	useLayoutEffect(() => {
 		input.actionRef.current = scrollToMessage;
 		return () => {
 			input.actionRef.current = null;
 		};
 	}, [input.actionRef, scrollToMessage]);
+	useLayoutEffect(() => {
+		const previous = previousLatestMessageIdRef.current;
+		previousLatestMessageIdRef.current = input.latestMessageId;
+		if (
+			!(previous && input.latestMessageId) ||
+			previous === input.latestMessageId
+		) {
+			return;
+		}
+		const spacer = input.scrollElement?.querySelector<HTMLElement>(
+			"[data-message-scroller-spacer]"
+		);
+		if (spacer && Number.parseFloat(spacer.style.height) > 0) {
+			// A jump near the tail can leave artificial space below the focused
+			// message. Once a new tail arrives, show it and release that space.
+			scrollToEnd({ behavior: "auto" });
+		}
+	}, [input.latestMessageId, input.scrollElement, scrollToEnd]);
 	return null;
 }
 

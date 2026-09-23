@@ -146,32 +146,31 @@ export function organizationMemberOpenMeldServiceStatusesQueryOptions(input: {
 	});
 }
 
-type OrganizationDirectoryAgentProfile =
-	OrganizationDirectoryResponse["agentProfiles"][number];
-type OrganizationDirectoryHumanProfile = NonNullable<
-	OrganizationDirectoryResponse["members"][number]["humanProfile"]
+type OrganizationProfileDirectoryAgentProfile =
+	OrganizationProfileDirectoryResponse["agentProfiles"][number];
+type OrganizationProfileDirectoryHumanProfile = NonNullable<
+	OrganizationProfileDirectoryResponse["members"][number]["humanProfile"]
 >;
 
 export type OrganizationSpaceProfileCandidates = {
-	agentProfiles: readonly (Pick<
-		OrganizationDirectoryAgentProfile,
+	agentProfiles: readonly Pick<
+		OrganizationProfileDirectoryAgentProfile,
+		| "agentControllerRef"
 		| "avatarUrl"
 		| "createdAt"
 		| "isCenterAgent"
 		| "lastUsedAt"
-		| "operationalContext"
 		| "ownerName"
 		| "ownerUserId"
 		| "profileHandle"
 		| "profileId"
 		| "profileName"
-		| "readiness"
 		| "status"
-	> & { agentControllerRef: string | null })[];
+	>[];
 	members: readonly {
 		avatarImageUrl: string | null;
 		humanProfile: Pick<
-			OrganizationDirectoryHumanProfile,
+			OrganizationProfileDirectoryHumanProfile,
 			"profileHandle" | "profileId" | "profileName" | "status"
 		> | null;
 		memberName: string;
@@ -293,42 +292,25 @@ export function organizationSpaceProfileCandidatesQueryOptions(input: {
 	enabled: boolean;
 	organizationId: string;
 }) {
-	return queryOptions<
-		OrganizationDirectoryResponse,
-		OrganizationDirectoryFailure,
-		OrganizationSpaceProfileCandidates
-	>({
-		enabled: input.enabled,
-		gcTime: ROUTE_REVISIT_GC_TIME_MS,
-		queryFn: async () =>
-			await readCurrentOrganizationDirectory({
-				organizationId: input.organizationId,
-			}),
-		queryKey: organizationQueryKeys.directory(input.organizationId),
-		refetchOnWindowFocus: false,
-		retry: baseQueryOptions.retry,
+	return queryOptions({
+		...organizationProfileDirectoryQueryOptions(input),
 		select: (directory) => ({
 			agentProfiles: directory.agentProfiles.flatMap((profile) => {
-				if (
-					profile.managedRole === "center_agent" &&
-					profile.organizationId !== directory.organizationId
-				) {
+				if (profile.organizationId !== directory.organizationId) {
 					return [];
 				}
 				return [
 					{
-						agentControllerRef: profile.readiness.agentControllerRef,
+						agentControllerRef: profile.agentControllerRef,
 						avatarUrl: profile.avatarUrl,
 						createdAt: profile.createdAt,
 						isCenterAgent: profile.isCenterAgent,
 						lastUsedAt: profile.lastUsedAt,
-						operationalContext: profile.operationalContext,
 						ownerName: profile.ownerName,
 						ownerUserId: profile.ownerUserId,
 						profileHandle: profile.profileHandle,
 						profileId: profile.profileId,
 						profileName: profile.profileName,
-						readiness: profile.readiness,
 						status: profile.status,
 					},
 				];
@@ -349,7 +331,6 @@ export function organizationSpaceProfileCandidatesQueryOptions(input: {
 			})),
 			organizationId: directory.organizationId,
 		}),
-		staleTime: 10_000,
 	});
 }
 

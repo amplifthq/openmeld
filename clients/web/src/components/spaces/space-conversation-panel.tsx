@@ -160,6 +160,7 @@ import {
 	resolveSpaceMessageBubblePresentationClass,
 	resolveSpaceMessageContentLayoutClassName,
 	resolveSpaceMessageRowLayoutClassName,
+	SPACE_MESSAGE_BUBBLE_WIDTH_CLASS,
 	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 	SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS,
 	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
@@ -204,6 +205,7 @@ import {
 	resolveSpaceMessageStateTuningVisibility,
 	useSpaceMessageStateTuningPreviewItems,
 } from "./space-message-state-tuning-preview";
+import { SpaceMessageTime } from "./space-message-time";
 import {
 	groupAnchoredOutcomeNotices,
 	resolveGroupedOutcomeRowText,
@@ -809,7 +811,15 @@ function SpaceConversationPanelContent(
 							isSendingMessage={input.isSendingMessage}
 							onSendStart={followLatest}
 						/>
-						<SpaceMessageScrollController actionRef={messageScrollActionRef} />
+						<SpaceMessageScrollController
+							actionRef={messageScrollActionRef}
+							latestMessageId={
+								input.historyNavigation?.activeWindow
+									? null
+									: mainTimelineItems.at(-1)?.id
+							}
+							scrollElement={conversationScrollElement}
+						/>
 						<MessageScroller className="relative min-h-0 flex-1">
 							{input.historyNavigation && (
 								<SpaceHistoryRail
@@ -2808,6 +2818,11 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 											selfAvatarImageUrl={input.selfAvatarImageUrl}
 											selfProfileId={input.selfProfileId}
 										/>
+										<SpaceMessageTime
+											createdAtMs={item.createdAtMs}
+											isDirectMessage={input.isDirectMessage}
+											placement="header"
+										/>
 									</MessageHeader>
 								) : null}
 								<MessageReactionsProvider
@@ -2853,6 +2868,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 												anchoredOutcomeNotices,
 												canUseMessageActions,
 												hasWakeProblem,
+												isDirectMessage: input.isDirectMessage,
 												isCreatingThread: input.isCreatingThread,
 												item,
 												messageAlign,
@@ -2930,9 +2946,9 @@ function ConversationBubbleContent(input: {
 	return (
 		<BubbleContent
 			className={cn(
-				"group/message relative flex w-full min-w-0 flex-col gap-2 transition-colors data-[highlighted=true]:border-unread/60 motion-reduce:transition-none",
+				"group/message relative flex min-w-0 flex-col gap-2 transition-colors data-[highlighted=true]:border-unread/60 motion-reduce:transition-none",
 				SPACE_MESSAGE_CONTENT_PADDING_CLASS,
-				SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
+				SPACE_MESSAGE_BUBBLE_WIDTH_CLASS,
 				input.selfMessageContentLayoutClassName,
 				input.bubblePresentationClass
 			)}
@@ -3105,7 +3121,10 @@ function ConversationSpeakerHeader(input: {
 	const trigger = (
 		<button
 			aria-label={`Check ${input.run.speaker.displayName} Profile`}
-			className="inline-flex min-w-0 max-w-full cursor-pointer touch-manipulation flex-wrap items-start gap-x-1.5 gap-y-1 self-start rounded-md text-left font-normal text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 max-lg:min-h-6 max-lg:min-w-6"
+			className={cn(
+				"inline-flex min-w-0 max-w-full cursor-pointer touch-manipulation flex-wrap items-start gap-x-1.5 gap-y-1 self-start rounded-md text-left font-normal text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 max-lg:min-w-6",
+				input.avatarOnly && "max-lg:min-h-6"
+			)}
 			type="button"
 		>
 			{content}
@@ -3333,6 +3352,7 @@ function renderConversationMessageFooter(input: {
 	anchoredOutcomeNotices: readonly SpaceTimelineItem[];
 	canUseMessageActions: boolean;
 	hasWakeProblem: boolean;
+	isDirectMessage: boolean;
 	isCreatingThread: boolean;
 	item: SpaceTimelineItem;
 	messageAlign: "end" | "start";
@@ -3395,6 +3415,7 @@ function renderConversationMessageFooter(input: {
 				sourceItem: input.item,
 			}}
 			failureSummary={failureSummary}
+			isDirectMessage={input.isDirectMessage}
 			item={input.item}
 			onCopy={() =>
 				copySpaceTimelineItemWithFeedback({
@@ -3445,7 +3466,6 @@ function renderConversationMessageFooter(input: {
 						})
 					: undefined
 			}
-			timestamp={TIMELINE_TIME_FORMATTER.format(input.item.createdAtMs)}
 		/>
 	);
 }
@@ -4126,12 +4146,5 @@ function resolveDirectMessageTargetName(
 		)?.profileName ?? null
 	);
 }
-
-const TIMELINE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
-	hour: "numeric",
-	minute: "2-digit",
-	second: "2-digit",
-	timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-});
 
 import { buildSpaceTaskSources } from "./space-composer-task-menu";

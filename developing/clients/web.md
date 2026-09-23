@@ -1362,8 +1362,12 @@ message in a speaker run aligns the avatar with the bubble's top; subsequent
 messages retain the same column. Names and runtime/owner attribution are omitted
 from DM speaker headers, while avatar Profile Details remain available. The
 current member's avatar follows the same left/right Appearance preference as
-their bubble. Main timeline, threads, and pending first messages share this
-layout. Actions remain below each bubble in the existing reserved footer row.
+their bubble. Main timeline, threads, and pending first messages share the
+speaker and alignment primitives. The main timeline groups consecutive messages
+and floats actions beside or above a bubble without shifting the transcript.
+A Thread shows each message with its own speaker header. Its bubble can use the
+panel width, and its actions occupy a reserved row below the bubble instead of
+reducing the message width.
 Every speaker's message uses
 the same semantic radius and content inset. Other speakers use a quiet muted
 surface; the current member uses a soft tint of the shared blue `unread` color,
@@ -4362,10 +4366,20 @@ relation. Graph and the structured message envelope retain that relation for
 agents and diagnostics. Message details remains the drill-in for complete
 execution and failure context.
 
-Each recorded message reserves one stable footer for its timestamp and actions.
-When a message has a failure, the visible footer keeps only one red Message
-details icon, More actions, and the timestamp at every width;
-Copy, Reply, Thread, and Addressing move into More actions. Footer icon controls
+In an ordinary Space, the first message in a speaker run shows its 24-hour,
+hour-and-minute time beside the speaker name; later messages omit the time in
+the timeline. Direct messages keep the compact avatar-and-bubble layout without
+a separate header time. Each direct message shows its 24-hour, hour-and-minute
+time inside the floating toolbar. Message details remains available for an
+individual message. Message actions form one floating
+toolbar beside the bubble, or just above it when neither side has room. It
+prefers the opposite side of a right-aligned
+self message and the right side of a left-aligned message. Phone widths show
+reaction and More actions beside a narrower bubble, keeping the full set of
+actions available from More. The toolbar does not reserve a footer row or change
+the bubble's height. When a message has a failure, the visible
+toolbar keeps only one red Message details icon and More actions;
+Copy, Reply, Thread, and Addressing move into More actions. Toolbar icon controls
 use a compact 28-pixel container with 6-pixel visual padding. A failure colors
 the Message details icon red but does not show a persistent hover or selected
 background; that background appears only through real interaction state. The
@@ -4377,14 +4391,12 @@ line breaks. They are not duplicated under Technical details. The existing
 bounded, owner-only error projection and sensitive-data exclusions still apply.
 
 Message rhythm follows the existing speaker grouping instead of the current
-member's alignment. Message content sits 2 pixels above its reserved footer. A
-consecutive message from the same speaker starts 1 pixel after the preceding
-footer. When the speaker changes or the existing conversation grouping starts a
-new run, the adjacent run edges contribute 2 pixels each for a 4-pixel group
+member's alignment. A consecutive message from the same speaker starts 1 pixel
+after the preceding bubble. When the speaker changes or the existing conversation grouping starts a
+new run, the adjacent run edges contribute 6 pixels each for a 12-pixel group
 boundary. Date separators, system regions, and other real section boundaries
-keep their wider spacing. The reserved footer height remains stable while its
-hover actions change opacity, so pointer interaction does not move later
-messages.
+keep their wider spacing. The floating toolbar does not change message height
+when it appears.
 
 In the full message body on the main timeline and in the Thread panel, the
 first visible mention owned by each structured Agent Wake or Reference renders

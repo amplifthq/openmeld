@@ -69,7 +69,7 @@ const APP_MIN_HEIGHT = 640;
 const APP_NAME = app.getName();
 // Budget the complete row, including separators and ellipses. Wide Latin and
 // non-ASCII graphemes cost two units; this is conservative, not a pixel measure.
-const TRAY_PREVIEW_TEXT_BUDGET = 32;
+const TRAY_PREVIEW_TEXT_BUDGET = 48;
 const TRAY_PREVIEW_SOURCE_TEXT_BUDGET = 12;
 const WIDE_NATIVE_MENU_GRAPHEME = /[^\u0020-\u007e]|[MWmw@%&]/u;
 const NATIVE_MENU_GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, {
@@ -483,7 +483,6 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
   const unreadCount = trayContext?.unreadCount;
   const computer = trayContext?.computer;
   const computerStatus = computer?.statusLabel ?? "Checking…";
-  const nativeMenuCapabilities = resolveNativeMenuCapabilities();
   return [
     ...preview,
     trayActionItem({
@@ -517,18 +516,16 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
       label: "Open App",
       click: showStatusWindow,
     }),
-    trayActionItem({
-      icon: "computer",
-      label: nativeMenuCapabilities.badge
-        ? "Computer"
-        : `Computer — ${computerStatus}`,
-      accessibilityLabel: `Computer, ${computerStatus}`,
-      ...(nativeMenuCapabilities.badge
-        ? { badge: { type: "none" as const, content: computerStatus } }
-        : {}),
-      enabled: computer?.available ?? Boolean(pilot),
-      click: () => showDesktopWindow("computer"),
-    }),
+    trayActionItem(
+      {
+        icon: "computer",
+        label: `Computer — ${computerStatus}`,
+        accessibilityLabel: `Computer, ${computerStatus}`,
+        enabled: computer?.available ?? Boolean(pilot),
+        click: () => showDesktopWindow("computer"),
+      },
+      trayComputerIconColor(computer?.statusTone)
+    ),
     trayActionItem({
       icon: "settings",
       label: "Settings…",
@@ -563,15 +560,11 @@ function trayUpdaterMenuItems(
     }
     return "Update Available…";
   })();
-  const nativeMenuCapabilities = resolveNativeMenuCapabilities();
   return [
     trayActionItem({
       icon: "updates",
       label,
       accessibilityLabel: `${presentation.headline}. ${presentation.description}`,
-      ...(nativeMenuCapabilities.badge
-        ? { badge: { type: "updates" as const, count: 1 } }
-        : {}),
       click: () => appUpdater?.showNative().catch(console.error),
     }),
   ];
@@ -635,10 +628,24 @@ function trayPreviewMenuItems(
 }
 
 function trayActionItem(
-  item: MenuItemConstructorOptions & { icon: TrayMenuIconName }
+  item: MenuItemConstructorOptions & { icon: TrayMenuIconName },
+  iconColor = TRAY_MENU_ICON_COLOR
 ): MenuItemConstructorOptions {
-  const icon = createTrayMenuIcon(item.icon);
+  const icon = createTrayMenuIcon(item.icon, iconColor);
   return icon ? { ...item, icon } : { ...item, icon: undefined };
+}
+
+function trayComputerIconColor(
+  tone: "connected" | "offline" | "attention" | undefined
+): string {
+  switch (tone) {
+    case "connected":
+      return "#34d399";
+    case "attention":
+      return "#fbbf24";
+    default:
+      return TRAY_MENU_ICON_COLOR;
+  }
 }
 
 type TrayMenuIconName =
@@ -664,14 +671,17 @@ const TRAY_MENU_ICONS = {
   updates: ArrowClockwiseIcon,
 } satisfies Record<TrayMenuIconName, TrayMenuIconComponent>;
 
-function createTrayMenuIcon(name: TrayMenuIconName) {
+function createTrayMenuIcon(
+  name: TrayMenuIconName,
+  color = TRAY_MENU_ICON_COLOR
+) {
   if (process.platform !== "darwin") {
     return undefined;
   }
   const Icon = TRAY_MENU_ICONS[name];
   const svg = renderToStaticMarkup(
     createElement(Icon, {
-      color: TRAY_MENU_ICON_COLOR,
+      color,
       size: TRAY_MENU_ICON_SIZE,
       weight: "regular",
     })
@@ -771,24 +781,6 @@ function formatTrayAttentionTooltip(
   return details.length > 0
     ? `Inbox - ${details.join(", ")}`
     : "Inbox - All caught up";
-}
-
-function resolveNativeMenuCapabilities(): {
-  badge: boolean;
-} {
-  if (
-    process.platform !== "darwin" ||
-    typeof process.getSystemVersion !== "function"
-  ) {
-    return { badge: false };
-  }
-  const [major = 0] = process
-    .getSystemVersion()
-    .split(".")
-    .map((part) => Number.parseInt(part, 10));
-  return {
-    badge: major >= 14,
-  };
 }
 
 function nativeMenuTextUnits(value: string): number {

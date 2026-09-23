@@ -4082,6 +4082,9 @@ const recordPreExecutionOwnerUnresolvedVisibleFailure = async (input: {
       message: input.dispatchMessage,
       requestIdPrefix: "openMeldDaemon-owner-unresolved-visible-failure",
     }),
+    ...(input.dispatchMessage.threadContext
+      ? { threadContext: input.dispatchMessage.threadContext }
+      : {}),
   });
   await markDispatchStatus({
     attemptId: input.executionAttemptId,
@@ -5798,6 +5801,9 @@ const emitDispatchFailureHintSignal = async (input: {
         message: input.message,
         requestIdPrefix: "openMeldDaemon-dispatch-hint",
       }),
+      ...(input.message.threadContext
+        ? { threadContext: input.message.threadContext }
+        : {}),
       context: requestContext,
     });
     return "persisted";
@@ -5875,6 +5881,9 @@ const emitFrozenPreHeadFailurePublication = async (input: {
       env: input.env,
       ...input.intent.publicationCommand,
       finalOutcomeAuthority: "runtime_coordinator_failure_publication",
+      ...(input.intent.redriveMessage.threadContext
+        ? { threadContext: input.intent.redriveMessage.threadContext }
+        : {}),
     });
     return "persisted";
   } catch (error) {

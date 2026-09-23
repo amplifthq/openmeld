@@ -7,6 +7,7 @@ import {
 import type {
 	AuthProfileView,
 	OrganizationDirectoryResponse,
+	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import {
 	cleanup,
@@ -19,7 +20,7 @@ import {
 import type { ComponentProps, ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
-import { readCurrentOrganizationDirectory } from "#/lib/organizations/organization-directory";
+import { readCurrentOrganizationProfileDirectory } from "#/lib/organizations/organization-directory";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { agentProfilePrimaryBindingQueryKeys } from "#/query/profiles/primary-binding";
@@ -73,7 +74,7 @@ vi.mock(
 		...(await importOriginal<
 			typeof import("#/lib/organizations/organization-directory")
 		>()),
-		readCurrentOrganizationDirectory: vi.fn(),
+		readCurrentOrganizationProfileDirectory: vi.fn(),
 	})
 );
 
@@ -309,22 +310,28 @@ describe("SpaceMembersSidePanel", () => {
 			humanProfileId: "22222222-2222-4222-8222-222222222222",
 		});
 		let rejectRefresh: (reason: Error) => void = () => undefined;
-		let resolveRetry: (value: OrganizationDirectoryResponse) => void = () =>
-			undefined;
-		const pending = new Promise<OrganizationDirectoryResponse>(
+		const profileDirectory = toProfileDirectory(directory);
+		let resolveRetry: (value: OrganizationProfileDirectoryResponse) => void =
+			() => undefined;
+		const pending = new Promise<OrganizationProfileDirectoryResponse>(
 			(_resolve, reject) => {
 				rejectRefresh = reject;
 			}
 		);
-		const retry = new Promise<OrganizationDirectoryResponse>((resolve) => {
-			resolveRetry = resolve;
-		});
+		const retry = new Promise<OrganizationProfileDirectoryResponse>(
+			(resolve) => {
+				resolveRetry = resolve;
+			}
+		);
 		const read = vi
-			.mocked(readCurrentOrganizationDirectory)
+			.mocked(readCurrentOrganizationProfileDirectory)
 			.mockReturnValueOnce(pending)
 			.mockReturnValueOnce(retry);
 		const client = createTestQueryClient();
-		client.setQueryData(organizationQueryKeys.directory("org-acme"), directory);
+		client.setQueryData(
+			organizationQueryKeys.profileDirectory("org-acme"),
+			profileDirectory
+		);
 		const surface = (nonce: number) => (
 			<TestQueryClientProvider queryClient={client}>
 				<AppOrganizationProvider scope={createOrganizationScope()}>
@@ -352,14 +359,9 @@ describe("SpaceMembersSidePanel", () => {
 		await screen.findByRole("checkbox", { name: "Mira" });
 		fireEvent.click(screen.getByText("Close"));
 		view.rerender(surface(2));
-		await screen.findByRole("checkbox", { name: "Mira" });
-		expect(read).not.toHaveBeenCalled();
-		fireEvent.click(screen.getByText("Close"));
-		vi.setSystemTime(new Date("2026-09-16T12:00:11Z"));
-		view.rerender(surface(3));
 		await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
 		fireEvent.click(screen.getByText("Close"));
-		view.rerender(surface(4));
+		view.rerender(surface(3));
 		const choice = screen.getByRole("checkbox", { name: "Mira" });
 		fireEvent.click(choice);
 		expect(read).toHaveBeenCalledTimes(1);
@@ -379,11 +381,11 @@ describe("SpaceMembersSidePanel", () => {
 			screen
 				.getByRole("button", { name: "Add 1 member" })
 				.hasAttribute("disabled")
-		).toBe(false);
+		).toBe(true);
 		expect(choice.getAttribute("aria-checked")).toBe("true");
 		fireEvent.click(retrying);
 		expect(read).toHaveBeenCalledTimes(2);
-		resolveRetry(directory);
+		resolveRetry(profileDirectory);
 		await waitFor(() => expect(screen.queryByText(refreshMessage)).toBeNull());
 		expect(read).toHaveBeenCalledTimes(2);
 		expect(choice.getAttribute("aria-checked")).toBe("true");
@@ -446,7 +448,7 @@ describe("SpaceMembersSidePanel", () => {
 		vi.useRealTimers();
 		vi.restoreAllMocks();
 		readPrimaryBindingMock.mockReset();
-		vi.mocked(readCurrentOrganizationDirectory).mockReset();
+		vi.mocked(readCurrentOrganizationProfileDirectory).mockReset();
 		toastMock.error.mockReset();
 		toastMock.success.mockReset();
 		updatePrimaryBindingAgentControllerCollaborationModeMock.mockReset();
@@ -2592,9 +2594,12 @@ function renderWithOrganizationQueryClient(
 	isPersonal = false
 ) {
 	const queryClient = createTestQueryClient();
+	vi.mocked(readCurrentOrganizationProfileDirectory).mockResolvedValue(
+		toProfileDirectory(directory)
+	);
 	queryClient.setQueryData(
-		organizationQueryKeys.directory("org-acme"),
-		directory
+		organizationQueryKeys.profileDirectory("org-acme"),
+		toProfileDirectory(directory)
 	);
 	return render(
 		<TestQueryClientProvider queryClient={queryClient}>
@@ -2768,6 +2773,18 @@ function buildOrganizationDirectory(input: {
 			},
 		],
 		organizationId: "org-acme",
+	};
+}
+
+function toProfileDirectory(
+	directory: OrganizationDirectoryResponse
+): OrganizationProfileDirectoryResponse {
+	return {
+		...directory,
+		agentProfiles: directory.agentProfiles.map(({ readiness, ...profile }) => ({
+			...profile,
+			agentControllerRef: readiness.agentControllerRef,
+		})),
 	};
 }
 

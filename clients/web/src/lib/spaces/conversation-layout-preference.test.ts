@@ -16,9 +16,9 @@ describe("conversation layout preference", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("defaults to a centered layout when no preference was saved", () => {
-		expect(DEFAULT_SPACE_CONVERSATION_LAYOUT).toBe("centered");
-		expect(readSpaceConversationLayoutPreference()).toBe("centered");
+	it("defaults to a full-width layout when no preference was saved", () => {
+		expect(DEFAULT_SPACE_CONVERSATION_LAYOUT).toBe("full-width");
+		expect(readSpaceConversationLayoutPreference()).toBe("full-width");
 	});
 
 	it("removes an invalid saved value instead of inventing a layout", () => {
