@@ -3263,6 +3263,11 @@ freshness; the Organization scope query is not given either longer lifetime.
 Cached display data is therefore a first-paint aid, never membership,
 permission, or mutation authority.
 
+The account invalidation stream accelerates cross-Space Inbox and Space Index
+refreshes in Web and Desktop. Its frames carry no item or preview data. The
+client re-reads the owning projection on each frame and reconnect; bounded
+polling covers missed frames and older Desktop builds.
+
 Authenticated route loaders may warm these same Query keys during SSR and let
 the existing TanStack Router SSR Query integration hydrate them on direct entry.
 Private, membership-scoped, real-time conversations must not be statically

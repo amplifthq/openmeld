@@ -4,6 +4,7 @@ import {
 	isInboxItemInOrganizationScope,
 	isInboxNotificationEligible,
 } from "@openmeld/api-client";
+import { accountInvalidationFrameSchema } from "@openmeld/schemas";
 
 import {
 	type QueryClient,
@@ -23,6 +24,7 @@ import { useCurrentComputer } from "#/components/app/current-computer";
 import { useInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
 import { getDesktopPlatform } from "#/desktop/platform";
 import { useDesktopUpdater } from "#/desktop/updater";
+import { createAccountInvalidationTransport } from "#/lib/inbox/account-invalidation-transport";
 import {
 	clearInboxNotificationItemPending,
 	type InboxNotificationDeliveryReadiness,
@@ -209,6 +211,127 @@ export function InboxNotificationListener(input: {
 		},
 		refetchIntervalInBackground: notificationsEnabled,
 	});
+	useEffect(() => {
+		let stopped = false;
+		let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+		let pingTimer: ReturnType<typeof setInterval> | null = null;
+		let spaceRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+		let connection: ReturnType<typeof createAccountInvalidationTransport> =
+			null;
+		let retryCount = 0;
+		const refreshInbox = () => {
+			itemsQuery
+				.refetch({ cancelRefetch: false })
+				.catch((error: unknown) =>
+					console.warn("[openmeld.web.inbox.stream_refresh_failed]", { error })
+				);
+		};
+		const refreshSpaces = () => {
+			queryClient
+				.invalidateQueries({
+					queryKey: accountSpaceQueryKeys.all,
+					predicate: (query) =>
+						query.queryKey[3] === "account" || query.queryKey[3] === "profile",
+				})
+				.catch((error: unknown) =>
+					console.warn("[openmeld.web.space.directory_refresh_failed]", {
+						error,
+					})
+				);
+		};
+		const scheduleSpaceRefresh = () => {
+			if (spaceRefreshTimer) {
+				return;
+			}
+			spaceRefreshTimer = setTimeout(() => {
+				spaceRefreshTimer = null;
+				if (!stopped) {
+					refreshSpaces();
+				}
+			}, 75);
+		};
+		const connect = () => {
+			if (stopped) {
+				return;
+			}
+			connection = createAccountInvalidationTransport({
+				organizationId: input.organizationId,
+				desktop,
+			});
+			const socket = connection;
+			if (!socket) {
+				return; // Older Desktop builds keep the cursor polling fallback.
+			}
+			socket.addEventListener("open", () => {
+				if (stopped) {
+					return;
+				}
+				retryCount = 0;
+				refreshInbox();
+				refreshSpaces();
+				pingTimer = setInterval(() => {
+					try {
+						socket.send("ping");
+					} catch {
+						socket.close();
+					}
+				}, 25_000);
+			});
+			socket.addEventListener("message", (event) => {
+				if (
+					!(event instanceof MessageEvent) ||
+					typeof event.data !== "string"
+				) {
+					return;
+				}
+				let value: unknown;
+				try {
+					value = JSON.parse(event.data);
+				} catch {
+					return;
+				}
+				const frame = accountInvalidationFrameSchema.safeParse(value);
+				if (!frame.success) {
+					return;
+				}
+				if (frame.data.type === "inbox.changed") {
+					refreshInbox();
+				} else {
+					scheduleSpaceRefresh();
+				}
+			});
+			socket.addEventListener("close", () => {
+				if (pingTimer) {
+					clearInterval(pingTimer);
+					pingTimer = null;
+				}
+				if (stopped) {
+					return;
+				}
+				refreshInbox();
+				refreshSpaces();
+				reconnectTimer = setTimeout(
+					connect,
+					Math.min(30_000, 1000 * 2 ** retryCount)
+				);
+				retryCount += 1;
+			});
+		};
+		connect();
+		return () => {
+			stopped = true;
+			if (reconnectTimer) {
+				clearTimeout(reconnectTimer);
+			}
+			if (pingTimer) {
+				clearInterval(pingTimer);
+			}
+			if (spaceRefreshTimer) {
+				clearTimeout(spaceRefreshTimer);
+			}
+			connection?.close();
+		};
+	}, [desktop, input.organizationId, itemsQuery.refetch, queryClient]);
 	const feedIdentity = `${input.organizationId}:${input.organizationSlug}:${input.userId}:${notificationsEnabled}`;
 	const deliveryAbortRef = useRef<{
 		feedIdentity: string;
