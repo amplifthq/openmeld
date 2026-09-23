@@ -22,6 +22,8 @@ import {
 
 const INVALID_DEPENDENCY = /non-portable/u;
 const INVALID_CONTENT = /missing|binary artifacts|does not match/u;
+const MISSING_WINDOWS_HELPER =
+  /missing package\/dist\/windows\/openmeld-windows-process\.exe/u;
 const INVALID_INTEGRITY = /bytes do not match/u;
 const DIRTY_WORKTREE = /clean worktree/u;
 
@@ -52,6 +54,12 @@ function fixture(dependencies = {}) {
   manifest.devDependencies = undefined;
   writeFileSync(join(cli, "package.json"), JSON.stringify(manifest));
   writeFileSync(join(cli, "README.md"), "Fixture CLI\n");
+  mkdirSync(join(cli, "dist/windows"));
+  // Packaging presence fixture only; actual PE behavior is tested on Windows.
+  writeFileSync(
+    join(cli, "dist/windows/openmeld-windows-process.exe"),
+    "fixture helper asset"
+  );
   writeFileSync(
     join(cli, "dist/openmeld.js"),
     "#!/usr/bin/env node\nif(!process.env.OPENMELD_HOME?.startsWith(process.env.HOME))process.exit(2);console.log('0.0.1');\n"
@@ -317,7 +325,7 @@ test("refuses to retain a proof when source drifts during consumer verification"
   }
 });
 
-test("rejects a pack that has no entrypoint or accidentally includes standalone binaries", async () => {
+test("rejects missing runtime assets and accidental standalone binaries", async () => {
   const source = fixture();
   try {
     mkdirSync(join(source.cli, "dist/binary"));
@@ -325,6 +333,12 @@ test("rejects a pack that has no entrypoint or accidentally includes standalone 
     await assert.rejects(
       packNpmCliArtifact({ cwd: source.root }),
       INVALID_CONTENT
+    );
+    rmSync(join(source.cli, "dist/binary"), { recursive: true });
+    rmSync(join(source.cli, "dist/windows"), { recursive: true });
+    await assert.rejects(
+      packNpmCliArtifact({ cwd: source.root }),
+      MISSING_WINDOWS_HELPER
     );
     rmSync(join(source.cli, "dist"), { recursive: true });
     await assert.rejects(

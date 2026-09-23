@@ -1351,7 +1351,9 @@ is a prebuilt Native AOT executable over the same reviewed Win32 API bridge;
 it also reads process creation FILETIME through an opened process handle.
 Windows builds compile it with the pinned SDK before packaging. Consumers do
 not install .NET or compile C# during Agent launch or cleanup. Node/npm reads
-the package's `dist/native/openmeld-windows-process.exe`; a compiled carrier
+the package's `dist/windows/openmeld-windows-process.exe`; this Service-owned
+asset is copied into the npm Service bundle and included in its content hash.
+All npm publishing platforms must use the same prebuilt Windows asset. A compiled carrier
 requires that executable alongside the CLI/Service in the same version bundle.
 There is no runtime PowerShell fallback for missing helper artifacts. The
 Task Scheduler task-host migration is a separate lifecycle boundary below;

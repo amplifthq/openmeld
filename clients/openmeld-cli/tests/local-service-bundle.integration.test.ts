@@ -610,6 +610,12 @@ describe("local service bundle", () => {
           "utf8"
         );
         await mkdir(join(fixture.distRootPath, "native"), { recursive: true });
+        await mkdir(join(fixture.distRootPath, "windows"), { recursive: true });
+        await writeFile(
+          join(fixture.distRootPath, "windows", "openmeld-windows-process.exe"),
+          "Service process helper fixture\n",
+          "utf8"
+        );
         await writeFile(
           join(fixture.distRootPath, "native", "openmeld-keychain.node"),
           "macOS secure storage addon\n",
@@ -680,6 +686,17 @@ describe("local service bundle", () => {
           stat(join(bundleRootPath, "dist", "native", "openmeld-keychain.node"))
         ).rejects.toMatchObject({ code: "ENOENT" });
         await expect(stat(bundlePackageJsonPath)).resolves.toBeDefined();
+        await expect(
+          readFile(
+            join(
+              bundleRootPath,
+              "dist",
+              "windows",
+              "openmeld-windows-process.exe"
+            ),
+            "utf8"
+          )
+        ).resolves.toBe("Service process helper fixture\n");
         await expect(
           readFile(bundlePackageJsonPath, "utf8")
         ).resolves.toContain('"type": "module"');

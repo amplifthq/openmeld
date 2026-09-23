@@ -14,6 +14,8 @@ export function resolveWindowsNativeProcessHelper(): string {
   return binary
     ? join(dirname(process.execPath), "openmeld-windows-process.exe")
     : fileURLToPath(
-        new URL("./native/openmeld-windows-process.exe", import.meta.url)
+        // Both src/ (workspace tests) and dist/ (installed code) share this
+        // package-owned build output. Never search another installation.
+        new URL("../dist/windows/openmeld-windows-process.exe", import.meta.url)
       );
 }

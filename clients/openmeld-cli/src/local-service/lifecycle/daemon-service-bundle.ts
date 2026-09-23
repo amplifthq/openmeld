@@ -74,9 +74,9 @@ const DAEMON_BUNDLE_SOURCE_KIND_WORKSPACE = "workspace";
 const DAEMON_BUNDLE_SOURCE_KIND_PACKAGE_INSTALL = "package_install";
 const DAEMON_BUNDLE_SOURCE_KIND_NPX_CACHE = "npx_cache";
 const DAEMON_BUNDLE_SOURCE_KIND_UNKNOWN = "unknown";
-// The npm Service bundle copies the platform-neutral JavaScript runtime only.
-// CLI binary and native secure-storage artifacts are verified and released by
-// the CLI artifact lane; the Service does not load them.
+// The npm Service bundle includes JavaScript and its dist/windows process
+// helper. Every platform's npm artifact carries the same prebuilt helper.
+// CLI-only binaries and native secure storage have separate artifact integrity.
 const DAEMON_SOURCE_DIST_IGNORED_TOP_LEVEL_DIRS = new Set(["binary", "native"]);
 
 export type DaemonBundleFormat =

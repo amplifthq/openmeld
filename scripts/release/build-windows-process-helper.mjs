@@ -45,7 +45,7 @@ if (result.error) {
 if (result.status !== 0) {
   throw new Error(`Windows process helper build failed (${result.status}).`);
 }
-const adapterOutput = path.join(root, "runtime/adapters/core/dist/native");
+const adapterOutput = path.join(root, "runtime/adapters/core/dist/windows");
 mkdirSync(adapterOutput, { recursive: true });
 copyFileSync(
   path.join(output, "openmeld-windows-process.exe"),
