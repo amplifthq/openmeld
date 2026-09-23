@@ -12,6 +12,7 @@ import type {
 	SignalEnvelope,
 	SpaceAgentStreamPresence,
 	SpaceAgentStreamSnapshot,
+	SpaceInboxUnreadTarget,
 	SpaceThreadContext,
 	SpaceThreadSignalPlacement,
 } from "@openmeld/schemas/types";
@@ -31,7 +32,10 @@ import {
 	mergeSpaceTimelineEnvelopes,
 	type SpaceLiveState,
 } from "#/lib/spaces/timeline";
-import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
+import {
+	accountSpaceQueryKeys,
+	updateAccountSpaceAcceptedMessage,
+} from "#/query/spaces/account-spaces";
 import {
 	readSpaceHistory,
 	SPACE_UPDATES_LIMIT,
@@ -98,7 +102,7 @@ type ReconcileFreshnessControls = {
 	isCurrentReconcile: () => boolean;
 	markReconcileHealthy: () => void;
 	markReconcileStale: () => void;
-	pendingCatchUpCursorRef: MutableRef<string | null>;
+	confirmedCatchUpCursorRef: MutableRef<string | null>;
 	spaceId: string;
 };
 
@@ -111,7 +115,9 @@ async function reconcileFromRecentWindow(
 			openMeldProfileId: input.openMeldProfileId,
 		});
 		if (input.applyReconciledSignals(snapshot.envelopes)) {
-			input.pendingCatchUpCursorRef.current = null;
+			input.confirmedCatchUpCursorRef.current = getLatestSignalEnvelopeId(
+				snapshot.envelopes
+			);
 			input.markReconcileHealthy();
 		}
 	} catch (error) {
@@ -149,7 +155,6 @@ async function drainSpaceUpdatesFromAnchor(
 			return;
 		}
 		if (updates.signals.length === 0) {
-			input.pendingCatchUpCursorRef.current = null;
 			input.markReconcileHealthy();
 			return;
 		}
@@ -162,14 +167,13 @@ async function drainSpaceUpdatesFromAnchor(
 				afterSignalId: cursor,
 				spaceId: input.spaceId,
 			});
-			input.pendingCatchUpCursorRef.current = cursor;
+			input.confirmedCatchUpCursorRef.current = cursor;
 			input.markReconcileStale();
 			return;
 		}
 		cursor = nextCursor;
-		input.pendingCatchUpCursorRef.current = cursor;
+		input.confirmedCatchUpCursorRef.current = cursor;
 		if (updates.signals.length < SPACE_UPDATES_LIMIT) {
-			input.pendingCatchUpCursorRef.current = null;
 			input.markReconcileHealthy();
 			return;
 		}
@@ -192,6 +196,7 @@ export function useSpaceLandingFeed(input: {
 	membersRefetch: () => Promise<unknown>;
 	initialAgentStreamPresences?: readonly SpaceAgentStreamPresence[];
 	initialAgentStreams: readonly SpaceAgentStreamSnapshot[];
+	unreadTargets?: readonly SpaceInboxUnreadTarget[];
 	onThreadSignal?: (input: {
 		placement: SpaceThreadSignalPlacement;
 		signal: SignalEnvelope;
@@ -260,7 +265,6 @@ export function useSpaceLandingFeed(input: {
 			signalIds: new Set(),
 		});
 	const timelineEnvelopesRef = useRef<readonly SignalEnvelope[]>([]);
-	const persistedTimelineEnvelopesRef = useRef<readonly SignalEnvelope[]>([]);
 	const onThreadSignalRef = useRef(input.onThreadSignal);
 	const onWakeFinalOutcomeFactsRefreshRef = useRef(
 		input.onWakeFinalOutcomeFactsRefresh
@@ -291,7 +295,10 @@ export function useSpaceLandingFeed(input: {
 	const feedIdentityRef = useRef(feedIdentity);
 	const reconcileFlightRef = useRef<ReconcileFlight | null>(null);
 	const mountReconcileStartedIdentityRef = useRef<string | null>(null);
-	const pendingCatchUpCursorRef = useRef<string | null>(null);
+	// Only an authoritative history or updates read can advance this cursor.
+	// A newer live frame cannot prove that earlier frames were delivered.
+	const confirmedCatchUpCursorRef = useRef<string | null>(null);
+	const checkedUnreadTargetIdsRef = useRef(new Set<string>());
 
 	useEffect(() => {
 		mountedRef.current = true;
@@ -412,9 +419,8 @@ export function useSpaceLandingFeed(input: {
 					current: timelineEnvelopesRef.current,
 					incoming,
 				});
-				recordPersistedTimelineSignals({
-					currentRef: persistedTimelineEnvelopesRef,
-					incoming,
+				writeSpaceHistoryEnvelopesToCache({
+					envelopes: incoming,
 					queryClient,
 					spaceId: input.spaceId,
 					openMeldProfileId: input.openMeldProfileId,
@@ -453,22 +459,17 @@ export function useSpaceLandingFeed(input: {
 				isCurrentReconcile,
 				markReconcileHealthy,
 				markReconcileStale,
-				pendingCatchUpCursorRef,
+				confirmedCatchUpCursorRef,
 				spaceId: input.spaceId,
 			};
 
-			const latestAnchorSignalId = getLatestSignalEnvelopeId(
-				persistedTimelineEnvelopesRef.current
-			);
-			const anchorSignalId =
-				pendingCatchUpCursorRef.current ?? latestAnchorSignalId;
+			const anchorSignalId = confirmedCatchUpCursorRef.current;
 			if (!anchorSignalId) {
 				await reconcileFromRecentWindow(reconcileControls);
 				return;
 			}
 
 			try {
-				pendingCatchUpCursorRef.current = anchorSignalId;
 				await drainSpaceUpdatesFromAnchor({
 					...reconcileControls,
 					anchorSignalId,
@@ -484,7 +485,7 @@ export function useSpaceLandingFeed(input: {
 					spaceId: input.spaceId,
 				});
 				if (isAnchorNotFoundFailure(failure)) {
-					pendingCatchUpCursorRef.current = null;
+					confirmedCatchUpCursorRef.current = null;
 					await reconcileFromRecentWindow(reconcileControls);
 					return;
 				}
@@ -593,6 +594,37 @@ export function useSpaceLandingFeed(input: {
 	}, [input.history.isPending, input.statusReady, reconcileConversation]);
 
 	useEffect(() => {
+		if (!(input.statusReady && input.history.isSuccess)) {
+			return;
+		}
+		const visibleIds = new Set(timelineEnvelopes.map((signal) => signal.id));
+		const currentUnreadTargetIds = new Set<string>();
+		let missingUnreadTarget = false;
+		for (const target of input.unreadTargets ?? []) {
+			currentUnreadTargetIds.add(target.signalId);
+			if (
+				target.threadRootSignalId !== null ||
+				checkedUnreadTargetIdsRef.current.has(target.signalId)
+			) {
+				continue;
+			}
+			missingUnreadTarget ||= !visibleIds.has(target.signalId);
+		}
+		checkedUnreadTargetIdsRef.current = currentUnreadTargetIds;
+		if (missingUnreadTarget) {
+			// Inbox and the Space stream are independent. A new unread target is a
+			// hint to read the authoritative Space tail, not message content.
+			reconcileConversation().catch(() => undefined);
+		}
+	}, [
+		input.history.isSuccess,
+		input.statusReady,
+		input.unreadTargets,
+		reconcileConversation,
+		timelineEnvelopes,
+	]);
+
+	useEffect(() => {
 		historyReadyRef.current =
 			!input.history.isPending && input.history.isSuccess;
 	}, [input.history.isPending, input.history.isSuccess]);
@@ -612,7 +644,6 @@ export function useSpaceLandingFeed(input: {
 		}
 
 		timelineEnvelopesRef.current = [];
-		persistedTimelineEnvelopesRef.current = [];
 		setTimelineEnvelopes([]);
 		setLiveState("connecting");
 		setLiveErrorMessage(null);
@@ -623,7 +654,8 @@ export function useSpaceLandingFeed(input: {
 		observedWakeFinalOutcomeSignalIdsRef.current.clear();
 		pendingWakeFinalOutcomeRefreshRef.current.agentProfileIds.clear();
 		pendingWakeFinalOutcomeRefreshRef.current.signalIds.clear();
-		pendingCatchUpCursorRef.current = null;
+		confirmedCatchUpCursorRef.current = null;
+		checkedUnreadTargetIdsRef.current.clear();
 		currentSocketAttemptKeyRef.current = null;
 		readySocketAttemptKeyRef.current = null;
 		skippedReadyReconcilePendingRef.current = false;
@@ -653,9 +685,12 @@ export function useSpaceLandingFeed(input: {
 		}
 
 		const incoming = input.history.data?.envelopes ?? [];
-		recordPersistedTimelineSignals({
-			currentRef: persistedTimelineEnvelopesRef,
-			incoming,
+		confirmedCatchUpCursorRef.current ??= getLatestSignalEnvelopeId(incoming);
+		writeSpaceHistoryEnvelopesToCache({
+			envelopes: mergeSpaceTimelineEnvelopes({
+				current: incoming,
+				incoming: timelineEnvelopesRef.current,
+			}),
 			queryClient,
 			spaceId: input.spaceId,
 			openMeldProfileId: input.openMeldProfileId,
@@ -957,7 +992,6 @@ export function useSpaceLandingFeed(input: {
 				onThreadSignalRef,
 				onWakeFinalOutcomeFactsRefreshRef,
 				pendingWakeFinalOutcomeRefreshRef,
-				persistedTimelineEnvelopesRef,
 				queryClient,
 				setTimelineEnvelopes,
 				spaceId: input.spaceId,
@@ -1039,13 +1073,18 @@ export function useSpaceLandingFeed(input: {
 		liveState,
 		reconnectNow,
 		mergePersistedIncoming: (incoming: readonly SignalEnvelope[]) => {
-			recordPersistedTimelineSignals({
-				currentRef: persistedTimelineEnvelopesRef,
-				incoming,
-				queryClient,
-				spaceId: input.spaceId,
-				openMeldProfileId: input.openMeldProfileId,
-			});
+			if (
+				queryClient.getQueryData(
+					spaceQueryKeys.history(input.spaceId, input.openMeldProfileId)
+				)
+			) {
+				writeSpaceHistoryEnvelopesToCache({
+					envelopes: incoming,
+					queryClient,
+					spaceId: input.spaceId,
+					openMeldProfileId: input.openMeldProfileId,
+				});
+			}
 			return mergeIncomingSignals({
 				currentRef: timelineEnvelopesRef,
 				incoming,
@@ -1412,7 +1451,6 @@ function handleLiveSignalMessage(input: {
 	pendingWakeFinalOutcomeRefreshRef: {
 		current: WakeFinalOutcomeRefreshBatch;
 	};
-	persistedTimelineEnvelopesRef: { current: readonly SignalEnvelope[] };
 	queryClient: QueryClient;
 	setTimelineEnvelopes: (next: readonly SignalEnvelope[]) => void;
 	spaceId: string;
@@ -1457,10 +1495,14 @@ function handleLiveSignalMessage(input: {
 		current: input.timelineEnvelopesRef.current,
 		incoming: [input.message.signal],
 	});
-	if (shouldRecordLiveSignalAsCatchUpAnchor(input.message)) {
-		recordPersistedTimelineSignals({
-			currentRef: input.persistedTimelineEnvelopesRef,
-			incoming: [input.message.signal],
+	if (
+		shouldRecordLiveSignalAsCatchUpAnchor(input.message) &&
+		input.queryClient.getQueryData(
+			spaceQueryKeys.history(input.spaceId, input.openMeldProfileId)
+		)
+	) {
+		writeSpaceHistoryEnvelopesToCache({
+			envelopes: [input.message.signal],
 			queryClient: input.queryClient,
 			spaceId: input.spaceId,
 			openMeldProfileId: input.openMeldProfileId,
@@ -1471,6 +1513,16 @@ function handleLiveSignalMessage(input: {
 		incoming: [input.message.signal],
 		setState: input.setTimelineEnvelopes,
 	});
+	if (
+		newSignals.length > 0 &&
+		shouldRecordLiveSignalAsCatchUpAnchor(input.message)
+	) {
+		updateAccountSpaceAcceptedMessage(
+			input.queryClient,
+			input.openMeldProfileId,
+			input.message.signal
+		);
+	}
 	scheduleRefetchesForSignals({
 		wakeFinalOutcomeHandledByCallback: Boolean(
 			input.onWakeFinalOutcomeFactsRefreshRef.current
@@ -1506,29 +1558,6 @@ function shouldProcessLiveInvalidationFrame(input: {
 	}
 	input.versionsByTypeRef.current.set(input.frame.type, input.frame.version);
 	return true;
-}
-
-function recordPersistedTimelineSignals(input: {
-	currentRef: { current: readonly SignalEnvelope[] };
-	incoming: readonly SignalEnvelope[];
-	queryClient: QueryClient;
-	spaceId: string;
-	openMeldProfileId: string;
-}) {
-	if (input.incoming.length === 0) {
-		return;
-	}
-
-	input.currentRef.current = mergeSpaceTimelineEnvelopes({
-		current: input.currentRef.current,
-		incoming: input.incoming,
-	});
-	writeSpaceHistoryEnvelopesToCache({
-		envelopes: input.incoming,
-		queryClient: input.queryClient,
-		spaceId: input.spaceId,
-		openMeldProfileId: input.openMeldProfileId,
-	});
 }
 
 function getLatestSignalEnvelopeId(

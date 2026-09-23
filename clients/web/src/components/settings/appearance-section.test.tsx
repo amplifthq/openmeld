@@ -8,7 +8,7 @@ const themeState = vi.hoisted(() => ({
 	theme: "system" as string | undefined,
 }));
 const conversationLayoutState = vi.hoisted(() => ({
-	read: vi.fn(() => "centered" as const),
+	read: vi.fn(() => "full-width" as const),
 	write: vi.fn(),
 }));
 const selfMessageAlignmentState = vi.hoisted(() => ({
@@ -22,7 +22,7 @@ vi.mock("next-themes", () => ({
 }));
 
 vi.mock("#/lib/spaces/conversation-layout-preference", () => ({
-	DEFAULT_SPACE_CONVERSATION_LAYOUT: "centered",
+	DEFAULT_SPACE_CONVERSATION_LAYOUT: "full-width",
 	readSpaceConversationLayoutPreference: conversationLayoutState.read,
 	writeSpaceConversationLayoutPreference: conversationLayoutState.write,
 }));
@@ -55,7 +55,7 @@ describe("AppearanceSection", () => {
 		document.documentElement.removeAttribute("data-hidden-toolbar-shortcuts");
 		themeState.setTheme.mockReset();
 		themeState.theme = "system";
-		conversationLayoutState.read.mockReset().mockReturnValue("centered");
+		conversationLayoutState.read.mockReset().mockReturnValue("full-width");
 		conversationLayoutState.write.mockReset();
 		selfMessageAlignmentState.read.mockReset().mockReturnValue("right");
 		selfMessageAlignmentState.write.mockReset();
@@ -175,7 +175,7 @@ describe("AppearanceSection", () => {
 		expect(layoutGroup.getAttribute("aria-orientation")).toBe("horizontal");
 		expect(
 			screen
-				.getByRole("radio", { name: "Centered" })
+				.getByRole("radio", { name: "Full width" })
 				.getAttribute("aria-checked")
 		).toBe("true");
 		expect(

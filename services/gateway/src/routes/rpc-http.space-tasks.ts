@@ -68,6 +68,10 @@ export function registerSpaceTaskRoutes(app: Hono<HonoBindings>): void {
       return c.json({ message: "Invalid Task ID." }, 400);
     }
     const spaceId = c.req.param("spaceId");
+    const affordances = c.req.query("includeAffordances");
+    if (affordances !== undefined && affordances !== "1") {
+      return c.json({ message: "Invalid Task detail option." }, 400);
+    }
     return executeRpcRoute({
       c,
       route: itemRoute,
@@ -80,6 +84,7 @@ export function registerSpaceTaskRoutes(app: Hono<HonoBindings>): void {
           taskId: taskId.data,
           password: readSpacePasswordHeader(c.req.raw.headers),
           context: buildCoreRpcContext(c),
+          includeAffordances: affordances === "1",
         }),
     });
   });

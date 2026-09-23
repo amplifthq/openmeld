@@ -1,8 +1,4 @@
-import { spaceTaskExternalWorkItemIdentityKey } from "@openmeld/schemas";
-import type {
-  SpaceTask,
-  SpaceTaskExternalWorkItem,
-} from "@openmeld/schemas/types";
+import type { SpaceTask } from "@openmeld/schemas/types";
 
 export type SpaceTaskGitHubIssueLinkRecord = {
   detachedAtMs: number | null;
@@ -19,17 +15,24 @@ export async function projectSpaceTaskGitHubIssueLinks(input: {
   db: D1Database;
   nowMs: number;
   organizationId: string;
-  previousItems: readonly SpaceTaskExternalWorkItem[];
   spaceId: string;
   task: SpaceTask;
 }): Promise<void> {
   const nextGithub = input.task.externalWorkItems.filter(
     (item) => item.provider === "github"
   );
-  const nextKeys = new Set(
-    nextGithub.map((item) => spaceTaskExternalWorkItemIdentityKey(item))
-  );
-  const statements: D1PreparedStatement[] = [];
+  // Reconcile the current Task snapshot in one batch so recovery also removes
+  // links whose detach mutation never reached this projection.
+  const statements: D1PreparedStatement[] = [
+    input.db
+      .prepare(
+        `UPDATE space_task_github_issue_links
+         SET detached_at_ms = ?, updated_at_ms = ?
+         WHERE space_id = ? AND task_id = ?
+           AND provider = 'github' AND detached_at_ms IS NULL`
+      )
+      .bind(input.nowMs, input.nowMs, input.spaceId, input.task.taskId),
+  ];
   for (const item of nextGithub) {
     statements.push(
       input.db
@@ -74,42 +77,6 @@ export async function projectSpaceTaskGitHubIssueLinks(input: {
           input.nowMs
         )
     );
-  }
-  for (const item of input.previousItems) {
-    if (item.provider !== "github") {
-      continue;
-    }
-    if (nextKeys.has(spaceTaskExternalWorkItemIdentityKey(item))) {
-      continue;
-    }
-    statements.push(
-      input.db
-        .prepare(
-          `
-            UPDATE space_task_github_issue_links
-            SET detached_at_ms = ?, updated_at_ms = ?
-            WHERE space_id = ?
-              AND task_id = ?
-              AND provider = 'github'
-              AND owner_login = ?
-              AND repo = ?
-              AND number = ?
-              AND detached_at_ms IS NULL
-          `
-        )
-        .bind(
-          input.nowMs,
-          input.nowMs,
-          input.spaceId,
-          input.task.taskId,
-          item.owner.toLowerCase(),
-          item.repo.toLowerCase(),
-          item.number
-        )
-    );
-  }
-  if (statements.length === 0) {
-    return;
   }
   await input.db.batch(statements);
 }

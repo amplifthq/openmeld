@@ -1,7 +1,28 @@
+import { setTimeout as delay } from "node:timers/promises";
+
 // GitHub's documented REST collections are paged before any release selection.
 // A safety bound is reported as incomplete, never treated as a complete history.
 const PAGE_SIZE = 100;
 const MAX_PAGES = 100;
+const TRANSIENT_GITHUB_READ = /\bHTTP (?:500|502|503|504)\b/u;
+
+async function readGithubPage(endpoint, readJson, wait) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await readJson(endpoint);
+    } catch (error) {
+      if (
+        attempt >= 2 ||
+        !TRANSIENT_GITHUB_READ.test(
+          error instanceof Error ? error.message : String(error)
+        )
+      ) {
+        throw error;
+      }
+      await wait(1000 * (attempt + 1));
+    }
+  }
+}
 export const RELEASE_SCOPES = [
   "db",
   "web",
@@ -40,14 +61,17 @@ export async function readGithubCollection({
   key,
   readJson,
   maxPages = MAX_PAGES,
+  wait = delay,
 }) {
   const items = new Map();
   let reportedCount = 0;
   let pagesRead = 0;
   try {
     for (let page = 1; page <= maxPages; page += 1) {
-      const result = await readJson(
-        `${endpoint}${endpoint.includes("?") ? "&" : "?"}per_page=${PAGE_SIZE}&page=${page}`
+      const result = await readGithubPage(
+        `${endpoint}${endpoint.includes("?") ? "&" : "?"}per_page=${PAGE_SIZE}&page=${page}`,
+        readJson,
+        wait
       );
       pagesRead += 1;
       if (

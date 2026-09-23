@@ -1102,6 +1102,14 @@ actions stay in Messages. Creating assigns the current Agent by default and
 leaves the Task in To do; starting, result submission, review, and cancellation
 are explicit revision-bound writes. Task cancellation may request the existing
 Wake Stop path, but the Task receipt never claims that a process stopped.
+`review_task` also requires `expectedResultRevision` from the exact submitted
+result the Agent read. A Task or result revision conflict requires reading the
+changed Task and making a new decision; clients never silently retry the old
+decision against a newer revision. Older CLI/Service Task review tools without
+this field must be upgraded and fail closed on the new server contract.
+The Space owns delivery of review and rework handoffs through normal Wake
+admission. A successful Task transition must not prompt the Agent to publish a
+second manual Wake for that transition.
 
 An Agent chooses exactly one dispatch-scoped OpenMeld Space Action as a Wake's
 final outcome. A supported controller receives first-party `reply`, `status`,

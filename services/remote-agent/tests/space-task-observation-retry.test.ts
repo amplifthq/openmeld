@@ -7,8 +7,8 @@ import type { MutateSpaceTaskBody } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import {
   isSpaceTaskRevisionConflictError,
-  mutateSpaceTaskRefreshingOnRevisionConflict,
-} from "../agent-core/space-task-revision-retry";
+  mutateSpaceTaskWithObservationConflictRetry,
+} from "../agent-core/space-task-observation-retry";
 
 const TASK_ID = "tsk_55555555-5555-4555-8555-555555555555";
 const ACTOR = {
@@ -64,7 +64,17 @@ const receipt = (revision: number) =>
   });
 
 describe("Space Task mutation revision retry", () => {
-  it("refreshes expectedRevision once after a typed revision conflict", async () => {
+  it("refreshes only a provider observation after a typed revision conflict", async () => {
+    const observation: MutateSpaceTaskBody = {
+      action: "observe_external_work_item",
+      expectedRevision: 1,
+      lastObservedState: "closed",
+      number: 42,
+      operationId: "op-1",
+      owner: "org",
+      provider: "github",
+      repo: "repo",
+    };
     const mutate = vi
       .fn()
       .mockRejectedValueOnce(
@@ -83,24 +93,57 @@ describe("Space Task mutation revision retry", () => {
     const readCurrentRevision = vi.fn(async () => 2);
 
     await expect(
-      mutateSpaceTaskRefreshingOnRevisionConflict({
+      mutateSpaceTaskWithObservationConflictRetry({
         mutate,
         readCurrentRevision,
-        request,
+        request: observation,
       })
     ).resolves.toMatchObject({ task: { revision: 3 } });
 
     expect(readCurrentRevision).toHaveBeenCalledOnce();
-    expect(mutate).toHaveBeenNthCalledWith(1, request);
+    expect(mutate).toHaveBeenNthCalledWith(1, observation);
     expect(mutate).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        action: "update_brief",
-        description: "New acceptance criteria.",
+        action: "observe_external_work_item",
+        lastObservedState: "closed",
         expectedRevision: 2,
       })
     );
     expect(mutate.mock.calls[1]?.[0].operationId).not.toBe("op-1");
+  });
+
+  it.each<MutateSpaceTaskBody>([
+    request,
+    {
+      action: "review",
+      decision: "accepted",
+      expectedRevision: 3,
+      expectedResultRevision: 1,
+      operationId: "accept-result-one",
+    },
+  ])("does not rebase a semantic $action over a concurrent change", async (semanticRequest) => {
+    const error = new Error("Task changed", {
+      cause: {
+        code: SPACE_TASK_REVISION_CONFLICT_ERROR_CODE,
+        message: "Read the changed Task before deciding again.",
+        status: 409,
+      },
+    });
+    const mutate = vi
+      .fn()
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce(receipt(6));
+    const readCurrentRevision = vi.fn(async () => 5);
+    await expect(
+      mutateSpaceTaskWithObservationConflictRetry({
+        mutate,
+        readCurrentRevision,
+        request: semanticRequest,
+      })
+    ).rejects.toBe(error);
+    expect(mutate).toHaveBeenCalledOnce();
+    expect(readCurrentRevision).not.toHaveBeenCalled();
   });
 
   it("does not retry a different Task failure", async () => {
@@ -110,7 +153,7 @@ describe("Space Task mutation revision retry", () => {
     });
 
     await expect(
-      mutateSpaceTaskRefreshingOnRevisionConflict({
+      mutateSpaceTaskWithObservationConflictRetry({
         mutate,
         readCurrentRevision: async () => 2,
         request,

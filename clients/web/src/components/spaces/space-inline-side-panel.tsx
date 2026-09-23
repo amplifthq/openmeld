@@ -104,7 +104,7 @@ export function SpaceInlineSidePanel(input: {
 						</div>
 						{!isOverlay && (
 							<SidebarRail
-								className="hidden transition-colors motion-reduce:transition-none lg:block"
+								className="transition-colors motion-reduce:transition-none"
 								enableToggle={false}
 								nested
 								separatorLabel={input.resizeHandleLabel}

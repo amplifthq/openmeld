@@ -2087,11 +2087,23 @@ async function withGitHubIssueSpaceTaskBinding(input: {
 }): Promise<Record<string, unknown>> {
   let binding: Awaited<ReturnType<typeof applyGitHubIssueSpaceTaskBinding>> =
     null;
+  const connectionName = asRecord(input.result.attribution)?.connectionName;
   try {
     binding = await applyGitHubIssueSpaceTaskBinding({
       actionId: input.actionId,
       actionInput: input.actionInput,
       data: input.result.data,
+      eventIdentity: input.operationId,
+      now: await readStableGitHubIssueObservationAt({
+        data: input.result.data,
+        operationId: input.operationId,
+        scope: [
+          input.toolContext.context.activeOrganizationId ?? "",
+          input.toolContext.context.actorContext.openMeldProfileId,
+          typeof connectionName === "string" ? connectionName : "",
+        ].join(":"),
+        storage: input.storage,
+      }),
       ports: input.coreWorker,
       toolContext: input.toolContext,
     });
@@ -2154,6 +2166,40 @@ async function withGitHubIssueSpaceTaskBinding(input: {
     ...input.result,
     spaceTask: toSpaceTaskGitHubBindingToolResult(binding),
   };
+}
+
+export async function readStableGitHubIssueObservationAt(input: {
+  data: unknown;
+  operationId: string;
+  scope: string;
+  storage: RemoteAgentStorage;
+}): Promise<string> {
+  const record = asRecord(input.data);
+  const nested = asRecord(record?.data);
+  const timestamp =
+    record?.updated_at ??
+    record?.updatedAt ??
+    nested?.updated_at ??
+    nested?.updatedAt;
+  if (typeof timestamp === "string" && Number.isFinite(Date.parse(timestamp))) {
+    return new Date(timestamp).toISOString();
+  }
+  const key = `github-space-task-observation:${input.scope}:${input.operationId}`;
+  const stored = await input.storage.get<string>(key);
+  if (stored) {
+    return stored;
+  }
+  const firstObservedAt = new Date().toISOString();
+  if (await input.storage.putIfAbsent(key, firstObservedAt)) {
+    return firstObservedAt;
+  }
+  const concurrent = await input.storage.get<string>(key);
+  if (!concurrent) {
+    throw new Error(
+      "The GitHub issue observation time could not be recovered."
+    );
+  }
+  return concurrent;
 }
 
 async function resolvePendingGitHubDestructiveConfirmation(input: {

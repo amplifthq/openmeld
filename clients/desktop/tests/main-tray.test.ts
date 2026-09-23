@@ -852,7 +852,6 @@ describe("main tray behavior", () => {
   function trayMenuTemplate():
     | Array<{
         accessibilityLabel?: string;
-        badge?: { content?: string; type?: string };
         click?: () => void;
         enabled?: boolean;
         icon?: unknown;
@@ -866,7 +865,6 @@ describe("main tray behavior", () => {
     return tray?.setContextMenu.mock.calls.at(-1)?.[0] as
       | Array<{
           accessibilityLabel?: string;
-          badge?: { content?: string; type?: string };
           click?: () => void;
           enabled?: boolean;
           icon?: unknown;
@@ -878,7 +876,7 @@ describe("main tray behavior", () => {
       | undefined;
   }
 
-  function trayMenuItem(label: string): { click?: () => void } | undefined {
+  function trayMenuItem(label: string) {
     return trayMenuTemplate()?.find((item) => item.label === label);
   }
 
@@ -890,7 +888,7 @@ describe("main tray behavior", () => {
       "Loading notifications…",
       "Open Inbox",
       "Open App",
-      "Computer",
+      "Computer — Checking…",
       "Settings…",
       "Quit OpenMeld",
     ]);
@@ -903,7 +901,7 @@ describe("main tray behavior", () => {
       "Open Inbox",
       "separator",
       "Open App",
-      "Computer",
+      "Computer — Checking…",
       "Settings…",
       "separator",
       "Quit OpenMeld",
@@ -938,9 +936,9 @@ describe("main tray behavior", () => {
       expect.objectContaining({
         accessibilityLabel:
           "Update available. Version 0.1.5 is available to download.",
-        badge: { type: "updates", count: 1 },
       })
     );
+    expect(available).not.toHaveProperty("badge");
     available?.click?.();
     expect(updaterMock.controller.showNative).toHaveBeenCalledOnce();
 
@@ -997,7 +995,7 @@ describe("main tray behavior", () => {
     expect(trayMenuLabels()).toEqual([
       "Open Inbox",
       "Open App",
-      "Computer",
+      "Computer — Checking…",
       "Settings…",
       "Quit OpenMeld",
     ]);
@@ -1007,7 +1005,7 @@ describe("main tray behavior", () => {
     expect(trayMenuLabels()).not.toContain("No unread messages");
   });
 
-  it("keeps the Computer status on the same native menu row", async () => {
+  it("keeps Computer status inline so the preview can use the menu width", async () => {
     setTestPlatform("darwin");
     setTestSystemVersion("14.4");
     await importMain();
@@ -1017,12 +1015,51 @@ describe("main tray behavior", () => {
       unreadCount: 0,
     });
 
-    expect(trayMenuItem("Computer")).toEqual(
+    expect(trayMenuItem("Computer — Checking…")).toEqual(
       expect.objectContaining({
         accessibilityLabel: "Computer, Checking…",
-        badge: { type: "none", content: "Checking…" },
       })
     );
+    expect(trayMenuItem("Computer — Checking…")).not.toHaveProperty("badge");
+    inboxTitle.setContext?.({
+      computer: {
+        available: true,
+        statusLabel: "Connected",
+        statusTone: "connected",
+      },
+      unreadCount: 0,
+    });
+    expect(
+      (trayMenuItem("Computer — Connected")?.icon as { dataUrl: string })
+        .dataUrl
+    ).toContain("%2334d399");
+    inboxTitle.setContext?.({
+      computer: {
+        available: true,
+        statusLabel: "Disconnected",
+        statusTone: "offline",
+      },
+      unreadCount: 0,
+    });
+    expect(
+      (trayMenuItem("Computer — Disconnected")?.icon as { dataUrl: string })
+        .dataUrl
+    ).toContain("%23d4d4d4");
+    inboxTitle.setContext?.({
+      computer: {
+        available: true,
+        statusLabel: "Checking OpenMeld status",
+        statusTone: "attention",
+      },
+      unreadCount: 0,
+    });
+    expect(
+      (
+        trayMenuItem("Computer — Checking OpenMeld status")?.icon as {
+          dataUrl: string;
+        }
+      ).dataUrl
+    ).toContain("%23fbbf24");
   });
 
   it("keeps Computer status and preview text visible before macOS 14.4", async () => {
@@ -1050,9 +1087,7 @@ describe("main tray behavior", () => {
     });
 
     expect(trayMenuItem("Computer — Connected")).toBeTruthy();
-    expect(
-      trayMenuItem(`${"L".repeat(10)}… — ${"p".repeat(14)}…`)
-    ).toBeTruthy();
+    expect(trayMenuItem(`${"L".repeat(23)} — ${"p".repeat(19)}`)).toBeTruthy();
   });
 
   it("renders and activates one exact unread preview", async () => {
@@ -1133,45 +1168,45 @@ describe("main tray behavior", () => {
       },
       {
         name: "complete row exactly at the budget",
-        preview: "p".repeat(16),
+        preview: "p".repeat(32),
         title: "T".repeat(12),
-        expectedLabel: `${"T".repeat(12)} — ${"p".repeat(16)}`,
+        expectedLabel: `${"T".repeat(12)} — ${"p".repeat(32)}`,
       },
       {
         name: "complete row one unit above the budget",
-        preview: "p".repeat(17),
+        preview: "p".repeat(33),
         title: "T".repeat(12),
-        expectedLabel: `${"T".repeat(12)} — ${"p".repeat(14)}…`,
+        expectedLabel: `${"T".repeat(12)} — ${"p".repeat(30)}…`,
       },
       {
         name: "long English text",
         preview: `${"p".repeat(16)}\n${"p".repeat(17)}`,
         title: "T".repeat(31),
-        expectedLabel: `${"T".repeat(10)}… — ${"p".repeat(14)}…`,
+        expectedLabel: `${"T".repeat(10)}… — ${"p".repeat(16)} ${"p".repeat(13)}…`,
       },
       {
         name: "long Chinese text",
         preview: "文".repeat(33),
         title: "标".repeat(31),
-        expectedLabel: `${"标".repeat(5)}… — ${"文".repeat(7)}…`,
+        expectedLabel: `${"标".repeat(5)}… — ${"文".repeat(15)}…`,
       },
       {
         name: "wide English text",
         preview: "W".repeat(32),
         title: "W".repeat(22),
-        expectedLabel: `${"W".repeat(5)}… — ${"W".repeat(7)}…`,
+        expectedLabel: `${"W".repeat(5)}… — ${"W".repeat(15)}…`,
       },
       {
         name: "short source leaves room for the message",
-        preview: "p".repeat(40),
+        preview: "p".repeat(60),
         title: "A",
-        expectedLabel: `A — ${"p".repeat(25)}…`,
+        expectedLabel: `A — ${"p".repeat(41)}…`,
       },
       {
         name: "long source without a message uses the full row",
         preview: " \n\t ",
-        title: "T".repeat(40),
-        expectedLabel: `${"T".repeat(30)}…`,
+        title: "T".repeat(60),
+        expectedLabel: `${"T".repeat(46)}…`,
       },
       {
         name: "empty message",
@@ -1192,31 +1227,31 @@ describe("main tray behavior", () => {
         contextLabel: "A long project name that belongs in the full context",
         ageMs: 42 * 24 * 60 * 60 * 1000,
         expectedTime: "42d",
-        expectedLabel: "Amplift C… — 请检查最新发布…",
+        expectedLabel: "Amplift C… — 请检查最新发布计划，release no…",
       },
       {
         name: "ordinary emoji on the truncation boundary",
-        preview: `${"b".repeat(14)}😀x`,
+        preview: `${"b".repeat(35)}😀x`,
         title: `${"a".repeat(10)}😀x`,
-        expectedLabel: `${"a".repeat(10)}… — ${"b".repeat(14)}…`,
+        expectedLabel: `${"a".repeat(10)}… — ${"b".repeat(30)}…`,
       },
       {
         name: "family emoji crossing the truncation boundary",
-        preview: `${"f".repeat(20)}👨‍👩‍👧‍👦xy`,
+        preview: `${"f".repeat(40)}👨‍👩‍👧‍👦xy`,
         title: "Team",
-        expectedLabel: `Team — ${"f".repeat(20)}…`,
+        expectedLabel: `Team — ${"f".repeat(37)}…`,
       },
       {
         name: "family emoji fits before the ellipsis",
-        preview: `${"f".repeat(19)}👨‍👩‍👧‍👦xyzz`,
+        preview: `${"f".repeat(35)}👨‍👩‍👧‍👦xyzz`,
         title: "Team",
-        expectedLabel: `Team — ${"f".repeat(19)}👨‍👩‍👧‍👦…`,
+        expectedLabel: `Team — ${"f".repeat(35)}👨‍👩‍👧‍👦…`,
       },
       {
         name: "combining sequence fits before the ellipsis",
-        preview: `${"c".repeat(19)}e\u0301xyz`,
+        preview: `${"c".repeat(35)}e\u0301xyz`,
         title: "Jose\u0301",
-        expectedLabel: `Jose\u0301 — ${"c".repeat(19)}e\u0301…`,
+        expectedLabel: `Jose\u0301 — ${"c".repeat(35)}e\u0301…`,
       },
     ];
 

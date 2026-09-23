@@ -163,7 +163,7 @@ arrived first.
 The macOS menu bar menu is the compact native entry to the current Desktop
 workspace. It shows the newest eligible unread message as one preview, then
 Open inbox, Open app, Computer, Settings…, and Quit OpenMeld. When Main's native
-updater reports an actionable newer version, a system-badged update row appears
+updater reports an actionable newer version, an update row appears
 beside Settings and opens the existing native download/restart flow. Current,
 idle, and unavailable builds keep that row absent. Opening the menu
 does not mark anything read. Activating the preview re-reads that exact Inbox
@@ -175,7 +175,7 @@ lifecycle controls. Quitting the GUI retains the independent Service lifecycle.
 The unread preview uses one bounded, whitespace-normalized native label rather
 than a wrapping macOS sublabel. Main supplies compact display text; the native
 menu retains ownership of layout, system appearance, and interaction. A complete
-source-title and excerpt row stays intact when it fits the shared 32-unit budget.
+source-title and excerpt row stays intact when it fits the shared 48-unit budget.
 Only an overflowing row limits the source to 12 units and gives the excerpt the
 remaining space after the separator and ellipses. Wide Latin and non-ASCII
 graphemes each count as two units. With no excerpt, the source can use the full
@@ -186,13 +186,16 @@ accessible label.
 
 AppKit owns the final content-sized menu width. These conservative text units
 are an OpenMeld formatting heuristic, not an official platform value or a pixel
-maximum for the whole menu. Other menu items, badges, fonts, and system layout
-can establish a natural width floor. The visual acceptance ceiling is about half
-of the whole menu in the original Desktop 0.1.5 screenshot at the same display
-scale, not a ratio recalculated from each test string. Native measurement is
-UNVERIFIED and deferred by the owner to the unified post-merge smoke. No custom
-minimum/maximum-width window is introduced. The full preview remains available
-in the tooltip and accessible label. Truncation preserves grapheme boundaries.
+maximum for the whole menu. Other menu items, fonts, and system layout can
+establish a natural width floor. Computer status and update attention stay in
+their labels rather than native badges, which reserve a right-side column across
+the menu. Check the rendered menu against the available screen width; the
+preview should use that width without making the menu disproportionately wide.
+No custom minimum/maximum-width window is introduced. The full preview remains
+available in the tooltip and accessible label. Truncation preserves grapheme
+boundaries. The Computer icon uses green for a connected Computer, gray for an
+offline Computer, and amber for other statuses. The Web status reason supplies
+this presentation tone, without making Desktop a second status owner.
 The native menu keeps its current snapshot while open, so a refresh cannot
 retarget a row under the pointer.
 
@@ -999,8 +1002,11 @@ For production renderer verification, run `pnpm desktop:renderer:production`
 from the clean candidate checkout. This builds the production Web renderer,
 runs its Workerd SSR entry locally, validates the prerendered shell and compiled
 target, and records source/input/output identity in `dev-tmp/release-artifact-check`.
-Web and Desktop artifact checks share a 4 GiB renderer Node heap, overridable
-with `OPENMELD_RENDERER_NODE_HEAP_MB` or `NODE_OPTIONS`. The default and override
+Web artifact checks default to a 4 GiB renderer Node heap. macOS Desktop
+production checks default to 5 GiB after a 4 GiB `/desktop-shell` prerender
+exhausted its heap in the 0.1.7 release. The smaller GitHub Linux runner keeps
+its 4 GiB admission budget. Both are overridable with
+`OPENMELD_RENDERER_NODE_HEAP_MB` or `NODE_OPTIONS`. The default and override
 must fit machine headroom and the heavy-work reservation, including 1 GiB of
 non-heap overhead.
 `OPENMELD_LOCAL_HEAVY_GIB` can set that reservation explicitly. An inherited

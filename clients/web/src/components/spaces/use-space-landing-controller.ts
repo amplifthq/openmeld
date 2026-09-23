@@ -1660,6 +1660,7 @@ export function useSpaceLandingController(input: {
 		initialAgentStreams: bootstrapBelongsToProgressLifetime
 			? (bootstrapQuery.data?.activeAgentStreams ?? [])
 			: [],
+		unreadTargets: input.unreadTargets,
 		history: {
 			isPending: historyPending,
 			isSuccess: historyReady,
@@ -3009,24 +3010,18 @@ export function useSpaceLandingController(input: {
 					senderProfileId: input.profileId,
 					status: sendInput.status,
 				});
-		const pendingMessageEnvelope =
-			(centerAgentExecutionInput
-				? {
-						...sendInput.preparedSubmission.messageEnvelope,
-						activationTargets: [],
-						referenceTargets:
-							sendInput.preparedSubmission.messageEnvelope?.referenceTargets ??
-							[],
-						text: sendInput.preparedSubmission.text,
-					}
-				: sendInput.preparedSubmission.messageEnvelope) ??
-			(wakeProgressTargetProfileIds.length > 0
-				? {
-						activationTargets: wakeProgressTargetProfileIds,
-						referenceTargets: [],
-						text: sendInput.preparedSubmission.text,
-					}
-				: null);
+		// An implicit Direct Message Wake drives progress, but is not an authored
+		// @Agent target and must not appear in the optimistic message body.
+		const pendingMessageEnvelope = centerAgentExecutionInput
+			? {
+					...sendInput.preparedSubmission.messageEnvelope,
+					activationTargets: [],
+					referenceTargets:
+						sendInput.preparedSubmission.messageEnvelope?.referenceTargets ??
+						[],
+					text: sendInput.preparedSubmission.text,
+				}
+			: (sendInput.preparedSubmission.messageEnvelope ?? null);
 		const pendingOutgoingSignal = createPendingOutgoingSignal({
 			composerFiles: sendInput.composerFiles,
 			files: sendInput.files,

@@ -13,7 +13,6 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { OrganizationSpaceProfileCandidates } from "#/query/organizations/organization-directory";
-import { buildRemoteCenterAgentReadiness } from "#/test-support/center-agent-readiness";
 import {
 	createTestQueryClient,
 	TestQueryClientProvider,
@@ -76,9 +75,6 @@ const directory: OrganizationSpaceProfileCandidates = {
 			status: "active",
 			createdAt: "2026-09-01T00:00:00Z",
 			lastUsedAt: null,
-			readiness: buildRemoteCenterAgentReadiness("available", {
-				agentProfileId: agentId,
-			}),
 		},
 		{
 			profileId: centerId,
@@ -91,9 +87,6 @@ const directory: OrganizationSpaceProfileCandidates = {
 			status: "active",
 			createdAt: "2026-09-01T00:00:00Z",
 			lastUsedAt: null,
-			readiness: buildRemoteCenterAgentReadiness("available", {
-				agentProfileId: centerId,
-			}),
 		},
 	],
 };

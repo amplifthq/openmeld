@@ -36,3 +36,20 @@ export const windowsUserTaskActionSchema = z.strictObject({
   env: z.record(z.string(), z.string()),
   logPath: z.string().min(1),
 });
+export type WindowsUserTaskAction = z.infer<typeof windowsUserTaskActionSchema>;
+
+// Released CLI writers spread their registration spec into the encoded action.
+// Accept only those known historical string fields on read, then return the
+// canonical action. Task Scheduler still owns cwd; pendingJobPath is not an
+// execution parameter. Do not loosen the canonical schema or pass unknown keys.
+export const windowsUserTaskStoredActionSchema = windowsUserTaskActionSchema
+  .extend({
+    workingDirectory: z.string().optional(),
+    pendingJobPath: z.string().optional(),
+  })
+  .transform(({ executable, args, env, logPath }) => ({
+    executable,
+    args,
+    env,
+    logPath,
+  }));

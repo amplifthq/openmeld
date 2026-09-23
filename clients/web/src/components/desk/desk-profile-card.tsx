@@ -13,7 +13,7 @@ import {
 	openCurrentDirectMessageSpace,
 	resolveDirectMessageOpenErrorMessage,
 } from "#/lib/spaces/direct-message";
-import { organizationSpaceProfileCandidatesQueryOptions } from "#/query/organizations/organization-directory";
+import { organizationDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 
 export function DeskProfileCard(input: {
@@ -24,7 +24,7 @@ export function DeskProfileCard(input: {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const client = useQueryClient();
 	const directory = useQuery({
-		...organizationSpaceProfileCandidatesQueryOptions({
+		...organizationDirectoryQueryOptions({
 			enabled: true,
 			organizationId: currentOrganization.id,
 		}),
@@ -83,8 +83,8 @@ export function DeskProfileCard(input: {
 			<ProfileCardHeader
 				avatar={
 					<SpaceProfileIcon
-						agentControllerRef={agent?.agentControllerRef ?? null}
-						avatarImageUrl={agent?.avatarUrl ?? member?.avatarImageUrl}
+						agentControllerRef={agent?.readiness.agentControllerRef ?? null}
+						avatarImageUrl={agent?.avatarUrl ?? member?.user.image}
 						isCenterAgent={agent?.isCenterAgent}
 						profileId={input.profileId}
 						profileKind={agent ? "agent" : "human"}
@@ -95,7 +95,7 @@ export function DeskProfileCard(input: {
 				badge={
 					agent ? (
 						<RemoteAgentIndicator
-							agentControllerRef={agent.agentControllerRef}
+							agentControllerRef={agent.readiness.agentControllerRef}
 						/>
 					) : undefined
 				}

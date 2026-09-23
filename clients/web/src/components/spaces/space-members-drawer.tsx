@@ -63,6 +63,7 @@ import {
 } from "#/lib/spaces/presentation";
 import {
 	organizationProfileDirectoryQueryOptions,
+	organizationQueryKeys,
 	organizationSpaceProfileCandidatesQueryOptions,
 } from "#/query/organizations/organization-directory";
 import {
@@ -916,7 +917,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 	);
 	const directoryQuery = useQuery(
 		organizationSpaceProfileCandidatesQueryOptions({
-			enabled: usesOrganizationDirectory || Boolean(input.open && organization),
+			enabled: Boolean(input.open && organization),
 			organizationId: organization?.id ?? "",
 		})
 	);
@@ -925,13 +926,15 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		if (!(input.open && organizationId)) {
 			return;
 		}
-		// Reuse fresh data and any in-flight request; opening never blocks on a read.
-		// The query observer keeps cached rows and exposes refresh errors.
-		queryClient.prefetchQuery(
-			organizationSpaceProfileCandidatesQueryOptions({
-				enabled: true,
-				organizationId,
-			})
+		// Team and the picker share this identity directory. Revalidate on entry
+		// so Agents created in another window appear without background polling.
+		queryClient.invalidateQueries(
+			{
+				exact: true,
+				queryKey: organizationQueryKeys.profileDirectory(organizationId),
+				refetchType: "active",
+			},
+			{ cancelRefetch: false }
 		);
 	}, [input.open, organizationId, queryClient]);
 
@@ -1049,6 +1052,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 	const canSubmit =
 		canRunAddMutation &&
 		input.snapshot !== null &&
+		!(usesOrganizationDirectory && directoryQuery.isError) &&
 		selectedCount > 0 &&
 		!isSubmitting;
 	const handleOpenChange = (open: boolean) => {
