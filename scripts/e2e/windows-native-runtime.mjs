@@ -6,6 +6,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  rename,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -37,6 +38,7 @@ for (const name of [
   "windows-agent-sdk",
   "windows-native-runtime",
   "windows-native-codex",
+  "windows-managed-launcher",
 ]) {
   const outFile = path.join(evidence, `${name}.exe`);
   const build = spawnSync(
@@ -115,6 +117,7 @@ const env = {
   CODEX_HOME: path.join(root, "codex-home"),
 };
 await mkdir(env.CODEX_HOME);
+await exerciseManagedLauncher();
 await exerciseOwnedComponent({
   executable: binaries["windows-native-runtime"].path,
   args: [binaries["windows-agent-sdk"].path],
@@ -133,6 +136,141 @@ await exerciseOwnedComponent({
   stages: ["official_codex_account_protocol"],
 });
 await rm(root, { recursive: true, force: true });
+
+async function exerciseManagedLauncher() {
+  const installation = path.join(workspace, "managed CLI");
+  const bin = path.join(installation, "bin");
+  const launcher = path.join(bin, "openmeld.exe");
+  await mkdir(bin, { recursive: true });
+  for (const installedVersion of ["1.0.0", "1.0.1"]) {
+    const directory = path.join(installation, "versions", installedVersion);
+    await mkdir(directory, { recursive: true });
+    await copyFile(
+      binaries["windows-managed-launcher"].path,
+      path.join(directory, "openmeld.exe")
+    );
+  }
+  await copyFile(helper, launcher);
+  const record = path.join(bin, "cli-installation.json");
+  const select = async (selectedVersion) => {
+    const next = `${record}.next`;
+    await writeFile(
+      next,
+      JSON.stringify({ schemaVersion: 1, version: selectedVersion })
+    );
+    await rename(next, record);
+  };
+  await select("1.0.0");
+  const release = path.join(installation, "release-child");
+  const args = [
+    "",
+    "中文 with spaces",
+    'literal"quote',
+    "tail\\",
+    "%PATH%",
+    "&()^!|<>;",
+  ];
+  const owned = spawnAgentControllerProcess({
+    bin: launcher,
+    args: [release, ...args],
+    cwd: workspace,
+    env,
+    shell: false,
+  });
+  let output = "";
+  let stderr = "";
+  let deadline;
+  const failures = [];
+  try {
+    await Promise.race([
+      new Promise((resolve, reject) => {
+        owned.child.once("error", reject);
+        owned.child.once("close", () =>
+          reject(new Error("Launcher closed before its child was ready"))
+        );
+        owned.child.stderr.on("data", (chunk) => {
+          stderr += chunk.toString();
+        });
+        owned.child.stdout.on("data", (chunk) => {
+          output += chunk.toString();
+          if (output.includes("\n")) {
+            resolve();
+          }
+        });
+      }),
+      new Promise((_, reject) => {
+        deadline = setTimeout(
+          () => reject(new Error("Managed launcher did not become ready")),
+          30_000
+        );
+      }),
+    ]);
+    clearTimeout(deadline);
+    const child = JSON.parse(output.trim());
+    assert.deepEqual(child, {
+      stage: "launcher_child",
+      version: "1.0.0",
+      args,
+      cwd: workspace,
+    });
+    // Windows may rename a running image but must never overwrite its bytes.
+    // Preserve the old image until its known child exits, then remove it.
+    const retired = path.join(bin, "retired-launcher.exe");
+    await rename(launcher, retired);
+    await copyFile(helper, launcher);
+    await select("1.0.1");
+    const next = spawnSync(launcher, ["immediate", ...args], {
+      cwd: workspace,
+      env,
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+    assert.ifError(next.error);
+    assert.equal(next.status, 7, next.stderr);
+    assert.deepEqual(JSON.parse(next.stdout.trim()), {
+      stage: "launcher_child",
+      version: "1.0.1",
+      args,
+      cwd: workspace,
+    });
+    assert.equal(next.stderr, "launcher child stderr\n");
+    const closed = new Promise((resolve) => owned.child.once("close", resolve));
+    await writeFile(release, "ready");
+    assert.equal(
+      await Promise.race([
+        closed,
+        new Promise((_, reject) => {
+          deadline = setTimeout(
+            () => reject(new Error("Old launcher did not exit")),
+            30_000
+          );
+        }),
+      ]),
+      7
+    );
+    assert.equal(stderr, "launcher child stderr\n");
+    await rm(retired);
+    console.log(
+      JSON.stringify({ stage: "managed_launcher_handoff", status: "passed" })
+    );
+  } catch (error) {
+    failures.push(error);
+  } finally {
+    clearTimeout(deadline);
+    await writeFile(
+      path.join(evidence, "managed-launcher.log"),
+      output + stderr
+    ).catch((error) => failures.push(error));
+    owned.terminate("SIGKILL");
+    const cleanup = await owned.terminateRemainingDescendants();
+    if (!cleanup.ok) {
+      failures.push(cleanup.error);
+    }
+  }
+  if (failures.length) {
+    throw new AggregateError(failures, "Managed launcher acceptance failed");
+  }
+}
 
 async function exerciseOwnedComponent(input) {
   console.log(

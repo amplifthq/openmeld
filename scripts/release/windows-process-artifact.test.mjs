@@ -34,6 +34,10 @@ test("imports one source-matched helper and rejects tampered bytes or changed na
       "packages/schemas/src/schemas/release/windows-process-artifact.ts";
     mkdirSync(path.dirname(path.join(root, schema)), { recursive: true });
     copyFileSync(path.join(ROOT, schema), path.join(root, schema));
+    copyFileSync(
+      path.join(ROOT, "packages/schemas/src/windows-artifact.ts"),
+      path.join(root, "packages/schemas/src/windows-artifact.ts")
+    );
     cpSync(path.join(ROOT, native), path.join(root, native), {
       recursive: true,
     });

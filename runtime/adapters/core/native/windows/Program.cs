@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Globalization;
+using System.IO;
 using System.Text;
 using System.Text.Json;
 
@@ -10,9 +11,13 @@ static class Program {
   const string RequestEnvironment = "OPENMELD_NATIVE_JOB_REQUEST";
   const string DrainReceipt = "openmeld-windows-job-drained-v1";
 
-  static int Main() {
+  static int Main(string[] args) {
     string phase = "decode_request";
     try {
+      if (string.Equals(Path.GetFileName(Environment.ProcessPath), "openmeld.exe", StringComparison.OrdinalIgnoreCase)) {
+        phase = "managed_cli_launch";
+        return ManagedCliLauncher.Run(args);
+      }
       string encoded = Environment.GetEnvironmentVariable(RequestEnvironment);
       Environment.SetEnvironmentVariable(RequestEnvironment, null);
       if (encoded == null || encoded.Length > 32000)

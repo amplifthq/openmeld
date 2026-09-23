@@ -12,9 +12,11 @@ const ROOT = path.resolve(
   "../.."
 );
 const INPUTS = [
+  "packages/schemas/src/windows-artifact.ts",
   "packages/schemas/src/schemas/release/windows-process-artifact.ts",
   "runtime/adapters/core/native/windows/OpenMeld.Windows.Process.csproj",
   "runtime/adapters/core/native/windows/ProcessJob.cs",
+  "runtime/adapters/core/native/windows/ManagedCliLauncher.cs",
   "runtime/adapters/core/native/windows/Program.cs",
   "runtime/adapters/core/native/windows/global.json",
   "scripts/release/build-windows-process-helper.mjs",
