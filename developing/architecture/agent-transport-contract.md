@@ -2128,6 +2128,42 @@ success. Connection recovery is bounded and does not replay an action or turn a
 needs-auth state into authorization. Normal successful execution has no extra
 structured report or correction turn.
 
+Delivery-only correction is a conditional native capability, not permission to
+run an ordinary Agent again. A carrier that cannot prove its operation boundary
+must return `space.action.delivery_only_unsupported` or
+`space.action.delivery_only_unverified` before sending a correction prompt. The
+existing terminal failure path remains responsible for a visible failure. This
+does not disable normal reply/silence tools or their correctable input errors.
+Current Cursor/Grok Build ACP and Antigravity CLI correction paths take this
+explicit safe-stop branch; their ordinary modes are not silently changed to
+Ask/Plan. A new native restriction may replace that branch only with actual
+controller evidence, not a headless-only flag or an output schema alone.
+
+Codex correction preserves its selected permission/collaboration mode, removes
+execution environments and independent business capabilities, and checks the
+effective MCP inventory. It uses a disposable fork, never a new canonical
+conversation. Managed or unknown requirements that cannot be preserved stop
+before a turn. Persisted Dynamic Tool definitions are not authorization: only
+the current invocation's final tools can execute, and old/foreign callbacks are
+fenced. Metadata-only controller planning/user-input facilities are not granted
+business execution authority.
+
+OpenCode correction uses a fork, native pure mode, and a read-back-verified
+permission ruleset. It copies original session rules and adds denials for
+non-delivery tools, never grants reply over an existing deny/ask rule. OpenClaw
+uses a fresh native session and temporary configuration; external plugins and
+business tools are disabled before native execution. Its synchronous native
+plugin forwards the same schemas and results through one persistent, captured
+dispatch MCP connection. This keeps large-result continuation readable and
+preserves real rejection/receipt semantics. Connection loss requires receipt
+reconciliation before another final action; cancellation and session end fence
+further calls. Config inspection itself must not execute ambient plugins.
+
+An isolated correction receives the complete prior result as private context,
+not a UI-sized preview that assumes the old conversation is available. It still
+needs an explicit final action. Neither private context, a structured receipt
+claim nor a local proposal receipt is proof of public Space publication.
+
 ### signal.system_notice Field Contract
 
 `signal.system_notice` data fields (schema in

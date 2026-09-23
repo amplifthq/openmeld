@@ -22,6 +22,7 @@ import {
   createAcpToolActivityTracker,
   createProviderOriginalError,
   createUnavailableProviderUsageLimits,
+  isDispatchSpaceActionDeliveryOnly,
 } from "@openmeld/adapter-core";
 import { projectGrokBuildUsageLimits } from "../usage/grok-build-usage-limits.js";
 import {
@@ -147,6 +148,16 @@ export async function invokeGrokBuildAcpTransport(input: {
   streamingMode?: AdapterStreamingMode;
   taskId: string;
 }): Promise<GrokBuildAcpTransportResult> {
+  if (isDispatchSpaceActionDeliveryOnly(input.env)) {
+    // Grok's CLI --tools filter is headless-only, not an ACP scope contract.
+    // An agent profile also does not prove ambient hooks/MCPs are restricted.
+    throw new GrokBuildAcpTransportError({
+      code: "space.action.delivery_only_unsupported",
+      errorType: "config",
+      message:
+        "This Grok Build ACP path cannot verify a delivery-only tool scope. No correction turn was started; the original conversation and permission mode are unchanged.",
+    });
+  }
   const prompt = normalizeOptionalText(input.prompt);
   if (!prompt) {
     throw new GrokBuildAcpTransportError({

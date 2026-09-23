@@ -29,3 +29,12 @@ controllers or native approval policies. Each run exposes one reply interface;
 resumed and forked conversations use the current Wake's authority, and an
 unconfirmed submission is not replayed through a different interface.
 
+Delivery correction keeps the user's selected mode and runs only where the
+controller can enforce a restricted operation scope. Claude, Codex, OpenCode
+and OpenClaw have native correction paths with explicit permission and receipt
+checks. OpenClaw also uses the common paged reads and correctable tool errors.
+Current Cursor/Grok Build ACP and Antigravity CLI paths stop safely when a final
+action is missing, rather than rerunning business work with full capabilities.
+Their normal reply tools remain available. This is not a promise of automatic
+correction on every controller or version.
+

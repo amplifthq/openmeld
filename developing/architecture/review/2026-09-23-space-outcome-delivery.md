@@ -8,7 +8,7 @@
 - Do not use this for: Production acceptance, release authorization, or proof that every native controller was tested.
 - Source of truth: The Space collaboration and Agent transport owner documents define behavior; this note records candidate-specific work and evidence.
 
-Status: Partial implementation in Draft PR #1261; no deployment or first-line acceptance claimed. Remove after the remaining acceptance work is complete and durable behavior/evidence has been incorporated into owner documentation and the PR.
+Status: Implementation handoff in Draft PR #1261, with conditional native correction support as detailed below. Not production acceptance, universal automatic correction, or release authorization. Remove after independent review and acceptance evidence have been incorporated into owner documentation and the PR.
 
 Work branch: `codex/issue-1250-space-outcome-delivery`, Draft PR #1261.
 This is the first implementation line only. Organization-plugin exposure,
@@ -40,12 +40,74 @@ the actual active thread and turn, cancellation and the current tool catalog.
 Only a decoded pre-thread argument rejection can select MCP after trying the
 new interface; ambiguous execution or a lost tool receipt never replays a turn.
 
-Remaining before first-line acceptance: delivery-only native restriction evidence
-for the other supported carriers; complete affected
-consumer checks; and isolated native executable smoke. A common helper test
-must not be represented as proof of every controller.
+The resumed implementation adds the missing operation boundaries rather than
+using PLAN as a correction mode. Full prior output is supplied as private
+context to isolated correction sessions. The normal publication/receipt path
+remains the only writer; no private prose is automatically published.
 
-## Version and test evidence
+## Current implementation matrix
+
+| Carrier | Missing-action correction | Scope and compatibility |
+| --- | --- | --- |
+| Claude Agent SDK | Native in-process tools and disposable fork | Preserves selected mode, eager final definitions, no business tools or hooks; a structured report is checked against the real local receipt. Native deny and approval remain authoritative. |
+| Codex App Server | Native Dynamic Tools or policy-preserving MCP in a disposable fork | No execution environments, foreign MCPs, apps, web, hooks or delegates; selected mode retained. Unsupported versions/managed requirements stop before a turn. Legacy CLI correction is guarded. |
+| OpenCode server | Native pure-mode fork | Copies original permission rules and appends negative non-delivery rules; reads them back before the prompt. No forced final-tool grants or external plugins. |
+| OpenClaw local | Fresh native session and temporary verified plugin configuration | Shared current schemas and persistent dispatch MCP connection; business tools/external plugins disabled, explicit deny preserved, original canonical session unchanged. |
+| Cursor ACP | Explicit safe stop before controller/session execution | Current adapter has no verified delivery-only scope; it does not replace the user's mode with Ask/Plan. Normal reply and input correction remain supported. |
+| Grok Build ACP | Explicit safe stop before controller/session execution | A headless-only tool filter or agent profile is not proof of ACP/hook/MCP isolation. Normal reply remains supported. |
+| Antigravity CLI | Explicit safe stop before controller/session execution | JSON output constraints do not restrict prior business actions. Normal structured final outcomes remain supported. |
+
+The last three rows are implemented compatibility guards, **not successful
+automatic correction**. This follows the agreed rule that an unverified carrier
+must not rerun business work. Independent review must keep this product limit
+visible; do not close #1250 or mark Ready on a claim that all seven carriers have
+equivalent successful recovery. Extending those three native paths requires
+new verified operation boundaries rather than weakening the guard.
+
+## Reproducible native acceptance
+
+New opt-in repository tests use disposable vendor/OpenMeld homes, dummy
+credentials and loopback scripted model providers, never the original review or
+a real Space. They exercise the production adapters with actual executables:
+
+```sh
+OPENMELD_TEST_CODEX_BIN=/absolute/path/to/codex node --test runtime/adapters/codex/test/space-dynamic-tools-native.test.js
+OPENMELD_TEST_CLAUDE_BIN=/absolute/path/to/claude node --test runtime/adapters/claude-code/test/delivery-only-native.test.js
+OPENMELD_TEST_OPENCODE_BIN=/absolute/path/to/opencode node --test runtime/adapters/opencode/test/delivery-only-native.test.js
+OPENMELD_TEST_OPENCLAW_BIN=/absolute/path/to/openclaw node --test runtime/adapters/openclaw/test/delivery-only-native.test.js
+```
+
+Use the actual executable, not an unrelated terminal wrapper. On this workstation
+the cmux Claude shim failed synthetic authentication while the selected native
+Claude 2.1.278 executable passed. This did not require changing user credentials.
+Claude's user-selected Plan mode asks for approval for the effectful reply; that
+native request must be surfaced, not removed to make the test pass.
+
+Observed native baselines: Codex 0.150.1, Claude Code 2.1.278 with Agent SDK
+0.3.195, OpenCode 1.18.31, and OpenClaw 2026.3.13 (61d171a). Tests separately
+cover current permission/deny settings, canonical continuity, complete results,
+lost receipts, stale callbacks and cancellation. A synthetic model probe proves
+the adapter/executable boundary, not live-model reliability or real-user public
+delivery. Final candidate check outcomes and exact commit identity belong in
+the PR handoff, not an assumed universal support claim.
+
+## Earlier checkpoint evidence (historical, not final-candidate certification)
+
+The resumed implementation was checked with all eight adapter builds, CLI /
+local-execution / local-service TypeScript checks, 73 focused CLI delivery tests,
+and 23 orchestrator/routing tests. A combined opt-in run of the four actual
+controllers passed all nine native scenarios without skips. Documentation
+lifecycle and Changelog checks passed. These results are independent of hosted
+CI and do not authorize a release.
+
+The initial combined adapter run reported 569 passed, two failed and 19 skipped
+(590 tests). One failure was an old OpenClaw fixture that omitted the new current
+host capability/config observation; the fixture now covers that real boundary.
+The other reproduced the existing Codex Stop fixture's one-second file poll.
+It now synchronizes with `provider_turn_accepted` and fails if dispatch completes
+without admission, keeping every Stop assertion and the production timeout
+unchanged. Both focused regressions passed. Preserve that initial failed run;
+normal push checks must independently validate the committed candidate.
 
 The resumed worktree adds bounded read-only result continuation shared by native
 and MCP tools. History, shared-file and Task-list responses return complete
@@ -127,6 +189,16 @@ candidate run before first-line acceptance.
   permission expansion is introduced.
 - Native capabilities are host-only; no function, environment credential or
   captured Wake authority is added to a persistent runtime/task schema.
+- The OpenClaw adapter requires the dispatch-owned current tool definitions;
+  the CLI creates and passes them through the local-execution orchestrator.
+  The native plugin forwards the common MCP protocol rather than duplicating
+  validation, action storage, pagination or publication. Its temporary files
+  and child connection do not become a persistent authorization source.
+- Missing-action correction uses a host-owned environment marker, not a new
+  cloud wire contract. Older or policy-incompatible native controllers stop
+  explicitly instead of assuming that a successful process launch proves a
+  safe tool scope. Packaging/release readiness and deployed Space delivery
+  still require the release owner's final-candidate checks.
 
 ## Primary references
 

@@ -19,6 +19,7 @@ import {
   AcpProcessSession,
   buildAcpDispatchSpaceActionMcpServers,
   createProviderOriginalError,
+  isDispatchSpaceActionDeliveryOnly,
 } from "@openmeld/adapter-core";
 import { createCursorAcpToolActivityTracker } from "../output/cursor-tool-activity.js";
 import {
@@ -116,6 +117,17 @@ export async function invokeCursorAcpTransport(input: {
   streamingMode?: AdapterStreamingMode;
   taskId: string;
 }): Promise<CursorAcpTransportResult> {
+  if (isDispatchSpaceActionDeliveryOnly(input.env)) {
+    // ACP mode selection is not a per-invocation tool fence. In particular,
+    // changing to Ask/Plan would replace the owner's choice while leaving
+    // other reads/MCPs available. Do not resume business work as delivery repair.
+    throw new CursorAcpTransportError({
+      code: "space.action.delivery_only_unsupported",
+      errorType: "config",
+      message:
+        "This Cursor ACP path cannot verify a delivery-only tool scope. No correction turn was started; the original conversation and permission mode are unchanged.",
+    });
+  }
   const prompt = normalizeOptionalText(input.prompt);
   if (!prompt) {
     throw new CursorAcpTransportError({

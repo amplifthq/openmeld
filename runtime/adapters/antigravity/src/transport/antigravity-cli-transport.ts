@@ -11,6 +11,7 @@ import type {
 import {
   buildCliLaunchInvocation,
   classifyRuntimePermissionDenialMessage,
+  isDispatchSpaceActionDeliveryOnly,
   resolveAdapterToolActivityName,
   resolveAdapterToolWorkActivity,
 } from "@openmeld/adapter-core";
@@ -68,6 +69,16 @@ export async function invokeAntigravityCliTransport(input: {
   timeoutMs: number | null;
   workdir: string;
 }): Promise<AntigravityCliTransportResult> {
+  if (isDispatchSpaceActionDeliveryOnly(input.env)) {
+    // A structured-output schema constrains the result, not the actions before
+    // it. Never rerun the full agent merely to repair a missing final action.
+    throw new AntigravityCliTransportError({
+      code: "space.action.delivery_only_unsupported",
+      errorType: "config",
+      message:
+        "This Antigravity CLI path cannot verify delivery-only execution. No correction turn was started; the original conversation and permission mode are unchanged.",
+    });
+  }
   const prompt = normalizeOptionalText(input.prompt);
   if (!prompt) {
     throw new AntigravityCliTransportError({
