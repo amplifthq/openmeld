@@ -26,7 +26,10 @@ const showInboxNotificationMock = vi.hoisted(() => vi.fn());
 const invalidateInboxFactsMock = vi.hoisted(() => vi.fn());
 const getCurrentInboxItemMock = vi.hoisted(() => vi.fn());
 const getMessagePreferencesMock = vi.hoisted(() => vi.fn());
-const queryClientMock = vi.hoisted(() => ({ fetchQuery: vi.fn() }));
+const queryClientMock = vi.hoisted(() => ({
+	fetchQuery: vi.fn(),
+	invalidateQueries: vi.fn(async () => undefined),
+}));
 const pendingItemIds = vi.hoisted(() => new Set<string>());
 const notificationSettingsByUserId = vi.hoisted(
 	() => new Map<string, boolean>()
@@ -173,6 +176,7 @@ describe("InboxNotificationListener", () => {
 			.mockResolvedValue({ notification: {}, status: "delivered" });
 		invalidateInboxFactsMock.mockReset().mockResolvedValue(undefined);
 		queryClientMock.fetchQuery.mockReset();
+		queryClientMock.invalidateQueries.mockClear();
 		getCurrentInboxItemMock.mockReset();
 		itemsRefetch.mockClear();
 		usePathnameMock.mockReset().mockReturnValue("/o/amplift/home");
@@ -451,6 +455,9 @@ describe("InboxNotificationListener", () => {
 		expect(invalidateInboxFactsMock).toHaveBeenCalledWith({
 			organizationId: "organization-123",
 			queryClient: queryClientMock,
+		});
+		expect(queryClientMock.invalidateQueries).toHaveBeenCalledWith({
+			queryKey: ["spaces", "account-spaces"],
 		});
 		expect(showInboxNotificationMock).toHaveBeenCalledWith(
 			expect.objectContaining({

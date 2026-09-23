@@ -49,6 +49,7 @@ import {
 	inboxSummaryQueryOptions,
 	invalidateInboxFacts,
 } from "#/query/organizations/inbox";
+import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 
 const INBOX_NOTIFICATION_POLL_INTERVAL_MS = 10_000;
 const INBOX_NOTIFICATION_RETRY_INTERVAL_MS = 10_000;
@@ -549,6 +550,15 @@ export function InboxNotificationListener(input: {
 			visibleConversation,
 		});
 		if (sawNewItem) {
+			// The Inbox item is only a refresh signal. Read the current Space
+			// directory so its preview catches up when a notification arrives.
+			queryClient
+				.invalidateQueries({ queryKey: accountSpaceQueryKeys.all })
+				.catch((error: unknown) => {
+					console.warn("[openmeld.web.space.directory_refresh_failed]", {
+						error: error instanceof Error ? error.message : String(error),
+					});
+				});
 			invalidateInboxFacts({
 				organizationId: input.organizationId,
 				queryClient,
