@@ -428,6 +428,172 @@ async function ensureTestCenterAgentDesignation(input: {
     .run();
 }
 
+describe("Delegated Space initialization", () => {
+  it.each([false, true])(
+    "commits owner membership and metadata together (password: %s)",
+    async (passwordProtected) => {
+    const organizationId = randomUUID();
+    const ownerUserId = randomUUID();
+    const ownerProfileId = randomUUID();
+    const creatorProfileId = "agt_" + randomUUID();
+    await ensureTestOrganizationMembership({ organizationId, userId: ownerUserId });
+    await insertTestPrimaryHumanProfile({ ownerUserId, profileId: ownerProfileId });
+    await insertTestManagedCenterAgentProfile({
+      agentProfileId: creatorProfileId,
+      organizationId,
+      ownerUserId,
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const spaceId = namespace.newUniqueId().toString();
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const context = createRpcContext({
+      activeOrganizationId: organizationId,
+      profileId: creatorProfileId,
+      profileKind: "agent",
+      profileName: "Center Agent",
+      requestId: randomUUID(),
+    });
+    const owner = {
+      agentControllerRef: null,
+      ownerName: "Fresh Owner",
+      ownerUserId,
+      profileId: ownerProfileId,
+      profileKind: "human" as const,
+      profileName: "Fresh Owner",
+    };
+    const creator = {
+      kind: "agent" as const,
+      profileId: creatorProfileId,
+      profileName: "Center Agent",
+    };
+    const input = {
+      context,
+      creator,
+      initialOwnerMember: owner,
+      name: "Delegated Room",
+      organizationId,
+      spaceId,
+      visibility: "private" as const,
+    };
+      if (passwordProtected) {
+        await stub.rpcPatchMetaWithPasswordAtomic({
+          ...input,
+          accessMode: "protected",
+          password: "owner-test-password",
+        });
+      } else {
+        await stub.rpcPatchMeta({
+          ...input,
+          accessMode: "members_only",
+          initializeIfAbsent: true,
+        });
+      }
+      const state = await runInDurableObject(stub, (_instance, doState) => ({
+        ownerStatus: [...doState.storage.sql.exec<{ status: string }>(
+          "SELECT status FROM space_members WHERE profile_id = ?", ownerProfileId
+        )][0]?.status ?? null,
+        creatorStatus: [...doState.storage.sql.exec<{ status: string }>(
+          "SELECT status FROM space_members WHERE profile_id = ?", creatorProfileId
+        )][0]?.status ?? null,
+      }));
+      expect(state).toEqual({ ownerStatus: "active", creatorStatus: "active" });
+      const meta = await stub.rpcGetMeta({
+        context: createRpcContext({
+          activeOrganizationId: organizationId,
+          profileId: ownerProfileId,
+          profileKind: "human",
+          ownerUserId,
+          requestId: randomUUID(),
+        }),
+        spaceId,
+      });
+      expect(meta.ownerUserIds).toContain(ownerUserId);
+    }
+  );
+
+  it("rolls back metadata when the initial owner member write fails", async () => {
+    const organizationId = randomUUID();
+    const ownerUserId = randomUUID();
+    const ownerProfileId = randomUUID();
+    const creatorProfileId = "agt_" + randomUUID();
+    await ensureTestOrganizationMembership({ organizationId, userId: ownerUserId });
+    await insertTestPrimaryHumanProfile({ ownerUserId, profileId: ownerProfileId });
+    await insertTestManagedCenterAgentProfile({
+      agentProfileId: creatorProfileId,
+      organizationId,
+      ownerUserId,
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const spaceId = namespace.newUniqueId().toString();
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const context = createRpcContext({
+      activeOrganizationId: organizationId,
+      profileId: creatorProfileId,
+      profileKind: "agent",
+      profileName: "Center Agent",
+      requestId: randomUUID(),
+    });
+    const owner = {
+      agentControllerRef: null,
+      ownerName: "Fresh Owner",
+      ownerUserId,
+      profileId: ownerProfileId,
+      profileKind: "human" as const,
+      profileName: "Fresh Owner",
+    };
+    const creator = {
+      kind: "agent" as const,
+      profileId: creatorProfileId,
+      profileName: "Center Agent",
+    };
+    const input = {
+      context,
+      creator,
+      initialOwnerMember: owner,
+      name: "Delegated Room",
+      organizationId,
+      spaceId,
+      visibility: "private" as const,
+    };
+    // Fail the actual Space SQL insert, after metadata initialization begins.
+    await runInDurableObject(stub, (_instance, doState) => {
+      doState.storage.sql.exec(
+        `CREATE TRIGGER fail_initial_owner BEFORE INSERT ON space_members
+        WHEN NEW.profile_id = '` + ownerProfileId + `'
+        BEGIN SELECT RAISE(ABORT, 'injected initial owner failure'); END`
+      );
+    });
+    await expect(stub.rpcPatchMeta({
+      ...input,
+      accessMode: "members_only",
+      initializeIfAbsent: true,
+    })).rejects.toThrow();
+    const metaCount = await runInDurableObject(stub, (_instance, doState) =>
+      [...doState.storage.sql.exec<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM space_meta"
+      )][0]?.count ?? 0
+    );
+    expect(metaCount).toBe(0);
+    await runInDurableObject(stub, (_instance, doState) => {
+      doState.storage.sql.exec("DROP TRIGGER fail_initial_owner");
+    });
+    await stub.rpcPatchMeta({
+      ...input,
+      accessMode: "members_only",
+      initializeIfAbsent: true,
+    });
+    const retried = await runInDurableObject(stub, (_instance, doState) => ({
+      meta: [...doState.storage.sql.exec<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM space_meta"
+      )][0]?.count ?? 0,
+      ownerStatus: [...doState.storage.sql.exec<{ status: string }>(
+        "SELECT status FROM space_members WHERE profile_id = ?", ownerProfileId
+      )][0]?.status ?? null,
+    }));
+    expect(retried).toEqual({ meta: 1, ownerStatus: "active" });
+  });
+});
+
 async function insertTestManagedCenterAgentProfile(input: {
   agentProfileId: string;
   organizationId: string;
