@@ -1,5 +1,6 @@
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import {
+	SPACE_TASK_RESULT_REVISION_CONFLICT_ERROR_CODE,
 	SPACE_TASK_REVISION_CONFLICT_ERROR_CODE,
 	spaceTaskMutationReceiptSchema,
 } from "@openmeld/schemas";
@@ -12,13 +13,15 @@ export function isSpaceTaskRevisionConflictError(error: unknown): boolean {
 	const failure = toStructuredApiClientFailure(error);
 	return (
 		failure.code === SPACE_TASK_REVISION_CONFLICT_ERROR_CODE ||
-		failure.upstreamCode === SPACE_TASK_REVISION_CONFLICT_ERROR_CODE
+		failure.upstreamCode === SPACE_TASK_REVISION_CONFLICT_ERROR_CODE ||
+		failure.code === SPACE_TASK_RESULT_REVISION_CONFLICT_ERROR_CODE ||
+		failure.upstreamCode === SPACE_TASK_RESULT_REVISION_CONFLICT_ERROR_CODE
 	);
 }
 
-export async function mutateSpaceTaskRefreshingOnRevisionConflict(input: {
+export async function mutateSpaceTaskWithConflictRefresh(input: {
 	mutate: (body: MutateSpaceTaskBody) => Promise<unknown>;
-	readCurrentRevision: () => Promise<number>;
+	refresh: () => Promise<unknown>;
 	request: MutateSpaceTaskBody;
 }): Promise<SpaceTaskMutationReceipt> {
 	try {
@@ -29,13 +32,10 @@ export async function mutateSpaceTaskRefreshingOnRevisionConflict(input: {
 		if (!isSpaceTaskRevisionConflictError(error)) {
 			throw error;
 		}
-		const currentRevision = await input.readCurrentRevision();
-		return spaceTaskMutationReceiptSchema.parse(
-			await input.mutate({
-				...input.request,
-				expectedRevision: currentRevision,
-				operationId: crypto.randomUUID(),
-			})
+		await input.refresh();
+		throw new Error(
+			"This Task changed. Review the refreshed details before trying again.",
+			{ cause: error }
 		);
 	}
 }

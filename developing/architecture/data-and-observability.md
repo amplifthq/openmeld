@@ -107,6 +107,15 @@ phase and revision columns support bounded board reads and conflict-safe writes.
 Every mutation compares the expected Task revision inside the Space transaction.
 An operation id may replay only the exact same request and returns the retained
 receipt without appending another event.
+The same transaction writes `space_task_delivery_outbox` rows for necessary
+handoff, completion, GitHub link projection, and authorized Stop effects.
+The Space alarm retries due rows, and Task detail exposes pending or failed
+effects without treating their state as execution truth. Deterministic Signal
+IDs prevent duplicate publication after a retry. Immediately before inserting
+a Task-authored Signal, Space rechecks the Task's phase, target, result, and
+brief so a cancellation or change cannot admit a stale handoff. The
+`space_task_wake_refs` table records exact Signal and Agent target pairs only
+for Task-associated Wakes; it is a Stop lookup, not an execution ledger.
 
 Task phase is collaboration truth. RuntimeCoordinator and Remote Agent native
 delivery continue to own execution state. Cancellation may call their existing
@@ -114,6 +123,12 @@ Stop boundary after the Task transaction commits, but no Task row proves that a
 process started, stopped, or completed. Task handoff and completion messages are
 deterministic Space Signals, so retrying a Task operation cannot duplicate the
 visible transition or Agent Wake.
+An explicit cancellation may request Stop of each recorded Wake under a narrow
+Task cancellation authority: the same currently active, Auth-verified actor
+must have authored the retained cancellation operation, and the target must
+match a recorded Task Wake. Existing ordinary Wake Stop authority is unchanged.
+The Stop result remains separate from the canceled Task phase. Provider events
+carry no actor authority and cannot use this Task-specific Stop path.
 
 Linked GitHub issues are references on the Task document. GitHub remains the
 only writer of issue state. `lastObservedState` is a Task-owned observation
@@ -126,6 +141,9 @@ PATCH GitHub when a Task closes.
 the Space Durable Object commits a Task with GitHub `externalWorkItems`. It
 is not Task truth and must not be used as a second Task writer. Detached
 links remain rows with `detached_at_ms` set so webhook fan-out can skip them.
+The Task delivery outbox retries this projection from the latest Task document
+and reconciles all of that Task's links in one D1 batch; replaying an older
+transition cannot revive a detached link.
 `github_app_webhook_deliveries` is the Core delivery-id ledger for GitHub App
 webhook processing on the existing `OPENMELD_DAEMON_DISPATCH_QUEUE`. Duplicate
 `X-GitHub-Delivery` ids are ignored after a successful claim. Missing link

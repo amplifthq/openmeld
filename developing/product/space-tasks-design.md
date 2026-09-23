@@ -433,7 +433,8 @@ engineering details in the owning contracts:
 1. Eligibility is ordinary shared Spaces; Direct Messages reject. Active member
    identity and action-specific role checks are server-owned.
 2. Space Durable Object SQLite owns Task documents, append-only events, exact
-   operation replay, and revision-bound writes at schema version 41.
+   operation replay, revision-bound writes, pending delivery intent, and exact
+   Wake references at schema version 46.
 3. Web and Agent clients use one shared mutation schema for assignment, brief,
    start, result, review, cancellation, reopening, and human continuation.
 4. Reviewer and rework handoffs publish deterministic Space messages. Human

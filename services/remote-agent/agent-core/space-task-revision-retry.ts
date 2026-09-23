@@ -28,7 +28,10 @@ export async function mutateSpaceTaskRefreshingOnRevisionConflict(input: {
       await input.mutate(input.request)
     );
   } catch (error) {
-    if (!isSpaceTaskRevisionConflictError(error)) {
+    if (
+      input.request.action !== "observe_external_work_item" ||
+      !isSpaceTaskRevisionConflictError(error)
+    ) {
       throw error;
     }
     const currentRevision = await input.readCurrentRevision();

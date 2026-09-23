@@ -4022,6 +4022,27 @@ exactly one. The action opens Tasks only after the server receipt succeeds.
 `space.tasks.changed` invalidates the Space Task query; the frame never mutates
 the board directly.
 
+Task details load the exact Task independently of the board list and request
+`includeAffordances=1` for the server's actor-scoped `allowedActions` and
+delivery status projections. Older clients keep the legacy detail response;
+missing capabilities fail
+closed. This includes Space owner recovery and explained review overrides,
+assignee management, and human authorization of another rework round. Reviews
+name the result revision shown to the person. Revision conflicts refresh the
+details and ask the person to reconsider; Web never automatically resubmits a
+semantic decision against newer work.
+
+The drawer exposes the canonical source message even when it has no Thread,
+editable briefs and completion conditions for eligible actors, the current
+result and review feedback with their result versions, and a collapsed activity
+history. Capturing a message keeps the source as the complete context rather
+than copying a second authoritative message body into the Task.
+
+The board's phase filter includes Done and Canceled history. Each list remains
+bounded to 500 Tasks; truncated views disclose that older Tasks are omitted,
+and counts describe only the loaded view. Full cursor pagination is not yet
+available.
+
 The initial Files surface supports native file upload, whole-surface drag and
 drop with a visible drop target, folder creation, download, Markdown-file
 creation, supported text-file editing, rename, move, and move to Trash. Trash is

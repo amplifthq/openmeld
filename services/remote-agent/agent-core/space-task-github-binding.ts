@@ -177,6 +177,7 @@ export async function applyGitHubIssueSpaceTaskBinding(input: {
   actionId: string;
   actionInput: Record<string, unknown>;
   data: unknown;
+  eventIdentity?: string;
   now?: string;
   ports: SpaceTaskGitHubBindingPorts;
   toolContext: {
@@ -227,6 +228,7 @@ export async function applyGitHubIssueSpaceTaskBinding(input: {
   ) {
     return await closeSpaceTasksForGitHubIssue({
       identity,
+      eventIdentity: input.eventIdentity ?? now,
       now,
       ports: {
         getSpaceTask: input.ports.getSpaceTask,
@@ -354,6 +356,7 @@ async function ensureGitHubIssueAttached(input: {
 }
 
 async function closeSpaceTasksForGitHubIssue(input: {
+  eventIdentity: string;
   identity: GitHubIssueSpaceTaskIdentity;
   now: string;
   ports: Pick<
@@ -384,7 +387,8 @@ async function closeSpaceTasksForGitHubIssue(input: {
         operationId: spaceTaskGitHubIssueOperationId(
           "observe-closed",
           input.identity,
-          task.taskId
+          task.taskId,
+          input.eventIdentity
         ),
         owner: input.identity.owner,
         provider: "github",
@@ -406,7 +410,8 @@ async function closeSpaceTasksForGitHubIssue(input: {
         operationId: spaceTaskGitHubIssueOperationId(
           "cancel",
           input.identity,
-          task.taskId
+          task.taskId,
+          input.eventIdentity
         ),
         reason: `GitHub issue ${formatSpaceTaskGitHubIssueLabel(input.identity)} was closed.`,
       },

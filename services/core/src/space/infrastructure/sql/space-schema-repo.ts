@@ -3,10 +3,11 @@ import { SpaceFileUpdateRepository } from "./space-file-update-repo";
 import { ensureSpaceInboxContactTable } from "./space-inbox-contact-repo";
 import { ensureSpaceInboxProjectionSelectionsTable } from "./space-inbox-projection-outbox-repo";
 import { ensureSpaceReactionTables } from "./space-reaction-repo";
+import { SpaceTaskDeliveryRepository } from "./space-task-delivery-repo";
 import { ensureSpaceTaskTables } from "./space-task-repo";
 
-export const SPACE_SQL_SCHEMA_VERSION = 45;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v45";
+export const SPACE_SQL_SCHEMA_VERSION = 46;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v46";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -35,6 +36,7 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   ensureSpaceInboxContactTable(sql);
   ensureSpaceInboxProjectionSelectionsTable(sql);
   ensureSpaceTaskTables(sql);
+  new SpaceTaskDeliveryRepository(sql).initialize();
   sql.exec(`CREATE TABLE IF NOT EXISTS space_file_pins (
     signal_id TEXT PRIMARY KEY,
     pinned_by_profile_id TEXT NOT NULL,

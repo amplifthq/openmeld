@@ -204,7 +204,7 @@ describe("GitHub issue Space Task binding", () => {
     });
   });
 
-  it("cancels still-active linked Tasks when the GitHub issue is closed", async () => {
+  it("cancels active linked Tasks with distinct operation identities for later issue closures", async () => {
     const linked = createTask({
       externalWorkItems: [ISSUE],
       phase: "in_progress",
@@ -221,6 +221,7 @@ describe("GitHub issue Space Task binding", () => {
       revision: 4,
     });
     const observedActions: string[] = [];
+    const operationIds: string[] = [];
     const mutateSpaceTask = vi.fn((input: unknown) => {
       const body = mutateSpaceTaskBodySchema.parse(
         input && typeof input === "object" && "body" in input
@@ -228,12 +229,13 @@ describe("GitHub issue Space Task binding", () => {
           : null
       );
       observedActions.push(body.action);
+      operationIds.push(body.operationId);
       return Promise.resolve(
         receiptFor(body.action === "cancel" ? canceled : observed)
       );
     });
 
-    const summary = await applyGitHubIssueSpaceTaskBinding({
+    const input = {
       actionId: "github.update_issue",
       actionInput: {
         issueNumber: 1143,
@@ -255,11 +257,25 @@ describe("GitHub issue Space Task binding", () => {
         context: CONTEXT,
         turnEnvelope: { space: SHARED_SPACE } as RemoteAgentTurnEnvelope,
       },
+    };
+    const summary = await applyGitHubIssueSpaceTaskBinding({
+      ...input,
+      now: "2026-09-20T03:00:00.000Z",
     });
 
     expect(observedActions).toEqual(["observe_external_work_item", "cancel"]);
     expect(summary?.closedTaskIds).toEqual([canceled.taskId]);
     expect(describeLinkedGitHubIssueClosePrompt(canceled)).toBeNull();
+    await applyGitHubIssueSpaceTaskBinding({
+      ...input,
+      now: "2026-09-20T05:00:00.000Z",
+    });
+    expect(new Set(operationIds).size).toBe(4);
+    await applyGitHubIssueSpaceTaskBinding({
+      ...input,
+      now: "2026-09-20T05:00:00.000Z",
+    });
+    expect(operationIds.slice(4)).toEqual(operationIds.slice(2, 4));
   });
 
   it("does not create or cancel Tasks for a body-only issue update", async () => {
