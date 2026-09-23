@@ -177,11 +177,14 @@ export {
   getModelCatalogResponseSchema,
   hostedModelInputModalitySchema,
   MODEL_CATALOG_SCHEMA_VERSION,
+  type ModelCatalogReadOptions,
   modelCatalogAgentControllerSchema,
   modelCatalogHostedRuntimePolicySchema,
   modelCatalogHostedRuntimeSchema,
   modelCatalogModelSchema,
+  modelCatalogReadOptionsSchema,
   modelCatalogSchema,
+  modelRetirementNoticeSchema,
 } from "./config/model-catalog";
 export {
   agentControllerConversationCapabilitySchema,
@@ -2853,6 +2856,7 @@ export {
   buildAgentTaskKey,
   buildMessageChannelConversationId,
   buildPersonalRemoteAgentConversationId,
+  buildRemoteAgentRoutineRunConversationId,
   buildRemoteAgentRuntimeConversationId,
   CHANNEL_CONTEXT_MAX_MESSAGES,
   CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS,

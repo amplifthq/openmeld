@@ -383,17 +383,14 @@ Keychain identity and `openmeld-notary` profile instead.
 
 For the normal GitHub production path:
 
-1. Confirm the exact release commit is on `main`; run
-   `pnpm run release:preflight`, then prepare the tracked release version and
-   `release/local-components.json` with the base-aware
+1. Start from current `main` in a dedicated release worktree; prepare the tracked
+   version and `release/local-components.json` with the base-aware
    `pnpm release:local-components stamp --next ...` command. The command reads
    npm `latest` and R2 stable, prints the decision, and fails without guessing
    when either channel is unavailable. Use mutually exclusive
-   `--version X.Y.Z` only for an already-approved explicit target. Then pass
-   `pnpm run verify:release-ready`.
-2. Confirm the six Apple secret names above exist in the GitHub `production`
-   Environment.
-3. Before `.github/workflows/cli-release.yml`, use the separate Scoped
+   `--version X.Y.Z` only for an already-approved explicit target. The stamp
+   verifies its output; the release workflow repeats readiness before upload.
+2. Before `.github/workflows/cli-release.yml`, use the separate Scoped
    Production Release workflow with scope `database` when the exact release SHA
    has pending migrations. CLI Release verifies the remote D1 pending list
    before any publication because it also deploys Core; it fails closed instead
@@ -402,28 +399,24 @@ For the normal GitHub production path:
    release commit SHA. The publish command verifies release readiness before
    its first irreversible action, so a separate repeated verification run is
    unnecessary.
-4. Require an `Apple notarization accepted` submission ID before treating the
+3. Require an `Apple notarization accepted` submission ID before treating the
    binary upload as valid.
-5. Close the release only after the npm version, production CLI manifest,
+4. Close the release only after the npm version, production CLI manifest,
    downloadable raw and gzip artifacts, release tag, and Core projection all
    agree.
-
-For the first release that introduces gzip manifest fields, deploy Web from the
-same approved SHA before step 3. The old Web manifest parser removes unknown
-fields when it reserializes R2 metadata; the new Web is therefore the consumer
-that must be live before the CLI channel can expose the archive. See
-`developing/engineering/production-release.md` for the first-launch order.
 
 For an explicitly approved local production release:
 
 1. Use a clean worktree at the exact `main` commit intended for release.
 2. Confirm the local Developer ID identity, `openmeld-notary` Keychain profile,
    npm authentication, and Cloudflare production credentials are available.
-3. Run `pnpm run release:verify:local -- --scope cli` for full confidence, then
-   run `pnpm run release:deploy:local -- --scope cli`; deploy owns the cheap
-   preflight and the complete binary release path without repeating tests.
+3. Run `pnpm run release:deploy:local -- --scope cli`; deploy owns the required
+   preflight and the complete binary release path.
 4. Require the same notarization, upload, npm, tag, Core, and channel-alignment
    results as the GitHub path.
+
+For a separate go/no-go handoff, `pnpm run release:verify:local -- --scope cli`
+provides full validation before the deploy. It is not a default extra step.
 
 Do not run `upload-cli-binary.mjs` as the normal production entrypoint. It is a
 scoped binary-channel operation for an approved recovery or diagnostics flow;

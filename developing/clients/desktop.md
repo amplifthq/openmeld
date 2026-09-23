@@ -1028,8 +1028,9 @@ Electron is deliberately separate from the root Worker development stack.
 
 ## Packaging and release boundary
 
-Public Desktop distribution remains paused: `/desktop` returns 404. Do not
-publish or deploy this pilot as a production release.
+Production publication uses the signed, immutable candidate and explicit
+promotion workflow in [Development Workflow](../engineering/development-workflow.md#desktop-preview-release-workflow).
+The local packages below remain separate from that production path.
 
 Local macOS packages use electron-builder's standard ad-hoc signing
 (`mac.identity: "-"`) for the assembled App and nested code. The shared build
@@ -1116,7 +1117,7 @@ stages it and builds a local unsigned arm64 DMG with no publication target.
 Installable entry is separate from Service bootstrap and signed distribution:
 existing-user Service reuse, new-user zero-setup connection, actual Wake outcomes,
 signing, notarization, and installed native acceptance remain separate gates.
-Do not expose the paused public download page based on package construction.
+Local package construction does not authorize public download or promotion.
 
 Release ordering is server first: deploy the matching Web admission/metadata
 routes and Auth identity before distributing an installed app. Keep contract 1
@@ -1161,7 +1162,7 @@ The DMG filename is configured separately in
 the DMG filename from the application display name. This target writes no
 preview/update manifest and has no publisher. It does not bundle CLI, Service,
 credentials, lane state, or worktree asset paths. The legacy preview build
-remains a separate paused distribution path.
+remains local-only and cannot publish.
 
 Launch the built or copied app from an already configured, matching worktree:
 
@@ -1181,14 +1182,10 @@ Service-control gates are unchanged. Signing, notarization, Gatekeeper behavior,
 authenticated packaged UI, and OS browser-return callbacks need separate native
 acceptance; package construction and content checks do not prove those outcomes.
 
-The existing preview pipeline builds an unsigned Apple silicon DMG with
-`pnpm release:desktop-preview:build` and electron-builder. Its upload command
-targets production R2 and requires separate release authorization.
-The old preview installer uses global npm/Node for CLI installation; this is not
-a claim of a bundled, signed, self-contained Desktop/Service distribution.
+The legacy unsigned preview upload is disabled. Signed production candidates
+use the workflow linked above; local private packages do not publish or bundle
+CLI, Service, credentials, or lane state.
 
-Reuse the established CLI binary and Apple signing mechanisms when completing
-distribution; do not create another release credential or update system.
 Developer ID presence, Doppler names, portal access, build success, signing,
 notarization, installation, and visible product smoke are separate evidence.
 Desktop versions remain diagnostics and app-update facts, never Wake gates.

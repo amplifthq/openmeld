@@ -260,6 +260,13 @@ export {
 } from "./local-agent-catalog";
 export { buildLocalAgentConnectionCandidateId } from "./local-agent-connection-candidate";
 export { getAgentControllerModelCatalogId } from "./model-catalog";
+export {
+  formatModelRetirementNotice,
+  type ModelAvailabilityDecision,
+  type ModelRetirementContext,
+  matchesModelRetirementScope,
+  resolveModelAvailability,
+} from "./model-retirement";
 export { resolveConversationPolicyFromModelSelection } from "./model-selection";
 export {
   peopleComputerCliCommand,

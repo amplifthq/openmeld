@@ -139,22 +139,16 @@ environment callback, or no coordination best fits the actual work.
 - Follow `developing/engineering/agent-native-delivery.md` from final-candidate
   validation through merge, release, health, smoke, and evidence. This document
   owns the local lanes and test-selection details used inside that lifecycle.
-- A release has two implementation stages: run `pnpm run release:preflight` for
-  the aggregate read-only readiness report, then use the guarded execution
-  entrypoint selected by `developing/engineering/production-release.md`. The
-  aggregate command does not replace the scope-specific
-  `release:preflight:local` deployment gate.
-- Hotfixes use the same pipeline. Speed comes from exposing every prerequisite
-  in one preflight, not from skipping a gate.
+- Use the guarded execution entrypoint selected by
+  `developing/engineering/production-release.md`. It runs the checks for the
+  selected scope before publication. Run `release:preflight:local` only when a
+  separate, read-only local go/no-go result is useful; the subsequent deploy
+  repeats the required admission checks.
+- Hotfixes use the same guarded entrypoint. Choose focused development checks
+  by risk; do not add a whole-train check to a scoped release.
 - `main` is PR-only. Release branches pass the exact Final Candidate contract
   and merge through a PR before their approved `main` commit becomes a release
-  source. The preflight reports this repository policy; it does not claim to
-  verify GitHub Ruleset settings.
-- For a coordinated release that includes migrations, local components, and
-  dependent Workers, the single order is migration, CLI/Service channel,
-  scoped Worker verify/deploy, then real-user smoke. Release only what changed:
-  a Worker-only or Web-only release does not publish CLI/Service merely to
-  manufacture this sequence.
+  source.
 
 ### Resource Discipline
 
@@ -2069,6 +2063,10 @@ feature/docs branch that will not publish.
 
 ## Desktop Preview Release Workflow
 
+For the current promoted source and version on each platform, use the read-only
+[Desktop release status](production-release.md#desktop-release-coverage) before
+selecting a candidate.
+
 Authorized production previews use a shareable public page at
 `/desktop?candidate=<dmg-sha256>` and an immutable candidate download URL without
 changing the default update channel. The plain `/desktop` page is the stable
@@ -2282,7 +2280,7 @@ stable version, and increments its patch. It prints both channel facts and warns
 when they drift. Missing network, credentials, or valid channel versions fail
 closed without writing a guessed version. `--version X.Y.Z` remains the explicit
 operator-approved mode; it skips channel reads and is mutually exclusive with
-`--next`. `release:preflight` uses the same version decision function.
+`--next`.
 
 CLI version bumps and manifest re-stamps belong to the release that actually
 publishes from `main`. Do not bump the CLI version or commit a release manifest
@@ -2317,8 +2315,9 @@ release branch fails closed.
 
 The pre-push release check defers ordinary development builds to FC; the
 focused-check hook still runs on development pushes. Release checking remains
-strict when a push includes `refs/heads/main`, a
-versioned release branch, a tag, malformed input, or no input. A strict push
+strict when a push includes `refs/heads/main`, any `codex/release-*` branch,
+a tag, malformed input, or no input. Malformed release branch names fail at
+pre-push instead of waiting for Final Candidate. A strict push
 requires every non-deletion object to resolve to checked-out `HEAD` and rejects
 uncommitted release-relevant or gate-control paths. Final Candidate passes the
 pull request's exact base SHA and chooses deferred or strict release readiness

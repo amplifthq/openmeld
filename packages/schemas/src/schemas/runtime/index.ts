@@ -162,6 +162,7 @@ export {
 } from "./remote-agent-turn-envelope";
 export {
   buildPersonalRemoteAgentConversationId,
+  buildRemoteAgentRoutineRunConversationId,
   buildRemoteAgentRuntimeConversationId,
   REMOTE_AGENT_ADMISSION_STAGE_OPERATIONS,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_ENTRY_TEXT_MAX_CHARS,
