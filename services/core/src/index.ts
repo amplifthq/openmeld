@@ -6107,6 +6107,7 @@ class CoreEntrypoint extends CenterAgentRpcEntrypoint {
 }
 
 // biome-ignore lint/performance/noBarrelFile: Wrangler requires the Durable Object class export.
+export { AccountInvalidationHub } from "./account-invalidation/account-invalidation-hub";
 export { LarkChannelConnector } from "./remote-agent/transport/lark/lark-channel-connector";
 export {
   app,
