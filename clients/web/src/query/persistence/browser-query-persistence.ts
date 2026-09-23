@@ -16,7 +16,6 @@ import {
 	type PersistedClient,
 	type Persister,
 	persistQueryClientRestore,
-	persistQueryClientSave,
 } from "@tanstack/react-query-persist-client";
 import { z } from "zod/v4";
 import { observeSpaceOpen } from "#/lib/observability/space-open";
@@ -139,6 +138,7 @@ type CreateBrowserQueryPersistenceControllerInput = {
 
 type ActiveSegment = {
 	activation: Promise<void>;
+	flushPending?: () => Promise<void>;
 	organizationId: string | null;
 	ownerAccountId: string;
 	queryClient: QueryClient;
@@ -224,6 +224,7 @@ export function createBrowserQueryPersistenceController(
 		}
 
 		if (!options.readOnly) {
+			await current?.flushPending?.();
 			current?.unsubscribe?.();
 		}
 		const scope: QueryCacheScope = {
@@ -241,7 +242,9 @@ export function createBrowserQueryPersistenceController(
 			nowMs,
 			scope,
 			storage: input.store.createStorage(scope),
-			throttleTimeMs: input.throttleTimeMs,
+			// Coalesce before dehydration. Keep a short storage interval so
+			// overlapping writes do not spin on zero-delay retries.
+			throttleTimeMs: Math.min(100, input.throttleTimeMs ?? 1000),
 		});
 		const segment = {
 			activation: Promise.resolve(),
@@ -256,6 +259,7 @@ export function createBrowserQueryPersistenceController(
 		knownPersistedQueries.set(resolveKnownQueryKey(segment), segment);
 		segment.activation = restoreAndSubscribe({
 			didRestoreUsableClient: observedPersister.didRestoreUsableClient,
+			diagnostics,
 			isCurrent: () =>
 				options.readOnly
 					? knownPersistedQueries.get(resolveKnownQueryKey(segment)) ===
@@ -265,8 +269,10 @@ export function createBrowserQueryPersistenceController(
 						organizationSegment?.queryClient === options.queryClient
 					: resolveActiveSegment(options.scopeKind) === segment,
 			maxAgeMs,
+			nowMs,
 			persister: observedPersister.persister,
 			queryClient: options.queryClient,
+			saveDelayMs: input.throttleTimeMs ?? 1000,
 			segment,
 			subscribe: !options.readOnly,
 			targetQueryKeys: options.targetQueryKeys,
@@ -826,10 +832,13 @@ function removeSegmentQueries(segment: KnownPersistedQuery): void {
 
 async function restoreAndSubscribe(input: {
 	didRestoreUsableClient: () => boolean;
+	diagnostics: QueryPersistenceDiagnostics;
 	isCurrent: () => boolean;
 	maxAgeMs: number;
+	nowMs: () => number;
 	persister: Persister;
 	queryClient: QueryClient;
+	saveDelayMs: number;
 	segment: ActiveSegment;
 	subscribe: boolean;
 	targetQueryKeys: readonly (readonly unknown[])[];
@@ -936,37 +945,76 @@ async function restoreAndSubscribe(input: {
 	if (!(input.isCurrent() && input.subscribe)) {
 		return;
 	}
-	const saveOptions = {
-		buster: BROWSER_QUERY_CACHE_BUSTER,
-		dehydrateOptions: {
-			...resolvePersistedDataSerializer(input.segment.scopeKind),
-			shouldDehydrateMutation: () => false,
-			shouldDehydrateQuery: (query: Query) =>
-				isApprovedSuccessfulQuery(
-					query,
-					input.targetQueryKeys,
-					input.segment.scopeKind
-				),
-		},
-		persister: input.persister,
-		queryClient: input.queryClient,
+	const dehydrateOptions = {
+		...resolvePersistedDataSerializer(input.segment.scopeKind),
+		shouldDehydrateMutation: () => false,
+		shouldDehydrateQuery: (query: Query) =>
+			isApprovedSuccessfulQuery(
+				query,
+				input.targetQueryKeys,
+				input.segment.scopeKind
+			),
 	};
-	input.segment.unsubscribe = input.queryClient
-		.getQueryCache()
-		.subscribe((event) => {
-			if (
-				event.type !== "updated" ||
-				event.action.type !== "success" ||
-				!isApprovedSuccessfulQuery(
-					event.query,
-					input.targetQueryKeys,
-					input.segment.scopeKind
-				)
-			) {
-				return;
-			}
-			persistQueryClientSave(saveOptions);
+	const targetQueryHashes = new Set(input.targetQueryKeys.map(hashKey));
+	let saveTimer: ReturnType<typeof setTimeout> | null = null;
+	const save = async () => {
+		if (!input.isCurrent()) {
+			return;
+		}
+		const startedAtMs = input.nowMs();
+		const clientState = dehydrate(input.queryClient, dehydrateOptions);
+		input.diagnostics.record({
+			durationMs: elapsedMs(input.nowMs, startedAtMs),
+			event: "save_preparation",
+			scopeKind: input.segment.scopeKind,
 		});
+		if (clientState.queries.length === 0) {
+			return;
+		}
+		await input.persister.persistClient({
+			buster: BROWSER_QUERY_CACHE_BUSTER,
+			clientState,
+			timestamp: Date.now(),
+		});
+	};
+	input.segment.flushPending = async () => {
+		if (saveTimer === null) {
+			return;
+		}
+		clearTimeout(saveTimer);
+		saveTimer = null;
+		await save();
+	};
+	const unsubscribe = input.queryClient.getQueryCache().subscribe((event) => {
+		if (
+			event.type !== "updated" ||
+			event.action.type !== "success" ||
+			!targetQueryHashes.has(event.query.queryHash)
+		) {
+			return;
+		}
+		if (input.saveDelayMs <= 0) {
+			save().catch((error: unknown) =>
+				console.error("Could not save a browser read cache snapshot.", error)
+			);
+			return;
+		}
+		if (saveTimer === null) {
+			saveTimer = setTimeout(() => {
+				saveTimer = null;
+				save().catch((error: unknown) =>
+					console.error("Could not save a browser read cache snapshot.", error)
+				);
+			}, input.saveDelayMs);
+		}
+	});
+	input.segment.unsubscribe = () => {
+		if (saveTimer !== null) {
+			clearTimeout(saveTimer);
+			saveTimer = null;
+		}
+		unsubscribe();
+	};
 }
 
 const spaceHistorySnapshotSchema = z.strictObject({

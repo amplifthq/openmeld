@@ -544,6 +544,103 @@ describe("BrowserQueryPersistenceController", () => {
 		controller.deactivate();
 	});
 
+	it("saves the latest message snapshot once after a burst of updates", async () => {
+		const store = createTestStore();
+		const queryClient = createQueryClient();
+		const record = vi.fn();
+		const controller = createBrowserQueryPersistenceController({
+			diagnostics: { record },
+			restoreBudgetMs: 100,
+			store,
+			throttleTimeMs: 1000,
+		});
+		const scope = {
+			organizationId: "organization-a",
+			organizationSlug: "organization-a",
+			ownerAccountId: "account-a",
+			queryClient,
+		};
+		await controller.activateAuthorizedScope(scope);
+		await controller.activateSpaceConversation({
+			...scope,
+			spaceId: "space-a",
+			openMeldProfileId: "profile-a",
+		});
+		const storage = store.createStorage({
+			organizationId: "organization-a",
+			ownerAccountId: "account-a",
+			scopeAlias: "organization-a",
+			scopeId: buildSpaceConversationQueryCacheScopeId("space-a", "profile-a"),
+			scopeKind: "space",
+		});
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const historyKey = spaceQueryKeys.history("space-a", "profile-a");
+		for (const signalId of ["first", "second", "latest"]) {
+			queryClient.setQueryData(historyKey, {
+				envelopes: [createTextSignal(signalId, "space-a", "profile-a")],
+				nextCursor: null,
+			});
+		}
+		expect(await storage.getItem("tanstack-query-cache")).toBeNull();
+		await vi.advanceTimersByTimeAsync(1000);
+		const payload = JSON.parse(
+			(await storage.getItem("tanstack-query-cache")) ?? "null"
+		) as { clientState?: { queries?: Array<{ state?: { data?: unknown } }> } };
+		expect(payload.clientState?.queries?.[0]?.state?.data).toEqual({
+			envelopes: [createTextSignal("latest", "space-a", "profile-a")],
+			nextCursor: null,
+		});
+		expect(
+			record.mock.calls.filter(
+				([diagnostic]) => diagnostic.event === "save_preparation"
+			)
+		).toHaveLength(1);
+		controller.deactivate();
+	});
+
+	it("does not write a delayed Space snapshot after account cleanup", async () => {
+		const store = createTestStore();
+		const queryClient = createQueryClient();
+		const controller = createBrowserQueryPersistenceController({
+			restoreBudgetMs: 100,
+			store,
+			throttleTimeMs: 1000,
+		});
+		const scope = {
+			organizationId: "organization-a",
+			organizationSlug: "organization-a",
+			ownerAccountId: "account-a",
+			queryClient,
+		};
+		await controller.activateAuthorizedScope(scope);
+		await controller.activateSpaceConversation({
+			...scope,
+			spaceId: "space-a",
+			openMeldProfileId: "profile-a",
+		});
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		queryClient.setQueryData(spaceQueryKeys.history("space-a", "profile-a"), {
+			envelopes: [createTextSignal("private", "space-a", "profile-a")],
+			nextCursor: null,
+		});
+		await controller.clearActiveAccount();
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(
+			await store
+				.createStorage({
+					organizationId: "organization-a",
+					ownerAccountId: "account-a",
+					scopeAlias: "organization-a",
+					scopeId: buildSpaceConversationQueryCacheScopeId(
+						"space-a",
+						"profile-a"
+					),
+					scopeKind: "space",
+				})
+				.getItem("tanstack-query-cache")
+		).toBeNull();
+	});
+
 	it("clears only the explicitly rejected Space conversation", async () => {
 		const store = createTestStore();
 		const sourceQueryClient = createQueryClient();
