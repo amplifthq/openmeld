@@ -3514,7 +3514,10 @@ describe("organization Core RPC", () => {
     }
   });
 
-  it("rejects Space creation without a represented human before writing", async () => {
+  it.each([
+    ["missing", undefined],
+    ["invalid", { profileId: SECOND_HUMAN_PROFILE_ID }],
+  ])("rejects %s represented humans before writing", async (_case, onBehalfOf) => {
     const db = createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
@@ -3537,6 +3540,7 @@ describe("organization Core RPC", () => {
           userId: "user-a",
         }),
         name: "No owner",
+        ...(onBehalfOf ? { onBehalfOf } : {}),
         visibility: "private",
       })
     ).rejects.toMatchObject({
@@ -3544,6 +3548,7 @@ describe("organization Core RPC", () => {
       status: 403,
     });
     expect(spaceStub.rpcPatchMeta).not.toHaveBeenCalled();
+    expect(spaceStub.rpcPatchMetaWithPasswordAtomic).not.toHaveBeenCalled();
   });
 
   it("records Center Agent audit entries with on-behalf-of attribution", async () => {
@@ -13915,6 +13920,17 @@ function createSpaceStub(
       ([spaceId, profileIds]) => [spaceId, new Set(profileIds)] as const
     )
   );
+  const memberKindsBySpace = new Map(
+    [...memberProfileIdsBySpace].map(([spaceId, profileIds]) => [
+      spaceId,
+      new Map(
+        [...profileIds].map((profileId) => [
+          profileId,
+          profileId.startsWith("agt_") ? "agent" : "human",
+        ])
+      ),
+    ])
+  );
   const signals: SignalTextEnvelope[] = [...(input.initialSignals ?? [])];
   const patchSpaceMeta = vi.fn(
     (request: {
@@ -13924,6 +13940,8 @@ function createSpaceStub(
         | "public"
         | "public_view_join_password";
       name?: string;
+      creator?: { profileId: string; kind: "agent" | "human" };
+      initialOwnerMember?: { profileId: string; profileKind: "human" };
       organizationId?: string;
       purpose?: string;
       spaceId: string;
@@ -13948,6 +13966,30 @@ function createSpaceStub(
             visibility: request.visibility ?? "private",
           })
         );
+      }
+      if (!existing && request.initialOwnerMember) {
+        const memberIds = new Set(
+          [
+            request.creator?.profileId,
+            request.initialOwnerMember.profileId,
+          ].filter((profileId): profileId is string => Boolean(profileId))
+        );
+        memberProfileIdsBySpace.set(request.spaceId, memberIds);
+        memberKindsBySpace.set(
+          request.spaceId,
+          new Map([
+            ...(request.creator
+              ? [[request.creator.profileId, request.creator.kind] as const]
+              : []),
+            [request.initialOwnerMember.profileId, "human" as const],
+          ])
+        );
+        const space = spaces.find((item) => item.spaceId === request.spaceId);
+        if (space) {
+          space.activeMemberCount = memberIds.size;
+          space.activeHumanCount = 1;
+          space.activeAgentCount = request.creator?.kind === "agent" ? 1 : 0;
+        }
       }
       return Promise.resolve({
         accessMode: request.accessMode ?? "public",
@@ -14268,22 +14310,33 @@ function createSpaceStub(
           memberProfileIds = new Set();
           memberProfileIdsBySpace.set(request.spaceId, memberProfileIds);
         }
+        const memberKinds =
+          memberKindsBySpace.get(request.spaceId) ?? new Map();
+        memberKindsBySpace.set(request.spaceId, memberKinds);
+        const addedMemberIds: string[] = [];
+        const alreadyMemberIds: string[] = [];
         for (const member of request.members) {
-          memberProfileIds.add(member.profileId);
+          if (memberProfileIds.has(member.profileId)) {
+            alreadyMemberIds.push(member.profileId);
+          } else {
+            addedMemberIds.push(member.profileId);
+            memberProfileIds.add(member.profileId);
+          }
+          memberKinds.set(member.profileId, member.profileKind ?? "human");
         }
         const space = spaces.find((item) => item.spaceId === request.spaceId);
         if (space) {
-          space.activeMemberCount = request.members.length;
-          space.activeHumanCount = request.members.filter(
-            (member) => member.profileKind === "human"
+          space.activeMemberCount = memberProfileIds.size;
+          space.activeHumanCount = [...memberKinds.values()].filter(
+            (kind) => kind === "human"
           ).length;
-          space.activeAgentCount = request.members.filter(
-            (member) => member.profileKind === "agent"
+          space.activeAgentCount = [...memberKinds.values()].filter(
+            (kind) => kind === "agent"
           ).length;
         }
         return Promise.resolve({
-          addedMemberIds: request.members.map((member) => member.profileId),
-          alreadyMemberIds: [],
+          addedMemberIds,
+          alreadyMemberIds,
           items: [],
         });
       }

@@ -10079,7 +10079,10 @@ export class Space extends DurableObject<CoreBindings> {
     });
 
     const response = input.initializeIfAbsent
-      ? await this.dispatchInitializeMetaRequest(request, input.initialOwnerMember)
+      ? await this.dispatchInitializeMetaRequest(
+          request,
+          input.initialOwnerMember
+        )
       : await this.dispatchMetaRequest(request);
     return readSpaceRpcJsonOrThrow(response);
   }
