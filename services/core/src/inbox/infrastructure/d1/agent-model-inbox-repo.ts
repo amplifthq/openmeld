@@ -24,7 +24,7 @@ export async function readAgentModelInboxRecords(
       AND source_kind = 'system_attention_event'
       AND json_extract(source_target_json, '$.kind') = 'agent_profile'
       AND json_extract(source_target_json, '$.profileId') = ?
-      AND source_key LIKE ?
+      AND substr(source_key, 1, length(?)) = ?
       ${input.prefix ? "" : "AND resolution_status = 'open'"}
     ORDER BY created_at_ms DESC, id DESC
     LIMIT ${input.prefix ? "1" : "101"}
@@ -33,7 +33,8 @@ export async function readAgentModelInboxRecords(
       input.organizationId,
       input.ownerUserId,
       input.profileId,
-      `${input.prefix ?? "agent-model:"}%`
+      input.prefix ?? "agent-model:",
+      input.prefix ?? "agent-model:"
     )
     .all<AgentModelInboxRecord>();
   if (result.results.length > 100) {
