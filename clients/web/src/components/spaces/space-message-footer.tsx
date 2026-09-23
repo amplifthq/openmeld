@@ -383,7 +383,10 @@ function MessageFooterActions({
 				{persistent ? detailsButton : null}
 
 				{persistent ? null : (
-					<span className="contents max-sm:hidden">
+					<span
+						className="contents"
+						data-slot="message-footer-standard-actions"
+					>
 						<MessageFooterStandardActions input={input} />
 						{detailsButton}
 					</span>

@@ -252,14 +252,6 @@ html[data-space-self-message-alignment="left"]
   text-align: start;
 }
 
-@media (max-width: 40rem) {
-  html[data-space-self-message-alignment="right"]
-    [data-space-self-message="true"]
-    [data-slot="bubble"] {
-    max-inline-size: calc(100% - 4rem);
-  }
-}
-
 /* Messages keep an avatar column beside the first header or bubble in a run.
    Reserve it on every row so grouped messages and actions stay aligned. */
 [data-slot="message-content"] {
@@ -281,6 +273,7 @@ html[data-space-self-message-alignment="left"]
    top, while removing the same space above the bubble. Avatars stay anchored. */
 [data-slot="message-content"]:not([data-direct-message]) > [data-slot="message-header"] {
   margin-block-start: -5px;
+  margin-block-end: -0.25rem;
 }
 
 [data-direct-message] > [data-slot="message-header"] {
@@ -316,15 +309,31 @@ html[data-space-self-message-alignment="right"]
   align-self: flex-end;
 }
 
+/* Size message actions against their own column, including a resized Thread. */
+[data-message-row-id] {
+  container-name: space-message-row;
+  container-type: inline-size;
+}
+
 /* A message can use the available width without consuming the side where its
-   floating actions sit. The phone toolbar has only two visible controls. */
+   floating actions sit. Narrow rows keep only the reaction and overflow controls. */
 :root [data-message-row-id] [data-slot="bubble"] {
   max-inline-size: min(calc(100% - 11rem), 52rem);
 }
 
-@media (max-width: 40rem) {
+@container space-message-row (max-width: 32rem) {
   :root [data-message-row-id] [data-slot="bubble"] {
     max-inline-size: calc(100% - 4rem);
+  }
+
+  html[data-space-self-message-alignment="right"]
+    [data-space-self-message="true"]
+    [data-slot="bubble"] {
+    max-inline-size: calc(100% - 4rem);
+  }
+
+  [data-slot="message-footer-standard-actions"] {
+    display: none;
   }
 }
 
