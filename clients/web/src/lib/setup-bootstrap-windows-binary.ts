@@ -71,8 +71,11 @@ function Invoke-OpenMeld([string]$Executable, [string[]]$Arguments, [switch]$Rec
   $start.RedirectStandardOutput = [bool]$Receipt
   foreach ($name in @('OPENMELD_HOME','OPENMELD_GATEWAY_URL','OPENMELD_AUTH_URL','OPENMELD_CLI_BINARY_MANIFEST_URL','OPENMELD_USER_FACING_CLI_COMMAND','OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND')) { $start.EnvironmentVariables.Remove($name) }
   $start.EnvironmentVariables['OPENMELD_ENV_PRESET'] = $c.envPreset
-  $start.EnvironmentVariables['OPENMELD_USER_FACING_CLI_COMMAND'] = $c.userFacingCommand
-  $start.EnvironmentVariables['OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND'] = $c.userFacingCommand
+  # The parent terminal still has its old PATH. Point follow-up commands at the
+  # selected stable launcher, including paths containing spaces or apostrophes.
+  $commandPrefix = if ($Receipt) { $c.userFacingCommand } else { "& '" + $Executable.Replace("'", "''") + "'" }
+  $start.EnvironmentVariables['OPENMELD_USER_FACING_CLI_COMMAND'] = $commandPrefix
+  $start.EnvironmentVariables['OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND'] = $commandPrefix
   $start.EnvironmentVariables['OPENMELD_CLI_BINARY_MANIFEST_URL'] = $c.manifestUrl
   if ($c.openMeldHome) { $start.EnvironmentVariables['OPENMELD_HOME'] = $c.openMeldHome }
   if ($c.gatewayUrl) { $start.EnvironmentVariables['OPENMELD_GATEWAY_URL'] = $c.gatewayUrl }

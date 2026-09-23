@@ -11,7 +11,9 @@ public static class SetupFixture {
   public static int Main(string[] args) {
     var json = new JavaScriptSerializer();
     var home = Environment.GetEnvironmentVariable("OPENMELD_HOME");
-    File.AppendAllText(Environment.GetEnvironmentVariable("OPENMELD_TEST_CALLS_PATH"), json.Serialize(new { args, home }) + "\n");
+    var commandPrefix = Environment.GetEnvironmentVariable("OPENMELD_USER_FACING_CLI_COMMAND");
+    var followUp = Environment.GetEnvironmentVariable("OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND");
+    File.AppendAllText(Environment.GetEnvironmentVariable("OPENMELD_TEST_CALLS_PATH"), json.Serialize(new { args, home, commandPrefix, followUp }) + "\n");
     if (args.Length == 2 && args[0] == "install-self" && args[1] == "--json") {
       Directory.CreateDirectory(Path.Combine(home, "bin"));
       var command = Path.Combine(home, "bin", "openmeld.exe");

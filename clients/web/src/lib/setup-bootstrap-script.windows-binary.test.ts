@@ -40,7 +40,7 @@ describe.skipIf(process.platform !== "win32")(
 		}
 
 		beforeAll(async () => {
-			root = await mkdtemp(join(tmpdir(), "openmeld bootstrap 中文 "));
+			root = await mkdtemp(join(tmpdir(), "openmeld bootstrap 中文 ' "));
 			const prepared = await promisify(execFile)(
 				resolveWindowsPowerShellPath(),
 				[
@@ -180,16 +180,23 @@ describe.skipIf(process.platform !== "win32")(
 				deviceCode: grant,
 				view: "human",
 			}).replace("https://openmeld.ai", origin);
+			// Actually execute the emitted prefix in the unchanged parent shell.
+			// Its PATH has no openmeld/Node/npm; quoting must handle the real home.
+			const followUp =
+				mode === "valid"
+					? `$record = @(Get-Content -LiteralPath $env:OPENMELD_TEST_CALLS_PATH -Encoding UTF8 | ForEach-Object { ConvertFrom-Json $_ })[-1]; & ([scriptblock]::Create($record.followUp + " 'fixture-follow-up'")); if ($LASTEXITCODE -ne 7) { exit 99 };`
+					: "";
 			const owned = spawnAgentControllerProcess({
 				bin: resolveWindowsPowerShellPath(),
 				args: powerShellEncodedArguments(
-					`[Console]::OutputEncoding=New-Object Text.UTF8Encoding($false); ${command}; $code=$LASTEXITCODE; Write-Output 'caller still running'; exit $code`
+					`[Console]::OutputEncoding=New-Object Text.UTF8Encoding($false); ${command}; $code=$LASTEXITCODE; Write-Output 'caller still running'; ${followUp} exit $code`
 				),
 				cwd: root,
 				env: {
 					...env,
 					PATH: `${process.env.SystemRoot}\\System32;${process.env.SystemRoot}\\System32\\WindowsPowerShell\\v1.0`,
 					OPENMELD_TEST_CALLS_PATH: callsPath,
+					OPENMELD_HOME: home,
 				},
 				shell: false,
 			});
@@ -225,8 +232,14 @@ describe.skipIf(process.platform !== "win32")(
 					.catch(() => []);
 				if (mode === "valid") {
 					expect(code, detail).toBe(7);
+					const prefix = `& '${join(home, "bin", "openmeld.exe").replaceAll("'", "''")}'`;
 					expect(calls).toEqual([
-						{ args: ["install-self", "--json"], home },
+						{
+							args: ["install-self", "--json"],
+							home,
+							commandPrefix: "openmeld-dev",
+							followUp: "openmeld-dev",
+						},
 						{
 							args: [
 								"setup",
@@ -238,7 +251,10 @@ describe.skipIf(process.platform !== "win32")(
 								"human",
 							],
 							home,
+							commandPrefix: prefix,
+							followUp: prefix,
 						},
+						expect.objectContaining({ args: ["fixture-follow-up"], home }),
 					]);
 					expect(stdout).toContain("fixture setup output");
 					expect(stderr).toContain("fixture setup stderr");
