@@ -3,6 +3,7 @@ import {
   type AgentModelInboxSnapshot,
   reconcileAgentModelInboxProjection,
 } from "../src/inbox/application/agent-model-inbox";
+import { createInboxService } from "../src/inbox/application/inbox-service";
 import {
   applyDrizzleMigrationsForTables,
   createSqliteD1Harness,
@@ -11,7 +12,7 @@ import {
 const original: AgentModelInboxSnapshot = {
   organizationId: "org_one",
   ownerUserId: "user_owner",
-  profileId: "profile_one",
+  profileId: "agt_11111111-1111-4111-8111-111111111111",
   profileName: "Research",
   identity: "binding/model-A/review-1",
   verdict: "blocked",
@@ -30,7 +31,26 @@ describe("model recovery Inbox projection", () => {
         readCurrent: async () => original,
       };
       await reconcileAgentModelInboxProjection(input);
-      h.run({ sql: "UPDATE inbox_items SET read_at_ms = 2100" });
+      const inbox = createInboxService({ db: h.db, nowMs: () => 2100 });
+      const reader = {
+        organizationId: original.organizationId,
+        recipientUserId: original.ownerUserId,
+      };
+      const { items } = await inbox.list({ ...reader, view: "needs_action" });
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({
+        sourceTarget: { kind: "agent_profile", profileId: original.profileId },
+        sourceFacts: { personalAgentProfileIds: [original.profileId] },
+      });
+      expect(await inbox.summary(reader)).toMatchObject({
+        unresolvedActionCount: 1,
+        totalUnreadCount: 1,
+      });
+      const item = items[0];
+      if (!item) {
+        throw new Error("Expected the model recovery item in the Inbox");
+      }
+      await inbox.markRead({ ...reader, itemId: item.id, read: true });
       await reconcileAgentModelInboxProjection({ ...input, nowMs: 3000 });
       expect(
         h.queryAll({
@@ -43,9 +63,57 @@ describe("model recovery Inbox projection", () => {
           preview: original.message,
         },
       ]);
+      expect(await inbox.summary(reader)).toMatchObject({
+        unresolvedActionCount: 1,
+        totalUnreadCount: 0,
+      });
+      expect(
+        (await inbox.list({ ...reader, view: "needs_action" })).items
+      ).toHaveLength(1);
       expect(
         h.queryAll({ sql: "SELECT * FROM inbox_email_deliveries" })
       ).toEqual([]);
+    } finally {
+      h.close();
+    }
+  });
+
+  it("exposes owner-only notices only while the exact personal Agent still belongs to that recipient and Organization", async () => {
+    const h = harness();
+    try {
+      await reconcileAgentModelInboxProjection({
+        db: h.db,
+        nowMs: 2000,
+        readCurrent: async () => original,
+      });
+      const inbox = createInboxService({ db: h.db });
+      const reader = {
+        organizationId: original.organizationId,
+        recipientUserId: original.ownerUserId,
+      };
+      expect((await inbox.list(reader)).items).toHaveLength(1);
+      for (const denied of [
+        { ...reader, recipientUserId: "user_other" },
+        { ...reader, organizationId: "org_other" },
+      ]) {
+        expect((await inbox.list(denied)).items).toEqual([]);
+        expect(await inbox.summary(denied)).toMatchObject({
+          unresolvedActionCount: 0,
+          totalUnreadCount: 0,
+        });
+      }
+      h.run({
+        sql: "UPDATE openmeld_profiles SET owner_user_id = 'user_other' WHERE profile_id = 'agt_11111111-1111-4111-8111-111111111111'",
+      });
+      expect((await inbox.list(reader)).items).toEqual([]);
+      expect(await inbox.summary(reader)).toMatchObject({
+        unresolvedActionCount: 0,
+        totalUnreadCount: 0,
+      });
+      // Access revocation preserves the historical row instead of deleting it.
+      expect(
+        h.queryAll({ sql: "SELECT resolution_status FROM inbox_items" })
+      ).toEqual([{ resolution_status: "open" }]);
     } finally {
       h.close();
     }
@@ -121,7 +189,7 @@ describe("model recovery Inbox projection", () => {
         nowMs: 2000,
         readCurrent: async () => ({
           ...original,
-          profileId: "profile_two",
+          profileId: "agt_22222222-2222-4222-8222-222222222222",
           identity: "other-model",
         }),
       });
@@ -135,8 +203,14 @@ describe("model recovery Inbox projection", () => {
           sql: "SELECT json_extract(source_target_json, '$.profileId') AS profileId, resolution_status FROM inbox_items ORDER BY profileId",
         })
       ).toEqual([
-        { profileId: "profile_one", resolution_status: "resolved" },
-        { profileId: "profile_two", resolution_status: "open" },
+        {
+          profileId: "agt_11111111-1111-4111-8111-111111111111",
+          resolution_status: "resolved",
+        },
+        {
+          profileId: "agt_22222222-2222-4222-8222-222222222222",
+          resolution_status: "open",
+        },
       ]);
     } finally {
       h.close();
@@ -160,6 +234,8 @@ function harness() {
     "inbox_items",
     "inbox_email_deliveries",
     "inbox_notification_preferences",
+    "inbox_message_notification_defaults",
+    "inbox_conversation_notification_preferences",
     "inbox_center_agent_read_watermarks",
     "space_index_spaces",
     "space_index_memberships",
@@ -170,5 +246,22 @@ function harness() {
   h.run({
     sql: "INSERT INTO users (id, name, email) VALUES ('user_owner','Owner','owner@example.com')",
   });
+  h.run({
+    sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES ('org_other','Other Org','other-org',1000)",
+  });
+  h.run({
+    sql: "INSERT INTO users (id, name, email) VALUES ('user_other','Other','other@example.com')",
+  });
+  for (const profileId of [
+    original.profileId,
+    "agt_22222222-2222-4222-8222-222222222222",
+  ]) {
+    h.run({
+      sql: `INSERT INTO openmeld_profiles
+      (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, source, created_at, updated_at)
+      VALUES (?, 'Research', ?, 'agent', 0, 'active', 'org_one', 'user_owner', 'cli_create', 1000, 1000)`,
+      params: [profileId, profileId],
+    });
+  }
   return h;
 }

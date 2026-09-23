@@ -72,6 +72,7 @@ export async function reconcileAgentModelInboxProjection(input: {
           version: 1,
           recipientReasons: ["agent_owner"],
           agentProfileIds: [source.profileId],
+          personalAgentProfileIds: [source.profileId],
           requestCategory: "action",
         },
       },
