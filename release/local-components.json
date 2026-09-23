@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-23T10:56:46.841Z",
+  "updatedAt": "2026-09-23T16:17:23.571Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-task-result-review-v1",
-      "packageVersion": "0.3.220",
-      "updatePolicy": "required",
-      "reason": "Older CLI Task review tools omit the exact result revision and cannot safely complete reviews against the new Core contract."
+      "packageVersion": "0.3.221",
+      "updatePolicy": "available",
+      "reason": "CLI commands are unchanged; existing CLI 0.3.220 remains compatible with the hosted Routine identity change."
     },
     "service": {
-      "bundleHash": "b2cb6b0d143c7cdefb90cfe87c16bcc3c8d4573c969e134494deca35f89c0c70",
-      "bundleVersion": "0.3.220",
+      "bundleHash": "3666c01688e932b494b0503b5013901b04bca7483ba20035ecf60a3c0bdb8650",
+      "bundleVersion": "0.3.221",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-antigravity-permissions",
       "serviceContractVersion": "openmeld-service-contract-2026-09-antigravity-permissions-v1",
       "updatePolicy": "available",
-      "reason": "The Windows stored-task reader now accepts known historical fields; existing Service transport, Wake, setup, and diagnostic contracts remain compatible across cloud versions."
+      "reason": "The Routine execution identity changes only hosted Core-to-Remote-Agent requests; old and new local Services remain compatible with both cloud versions."
     },
     "skills": {
       "bundleHash": "c3ce8a2e5928354908a505326ccdc68b65f7a3e305792d595982fd0a41c33e7e",
