@@ -10,7 +10,7 @@ if (mode === "acceptance") {
   env.OPENMELD_DESKTOP_ACCEPTANCE = "1";
 } else {
   const { checkDesktopPublisher } = await import(
-    "../release/desktop-preview.mjs"
+    "../release/desktop-publisher.mjs"
   );
   await checkDesktopPublisher();
   env.CLOUDFLARE_ACCOUNT_ID = undefined;

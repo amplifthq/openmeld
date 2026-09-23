@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -56,15 +58,16 @@ const {
   buildDesktopCandidateMetadata,
   buildDesktopPreviewMetadata,
   buildWranglerObjectPutArgs,
-  checkDesktopPublisher,
   DEFAULT_DOWNLOAD_PAGE_URL,
   DEFAULT_DOWNLOAD_URL,
-  DEFAULT_R2_BUCKET_NAME,
   resolveDesktopArtifactName,
   resolveDesktopReleaseCommand,
   uploadDesktopCandidate,
   verifyDesktopPublicArtifact,
 } = await import("./desktop-preview.mjs");
+const { checkDesktopPublisher, DEFAULT_R2_BUCKET_NAME } = await import(
+  "./desktop-publisher.mjs"
+);
 
 test("Desktop publisher checks the named production token and exact bucket before touching an installer", async () => {
   const accountId = "a".repeat(32);
@@ -123,6 +126,29 @@ test("production Desktop packaging refuses a missing publisher credential before
   assert.equal(result.status, 1);
   assert.match(result.stderr, MISSING_RELEASE_CREDENTIALS);
   assert.ok(!result.stdout.includes("electron-builder"));
+
+  const root = mkdtempSync(path.join(tmpdir(), "openmeld-desktop-entry-"));
+  try {
+    cpSync(
+      fileURLToPath(new URL("../", import.meta.url)),
+      path.join(root, "scripts"),
+      {
+        recursive: true,
+      }
+    );
+    const coldResult = spawnSync(
+      process.execPath,
+      [
+        path.join(root, "scripts/desktop/package-mode.mjs"),
+        "production-preview",
+      ],
+      { cwd: root, encoding: "utf8", env }
+    );
+    assert.equal(coldResult.status, 1);
+    assert.match(coldResult.stderr, MISSING_RELEASE_CREDENTIALS);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("an interrupted public download reports the failed URL before pointer publication", async () => {

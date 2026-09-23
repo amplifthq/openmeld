@@ -29,6 +29,10 @@ import {
   readWindowsDesktopSigning,
 } from "../desktop/installed-platform.ts";
 import { desktopProductionSource } from "../desktop/signed-package.ts";
+import {
+  checkDesktopPublisher,
+  DEFAULT_R2_BUCKET_NAME,
+} from "./desktop-publisher.mjs";
 import { DEFAULT_APPLE_TEAM_ID } from "./macos-cli-signing.mjs";
 import {
   acquireProductionScopeLease,
@@ -39,63 +43,6 @@ const DMG_SUFFIX = /\.dmg$/;
 const STABLE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
 const NODE_ENTRY = /\.[cm]?js$/iu;
-const CLOUDFLARE_ACCOUNT_ID = /^[a-f0-9]{32}$/u;
-const RELEASE_TOKEN_NAME = "CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN";
-export const DEFAULT_R2_BUCKET_NAME = "openmeld-desktop-downloads-prod";
-
-export function desktopPublisherCredentials(env = process.env) {
-  const accountId = env.CLOUDFLARE_ACCOUNT_ID?.trim();
-  const token = env[RELEASE_TOKEN_NAME]?.trim();
-  if (!(CLOUDFLARE_ACCOUNT_ID.test(accountId ?? "") && token)) {
-    throw new Error(
-      `Desktop publication requires CLOUDFLARE_ACCOUNT_ID and ${RELEASE_TOKEN_NAME} from openmeld-release/prd. Check them before signing; local Wrangler OAuth is not a publishing identity.`
-    );
-  }
-  return {
-    accountId,
-    bucket: DEFAULT_R2_BUCKET_NAME,
-    env: { ...env, CLOUDFLARE_API_TOKEN: token },
-  };
-}
-
-export async function checkDesktopPublisher(input = {}) {
-  const credentials = desktopPublisherCredentials(input.env);
-  const url = `https://api.cloudflare.com/client/v4/accounts/${credentials.accountId}/r2/buckets/${credentials.bucket}`;
-  let response;
-  try {
-    response = await (input.fetchBucket ?? fetch)(url, {
-      headers: {
-        Authorization: `Bearer ${credentials.env.CLOUDFLARE_API_TOKEN}`,
-      },
-    });
-  } catch (error) {
-    throw new Error(
-      `Desktop publisher check could not reach ${credentials.bucket} in account ${credentials.accountId}: ${error instanceof Error ? error.message : String(error)}. No Desktop object was written.`
-    );
-  }
-  if (!response.ok) {
-    throw new Error(
-      `Desktop publisher check failed for ${credentials.bucket} in account ${credentials.accountId} (HTTP ${response.status}). Confirm the openmeld-release/prd credential before signing. No Desktop object was written.`
-    );
-  }
-  let result;
-  try {
-    result = await response.json();
-  } catch (error) {
-    throw new Error(
-      `Desktop publisher check returned invalid bucket metadata for account ${credentials.accountId}: ${error instanceof Error ? error.message : String(error)}. No Desktop object was written.`
-    );
-  }
-  if (result?.success !== true || result.result?.name !== credentials.bucket) {
-    throw new Error(
-      `Desktop publisher check returned an unexpected bucket for account ${credentials.accountId}. No Desktop object was written.`
-    );
-  }
-  (input.write ?? ((line) => process.stdout.write(line)))(
-    `[release:desktop-preview] Publisher: openmeld-release/prd; account: ${credentials.accountId}; bucket: ${credentials.bucket}. Bucket read confirmed; upload permission is checked by the guarded publication.\n`
-  );
-  return credentials.env;
-}
 
 export function resolveDesktopReleaseCommand(command, args, input = {}) {
   const platform = input.platform ?? process.platform;
