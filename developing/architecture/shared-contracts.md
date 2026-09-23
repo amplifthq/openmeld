@@ -5881,17 +5881,20 @@ reinterpret them into a second setup-or-retry decision.
 The shared schema supports both the rich local snapshot and its cloud-bound
 projection, but runtime reporting must construct the cloud projection through
 one shared allowlist. The cloud projection clears local command paths and launch
-arguments, authentication type, controller-provided skill inventory, and
+arguments, controller-provided skill inventory, and
 free-text local messages. It preserves the bounded controller-provided model IDs
 and display names as installation compatibility evidence, plus controller
-identity, coarse authentication status, optional provider email or bounded
+identity, coarse authentication status, the bounded authentication type needed
+for Core's account-scoped model admission, optional provider email or bounded
 account label, static capabilities, native interface, version/update evidence,
 launch status/count, bounded check evidence, Usage Limits, and stable readiness
 fields needed by Core and owner-facing clients. Provider account evidence is
 allowed only because the
 authenticated owner-only `listLocalRuntimes` surface needs to identify which
 local account OpenMeld will use; it must not flow into Organization computer
-directories or another member's read model. Do not make every schema field
+directories or another member's read model. Authentication type is retained in
+Core's report for admission and is omitted from Organization computer and owner
+computer detail projections. Do not make every schema field
 cloud-visible merely because a local adapter can populate it.
 
 The optional Organization Computer model ID is additive. Deploy Web and Gateway

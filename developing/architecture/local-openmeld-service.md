@@ -1014,15 +1014,16 @@ install evidence but must not start a disabled controller.
 
 Cloud-bound ACI reporting is a minimized projection of the richer local
 snapshot. It must not send a local command path, launch argument prefix,
-authentication type, controller-provided skill inventory, or free-text local
+controller-provided skill inventory, or free-text local
 diagnostic message. It may send the optional provider email or bounded account
 label only for the authenticated owner's local-runtime inventory so that the
 owner can distinguish which account OpenMeld will use. Core receives only the
-bounded controller identity, enabled/readiness status, static native
+bounded authentication type for account-scoped model admission, controller
+identity, enabled/readiness status, static native
 capabilities, native interface, version evidence, bounded check status and
 last-success timestamp, optional owner-facing account identifier, and other
 fields explicitly required by a current owner-facing product surface. This
-account evidence must not enter Organization computer directories, Center Agent
+account evidence and authentication type must not enter Organization computer directories, Center Agent
 context, Agent Activity, or another member's Computer view. Local CLI and
 Desktop diagnostics may retain the richer local snapshot without turning every
 local field into the cloud contract.
