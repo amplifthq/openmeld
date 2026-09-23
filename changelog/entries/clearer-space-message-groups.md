@@ -16,3 +16,5 @@ message's hour-and-minute time in its toolbar.
 Actions float beside each message without moving the conversation on hover.
 On narrow screens, the toolbar stays on the opposite side of your message and
 keeps the remaining actions in More.
+Extra blank lines in Human messages appear as one blank line between paragraphs;
+the original message text is preserved.
