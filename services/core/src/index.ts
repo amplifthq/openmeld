@@ -3862,8 +3862,8 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.createSpace(input);
   }
 
-  getModelCatalog(): GetModelCatalogResponse {
-    return super.getModelCatalog();
+  getModelCatalog(options?: ModelCatalogReadOptions): GetModelCatalogResponse {
+    return super.getModelCatalog(options);
   }
 
   readChangelog(input: ReadChangelogInput): Promise<ChangelogQueryResponse> {
