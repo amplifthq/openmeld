@@ -38,6 +38,10 @@ import {
 } from "./codex-app-server-admission.js";
 import { buildCodexAppServerLaunch } from "./codex-app-server-launch.js";
 import {
+  buildCodexDeliveryOnlyConfig,
+  isCodexDeliveryOnly,
+} from "./codex-delivery-only.js";
+import {
   buildCodexFileAccessBoundaryGlobalArgs,
   CODEX_FILE_ACCESS_PERMISSION_PROFILE,
   isCodexExecutionContextFileAccessConfirmed,
@@ -354,9 +358,11 @@ export async function invokeCodexAppServerTransport(input: {
   const reasoningSummary = input.onRuntimeEvent
     ? { summary: "auto" as const }
     : {};
+  const deliveryOnly = isCodexDeliveryOnly(input);
+  const permissionExecutionMode = deliveryOnly ? "normal" : input.executionMode;
   const permissionModeParams = resolveCodexAppServerPermissionModeParams(
     input.agentControllerPermissionMode,
-    input.executionMode,
+    permissionExecutionMode,
     input.computerFileAccessBoundary !== undefined,
     input.computerFileAccessBoundary?.executionContextAccess !== undefined
   );
@@ -385,6 +391,7 @@ export async function invokeCodexAppServerTransport(input: {
         initialized,
         threadId: input.threadId,
       });
+      await session.prepareDeliveryOnlyScope(initialized);
       const threadContext = await resolveDispatchThreadContext({
         executionContextScoped:
           input.computerFileAccessBoundary?.executionContextAccess !==
@@ -402,7 +409,7 @@ export async function invokeCodexAppServerTransport(input: {
         threadContext.permissionResponse,
         input.computerFileAccessBoundary,
         input.codexWorkdir,
-        input.executionMode
+        permissionExecutionMode
       );
       await session.verifyScopedMcp(threadContext.threadId);
       const collaborationMode =
@@ -542,6 +549,7 @@ async function startAndAwaitAppServerTurn(input: {
         cwd: input.codexWorkdir,
         ...input.conversationPolicyParams,
         ...input.reasoningSummary,
+        ...session.deliveryOnlyTurnParams(),
         input: [
           {
             text: input.turnPrompt,
@@ -890,16 +898,20 @@ async function resolveDispatchThreadContext(input: {
   instructionPrompt?: AdapterInstructionPrompt;
 }): Promise<CodexAppServerThreadContext> {
   const existingThreadId = normalizeOptionalText(input.threadId);
+  if (
+    existingThreadId &&
+    input.executionMode === "repair" &&
+    (!input.executionContextScoped || input.session.deliveryOnly)
+  ) {
+    return await forkEphemeralCodexRepairThread({
+      conversationPolicyParams: input.conversationPolicyParams,
+      codexWorkdir: input.codexWorkdir,
+      permissionModeParams: input.permissionModeParams,
+      session: input.session,
+      sourceThreadId: existingThreadId,
+    });
+  }
   if (existingThreadId) {
-    if (input.executionMode === "repair" && !input.executionContextScoped) {
-      return await forkEphemeralCodexRepairThread({
-        conversationPolicyParams: input.conversationPolicyParams,
-        codexWorkdir: input.codexWorkdir,
-        permissionModeParams: input.permissionModeParams,
-        session: input.session,
-        sourceThreadId: existingThreadId,
-      });
-    }
     let response: unknown;
     try {
       throwIfCodexDispatchCancelled(input.cancellationSignal);
@@ -1253,6 +1265,8 @@ async function withCodexAppServerSession<T>(
 class CodexAppServerSession {
   readonly spaceToolInvocation: CodexSpaceDynamicToolInvocation;
   readonly #spaceActionTools?: AdapterDispatchRequest["spaceActionTools"];
+  readonly deliveryOnly: boolean;
+  #deliveryConfig: Record<string, unknown> = {};
   #processCleanup: Promise<void> | null = null;
   readonly #codexTimeoutMs: number | null;
   readonly #codexWorkdir: string;
@@ -1317,6 +1331,7 @@ class CodexAppServerSession {
     startupTimeoutMs?: number;
   }) {
     this.#spaceActionTools = input.spaceActionTools;
+    this.deliveryOnly = isCodexDeliveryOnly(input);
     this.spaceToolInvocation = new CodexSpaceDynamicToolInvocation(
       input.spaceActionTools,
       input.cancellationSignal
@@ -1340,7 +1355,7 @@ class CodexAppServerSession {
     const computerFileAccessArgs = this.#computerFileAccessBoundary
       ? buildCodexFileAccessBoundaryGlobalArgs({
           boundary: this.#computerFileAccessBoundary,
-          executionMode: this.#executionMode,
+          executionMode: this.deliveryOnly ? "normal" : this.#executionMode,
           permissionMode: this.#permissionMode,
         })
       : [];
@@ -1559,7 +1574,7 @@ class CodexAppServerSession {
       if (this.#computerFileAccessBoundary?.executionContextAccess) {
         await verifyCodexWorkspaceAccess({
           boundary: this.#computerFileAccessBoundary,
-          executionMode: this.#executionMode,
+          executionMode: this.deliveryOnly ? "normal" : this.#executionMode,
           workingDirectory: this.#codexWorkdir,
           execute: (params) =>
             this.requestControl("command/exec", params, {
@@ -1674,6 +1689,63 @@ class CodexAppServerSession {
     this.spaceToolInvocation.enabled = supported;
   }
 
+  async prepareDeliveryOnlyScope(initialized: unknown): Promise<void> {
+    if (!this.deliveryOnly) {
+      return;
+    }
+    if (
+      this.#spaceActionTools?.tools.some(
+        (tool) => !["reply", "stay_silent", "read_receipt"].includes(tool.name)
+      )
+    ) {
+      throw new CodexAppServerTransportError({
+        code: "space.action.delivery_only_unverified",
+        errorType: "config",
+        message:
+          "The correction capability contains non-delivery actions. No correction turn was started.",
+      });
+    }
+    if (
+      !supportsCodexSpaceDynamicTools(parseCodexAppServerVersion(initialized))
+    ) {
+      throw new CodexAppServerTransportError({
+        code: "space.action.delivery_only_unsupported",
+        errorType: "config",
+        message:
+          "This Codex installation cannot verify delivery-only execution. No correction turn was started.",
+      });
+    }
+    const configuration = await this.requestControl(
+      "config/read",
+      {
+        cwd: this.#codexWorkdir,
+        includeLayers: false,
+      },
+      { code: "runtime.control_timeout", operation: "config/read" }
+    );
+    const requirements = await this.requestControl(
+      "configRequirements/read",
+      {},
+      {
+        code: "runtime.control_timeout",
+        operation: "configRequirements/read",
+      }
+    );
+    if (toRecord(requirements)?.requirements !== null) {
+      throw new CodexAppServerTransportError({
+        code: "space.action.delivery_only_unverified",
+        errorType: "config",
+        message:
+          "The managed Codex requirements cannot be proven compatible with delivery-only execution. No correction turn was started.",
+      });
+    }
+    this.#deliveryConfig = buildCodexDeliveryOnlyConfig(configuration);
+  }
+
+  deliveryOnlyTurnParams(): Record<string, unknown> {
+    return this.deliveryOnly ? { environments: [] } : {};
+  }
+
   async startDispatchThread(params: Record<string, unknown>): Promise<unknown> {
     const source = normalizeOptionalText(params.threadSource) ?? "user";
     try {
@@ -1698,20 +1770,50 @@ class CodexAppServerSession {
       // Only a decoded pre-method argument rejection proves no thread/turn
       // or action executed. Timeouts and ordinary tool failures never replay.
       this.spaceToolInvocation.enabled = false;
-      return await this.requestControl("thread/start", params, {
-        code: "runtime.thread_start_timeout",
-        operation: "thread/start",
-      });
+      return await this.requestControl(
+        "thread/start",
+        { ...params, ...this.spaceToolThreadParams(source) },
+        {
+          code: "runtime.thread_start_timeout",
+          operation: "thread/start",
+        }
+      );
     }
   }
 
   spaceToolThreadParams(newThreadSource?: string): Record<string, unknown> {
+    const scope = this.deliveryOnly
+      ? {
+          config: this.#deliveryConfig,
+          ...(newThreadSource === undefined
+            ? {}
+            : { environments: [], selectedCapabilityRoots: [] }),
+        }
+      : {};
     if (!(this.spaceToolInvocation.enabled && this.#spaceActionTools)) {
-      return {};
+      return scope;
     }
     return {
+      ...scope,
       config: {
-        [`mcp_servers.${OPENMELD_SPACE_ACTION_MCP_SERVER_ID}.enabled`]: false,
+        ...this.#deliveryConfig,
+        ...(this.deliveryOnly
+          ? {
+              mcp_servers: {
+                ...(toRecord(this.#deliveryConfig.mcp_servers) ?? {}),
+                [OPENMELD_SPACE_ACTION_MCP_SERVER_ID]: {
+                  ...(toRecord(
+                    toRecord(this.#deliveryConfig.mcp_servers)?.[
+                      OPENMELD_SPACE_ACTION_MCP_SERVER_ID
+                    ]
+                  ) ?? {}),
+                  enabled: false,
+                },
+              },
+            }
+          : {
+              [`mcp_servers.${OPENMELD_SPACE_ACTION_MCP_SERVER_ID}.enabled`]: false,
+            }),
       },
       ...(newThreadSource === undefined
         ? {}
@@ -1724,7 +1826,8 @@ class CodexAppServerSession {
 
   async verifyScopedMcp(threadId: string): Promise<void> {
     const scoped =
-      this.#computerFileAccessBoundary?.executionContextAccess !== undefined;
+      this.#computerFileAccessBoundary?.executionContextAccess !== undefined ||
+      this.deliveryOnly;
     if (!(scoped || this.spaceToolInvocation.enabled)) {
       return;
     }
@@ -1738,6 +1841,9 @@ class CodexAppServerSession {
     );
     if (scoped) {
       assertCodexScopedMcpInventory(inventory, {
+        expectedToolNames: this.deliveryOnly
+          ? ["reply", "stay_silent", "read_receipt"]
+          : undefined,
         expectDispatchServer:
           !this.spaceToolInvocation.enabled &&
           resolveDispatchSpaceActionMcpServer(this.#env) !== null,
@@ -2167,6 +2273,18 @@ class CodexAppServerSession {
         id,
         jsonrpc: "2.0",
         result: await this.spaceToolInvocation.call(message.params),
+      });
+      return;
+    }
+    if (
+      this.deliveryOnly &&
+      message.method !== "mcpServer/elicitation/request" &&
+      message.method !== "item/tool/requestUserInput"
+    ) {
+      this.#write({
+        id,
+        jsonrpc: "2.0",
+        result: buildServerRequestDeclineResponse(message.method),
       });
       return;
     }

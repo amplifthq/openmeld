@@ -322,6 +322,10 @@ test("codex Stop keeps the turn a released writer retry already started", async 
       waitForThreadWriterAvailability: () =>
         Promise.resolve("release_observed"),
     });
+    let acceptTurn;
+    const acceptedTurn = new Promise((resolve) => {
+      acceptTurn = resolve;
+    });
     const dispatchOutcome = adapter.dispatch({
       agentControllerConversationId: "thread-default-stop-after-turn",
       agentId: "agt-demo",
@@ -335,6 +339,9 @@ test("codex Stop keeps the turn a released writer retry already started", async 
         if (event.phase.startsWith("agent_controller_conversation_")) {
           events.push(event.phase);
         }
+        if (event.phase === "provider_turn_accepted") {
+          acceptTurn();
+        }
       },
       prompt: "continue after the writer releases",
       runtimeContext: createRuntimeContext(dispatchDir),
@@ -346,7 +353,16 @@ test("codex Stop keeps the turn a released writer retry already started", async 
 
     // The retry won the writer lock and the native turn is running, so this
     // Stop lands after `turn/start` rather than ahead of it.
-    await waitForFakeAppServerMethod(logPath, "turn/start");
+    // Use actual native admission rather than assuming two controller starts
+    // and writer reconciliation fit inside an unrelated one-second file poll.
+    await Promise.race([
+      acceptedTurn,
+      dispatchOutcome.then((result) =>
+        assert.fail(
+          `The dispatch ended before accepting the native turn: ${JSON.stringify(result)}`
+        )
+      ),
+    ]);
     const stopResult = await adapter.interrupt({
       mode: "force",
       taskId: "task-default-stop-after-turn",
@@ -1118,6 +1134,31 @@ for (const scenario of [
     native: true,
     handlerThrows: true,
   },
+  ...["codex:fullAccess", "codex:approveForMe", "codex:askForApproval"].map(
+    (mode) => ({
+      name: `delivery-only preserves ${mode}`,
+      version: "0.150.1",
+      native: true,
+      existing: true,
+      source: "user/openmeld-space-tools-v1",
+      repair: true,
+      deliveryOnly: true,
+      mode,
+    })
+  ),
+  {
+    name: "delivery-only rejects unsupported controller",
+    version: "0.149.0",
+    deliveryOnly: true,
+    error: "space.action.delivery_only_unsupported",
+  },
+  {
+    name: "delivery-only preserves managed requirements",
+    version: "0.150.1",
+    deliveryOnly: true,
+    requirements: { featureRequirements: { hooks: true } },
+    error: "space.action.delivery_only_unverified",
+  },
   {
     name: "pre-thread native rejection",
     version: "0.150.1",
@@ -1141,9 +1182,9 @@ for (const scenario of [
       }).dispatch({
         agentId: "agt-demo",
         agentControllerConversationId: scenario.existing ? threadId : undefined,
-        agentControllerPermissionMode: scenario.custom
-          ? "codex:customConfig"
-          : "codex:askForApproval",
+        agentControllerPermissionMode:
+          scenario.mode ??
+          (scenario.custom ? "codex:customConfig" : "codex:askForApproval"),
         executionMode: scenario.repair ? "repair" : "normal",
         sourceEventId: "evt-delivery",
         spaceId: "space-1",
@@ -1153,7 +1194,7 @@ for (const scenario of [
         prompt:
           "Use the supplied reply tool to explain that no repository is available.",
         spaceActionTools: {
-          deliveryOnly: false,
+          deliveryOnly: Boolean(scenario.deliveryOnly),
           tools: [
             {
               name: "reply",
@@ -1185,6 +1226,9 @@ for (const scenario of [
           OPENMELD_USER_FACING_CLI_COMMAND: "openmeld",
           OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
           OPENMELD_FAKE_CODEX_NATIVE_VERSION: scenario.version,
+          ...(scenario.deliveryOnly
+            ? { OPENMELD_SPACE_ACTION_DELIVERY_ONLY: "1" }
+            : {}),
           OPENMELD_FAKE_CODEX_SPACE_POLICY: JSON.stringify(
             scenario.policy ?? {}
           ),
@@ -1236,9 +1280,12 @@ for (const scenario of [
       );
       if (scenario.native) {
         assert.equal(
-          thread.params.config[
-            "mcp_servers.openmeld_internal_dispatch_space_action.enabled"
-          ],
+          scenario.deliveryOnly
+            ? thread.params.config.mcp_servers
+                .openmeld_internal_dispatch_space_action.enabled
+            : thread.params.config[
+                "mcp_servers.openmeld_internal_dispatch_space_action.enabled"
+              ],
           false
         );
         if (executed) {
@@ -1246,6 +1293,29 @@ for (const scenario of [
             name: "reply",
             args: { message: "I cannot access the repository." },
           });
+        }
+      }
+      if (scenario.deliveryOnly) {
+        const turn = messages.find(
+          (message) => message.method === "turn/start"
+        ).params;
+        assert.deepEqual(turn.environments, []);
+        assert.equal(thread.params.config["agents.enabled"], false);
+        assert.equal(
+          thread.params.approvalPolicy,
+          scenario.mode === "codex:fullAccess" ? "never" : "on-request"
+        );
+        assert.equal(
+          thread.params.sandbox,
+          scenario.mode === "codex:fullAccess"
+            ? "danger-full-access"
+            : "workspace-write"
+        );
+        if (scenario.mode !== "codex:fullAccess") {
+          assert.equal(
+            thread.params.approvalsReviewer,
+            scenario.mode === "codex:approveForMe" ? "auto_review" : "user"
+          );
         }
       }
       if (scenario.existing) {

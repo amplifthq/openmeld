@@ -99,7 +99,8 @@ export function buildStructuredActionRepairPrompt(input: {
   spaceId?: string | null;
   previousOutput?: string | null;
 }): string {
-  const previousOutput = buildBoundedRepairOutputPreview(input.previousOutput);
+  // An isolated correction cannot recover a complete result from a UI preview.
+  const previousOutput = normalizeOptionalText(input.previousOutput);
   const publicationRequirement = resolveSpacePublicationRequirement(
     input.spaceContractSnapshot
   );
@@ -136,19 +137,6 @@ export function buildStructuredActionRepairPrompt(input: {
     "If the permitted tool cannot record the action, stop. Do not run a fallback CLI or print JSON/prose as a substitute. A native structured-output carrier may request an explicit public action through its supplied schema instead.",
     "Do not finish with an explanation of what you will do.",
   ].join("\n");
-}
-
-const REPAIR_OUTPUT_PREVIEW_MAX_CHARS = 1200;
-
-function buildBoundedRepairOutputPreview(value: unknown): string | null {
-  const normalized = normalizeOptionalText(value);
-  if (!normalized) {
-    return null;
-  }
-  if (normalized.length <= REPAIR_OUTPUT_PREVIEW_MAX_CHARS) {
-    return normalized;
-  }
-  return `${normalized.slice(0, REPAIR_OUTPUT_PREVIEW_MAX_CHARS).trimEnd()}\n[truncated; reuse the complete answer already in this conversation]`;
 }
 
 function buildStructuredActionRepairSendTargetReferenceLines(

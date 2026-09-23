@@ -147,7 +147,12 @@ test(
       OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH: join(home, "openmeld"),
       OPENMELD_USER_FACING_CLI_COMMAND: "openmeld",
     };
-    const run = async (name, threadId, executionMode = "normal") => {
+    const run = async (
+      name,
+      threadId,
+      executionMode = "normal",
+      deliveryOnly = false
+    ) => {
       phase = name;
       step = 0;
       const before = calls.length;
@@ -162,10 +167,15 @@ test(
         spaceId: "space-native-fixture",
         runtimeContext: { providerRuntimeWorkingDirectory: workdir },
         agentControllerConversationId: threadId,
-        agentControllerPermissionMode: "codex:askForApproval",
+        agentControllerPermissionMode: deliveryOnly
+          ? "codex:fullAccess"
+          : "codex:askForApproval",
         executionMode,
         transportMode: "codex-app-server",
-        env,
+        env: {
+          ...env,
+          ...(deliveryOnly ? { OPENMELD_SPACE_ACTION_DELIVERY_ONLY: "1" } : {}),
+        },
         prompt: "Call the synthetic reply tool once; no other action.",
         onRuntimeEvent: (event) => {
           if (event.phase === "provider_turn_accepted") {
@@ -173,7 +183,7 @@ test(
           }
         },
         spaceActionTools: {
-          deliveryOnly: false,
+          deliveryOnly,
           tools: [
             {
               name: "reply",
@@ -219,7 +229,31 @@ test(
       sourceCompletedTurnId: resumed.turnId,
     });
     await run("persistent-fork", fork.threadId);
-    assert.equal(catalogs.length, 8);
+    await run("delivery-only", resumed.conversationId, "repair", true);
+    assert.equal(catalogs.length, 10);
+    for (const entry of catalogs.filter(
+      (entry) => entry.phase === "delivery-only"
+    )) {
+      const names = entry.tools.flatMap((tool) =>
+        tool.tools
+          ? tool.tools.map((nested) => `${tool.name}.${nested.name}`)
+          : [tool.name]
+      );
+      // Internal plan/user-input and empty skill discovery are metadata only;
+      // filesystem, command, web, app, delegate and other MCP effects are absent.
+      const allowed = new Set([
+        "openmeld_space_reply",
+        "update_plan",
+        "request_user_input",
+        "skills.list",
+        "skills.read",
+      ]);
+      assert.deepEqual(
+        names.filter((name) => !allowed.has(name)),
+        [],
+        JSON.stringify(entry.tools)
+      );
+    }
     for (const entry of catalogs) {
       const names = entry.tools.map((tool) => tool.name).filter(Boolean);
       assert.equal(

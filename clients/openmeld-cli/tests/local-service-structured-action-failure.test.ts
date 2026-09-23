@@ -773,15 +773,18 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
     expect(prompt).toContain("Here is the previous answer.");
   });
 
-  it("keeps the repair reminder bounded when the previous answer was large", () => {
+  it("preserves a complete result for a delivery-only session without old history", () => {
     const prompt = buildStructuredActionRepairPrompt({
       parseError: "no action was recorded",
       previousOutput: `START-${"x".repeat(20_000)}-END`,
     });
 
     expect(prompt).toContain("START-");
-    expect(prompt).not.toContain("-END");
-    expect(prompt.length).toBeLessThan(5000);
+    expect(prompt).toContain(`START-${"x".repeat(20_000)}-END`);
+    expect(prompt).toContain("not authorization to publish it");
+    expect(prompt).not.toContain(
+      "reuse the complete answer already in this conversation"
+    );
   });
 
   it("keeps raw context sharing repair guidance compatible with plain raw replies", () => {
