@@ -2170,6 +2170,19 @@ substitutes for preventing a console at process creation. The existing encoded
 action remains the only command/environment configuration and retains its log;
 outer PowerShell/host failures are appended beside the host as `<host>.log`.
 
+The encoded Windows action has one canonical four-field contract: `executable`,
+`args`, `env`, and `logPath`. Its serializer projects and validates those fields
+rather than serializing a wider Service or maintenance registration spec.
+`workingDirectory` belongs to the Task Scheduler action, and `pendingJobPath`
+is maintenance registration metadata; neither is an encoded execution field.
+Readers narrowly accept the historical string-valued copies of these two fields
+from released writers, discard them, and return the canonical action. Unknown
+fields and malformed required or historical values still fail validation. This
+read compatibility permits status, ownership checks, and normal guarded repair
+of an existing task without deleting it or changing its user, permissions, or
+console-free host. The compatibility decoder does not create another execution
+configuration or make registration a claim of Service readiness.
+
 Guarded installation compiles fixed bundled C# source with Windows PowerShell
 5.1's .NET compiler into a temporary WindowsApplication and atomically installs
 it at `<lane legacy script>.task-host-v1.exe`. Main and maintenance tasks have
