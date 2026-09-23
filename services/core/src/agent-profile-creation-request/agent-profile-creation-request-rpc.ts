@@ -175,9 +175,11 @@ export async function rpcCenterAgentCreateAgentProfileCreationRequest(
   return await rpcCreateAgentProfileCreationRequest(env, {
     ...body,
     context: prepared.context,
-    idempotencyKey: await buildCenterAgentCreationRequestIdempotencyKey({
+    idempotencyKey: await resolveCenterAgentCreationRequestIdempotencyKey({
       body,
       context: prepared.context,
+      db: requireDb(env),
+      organizationId: prepared.organizationId,
     }),
     organizationId: prepared.organizationId,
   });
@@ -667,9 +669,11 @@ async function prepareCenterAgentRepresentedMemberRequest(input: {
   };
 }
 
-async function buildCenterAgentCreationRequestIdempotencyKey(input: {
+async function resolveCenterAgentCreationRequestIdempotencyKey(input: {
   body: Omit<CreateAgentProfileCreationRequestBody, "idempotencyKey">;
   context: OpenMeldRequestContext;
+  db: D1Database;
+  organizationId: string;
 }): Promise<string> {
   // The intent owner drops transport fields, including this placeholder key.
   // Hash exactly what replay equality compares, including the target Space.
@@ -680,10 +684,56 @@ async function buildCenterAgentCreationRequestIdempotencyKey(input: {
   if (!intent.success) {
     throw invalidPayload(intent.error.issues[0]?.message);
   }
+  const requestId = input.context.actorContext.requestId;
   const fingerprint = await digestCanonicalJson({
-    requestId: input.context.actorContext.requestId,
+    requestId,
     intent: intent.data,
   });
+  const legacyKey =
+    await buildLegacyCenterAgentCreationRequestIdempotencyKey(input);
+  const legacy = await createD1AgentProfileCreationRequestRepository(
+    input.db
+  ).findByIdempotencyKey({
+    idempotencyKey: legacyKey,
+    organizationId: input.organizationId,
+    requesterUserId: requireCallerUserId(input.context),
+  });
+  // The old key omitted Space. Reuse only an exact, actor-bound intent; the
+  // normal service still authorizes and replays the existing durable request.
+  if (
+    legacy &&
+    legacy.actorProfileId === input.context.actorContext.openMeldProfileId &&
+    (await digestCanonicalJson({
+      requestId,
+      intent: agentProfileCreationIntentSchema.parse(legacy),
+    })) === fingerprint
+  ) {
+    return legacyKey;
+  }
+  return `center-agent:agent-profile-request:${fingerprint}`;
+}
+
+// Lookup-only compatibility for persisted pre-canonical requests. Keep the
+// original field order and omitted-value behavior; never create with this key.
+async function buildLegacyCenterAgentCreationRequestIdempotencyKey(input: {
+  body: Omit<CreateAgentProfileCreationRequestBody, "idempotencyKey">;
+  context: OpenMeldRequestContext;
+}): Promise<string> {
+  const payload = JSON.stringify({
+    configuration: input.body.configuration,
+    nativeSessionId: input.body.nativeSessionId ?? null,
+    profileName: input.body.profileName,
+    requestId: input.context.actorContext.requestId,
+    sessionStrategy: input.body.sessionStrategy,
+    targetOwnerUserId: input.body.targetOwnerUserId,
+  });
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(payload)
+  );
+  const fingerprint = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
   return `center-agent:agent-profile-request:${fingerprint}`;
 }
 

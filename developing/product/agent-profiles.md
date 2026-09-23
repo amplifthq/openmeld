@@ -232,9 +232,15 @@ retry path. No new watcher, mandatory Wake, or parent continuation is added.
 Center-generated idempotency keys hash the existing normalized creation intent,
 including the target Space, plus the originating request ID. Deep JSON key order
 and normalized name/default notation do not define another intent. The same
-intent owner governs both the hash and replay comparison. Existing durable
-requests retain their recorded IDs and recovery paths; do not infer a failed
-creation from a missing response or replace an already-created identity.
+intent owner governs both the hash and replay comparison. For an exact retry
+across the key-format upgrade, Core also looks up the pre-canonical key within
+the same Organization and requester. It reuses that key only for an existing
+record with the same actor and complete normalized intent, including Space,
+then delegates to the normal authorized replay path. A different Space still
+uses its canonical key; the legacy format is lookup-only, not a new-write
+format or an alias store. Existing durable requests retain their recorded IDs
+and recovery paths; do not infer a failed creation from a missing response or
+replace an already-created identity.
 
 Web recovery keeps a failed creation's context. **Review setup** opens that
 request rather than ordinary New Agent. Before identity creation, an owner can
