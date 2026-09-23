@@ -27,6 +27,7 @@ const repo = path.resolve(
   "../.."
 );
 const evidence = path.join(repo, "dev-tmp/windows-native-evidence");
+const LOG_LINES = /\r?\n/u;
 await mkdir(evidence, { recursive: true });
 const version = resolveCliPackageVersion();
 // The process helper is part of the delivered version bundle, shared by both
@@ -40,6 +41,7 @@ for (const name of [
   "windows-native-runtime",
   "windows-native-codex",
   "windows-managed-launcher",
+  "windows-direct-task",
 ]) {
   const outFile = path.join(evidence, `${name}.exe`);
   const build = spawnSync(
@@ -47,6 +49,7 @@ for (const name of [
     buildBunCompileArgs({
       bunTarget: "bun-windows-x64",
       version,
+      background: name === "windows-direct-task",
       outFile,
       entry: path.join(
         repo,
@@ -146,6 +149,7 @@ assert.equal(
 );
 await exerciseManagedLauncher();
 await exerciseManagedInstallation();
+await exerciseDirectTask();
 await exerciseOwnedComponent({
   executable: binaries["windows-native-runtime"].path,
   args: [
@@ -219,6 +223,58 @@ async function exerciseManagedInstallation() {
   assert.equal(await run(installed.currentPointerPath, ["--version"]), version);
   console.log(
     JSON.stringify({ stage: "managed_install_recovery", status: "passed" })
+  );
+}
+
+async function exerciseDirectTask() {
+  const executable = binaries["windows-direct-task"].path;
+  const bytes = await readFile(executable);
+  assert.equal(bytes.readUInt16LE(bytes.readUInt32LE(0x3c) + 24 + 68), 2);
+  for (const exitCode of [0, 7]) {
+    const logPath = path.join(evidence, `direct-task-${exitCode}.log`);
+    const args = [
+      String(exitCode),
+      "",
+      "中文 with spaces",
+      'literal"quote',
+      "tail\\",
+      "%PATH%",
+      "&()^!|<>;",
+    ];
+    const action = {
+      executable,
+      args,
+      env: { OPENMELD_TASK_FIXTURE: "registered 中文 value" },
+      logPath,
+    };
+    await exerciseOwnedComponent({
+      executable,
+      args: [
+        ...args,
+        "--openmeld-windows-task",
+        Buffer.from(JSON.stringify(action)).toString("base64"),
+      ],
+      log: `direct-task-${exitCode}-supervisor.log`,
+      stages: [],
+      exitCode,
+      timeoutMs: 30_000,
+    });
+    const log = await readFile(logPath, "utf8");
+    const receipt = JSON.parse(log.split(LOG_LINES)[0]);
+    assert.deepEqual(receipt.args, args);
+    assert.equal(receipt.value, action.env.OPENMELD_TASK_FIXTURE);
+    for (const text of [
+      "direct task stderr",
+      "direct stream stdout",
+      "direct stream stderr",
+      "inherited child stdout 中文",
+      "inherited child stderr",
+    ]) {
+      assert.ok(log.includes(text), text);
+    }
+  }
+  console.log(
+    JSON.stringify({ stage: "direct_task_exit_and_logs", status: "passed" })
   );
 }
 
@@ -442,7 +498,7 @@ async function exerciseOwnedComponent(input) {
         );
       }),
     ]);
-    assert.equal(code, 0, output);
+    assert.equal(code, input.exitCode ?? 0, output);
     for (const stage of input.stages) {
       assert.ok(
         output.includes(`"stage":"${stage}","status":"passed"`),

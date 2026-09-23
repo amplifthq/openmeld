@@ -204,6 +204,25 @@ that a complete maintenance copy survives removal of its original Service and
 detects companion corruption; it does not prove native worker self-upgrade or
 Task Scheduler replacement. Direct task supervision remains the next batch.
 
+The direct-task batch registers a selected GUI binary as the task executable.
+The existing four-field action remains in Task Scheduler; a private argument
+envelope initializes its environment and file descriptors before business
+imports, with visible role arguments checked against the same envelope. The
+Execution Host inherits those descriptors and retains its separate IPC channel.
+No second task configuration file or connection authority is introduced.
+Main Service replacement still requires stopped state. An owned direct
+maintenance task may select a subsequent immutable copy while its existing
+invocation finishes under the existing lease; interactive Windows acceptance of
+that running-registration transition remains required.
+
+Local validation passed the 26 task/worker policy cases, CLI TypeScript, and
+four real source Host cases. New Windows gates cover the actual Service through
+the task entry, compiled GUI exit 0/7 with inherited logs, and stopped legacy
+registration migration. These gates have not yet run. The npm carrier still
+uses its historical host in this intermediate Draft; removing that supported
+path must accompany binary acquisition/migration rather than silently breaking
+existing npm installations. No product release is authorized by this evidence.
+
 ## References
 
 - [Product model](../product/product-model.md), [Service owner](local-openmeld-service.md), [transport owner](agent-transport-contract.md), [Desktop owner](../clients/desktop.md), [CLI release](../engineering/cli-binary-release.md), [delivery](../engineering/agent-native-delivery.md).

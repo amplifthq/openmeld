@@ -2193,7 +2193,18 @@ of an existing task without deleting it or changing its user, permissions, or
 console-free host. The compatibility decoder does not create another execution
 configuration or make registration a claim of Service readiness.
 
-Guarded installation compiles fixed bundled C# source with Windows PowerShell
+For the managed Windows binary distribution, Task Scheduler directly starts
+the selected verified x64 GUI Service (or an independent maintenance copy).
+Visible role arguments and a private four-field action envelope must agree.
+The entry applies its registered environment before importing business modules,
+writes stdout/stderr synchronously to the existing task log, and passes those
+file descriptors to the private Host while retaining its IPC channel. Task
+Scheduler observes the Service's actual exit status. Main Service replacement
+requires stopped state. An owned direct maintenance registration may select the
+next immutable copy while its current invocation finishes under the existing
+maintenance lease; it must not stop or overwrite that running worker.
+
+The existing npm compatibility path still compiles fixed bundled C# source with Windows PowerShell
 5.1's .NET compiler into a temporary WindowsApplication and atomically installs
 it at `<lane legacy script>.task-host-v1.exe`. Main and maintenance tasks have
 separate hosts, so neither replaces the other's running image. Compilation or

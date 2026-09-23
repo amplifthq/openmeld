@@ -174,9 +174,28 @@ describe("real execution Host entry", () => {
       env.OPENMELD_DAEMON_RUNTIME_SYSTEM_SERVICE = "1";
       // A fixture-owned Windows Job contains the Service and every descendant.
       // No process-name cleanup, task registration, or real account is involved.
+      const taskLog = join(root, "service-task.log");
+      const serviceArgs = [
+        "service",
+        "run",
+        "--mode",
+        "background",
+        "--view",
+        "agent",
+      ];
+      const taskAction = {
+        executable: binaryPath,
+        args: serviceArgs,
+        env: { OPENMELD_HOME: env.OPENMELD_HOME },
+        logPath: taskLog,
+      };
       const owned = spawnAgentControllerProcess({
         bin: binaryPath,
-        args: ["service", "run", "--mode", "background", "--view", "agent"],
+        args: [
+          ...serviceArgs,
+          "--openmeld-windows-task",
+          Buffer.from(JSON.stringify(taskAction)).toString("base64"),
+        ],
         cwd: root,
         env,
         shell: false,
@@ -221,6 +240,7 @@ describe("real execution Host entry", () => {
       } catch (error) {
         failures.push(error);
       } finally {
+        output += await readFile(taskLog, "utf8").catch(() => "");
         if (evidenceDir) {
           try {
             await mkdir(evidenceDir, { recursive: true });

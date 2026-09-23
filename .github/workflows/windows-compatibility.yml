@@ -110,6 +110,13 @@ jobs:
           $env:OPENMELD_TEST_HOST_BINARY = (Resolve-Path "cli/dist/openmeld-service-windows-x64-$version.exe").Path
           $env:OPENMELD_TEST_ARTIFACT_EVIDENCE = (Resolve-Path dev-tmp/windows-native-evidence).Path
           pnpm --dir clients/openmeld-cli exec vitest run --config vitest.integration.config.ts tests/service-execution-host-entry.integration.test.ts
+      - name: Verify direct GUI task registration and stopped legacy migration
+        if: ${{ !cancelled() && steps.artifacts.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $version = (Get-Content clients/openmeld-cli/package.json | ConvertFrom-Json).version
+          $env:OPENMELD_TEST_HOST_BINARY = (Resolve-Path "cli/dist/openmeld-service-windows-x64-$version.exe").Path
+          pnpm --dir clients/openmeld-cli exec vitest run --config vitest.integration.config.ts tests/windows-direct-task.integration.test.ts
       - name: Preserve native acceptance evidence and exact unsigned artifacts
         if: always()
         uses: actions/upload-artifact@v4
