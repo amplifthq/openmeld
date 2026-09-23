@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import {
   type CliBinaryDownloadProgress,
@@ -11,7 +11,11 @@ import {
   resolveFullCliBinaryUpdatePlan,
   verifyCliBinaryCodeSignature,
 } from "@openmeld/local-service/cli-binary-update-artifact";
-import { cliBinaryManifestSchema } from "@openmeld/schemas";
+import {
+  cliBinaryManifestSchema,
+  cliInstallSelfResultSchema,
+  resolveCliBinaryPlatform,
+} from "@openmeld/schemas";
 import type { CommandDeps } from "./commands";
 
 /** Bootstrap only. The downloaded CLI owns managed installation and Service state. */
@@ -73,8 +77,11 @@ export async function installManagedBinary(
       350 - (now - lastProgressAt)
     );
   };
-  if (process.platform !== "darwin" || process.arch !== "arm64") {
-    throw new Error("Connecting this computer requires an Apple silicon Mac.");
+  const platform = resolveCliBinaryPlatform(process.platform, process.arch);
+  if (platform !== "darwin-arm64" && platform !== "windows-x64") {
+    throw new Error(
+      "OpenMeld Tools are available for Apple silicon Macs and 64-bit Windows PCs."
+    );
   }
   const manifestUrl = new URL("/cli/manifest.json", webOrigin);
   const response = await fetch(manifestUrl, {
@@ -87,13 +94,15 @@ export async function installManagedBinary(
     );
   }
   const manifest = cliBinaryManifestSchema.parse(await response.json());
-  const release = manifest.channels.stable.platforms["darwin-arm64"];
+  const release = manifest.channels.stable.platforms[platform];
   if (!release) {
-    throw new Error("OpenMeld Tools are unavailable for this Mac.");
+    throw new Error("OpenMeld Tools are unavailable for this computer.");
   }
   if (
     deps.env?.OPENMELD_ENV_PRESET === "prod" &&
-    !(release.codeIdentifier && release.teamIdentifier)
+    !(platform === "windows-x64"
+      ? release.windows?.publisherName
+      : release.codeIdentifier && release.teamIdentifier)
   ) {
     throw new Error(
       "OpenMeld Tools do not include a verified signing identity."
@@ -123,7 +132,10 @@ export async function installManagedBinary(
     flushDownloadProgress();
   }
   const temporary = await mkdtemp(join(tmpdir(), "openmeld-desktop-install-"));
-  const artifactPath = join(temporary, "openmeld");
+  const artifactPath = join(
+    temporary,
+    platform === "windows-x64" ? "openmeld.exe" : "openmeld"
+  );
   const exec = promisify(execFile);
   try {
     await writeFile(artifactPath, bytes, { mode: 0o700 });
@@ -153,11 +165,24 @@ export async function installManagedBinary(
     });
     // No npm, shell, or GUI-owned Service installation. Never force a downgrade.
     reportStage("installing");
-    await exec(artifactPath, ["install-self", "--json"], {
+    const installed = await exec(artifactPath, ["install-self", "--json"], {
       env: deps.env,
       timeout: 0,
       maxBuffer: 1024 * 1024,
+      windowsHide: true,
     });
+    const receipt = cliInstallSelfResultSchema.parse(
+      JSON.parse(installed.stdout)
+    );
+    if (
+      receipt.platform !== platform ||
+      !isAbsolute(receipt.currentPointerPath)
+    ) {
+      throw new Error(
+        "OpenMeld Tools returned an invalid installation location."
+      );
+    }
+    return receipt.currentPointerPath;
   } finally {
     if (progressTimer) {
       clearTimeout(progressTimer);

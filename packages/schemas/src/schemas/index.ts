@@ -209,6 +209,7 @@ export {
   normalizeKnownBuiltinAgentControllerId,
   parseAgentControllerRef,
 } from "./daemon/agent-controller-ref";
+export { cliInstallSelfResultSchema } from "./daemon/cli-install-self";
 export {
   computerCareObservationSchema,
   executionHostObservationSchema,

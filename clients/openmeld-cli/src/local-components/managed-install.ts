@@ -14,7 +14,10 @@ import {
 import path from "node:path";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
-import { resolveCliBinaryPlatform } from "@openmeld/schemas";
+import {
+  cliInstallSelfResultSchema,
+  resolveCliBinaryPlatform,
+} from "@openmeld/schemas";
 import { readDaemonServiceUpdateWorkerProtectedManagedVersions } from "../config/daemon-service-update-worker-registration";
 import {
   acquireLock,
@@ -402,7 +405,7 @@ async function swapCurrentPointer(
 }
 
 export function buildInstallSelfJsonPayload(outcome: CliInstallSelfOutcome) {
-  return {
+  return cliInstallSelfResultSchema.parse({
     schemaVersion: 1 as const,
     type: "cli.install_self" as const,
     result: outcome.result,
@@ -412,7 +415,7 @@ export function buildInstallSelfJsonPayload(outcome: CliInstallSelfOutcome) {
     currentPointerPath: outcome.currentPointerPath,
     previousVersion: outcome.previousVersion,
     forced: outcome.forced,
-  };
+  });
 }
 
 function isErrorWithCode(error: unknown, code: string): boolean {

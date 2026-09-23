@@ -223,6 +223,25 @@ uses its historical host in this intermediate Draft; removing that supported
 path must accompany binary acquisition/migration rather than silently breaking
 existing npm installations. No product release is authorized by this evidence.
 
+Run [35900809387, attempt 1](https://github.com/amplifthq/openmeld/actions/runs/35900809387),
+head `e042185ced0ddc23da3564c9df6cdc25636df543`, checkout
+`e342e19489f2d442f111bf01e1b17cac3be168ba`, completed the native component
+and actual Service steps successfully: command PATH assertions, managed launcher
+handoff/live-bundle preservation, actual install-self/repeat/interrupted-launcher
+repair, SQLite, SDK, official Codex, and Service/Host 5/5. The new source push
+superseded the run through workflow concurrency during closeout, so its overall
+conclusion is **Cancelled**, not a passing required check. Its
+[artifact and logs](https://github.com/amplifthq/openmeld/actions/runs/35900809387/artifacts/10769103043)
+remain useful bounded evidence. The next run must certify the direct-task commit.
+
+Desktop acquisition now uses the shared managed Windows x64 artifact verifier
+and installer. The npm-specific acquisition implementation and its obsolete
+tests have been removed. The CLI emits the same installation result through a
+shared schema; Desktop follows its selected command path even when its own PATH
+is stale or the installer retains a newer version. This is source-level client
+integration, not an installed Desktop, real account reuse, or signing/release
+acceptance result.
+
 ## References
 
 - [Product model](../product/product-model.md), [Service owner](local-openmeld-service.md), [transport owner](agent-transport-contract.md), [Desktop owner](../clients/desktop.md), [CLI release](../engineering/cli-binary-release.md), [delivery](../engineering/agent-native-delivery.md).
