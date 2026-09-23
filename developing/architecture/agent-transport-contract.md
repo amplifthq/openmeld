@@ -2103,6 +2103,15 @@ thread authorization. `read_receipt` reconciles the existing proposal without
 publishing or overwriting it. Positive input rejection is distinct from an
 unknown write result, and a receipt still means local proposal, not publication.
 
+Read-only history, shared-file and Task-list tools return either a complete
+`result` or a bounded `page`. `read_result` continues an immutable JSON snapshot
+using the returned result id and byte offset. Snapshots stay in a bounded,
+per-invocation memory cache, never an arbitrary local file. Every page checks
+the active Wake; closing the capability clears its snapshots. A repeated page
+does not repeat the source operation. Expired, evicted, or foreign cursors fail
+explicitly; reconnecting requires a new authorized source read. Final action
+receipts are not paginated or reconstructed into another publication path.
+
 `OPENMELD_SPACE_ACTION_DELIVERY_ONLY` distinguishes missing-action correction
 from concurrent-result reconsideration, even though both currently use a repair
 execution mode. The former exposes only necessary final delivery and receipt

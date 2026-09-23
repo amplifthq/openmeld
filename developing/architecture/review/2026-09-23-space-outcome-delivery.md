@@ -33,11 +33,20 @@ would risk bypassing those native checks and is deliberately not used.
 
 Remaining before first-line acceptance: Codex Dynamic Tools and safe transport
 selection across persisted threads; delivery-only native restriction evidence
-for the other supported carriers; large-result readability; complete affected
+for the other supported carriers; complete affected
 consumer checks; and isolated native executable smoke. A common helper test
 must not be represented as proof of every controller.
 
 ## Version and test evidence
+
+The resumed worktree adds bounded read-only result continuation shared by native
+and MCP tools. History, shared-file and Task-list responses return complete
+small results or immutable JSON pages; `read_result` needs no local shell.
+Integration regressions first failed on both carriers, then passed for complete
+Unicode/escaped-text reconstruction, exact page replay, no repeated source read,
+foreign-connection rejection and expiry. The focused history, file and action
+suites pass 55 tests. This is tool-boundary evidence, not model/executable or
+final-candidate acceptance for the remaining controllers.
 
 Observed on the owner's workstation: Claude Code 2.1.278, installed Claude
 Agent SDK 0.3.195, Codex 0.150.1. SDK definitions contain createSdkMcpServer,

@@ -15,6 +15,7 @@ export const OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES = [
   "working_copy",
   "read_file",
   "read_history",
+  "read_result",
   "list_tasks",
   "create_task",
   "start_task",

@@ -9,8 +9,8 @@ import {
 import {
   dispatchSpaceActionToolResultSchema,
   dispatchSpaceHistoryRequestSchema,
-  dispatchSpaceHistoryResultSchema,
-  listSpaceTasksResponseSchema,
+  dispatchSpaceReadResultRequestSchema,
+  dispatchSpaceReadResultSchema,
   openMeldRuntimeProfileIdSchema,
   spaceFileEntryIdSchema,
   spaceFileRevisionNumberSchema,
@@ -24,6 +24,7 @@ import {
   DispatchSpaceActionClosedError,
   DispatchSpaceActionRejectedError,
   readDispatchSpaceActionContextForReceiptFromEnv,
+  readDispatchSpaceActionContextFromEnv,
   readDispatchSpaceActionRecord,
 } from "../runtime/dispatch-space-action-context";
 import {
@@ -32,6 +33,7 @@ import {
 } from "./action-command";
 import { readDispatchSpaceFile } from "./dispatch-file-read";
 import { readDispatchSpaceHistory } from "./dispatch-history-read";
+import { DispatchReadResults } from "./dispatch-read-result";
 import {
   createDispatchSpaceTask,
   listDispatchSpaceTasks,
@@ -55,6 +57,7 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
     (args: unknown) => Promise<AdapterDispatchSpaceToolResult>
   >();
   #closed = false;
+  readonly #readResults = new DispatchReadResults();
 
   constructor(env: NodeJS.ProcessEnv) {
     this.#env = Object.freeze({ ...env });
@@ -81,7 +84,20 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
       config.inputSchema instanceof z.ZodObject
         ? config.inputSchema
         : z.strictObject(config.inputSchema);
-    this.tools.push({ ...config, name, inputSchema });
+    const pagedRead = ["read_history", "read_file", "list_tasks"].includes(
+      name
+    );
+    this.tools.push({
+      ...config,
+      name,
+      inputSchema,
+      ...(pagedRead
+        ? {
+            outputSchema: dispatchSpaceReadResultSchema,
+            description: `${config.description} Small reads return result; large reads return page. Continue with read_result using page.resultId and page.nextOffset; no local file is needed.`,
+          }
+        : {}),
+    });
     this.#handlers.set(name, (args) => {
       const parsed = inputSchema.safeParse(args);
       if (!parsed.success) {
@@ -122,11 +138,65 @@ class DispatchSpaceTools implements AdapterDispatchSpaceTools {
         );
       }, this.#env);
     }
+    const pagedRead = ["read_history", "read_file", "list_tasks"].includes(
+      name
+    );
+    if (pagedRead || name === "read_result") {
+      try {
+        readDispatchSpaceActionContextFromEnv(this.#env);
+        const result = await handler(args);
+        const active = readDispatchSpaceActionContextFromEnv(this.#env);
+        if (
+          this.#closed ||
+          active.contextId !== this.#context.contextId ||
+          active.nonce !== this.#context.nonce
+        ) {
+          throw new Error(
+            "The Wake changed or closed during this read. No result is available."
+          );
+        }
+        return pagedRead ? this.#readResults.wrap(result) : result;
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text:
+                error instanceof Error
+                  ? error.message
+                  : "The Space read failed.",
+            },
+          ],
+        };
+      }
+    }
     return await handler(args);
+  }
+
+  registerResultReader(): void {
+    this.registerTool(
+      "read_result",
+      {
+        title: "Continue reading a large Space tool result",
+        description:
+          "Read the next page of a large read_history, read_file, or list_tasks result. Pass the returned resultId and nextOffset exactly; append page.text in order to reconstruct the complete JSON. No local path or shell is needed. The snapshot belongs only to this active Wake and tool connection; after expiry or eviction, read the source again. Does not publish or repeat an operation.",
+        inputSchema: dispatchSpaceReadResultRequestSchema,
+        outputSchema: dispatchSpaceReadResultSchema,
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      async ({ resultId, offset }) => this.#readResults.read(resultId, offset)
+    );
   }
 
   close(): void {
     this.#closed = true;
+    this.#readResults.clear();
   }
 }
 
@@ -181,7 +251,6 @@ export function createDispatchSpaceTools(
       description:
         "Read up to 20 text messages before the current Wake, plus its source message. Space, Agent identity and source are fixed by the active dispatch. Use this instead of terminal CLI history. This read does not submit a reply or close the Wake.",
       inputSchema: dispatchSpaceHistoryRequestSchema,
-      outputSchema: dispatchSpaceHistoryResultSchema,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -258,7 +327,6 @@ export function createDispatchSpaceTools(
           .enum(["to_do", "in_progress", "in_review", "done", "canceled"])
           .optional(),
       },
-      outputSchema: listSpaceTasksResponseSchema,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -490,6 +558,8 @@ export function createDispatchSpaceTools(
     async ({ reason }) =>
       executeSpaceAction(() => recordDispatchSpaceSilent({ reason, env }), env)
   );
+
+  server.registerResultReader();
 
   server.registerTool(
     "read_receipt",

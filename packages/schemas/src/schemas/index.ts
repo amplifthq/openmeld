@@ -3042,6 +3042,11 @@ export {
   dispatchSpaceHistoryRequestSchema,
   dispatchSpaceHistoryResultSchema,
 } from "./space-mesh/dispatch-space-history";
+export {
+  dispatchSpaceReadResultPageSchema,
+  dispatchSpaceReadResultRequestSchema,
+  dispatchSpaceReadResultSchema,
+} from "./space-mesh/dispatch-space-read-result";
 export { entryBriefSchema } from "./space-mesh/entry-brief";
 export {
   getSpaceMessageReactionsInputSchema,

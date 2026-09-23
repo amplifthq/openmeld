@@ -21,3 +21,6 @@ Claude receives in-process reply tools and delivery-only correction without
 switching the user's chosen mode to PLAN. Correction reports must match a real
 saved receipt and cannot publish private assistant output.
 
+Large Space history, shared-file and Task-list results can be read in pages
+through the same tools, without a shell or access to a local spill file.
+

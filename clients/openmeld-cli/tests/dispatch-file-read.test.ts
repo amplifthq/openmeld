@@ -120,7 +120,7 @@ describe("dispatch Space file reader", () => {
       });
       expect(result.isError).not.toBe(true);
       expect(result.content).toEqual([
-        { type: "text", text: JSON.stringify(response) },
+        { type: "text", text: JSON.stringify({ result: response }) },
       ]);
       expect(JSON.parse(readFileSync(argsPath, "utf8"))).toEqual([
         "space",
