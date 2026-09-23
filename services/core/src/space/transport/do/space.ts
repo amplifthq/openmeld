@@ -2343,7 +2343,19 @@ type PatchSpaceMetaInput = {
   password?: string;
   context?: CoreRpcContextInput;
   initializeIfAbsent?: boolean;
+  initialOwnerUserIds?: string[];
 };
+
+function withInitialSpaceOwners(
+  record: SpaceMetaRecord,
+  initialOwnerUserIds: readonly string[] | undefined
+): SpaceMetaRecord {
+  // A delegated creator (the Center Agent) has no owning member of its own, so
+  // its caller names the represented member as the initial human Space owner.
+  return initialOwnerUserIds && initialOwnerUserIds.length > 0
+    ? { ...record, ownerUserIds: [...initialOwnerUserIds] }
+    : record;
+}
 
 type InitializeSpaceMetaWithOwnersInput = {
   creator: SpaceCreator;
@@ -2405,6 +2417,7 @@ type PatchSpaceMetaWithPasswordAtomicInput = {
   visibility: "public" | "private";
   password: string;
   context?: CoreRpcContextInput;
+  initialOwnerUserIds?: string[];
 };
 
 type FinalizeAcceptedDispatchResultInput = {
@@ -10067,7 +10080,10 @@ export class Space extends DurableObject<CoreBindings> {
     });
 
     const response = input.initializeIfAbsent
-      ? await this.dispatchInitializeMetaRequest(request)
+      ? await this.dispatchInitializeMetaRequest(
+          request,
+          input.initialOwnerUserIds
+        )
       : await this.dispatchMetaRequest(request);
     return readSpaceRpcJsonOrThrow(response);
   }
@@ -10324,8 +10340,10 @@ export class Space extends DurableObject<CoreBindings> {
         password: input.password,
       },
     });
-    const response =
-      await this.dispatchInitializeMetaWithPasswordRequest(request);
+    const response = await this.dispatchInitializeMetaWithPasswordRequest(
+      request,
+      input.initialOwnerUserIds
+    );
     return readSpaceRpcJsonOrThrow(response);
   }
 
@@ -13120,7 +13138,10 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
-  private dispatchInitializeMetaRequest(request: Request): Promise<Response> {
+  private dispatchInitializeMetaRequest(
+    request: Request,
+    initialOwnerUserIds?: readonly string[]
+  ): Promise<Response> {
     const resolved = this.resolveOpenMeldContextFromRequest(request);
     if (!resolved.ok) {
       return Promise.resolve(this.unauthenticatedResponse(resolved.requestId));
@@ -13131,6 +13152,7 @@ export class Space extends DurableObject<CoreBindings> {
         this.handlePatchMeta(request, {
           context: resolved.context,
           initializeIfAbsent: true,
+          initialOwnerUserIds,
         })
       );
     }
@@ -13139,7 +13161,8 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   private dispatchInitializeMetaWithPasswordRequest(
-    request: Request
+    request: Request,
+    initialOwnerUserIds?: readonly string[]
   ): Promise<Response> {
     const resolved = this.resolveOpenMeldContextFromRequest(request);
     if (!resolved.ok) {
@@ -13148,7 +13171,11 @@ export class Space extends DurableObject<CoreBindings> {
 
     if (request.method === "PATCH") {
       return this.ctx.blockConcurrencyWhile(() =>
-        this.handlePatchMetaWithPasswordAtomic(request, resolved.context)
+        this.handlePatchMetaWithPasswordAtomic(
+          request,
+          resolved.context,
+          initialOwnerUserIds
+        )
       );
     }
 
@@ -15396,7 +15423,11 @@ export class Space extends DurableObject<CoreBindings> {
 
   private async handlePatchMeta(
     request: Request,
-    options: { context: CoreRpcContextInput; initializeIfAbsent?: boolean }
+    options: {
+      context: CoreRpcContextInput;
+      initializeIfAbsent?: boolean;
+      initialOwnerUserIds?: readonly string[] | undefined;
+    }
   ): Promise<Response> {
     const body = await request.json().catch(() => null);
     const existingMetaRecord = this.readSpaceMetaRecord();
@@ -15446,7 +15477,9 @@ export class Space extends DurableObject<CoreBindings> {
         toPublicSpaceMeta(meta, this.ctx.storage.sql.databaseSize),
       writer: {
         initializeSpaceMetaRecordIfAbsent: (record) =>
-          this.initializeOwnedSpace(record),
+          this.initializeOwnedSpace(
+            withInitialSpaceOwners(record, options.initialOwnerUserIds)
+          ),
         readSpaceMetaRecord: () => this.readSpaceMetaRecord(),
         upsertSpaceMetaRecord: (record) =>
           upsertSpaceMetaRecord(this.ctx.storage.sql, record),
@@ -15730,7 +15763,8 @@ export class Space extends DurableObject<CoreBindings> {
 
   private async handlePatchMetaWithPasswordAtomic(
     request: Request,
-    context: CoreRpcContextInput
+    context: CoreRpcContextInput,
+    initialOwnerUserIds?: readonly string[]
   ): Promise<Response> {
     const body = await request.json().catch(() => null);
     const response = await handlePatchMetaWithPasswordAtomicUseCase({
@@ -15741,7 +15775,9 @@ export class Space extends DurableObject<CoreBindings> {
         toPublicSpaceMeta(meta, this.ctx.storage.sql.databaseSize),
       writer: {
         initializeSpaceMetaRecordIfAbsent: (record) =>
-          this.initializeOwnedSpace(record),
+          this.initializeOwnedSpace(
+            withInitialSpaceOwners(record, initialOwnerUserIds)
+          ),
       },
       passwordTooShortResponse: (requestId) =>
         this.passwordTooShortResponse(requestId),
