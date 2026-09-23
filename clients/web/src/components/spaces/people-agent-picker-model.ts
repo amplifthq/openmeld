@@ -1,4 +1,3 @@
-import { resolveAgentWakeAvailabilityDisplayCategory } from "@openmeld/agent-runtime";
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import type { SpaceProfileAddCandidate } from "@openmeld/space";
 import { resolveDirectoryHumanProfileActivityLabel } from "#/components/directory/directory-human-profile-format";
@@ -60,15 +59,10 @@ export function buildOrganizationDirectoryAddCandidates(input: {
 			if (alreadyMember) {
 				alreadyJoinedCount += 1;
 			}
-			const availabilityCategory = resolveAgentWakeAvailabilityDisplayCategory(
-				agent.readiness.agentWakeAvailability
-			);
 			return [
 				{
 					alreadyMember,
 					agentControllerRef: agent.agentControllerRef,
-					availabilityCategory,
-					availabilityLabel: agent.readiness.agentWakeAvailability.badgeLabel,
 					avatarImageUrl: agent.avatarUrl,
 					createdAt: agent.createdAt,
 					description: agent.isCenterAgent
@@ -76,7 +70,6 @@ export function buildOrganizationDirectoryAddCandidates(input: {
 						: undefined,
 					isCenterAgent: agent.isCenterAgent === true,
 					lastUsedAt: agent.lastUsedAt,
-					operationalStatus: agent.operationalContext?.status,
 					profileId: agent.profileId,
 					profileKind: "agent",
 					profileName: agent.profileName,
@@ -85,7 +78,6 @@ export function buildOrganizationDirectoryAddCandidates(input: {
 						agent.profileName,
 						agent.profileHandle,
 						agent.ownerName,
-						agent.readiness.agentWakeAvailability.badgeLabel,
 					]),
 				},
 			];
