@@ -316,8 +316,8 @@ html[data-space-self-message-alignment="right"]
 }
 
 /* An overlaid toolbar can extend above the virtualized item's paint bounds. */
-[data-slot="message-scroller-item"]:has([data-message-row-id]:hover),
-[data-slot="message-scroller-item"]:has([data-message-row-id]:focus-within) {
+[data-slot="message-scroller-item"]:hover,
+[data-slot="message-scroller-item"]:focus-within {
   content-visibility: visible;
 }
 
