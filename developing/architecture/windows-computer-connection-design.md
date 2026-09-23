@@ -12,6 +12,50 @@ Status: IN PROGRESS. Implementation authorized on 2026-09-23, starting from main
 
 Remove this document after accepted decisions have moved into the scoped owner documents and the migration and acceptance evidence are recorded in the implementation PR.
 
+## Current implementation and release gates
+
+Draft PR [#1267](https://github.com/amplifthq/openmeld/pull/1267) contains the
+self-contained x64 carriers, prebuilt process helper, managed installer,
+direct GUI task entry, and shared Web/Desktop acquisition. Native evidence
+below proves actual Service/Host communication, SQLite, vendor protocol,
+installer recovery and stopped-task migration. It does not prove an
+authenticated model turn or a real user's Computer connection.
+
+Before this can be called release-ready:
+
+- Pass the new signed PowerShell bootstrap boundary and all required checks.
+- Confirm the production Windows signing identity and its supported signing
+  entrypoint. No private key should be pasted into task messages.
+- Wire the trusted native artifact handoff into release preparation and the
+  existing single channel publisher. A new build is not the same artifact;
+  preserve the exact selected helper bytes through stamping, npm packaging,
+  CLI/Service signing and publication. Do not exclude the helper from Service
+  integrity to conceal build differences.
+- Complete running maintenance/self-update interruption acceptance and the
+  authorized ordinary-user Windows session/Desktop/account acceptance.
+- Finish legacy npm-to-managed migration before retiring its writer. The
+  direct binary task path is implemented; retained legacy ownership readers
+  and the supported npm writer are not evidence that the old timeout is fixed.
+
+No merge, release, production entrypoint switch, or real-user smoke has been
+performed. Final Candidate skipped while Draft is not a passing result.
+
+## Artifact continuity finding
+
+Two successful native artifact jobs built the same helper source fingerprint
+`08fbddf7b124a1d043303116b37610b6d79a7ff37a37eba2c88df10bf9686e29`
+and the same 2,723,840-byte size, but produced different executable hashes:
+
+- [Run 35901878679, attempt 1 helper](https://github.com/amplifthq/openmeld/actions/runs/35901878679/artifacts/10769678615):
+  `5269817de019377f0487594abe09c2b557e99279a544209f1041db9bd0fa433f`.
+- [Run 35905445352, attempt 1 helper](https://github.com/amplifthq/openmeld/actions/runs/35905445352/artifacts/10770339902):
+  `2f9696716e2d0667fe4be1714c06e9e6f71bacbbc87cfddddd72bb8322e594f9`.
+
+This proves rebuilding is not currently a byte-preserving handoff. It does not
+identify the differing native build field, and investigating that field is not
+necessary to require one verified artifact through the release chain. These
+are unsigned development artifacts, not approved production release inputs.
+
 ## Intended outcome
 
 A person authorizes this Windows user's Computer once. OpenMeld can then ask the selected local Agent to do permitted work and return a visible result, without an open terminal or Desktop window. Installing Desktop later reuses that Computer and Service after account verification. Installing Desktop first invokes the same connection operation.
