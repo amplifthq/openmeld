@@ -39,10 +39,7 @@ export {
   type AdapterDispatchSpaceToolResult,
   type AdapterDispatchSpaceTools,
   DISPATCH_SPACE_ACTION_DELIVERY_ONLY_ENV,
-  DISPATCH_SPACE_FINAL_OUTCOME_JSON_SCHEMA,
-  dispatchSpaceFinalOutcomeSchema,
   isDispatchSpaceActionDeliveryOnly,
-  recordDispatchSpaceFinalOutcome,
 } from "./dispatch-space-tools.js";
 
 import { createProviderOriginalError } from "./provider-original-error.js";

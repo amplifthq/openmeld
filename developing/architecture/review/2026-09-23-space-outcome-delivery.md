@@ -45,11 +45,27 @@ alwaysLoad, mcpServerStatus and reconnectMcpServer. Codex's actual experimental
 JSON schema was generated under the ignored dev-tmp directory; dynamicTools is
 a thread/start field, not a thread/resume or thread/fork override.
 
-At this checkpoint the CLI correction/receipt/history suites pass 65 tests,
-Claude adapter tests pass 83 tests (including real SDK in-memory MCP and mocked
-model streams), and CLI TypeScript checking passes. These are not live model
-or Space publication smoke results. Later commits must record their own exact
-candidate validation rather than inheriting this evidence.
+At `0f77d5e9244cbd0ced1b45979e14e00f73ff9301`, the CLI correction,
+receipt, history and trusted-file suites pass 71 tests; Claude adapter tests
+pass 83 tests (including real SDK in-memory MCP and mocked model streams);
+and CLI TypeScript checking and normal repository push hooks pass. Separate
+checks passed 282 HTTP schema tests, 40 Space Mesh tests, 34 Core publication
+tests, 14 OpenClaw adapter tests and six Antigravity adapter tests. The Core
+publication tests were run directly: the pre-push boundary selection found no
+tests for that file, so its zero-test result is not the evidence for those 34.
+
+An isolated actual Codex 0.150.1 executable probe used a temporary HOME,
+CODEX_HOME and workspace, dummy credentials, and a loopback scripted Responses
+provider. A `thread/start` function Dynamic Tool reached `item/tool/call` and
+received its host result; the turn completed. This probe did not use the
+OpenMeld adapter or publish to a Space. With `environments: []`, no Shell or
+filesystem tool appeared in the captured catalog, but native goal tools,
+skills, planning and tool search remained. This is positive Dynamic Tools
+interface evidence, not proof of a delivery-only integration. The probe is
+under ignored `dev-tmp/issue-1250-native-codex-probe.mjs`; production integration,
+cold resume/fork authority, policy-preserving fallback, and final native smoke
+remain acceptance work. No live Claude executable or real model/publication
+smoke is claimed. Later commits must record their own candidate validation.
 
 ## Contract Impact Audit
 
