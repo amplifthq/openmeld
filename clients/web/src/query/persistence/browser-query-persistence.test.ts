@@ -11,6 +11,7 @@ import {
 	installSpaceOpenReporting,
 	markSpaceOpen,
 } from "#/lib/observability/space-open";
+import { accountSidebarQueryKey } from "#/query/account/sidebar-preferences";
 import { computerFileAccessQueryKeys } from "#/query/connect/computer-file-access";
 import { createCurrentComputerToolbarDisplaySnapshot } from "#/query/connect/current-computer-toolbar-display-snapshot";
 import { centerAgentQueryKeys } from "#/query/organizations/center-agent";
@@ -927,6 +928,20 @@ describe("BrowserQueryPersistenceController", () => {
 				lastJoinedAt: null,
 			})),
 		};
+		const savedSidebar = {
+			ok: true as const,
+			preferences: {
+				pinned: { sort: "priority" as const, spaceIds: [] },
+				spaces: { sort: "priority" as const, spaceIds: [] },
+				groups: [],
+				people: {
+					starred: { sort: "priority" as const, itemIds: ["profile-a"] },
+					people: { sort: "priority" as const, itemIds: [] },
+					groups: [],
+				},
+			},
+			revision: 3,
+		};
 		const computerToolbarSnapshot = createCurrentComputerToolbarDisplaySnapshot(
 			{
 				deviceId: "device-current",
@@ -957,6 +972,10 @@ describe("BrowserQueryPersistenceController", () => {
 		sourceQueryClient.setQueryData(
 			organizationQueryKeys.spaces("organization-a"),
 			organizationSpaces
+		);
+		sourceQueryClient.setQueryData(
+			accountSidebarQueryKey("account-a", "organization-a"),
+			savedSidebar
 		);
 		sourceQueryClient.setQueryData(
 			organizationPluginConnectionQueryKeys.statusSummary("organization-a"),
@@ -1002,6 +1021,15 @@ describe("BrowserQueryPersistenceController", () => {
 					scopeKind: "account",
 				}),
 				startQueryKeys.profilesForStorageScope("account-a")
+			),
+			waitForStoredQuery(
+				store.createStorage({
+					ownerAccountId: "account-a",
+					scopeAlias: "organization-a",
+					scopeId: "organization-a",
+					scopeKind: "organization",
+				}),
+				accountSidebarQueryKey("account-a", "organization-a")
 			),
 			waitForStoredQuery(
 				store.createStorage({
@@ -1118,6 +1146,16 @@ describe("BrowserQueryPersistenceController", () => {
 				organizationQueryKeys.spaces("organization-a")
 			)
 		).toEqual(restoredOrganizationSpaces);
+		expect(
+			restoredQueryClient.getQueryData(
+				accountSidebarQueryKey("account-a", "organization-a")
+			)
+		).toEqual(savedSidebar);
+		expect(
+			restoredQueryClient.getQueryState(
+				accountSidebarQueryKey("account-a", "organization-a")
+			)?.isInvalidated
+		).toBe(true);
 		expect(
 			restoredQueryClient.getQueryState(
 				organizationQueryKeys.spaces("organization-a")
@@ -1240,6 +1278,12 @@ describe("BrowserQueryPersistenceController", () => {
 			scopeId: "account-a",
 			scopeKind: "account",
 		});
+		const accountAOrganizationStorage = store.createStorage({
+			ownerAccountId: "account-a",
+			scopeAlias: "organization-shared",
+			scopeId: "organization-shared",
+			scopeKind: "organization",
+		});
 
 		await controller.activateAuthorizedScope({
 			organizationId: "organization-shared",
@@ -1255,9 +1299,25 @@ describe("BrowserQueryPersistenceController", () => {
 			organizationQueryKeys.spaces("organization-shared"),
 			createOrganizationSpacesFixture("organization-shared", [])
 		);
+		queryClient.setQueryData(
+			accountSidebarQueryKey("account-a", "organization-shared"),
+			{
+				ok: true,
+				preferences: {
+					pinned: { sort: "priority", spaceIds: [] },
+					spaces: { sort: "priority", spaceIds: [] },
+					groups: [],
+				},
+				revision: 1,
+			}
+		);
 		await waitForStoredQuery(
 			accountAStorage,
 			startQueryKeys.profilesForStorageScope("account-a")
+		);
+		await waitForStoredQuery(
+			accountAOrganizationStorage,
+			accountSidebarQueryKey("account-a", "organization-shared")
 		);
 
 		await controller.activateAuthorizedScope({
@@ -1269,6 +1329,9 @@ describe("BrowserQueryPersistenceController", () => {
 
 		expect(await accountAStorage.getItem("tanstack-query-cache")).toBeNull();
 		expect(
+			await accountAOrganizationStorage.getItem("tanstack-query-cache")
+		).toBeNull();
+		expect(
 			queryClient.getQueryData(
 				startQueryKeys.profilesForStorageScope("account-a")
 			)
@@ -1276,6 +1339,11 @@ describe("BrowserQueryPersistenceController", () => {
 		expect(
 			queryClient.getQueryData(
 				organizationQueryKeys.spaces("organization-shared")
+			)
+		).toBeUndefined();
+		expect(
+			queryClient.getQueryData(
+				accountSidebarQueryKey("account-a", "organization-shared")
 			)
 		).toBeUndefined();
 	});

@@ -8,6 +8,7 @@ import {
 	type SpaceMessageTarget,
 } from "#/lib/spaces/thread-navigation";
 import { readSpaceThreadPanelSelection } from "#/lib/spaces/thread-panel-storage";
+import { accountSidebarQueryOptions } from "#/query/account/sidebar-preferences";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
 import {
 	organizationProfileDirectoryQueryOptions,
@@ -39,6 +40,29 @@ type OrganizationRoutePrefetchInput = {
 	queryPersistence: BrowserQueryPersistenceController;
 	routeFamily: string;
 };
+
+export async function prefetchPeopleRouteData(
+	input: OrganizationRoutePrefetchInput
+): Promise<void> {
+	const scope = await resolveAuthorizedPrefetchScope(input);
+	if (!scope) {
+		return;
+	}
+	await Promise.all([
+		input.queryClient.prefetchQuery(
+			organizationProfileDirectoryQueryOptions({
+				enabled: true,
+				organizationId: scope.currentOrganization.id,
+			})
+		),
+		input.queryClient.prefetchQuery(
+			accountSidebarQueryOptions(
+				scope.currentUserId,
+				scope.currentOrganization.id
+			)
+		),
+	]);
+}
 
 export async function prefetchAgentsRouteIdentityData(
 	input: OrganizationRoutePrefetchInput

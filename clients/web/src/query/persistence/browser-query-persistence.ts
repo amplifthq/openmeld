@@ -1,4 +1,5 @@
 import {
+	accountSidebarResponseSchema,
 	getCenterAgentDirectMessageSpaceProjectionResponseSchema,
 	listSpaceThreadsResponseSchema,
 	organizationSpaceDirectoryWithMemberCountsResponseSchema,
@@ -19,6 +20,7 @@ import {
 } from "@tanstack/react-query-persist-client";
 import { z } from "zod/v4";
 import { observeSpaceOpen } from "#/lib/observability/space-open";
+import { accountSidebarQueryKey } from "#/query/account/sidebar-preferences";
 import { currentComputerToolbarDisplaySnapshotSchema } from "#/query/connect/current-computer-toolbar-display-snapshot";
 import { centerAgentQueryKeys } from "#/query/organizations/center-agent";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
@@ -607,6 +609,7 @@ export function createBrowserQueryPersistenceController(
 						scopeKind: "organization",
 						targetQueryKeys: [
 							organizationQueryKeys.spaces(organizationId),
+							accountSidebarQueryKey(ownerAccountId, organizationId),
 							organizationPluginConnectionQueryKeys.statusSummary(
 								organizationId
 							),
@@ -1131,6 +1134,10 @@ function serializeSpacePersistedDisplayData(data: unknown): unknown {
 }
 
 function redactOrganizationPersistedDisplayData(data: unknown): unknown {
+	const sidebar = accountSidebarResponseSchema.safeParse(data);
+	if (sidebar.success) {
+		return sidebar.data;
+	}
 	const centerAgentProjection =
 		getCenterAgentDirectMessageSpaceProjectionResponseSchema.safeParse(data);
 	if (centerAgentProjection.success) {

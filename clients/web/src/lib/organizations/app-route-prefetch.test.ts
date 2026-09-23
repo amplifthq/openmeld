@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { accountSidebarQueryKey } from "#/query/account/sidebar-preferences";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import { startQueryKeys } from "#/query/query-keys";
@@ -10,6 +11,7 @@ import {
 	prefetchAgentsRouteIdentityData,
 	prefetchCenterAgentConversationData,
 	prefetchKnownSpaceConversationData,
+	prefetchPeopleRouteData,
 	prefetchSpaceConversationRouteData,
 	prefetchSpacesRouteData,
 	restoreSpaceConversationRouteData,
@@ -19,6 +21,7 @@ const resolveOrganizationScopeMock = vi.hoisted(() => vi.fn());
 const listStartProfilesMock = vi.hoisted(() => vi.fn());
 const readOrganizationProfileDirectoryMock = vi.hoisted(() => vi.fn());
 const readOrganizationAgentRuntimeOverviewMock = vi.hoisted(() => vi.fn());
+const readAccountSidebarMock = vi.hoisted(() => vi.fn());
 const listOrganizationSpacesMock = vi.hoisted(() => vi.fn());
 const getBootstrapMock = vi.hoisted(() => vi.fn());
 const getStatusMock = vi.hoisted(() => vi.fn());
@@ -53,6 +56,19 @@ vi.mock("#/lib/organizations/organization-spaces", () => ({
 	listCurrentOrganizationSpaces: listOrganizationSpacesMock,
 }));
 
+vi.mock("#/query/account/sidebar-preferences", () => ({
+	accountSidebarQueryKey: (profileId: string, organizationId: string) => [
+		"account-sidebar",
+		profileId,
+		organizationId,
+	],
+	accountSidebarQueryOptions: (profileId: string, organizationId: string) => ({
+		queryKey: ["account-sidebar", profileId, organizationId],
+		queryFn: readAccountSidebarMock,
+		staleTime: 30_000,
+	}),
+}));
+
 vi.mock("#/lib/spaces/api", () => ({
 	createUnscopedWebSpaceApi: createWebSpaceApiMock,
 }));
@@ -85,6 +101,7 @@ const authorizedScope = {
 		name: "Acme",
 		slug: "acme",
 	},
+	currentUserId: "user-1",
 	organizations: [{ id: "org-acme", name: "Acme", slug: "acme" }],
 	storageScope: "user-1",
 };
@@ -135,6 +152,15 @@ describe("organization app route prefetch", () => {
 		readOrganizationProfileDirectoryMock.mockResolvedValue(
 			organizationProfileDirectory
 		);
+		readAccountSidebarMock.mockResolvedValue({
+			ok: true,
+			preferences: {
+				pinned: { sort: "priority", spaceIds: [] },
+				spaces: { sort: "priority", spaceIds: [] },
+				groups: [],
+			},
+			revision: 1,
+		});
 		readOrganizationAgentRuntimeOverviewMock.mockResolvedValue(
 			organizationAgentRuntimeOverview
 		);
@@ -191,6 +217,29 @@ describe("organization app route prefetch", () => {
 				organizationQueryKeys.profileDirectory("org-acme")
 			)
 		).toEqual(organizationProfileDirectory);
+		expect(
+			queryClient.getQueryData(
+				organizationQueryKeys.agentRuntimeOverview("org-acme")
+			)
+		).toBeUndefined();
+	});
+
+	it("warms People and personal sidebar preferences without loading runtime status", async () => {
+		const queryClient = createQueryClient();
+		await prefetchPeopleRouteData({
+			organizationSlug: "acme",
+			queryClient,
+			queryPersistence,
+			routeFamily: "/o/acme/people",
+		});
+		expect(
+			queryClient.getQueryData(
+				organizationQueryKeys.profileDirectory("org-acme")
+			)
+		).toEqual(organizationProfileDirectory);
+		expect(
+			queryClient.getQueryData(accountSidebarQueryKey("user-1", "org-acme"))
+		).toEqual(expect.objectContaining({ revision: 1 }));
 		expect(
 			queryClient.getQueryData(
 				organizationQueryKeys.agentRuntimeOverview("org-acme")

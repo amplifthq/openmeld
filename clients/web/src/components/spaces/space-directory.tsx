@@ -82,10 +82,7 @@ export function SpaceDirectory(input: {
 	savedViewWarning: { isRetrying: boolean; onRetry: () => void } | null;
 }) {
 	const { currentOrganization } = useAppOrganization();
-	const sidebar = useSidebarPreferences(
-		input.profileId,
-		currentOrganization.id
-	);
+	const sidebar = useSidebarPreferences(currentOrganization.id);
 	const preferences = sidebar.preferences;
 	const [searches, setSearches] = useState(["", ""]);
 	const [searchOpen, setSearchOpen] = useState([false, false]);
