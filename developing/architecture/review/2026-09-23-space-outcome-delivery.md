@@ -31,8 +31,16 @@ requires the native tool (including its approval/denial checks), and the host
 verifies the saved receipt independently. A structured public-text fallback
 would risk bypassing those native checks and is deliberately not used.
 
-Remaining before first-line acceptance: Codex Dynamic Tools and safe transport
-selection across persisted threads; delivery-only native restriction evidence
+Codex now prefers one Dynamic Tools carrier on the verified native protocol,
+using the current invocation's common capability and recorder. Configuration
+with native approval/deny rules, a custom permission profile, managed requirements,
+or unknown policy fields stays on MCP; none of those settings are overwritten.
+Saved dynamic definitions do not retain authorization. Callbacks are fenced by
+the actual active thread and turn, cancellation and the current tool catalog.
+Only a decoded pre-thread argument rejection can select MCP after trying the
+new interface; ambiguous execution or a lost tool receipt never replays a turn.
+
+Remaining before first-line acceptance: delivery-only native restriction evidence
 for the other supported carriers; complete affected
 consumer checks; and isolated native executable smoke. A common helper test
 must not be represented as proof of every controller.
@@ -73,8 +81,36 @@ skills, planning and tool search remained. This is positive Dynamic Tools
 interface evidence, not proof of a delivery-only integration. The probe is
 under ignored `dev-tmp/issue-1250-native-codex-probe.mjs`; production integration,
 cold resume/fork authority, policy-preserving fallback, and final native smoke
-remain acceptance work. No live Claude executable or real model/publication
-smoke is claimed. Later commits must record their own candidate validation.
+were acceptance work at that checkpoint. No live Claude executable or real
+model/publication smoke is claimed. Later commits record their own evidence.
+
+The Codex production integration was then exercised through createCodexAdapter
+against the same actual 0.150.1 executable and an isolated loopback scripted
+provider. New thread, cold resume, ephemeral repair fork, and persistent fork
+each invoked the current host tool exactly once, without a second MCP carrier.
+This is an opt-in repository test, space-dynamic-tools-native.test.js, enabled
+with OPENMELD_TEST_CODEX_BIN; it uses no real credentials or Space publication.
+Native testing caught an important difference from the mock: thread/read returns
+threadSource=null even when the rollout metadata retains thread_source and
+dynamic_tools. The adapter now verifies the bounded matching metadata header
+inside the native controller's own session store before resuming/forking. It
+does not copy raw conversation content or persist another authorization record.
+
+The ordinary Codex suite passed 160 tests, with two pre-existing native optional
+tests skipped, before the extra metadata/cancellation regressions were added.
+The 19 carrier/authority scenarios include native decode fallback, managed and
+per-tool restrictions, changed policy on resume, foreign/stale callbacks, and
+unconfirmed handler results. Delivery-only isolation for Codex is not yet proved
+by these normal/repair carrier tests: native skill and planning tools remained
+visible in the separate restricted-catalog probe.
+
+A subsequent whole-package run reported 161 passed, one failed and three skipped:
+the existing Stop-after-writer-retry test hit its one-second fixture wait. Its
+unchanged baseline and candidate both passed in a sequential isolated comparison;
+the wait, assertions and production Stop behavior were not changed. This is an
+intermittent timing result, not a green whole-package result or proof of its root
+cause. Preserve the failure in the checkpoint evidence and require a clean final
+candidate run before first-line acceptance.
 
 ## Contract Impact Audit
 

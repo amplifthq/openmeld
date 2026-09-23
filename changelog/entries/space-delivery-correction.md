@@ -24,3 +24,8 @@ saved receipt and cannot publish private assistant output.
 Large Space history, shared-file and Task-list results can be read in pages
 through the same tools, without a shell or access to a local spill file.
 
+Codex can use direct native Space tools while retaining the MCP path for older
+controllers or native approval policies. Each run exposes one reply interface;
+resumed and forked conversations use the current Wake's authority, and an
+unconfirmed submission is not replayed through a different interface.
+
