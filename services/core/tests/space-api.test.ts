@@ -11858,6 +11858,125 @@ describe("OpenMeld Core", () => {
     });
   });
 
+  it("keeps a pre-agent stop notice in the originating thread when its publisher lacks thread context", async () => {
+    const spaceId = await createSpace({ name: "thread-stop-placement" });
+    const postText = async (url: string, text: string) => {
+      const response = await fetchWithOpenMeldAuth(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "signal.text", data: { text } }),
+      });
+      expect(response.status).toBe(200);
+      const signal = parseEnvelope(await response.json());
+      if (!isTextSignalEnvelope(signal)) {
+        throw new Error("Expected a text signal");
+      }
+      return signal;
+    };
+    const root = await postText(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      "Thread root"
+    );
+    const createThreadResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/threads`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          clientMutationId: `create-thread-${randomUUID()}`,
+          rootSignalId: root.id,
+        }),
+      }
+    );
+    expect(createThreadResponse.status).toBe(200);
+    const createdThread = (await createThreadResponse.json()) as {
+      thread: { threadId: string };
+    };
+    const threadUrl = `${BASE_URL}/v1/spaces/${spaceId}/threads/${createdThread.thread.threadId}/signals`;
+    const sourceResponse = await fetchWithOpenMeldAuth(threadUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clientMessageId: `thread-wake-${randomUUID()}`,
+        text: "Wake from this thread",
+      }),
+    });
+    expect(sourceResponse.status).toBe(200);
+    const sourcePayload = (await sourceResponse.json()) as {
+      signal?: SignalEnvelope;
+    };
+    const source = sourcePayload.signal;
+    if (!(source && isTextSignalEnvelope(source))) {
+      throw new Error("Expected a thread text signal");
+    }
+    const targetProfileId = "agt_99999999-9999-4999-8999-999999999999";
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const dispatch = await runInDurableObject(stub, (_instance, state) => {
+      const record = createDispatchOutboxRecord({
+        bindingEnabled: true,
+        bindingState: "bound",
+        dispatchPolicy: "mention_only",
+        nowMs: Date.now(),
+        ruleId: "wake_explicit_activation",
+        ruleReason: "Explicit Wake target",
+        ruleSource: "registry",
+        senderProfileId: DEFAULT_HUMAN_PROFILE_ID,
+        sourceEventId: source.id,
+        sourceSignalSnapshot: {
+          profileId: DEFAULT_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          text: source.data.text,
+        },
+        spaceId,
+        targetProfileId,
+      });
+      insertDispatchOutboxRecord(state.storage.sql, record);
+      return record;
+    });
+    const requestContext = createRpcContext({
+      requestId: "rpc-thread-pre-agent-stop",
+      profileId: "openmeld-system",
+      profileKind: "system",
+      profileName: "OpenMeld System",
+    });
+    const stopped = await rpcPostSystemNoticeSignal(
+      env as unknown as CoreBindings,
+      {
+        spaceId,
+        finalOutcomeAuthority: "runtime_coordinator_wake_stop_publication",
+        context: requestContext,
+        profile: {
+          kind: "system",
+          profileId: "openmeld-system",
+          profileName: "OpenMeld System",
+        },
+        data: {
+          noticeType: "wake_stopped",
+          actorProfileId: targetProfileId,
+          dispatchId: dispatch.dispatchId,
+          generatedBy: "openmeld",
+          text: "This Wake was stopped before execution.",
+        },
+        spaceAccess: createDispatchContinuationSpaceAccessContext({
+          dispatchId: dispatch.dispatchId,
+          requestContext,
+          sourceSignalId: source.id,
+          spaceId,
+          targetProfileId,
+        }),
+      }
+    );
+    const threadResponse = await fetchWithOpenMeldAuth(threadUrl);
+    expect(threadResponse.status).toBe(200);
+    const threadHistory = (await threadResponse.json()) as {
+      signals?: SignalEnvelope[];
+    };
+    expect(threadHistory.signals?.map((signal) => signal.id)).toContain(
+      stopped.id
+    );
+  });
+
   it("returns not found for a missing updates anchor signal", async () => {
     const spaceId = await createSpace({
       name: "updates-anchor-not-found",

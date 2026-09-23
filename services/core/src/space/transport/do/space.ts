@@ -5327,9 +5327,24 @@ export class Space extends DurableObject<CoreBindings> {
       await this.mergePublishedAuthorProfile(author, input.profile),
       parsedData.data
     );
+    // A pre-agent stop can be published after RuntimeCoordinator has discarded
+    // its delivery payload. The authorized dispatch source still owns placement.
+    const stoppedSourceThreadContext =
+      parsedData.data.noticeType === "wake_stopped" &&
+      !input.threadContext &&
+      input.spaceAccess?.actor.kind === "dispatch_continuation"
+        ? this.resolveThreadContextForSignal(
+            input.spaceAccess.actor.sourceSignalId
+          )
+        : null;
     await this.publishSystemNoticeSignal(
       signal,
-      buildFormalSignalPublishContext(input)
+      buildFormalSignalPublishContext({
+        ...input,
+        ...(stoppedSourceThreadContext
+          ? { threadContext: stoppedSourceThreadContext }
+          : {}),
+      })
     );
     return signal;
   }
