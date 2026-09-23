@@ -100,7 +100,7 @@ describe("dispatch Space file reader", () => {
         },
         required: ["fileId"],
       });
-      const result = await client.callTool({
+      const rejected = await client.callTool({
         name: "read_file",
         arguments: {
           fileId: "file-fixture",
@@ -108,6 +108,15 @@ describe("dispatch Space file reader", () => {
           spaceId: "untrusted-space",
           profile: "untrusted-profile",
         },
+      });
+      // Shared native/MCP schemas reject unknown identity fields rather than
+      // silently discarding them. This is not an approval or an unknown write.
+      expect(rejected.isError).toBe(true);
+      expect(existsSync(argsPath)).toBe(false);
+      expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
+      const result = await client.callTool({
+        name: "read_file",
+        arguments: { fileId: "file-fixture", revision: 1 },
       });
       expect(result.isError).not.toBe(true);
       expect(result.content).toEqual([
