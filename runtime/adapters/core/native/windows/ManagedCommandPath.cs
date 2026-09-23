@@ -15,7 +15,9 @@ static class ManagedCommandPath {
     if (!Path.IsPathFullyQualified(binDirectory) || binDirectory.Contains(';') ||
         !File.Exists(Path.Combine(binDirectory, "openmeld.exe")))
       throw new ArgumentException("Invalid managed command directory");
-    string bin = Path.TrimEndingDirectorySeparator(Path.GetFullPath(binDirectory));
+    // Already fully qualified and checked above. Preserve its spelling: the
+    // installer may legitimately use an 8.3 profile path supplied by Windows.
+    string bin = Path.TrimEndingDirectorySeparator(binDirectory);
     using RegistryKey key = Registry.CurrentUser.CreateSubKey("Environment", true);
     object raw = key.GetValue("Path", null, RegistryValueOptions.DoNotExpandEnvironmentNames);
     RegistryValueKind kind = raw == null ? RegistryValueKind.ExpandString : key.GetValueKind("Path");
