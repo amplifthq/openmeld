@@ -12549,8 +12549,15 @@ export async function rpcCenterAgentCreateSpace(
       code: "invalid_payload",
     });
   }
+  // The Center Agent has no owning member, so the represented member must
+  // become the initial human owner. Resolve it before any Space write.
+  const representedOwner = await resolveCenterAgentSpaceOwner({
+    authorization,
+    onBehalfOfProfileId: parsed.data.onBehalfOf?.profileId ?? null,
+  });
   const created = await createSpaceWithResolvedId(env, {
     spaceId: resolveNewSpaceId(env.OPENMELD_SPACES).toString(),
+    initialOwnerMember: representedOwner,
     ...(parsed.data.name === undefined ? {} : { name: parsed.data.name }),
     ...(typeof parsed.data.purpose === "string"
       ? { purpose: parsed.data.purpose }
@@ -12588,6 +12595,45 @@ export async function rpcCenterAgentCreateSpace(
     );
   }
   return validated.data;
+}
+
+async function resolveCenterAgentSpaceOwner(input: {
+  authorization: Awaited<
+    ReturnType<typeof requireCurrentDesignatedCenterAgentCaller>
+  >;
+  onBehalfOfProfileId: string | null;
+}): Promise<ResolvedSpaceMemberProfile> {
+  const attribution = await resolveCenterAgentAuditAttribution({
+    authorization: input.authorization,
+    onBehalfOfProfileId: input.onBehalfOfProfileId,
+  });
+  const ownerUserId = attribution.onBehalfOf?.userId;
+  if (!(ownerUserId && input.onBehalfOfProfileId)) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.represented_member_required",
+      reason: "Choose the member who will own this Space.",
+      status: 403,
+    });
+  }
+  const member = await readResolvedOrganizationDirectorySpaceMember({
+    db: input.authorization.db,
+    organizationId: input.authorization.activeOrganization.organizationId,
+    profileId: input.onBehalfOfProfileId,
+  });
+  if (
+    !(
+      member &&
+      member.profileKind === "human" &&
+      member.ownerUserId === ownerUserId
+    )
+  ) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.represented_member_required",
+      reason: "Choose a current Organization member to own this Space.",
+      status: 403,
+    });
+  }
+  return member;
 }
 
 export async function rpcCenterAgentCreateAgentProfile(
@@ -21726,6 +21772,7 @@ async function createSpaceWithResolvedId(
   env: CoreBindings,
   input: {
     spaceId: string;
+    initialOwnerMember?: ResolvedSpaceMemberProfile;
     name?: string;
     purpose?: string;
     guide?: string;
@@ -21757,42 +21804,103 @@ async function createSpaceWithResolvedId(
 
   const creator = toSpaceCreator(context);
   const spaceStub = stub as unknown as SpaceRpcStub;
-  if (input.password !== undefined) {
-    const meta = await spaceStub.rpcPatchMetaWithPasswordAtomic({
-      spaceId: normalizedSpaceId,
-      ...(input.name ? { name: input.name } : {}),
-      ...(typeof input.purpose === "string" ? { purpose: input.purpose } : {}),
-      creator,
-      ...(typeof input.guide === "string" ? { guide: input.guide } : {}),
-      accessMode: input.accessMode ?? "protected",
+  const password = input.password;
+  if (password !== undefined) {
+    const meta = await initializeSpaceWithOwnerRecovery({
+      env,
       organizationId: input.organizationId,
-      password: input.password,
-      visibility: input.visibility,
-      context,
-    });
-    return {
+      ownerUserId: input.initialOwnerMember?.ownerUserId,
       spaceId: normalizedSpaceId,
-      meta,
-    };
+      initialize: () =>
+        spaceStub.rpcPatchMetaWithPasswordAtomic({
+          spaceId: normalizedSpaceId,
+          ...(input.name ? { name: input.name } : {}),
+          ...(typeof input.purpose === "string"
+            ? { purpose: input.purpose }
+            : {}),
+          creator,
+          ...(typeof input.guide === "string" ? { guide: input.guide } : {}),
+          accessMode: input.accessMode ?? "protected",
+          organizationId: input.organizationId,
+          password,
+          visibility: input.visibility,
+          context,
+          ...(input.initialOwnerMember
+            ? { initialOwnerMember: input.initialOwnerMember }
+            : {}),
+        }),
+    });
+    return { spaceId: normalizedSpaceId, meta };
   }
 
-  const meta = await spaceStub.rpcPatchMeta({
-    spaceId: normalizedSpaceId,
-    ...(input.name ? { name: input.name } : {}),
-    ...(typeof input.purpose === "string" ? { purpose: input.purpose } : {}),
-    creator,
-    ...(typeof input.guide === "string" ? { guide: input.guide } : {}),
-    ...(input.accessMode === undefined ? {} : { accessMode: input.accessMode }),
-    initializeIfAbsent: true,
+  const meta = await initializeSpaceWithOwnerRecovery({
+    env,
     organizationId: input.organizationId,
-    visibility: input.visibility,
-    context,
+    ownerUserId: input.initialOwnerMember?.ownerUserId,
+    spaceId: normalizedSpaceId,
+    initialize: () =>
+      spaceStub.rpcPatchMeta({
+        spaceId: normalizedSpaceId,
+        ...(input.initialOwnerMember
+          ? { initialOwnerMember: input.initialOwnerMember }
+          : {}),
+        ...(input.name ? { name: input.name } : {}),
+        ...(typeof input.purpose === "string"
+          ? { purpose: input.purpose }
+          : {}),
+        creator,
+        ...(typeof input.guide === "string" ? { guide: input.guide } : {}),
+        ...(input.accessMode === undefined
+          ? {}
+          : { accessMode: input.accessMode }),
+        initializeIfAbsent: true,
+        organizationId: input.organizationId,
+        visibility: input.visibility,
+        context,
+      }),
   });
-
   return {
     spaceId: normalizedSpaceId,
     meta,
   };
+}
+
+async function initializeSpaceWithOwnerRecovery(input: {
+  env: CoreBindings;
+  organizationId: string;
+  ownerUserId?: string | null;
+  spaceId: string;
+  initialize: () => Promise<SpaceMeta>;
+}): Promise<SpaceMeta> {
+  try {
+    return await input.initialize();
+  } catch (error) {
+    if (!input.ownerUserId) {
+      throw error;
+    }
+    try {
+      // A new Space RPC runs after the failed call's DO reset. Its existing
+      // serial check retains protection if Space metadata did commit.
+      const recoveryStub = resolveSpaceStub(
+        input.env.OPENMELD_SPACES,
+        input.spaceId
+      );
+      if (!recoveryStub) {
+        throw new Error("Couldn't resolve Space owner protection recovery.");
+      }
+      await recoveryStub.rpcCheckSpaceOwnerDeparture({
+        organizationId: input.organizationId,
+        spaceId: input.spaceId,
+        userId: input.ownerUserId,
+      });
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "Space creation failed and owner protection could not be verified or cleaned up."
+      );
+    }
+    throw error;
+  }
 }
 
 function normalizeCreateSpaceName(value: unknown): string | undefined {
