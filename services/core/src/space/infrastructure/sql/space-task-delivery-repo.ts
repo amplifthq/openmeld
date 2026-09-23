@@ -22,6 +22,9 @@ export type SpaceTaskDelivery = {
   sourceDispatchChainContext?: SourceDispatchChainContext;
 };
 
+const MAX_DELIVERY_ATTEMPTS = 12;
+const TERMINAL_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
 /** Delivery intent and execution references only; Task and runtime retain their owners. */
 export class SpaceTaskDeliveryRepository {
   private readonly sql: SqlStorage;
@@ -33,7 +36,8 @@ export class SpaceTaskDeliveryRepository {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS space_task_delivery_outbox (
       id TEXT PRIMARY KEY, task_id TEXT NOT NULL, kind TEXT NOT NULL,
       payload_json TEXT NOT NULL, next_attempt_ms INTEGER,
-      attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT
+      attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT,
+      updated_at_ms INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_space_task_delivery_due
       ON space_task_delivery_outbox (next_attempt_ms);
@@ -41,29 +45,52 @@ export class SpaceTaskDeliveryRepository {
       task_id TEXT NOT NULL, source_signal_id TEXT NOT NULL, target_profile_id TEXT NOT NULL,
       PRIMARY KEY (task_id, source_signal_id, target_profile_id)
     );`);
+    const columns = this.sql
+      .exec<{ name: string }>("PRAGMA table_info(space_task_delivery_outbox)")
+      .toArray();
+    if (!columns.some((column) => column.name === "updated_at_ms")) {
+      this.sql.exec(
+        "ALTER TABLE space_task_delivery_outbox ADD COLUMN updated_at_ms INTEGER NOT NULL DEFAULT 0"
+      );
+    }
   }
 
   enqueue(delivery: SpaceTaskDelivery, nowMs: number): void {
     this.sql.exec(
       `INSERT OR IGNORE INTO space_task_delivery_outbox
-       (id, task_id, kind, payload_json, next_attempt_ms) VALUES (?, ?, ?, ?, ?)`,
+       (id, task_id, kind, payload_json, next_attempt_ms, updated_at_ms)
+       VALUES (?, ?, ?, ?, ?, ?)`,
       delivery.id,
       delivery.receipt.task.taskId,
       delivery.kind,
       JSON.stringify(delivery),
+      nowMs,
       nowMs
     );
   }
 
   pending(nowMs: number): SpaceTaskDelivery[] {
-    return this.sql
-      .exec<{ payload_json: string }>(
-        `SELECT payload_json FROM space_task_delivery_outbox
+    const rows = this.sql
+      .exec<{ id: string; payload_json: string }>(
+        `SELECT id, payload_json FROM space_task_delivery_outbox
        WHERE next_attempt_ms <= ? ORDER BY next_attempt_ms, rowid LIMIT 20`,
         nowMs
       )
-      .toArray()
-      .map((row) => this.parse(row.payload_json));
+      .toArray();
+    const deliveries: SpaceTaskDelivery[] = [];
+    for (const row of rows) {
+      try {
+        deliveries.push(this.parse(row.payload_json));
+      } catch {
+        this.fail(
+          row.id,
+          nowMs,
+          "Stored Task delivery cannot be read. Contact support.",
+          true
+        );
+      }
+    }
+    return deliveries;
   }
 
   read(id: string): SpaceTaskDelivery | null {
@@ -81,12 +108,44 @@ export class SpaceTaskDeliveryRepository {
   }
 
   fail(id: string, nowMs: number, message: string, terminal = false): void {
+    const row = this.sql
+      .exec<{ attempts: number }>(
+        "SELECT attempts FROM space_task_delivery_outbox WHERE id = ?",
+        id
+      )
+      .toArray()[0];
+    if (!row) {
+      return;
+    }
+    const attempts = row.attempts + 1;
+    const exhausted = terminal || attempts >= MAX_DELIVERY_ATTEMPTS;
+    const retryDelayMs = Math.min(
+      60_000 * 2 ** Math.min(attempts - 1, 6),
+      3_600_000
+    );
     this.sql.exec(
-      `UPDATE space_task_delivery_outbox SET attempts = attempts + 1,
-       next_attempt_ms = ?, last_error = ? WHERE id = ?`,
-      terminal ? null : nowMs + 60_000,
-      message,
+      `UPDATE space_task_delivery_outbox SET attempts = ?,
+       next_attempt_ms = ?, last_error = ?, updated_at_ms = ? WHERE id = ?`,
+      attempts,
+      exhausted ? null : nowMs + retryDelayMs,
+      !terminal && exhausted
+        ? "Automatic delivery stopped after repeated failures. Continue from the Space discussion or contact support."
+        : message,
+      nowMs,
       id
+    );
+  }
+
+  cleanupTerminal(nowMs: number): void {
+    this.sql.exec(
+      `DELETE FROM space_task_delivery_outbox WHERE id IN (
+         SELECT id FROM space_task_delivery_outbox
+         WHERE next_attempt_ms IS NULL AND last_error IS NOT NULL
+           AND updated_at_ms + ? <= ?
+         ORDER BY updated_at_ms, id LIMIT 20
+       )`,
+      TERMINAL_RETENTION_MS,
+      nowMs
     );
   }
 
@@ -94,7 +153,10 @@ export class SpaceTaskDeliveryRepository {
     return (
       this.sql
         .exec<{ next: number | null }>(
-          "SELECT MIN(next_attempt_ms) AS next FROM space_task_delivery_outbox"
+          `SELECT MIN(CASE WHEN next_attempt_ms IS NOT NULL THEN next_attempt_ms
+           WHEN last_error IS NOT NULL THEN updated_at_ms + ? END) AS next
+           FROM space_task_delivery_outbox`,
+          TERMINAL_RETENTION_MS
         )
         .toArray()[0]?.next ?? null
     );

@@ -237,6 +237,7 @@ describe("GitHub issue Space Task binding", () => {
 
     const input = {
       actionId: "github.update_issue",
+      eventIdentity: "write-close-1",
       actionInput: {
         issueNumber: 1143,
         owner: "amplifthq",
@@ -268,14 +269,43 @@ describe("GitHub issue Space Task binding", () => {
     expect(describeLinkedGitHubIssueClosePrompt(canceled)).toBeNull();
     await applyGitHubIssueSpaceTaskBinding({
       ...input,
+      eventIdentity: "write-close-2",
       now: "2026-09-20T05:00:00.000Z",
     });
     expect(new Set(operationIds).size).toBe(4);
     await applyGitHubIssueSpaceTaskBinding({
       ...input,
+      eventIdentity: "write-close-2",
       now: "2026-09-20T05:00:00.000Z",
     });
     expect(operationIds.slice(4)).toEqual(operationIds.slice(2, 4));
+  });
+
+  it("refuses a linked issue close without a stable provider operation identity", async () => {
+    await expect(
+      applyGitHubIssueSpaceTaskBinding({
+        actionId: "github.update_issue",
+        actionInput: {
+          issueNumber: 1143,
+          owner: "amplifthq",
+          repo: "openmeld",
+          state: "closed",
+        },
+        data: { number: 1143 },
+        ports: {
+          createSpaceTask: vi.fn(),
+          getSpaceTask: vi.fn(),
+          listSpaceTasks: vi.fn(),
+          mutateSpaceTask: vi.fn(),
+        },
+        toolContext: {
+          context: CONTEXT,
+          turnEnvelope: { space: SHARED_SPACE } as RemoteAgentTurnEnvelope,
+        },
+      })
+    ).rejects.toMatchObject({
+      code: "space_task.github_event_identity_required",
+    });
   });
 
   it("does not create or cancel Tasks for a body-only issue update", async () => {
@@ -334,6 +364,7 @@ describe("GitHub issue Space Task binding", () => {
         actionId,
         actionInput,
         data,
+        eventIdentity: "truncated-list-write",
         ports: {
           createSpaceTask,
           getSpaceTask: vi.fn(),

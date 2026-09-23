@@ -116,6 +116,12 @@ a Task-authored Signal, Space rechecks the Task's phase, target, result, and
 brief so a cancellation or change cannot admit a stale handoff. The
 `space_task_wake_refs` table records exact Signal and Agent target pairs only
 for Task-associated Wakes; it is a Stop lookup, not an execution ledger.
+Only mutations that may create a delivery intent pre-arm recovery before their
+transaction; checking for due rows only after commit would leave a lost-alarm
+window. Each delivery has bounded backoff and becomes a visible terminal failure
+after twelve attempts. A malformed outbox row is quarantined without blocking
+other Task deliveries. Terminal rows remain available for diagnosis for thirty
+days, then the same bounded Space alarm lane reclaims them.
 
 Task phase is collaboration truth. RuntimeCoordinator and Remote Agent native
 delivery continue to own execution state. Cancellation may call their existing
@@ -127,6 +133,9 @@ An explicit cancellation may request Stop of each recorded Wake under a narrow
 Task cancellation authority: the same currently active, Auth-verified actor
 must have authored the retained cancellation operation, and the target must
 match a recorded Task Wake. Existing ordinary Wake Stop authority is unchanged.
+Reopening the Task supersedes an earlier cancellation's queued Stop, including
+when the Task is canceled again later. The retained cancellation event and exact
+Wake reference are checked again before the Stop side effect.
 The Stop result remains separate from the canceled Task phase. Provider events
 carry no actor authority and cannot use this Task-specific Stop path.
 

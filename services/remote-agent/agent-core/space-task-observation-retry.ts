@@ -18,7 +18,8 @@ export function isSpaceTaskRevisionConflictError(error: unknown): boolean {
   );
 }
 
-export async function mutateSpaceTaskRefreshingOnRevisionConflict(input: {
+/** Only provider observation may rebase after a Task revision conflict. */
+export async function mutateSpaceTaskWithObservationConflictRetry(input: {
   mutate: (body: MutateSpaceTaskBody) => Promise<unknown>;
   readCurrentRevision: () => Promise<number>;
   request: MutateSpaceTaskBody;

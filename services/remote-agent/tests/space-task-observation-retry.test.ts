@@ -7,8 +7,8 @@ import type { MutateSpaceTaskBody } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import {
   isSpaceTaskRevisionConflictError,
-  mutateSpaceTaskRefreshingOnRevisionConflict,
-} from "../agent-core/space-task-revision-retry";
+  mutateSpaceTaskWithObservationConflictRetry,
+} from "../agent-core/space-task-observation-retry";
 
 const TASK_ID = "tsk_55555555-5555-4555-8555-555555555555";
 const ACTOR = {
@@ -93,7 +93,7 @@ describe("Space Task mutation revision retry", () => {
     const readCurrentRevision = vi.fn(async () => 2);
 
     await expect(
-      mutateSpaceTaskRefreshingOnRevisionConflict({
+      mutateSpaceTaskWithObservationConflictRetry({
         mutate,
         readCurrentRevision,
         request: observation,
@@ -136,7 +136,7 @@ describe("Space Task mutation revision retry", () => {
       .mockResolvedValueOnce(receipt(6));
     const readCurrentRevision = vi.fn(async () => 5);
     await expect(
-      mutateSpaceTaskRefreshingOnRevisionConflict({
+      mutateSpaceTaskWithObservationConflictRetry({
         mutate,
         readCurrentRevision,
         request: semanticRequest,
@@ -153,7 +153,7 @@ describe("Space Task mutation revision retry", () => {
     });
 
     await expect(
-      mutateSpaceTaskRefreshingOnRevisionConflict({
+      mutateSpaceTaskWithObservationConflictRetry({
         mutate,
         readCurrentRevision: async () => 2,
         request,

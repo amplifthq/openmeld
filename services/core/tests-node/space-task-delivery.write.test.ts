@@ -4,7 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   enqueueSpaceTaskDeliveries,
   flushSpaceTaskDeliveries,
+  isAuthorizedSpaceTaskStop,
   isSpaceTaskDeliveryCurrent,
+  isSpaceTaskStopSuperseded,
   resolveSpaceTaskHumanDecisionTarget,
 } from "../src/space/application/space-task-delivery";
 import { SpaceTaskService } from "../src/space/application/space-task-service";
@@ -33,7 +35,7 @@ const reviewer: SpaceTaskActor = {
   profileName: "Reviewer",
 };
 
-function createSqlHarness() {
+function createSqlHarness(previousOutboxSchema = false) {
   const database = new DatabaseSync(":memory:");
   const sql = {
     exec(query: string, ...bindings: Array<string | number | null>) {
@@ -52,6 +54,23 @@ function createSqlHarness() {
     },
   } as unknown as SqlStorage;
   ensureSpaceTaskTables(sql);
+  if (previousOutboxSchema) {
+    sql.exec(`CREATE TABLE space_task_delivery_outbox (
+      id TEXT PRIMARY KEY, task_id TEXT NOT NULL, kind TEXT NOT NULL,
+      payload_json TEXT NOT NULL, next_attempt_ms INTEGER,
+      attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT
+    )`);
+    sql.exec(
+      `INSERT INTO space_task_delivery_outbox
+       (id, task_id, kind, payload_json, next_attempt_ms)
+       VALUES (?, ?, ?, ?, ?)`,
+      "retained-before-upgrade",
+      "task-before-upgrade",
+      "handoff",
+      "{}",
+      null
+    );
+  }
   const deliveries = new SpaceTaskDeliveryRepository(sql);
   deliveries.initialize();
   const tasks = new SpaceTaskRepository(sql);
@@ -83,28 +102,141 @@ function createSqlHarness() {
         }
       },
     });
-  return { close: () => database.close(), deliveries, service, tasks };
+  return { close: () => database.close(), deliveries, service, sql, tasks };
 }
 
 afterEach(() => vi.useRealTimers());
 
 describe("Space Task durable delivery", () => {
-  it("limits cancellation Stop references to the exact Task Signal and Agent", () => {
+  it("adds delivery retention metadata without dropping a previous outbox row", () => {
+    const harness = createSqlHarness(true);
+    try {
+      expect(
+        harness.sql
+          .exec<{ id: string; updated_at_ms: number }>(
+            "SELECT id, updated_at_ms FROM space_task_delivery_outbox"
+          )
+          .toArray()
+      ).toEqual([{ id: "retained-before-upgrade", updated_at_ms: 0 }]);
+    } finally {
+      harness.close();
+    }
+  });
+  it("permits only the retained cancellation actor and recorded Wake, then fences a reopen", () => {
     const harness = createSqlHarness();
     try {
-      harness.deliveries.recordWake("task-a", "handoff-1", assignee.profileId);
+      const members = new Map(
+        [requester, assignee, reviewer].map((member) => [
+          member.profileId,
+          member,
+        ])
+      );
+      const context = {
+        actor: requester,
+        isSpaceOwner: true,
+        resolveMember: (profileId: string) => members.get(profileId) ?? null,
+      };
+      const created = harness.service().create(
+        {
+          operationId: "create-stop-task",
+          title: "Stop only this Task's Agent Wake",
+          assigneeProfileId: assignee.profileId,
+        },
+        { ...context, requestedBy: requester }
+      );
+      harness.deliveries.recordWake(
+        created.task.taskId,
+        "handoff-1",
+        assignee.profileId
+      );
+      const canceled = harness.service().mutate(
+        created.task.taskId,
+        {
+          action: "cancel",
+          expectedRevision: created.task.revision,
+          operationId: "cancel-stop-task",
+          reason: "No longer needed",
+        },
+        context
+      );
+      const delivery = harness.deliveries.pending(Date.now())[0];
+      expect(delivery?.kind).toBe("stop");
+      if (!delivery) {
+        throw new Error("Expected a retained Stop delivery");
+      }
+      const authorization = {
+        actorProfileId: requester.profileId,
+        actorOwnerUserId: requester.ownerUserId,
+        delivery,
+        wake: {
+          sourceSignalId: "handoff-1",
+          targetProfileId: assignee.profileId,
+        },
+        taskRepository: harness.tasks,
+        deliveryRepository: harness.deliveries,
+      };
+      expect(isAuthorizedSpaceTaskStop(authorization)).toBe(true);
       expect(
-        harness.deliveries.hasWake("task-a", "handoff-1", assignee.profileId)
-      ).toBe(true);
-      expect(
-        harness.deliveries.hasWake("task-b", "handoff-1", assignee.profileId)
+        isAuthorizedSpaceTaskStop({
+          ...authorization,
+          actorProfileId: reviewer.profileId,
+          actorOwnerUserId: reviewer.ownerUserId,
+        })
       ).toBe(false);
       expect(
-        harness.deliveries.hasWake("task-a", "handoff-1", reviewer.profileId)
+        isAuthorizedSpaceTaskStop({
+          ...authorization,
+          delivery: {
+            ...delivery,
+            receipt: {
+              ...delivery.receipt,
+              event: {
+                ...delivery.receipt.event,
+                eventId: "tse_55555555-5555-4555-8555-555555555555",
+              },
+            },
+          },
+        })
       ).toBe(false);
       expect(
-        harness.deliveries.hasWake("task-a", "handoff-2", assignee.profileId)
+        isAuthorizedSpaceTaskStop({
+          ...authorization,
+          wake: {
+            sourceSignalId: "handoff-2",
+            targetProfileId: assignee.profileId,
+          },
+        })
       ).toBe(false);
+      expect(
+        isAuthorizedSpaceTaskStop({ ...authorization, delivery: undefined })
+      ).toBe(false);
+      const reopened = harness.service().mutate(
+        created.task.taskId,
+        {
+          action: "reopen",
+          expectedRevision: canceled.task.revision,
+          operationId: "reopen-stop-task",
+          reason: "Resume the work",
+        },
+        context
+      );
+      expect(isSpaceTaskDeliveryCurrent(delivery, reopened.task)).toBe(false);
+      expect(isSpaceTaskStopSuperseded(delivery, harness.tasks)).toBe(true);
+      expect(isAuthorizedSpaceTaskStop(authorization)).toBe(false);
+      const canceledAgain = harness.service().mutate(
+        created.task.taskId,
+        {
+          action: "cancel",
+          expectedRevision: reopened.task.revision,
+          operationId: "cancel-again",
+          reason: "Stop the new work",
+        },
+        context
+      );
+      expect(isSpaceTaskDeliveryCurrent(delivery, canceledAgain.task)).toBe(
+        true
+      );
+      expect(isAuthorizedSpaceTaskStop(authorization)).toBe(false);
     } finally {
       harness.close();
     }
@@ -125,6 +257,103 @@ describe("Space Task durable delivery", () => {
         [requester.ownerUserId ?? ""]
       )
     ).toBeNull();
+  });
+  it("quarantines a malformed delivery while processing valid work and reclaims exhausted rows", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-22T12:00:00.000Z"));
+    const harness = createSqlHarness();
+    try {
+      const nowMs = Date.now();
+      const created = harness.service().create(
+        {
+          operationId: "create-linked-task",
+          title: "Follow a linked issue",
+          externalWorkItems: [
+            {
+              provider: "github",
+              owner: "amplifthq",
+              repo: "openmeld",
+              number: 1143,
+              url: "https://github.com/amplifthq/openmeld/issues/1143",
+              lastObservedState: "open",
+              lastObservedAt: null,
+            },
+          ],
+        },
+        {
+          actor: requester,
+          requestedBy: requester,
+          isSpaceOwner: true,
+          resolveMember: () => null,
+        }
+      );
+      const valid = harness.deliveries.pending(nowMs)[0];
+      expect(valid?.kind).toBe("github_projection");
+      if (!valid) {
+        throw new Error("Expected a valid projection delivery");
+      }
+      harness.sql.exec(
+        `INSERT INTO space_task_delivery_outbox
+         (id, task_id, kind, payload_json, next_attempt_ms, updated_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        "malformed-delivery",
+        "task-malformed",
+        "handoff",
+        "{not-json",
+        nowMs,
+        nowMs
+      );
+      const deliver = vi.fn(async () => undefined);
+      await flushSpaceTaskDeliveries({
+        repository: harness.deliveries,
+        deliver,
+        onFailure: () => undefined,
+      });
+      expect(deliver).toHaveBeenCalledExactlyOnceWith(valid);
+      expect(harness.deliveries.status("task-malformed")).toMatchObject([
+        { state: "failed" },
+      ]);
+      expect(harness.deliveries.status(created.task.taskId)).toEqual([]);
+
+      harness.service().mutate(
+        created.task.taskId,
+        {
+          action: "update_brief",
+          expectedRevision: created.task.revision,
+          operationId: "edit-linked-brief",
+          description: "Keep checking this issue.",
+        },
+        {
+          actor: requester,
+          isSpaceOwner: true,
+          resolveMember: () => null,
+        }
+      );
+      expect(harness.deliveries.pending(nowMs)).toEqual([]);
+
+      harness.deliveries.enqueue({ ...valid, id: "retry-delivery" }, nowMs);
+      for (let attempt = 0; attempt < 12; attempt++) {
+        harness.deliveries.fail(
+          "retry-delivery",
+          nowMs + attempt * 60_000,
+          "retryable"
+        );
+      }
+      expect(harness.deliveries.pending(nowMs + 24 * 60 * 60 * 1000)).toEqual(
+        []
+      );
+      expect(harness.deliveries.status(created.task.taskId)).toMatchObject([
+        {
+          state: "failed",
+          error: expect.stringContaining("Automatic delivery stopped"),
+        },
+      ]);
+      harness.deliveries.cleanupTerminal(nowMs + 31 * 24 * 60 * 60 * 1000);
+      expect(harness.deliveries.status(created.task.taskId)).toEqual([]);
+      expect(harness.deliveries.status("task-malformed")).toEqual([]);
+    } finally {
+      harness.close();
+    }
   });
   it("commits delivery intent with the Task and recovers a failed handoff without repeating the mutation", async () => {
     vi.useFakeTimers();

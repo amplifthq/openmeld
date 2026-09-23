@@ -9,14 +9,40 @@ import type {
 	SpaceTaskMutationReceipt,
 } from "@openmeld/schemas/types";
 
-export function isSpaceTaskRevisionConflictError(error: unknown): boolean {
+type SpaceTaskConflictCode =
+	| typeof SPACE_TASK_REVISION_CONFLICT_ERROR_CODE
+	| typeof SPACE_TASK_RESULT_REVISION_CONFLICT_ERROR_CODE;
+
+function readSpaceTaskConflictCode(
+	error: unknown
+): SpaceTaskConflictCode | null {
 	const failure = toStructuredApiClientFailure(error);
-	return (
-		failure.code === SPACE_TASK_REVISION_CONFLICT_ERROR_CODE ||
-		failure.upstreamCode === SPACE_TASK_REVISION_CONFLICT_ERROR_CODE ||
-		failure.code === SPACE_TASK_RESULT_REVISION_CONFLICT_ERROR_CODE ||
-		failure.upstreamCode === SPACE_TASK_RESULT_REVISION_CONFLICT_ERROR_CODE
-	);
+	for (const code of [failure.code, failure.upstreamCode]) {
+		if (
+			code === SPACE_TASK_REVISION_CONFLICT_ERROR_CODE ||
+			code === SPACE_TASK_RESULT_REVISION_CONFLICT_ERROR_CODE
+		) {
+			return code;
+		}
+	}
+	return null;
+}
+
+export function isSpaceTaskRevisionConflictError(error: unknown): boolean {
+	return readSpaceTaskConflictCode(error) !== null;
+}
+
+export class SpaceTaskRefreshConflictError extends Error {
+	readonly code: SpaceTaskConflictCode;
+	constructor(code: SpaceTaskConflictCode, cause: unknown) {
+		super(
+			"This Task changed. Review the refreshed details before trying again.",
+			{
+				cause,
+			}
+		);
+		this.code = code;
+	}
 }
 
 export async function mutateSpaceTaskWithConflictRefresh(input: {
@@ -29,13 +55,11 @@ export async function mutateSpaceTaskWithConflictRefresh(input: {
 			await input.mutate(input.request)
 		);
 	} catch (error) {
-		if (!isSpaceTaskRevisionConflictError(error)) {
+		const conflictCode = readSpaceTaskConflictCode(error);
+		if (!conflictCode) {
 			throw error;
 		}
 		await input.refresh();
-		throw new Error(
-			"This Task changed. Review the refreshed details before trying again.",
-			{ cause: error }
-		);
+		throw new SpaceTaskRefreshConflictError(conflictCode, error);
 	}
 }

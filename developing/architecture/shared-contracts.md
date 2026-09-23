@@ -737,7 +737,9 @@ repository names still fit alongside a Task ID and event identity; deploy
 schema consumers before producers that emit longer IDs. Remote Agent uses the
 GitHub response's `updated_at` when present, or durably retains the first
 observation time under the provider write operation. Replaying that write must
-reuse both its event identity and observation time.
+reuse both its event identity and observation time. A tool-driven issue close
+without a stable provider operation identity fails the Task association closed;
+the observation timestamp is never used as a substitute operation identity.
 
 The local Space Action MCP adds non-final Task tools alongside its one required
 final Space action. Task review requires the exact-result CLI contract above

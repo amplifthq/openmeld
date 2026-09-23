@@ -568,9 +568,12 @@ import {
 import {
   enqueueSpaceTaskDeliveries,
   flushSpaceTaskDeliveries,
+  isAuthorizedSpaceTaskStop,
   isSpaceTaskDeliveryCurrent,
+  isSpaceTaskStopSuperseded,
   resolveSpaceTaskHumanDecisionTarget,
   SpaceTaskDeliveryError,
+  taskMutationMayNeedDelivery,
 } from "../../application/space-task-delivery";
 import {
   type ApplyGitHubIssueObservationInput,
@@ -7057,7 +7060,9 @@ export class Space extends DurableObject<CoreBindings> {
               taskContext,
               normalizedBody.sourceSignalId ?? null
             );
-            await this.armSpaceTaskRecovery();
+            await this.armSpaceTaskRecovery(
+              (normalizedBody.externalWorkItems?.length ?? 0) > 0
+            );
             const receipt = this.createSpaceTaskService(context).create(
               normalizedBody,
               createContext
@@ -7098,7 +7103,7 @@ export class Space extends DurableObject<CoreBindings> {
     input: ApplyGitHubIssueObservationInput
   ): Promise<ApplyGitHubIssueObservationResult> {
     this.applySpaceRef(input.spaceId);
-    await this.armSpaceTaskRecovery();
+    await this.armSpaceTaskRecovery(true);
     const result = this.spaceTaskService.applyGitHubIssueObservation(input);
     if (result.task && (result.observed || result.canceled)) {
       await this.broadcastSpaceTasksChanged(
@@ -7203,7 +7208,9 @@ export class Space extends DurableObject<CoreBindings> {
     context: CoreRpcContextInput,
     taskContext: SpaceTaskMutationContext
   ): Promise<SpaceTaskMutationReceipt> {
-    await this.armSpaceTaskRecovery();
+    await this.armSpaceTaskRecovery(
+      taskMutationMayNeedDelivery(input.body.action)
+    );
     if (input.body.action === "cancel") {
       this.captureSpaceTaskWakeReferences(input.taskId);
     }
@@ -7219,7 +7226,12 @@ export class Space extends DurableObject<CoreBindings> {
     return receipt;
   }
 
-  private async armSpaceTaskRecovery(): Promise<void> {
+  private async armSpaceTaskRecovery(mayEnqueue: boolean): Promise<void> {
+    if (!mayEnqueue) {
+      return;
+    }
+    // Arm before the Task transaction: a post-commit check cannot recover
+    // a process interruption between writing the intent and scheduling it.
     const recoveryAt = Date.now() + 1000;
     const alarm = await this.ctx.storage.getAlarm();
     if (alarm === null || alarm > recoveryAt) {
@@ -7285,6 +7297,15 @@ export class Space extends DurableObject<CoreBindings> {
     if (!isSpaceTaskDeliveryCurrent(delivery, current)) {
       return;
     }
+    if (
+      delivery.kind === "stop" &&
+      isSpaceTaskStopSuperseded(
+        delivery,
+        new SpaceTaskRepository(this.ctx.storage.sql)
+      )
+    ) {
+      return;
+    }
     if (delivery.kind === "github_projection") {
       await this.projectSpaceTaskGitHubIssueLinks(current);
       return;
@@ -7300,7 +7321,7 @@ export class Space extends DurableObject<CoreBindings> {
     if (delivery.kind === "stop") {
       let failure: SpaceTaskDeliveryError | null = null;
       for (const target of delivery.wakeTargets ?? []) {
-        // Each exact Wake keeps its own Stop authorization; Task cancellation grants no additional authority.
+        // The retained Task cancellation grants only its recorded exact Wake targets Stop authority.
         try {
           const response = await this.handlePostWakeStop(
             {
@@ -7667,7 +7688,10 @@ export class Space extends DurableObject<CoreBindings> {
     const db = projectionsDb(this.bindings);
     const organizationId = this.readSpaceMetaRecord()?.organizationId?.trim();
     if (!(db && organizationId)) {
-      throw new Error("The Task's GitHub link projection is unavailable.");
+      throw new SpaceTaskDeliveryError(
+        "The Task's GitHub link projection is unavailable. Check the Space database and Organization configuration.",
+        true
+      );
     }
     try {
       await projectSpaceTaskGitHubIssueLinks({
@@ -12619,6 +12643,20 @@ export class Space extends DurableObject<CoreBindings> {
     context: OpenMeldRequestContext,
     taskCancellation?: SpaceTaskDelivery
   ): Promise<PostSpaceWakeStopResponse> {
+    if (
+      taskCancellation &&
+      isSpaceTaskStopSuperseded(
+        taskCancellation,
+        new SpaceTaskRepository(this.ctx.storage.sql)
+      )
+    ) {
+      return buildSpaceWakeStopFailureResponse({
+        reasonCode: "space.wake_stop_target_not_found",
+        runtimeCoordinatorExecutionId: null,
+        status: "not_found",
+        targetProfileId: body.target.targetProfileId,
+      });
+    }
     const lookup = await this.readWakeStopDispatchLookup(body.target);
     const lookupMatch = lookup.matches.find(
       (match) => match.targetProfileId === body.target.targetProfileId
@@ -12632,14 +12670,37 @@ export class Space extends DurableObject<CoreBindings> {
       });
     }
 
+    const ordinaryStopAuthorized = await this.isWakeStopAuthorized({
+      context,
+      ...lookupMatch,
+    });
+    if (
+      taskCancellation &&
+      isSpaceTaskStopSuperseded(
+        taskCancellation,
+        new SpaceTaskRepository(this.ctx.storage.sql)
+      )
+    ) {
+      return buildSpaceWakeStopFailureResponse({
+        reasonCode: "space.wake_stop_target_not_found",
+        runtimeCoordinatorExecutionId: null,
+        status: "not_found",
+        targetProfileId: body.target.targetProfileId,
+      });
+    }
     if (
       !(
-        (await this.isWakeStopAuthorized({ context, ...lookupMatch })) ||
-        this.isAuthorizedTaskCancellationStop(
-          context,
-          lookupMatch,
-          taskCancellation
-        )
+        ordinaryStopAuthorized ||
+        isAuthorizedSpaceTaskStop({
+          actorOwnerUserId: context.actorContext.ownerUserId,
+          actorProfileId: context.actorContext.openMeldProfileId,
+          delivery: taskCancellation,
+          wake: lookupMatch,
+          taskRepository: new SpaceTaskRepository(this.ctx.storage.sql),
+          deliveryRepository: new SpaceTaskDeliveryRepository(
+            this.ctx.storage.sql
+          ),
+        })
       )
     ) {
       throw createCoreRpcHttpError({
@@ -12662,33 +12723,6 @@ export class Space extends DurableObject<CoreBindings> {
       body,
       lookupMatch,
     });
-  }
-
-  private isAuthorizedTaskCancellationStop(
-    context: OpenMeldRequestContext,
-    wake: SpaceDispatchLookupMatch,
-    delivery?: SpaceTaskDelivery
-  ): boolean {
-    if (
-      delivery?.kind !== "stop" ||
-      delivery.receipt.event.type !== "canceled" ||
-      !wake.sourceSignalId ||
-      delivery.actor?.profileId !== context.actorContext.openMeldProfileId ||
-      delivery.actor?.ownerUserId !== context.actorContext.ownerUserId
-    ) {
-      return false;
-    }
-    const operation = new SpaceTaskRepository(
-      this.ctx.storage.sql
-    ).readOperation(delivery.receipt.event.operationId);
-    if (operation?.receipt.event.eventId !== delivery.receipt.event.eventId) {
-      return false;
-    }
-    return new SpaceTaskDeliveryRepository(this.ctx.storage.sql).hasWake(
-      delivery.receipt.task.taskId,
-      wake.sourceSignalId,
-      wake.targetProfileId
-    );
   }
 
   private async isWakeStopAuthorized(

@@ -434,7 +434,7 @@ engineering details in the owning contracts:
    identity and action-specific role checks are server-owned.
 2. Space Durable Object SQLite owns Task documents, append-only events, exact
    operation replay, revision-bound writes, pending delivery intent, and exact
-   Wake references at schema version 46.
+   Wake references at schema version 47.
 3. Web and Agent clients use one shared mutation schema for assignment, brief,
    start, result, review, cancellation, reopening, and human continuation.
 4. Reviewer and rework handoffs publish deterministic Space messages. Human

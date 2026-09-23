@@ -36,7 +36,10 @@ describe("Space Task mutation conflicts", () => {
 		const refresh = vi.fn(async () => undefined);
 		await expect(
 			mutateSpaceTaskWithConflictRefresh({ mutate, refresh, request })
-		).rejects.toThrow("Review the refreshed details");
+		).rejects.toMatchObject({
+			code: failure.upstreamCode ?? failure.code,
+			message: expect.stringContaining("Review the refreshed details"),
+		});
 		expect(refresh).toHaveBeenCalledOnce();
 		expect(mutate).toHaveBeenCalledExactlyOnceWith(request);
 	});

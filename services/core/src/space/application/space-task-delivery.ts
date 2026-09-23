@@ -1,4 +1,5 @@
 import type {
+  MutateSpaceTaskBody,
   SpaceTask,
   SpaceTaskActor,
   SpaceTaskMutationReceipt,
@@ -7,7 +8,22 @@ import type {
   SpaceTaskDelivery,
   SpaceTaskDeliveryRepository,
 } from "../infrastructure/sql/space-task-delivery-repo";
+import type { SpaceTaskRepository } from "../infrastructure/sql/space-task-repo";
 import type { SourceDispatchChainContext } from "./types";
+
+export function taskMutationMayNeedDelivery(
+  action: MutateSpaceTaskBody["action"]
+): boolean {
+  return (
+    action === "submit_result" ||
+    action === "review" ||
+    action === "continue_rework" ||
+    action === "cancel" ||
+    action === "attach_external_work_item" ||
+    action === "detach_external_work_item" ||
+    action === "observe_external_work_item"
+  );
+}
 
 export function resolveSpaceTaskHumanDecisionTarget(
   task: SpaceTask,
@@ -61,8 +77,8 @@ export function enqueueSpaceTaskDeliveries(input: {
       Date.now()
     );
   if (
-    task.externalWorkItems.length ||
-    input.previous?.externalWorkItems.length
+    JSON.stringify(task.externalWorkItems) !==
+    JSON.stringify(input.previous?.externalWorkItems ?? [])
   ) {
     enqueue("github_projection");
   }
@@ -79,7 +95,11 @@ export function enqueueSpaceTaskDeliveries(input: {
   ) {
     enqueue("completion");
   }
-  if (event.type === "canceled" && input.authorizedActor) {
+  if (
+    event.type === "canceled" &&
+    input.authorizedActor &&
+    input.repository.wakeRefs(task.taskId).length > 0
+  ) {
     enqueue("stop");
   }
 }
@@ -95,6 +115,9 @@ export function isSpaceTaskDeliveryCurrent(
       current.phase === "done" &&
       current.result?.resultRevision === task.result?.resultRevision
     );
+  }
+  if (delivery.kind === "stop") {
+    return current.phase === "canceled";
   }
   if (delivery.kind !== "handoff") {
     return true;
@@ -123,6 +146,57 @@ export function isSpaceTaskDeliveryCurrent(
   );
 }
 
+export function isSpaceTaskStopSuperseded(
+  delivery: SpaceTaskDelivery,
+  repository: Pick<SpaceTaskRepository, "listEvents">
+): boolean {
+  return repository
+    .listEvents(delivery.receipt.task.taskId)
+    .some(
+      (event) =>
+        event.type === "reopened" &&
+        event.taskRevision > delivery.receipt.event.taskRevision
+    );
+}
+
+/** Only an exact retained cancellation and Task Wake reference can extend Stop authority. */
+export function isAuthorizedSpaceTaskStop(input: {
+  actorOwnerUserId: string | null | undefined;
+  actorProfileId: string;
+  delivery?: SpaceTaskDelivery;
+  wake: { sourceSignalId: string | null; targetProfileId: string };
+  taskRepository: Pick<SpaceTaskRepository, "listEvents" | "readOperation">;
+  deliveryRepository: Pick<SpaceTaskDeliveryRepository, "hasWake">;
+}): boolean {
+  const { delivery, wake } = input;
+  if (
+    delivery?.kind !== "stop" ||
+    delivery.receipt.event.type !== "canceled" ||
+    !wake.sourceSignalId ||
+    !input.actorOwnerUserId ||
+    delivery.actor?.profileId !== input.actorProfileId ||
+    delivery.actor.ownerUserId !== input.actorOwnerUserId ||
+    isSpaceTaskStopSuperseded(delivery, input.taskRepository)
+  ) {
+    return false;
+  }
+  const event = input.taskRepository.readOperation(
+    delivery.receipt.event.operationId
+  )?.receipt.event;
+  return (
+    event?.eventId === delivery.receipt.event.eventId &&
+    event.type === "canceled" &&
+    event.taskId === delivery.receipt.task.taskId &&
+    event.actor.profileId === input.actorProfileId &&
+    event.actor.ownerUserId === input.actorOwnerUserId &&
+    input.deliveryRepository.hasWake(
+      delivery.receipt.task.taskId,
+      wake.sourceSignalId,
+      wake.targetProfileId
+    )
+  );
+}
+
 export class SpaceTaskDeliveryError extends Error {
   readonly terminal: boolean;
   constructor(message: string, terminal = false) {
@@ -136,6 +210,7 @@ export async function flushSpaceTaskDeliveries(input: {
   deliver: (delivery: SpaceTaskDelivery) => Promise<void>;
   onFailure: (delivery: SpaceTaskDelivery, error: unknown) => void;
 }): Promise<void> {
+  input.repository.cleanupTerminal(Date.now());
   for (const delivery of input.repository.pending(Date.now())) {
     try {
       await input.deliver(delivery);
