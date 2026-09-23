@@ -69,7 +69,14 @@ await writeFile(
 const root = await mkdtemp(path.join(tmpdir(), "OpenMeld native 空格 "));
 const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT;
 assert.ok(systemRoot);
+// Keep normal Windows OS discovery (including PowerShell's system modules).
+// Removing the entire OS environment tests an artificial launcher environment,
+// not the promised absence of user-installed Node/Bun. Isolate user state and
+// remove developer runtimes from PATH, as the actual Service fixture does.
 const env = {
+  ...Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "path")
+  ),
   SystemRoot: systemRoot,
   WINDIR: systemRoot,
   ComSpec: path.join(systemRoot, "System32/cmd.exe"),
@@ -88,6 +95,7 @@ const env = {
   OPENMELD_GATEWAY_URL: "http://127.0.0.1:9",
   OPENMELD_AUTH_URL: "http://127.0.0.1:9",
 };
+console.log(JSON.stringify({ stage: "component_launch", status: "started" }));
 const owned = spawnAgentControllerProcess({
   bin: binaries["windows-native-runtime"].path,
   args: [binaries["windows-agent-sdk"].path],
@@ -95,6 +103,9 @@ const owned = spawnAgentControllerProcess({
   env,
   shell: false,
 });
+console.log(
+  JSON.stringify({ stage: "component_supervisor", pid: owned.child.pid })
+);
 let output = "";
 owned.child.stdout.on("data", (chunk) => {
   output = (output + chunk.toString()).slice(-1024 * 1024);

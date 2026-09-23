@@ -14,6 +14,7 @@ import { readOpenCodeSessionRows } from "../../src/agent-activity/opencode-stora
 assert.equal(process.platform, "win32");
 assert.ok(process.versions.bun);
 assert.ok(process.env.OPENMELD_HOME);
+console.log(JSON.stringify({ stage: "component_entry", pid: process.pid }));
 const fixture = process.argv[2];
 assert.ok(fixture);
 const dbPath = join(process.cwd(), "opencode.db");

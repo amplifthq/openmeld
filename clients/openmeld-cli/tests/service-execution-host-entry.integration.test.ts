@@ -281,7 +281,7 @@ describe("real execution Host entry", () => {
     const process = start(randomUUID(), false);
     expect(await process.exit).toBe(1);
     expect(process.stderr()).toContain("host.inherited_channel_required");
-    // Bun may create its own AppData cache while loading a compiled executable.
+    // The runtime/system tools may create AppData while loading an executable.
     // The product must still reject public Host invocation before lane state.
     await expect(stat(join(root, "state"))).rejects.toMatchObject({
       code: "ENOENT",
