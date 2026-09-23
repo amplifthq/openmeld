@@ -25,9 +25,11 @@ import {
 } from "./worker-deployment-evidence.mjs";
 
 const RELEASE_MANIFEST_PATH = "release/local-components.json";
+const CLI_PACKAGE_PATH = "clients/openmeld-cli/package.json";
 const RELEASE_MANIFEST_DEFINE =
   "OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON";
 const FULL_COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
+const RELEASE_VERSION_PATTERN = /^\d+\.\d+\.\d+$/u;
 const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
 const CORE_WRANGLER_ARGS = [
   "--config",
@@ -71,6 +73,29 @@ export function resolveCurrentCliProjectionTarget(input) {
     source: releaseManifestSource,
     tagName,
   });
+  const packageSource = readImmutableTagFile({
+    path: CLI_PACKAGE_PATH,
+    readTagFile: input.readTagFile,
+    tagName,
+  });
+  let packageJson;
+  try {
+    packageJson = JSON.parse(packageSource.toString("utf8"));
+  } catch (error) {
+    throw new Error(
+      `Core receiver deploy refused: ${tagName}:${CLI_PACKAGE_PATH} is not valid JSON: ${formatError(error)}`
+    );
+  }
+  const minRequiredCliVersion = packageJson?.openmeld?.minRequiredCliVersion;
+  if (
+    packageJson?.version !== channelVersion ||
+    typeof minRequiredCliVersion !== "string" ||
+    !RELEASE_VERSION_PATTERN.test(minRequiredCliVersion)
+  ) {
+    throw new Error(
+      `Core receiver deploy refused: ${tagName}:${CLI_PACKAGE_PATH} does not declare the stable CLI version and its required floor.`
+    );
+  }
   return {
     channelVersion,
     expectedCoreTag: deriveCoreProjectionTag({
@@ -81,21 +106,26 @@ export function resolveCurrentCliProjectionTarget(input) {
     releaseManifestSha256: createHash("sha256")
       .update(releaseManifestSource)
       .digest("hex"),
+    minRequiredCliVersion,
     tagCommitSha,
     tagName,
   };
 }
 
 function readImmutableTagManifest(input) {
+  return readImmutableTagFile({ ...input, path: RELEASE_MANIFEST_PATH });
+}
+
+function readImmutableTagFile(input) {
   let source;
   try {
     source = input.readTagFile({
-      path: RELEASE_MANIFEST_PATH,
+      path: input.path,
       tagName: input.tagName,
     });
   } catch (error) {
     throw new Error(
-      `Core receiver deploy refused: could not read ${RELEASE_MANIFEST_PATH} from immutable tag ${input.tagName}: ${formatError(error)}`
+      `Core receiver deploy refused: could not read ${input.path} from immutable tag ${input.tagName}: ${formatError(error)}`
     );
   }
   return Buffer.isBuffer(source) ? source : Buffer.from(source, "utf8");
@@ -354,8 +384,7 @@ export async function verifyCurrentCliProjectionAlignment(input) {
       tagName: input.tagName,
       version: input.channelVersion,
       serviceVersion: input.releaseManifest.components.service.bundleVersion,
-      minRequiredCliVersion:
-        input.releaseManifest.components.cli.packageVersion,
+      minRequiredCliVersion: input.minRequiredCliVersion,
     },
   };
   const npm = await verifyStableNpmIdentity({

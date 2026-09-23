@@ -159,6 +159,8 @@ executor. After Cloudflare confirms the newly admitted version at 100% traffic,
 it persists `applied` before checking stable channel alignment. An alignment
 failure retains `failed/applied`; the same source, operation, projection and
 active deployment may resume alignment without another upload or deployment.
+Alignment reads the published CLI's required-update floor from that version's
+immutable tagged package metadata; the CLI version itself is not the floor.
 
 Historical stable alignment verifies the registry version/source and downloaded
 tarball integrity, immutable tag and tagged local-components manifest, R2 binary
