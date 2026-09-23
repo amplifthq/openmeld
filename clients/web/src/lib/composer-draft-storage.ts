@@ -12,6 +12,7 @@ const MESSAGE_MENTION_TYPES = new Set<MessageMentionType>([
 ]);
 
 export type ComposerDraftAuthoredMention = {
+	audience?: "people" | "agents" | "both";
 	end: number;
 	profileId: string;
 	relation: MessageMentionType;
@@ -352,6 +353,10 @@ function isComposerDraftAuthoredMention(
 	}
 	const mention = value as Partial<ComposerDraftAuthoredMention>;
 	return (
+		(mention.audience === undefined ||
+			mention.audience === "people" ||
+			mention.audience === "agents" ||
+			mention.audience === "both") &&
 		typeof mention.profileId === "string" &&
 		mention.profileId.trim().length > 0 &&
 		typeof mention.text === "string" &&

@@ -1099,6 +1099,12 @@ Each inline Agent token shows its own Wake or Reference relation, so Web does
 not repeat those relations in a bottom count summary. Human Mentions stay
 visible in the message itself without an Agent relation label. Every Composer
 inline target provides a direct remove action in addition to keyboard deletion.
+The `@all` picker lets a member choose People, Agents, or Both. The Composer
+shows that selection as one `@everyone`, `@agents`, or `@all` token, respectively,
+while retaining every selected current member's Profile ID and relation. One
+token is removed as one unit; the send path still validates and addresses each
+member individually. A saved or restored draft keeps the selected target set,
+so a later membership change does not silently add recipients.
 The system may warn about a possible semantic mismatch, but it must not silently
 convert one structured Agent relation into another. An existing or restored
 Wake draft remains a Wake while the user edits it, but every send attempt checks
