@@ -5,7 +5,7 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 
-// The caller validates windowsProcessJobRequestSchema. This private process
+// The caller validates windowsNativeProcessRequestSchema. This private process
 // boundary carries no cloud authority and never emits the request or argv.
 static class Program {
   const string RequestEnvironment = "OPENMELD_NATIVE_JOB_REQUEST";
@@ -27,6 +27,11 @@ static class Program {
         new JsonDocumentOptions { MaxDepth = 8 });
       JsonElement request = document.RootElement;
       string operation = Text(request, "operation");
+      if (operation == "prune-managed-version") {
+        phase = "prune_managed_version";
+        Console.Write(ManagedVersionCleanup.Run(Text(request, "root"), Text(request, "version")));
+        return 0;
+      }
       if (operation == "identity") {
         phase = "read_identity";
         int pid = request.GetProperty("pid").GetInt32();

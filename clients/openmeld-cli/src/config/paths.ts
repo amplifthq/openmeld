@@ -148,6 +148,10 @@ export function openMeldBackupsDir(): string {
 // pointer (a symlink) that install-self / update swap atomically. The layout is
 // lane-aware through resolveOpenMeldRootDir, so the dev lane uses
 // ~/.openmeld-dev/versions and ~/.openmeld-dev/bin.
+export function openMeldManagedBinaryName(): string {
+  return process.platform === "win32" ? "openmeld.exe" : "openmeld";
+}
+
 export function openMeldVersionsDir(
   input: OpenMeldPathResolutionInput = {}
 ): string {
@@ -168,7 +172,10 @@ export function openMeldManagedVersionBinaryPath(
   version: string,
   input: OpenMeldPathResolutionInput = {}
 ): string {
-  return join(openMeldManagedVersionDir(version, input), "openmeld");
+  return join(
+    openMeldManagedVersionDir(version, input),
+    openMeldManagedBinaryName()
+  );
 }
 
 export function openMeldBinDir(
@@ -180,7 +187,7 @@ export function openMeldBinDir(
 export function openMeldManagedBinaryPath(
   input: OpenMeldPathResolutionInput = {}
 ): string {
-  return join(openMeldBinDir(input), "openmeld");
+  return join(openMeldBinDir(input), openMeldManagedBinaryName());
 }
 
 export function accountsDir(): string {

@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnAgentControllerProcess } from "../../runtime/adapters/core/dist/index.js";
+import { pruneWindowsManagedVersion } from "../../runtime/adapters/core/dist/windows-system.js";
 import {
   buildBunCompileArgs,
   collectCliBinaryMetadata,
@@ -118,6 +119,7 @@ const env = {
 };
 await mkdir(env.CODEX_HOME);
 await exerciseManagedLauncher();
+await exerciseManagedInstallation();
 await exerciseOwnedComponent({
   executable: binaries["windows-native-runtime"].path,
   args: [binaries["windows-agent-sdk"].path],
@@ -137,6 +139,55 @@ await exerciseOwnedComponent({
 });
 await rm(root, { recursive: true, force: true });
 
+async function exerciseManagedInstallation() {
+  let invocation = 0;
+  const run = async (executable, args) =>
+    (
+      await exerciseOwnedComponent({
+        executable,
+        args,
+        log: `managed-install-${++invocation}.log`,
+        stages: [],
+        timeoutMs: 30_000,
+      })
+    ).trim();
+  const installed = JSON.parse(
+    await run(binaries.cli.path, ["install-self", "--json"])
+  );
+  assert.equal(installed.result, "installed");
+  assert.equal(installed.platform, "windows-x64");
+  assert.equal(
+    installed.managedBinaryPath,
+    path.join(env.OPENMELD_HOME, "versions", version, "openmeld.exe")
+  );
+  assert.equal(
+    installed.currentPointerPath,
+    path.join(env.OPENMELD_HOME, "bin/openmeld.exe")
+  );
+  assert.equal(await run(installed.currentPointerPath, ["--version"]), version);
+  const repeated = JSON.parse(
+    await run(installed.currentPointerPath, ["install-self", "--json"])
+  );
+  assert.equal(repeated.result, "noop_same_version");
+  // Model interruption after moving the prior launcher out of the way. The
+  // record still selects the complete version; install-self must repair it.
+  await rename(
+    installed.currentPointerPath,
+    path.join(
+      env.OPENMELD_HOME,
+      "bin/.retired-launcher-11111111-1111-4111-8111-111111111111.exe"
+    )
+  );
+  const repaired = JSON.parse(
+    await run(installed.managedBinaryPath, ["install-self", "--json"])
+  );
+  assert.equal(repaired.result, "noop_same_version");
+  assert.equal(await run(installed.currentPointerPath, ["--version"]), version);
+  console.log(
+    JSON.stringify({ stage: "managed_install_recovery", status: "passed" })
+  );
+}
+
 async function exerciseManagedLauncher() {
   const installation = path.join(workspace, "managed CLI");
   const bin = path.join(installation, "bin");
@@ -148,6 +199,10 @@ async function exerciseManagedLauncher() {
     await copyFile(
       binaries["windows-managed-launcher"].path,
       path.join(directory, "openmeld.exe")
+    );
+    await copyFile(
+      helper,
+      path.join(directory, "openmeld-windows-process.exe")
     );
   }
   await copyFile(helper, launcher);
@@ -213,6 +268,22 @@ async function exerciseManagedLauncher() {
       args,
       cwd: workspace,
     });
+    assert.equal(
+      await pruneWindowsManagedVersion(installation, "1.0.0"),
+      "in_use"
+    );
+    assert.equal(
+      collectCliBinaryMetadata(
+        path.join(installation, "versions/1.0.0/openmeld.exe")
+      ).sha256,
+      binaries["windows-managed-launcher"].sha256
+    );
+    assert.equal(
+      collectCliBinaryMetadata(
+        path.join(installation, "versions/1.0.0/openmeld-windows-process.exe")
+      ).sha256,
+      binaries.helper.sha256
+    );
     // Windows may rename a running image but must never overwrite its bytes.
     // Preserve the old image until its known child exits, then remove it.
     const retired = path.join(bin, "retired-launcher.exe");
@@ -250,6 +321,21 @@ async function exerciseManagedLauncher() {
     );
     assert.equal(stderr, "launcher child stderr\n");
     await rm(retired);
+    assert.equal(
+      await pruneWindowsManagedVersion(installation, "1.0.0"),
+      "removed"
+    );
+    const unknown = path.join(installation, "versions/2.0.0");
+    await mkdir(unknown);
+    await writeFile(path.join(unknown, "not-owned.txt"), "preserve");
+    assert.equal(
+      await pruneWindowsManagedVersion(installation, "2.0.0"),
+      "unrecognized"
+    );
+    assert.equal(
+      await readFile(path.join(unknown, "not-owned.txt"), "utf8"),
+      "preserve"
+    );
     console.log(
       JSON.stringify({ stage: "managed_launcher_handoff", status: "passed" })
     );
@@ -293,7 +379,9 @@ async function exerciseOwnedComponent(input) {
     JSON.stringify({ stage: "component_supervisor", pid: owned.child.pid })
   );
   let output = "";
+  let stdout = "";
   owned.child.stdout.on("data", (chunk) => {
+    stdout = (stdout + chunk.toString()).slice(-1024 * 1024);
     output = (output + chunk.toString()).slice(-1024 * 1024);
   });
   owned.child.stderr.on("data", (chunk) => {
@@ -303,6 +391,7 @@ async function exerciseOwnedComponent(input) {
   // The SDK retains its own 30-second deadline; the outer budget includes Job
   // setup, SQLite and cleanup. It is functional acceptance, not a startup SLA.
   let deadline;
+  const timeoutMs = input.timeoutMs ?? 45_000;
   try {
     const code = await Promise.race([
       new Promise((resolve, reject) => {
@@ -313,9 +402,9 @@ async function exerciseOwnedComponent(input) {
         deadline = setTimeout(
           () =>
             reject(
-              new Error("Native component acceptance exceeded 45 seconds")
+              new Error(`Native component acceptance exceeded ${timeoutMs}ms`)
             ),
-          45_000
+          timeoutMs
         );
       }),
     ]);
@@ -348,4 +437,5 @@ async function exerciseOwnedComponent(input) {
       "Native runtime component acceptance failed"
     );
   }
+  return stdout;
 }

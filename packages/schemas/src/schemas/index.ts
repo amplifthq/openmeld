@@ -765,7 +765,7 @@ export {
   openMeldDaemonTaskResultStatusSchema,
   openMeldDaemonTaskResultTelemetrySchema,
 } from "./daemon/task-result";
-export { windowsProcessJobRequestSchema } from "./daemon/windows-process-job";
+export { windowsNativeProcessRequestSchema } from "./daemon/windows-native-process";
 export {
   type WindowsUserTaskAction,
   type WindowsUserTaskRequest,

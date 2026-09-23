@@ -6,7 +6,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { win32 } from "node:path";
 import { promisify } from "node:util";
-import { windowsProcessJobRequestSchema } from "@openmeld/schemas";
+import { windowsNativeProcessRequestSchema } from "@openmeld/schemas";
 import type { AgentControllerProcessCleanupResult } from "./agent-controller-process.js";
 import { normalizeCommandEnvironment } from "./process-environment.js";
 import {
@@ -57,7 +57,7 @@ export function spawnWindowsJobProcess(input: {
         : quoteWindowsProcessArgument(arg)
     ),
   ].join(" ");
-  const request = windowsProcessJobRequestSchema.parse({
+  const request = windowsNativeProcessRequestSchema.parse({
     operation: "launch",
     jobName,
     executable,
@@ -118,7 +118,7 @@ export function spawnWindowsJobProcess(input: {
         ]);
         // Query only AFTER the supervisor exits, so an absent Job cannot race a
         // delayed creation. A cleanup timeout/error is not a successful stop.
-        const drain = windowsProcessJobRequestSchema.parse({
+        const drain = windowsNativeProcessRequestSchema.parse({
           operation: "drain",
           jobName,
         });

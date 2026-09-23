@@ -65,6 +65,18 @@ node scripts/release/build-cli-binary.mjs
 - Managed installs also retain the active binary Service's source version while
   it remains referenced, even if several CLI versions have been installed since.
   Service retention is independent of CLI rollback selection.
+- The Windows managed layout uses immutable `versions/<version>/openmeld.exe`
+  plus its process helper, and one `bin/cli-installation.json` selection record.
+  `bin/openmeld.exe` is a thin native console launcher built from the same helper
+  artifact; it forwards argv, inherited streams, and exit status to that selected
+  CLI. It has no account, connection, or update authority. Windows never creates
+  privileged symlinks or overwrites mapped executable bytes. Install and existing
+  maintenance reconcile an interrupted launcher replacement from the selected
+  immutable version. A retained running launcher is removed on a later pass.
+  The shared installer lock and semver/rollback policy remain the owners. Native
+  version cleanup acquires all known bundle files before removal; an in-use or
+  unrecognized directory is retained. These installation changes remain under
+  native acceptance and do not advertise a Windows production channel.
 - Managed installs retain the active CLI version and one usable rollback
   version older than the active version. Incomplete and older managed
   semantic-version directories are removed during `install-self`; unrecognized

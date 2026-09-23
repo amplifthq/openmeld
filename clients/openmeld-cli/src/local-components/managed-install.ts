@@ -28,6 +28,7 @@ import {
   openMeldManagedBinaryPath,
   openMeldManagedVersionBinaryPath,
   openMeldManagedVersionDir,
+  resolveOpenMeldRootDir,
 } from "../config/paths";
 import { assertNoPublishedProductionMutationDuringTests } from "../config/published-production-safety";
 import { compareSemver } from "../config/version-state";
@@ -35,6 +36,12 @@ import { readDaemonActiveBundleState } from "../local-service/lifecycle/daemon-s
 import { readPendingDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-state";
 import { OPENMELD_VERSION } from "../runtime/version";
 import { pruneManagedVersions } from "./managed-version-pruning";
+import {
+  activateWindowsManagedCli,
+  placeWindowsManagedVersion,
+  readWindowsManagedCliVersion,
+  reconcileWindowsManagedLauncher,
+} from "./windows-managed-install";
 
 export type CliInstallSelfResult =
   | "installed"
@@ -102,6 +109,11 @@ async function isUsableManagedBinary(target: string): Promise<boolean> {
 async function readCurrentPointerVersion(
   pathInput: OpenMeldPathResolutionInput = {}
 ): Promise<string | null> {
+  if (process.platform === "win32") {
+    return await readWindowsManagedCliVersion(
+      resolveOpenMeldRootDir(pathInput)
+    );
+  }
   const pointerPath = openMeldManagedBinaryPath(pathInput);
   const target = await readlink(pointerPath).catch((error) => {
     if (isErrorWithCode(error, "ENOENT") || isErrorWithCode(error, "EINVAL")) {
@@ -123,19 +135,33 @@ async function readCurrentPointerVersion(
     : null;
 }
 
-export async function readManagedCliInstallation(): Promise<{
+export async function readManagedCliInstallation(
+  pathInput: OpenMeldPathResolutionInput = {}
+): Promise<{
   version: string;
   binaryPath: string;
 } | null> {
-  const version = await readCurrentPointerVersion();
+  const version = await readCurrentPointerVersion(pathInput);
   if (!version) {
     return null;
   }
-  const binaryPath = openMeldManagedVersionBinaryPath(version);
+  const binaryPath = openMeldManagedVersionBinaryPath(version, pathInput);
   if (!(await isUsableManagedBinary(binaryPath))) {
     return null;
   }
   return { version, binaryPath };
+}
+
+export async function reconcileManagedCliLauncher(): Promise<void> {
+  if (process.platform !== "win32") {
+    return;
+  }
+  await withManagedInstallTransaction(async () => {
+    const version = await readCurrentPointerVersion();
+    if (version) {
+      await reconcileWindowsManagedLauncher(resolveOpenMeldRootDir(), version);
+    }
+  });
 }
 
 /**
@@ -225,6 +251,10 @@ async function performManagedInstallLocked(input?: {
   force?: boolean;
   sourceBinaryPath?: string;
 }): Promise<CliInstallSelfOutcome> {
+  assertNoPublishedProductionMutationDuringTests(
+    {},
+    "managed CLI installation"
+  );
   const force = input?.force ?? false;
   const version = resolveCliSelfVersion();
   const platform = resolveCliPlatformToken();
@@ -249,6 +279,12 @@ async function performManagedInstallLocked(input?: {
       comparison === 0 &&
       (await isUsableManagedBinary(managedBinaryPath))
     ) {
+      if (process.platform === "win32") {
+        await reconcileWindowsManagedLauncher(
+          resolveOpenMeldRootDir(),
+          previousVersion
+        );
+      }
       await pruneManagedVersions({
         currentVersion: previousVersion,
         protectedVersions,
@@ -256,6 +292,12 @@ async function performManagedInstallLocked(input?: {
       return { ...baseOutcome, result: "noop_same_version" };
     }
     if (comparison < 0 && !force) {
+      if (process.platform === "win32") {
+        await reconcileWindowsManagedLauncher(
+          resolveOpenMeldRootDir(),
+          previousVersion
+        );
+      }
       if (!(await isUsableManagedBinary(managedBinaryPath))) {
         await placeVersionedBinary(
           input?.sourceBinaryPath ?? process.execPath,
@@ -312,6 +354,14 @@ async function placeVersionedBinary(
   version: string,
   managedBinaryPath: string
 ): Promise<void> {
+  if (process.platform === "win32") {
+    await placeWindowsManagedVersion({
+      root: resolveOpenMeldRootDir(),
+      version,
+      sourceBinary,
+    });
+    return;
+  }
   await mkdir(openMeldManagedVersionDir(version), { recursive: true });
   const tmpPath = `${managedBinaryPath}.tmp-${process.pid}-${Date.now()}`;
   await rm(tmpPath, { force: true }).catch(() => undefined);
@@ -333,6 +383,13 @@ async function swapCurrentPointer(
   currentPointerPath: string,
   managedBinaryPath: string
 ): Promise<void> {
+  if (process.platform === "win32") {
+    await activateWindowsManagedCli(
+      resolveOpenMeldRootDir(),
+      path.basename(path.dirname(managedBinaryPath))
+    );
+    return;
+  }
   await mkdir(openMeldBinDir(), { recursive: true });
   const relativeTarget = path.relative(
     path.dirname(currentPointerPath),

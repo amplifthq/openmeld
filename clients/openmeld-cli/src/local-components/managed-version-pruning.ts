@@ -1,9 +1,12 @@
 import { constants as fsConstants } from "node:fs";
 import { access, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
+import { pruneWindowsManagedVersion } from "@openmeld/adapter-core/windows-system";
 import {
   type OpenMeldPathResolutionInput,
+  openMeldManagedBinaryName,
   openMeldVersionsDir,
+  resolveOpenMeldRootDir,
 } from "../config/paths";
 import { compareSemver } from "../config/version-state";
 
@@ -67,20 +70,26 @@ export async function pruneManagedVersions(input: {
     }
   }
 
-  await Promise.all(
-    managedVersions
-      .filter((version) => !retainedVersions.has(version))
-      .map((version) =>
-        rm(path.join(versionsDir, version), { recursive: true })
-      )
-  );
+  for (const version of managedVersions) {
+    if (retainedVersions.has(version)) {
+      continue;
+    }
+    if (process.platform === "win32") {
+      await pruneWindowsManagedVersion(
+        resolveOpenMeldRootDir(input.pathInput),
+        version
+      );
+    } else {
+      await rm(path.join(versionsDir, version), { recursive: true });
+    }
+  }
 }
 
 async function isUsableManagedVersion(
   version: string,
   versionsDir: string
 ): Promise<boolean> {
-  const target = path.join(versionsDir, version, "openmeld");
+  const target = path.join(versionsDir, version, openMeldManagedBinaryName());
   const stats = await stat(target).catch((error) => {
     if (getErrorCode(error) === "ENOENT") {
       return null;

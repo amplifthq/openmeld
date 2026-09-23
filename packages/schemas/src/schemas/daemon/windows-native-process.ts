@@ -6,9 +6,17 @@ const text = z
   .string()
   .min(1)
   .refine((value) => !value.includes("\0"));
-export const windowsProcessJobRequestSchema = z.discriminatedUnion(
+export const windowsNativeProcessRequestSchema = z.discriminatedUnion(
   "operation",
   [
+    z.strictObject({
+      operation: z.literal("prune-managed-version"),
+      root: text,
+      version: z
+        .string()
+        .max(128)
+        .regex(/^[0-9][0-9A-Za-z.+-]*$/u),
+    }),
     z.strictObject({
       operation: z.literal("identity"),
       pid: z.number().int().positive(),

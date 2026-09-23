@@ -1,6 +1,7 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { win32 } from "node:path";
-import { windowsProcessJobRequestSchema } from "@openmeld/schemas";
+import { promisify } from "node:util";
+import { windowsNativeProcessRequestSchema } from "@openmeld/schemas";
 import { normalizeCommandEnvironment } from "./process-environment.js";
 import {
   resolveWindowsNativeProcessHelper,
@@ -39,6 +40,47 @@ const FILE_TIME_PATTERN = /^\d{10,20}$/u;
 const PROCESS_IDENTITY_TIMEOUT_MS = 15_000;
 let currentProcessFileTime: string | undefined;
 
+/** Kernel sharing rules keep a live CLI and its helper together during pruning. */
+export async function pruneWindowsManagedVersion(
+  root: string,
+  version: string
+): Promise<"removed" | "absent" | "in_use" | "unrecognized"> {
+  const request = windowsNativeProcessRequestSchema.parse({
+    operation: "prune-managed-version",
+    root,
+    version,
+  });
+  const { stdout } = await promisify(execFile)(
+    resolveWindowsNativeProcessHelper(),
+    [],
+    {
+      env: {
+        ...process.env,
+        [WINDOWS_NATIVE_PROCESS_REQUEST_ENV]: Buffer.from(
+          JSON.stringify(request),
+          "utf8"
+        ).toString("base64"),
+      },
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 15_000,
+      maxBuffer: 4096,
+    }
+  );
+  const result = stdout.trim();
+  if (
+    result !== "removed" &&
+    result !== "absent" &&
+    result !== "in_use" &&
+    result !== "unrecognized"
+  ) {
+    throw new Error(
+      "Windows returned an invalid managed-version cleanup receipt."
+    );
+  }
+  return result;
+}
+
 /** An opened process handle binds the observation to the actual instance, not a reused PID. */
 export function readWindowsProcessStartFileTime(pid: number): string | null {
   if (!(Number.isSafeInteger(pid) && pid > 0)) {
@@ -47,7 +89,7 @@ export function readWindowsProcessStartFileTime(pid: number): string | null {
   if (pid === process.pid && currentProcessFileTime) {
     return currentProcessFileTime;
   }
-  const request = windowsProcessJobRequestSchema.parse({
+  const request = windowsNativeProcessRequestSchema.parse({
     operation: "identity",
     pid,
   });
