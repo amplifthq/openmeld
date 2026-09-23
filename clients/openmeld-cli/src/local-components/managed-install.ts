@@ -14,6 +14,7 @@ import {
 import path from "node:path";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
+import { resolveCliBinaryPlatform } from "@openmeld/schemas";
 import { readDaemonServiceUpdateWorkerProtectedManagedVersions } from "../config/daemon-service-update-worker-registration";
 import {
   acquireLock,
@@ -64,7 +65,7 @@ export type CliInstallSelfOutcome = {
 };
 
 export function resolveCliPlatformToken(): string {
-  return `${process.platform}-${process.arch}`;
+  return resolveCliBinaryPlatform(process.platform, process.arch);
 }
 
 export function resolveCliSelfVersion(): string {

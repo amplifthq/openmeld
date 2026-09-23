@@ -3,6 +3,11 @@ import { windowsPublisherNameSchema } from "../../windows-artifact.ts";
 
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/u;
 
+// Release manifests use product platform names, not Node's Windows OS token.
+export function resolveCliBinaryPlatform(os: string, arch: string): string {
+  return `${os === "win32" ? "windows" : os}-${arch}`;
+}
+
 function isBase64(value: string): boolean {
   if (value.length === 0 || value.length % 4 !== 0) {
     return false;

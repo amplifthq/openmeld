@@ -13,7 +13,10 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildMacOsKeychainAddon } from "../../clients/openmeld-cli/scripts/build-macos-keychain-addon.mjs";
-import { cliBinaryServiceReleaseSchema } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
+import {
+  cliBinaryServiceReleaseSchema,
+  resolveCliBinaryPlatform,
+} from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
 import {
   verifyWindowsProcessArtifact,
   WINDOWS_PROCESS_FILE,
@@ -238,7 +241,10 @@ export function smokeCliBinary(outFile) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
-  const nativePlatform = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
+  const nativePlatform = resolveCliBinaryPlatform(
+    process.platform,
+    process.arch
+  );
   if (args.platform !== nativePlatform) {
     throw new Error(
       `Build and acceptance must run natively on ${args.platform}; this machine is ${nativePlatform}.`

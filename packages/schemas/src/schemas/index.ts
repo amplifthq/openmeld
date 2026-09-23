@@ -1417,6 +1417,7 @@ export {
   cliBinaryManifestSchema,
   cliBinaryReleaseSchema,
   cliBinaryServiceReleaseSchema,
+  resolveCliBinaryPlatform,
 } from "./http/cli-binary-manifest";
 export {
   buildConnectorAppRequestProviderKey,
