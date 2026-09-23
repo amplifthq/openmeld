@@ -21,6 +21,7 @@ import {
 import type {
   AdapterDispatchExecutionMode,
   AdapterDispatchFailure,
+  AdapterDispatchSpaceTools,
   AdapterDispatchTelemetry,
   AdapterErrorType,
   AdapterInstructionPrompt,
@@ -32,11 +33,7 @@ import type {
   ConversationPolicy,
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
-import {
-  buildDispatchSpaceActionMcpToolIds,
-  materializeCliLaunchCommand,
-  resolveDispatchSpaceActionMcpServer,
-} from "@openmeld/adapter-core";
+import { materializeCliLaunchCommand } from "@openmeld/adapter-core";
 import { resolvePlatformCommand } from "@openmeld/adapter-core/process-launch";
 import { createClaudeAgentSdkToolActivityTracker } from "../output/claude-tool-activity.js";
 import { projectClaudeCodeUsageLimits } from "../usage/claude-code-usage-limits.js";
@@ -46,11 +43,14 @@ import {
 } from "./claude-agent-interactions.js";
 import { classifyClaudeFailure } from "./claude-cli-transport.js";
 import { resolveClaudeConversationPolicyOptions } from "./claude-conversation-policy.js";
-import {
-  OPENMELD_CLAUDE_ALLOWED_TOOLS,
-  resolveClaudePermissionMode,
-} from "./claude-permission-policy.js";
+import { resolveClaudePermissionMode } from "./claude-permission-policy.js";
 import { createClaudePreviewEmitter } from "./claude-preview-emitter.js";
+import {
+  buildClaudeSpaceToolOptions,
+  createClaudeDispatchConnectionObserver,
+  isClaudeDeliveryOnly,
+  verifyClaudeDeliveryReport,
+} from "./claude-space-action-tools.js";
 import { createClaudeWindowsProcessLauncher } from "./claude-windows-process.js";
 
 export type ClaudeAgentSdkTransportResult = {
@@ -158,6 +158,7 @@ async function observeClaudeReasoning(
 }
 
 export async function invokeClaudeAgentSdkTransport(input: {
+  spaceActionTools?: AdapterDispatchSpaceTools;
   executionContext?: import("@openmeld/adapter-core").AdapterDispatchRequest["executionContext"];
   launchContract: RuntimeAgentControllerLaunchContract;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
@@ -225,6 +226,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
     const createQuery = input.createQuery ?? createDefaultClaudeAgentSdkQuery;
     queryRuntime = createQuery({
       options: buildClaudeAgentSdkOptions({
+        spaceActionTools: input.spaceActionTools,
         executionContext: input.executionContext,
         onRuntimeEvent: input.onRuntimeEvent,
         abortController,
@@ -251,7 +253,16 @@ export async function invokeClaudeAgentSdkTransport(input: {
         sessionId: normalizeOptionalText(input.sessionId),
         streamingMode: input.streamingMode,
       }),
-      prompt: createSinglePrompt(input.instructionPrompt?.userPrompt ?? prompt),
+      prompt: createSinglePrompt(
+        [
+          input.instructionPrompt?.userPrompt ?? prompt,
+          ...(input.spaceActionTools?.deliveryOnly
+            ? [
+                "Use only the supplied delivery tools. Do not repeat the user's work or change permission mode. After the final tool call, return the required small delivery report: recorded is true only after verifying a proposal_saved_locally receipt. This report is not a public reply and never authorizes publication.",
+              ]
+            : []),
+        ].join("\n\n")
+      ),
     });
 
     if (input.taskId) {
@@ -263,7 +274,11 @@ export async function invokeClaudeAgentSdkTransport(input: {
     }
 
     let reasoningMessageId = "";
+    const observeConnection = createClaudeDispatchConnectionObserver(
+      input.spaceActionTools
+    );
     for await (const message of queryRuntime) {
+      await observeConnection(message, queryRuntime);
       reasoningMessageId = await observeClaudeReasoning(
         message,
         reasoningMessageId,
@@ -384,7 +399,11 @@ export async function invokeClaudeAgentSdkTransport(input: {
     });
   }
 
-  const output = normalizeOptionalText(latestOutput);
+  const output = await resolveClaudeFinalOutput({
+    tools: input.spaceActionTools,
+    result: resultMessage,
+    privateOutput: latestOutput,
+  });
   if (!output) {
     throw new ClaudeAgentSdkTransportError({
       code: "runtime.output.empty",
@@ -416,6 +435,22 @@ export async function invokeClaudeAgentSdkTransport(input: {
       timeoutTriggeredAtMs,
     }),
   };
+}
+
+async function resolveClaudeFinalOutput(input: {
+  tools?: AdapterDispatchSpaceTools;
+  result: SDKResultMessage;
+  privateOutput: string;
+}): Promise<string | null> {
+  if (!input.tools?.deliveryOnly) {
+    return normalizeOptionalText(input.privateOutput);
+  }
+  return await verifyClaudeDeliveryReport(
+    input.tools,
+    input.result.subtype === "success"
+      ? input.result.structured_output
+      : undefined
+  );
 }
 
 async function emitClaudeProviderConversationObservation(input: {
@@ -595,6 +630,7 @@ export async function resolveClaudeAgentSdkExecutable(input: {
 }
 
 function buildClaudeAgentSdkOptions(input: {
+  spaceActionTools?: AdapterDispatchSpaceTools;
   executionContext?: import("@openmeld/adapter-core").AdapterDispatchRequest["executionContext"];
   onRuntimeEvent?: AdapterRuntimeEventCallback;
   abortController: AbortController;
@@ -614,7 +650,7 @@ function buildClaudeAgentSdkOptions(input: {
   streamingMode?: AdapterStreamingMode;
 }): ClaudeAgentOptions {
   const spawnProcess = input.spawnProcess;
-  const spaceActionMcpServer = resolveDispatchSpaceActionMcpServer(input.env);
+  const deliveryOnly = isClaudeDeliveryOnly(input);
   if (
     input.executionContext &&
     input.executionContext.access !== "space_context"
@@ -622,6 +658,7 @@ function buildClaudeAgentSdkOptions(input: {
     throw new Error("execution_context.file_access_unsupported");
   }
   const permissionMode = resolveClaudePermissionMode({
+    deliveryOnly,
     agentControllerPermissionMode: input.agentControllerPermissionMode,
     executionMode: input.executionMode,
   }) as PermissionMode;
@@ -629,14 +666,6 @@ function buildClaudeAgentSdkOptions(input: {
     abortController: input.abortController,
     additionalDirectories: [input.claudeWorkdir],
     allowDangerouslySkipPermissions: permissionMode === "bypassPermissions",
-    allowedTools: [
-      ...OPENMELD_CLAUDE_ALLOWED_TOOLS,
-      ...(spaceActionMcpServer
-        ? buildDispatchSpaceActionMcpToolIds("__").map(
-            (toolId) => `mcp__${toolId}`
-          )
-        : []),
-    ],
     cwd: input.claudeWorkdir,
     env: {
       ...process.env,
@@ -651,17 +680,6 @@ function buildClaudeAgentSdkOptions(input: {
       ? {
           spawnClaudeCodeProcess: (options) =>
             spawnProcess(options, input.onStderr),
-        }
-      : {}),
-    ...(spaceActionMcpServer
-      ? {
-          mcpServers: {
-            [spaceActionMcpServer.id]: {
-              args: [...spaceActionMcpServer.args],
-              command: spaceActionMcpServer.commandPath,
-              env: spaceActionMcpServer.env,
-            },
-          },
         }
       : {}),
     permissionMode,
@@ -698,18 +716,7 @@ function buildClaudeAgentSdkOptions(input: {
       : {}),
   };
 
-  if (input.executionContext) {
-    options.tools = [];
-    options.strictMcpConfig = true;
-    options.settingSources = ["user"];
-    options.settings = { disableAllHooks: true };
-    options.additionalDirectories = [];
-    options.allowedTools = spaceActionMcpServer
-      ? buildDispatchSpaceActionMcpToolIds("__").map(
-          (toolId) => `mcp__${toolId}`
-        )
-      : [];
-  }
+  Object.assign(options, buildClaudeSpaceToolOptions(input));
 
   const sessionId = normalizeOptionalText(input.sessionId);
   if (sessionId) {

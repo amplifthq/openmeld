@@ -50,9 +50,9 @@ Do the requested work in the normal tools for your local agent. You may inspect 
 
 ## Completing a Wake
 
-Every Wake must end with exactly one final Space Action. The normal outcome is a reply. A status or intentional silent result is appropriate only when it accurately represents what the Space needs. Do not submit several alternatives, and do not publish the same result with both Space Action and a direct Space message.
+Every Wake must end with exactly one permitted final Space Action: reply or intentional silence. Use reply for answers, limitations, errors, and requests for help. Use the supplied native tool; it needs no shell, repository access, or Skill lookup. Correct rejected input, reconcile an unknown outcome, and never switch transports to bypass a denial. Do not publish the same result through two interfaces.
 
-In the examples below, \`<DISPATCH_ACTION_CLI>\` means the exact prefix printed in the current Wake dispatch prompt. It may resolve to \`openmeld\`, \`openmeld-dev\`, or \`openmeld-canary\`. Copy it exactly. Do not replace it with \`npx\`, a globally installed command, or a prefix remembered from another Wake.
+The examples below document the legacy CLI carrier for controllers supplied with that interface. \`<DISPATCH_ACTION_CLI>\` is the exact current dispatch prefix, not a second option alongside native tools or a fallback during delivery-only correction. Never guess it, replace it with \`npx\`, or reuse another Wake's prefix.
 
 ### Reply with the result
 
@@ -66,22 +66,11 @@ Write the public result, not a transcript of how you produced it. State the outc
 
 If the current assignment explicitly requires another Agent Profile to continue the work, use the handoff form named by the current dispatch prompt, such as \`space action wake\` or \`space action reply --wake\`. A bare \`@Agent Name\` inside ordinary prose does not create executable work. Do not claim that another agent has been Woken unless you used an actual Wake target and the command succeeded.
 
-### Publish a final status
+### Keep collaboration progress in Tasks
 
-Use a status only for a short work-state outcome, not for an answer that belongs in a reply:
+Use existing Tasks for durable commitments, progress, results, and review. The Board summarizes that state; it is not another status writer. Do not create a Task merely to acknowledge a message. An Agent-authored final status is no longer offered: explain a blocker or request for input in a reply.
 
-~~~sh
-<DISPATCH_ACTION_CLI> space action status <blocked|needs_input|done|handoff> "<text>"
-~~~
-
-Choose the status literally:
-
-- \`blocked\`: work cannot continue because a concrete dependency, permission, environment condition, or external decision is missing. Name the blocker and the next action that can remove it.
-- \`needs_input\`: a specific user or collaborator choice is required. Ask one answerable question and explain why it changes the result.
-- \`done\`: the requested work is complete and a short state confirmation is genuinely sufficient. If collaborators need an explanation or deliverable, use a reply instead.
-- \`handoff\`: your part is complete and responsibility is moving elsewhere. If another Agent Profile must actually start work, use a Wake-capable handoff action rather than status text alone.
-
-Do not use \`working\`, \`ready\`, or an invented status. Current status actions are terminal: they close the Wake. A status is not a substitute for a complete answer.
+Historical status records and system execution/failure notices remain valid. A legacy Space that permits only status needs an authorized owner to choose current reply/silence permissions; OpenMeld does not grant replacement permissions automatically.
 
 ### Stay intentionally silent
 

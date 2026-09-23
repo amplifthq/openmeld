@@ -11,6 +11,7 @@ import type {
   AdapterRuntimeEvent,
   AdapterToolActivityEvent,
 } from "@openmeld/adapter-core";
+import { DISPATCH_SPACE_ACTION_DELIVERY_ONLY_ENV } from "@openmeld/adapter-core";
 import type { RuntimeTaskResult } from "@openmeld/local-execution";
 import {
   appendLedgerHistoryEntry,
@@ -98,6 +99,7 @@ import {
   supersedeDispatchSpaceActionRecordForReconsideration,
 } from "../../runtime/dispatch-space-action-context";
 import type { Presenter } from "../../runtime/presenter/types";
+import { createDispatchSpaceTools } from "../../space/action-mcp-server";
 import { fetchSpaceMeta } from "../../space/meta-api";
 import { resolveProviderRuntimeDispatchContinuation } from "../continuation/provider-runtime-continuation";
 import {
@@ -3839,7 +3841,10 @@ async function resolveRuntimeResultStructuredSpaceAction(input: {
           prompt,
           routeConfig: input.routeConfig,
           runtimeContext: input.runtimeContext,
-          runtimeEnvOverrides: input.runtimeEnvOverrides,
+          runtimeEnvOverrides: {
+            ...input.runtimeEnvOverrides,
+            [DISPATCH_SPACE_ACTION_DELIVERY_ONLY_ENV]: "1",
+          },
           runtimeControllerSupport: input.runtimeControllerSupport,
           streamingModeOverride: "final",
           agentControllerConversationOverride:
@@ -4476,24 +4481,6 @@ async function maybeRepairStructuredSpaceAction(input: {
     },
   });
 
-  const skillRepair = await ensureDispatchControllerOpenMeldSkill({
-    agentControllerRef: input.parsedTask.agentControllerRef,
-  });
-  emitRunLine({
-    presenter: input.presenter,
-    code: "daemon.run.dispatch_controller_skill_repair_checked",
-    text: `OpenMeld skill repair checked for task ${input.parsedTask.taskId}`,
-    payload: {
-      agentControllerRef: input.parsedTask.agentControllerRef,
-      agentId: skillRepair.agentId,
-      dispatchId: input.parsedTask.dispatchId,
-      ...(skillRepair.reason ? { reason: skillRepair.reason } : {}),
-      status: skillRepair.status,
-      targetProfileId: input.parsedTask.targetProfileId,
-      taskId: input.parsedTask.taskId,
-    },
-  });
-
   if (!input.runControllerRepair) {
     return {
       finalFailureDiagnostics: resolveStructuredActionFailureDiagnostics({
@@ -4830,42 +4817,51 @@ async function runDispatchRuntimeExecution(input: {
   streamingModeOverride?: DispatchRuntimeRoute["streamingMode"];
   agentControllerConversationOverride?: AgentControllerConversationRef | null;
 }): Promise<Awaited<ReturnType<typeof runRuntimeTask>>> {
-  await input.onNativeTurnStarted();
-  const result = await runRuntimeTask({
-    // Admission/continuation already selected the conversation. An explicit
-    // null means start fresh, not permission to restore a retained ledger ID.
-    agentContextOverride: {
-      agentControllerConversationId: input.contextId,
-      agentControllerConversationOverride:
-        input.agentControllerConversationOverride ?? null,
-    },
-    io: input.io,
-    ...(input.onInteractionRequest
-      ? { onInteractionRequest: input.onInteractionRequest }
-      : {}),
-    ...(input.onPreview ? { onPreview: input.onPreview } : {}),
-    ...(input.onRuntimeEvent ? { onRuntimeEvent: input.onRuntimeEvent } : {}),
-    paths: input.ledgerPaths,
-    route: buildDispatchRuntimeRoute({
-      contextId: input.contextId,
-      envOverrides: input.runtimeEnvOverrides,
-      parsedTask: input.parsedTask,
-      routeConfig: input.routeConfig,
-      runtimeControllerSupport: input.runtimeControllerSupport,
-      streamingMode:
-        input.streamingModeOverride ?? input.parsedTask.streamingMode,
-    }),
-    task: buildDispatchRuntimeTask({
-      computerFileAccessBoundary: input.computerFileAccessBoundary,
-      executionMode: input.executionMode,
-      instructionPrompt: input.instructionPrompt,
-      parsedTask: input.parsedTask,
-      prompt: input.prompt,
-      runtimeContext: input.runtimeContext,
-    }),
+  const route = buildDispatchRuntimeRoute({
+    contextId: input.contextId,
+    envOverrides: input.runtimeEnvOverrides,
+    parsedTask: input.parsedTask,
+    routeConfig: input.routeConfig,
+    runtimeControllerSupport: input.runtimeControllerSupport,
+    streamingMode:
+      input.streamingModeOverride ?? input.parsedTask.streamingMode,
   });
-  input.onNativeTurnCompleted(result);
-  return result;
+  const spaceActionTools = route.env?.[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]
+    ? createDispatchSpaceTools({ env: { ...process.env, ...route.env } })
+    : undefined;
+  try {
+    await input.onNativeTurnStarted();
+    const result = await runRuntimeTask({
+      spaceActionTools,
+      // Admission/continuation already selected the conversation. An explicit
+      // null means start fresh, not permission to restore a retained ledger ID.
+      agentContextOverride: {
+        agentControllerConversationId: input.contextId,
+        agentControllerConversationOverride:
+          input.agentControllerConversationOverride ?? null,
+      },
+      io: input.io,
+      ...(input.onInteractionRequest
+        ? { onInteractionRequest: input.onInteractionRequest }
+        : {}),
+      ...(input.onPreview ? { onPreview: input.onPreview } : {}),
+      ...(input.onRuntimeEvent ? { onRuntimeEvent: input.onRuntimeEvent } : {}),
+      paths: input.ledgerPaths,
+      route,
+      task: buildDispatchRuntimeTask({
+        computerFileAccessBoundary: input.computerFileAccessBoundary,
+        executionMode: input.executionMode,
+        instructionPrompt: input.instructionPrompt,
+        parsedTask: input.parsedTask,
+        prompt: input.prompt,
+        runtimeContext: input.runtimeContext,
+      }),
+    });
+    input.onNativeTurnCompleted(result);
+    return result;
+  } finally {
+    spaceActionTools?.close();
+  }
 }
 
 function buildDispatchRuntimeRoute(input: {

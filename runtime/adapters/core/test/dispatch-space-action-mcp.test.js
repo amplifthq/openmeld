@@ -53,8 +53,8 @@ test("dispatch Space Action MCP config forwards only its bounded authority", asy
       "review_task",
       "cancel_task",
       "reply",
-      "status",
       "stay_silent",
+      "read_receipt",
     ],
   });
 });

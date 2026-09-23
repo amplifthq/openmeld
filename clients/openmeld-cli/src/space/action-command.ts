@@ -64,6 +64,7 @@ export function runSpaceActionReply(input: {
 }
 
 export function recordDispatchSpaceReply(input: {
+  env?: NodeJS.ProcessEnv;
   files?: readonly SpaceMessageFileReference[];
   filePaths?: readonly string[];
   messagePartCount?: number;
@@ -93,8 +94,8 @@ export function recordDispatchSpaceReply(input: {
   // already-recorded action, but never perform an upload to reconstruct one.
   const context =
     filePaths.length > 0
-      ? readDispatchSpaceActionContextFromEnv()
-      : readDispatchSpaceActionContextForReceiptFromEnv();
+      ? readDispatchSpaceActionContextFromEnv(input.env)
+      : readDispatchSpaceActionContextForReceiptFromEnv(input.env);
   timing.emit("context_ready", context);
   assertAllowedAction(context, "post_message");
   const text = normalizeRequiredText(input.text, "Reply message is required.");
@@ -273,6 +274,7 @@ export function runSpaceActionStatus(input: {
   emitActionRecorded(record);
 }
 
+/** Legacy CLI/in-flight compatibility only; not offered to current Agent tool catalogs. */
 export function recordDispatchSpaceStatus(input: {
   status: string;
   text: string;
@@ -295,9 +297,10 @@ export function runSpaceActionSilent(input: { reason?: string | null }): void {
 }
 
 export function recordDispatchSpaceSilent(input: {
+  env?: NodeJS.ProcessEnv;
   reason?: string | null;
 }): DispatchSpaceActionRecord {
-  const context = readDispatchSpaceActionContextForReceiptFromEnv();
+  const context = readDispatchSpaceActionContextForReceiptFromEnv(input.env);
   assertAllowedAction(context, "stay_silent");
   const reason = normalizeRequiredText(
     input.reason,
@@ -388,13 +391,6 @@ export function runSpaceActionHelp(): void {
     formatSpaceActionHelpExample(
       "Reply and mention a person",
       'reply --mention <human-profile-id> "message"',
-      context
-    )
-  );
-  outLine(
-    formatSpaceActionHelpExample(
-      "Final status",
-      'status done "short completion update"',
       context
     )
   );

@@ -30,7 +30,7 @@ describe("agent failure reason", () => {
         targetLabel: "Cursor",
       })
     ).toBe(
-      "Cursor answered in its local conversation, but it did not tell OpenMeld whether to post a message or stay silent, so nothing was posted."
+      "OpenMeld could not confirm a Space response from Cursor, even after automatic recovery."
     );
 
     expect(
@@ -41,7 +41,7 @@ describe("agent failure reason", () => {
         targetLabel: "Cursor",
       })
     ).toBe(
-      "Cursor answered in its local conversation, but it did not tell OpenMeld whether to post a message or stay silent, so nothing was posted."
+      "OpenMeld could not confirm a Space response from Cursor, even after automatic recovery."
     );
   });
 

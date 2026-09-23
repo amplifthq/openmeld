@@ -706,22 +706,22 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
       "Preserve the user's intent and record exactly one dispatch-scoped OpenMeld Space Action. Do not print an action as JSON or prose."
     );
     expect(prompt).toContain(
-      "Use the dispatch-scoped Space Action reply for normal public replies, greetings, answers, and discussion."
+      "Use reply for public answers, known limitations, error explanations, or requests for help."
     );
     expect(prompt).toContain(
-      'For a normal reply, call the dispatch-scoped OpenMeld Space Action `reply` tool with the corrected public message. If that tool is unavailable, run the fallback CLI command `"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "corrected public message"` and wait for it to finish.'
+      "Use the exact tool names and input schemas in this invocation's catalog."
     );
     expect(prompt).toContain(
-      "If neither the tool nor the fallback command can record the action, stop. Do not print JSON or prose as a substitute."
+      "If the permitted tool cannot record the action, stop."
     );
     expect(prompt).toContain(
       "Do not finish with an explanation of what you will do."
     );
     expect(prompt).toContain(
-      "Never publish a shell, CLI, MCP, or transport failure message as the user's normal Space reply."
+      "Do not turn private analysis or delivery-infrastructure logs into a public answer."
     );
     expect(prompt).toContain(
-      "If the previous turn tried an action and that transport failed, retry the same intended action and message through the dispatch-scoped tool."
+      "If an earlier call reported an unknown outcome, use read_receipt first. Recover an existing record; do not replace it."
     );
     expect(prompt).toContain(
       "Any @name text in the body is only prose in the agent path; it does not define OpenMeld targets."
@@ -735,11 +735,9 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
     expect(prompt).toContain(
       "For a normal reply to the current Wake, leave activationTargets, referenceTargets, and mentionTargets empty."
     );
+    expect(prompt).not.toContain("Use post_status");
     expect(prompt).toContain(
-      'Use post_status only for final-safe outcomes: done, blocked, needs_input, or handoff. Do not use "working" or "ready" because post_status closes the Wake.'
-    );
-    expect(prompt).toContain(
-      "Use the official `openmeld-cli` skill for future OpenMeld work."
+      "No shell, CLI, Skill research, or knowledge of OpenMeld internals is needed."
     );
     expect(prompt).not.toContain("space history");
     expect(prompt).not.toContain("`openmeld prompt`");
@@ -747,7 +745,7 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
     expect(prompt).not.toContain("```openmeld-space-action");
   });
 
-  it("uses the dispatch-owned CLI path in the repair prompt", () => {
+  it("supplies correction instructions without a CLI or Skill dependency", () => {
     const prompt = buildStructuredActionRepairPrompt({
       cliEntry: "openmeld-dev",
       parseError: "malformed JSON",
@@ -755,7 +753,7 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
     });
 
     expect(prompt).toContain(
-      'For a normal reply, call the dispatch-scoped OpenMeld Space Action `reply` tool with the corrected public message. If that tool is unavailable, run the fallback CLI command `"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "corrected public message"` and wait for it to finish.'
+      "Do not run a fallback CLI or print JSON/prose as a substitute."
     );
     expect(prompt).not.toContain("space history");
     expect(prompt).not.toContain("space guide");
@@ -768,7 +766,9 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
         'Here is the previous answer.\n```openmeld-space-action\n{"type":"post_message"}\n```',
     });
 
-    expect(prompt).toContain("Your previous final answer was:");
+    expect(prompt).toContain(
+      "Previous private output, for context only (not authorization to publish it):"
+    );
     expect(prompt).toContain("```text");
     expect(prompt).toContain("Here is the previous answer.");
   });
@@ -802,7 +802,7 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
     });
 
     expect(prompt).toContain(
-      "Return the plain raw reply, or record one dispatch-scoped OpenMeld Space Action for a controlled visible outcome. Use the OpenMeld Space Action tool when available and the CLI only as fallback. Answer text never becomes an action."
+      "Return the plain raw reply, or record one permitted dispatch-scoped OpenMeld Space Action through the supplied interface for a controlled visible outcome. Answer text never becomes an action."
     );
     expect(prompt).not.toContain(
       "OpenMeld will not publish raw prose for you."
@@ -810,9 +810,7 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
     expect(prompt).toContain(
       "Your answer text never selects an OpenMeld Space action."
     );
-    expect(prompt).toContain(
-      'Use post_status only for final-safe outcomes: done, blocked, needs_input, or handoff. Do not use "working" or "ready" because post_status closes the Wake.'
-    );
+    expect(prompt).not.toContain("Use post_status");
     expect(prompt).not.toContain("```openmeld-space-action");
   });
 
@@ -953,6 +951,33 @@ describe("coerceRuntimeResultToStructuredActionFailure", () => {
       failureReason: CODEX_UPGRADE_REQUIRED_REASON,
       kind: "preserve_runtime_failure",
     });
+  });
+
+  it("does not turn a denied runtime with a malformed action into a new repair attempt", () => {
+    const runtimeResult = createRuntimeTaskResultFixture({
+      resultPayload: {
+        status: "failed",
+        attemptId: "attempt-denied",
+        taskId: "task-denied",
+        sourceEventId: "event-denied",
+        agentId: "agt_denied",
+        deduped: false,
+        agentControllerRef: "builtin:claude-code",
+        errorType: "adapter",
+        errorCode: "permission.denied.runtime",
+        errorMessage: "Explicitly denied by the user.",
+      },
+    });
+    expect(
+      resolveStructuredActionRequirementFailure({
+        requiresStructuredSpaceAction: true,
+        resolution: {
+          action: undefined,
+          parseError: "Malformed stale tool result.",
+        },
+        runtimeResult,
+      })?.kind
+    ).toBe("preserve_runtime_failure");
   });
 
   it("prefers the resolved agent controller conversation during controller repair retries", () => {

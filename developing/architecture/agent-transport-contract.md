@@ -2089,6 +2089,36 @@ Wake execution invariants:
   new declared continuation; it never becomes a second execution authority or
   reopens a terminal Wake.
 
+### Dispatch-owned final tool boundary
+
+Normal Agent final tool catalogs offer `reply` and `stay_silent`, not `status`.
+The old status wire schema and frozen publication contracts remain readable;
+new tool discovery and authoring must not broaden legacy authorization.
+
+`AdapterDispatchSpaceTools` is a host-only per-invocation capability. Its schemas,
+handlers and local recorder are shared by MCP and native carriers. Captured
+context identity and nonce bind calls to one Wake; closing the invocation fences
+late callbacks. Never serialize this capability or reuse it as a persisted
+thread authorization. `read_receipt` reconciles the existing proposal without
+publishing or overwriting it. Positive input rejection is distinct from an
+unknown write result, and a receipt still means local proposal, not publication.
+
+`OPENMELD_SPACE_ACTION_DELIVERY_ONLY` distinguishes missing-action correction
+from concurrent-result reconsideration, even though both currently use a repair
+execution mode. The former exposes only necessary final delivery and receipt
+operations, not Task mutations or file operations. Each native carrier must
+prove equivalent restrictions without changing the user's selected mode or
+canonical conversation. A repair must not remove a native denial to make a
+reply tool callable.
+
+Claude uses SDK in-process tools with the same MCP names and eagerly loaded
+final definitions. Only delivery correction asks for a small structured receipt
+report; that report and ordinary private prose are never publication inputs.
+An independently read saved receipt is required even when a report claims
+success. Connection recovery is bounded and does not replay an action or turn a
+needs-auth state into authorization. Normal successful execution has no extra
+structured report or correction turn.
+
 ### signal.system_notice Field Contract
 
 `signal.system_notice` data fields (schema in

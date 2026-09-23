@@ -10,7 +10,6 @@ const OPENCLAW_PLUGIN_ID = "openmeld-space-action";
 
 export const OPENCLAW_SPACE_ACTION_TOOL_NAMES = [
   "openmeld_space_reply",
-  "openmeld_space_status",
   "openmeld_space_stay_silent",
 ] as const;
 
@@ -132,7 +131,6 @@ function buildOpenClawSpaceActionPluginSource(): string {
 import { basename, isAbsolute } from "node:path";
 
 const TOOL_NAMES = ${JSON.stringify(OPENCLAW_SPACE_ACTION_TOOL_NAMES)};
-const FINAL_STATUSES = new Set(["done", "blocked", "needs_input", "handoff"]);
 
 function requiredText(value, label) {
   const normalized = String(value ?? "").trim();
@@ -151,10 +149,8 @@ function addRequiredTools(policy) {
   const key = Array.isArray(policy.allow) && policy.allow.length > 0 ? "allow" : "alsoAllow";
   const current = Array.isArray(policy[key]) ? policy[key] : [];
   policy[key] = [...new Set([...current, ...TOOL_NAMES])];
-  if (Array.isArray(policy.deny)) {
-    const required = new Set(TOOL_NAMES.map((name) => name.toLowerCase()));
-    policy.deny = policy.deny.filter((name) => !required.has(String(name).toLowerCase()));
-  }
+  // An explicit user/organization denial remains authoritative. Tool
+  // registration must never erase it, including on the delivery path.
 }
 
 function addProviderPolicies(tools) {
@@ -234,7 +230,7 @@ const plugin = {
     api.registerTool({
       name: "openmeld_space_reply",
       label: "Reply in the current OpenMeld Space",
-      description: "Record the exact final public reply for this OpenMeld Wake. Use real newline characters for paragraph breaks.",
+      description: "Record the exact final public reply, including known limitations, errors, and requests for help. No shell or repository access is needed to explain that you cannot complete the task. Use real newline characters for paragraph breaks.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -256,26 +252,6 @@ const plugin = {
         for (const target of referenceTargets) args.push("--reference", target);
         for (const target of mentionTargets) args.push("--mention", target);
         return await runAction(args, message);
-      },
-    });
-    api.registerTool({
-      name: "openmeld_space_status",
-      label: "Set the final OpenMeld Space status",
-      description: "Record one final visible status for this OpenMeld Wake. Do not use it for interim progress.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          status: { type: "string", enum: [...FINAL_STATUSES] },
-          text: stringSchema,
-        },
-        required: ["status", "text"],
-      },
-      async execute(_toolCallId, params) {
-        const status = requiredText(params?.status, "Final status");
-        if (!FINAL_STATUSES.has(status)) throw new Error("Final status is invalid.");
-        const text = requiredText(params?.text, "Status text");
-        return await runAction(["space", "action", "status", status, text]);
       },
     });
     api.registerTool({

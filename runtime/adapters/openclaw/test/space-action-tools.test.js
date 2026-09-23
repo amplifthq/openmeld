@@ -102,7 +102,10 @@ test("OpenClaw Space reply uses the dispatch-owned CLI without shell approval", 
         ).default;
         const registeredTools = [];
         const config = {
-          tools: { profile: "minimal" },
+          tools: {
+            profile: "minimal",
+            deny: ["openmeld_space_reply", "browser"],
+          },
           agents: {
             list: [{ id: "main", tools: { profile: "minimal" } }],
           },
@@ -121,6 +124,14 @@ test("OpenClaw Space reply uses the dispatch-owned CLI without shell approval", 
         assert.deepEqual(
           config.agents.list[0].tools.alsoAllow,
           OPENCLAW_SPACE_ACTION_TOOL_NAMES
+        );
+        assert.deepEqual(config.tools.deny, [
+          "openmeld_space_reply",
+          "browser",
+        ]);
+        assert.equal(
+          registeredTools.some((tool) => tool.name === "openmeld_space_status"),
+          false
         );
         const replyTool = registeredTools.find(
           (tool) => tool.name === "openmeld_space_reply"

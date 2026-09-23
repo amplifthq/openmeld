@@ -1,25 +1,18 @@
 import { spawn } from "node:child_process";
 import { resolveDispatchSpaceActionMcpServer } from "@openmeld/adapter-core";
 
-const FINAL_STATUSES = new Set(["done", "blocked", "needs_input", "handoff"]);
-
 export const ANTIGRAVITY_SPACE_ACTION_JSON_SCHEMA = JSON.stringify({
   additionalProperties: false,
   properties: {
-    action: { enum: ["reply", "status", "silent"], type: "string" },
+    action: { enum: ["reply", "silent"], type: "string" },
     mentionTargets: { items: { type: "string" }, type: "array" },
     referenceTargets: { items: { type: "string" }, type: "array" },
-    status: {
-      enum: ["none", "done", "blocked", "needs_input", "handoff"],
-      type: "string",
-    },
     text: { minLength: 1, type: "string" },
     wakeTargets: { items: { type: "string" }, type: "array" },
   },
   required: [
     "action",
     "text",
-    "status",
     "wakeTargets",
     "referenceTargets",
     "mentionTargets",
@@ -28,10 +21,9 @@ export const ANTIGRAVITY_SPACE_ACTION_JSON_SCHEMA = JSON.stringify({
 });
 
 type AntigravityStructuredSpaceAction = {
-  action: "reply" | "silent" | "status";
+  action: "reply" | "silent";
   mentionTargets: string[];
   referenceTargets: string[];
-  status: "blocked" | "done" | "handoff" | "needs_input" | "none";
   text: string;
   wakeTargets: string[];
 };
@@ -68,9 +60,9 @@ function buildSpaceActionInstructions(workdir: string): string {
     "The structured outcome below is the complete reply/publication contract. Reading the OpenMeld CLI Skill is not required to reply; consult it only for additional OpenMeld operations requested by the user.",
     "If the request can be answered without tools, return the structured outcome immediately; do not inspect the workspace or run a command just to orient yourself.",
     "Complete the user's work under the normal Antigravity permission policy.",
-    "At the end, return exactly one structured outcome using the required JSON schema: reply for a public message, status for a short final status, or silent when no public reply is appropriate.",
-    "Put the public reply, status text, or silence reason in text.",
-    "Use status=none unless action=status. Include only validated profile IDs from the provided target reference lists; otherwise leave all target arrays empty.",
+    "At the end, return exactly one structured outcome using the required JSON schema: reply for a public message, limitation, error explanation, or request for help; silent only when no public communication is appropriate.",
+    "Put the explicit public reply or silence reason in text. Private analysis is not a public reply.",
+    "Include only validated profile IDs from the provided target reference lists; otherwise leave all target arrays empty.",
     "OpenMeld will validate and record this outcome for the current dispatch.",
   ].join(" ");
 }
@@ -80,14 +72,12 @@ function parseStructuredSpaceAction(
 ): AntigravityStructuredSpaceAction {
   const record = toRecord(value);
   const action = record?.action;
-  const status = record?.status;
   const text = normalizeRequiredText(record?.text);
   const wakeTargets = parseTargetIds(record?.wakeTargets);
   const referenceTargets = parseTargetIds(record?.referenceTargets);
   const mentionTargets = parseTargetIds(record?.mentionTargets);
   if (
-    (action !== "reply" && action !== "status" && action !== "silent") ||
-    (status !== "none" && !FINAL_STATUSES.has(String(status))) ||
+    (action !== "reply" && action !== "silent") ||
     !text ||
     wakeTargets === null ||
     referenceTargets === null ||
@@ -98,12 +88,10 @@ function parseStructuredSpaceAction(
     );
   }
   if (
-    (action === "status" && !FINAL_STATUSES.has(String(status))) ||
-    (action !== "status" && status !== "none") ||
-    (action !== "reply" &&
-      (wakeTargets.length > 0 ||
-        referenceTargets.length > 0 ||
-        mentionTargets.length > 0))
+    action !== "reply" &&
+    (wakeTargets.length > 0 ||
+      referenceTargets.length > 0 ||
+      mentionTargets.length > 0)
   ) {
     throw createSpaceActionError(
       "Antigravity returned an inconsistent structured Space outcome."
@@ -113,7 +101,6 @@ function parseStructuredSpaceAction(
     action,
     mentionTargets,
     referenceTargets,
-    status: status as AntigravityStructuredSpaceAction["status"],
     text,
     wakeTargets,
   };
@@ -134,8 +121,6 @@ async function recordStructuredSpaceAction(input: {
     appendTargetArgs(args, "--wake", input.action.wakeTargets);
     appendTargetArgs(args, "--reference", input.action.referenceTargets);
     appendTargetArgs(args, "--mention", input.action.mentionTargets);
-  } else if (input.action.action === "status") {
-    args = [...baseArgs, "status", input.action.status, input.action.text];
   } else {
     args = [...baseArgs, "silent", "--reason", input.action.text];
   }

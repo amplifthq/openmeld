@@ -32,6 +32,19 @@ import type {
 } from "@openmeld/schemas/types";
 import type { AgentControllerProcessSignalTarget } from "./agent-controller-process.js";
 import type { AdapterConversationBridgeSpec } from "./conversation-bridge.js";
+import type { AdapterDispatchSpaceTools } from "./dispatch-space-tools.js";
+
+export {
+  type AdapterDispatchSpaceTool,
+  type AdapterDispatchSpaceToolResult,
+  type AdapterDispatchSpaceTools,
+  DISPATCH_SPACE_ACTION_DELIVERY_ONLY_ENV,
+  DISPATCH_SPACE_FINAL_OUTCOME_JSON_SCHEMA,
+  dispatchSpaceFinalOutcomeSchema,
+  isDispatchSpaceActionDeliveryOnly,
+  recordDispatchSpaceFinalOutcome,
+} from "./dispatch-space-tools.js";
+
 import { createProviderOriginalError } from "./provider-original-error.js";
 
 export {
@@ -296,6 +309,7 @@ export type AdapterTokenUsage = {
 declare const setTimeout: (callback: () => void, delay?: number) => unknown;
 
 export type AdapterDispatchRequest = {
+  spaceActionTools?: AdapterDispatchSpaceTools;
   agentId: string;
   newSessionTitle?: AgentControllerSessionTitle;
   agentControllerConversationId?: string | null;

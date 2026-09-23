@@ -2953,9 +2953,10 @@ spaceActionCmd
     });
   });
 
+// Compatibility for frozen/in-flight legacy work; not offered to new Agents.
 spaceActionCmd
-  .command("status")
-  .description("Record a final Space status for the current dispatch.")
+  .command("status", { hidden: true })
+  .description("Record a legacy final Space status for an existing dispatch.")
   .argument("<status>", "Final status: done|blocked|needs_input|handoff")
   .argument("<text...>", "Short status text")
   .action(async (status, textParts) => {
