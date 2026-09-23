@@ -12557,7 +12557,7 @@ export async function rpcCenterAgentCreateSpace(
   });
   const created = await createSpaceWithResolvedId(env, {
     spaceId: resolveNewSpaceId(env.OPENMELD_SPACES).toString(),
-    initialOwnerUserIds: [representedOwner.ownerUserId],
+    initialOwnerMember: representedOwner,
     ...(parsed.data.name === undefined ? {} : { name: parsed.data.name }),
     ...(typeof parsed.data.purpose === "string"
       ? { purpose: parsed.data.purpose }
@@ -12574,11 +12574,6 @@ export async function rpcCenterAgentCreateSpace(
       : { password: parsed.data.password }),
     visibility: parsed.data.visibility,
     context: authorization.context,
-  });
-  await rpcAddSpaceMembers(env, {
-    context: authorization.context,
-    members: [representedOwner.member],
-    spaceId: created.spaceId,
   });
   const attribution = await writeCenterAgentAuditEntry({
     action: "create_space",
@@ -12607,7 +12602,7 @@ async function resolveCenterAgentSpaceOwner(input: {
     ReturnType<typeof requireCurrentDesignatedCenterAgentCaller>
   >;
   onBehalfOfProfileId: string | null;
-}): Promise<{ member: ResolvedSpaceMemberProfile; ownerUserId: string }> {
+}): Promise<ResolvedSpaceMemberProfile> {
   const attribution = await resolveCenterAgentAuditAttribution({
     authorization: input.authorization,
     onBehalfOfProfileId: input.onBehalfOfProfileId,
@@ -12638,7 +12633,7 @@ async function resolveCenterAgentSpaceOwner(input: {
       status: 403,
     });
   }
-  return { member, ownerUserId };
+  return member;
 }
 
 export async function rpcCenterAgentCreateAgentProfile(
@@ -21777,7 +21772,7 @@ async function createSpaceWithResolvedId(
   env: CoreBindings,
   input: {
     spaceId: string;
-    initialOwnerUserIds?: string[];
+    initialOwnerMember?: ResolvedSpaceMemberProfile;
     name?: string;
     purpose?: string;
     guide?: string;
@@ -21821,8 +21816,8 @@ async function createSpaceWithResolvedId(
       password: input.password,
       visibility: input.visibility,
       context,
-      ...(input.initialOwnerUserIds
-        ? { initialOwnerUserIds: input.initialOwnerUserIds }
+      ...(input.initialOwnerMember
+        ? { initialOwnerMember: input.initialOwnerMember }
         : {}),
     });
     return {
@@ -21833,8 +21828,8 @@ async function createSpaceWithResolvedId(
 
   const meta = await spaceStub.rpcPatchMeta({
     spaceId: normalizedSpaceId,
-    ...(input.initialOwnerUserIds
-      ? { initialOwnerUserIds: input.initialOwnerUserIds }
+    ...(input.initialOwnerMember
+      ? { initialOwnerMember: input.initialOwnerMember }
       : {}),
     ...(input.name ? { name: input.name } : {}),
     ...(typeof input.purpose === "string" ? { purpose: input.purpose } : {}),
