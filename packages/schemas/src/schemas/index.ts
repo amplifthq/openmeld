@@ -767,10 +767,12 @@ export {
 } from "./daemon/task-result";
 export { windowsProcessJobRequestSchema } from "./daemon/windows-process-job";
 export {
+  type WindowsUserTaskAction,
   type WindowsUserTaskRequest,
   windowsUserTaskActionSchema,
   windowsUserTaskRequestSchema,
   windowsUserTaskStatusSchema,
+  windowsUserTaskStoredActionSchema,
 } from "./daemon/windows-user-task";
 export {
   DB_FACT_SCHEMA_VERSION,
