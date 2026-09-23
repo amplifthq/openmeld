@@ -185,6 +185,72 @@ async function seedPersonalRoutineDeliveryFixture() {
 }
 
 describe("Remote Agent Routine native delivery", () => {
+  it("gives later occurrences of the same existing Routine separate execution conversations", async () => {
+    const fixture = await seedRoutineDeliveryFixture();
+    const nextRunId = `routine_run_${crypto.randomUUID()}`;
+    const nextScheduledFor = fixture.nowMs + 24 * 60 * 60 * 1000;
+    await env.OPENMELD_DB.prepare(
+      "INSERT INTO routine_runs (id, routine_id, organization_id, scheduled_for, status, routine_name_snapshot, target_space_id_snapshot, started_at_ms) VALUES (?, ?, ?, ?, 'claimed', ?, ?, ?)"
+    )
+      .bind(
+        nextRunId,
+        fixture.routineId,
+        fixture.organizationId,
+        nextScheduledFor,
+        fixture.routine.name,
+        fixture.spaceId,
+        nextScheduledFor
+      )
+      .run();
+    const nextRun = await readRoutineRunRecord({
+      db: env.OPENMELD_DB,
+      runId: nextRunId,
+    });
+    if (!nextRun) {
+      throw new Error("The next Routine Run fixture was not created");
+    }
+    const workerSubmit = vi.fn(
+      async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: fixture.nowMs,
+        idempotencyKey: request.idempotencyKey,
+        status: "pending" as const,
+        submissionId: `submission_${request.dispatchId}`,
+      })
+    );
+    const testEnv = buildEnv({ fixture, workerSubmit });
+
+    for (const run of [fixture.run, nextRun]) {
+      await expect(
+        submitRemoteAgentRoutineDelivery({
+          db: env.OPENMELD_DB,
+          env: testEnv,
+          nowMs: run.scheduledFor,
+          routine: fixture.routine,
+          run,
+        })
+      ).resolves.toEqual({ status: "submitted" });
+    }
+    expect(workerSubmit).toHaveBeenCalledTimes(2);
+    expect(workerSubmit.mock.calls.map(([request]) => request.spaceId)).toEqual(
+      [fixture.spaceId, fixture.spaceId]
+    );
+    expect(
+      workerSubmit.mock.calls.map(([request]) => request.conversationId)
+    ).toEqual([
+      buildRemoteAgentRoutineRunConversationId({
+        agentProfileId: fixture.profileId,
+        organizationId: fixture.organizationId,
+        runId: fixture.runId,
+      }),
+      buildRemoteAgentRoutineRunConversationId({
+        agentProfileId: fixture.profileId,
+        organizationId: fixture.organizationId,
+        runId: nextRunId,
+      }),
+    ]);
+  });
+
   it("runs an existing Routine without reading an unstarted destination conversation", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     await env.OPENMELD_DB.prepare(
