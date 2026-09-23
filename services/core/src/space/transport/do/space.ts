@@ -2350,9 +2350,10 @@ function withInitialSpaceOwner(
   record: SpaceMetaRecord,
   initialOwnerMember: ResolvedSpaceMemberProfile | undefined
 ): SpaceMetaRecord {
-  return initialOwnerMember?.ownerUserId
-    ? { ...record, ownerUserIds: [initialOwnerMember.ownerUserId] }
-    : record;
+  if (!initialOwnerMember?.ownerUserId) {
+    return record;
+  }
+  return { ...record, ownerUserIds: [initialOwnerMember.ownerUserId] };
 }
 
 type InitializeSpaceMetaWithOwnersInput = {
