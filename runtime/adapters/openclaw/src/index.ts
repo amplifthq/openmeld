@@ -1,4 +1,5 @@
 // biome-ignore-all lint/performance/noBarrelFile: Package entrypoint intentionally re-exports OpenClaw runtime helpers.
+import { randomUUID } from "node:crypto";
 import {
   type AdapterCancelRequest,
   type AdapterDispatchContextDelta,
@@ -14,9 +15,11 @@ import {
   buildExecutableLaunchContract,
   createSharedControlShell,
   createSharedDispatchShell,
+  isDispatchSpaceActionDeliveryOnly,
   type RuntimeAdapter,
   type RuntimeAgentControllerLaunchContract,
   resolveBuiltinAdapterConversationBridgeSpec,
+  verifyLaunchContractFiles,
   type WaitForMs,
 } from "@openmeld/adapter-core";
 import {
@@ -234,6 +237,7 @@ const resolveDefaultOpenClawInvoke = (
 
   return async (input): Promise<OpenClawInvokeResult> => {
     const launchContract = await resolveOpenClawDispatchLaunchContract({
+      env: input.env,
       inputLaunchContract: input.launchContract,
       openClawBin: options.openClawBin,
       optionLaunchContract: options.launchContract,
@@ -248,15 +252,28 @@ const resolveDefaultOpenClawInvoke = (
       dispatchEnvAgentId: input.env?.OPENMELD_DAEMON_RUNTIME_OPENCLAW_AGENT_ID,
       optionAgentId: options.openClawAgentId,
     });
-    return await withOpenClawDispatchSpaceActionPlugin({
-      env: input.env,
+    const correction = isDispatchSpaceActionDeliveryOnly(input.env);
+    const canonicalSessionId =
+      normalizeOptionalText(input.agentControllerConversationId) ??
+      resolveOpenClawSessionKey(input);
+    const executionSessionId = correction
+      ? randomUUID()
+      : (canonicalSessionId ?? randomUUID());
+    const result = await withOpenClawDispatchSpaceActionPlugin({
+      launchContract,
+      spaceActionTools: input.spaceActionTools,
+      env: {
+        ...input.env,
+        OPENMELD_OPENCLAW_TOOL_SESSION_ID: executionSessionId,
+        OPENMELD_DAEMON_RUNTIME_OPENCLAW_AGENT_ID: openClawAgentId,
+      },
       run: async ({ active, env }) => {
         const sessionKey = resolveOpenClawSessionKey(input);
         const invokeInput: AdapterDispatchRequest = {
           ...input,
           env,
-          ...(active && sessionKey && !input.agentControllerConversationId
-            ? { agentControllerConversationId: sessionKey }
+          ...(active
+            ? { agentControllerConversationId: executionSessionId }
             : {}),
         };
         if (sessionKey && !active) {
@@ -279,10 +296,24 @@ const resolveDefaultOpenClawInvoke = (
         });
       },
     });
+    if (!correction) {
+      return result;
+    }
+    return {
+      ...result,
+      // The disposable delivery session is never the Profile's new conversation.
+      contextDelta: {
+        agentControllerConversationId: canonicalSessionId,
+        ...(input.agentControllerConversation
+          ? { agentControllerConversation: input.agentControllerConversation }
+          : {}),
+      },
+    };
   };
 };
 
 async function resolveOpenClawDispatchLaunchContract(input: {
+  env?: Record<string, string | undefined>;
   inputLaunchContract?: RuntimeAgentControllerLaunchContract | null;
   openClawBin?: string;
   optionLaunchContract?: RuntimeAgentControllerLaunchContract;
@@ -296,9 +327,14 @@ async function resolveOpenClawDispatchLaunchContract(input: {
         })
       : null);
   if (explicitLaunchContract) {
-    const verification = await verifyOpenClawLaunchContractLocal({
-      launchContract: explicitLaunchContract,
-    });
+    const verification = isDispatchSpaceActionDeliveryOnly(input.env)
+      ? await verifyLaunchContractFiles({
+          launchContract: explicitLaunchContract,
+        })
+      : await verifyOpenClawLaunchContractLocal({
+          launchContract: explicitLaunchContract,
+          env: input.env,
+        });
     if (verification.ok) {
       return explicitLaunchContract;
     }

@@ -1237,6 +1237,9 @@ importers:
       '@types/node':
         specifier: ^24.3.0
         version: 24.10.13
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.5
 
   runtime/adapters/opencode:
     dependencies:

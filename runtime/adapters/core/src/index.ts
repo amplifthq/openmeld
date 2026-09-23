@@ -39,6 +39,7 @@ export {
   type AdapterDispatchSpaceToolResult,
   type AdapterDispatchSpaceTools,
   DISPATCH_SPACE_ACTION_DELIVERY_ONLY_ENV,
+  describeDispatchSpaceTools,
   isDispatchSpaceActionDeliveryOnly,
 } from "./dispatch-space-tools.js";
 

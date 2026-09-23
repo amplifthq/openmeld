@@ -1,4 +1,4 @@
-import type { z } from "zod/v4";
+import { toJSONSchema, type z } from "zod/v4";
 
 /** Native carriers share these definitions and a single dispatch-owned recorder. */
 export type AdapterDispatchSpaceTool = {
@@ -31,6 +31,21 @@ export type AdapterDispatchSpaceTools = {
   ) => Promise<AdapterDispatchSpaceToolResult>;
   close: () => void;
 };
+
+/** Public definitions only: never serialize handlers or captured Wake authority. */
+export function describeDispatchSpaceTools(
+  capability: AdapterDispatchSpaceTools
+) {
+  return capability.tools.map((tool) => ({
+    name: tool.name,
+    title: tool.title ?? tool.name,
+    description: tool.description,
+    inputSchema: toJSONSchema(tool.inputSchema, {
+      target: "draft-07",
+      io: "input",
+    }),
+  }));
+}
 
 export const DISPATCH_SPACE_ACTION_DELIVERY_ONLY_ENV =
   "OPENMELD_SPACE_ACTION_DELIVERY_ONLY";
