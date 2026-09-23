@@ -393,7 +393,7 @@ describe("SpaceThreadPanel", () => {
 		expect(screen.queryByText("Couldn't load message details.")).toBeNull();
 	});
 
-	it("uses the shared floating toolbar for thread message actions", () => {
+	it("keeps thread actions in a reserved row below the message", () => {
 		renderThreadPanel();
 
 		const threadMessage = screen
@@ -412,7 +412,11 @@ describe("SpaceThreadPanel", () => {
 		expect(footer).not.toBeNull();
 		expect(messageRow?.contains(footer ?? null)).toBe(true);
 		expect(bubbleRoot?.contains(footer ?? null)).toBe(false);
-		expect(footer?.className).toContain("absolute");
+		expect(bubbleRoot?.compareDocumentPosition(footer as Node)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+		expect(footer?.getAttribute("data-layout")).toBe("inline");
+		expect(footer?.className).toContain("relative");
 		expect(footer?.className).toContain("opacity-0");
 		expect(footer?.className).toContain("group-hover/message-row:opacity-100");
 		expect(footer?.className).toContain(
@@ -662,7 +666,7 @@ describe("SpaceThreadPanel", () => {
 		);
 	});
 
-	it("removes the gap between consecutive bubbles from the same sender", () => {
+	it("gives consecutive thread messages separate headers and action rows", () => {
 		renderThreadPanel({
 			signals: [
 				createTextSignal({
@@ -687,14 +691,21 @@ describe("SpaceThreadPanel", () => {
 		expect(firstMessage?.querySelector("time")?.textContent).toMatch(
 			COMPACT_TIME_PATTERN
 		);
-		expect(secondMessage?.querySelector("time")).toBeNull();
+		expect(secondMessage?.querySelector("time")?.textContent).toMatch(
+			COMPACT_TIME_PATTERN
+		);
 
 		expect(firstMessage?.className).toContain("pt-1.5");
-		expect(firstMessage?.className).toContain("pb-0");
+		expect(firstMessage?.className).toContain("pb-1.5");
 		expect(firstMessage?.className).not.toContain("py-2");
-		expect(secondMessage?.className).toContain("pt-px");
+		expect(secondMessage?.className).toContain("pt-1.5");
 		expect(secondMessage?.className).toContain("pb-1.5");
 		expect(secondMessage?.className).not.toContain("py-2");
+		for (const message of [firstMessage, secondMessage]) {
+			expect(
+				message?.querySelector('[data-slot="message-footer"]')
+			).not.toBeNull();
+		}
 	});
 
 	it("shows direct-message times only in the shared thread toolbars", () => {
