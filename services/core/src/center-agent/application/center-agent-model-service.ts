@@ -16,6 +16,7 @@ import type {
 type CenterAgentModelBinding = {
   configurationRevision: number;
   modelId?: string | null;
+  reasoningLevel?: string | null;
 };
 
 function resolveModelAvailability(
@@ -31,13 +32,15 @@ export class CenterAgentModelResolutionError extends Error {
   readonly code:
     | "center_agent_model_catalog_invalid"
     | "center_agent_model_unavailable"
-    | "center_agent_model_unknown";
+    | "center_agent_model_unknown"
+    | "center_agent_reasoning_unsupported";
 
   constructor(input: {
     code:
       | "center_agent_model_catalog_invalid"
       | "center_agent_model_unavailable"
-      | "center_agent_model_unknown";
+      | "center_agent_model_unknown"
+      | "center_agent_reasoning_unsupported";
     message: string;
   }) {
     super(input.message);
@@ -61,6 +64,7 @@ export function resolveCenterAgentModelRouteForBinding(input: {
   const result = resolveCenterAgentModelRoute({
     catalog: input.catalog,
     preference: readCenterAgentModelPreference(input.binding),
+    reasoningLevel: input.binding.reasoningLevel,
   });
   if (result.status === "rejected") {
     throw new CenterAgentModelResolutionError(result);
@@ -89,6 +93,11 @@ export function projectCenterAgentModelConfiguration(input: {
   const effectiveModel = controller.models.find(
     (model) => model.id === effectiveModelId
   );
+  const route = resolveCenterAgentModelRoute({
+    catalog: input.catalog,
+    preference,
+    reasoningLevel: input.binding.reasoningLevel,
+  });
   return centerAgentModelConfigurationResponseSchema.parse({
     canManage: input.canManage,
     choices: listCenterAgentModelChoices(input.catalog),
@@ -101,7 +110,11 @@ export function projectCenterAgentModelConfiguration(input: {
         effectiveModel?.hostedRuntime?.inputModalities.includes("image") ??
         false,
     },
+    ...(route.status === "accepted"
+      ? { effectiveReasoningLevel: route.route.reasoningLevel }
+      : {}),
     organizationId: input.organizationId,
     preference,
+    reasoningLevel: input.binding.reasoningLevel ?? null,
   });
 }

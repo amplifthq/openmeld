@@ -321,7 +321,7 @@ describe("model catalog schema", () => {
               inputModalities: ["text", "image"],
               maxOutputTokens: 16_384,
               provider: "openrouter",
-              reasoningLevel: "high",
+              reasoningLevel: "medium",
             },
           }),
           expect.objectContaining({
@@ -332,7 +332,7 @@ describe("model catalog schema", () => {
               inputModalities: ["text", "image"],
               maxOutputTokens: 16_384,
               provider: "openrouter",
-              reasoningLevel: "high",
+              reasoningLevel: "medium",
             },
           }),
           expect.objectContaining({

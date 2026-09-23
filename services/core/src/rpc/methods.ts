@@ -8409,6 +8409,7 @@ export async function rpcUpdateCenterAgentModel(
   const parsed = updateCenterAgentModelBodySchema.safeParse({
     expectedConfigurationRevision: input.expectedConfigurationRevision,
     preference: input.preference,
+    reasoningLevel: input.reasoningLevel,
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -8437,6 +8438,7 @@ export async function rpcUpdateCenterAgentModel(
       binding: {
         configurationRevision: current.configurationRevision,
         modelId: requestedModelId,
+        reasoningLevel: parsed.data.reasoningLevel ?? null,
       },
       catalog: readModelCatalog(),
     });
@@ -8455,7 +8457,7 @@ export async function rpcUpdateCenterAgentModel(
       expectedConfigurationRevision: parsed.data.expectedConfigurationRevision,
       modelSelectionPatch: {
         modelId: requestedModelId,
-        reasoningLevel: null,
+        reasoningLevel: parsed.data.reasoningLevel ?? null,
       },
       owner: current.owner,
       updatedAtMs: Date.now(),

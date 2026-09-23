@@ -1421,9 +1421,9 @@ selected primary model.
 
 Model capacity and reasoning metadata are checked in with the catalog so
 admission needs no provider metadata lookup. Compaction derives its policy from
-the frozen route. Hosted reasoning is currently fixed to `high`; the Harness
-reads that frozen route value dynamically rather than reading a user setting or
-hard-coding one global effort. Usage remains recorded by the Remote Agent
+the frozen route. Core validates the Binding's optional reasoning selection
+against the selected model's catalog capabilities and freezes the effective
+effort at admission. The Harness reads that frozen route value. Usage remains recorded by the Remote Agent
 worker through OpenMeld-owned usage records and Analytics Engine and attributes
 the effective primary model.
 

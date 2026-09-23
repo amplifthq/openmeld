@@ -1477,7 +1477,9 @@ visible while browsing another provider. Selecting a candidate only changes the
 local draft. The current label changes after the Binding save succeeds.
 
 Personal Remote Agent creation and model editing reuse this same two-level
-selector and hosted catalog. They store the explicitly selected model ID.
+selector and hosted catalog. They store the explicitly selected model ID and
+an optional supported reasoning effort. Center Agent settings use the same
+reasoning selector. Default follows the selected model's catalog effort.
 Changing to another provider clears an incompatible draft and requires a new
 model choice before Create or Save; an empty draft must not silently select
 the system default. Local Agent model controls keep their controller-owned

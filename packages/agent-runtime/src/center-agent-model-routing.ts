@@ -1,3 +1,4 @@
+import { hostedModelReasoningLevelSchema } from "@openmeld/schemas";
 import type {
   CenterAgentModelPreference,
   CenterAgentModelRoute,
@@ -22,21 +23,25 @@ export type CenterAgentModelRouteResult =
       code:
         | "center_agent_model_catalog_invalid"
         | "center_agent_model_unavailable"
-        | "center_agent_model_unknown";
+        | "center_agent_model_unknown"
+        | "center_agent_reasoning_unsupported";
       message: string;
     };
 
 export type CenterAgentModelChoice = {
   badgeLabel: string | null;
+  defaultReasoningLevel: CenterAgentModelRoute["reasoningLevel"];
   displayName: string;
   effectiveModelDisplayName: string;
   preference: CenterAgentModelPreference;
+  supportedReasoningLevels: string[];
   supportsImageInput: boolean;
 };
 
 export function resolveCenterAgentModelRoute(input: {
   catalog: ModelCatalog;
   preference: CenterAgentModelPreference;
+  reasoningLevel?: string | null;
 }): CenterAgentModelRouteResult {
   const controller = readHostedCenterAgentController(input.catalog);
   if (!controller?.hostedRuntimePolicy) {
@@ -72,6 +77,22 @@ export function resolveCenterAgentModelRoute(input: {
       status: "rejected",
       code: "center_agent_model_catalog_invalid",
       message: "The selected Center Agent model has no hosted runtime.",
+    };
+  }
+  const requestedReasoningLevel = input.reasoningLevel
+    ? hostedModelReasoningLevelSchema.safeParse(input.reasoningLevel)
+    : null;
+  if (
+    input.reasoningLevel &&
+    !(
+      requestedReasoningLevel?.success &&
+      model.supportedReasoningLevels.includes(input.reasoningLevel)
+    )
+  ) {
+    return {
+      status: "rejected",
+      code: "center_agent_reasoning_unsupported",
+      message: `Reasoning level "${input.reasoningLevel}" is not supported for model "${modelId}".`,
     };
   }
   const imageUnderstandingModel = controller.models.find(
@@ -111,7 +132,9 @@ export function resolveCenterAgentModelRoute(input: {
       modelId: model.id,
       preference: input.preference,
       provider: model.hostedRuntime.provider,
-      reasoningLevel: model.hostedRuntime.reasoningLevel,
+      reasoningLevel: requestedReasoningLevel?.success
+        ? requestedReasoningLevel.data
+        : model.hostedRuntime.reasoningLevel,
     },
   };
 }
@@ -134,20 +157,24 @@ export function listCenterAgentModelChoices(
   return [
     {
       badgeLabel: defaultModel.badgeLabel ?? null,
+      defaultReasoningLevel: defaultModel.hostedRuntime.reasoningLevel,
       displayName: "OpenMeld default",
       effectiveModelDisplayName: defaultModel.displayName,
       preference: { kind: "system_default" },
+      supportedReasoningLevels: defaultModel.supportedReasoningLevels,
       supportsImageInput:
         defaultModel.hostedRuntime.inputModalities.includes("image"),
     },
     ...controller.models.filter(isAvailableHostedModel).map((model) => ({
       badgeLabel: model.badgeLabel ?? null,
+      defaultReasoningLevel: model.hostedRuntime.reasoningLevel,
       displayName: model.displayName,
       effectiveModelDisplayName: model.displayName,
       preference: {
         kind: "selected_model" as const,
         modelId: model.id,
       },
+      supportedReasoningLevels: model.supportedReasoningLevels,
       supportsImageInput:
         model.hostedRuntime?.inputModalities.includes("image") ?? false,
     })),
@@ -162,6 +189,10 @@ function readHostedCenterAgentController(
   );
 }
 
-function isAvailableHostedModel(model: ModelCatalogModel): boolean {
+function isAvailableHostedModel(
+  model: ModelCatalogModel
+): model is ModelCatalogModel & {
+  hostedRuntime: NonNullable<ModelCatalogModel["hostedRuntime"]>;
+} {
   return !model.unavailable && model.hostedRuntime !== undefined;
 }

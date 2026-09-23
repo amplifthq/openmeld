@@ -125,6 +125,7 @@ import type {
   CreateCenterAgentRoutineResponse,
   DeleteCenterAgentRoutineResponse,
   ListCenterAgentRoutinesResponse,
+  ModelCatalog,
   OpenMeldRequestContext,
   OrganizationDocumentPromptContextResponse,
   OrganizationDocumentPromptContextRpcInput,
@@ -293,6 +294,7 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  getModelCatalog?(): Promise<ModelCatalog> | ModelCatalog;
   getSpaceTask?(input: unknown): Promise<unknown>;
   listSpaceTasks?(input: unknown): Promise<unknown>;
   createSpaceTask?(input: unknown): Promise<unknown>;

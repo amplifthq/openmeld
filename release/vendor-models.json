@@ -1133,10 +1133,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1050000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1147,10 +1147,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1050000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1161,10 +1161,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1050000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1175,10 +1175,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1050000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1189,10 +1189,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1000000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1203,10 +1203,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1000000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1217,10 +1217,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 500000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1234,7 +1234,7 @@
             "reasoningLevel": "high"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "high", "low"],
           "minCliVersion": null
         },
         {
@@ -1245,10 +1245,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1050000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1259,10 +1259,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1050000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1273,10 +1273,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1000000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1287,10 +1287,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1000000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1301,10 +1301,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1000000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1315,10 +1315,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1048576,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1329,10 +1329,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1048576,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["high", "medium", "low", "minimal"],
           "minCliVersion": null
         },
         {
@@ -1343,10 +1343,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 1048576,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1361,7 +1361,7 @@
             "reasoningLevel": "high"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["max", "high", "low"],
           "minCliVersion": null
         },
         {
@@ -1372,10 +1372,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 500000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["xhigh", "high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1386,10 +1386,10 @@
             "inputModalities": ["text", "image"],
             "contextWindow": 500000,
             "maxOutputTokens": 16384,
-            "reasoningLevel": "high"
+            "reasoningLevel": "medium"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high"],
+          "supportedReasoningLevels": ["high", "medium", "low"],
           "minCliVersion": null
         },
         {
@@ -1403,7 +1403,7 @@
             "reasoningLevel": "high"
           },
           "unavailable": false,
-          "supportedReasoningLevels": ["high", "xhigh"],
+          "supportedReasoningLevels": ["xhigh", "high"],
           "minCliVersion": null
         }
       ]

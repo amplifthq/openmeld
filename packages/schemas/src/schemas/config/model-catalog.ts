@@ -16,6 +16,7 @@ export const hostedModelReasoningLevelSchema = z.enum([
   "medium",
   "high",
   "xhigh",
+  "max",
 ]);
 
 export const modelCatalogHostedRuntimeSchema = z.strictObject({
@@ -64,6 +65,10 @@ export const modelCatalogAgentControllerSchema = z
         });
       }
       modelIds.add(model.id);
+
+      for (const issue of hostedReasoningIssues(model, index)) {
+        context.addIssue({ code: "custom", ...issue });
+      }
 
       const reasoningLevels = new Set<string>();
       for (const [
@@ -185,6 +190,33 @@ export const modelCatalogAgentControllerSchema = z
       });
     }
   });
+
+function hostedReasoningIssues(
+  model: z.infer<typeof modelCatalogModelSchema>,
+  index: number
+): Array<{ message: string; path: (string | number)[] }> {
+  if (!model.hostedRuntime) {
+    return [];
+  }
+  const issues: Array<{ message: string; path: (string | number)[] }> = [];
+  for (const [levelIndex, level] of model.supportedReasoningLevels.entries()) {
+    if (!hostedModelReasoningLevelSchema.safeParse(level).success) {
+      issues.push({
+        message: "hosted reasoning levels must be valid efforts",
+        path: ["models", index, "supportedReasoningLevels", levelIndex],
+      });
+    }
+  }
+  if (
+    !model.supportedReasoningLevels.includes(model.hostedRuntime.reasoningLevel)
+  ) {
+    issues.push({
+      message: "hosted default reasoning must be supported by its model",
+      path: ["models", index, "hostedRuntime", "reasoningLevel"],
+    });
+  }
+  return issues;
+}
 
 export const modelCatalogSchema = z.strictObject({
   schemaVersion: z.literal(MODEL_CATALOG_SCHEMA_VERSION),

@@ -386,9 +386,13 @@ is a hosted-runtime policy catalog, not a local Agent Profile controller:
   window, output budget, and reasoning level. Admission freezes these values
   into the turn request; the worker does not rebuild them from mutable catalog
   state.
-- Hosted reasoning remains catalog-owned and fixed to `high`. The worker reads
-  that frozen value dynamically for each admitted route. It is not a separate
-  Organization preference or Web setting in the current product.
+- Each hosted model declares its supported reasoning efforts and a catalog
+  default. A nullable Binding `reasoningLevel` selects a supported effort for
+  that model; absent means the catalog default. Core validates the pair and
+  freezes the effective effort into each admitted route. Web, CLI, and Center
+  Agent tools use this same selection contract. The catalog default is `medium`
+  where the provider supports it; GLM 5.3 Flash and the two DeepSeek Flash
+  models retain `high` because they do not offer `medium`.
 - `hostedRuntimePolicy.imageUnderstandingModelId` names the image-capable
   auxiliary model used for every current-version image turn before persistent
   primary-model admission. The auxiliary returns an untrusted text
@@ -436,15 +440,14 @@ editing, and Core Binding validation resolve `hosted:remote-agent` to the
 `center-agent` catalog through `getAgentControllerModelCatalogId`; the actual
 Remote Agent controller and Binding identity remain `hosted:remote-agent`.
 
-No catalog schema changes are required. Older Web clients can show the expanded
-flat list; the provider-aware Web client can also consume the older catalog.
-Core deployment publishes the added choices; Web deployment publishes the
-two-level picker. Existing Remote Agent route readers consume the same frozen
-fields. Model edits use the existing owner-authorized Binding command and
-execution admission; no schema or local runtime contract changes are needed.
-Deploy Core before exposing the Remote Agent edit control in Web because the
-older Core validator does not recognize this shared catalog mapping. Local
-Agent settings and ongoing hosted executions retain their existing behavior.
+The September 22 model expansion required no catalog schema change. The
+subsequent reasoning control adds optional supported-effort fields to the
+Center Agent model configuration response and accepts an optional effort in
+its update request. Remote Agent model and effort changes use the existing
+owner-authorized Binding command and execution admission. Deploy a compatible
+Web reader before Core emits the expanded response, then deploy the Remote
+Agent worker's model-discovery tool after Core. Existing local Agent settings
+and already admitted hosted executions retain their frozen routes.
 
 ### 5.6 GLM 5.3 Flash hosted verification
 
@@ -456,8 +459,8 @@ The 2026-08-27 default change follows the official OpenRouter contract:
   never sends video parts and the schema bounds modalities to what the worker
   actually consumes;
 - the supported reasoning efforts are `max`, `high`, and `low` with `max` as
-  the provider default; hosted reasoning stays frozen to the catalog-owned
-  `high` value that the worker reads per admitted route;
+  the provider default; the OpenMeld catalog default for this model is `high`
+  because the provider does not offer `medium`;
 - the frozen capacity caps are deliberate: the catalog `contextWindow` uses
   OpenRouter's top-provider context length (`1,048,576`, below the larger
   catalog-wide context length of `1,310,720` so compaction triggers before a

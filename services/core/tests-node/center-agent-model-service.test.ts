@@ -28,7 +28,7 @@ const CATALOG = {
             reasoningLevel: "high",
           },
           unavailable: false,
-          supportedReasoningLevels: ["high"],
+          supportedReasoningLevels: ["high", "medium"],
           minCliVersion: null,
         },
         {
@@ -125,6 +125,28 @@ describe("Center Agent model service", () => {
         modelId: "deepseek/deepseek-v4-flash",
       },
     });
+  });
+
+  it("projects and freezes the selected hosted reasoning effort", () => {
+    const binding = {
+      configurationRevision: 8,
+      modelId: "x-ai/grok-4.6",
+      reasoningLevel: "medium",
+    };
+    expect(
+      projectCenterAgentModelConfiguration({
+        binding,
+        canManage: true,
+        catalog: CATALOG,
+        organizationId: "org_1",
+      })
+    ).toMatchObject({
+      effectiveReasoningLevel: "medium",
+      reasoningLevel: "medium",
+    });
+    expect(
+      resolveCenterAgentModelRouteForBinding({ binding, catalog: CATALOG })
+    ).toMatchObject({ reasoningLevel: "medium" });
   });
 
   it("keeps a stale explicit selection visible without silently routing it", () => {

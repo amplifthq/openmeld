@@ -5,6 +5,7 @@ import { BrainIcon, CheckIcon } from "@phosphor-icons/react";
 import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
 import {
 	HostedModelSelect,
+	HostedReasoningSelect,
 	personalRemoteModelChoices,
 } from "#/components/models/hosted-model-select";
 import {
@@ -18,12 +19,15 @@ export function PersonalRemoteAgentConfiguration(input: {
 	modelCatalog: ModelCatalog | null;
 	name: string;
 	model: string;
+	reasoningLevel: string;
 	onNameChange: (name: string) => void;
 	onModelChange: (model: string) => void;
+	onReasoningLevelChange: (level: string) => void;
 }) {
 	const catalog = input.modelCatalog?.agentControllers["center-agent"];
 	const models = personalRemoteModelChoices(input.modelCatalog);
 	const modelId = input.model;
+	const selectedModel = catalog?.models.find((model) => model.id === modelId);
 	const modelName =
 		models.find((choice) => choice.value === modelId)?.label ??
 		(catalog ? "Choose a model" : "Loading models…");
@@ -68,6 +72,15 @@ export function PersonalRemoteAgentConfiguration(input: {
 						onValueChange={input.onModelChange}
 						value={modelId}
 					/>
+					{selectedModel?.hostedRuntime ? (
+						<HostedReasoningSelect
+							defaultLevel={selectedModel.hostedRuntime.reasoningLevel}
+							disabled={input.isSubmitting}
+							levels={selectedModel.supportedReasoningLevels}
+							onValueChange={input.onReasoningLevelChange}
+							value={input.reasoningLevel}
+						/>
+					) : null}
 				</AgentConfigurationCard>
 			</AgentConfigurationGrid>
 		</div>

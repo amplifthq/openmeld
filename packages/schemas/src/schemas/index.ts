@@ -176,6 +176,7 @@ export {
 export {
   getModelCatalogResponseSchema,
   hostedModelInputModalitySchema,
+  hostedModelReasoningLevelSchema,
   MODEL_CATALOG_SCHEMA_VERSION,
   modelCatalogAgentControllerSchema,
   modelCatalogHostedRuntimePolicySchema,

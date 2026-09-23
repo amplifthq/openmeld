@@ -43,6 +43,13 @@ describe("Remote Agent creation", () => {
 		fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
 		fireEvent.click(await screen.findByRole("option", { name: "GPT-6 Astra" }));
 		expect(createButton).toHaveProperty("disabled", false);
+		const reasoning = screen.getByRole("combobox", {
+			name: "Reasoning effort",
+		});
+		expect(reasoning.textContent).toContain("Default (Medium)");
+		fireEvent.click(reasoning);
+		fireEvent.click(await screen.findByRole("option", { name: "High" }));
+		expect(reasoning.textContent).toContain("High");
 		queryClient.clear();
 	});
 });

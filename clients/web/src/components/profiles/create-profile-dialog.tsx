@@ -1087,7 +1087,11 @@ function useCreateProfileDialogController(
 	const createProfileMutation = useMutation({
 		mutationFn: async (submission: {
 			idempotencyKey: string;
-			remote?: { modelId: string | null; profileName: string };
+			remote?: {
+				modelId: string | null;
+				profileName: string;
+				reasoningLevel: string | null;
+			};
 		}) => {
 			if (submission.remote) {
 				const result = await createAgentProfileCreationRequest({
@@ -1096,6 +1100,7 @@ function useCreateProfileDialogController(
 						...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
 						agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
 						modelId: submission.remote.modelId,
+						reasoningLevel: submission.remote.reasoningLevel,
 					},
 					idempotencyKey: submission.idempotencyKey,
 					intentStorageScope: input.intentStorageScope,
@@ -1458,6 +1463,7 @@ function useCreateProfileDialogController(
 					idempotencyKey: string;
 					modelId: string | null;
 					profileName: string;
+					reasoningLevel: string | null;
 				}) => {
 					if (submissionInFlightRef.current) {
 						return;

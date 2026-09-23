@@ -156,6 +156,51 @@ export function HostedModelSelect(input: {
 	);
 }
 
+export function HostedReasoningSelect(input: {
+	defaultLevel: string;
+	disabled?: boolean;
+	levels: readonly string[];
+	onValueChange: (value: string) => void;
+	value: string;
+}) {
+	const id = useId();
+	const label = "Reasoning effort";
+	const displayValue = input.value
+		? reasoningLevelLabel(input.value)
+		: `Default (${reasoningLevelLabel(input.defaultLevel)})`;
+	return (
+		<div className="grid min-w-0 gap-2">
+			<Label htmlFor={id}>{label}</Label>
+			<Select
+				disabled={input.disabled || input.levels.length === 0}
+				onValueChange={input.onValueChange}
+				value={input.value}
+			>
+				<SelectTrigger
+					aria-label={label}
+					className="h-10 w-full px-3 text-sm"
+					displayValue={displayValue}
+					id={id}
+				/>
+				<SelectContent>
+					<SelectItem index={0} value="">
+						Default ({reasoningLevelLabel(input.defaultLevel)})
+					</SelectItem>
+					{input.levels.map((level, index) => (
+						<SelectItem index={index + 1} key={level} value={level}>
+							{reasoningLevelLabel(level)}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</div>
+	);
+}
+
+function reasoningLevelLabel(level: string): string {
+	return level[0]?.toUpperCase() + level.slice(1);
+}
+
 function ChoiceLabel({ choice }: { choice: HostedModelChoice }) {
 	return (
 		<span className="flex min-w-0 items-center gap-2">

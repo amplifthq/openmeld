@@ -5100,6 +5100,42 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
+  it("passes a Remote Agent model and reasoning through the creation tool", async () => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorageWithPendingContext(request);
+    const response = createAgentProfileCreationRequestResponse();
+    const centerAgentCreateAgentProfileCreationRequest = vi
+      .fn()
+      .mockResolvedValue(response);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentCreateAgentProfileCreationRequest },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_create_agent_profile_request", {
+        runtime: "remote_agent",
+        configuration: {
+          modelId: "openai/gpt-6-sol",
+          reasoningLevel: "medium",
+        },
+        profileName: "Remote Reviewer",
+        sessionStrategy: "new",
+        targetOwnerUserId: "user-2",
+      })
+    ).resolves.toEqual(response);
+    expect(centerAgentCreateAgentProfileCreationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        configuration: expect.objectContaining({
+          agentControllerRef: "hosted:remote-agent",
+          modelId: "openai/gpt-6-sol",
+          reasoningLevel: "medium",
+          targetComputerId: null,
+        }),
+      })
+    );
+  });
+
   it("keeps Fork configuration compatible while preserving the selected Session lane", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorageWithPendingContext(request);

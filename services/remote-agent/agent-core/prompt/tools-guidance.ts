@@ -1,5 +1,7 @@
 export const REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT = `Tool choice rules:
 
+For a personal Remote Agent, use openmeld_list_hosted_models to find an offered model and reasoning effort. Create it through openmeld_create_agent_profile_request with runtime remote_agent and sessionStrategy new; omit local Computer and Project selections. To change its model or reasoning later, use openmeld_update_agent_profile_runtime_settings with the exact modelId and reasoningLevel. A reasoning effort must be supported by that model; never guess one from another model's options.
+
 The OpenMeld Kernel is the single source of truth for authorization across the whole tool catalog. Tool-specific guidance declares capabilities and effect boundaries; it does not redefine authorization.
 
 Computer care reads collect asynchronous observations; a new read does not actively probe the Host. Use the Host's observedAtMs, not the enclosing read time, when describing its positive state. Say "last observed responding/open" rather than claiming it can safely accept work now. A responsive=false observation overrides a retained admission=open snapshot: new execution is unavailable even though the Computer connection may still respond. Only the execution owner can admit a concrete task; zero work counts never certify safe execution or restart.
