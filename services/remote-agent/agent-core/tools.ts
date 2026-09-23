@@ -1559,8 +1559,8 @@ export const REMOTE_AGENT_MEMBER_RESEARCH_TOOL_NAMES = [
   "openmeld_list_connected_apps",
   "openmeld_list_app_actions",
   "openmeld_execute_app_action",
-  ...REMOTE_AGENT_GITHUB_READ_TOOL_NAMES,
   "github_execute_action",
+  ...REMOTE_AGENT_GITHUB_READ_TOOL_NAMES,
 ] as const satisfies readonly RemoteAgentOpenMeldToolName[];
 
 const REMOTE_AGENT_MEMBER_RESEARCH_TOOL_NAME_SET =
