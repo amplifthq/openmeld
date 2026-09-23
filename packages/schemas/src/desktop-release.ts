@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { windowsPublisherNameSchema } from "./windows-artifact";
 
 export const desktopCandidateIdSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 export const desktopVersionSchema = z
@@ -16,12 +17,7 @@ export type DesktopReleasePlatform = z.infer<
 >;
 export const desktopWindowsBuildSchema = z.strictObject({
   platform: z.enum(["windows-x64", "windows-arm64"]),
-  publisherName: z
-    .string()
-    .trim()
-    .min(1)
-    .max(512)
-    .regex(/^[^\p{Cc}]+$/u),
+  publisherName: windowsPublisherNameSchema,
 });
 
 export function resolveDesktopReleasePlatform(

@@ -45,6 +45,14 @@ node scripts/release/build-cli-binary.mjs
 - The production binary channel currently supports `darwin-arm64`. Windows x64
   builds are native acceptance artifacts until signing, managed installation,
   update recovery, and client acquisition are accepted and released.
+- Windows release records require `windows.publisherName` and an immutable
+  `windows.processHelper` URL, size, and SHA-256 alongside the primary carrier.
+  CLI and Service records use the same shape. Windows publisher metadata is
+  rejected on another platform and cannot be combined with Apple signing
+  identity. The shared native Authenticode verifier is used by CLI acquisition
+  and Desktop updates; missing Windows publisher metadata is an integrity
+  failure, not permission to run an unsigned binary. Companion download and
+  managed activation remain under implementation and are not a release claim.
 - The binary distribution marker is injected at compile time by `bun build --compile`.
 - Release builds minify bundled code while preserving function and class names
   for diagnostics. This reduces the current executable by about 4.4 MiB and

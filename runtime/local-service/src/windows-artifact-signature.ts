@@ -6,7 +6,7 @@ import {
   powerShellEncodedArguments,
   resolveWindowsPowerShellPath,
 } from "@openmeld/adapter-core/windows-system";
-import { desktopWindowsBuildSchema } from "@openmeld/schemas";
+import { windowsPublisherNameSchema } from "@openmeld/schemas";
 
 const SIGNATURE_VERIFIED = "OPENMELD_AUTHENTICODE_VERIFIED";
 const VERIFY_SCRIPT = String.raw`
@@ -38,14 +38,13 @@ type ExecuteSignatureCheck = (
   }
 ) => Promise<{ stdout: string; stderr: string }>;
 
-/** Public NSIS verifier seam: every missing/failed/ambiguous OS result rejects. */
-export async function verifyWindowsDesktopSignature(
+/** Shared artifact verifier: every missing/failed/ambiguous OS result rejects. */
+export async function verifyWindowsArtifactSignature(
   path: string,
   publisherName: string,
   execute: ExecuteSignatureCheck = promisify(execFile)
 ): Promise<void> {
-  const publisher =
-    desktopWindowsBuildSchema.shape.publisherName.parse(publisherName);
+  const publisher = windowsPublisherNameSchema.parse(publisherName);
   if (!win32.isAbsolute(path) || path.includes("\0")) {
     throw new Error(
       "OpenMeld signature verification requires an absolute Windows file path."

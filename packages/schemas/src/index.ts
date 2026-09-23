@@ -405,6 +405,7 @@ export {
   webPerformancePolicySchema,
   webPerformanceReportSchema,
 } from "./web-performance";
+export * from "./windows-artifact";
 export {
   buildWorkingFolderRecoveryQuestion,
   isWorkingFolderRecoveryDecline,

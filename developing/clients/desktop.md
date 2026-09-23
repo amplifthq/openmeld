@@ -509,7 +509,10 @@ against the actual architecture, fixed platform feed and exactly one configured
 publisher. Missing or mismatched metadata makes updates unavailable. The public
 NSIS verifier hook requires successful Authenticode evidence and an exact
 publisher match; missing PowerShell, errors, unsigned executables and unexpected
-output all reject. External metadata URLs, another platform's payload, multiple
+output all reject. The verifier lives in
+`@openmeld/local-service/windows-artifact-signature` and shares its publisher
+schema with CLI acquisition; Desktop does not maintain another OS verifier.
+External metadata URLs, another platform's payload, multiple
 files and web installer packages are rejected before download. Manual download,
 draft-safe restart and independent Service lifetime remain unchanged. Actual
 signed A-to-B updates, normal-user installation/uninstallation and native DPI/IME

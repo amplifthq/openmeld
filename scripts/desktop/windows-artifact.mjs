@@ -16,13 +16,13 @@ import {
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
-import { verifyWindowsDesktopSignature } from "../../clients/desktop/src/main/update/windows-signature.ts";
 import { assertWindowsUpdaterConfiguration } from "../../clients/desktop/src/main/update/windows-updater-configuration.ts";
 import {
   desktopProductionSourceSchema,
   desktopWebBuildSchema,
 } from "../../packages/schemas/dist/desktop-client.js";
 import { desktopWindowsBuildSchema } from "../../packages/schemas/dist/desktop-release.js";
+import { verifyWindowsArtifactSignature } from "../../runtime/local-service/src/windows-artifact-signature.ts";
 import { readInstalledDesktopTarget } from "./installed-target.ts";
 
 const PE_MACHINE = { "windows-x64": 0x86_64, "windows-arm64": 0xaa_64 };
@@ -150,7 +150,7 @@ export async function inspectWindowsDesktopCandidate({
   }
   const windows = desktopWindowsBuildSchema.parse(rawWindows);
   const before = await fingerprint(artifactPath);
-  await verifyWindowsDesktopSignature(artifactPath, windows.publisherName);
+  await verifyWindowsArtifactSignature(artifactPath, windows.publisherName);
   const sevenZip = resolve7Zip(process.env);
   const temporary = mkdtempSync(join(tmpdir(), "openmeld-windows-candidate-"));
   const run = (args) =>
@@ -181,7 +181,7 @@ export async function inspectWindowsDesktopCandidate({
     run(["x", payload, `-o${app}`, "-y", "-bd"]);
     const executable = ownedFile(app, "OpenMeld.exe");
     assertWindowsPeArchitecture(executableHeader(executable), windows.platform);
-    await verifyWindowsDesktopSignature(executable, windows.publisherName);
+    await verifyWindowsArtifactSignature(executable, windows.publisherName);
     const source = JSON.parse(
       readMetadata(ownedFile(app, "resources/desktop-production-source.json"))
     );

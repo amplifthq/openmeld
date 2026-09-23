@@ -26,6 +26,11 @@
       "import": "./src/cli-binary-update-artifact.ts",
       "default": "./dist/cli-binary-update-artifact.js"
     },
+    "./windows-artifact-signature": {
+      "types": "./src/windows-artifact-signature.ts",
+      "import": "./src/windows-artifact-signature.ts",
+      "default": "./dist/windows-artifact-signature.js"
+    },
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts",

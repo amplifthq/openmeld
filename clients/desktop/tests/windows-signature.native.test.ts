@@ -7,8 +7,9 @@ import {
   powerShellEncodedArguments,
   resolveWindowsPowerShellPath,
 } from "@openmeld/adapter-core/windows-system";
+import { verifyCliBinaryCodeSignature } from "@openmeld/local-service/cli-binary-update-artifact";
+import { verifyWindowsArtifactSignature } from "@openmeld/local-service/windows-artifact-signature";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { verifyWindowsDesktopSignature } from "../src/main/update/windows-signature";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -49,9 +50,30 @@ $s = Microsoft.PowerShell.Security\Get-AuthenticodeSignature -LiteralPath (Join-
       // Exercise the production boundary with an intentionally incompatible
       // parent module path; the capture above remains an independent OS read.
       vi.stubEnv("PSModulePath", "C:\\OpenMeld-test-missing-PS7-modules");
-      await verifyWindowsDesktopSignature(system, signed.publisherName);
+      await verifyWindowsArtifactSignature(system, signed.publisherName);
+      const artifact = {
+        url: "https://fixture.invalid/never-downloaded.exe",
+        sha256: "a".repeat(64),
+        sizeBytes: 1,
+      };
+      const cliInput = {
+        artifactPath: system,
+        release: {
+          ...artifact,
+          windows: {
+            publisherName: signed.publisherName,
+            processHelper: artifact,
+          },
+        },
+        runCommand: () =>
+          Promise.reject(new Error("Windows must not invoke macOS codesign")),
+      };
+      await verifyCliBinaryCodeSignature(cliInput);
       await expect(
-        verifyWindowsDesktopSignature(
+        verifyCliBinaryCodeSignature({ ...cliInput, release: artifact })
+      ).rejects.toThrow("must declare their publisher");
+      await expect(
+        verifyWindowsArtifactSignature(
           system,
           "OpenMeld deliberately wrong publisher fixture"
         )
@@ -61,7 +83,7 @@ $s = Microsoft.PowerShell.Security\Get-AuthenticodeSignature -LiteralPath (Join-
         const unsigned = join(root, "unsigned.exe");
         await writeFile(unsigned, "This test file is never executed.");
         await expect(
-          verifyWindowsDesktopSignature(unsigned, signed.publisherName)
+          verifyWindowsArtifactSignature(unsigned, signed.publisherName)
         ).rejects.toThrow();
       } finally {
         await rm(root, { recursive: true, force: true });

@@ -159,6 +159,16 @@ Draft PR: https://github.com/amplifthq/openmeld/pull/1267. Production acquisitio
 
 The carrier and helper now have full Service feasibility evidence. Installation/upgrade recovery, cross-platform production artifact assembly, direct task supervision, signed artifact acquisition, Web/Desktop convergence, and ordinary-user Windows acceptance are not complete. The old task-host timeout remains independent and unresolved.
 
+The next implementation batch moves the existing Desktop Authenticode check
+into the shared artifact owner and adds Windows publisher/helper metadata to
+the CLI/Service release schema. The old Desktop-local implementation is removed.
+Mac manifest fields remain unchanged; old clients ignore the additive Windows
+fields, and no Windows channel is published by this change. New Windows binary
+consumers reject missing publisher/helper metadata. Account, device, Runtime
+Transport, Prepare, Wake and Skills contracts are unchanged by this artifact
+contract addition. Companion acquisition and activation still need integration
+and native verification before the Windows entrypoint can be released.
+
 ## References
 
 - [Product model](../product/product-model.md), [Service owner](local-openmeld-service.md), [transport owner](agent-transport-contract.md), [Desktop owner](../clients/desktop.md), [CLI release](../engineering/cli-binary-release.md), [delivery](../engineering/agent-native-delivery.md).

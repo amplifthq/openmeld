@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { gunzipSync } from "node:zlib";
 import type { CliBinaryRelease } from "@openmeld/schemas";
 import { reconstructCliBinaryDelta } from "./cli-binary-delta.js";
+import { verifyWindowsArtifactSignature } from "./windows-artifact-signature.js";
 
 type CommandResult = {
   code: number;
@@ -200,6 +201,29 @@ export async function verifyCliBinaryCodeSignature(input: {
   release: CliBinaryRelease;
   runCommand: (command: string, args: string[]) => Promise<CommandResult>;
 }): Promise<void> {
+  if (process.platform === "win32") {
+    if (!input.release.windows) {
+      throw integrityError(
+        "Windows CLI artifacts must declare their publisher and process helper"
+      );
+    }
+    try {
+      await verifyWindowsArtifactSignature(
+        input.artifactPath,
+        input.release.windows.publisherName
+      );
+    } catch (error) {
+      throw integrityError(
+        `Windows artifact signature verification failed: ${toError(error).message}`
+      );
+    }
+    return;
+  }
+  if (input.release.windows) {
+    throw integrityError(
+      "signed Windows artifact verification requires Windows"
+    );
+  }
   const { codeIdentifier, teamIdentifier } = input.release;
   if (!(codeIdentifier && teamIdentifier)) {
     return;
