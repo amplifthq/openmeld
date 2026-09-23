@@ -31,6 +31,7 @@ import {
   daemonServiceLauncherPath,
   ensureDaemonServiceStableBinaryExecutable,
   readDaemonActiveBundleState,
+  resolveAlignedDaemonActiveBundleEntryPath,
   writeDaemonServiceExecutableWrapper,
   writeDaemonServiceLauncher,
 } from "./daemon-service-bundle";
@@ -63,6 +64,32 @@ const DAEMON_SERVICE_ENV_KEY_WHITELIST = new Set([
   "OPENMELD_USER_FACING_CLI_COMMAND",
   "OPENMELD_CLI_BINARY_MANIFEST_URL",
 ]);
+
+// Start/account admission/repair reuse the selected GUI Service, never a path
+// reconstructed from the installed CLI's version.
+export async function resolveInstalledDaemonSystemServiceCommandSpec(
+  input: Omit<
+    Parameters<typeof buildDaemonSystemServiceCommandSpec>[0],
+    "binaryExecutablePath"
+  >
+): Promise<DaemonServiceCommandSpec> {
+  if (
+    input.controller !== "windows-service" ||
+    (input.distribution ?? resolveOpenMeldDistribution()) !== "binary"
+  ) {
+    return buildDaemonSystemServiceCommandSpec(input);
+  }
+  const executable = await resolveAlignedDaemonActiveBundleEntryPath();
+  if (!executable) {
+    throw new Error(
+      "The installed Windows Service bundle needs repair before it can start."
+    );
+  }
+  return buildDaemonSystemServiceCommandSpec({
+    ...input,
+    binaryExecutablePath: executable,
+  });
+}
 
 export function buildDaemonSystemServiceCommandSpec(input: {
   accountAdmissionId?: string;
@@ -110,6 +137,11 @@ function resolveDaemonServiceExecutable(input: {
   distribution?: OpenMeldDistribution;
 }): { executable: string; specArgs: string[] } {
   if ((input.distribution ?? resolveOpenMeldDistribution()) === "binary") {
+    if (input.controller === "windows-service" && !input.binaryExecutablePath) {
+      throw new Error(
+        "Windows Service registration requires its selected background executable."
+      );
+    }
     // macOS privacy grants identify a bare CLI by its executable path. Keep the
     // launchd carrier at one physical path across upgrades; the prepared,
     // signed version binary is copied there before registration. Other service

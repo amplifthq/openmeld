@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnAgentControllerProcess } from "../../runtime/adapters/core/dist/index.js";
-import { pruneWindowsManagedVersion } from "../../runtime/adapters/core/dist/windows-system.js";
+import { pruneWindowsBinaryBundle } from "../../runtime/adapters/core/dist/windows-system.js";
 import {
   buildBunCompileArgs,
   collectCliBinaryMetadata,
@@ -139,14 +139,26 @@ await writeFile(
   `${commandPath.stdout ?? ""}${commandPath.stderr ?? ""}`
 );
 assert.ifError(commandPath.error);
-assert.equal(commandPath.status, 0, "Native user PATH acceptance failed");
+assert.equal(
+  commandPath.status,
+  0,
+  `Native user PATH acceptance failed: ${commandPath.stdout ?? ""}${commandPath.stderr ?? ""}`
+);
 await exerciseManagedLauncher();
 await exerciseManagedInstallation();
 await exerciseOwnedComponent({
   executable: binaries["windows-native-runtime"].path,
-  args: [binaries["windows-agent-sdk"].path],
+  args: [
+    binaries["windows-agent-sdk"].path,
+    binaries.service.path,
+    binaries.cli.path,
+  ],
   log: "runtime-components.log",
-  stages: ["sqlite_readonly", "claude_sdk_native_protocol"],
+  stages: [
+    "windows_service_subsystem",
+    "sqlite_readonly",
+    "claude_sdk_native_protocol",
+  ],
 });
 const codex = process.env.OPENMELD_TEST_CODEX;
 assert.ok(
@@ -291,7 +303,7 @@ async function exerciseManagedLauncher() {
       cwd: workspace,
     });
     assert.equal(
-      await pruneWindowsManagedVersion(installation, "1.0.0"),
+      await pruneWindowsBinaryBundle(path.join(installation, "versions/1.0.0")),
       "in_use"
     );
     assert.equal(
@@ -344,14 +356,14 @@ async function exerciseManagedLauncher() {
     assert.equal(stderr, "launcher child stderr\n");
     await rm(retired);
     assert.equal(
-      await pruneWindowsManagedVersion(installation, "1.0.0"),
+      await pruneWindowsBinaryBundle(path.join(installation, "versions/1.0.0")),
       "removed"
     );
     const unknown = path.join(installation, "versions/2.0.0");
     await mkdir(unknown);
     await writeFile(path.join(unknown, "not-owned.txt"), "preserve");
     assert.equal(
-      await pruneWindowsManagedVersion(installation, "2.0.0"),
+      await pruneWindowsBinaryBundle(path.join(installation, "versions/2.0.0")),
       "unrecognized"
     );
     assert.equal(

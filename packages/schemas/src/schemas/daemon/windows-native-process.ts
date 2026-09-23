@@ -14,12 +14,8 @@ export const windowsNativeProcessRequestSchema = z.discriminatedUnion(
       binDirectory: text,
     }),
     z.strictObject({
-      operation: z.literal("prune-managed-version"),
-      root: text,
-      version: z
-        .string()
-        .max(128)
-        .regex(/^[0-9][0-9A-Za-z.+-]*$/u),
+      operation: z.literal("prune-binary-bundle"),
+      directory: text,
     }),
     z.strictObject({
       operation: z.literal("identity"),

@@ -138,7 +138,20 @@ describe("real execution Host entry", () => {
         sourcePackageRootPath: dirname(binaryPath),
         sourceDistRootPath: dirname(binaryPath),
         sourceDistFingerprint: createHash("sha256")
-          .update(await readFile(binaryPath))
+          .update(
+            JSON.stringify([
+              createHash("sha256")
+                .update(await readFile(binaryPath))
+                .digest("hex"),
+              createHash("sha256")
+                .update(
+                  await readFile(
+                    join(dirname(binaryPath), "openmeld-windows-process.exe")
+                  )
+                )
+                .digest("hex"),
+            ])
+          )
           .digest("hex"),
         sourceKind: "package_install",
         createdAt: now,

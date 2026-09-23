@@ -18,7 +18,7 @@ const INPUTS = [
   "runtime/adapters/core/native/windows/ProcessJob.cs",
   "runtime/adapters/core/native/windows/ManagedCliLauncher.cs",
   "runtime/adapters/core/native/windows/ManagedCommandPath.cs",
-  "runtime/adapters/core/native/windows/ManagedVersionCleanup.cs",
+  "runtime/adapters/core/native/windows/BinaryBundleCleanup.cs",
   "runtime/adapters/core/native/windows/Program.cs",
   "runtime/adapters/core/native/windows/global.json",
   "scripts/release/build-windows-process-helper.mjs",

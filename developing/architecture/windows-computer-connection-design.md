@@ -166,6 +166,8 @@ Draft PR: https://github.com/amplifthq/openmeld/pull/1267. Production acquisitio
 
 - Installation gate, run [35895813263, attempt 1](https://github.com/amplifthq/openmeld/actions/runs/35895813263), head `6c6d891c3d25dc51893ad699ad4ffbb2f39c4fa7`, checkout `1ce4a55438d5bb5bd94a5ddd25a48a1b53ba5600`: **both jobs failed**. The live-image cleanup case reached the native helper but failed with `UnauthorizedAccessException` before the installer case. A read handle is insufficient to establish that an executable image can be removed; the next correction requests write access without writing, acquiring every companion before deletion. Actual `install-self` acceptance remains pending. Separately, Service process inventory now proved it was killed at its 10-second deadline (`10118ms`, `SIGTERM`, `killed=true`); four other Host cases passed. The next inventory change requests only the three consumed CIM properties and records fixed query stages, retaining the same deadline. Legacy task-host exit 0 again timed out with `EBUSY`; later independent Desktop/signature checks passed. [Artifacts and logs](https://github.com/amplifthq/openmeld/actions/runs/35895813263/artifacts/10766454920).
 
+- Command activation gate, run [35898111397, attempt 1](https://github.com/amplifthq/openmeld/actions/runs/35898111397), head `1ea9ef6c1458bd8be92817c6f330a074e4e70d08`, checkout `0645525e89308575588736d0f64e2cfcb794f6e3`: the actual Service/Host cases passed 5/5 with the narrowed CIM property query. This one pass does not prove every inventory delay repaired. **The artifact job failed earlier at PATH preservation:** both native activation calls returned expected receipts, but the resulting value differed from the synthetic expected PATH. The harness did not retain those compared values, so the precise mismatch is not established. It now retains only synthetic values on failure and constructs Unicode independently of PowerShell 5.1 script encoding. The helper preserves the already-qualified input path instead of allowing `GetFullPath` to rewrite a short profile path. Launcher cleanup and actual installation were not reached. [Artifacts and logs](https://github.com/amplifthq/openmeld/actions/runs/35898111397/artifacts/10768840348).
+
 The carrier and helper have Service feasibility evidence, but the latest required gate is failing. Installation/upgrade recovery, cross-platform production artifact assembly, direct task supervision, Web/Desktop convergence, and ordinary-user Windows acceptance are not complete. The old task-host timeout remains independent and unresolved.
 
 The artifact acquisition batch moved the existing Desktop Authenticode check
@@ -188,6 +190,19 @@ existing command activation lock, excludes custom `OPENMELD_HOME` and developmen
 lanes, and does not require elevation. Native acceptance changes and restores
 only the ephemeral hosted runner's user value, proving repeat activation and
 literal/expandable PATH preservation. This new gate is pending.
+
+The selected Windows Service now requires its own x64 GUI artifact and signed
+companion. One local bundle fingerprint covers both files; the existing update
+job, inventory, and account-admission contracts retain that one fingerprint.
+Start and repair resolve the active Service instead of deriving its executable
+from the CLI version. Maintenance uses an independently copied, verified pair
+under the existing bundle store, keyed by that fingerprint. Existing retention
+also protects binary pending updates and reads Windows worker references from
+the registered task. Whole-bundle Windows cleanup protects mapped old workers;
+unrecognized directories remain untouched. Mac filesystem acceptance proves
+that a complete maintenance copy survives removal of its original Service and
+detects companion corruption; it does not prove native worker self-upgrade or
+Task Scheduler replacement. Direct task supervision remains the next batch.
 
 ## References
 

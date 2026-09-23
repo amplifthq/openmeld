@@ -8,6 +8,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { invokeClaudeAgentSdkTransport } from "../../../../runtime/adapters/claude-code/src/transport/claude-agent-sdk-transport";
 import { readOpenCodeSessionRows } from "../../src/agent-activity/opencode-storage";
+import { verifyWindowsServiceSubsystem } from "../../src/local-service/lifecycle/windows-service-binary";
 
 // Separate compiled component acceptance, complementary to the actual product
 // Service/Host artifact test. This entry is never included in product commands.
@@ -17,6 +18,14 @@ assert.ok(process.env.OPENMELD_HOME);
 console.log(JSON.stringify({ stage: "component_entry", pid: process.pid }));
 const fixture = process.argv[2];
 assert.ok(fixture);
+const service = process.argv[3];
+const cli = process.argv[4];
+assert.ok(service && cli);
+await verifyWindowsServiceSubsystem(service);
+await assert.rejects(verifyWindowsServiceSubsystem(cli), /console-free/u);
+console.log(
+  JSON.stringify({ stage: "windows_service_subsystem", status: "passed" })
+);
 const dbPath = join(process.cwd(), "opencode.db");
 const database = new Database(dbPath, { create: true });
 database.exec(

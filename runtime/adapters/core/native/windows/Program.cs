@@ -32,9 +32,9 @@ static class Program {
         Console.Write(ManagedCommandPath.Activate(Text(request, "binDirectory")));
         return 0;
       }
-      if (operation == "prune-managed-version") {
-        phase = "prune_managed_version";
-        Console.Write(ManagedVersionCleanup.Run(Text(request, "root"), Text(request, "version")));
+      if (operation == "prune-binary-bundle") {
+        phase = "prune_binary_bundle";
+        Console.Write(BinaryBundleCleanup.Run(Text(request, "directory")));
         return 0;
       }
       if (operation == "identity") {

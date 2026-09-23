@@ -19,6 +19,7 @@ import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { pruneWindowsBinaryBundle } from "@openmeld/adapter-core/windows-system";
 import {
   DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
   downloadCliBinaryUpdateArtifact,
@@ -67,10 +68,18 @@ import {
 import { emitDaemonLifecycleEvent } from "./daemon-lifecycle-journal";
 import { resolveDaemonServiceArtifact } from "./daemon-service-artifact";
 import { readPendingDaemonServiceUpdate } from "./daemon-service-update-state";
+import {
+  expectedBinaryServiceFingerprint,
+  hashBinaryServiceBundle,
+  prepareWindowsMaintenanceBinary,
+  verifyWindowsServiceSubsystem,
+  windowsMaintenanceBinaryPath,
+} from "./windows-service-binary";
 
 const DAEMON_ACTIVE_BUNDLE_SCHEMA = "openmeld-daemon-active-bundle-v2";
 const DAEMON_ACTIVE_BUNDLE_LEGACY_SCHEMA = "openmeld-daemon-active-bundle-v1";
 const DAEMON_CLI_ENTRY_NAMES = ["openmeld-dev.js", "openmeld.js"] as const;
+const WINDOWS_MAINTENANCE_BUNDLE_PATTERN = /^maintenance-[0-9a-f]{64}$/u;
 const DAEMON_BUNDLE_SOURCE_KIND_WORKSPACE = "workspace";
 const DAEMON_BUNDLE_SOURCE_KIND_PACKAGE_INSTALL = "package_install";
 const DAEMON_BUNDLE_SOURCE_KIND_NPX_CACHE = "npx_cache";
@@ -332,7 +341,7 @@ export async function resolveInstalledDaemonBundleFingerprint(
       state,
       pathInput
     );
-    return entryPath ? await hashDaemonBinaryFile(entryPath) : null;
+    return entryPath ? await hashBinaryServiceBundle(entryPath) : null;
   }
   if (state?.bundleFormat === "self_contained_v1") {
     const bundleRootPath = resolveDaemonBundleRootPath(
@@ -364,6 +373,13 @@ export async function resolveDaemonBundleEntryPathFromState(
     return null;
   }
   if (state.bundleFormat === "binary_v1") {
+    // Only macOS uses a stable physical carrier for privacy grants. Windows
+    // Task Scheduler names the complete immutable GUI bundle directly.
+    if (process.platform === "win32") {
+      return (await pathExists(state.sourceEntryScriptPath))
+        ? state.sourceEntryScriptPath
+        : null;
+    }
     const stableExecutablePath = daemonServiceBinaryExecutablePath(pathInput);
     if (await pathExists(stableExecutablePath)) {
       return stableExecutablePath;
@@ -480,11 +496,8 @@ async function prepareNodeDaemonServiceBundle(input: {
   return nextState;
 }
 
-// Binary distribution: the daemon runs this same binary via `service run`, so
-// there is no dist copy or node_modules dependency closure. Anchor the daemon
-// to the managed install (versions/<version>/openmeld) and record a binary_v1
-// active-bundle state (path fields kept non-empty for the read whitelist). No
-// launcher/wrapper is generated; command-spec points straight at the binary.
+// A selected binary Service owns its complete bundle. macOS may also use the
+// same-version CLI; Windows requires the separately built GUI carrier.
 async function prepareBinaryDaemonServiceBundle(input: {
   daemonVersion: string;
   binaryRelease?: CliBinaryReleaseInfo;
@@ -494,16 +507,20 @@ async function prepareBinaryDaemonServiceBundle(input: {
   const binaryRelease =
     input.binaryRelease ??
     (bundledRelease?.version === daemonVersion ? bundledRelease : undefined);
-  if (daemonVersion !== resolveCliSelfVersion()) {
+  if (
+    process.platform === "win32" ||
+    daemonVersion !== resolveCliSelfVersion()
+  ) {
     const active = await readDaemonActiveBundleState();
     if (
       active?.bundleFormat === "binary_v1" &&
       active.daemonVersion === daemonVersion &&
       active.sourceDistFingerprint &&
       (!binaryRelease ||
-        binaryRelease.sha256 === active.sourceDistFingerprint) &&
+        expectedBinaryServiceFingerprint(binaryRelease) ===
+          active.sourceDistFingerprint) &&
       (await pathExists(active.sourceEntryScriptPath)) &&
-      (await hashDaemonBinaryFile(active.sourceEntryScriptPath)) ===
+      (await hashBinaryServiceBundle(active.sourceEntryScriptPath)) ===
         active.sourceDistFingerprint
     ) {
       return active;
@@ -514,6 +531,11 @@ async function prepareBinaryDaemonServiceBundle(input: {
       daemonVersion,
       release: binaryRelease,
     });
+  }
+  if (process.platform === "win32") {
+    throw new Error(
+      "OpenMeld needs the selected Windows background Service artifact. The console CLI cannot replace it."
+    );
   }
   if (daemonVersion !== resolveCliSelfVersion()) {
     throw new Error(
@@ -566,7 +588,17 @@ async function prepareSelectedBinaryDaemonServiceBundle(input: {
   }
   const bundleId = createBundleId(input.daemonVersion);
   const bundleRootPath = resolveDaemonBundleRootPath(bundleId);
-  const executablePath = join(bundleRootPath, "openmeld");
+  const windows = input.release.platform.startsWith("windows-");
+  if (
+    process.platform === "win32" &&
+    input.release.platform !== "windows-x64"
+  ) {
+    throw new Error(
+      "The selected Service release is not a Windows x64 artifact."
+    );
+  }
+  const executableName = windows ? "openmeld.exe" : "openmeld";
+  const executablePath = join(bundleRootPath, executableName);
   const onDeltaFallback = (error: Error): void => {
     console.warn("[openmeld.service.artifact_delta_fallback]", error.message);
   };
@@ -602,6 +634,17 @@ async function prepareSelectedBinaryDaemonServiceBundle(input: {
       downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
       fetchImpl: fetch,
     });
+    if (windows) {
+      await verifyWindowsServiceSubsystem(executablePath);
+    }
+    if (
+      (await hashBinaryServiceBundle(executablePath, windows)) !==
+      expectedBinaryServiceFingerprint(input.release)
+    ) {
+      throw new Error(
+        "The prepared Service bundle does not match the selected release."
+      );
+    }
   } catch (error) {
     await rm(bundleRootPath, { recursive: true, force: true });
     throw error;
@@ -612,12 +655,12 @@ async function prepareSelectedBinaryDaemonServiceBundle(input: {
     schema: DAEMON_ACTIVE_BUNDLE_SCHEMA,
     bundleId,
     daemonVersion: input.daemonVersion,
-    entryScriptRelativePath: "openmeld",
+    entryScriptRelativePath: executableName,
     bundleFormat: "binary_v1",
     sourceEntryScriptPath: executablePath,
     sourcePackageRootPath: bundleRootPath,
     sourceDistRootPath: bundleRootPath,
-    sourceDistFingerprint: input.release.sha256.toLowerCase(),
+    sourceDistFingerprint: expectedBinaryServiceFingerprint(input.release),
     sourceKind: DAEMON_BUNDLE_SOURCE_KIND_PACKAGE_INSTALL,
     createdAt: now,
     updatedAt: now,
@@ -740,6 +783,16 @@ export async function ensureDaemonServiceUpdateWorkerBinaryExecutable(
       "OpenMeld cannot prepare the update worker binary without a binary Service bundle."
     );
   }
+  if (process.platform === "win32") {
+    return await runAuditedServiceManagerCarrierMutation({
+      distribution: "binary",
+      operation: "prepare_windows_maintenance_bundle",
+      pathInput,
+      targetPath: windowsMaintenanceBinaryPath(preparedBundle, pathInput),
+      run: async () =>
+        await prepareWindowsMaintenanceBinary(preparedBundle, pathInput),
+    });
+  }
   return await ensureVerifiedBinaryCarrier({
     bundle: preparedBundle,
     operationName: "update_worker_binary",
@@ -751,6 +804,24 @@ export async function ensureDaemonServiceUpdateWorkerBinaryExecutable(
 export async function clearDaemonServiceUpdateWorkerBinaryExecutable(
   pathInput: OpenMeldPathResolutionInput = {}
 ): Promise<void> {
+  if (process.platform === "win32") {
+    for (const bundleId of await readDirectoryNames(
+      daemonRuntimeBundlesPath(pathInput)
+    )) {
+      if (!WINDOWS_MAINTENANCE_BUNDLE_PATTERN.test(bundleId)) {
+        continue;
+      }
+      const targetPath = resolveDaemonBundleRootPath(bundleId, pathInput);
+      await runAuditedServiceManagerCarrierMutation({
+        distribution: "binary",
+        operation: "remove_windows_maintenance_bundle",
+        pathInput,
+        targetPath,
+        run: async () => await pruneWindowsBinaryBundle(targetPath),
+      });
+    }
+    return;
+  }
   const targetPath = daemonServiceUpdateWorkerBinaryPath(pathInput);
   await runAuditedServiceManagerCarrierMutation({
     distribution: "binary",
@@ -1051,22 +1122,26 @@ export async function cleanupInactiveDaemonServiceBundles(
     ...(serviceContract?.bundleId ? [serviceContract.bundleId] : []),
     ...(runtimeLease?.bundleId ? [runtimeLease.bundleId] : []),
     ...registeredWorkerBundleIds,
-    ...(pendingUpdate?.preparedBundle.bundleFormat === "self_contained_v1"
+    ...(pendingUpdate?.preparedBundle.bundleFormat !== "legacy_linked_v1" &&
+    pendingUpdate
       ? [pendingUpdate.preparedBundle.bundleId]
       : []),
     ...(input.retainBundleIds ?? []),
   ]);
   const bundleEntries = await readDirectoryNames(daemonRuntimeBundlesPath());
-  await Promise.all(
-    bundleEntries
-      .filter((bundleId) => !retain.has(bundleId))
-      .map(async (bundleId) => {
-        await rm(resolveDaemonBundleRootPath(bundleId), {
-          recursive: true,
-          force: true,
-        });
-      })
-  );
+  for (const bundleId of bundleEntries) {
+    if (retain.has(bundleId)) {
+      continue;
+    }
+    const directory = resolveDaemonBundleRootPath(bundleId);
+    if (process.platform === "win32") {
+      // Includes independent maintenance copies. The kernel protects a still
+      // running old worker after the registration selects its replacement.
+      await pruneWindowsBinaryBundle(directory);
+    } else {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
 }
 
 async function resolveDaemonBundleSourceProvenance(

@@ -48,6 +48,7 @@ import {
   type DaemonServiceUpdateJob,
   readPendingDaemonServiceUpdate,
 } from "./daemon-service-update-state";
+import { windowsMaintenanceBinaryPath } from "./windows-service-binary";
 import {
   runWindowsUserTask,
   windowsPowerShellPath,
@@ -462,8 +463,12 @@ export async function buildDaemonServiceUpdateWorkerSpec(
       job.preparedBundle.bundleFormat === "binary_v1" ? "binary" : "npm",
   });
   const binaryDistribution = job.preparedBundle.bundleFormat === "binary_v1";
+  const binaryWorkerPath =
+    process.platform === "win32" && binaryDistribution
+      ? windowsMaintenanceBinaryPath(job.preparedBundle, pathInput)
+      : daemonServiceUpdateWorkerBinaryPath(pathInput);
   const targetEntryPath = binaryDistribution
-    ? daemonServiceUpdateWorkerBinaryPath(pathInput)
+    ? binaryWorkerPath
     : daemonServiceUpdateWorkerNpmEntryPath(pathInput);
   if (!targetEntryPath) {
     throw new Error(

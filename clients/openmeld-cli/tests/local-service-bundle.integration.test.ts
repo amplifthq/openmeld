@@ -41,11 +41,61 @@ import {
 } from "../src/local-service/lifecycle/daemon-service-bundle";
 import { ensureDaemonSystemServiceCommandFiles } from "../src/local-service/lifecycle/daemon-service-command-spec";
 import { persistPendingDaemonServiceUpdate } from "../src/local-service/lifecycle/daemon-service-update-state";
+import {
+  hashBinaryServiceBundle,
+  prepareWindowsMaintenanceBinary,
+} from "../src/local-service/lifecycle/windows-service-binary";
 import { withTempHome } from "./helpers/fs";
 
 const SHA256_HEX_RE = /^[a-f0-9]{64}$/u;
 
 describe("installed Service artifact independence", () => {
+  it("retains an independent complete Windows maintenance copy when its Service source disappears", async () => {
+    await withTempHome(async (home) => {
+      const source = join(home, "windows-source");
+      await mkdir(source);
+      const executable = join(source, "openmeld.exe");
+      const helper = "openmeld-windows-process.exe";
+      await writeFile(executable, "service image fixture");
+      await writeFile(join(source, helper), "native companion fixture");
+      const sourceDistFingerprint = await hashBinaryServiceBundle(
+        executable,
+        true
+      );
+      const now = new Date().toISOString();
+      const bundle = {
+        v: 2 as const,
+        schema: "openmeld-daemon-active-bundle-v2" as const,
+        bundleId: "windows-fixture",
+        daemonVersion: "1.2.3",
+        entryScriptRelativePath: "openmeld.exe",
+        bundleFormat: "binary_v1" as const,
+        sourceEntryScriptPath: executable,
+        sourcePackageRootPath: source,
+        sourceDistRootPath: source,
+        sourceDistFingerprint,
+        sourceKind: "package_install" as const,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const maintenance = await prepareWindowsMaintenanceBinary(bundle);
+      expect(maintenance).not.toBe(executable);
+      expect((await lstat(maintenance)).isSymbolicLink()).toBe(false);
+      await rm(source, { recursive: true });
+      expect(await prepareWindowsMaintenanceBinary(bundle)).toBe(maintenance);
+      expect(await readFile(maintenance, "utf8")).toBe("service image fixture");
+      expect(await readFile(join(dirname(maintenance), helper), "utf8")).toBe(
+        "native companion fixture"
+      );
+      await writeFile(
+        join(dirname(maintenance), helper),
+        "corrupted companion"
+      );
+      expect(await hashBinaryServiceBundle(maintenance, true)).not.toBe(
+        sourceDistFingerprint
+      );
+    });
+  });
   it("keeps a copied Service valid after its source CLI changes, but detects installed corruption", async () => {
     await withTempHome(async () => {
       const fixture = await createDaemonBundleFixture("package_install");

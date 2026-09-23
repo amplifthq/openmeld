@@ -1,18 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text.RegularExpressions;
 
 // Windows cannot unlink a live image like POSIX. Acquire the entire known
 // bundle before removing any file, excluding new readers/launches until done.
 // The installer holds its transaction lock and has already protected current,
 // rollback, active Service, and pending worker versions.
-static class ManagedVersionCleanup {
-  internal static string Run(string root, string version) {
-    if (!Path.IsPathFullyQualified(root) || version.Length > 128 ||
-        !Regex.IsMatch(version, @"\A[0-9][0-9A-Za-z.+-]*\z", RegexOptions.CultureInvariant))
-      throw new ArgumentException("Invalid managed installation path");
-    string directory = Path.Combine(root, "versions", version);
+static class BinaryBundleCleanup {
+  internal static string Run(string directory) {
+    if (!Path.IsPathFullyQualified(directory))
+      throw new ArgumentException("Invalid binary bundle path");
     if (!Directory.Exists(directory)) return "absent";
     if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
       throw new IOException("Managed version is a reparse point");

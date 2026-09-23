@@ -72,14 +72,12 @@ export async function activateWindowsManagedCommand(
 }
 
 /** Kernel sharing rules keep a live CLI and its helper together during pruning. */
-export async function pruneWindowsManagedVersion(
-  root: string,
-  version: string
+export async function pruneWindowsBinaryBundle(
+  directory: string
 ): Promise<"removed" | "absent" | "in_use" | "unrecognized"> {
   const request = windowsNativeProcessRequestSchema.parse({
-    operation: "prune-managed-version",
-    root,
-    version,
+    operation: "prune-binary-bundle",
+    directory,
   });
   const { stdout } = await promisify(execFile)(
     resolveWindowsNativeProcessHelper(),

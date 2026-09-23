@@ -1,12 +1,11 @@
 import { constants as fsConstants } from "node:fs";
 import { access, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
-import { pruneWindowsManagedVersion } from "@openmeld/adapter-core/windows-system";
+import { pruneWindowsBinaryBundle } from "@openmeld/adapter-core/windows-system";
 import {
   type OpenMeldPathResolutionInput,
   openMeldManagedBinaryName,
   openMeldVersionsDir,
-  resolveOpenMeldRootDir,
 } from "../config/paths";
 import { compareSemver } from "../config/version-state";
 
@@ -75,10 +74,7 @@ export async function pruneManagedVersions(input: {
       continue;
     }
     if (process.platform === "win32") {
-      await pruneWindowsManagedVersion(
-        resolveOpenMeldRootDir(input.pathInput),
-        version
-      );
+      await pruneWindowsBinaryBundle(path.join(versionsDir, version));
     } else {
       await rm(path.join(versionsDir, version), { recursive: true });
     }

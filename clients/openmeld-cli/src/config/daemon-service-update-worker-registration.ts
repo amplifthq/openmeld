@@ -273,6 +273,25 @@ async function readDaemonServiceUpdateWorkerRegistration(
   pathInput: OpenMeldPathResolutionInput,
   platform: NodeJS.Platform
 ): Promise<string | null> {
+  if (platform === "win32") {
+    const { runWindowsUserTask, readWindowsTaskAction } = await import(
+      "../local-service/lifecycle/windows-user-task"
+    );
+    const task = await runWindowsUserTask({
+      name: resolveDaemonServiceUpdateWorkerIdentity(pathInput)
+        .windowsServiceName,
+      legacyScript:
+        resolveDaemonServiceUpdateWorkerWindowsScriptPath(pathInput),
+      operation: "status",
+    });
+    if (task.actionArguments) {
+      const action = readWindowsTaskAction(task.actionArguments);
+      return [action.executable, ...action.args].join("\n");
+    }
+    if (!task.legacy) {
+      return null;
+    }
+  }
   const registrationPath = resolveDaemonServiceUpdateWorkerRegistrationPath(
     pathInput,
     platform
