@@ -601,6 +601,18 @@ Space delivery, `conversationKind = "slack"` with the Slack thread locator, or
 `conversationKind = "message_channel"` with the frozen Feishu/Lark locator.
 Exactly one is the user-visible result surface.
 
+Each newly claimed Run has a separate Remote Agent execution conversation
+derived from its Organization, executing Agent Profile, and Run id. The frozen
+Space or channel destination remains the publication address and an authorized,
+explicit source for relevant context reads; its accumulated conversation is not
+the Run's implicit execution history. Retries and continuations of the same Run
+keep the persisted execution conversation, while a later occurrence gets a new
+one. Existing Routine definitions need no migration. Recovery of already
+submitted Runs keeps the exact durable worker request and never silently
+changes its conversation identity. A Run whose own execution history exceeds
+the runtime safety limit fails explicitly; it must not use destination messages
+as rollover continuity or start an unverified second execution.
+
 Each occurrence causes one initial Center Agent execution. It may also cause
 explicit delegated Agent executions and at most one resumed Center Agent
 execution when the initial turn registered

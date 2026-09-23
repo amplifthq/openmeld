@@ -2069,6 +2069,10 @@ feature/docs branch that will not publish.
 
 ## Desktop Preview Release Workflow
 
+For the current promoted source and version on each platform, use the read-only
+[Desktop release status](production-release.md#desktop-release-coverage) before
+selecting a candidate.
+
 Authorized production previews use a shareable public page at
 `/desktop?candidate=<dmg-sha256>` and an immutable candidate download URL without
 changing the default update channel. The plain `/desktop` page is the stable

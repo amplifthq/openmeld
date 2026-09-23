@@ -2657,9 +2657,12 @@ physical computer; it must never silently move a draft to another computer.
 **Create Agent** opens the full-width `/o/:orgSlug/new-agent` view so reload,
 back, and forward preserve the user's location. Space, People, and other compact
 entry points use the dialog composition. Both surfaces use the same creation
-controller and generator components: **Choose a Local Agent** always presents
-Codex, Claude Code, Grok Build, OpenCode, Antigravity, and Cursor in that order,
-and **Remote Agent** is disabled with **Coming soon**. The complete catalog is
+request contract. The global page first asks whether the Agent runs locally or
+remotely and whether to start a Direct Message or add it to an existing joined
+Space. Local selection loads the existing local creation generator; Remote
+selection reads the hosted model catalog without loading Computer setup or
+local Agent readiness. **Choose a Local Agent** always presents Codex, Claude
+Code, Grok Build, OpenCode, Antigravity, and Cursor in that order. The complete catalog is
 visible and selectable even when a Local Agent is not installed, is disabled,
 is signed out, or has not finished checking. Selecting one is an inspection
 choice; only the existing canonical eligibility projection can provide the
@@ -5299,12 +5302,18 @@ create new truth.
 
 ## Setup Handoff Entry
 
-The final Agent creation action may return to Agents before Core acknowledges
-the request. Its local card is a presentation intent, never an Agent identity
-or Wakeability verdict. Keep the unacknowledged idempotency key across that
-route change, replace the local card on acceptance, and make failed local
-cards dismissible. Completion may select the real Agent only while the member
-is still following that request; it must not interrupt later navigation.
+The global Agent creation page presents an immediate local sending state, then
+tracks the exact durable Core request by ID. It retains an unacknowledged
+idempotency key across reload and reuses it for the same intent. The status
+steps show only confirmed request, identity, and setup milestones; they do not
+infer Wakeability. A completed self-request opens the canonical Agent Direct
+Message by default, or the requested Space after membership completes. The
+page does not wait for Team directory refresh before navigation and does not
+interrupt someone who has already left it. Creation history remains available
+for approval, failure, and recovery. A Local custom working folder stays with
+the idempotent creation intent until the exact accepted request is known; on
+reload, the same-tab draft is restored before final setup. Other compact
+creation entry points keep the same durable request and local intent semantics.
 
 Confirmed Space deletion intent immediately closes settings and opens Browse
 Spaces. Keep only the affected Space absent from list caches while the write
