@@ -2081,6 +2081,21 @@ After review, protected merge, and selection of the exact release SHA:
 
 1. Use a clean checkout at that merged SHA and fetch `origin/main`. Export
    `OPENMELD_DESKTOP_RELEASE_SHA` as that full commit hash.
+   Before the renderer build or signing, run the read-only publisher check with
+   `openmeld-release/prd` credentials:
+
+   ```sh
+   doppler --silent run --project openmeld-release --config prd --only-secrets CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN --no-fallback -- node scripts/release/desktop-publisher.mjs
+   ```
+
+   It confirms the selected account and Desktop bucket with the named release
+   token. This read check does not prove upload permission. Upload and promotion
+   require the same named token and pass it to Wrangler as `CLOUDFLARE_API_TOKEN`;
+   neither command falls back to local Wrangler OAuth. Run those commands under
+   the same Doppler wrapper, replacing the command after `--`. The production
+   package entry repeats the read-only check before build and signing, then
+   removes the Cloudflare credentials from its signing child process.
+
 2. Run `pnpm desktop:package:production-preview` once. The installed pipeline
    owns the production renderer artifact check: it builds or reuses the exact
    renderer and runs the Workerd SSR check. Do not run a separate manual Web

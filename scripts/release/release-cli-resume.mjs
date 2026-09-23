@@ -457,6 +457,14 @@ export async function waitForNpmPropagation(input) {
       npm.action !== "RUN" ||
       npm.criterion !== "npm-target-version-missing"
     ) {
+      if (
+        npm.action === "SKIP" &&
+        npm.criterion === "npm-artifact-consumable"
+      ) {
+        input.write(
+          "\n[release:cli] npm availability — CONFIRMED: the exact published package is downloadable and verified. Final R2/npm/Core alignment remains to be checked.\n"
+        );
+      }
       break;
     }
   }

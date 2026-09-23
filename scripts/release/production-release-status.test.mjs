@@ -44,6 +44,8 @@ const FULL_PENDING_SCOPES_REGEX =
 const PUSH_GUARD_FAILURE_REGEX = /Historical Push Guard: failure/u;
 const FULL_RELEASE_RECOMMENDATION_REGEX =
   /CLI Release owns the CLI and required Core projection; Scoped Production Release inputs are separate: database, web, gateway, auth, remote-agent/u;
+const PLANNED_WEB_STAGE = /Receipt-based pending train: web/u;
+const PLANNING_ONLY = /Planning snapshot only/u;
 const DATABASE_RELEASE_RECOMMENDATION_REGEX =
   /Scoped Production Release input: database/u;
 const EXTERNAL_VALIDATION_REGEX =
@@ -325,10 +327,45 @@ test("parses the read-only remote release status command", () => {
       changeBase: undefined,
       deployed: new Map([["web", WEB_SHA]]),
       json: true,
+      planStage: undefined,
       ref: "origin/main",
       repo: "amplifthq/openmeld",
     }
   );
+});
+
+test("one status read can plan a stage without collecting release history again", async () => {
+  let reads = 0;
+  let output = "";
+  const code = await runProductionReleaseStatus({
+    argv: ["--ref", SOURCE_SHA, "--plan-stage", "web"],
+    collectStatus: () => {
+      reads += 1;
+      return {
+        blockers: [],
+        sourceValidationBlockers: [],
+        sourceSha: SOURCE_SHA,
+        components: [
+          {
+            scope: "web",
+            state: "pending",
+            compatibilityDependencies: [],
+          },
+        ],
+        history: { complete: true, runCount: 1, pagesRead: 1, issues: [] },
+        repo: "amplifthq/openmeld",
+        ref: SOURCE_SHA,
+        globalPendingScopes: ["web"],
+      };
+    },
+    write: (value) => {
+      output += value;
+    },
+  });
+  assert.equal(code, 0);
+  assert.equal(reads, 1);
+  assert.match(output, PLANNED_WEB_STAGE);
+  assert.match(output, PLANNING_ONLY);
 });
 
 test("separates the exact current-change scopes from the global deployment backlog", async () => {

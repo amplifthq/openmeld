@@ -54,6 +54,7 @@ export function parseProductionReleaseStatusArgs(argv) {
     changeBase: undefined,
     deployed: new Map(),
     json: false,
+    planStage: undefined,
     ref: DEFAULT_REF,
     repo: undefined,
   };
@@ -62,19 +63,15 @@ export function parseProductionReleaseStatusArgs(argv) {
     if (arg === "--") {
       continue;
     }
-    if (arg === "--ref") {
+    const valueOption = {
+      "--ref": "ref",
+      "--change-base": "changeBase",
+      "--repo": "repo",
+      "--plan-stage": "planStage",
+    }[arg];
+    if (valueOption) {
       index += 1;
-      options.ref = readRequiredArgument(argv, index, arg);
-      continue;
-    }
-    if (arg === "--change-base") {
-      index += 1;
-      options.changeBase = readRequiredArgument(argv, index, arg);
-      continue;
-    }
-    if (arg === "--repo") {
-      index += 1;
-      options.repo = readRequiredArgument(argv, index, arg);
+      options[valueOption] = readRequiredArgument(argv, index, arg);
       continue;
     }
     if (arg === "--deployed") {
@@ -116,14 +113,33 @@ export function resolveLatestSuccessfulReleaseSources(input) {
 }
 
 export async function runProductionReleaseStatus(input = {}) {
-  const result = await collectProductionReleaseStatus(input);
   const options = parseProductionReleaseStatusArgs(input.argv ?? []);
+  if (options.json && options.planStage) {
+    throw new Error("--plan-stage uses human output; omit --json.");
+  }
+  const result = await (input.collectStatus ?? collectProductionReleaseStatus)(
+    input
+  );
   const write = input.write ?? ((value) => process.stdout.write(value));
   write(
     options.json
       ? `${JSON.stringify(result, null, 2)}\n`
       : formatReleaseStatus(result)
   );
+  if (options.planStage) {
+    const { runProductionStageAdmission } = await import(
+      "./production-stage-admission.mjs"
+    );
+    await runProductionStageAdmission({
+      collectStatus: () => result,
+      scope: options.planStage,
+      sourceSha: result.sourceSha,
+      write,
+    });
+    write(
+      "Planning snapshot only. The guarded release entrypoint rechecks current state and its lease before any Production mutation.\n"
+    );
+  }
   return result.blockers.length > 0 ? 1 : 0;
 }
 
