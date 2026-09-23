@@ -3,8 +3,9 @@ import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { windowsProcessArtifactSchema } from "../../packages/schemas/src/schemas/release/windows-process-artifact.ts";
+import { WINDOWS_PROCESS_HELPER_FILENAME } from "../../packages/schemas/src/windows-artifact.ts";
 
-export const WINDOWS_PROCESS_FILE = "openmeld-windows-process.exe";
+export const WINDOWS_PROCESS_FILE = WINDOWS_PROCESS_HELPER_FILENAME;
 export const WINDOWS_PROCESS_MANIFEST = "windows-process-artifact.json";
 const ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),

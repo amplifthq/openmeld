@@ -1,10 +1,13 @@
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { verifyWindowsProcessArtifact } from "../../../scripts/release/windows-process-artifact.mjs";
+import {
+  verifyWindowsProcessArtifact,
+  WINDOWS_PROCESS_FILE,
+} from "../../../scripts/release/windows-process-artifact.mjs";
 
 const cli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const name = "openmeld-windows-process.exe";
+const name = WINDOWS_PROCESS_FILE;
 const source = path.resolve(cli, "../../cli/dist", name);
 if (existsSync(source)) {
   verifyWindowsProcessArtifact(

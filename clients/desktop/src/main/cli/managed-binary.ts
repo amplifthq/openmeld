@@ -7,6 +7,7 @@ import {
   type CliBinaryDownloadProgress,
   DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
   downloadCliBinaryUpdateArtifact,
+  prepareCliBinaryProcessHelper,
   resolveFullCliBinaryUpdatePlan,
   verifyCliBinaryCodeSignature,
 } from "@openmeld/local-service/cli-binary-update-artifact";
@@ -99,7 +100,10 @@ export async function installManagedBinary(
     );
   }
   const plan = resolveFullCliBinaryUpdatePlan(release);
-  if (new URL(plan.downloadUrl).origin !== manifestUrl.origin) {
+  if (
+    new URL(plan.downloadUrl).origin !== manifestUrl.origin ||
+    new URL(release.url).origin !== manifestUrl.origin
+  ) {
     throw new Error("OpenMeld Tools returned an unexpected download location.");
   }
   reportStage("downloading");
@@ -140,6 +144,12 @@ export async function installManagedBinary(
           };
         }
       },
+    });
+    await prepareCliBinaryProcessHelper({
+      artifactPath,
+      release,
+      downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
+      fetchImpl: (input, init) => fetch(input, { ...init, redirect: "error" }),
     });
     // No npm, shell, or GUI-owned Service installation. Never force a downgrade.
     reportStage("installing");

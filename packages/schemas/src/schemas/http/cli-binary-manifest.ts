@@ -1,5 +1,5 @@
 import * as z from "zod/v4";
-import { windowsPublisherNameSchema } from "../../windows-artifact";
+import { windowsPublisherNameSchema } from "../../windows-artifact.ts";
 
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/u;
 

@@ -14,7 +14,10 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildMacOsKeychainAddon } from "../../clients/openmeld-cli/scripts/build-macos-keychain-addon.mjs";
 import { cliBinaryServiceReleaseSchema } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
-import { verifyWindowsProcessArtifact } from "./windows-process-artifact.mjs";
+import {
+  verifyWindowsProcessArtifact,
+  WINDOWS_PROCESS_FILE,
+} from "./windows-process-artifact.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
@@ -156,7 +159,7 @@ export function buildCliBinary(input = {}) {
     buildMacOsKeychainAddon({ env: process.env, platform: "darwin" });
   }
   if (platform.startsWith("windows-")) {
-    const name = "openmeld-windows-process.exe";
+    const name = WINDOWS_PROCESS_FILE;
     const helper = path.join(resolveDefaultCliBinaryOutDir(), name);
     if (!existsSync(helper)) {
       throw new Error(

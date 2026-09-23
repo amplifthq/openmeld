@@ -7,6 +7,7 @@ import {
   type CliBinaryUpdatePlan,
   DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
   downloadCliBinaryUpdateArtifact,
+  prepareCliBinaryProcessHelper,
   resolveCliBinaryUpdatePlan,
   verifyCliBinaryCodeSignature,
 } from "@openmeld/local-service/cli-binary-update-artifact";
@@ -891,6 +892,12 @@ async function installLatestCliBinary(input: {
       artifactPath,
       release: input.release,
       runCommand,
+    });
+    await prepareCliBinaryProcessHelper({
+      artifactPath,
+      release: input.release,
+      downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
+      fetchImpl: fetch,
     });
 
     const installResult = await runCommand(artifactPath, [

@@ -22,6 +22,7 @@ import { promisify } from "node:util";
 import {
   DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
   downloadCliBinaryUpdateArtifact,
+  prepareCliBinaryProcessHelper,
   resolveCliBinaryUpdatePlan,
   verifyCliBinaryCodeSignature,
 } from "@openmeld/local-service/cli-binary-update-artifact";
@@ -594,6 +595,12 @@ async function prepareSelectedBinaryDaemonServiceBundle(input: {
         });
         return { code: 0, stdout: result.stdout, stderr: result.stderr };
       },
+    });
+    await prepareCliBinaryProcessHelper({
+      artifactPath: executablePath,
+      release: input.release,
+      downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
+      fetchImpl: fetch,
     });
   } catch (error) {
     await rm(bundleRootPath, { recursive: true, force: true });

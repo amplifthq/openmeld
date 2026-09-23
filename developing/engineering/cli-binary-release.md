@@ -51,8 +51,10 @@ node scripts/release/build-cli-binary.mjs
   rejected on another platform and cannot be combined with Apple signing
   identity. The shared native Authenticode verifier is used by CLI acquisition
   and Desktop updates; missing Windows publisher metadata is an integrity
-  failure, not permission to run an unsigned binary. Companion download and
-  managed activation remain under implementation and are not a release claim.
+  failure, not permission to run an unsigned binary. Companion acquisition
+  reuses the existing bounded download policy and verifies the same publisher
+  before installation. The caller owns the disposable directory and failure
+  cleanup. Managed activation remains under implementation and is not a release claim.
 - The binary distribution marker is injected at compile time by `bun build --compile`.
 - Release builds minify bundled code while preserving function and class names
   for diagnostics. This reduces the current executable by about 4.4 MiB and

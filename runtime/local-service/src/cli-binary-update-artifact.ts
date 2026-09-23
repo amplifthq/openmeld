@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import type { CliBinaryRelease } from "@openmeld/schemas";
+import {
+  type CliBinaryRelease,
+  WINDOWS_PROCESS_HELPER_FILENAME,
+} from "@openmeld/schemas";
 import { reconstructCliBinaryDelta } from "./cli-binary-delta.js";
 import { verifyWindowsArtifactSignature } from "./windows-artifact-signature.js";
 
@@ -194,6 +198,50 @@ export async function downloadCliBinaryUpdateArtifact(input: {
     plan: input.plan,
     recovery,
   });
+}
+
+/** Prepare the Windows companion in the caller's disposable artifact directory. */
+export async function prepareCliBinaryProcessHelper(input: {
+  artifactPath: string;
+  downloadPolicy: CliBinaryDownloadPolicy;
+  fetchImpl: typeof fetch;
+  release: CliBinaryRelease;
+}): Promise<void> {
+  const windows = input.release.windows;
+  if (!windows) {
+    if (process.platform === "win32") {
+      throw integrityError(
+        "Windows CLI artifacts must declare their process helper"
+      );
+    }
+    return;
+  }
+  if (process.platform !== "win32") {
+    throw integrityError("Windows artifact preparation requires Windows");
+  }
+  if (
+    new URL(windows.processHelper.url).origin !==
+    new URL(input.release.url).origin
+  ) {
+    throw integrityError(
+      "Windows process helper returned an unexpected download location"
+    );
+  }
+  const bytes = await downloadCliBinaryUpdateArtifact({
+    downloadPolicy: input.downloadPolicy,
+    fetchImpl: input.fetchImpl,
+    release: windows.processHelper,
+    plan: resolveFullCliBinaryUpdatePlan(windows.processHelper),
+    onDeltaFallback: () => {
+      /* The small helper always uses a complete artifact. */
+    },
+  });
+  const helperPath = join(
+    dirname(input.artifactPath),
+    WINDOWS_PROCESS_HELPER_FILENAME
+  );
+  await writeFile(helperPath, bytes, { mode: 0o700, flag: "wx" });
+  await verifyWindowsArtifactSignature(helperPath, windows.publisherName);
 }
 
 export async function verifyCliBinaryCodeSignature(input: {

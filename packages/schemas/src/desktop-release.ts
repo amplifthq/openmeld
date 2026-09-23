@@ -1,5 +1,5 @@
 import * as z from "zod/v4";
-import { windowsPublisherNameSchema } from "./windows-artifact";
+import { windowsPublisherNameSchema } from "./windows-artifact.ts";
 
 export const desktopCandidateIdSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 export const desktopVersionSchema = z

@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -7,8 +8,13 @@ import {
   powerShellEncodedArguments,
   resolveWindowsPowerShellPath,
 } from "@openmeld/adapter-core/windows-system";
-import { verifyCliBinaryCodeSignature } from "@openmeld/local-service/cli-binary-update-artifact";
+import {
+  DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
+  prepareCliBinaryProcessHelper,
+  verifyCliBinaryCodeSignature,
+} from "@openmeld/local-service/cli-binary-update-artifact";
 import { verifyWindowsArtifactSignature } from "@openmeld/local-service/windows-artifact-signature";
+import { WINDOWS_PROCESS_HELPER_FILENAME } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -80,6 +86,40 @@ $s = Microsoft.PowerShell.Security\Get-AuthenticodeSignature -LiteralPath (Join-
       ).rejects.toThrow();
       const root = await mkdtemp(join(tmpdir(), "OpenMeld unsigned 中文 & "));
       try {
+        const bytes = await readFile(system);
+        const helper = {
+          ...artifact,
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+          sizeBytes: bytes.length,
+        };
+        const companionInput = {
+          artifactPath: join(root, "openmeld.exe"),
+          downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
+          fetchImpl: async () => new Response(new Uint8Array(bytes)),
+          release: {
+            ...artifact,
+            windows: {
+              publisherName: signed.publisherName,
+              processHelper: helper,
+            },
+          },
+        };
+        await prepareCliBinaryProcessHelper(companionInput);
+        expect(
+          await readFile(join(root, WINDOWS_PROCESS_HELPER_FILENAME))
+        ).toEqual(bytes);
+        await expect(
+          prepareCliBinaryProcessHelper({
+            ...companionInput,
+            release: {
+              ...companionInput.release,
+              windows: {
+                ...companionInput.release.windows,
+                processHelper: { ...helper, sha256: "0".repeat(64) },
+              },
+            },
+          })
+        ).rejects.toThrow("sha256");
         const unsigned = join(root, "unsigned.exe");
         await writeFile(unsigned, "This test file is never executed.");
         await expect(
