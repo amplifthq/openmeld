@@ -2081,32 +2081,49 @@ After review, protected merge, and selection of the exact release SHA:
 
 1. Use a clean checkout at that merged SHA and fetch `origin/main`. Export
    `OPENMELD_DESKTOP_RELEASE_SHA` as that full commit hash.
-   Before the renderer build or signing, run the read-only publisher check with
-   `openmeld-release/prd` credentials:
+   For an optional read-only credential diagnostic before packaging, check the
+   publisher with `openmeld-release/prd` credentials:
 
    ```sh
    doppler --silent run --project openmeld-release --config prd --only-secrets CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN --no-fallback -- node scripts/release/desktop-publisher.mjs
    ```
 
    It confirms the selected account and Desktop bucket with the named release
-   token. This read check does not prove upload permission. Upload and promotion
-   require the same named token and pass it to Wrangler as `CLOUDFLARE_API_TOKEN`;
-   neither command falls back to local Wrangler OAuth. Run those commands under
-   the same Doppler wrapper, replacing the command after `--`. The production
-   package entry repeats the read-only check before build and signing, then
-   removes the Cloudflare credentials from its signing child process.
+   token. This read check does not prove upload permission. The production
+   package entry runs the same check before build and signing, so the separate
+   diagnostic is not required. Upload and promotion require the same named token
+   and pass it to Wrangler as `CLOUDFLARE_API_TOKEN`; neither command falls back
+   to local Wrangler OAuth. Run those commands under the same Doppler wrapper,
+   replacing the command after `--`. The production package entry removes the
+   Cloudflare credentials from its signing child process.
 
-2. Run `pnpm desktop:package:production-preview` once. The installed pipeline
-   owns the production renderer artifact check: it builds or reuses the exact
-   renderer and runs the Workerd SSR check. Do not run a separate manual Web
-   build, reuse a disposable marker, or edit generated metadata. The pipeline
+2. Run the production package command once with the release credentials:
+
+   ```sh
+   doppler --silent run --project openmeld-release --config prd \
+     --only-secrets CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN \
+     --no-fallback -- pnpm desktop:package:production-preview
+   ```
+
+   The installed pipeline owns the production renderer artifact check: it
+   builds or reuses the exact renderer and runs the Workerd SSR check. Do not
+   run a separate manual Web build, reuse a disposable marker, or edit generated
+   metadata. The pipeline
    validates the production target, rejects test settings and mixed signing
    credentials, and uses the existing company Developer ID and
    `openmeld-notary` Keychain profile. It requires the exact clean merged source.
    The signed App includes `desktop-production-source.json` with its source SHA,
    renderer fingerprint, and production target.
    On a native macOS host with sufficient admitted memory, the measured release
-   recipe is `OPENMELD_RENDERER_NODE_HEAP_MB=5120 OPENMELD_LOCAL_HEAVY_GIB=6 pnpm desktop:package:production-preview`.
+   recipe uses the same credential wrapper with measured memory overrides:
+
+   ```sh
+   OPENMELD_RENDERER_NODE_HEAP_MB=5120 OPENMELD_LOCAL_HEAVY_GIB=6 \
+     doppler --silent run --project openmeld-release --config prd \
+       --only-secrets CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN \
+       --no-fallback -- pnpm desktop:package:production-preview
+   ```
+
    Keep normal resource admission enabled. This is a macOS packaging budget,
    not a replacement for the bounded Linux runner defaults.
 3. Verify the signed App, DMG copy and update ZIP: strict signature, stapled ticket,
