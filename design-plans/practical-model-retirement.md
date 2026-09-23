@@ -1,7 +1,9 @@
 # Practical model retirement
 
-Status: implementation in progress. This plan records the agreed scope, not a
-claim that every integration below has shipped.
+Status: implemented for Draft PR #1264; focused verification and external review
+are recorded on the PR. Not merged, released or production-smoke verified.
+The current product owner is `developing/product/agent-model-selection.md`,
+including initial Codex scope, conservative errors and rollout limitations.
 
 ## User outcome
 

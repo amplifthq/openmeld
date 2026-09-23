@@ -12,6 +12,25 @@ import openCodeGoQwen38Flash from "../fixtures/opencode-go-qwen3.8-flash-1.18.25
 import openCodeModelCatalogCapture from "../fixtures/opencode-model-catalog-1.18.31.json";
 
 describe("model catalog schema", () => {
+  it.each([
+    "gpt-5.4",
+    "gpt-5.4-mini",
+  ])("keeps %s withdrawal scoped without disabling API-key access", (modelId) => {
+    const catalog = modelCatalogSchema.parse(vendorModelCatalog);
+    const model = catalog.agentControllers.codex?.models.find(
+      (entry) => entry.id === modelId
+    );
+    expect(model?.unavailable).toBe(false);
+    expect(model?.retirement).toEqual({
+      status: "withdrawn",
+      date: { value: "2026-08-31", kind: "on" },
+      scope: { controllerRef: "builtin:codex", authType: "chatgpt" },
+      sourceUrl:
+        "https://learn.chatgpt.com/docs/models#deprecated-codex-models",
+      verifiedAt: "2026-09-23T14:09:57Z",
+    });
+  });
+
   it("keeps lower-bound dates distinct and rejects unsafe or malformed notices", () => {
     const notice = {
       status: "announced",
@@ -155,6 +174,21 @@ describe("model catalog schema", () => {
           unavailable: false,
           supportedReasoningLevels,
           minCliVersion,
+          ...(id === "gpt-5.5"
+            ? {
+                retirement: {
+                  status: "announced",
+                  date: { value: "2026-10-14", kind: "on" },
+                  scope: {
+                    controllerRef: "builtin:codex",
+                    authType: "chatgpt",
+                  },
+                  sourceUrl:
+                    "https://learn.chatgpt.com/docs/models#deprecated-codex-models",
+                  verifiedAt: "2026-09-23T14:09:57Z",
+                },
+              }
+            : {}),
         });
       }
 

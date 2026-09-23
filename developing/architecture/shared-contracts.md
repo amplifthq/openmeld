@@ -1050,6 +1050,22 @@ creation-preferences response remains unchanged. Remembered user choices take
 precedence, including explicit model-default reasoning. No Binding, Wake,
 Service lifecycle, or dispatch contract changes.
 
+### Reviewed Model Retirement
+
+The optional authored model `retirement` is reviewed policy, not scraped evidence
+or a time-triggered status. `announced` stays advisory; `withdrawn` requires an
+exact applicable controller/provider/sign-in scope. Model-catalog callers opt in
+with `?retirement=1` (or the optional Core RPC read preference); legacy strict
+version-1 projections omit it. Unknown scope never becomes a global unavailable
+flag. Share `model.retired` and `model.unavailable` reason semantics across Core,
+local routing and recovery; the public verdict remains `Unavailable`.
+
+The model owner feeds the existing Inbox source contract and current Core
+Wakeability. Neither projection mutates a Profile's manual enablement or model
+selection. Deploy accepting cloud readers before new local routing reasons. The
+model-selection owner document records the complete rollout and native-session
+limits; a catalog change alone does not upgrade old executable behavior.
+
 ### Organization Working Language Contracts
 
 `packages/schemas` owns the canonical BCP 47 language tag, `automatic` and

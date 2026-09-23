@@ -119,6 +119,16 @@ when read but remain pending; priority open requests stay yellow until resolved.
 First-contact information is yellow only while unread. Ended requests are
 history, never persistent priority.
 
+Confirmed model issues reuse `system_attention_event` with an exact Agent target
+and `agent-model:` source namespace. The model/Binding owner reconciles them on
+normal controller reports and successful user model edits. They are ordinary
+Needs action, not urgent email. Repeated observations retain the same episode;
+a change clears only that model issue, preserving read state and history.
+Unknown same-model account evidence cannot claim recovery. The Inbox projection
+never writes Wakeability, manual Profile enablement or model selection, and
+resolving it does not restart work. Offline Profiles receive the notice when the
+normal report resumes; no retirement-date job or immediate global sweep exists.
+
 Legacy owner-observer items without exact personal-Agent source facts cannot
 establish derived owner access, even if one or more owned Agents remain in the
 Space. Their rows, read/Dismiss state and receipts stay intact; current Human
