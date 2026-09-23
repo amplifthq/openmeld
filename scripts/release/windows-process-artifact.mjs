@@ -17,6 +17,7 @@ const INPUTS = [
   "runtime/adapters/core/native/windows/OpenMeld.Windows.Process.csproj",
   "runtime/adapters/core/native/windows/ProcessJob.cs",
   "runtime/adapters/core/native/windows/ManagedCliLauncher.cs",
+  "runtime/adapters/core/native/windows/ManagedCommandPath.cs",
   "runtime/adapters/core/native/windows/ManagedVersionCleanup.cs",
   "runtime/adapters/core/native/windows/Program.cs",
   "runtime/adapters/core/native/windows/global.json",

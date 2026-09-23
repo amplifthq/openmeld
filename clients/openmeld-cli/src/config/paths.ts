@@ -144,8 +144,8 @@ export function openMeldBackupsDir(): string {
 }
 
 // Managed binary layout (binary distribution only). Each installed version
-// lives under versions/<version>/openmeld; bin/openmeld is the current-version
-// pointer (a symlink) that install-self / update swap atomically. The layout is
+// lives under versions/<version> with its platform executable. POSIX uses a
+// symlink; Windows uses a native console launcher and one activation record. The layout is
 // lane-aware through resolveOpenMeldRootDir, so the dev lane uses
 // ~/.openmeld-dev/versions and ~/.openmeld-dev/bin.
 export function openMeldManagedBinaryName(): string {

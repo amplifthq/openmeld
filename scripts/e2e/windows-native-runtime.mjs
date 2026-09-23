@@ -118,6 +118,28 @@ const env = {
   CODEX_HOME: path.join(root, "codex-home"),
 };
 await mkdir(env.CODEX_HOME);
+const commandPath = spawnSync(
+  path.join(systemRoot, "System32/WindowsPowerShell/v1.0/powershell.exe"),
+  [
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    path.join(repo, "scripts/e2e/windows-managed-command-path.ps1"),
+    "-Helper",
+    helper,
+    "-FixtureRoot",
+    root,
+  ],
+  { env, encoding: "utf8", timeout: 30_000 }
+);
+await writeFile(
+  path.join(evidence, "command-path.log"),
+  `${commandPath.stdout ?? ""}${commandPath.stderr ?? ""}`
+);
+assert.ifError(commandPath.error);
+assert.equal(commandPath.status, 0, "Native user PATH acceptance failed");
 await exerciseManagedLauncher();
 await exerciseManagedInstallation();
 await exerciseOwnedComponent({

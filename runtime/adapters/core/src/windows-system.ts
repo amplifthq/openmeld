@@ -40,6 +40,37 @@ const FILE_TIME_PATTERN = /^\d{10,20}$/u;
 const PROCESS_IDENTITY_TIMEOUT_MS = 15_000;
 let currentProcessFileTime: string | undefined;
 
+export async function activateWindowsManagedCommand(
+  binDirectory: string
+): Promise<"activated" | "already_active"> {
+  const request = windowsNativeProcessRequestSchema.parse({
+    operation: "activate-managed-command",
+    binDirectory,
+  });
+  const { stdout } = await promisify(execFile)(
+    resolveWindowsNativeProcessHelper(),
+    [],
+    {
+      env: {
+        ...process.env,
+        [WINDOWS_NATIVE_PROCESS_REQUEST_ENV]: Buffer.from(
+          JSON.stringify(request),
+          "utf8"
+        ).toString("base64"),
+      },
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 15_000,
+      maxBuffer: 4096,
+    }
+  );
+  const result = stdout.trim();
+  if (result !== "activated" && result !== "already_active") {
+    throw new Error("Windows returned an invalid command activation receipt.");
+  }
+  return result;
+}
+
 /** Kernel sharing rules keep a live CLI and its helper together during pruning. */
 export async function pruneWindowsManagedVersion(
   root: string,

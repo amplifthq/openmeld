@@ -10,6 +10,10 @@ export const windowsNativeProcessRequestSchema = z.discriminatedUnion(
   "operation",
   [
     z.strictObject({
+      operation: z.literal("activate-managed-command"),
+      binDirectory: text,
+    }),
+    z.strictObject({
       operation: z.literal("prune-managed-version"),
       root: text,
       version: z

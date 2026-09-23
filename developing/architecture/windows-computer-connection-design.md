@@ -164,9 +164,11 @@ Draft PR: https://github.com/amplifthq/openmeld/pull/1267. Production acquisitio
 - Launcher gate, run [35893013334, attempt 1](https://github.com/amplifthq/openmeld/actions/runs/35893013334), head `4cdfb317990e3670a3d093498c6b4c3a7f5302a1`, checkout `655a4203941bcd8262a9f9f8bdafb957638792b8`: native launcher handoff passed, including empty/Unicode/quoted arguments, inherited stdout/stderr, exit 7, and a new invocation while the old image remained alive. SQLite and official Codex protocol also passed. Native contracts, including new companion Authenticode acceptance, passed. **The overall run failed:** actual Service startup exited during the existing PowerShell/CIM process inventory; four other Host cases passed. Its logged error omitted the child exit metadata. The next change preserves duration, code, signal and killed state, without changing the 10-second inventory limit or asserting a cold-start cause. [Unsigned artifacts and logs](https://github.com/amplifthq/openmeld/actions/runs/35893013334/artifacts/10765853317).
 - The installer batch now reuses the shared install lock and semver arbitration with complete immutable Windows directories and one activation record. Existing command discovery reads that same record; existing maintenance repairs an interrupted launcher swap. No new watchdog is introduced. Mac filesystem checks cover failed companion acquisition, immutable-version rejection and interrupted-launcher repair. The next Windows gate adds actual compiled `install-self`, repeat installation, repair through the exact versioned CLI, and kernel-backed whole-bundle pruning while a fixture still runs. Native pruning and installed-product behavior are pending, not inferred from Mac filesystem tests. Windows PATH registration, selected GUI Service preparation, direct task supervision and client acquisition remain subsequent work.
 
-The carrier and helper now have full Service feasibility evidence. Installation/upgrade recovery, cross-platform production artifact assembly, direct task supervision, signed artifact acquisition, Web/Desktop convergence, and ordinary-user Windows acceptance are not complete. The old task-host timeout remains independent and unresolved.
+- Installation gate, run [35895813263, attempt 1](https://github.com/amplifthq/openmeld/actions/runs/35895813263), head `6c6d891c3d25dc51893ad699ad4ffbb2f39c4fa7`, checkout `1ce4a55438d5bb5bd94a5ddd25a48a1b53ba5600`: **both jobs failed**. The live-image cleanup case reached the native helper but failed with `UnauthorizedAccessException` before the installer case. A read handle is insufficient to establish that an executable image can be removed; the next correction requests write access without writing, acquiring every companion before deletion. Actual `install-self` acceptance remains pending. Separately, Service process inventory now proved it was killed at its 10-second deadline (`10118ms`, `SIGTERM`, `killed=true`); four other Host cases passed. The next inventory change requests only the three consumed CIM properties and records fixed query stages, retaining the same deadline. Legacy task-host exit 0 again timed out with `EBUSY`; later independent Desktop/signature checks passed. [Artifacts and logs](https://github.com/amplifthq/openmeld/actions/runs/35895813263/artifacts/10766454920).
 
-The next implementation batch moves the existing Desktop Authenticode check
+The carrier and helper have Service feasibility evidence, but the latest required gate is failing. Installation/upgrade recovery, cross-platform production artifact assembly, direct task supervision, Web/Desktop convergence, and ordinary-user Windows acceptance are not complete. The old task-host timeout remains independent and unresolved.
+
+The artifact acquisition batch moved the existing Desktop Authenticode check
 into the shared artifact owner and adds Windows publisher/helper metadata to
 the CLI/Service release schema. The old Desktop-local implementation is removed.
 Mac manifest fields remain unchanged; old clients ignore the additive Windows
@@ -180,6 +182,12 @@ artifact preparation, and Desktop bootstrap paths. It reuses the bounded
 download/integrity policy, requires the same artifact origin and Authenticode
 publisher, and writes only into the caller's disposable preparation directory.
 Managed Windows activation and the Desktop Windows entrypoint remain pending.
+The Windows command activation batch writes only current-user `Environment\\Path`,
+preserving unrelated entries and the original registry value kind. It uses the
+existing command activation lock, excludes custom `OPENMELD_HOME` and development
+lanes, and does not require elevation. Native acceptance changes and restores
+only the ephemeral hosted runner's user value, proving repeat activation and
+literal/expandable PATH preservation. This new gate is pending.
 
 ## References
 

@@ -27,6 +27,11 @@ static class Program {
         new JsonDocumentOptions { MaxDepth = 8 });
       JsonElement request = document.RootElement;
       string operation = Text(request, "operation");
+      if (operation == "activate-managed-command") {
+        phase = "activate_managed_command";
+        Console.Write(ManagedCommandPath.Activate(Text(request, "binDirectory")));
+        return 0;
+      }
       if (operation == "prune-managed-version") {
         phase = "prune_managed_version";
         Console.Write(ManagedVersionCleanup.Run(Text(request, "root"), Text(request, "version")));
