@@ -12,6 +12,7 @@ import type {
   CreateSpaceTaskBody,
   ListSpaceTasksResponse,
   MutateSpaceTaskBody,
+  SpaceTask,
   SpaceTaskActor,
   SpaceTaskEvent,
   SpaceTaskMutationReceipt,
@@ -20,10 +21,32 @@ import type {
 } from "@openmeld/schemas/types";
 import type { SpaceTaskRepository } from "../infrastructure/sql/space-task-repo";
 import {
+  applyGitHubIssueProviderObservation,
   mutateSpaceTask,
   type SpaceTaskMutationContext,
   SpaceTaskWorkflowError,
 } from "./space-task-workflow";
+
+export type ApplyGitHubIssueObservationInput = {
+  cancelOperationId: string;
+  identity: {
+    number: number;
+    owner: string;
+    repo: string;
+  };
+  observeOperationId: string;
+  observedAt: string;
+  observedState: "closed" | "open";
+  spaceId: string;
+  taskId: string;
+};
+
+export type ApplyGitHubIssueObservationResult = {
+  canceled: boolean;
+  observed: boolean;
+  skipReason: "not_found" | "not_linked" | "stale" | null;
+  task: SpaceTask | null;
+};
 
 export type CreateSpaceTaskContext = SpaceTaskMutationContext & {
   requestedBy: SpaceTaskActor;
@@ -43,12 +66,20 @@ export type SpaceTaskRepositoryPort = Pick<
 
 export class SpaceTaskService {
   private readonly input: {
+    onMutation?: (
+      receipt: SpaceTaskMutationReceipt,
+      previous: SpaceTask | null
+    ) => void;
     repository: SpaceTaskRepositoryPort;
     runTransaction: <T>(callback: () => T) => T;
     spaceId: string;
   };
 
   constructor(input: {
+    onMutation?: (
+      receipt: SpaceTaskMutationReceipt,
+      previous: SpaceTask | null
+    ) => void;
     repository: SpaceTaskRepositoryPort;
     runTransaction: <T>(callback: () => T) => T;
     spaceId: string;
@@ -153,6 +184,7 @@ export class SpaceTaskService {
         requestJson,
         receipt,
       });
+      this.input.onMutation?.(receipt, null);
       return receipt;
     });
   }
@@ -209,7 +241,144 @@ export class SpaceTaskService {
         requestJson,
         receipt,
       });
+      this.input.onMutation?.(receipt, current);
       return receipt;
+    });
+  }
+
+  applyGitHubIssueObservation(
+    input: Omit<ApplyGitHubIssueObservationInput, "spaceId">
+  ): ApplyGitHubIssueObservationResult {
+    return this.input.runTransaction(() => {
+      const current = this.input.repository.readTask(input.taskId);
+      if (!current) {
+        return {
+          canceled: false,
+          observed: false,
+          skipReason: "not_found" as const,
+          task: null,
+        };
+      }
+      const observeRequestJson = JSON.stringify({
+        body: {
+          lastObservedAt: input.observedAt,
+          lastObservedState: input.observedState,
+          number: input.identity.number,
+          owner: input.identity.owner,
+          repo: input.identity.repo,
+        },
+        kind: "github_issue_observe",
+        taskId: input.taskId,
+      });
+      const previousObserve = this.readIdempotentReceipt(
+        input.observeOperationId,
+        observeRequestJson
+      );
+      const planned = applyGitHubIssueProviderObservation({
+        identity: input.identity,
+        now: new Date().toISOString(),
+        observedAt: input.observedAt,
+        observedState: input.observedState,
+        task: current,
+      });
+      if (planned.skipReason) {
+        return {
+          canceled: false,
+          observed: false,
+          skipReason: planned.skipReason,
+          task: current,
+        };
+      }
+      let observedTask = current;
+      if (planned.observe && !previousObserve) {
+        const event = this.buildEvent({
+          actor: current.createdBy,
+          detail: planned.observe.detail,
+          fromPhase: current.phase,
+          operationId: input.observeOperationId,
+          task: planned.observe.task,
+          type: planned.observe.eventType,
+        });
+        const receipt = spaceTaskMutationReceiptSchema.parse({
+          applied: true,
+          event,
+          task: planned.observe.task,
+        });
+        this.input.repository.updateTask(
+          planned.observe.task,
+          current.revision
+        );
+        this.input.repository.appendEvent(event);
+        this.input.repository.recordOperation({
+          operationId: input.observeOperationId,
+          receipt,
+          requestJson: observeRequestJson,
+        });
+        this.input.onMutation?.(receipt, current);
+        observedTask = planned.observe.task;
+      }
+
+      if (!planned.cancel) {
+        return {
+          canceled: false,
+          observed: Boolean(planned.observe || previousObserve),
+          skipReason: null,
+          task: observedTask,
+        };
+      }
+
+      const cancelRequestJson = JSON.stringify({
+        body: {
+          number: input.identity.number,
+          owner: input.identity.owner,
+          reason: planned.cancel.detail,
+          repo: input.identity.repo,
+        },
+        kind: "github_issue_cancel",
+        taskId: input.taskId,
+      });
+      const previousCancel = this.readIdempotentReceipt(
+        input.cancelOperationId,
+        cancelRequestJson
+      );
+      if (previousCancel) {
+        return {
+          canceled: true,
+          observed: true,
+          skipReason: null,
+          task: previousCancel.task,
+        };
+      }
+      const cancelEvent = this.buildEvent({
+        actor: current.createdBy,
+        detail: planned.cancel.detail,
+        fromPhase: observedTask.phase,
+        operationId: input.cancelOperationId,
+        task: planned.cancel.task,
+        type: planned.cancel.eventType,
+      });
+      const cancelReceipt = spaceTaskMutationReceiptSchema.parse({
+        applied: true,
+        event: cancelEvent,
+        task: planned.cancel.task,
+      });
+      this.input.repository.updateTask(
+        planned.cancel.task,
+        observedTask.revision
+      );
+      this.input.repository.appendEvent(cancelEvent);
+      this.input.repository.recordOperation({
+        operationId: input.cancelOperationId,
+        receipt: cancelReceipt,
+        requestJson: cancelRequestJson,
+      });
+      this.input.onMutation?.(cancelReceipt, observedTask);
+      return {
+        canceled: true,
+        observed: true,
+        skipReason: null,
+        task: planned.cancel.task,
+      };
     });
   }
 

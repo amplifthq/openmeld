@@ -8,6 +8,10 @@ export default defineConfig({
         import.meta.dirname,
         "../db/src/auth/index.ts"
       ),
+      "@openmeld/db/query": path.resolve(
+        import.meta.dirname,
+        "../db/src/query.ts"
+      ),
       "@openmeld/protocol": path.resolve(
         import.meta.dirname,
         "../protocol/src/index.ts"

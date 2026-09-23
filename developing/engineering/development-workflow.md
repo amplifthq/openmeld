@@ -179,11 +179,30 @@ Hosted GitHub jobs retain their independent runner limits.
 
 Startup budgets are estimates: 6 GiB for a Worker stack, 2 GiB for Web and
 2 GiB for broad verification. Admission keeps 10% of effective memory on macOS,
-where the operating system also blocks new work when it reports memory
-pressure. Other platforms keep 15%; all platforms keep at least 1 GiB and
+where critical OS memory pressure blocks new work. Other platforms keep 15%; all platforms keep at least 1 GiB and
 account for reservations that have not yet materialized as resident memory.
 These checks reduce overlapping peaks; they are not OS-enforced memory caps and
 cannot prevent another application from growing.
+
+On macOS, warning pressure is distinct from critical pressure. Broad builds
+still wait for normal pressure. Worker and Web starts, plus Desktop starts with
+a reusable prepared bundle, may proceed at warning only after 30 continuous
+seconds without an increase in `vm_stat` swapouts, and only if the unchanged
+memory budget fits. Missing counters,
+counter resets, critical pressure, or a sampling gap over five seconds restart
+the observation. The 30-second window is a conservative local policy, not an
+Apple capacity guarantee; a quiet swap counter does not mean RAM is unused.
+The existing shared registry serializes admission: a starting Worker stack must
+report ready, and at least 30 seconds must pass after the preceding live
+reservation before more work starts at warning. Each next component samples
+again; worsening pressure pauses subsequent admission, never kills running work.
+Normal-pressure behavior and Windows/Linux budget checks are unchanged.
+
+Pressure levels follow [Apple's memory-pressure notifications](https://github.com/apple-oss-distributions/xnu/blob/main/doc/vm/memorystatus_notify.md).
+Use current swap activity rather than the historical amount of swap in use;
+[Activity Monitor](https://support.apple.com/guide/activity-monitor/view-memory-usage-actmntr1004/mac)
+also considers swap rate when describing pressure. Waiting output identifies
+the pressure level, observation/readiness condition and memory budget.
 
 After the Worker stack's existing readiness probes pass, its reservation keeps
 growth room of 25% of current process-tree RSS (at least 1 GiB), instead of
@@ -1493,6 +1512,274 @@ expected-routes output.
   Core. The nullable D1 column remains in place; rollback must not rewrite
   Binding rows or active RuntimeCoordinator execution state.
 
+### Space Files Origin Classification Contract Impact Audit
+
+Space Files origin classification (`artifact` vs. `chat_upload`) adds a
+nullable `origin` column to Core's `space_file_entries` SQL, an `origin`
+field on shared file-descriptor and list-response HTTP schemas
+(`packages/schemas/src/schemas/http/space-files.ts`), an optional `origin`
+query filter on list, Web/CLI/Remote Agent write-path defaults, and a
+**negotiated response capability** so the new `origin` field never reaches a
+caller that has not explicitly declared it understands the field. It does
+not change Runtime Transport frames, setup, Prepare Session, Wake dispatch,
+Space Actions, D1 schemas, or any local-component/service contract version.
+
+**Why negotiation, not a bare additive field.** Per
+[Schema rules](../architecture/shared-contracts.md#space-access-context-propagation),
+"published CLI versions can never be forced to update first," so a shared
+response addition must preserve an already-published frozen strict reader —
+adding `origin` directly to `spaceFileDescriptorSchema`/
+`listSpaceFilesResponseSchema` (both `z.strictObject()`) would have broken
+every already-published CLI and Remote Agent build on every Space Files
+response, which an earlier revision of this audit incorrectly accepted as a
+forced-update policy. That is corrected here: **old requests continue
+receiving the exact pre-origin response shape (no `origin` key anywhere);
+only a caller that explicitly opts in receives `origin`.** One canonical
+`origin` fact remains on `space_file_entries`; only the wire projection
+varies by caller capability.
+
+**The negotiation mechanism, one per transport boundary:**
+
+- **Gateway HTTP (Web, CLI).** A capability header,
+  `x-openmeld-space-files-origin-version: 1`
+  (`OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION`/
+  `OPENMELD_SPACE_FILES_ORIGIN_VERSION` in `packages/gateway-contract`).
+  `services/gateway/src/routes/rpc-http.helpers.ts`'s `executeRpcRoute`/
+  `executePublicRpcRoute` accept `includeLegacySpaceFilesOriginWireFields:
+  true` (mirroring the existing `includeLegacySpaceAddressingWireFields`
+  pattern) and, when the caller's request lacks the header, apply
+  `toLegacySpaceFilesOriginWireValue` — a pure recursive JSON walker in
+  `packages/schemas/src/compatibility/legacy-space-files-origin-wire.ts`
+  (mirroring `toLegacySpaceAddressingWireValue`) — to the **already-validated
+  response**, stripping every `origin` key regardless of whether Core
+  actually sent it or Gateway's own schema default materialized it. Every
+  file-bearing Space Files route opts in: list, get, list-revisions,
+  update-entry, restore-entry, restore-revision, upload (both the direct and
+  multipart/raw paths), and Composer publish. Non-file-bearing routes
+  (create-folder, trash, Composer stage/discard, content download) carry no
+  `origin` field and are unaffected.
+- **Core/Remote Agent RPC (Center Agent tools).** This boundary has no HTTP
+  headers, so the capability is an explicit optional field,
+  `requestedOriginModel: "origin_aware"`
+  (`SPACE_FILES_ORIGIN_CAPABILITY_TOKEN` in `packages/schemas`), added once
+  to the shared `centerAgentSpaceFileScopeSchema` base that every Center
+  Agent Space Files RPC input schema extends
+  (`packages/schemas/src/schemas/http/center-agent-space-files.ts`). Core's
+  `CoreEntrypoint` methods (`centerAgentListSpaceFiles`,
+  `centerAgentReadSpaceFile`, `centerAgentSaveSpaceFile`,
+  `centerAgentManageSpaceFiles` in `services/core/src/index.ts`) wrap the
+  underlying `rpcCenterAgent*` call in `withSpaceFilesOriginRpcOutput`
+  (mirroring `withSpaceAddressingRpcOutput`), which strips `origin` unless
+  the caller's `requestedOriginModel` matches the token exactly. Remote
+  Agent's tool-calling code
+  (`services/remote-agent/agent-core/tools.ts`) sets this token on every one
+  of the four Space Files tool calls.
+- **Gateway/Core RPC (every ordinary Gateway-facing Space Files method).**
+  This is a third, independent boundary from the two above: current Gateway
+  and current Core are separately deployed Workers, and Core's *ordinary*
+  Gateway-facing entrypoint methods (`listSpaceFiles`, `getSpaceFile`,
+  `listSpaceFileRevisions`, `updateSpaceFileEntry`, `restoreSpaceFileEntry`,
+  `restoreSpaceFileRevision`, `writeSpaceFileContent`, `spaceFileUpload`,
+  `publishSpaceComposerUpload`, `streamSpaceFileContent` in
+  `services/core/src/index.ts`'s `CoreRpcEntrypoint`, redeclared with the
+  same signature on `GatewayRpcEntrypoint`) are a *separate* call path from
+  the four `centerAgentXxx` methods above — wrapping only those four does not
+  protect this path. Each of these methods now accepts an optional
+  `spaceFilesOriginVersion` second argument, mirroring exactly how
+  `listSpaceThreads`/`getSpaceThread`/`getSpaceMemberDirectory`/
+  `getSpaceBootstrap` already accept `spaceAddressingVersion` for the
+  addressing rollout, and downgrades its response
+  (via `withSpaceFilesOriginRpcOutput`, or
+  `withSpaceFilesOriginStreamRpcOutput` for `streamSpaceFileContent`, whose
+  resolved value embeds a live `bytes: ReadableStream` that the generic JSON
+  walker would otherwise corrupt) unless the caller passes
+  `OPENMELD_SPACE_FILES_ORIGIN_VERSION` exactly. Current Gateway's HTTP route
+  handlers (`services/gateway/src/routes/rpc-http.space-files.ts`) always
+  pass that constant on every one of these calls, independent of whether the
+  *HTTP* caller declared its own capability — Gateway always wants the full
+  data from Core so it can apply its own HTTP-caller-facing projection
+  (the first bullet above). An already-published Gateway build has no such
+  second argument on any of these calls and never sends it, so it keeps
+  receiving the exact pre-origin response shape from a new Core.
+
+**Supported matrix, proven by behavior tests, not asserted:**
+
+- *Any caller (old or new) + Gateway/Core, default request, no capability
+  declared*: safe — response omits `origin` entirely, matching the exact
+  pre-origin shape. An already-published CLI's frozen strict schema parses
+  this successfully because the key it never learned about is genuinely
+  absent, not defaulted-and-present.
+  `services/gateway/tests/space-file-routes.test.ts` ("strips origin from
+  every file descriptor for a caller that has not declared the origin
+  capability", "strips origin from a single-file read (getSpaceFile) for a
+  non-capable caller").
+- *New reader declaring the capability + a producer that predates `origin`
+  entirely* (old Core, or a transient rollout window before Core
+  redeploys): safe — the missing key still defaults for the capable caller
+  (`origin: null` on a descriptor, `"artifact"` on a list), and the capable
+  caller already knows how to interpret that default.
+  `packages/schemas/tests/http/space-files.test.ts` ("lets a current reader
+  parse a response from a producer that predates origin");
+  `packages/api-client/tests/space-api.test.ts` ("keeps default Space Files
+  listing working against a Core response from before the origin filter
+  existed").
+- *A capability-declaring caller requesting `origin: "all"` against a
+  producer that predates `origin`*: fails explicitly, not silently. The
+  missing response field still defaults to `"artifact"`, which does not
+  match the requested `"all"`; the existing `packages/api-client/src/space/
+  files.ts` filter-echo check throws `OpenMeldApiClientInvalidResponseError`
+  (the same mechanism already used for the `view` field).
+  `space-api.test.ts` ("fails closed instead of silently showing an
+  unfiltered list as chat uploads during rollout").
+- *Gateway is new, Core still predates `origin`, caller has not declared the
+  capability*: safe and non-leaking. Gateway's own current schema still
+  defaults the missing key during validation, but the origin-capability
+  check runs **after** validation and strips the key regardless of whether
+  Core sent it or Gateway's schema default produced it — no cloud step
+  emits `origin` to a non-capable caller merely because a schema default
+  materialized it. `space-file-routes.test.ts` ("never leaks a
+  schema-defaulted origin to a non-capable caller even when Core itself
+  predates origin").
+- *An already-published CLI or Remote Agent (built before this release) +
+  new Core/Gateway*: safe — it never sends the capability header/field
+  (it has no code path that could), so every Space Files response it
+  receives is downgraded to the exact shape its frozen schema already
+  parses. `packages/schemas/tests/http/space-files.test.ts` ("documents that
+  an already-published pre-origin strict reader rejects the new response
+  shape") proves *why* this matters — a frozen reader genuinely cannot
+  tolerate the field present — which is exactly what the negotiation now
+  prevents from happening to it.
+  `services/core/tests/organization-rpc.test.ts` ("strips origin from a
+  Remote Agent's Space Files response unless it declares the origin
+  capability") and `services/remote-agent/tests/tools.test.ts` (the
+  `openmeld_list_space_files`/`openmeld_read_space_file`/
+  `openmeld_save_space_file`/`openmeld_manage_space_files` scenarios, which
+  assert the tool layer always sends `requestedOriginModel: "origin_aware"`)
+  prove the Core/Remote Agent direction end to end.
+- *An already-published (frozen) Gateway build + new Core*: safe — Core's
+  ordinary Gateway-facing methods (the Gateway/Core RPC boundary above)
+  downgrade their response whenever the caller omits
+  `spaceFilesOriginVersion`, which an already-published Gateway's compiled
+  code has no way to send. `services/core/tests/organization-rpc.test.ts`
+  proves the underlying `withSpaceFilesOriginRpcOutput` gate at the
+  entrypoint level, and
+  `packages/schemas/tests/http/space-files.test.ts` ("lets a frozen
+  pre-origin Gateway parse a current Core response once the Gateway-to-Core
+  RPC boundary downgrades it") reconstructs the exact frozen Gateway
+  response schemas for every representative Gateway-facing operation
+  family (get, upload/write, restore-revision, list-revisions,
+  update-entry, restore-entry — both the file and folder entry variants)
+  and proves each accepts the downgraded value while rejecting the raw
+  new-shaped one.
+  `services/gateway/tests/space-file-routes.test.ts` ("declares the origin
+  capability on the Gateway-to-Core RPC boundary for every file-bearing
+  operation...") proves current Gateway's own route handlers always pass
+  the version constant on this boundary, independent of the calling HTTP
+  client's own capability.
+- **No required CLI/Remote Agent update.** Because the response is
+  negotiated rather than unconditionally additive, there is no forced-update
+  policy and no CLI release-note warning to write. An old CLI or Remote
+  Agent keeps working indefinitely with the pre-origin behavior (an
+  unclassified caller never sees `origin`, never sees the chat-upload
+  filter, and cannot request `--all`); it simply does not gain the new
+  capability until it updates — the same "advisory `available`" shape as
+  every other additive local-component change in this file, not a breaking
+  one.
+- **Core (schema and repository) — the migration is retry-safe.** The
+  Durable Object schema migration bumped `SPACE_SQL_SCHEMA_VERSION`/
+  `SPACE_SQL_SCHEMA_CHECKSUM` to 45 specifically for this repair: any
+  database that already recorded schema v44 (including one that ran an
+  earlier, buggy copy of this migration that left rows unrepaired) does not
+  match v45 and re-enters the full migration, which repairs it. Within that
+  migration, `ensureSpaceFileEntriesOriginColumn` adds the `origin` column
+  via `ALTER TABLE` only when it is missing, but then **unconditionally**
+  runs `backfillSpaceFileEntriesOrigin` (`UPDATE ... WHERE kind = 'file' AND
+  origin IS NULL`) every time this function runs — whether the column was
+  just added, already existed with every row classified, or already existed
+  with rows still `NULL` from an earlier incomplete run. This mirrors the
+  existing `ensureSpaceMetaAccessModeColumn` repair pattern in the same
+  file. There is no reliable signal in pre-existing rows to recover a
+  historical chat upload versus deliberately created work — both wrote
+  through the same path before this column existed — so `'artifact'` is the
+  deterministic backfill target, matching the repository's create-time
+  default. Folders are excluded from the backfill (`kind = 'file'` guard)
+  and never carry an `origin`. After migration, a `NULL` origin on a file
+  row is exceptional/corrupt data (for example a direct database edit), not
+  normal history, and the read path still fails closed on it (excluded from
+  the default `artifact` list, included only under `origin: "all"`).
+  `services/core/tests/space-file-entries-origin-migration.test.ts` proves
+  this against a real Durable Object SQLite instance: nested file/folder
+  outcomes, the interrupted/earlier-v44 repair path (column present, rows
+  still `NULL`, migration marker removed to force re-entry), unchanged
+  folder placement, and idempotent rerun of both the short-circuit and the
+  full migration body.
+- **Core (write path, legacy interoperability).** `SpaceFileRepository
+  .commitWrite` treats a missing `origin` on a new-file write
+  (`baseRevision === null`) as `'artifact'`, not `NULL`. `origin` is
+  otherwise immutable — set once at file creation and never touched by a
+  later revision write, an update, a trash, or a restore. Explicit
+  `chat_upload` writes (Web Composer publish, CLI `space send --file`)
+  always set `origin` themselves and are unaffected by this default.
+- **Gateway / Core HTTP request side is safe independent of negotiation.**
+  `origin` stays optional on `listSpaceFilesQuerySchema`,
+  `createSpaceFileUploadQuerySchema`, and
+  `prepareSpaceFileWriteInputSchema`/`commitSpaceFileWriteInputSchema`. An
+  old client that never sends `origin` on a request is unaffected: Core
+  applies the deterministic default above. This direction was never in
+  doubt; the request-side field was optional from the start and no
+  strict-object rejects an *absent* key.
+- **Web.** New Web builds send the capability header on every Space Files
+  request (`packages/api-client/src/space/files.ts`) and explicitly send
+  `origin: "artifact"` for Files-panel uploads and Markdown-file creation;
+  `origin: "chat_upload"` is set server-side for Composer-published
+  attachments. The Files list defaults to `origin: "artifact"`; a "Show chat
+  uploads" toggle switches to `origin: "all"`. The "Chat upload" badge
+  renders only when `entry.origin === "chat_upload"` — never for
+  `NULL`/unclassified. The toggle resets to its default `false` on every
+  `changeView` call. Web, Gateway, and Core deploy together as one
+  coordinated release, so Web always declares the capability against an
+  origin-aware Gateway/Core in steady state.
+- **CLI.** `space files upload` sends `origin: "artifact"`; `space send
+  --file` sends `origin: "chat_upload"`. `space files list` defaults to
+  `artifact` and accepts `--all` to request `origin: "all"`. A CLI built
+  from this release or later declares the capability header on every Space
+  Files call (via the same shared `packages/api-client`) and reads `origin`
+  back normally. A CLI built before this release never declares the
+  capability and is fully unaffected — see the supported matrix above.
+- **Remote Agent.** Agent-authored output files
+  (`publishRemoteAgentOutputFile`) always set `origin: "artifact"`. The
+  `openmeld_list_space_files` tool exposes the same `origin` filter
+  (`"artifact"` default, `"all"`) as the HTTP/RPC contract, and every Space
+  Files tool call sets `requestedOriginModel: "origin_aware"`.
+- **Rollout order.** Deploy in the standard coordinated order (Auth, Web,
+  Gateway, Core, Remote Agent). Because the response is negotiated on all
+  three boundaries above (HTTP client/Gateway, Gateway/Core RPC, Core/Remote
+  Agent RPC) rather than unconditionally additive on any of them, there is
+  no ordering constraint beyond normal deploy hygiene: any mix of old/new
+  Web, Gateway, Core, CLI, and Remote Agent is safe in either direction,
+  proven directly by behavior tests for each pairing above — not asserted
+  from deployment order — since a non-capable caller never receives the
+  field regardless of which side changed first. No local-component contract
+  version or Runtime Transport epoch changes. `SPACE_SQL_SCHEMA_CHECKSUM`
+  does change (v44 → v45) specifically so a database stuck in a broken v44
+  state self-heals on the next deploy; this is intentional, not an
+  oversight, and safe to apply at any point in the rollout since the
+  migration is additive and self-repairing.
+- **Rollback.** Rolling back Core does not need to reverse the migration:
+  the `origin` column and its backfilled values are additive and harmless
+  to a pre-feature Core build, which simply never reads or writes that
+  column. Do not delete or null out backfilled `origin` values as part of a
+  rollback; that would recreate the exact historical-file-hiding defect
+  this migration fixes. Rolling any single component back to a pre-origin
+  version is safe under this negotiated contract on all three boundaries: a
+  rolled-back component simply stops declaring (Gateway/Core RPC,
+  Core/Remote Agent RPC) or stops honoring (HTTP client/Gateway) the
+  capability, and every caller on the other side of that boundary reverts to
+  the pre-origin response shape it already understands — including rolling
+  Gateway back to a pre-origin build while Core stays current, which the
+  Gateway/Core RPC negotiation now covers explicitly (see above); it was not
+  covered before that negotiation existed.
+
 ### Versioned local-state rollout discipline
 
 A versioned local file is a cross-version contract even when it never leaves
@@ -1794,29 +2081,65 @@ After review, protected merge, and selection of the exact release SHA:
 
 1. Use a clean checkout at that merged SHA and fetch `origin/main`. Export
    `OPENMELD_DESKTOP_RELEASE_SHA` as that full commit hash.
-2. Build Web through the scoped Web environment entry with
-   `OPENMELD_DESKTOP_TARGET=production`. This emits the production installed
-   renderer marker. Do not reuse a disposable marker or edit generated metadata.
-3. Run `pnpm desktop:package:production-preview` once. The installed pipeline
+   For an optional read-only credential diagnostic before packaging, check the
+   publisher with `openmeld-release/prd` credentials:
+
+   ```sh
+   doppler --silent run --project openmeld-release --config prd --only-secrets CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN --no-fallback -- node scripts/release/desktop-publisher.mjs
+   ```
+
+   It confirms the selected account and Desktop bucket with the named release
+   token. This read check does not prove upload permission. The production
+   package entry runs the same check before build and signing, so the separate
+   diagnostic is not required. Upload and promotion require the same named token
+   and pass it to Wrangler as `CLOUDFLARE_API_TOKEN`; neither command falls back
+   to local Wrangler OAuth. Run those commands under the same Doppler wrapper,
+   replacing the command after `--`. The production package entry removes the
+   Cloudflare credentials from its signing child process.
+
+2. Run the production package command once with the release credentials:
+
+   ```sh
+   doppler --silent run --project openmeld-release --config prd \
+     --only-secrets CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN \
+     --no-fallback -- pnpm desktop:package:production-preview
+   ```
+
+   The installed pipeline owns the production renderer artifact check: it
+   builds or reuses the exact renderer and runs the Workerd SSR check. Do not
+   run a separate manual Web build, reuse a disposable marker, or edit generated
+   metadata. The pipeline
    validates the production target, rejects test settings and mixed signing
    credentials, and uses the existing company Developer ID and
    `openmeld-notary` Keychain profile. It requires the exact clean merged source.
    The signed App includes `desktop-production-source.json` with its source SHA,
    renderer fingerprint, and production target.
-4. Verify the signed App, DMG copy and update ZIP: strict signature, stapled ticket,
+   On a native macOS host with sufficient admitted memory, the measured release
+   recipe uses the same credential wrapper with measured memory overrides:
+
+   ```sh
+   OPENMELD_RENDERER_NODE_HEAP_MB=5120 OPENMELD_LOCAL_HEAVY_GIB=6 \
+     doppler --silent run --project openmeld-release --config prd \
+       --only-secrets CLOUDFLARE_ACCOUNT_ID,CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN \
+       --no-fallback -- pnpm desktop:package:production-preview
+   ```
+
+   Keep normal resource admission enabled. This is a macOS packaging budget,
+   not a replacement for the bounded Linux runner defaults.
+3. Verify the signed App, DMG copy and update ZIP: strict signature, stapled ticket,
    macOS trust, identity, resource equality, final hash and size. Review the
    artifact before the authorized publisher runs
    `pnpm release:desktop-preview:upload-candidate` from the same release checkout.
-5. Deploy the additive Web candidate/feed readers before uploading a candidate
+4. Deploy the additive Web candidate/feed readers before uploading a candidate
    with ZIP metadata; older strict metadata readers cannot read the new field.
    The uploader verifies the actual DMG's production identity, ticket, version
    and signed source record, and checks that the ZIP seals the same signed App.
    It uploads both artifacts before their immutable candidate manifest. Existing
    public candidates cannot be overwritten. It never promotes a release.
-6. Verify public GET and HEAD, full download hash/size, and normal macOS install
+5. Verify public GET and HEAD, full download hash/size, and normal macOS install
    and production smoke through user-facing entrypoints. An upload alone does
    not prove availability or application behavior.
-7. Separately authorize promotion. Deploy the Web feed/download readers first,
+6. Separately authorize promotion. Deploy the Web feed/download readers first,
    then run from the same clean approved checkout:
    `OPENMELD_DESKTOP_RELEASE_SHA=<sha> node scripts/release/desktop-preview.mjs promote <candidate-hash> <current-version-or-none>`.
    The command verifies remote candidate metadata and hashes both public artifacts.

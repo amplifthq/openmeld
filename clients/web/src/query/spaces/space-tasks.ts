@@ -5,6 +5,11 @@ export const spaceTaskQueryKeys = {
 	space: (spaceId: string) => [...spaceTaskQueryKeys.all, spaceId] as const,
 	list: (spaceId: string, phase?: SpaceTaskPhase) =>
 		[...spaceTaskQueryKeys.space(spaceId), "list", phase ?? "all"] as const,
-	detail: (spaceId: string, taskId: string) =>
-		[...spaceTaskQueryKeys.space(spaceId), "detail", taskId] as const,
+	detail: (spaceId: string, taskId: string, profileId?: string) =>
+		[
+			...spaceTaskQueryKeys.space(spaceId),
+			"detail",
+			taskId,
+			profileId ?? "viewer",
+		] as const,
 };

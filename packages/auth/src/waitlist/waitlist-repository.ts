@@ -1,5 +1,8 @@
-import type { InferInsertModel, InferSelectModel } from "drizzle-orm";
-import { eq } from "drizzle-orm";
+import {
+  eq,
+  type InferInsertModel,
+  type InferSelectModel,
+} from "@openmeld/db/query";
 import type { createD1Db } from "../db";
 import { openMeldWaitlistEmails } from "../db/waitlist-email.schema";
 

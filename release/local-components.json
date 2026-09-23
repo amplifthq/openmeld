@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-20T14:25:11.249Z",
+  "updatedAt": "2026-09-23T10:56:46.841Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.215",
-      "updatePolicy": "available",
-      "reason": "The new Host remains behind existing Service and Core capability checks; older cloud receivers parse the existing frames, while older CLI releases continue supported work after receiver rollout."
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-task-result-review-v1",
+      "packageVersion": "0.3.220",
+      "updatePolicy": "required",
+      "reason": "Older CLI Task review tools omit the exact result revision and cannot safely complete reviews against the new Core contract."
     },
     "service": {
-      "bundleHash": "3e9ca063a541bc8a43f8dbf0f731c24081d65aed146258e05debc5ffdfdc3265",
-      "bundleVersion": "0.3.215",
-      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
-      "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
+      "bundleHash": "b2cb6b0d143c7cdefb90cfe87c16bcc3c8d4573c969e134494deca35f89c0c70",
+      "bundleVersion": "0.3.220",
+      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-antigravity-permissions",
+      "serviceContractVersion": "openmeld-service-contract-2026-09-antigravity-permissions-v1",
       "updatePolicy": "available",
-      "reason": "Service and Host ship together; older Services continue supported Wake work after receiver rollout, and missing new withdrawal proof withholds replacement work rather than starting an unsafe second attempt."
+      "reason": "The Windows stored-task reader now accepts known historical fields; existing Service transport, Wake, setup, and diagnostic contracts remain compatible across cloud versions."
     },
     "skills": {
-      "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
+      "bundleHash": "c3ce8a2e5928354908a505326ccdc68b65f7a3e305792d595982fd0a41c33e7e",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The plugin guide adds optional commands without changing existing Wake or reply instructions; publish after the compatible cloud receivers."
+      "reason": "Antigravity setup guidance is additive; existing explicit-recipient Wake and reply instructions remain compatible with old and new cloud."
     }
   }
 }

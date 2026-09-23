@@ -109,10 +109,13 @@ describe("space-sql-store", () => {
               kind: "human",
               profile: "p-1",
             }),
+            owner_user_ids_json: "[]",
+            allow_guests: 0,
             organization_id: "org-1",
             organization_visibility: "private",
             guide: null,
             access_mode: "protected",
+            link_join_policy: null,
             password_proof_json: JSON.stringify(passwordProof),
             created_at: createdAtMs,
             updated_at: updatedAtMs,
@@ -137,7 +140,10 @@ describe("space-sql-store", () => {
         kind: "human",
         profile: "p-1",
       },
+      ownerUserIds: [],
+      allowGuests: false,
       accessMode: "protected",
+      linkJoinPolicy: "access_mode",
       passwordProof,
       createdAt: new Date(createdAtMs).toISOString(),
       updatedAt: new Date(updatedAtMs).toISOString(),
@@ -157,10 +163,13 @@ describe("space-sql-store", () => {
             purpose: null,
             direct_message_json: null,
             creator_json: null,
+            owner_user_ids_json: "[]",
+            allow_guests: 0,
             organization_id: "org-1",
             organization_visibility: "private",
             guide: null,
             access_mode: "protected",
+            link_join_policy: null,
             password_proof_json: "{invalid-json",
             created_at: createdAtMs,
             updated_at: updatedAtMs,
@@ -253,10 +262,13 @@ describe("space-sql-store", () => {
             purpose: null,
             direct_message_json: null,
             creator_json: null,
+            owner_user_ids_json: "[]",
+            allow_guests: 0,
             organization_id: "org-1",
             organization_visibility: "private",
             guide: null,
             access_mode: "protected",
+            link_join_policy: null,
             password_proof_json: JSON.stringify(passwordProof),
             created_at: Date.parse(createdAt),
             updated_at: Date.parse(updatedAt),
@@ -284,10 +296,12 @@ describe("space-sql-store", () => {
       call.sql.includes("INSERT OR IGNORE INTO space_meta")
     );
     expect(insertCall).toBeDefined();
-    expect(insertCall?.params[5]).toBe("org-1");
-    expect(insertCall?.params[6]).toBe("private");
-    expect(insertCall?.params[8]).toBe("protected");
-    expect(insertCall?.params[9]).toBe(JSON.stringify(passwordProof));
+    expect(insertCall?.params[5]).toBe("[]");
+    expect(insertCall?.params[6]).toBe("org-1");
+    expect(insertCall?.params[7]).toBe("private");
+    expect(insertCall?.params[9]).toBe("protected");
+    expect(insertCall?.params[10]).toBeNull();
+    expect(insertCall?.params[11]).toBe(JSON.stringify(passwordProof));
     expect(result.passwordProof).toEqual(passwordProof);
   });
 
@@ -315,10 +329,12 @@ describe("space-sql-store", () => {
     expect(insertCall?.sql).toContain(
       "password_proof_json = excluded.password_proof_json"
     );
-    expect(insertCall?.params[5]).toBe("org-1");
-    expect(insertCall?.params[6]).toBe("private");
-    expect(insertCall?.params[8]).toBe("protected");
-    expect(insertCall?.params[9]).toBe(JSON.stringify(passwordProof));
+    expect(insertCall?.params[5]).toBe("[]");
+    expect(insertCall?.params[6]).toBe("org-1");
+    expect(insertCall?.params[7]).toBe("private");
+    expect(insertCall?.params[9]).toBe("protected");
+    expect(insertCall?.params[10]).toBeNull();
+    expect(insertCall?.params[11]).toBe(JSON.stringify(passwordProof));
   });
 
   it("requires signal id when inserting signal record", () => {

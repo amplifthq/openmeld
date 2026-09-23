@@ -118,8 +118,19 @@ test(
         recursive: true,
       });
       cpSync(
+        path.join(SCRIPT_DIR, "..", "dev"),
+        path.join(trustedRoot, "scripts", "dev"),
+        {
+          recursive: true,
+        }
+      );
+      cpSync(
         path.join(SCRIPT_DIR, "..", "release", "release-ready-paths.mjs"),
         path.join(trustedRoot, "scripts", "release", "release-ready-paths.mjs")
+      );
+      cpSync(
+        path.join(SCRIPT_DIR, "..", "release", "cli-skill-check.mjs"),
+        path.join(trustedRoot, "scripts", "release", "cli-skill-check.mjs")
       );
       cpSync(
         path.join(

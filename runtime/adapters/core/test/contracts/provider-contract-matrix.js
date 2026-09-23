@@ -1,5 +1,12 @@
 export const sharedProviderContractMatrix = Object.freeze([
   Object.freeze({
+    adapterId: "antigravity",
+    bridgeMode: "legacy_context_bridge",
+    agentControllerRef: "builtin:antigravity",
+    agentControllerConversationKind: "session",
+    repairConversationPolicy: "require_canonical",
+  }),
+  Object.freeze({
     adapterId: "claude-code",
     bridgeMode: "legacy_context_bridge",
     agentControllerRef: "builtin:claude-code",

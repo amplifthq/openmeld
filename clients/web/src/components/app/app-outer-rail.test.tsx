@@ -349,6 +349,31 @@ describe("AppOuterRail", () => {
 		).toBeNull();
 	});
 
+	it("centers equal-sized utility targets in the collapsed rail", () => {
+		rememberClientSidebarState("outer", { tier: "icon", width: "8rem" });
+		renderRail({ tier: "expanded", width: "9rem" });
+
+		const footer = screen
+			.getByTestId("app-outer-rail")
+			.querySelector('[data-sidebar="footer"]') as HTMLElement;
+		const utilityMenu = within(footer).getByRole("list", {
+			name: "App utilities",
+		});
+		expect(utilityMenu.className).toContain("mx-auto");
+		expect(utilityMenu.className).toContain("w-9");
+
+		for (const control of [
+			within(footer).getByRole("button", {
+				name: "Search or run a command",
+			}),
+			within(footer).getByRole("button", { name: "Settings" }),
+			within(footer).getByRole("button", { name: THEME_TOGGLE_PATTERN }),
+			within(footer).getByRole("button", { name: USER_MENU_PATTERN }),
+		]) {
+			expect(control.className).toContain("size-9");
+		}
+	});
+
 	it("places the organization switcher at the top without OpenMeld branding", () => {
 		renderRail();
 
@@ -367,17 +392,6 @@ describe("AppOuterRail", () => {
 		).toBeNull();
 		expect(screen.queryByLabelText("Go to OpenMeld homepage")).toBeNull();
 		expect(screen.queryByText("Experimental")).toBeNull();
-	});
-
-	it("aligns the resize rule with the inset surface boundary", () => {
-		renderRail();
-
-		const resizeRail = screen.getByRole("separator", {
-			name: "Resize app sidebar",
-		});
-
-		expect(resizeRail.className).toContain("top-4");
-		expect(resizeRail.className).toContain("bottom-14");
 	});
 
 	it("renders the organization selector as a shape-aware row even with one organization", () => {

@@ -6,6 +6,7 @@ import {
   SPACE_TASK_EXTERNAL_WORK_ITEM_LIMIT_ERROR_CODE,
   SPACE_TASK_LIST_MAX_ITEMS,
   spaceTaskExternalWorkItemIdentityKey,
+  spaceTaskGitHubIssueOperationId,
   spaceTaskMutationReceiptSchema,
   spaceTaskResponseSchema,
   spaceTaskSchema,
@@ -18,7 +19,7 @@ import type {
   SpaceTaskExternalWorkItem,
   SpaceTaskMutationReceipt,
 } from "@openmeld/schemas/types";
-import { mutateSpaceTaskRefreshingOnRevisionConflict } from "./space-task-revision-retry";
+import { mutateSpaceTaskWithObservationConflictRetry } from "./space-task-observation-retry";
 
 export type GitHubIssueSpaceTaskIdentity = {
   number: number;
@@ -176,6 +177,7 @@ export async function applyGitHubIssueSpaceTaskBinding(input: {
   actionId: string;
   actionInput: Record<string, unknown>;
   data: unknown;
+  eventIdentity?: string;
   now?: string;
   ports: SpaceTaskGitHubBindingPorts;
   toolContext: {
@@ -184,7 +186,7 @@ export async function applyGitHubIssueSpaceTaskBinding(input: {
   };
 }): Promise<SpaceTaskGitHubBindingSummary | null> {
   const space = input.toolContext.turnEnvelope?.space;
-  if (!shouldBindGitHubIssueToSpaceTask(space)) {
+  if (!(space && shouldBindGitHubIssueToSpaceTask(space))) {
     return null;
   }
   if (
@@ -224,8 +226,16 @@ export async function applyGitHubIssueSpaceTaskBinding(input: {
     input.actionId === "github.update_issue" &&
     input.actionInput.state === "closed"
   ) {
+    if (!input.eventIdentity?.trim()) {
+      throw new SpaceTaskGitHubBindingError({
+        code: "space_task.github_event_identity_required",
+        message:
+          "OpenMeld cannot confirm this GitHub issue update's operation identity.",
+      });
+    }
     return await closeSpaceTasksForGitHubIssue({
       identity,
+      eventIdentity: input.eventIdentity,
       now,
       ports: {
         getSpaceTask: input.ports.getSpaceTask,
@@ -308,7 +318,7 @@ async function createLinkedSpaceTask(input: {
     ],
     description: `Linked GitHub issue ${formatSpaceTaskGitHubIssueLabel(input.item)}.`,
     externalWorkItems: [input.item],
-    operationId: githubIssueTaskOperationId("create", input.item),
+    operationId: spaceTaskGitHubIssueOperationId("create", input.item),
     title,
   });
   return spaceTaskMutationReceiptSchema.parse(
@@ -338,7 +348,7 @@ async function ensureGitHubIssueAttached(input: {
       action: "attach_external_work_item",
       expectedRevision: input.task.revision,
       item: input.item,
-      operationId: githubIssueTaskOperationId(
+      operationId: spaceTaskGitHubIssueOperationId(
         "attach",
         input.item,
         input.task.taskId
@@ -353,6 +363,7 @@ async function ensureGitHubIssueAttached(input: {
 }
 
 async function closeSpaceTasksForGitHubIssue(input: {
+  eventIdentity: string;
   identity: GitHubIssueSpaceTaskIdentity;
   now: string;
   ports: Pick<
@@ -380,10 +391,11 @@ async function closeSpaceTasksForGitHubIssue(input: {
         lastObservedAt: input.now,
         lastObservedState: "closed",
         number: input.identity.number,
-        operationId: githubIssueTaskOperationId(
+        operationId: spaceTaskGitHubIssueOperationId(
           "observe-closed",
           input.identity,
-          task.taskId
+          task.taskId,
+          input.eventIdentity
         ),
         owner: input.identity.owner,
         provider: "github",
@@ -402,10 +414,11 @@ async function closeSpaceTasksForGitHubIssue(input: {
       body: {
         action: "cancel",
         expectedRevision: observed.task.revision,
-        operationId: githubIssueTaskOperationId(
+        operationId: spaceTaskGitHubIssueOperationId(
           "cancel",
           input.identity,
-          task.taskId
+          task.taskId,
+          input.eventIdentity
         ),
         reason: `GitHub issue ${formatSpaceTaskGitHubIssueLabel(input.identity)} was closed.`,
       },
@@ -440,7 +453,7 @@ async function mutateLinkedTask(input: {
     context: OpenMeldRequestContext;
   };
 }): Promise<SpaceTaskMutationReceipt> {
-  return await mutateSpaceTaskRefreshingOnRevisionConflict({
+  return await mutateSpaceTaskWithObservationConflictRetry({
     mutate: (mutation) =>
       input.ports.mutateSpaceTask({
         body: mutation,
@@ -502,15 +515,6 @@ function buildGitHubWorkItem(
     repo: identity.repo,
     url: identity.url,
   };
-}
-
-function githubIssueTaskOperationId(
-  kind: string,
-  identity: Pick<GitHubIssueSpaceTaskIdentity, "number" | "owner" | "repo">,
-  taskId?: string
-): string {
-  const base = `github-issue-${kind}:${identity.owner.toLowerCase()}:${identity.repo.toLowerCase()}:${identity.number}`;
-  return taskId ? `${base}:${taskId}` : base;
 }
 
 function buildSpaceUrl(

@@ -69,6 +69,8 @@ pnpm run verify:pr -- --feedback
 
 It selects changed-file Biome checks, relevant docs/Changelog contracts,
 adjacent Node tests, and related Vitest tests in directly changed workspaces.
+Worker TypeScript changes also run the existing Worker-safe Zod import guard
+before package checks; its owner defines the runtime roots for both lanes.
 Plain package test aliases retain their own config; unsupported runners use
 the package's test command instead of silently skipping tests. Dependency builds
 use Turbo's cache. Test commands run sequentially, Node test files run serially,
@@ -122,12 +124,66 @@ plan is the authority for selected/skipped commands, reasons, and durations:
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
 ```
 
+When local resource admission cannot safely start a production client build,
+the existing manual Deep Confidence workflow can run only the required client
+artifacts on an isolated hosted runner:
+
+```sh
+gh workflow run deep-confidence.yml --ref <candidate-branch> \
+  -f scope=release-artifacts -f artifact_scopes=web,desktop
+```
+
+Choose `web` or `desktop` when only that artifact is needed. This mode skips
+the broad diagnostic jobs, runs the same exact-source renderer/prerender and
+Workerd SSR entrypoints, and retains their source/input/output receipts. It
+uses read-only repository access and no production credentials. Match the run's
+head SHA to the candidate; these checks do not replace FC or deployed smoke.
+
+For same-run Web artifact handoff acceptance, use the read-only two-job mode:
+
+```sh
+gh workflow run deep-confidence.yml --ref <candidate-branch> -f scope=artifact-handoff
+```
+
+The parent builds and checks a real Web artifact with Workerd SSR. A separate
+runner downloads the immutable snapshot, verifies/restores it, and repeats the
+artifact preflight with `reused: true` and an unchanged output hash. It also
+requires rejection of a wrong-source receipt, corrupted receipt/snapshot, and
+diagnostic evidence presented to the Production verifier. The harness binds
+its actual Deep Confidence identity through the admission test adapter; it
+does not impersonate or widen Production's main-only workflow identity.
+Both jobs retain JSON evidence and use read-only repository access, disposable
+OpenMeld state, and no Production environment, credentials, deploy or publisher.
+This proves that transport and reuse path, not production rollout duration,
+component deployment, CLI/Desktop publication, or Product Smoke.
+
 Trusted control installs only the shared evidence parser's production
 dependencies. The result publisher does not restore the full development store;
 restoring that cache costs more than installing its small runtime. Candidate
 dependencies stay isolated and complete for the selected checks. This setup is
 the same for all PR scopes, confidence levels, merge groups, and local fallback;
 it does not change validation coverage or grant candidate code write credentials.
+
+Hosted `trusted-control-entrypoints` compares the current-main control
+projection, not every workspace or lockfile byte. The isolated installer
+consumes the candidate lockfile with `--frozen-lockfile --ignore-scripts` and
+rebuilds only native dependencies from the trusted `pnpm-workspace.yaml`
+allowlist. A catalog or override that only changes resolved JavaScript packages
+is not control drift. Changes to Final Candidate workflows, trusted
+entrypoints, install wrappers, project `.npmrc`, `package.json`
+`packageManager` or scripts, the Turbo task graph, or workspace fields that
+change what native code may run (`allowBuilds`, `onlyBuiltDependencies`,
+`patchedDependencies`, and equivalents, including the referenced patch files)
+still refuse hosted certification. Native-build and patch settings are parsed
+fail-closed, including valid flow-style and complex-key YAML. The isolated
+command wrapper also forces a trusted `script-shell` so a candidate `.npmrc`
+cannot rewrite how later `pnpm run` checks execute. Those pull requests use
+the documented local explicit bootstrap. When that refuse happens, the
+required `OpenMeld Final Candidate` status names the control refuse and the
+bootstrap path. The Final Candidate Runner job also stays red because the
+runner still exits after the control check. The publisher job does not add a
+third lookalike product-test failure. The merge gate remains that one required
+status; this is not a second delivery process.
 
 A non-draft PR targeting `main` starts standard FC on opening, new commits,
 reopening, or marking ready; no label is needed. To retry after diagnosing a
@@ -165,7 +221,11 @@ Full command logs remain in the evidence artifact. The schema owner is
 Existing trusted task-input reuse remains available to specialized affected
 plans; standard FC no longer selects those broad tasks. Full confidence executes
 its full gate. Database/release readiness and deployment/health/smoke results are
-never reused. A green FC proves only its recorded selected checks.
+never reused. The same-run Production train artifact handoff in
+[Production Release](production-release.md) verifies parent admission evidence
+and, for Web, the actual snapshot bytes; it does not reuse FC, deployment,
+reconciliation or smoke evidence. A green FC proves only its recorded selected
+checks.
 
 Each task owns its implementation, risk assessment, and authorized delivery.
 CI does not require a reviewer count, central coordinator, waiting period, or
@@ -198,6 +258,10 @@ including its publisher, to complete. Cancellation acceptance is not completion.
 An unverifiable owner, API failure, or three-minute handoff timeout blocks local
 publication. This prevents an older hosted failure from overwriting local
 certification without hiding failures or trusting a previous green status.
+After a handoff timeout, wait until that exact hosted workflow has completed,
+including its publisher, then rerun the same unchanged candidate command.
+Do not extend ownership assumptions from an accepted cancellation or publish
+the local status manually.
 Later explicit hosted requests are new validations, not permanently suppressed.
 The first hop fetches depth-one main metadata into an isolated temporary Git
 repository, using blob filtering and a sparse checkout of `scripts/` to load
@@ -217,6 +281,9 @@ The local development commands it invokes may wait for shared worktree
 capacity as described in
 [Resource Discipline](development-workflow.md#resource-discipline). Waiting
 affects execution timing, not candidate identity or validation requirements.
+The preflight reports macOS warning and critical pressure separately; both
+remain informational here. Development admission owns the quiet-swap observation
+for warning-pressure starts, and broad local builds still wait for normal pressure.
 The narrow `Dev lifecycle` workflow additionally exercises process ownership
 and resource arbitration on macOS, Linux and Windows when development scripts
 change. It uses disposable processes, requires no cloud credentials, and does
@@ -351,6 +418,13 @@ Anything not run, with reason
   incomplete, with its original submission evidence preserved across runners.
   Resume verification without resubmitting an accepted or uncertain publish;
   follow the npm recovery boundary in `production-release.md`.
+
+For CLI publication, source builds and registry version existence do not prove
+that an npm user can install the release. The release owner must validate and
+publish the same portable tarball, as defined in
+[npm submission and availability](production-release.md#npm-submission-and-availability).
+Windows compatibility CI also consumes that artifact and exercises the generated
+PowerShell bootstrap; signed-in computer and Wake acceptance remain separate.
 
 ## Agent Experience Occurrence Feedback
 

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { desktopProductionSourceSchema } from "../../packages/schemas/dist/desktop-client.js";
+import { withDesktopAppName } from "../../scripts/desktop/app-name.ts";
 import { buildInstalledPlatformPlan } from "../../scripts/desktop/installed-platform.ts";
 import { readInstalledDesktopTarget } from "../../scripts/desktop/installed-target.ts";
 import {
@@ -48,12 +49,10 @@ if (signedMode === "production-preview") {
     );
   }
 }
-if (!target) {
-  throw new Error("Select a fixed installed Desktop build target.");
-}
-const { build } = JSON.parse(
+const { build: baseBuild } = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8")
 );
+const build = withDesktopAppName(baseBuild, target.appId);
 if (target.kind === "production" && plan.platform === "macos-arm64") {
   assertMacProductionBundleIdentity({
     appId: target.appId,
@@ -75,8 +74,6 @@ export default {
         forceCodeSigning: plan.forceCodeSigning,
       }
     : {}),
-  appId: target.appId,
-  productName: build.productName,
   directories: { output: signedMode ? `dist/${signedMode}` : "dist/installed" },
   files: build.files
     .filter((file) => file !== "out/**/*")

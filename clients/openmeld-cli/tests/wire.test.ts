@@ -1,12 +1,28 @@
 import { MAX_TEXT_LENGTH } from "@openmeld/protocol";
 import { describe, expect, it } from "vitest";
 import {
+  makeHello,
   parseIncoming,
   parseServerErrorFrame,
   sanitizeText,
 } from "../src/protocol/wire";
 
 describe("wire", () => {
+  it("declares image geometry support in the websocket hello", () => {
+    expect(
+      makeHello({
+        kind: "human",
+        profileId: "11111111-1111-4111-8111-111111111111",
+        profileName: "Mira",
+      })
+    ).toMatchObject({
+      capabilities: {
+        spaceImageGeometry: true,
+        spaceMessageAddressing: true,
+      },
+    });
+  });
+
   it("sanitizes text and enforces protocol max length", () => {
     expect(sanitizeText(" hello ")).toEqual({ ok: true, value: "hello" });
 

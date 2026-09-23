@@ -178,12 +178,14 @@ Workers, and verifies the public entry points. See
     to `RoutineRunWorkflow`
 - `.dev.vars` / `.dev.vars.prod`
   - `GITHUB_OPENMELD_API_TOKEN`
+  - `GITHUB_OPENMELD_WEBHOOK_SECRET`
   - `SLACK_OPENMELD_BOT_TOKEN`
   - `SLACK_OPENMELD_TOKEN_CRYPTO_KEY`
   - `LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY`
   - `ZEP_OPENMELD_API_KEY`
 - Cloudflare production secrets
   - `GITHUB_OPENMELD_API_TOKEN`
+  - `GITHUB_OPENMELD_WEBHOOK_SECRET`
   - `SLACK_OPENMELD_BOT_TOKEN`
   - `SLACK_OPENMELD_TOKEN_CRYPTO_KEY`
   - `LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY`
@@ -566,6 +568,7 @@ WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET="paste-a-32-byte-random-base64url-secret
 Core owns production secrets for hosted Center Agent integrations:
 
 - `GITHUB_OPENMELD_API_TOKEN`
+- `GITHUB_OPENMELD_WEBHOOK_SECRET`
 - `SLACK_OPENMELD_BOT_TOKEN`
 - `SLACK_OPENMELD_TOKEN_CRYPTO_KEY`
 - `LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY`
@@ -575,6 +578,10 @@ Core owns production secrets for hosted Center Agent integrations:
 reads used to import public Organization Skills. It prevents all OpenMeld
 tenants from sharing GitHub's anonymous per-IP request budget. It is never
 stored in a Skill release, returned to clients, or sent to the model.
+
+`GITHUB_OPENMELD_WEBHOOK_SECRET` authenticates GitHub App webhook deliveries to
+Core. Missing or mismatched signatures are rejected. It is never returned to
+clients or sent to the model.
 
 `SLACK_OPENMELD_TOKEN_CRYPTO_KEY` and
 `LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY` must each be a base64-encoded

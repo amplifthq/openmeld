@@ -82,7 +82,10 @@ describe("SpaceSessionRuntime", () => {
           profileId: "self-profile",
           profileName: "Felix",
         },
-        capabilities: { spaceMessageAddressing: true },
+        capabilities: {
+          spaceMessageAddressing: true,
+          spaceImageGeometry: true,
+        },
       }
     );
     harness.emit(

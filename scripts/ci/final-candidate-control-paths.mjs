@@ -2,8 +2,8 @@ const CONTROL_PATH_PATTERNS = [
   /^\.github\/actions\/trusted-git-network\/action\.yml$/u,
   /^\.github\/workflows\/final-candidate\.yml$/u,
   /^\.github\/workflows\/merge-group-final-candidate\.yml$/u,
+  /^\.npmrc$/u,
   /^package\.json$/u,
-  /^pnpm-lock\.yaml$/u,
   /^pnpm-workspace\.yaml$/u,
   /^turbo\.json$/u,
   /^scripts\/ci\/final-candidate(?:-[^/]*)?\.(?:mjs|test\.mjs)$/u,
@@ -16,6 +16,9 @@ const CONTROL_PATH_PATTERNS = [
   /^scripts\/dev\/turbo-affected(?:\.test)?\.mjs$/u,
   /^scripts\/dev\/affected-workspaces(?:\.test)?\.mjs$/u,
   /^scripts\/dev\/verify-pr(?:\.test)?\.mjs$/u,
+  /^scripts\/dev\/(?:owned-command|process-rows|process-tree)(?:\.test)?\.mjs$/u,
+  /^scripts\/release\/cli-skill(?:-check)?\.mjs$/u,
+  /^scripts\/release\/(?:hosted-production-preflight|production-(?:artifact-check|release(?:-status(?:-regressions)?)?|stage-admission|train-artifact-admission|web-health)|release-preflight|renderer-build)(?:\.test)?\.mjs$/u,
   /^packages\/schemas\/src\/schemas\/ci\/final-candidate\.ts$/u,
 ];
 

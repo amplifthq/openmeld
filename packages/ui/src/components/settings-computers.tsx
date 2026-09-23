@@ -219,8 +219,12 @@ function SettingsComputerLocalAgentSummary({
   icons: readonly SettingsComputerLocalAgentIcon[];
   summaryLabel?: string;
 }) {
-  const visibleIcons = icons.filter((icon) => hasLocalAgentLogo(icon.agentId));
-  if (visibleIcons.length === 0) {
+  const supportedIcons = icons.filter((icon) =>
+    hasLocalAgentLogo(icon.agentId)
+  );
+  const visibleIcons = supportedIcons.slice(0, 5);
+  const hiddenIcons = supportedIcons.slice(5);
+  if (supportedIcons.length === 0) {
     return summaryLabel ? (
       <span className="shrink-0 text-muted-foreground">{summaryLabel}</span>
     ) : null;
@@ -229,10 +233,10 @@ function SettingsComputerLocalAgentSummary({
   return (
     <span className="flex shrink-0 items-center justify-end gap-2">
       <span className="sr-only">
-        {visibleIcons.map((icon) => icon.displayName).join(", ")}
+        {supportedIcons.map((icon) => icon.displayName).join(", ")}
         {" local agents"}
       </span>
-      {visibleIcons.map((icon) => (
+      {visibleIcons.map((icon, index) => (
         <Tooltip key={icon.agentId}>
           <TooltipTrigger
             render={
@@ -245,7 +249,14 @@ function SettingsComputerLocalAgentSummary({
               </span>
             }
           />
-          <TooltipContent side="top">{icon.displayName}</TooltipContent>
+          <TooltipContent side="top">
+            {icon.displayName}
+            {index === visibleIcons.length - 1 && hiddenIcons.length > 0
+              ? ` · Also supports ${hiddenIcons
+                  .map((hiddenIcon) => hiddenIcon.displayName)
+                  .join(", ")}`
+              : null}
+          </TooltipContent>
         </Tooltip>
       ))}
     </span>

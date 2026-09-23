@@ -241,7 +241,7 @@ describe("SpaceComposerEditor", () => {
 		}
 	});
 
-	it("keeps @all open for an audience choice and inserts ordinary People and Agent tokens", async () => {
+	it("keeps @all open for an audience choice and inserts one group token", async () => {
 		const composerRef = createRef<SpaceComposerEditorHandle>();
 		const onChange = vi.fn();
 		render(
@@ -272,7 +272,13 @@ describe("SpaceComposerEditor", () => {
 			await screen.findByRole("option", { name: BOTH_OPTION_NAME })
 		);
 		await waitFor(() => {
-			const mentions = onChange.mock.lastCall?.[0].authoredMentions;
+			const change = onChange.mock.lastCall?.[0];
+			const mentions = change?.authoredMentions;
+			expect(change?.text).toBe("@all");
+			expect(
+				screen.getAllByTestId("space-composer-audience-token")
+			).toHaveLength(1);
+			expect(screen.queryByTestId("space-composer-profile-token")).toBeNull();
 			expect(mentions).toEqual(
 				expect.arrayContaining([
 					expect.objectContaining({

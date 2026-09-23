@@ -41,6 +41,8 @@ import {
   listSpaceDispatchTraceFinalVisibleSignalCandidates,
   MAX_SPACE_GUIDE_LENGTH,
   MAX_SPACE_NAME_LENGTH,
+  messageSearchQuerySchema,
+  mutateSpaceTaskBodySchema,
   normalizeListSignalsReadQuerySemantics,
   normalizeSpaceCursorPatch,
   OBSERVABILITY_CLOUDFLARE_ANALYTICS_BLOBS,
@@ -82,6 +84,7 @@ import {
   SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS,
   SPACE_PASSWORD_MIN_LENGTH,
   SPACE_SIGNAL_AUTHORING_POLICY_REQUIRED_ERROR_CODE,
+  SPACE_TASK_OPERATION_ID_MAX_CHARS,
   SPACE_UPDATES_DEFAULT_LIMIT,
   SPACE_UPDATES_MAX_LIMIT,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
@@ -100,6 +103,8 @@ import {
   spaceRouteParamsSchema,
   spaceSignalAuthoringPolicySchema,
   spaceStorageUsageSchema,
+  spaceTaskDetailOptionsSchema,
+  spaceTaskGitHubIssueOperationId,
   spaceTaskSchema,
   updateProfileResponseSchema,
   upsertProfileSpaceHistoryBodySchema,
@@ -1546,6 +1551,7 @@ describe("http schemas", () => {
           readListSignalsQueryRawValues(new URLSearchParams(query))
         );
       expect(read("q=invoice&limit=30").success).toBe(true);
+      expect(read("q=a&limit=30").success).toBe(true);
       for (const query of [
         "q=invoice&recent=true",
         "q=invoice&aroundSignalId=message",
@@ -1554,6 +1560,19 @@ describe("http schemas", () => {
       ]) {
         expect(read(query).success).toBe(false);
       }
+    });
+
+    it("allows short queries only when search is scoped to one Space", () => {
+      expect(
+        messageSearchQuerySchema.safeParse({ q: "a", spaceId: "space-1" })
+          .success
+      ).toBe(true);
+      expect(messageSearchQuerySchema.safeParse({ q: "ab" }).success).toBe(
+        false
+      );
+      expect(messageSearchQuerySchema.safeParse({ q: "abc" }).success).toBe(
+        true
+      );
     });
     it("reads raw query values from URLSearchParams", () => {
       const params = new URLSearchParams(
@@ -3013,6 +3032,40 @@ describe("http schemas", () => {
       expect(
         gatewayErrorCodeSchema.safeParse("space_task.revision_conflict").success
       ).toBe(true);
+      expect(
+        gatewayErrorCodeSchema.safeParse("space_task.result_revision_conflict")
+          .success
+      ).toBe(true);
+      const review = {
+        action: "review",
+        decision: "accepted",
+        expectedRevision: 5,
+        operationId: "review-current-result",
+      };
+      expect(mutateSpaceTaskBodySchema.safeParse(review).success).toBe(false);
+      expect(
+        mutateSpaceTaskBodySchema.safeParse({
+          ...review,
+          expectedResultRevision: 2,
+        }).success
+      ).toBe(true);
+      expect(
+        spaceTaskDetailOptionsSchema.safeParse({ includeAffordances: true })
+          .success
+      ).toBe(true);
+      expect(
+        spaceTaskDetailOptionsSchema.safeParse({ includeAffordances: "1" })
+          .success
+      ).toBe(false);
+      const providerOperation = spaceTaskGitHubIssueOperationId(
+        "observe-closed",
+        { owner: "o".repeat(39), repo: "r".repeat(100), number: 123_456_789 },
+        "tsk_55555555-5555-4555-8555-555555555555",
+        "9e230c99-4ed2-411c-862b-3978db60bfb2"
+      );
+      expect(providerOperation.length).toBeLessThanOrEqual(
+        SPACE_TASK_OPERATION_ID_MAX_CHARS
+      );
       expect(
         gatewayErrorCodeSchema.safeParse("space_task.operation_conflict")
           .success

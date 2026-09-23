@@ -1,0 +1,118 @@
+import { readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
+import { parseArgs } from "node:util";
+
+const BODY = /<body[\s>]/iu;
+const SCRIPT = /<script[\s>]/iu;
+const SOURCE_SHA = /^[a-f0-9]{40}$/u;
+const BUILD_META =
+  /<meta\s+[^>]*name="(openmeld-[a-z-]+)"[^>]*content="([^"]*)"[^>]*>/gu;
+
+export function validateSsrPage({
+  status,
+  contentType,
+  html,
+  sourceSha,
+  expectedBuildId,
+  allowDirty = false,
+}) {
+  if (
+    status !== 200 ||
+    !contentType?.includes("text/html") ||
+    !BODY.test(html) ||
+    !SCRIPT.test(html)
+  ) {
+    throw new Error(
+      `Web SSR page failed (HTTP ${status}); a static asset is not SSR health.`
+    );
+  }
+  const metadata = new Map(
+    [...html.matchAll(BUILD_META)].map((match) => [match[1], match[2]])
+  );
+  if (
+    metadata.get("openmeld-source-sha") !== sourceSha ||
+    !metadata.get("openmeld-build-id")
+  ) {
+    throw new Error(
+      "Web SSR deployment source does not match the requested release."
+    );
+  }
+  if (
+    expectedBuildId &&
+    metadata.get("openmeld-build-id") !== expectedBuildId
+  ) {
+    throw new Error(
+      "Web SSR build identity does not match the verified artifact."
+    );
+  }
+  if (!allowDirty && metadata.get("openmeld-build-dirty") !== "false") {
+    throw new Error("Web SSR was built from an unverified dirty source.");
+  }
+  return { sourceSha, buildId: metadata.get("openmeld-build-id"), status };
+}
+
+export async function checkProductionWeb({
+  url,
+  sourceSha,
+  expectedBuildId,
+  allowDirty = false,
+  fetchImpl = fetch,
+}) {
+  if (!SOURCE_SHA.test(sourceSha)) {
+    throw new Error("An exact Web source SHA is required.");
+  }
+  const target = new URL("/", url);
+  target.searchParams.set("release-health", sourceSha);
+  const response = await fetchImpl(target, {
+    redirect: "error",
+    signal: AbortSignal.timeout(30_000),
+    headers: { accept: "text/html", "cache-control": "no-cache" },
+  });
+  return validateSsrPage({
+    status: response.status,
+    contentType: response.headers.get("content-type"),
+    html: await response.text(),
+    sourceSha,
+    expectedBuildId,
+    allowDirty,
+  });
+}
+
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  const { values } = parseArgs({
+    options: {
+      url: { type: "string" },
+      "source-sha": { type: "string" },
+      "artifact-receipt": { type: "string" },
+    },
+  });
+  let expectedBuildId;
+  if (values["artifact-receipt"]) {
+    const receipt = JSON.parse(
+      await readFile(values["artifact-receipt"], "utf8")
+    );
+    if (
+      receipt.scope !== "web" ||
+      receipt.sourceSha !== values["source-sha"] ||
+      receipt.allowDirty !== false ||
+      !receipt.ssr?.buildId
+    ) {
+      throw new Error(
+        "Web health requires the verified clean artifact receipt for this source."
+      );
+    }
+    expectedBuildId = receipt.ssr.buildId;
+  }
+  console.log(
+    JSON.stringify(
+      await checkProductionWeb({
+        url: values.url,
+        sourceSha: values["source-sha"],
+        expectedBuildId,
+      })
+    )
+  );
+}

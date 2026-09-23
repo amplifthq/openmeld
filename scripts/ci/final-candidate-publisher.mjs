@@ -8,8 +8,10 @@ import { pathToFileURL } from "node:url";
 import { finalCandidateEvidenceSchema } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
 import {
   appendWorkflowSummary,
+  describeFinalCandidateFailure,
   readEvidence,
   shortSha,
+  shouldFailPublisherJob,
 } from "./final-candidate-output.mjs";
 import {
   assertCandidateSnapshot,
@@ -110,14 +112,18 @@ function run() {
   publishCommitStatus({
     description: success
       ? `Passed ${confidence} @ ${shortSha(expected.headSha)} on ${shortSha(expected.baseSha)}`
-      : `Failed @ ${shortSha(expected.headSha)} on ${shortSha(expected.baseSha)}; inspect workflow evidence`,
+      : describeFinalCandidateFailure(
+          expected.headSha,
+          expected.baseSha,
+          evidence
+        ),
     headSha: expected.headSha,
     repository,
     state: success ? "success" : "failure",
     targetUrl,
   });
 
-  if (!success) {
+  if (shouldFailPublisherJob(success, evidence)) {
     throw validationError;
   }
 }

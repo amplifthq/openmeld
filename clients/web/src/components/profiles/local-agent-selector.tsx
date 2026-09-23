@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@openmeld/ui/components/button";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
 import {
@@ -7,22 +8,34 @@ import {
 	MagnifyingDockItem,
 } from "@openmeld/ui/components/magnifying-dock";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { Switch } from "@openmeld/ui/components/switch";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CheckIcon, RobotIcon } from "@phosphor-icons/react";
-import { type ReactNode, useId } from "react";
+import { type ReactNode, useId, useState } from "react";
+import {
+	formatMutationError,
+	isLocalAgentControlStillRunningError,
+} from "#/components/agents/agents-page-formatters";
 import { ComputerSetupChoiceCard } from "#/components/connect/computer-setup-choice-card";
+import { DesktopAwareLink } from "#/desktop/desktop-aware-link";
 import type { AgentProfileBindingChoice } from "./agent-binding-choice-list";
-import type { AgentProfileLocalAgentEmptyState } from "./create-profile-form";
+import { AgentCreationComputerRecoveryPanel } from "./agent-creation-computer-recovery";
+import type {
+	AgentProfileLocalAgentEmptyState,
+	AgentProfileLocalAgentSelectionState,
+} from "./create-profile-form";
 
 export type LocalAgentSelectorProps = {
 	choices: readonly AgentProfileBindingChoice[];
 	computerSlot?: ReactNode;
+	computerRecovery?: import("./agent-creation-computer-recovery").AgentCreationComputerRecovery;
 	disabled: boolean;
 	emptyState?: AgentProfileLocalAgentEmptyState;
 	isResolving: boolean;
 	locked?: boolean;
 	onChange: (value: string) => void;
 	surface?: "dialog" | "page";
+	selectionState?: AgentProfileLocalAgentSelectionState | null;
 	value: string;
 };
 
@@ -68,7 +81,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 				</p>
 			) : null}
 
-			{input.isResolving ? (
+			{input.isResolving && choices.length === 0 ? (
 				<output
 					aria-label="Checking available local agents"
 					className="flex min-h-24 items-center justify-start gap-3"
@@ -79,7 +92,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 				</output>
 			) : null}
 
-			{!input.isResolving && choices.length > 0 ? (
+			{choices.length > 0 ? (
 				<MagnifyingDock
 					aria-labelledby={headingId}
 					className="-mx-3 min-h-24 justify-start gap-2 overflow-x-auto overflow-y-hidden px-3 pt-5 pb-1"
@@ -129,6 +142,18 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 				</MagnifyingDock>
 			) : null}
 
+			{selectedChoice &&
+			input.selectionState &&
+			input.selectionState.kind !== "available" ? (
+				<LocalAgentSelectionStatePanel
+					computerRecovery={input.computerRecovery}
+					key={
+						input.selectionState.selectionKey ?? input.selectionState.agentId
+					}
+					state={input.selectionState}
+				/>
+			) : null}
+
 			{!input.isResolving && choices.length === 0 ? (
 				<LocalAgentSelectorEmptyState
 					emptyState={input.emptyState}
@@ -167,6 +192,178 @@ function resolveSelectedChoiceDescription(
 	}) === 0
 		? null
 		: description;
+}
+
+function LocalAgentSelectionStatePanel(input: {
+	computerRecovery?: import("./agent-creation-computer-recovery").AgentCreationComputerRecovery;
+	state: AgentProfileLocalAgentSelectionState;
+}) {
+	const [enableRequested, setEnableRequested] = useState(false);
+	const [enableError, setEnableError] = useState<string | null>(null);
+	const [enableStatus, setEnableStatus] = useState<string | null>(null);
+	const state = input.state;
+	const className =
+		"grid min-h-40 content-center gap-4 rounded-md border border-border/70 border-dashed bg-card/25 px-6 py-7";
+
+	if (state.kind === "computer" && input.computerRecovery) {
+		return (
+			<div className={className}>
+				<AgentCreationComputerRecoveryPanel recovery={input.computerRecovery} />
+			</div>
+		);
+	}
+	if (state.kind === "checking") {
+		return (
+			<output
+				aria-label={`Checking ${state.displayName}`}
+				className={className}
+			>
+				<div className="grid gap-2">
+					<Skeleton className="h-4 w-40" />
+					<Skeleton className="h-3 w-full max-w-md" />
+				</div>
+			</output>
+		);
+	}
+	if (state.kind === "disabled") {
+		return (
+			<section
+				aria-label={`${state.displayName} availability`}
+				className={className}
+			>
+				<div className="flex flex-wrap items-center justify-between gap-4">
+					<div className="grid gap-1.5">
+						<h3 className="font-medium text-sm">
+							{state.displayName} is turned off on this computer.
+						</h3>
+						<p className="text-muted-foreground text-xs leading-5">
+							Turn it on here or in Computer → Local agents.
+						</p>
+					</div>
+					<Switch
+						aria-label={`Enable ${state.displayName}`}
+						checked={enableRequested}
+						disabled={enableRequested || !state.canEnable || !state.onEnable}
+						onCheckedChange={(enabled) => {
+							if (!(enabled && state.onEnable)) {
+								return;
+							}
+							setEnableRequested(true);
+							setEnableError(null);
+							setEnableStatus(null);
+							state
+								.onEnable()
+								.then(() => {
+									setEnableRequested(false);
+								})
+								.catch((error: unknown) => {
+									setEnableRequested(false);
+									if (isLocalAgentControlStillRunningError(error)) {
+										setEnableStatus(
+											"OpenMeld is still applying this change. Check again in a moment."
+										);
+										return;
+									}
+									setEnableError(
+										formatMutationError(
+											error,
+											`Couldn’t turn on ${state.displayName}. Try again.`
+										)
+									);
+								});
+						}}
+					/>
+				</div>
+				{enableError ? (
+					<p className="text-destructive text-xs" role="alert">
+						{enableError}
+					</p>
+				) : null}
+				{enableStatus ? (
+					<output className="text-muted-foreground text-xs">
+						{enableStatus}
+					</output>
+				) : null}
+				{!state.canEnable && state.manageHref ? (
+					<DesktopAwareLink
+						className="w-fit font-medium text-sm underline underline-offset-4"
+						href={state.manageHref}
+					>
+						Open Computer settings
+					</DesktopAwareLink>
+				) : null}
+			</section>
+		);
+	}
+
+	const content = resolveSelectionStateContent(state);
+	return (
+		<section
+			aria-label={`${state.displayName} availability`}
+			className={className}
+		>
+			<div className="grid gap-1.5">
+				<div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+					<h3 className="font-medium text-sm">{content.title}</h3>
+					{state.onRetry ? (
+						<Button
+							onClick={state.onRetry}
+							size="sm"
+							type="button"
+							variant="outline"
+						>
+							Check again
+						</Button>
+					) : null}
+				</div>
+				<p className="max-w-xl text-muted-foreground text-xs leading-5">
+					{content.description}
+				</p>
+			</div>
+			{state.guideHref ? (
+				<DesktopAwareLink
+					className="inline-flex min-h-9 w-fit items-center font-medium text-sm underline underline-offset-4"
+					href={state.guideHref}
+				>
+					{state.kind === "not_installed"
+						? "Open install guide"
+						: "Open setup guide"}
+				</DesktopAwareLink>
+			) : null}
+		</section>
+	);
+}
+
+function resolveSelectionStateContent(
+	state: AgentProfileLocalAgentSelectionState
+): { description: string; title: string } {
+	switch (state.kind) {
+		case "not_installed":
+			return {
+				title: `Install ${state.displayName} on this computer.`,
+				description:
+					"Install it, finish its first-run setup, then check again.",
+			};
+		case "signed_out":
+			return {
+				title: `Sign in to ${state.displayName} on this computer.`,
+				description: state.blocksCreation
+					? "Finish sign-in, then check again."
+					: "You can create this Agent now, but sign in before you try to run it.",
+			};
+		case "check_failed":
+			return {
+				title: `Couldn’t check ${state.displayName}.`,
+				description: "Check again to load its current status.",
+			};
+		default:
+			return {
+				title: `${state.displayName} isn’t available on this computer.`,
+				description:
+					state.message ??
+					"Fix its setup, then check again before creating this Agent.",
+			};
+	}
 }
 
 function LocalAgentSelectorEmptyState(input: {
@@ -238,7 +435,7 @@ function LocalAgentSelectorEmptyState(input: {
 			actionLabel="Set up local agents"
 			centerAgentHref={emptyState?.centerAgentHref}
 			className={className}
-			descriptionLead="No local agents are available to select. Set up a local agent such as Codex or Claude Code, then return to finish creating your Agent."
+			descriptionLead="No local agents are available to select. Set up a supported local agent, then return to finish creating your Agent."
 		/>
 	);
 }

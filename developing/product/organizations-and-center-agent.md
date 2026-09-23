@@ -2284,6 +2284,44 @@ of owning a second mutation surface. Setup Studio presents the Core-owned
 default as enabled without manufacturing a user choice. It does not own another
 policy or ongoing management surface.
 
+### Explicit retained-memory search and bounded audit reads
+
+`openmeld_search_center_agent_memory` is a query-driven read over existing
+active member memory and enabled Organization memory, not universal conversation
+search. Core accepts a verified interactive member in an OpenMeld DM or Space;
+Routine and external-channel callers are not supported by this reader. The
+query is trimmed and limited to 400 characters; at most six remembered summaries
+are returned. Reads never create/revive subjects, enable policy, capture another
+conversation, or change automatic recall.
+
+Every returned fact retains all of its bounded supporting origins. Core checks
+current member authority, current reply audience, source Space access, and the
+exact source message through the owning Space APIs. A fact with any inaccessible,
+missing, revoked, unverifiable, or audience-unsafe support is withheld as a whole,
+without hidden-source identifiers or omitted-result counts. A previously private
+DM converted into a shared conversation does not retain private disclosure
+rights. The currently supported provenance is retained `ca_dm` and
+`space_conversation` evidence; Slack, Lark/Feishu, and legacy `explicit_tool`
+origins without a verified conversation source remain explicitly unsupported by
+this reader, independently of existing capture support.
+
+Results are remembered summaries, not quotes or proof of current approval.
+`no_match` is not proof that a conversation never happened. Provider failure
+produces `partial` or `unavailable`, rather than an empty successful recall.
+Source occurrence times remain available for checking reversals; verify current
+decisions against readable original sources and current Organization Document
+revisions. Historical source instructions confer no new action authority.
+
+`openmeld_read_center_agent_activity` reads the existing Audit Log through a
+private member-attributed adapter, not the human membership endpoint. Core keeps
+the designated Agent principal and separately verifies the represented member;
+a Routine uses its current delegated member, not a substituted Organization
+owner. The human journal and its action-set compatibility remain unchanged.
+The bounded Agent projection omits context-manifest details and exposes only
+currently readable, audience-safe Space references. Other resource references
+are withheld; absence does not prove that an action or authorization never
+existed. Audit evidence does not create execution, replay, or repair authority.
+
 ### Organization Documents
 
 Documents are organization-scoped Markdown context. Every document body

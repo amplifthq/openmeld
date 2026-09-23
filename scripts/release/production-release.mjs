@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
 import {
   acquireProductionScopeLease,
@@ -22,6 +22,7 @@ import { requireMainlineReleaseSha } from "./require-mainline-release-sha.mjs";
 
 const DEFAULT_BASE_REF = "origin/main";
 const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
+const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const LINE_SPLIT_REGEX = /\r?\n/u;
 const TEST_FILE_REGEX =
   /(?:^|\/)[^/]+\.(?:integration\.)?(?:spec|test)\.[cm]?[jt]sx?$/u;
@@ -129,7 +130,21 @@ const CORE_WORKER_RESPONSE_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER 
   LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER;
 const CORE_WORKER_RESPONSE_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER =
   CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER;
+const SPACE_MESSAGE_SEARCH_RECEIVERS_FIRST_SCOPE_ORDER = [
+  "db",
+  "auth",
+  "cli",
+  "core",
+  "gateway",
+  "web",
+  "remote-agent",
+];
 const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
+  "center-agent-evidence-receivers-first": SCOPE_ORDER,
+  "space-message-search-receivers-first":
+    SPACE_MESSAGE_SEARCH_RECEIVERS_FIRST_SCOPE_ORDER,
+  "space-message-search-and-evidence-receivers-first":
+    SPACE_MESSAGE_SEARCH_RECEIVERS_FIRST_SCOPE_ORDER,
   "space-task-receivers-first": CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER,
   "space-caller-context-receivers-first": [
     "db",
@@ -198,8 +213,280 @@ const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
     REMOTE_AGENT_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER,
   "remote-agent-receiver-first": REMOTE_AGENT_RECEIVER_FIRST_SCOPE_ORDER,
 };
-const INBOX_SOURCE_TARGET_SCHEMA_PATH =
-  "packages/schemas/src/schemas/http/inbox.ts";
+const INBOX_SCHEMA_PATH = "packages/schemas/src/schemas/http/inbox.ts";
+
+// Preferred scheduling order is not a compatibility dependency. Accumulate
+// only contract directions proven by the changed producer and receiver paths.
+export function resolveProductionCompatibilityDependencies(
+  changedPaths,
+  taskInboxRetired = false
+) {
+  const edges = [];
+  const edgeKeys = new Set();
+  const addEdge = (receiver, producer) => {
+    const key = `${receiver}\0${producer}`;
+    if (!edgeKeys.has(key)) {
+      edgeKeys.add(key);
+      edges.push([receiver, producer]);
+    }
+  };
+
+  const spaceTask = isSpaceTaskReceiverFirstDiff(changedPaths);
+  const callerContext = isSpaceCallerContextDiff(changedPaths);
+  const spaceTaskCli = changedPaths.includes(
+    "clients/openmeld-cli/src/space/dispatch-task.ts"
+  );
+  const invitation = isSpaceInvitationReceiverFirstDiff(changedPaths);
+  const dependencyGroups = [
+    {
+      enabled: isWorkingFolderRecoveryDiff(changedPaths),
+      edges: [["core", "cli"]],
+    },
+    {
+      enabled: isNpmSetupArtifactDiff(changedPaths),
+      edges: [["cli", "web"]],
+    },
+    {
+      enabled: isInboxNotificationObservationDiff(changedPaths),
+      edges: [
+        ["core", "gateway"],
+        ["gateway", "web"],
+      ],
+    },
+    {
+      enabled: isCenterAgentEvidenceDiff(changedPaths),
+      edges: [["core", "remote-agent"]],
+    },
+    {
+      enabled: isSpaceMessageSearchReceiverFirstDiff(changedPaths),
+      edges: [
+        ["core", "gateway"],
+        ["gateway", "web"],
+      ],
+    },
+    {
+      enabled:
+        spaceTask &&
+        (spaceTaskCli ||
+          changedPaths.includes(
+            "services/gateway/src/routes/rpc-http.space-tasks.ts"
+          )),
+      edges: [["core", "gateway"]],
+    },
+    {
+      enabled: spaceTask && spaceTaskCli,
+      edges: [["gateway", "cli"]],
+    },
+    {
+      enabled:
+        spaceTask &&
+        changedPaths.includes("services/remote-agent/agent-core/tools.ts"),
+      edges: [["core", "remote-agent"]],
+    },
+    {
+      enabled: callerContext,
+      edges: [
+        ["auth", "cli"],
+        ["remote-agent", "cli"],
+        ["cli", "core"],
+      ],
+    },
+    {
+      enabled: isPersonalRemoteToolsReceiverFirstDiff(changedPaths),
+      edges: [["core", "remote-agent"]],
+    },
+    {
+      enabled: taskInboxRetired,
+      edges: [
+        ["core", "gateway"],
+        ["core", "web"],
+      ],
+    },
+    {
+      enabled: isDeviceWaitReceiverFirstDiff(changedPaths),
+      edges: [["core", "gateway"]],
+    },
+    {
+      enabled:
+        isDeviceWaitReceiverFirstDiff(changedPaths) &&
+        changedPaths.some(
+          (path) =>
+            path.startsWith("clients/web/") && path.includes("device-wait")
+        ),
+      edges: [["gateway", "web"]],
+    },
+    {
+      enabled: isPeopleComputersReceiverFirstDiff(changedPaths),
+      edges: [["core", "gateway"]],
+    },
+    {
+      // Caller Context has a reviewed opposite order: Auth and the signed
+      // Service precede the Core projection in the combined rollout.
+      enabled: invitation && !callerContext,
+      edges: [["core", "auth"]],
+    },
+    {
+      enabled:
+        invitation &&
+        changedPaths.includes(
+          "clients/openmeld-cli/src/space/invitations-command.ts"
+        ),
+      edges: [["auth", "cli"]],
+    },
+    {
+      enabled:
+        invitation &&
+        changedPaths.some(
+          (path) =>
+            path.startsWith("clients/web/") && path.includes("space-invitation")
+        ),
+      edges: [["auth", "web"]],
+    },
+    {
+      enabled: changedPaths.some(
+        (path) =>
+          path.startsWith("services/core/") &&
+          isCenterAgentContextManifestContractPath(path)
+      ),
+      edges: [["remote-agent", "core"]],
+    },
+    {
+      enabled: changedPaths.some(
+        (path) =>
+          path.startsWith("clients/openmeld-cli/") &&
+          isCenterAgentCliReceiverFirstContractPath(path)
+      ),
+      edges: [
+        ["core", "cli"],
+        ["gateway", "cli"],
+      ],
+    },
+    {
+      enabled: isConnectComputerCliReceiverFirstDiff(changedPaths),
+      edges: [["cli", "web"]],
+    },
+    {
+      enabled: isCoreWorkerResponseReaderFirstDiff(changedPaths),
+      edges: [
+        ["core", "remote-agent"],
+        ["gateway", "remote-agent"],
+        ["web", "remote-agent"],
+      ],
+    },
+    {
+      enabled: isWakeProgressOptInContractDiff(changedPaths),
+      edges: [
+        ["gateway", "core"],
+        ["core", "cli"],
+      ],
+    },
+    {
+      enabled: isSpaceHistoryQueryContractDiff(changedPaths),
+      edges: [
+        ["gateway", "cli"],
+        ["core", "cli"],
+      ],
+    },
+    {
+      enabled:
+        isInboxSourceTargetReceiverFirstDiff(changedPaths) && !taskInboxRetired,
+      edges: [
+        ["web", "core"],
+        ["gateway", "core"],
+      ],
+    },
+    {
+      enabled: isLocalServiceRuntimeReceiverFirstDiff(changedPaths),
+      edges: [["core", "cli"]],
+    },
+    {
+      enabled:
+        isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
+        changedPaths.some(isRemoteAgentReceiverFirstContractPath),
+      edges: [["remote-agent", "core"]],
+    },
+    {
+      enabled: isIndependentSkillBridgeDiff(changedPaths),
+      edges: [
+        ["gateway", "cli"],
+        ["web", "cli"],
+      ],
+    },
+  ];
+  for (const group of dependencyGroups) {
+    if (!group.enabled) {
+      continue;
+    }
+    for (const [receiver, producer] of group.edges) {
+      addEdge(receiver, producer);
+    }
+  }
+  return edges;
+}
+
+export function resolveProductionCompatibilityReceiverWitnesses(changedPaths) {
+  const witnesses = isWorkingFolderRecoveryDiff(changedPaths)
+    ? [
+        {
+          receiver: "core",
+          producer: "cli",
+          receiverPaths: [
+            "packages/schemas/src/working-folder-recovery.ts",
+            "packages/schemas/src/public-agent-failure-reason.ts",
+            "services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts",
+            "services/core/src/runtime-transport/application/local-agent-stream.ts",
+            "services/core/src/space/transport/do/space.ts",
+          ],
+        },
+      ]
+    : [];
+  if (
+    !(
+      isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
+      changedPaths.some(isRemoteAgentReceiverFirstContractPath)
+    )
+  ) {
+    return witnesses;
+  }
+  const receiverPaths = [
+    ...REMOTE_AGENT_WORKER_REQUEST_SCHEMA_PATHS,
+    REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH,
+    ...REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS,
+  ].filter((path) => changedPaths.includes(path));
+  return receiverPaths.length > 0
+    ? [
+        ...witnesses,
+        {
+          producer: "core",
+          receiver: "remote-agent",
+          receiverPaths,
+        },
+      ]
+    : witnesses;
+}
+
+function isWorkingFolderRecoveryDiff(paths) {
+  return [
+    "packages/schemas/src/working-folder-recovery.ts",
+    "services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts",
+    "clients/openmeld-cli/src/local-service/continuation/working-folder-recovery.ts",
+  ].every((file) => paths.includes(file));
+}
+
+function isNpmSetupArtifactDiff(paths) {
+  return [
+    "scripts/release/npm-cli-artifact.mjs",
+    "clients/openmeld-cli/package.json",
+    "clients/web/src/lib/setup-bootstrap-script.ts",
+  ].every((file) => paths.includes(file));
+}
+
+function isInboxNotificationObservationDiff(paths) {
+  return [
+    INBOX_SCHEMA_PATH,
+    "services/core/src/inbox/application/inbox-notification-observations.ts",
+  ].every((file) => paths.includes(file));
+}
 const RETIRED_TASK_INBOX_PRODUCER_PATH =
   "services/core/src/center-agent-tasks/application/center-agent-task-inbox-producer.ts";
 const TASK_INBOX_KIND_LINE = /^[ \t]*"center_agent_task",\r?\n/mu;
@@ -229,13 +516,15 @@ const INBOX_SOURCE_TARGET_WRITER_PATHS = new Set([
   "services/core/src/remote-agent/application/slack-inbox-source-target.ts",
   "services/core/src/runtime-transport/application/runtime-coordinator-interaction-inbox-producer.ts",
 ]);
-const INBOX_SOURCE_TARGET_REQUIRED_SCOPES = ["web", "gateway", "core"];
+const INBOX_CLOUD_SCOPES = ["web", "gateway", "core"];
 const LOCAL_SERVICE_RUNTIME_TRANSPORT_SCHEMA_PATH =
   "packages/schemas/src/schemas/daemon/runtime-transport.ts";
 const LOCAL_SERVICE_RUNTIME_CORE_RECEIVER_PATH_PREFIX =
   "services/core/src/runtime-transport/";
-const LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIX =
-  "clients/openmeld-cli/src/local-service/";
+const LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIXES = [
+  "clients/openmeld-cli/src/local-service/",
+  "runtime/adapters/",
+];
 const CONNECT_COMPUTER_DEVICE_AUTH_SCHEMA_PATH =
   "packages/schemas/src/schemas/http/auth-device-authorization.ts";
 const CONNECT_COMPUTER_CLI_RECEIVER_PATH =
@@ -395,8 +684,27 @@ export function expandRequestedReleaseScopes(scope) {
   return sortScopes(requested);
 }
 
-export function resolveAutomaticReleaseScopes(input) {
+function compatibilityContractScopes(changedPaths) {
   const scopes = new Set();
+  if (isSpaceImageGeometryDiff(changedPaths)) {
+    for (const scope of ["web", "gateway", "cli", "core"]) {
+      scopes.add(scope);
+    }
+  }
+  if (isCenterAgentEvidenceDiff(changedPaths)) {
+    scopes.add("core");
+    scopes.add("remote-agent");
+  }
+  if (isSpaceMessageSearchReceiverFirstDiff(changedPaths)) {
+    scopes.add("core");
+    scopes.add("gateway");
+    scopes.add("web");
+  }
+  return scopes;
+}
+
+export function resolveAutomaticReleaseScopes(input) {
+  const scopes = compatibilityContractScopes(input.changedPaths);
   if (
     input.changedPaths.some((path) =>
       path.startsWith("release/openmeld-cli-skill/")
@@ -427,8 +735,11 @@ export function resolveAutomaticReleaseScopes(input) {
   ) {
     scopes.add("cli");
   }
-  if (isInboxSourceTargetReceiverFirstDiff(input.changedPaths)) {
-    for (const scope of INBOX_SOURCE_TARGET_REQUIRED_SCOPES) {
+  if (
+    isInboxSourceTargetReceiverFirstDiff(input.changedPaths) ||
+    isInboxNotificationObservationDiff(input.changedPaths)
+  ) {
+    for (const scope of INBOX_CLOUD_SCOPES) {
       scopes.add(scope);
     }
   }
@@ -492,6 +803,7 @@ export function buildProductionVerifyStepSpecs(input) {
       !input.taskInboxRetired &&
       !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
       !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
+      !isWorkingFolderRecoveryDiff(input.changedPaths) &&
       !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
       !isSpaceTaskReceiverFirstDiff(input.changedPaths) &&
       !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
@@ -518,6 +830,62 @@ export function buildProductionVerifyStepSpecs(input) {
 
 export function buildProductionPreflightStepSpecs(input) {
   const steps = buildCommonReleaseStepSpecs(input.changedPaths);
+  if (!EXACT_SHA_PATTERN.test(String(input.releaseSha ?? ""))) {
+    throw new Error(
+      "Production preflight requires the exact release SHA for receipt-based train admission."
+    );
+  }
+  steps.unshift({
+    args: [
+      "scripts/release/production-stage-admission.mjs",
+      "--scope",
+      input.scopes.join(","),
+      "--source-sha",
+      input.releaseSha,
+    ],
+    command: "node",
+    controlArgs: [
+      "--scope",
+      input.scopes.join(","),
+      "--source-sha",
+      input.releaseSha,
+    ],
+    controlCommand: "node",
+    controlNodeArgs: [],
+    controlPath: "scripts/release/production-stage-admission.mjs",
+    label: "Admit receipt-based Production train stage",
+  });
+  steps.splice(1, 0, {
+    args: [
+      "scripts/release/production-train-artifact-admission.mjs",
+      "--scope",
+      input.scopes.join(","),
+      "--source-sha",
+      input.releaseSha,
+    ],
+    command: "node",
+    controlArgs: [
+      "--scope",
+      input.scopes.join(","),
+      "--source-sha",
+      input.releaseSha,
+    ],
+    controlCommand: "node",
+    controlNodeArgs: [],
+    controlPath: "scripts/release/production-train-artifact-admission.mjs",
+    label: "Verify declared Production train artifacts",
+  });
+  if (input.scopes.includes("web")) {
+    steps.splice(2, 0, {
+      args: ["run", "verify:cli-skill"],
+      command: "pnpm",
+      controlArgs: [],
+      controlCommand: "node",
+      controlNodeArgs: [],
+      controlPath: "scripts/release/cli-skill-check.mjs",
+      label: "Verify signed CLI Skill content",
+    });
+  }
   if (input.scopes.includes("gateway")) {
     steps.push(productionQueueVerificationStep("gateway"));
   }
@@ -530,6 +898,7 @@ export function buildProductionPreflightStepSpecs(input) {
     !input.taskInboxRetired &&
     !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
     !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
+    !isWorkingFolderRecoveryDiff(input.changedPaths) &&
     !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
     !isPeopleComputersReceiverFirstDiff(input.changedPaths) &&
     !isSpaceTaskReceiverFirstDiff(input.changedPaths) &&
@@ -541,18 +910,22 @@ export function buildProductionPreflightStepSpecs(input) {
 }
 
 export function buildCoreCurrentCliProjectionPreflightStepSpecs(
-  changedPaths = []
+  changedPaths,
+  releaseSha
 ) {
-  return [
-    ...buildCommonReleaseStepSpecs(changedPaths),
-    productionQueueVerificationStep("core"),
-  ];
+  return buildProductionPreflightStepSpecs({
+    changedPaths,
+    releaseSha,
+    scopes: ["core"],
+    taskInboxRetired: true,
+  }).filter((step) => step.label !== "Verify Core CLI channel compatibility");
 }
 
 export function runCoreCurrentCliProjectionPreflight(input = {}) {
   const executeStep = input.runStep ?? runStep;
   for (const step of buildCoreCurrentCliProjectionPreflightStepSpecs(
-    input.changedPaths
+    input.changedPaths,
+    input.releaseSha
   )) {
     executeStep(step);
   }
@@ -618,6 +991,8 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   const selected = new Set(scopes);
   const steps = [];
   const changedPaths = input.changedPaths ?? [];
+  assertCenterAgentEvidenceReleaseScopes(scopes, changedPaths);
+  assertSpaceMessageSearchReleaseScopes(scopes, changedPaths);
   assertConnectComputerReleaseScopes(scopes, changedPaths);
   assertInboxSourceTargetReleaseScopes(
     scopes,
@@ -660,6 +1035,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   for (const scope of orderedScopes) {
     const start = steps.length;
     appendProductionDeployScopeSteps({
+      coreReceiverFirst: isWorkingFolderRecoveryDiff(changedPaths),
       deployOrderProfile,
       releaseSha: input.releaseSha,
       scope,
@@ -676,6 +1052,35 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
     annotateReleaseScope(steps, steps.length - 1, "cli");
   }
   return steps;
+}
+
+export function buildCoreReceiverStepSpecs(releaseSha) {
+  const script = "scripts/release/deploy-core-current-cli-projection.mjs";
+  const source = releaseSha ? ["--release-sha", releaseSha] : [];
+  return [
+    {
+      command: "node",
+      args: [script, "--deployment-only", ...source],
+      controlPath: script,
+      label: "Deploy Core with the current published CLI projection",
+      workerDeploymentArgs: [
+        "--config",
+        "services/core/wrangler.jsonc",
+        "--env",
+        "prod",
+      ],
+      releaseScope: "core",
+      completesReleaseScope: false,
+    },
+    {
+      command: "node",
+      args: [script, "--verify-only", ...source],
+      controlPath: script,
+      label: "Verify Core receiver stable identity alignment",
+      releaseScope: "core",
+      completesReleaseScope: true,
+    },
+  ];
 }
 
 function annotateReleaseScope(steps, start, scope) {
@@ -719,7 +1124,19 @@ function appendProductionDeployScopeSteps(input) {
       packageDeployStep("openmeld-web", "Deploy Web", {
         args: ["--config", "clients/web/wrangler.jsonc", "--env", "prod"],
       }),
-      publicHealthStep("https://openmeld.ai/guide.md", "Verify Web health")
+      {
+        args: [
+          "scripts/release/production-web-health.mjs",
+          "--url",
+          "https://openmeld.ai",
+          "--source-sha",
+          input.releaseSha,
+          "--artifact-receipt",
+          "dev-tmp/release-artifact-check/web.json",
+        ],
+        command: "node",
+        label: "Verify Web health",
+      }
     );
     return;
   }
@@ -750,6 +1167,7 @@ function appendProductionDeployScopeSteps(input) {
   if (input.scope === "core") {
     if (
       input.selected.has("cli") ||
+      input.coreReceiverFirst ||
       input.deployOrderProfile === "inbox-task-retirement-producer-first" ||
       input.deployOrderProfile ===
         "remote-agent-and-inbox-task-retirement-first" ||
@@ -760,27 +1178,11 @@ function appendProductionDeployScopeSteps(input) {
       input.deployOrderProfile === "space-task-receivers-first" ||
       input.deployOrderProfile === "space-invitation-receivers-first"
     ) {
-      if (!doesCliReleaseOwnCoreProjection(input.deployOrderProfile)) {
-        input.steps.push(
-          {
-            args: [
-              "scripts/release/deploy-core-current-cli-projection.mjs",
-              ...(input.releaseSha ? ["--release-sha", input.releaseSha] : []),
-            ],
-            command: "node",
-            label: "Deploy Core with the current published CLI projection",
-            workerDeploymentArgs: [
-              "--config",
-              "services/core/wrangler.jsonc",
-              "--env",
-              "prod",
-            ],
-          },
-          workerDeploymentHealthStep({
-            args: ["--config", "services/core/wrangler.jsonc", "--env", "prod"],
-            label: "Verify Core deployment is visible",
-          })
-        );
+      if (
+        input.coreReceiverFirst ||
+        !doesCliReleaseOwnCoreProjection(input.deployOrderProfile)
+      ) {
+        input.steps.push(...buildCoreReceiverStepSpecs(input.releaseSha));
       }
       return;
     }
@@ -851,13 +1253,75 @@ function resolveProductionDeployScopeOrder(
       "Personal Remote Agent tools require the Core receiver before Remote Agent deployment."
     );
   }
-  return order.filter((scope) => selected.has(scope));
+  const preferred = order.filter((scope) => selected.has(scope));
+  if (
+    !(
+      isWorkingFolderRecoveryDiff(changedPaths) ||
+      isNpmSetupArtifactDiff(changedPaths) ||
+      isInboxNotificationObservationDiff(changedPaths)
+    )
+  ) {
+    return preferred;
+  }
+  // Keep the existing profile's preference for independent components. These
+  // added contracts must compose with every existing receiver direction, not
+  // silently override an opposite profile (for example Caller Context).
+  const dependencies = resolveProductionCompatibilityDependencies(
+    changedPaths,
+    taskInboxRetired
+  ).filter(
+    ([receiver, producer]) => selected.has(receiver) && selected.has(producer)
+  );
+  const remaining = new Set(preferred);
+  const result = [];
+  while (remaining.size > 0) {
+    const next = preferred.find(
+      (scope) =>
+        remaining.has(scope) &&
+        !dependencies.some(
+          ([receiver, producer]) =>
+            producer === scope && remaining.has(receiver)
+        )
+    );
+    if (!next) {
+      throw new Error(
+        "Incompatible release dependencies require separate receiver-first stages. Inspect the component receipts before choosing a forward release."
+      );
+    }
+    result.push(next);
+    remaining.delete(next);
+  }
+  return result;
 }
 
 function resolveProductionDeployOrderProfile(
   changedPaths,
   taskInboxRetired = false
 ) {
+  const evidence = isCenterAgentEvidenceDiff(changedPaths);
+  const spaceMessageSearch =
+    isSpaceMessageSearchReceiverFirstDiff(changedPaths);
+  if (spaceMessageSearch || evidence) {
+    const otherProfile = resolveProductionDeployOrderProfile(
+      changedPaths.filter(
+        (file) =>
+          file !== SPACE_MESSAGE_SEARCH_SCHEMA_PATH &&
+          !CENTER_AGENT_EVIDENCE_SCHEMA_PATHS.has(file)
+      ),
+      taskInboxRetired
+    );
+    if (otherProfile !== "default-auth-receiver-first") {
+      throw new Error(
+        `Space message search/evidence receiver order conflicts with ${otherProfile}; review and split incompatible releases.`
+      );
+    }
+    if (spaceMessageSearch) {
+      return evidence
+        ? "space-message-search-and-evidence-receivers-first"
+        : "space-message-search-receivers-first";
+    }
+    return "center-agent-evidence-receivers-first";
+  }
   if (isSpaceTaskReceiverFirstDiff(changedPaths)) {
     const otherProfile = resolveProductionDeployOrderProfile(
       changedPaths.filter((file) => file !== SPACE_TASK_SCHEMA_PATH),
@@ -933,7 +1397,7 @@ function resolveOtherProductionDeployOrderProfile(
     // The exact retired contract is proven against Git below. Other contracts
     // still select their ordinary profile and must be composable with Core first.
     const profile = resolveProductionDeployOrderProfile(
-      changedPaths.filter((file) => file !== INBOX_SOURCE_TARGET_SCHEMA_PATH)
+      changedPaths.filter((file) => file !== INBOX_SCHEMA_PATH)
     );
     if (
       profile === "remote-agent-receiver-first" ||
@@ -1199,12 +1663,79 @@ function assertComposableWakeProgressOptInReleaseProfile(input) {
 
 function doesCliReleaseOwnCoreProjection(profile) {
   return (
+    profile === "center-agent-evidence-receivers-first" ||
+    profile === "space-message-search-receivers-first" ||
+    profile === "space-message-search-and-evidence-receivers-first" ||
     profile === "space-caller-context-receivers-first" ||
     profile === "default-auth-receiver-first" ||
     profile === "connect-computer-cli-receiver-first" ||
     profile === "core-worker-response-and-connect-computer-receivers-first" ||
     profile === "remote-agent-and-connect-computer-receivers-first"
   );
+}
+
+const SPACE_IMAGE_GEOMETRY_PRODUCER_PATH =
+  "services/core/src/space/application/space-file-image-metadata.ts";
+const SPACE_MESSAGE_SEARCH_SCHEMA_PATH =
+  "packages/schemas/src/schemas/http/space-message-search.ts";
+const CENTER_AGENT_EVIDENCE_SCHEMA_PATHS = new Set([
+  "packages/schemas/src/schemas/http/center-agent-evidence.ts",
+  "packages/schemas/src/schemas/http/agent-activity-overview.ts",
+  "packages/schemas/src/schemas/http/center-agent-routine-evidence.ts",
+  "packages/schemas/src/schemas/http/center-agent-memory-search.ts",
+]);
+
+function isSpaceImageGeometryDiff(paths) {
+  return (
+    paths.includes(SPACE_IMAGE_GEOMETRY_PRODUCER_PATH) &&
+    paths.includes("packages/schemas/src/schemas/http/space-files.ts") &&
+    paths.includes("services/core/src/space/transport/do/space.ts")
+  );
+}
+
+function isCenterAgentEvidenceDiff(paths) {
+  return (
+    paths.some((file) => CENTER_AGENT_EVIDENCE_SCHEMA_PATHS.has(file)) &&
+    paths.includes("services/core/src/index.ts") &&
+    paths.includes("services/remote-agent/agent-core/tools.ts")
+  );
+}
+
+function isSpaceMessageSearchReceiverFirstDiff(paths) {
+  return [
+    SPACE_MESSAGE_SEARCH_SCHEMA_PATH,
+    "services/core/src/space/infrastructure/sql/space-message-search-repo.ts",
+    "services/gateway/src/routes/rpc-http.message-search.ts",
+    "clients/web/src/components/search/message-search.tsx",
+  ].every((file) => paths.includes(file));
+}
+
+function assertCenterAgentEvidenceReleaseScopes(scopes, paths) {
+  const selected = new Set(scopes);
+  if (
+    isCenterAgentEvidenceDiff(paths) &&
+    selected.has("remote-agent") &&
+    !selected.has("core")
+  ) {
+    throw new Error(
+      "Center Agent evidence tools require the Core RPC receiver before Remote Agent; include Core in the ordered plan."
+    );
+  }
+}
+
+function assertSpaceMessageSearchReleaseScopes(scopes, paths) {
+  if (!isSpaceMessageSearchReceiverFirstDiff(paths)) {
+    return;
+  }
+  const selected = new Set(scopes);
+  if (
+    selected.has("web") &&
+    !(selected.has("gateway") && selected.has("core"))
+  ) {
+    throw new Error(
+      "Space message search Web callers require the Gateway and Core short-query receivers in the same guarded plan."
+    );
+  }
 }
 
 function isConnectComputerCliReceiverFirstDiff(changedPaths) {
@@ -1236,7 +1767,9 @@ function isLocalServiceRuntimeReceiverFirstDiff(changedPaths) {
         path.startsWith(LOCAL_SERVICE_RUNTIME_CORE_RECEIVER_PATH_PREFIX)
       ) &&
       changedPaths.some((path) =>
-        path.startsWith(LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIX)
+        LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIXES.some((prefix) =>
+          path.startsWith(prefix)
+        )
       ))
   );
 }
@@ -1395,7 +1928,7 @@ function assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths) {
 
 function isInboxSourceTargetReceiverFirstDiff(changedPaths) {
   return (
-    changedPaths.includes(INBOX_SOURCE_TARGET_SCHEMA_PATH) &&
+    changedPaths.includes(INBOX_SCHEMA_PATH) &&
     changedPaths.some((path) => INBOX_SOURCE_TARGET_WRITER_PATHS.has(path))
   );
 }
@@ -1411,9 +1944,7 @@ function assertInboxSourceTargetReleaseScopes(
     return;
   }
   const selected = new Set(scopes);
-  const missing = INBOX_SOURCE_TARGET_REQUIRED_SCOPES.filter(
-    (scope) => !selected.has(scope)
-  );
+  const missing = INBOX_CLOUD_SCOPES.filter((scope) => !selected.has(scope));
   if (missing.length > 0) {
     throw new Error(
       `Inbox source-target receiver-first release requires the Web, Gateway, and Core scopes before Core can write durable targets. Missing: ${missing.join(", ")}.`
@@ -1495,6 +2026,12 @@ export function buildProductionReleasePlan(input) {
     base: input.base,
     changedPaths,
     coreProjectionFromCli: scopes.includes("cli"),
+    compatibilityDependencies: resolveProductionCompatibilityDependencies(
+      changedPaths,
+      taskInboxRetired
+    ),
+    compatibilityReceiverWitnesses:
+      resolveProductionCompatibilityReceiverWitnesses(changedPaths),
     deployOrderProfile,
     deployScopeOrder,
     deploySteps: buildProductionDeployStepSpecs(scopes, {
@@ -1504,6 +2041,7 @@ export function buildProductionReleasePlan(input) {
     }),
     preflightSteps: buildProductionPreflightStepSpecs({
       changedPaths,
+      releaseSha: sourceSha,
       scopes,
       taskInboxRetired,
     }),
@@ -1520,20 +2058,17 @@ export function buildProductionReleasePlan(input) {
 function inspectTaskInboxRetirement({ base, changedPaths, sourceSha }) {
   if (
     !(
-      changedPaths.includes(INBOX_SOURCE_TARGET_SCHEMA_PATH) &&
+      changedPaths.includes(INBOX_SCHEMA_PATH) &&
       changedPaths.includes(RETIRED_TASK_INBOX_PRODUCER_PATH)
     )
   ) {
     return false;
   }
   const mergeBase = runGit(["merge-base", base, sourceSha ?? "HEAD"]).trim();
-  const before = runGit([
-    "show",
-    `${mergeBase}:${INBOX_SOURCE_TARGET_SCHEMA_PATH}`,
-  ]);
+  const before = runGit(["show", `${mergeBase}:${INBOX_SCHEMA_PATH}`]);
   const after = sourceSha
-    ? runGit(["show", `${sourceSha}:${INBOX_SOURCE_TARGET_SCHEMA_PATH}`])
-    : readFileSync(INBOX_SOURCE_TARGET_SCHEMA_PATH, "utf8");
+    ? runGit(["show", `${sourceSha}:${INBOX_SCHEMA_PATH}`])
+    : readFileSync(INBOX_SCHEMA_PATH, "utf8");
   const retiredPatterns = [
     TASK_INBOX_KIND_LINE,
     TASK_INBOX_SOURCE_KIND_LINE,
@@ -1778,9 +2313,24 @@ export function assertProductionReleaseSource(input) {
 
 function runStep(step) {
   process.stdout.write(`\n[production-release] ${step.label}\n`);
-  const result = spawnSync(resolveCommandBinary(step.command), step.args, {
+  const command = step.controlPath
+    ? (step.controlCommand ?? step.command)
+    : step.command;
+  const args = step.controlPath
+    ? [
+        ...(step.controlNodeArgs ?? []),
+        fileURLToPath(new URL(`../../${step.controlPath}`, import.meta.url)),
+        ...(step.controlArgs ?? step.args.slice(1)),
+      ]
+    : step.args;
+  const result = spawnSync(resolveCommandBinary(command), args, {
     cwd: step.cwd,
-    env: step.env ?? process.env,
+    env: {
+      ...(step.env ?? process.env),
+      ...(step.controlPath
+        ? { OPENMELD_VERIFICATION_ROOT: step.cwd ?? process.cwd() }
+        : {}),
+    },
     stdio: "inherit",
   });
   if (result.error) {
@@ -1788,7 +2338,7 @@ function runStep(step) {
   }
   if (result.status !== 0) {
     throw new Error(
-      `${step.command} ${step.args.join(" ")} failed with exit code ${String(result.status)}`
+      `${command} ${args.join(" ")} failed with exit code ${String(result.status)}`
     );
   }
 }

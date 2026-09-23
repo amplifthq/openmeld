@@ -14,6 +14,21 @@ export {
   serviceConnectionIncidentsReadRpcInputSchema,
   serviceConnectionIncidentsResponseSchema,
 } from "./daemon/service-connection-evidence";
+export { agentActivityOverviewResponseSchema } from "./http/agent-activity-overview";
+export {
+  centerAgentEvidenceSourceSpaceSchema,
+  centerAgentReadAuditJournalResponseSchema,
+  centerAgentReadAuditJournalRpcInputSchema,
+} from "./http/center-agent-evidence";
+export {
+  CENTER_AGENT_RETAINED_MEMORY_MAX_ITEMS,
+  CENTER_AGENT_RETAINED_MEMORY_MAX_SOURCES,
+  CENTER_AGENT_RETAINED_MEMORY_MAX_TEXT_CHARS,
+  CENTER_AGENT_RETAINED_MEMORY_QUERY_MAX_CHARS,
+  centerAgentMemorySourceReferenceSchema,
+  centerAgentSearchMemoryResponseSchema,
+  centerAgentSearchMemoryRpcInputSchema,
+} from "./http/center-agent-memory-search";
 export {
   LOCAL_AGENT_REASONING_MAX_CHARS,
   localAgentReasoningPreferencesRpcSchema,
@@ -21,7 +36,6 @@ export {
   localAgentReasoningStateSchema,
   OPENMELD_REASONING_STREAM_HEADER,
 } from "./http/local-agent-reasoning";
-
 export {
   HUMAN_PRESENCE_HEARTBEAT_MS,
   HUMAN_PRESENCE_IDLE_MS,
@@ -43,6 +57,12 @@ export {
   spaceHistoryNavigationQuerySchema,
   spaceHistoryNavigationSchema,
 } from "./http/space-history-navigation";
+export {
+  CENTER_AGENT_SESSION_TITLE_INPUT_MAX_LENGTH,
+  CENTER_AGENT_SESSION_TITLE_MAX_LENGTH,
+  generateCenterAgentSessionTitleInputSchema,
+  generateCenterAgentSessionTitleResponseSchema,
+} from "./runtime/center-agent-session-title";
 
 export const OPENMELD_SCHEMA_VERSION = 1 as const;
 
@@ -483,6 +503,7 @@ export {
   RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION,
   runtimeCoordinatorCancellationStateSchema,
   runtimeCoordinatorCancellationStatusSchema,
+  runtimeCoordinatorDeliveryRouteEvidenceSchema,
   runtimeCoordinatorExecutionCreationDiagnosticSchema,
   runtimeCoordinatorExecutionCreationStatusSchema,
   runtimeCoordinatorExecutionEventSchema,
@@ -746,10 +767,12 @@ export {
 } from "./daemon/task-result";
 export { windowsProcessJobRequestSchema } from "./daemon/windows-process-job";
 export {
+  type WindowsUserTaskAction,
   type WindowsUserTaskRequest,
   windowsUserTaskActionSchema,
   windowsUserTaskRequestSchema,
   windowsUserTaskStatusSchema,
+  windowsUserTaskStoredActionSchema,
 } from "./daemon/windows-user-task";
 export {
   DB_FACT_SCHEMA_VERSION,
@@ -1256,6 +1279,15 @@ export {
   centerAgentUpdateProjectToolResponseSchema,
   centerAgentUpdateProjectToolRpcInputSchema,
 } from "./http/center-agent-projects";
+export {
+  CENTER_AGENT_ROUTINE_EVIDENCE_PAGE_LIMIT,
+  centerAgentListRoutineRunsToolResponseSchema,
+  centerAgentListRoutineRunsToolRpcInputSchema,
+  centerAgentReadRoutineRunDiagnosticsResponseSchema,
+  centerAgentReadRoutineRunDiagnosticsRpcInputSchema,
+  centerAgentRoutineRunEvidenceSchema,
+  centerAgentRoutineRuntimeEvidenceSchema,
+} from "./http/center-agent-routine-evidence";
 export {
   CENTER_AGENT_ROUTINE_AUTHORIZED_ACTIONS,
   CENTER_AGENT_ROUTINE_CRON_EXPRESSION_MAX_CHARS,
@@ -2230,6 +2262,7 @@ export {
   SPACE_FILE_MAX_SIZE_BYTES,
   SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES,
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
+  SPACE_FILES_ORIGIN_CAPABILITY_TOKEN,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   spaceComposerUploadDescriptorSchema,
   spaceComposerUploadIdSchema,
@@ -2245,14 +2278,18 @@ export {
   spaceFileDescriptorSchema,
   spaceFileEntryIdSchema,
   spaceFileEntrySchema,
+  spaceFileImageDimensionsSchema,
+  spaceFileListOriginFilterSchema,
   spaceFileMimeTypeSchema,
   spaceFileMutationErrorCodeSchema,
   spaceFileMutationErrorResponseSchema,
   spaceFileNameSchema,
+  spaceFileOriginSchema,
   spaceFileRevisionIdSchema,
   spaceFileRevisionNumberSchema,
   spaceFileRevisionSchema,
   spaceFileSizeBytesSchema,
+  spaceFilesOriginCapabilitySchema,
   spaceFolderDescriptorSchema,
   spaceMessageFileReferenceSchema,
   spaceMessageFileReferencesSchema,
@@ -2395,11 +2432,14 @@ export {
   SPACE_TASK_LIST_MAX_ITEMS,
   SPACE_TASK_OPERATION_CONFLICT_ERROR_CODE,
   SPACE_TASK_OPERATION_ID_MAX_CHARS,
+  SPACE_TASK_RESULT_REVISION_CONFLICT_ERROR_CODE,
   SPACE_TASK_RESULT_SUMMARY_MAX_CHARS,
   SPACE_TASK_REVIEW_FEEDBACK_MAX_CHARS,
   SPACE_TASK_REVISION_CONFLICT_ERROR_CODE,
   SPACE_TASK_TITLE_MAX_CHARS,
+  spaceTaskActionSchema,
   spaceTaskActorSchema,
+  spaceTaskDetailOptionsSchema,
   spaceTaskErrorCodeSchema,
   spaceTaskEventSchema,
   spaceTaskEventTypeSchema,
@@ -2407,6 +2447,7 @@ export {
   spaceTaskExternalWorkItemObservedStateSchema,
   spaceTaskExternalWorkItemProviderSchema,
   spaceTaskExternalWorkItemSchema,
+  spaceTaskGitHubIssueOperationId,
   spaceTaskIdSchema,
   spaceTaskMutationReceiptSchema,
   spaceTaskPhaseSchema,
@@ -2825,6 +2866,13 @@ export {
   channelContextSchema,
   channelContextSyncSchema,
   controllerAgentTaskHandleSchema,
+  GITHUB_APP_WEBHOOK_RAW_BODY_MAX_BYTES,
+  githubAppWebhookIssueActionSchema,
+  githubAppWebhookIssueObservationSchema,
+  githubAppWebhookIssueStateSchema,
+  githubAppWebhookQueueMessageSchema,
+  githubAppWebhookVerificationInputSchema,
+  githubAppWebhookVerificationResponseSchema,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
   HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY,
@@ -2883,6 +2931,7 @@ export {
   REMOTE_AGENT_TRIGGER_TEXT_MAX_CHARS,
   REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS,
+  readGitHubAppWebhookIssueObservation,
   remoteAgentAdmissionStageOperationSchema,
   remoteAgentConversationContinuityContextSchema,
   remoteAgentConversationContinuityEntrySchema,

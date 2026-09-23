@@ -204,6 +204,7 @@ async function registerSession(input: {
 }
 
 async function sendHeartbeat(input: {
+  acceptingDispatches?: boolean;
   capabilities?: Record<string, unknown>;
   daemonSessionId: string;
   deviceId: string;
@@ -227,6 +228,7 @@ async function sendHeartbeat(input: {
         lane: input.lane ?? "dev-local",
         daemonSessionId: input.daemonSessionId,
         serviceVersion: input.serviceVersion ?? "0.7.91",
+        acceptingDispatches: input.acceptingDispatches,
         ...(input.capabilities ? { capabilities: input.capabilities } : {}),
         leases: input.leases,
         runtimeContract: {
@@ -1366,7 +1368,7 @@ describe("runtime transport lease reconciliation", () => {
     }
   });
 
-  it("re-registering the same catalog on the same socket publishes no readiness invalidation", async () => {
+  it("invalidates only changed readiness on same-socket registration and admission heartbeats", async () => {
     const ownerUserId = "owner-reregister-delta";
     const deviceId = "device-reregister-delta";
     const steadyProfileId = `agt_${crypto.randomUUID()}`;
@@ -1416,6 +1418,7 @@ describe("runtime transport lease reconciliation", () => {
         ownerUserId,
         daemonSessionId: "daemon-session-reregister-delta",
         deviceId,
+        serviceVersion: "0.7.91",
         profileIds: [steadyProfileId],
       });
       expect(first.acceptedLeases.map((lease) => lease.profileId)).toEqual([
@@ -1429,6 +1432,7 @@ describe("runtime transport lease reconciliation", () => {
         ownerUserId,
         daemonSessionId: "daemon-session-reregister-delta",
         deviceId,
+        serviceVersion: "0.7.91",
         profileIds: [steadyProfileId],
       });
       expect(
@@ -1442,6 +1446,7 @@ describe("runtime transport lease reconciliation", () => {
         ownerUserId,
         daemonSessionId: "daemon-session-reregister-delta",
         deviceId,
+        serviceVersion: "0.7.91",
         profileIds: [steadyProfileId, newcomerProfileId],
       });
       expect(
@@ -1449,6 +1454,30 @@ describe("runtime transport lease reconciliation", () => {
       ).toEqual([newcomerProfileId, steadyProfileId].sort());
       // Same socket, one new profile: only the newcomer is invalidated.
       expect(await drainInvalidationBuffer()).toEqual([newcomerProfileId]);
+
+      // A new session starts with admission closed. Opening, closing and
+      // reopening it changes every carried profile's new-Wake verdict, even
+      // with the same socket, version and fresh leases.
+      for (const acceptingDispatches of [true, false, true]) {
+        for (const expectedProfileIds of [
+          [steadyProfileId, newcomerProfileId],
+          [],
+        ]) {
+          expect(
+            await sendHeartbeat({
+              acceptingDispatches,
+              socket,
+              ownerUserId,
+              daemonSessionId: "daemon-session-reregister-delta",
+              deviceId,
+              leases: withNewcomer.acceptedLeases,
+            })
+          ).toEqual({ ok: true, staleLeases: [] });
+          expect((await drainInvalidationBuffer()).sort()).toEqual(
+            expectedProfileIds.sort()
+          );
+        }
+      }
     } finally {
       socket.close(1000, "test_done");
     }

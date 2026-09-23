@@ -5,11 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const desktop = vi.hoisted(() => ({ signOut: vi.fn() }));
 const completeAccountAuthChange = vi.hoisted(() => vi.fn());
+const signInSocial = vi.hoisted(() => vi.fn());
 
 vi.mock("#/desktop/platform", () => ({ getDesktopPlatform: () => desktop }));
 vi.mock("#/query/auth-boundary", () => ({ completeAccountAuthChange }));
+vi.mock("#/lib/auth-client", () => ({
+	openMeldAuthClient: {
+		signIn: { social: signInSocial },
+		signOut: vi.fn(),
+	},
+}));
 
-import { useSignOut } from "./auth.hooks";
+import { useSignOut, useSocialSignIn } from "./auth.hooks";
 
 beforeEach(() => {
 	desktop.signOut.mockReset();
@@ -42,6 +49,42 @@ describe("useSignOut", () => {
 		expect(completeAccountAuthChange).toHaveBeenCalledWith(
 			queryClient,
 			"signed-out"
+		);
+		queryClient.clear();
+	});
+});
+
+describe("useSocialSignIn error landing", () => {
+	beforeEach(() => {
+		signInSocial.mockReset();
+		signInSocial.mockResolvedValue({ error: null });
+		completeAccountAuthChange.mockReset();
+	});
+
+	it.each([
+		"/sign-up",
+		"/magic-link",
+	])("sends a social OAuth error started on %s to /login", async (path) => {
+		window.history.replaceState({}, "", `http://localhost:3000${path}`);
+		const queryClient = new QueryClient({
+			defaultOptions: { mutations: { retry: false } },
+		});
+		const { result } = renderHook(() => useSocialSignIn(), {
+			wrapper: ({ children }: PropsWithChildren) => (
+				<QueryClientProvider client={queryClient}>
+					{children}
+				</QueryClientProvider>
+			),
+		});
+
+		await act(async () => {
+			await result.current.mutateAsync("github");
+		});
+
+		expect(signInSocial).toHaveBeenCalledWith(
+			expect.objectContaining({
+				errorCallbackURL: "http://localhost:3000/login",
+			})
 		);
 		queryClient.clear();
 	});

@@ -25,6 +25,7 @@ import {
 	ArrowClockwiseIcon,
 	ArrowCounterClockwiseIcon,
 	CaretRightIcon,
+	ChatCircleIcon,
 	DotsThreeIcon,
 	FileIcon,
 	FileTextIcon,
@@ -77,8 +78,10 @@ export function SpaceFileBrowser(input: {
 	onRename: (entry: SpaceFileEntry) => void;
 	onRestore: (entry: SpaceFileEntry) => void;
 	onRetry: () => void;
+	onToggleShowChatUploads: () => void;
 	onTrash: (entry: SpaceFileEntry) => void;
 	onUploadFiles: (files: readonly File[]) => Promise<void>;
+	showChatUploads: boolean;
 	spaceId: string;
 	view: "active" | "trash";
 	onViewChange: (view: "active" | "trash") => void;
@@ -168,9 +171,7 @@ export function SpaceFileBrowser(input: {
 						))}
 					</div>
 					<p className="mt-1 text-muted-foreground text-xs">
-						{input.view === "trash"
-							? "Restore files you still need."
-							: "Shared with the people and agents in this Space."}
+						{resolveFilesSubtitle(input)}
 					</p>
 				</div>
 				<div className="flex items-center gap-2">
@@ -230,6 +231,12 @@ export function SpaceFileBrowser(input: {
 							</DropdownMenu>
 						</>
 					) : null}
+					{input.view === "active" ? (
+						<ShowChatUploadsToggle
+							onToggle={input.onToggleShowChatUploads}
+							showChatUploads={input.showChatUploads}
+						/>
+					) : null}
 					{input.canWrite && input.view === "active" ? (
 						<Button
 							onClick={() => input.onViewChange("trash")}
@@ -287,6 +294,7 @@ export function SpaceFileBrowser(input: {
 					onRestore={input.onRestore}
 					onRetry={input.onRetry}
 					onTrash={input.onTrash}
+					showChatUploads={input.showChatUploads}
 					spaceId={input.spaceId}
 					view={input.view}
 				/>
@@ -307,6 +315,7 @@ function SpaceFileBrowserContent(input: {
 	onRetry: () => void;
 	onRestore: (entry: SpaceFileEntry) => void;
 	onTrash: (entry: SpaceFileEntry) => void;
+	showChatUploads: boolean;
 	spaceId: string;
 	view: "active" | "trash";
 }) {
@@ -399,8 +408,17 @@ function SpaceFileBrowserContent(input: {
 									spaceId={input.spaceId}
 								/>
 								<span className="min-w-0">
-									<span className="block truncate font-medium text-sm">
-										{entry.name}
+									<span className="flex min-w-0 items-center gap-1.5">
+										<span className="block truncate font-medium text-sm">
+											{entry.name}
+										</span>
+										{input.showChatUploads &&
+										entry.kind === "file" &&
+										entry.origin === "chat_upload" ? (
+											<Badge className="shrink-0" variant="outline">
+												Chat upload
+											</Badge>
+										) : null}
 									</span>
 									<span className="block truncate text-muted-foreground text-xs sm:hidden">
 										{entry.kind === "folder"
@@ -450,6 +468,37 @@ function SpaceFileBrowserContent(input: {
 			</ul>
 		</div>
 	);
+}
+
+function ShowChatUploadsToggle(input: {
+	onToggle: () => void;
+	showChatUploads: boolean;
+}) {
+	return (
+		<Button
+			aria-pressed={input.showChatUploads}
+			onClick={input.onToggle}
+			size="sm"
+			type="button"
+			variant={input.showChatUploads ? "secondary" : "ghost"}
+		>
+			<ChatCircleIcon aria-hidden="true" />
+			{input.showChatUploads ? "Hide chat uploads" : "Show chat uploads"}
+		</Button>
+	);
+}
+
+function resolveFilesSubtitle(input: {
+	showChatUploads: boolean;
+	view: "active" | "trash";
+}): string {
+	if (input.view === "trash") {
+		return "Restore files you still need.";
+	}
+	if (input.showChatUploads) {
+		return "Shared with the people and agents in this Space, including files shared in chat.";
+	}
+	return "Shared with the people and agents in this Space. Files shared in chat are hidden; show them below.";
 }
 
 function resolveEmptyStateDescription(input: {

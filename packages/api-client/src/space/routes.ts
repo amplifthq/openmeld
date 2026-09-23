@@ -87,7 +87,11 @@ export function buildSpaceAttachmentsPath(spaceId: string): string {
 
 export function buildSpaceFilesPath(
   spaceId: string,
-  query?: { parentId?: string | null; view?: "active" | "trash" }
+  query?: {
+    parentId?: string | null;
+    view?: "active" | "trash";
+    origin?: "artifact" | "all";
+  }
 ): string {
   const path = buildSpaceRoutePath(spaceId, "files");
   const searchParams = new URLSearchParams();
@@ -96,6 +100,9 @@ export function buildSpaceFilesPath(
   }
   if (query?.view && query.view !== "active") {
     searchParams.set("view", query.view);
+  }
+  if (query?.origin && query.origin !== "artifact") {
+    searchParams.set("origin", query.origin);
   }
   const queryString = searchParams.toString();
   return queryString ? `${path}?${queryString}` : path;
@@ -161,6 +168,7 @@ export function buildSpaceFileContentPath(
 export function buildSpaceFileUploadPath(input: {
   clientMutationId: string;
   name: string;
+  origin?: "artifact" | "chat_upload";
   parentId?: string | null;
   spaceId: string;
 }): string {
@@ -170,6 +178,9 @@ export function buildSpaceFileUploadPath(input: {
   });
   if (input.parentId) {
     searchParams.set("parentId", input.parentId);
+  }
+  if (input.origin) {
+    searchParams.set("origin", input.origin);
   }
   return `${buildSpaceFilesPath(input.spaceId)}?${searchParams.toString()}`;
 }

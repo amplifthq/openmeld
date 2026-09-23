@@ -461,7 +461,7 @@ describe("SpaceHeader", () => {
 		expect(screen.queryByText("About")).toBeNull();
 	});
 
-	it("hides ordinary Space access and membership controls for Center Agent DMs", () => {
+	it("hides ordinary Space access and membership controls for Center Agent DMs", async () => {
 		render(
 			createSpaceHeader({
 				accessMode: "public",
@@ -477,7 +477,10 @@ describe("SpaceHeader", () => {
 		expect(screen.queryByRole("button", { name: "Share space" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Members" })).toBeNull();
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Center Agent menu" }));
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Chat settings" })
+		);
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		const dialog = screen.getByRole("dialog");
 
@@ -500,7 +503,7 @@ describe("SpaceHeader", () => {
 		).toBeNull();
 	});
 
-	it("keeps ordinary Direct Message metadata and lifecycle controls read-only", () => {
+	it("keeps ordinary Direct Message metadata and lifecycle controls read-only", async () => {
 		render(
 			createSpaceHeader({
 				accessMode: "members_only",
@@ -510,7 +513,10 @@ describe("SpaceHeader", () => {
 		);
 
 		expect(screen.queryByText("Local Agent")).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Chat menu" }));
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Chat settings" })
+		);
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		const dialog = screen.getByRole("dialog");
 

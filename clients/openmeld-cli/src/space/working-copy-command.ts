@@ -1,5 +1,4 @@
 import { readFile, stat } from "node:fs/promises";
-import { createSpaceApi } from "@openmeld/api-client";
 import {
   spaceWorkingCopyResultSchema,
   spaceWorkSelectionSchema,
@@ -12,7 +11,7 @@ import {
   OPENMELD_DISPATCH_RUNTIME_MODE_ENV,
 } from "../runtime/dispatch-runtime-env";
 import { readDispatchSpaceActionContextFromEnv } from "../runtime/dispatch-space-action-context";
-import { createCliApiClientFoundation } from "./api-client-foundation";
+import { createCliSpaceApi } from "./cli-space-api";
 import {
   emitMutationOutput,
   prepareSpaceFilesContext,
@@ -54,12 +53,10 @@ export async function runSpaceWorkingCopy(
       "Sign in and select an Organization before preparing a working copy."
     );
   }
-  const api = createSpaceApi(
-    createCliApiClientFoundation(context.baseUrl, {
-      expectedOwnerUserId: accountId,
-      organizationId,
-    })
-  );
+  const api = createCliSpaceApi(context.baseUrl, {
+    expectedOwnerUserId: accountId,
+    organizationId,
+  });
   const common = {
     spaceId: input.space,
     requestContext: context.requestContext,

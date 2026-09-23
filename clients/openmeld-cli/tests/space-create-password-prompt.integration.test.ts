@@ -397,12 +397,12 @@ describe("space create password prompt", () => {
           }
         | undefined;
       expect(passwordSelectInput?.message).toContain(
-        "Without a password, anyone with this Space link can read what is shared here and join."
+        "Without a password, only current members can open this Space. New participants must be added explicitly."
       );
       expect(passwordSelectInput?.options).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            label: "No, anyone with the link can join",
+            label: "No, keep access members-only",
             value: "skip",
           }),
         ])
@@ -723,7 +723,7 @@ describe("space create password prompt", () => {
     });
   });
 
-  it("explains public link access when an agent creates a public Space without a password", async () => {
+  it("explains member-only access when an agent creates a public Space without a password", async () => {
     resolveRuntimeContextMock.mockResolvedValue({
       viewMode: "agent",
       resolvedView: "agent",
@@ -761,7 +761,7 @@ describe("space create password prompt", () => {
         .find((line) => line.code === "space.create.password.optional_hint");
 
       expect(hintEnvelope?.text).toContain(
-        "Without a password, anyone with this Space link can read what is shared here and join"
+        "Without a password, only current members can open this Space. New participants must be added explicitly."
       );
       expect(hintEnvelope?.text).not.toContain("members-only");
     });

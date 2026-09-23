@@ -17,6 +17,7 @@ import {
   REMOTE_AGENT_GITHUB_READ_TOOL_NAMES,
   REMOTE_AGENT_GITHUB_TOOL_NAMES,
   type RemoteAgentGitHubToolName,
+  readStableGitHubIssueObservationAt,
 } from "../agent-core/github-tools";
 import { toBoundedRemoteAgentToolResult } from "../flue-adapter/tool-execution";
 import {
@@ -62,6 +63,46 @@ function getRemoteAgentGitHubToolDefinitions(
 }
 
 describe("Remote Agent GitHub tools", () => {
+  it("reuses the first issue observation time when a completed provider write is replayed", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const operationId = "provider-write-1";
+    const scope = "org-1:agent-1:connection-1";
+    expect(
+      await readStableGitHubIssueObservationAt({
+        data: { updated_at: "2026-09-22T12:00:00Z" },
+        operationId,
+        scope,
+        storage,
+      })
+    ).toBe("2026-09-22T12:00:00.000Z");
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-09-22T12:00:00.000Z"));
+      const first = await readStableGitHubIssueObservationAt({
+        data: { number: 1143 },
+        operationId,
+        scope,
+        storage,
+      });
+      vi.setSystemTime(new Date("2026-09-22T12:05:00.000Z"));
+      const replay = await readStableGitHubIssueObservationAt({
+        data: { number: 1143 },
+        operationId,
+        scope,
+        storage,
+      });
+      const otherOrganization = await readStableGitHubIssueObservationAt({
+        data: { number: 1143 },
+        operationId,
+        scope: "org-2:agent-1:connection-1",
+        storage,
+      });
+      expect(replay).toBe(first);
+      expect(otherOrganization).not.toBe(first);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("registers the practical repository, source, collaboration, and CI toolset", () => {
     const tools = getRemoteAgentGitHubToolDefinitions({
       coreWorker: {},
@@ -2261,21 +2302,25 @@ describe("Remote Agent GitHub tools", () => {
     const fetchMock = vi.fn<typeof fetch>((url) => {
       const href = String(url);
       if (href.includes("github.update_issue")) {
-        return testOpenConnectorSuccessResponse({
-          actionId: "github.update_issue",
-          data: { number: 7 },
-          outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
-        });
+        return Promise.resolve(
+          testOpenConnectorSuccessResponse({
+            actionId: "github.update_issue",
+            data: { number: 7 },
+            outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+          })
+        );
       }
-      return testOpenConnectorSuccessResponse({
-        actionId: "github.create_issue",
-        data: {
-          html_url: "https://github.com/openmeld/app/issues/7",
-          number: 7,
-          title: "Track connector bug",
-        },
-        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
-      });
+      return Promise.resolve(
+        testOpenConnectorSuccessResponse({
+          actionId: "github.create_issue",
+          data: {
+            html_url: "https://github.com/openmeld/app/issues/7",
+            number: 7,
+            title: "Track connector bug",
+          },
+          outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+        })
+      );
     });
     const tools = getRemoteAgentGitHubToolDefinitions({
       connectorExecution: {
@@ -2359,7 +2404,7 @@ describe("Remote Agent GitHub tools", () => {
       }
       throw new Error("createSpaceTask should not run.");
     });
-    const fetchMock = vi.fn<typeof fetch>(() =>
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       testOpenConnectorSuccessResponse({
         actionId: "github.create_issue",
         data: {

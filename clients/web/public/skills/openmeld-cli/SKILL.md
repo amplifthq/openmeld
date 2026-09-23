@@ -21,7 +21,7 @@ OpenMeld CLI and the appropriate account access.
 
 Follow these relative links from the current local folder or public URL.
 Do not preload every file. Use `openmeld <command> --help` for a missing flag.
-This guide requires CLI 0.3.174 or later. A guide cannot add commands to an older
+This guide requires CLI 0.3.217 or later. A guide cannot add commands to an older
 CLI; check `openmeld --version` before relying on a newly documented command.
 
 ## Identity and ownership

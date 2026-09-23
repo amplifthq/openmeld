@@ -3,7 +3,8 @@ import type { NavigationAction } from "@openmeld/schemas";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
-import { FileIcon, ImageIcon } from "@phosphor-icons/react";
+import { FileIcon } from "@phosphor-icons/react";
+import { QueryClientContext } from "@tanstack/react-query";
 import { useReducedMotionConfig } from "framer-motion";
 import {
 	type ComponentProps,
@@ -11,7 +12,7 @@ import {
 	type ReactNode,
 	type Ref,
 	useCallback,
-	useEffect,
+	useContext,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -27,6 +28,7 @@ import {
 } from "#/lib/spaces/api";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { buildWebSpaceAttachmentDownloadPath } from "#/lib/spaces/web-space-attachment-path";
+import { resolveSpaceFileImagePresentationKey } from "#/query/spaces/space-files";
 import {
 	CenterAgentComputerSetupCard,
 	type CenterAgentComputerSetupContext,
@@ -61,12 +63,16 @@ import {
 	type SpaceMessageReferencesById,
 	SpaceMessageReferenceText,
 } from "./space-message-reference";
+import { useImageFrameActivity } from "./use-image-frame-activity";
 import { useSpaceFileImageSource } from "./use-space-file-image-source";
 import { useSpaceStreamDisplayText } from "./use-space-stream-display-text";
 
 export const SPACE_RESPONSE_TRUNCATED_MARKER =
 	"[Response truncated by OpenMeld]";
 export const SPACE_RESPONSE_TRUNCATED_SUFFIX = `\n\n${SPACE_RESPONSE_TRUNCATED_MARKER}`;
+const HUMAN_MESSAGE_EXTRA_BLANK_LINES = /(?:\r?\n[ \t]*){3,}/;
+const HUMAN_MESSAGE_FENCE_START = /^ {0,3}(`{3,}|~{3,})/;
+const HUMAN_MESSAGE_FENCE_END = /^ {0,3}(?:`{3,}|~{3,})[ \t]*$/;
 
 type SpaceMessageBodyProps = {
 	className?: string;
@@ -122,22 +128,23 @@ function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 		() => splitServerTruncationMarker(displayedText),
 		[displayedText]
 	);
-	const collapsedText = useMemo(
+	const isMarkdown =
+		input.item.actorProfileKind === "agent" ||
+		input.item.isAgentFinalReply === true;
+	const visibleText = useMemo(
 		() =>
-			collapseSpaceMessage(
-				textProjection.visibleText,
-				input.item.actorProfileKind === "agent" ||
-					input.item.isAgentFinalReply === true
-			),
-		[
-			textProjection.visibleText,
-			input.item.actorProfileKind,
-			input.item.isAgentFinalReply,
-		]
+			isMarkdown
+				? textProjection.visibleText
+				: normalizeHumanMessageBlankLines(textProjection.visibleText),
+		[isMarkdown, textProjection.visibleText]
 	);
-	const shouldCollapse = collapsedText !== textProjection.visibleText;
+	const collapsedText = useMemo(
+		() => collapseSpaceMessage(visibleText, isMarkdown),
+		[visibleText, isMarkdown]
+	);
+	const shouldCollapse = collapsedText !== visibleText;
 	const renderedText =
-		shouldCollapse && !isExpanded ? collapsedText : textProjection.visibleText;
+		shouldCollapse && !isExpanded ? collapsedText : visibleText;
 	return {
 		isExpanded,
 		isStreaming,
@@ -146,6 +153,44 @@ function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 		shouldCollapse,
 		textProjection,
 	};
+}
+
+function normalizeHumanMessageBlankLines(text: string): string {
+	if (!HUMAN_MESSAGE_EXTRA_BLANK_LINES.test(text)) {
+		return text;
+	}
+	const lines = text.replace(/\r\n?/g, "\n").split("\n");
+	const normalized: string[] = [];
+	let fencedWith: string | null = null;
+	let hasBlankLine = false;
+	for (const line of lines) {
+		if (!fencedWith && line.trim() === "") {
+			hasBlankLine = true;
+			continue;
+		}
+		if (hasBlankLine) {
+			normalized.push("");
+			hasBlankLine = false;
+		}
+		normalized.push(line);
+		const marker = line.match(HUMAN_MESSAGE_FENCE_START);
+		if (fencedWith) {
+			if (
+				marker &&
+				marker[1][0] === fencedWith[0] &&
+				marker[1].length >= fencedWith.length &&
+				HUMAN_MESSAGE_FENCE_END.test(line)
+			) {
+				fencedWith = null;
+			}
+		} else if (marker) {
+			fencedWith = marker[1];
+		}
+	}
+	if (hasBlankLine) {
+		normalized.push("");
+	}
+	return normalized.join("\n");
 }
 
 function useSpaceMessageReferencePresentation(input: SpaceMessageBodyProps) {
@@ -673,6 +718,7 @@ export function SpaceMessageFileList(input: {
 	onOpenSpaceFile?: (fileId: string, revision: number) => void;
 	spaceId: string;
 }) {
+	const queryClient = useContext(QueryClientContext);
 	if (input.files.length === 0) {
 		return null;
 	}
@@ -700,7 +746,11 @@ export function SpaceMessageFileList(input: {
 							api={input.api}
 							file={file}
 							isSingle={imageFiles.length === 1}
-							key={`${file.fileId}:${String(file.revision)}`}
+							key={resolveSpaceFileImagePresentationKey(
+								queryClient,
+								input.spaceId,
+								file
+							)}
 							onOpenSpaceFile={file.isLocal ? undefined : input.onOpenSpaceFile}
 							spaceId={input.spaceId}
 						/>
@@ -760,29 +810,10 @@ function SpaceMessageFileImage(input: {
 	onOpenSpaceFile?: (fileId: string, revision: number) => void;
 	spaceId: string;
 }) {
-	const placeholder = useRef<HTMLOutputElement>(null);
-	const [visible, setVisible] = useState(false);
-	useEffect(() => {
-		const element = placeholder.current;
-		if (!element) {
-			return;
-		}
-		const observer = new IntersectionObserver(
-			(entries) => {
-				if (entries.some((entry) => entry.isIntersecting)) {
-					setVisible(true);
-					observer.disconnect();
-				}
-			},
-			{ rootMargin: "100px" }
-		);
-		observer.observe(element);
-		return () => observer.disconnect();
-	}, []);
-	const [isBroken, setIsBroken] = useState(false);
+	const activity = useImageFrameActivity();
 	const imageSource = useSpaceFileImageSource({
 		api: input.api,
-		enabled: visible,
+		enabled: activity.active,
 		fileId: input.file.fileId,
 		isLocal: input.file.isLocal,
 		localPreviewUrl: input.file.localPreviewUrl,
@@ -791,39 +822,11 @@ function SpaceMessageFileImage(input: {
 		spaceId: input.spaceId,
 	});
 
-	if (imageSource.isLoading) {
-		return (
-			<output
-				aria-label={`Loading ${input.file.name}`}
-				className={cn(
-					"animate-pulse bg-muted motion-reduce:animate-none",
-					input.isSingle ? "h-48 w-72 max-w-full" : "aspect-square w-full"
-				)}
-				ref={placeholder}
-			/>
-		);
-	}
-	if (imageSource.error || isBroken || !imageSource.sourceUrl) {
-		return (
-			<button
-				className={cn(
-					"flex min-h-28 w-full flex-col items-center justify-center gap-2 border border-border bg-muted text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
-					input.isSingle ? "max-h-[32rem]" : "aspect-square"
-				)}
-				onClick={() =>
-					input.onOpenSpaceFile?.(input.file.fileId, input.file.revision)
-				}
-				type="button"
-			>
-				<ImageIcon aria-hidden="true" className="size-6" />
-				<span className="px-4 text-center text-xs">Image unavailable</span>
-			</button>
-		);
-	}
-
 	return (
 		<SpaceImagePreview
+			active={activity.active}
 			altText={input.file.name}
+			error={!imageSource.sourceUrl && Boolean(imageSource.error)}
 			focusedAction={
 				input.onOpenSpaceFile
 					? {
@@ -833,9 +836,12 @@ function SpaceMessageFileImage(input: {
 						}
 					: undefined
 			}
+			frameRef={activity.frame}
+			height={input.file.imageDimensions?.height}
 			imageSource={imageSource.sourceUrl}
 			isSingle={input.isSingle}
-			onError={() => setIsBroken(true)}
+			onRetry={imageSource.retry}
+			width={input.file.imageDimensions?.width}
 		/>
 	);
 }
@@ -856,7 +862,7 @@ function SpaceMessageAttachmentImage(input: {
 	organizationSlug?: string;
 	spaceId: string;
 }) {
-	const [isBroken, setIsBroken] = useState(false);
+	const activity = useImageFrameActivity();
 	const downloadPath = buildWebSpaceAttachmentDownloadPath({
 		attachmentId: input.attachment.id,
 		organizationSlug: input.organizationSlug,
@@ -865,24 +871,11 @@ function SpaceMessageAttachmentImage(input: {
 	const altText = input.attachment.fileName ?? "Attached image";
 	const imageSource = input.attachment.localPreviewUrl ?? downloadPath;
 
-	if (isBroken) {
-		return (
-			<div
-				className={cn(
-					"flex min-h-28 w-full items-center justify-center border border-border bg-muted",
-					input.isSingle ? "max-h-[32rem]" : "aspect-square"
-				)}
-			>
-				<span className="px-4 text-center text-muted-foreground text-xs">
-					Image unavailable
-				</span>
-			</div>
-		);
-	}
-
 	return (
 		<SpaceImagePreview
+			active={activity.active}
 			altText={altText}
+			cold={!input.attachment.localPreviewUrl}
 			focusedAction={
 				getDesktopPlatform()
 					? {
@@ -900,10 +893,10 @@ function SpaceMessageAttachmentImage(input: {
 						}
 					: { href: downloadPath, label: "Open original" }
 			}
+			frameRef={activity.frame}
 			height={input.attachment.height}
 			imageSource={imageSource}
 			isSingle={input.isSingle}
-			onError={() => setIsBroken(true)}
 			width={input.attachment.width}
 		/>
 	);

@@ -410,7 +410,7 @@ describe("Desktop document hydration", () => {
 		client.clear();
 	});
 	it.each([
-		[null, null, "centered", "right"],
+		[null, null, "full-width", "right"],
 		["centered", "right", "centered", "right"],
 		["full-width", "left", "full-width", "left"],
 	])("preserves Appearance on first open and reopen with saved %s / %s", async (savedLayout, savedAlignment, layout, alignment) => {

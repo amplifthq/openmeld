@@ -7,7 +7,6 @@ import {
 
 import {
 	type QueryClient,
-	useInfiniteQuery,
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
@@ -34,6 +33,7 @@ import {
 	subscribeInboxNotificationSettings,
 } from "#/lib/inbox/client-notifications";
 import { isNotificationConversationVisible } from "#/lib/inbox/desktop-notifications";
+import { createInboxNotificationObserver } from "#/lib/inbox/notification-observer";
 import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import {
 	buildInboxItemSourceNavigation,
@@ -45,7 +45,7 @@ import {
 } from "#/lib/organizations/inbox";
 import {
 	inboxBrowserNotificationRecoveryItemQueryOptions,
-	inboxItemsInfiniteQueryOptions,
+	inboxQueryKeys,
 	inboxSummaryQueryOptions,
 	invalidateInboxFacts,
 } from "#/query/organizations/inbox";
@@ -54,6 +54,21 @@ const INBOX_NOTIFICATION_POLL_INTERVAL_MS = 10_000;
 const INBOX_NOTIFICATION_RETRY_INTERVAL_MS = 10_000;
 const INBOX_NOTIFICATION_PENDING_FETCH_CONCURRENCY = 6;
 const EMPTY_RECOVERED_PENDING_ITEMS: NotificationInboxItem[] = [];
+
+function resolveTrayComputerStatusTone(
+	computer: ReturnType<typeof useCurrentComputer>
+): "connected" | "offline" | "attention" {
+	if (computer?.status?.reason === "ready") {
+		return "connected";
+	}
+	if (
+		computer?.status?.reason === "service_not_connected" ||
+		computer?.statusLabel === "Not connected"
+	) {
+		return "offline";
+	}
+	return "attention";
+}
 
 export function InboxNotificationListener(input: {
 	organizationId: string;
@@ -103,6 +118,7 @@ export function InboxNotificationListener(input: {
 	const navigationKey = locationState?.__TSR_key;
 	const visibleConversation = useInboxVisibleConversation();
 	const computer = useCurrentComputer();
+	const trayComputerStatusTone = resolveTrayComputerStatusTone(computer);
 	const [settingsState, setSettingsState] = useState(() => ({
 		enabled: readInboxNotificationSettings({ userId: input.userId }).enabled,
 		userId: input.userId,
@@ -152,20 +168,48 @@ export function InboxNotificationListener(input: {
 		unreadCountStatus = "ready";
 	}
 	const desktop = getDesktopPlatform();
-	const itemsQuery = useInfiniteQuery({
-		...inboxItemsInfiniteQueryOptions({
-			enabled: notificationsEnabled || Boolean(desktop),
-			organizationId: input.organizationId,
-			presentation: "raw",
-			view: "all",
+	const notificationFeed = useMemo(
+		() => ({
+			enabled: notificationsEnabled,
+			read: createInboxNotificationObserver({
+				deliveryEnabled: notificationsEnabled,
+				organizationId: input.organizationId,
+				userId: input.userId,
+			}),
 		}),
-		refetchInterval:
-			notificationsEnabled && !desktop
-				? INBOX_NOTIFICATION_POLL_INTERVAL_MS
-				: false,
+		[input.organizationId, input.userId, notificationsEnabled]
+	);
+	const itemsQuery = useQuery({
+		queryKey: [
+			...inboxQueryKeys.organization(input.organizationId),
+			"notification-observations",
+			input.userId,
+			notificationsEnabled,
+		],
+		queryFn: ({ signal }) => notificationFeed.read(signal),
+		enabled: notificationFeed.enabled || Boolean(desktop),
+		gcTime: 0,
+		staleTime: 0,
+		refetchInterval: (query) => {
+			if (!notificationsEnabled || (desktop && !query.state.data?.hasMore)) {
+				return false;
+			}
+			return query.state.data?.hasMore
+				? 1000
+				: INBOX_NOTIFICATION_POLL_INTERVAL_MS;
+		},
 		refetchIntervalInBackground: true,
 	});
 	const feedIdentity = `${input.organizationId}:${input.organizationSlug}:${input.userId}:${notificationsEnabled}`;
+	const deliveryAbortRef = useRef<{
+		feedIdentity: string;
+		controller: AbortController;
+	} | null>(null);
+	useLayoutEffect(() => {
+		const controller = new AbortController();
+		deliveryAbortRef.current = { feedIdentity, controller };
+		return () => controller.abort();
+	}, [feedIdentity]);
 	let latestUnreadStatus: "loading" | "ready" | "unavailable" = "loading";
 	if (itemsQuery.isError) {
 		latestUnreadStatus = "unavailable";
@@ -188,6 +232,7 @@ export function InboxNotificationListener(input: {
 				computer: {
 					available: Boolean(computer?.destination),
 					statusLabel: computer?.statusLabel ?? "Checking…",
+					statusTone: trayComputerStatusTone,
 				},
 				inboxRefreshRevision: itemsQuery.dataUpdatedAt,
 				latestUnreadStatus,
@@ -203,6 +248,7 @@ export function InboxNotificationListener(input: {
 		input.organizationSlug,
 		computer?.destination,
 		computer?.statusLabel,
+		trayComputerStatusTone,
 		desktop,
 		latestUnreadStatus,
 		itemsQuery.dataUpdatedAt,
@@ -331,8 +377,7 @@ export function InboxNotificationListener(input: {
 	}, [input.userId]);
 
 	useLayoutEffect(() => {
-		const listedItems =
-			itemsQuery.data?.pages.flatMap((page) => page.items) ?? [];
+		const listedItems = itemsQuery.data?.items ?? [];
 		const items = mergeInboxNotificationItems({
 			listedItems,
 			recoveredPendingItems,
@@ -370,7 +415,7 @@ export function InboxNotificationListener(input: {
 		if (!(notificationsEnabled && itemsQuery.data)) {
 			return;
 		}
-		const listedItems = itemsQuery.data.pages.flatMap((page) => page.items);
+		const listedItems = itemsQuery.data.items;
 		const availableItemIds = new Set(listedItems.map((item) => item.id));
 		const missingPendingItemIds = [
 			...readPendingInboxNotificationItemIds({
@@ -469,7 +514,7 @@ export function InboxNotificationListener(input: {
 			return;
 		}
 		const currentItems = mergeInboxNotificationItems({
-			listedItems: itemsQuery.data.pages.flatMap((page) => page.items),
+			listedItems: itemsQuery.data.items,
 			recoveredPendingItems,
 		});
 		if (!primedRef.current) {
@@ -487,6 +532,7 @@ export function InboxNotificationListener(input: {
 			primedRef.current = true;
 		}
 		const sawNewItem = processInboxNotificationItems({
+			signal: deliveryAbortRef.current?.controller.signal,
 			navigate,
 			deliveryAttempt: deliveryRetryRevision,
 			deliveryContextRef,
@@ -632,6 +678,7 @@ function primeInboxNotificationFeed(input: {
 }
 
 function processInboxNotificationItems(input: {
+	signal?: AbortSignal;
 	navigate: ReturnType<typeof useNavigate>;
 	deliveryAttempt: number;
 	deliveryContextRef: {
@@ -670,15 +717,21 @@ function processInboxNotificationItems(input: {
 			});
 			continue;
 		}
-		markInboxNotificationItemPending({
-			itemId: item.id,
-			organizationId: input.organizationId,
-			userId: input.userId,
-		});
+		if (
+			!markInboxNotificationItemPending({
+				itemId: item.id,
+				organizationId: input.organizationId,
+				userId: input.userId,
+			})
+		) {
+			input.scheduleDeliveryRetry();
+			continue;
+		}
 		input.inFlightItemIds.add(item.id);
 		const isCurrentFeed = () =>
 			input.deliveryContextRef.current.feedIdentity === input.feedIdentity;
 		showInboxNotification({
+			signal: input.signal,
 			item,
 			organizationId: input.organizationId,
 			onActivate: (currentItem) => {

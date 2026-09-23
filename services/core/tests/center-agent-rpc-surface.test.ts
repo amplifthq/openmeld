@@ -147,6 +147,38 @@ describe("Private Center Agent RPC surface", () => {
     }
   });
 
+  it("keeps member-attributed audit reads on the private Center Agent entrypoint", () => {
+    expect(
+      Object.getOwnPropertyNames(CenterAgentRpcEntrypoint.prototype)
+    ).toContain("centerAgentReadAuditJournal");
+    expect(
+      Object.getOwnPropertyNames(GatewayRpcEntrypoint.prototype)
+    ).not.toContain("centerAgentReadAuditJournal");
+  });
+
+  it("keeps historical Routine evidence on the private Center Agent surface", () => {
+    for (const name of [
+      "centerAgentListRoutineRuns",
+      "centerAgentReadRoutineRunDiagnostics",
+    ]) {
+      expect(
+        Object.getOwnPropertyNames(CenterAgentRpcEntrypoint.prototype)
+      ).toContain(name);
+      expect(
+        Object.getOwnPropertyNames(GatewayRpcEntrypoint.prototype)
+      ).not.toContain(name);
+    }
+  });
+
+  it("keeps explicit memory search off the Gateway surface", () => {
+    expect(
+      Object.getOwnPropertyNames(CenterAgentRpcEntrypoint.prototype)
+    ).toContain("centerAgentSearchMemory");
+    expect(
+      Object.getOwnPropertyNames(GatewayRpcEntrypoint.prototype)
+    ).not.toContain("centerAgentSearchMemory");
+  });
+
   it("keeps the historical Routine entrypoint as a compatibility alias", () => {
     expect(
       Object.getPrototypeOf(CenterAgentRoutineRpcEntrypoint.prototype)

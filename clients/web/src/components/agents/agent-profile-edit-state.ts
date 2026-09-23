@@ -2,6 +2,7 @@ import {
 	type AgentControllerCollaborationModeOption,
 	type AgentControllerPermissionModeOption,
 	type AgentProfileEditCapabilities,
+	getAgentControllerModelCatalogId,
 	parseAgentControllerRef,
 	resolveAgentControllerPermissionModeForController,
 	resolveAgentProfileEditCapabilities,
@@ -129,7 +130,9 @@ export function resolveAgentProfileEditState(input: {
 	};
 	const modelSelection = capabilities.modelSelection.editable
 		? {
-				agentControllerId: parsedAgentControllerRef.id,
+				agentControllerId: getAgentControllerModelCatalogId(
+					parsedAgentControllerRef
+				),
 				agentControllerRef,
 				modelId: input.binding?.modelSelection?.modelId ?? "",
 				reasoningLevel: input.binding?.modelSelection?.reasoningLevel ?? "",

@@ -516,6 +516,11 @@ describe("openmeld upgrade", () => {
         });
 
         expect(vi.mocked(spawn).mock.calls).toHaveLength(2);
+        for (const call of vi.mocked(spawn).mock.calls) {
+          expect(call[2]).toEqual(
+            expect.objectContaining({ windowsHide: true })
+          );
+        }
         const [firstSpawnCommand, firstSpawnArgs] =
           vi.mocked(spawn).mock.calls[0] ?? [];
         const expectedNpmInstallSpawn = resolveExpectedNpmInstallSpawnSpec();
@@ -623,6 +628,7 @@ describe("openmeld upgrade", () => {
         expect(vi.mocked(spawn).mock.calls[1]?.[2]).toEqual(
           expect.objectContaining({
             stdio: ["ignore", "inherit", "inherit"],
+            windowsHide: true,
           })
         );
       } finally {

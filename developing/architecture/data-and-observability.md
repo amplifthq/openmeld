@@ -27,6 +27,11 @@ The index stores no attachment content, reasoning, or execution diagnostics.
 SQLite triggers update the index atomically with canonical message inserts,
 edits, recalls, and retention deletes. Historical indexing advances in batches
 of 500 rows on demand and exposes incompleteness instead of empty success.
+Searches scoped to one Space accept one or more characters. Queries of one or
+two characters use a literal scan of that Space's private index because FTS5
+trigram matching cannot serve them; queries of three or more characters keep
+the indexed trigram path. Workspace and Inbox searches retain a three-character
+minimum so a short query cannot fan out linear scans across several Spaces.
 
 Core's shared search reader enumerates active member-owned Space candidates in
 the Organization directory, then calls the normal authorized Space reader for
@@ -102,6 +107,21 @@ phase and revision columns support bounded board reads and conflict-safe writes.
 Every mutation compares the expected Task revision inside the Space transaction.
 An operation id may replay only the exact same request and returns the retained
 receipt without appending another event.
+The same transaction writes `space_task_delivery_outbox` rows for necessary
+handoff, completion, GitHub link projection, and authorized Stop effects.
+The Space alarm retries due rows, and Task detail exposes pending or failed
+effects without treating their state as execution truth. Deterministic Signal
+IDs prevent duplicate publication after a retry. Immediately before inserting
+a Task-authored Signal, Space rechecks the Task's phase, target, result, and
+brief so a cancellation or change cannot admit a stale handoff. The
+`space_task_wake_refs` table records exact Signal and Agent target pairs only
+for Task-associated Wakes; it is a Stop lookup, not an execution ledger.
+Only mutations that may create a delivery intent pre-arm recovery before their
+transaction; checking for due rows only after commit would leave a lost-alarm
+window. Each delivery has bounded backoff and becomes a visible terminal failure
+after twelve attempts. A malformed outbox row is quarantined without blocking
+other Task deliveries. Terminal rows remain available for diagnosis for thirty
+days, then the same bounded Space alarm lane reclaims them.
 
 Task phase is collaboration truth. RuntimeCoordinator and Remote Agent native
 delivery continue to own execution state. Cancellation may call their existing
@@ -109,13 +129,52 @@ Stop boundary after the Task transaction commits, but no Task row proves that a
 process started, stopped, or completed. Task handoff and completion messages are
 deterministic Space Signals, so retrying a Task operation cannot duplicate the
 visible transition or Agent Wake.
+An explicit cancellation may request Stop of each recorded Wake under a narrow
+Task cancellation authority: the same currently active, Auth-verified actor
+must have authored the retained cancellation operation, and the target must
+match a recorded Task Wake. Existing ordinary Wake Stop authority is unchanged.
+Reopening the Task supersedes an earlier cancellation's queued Stop, including
+when the Task is canceled again later. The retained cancellation event and exact
+Wake reference are checked again before the Stop side effect.
+The Stop result remains separate from the canceled Task phase. Provider events
+carry no actor authority and cannot use this Task-specific Stop path.
 
 Linked GitHub issues are references on the Task document. GitHub remains the
 only writer of issue state. `lastObservedState` is a Task-owned observation
-from an authorized GitHub tool result, not a second issue store and not
-webhook truth. Remote Agent may create or cancel Tasks after a GitHub tool
-succeeds; it does not write Task rows itself and does not PATCH GitHub when a
-Task closes.
+from an authorized GitHub tool result or a verified GitHub App webhook
+delivery, not a second issue store. Remote Agent may create or cancel Tasks
+after a GitHub tool succeeds; it does not write Task rows itself and does not
+PATCH GitHub when a Task closes.
+
+`space_task_github_issue_links` is a Core D1 query projection written after
+the Space Durable Object commits a Task with GitHub `externalWorkItems`. It
+is not Task truth and must not be used as a second Task writer. Detached
+links remain rows with `detached_at_ms` set so webhook fan-out can skip them.
+The Task delivery outbox retries this projection from the latest Task document
+and reconciles all of that Task's links in one D1 batch; replaying an older
+transition cannot revive a detached link.
+`github_app_webhook_deliveries` is the Core delivery-id ledger for GitHub App
+webhook processing on the existing `OPENMELD_DAEMON_DISPATCH_QUEUE`. Duplicate
+`X-GitHub-Delivery` ids are ignored after a successful claim. Missing link
+rows mean no Space is scanned. Webhook callbacks grant no execution authority.
+
+## Center Agent generated session titles
+
+Space owns the generated default title in `space_meta.name`; the existing
+Space index outbox carries the same name to the authorized session list.
+Auth-owned personal `chats.titles` override this default without being changed
+by inference. The title generator is a dedicated Remote Agent Worker RPC,
+outside the Flue conversation and execution queue. Its shared schemas are in
+`packages/schemas/src/schemas/runtime/center-agent-session-title.ts`.
+
+Only already-persisted, user-authored main-timeline messages from the active
+Human in the designated Center Agent DM pair qualify, while the Space name is
+still `New chat`. Space persists a maximum of three attempts in its own storage,
+allows one in-flight request, and checks the current pair and unchanged metadata
+before writing. Failures are best-effort presentation failures logged with
+Space/signal correlation, never Wake failures. Request text and filenames are
+bounded; logs must not contain prompt or response bodies. Existing metadata
+invalidation signals cause clients to reread the owners.
 
 ## Space message previews and slow Web experiences
 
@@ -984,6 +1043,20 @@ OpenMeld evidence joins those platform facts to the D1 Run, native-delivery
 ledger, and one destination result; neither metric surface may repair or override
 product truth.
 
+`routine_runs.workflow_last_checked_at_ms` is only a fair-scan cursor. Core
+atomically selects and timestamps a bounded batch in least-recently-checked
+order before reading Workflow status. A stuck or blocked batch cannot occupy
+every subsequent scan. This timestamp grants no execution authority, does not
+change Run status or its result owner, and is not execution progress evidence.
+If a scanner stops after claiming a batch, a later tick can check it again.
+The scan summary counts successful checks, not newly started executions.
+
+Known phase errors may arrive with their original name or as Workerd's `Error`
+envelope with the owned phase name at the beginning of its message. Recovery
+normalizes that outer envelope only; nested errors and generic timeouts do not
+authorize restarting a Workflow. Callback wait renewal emits Run-correlated
+evidence through the same runtime evidence writer.
+
 An unknown Workflow error phase, a terminated instance, a status read failure,
 or a completed instance paired with a nonterminal D1 Run is a blocked-recovery
 condition. Core records the condition and leaves the Run unchanged for operator
@@ -1170,6 +1243,20 @@ a future maintenance process. A metadata row whose object is missing resolves
 to an explicit not-found response at the byte boundary.
 
 ## Space File Data Boundary
+
+Image display geometry is immutable revision metadata in the nullable
+`space_file_revisions.image_dimensions_json` column. The lazy SQLite migration
+is idempotent and leaves historical rows unknown; it does not backfill by reading
+old objects or move authority into D1. Repository reads validate the complete
+pair; non-image revisions omit it. A restored image receives the copied
+original's geometry on its new revision, while earlier revisions remain intact.
+
+The final authorized revision commit extracts bounded metadata from private R2
+ranges (128 KiB and 16 reads maximum), reusing the existing canonical object key
+and revision fence. It does not retain decoded pixels, create thumbnails, or
+rewrite the immutable original. Browser binary caches are separate ephemeral
+read resources, not durable file authority. Neither metadata failures nor image
+loading effects justify logging object URLs, raw bytes, or private object keys.
 
 The Space Durable Object is the only writer for Space File identity, folder
 hierarchy, current placement, revision sequence, Trash state, and actor

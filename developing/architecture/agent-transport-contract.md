@@ -676,13 +676,22 @@ Important execution rules:
   become a second execution authority.
 - Caller authority, owner evidence, Binding evidence, and execution truth come
   from verified Gateway/Core context, not request-body trust.
-- Space owns user-requested Wake Stop authorization. After writable Space access,
-  only the authenticated source-message account or target Agent Profile owner
-  may stop the exact target Wake. Resolve the source from the Space's persisted
-  Signal and account ownership from Auth; caller selectors, member names, and
-  other signed-in accounts are not ownership evidence. Use the same policy for
-  viewer-scoped progress eligibility and the Stop mutation, before native or
-  workstation cancellation side effects. Missing ownership fails closed.
+- Space owns user-requested Wake Stop authorization. For ordinary Stop, after
+  writable Space access, only the authenticated source-message account or target
+  Agent Profile owner may stop the exact target Wake. Resolve the source from
+  the Space's persisted Signal and account ownership from Auth; caller selectors,
+  member names, and other signed-in accounts are not ownership evidence. Use
+  this ordinary policy for viewer-scoped progress eligibility and the ordinary
+  Stop mutation, before native or workstation cancellation side effects.
+- An explicit Space Task cancellation has one additional, Task-scoped Stop
+  authority. The same currently active, Auth-verified actor must have authored
+  the retained cancellation operation, its event ID must match the operation
+  receipt, and the exact source Signal and target Agent must be recorded as a
+  Wake for that Task. A later Task reopen supersedes that cancellation's Stop
+  intent, even if the Task is canceled again. Provider observations carry no
+  actor authority and cannot use this path. This internal delivery exception
+  does not extend ordinary Stop or viewer-scoped progress eligibility; missing
+  actor, operation, Wake, or current-intent evidence fails closed.
   RuntimeCoordinator continues to own execution and the final stopped outcome;
   internal deletion/recovery cancellation is not a user Stop permission grant.
 - Before RuntimeCoordinator links an execution, OpenMeld-owned pre-agent Stop may
@@ -783,6 +792,25 @@ reports `computer.file_access.owner_declined`; Core verifies its durable receipt
 and execution identity before Space elects the final claim. Retries reuse the
 same stopped publication and acknowledgement. An expired/interrupted waiter or
 legacy ambiguous `owner_cancelled` result is not evidence of explicit refusal.
+
+Working-folder recovery uses this same private question contract during local
+admission, before a provider turn begins. It adds no recovery queue, Inbox
+authority, or automatic replay of terminal work. OpenCode's native folder guard
+still runs immediately before prompting. The owner can use the verified original
+folder for this task, explicitly start a new conversation in the current folder,
+or stop. The chosen folder is checked against the current Computer file policy;
+the choice never grants a file-access exception or changes computers.
+`context.workspace_recovery_declined` is an explicit local admission decline.
+Like a Computer file-access decline, Core verifies the accepted result receipt
+and current execution identity before publishing the normal stopped outcome.
+Lost or expired questions are failures, not evidence of an owner decline.
+
+The question/response wire format is unchanged. Deploy Core's explicit-decline
+receiver before publishing the CLI/Service recovery caller; an older Core would
+otherwise present the new decline reason as a failure. Old clients can render
+the standard question. This compatible update does not raise the mandatory
+Service floor or change setup, Space actions, status, or diagnostics contracts.
+Local-component stamping and publication remain deferred to the final release.
 
 ### Runtime Transport And RuntimeCoordinator Boundary
 
@@ -1124,6 +1152,13 @@ This Agent Profile can reply in this Space from the intended Runtime now.
 Route online is not enough. Binding existence is not enough. Completed Prepare
 evidence is not enough. Process health is not business readiness.
 
+A live Runtime Transport session with `acceptingDispatches: false` is not
+available for a new Wake, even while its socket and profile leases remain
+fresh. Core projects `local_service.not_accepting_wakes` as unavailable and
+invalidates carried profiles when admission closes or reopens. Computer
+connectivity, route registration, and already accepted executions remain
+separate facts; draining must not mark an in-flight Wake failed.
+
 Core-owned Wakeability is the only final user-facing projection for this
 question. Web, CLI, Space, and Start render it; they do not recompute it.
 
@@ -1255,6 +1290,11 @@ connected/offline flicker.
 Socket presence is delivery evidence, not online evidence. Delivery (route
 lookup for an actual Wake dispatch) requires a live socket; the online verdict
 must not, because hibernation makes socket references transient by design.
+Computer disconnect Inbox recovery reuses this owner-Service online predicate.
+It must not keep a connection incident open because dispatch admission or
+execution compatibility is not ready. Initial fault detection still requires
+prior expected availability and the lease grace; recovery ends only the matching
+incident, not an Agent readiness issue or a historical Wake failure.
 When a delivery socket disappears but the service lease is still fresh (a recent
 heartbeat within the TTL), Runtime Transport holds the affected Agent Profile
 route on `Checking`: the lease is liveness evidence that the service is online

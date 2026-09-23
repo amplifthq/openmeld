@@ -955,7 +955,18 @@ describe("Remote Agent native delivery ledger repo", () => {
           routineNameSnapshot: "Daily feedback review",
           status: "submitted",
         })
-      ).rejects.toThrow();
+      ).resolves.toMatchObject({
+        routineRunId: "run_1",
+        idempotencyKey: "run_1_second_delivery",
+        dispatchId: "run_1_second_delivery",
+      });
+      // Migration 0063 permits linked continuation deliveries; immutable
+      // admission identity above still prevents reassigning an existing one.
+      expect(
+        harness.queryAll({
+          sql: "SELECT delivery_id FROM openMeldRemoteAgent_native_delivery_ledger WHERE routine_run_id = 'run_1'",
+        })
+      ).toHaveLength(2);
     } finally {
       harness.close();
     }

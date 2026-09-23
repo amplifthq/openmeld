@@ -1,4 +1,7 @@
-import { OPENMELD_SPACE_ADDRESSING_VERSION } from "@openmeld/gateway-contract";
+import {
+  OPENMELD_SPACE_ADDRESSING_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
+} from "@openmeld/gateway-contract";
 import { getSpaceUpdatesInputSchema } from "@openmeld/schemas";
 import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
@@ -46,7 +49,8 @@ export function registerUpdatesRoutes(app: Hono<HonoBindings>): void {
             ...(password === undefined ? {} : { password }),
             context: buildCoreRpcContext(c),
           },
-          OPENMELD_SPACE_ADDRESSING_VERSION
+          OPENMELD_SPACE_ADDRESSING_VERSION,
+          OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
         );
       },
     });
