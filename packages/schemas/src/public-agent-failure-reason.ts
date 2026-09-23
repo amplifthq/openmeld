@@ -509,7 +509,7 @@ const PUBLIC_AGENT_AVAILABILITY_ONLY_COPY_BY_CODE: readonly PublicAgentAvailabil
   ];
 
 const buildMalformedSpaceReplyCopy = (targetName: string): string =>
-  `${targetName} answered in its local conversation, but it did not tell OpenMeld whether to post a message or stay silent, so nothing was posted.`;
+  `OpenMeld could not confirm a Space response from ${targetName}, even after automatic recovery.`;
 
 const buildEmptyAgentReplyCopy = (targetName: string): string =>
   `${targetName} finished without returning any text, so OpenMeld had nothing to post. Wake ${formatObjectTargetName(targetName)} again. If this keeps happening, open diagnostics.`;

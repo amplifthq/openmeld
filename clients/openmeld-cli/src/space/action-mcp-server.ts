@@ -16,6 +16,7 @@ import { z } from "zod/v4";
 import type { DispatchSpaceActionRecord } from "../runtime/dispatch-space-action-context";
 import {
   DispatchSpaceActionClosedError,
+  DispatchSpaceActionRejectedError,
   readDispatchSpaceActionContextForReceiptFromEnv,
 } from "../runtime/dispatch-space-action-context";
 import {
@@ -461,6 +462,25 @@ export async function executeSpaceAction(
       ],
     };
   } catch (error) {
+    if (error instanceof DispatchSpaceActionRejectedError) {
+      return {
+        structuredContent: dispatchSpaceActionToolResultSchema.parse({
+          receipt: {
+            status: "rejected_before_recording",
+            reasonCode: error.reasonCode,
+            coordinatorAcceptance: "unconfirmed",
+            publication: "unconfirmed",
+          },
+        }),
+        content: [
+          {
+            type: "text" as const,
+            text: `Action rejected (receipt: rejected_before_recording, reason: ${error.reasonCode}). This call did not record an action. ${error.message} ${error.reasonCode === "space_action.invalid_input" ? "Correct the indicated arguments and call the same permitted tool again. " : ""}Any earlier records are preserved; Coordinator acceptance and Space publication are unconfirmed.`,
+          },
+        ],
+        isError: true,
+      };
+    }
     if (error instanceof DispatchSpaceActionClosedError) {
       return {
         structuredContent: dispatchSpaceActionToolResultSchema.parse({

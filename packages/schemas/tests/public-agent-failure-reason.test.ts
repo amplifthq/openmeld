@@ -420,7 +420,7 @@ describe("public agent failure reason mapping", () => {
         targetLabel: "Cursor",
       })
     ).toEqual({
-      body: "Cursor answered in its local conversation, but it did not tell OpenMeld whether to post a message or stay silent, so nothing was posted.",
+      body: "OpenMeld could not confirm a Space response from Cursor, even after automatic recovery.",
       kind: "system_retry",
       recoveryTarget: null,
     });

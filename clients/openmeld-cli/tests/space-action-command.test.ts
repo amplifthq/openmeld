@@ -645,6 +645,17 @@ describe("OpenMeld Space Action MCP server", () => {
         arguments: { message: "Done", wakeTargets: [AGENT_PROFILE_ID] },
       });
       expect(rejected.isError).toBe(true);
+      expect(rejected.structuredContent).toMatchObject({
+        receipt: {
+          status: "rejected_before_recording",
+          reasonCode: "space_action.invalid_input",
+          coordinatorAcceptance: "unconfirmed",
+          publication: "unconfirmed",
+        },
+      });
+      expect(JSON.stringify(rejected.content)).toContain(
+        "This call did not record an action"
+      );
       expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
       const corrected = await client.callTool({
         name: "reply",

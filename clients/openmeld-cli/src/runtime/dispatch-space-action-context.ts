@@ -15,6 +15,7 @@ import {
 } from "@openmeld/schemas";
 import type {
   DispatchSpaceActionClosedReasonCode,
+  DispatchSpaceActionReceipt,
   OpenMeldSpaceEgressAction,
   SpaceContract,
   SpaceMemberDirectoryEntry,
@@ -42,6 +43,23 @@ export class DispatchSpaceActionClosedError extends Error {
   ) {
     super(message);
     this.name = "DispatchSpaceActionClosedError";
+    this.reasonCode = reasonCode;
+  }
+}
+
+/** Use only at a boundary that has positively rejected this call before recording. */
+export class DispatchSpaceActionRejectedError extends Error {
+  readonly reasonCode: Extract<
+    DispatchSpaceActionReceipt,
+    { status: "rejected_before_recording" }
+  >["reasonCode"];
+
+  constructor(
+    reasonCode: DispatchSpaceActionRejectedError["reasonCode"],
+    message: string
+  ) {
+    super(message);
+    this.name = "DispatchSpaceActionRejectedError";
     this.reasonCode = reasonCode;
   }
 }
@@ -208,10 +226,14 @@ export function writeDispatchSpaceActionRecord(input: {
 }): DispatchSpaceActionRecord {
   const parsedAction = openMeldSpaceEgressActionSchema.safeParse(input.action);
   if (!parsedAction.success) {
-    throw parsedAction.error;
+    throw new DispatchSpaceActionRejectedError(
+      "space_action.invalid_input",
+      parsedAction.error.message
+    );
   }
   if (isSelfWakeSpaceAction(parsedAction.data, input.context.targetProfileId)) {
-    throw new Error(
+    throw new DispatchSpaceActionRejectedError(
+      "space_action.invalid_input",
       "An Agent cannot Wake itself. To reply to the current message, omit wakeTargets (CLI: --wake) and submit the reply again. No action was recorded."
     );
   }
@@ -251,8 +273,9 @@ export function writeDispatchSpaceActionRecord(input: {
       ) {
         return existing.record;
       }
-      throw new Error(
-        "An OpenMeld Space Action has already been recorded for this dispatch. A Wake can only have one final Space action."
+      throw new DispatchSpaceActionRejectedError(
+        "space_action.already_recorded",
+        "An OpenMeld Space Action has already been recorded for this dispatch. A Wake can only have one final Space action. Recover its receipt with the exact original arguments; do not replace it with a different action."
       );
     }
     throw error;
