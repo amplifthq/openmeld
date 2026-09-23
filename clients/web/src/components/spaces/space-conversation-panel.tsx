@@ -3113,7 +3113,10 @@ function ConversationSpeakerHeader(input: {
 	const trigger = (
 		<button
 			aria-label={`Check ${input.run.speaker.displayName} Profile`}
-			className="inline-flex min-w-0 max-w-full cursor-pointer touch-manipulation flex-wrap items-start gap-x-1.5 gap-y-1 self-start rounded-md text-left font-normal text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 max-lg:min-h-6 max-lg:min-w-6"
+			className={cn(
+				"inline-flex min-w-0 max-w-full cursor-pointer touch-manipulation flex-wrap items-start gap-x-1.5 gap-y-1 self-start rounded-md text-left font-normal text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 max-lg:min-w-6",
+				input.avatarOnly && "max-lg:min-h-6"
+			)}
 			type="button"
 		>
 			{content}

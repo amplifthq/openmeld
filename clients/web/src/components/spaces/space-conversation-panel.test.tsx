@@ -4714,7 +4714,6 @@ describe("SpaceConversationPanel", () => {
 			name: "Check Felix Profile",
 		});
 		expect(profileHeader.className).toContain("touch-manipulation");
-		expect(profileHeader.className).toContain("max-lg:min-h-6");
 		expect(profileHeader.textContent).toContain("Felix");
 		expect(profileHeader.textContent).not.toContain(expectedTime);
 		const messageRow = screen
