@@ -34,6 +34,7 @@ export const WINDOWS_PROCESS_JOB_SCRIPT = `
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $WarningPreference = 'SilentlyContinue'
+$phase = 'decode_request'
 try {
   $raw = [Environment]::GetEnvironmentVariable('${REQUEST_ENV}', 'Process')
   [Environment]::SetEnvironmentVariable('${REQUEST_ENV}', $null, 'Process')
@@ -42,22 +43,24 @@ try {
   $gzip = New-Object IO.Compression.GZipStream($compressed, [IO.Compression.CompressionMode]::Decompress)
   $reader = New-Object IO.StreamReader($gzip, [Text.Encoding]::UTF8)
   try { $source = $reader.ReadToEnd() } finally { $reader.Dispose(); $compressed.Dispose() }
+  $phase = 'compile_helper'
   Add-Type -TypeDefinition $source -ErrorAction Stop
   if ($r.operation -eq 'drain') {
+    $phase = 'drain_job'
     [OpenMeldProcessJobV1]::VerifyDrained($r.jobName)
     [Console]::Write('${DRAIN_RECEIPT}')
     exit 0
   }
   if ($r.operation -ne 'launch') { throw 'Unknown process operation' }
+  $phase = 'launch_job'
   $exitCode = [OpenMeldProcessJobV1]::Run($r.jobName, $r.executable, $r.commandLine, $r.workingDirectory, $r.ownerPid, $r.ownerStartedAt)
   exit $exitCode
 } catch {
   $cause = $_.Exception.GetBaseException()
   $code = $(if ($cause -is [ComponentModel.Win32Exception]) { $cause.NativeErrorCode } else { $cause.GetType().Name })
-  # Native Win32 exceptions carry only fixed operation labels from our helper.
-  # Other exception messages may contain request data and must not be printed.
-  $operation = $(if ($cause -is [ComponentModel.Win32Exception]) { ' (' + $cause.Message + ')' } else { '' })
-  [Console]::Error.WriteLine('openmeld.windows_process.failed: ' + $code + $operation)
+  # Compiler failures also produce Win32Exception. Use fixed phase labels, not
+  # exception messages that can include paths or request data.
+  [Console]::Error.WriteLine('openmeld.windows_process.failed: ' + $code + ' (' + $phase + ')')
   exit 125
 }
 `;

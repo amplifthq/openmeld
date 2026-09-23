@@ -66,7 +66,9 @@ await writeFile(
   JSON.stringify(binaries, null, 2)
 );
 
-const root = await mkdtemp(path.join(tmpdir(), "OpenMeld native 空格 "));
+const root = await mkdtemp(path.join(tmpdir(), "openmeld-native-"));
+const workspace = path.join(root, "workspace 中文 with spaces");
+await mkdir(workspace);
 const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT;
 assert.ok(systemRoot);
 // Keep normal Windows OS discovery (including PowerShell's system modules).
@@ -101,13 +103,13 @@ console.log(
     status: "started",
     executable: binaries["windows-native-runtime"].path,
     peer: binaries["windows-agent-sdk"].path,
-    cwd: root,
+    cwd: workspace,
   })
 );
 const owned = spawnAgentControllerProcess({
   bin: binaries["windows-native-runtime"].path,
   args: [binaries["windows-agent-sdk"].path],
-  cwd: root,
+  cwd: workspace,
   env,
   shell: false,
 });

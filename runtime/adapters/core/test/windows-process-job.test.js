@@ -45,12 +45,12 @@ async function waitFor(check, message) {
   throw new Error(message);
 }
 
-function start(args, cwd = process.cwd()) {
+function start(args, cwd = process.cwd(), env = process.env) {
   const runtime = spawnAgentControllerProcess({
     bin: process.execPath,
     args,
     cwd,
-    env: process.env,
+    env,
     shell: false,
   });
   const stdout = [];
@@ -110,7 +110,8 @@ test(
         "process.stdin.resume();process.stdin.on('end',()=>{process.stdout.write(JSON.stringify({args:process.argv.slice(1),cwd:process.cwd()}));process.stderr.write('native-diagnostic');process.exitCode=7})",
         ...args,
       ],
-      cwd
+      cwd,
+      { ...process.env, TEMP: cwd, TMP: cwd }
     );
     try {
       child.runtime.child.stdin.end("raw input");
