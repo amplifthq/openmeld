@@ -1,7 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  importWindowsProcessArtifact,
+  writeWindowsProcessArtifact,
+} from "./windows-process-artifact.mjs";
 
 // Build-time only: the published Native AOT executable requires neither dotnet
 // nor a compiler on the user's computer. Keep compilation on native Windows.
@@ -45,9 +49,5 @@ if (result.error) {
 if (result.status !== 0) {
   throw new Error(`Windows process helper build failed (${result.status}).`);
 }
-const adapterOutput = path.join(root, "runtime/adapters/core/dist/windows");
-mkdirSync(adapterOutput, { recursive: true });
-copyFileSync(
-  path.join(output, "openmeld-windows-process.exe"),
-  path.join(adapterOutput, "openmeld-windows-process.exe")
-);
+writeWindowsProcessArtifact(output, root);
+importWindowsProcessArtifact(output, root);

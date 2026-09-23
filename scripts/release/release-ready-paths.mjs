@@ -15,6 +15,7 @@ const CLI_RELEASE_PATHS = new Set([
   "clients/openmeld-cli/tsdown.config.ts",
   "scripts/release/build-cli-binary.mjs",
   "scripts/release/build-windows-process-helper.mjs",
+  "scripts/release/windows-process-artifact.mjs",
   "clients/openmeld-cli/scripts/copy-windows-process-helper.mjs",
   "clients/openmeld-cli/scripts/build-macos-keychain-addon.mjs",
 ]);
@@ -43,6 +44,7 @@ const SERVICE_RELEASE_PATHS = new Set([
   "pnpm-lock.yaml",
   "scripts/release/build-cli-binary.mjs",
   "scripts/release/build-packaged-openmeld-cli.mjs",
+  "scripts/release/windows-process-artifact.mjs",
   "scripts/release/build-windows-process-helper.mjs",
   "clients/openmeld-cli/scripts/copy-windows-process-helper.mjs",
   "runtime/local-service/package.json",

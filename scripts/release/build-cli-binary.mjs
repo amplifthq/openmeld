@@ -14,6 +14,7 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildMacOsKeychainAddon } from "../../clients/openmeld-cli/scripts/build-macos-keychain-addon.mjs";
 import { cliBinaryServiceReleaseSchema } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
+import { verifyWindowsProcessArtifact } from "./windows-process-artifact.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
@@ -163,6 +164,7 @@ export function buildCliBinary(input = {}) {
       );
     }
     const destination = path.join(outDir, name);
+    verifyWindowsProcessArtifact(path.dirname(helper), REPO_ROOT);
     if (path.resolve(helper) !== path.resolve(destination)) {
       copyFileSync(helper, destination);
     }

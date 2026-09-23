@@ -118,6 +118,23 @@ clean standard-user environment, and the protocol peer is not model inference.
 Any failed native acceptance step fails its job. Artifacts are unsigned and
 retained for bounded review, not published to a product channel.
 
+For Mac development, a successful native artifact job also retains a small
+`windows-process-<run>-<attempt>` artifact. Download that exact artifact from a
+run of this branch, then import it with:
+
+```sh
+gh run download <run> --name windows-process-<run>-<attempt> --dir dev-tmp/windows-process-download
+node scripts/release/windows-process-artifact.mjs dev-tmp/windows-process-download
+```
+
+Import verifies the pinned native build inputs and binary hash before copying
+the helper into the workspace outputs. A changed C# source, SDK selection, or
+helper build script requires a new Windows build. CLI packaging verifies it
+again and rejects stale bytes; it never compiles C# on a user's machine. This
+is build-input integrity, not Authenticode or production provenance. Production
+assembly must consume its own trusted source-matched Windows build. That
+release integration is still required before this implementation can be ready.
+
 The implementation status and exact native evidence live in
 [Windows Computer Connection Design](../architecture/windows-computer-connection-design.md).
 
