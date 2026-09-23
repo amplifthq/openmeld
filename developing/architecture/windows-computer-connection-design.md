@@ -242,6 +242,22 @@ is stale or the installer retains a newer version. This is source-level client
 integration, not an installed Desktop, real account reuse, or signing/release
 acceptance result.
 
+Run [35901878679, attempt 1](https://github.com/amplifthq/openmeld/actions/runs/35901878679)
+completed **both native jobs successfully**. PR head was
+`0fbf3ec67343448710a9e1471598c69f1c1e909f`; actual merge checkout was
+`e00ac5e677b7e4cdb0492f02c48b6f3f5c418394`, against base
+`6c3ae1a6d155f9987a9fbccacb9c460f341238f4`.
+The [native artifact and evidence](https://github.com/amplifthq/openmeld/actions/runs/35901878679/artifacts/10769179348)
+prove command PATH activation, complete-pair cleanup, managed install/repeat and
+interrupted launcher recovery, direct GUI exit 0/7 and inherited log descriptors,
+SQLite, SDK and unauthenticated official Codex protocol, real Service/Host 5/5,
+and stopped legacy registration migration 1/1. The
+[source-matched helper](https://github.com/amplifthq/openmeld/actions/runs/35901878679/artifacts/10769678615)
+is available separately for Mac development. The legacy host also passed this
+run; that does not establish the cause or resolution of its historical timeout.
+Running maintenance handoff, ordinary-user login/reboot, real account/agent
+inference, signed distribution and installed Desktop acceptance remain separate.
+
 ## References
 
 - [Product model](../product/product-model.md), [Service owner](local-openmeld-service.md), [transport owner](agent-transport-contract.md), [Desktop owner](../clients/desktop.md), [CLI release](../engineering/cli-binary-release.md), [delivery](../engineering/agent-native-delivery.md).

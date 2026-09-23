@@ -6,6 +6,11 @@
   "main": "./dist/index.js",
   "types": "./src/index.ts",
   "exports": {
+    "./windows-artifact-script": {
+      "types": "./src/windows-artifact-script.ts",
+      "import": "./src/windows-artifact-script.ts",
+      "default": "./dist/windows-artifact-script.js"
+    },
     "./heartbeat-policy": {
       "types": "./src/heartbeat-policy.ts",
       "import": "./src/heartbeat-policy.ts",

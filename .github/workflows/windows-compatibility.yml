@@ -20,6 +20,8 @@ on:
       - scripts/release/windows-process-artifact*
       - scripts/e2e/windows-native-runtime.mjs
       - clients/web/src/lib/setup-bootstrap-script*
+      - clients/web/src/lib/setup-bootstrap-windows-binary.ts
+      - clients/web/src/lib/cli-entry-command*
       - clients/web/src/lib/__fixtures__/setup-bootstrap-*
       - clients/web/src/routes/setup*
       - clients/web/src/lib/desktop-*
@@ -164,7 +166,7 @@ jobs:
       - name: Install the packed CLI with clean npm and exercise its native SQLite reader
         run: node scripts/release/npm-cli-artifact.mjs
       - name: Exercise generated setup in Windows PowerShell 5.1
-        run: pnpm --dir clients/web exec vitest run src/lib/setup-bootstrap-script.windows.test.ts --maxWorkers=1 --minWorkers=1
+        run: pnpm --dir clients/web exec vitest run src/lib/setup-bootstrap-script.windows.test.ts src/lib/setup-bootstrap-script.windows-binary.test.ts --maxWorkers=1 --minWorkers=1
       - name: Exercise native argv, Job ownership, SDK streams, and physical probe rejection
         run: node --test --test-concurrency=1 runtime/adapters/core/test/process-launch.test.js runtime/adapters/core/test/process-environment.test.js runtime/adapters/core/test/windows-system.test.js runtime/adapters/core/test/windows-process-job.test.js runtime/adapters/codex/test/workspace-access-probe.test.js runtime/adapters/claude-code/test/windows-process.test.js
       - name: Verify Service identity and read-only capability admission

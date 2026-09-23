@@ -1267,7 +1267,7 @@ describe("setup-bootstrap-script", () => {
 		});
 	});
 
-	it("rejects binary setup for Windows", () => {
+	it("selects the isolated binary manifest for Windows setup", () => {
 		expect(
 			resolveOpenMeldSetupBootstrapScriptConfig({
 				authUrl: "http://localhost:8788",
@@ -1277,9 +1277,14 @@ describe("setup-bootstrap-script", () => {
 				webAppUrl: "http://localhost:3000",
 			})
 		).toEqual({
-			body: "OpenMeld binary setup is not available for Windows yet. Use ?dist=npm.",
-			status: "error",
-			statusCode: 400,
+			config: {
+				authUrl: "http://localhost:8788",
+				gatewayUrl: "http://localhost:8080",
+				binaryManifestUrl: "http://127.0.0.1:3197/cli/manifest.json",
+				distribution: "binary",
+				lane: "dev-local",
+			},
+			status: "ok",
 		});
 	});
 
