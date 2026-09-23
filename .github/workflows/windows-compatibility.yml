@@ -16,6 +16,7 @@ on:
       - scripts/release/release-cli*
       - scripts/release/release-stage-probes*
       - scripts/release/build-cli-binary*
+      - scripts/e2e/windows-native-runtime.mjs
       - clients/web/src/lib/setup-bootstrap-script*
       - clients/web/src/lib/__fixtures__/setup-bootstrap-*
       - clients/web/src/routes/setup*
@@ -69,11 +70,16 @@ jobs:
             bun = (bun --version)
           } | ConvertTo-Json | Set-Content dev-tmp/windows-native-evidence/identity.json
       - name: Build console and console-free Windows artifacts
+        id: artifacts
         run: |
           node scripts/release/build-cli-binary.mjs --platform windows-x64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/release/build-cli-binary.mjs --platform windows-x64 --background
+      - name: Exercise compiled SQLite and the real Claude SDK native protocol
+        if: ${{ !cancelled() && steps.artifacts.outcome == 'success' }}
+        run: node scripts/e2e/windows-native-runtime.mjs
       - name: Exercise the actual background executable's inherited Host channel
+        if: ${{ !cancelled() && steps.artifacts.outcome == 'success' }}
         shell: pwsh
         run: |
           $version = (Get-Content clients/openmeld-cli/package.json | ConvertFrom-Json).version
