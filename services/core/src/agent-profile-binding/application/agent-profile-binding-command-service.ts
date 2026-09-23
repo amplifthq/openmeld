@@ -772,7 +772,11 @@ function resolveModelSelectionPatch(input: {
       modelId,
       catalog,
     });
-    if (!availability.available) {
+    // Keep unknown-ID diagnostics intact; retirement is about a known model.
+    if (
+      !availability.available &&
+      controller?.models.some((model) => model.id === modelId)
+    ) {
       throw new AgentProfileBindingModelSelectionValidationError({
         code: "agent_profile_binding.model_not_supported",
         message: availability.message,

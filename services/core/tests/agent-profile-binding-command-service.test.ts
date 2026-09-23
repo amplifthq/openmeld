@@ -597,7 +597,7 @@ describe("Agent Profile Binding command service", () => {
         modelId: "gpt-6-astra",
       })
     ).rejects.toThrow(
-      "This model is unavailable. Check this agent's model settings."
+      'Model "gpt-6-astra" is not supported for Agent Controller "hosted:remote-agent". Supported models:'
     );
     expect(bindingStore.records).toHaveLength(1);
     expect(bindingStore.records[0]?.modelId).toBe("x-ai/grok-4.7");
