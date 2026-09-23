@@ -14,6 +14,7 @@ import type {
 } from "@openmeld/schemas/types";
 
 type CenterAgentModelBinding = {
+  agentControllerRef?: string;
   configurationRevision: number;
   modelId?: string | null;
   reasoningLevel?: string | null;
@@ -62,6 +63,7 @@ export function resolveCenterAgentModelRouteForBinding(input: {
   catalog: ModelCatalog;
 }): CenterAgentModelRoute {
   const result = resolveCenterAgentModelRoute({
+    agentControllerRef: input.binding.agentControllerRef,
     catalog: input.catalog,
     preference: readCenterAgentModelPreference(input.binding),
     reasoningLevel: input.binding.reasoningLevel,

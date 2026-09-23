@@ -1131,7 +1131,7 @@ has two meanings:
   `center-agent.defaultModelId` when a new turn is admitted;
 - present means the Organization selected that exact available catalog model.
 
-The current OpenMeld default is **GLM 5.3 Flash**. Explicit choices come from
+The current OpenMeld default is **Claude Opus 5.5** at `medium` reasoning. Explicit choices come from
 the shared hosted model catalog.
 Changing the system default is intentionally scheme A: existing Organizations
 on OpenMeld default use the new default for their next admitted turn, without
@@ -1156,9 +1156,8 @@ Reasoning is part of the same frozen route. The hosted Binding stores an
 optional effort alongside the selected model. Absent means that model's
 catalog default; a present value must be supported by the selected model.
 The Remote Agent Harness consumes the effective effort from the frozen route.
-Web exposes the model and reasoning controls together. GLM 5.3 Flash, the
-current system default model, does not support `medium`, so its catalog default
-remains `high`.
+Web exposes the model and reasoning controls together. GLM 5.3 Flash does not
+support `medium`, so its catalog default remains `high` when explicitly chosen.
 
 The Center Agent system prompt receives the friendly effective model name so
 it answers a member's question with that exact full name, without shortening or

@@ -1,4 +1,7 @@
-import { resolveCenterAgentContextScopePlan } from "@openmeld/agent-runtime";
+import {
+  getPersonalRemoteAgentDefaultModelId,
+  resolveCenterAgentContextScopePlan,
+} from "@openmeld/agent-runtime";
 import {
   accountSpaceActiveWakeSummaryResponseSchema,
   agentActivityOverviewResponseSchema,
@@ -4964,7 +4967,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           throw new Error("Hosted model catalog is unavailable.");
         }
         return {
-          defaultModelId: controller.defaultModelId,
+          defaultModelId: getPersonalRemoteAgentDefaultModelId(catalog),
           models: controller.models
             .filter((model) => !model.unavailable && model.hostedRuntime)
             .map((model) => ({

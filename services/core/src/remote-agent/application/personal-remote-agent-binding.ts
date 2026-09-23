@@ -96,6 +96,7 @@ export async function createPersonalRemoteAgentBinding(input: {
   await requirePersonalRemoteAgentOwner(input);
   resolveCenterAgentModelRouteForBinding({
     binding: {
+      agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
       configurationRevision: 1,
       modelId: input.modelId,
       reasoningLevel: input.reasoningLevel,

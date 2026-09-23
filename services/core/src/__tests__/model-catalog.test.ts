@@ -14,8 +14,12 @@ describe("model catalog config", () => {
       "claude-opus-5"
     );
     expect(catalog.agentControllers["center-agent"]?.defaultModelId).toBe(
-      "z-ai/glm-5.3-flash"
+      "anthropic/claude-opus-5.5"
     );
+    expect(
+      catalog.agentControllers["center-agent"]?.hostedRuntimePolicy
+        ?.personalRemoteAgentDefaultModelId
+    ).toBe("openai/gpt-6-sol");
     expect(catalog.agentControllers.opencode?.defaultModelId).toBe(
       "opencode/mimo-v2.6-flash-free"
     );
@@ -53,7 +57,10 @@ describe("model catalog config", () => {
           defaultModelId: "opencode/mimo-v2.6-flash-free",
         },
         "center-agent": {
-          defaultModelId: "z-ai/glm-5.3-flash",
+          defaultModelId: "anthropic/claude-opus-5.5",
+          hostedRuntimePolicy: {
+            personalRemoteAgentDefaultModelId: "openai/gpt-6-sol",
+          },
         },
       },
     });

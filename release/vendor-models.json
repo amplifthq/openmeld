@@ -1119,10 +1119,11 @@
       ]
     },
     "center-agent": {
-      "defaultModelId": "z-ai/glm-5.3-flash",
+      "defaultModelId": "anthropic/claude-opus-5.5",
       "hostedRuntimePolicy": {
         "automaticModelFallback": false,
-        "imageUnderstandingModelId": "x-ai/grok-4.6"
+        "imageUnderstandingModelId": "x-ai/grok-4.6",
+        "personalRemoteAgentDefaultModelId": "openai/gpt-6-sol"
       },
       "models": [
         {

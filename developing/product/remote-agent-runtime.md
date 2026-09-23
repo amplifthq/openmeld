@@ -1370,8 +1370,9 @@ tracked config. This is OpenMeld-operated provider configuration, not user
 BYOK.
 
 The repo-owned `center-agent` catalog exposes curated models from OpenAI,
-Anthropic, Google, DeepSeek, xAI, and Z.ai, with GLM 5.3 Flash as the OpenMeld
-default since 2026-08-27. The exact selection and captured metadata are owned by
+Anthropic, Google, DeepSeek, xAI, and Z.ai. Its current Center Agent default is
+Claude Opus 5.5 at `medium` reasoning; its distinct personal Remote Agent
+default is GPT-6 Sol at `medium`. The exact selection and captured metadata are owned by
 [Agent Profile Model Selection](agent-model-selection.md#55-hosted-center-agent-catalog).
 These are model vendors; all hosted routes still use OpenRouter. Core resolves
 a complete immutable route for each new turn. The

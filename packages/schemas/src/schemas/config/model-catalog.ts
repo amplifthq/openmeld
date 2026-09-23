@@ -40,6 +40,7 @@ export const modelCatalogModelSchema = z.strictObject({
 export const modelCatalogHostedRuntimePolicySchema = z.strictObject({
   automaticModelFallback: z.literal(false),
   imageUnderstandingModelId: boundedIdentifierSchema,
+  personalRemoteAgentDefaultModelId: boundedIdentifierSchema.optional(),
 });
 
 export const modelCatalogAgentControllerSchema = z
@@ -146,6 +147,25 @@ export const modelCatalogAgentControllerSchema = z
 
     if (!value.hostedRuntimePolicy) {
       return;
+    }
+
+    if (value.hostedRuntimePolicy.personalRemoteAgentDefaultModelId) {
+      const remoteDefaultModel = value.models.find(
+        (model) =>
+          model.id ===
+          value.hostedRuntimePolicy?.personalRemoteAgentDefaultModelId
+      );
+      if (
+        !remoteDefaultModel?.hostedRuntime ||
+        remoteDefaultModel.unavailable
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "personalRemoteAgentDefaultModelId must reference an available hosted model",
+          path: ["hostedRuntimePolicy", "personalRemoteAgentDefaultModelId"],
+        });
+      }
     }
 
     for (const [index, model] of value.models.entries()) {

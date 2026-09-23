@@ -6,7 +6,11 @@ import type {
   ModelCatalogAgentController,
   ModelCatalogModel,
 } from "@openmeld/schemas/types";
-import { HOSTED_CENTER_AGENT_CONTROLLER_REF_ID } from "./agent-controller-ref";
+import {
+  HOSTED_CENTER_AGENT_CONTROLLER_REF_ID,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+} from "./agent-controller-ref";
+import { getPersonalRemoteAgentDefaultModelId } from "./model-catalog";
 
 export type {
   CenterAgentModelPreference,
@@ -39,6 +43,7 @@ export type CenterAgentModelChoice = {
 };
 
 export function resolveCenterAgentModelRoute(input: {
+  agentControllerRef?: string;
   catalog: ModelCatalog;
   preference: CenterAgentModelPreference;
   reasoningLevel?: string | null;
@@ -52,9 +57,13 @@ export function resolveCenterAgentModelRoute(input: {
     };
   }
 
+  const defaultModelId =
+    input.agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF
+      ? getPersonalRemoteAgentDefaultModelId(input.catalog)
+      : controller.defaultModelId;
   const modelId =
     input.preference.kind === "system_default"
-      ? controller.defaultModelId
+      ? defaultModelId
       : input.preference.modelId;
   const model = controller.models.find((candidate) => candidate.id === modelId);
 

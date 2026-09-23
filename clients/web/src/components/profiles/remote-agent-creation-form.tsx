@@ -1,5 +1,6 @@
 "use client";
 
+import { getPersonalRemoteAgentDefaultModelId } from "@openmeld/agent-runtime";
 import {
 	DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
 	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
@@ -38,7 +39,7 @@ export function RemoteAgentCreationForm(input: {
 	const intent = useRef<{ fingerprint: string; key: string } | null>(null);
 	const modelId =
 		chosenModel ??
-		catalog?.agentControllers["center-agent"]?.defaultModelId ??
+		(catalog ? getPersonalRemoteAgentDefaultModelId(catalog) : null) ??
 		"";
 	const canSubmit = Boolean(
 		name.trim() &&

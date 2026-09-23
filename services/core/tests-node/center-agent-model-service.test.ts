@@ -4,6 +4,7 @@ import {
   projectCenterAgentModelConfiguration,
   resolveCenterAgentModelRouteForBinding,
 } from "../src/center-agent/application/center-agent-model-service";
+import { readModelCatalog } from "../src/config/model-catalog";
 
 const CATALOG = {
   schemaVersion: 1,
@@ -65,6 +66,32 @@ const CATALOG = {
 } satisfies ModelCatalog;
 
 describe("Center Agent model service", () => {
+  it("routes unset Center and personal Remote bindings to their distinct catalog defaults", () => {
+    const catalog = readModelCatalog();
+    expect(
+      resolveCenterAgentModelRouteForBinding({
+        binding: { configurationRevision: 1, modelId: null },
+        catalog,
+      })
+    ).toMatchObject({
+      modelId: "anthropic/claude-opus-5.5",
+      reasoningLevel: "medium",
+    });
+    expect(
+      resolveCenterAgentModelRouteForBinding({
+        binding: {
+          agentControllerRef: "hosted:remote-agent",
+          configurationRevision: 1,
+          modelId: null,
+        },
+        catalog,
+      })
+    ).toMatchObject({
+      modelId: "openai/gpt-6-sol",
+      reasoningLevel: "medium",
+    });
+  });
+
   it("projects an exact effective default for every member", () => {
     expect(
       projectCenterAgentModelConfiguration({

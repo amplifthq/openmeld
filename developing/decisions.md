@@ -17,6 +17,14 @@
   conflicts with an owner doc means one of the two must be fixed in the same
   PR.
 
+2026-09-24: The Center Agent system default is Claude Opus 5.5 at `medium`
+reasoning. Personal Remote Agents share its hosted model list but have a
+distinct GPT-6 Sol system default at `medium`. An unset Binding follows the
+appropriate catalog default on its next admitted turn; explicitly selected
+models and already frozen turns remain unchanged. This supersedes the earlier
+GLM 5.3 Flash Center Agent default below. See
+`product/agent-model-selection.md` and `product/remote-agent-runtime.md`.
+
 2026-09-18: Organization Skills management belongs to Team, after People,
 Agents, and Plugins, at `/o/{orgSlug}/skills` and its Skill detail route. This
 supersedes the older Center Agent Skills navigation entries below: legacy

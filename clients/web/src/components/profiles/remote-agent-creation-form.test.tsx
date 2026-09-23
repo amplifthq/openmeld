@@ -34,14 +34,22 @@ describe("Remote Agent creation", () => {
 		const createButton = screen.getByRole("button", { name: "Create Agent" });
 		expect(createButton).toHaveProperty("disabled", false);
 		fireEvent.click(screen.getByRole("button", { name: "Edit Model" }));
+		expect(
+			screen.getByRole("combobox", { name: "Model" }).textContent
+		).toContain("GPT-6 Sol");
+		expect(
+			screen.getByRole("combobox", { name: "Reasoning effort" }).textContent
+		).toContain("Default (Medium)");
 		fireEvent.click(screen.getByRole("combobox", { name: "Provider" }));
-		fireEvent.click(await screen.findByRole("option", { name: "OpenAI" }));
+		fireEvent.click(await screen.findByRole("option", { name: "Anthropic" }));
 		expect(
 			screen.getByRole("combobox", { name: "Model" }).textContent
 		).toContain("Choose a model");
 		expect(createButton).toHaveProperty("disabled", true);
 		fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
-		fireEvent.click(await screen.findByRole("option", { name: "GPT-6 Astra" }));
+		fireEvent.click(
+			await screen.findByRole("option", { name: "Claude Opus 5.5" })
+		);
 		expect(createButton).toHaveProperty("disabled", false);
 		const reasoning = screen.getByRole("combobox", {
 			name: "Reasoning effort",

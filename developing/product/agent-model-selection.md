@@ -369,7 +369,13 @@ The same manifest now includes the code-owned `center-agent` controller. This
 is a hosted-runtime policy catalog, not a local Agent Profile controller:
 
 - `defaultModelId` is the system default resolved for each new Center Agent
-  turn. The current default is `z-ai/glm-5.3-flash` (**GLM 5.3 Flash**).
+  turn. The current default is `anthropic/claude-opus-5.5` (**Claude Opus 5.5**)
+  at `medium` reasoning.
+- `hostedRuntimePolicy.personalRemoteAgentDefaultModelId` is the distinct
+  system default for an unselected personal Remote Agent Binding and the model
+  initially offered in its creation form. It is `openai/gpt-6-sol` (**GPT-6
+  Sol**) at `medium` reasoning. Both defaults reference the same hosted model
+  list; there is no second model catalog.
 - The curated list covers six model vendors: OpenAI (GPT-6 Astra, GPT-5.6 Sol,
   GPT-5.6 Terra, and GPT-5.6 Luna), Anthropic (Claude Fable 5.1, Claude Fable 5,
   Claude Opus 5, and Claude Sonnet 5), Google (Gemini 3.8 Flash,
@@ -434,8 +440,7 @@ Claude Fable 5, and Grok 4.7 using the same capacity and reasoning policy.
 Their captured OpenRouter metadata is retained in
 `services/remote-agent/tests/fixtures/openrouter-hosted-models-2026-09-22.json`.
 Both Center Agent and personal Remote Agent choices use this hosted catalog;
-there is no second Remote Agent model list. Existing defaults, saved model IDs,
-and the image helper remain unchanged. Shared edit capabilities, Web model
+there is no second Remote Agent model list. Shared edit capabilities, Web model
 editing, and Core Binding validation resolve `hosted:remote-agent` to the
 `center-agent` catalog through `getAgentControllerModelCatalogId`; the actual
 Remote Agent controller and Binding identity remain `hosted:remote-agent`.
@@ -448,6 +453,12 @@ owner-authorized Binding command and execution admission. Deploy a compatible
 Web reader before Core emits the expanded response, then deploy the Remote
 Agent worker's model-discovery tool after Core. Existing local Agent settings
 and already admitted hosted executions retain their frozen routes.
+
+The later default change selects Claude Opus 5.5 for an unset Center Agent
+Binding and GPT-6 Sol for an unset personal Remote Agent Binding. An explicitly
+selected Binding model remains pinned. Core resolves the runtime-specific
+default before freezing each new turn, so changing the catalog does not rewrite
+or reroute work already admitted.
 
 ### 5.6 GLM 5.3 Flash hosted verification
 
