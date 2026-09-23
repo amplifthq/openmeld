@@ -554,6 +554,53 @@ describe("Agent Profile Binding command service", () => {
     expect(bindingStore.records).toHaveLength(1);
   });
 
+  it("updates a personal Remote Agent model without changing its hosted identity", async () => {
+    const bindingStore = createInMemoryBindingStore();
+    bindingStore.records.push({
+      agentProfileId: "agent-profile-1",
+      agentControllerRef: "hosted:remote-agent",
+      openMeldServiceRuntimeId: "hosted:remote-agent",
+      bindingId: "binding_remote",
+      bindingState: "enabled_primary",
+      createdAtMs: 1000,
+      createdByProfileId: "profile-1",
+      disabledAtMs: null,
+      modelId: "anthropic/claude-fable-5.1",
+      owner: OWNER,
+      reasonCode: "agent_profile_binding.command_eligible",
+      reasoningLevel: null,
+      updatedAtMs: 1000,
+    });
+    const command = {
+      agentProfileId: "agent-profile-1",
+      bindingStore,
+      modelId: "x-ai/grok-4.7",
+      nowMs: 3000,
+      ownerAuthorization: { owner: OWNER, status: "allowed" as const },
+      profileOwnerValidation: { owner: OWNER, status: "valid" as const },
+      reasoningLevel: null,
+    };
+    await expect(
+      updatePrimaryAgentProfileBindingModelSelection(command)
+    ).resolves.toMatchObject({
+      status: "accepted",
+      binding: {
+        bindingId: "binding_remote",
+        agentControllerRef: "hosted:remote-agent",
+        openMeldServiceRuntimeId: "hosted:remote-agent",
+        modelId: "x-ai/grok-4.7",
+      },
+    });
+    await expect(
+      updatePrimaryAgentProfileBindingModelSelection({
+        ...command,
+        modelId: "gpt-6-astra",
+      })
+    ).rejects.toThrow("is not supported");
+    expect(bindingStore.records).toHaveLength(1);
+    expect(bindingStore.records[0]?.modelId).toBe("x-ai/grok-4.7");
+  });
+
   it("rejects model selection updates when no primary Binding exists", async () => {
     await expect(
       updatePrimaryAgentProfileBindingModelSelection({

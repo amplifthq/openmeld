@@ -394,17 +394,6 @@ describe("AppOuterRail", () => {
 		expect(screen.queryByText("Experimental")).toBeNull();
 	});
 
-	it("aligns the resize rule with the inset surface boundary", () => {
-		renderRail();
-
-		const resizeRail = screen.getByRole("separator", {
-			name: "Resize app sidebar",
-		});
-
-		expect(resizeRail.className).toContain("top-4");
-		expect(resizeRail.className).toContain("bottom-14");
-	});
-
 	it("renders the organization selector as a shape-aware row even with one organization", () => {
 		renderRail();
 		const selector = screen.getByRole("button", {

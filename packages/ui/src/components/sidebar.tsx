@@ -398,164 +398,161 @@ const Sidebar = forwardRef<HTMLElement, SidebarProps>(
 );
 Sidebar.displayName = "Sidebar";
 
-const SidebarRail = forwardRef<HTMLButtonElement, SidebarRailProps>(
-  (
-    {
-      autoCollapse = false,
-      autoCollapseThreshold,
-      className,
-      enableDrag = true,
-      enableToggle = true,
-      expandThreshold,
-      nested = false,
-      onKeyDown,
-      onPointerDown,
-      resizeStep = DEFAULT_RESIZE_STEP,
-      separatorLabel = "Resize sidebar",
-      side: sideProp,
-      ...props
-    },
-    ref
-  ) => {
-    const {
-      compact,
-      compactWidth,
-      maxWidth,
-      minWidth,
-      resizeRootRef,
-      setCompact,
-      setIsDraggingRail,
-      setOpen,
-      setWidth,
-      side: contextSide,
-      state,
-      toggleSidebar,
-      width,
-    } = useSidebar();
-    const side = sideProp ?? contextSide;
-    const direction = directionForSide(side);
-    const isCollapsed = state === "collapsed";
-    const isCompactState = state === "compact";
-    const minPx = toPx(minWidth);
-    const maxPx = toPx(maxWidth);
-    const currentPx = toPx(width);
-    // The drag engine's own onToggle must stay a plain open flip — it
-    // orchestrates collapsed<->compact<->full transitions itself by calling
-    // this and onCompactChange independently (see use-sidebar-resize.ts).
-    // A click/keyboard press with no drag instead calls the context's
-    // toggleSidebar, which already knows how to cycle through all three tiers.
-    const toggle = useCallback(() => {
-      setOpen((currentOpen) => !currentOpen);
-    }, [setOpen]);
-    const { dragRef, handlePointerDown } = useSidebarResize({
-      autoCollapseThreshold,
-      compactWidth,
-      currentWidth: width,
-      direction,
-      enableAutoCollapse: autoCollapse,
-      enableDrag,
-      enableToggle,
-      expandThreshold,
-      isCollapsed,
-      isCompact: compact,
-      isNested: nested,
-      maxResizeWidth: maxWidth,
-      minResizeWidth: minWidth,
-      onCompactChange: setCompact,
-      onResize: setWidth,
-      onToggle: enableToggle ? toggle : undefined,
-      resizeRootRef,
-      setIsDraggingRail,
-    });
+// Use React 19's ref prop directly: React 19.2 forwardRef components leave
+// useEffectEvent callbacks on stale props (react/react#34818), including bounds.
+function SidebarRail({
+  autoCollapse = false,
+  autoCollapseThreshold,
+  className,
+  enableDrag = true,
+  enableToggle = true,
+  expandThreshold,
+  nested = false,
+  onKeyDown,
+  onPointerDown,
+  ref,
+  resizeStep = DEFAULT_RESIZE_STEP,
+  separatorLabel = "Resize sidebar",
+  side: sideProp,
+  ...props
+}: SidebarRailProps) {
+  const {
+    compact,
+    compactWidth,
+    maxWidth,
+    minWidth,
+    resizeRootRef,
+    setCompact,
+    setIsDraggingRail,
+    setOpen,
+    setWidth,
+    side: contextSide,
+    state,
+    toggleSidebar,
+    width,
+  } = useSidebar();
+  const side = sideProp ?? contextSide;
+  const direction = directionForSide(side);
+  const isCollapsed = state === "collapsed";
+  const isCompactState = state === "compact";
+  const minPx = toPx(minWidth);
+  const maxPx = toPx(maxWidth);
+  const currentPx = toPx(width);
+  // The drag engine's own onToggle must stay a plain open flip — it
+  // orchestrates collapsed<->compact<->full transitions itself by calling
+  // this and onCompactChange independently (see use-sidebar-resize.ts).
+  // A click/keyboard press with no drag instead calls the context's
+  // toggleSidebar, which already knows how to cycle through all three tiers.
+  const toggle = useCallback(() => {
+    setOpen((currentOpen) => !currentOpen);
+  }, [setOpen]);
+  const { dragRef, handlePointerDown } = useSidebarResize({
+    autoCollapseThreshold,
+    compactWidth,
+    currentWidth: width,
+    direction,
+    enableAutoCollapse: autoCollapse,
+    enableDrag,
+    enableToggle,
+    expandThreshold,
+    isCollapsed,
+    isCompact: compact,
+    isNested: nested,
+    maxResizeWidth: maxWidth,
+    minResizeWidth: minWidth,
+    onCompactChange: setCompact,
+    onResize: setWidth,
+    onToggle: enableToggle ? toggle : undefined,
+    resizeRootRef,
+    setIsDraggingRail,
+  });
 
-    const handleKeyDown = useCallback(
-      (event: React.KeyboardEvent<HTMLButtonElement>) => {
-        onKeyDown?.(event);
-        if (event.defaultPrevented) {
-          return;
-        }
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLButtonElement>) => {
+      onKeyDown?.(event);
+      if (event.defaultPrevented) {
+        return;
+      }
 
-        if (event.key === "Enter" || event.key === " ") {
-          if (enableToggle) {
-            event.preventDefault();
-            toggleSidebar();
-          }
-          return;
+      if (event.key === "Enter" || event.key === " ") {
+        if (enableToggle) {
+          event.preventDefault();
+          toggleSidebar();
         }
+        return;
+      }
 
-        if (isCollapsed || isCompactState) {
-          return;
-        }
+      if (isCollapsed || isCompactState) {
+        return;
+      }
 
-        const nextPx = resolveKeyboardResizeTargetPx({
-          currentPx: toPx(width),
-          direction,
-          key: event.key,
-          maxPx,
-          minPx,
-          stepPx: resizeStep,
-        });
-        if (nextPx === null) {
-          return;
-        }
-
-        event.preventDefault();
-        const nextWidth = formatLikeWidth(width, nextPx);
-        if (nextWidth !== width) {
-          setWidth(nextWidth);
-        }
-      },
-      [
+      const nextPx = resolveKeyboardResizeTargetPx({
+        currentPx: toPx(width),
         direction,
-        enableToggle,
-        isCollapsed,
-        isCompactState,
+        key: event.key,
         maxPx,
         minPx,
-        onKeyDown,
-        resizeStep,
-        setWidth,
-        toggleSidebar,
-        width,
-      ]
-    );
+        stepPx: resizeStep,
+      });
+      if (nextPx === null) {
+        return;
+      }
 
-    return (
-      // biome-ignore lint/a11y/useSemanticElements: this is the WAI-ARIA window-splitter pattern. The rail must be focusable and keyboard-resizable; a native hr cannot own pointer drag or keyboard resize semantics.
-      <button
-        aria-label={separatorLabel}
-        aria-orientation="vertical"
-        aria-valuemax={isCollapsed ? undefined : Math.round(maxPx)}
-        aria-valuemin={isCollapsed ? undefined : Math.round(minPx)}
-        aria-valuenow={isCollapsed ? undefined : Math.round(currentPx)}
-        className={cn(
-          "absolute inset-y-0 z-20 w-4 -translate-x-1/2 cursor-col-resize touch-none select-none border-0 bg-transparent p-0 outline-none transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent hover:after:bg-ring/40 focus-visible:after:bg-ring/60",
-          side === "left" ? "-right-4" : "left-0",
-          className
-        )}
-        data-resize-direction={direction}
-        data-sidebar="rail"
-        data-slot="sidebar-rail"
-        onKeyDown={handleKeyDown}
-        onPointerDown={(event) => {
-          onPointerDown?.(event);
-          if (!event.defaultPrevented) {
-            handlePointerDown(event);
-          }
-        }}
-        ref={(node) => {
-          dragRef.current = node;
-          assignRef(ref, node);
-        }}
-        role="separator"
-        tabIndex={0}
-        type="button"
-        {...props}
-      />
-    );
-  }
-);
-SidebarRail.displayName = "SidebarRail";
+      event.preventDefault();
+      const nextWidth = formatLikeWidth(width, nextPx);
+      if (nextWidth !== width) {
+        setWidth(nextWidth);
+      }
+    },
+    [
+      direction,
+      enableToggle,
+      isCollapsed,
+      isCompactState,
+      maxPx,
+      minPx,
+      onKeyDown,
+      resizeStep,
+      setWidth,
+      toggleSidebar,
+      width,
+    ]
+  );
+
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: this is the WAI-ARIA window-splitter pattern. The rail must be focusable and keyboard-resizable; a native hr cannot own pointer drag or keyboard resize semantics.
+    <button
+      aria-label={separatorLabel}
+      aria-orientation="vertical"
+      aria-valuemax={isCollapsed ? undefined : Math.round(maxPx)}
+      aria-valuemin={isCollapsed ? undefined : Math.round(minPx)}
+      aria-valuenow={isCollapsed ? undefined : Math.round(currentPx)}
+      className={cn(
+        "absolute inset-y-0 z-20 w-4 -translate-x-1/2 cursor-col-resize touch-none select-none border-0 bg-transparent p-0 outline-none transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent hover:after:bg-ring/40 focus-visible:after:bg-ring/60",
+        side === "left" ? "-right-4" : "left-0",
+        className
+      )}
+      data-resize-direction={direction}
+      data-sidebar="rail"
+      data-slot="sidebar-rail"
+      onKeyDown={handleKeyDown}
+      onPointerDown={(event) => {
+        onPointerDown?.(event);
+        if (!event.defaultPrevented) {
+          handlePointerDown(event);
+        }
+      }}
+      ref={(node) => {
+        dragRef.current = node;
+        assignRef(ref, node);
+      }}
+      role="separator"
+      tabIndex={0}
+      type="button"
+      {...props}
+    />
+  );
+}
 
 const SidebarTrigger = forwardRef<
   ElementRef<typeof Button>,

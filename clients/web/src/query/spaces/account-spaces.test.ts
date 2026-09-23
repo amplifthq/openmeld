@@ -5,10 +5,63 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	ACCOUNT_SPACE_ITEMS_POLL_INTERVAL_MS,
+	accountSpaceActiveWakeSummaryQueryOptions,
 	accountSpaceItemsQueryOptions,
 	selectUsableAccountSpaceActiveWakeSummaryItems,
 	useUsableAccountSpaceActiveWakeSummaryItems,
 } from "./account-spaces";
+import {
+	readSpaceWakeProgressSummaryItems,
+	spaceActiveWakeProgressSummaryQueryOptions,
+	spaceWakeProgressPresentationQueryOptions,
+} from "./active-wake-progress";
+
+vi.mock("#/lib/dev/fixture-manifest", () => ({
+	isLocalFixtureHost: () => true,
+	currentFixtureManifest: () => ({
+		profileId: "human-1",
+		spaces: [
+			{
+				spaceId: "unopened-space",
+				profileId: "worker",
+				profileName: "Worker",
+				sourceSignalId: "00000000-0000-4000-8000-000000000002",
+				scenario: "permission",
+			},
+		],
+	}),
+}));
+vi.mock("#/lib/spaces/account-space-active-wake", () => ({
+	getAccountSpaceActiveWakeSummary: async () => ({
+		generatedAtMs: Date.now(),
+		items: [],
+	}),
+}));
+vi.mock("#/lib/spaces/api", async () => {
+	const { withLocalSpaceRuntimeFixtures } = await import(
+		"#/lib/dev/space-runtime-fixtures"
+	);
+	const { getActiveSpaceWakeProgressResponseSchema } = await import(
+		"@openmeld/schemas"
+	);
+	return {
+		createUnscopedWebSpaceApi: ({
+			openMeldProfileId,
+		}: {
+			openMeldProfileId: string;
+		}) =>
+			withLocalSpaceRuntimeFixtures(
+				{
+					getActiveWakeProgress: async ({ spaceId }: { spaceId: string }) =>
+						getActiveSpaceWakeProgressResponseSchema.parse({
+							query: { spaceId, targetProfileId: null },
+							items: [],
+						}),
+				} as Parameters<typeof withLocalSpaceRuntimeFixtures>[0],
+				openMeldProfileId
+			),
+	};
+});
 
 const listAccountSpaceItemsMock = vi.hoisted(() => vi.fn());
 
@@ -63,6 +116,53 @@ describe("account Space Index refresh", () => {
 });
 
 describe("account Space active Wake summary", () => {
+	it("keeps unopened fixture activity readable across account refreshes", async () => {
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		const scope = { spaceId: "unopened-space", openMeldProfileId: "human-1" };
+		try {
+			for (let refresh = 0; refresh < 2; refresh++) {
+				const result = await client.fetchQuery({
+					...accountSpaceActiveWakeSummaryQueryOptions({
+						enabled: true,
+						profileId: "human-1",
+					}),
+					staleTime: 0,
+				});
+				expect(result.summary.items).toEqual([
+					expect.objectContaining({
+						spaceId: scope.spaceId,
+						activeWakeCount: 1,
+					}),
+				]);
+				const presentation = client.getQueryData(
+					spaceWakeProgressPresentationQueryOptions(scope).queryKey
+				);
+				expect(presentation).toBeDefined();
+				if (!presentation) {
+					throw new Error("Missing activity presentation");
+				}
+				expect(
+					readSpaceWakeProgressSummaryItems({
+						presentation,
+						summary: client.getQueryData(
+							spaceActiveWakeProgressSummaryQueryOptions({
+								...scope,
+								enabled: false,
+							}).queryKey
+						),
+					})
+				).toEqual([
+					expect.objectContaining({
+						pendingInteraction: expect.objectContaining({ kind: "permission" }),
+					}),
+				]);
+			}
+		} finally {
+			client.clear();
+		}
+	});
 	it("uses only a successful owner summary with a valid browser request anchor", () => {
 		const requestStartedAtMs = 4000;
 		const data = createPresentationSnapshot(requestStartedAtMs);

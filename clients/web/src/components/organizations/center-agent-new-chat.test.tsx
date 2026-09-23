@@ -258,9 +258,7 @@ it("starts a conversation from the shared starter card", async () => {
 		})
 	);
 	expect(createSession).toHaveBeenCalledTimes(1);
-	expect(save.mock.calls[0][0].chats.titles["chat-1"]).toContain(
-		"I'm new to OpenMeld."
-	);
+	expect(save).not.toHaveBeenCalled();
 });
 
 it("does not clear a newer draft when an earlier navigation finishes", async () => {
@@ -330,6 +328,12 @@ it.each([
 		);
 	}
 	mount();
+	fireEvent.click(screen.getByRole("button", { name: "Rename chat" }));
+	fireEvent.change(screen.getByRole("textbox", { name: "Chat name" }), {
+		target: { value: "My chat" },
+	});
+	fireEvent.click(screen.getByRole("button", { name: "Save" }));
+	await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 	fireEvent.change(
 		screen.getByRole("textbox", { name: "Message Center Agent" }),
 		{ target: { value: "Slow connection draft" } }
@@ -346,6 +350,7 @@ it.each([
 	});
 	await waitFor(() => expect(navigate).toHaveBeenCalled());
 	expect(createSession).toHaveBeenCalledTimes(1);
+	expect(save).toHaveBeenCalledTimes(1);
 	expect(screen.queryByRole("alert")).toBeNull();
 });
 

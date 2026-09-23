@@ -46,6 +46,7 @@ import {
 	UnsavedChangesGuard,
 } from "#/components/forms/unsaved-changes-guard";
 import { usePublishInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
+import { CenterAgentChatHistory } from "#/components/organizations/center-agent-chat-history";
 import { CenterAgentHeaderTabs } from "#/components/organizations/center-agent-header-navigation";
 import { useAccountAvatar } from "#/hooks/account.hooks";
 import {
@@ -112,6 +113,7 @@ import {
 	accountSpaceQueryKeys,
 } from "#/query/spaces/account-spaces";
 import type { SpaceBootstrapSnapshot } from "#/query/spaces/bootstrap";
+import { spaceMemberDirectoryDisplayQueryOptions } from "#/query/spaces/member-directory-display";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import { buildDirectMessageConversionDefaultName } from "./direct-message-conversion";
 import { DirectMessageConversionDialog } from "./direct-message-conversion-dialog";
@@ -1530,6 +1532,47 @@ function SpaceColdLoadingComposer(input: {
 	);
 }
 
+function useThreadRootMainFocus(input: SpaceLandingInput) {
+	// Reuse main-message focus without changing the route-owned Thread selection.
+	// A later route navigation must supersede this local presentation request.
+	const focusScope = JSON.stringify([
+		input.spaceId,
+		input.profileId,
+		input.initialFocusInteractionId,
+		input.initialFocusSignalId,
+		input.initialFocusThreadRootSignalId,
+		input.initialFocusRequestId,
+	]);
+	const [mainMessageFocus, setMainMessageFocus] = useState<{
+		scope: string;
+		signalId: string;
+		requestId: string;
+	} | null>(null);
+	if (mainMessageFocus && mainMessageFocus.scope !== focusScope) {
+		setMainMessageFocus(null);
+	}
+	const conversationInput =
+		mainMessageFocus?.scope === focusScope
+			? {
+					...input,
+					initialFocusInteractionId: undefined,
+					initialFocusSignalId: mainMessageFocus.signalId,
+					initialFocusThreadRootSignalId: undefined,
+					initialFocusRequestId: mainMessageFocus.requestId,
+				}
+			: input;
+	return {
+		conversationInput,
+		onShowMessageInMain: (signalId: string) => {
+			setMainMessageFocus({
+				scope: focusScope,
+				signalId,
+				requestId: crypto.randomUUID(),
+			});
+		},
+	};
+}
+
 function SpaceLandingReady({
 	controller,
 	input,
@@ -1539,6 +1582,8 @@ function SpaceLandingReady({
 	input: SpaceLandingInput;
 	state: SpaceLandingState;
 }) {
+	const { conversationInput, onShowMessageInMain } =
+		useThreadRootMainFocus(input);
 	const {
 		accountProfiles,
 		currentSpaceIsCenterAgentDirectMessage,
@@ -1582,6 +1627,8 @@ function SpaceLandingReady({
 			}
 			onOpenChange={handleMembersOpenChange}
 			open={membersOpen}
+			profileId={controller.profileId}
+			spaceId={controller.spaceId}
 		/>
 	);
 	const {
@@ -1726,6 +1773,17 @@ function SpaceLandingReady({
 							canManageSpaceName={currentSpaceControls.canManageSpaceName}
 							conversationTitle={input.conversationTitle}
 							conversationTitleAction={input.conversationTitleAction}
+							conversationTitleControl={
+								currentSpaceIsCenterAgentDirectMessage && input.orgSlug
+									? (title) => (
+											<CenterAgentChatHistory
+												spaceId={controller.status.spaceId}
+												title={title}
+												titleAction={input.conversationTitleAction?.(title)}
+											/>
+										)
+									: undefined
+							}
 							currentProfileId={input.profileId}
 							currentProfileName={currentProfileName}
 							deleteSpaceErrorMessage={controller.deleteSpaceErrorMessage}
@@ -1799,8 +1857,9 @@ function SpaceLandingReady({
 					showHeader={input.presentation !== "compact"}
 				>
 					<div
-						className="flex min-h-0 flex-1 overflow-hidden"
+						className="relative flex min-h-0 flex-1 overflow-hidden"
 						data-space-conversation-presentation={input.presentation}
+						data-space-inline-panels=""
 						data-space-members-panel-open={
 							isDesktopMembersPanel &&
 							membersOpen &&
@@ -1829,7 +1888,7 @@ function SpaceLandingReady({
 							currentProfileName={currentProfileName}
 							currentSpaceControls={currentSpaceControls}
 							historyErrorMessage={historyErrorMessage}
-							input={input}
+							input={conversationInput}
 							pendingActionSurface={pendingActionSurface}
 							prepareSetupHref={prepareSetupHref}
 							state={state}
@@ -1846,6 +1905,7 @@ function SpaceLandingReady({
 								}
 								currentSpaceControls={currentSpaceControls}
 								input={input}
+								onShowMessageInMain={onShowMessageInMain}
 								pendingActionSurface={threadPendingActionSurface}
 								prepareSetupHref={prepareSetupHref}
 								state={state}
@@ -1974,11 +2034,16 @@ function resolveSpaceHistoryErrorMessage(
 }
 
 function SpaceLandingMembersControl(input: {
+	spaceId: string;
+	profileId: string;
 	isDesktopMembersPanel: boolean;
 	memberCount: number | null;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
 }) {
+	const displayQuery = useQuery(
+		spaceMemberDirectoryDisplayQueryOptions(input.spaceId, input.profileId)
+	);
 	return (
 		<SpaceMembersToggleButton
 			controlsId={
@@ -1986,7 +2051,9 @@ function SpaceLandingMembersControl(input: {
 					? "space-members-panel"
 					: "space-members-drawer"
 			}
-			memberCount={input.memberCount}
+			memberCount={
+				input.memberCount ?? displayQuery.data?.members.length ?? null
+			}
 			onOpenChange={input.onOpenChange}
 			open={input.open}
 		/>
@@ -2717,6 +2784,7 @@ function SpaceLandingSecondaryPanels({
 	currentProfileIsActiveSpaceMember,
 	currentSpaceControls,
 	input,
+	onShowMessageInMain,
 	pendingActionSurface,
 	prepareSetupHref,
 	state,
@@ -2732,6 +2800,7 @@ function SpaceLandingSecondaryPanels({
 	currentProfileIsActiveSpaceMember: boolean;
 	currentSpaceControls: ReturnType<typeof resolveCurrentSpaceControls>;
 	input: SpaceLandingInput;
+	onShowMessageInMain: (signalId: string) => void;
 	pendingActionSurface?: ReactNode;
 	prepareSetupHref?: string;
 	state: SpaceLandingState;
@@ -2877,6 +2946,7 @@ function SpaceLandingSecondaryPanels({
 				}
 				onSend={controller.onThreadSend}
 				onSendText={controller.onThreadSendText}
+				onShowMessageInMain={onShowMessageInMain}
 				onViewedThroughTs={
 					input.readingEnabled === false || !spaceInboxReadPosition.isReady
 						? undefined

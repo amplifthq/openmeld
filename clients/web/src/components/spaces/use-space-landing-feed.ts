@@ -1255,6 +1255,15 @@ function invalidateSpaceMetadata(
 	spaceId: string,
 	reason?: string
 ): void {
+	if (reason === "space.name.updated") {
+		queryClient
+			.invalidateQueries({
+				predicate: (query) =>
+					query.queryKey[0] === "center-agent" &&
+					query.queryKey[3] === "sessions",
+			})
+			.catch((error) => console.warn("Failed to refresh chat titles.", error));
+	}
 	queryClient
 		.invalidateQueries({ queryKey: accountSpaceQueryKeys.all })
 		.catch((error) => {

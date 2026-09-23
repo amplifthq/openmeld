@@ -11,6 +11,7 @@ import {
 	fireEvent,
 	render,
 	screen,
+	waitFor,
 	within,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -133,7 +134,7 @@ afterEach(() => {
 
 describe("AgentProfilesWorkspace", () => {
 	it("keeps only profile groups in the main sidebar", () => {
-		renderWorkspace({ pendingRequestCount: 2 });
+		renderWorkspace({ creationAttentionCount: 2 });
 		const sidebar = screen.getByTestId("agents-main-sidebar");
 		expect(
 			within(sidebar).queryByRole("button", {
@@ -552,8 +553,50 @@ describe("AgentProfilesWorkspace", () => {
 		renderWorkspace({ activeView: "requests", onViewChange });
 
 		expect(screen.getByTestId("agent-requests-panel")).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Back to Team" }));
+		fireEvent.click(screen.getByRole("button", { name: "Back to Agents" }));
 		expect(onViewChange).toHaveBeenCalledWith("agents");
+	});
+	it("confirms only visible selected Agents, cancels without deleting, and retains a failed selection", async () => {
+		const onDeleteProfiles = vi
+			.fn()
+			.mockResolvedValue([
+				{ profileId: "agent-current", message: "Permission changed." },
+			]);
+		const onSelectProfile = vi.fn();
+		renderWorkspace({ onDeleteProfiles, onSelectProfile });
+		fireEvent.click(screen.getByRole("button", { name: "Select" }));
+		fireEvent.click(screen.getByLabelText("Select Felix Agent"));
+		expect(onSelectProfile).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Search Agents" }));
+		fireEvent.change(screen.getByRole("searchbox", { name: "Search Agents" }), {
+			target: { value: "Felix Agent" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Select visible" }));
+		fireEvent.click(screen.getByRole("button", { name: "Delete (1)" }));
+		const dialog = screen.getByRole("dialog");
+		expect(within(dialog).getByText("Felix Agent")).toBeTruthy();
+		expect(within(dialog).queryByText("Other Agent")).toBeNull();
+		expect(onDeleteProfiles).not.toHaveBeenCalled();
+		fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+		expect(onDeleteProfiles).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Delete (1)" }));
+		fireEvent.click(
+			within(screen.getByRole("dialog")).getByRole("button", {
+				name: "Delete 1 Agent",
+			})
+		);
+		await waitFor(() => expect(onDeleteProfiles).toHaveBeenCalledTimes(1));
+		expect(
+			onDeleteProfiles.mock.calls[0]?.[0].map(
+				(profile: AuthProfileView) => profile.openMeldProfileId
+			)
+		).toEqual(["agent-current"]);
+		expect(
+			await screen.findByText("Felix Agent: Permission changed.")
+		).toBeTruthy();
+		expect(
+			(screen.getByLabelText("Select Felix Agent") as HTMLInputElement).checked
+		).toBe(true);
 	});
 
 	it("omits the Organization-only request entry in a personal workspace", () => {
@@ -642,13 +685,13 @@ function renderWorkspace(
 	) => (
 		<AgentProfilesWorkspace
 			activeView="agents"
+			creationAttentionCount={0}
 			currentUserId={CURRENT_USER_ID}
 			initialSidebarStates={undefined}
 			modelCatalog={TEST_MODEL_CATALOG}
 			onCreateAgent={vi.fn()}
 			onSelectProfile={vi.fn()}
 			onViewChange={vi.fn()}
-			pendingRequestCount={0}
 			person={{
 				id: "person",
 				name: "Felix",

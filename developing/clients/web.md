@@ -139,6 +139,12 @@ changes only the sidebar; the open conversation, draft, and reading position
 remain mounted. View choice is remembered in this browser per account and
 Organization. It does not change another member's layout.
 
+Conversation rows leave the preview blank when no message exists, preserving its
+line height so titles and action controls stay aligned. Preview text
+is quieter than the title: dark mode slightly reduces its muted color opacity;
+light mode preserves readable preview contrast and slightly strengthens the
+unselected title instead. Selected and unread titles retain foreground emphasis.
+
 Pinned contains ordinary Spaces, human and Agent direct messages, and Center
 Agent sessions once each. Its shared manual order uses the existing root
 sidebar preference; ordinary pin membership remains Space Index-owned and
@@ -154,7 +160,18 @@ Team remains the member directory; there is no separate Contacts destination.
 Spaces combines the canonical ordinary Space and chat unread aggregates
 and retains chat action/urgent-update priority in its attention indicator.
 
-Selecting only Center Agent in New message opens a local `?draft=new` composer without creating a session or
+Center Agent conversation titles open a searchable Fluid dropdown of the current
+Organization's authorized private Center Agent sessions, including personally
+archived chats. It reads every session-list page and uses Auth-owned personal
+names before Space names. The shared Scroll Area bounds the menu height and
+fades overflowing edges. The title's leading edge stays fixed. Its chevron follows
+the title without an empty rename slot; hovering reveals the rename icon after
+the chevron with a short opacity/transform transition. Keyboard focus and touch
+also expose rename, and reduced motion disables the transition. Selecting
+history navigates to the exact Space; a new draft omits the redundant New chat action.
+
+Selecting only Center Agent in New message, or **New chat** in an existing
+Center Agent conversation's title dropdown, opens a local `?draft=new` composer without creating a session or
 waiting for a session-list request. The first send creates the session and
 hands its message to the existing Space composer. Creation identity survives
 uncertain failures and same-tab reloads until navigation succeeds. Draft text
@@ -227,9 +244,13 @@ Management tabs retain the session or draft selector when navigating back.
 Messages, Graph and Files remain scoped to that conversation; management tabs
 remain Organization-scoped. A draft has empty Graph and Files views until sent.
 The header pencil edits a personal chat title, including before the first send.
-Draft titles persist alongside draft text. First-send naming uses a manual title
-when present, otherwise the first message or attachment name. It does not run
-an asynchronous model-title job or overwrite a manual name.
+Draft titles persist alongside draft text. First send saves a manual title when
+present; it never copies or truncates the message into a personal title. Space
+generates the default title independently in the background, using the dedicated
+small-model operation described in [Space Collaboration](../product/space-collaboration.md#center-agent-session-titles).
+The pending/default name is **New chat**. Personal titles always override the
+generated default, including renames during generation. Metadata invalidation
+refreshes both the Space header and Center Agent session index.
 
 The authorized session index supplies chat identities and paginated discovery.
 Pages render progressively; title search covers all loaded pages while older
@@ -244,8 +265,9 @@ settings menu. Both controls share one filter state and the Archived badge.
 The conversation header and Direct messages directory also expose Archive and
 Unarchive for ordinary DMs and Center Agent sessions. These actions use the same
 account preferences as the sidebar. The open conversation remains readable and
-the success message explains where to recover it; no destructive confirmation
-or shared-history deletion is involved.
+the success message explains where to recover it. In a DM header, Archive lives
+inside the three-dot menu and opens a confirmation dialog before saving. Cancel
+leaves the conversation unchanged. No shared-history deletion is involved.
 
 The conversation header exposes message search as the same compact icon action
 used by its neighboring tools, with an accessible label and tooltip. Its dialog
@@ -1046,7 +1068,10 @@ selector, using the shared message/Thread focus resolver even outside the loaded
 history window. Needs-input copy and previews without an ID remain plain text.
 Row actions retain their own hit targets; menus reserve enough width for labels
 and use the shared action icons. Ordinary Space rows read Index previews without
-creating per-Space message-preview observers. Recent uses
+creating per-Space message-preview observers. Rows use
+the same preview and activity sources for selected and unopened conversations;
+navigation is not required to discover their latest message or pending action.
+Recent uses
 only message time, with an empty conversation at zero and Space ID as a stable
 tie-breaker; unread, visit time, and running progress do not promote it. Recent
 does not permit manual row ordering outside Pinned. Space and direct-message
@@ -1119,6 +1144,12 @@ owner for earlier/newer context and return-to-latest behavior, rather than
 searching a fixed number of pages from the live tail. A newer navigation cancels
 the previous lookup. Main-message links take precedence over a previously open
 Thread; explicit Thread links still open the Thread shell before replies load.
+Inside a Thread, the root message's details offer **Show message in Messages**.
+This in-page action closes the details drawer and focuses the root in the main
+conversation while retaining the open Thread. It reuses the same bounded
+history-window loader when the root is outside the current window; later route
+navigation supersedes the local focus request. Thread-only replies do not offer
+this main-conversation action.
 
 When a Space terminal-failure Signal is visually anchored under its Wake source
 message, the Core-owned Inbox target uses that source Signal as `focusSignalId`.
@@ -1155,6 +1186,13 @@ browser. They do not consume, mark, or store unread state. Clicking one opens
 the canonical source target for that item directly; Web does not insert Inbox
 as an intermediate destination.
 
+Browser observation uses `/v1/inbox/notification-observations`, with a bounded
+insertion cursor and the existing pending-item ledger. The first response is an
+empty baseline, not historical replay; subsequent pages are retained before the
+cursor advances. This avoids first-page loss during bursts and delayed source
+projection. A visible Web window must also have document focus to suppress its
+current-conversation notification or automatically mark a message read.
+
 ### Notification settings
 
 **Settings -> Personal -> Notifications** owns phase 1 delivery preferences:
@@ -1179,10 +1217,17 @@ as an intermediate destination.
   setting on unless the member has explicitly turned it off. **Not now** only
   dismisses the introduction for that member in that browser, and Settings and
   Space Info remain the durable discovery and control surfaces.
+  Storage-read and pending-record write failures appear as paused delivery,
+  independently of the saved switch value. The sample and unusable switch stay
+  disabled without saving a new preference. After a write failure, bounded
+  background observation refreshes and focus/visibility events verify allocation
+  with a temporary write/readback/removal before clearing the pause, even if the
+  originally failed message is already read.
 - **Play OpenMeld sounds** is a member- and browser-local preference that
   defaults on. Web plays `ready` for ordinary directly addressed updates and
   `chime` for urgent or open action-required notifications, only after the
-  native browser notification was successfully created. A 350-millisecond
+  browser acknowledges display with `show`. Constructor success is not delivery;
+  error or missing acknowledgement keeps the attempt retryable. A 350-millisecond
   batch produces one cue, with `chime` winning mixed bursts. Playback stays at
   the fixed full app volume, and the setting explains that browser or operating
   system notification sounds are controlled separately. Blocked or failed
@@ -1305,8 +1350,21 @@ Appearance also owns the browser-local **Your messages** placement used by
 every Space, Direct Message, Center Agent, and thread conversation that
 renders the shared message primitives. A message placed on the right uses a
 trailing-aligned, content-sized bubble with a responsive maximum width; a
-message placed on the left uses the full available transcript width. Both
-placements keep their content leading-aligned. Every speaker's message uses
+message placed on the left uses the available transcript width beside its avatar.
+Both placements keep their content leading-aligned. Ordinary Spaces put the
+speaker's avatar beside the name and bubble, with the name aligned to the avatar's
+top and the bubble below it. Names use regular-weight, muted, extra-small text;
+the name line compensates for the font's ascent inset to align its visible ink
+slightly above the avatar top.
+Direct Messages, including Center
+Agent chats, use content-sized bubbles with a dedicated avatar column. The first
+message in a speaker run aligns the avatar with the bubble's top; subsequent
+messages retain the same column. Names and runtime/owner attribution are omitted
+from DM speaker headers, while avatar Profile Details remain available. The
+current member's avatar follows the same left/right Appearance preference as
+their bubble. Main timeline, threads, and pending first messages share this
+layout. Actions remain below each bubble in the existing reserved footer row.
+Every speaker's message uses
 the same semantic radius and content inset. Other speakers use a quiet muted
 surface; the current member uses a soft tint of the shared blue `unread` color,
 with theme-specific opacity. Message boundaries remain visible in either theme.
@@ -1404,18 +1462,22 @@ verbatim so an older Web build can still expose it. Options are derived only
 from Core-projected choices, not from a separate browser model catalog.
 Changing Provider clears an incompatible draft and disables Save until a model
 is selected. It never selects a model automatically or persists the filter.
-Provider and search state reset across Organizations.
+Provider state resets across Organizations.
 
-**All providers** supports cross-vendor search and retains the **OpenMeld default**
-option. Within a provider, search filters only that vendor's models. Search
-matches friendly name, vendor label, or exact catalog ID without displaying raw
-IDs or admitting free-text models.
-The saved choice comes first; a persistent current-model label remains visible
-even when a search has no matches. Selecting a candidate only changes the local
-draft. The current label changes after the Binding save succeeds. The searchable
-picker uses the installed Base UI Combobox because Fluid Select has no search
-input; Base UI owns keyboard navigation, focus, and dismissal. Reopening clears
-the search so the full catalog can be compared again.
+**All providers** shows the curated list and retains the **OpenMeld default**
+option. Both fields reuse Fluid Select through the Web-owned
+`HostedModelSelect`; provider filtering replaces the separate searchable
+Combobox so the small curated list uses one selection interaction and appearance.
+The saved choice comes first, and a persistent current-model label remains
+visible while browsing another provider. Selecting a candidate only changes the
+local draft. The current label changes after the Binding save succeeds.
+
+Personal Remote Agent creation and model editing reuse this same two-level
+selector and hosted catalog. They store the explicitly selected model ID.
+Changing to another provider clears an incompatible draft and requires a new
+model choice before Create or Save; an empty draft must not silently select
+the system default. Local Agent model controls keep their controller-owned
+models, compatibility checks, and reasoning choices.
 
 Before saving a changed selection, inline copy explains that it affects new
 turns across the workspace, including existing conversations, while admitted
@@ -2403,11 +2465,23 @@ Agent view options live in an icon menu. Per-group tools appear on hover or
 keyboard focus and stay visible while their menu is open; touch users always
 see them. People groups also offer local Computer-status filters. Agent owner
 headers reuse the Human Profile avatar renderer, including its generated avatar.
-Filters support multiple selections: OR within a facet, AND across Controller
-and model. Each selection has a removable chip. Settings menus are capped at
-384px or the available viewport height and scroll internally.
+Filters support multiple selections: OR within a facet, AND across Agent type,
+Controller, and model. Local and Remote are the first filter choices. Controller
+choices show their brand marks; model choices show recognized model-vendor marks
+and names without inferring an unknown model's vendor. Search matches Agent and
+owner names, Controllers, model names/IDs, and recognized vendors. Each Human
+group has its own expanding search control.
+Each filter and non-default sort/group choice has a removable chip beside the
+controls. The settings menu has a visible secondary Reset button that restores
+the page defaults, or the inherited page settings for one Human group. Menus
+are bounded by the available viewport height and scroll internally.
 Page filters apply across groups; a group's controls further narrow its list.
 Optional Controller or model subgroups preserve the outer person grouping.
+Each person's group has a chevron beside its settings control. Collapsing hides
+the cards and list controls while retaining the person's header and an always
+visible expand button. Search, filters, and sorting survive collapse; collapsing
+exits selection mode and clears selected Agents. Groups start expanded and keep
+their independent collapsed state while mounted.
 
 Recent ordering uses the newer of creation and task activity from the existing
 30-day Wake evidence window. Generic profile edits and last-used timestamps do
@@ -2417,8 +2491,22 @@ RuntimeCoordinator and native delivery ledgers, not a new execution authority.
 Web opts in with `includeTaskActivity=true`; old callers receive the unchanged
 runtime overview shape. Missing activity uses creation order with an explicit
 notice. Foreground runtime overview refreshes every 30 seconds.
-Agent creation history remains a recovery/history surface. Personal lists show
-Finish setup only for unfinished work; Creation history remains a secondary link.
+Agent creation history remains a recovery/history surface. A single secondary
+Creation history entry sits beside the viewer's name, or in the personal list
+header. Its attention count includes failed setup, pending approval, and
+completed creation with unfinished local setup; work already being created does
+not imply user action. History supports result/type filters and search, with a
+Needs attention shortcut and an explicit reset.
+
+Owners can enter Select mode for their ordinary Agents, select individual cards
+or the currently visible results, and delete them after one confirmation listing
+the exact names and count. Filtering never adds hidden Agents to a deletion.
+Other members' Agents and managed profiles have no batch-delete affordance.
+Each deletion uses the existing owner-checked Auth endpoint and reconciliation.
+Successful deletions leave the lists; per-Agent failures remain visible for
+retry. No batch-wide rollback restores already deleted profiles. Existing
+messages remain in history, and the confirmation states that deletion cannot
+be undone.
 
 Selecting a Human Profile sidebar item replaces the main content without
 opening a right drawer. The route preserves the selected `profileId`, so reload,
@@ -3111,8 +3199,11 @@ The stable, read-only DM projection may persist in the approved Organization
 browser-read segment. The full route and compact launcher render that cached
 identity immediately and revalidate the projection in the background. Restored
 Space content is display-only until current Space status confirms access;
-mutations, membership panels, and other authority-bearing controls remain
-unavailable. A genuinely cold entry shows its pending shell only after the
+mutations, membership editing, and other authority-bearing controls remain
+unavailable. Members may show the same identity-only display cache as the mention
+picker, including its count, while current access and membership refresh. These
+cached rows have no member operations or live availability indicators; a failed
+initial members read replaces them with the load error. A genuinely cold entry shows its pending shell only after the
 shared optimistic-navigation delay.
 
 Non-persisted bounded display data used by these frequently revisited routes
@@ -3454,6 +3545,9 @@ row is an ordinary Space even if its membership later returns to two.
 
 Space membership and local-agent availability surfaces should stay responsive by
 combining immediate write-response cache patches with live invalidation frames.
+Compact Members rows explain checking and working states through the focusable
+status indicator's tooltip rather than repeating them below the name. Actionable
+failure guidance and recovery controls remain visible.
 When Web creates or adds an Agent Profile to a Space, the successful
 `addMembers` response may be applied to the current members snapshot immediately
 so the new member appears without waiting for a slow follow-up refresh. Any
@@ -3998,8 +4092,14 @@ the response; the server result updates the query cache, not panel selection.
 On desktop, the inline Members and Thread panels are resizable from their left
 edge because they occupy the right side of the Space. They reuse the shared
 sidebar resize mechanics, including pointer drag, keyboard resizing, bounded
-minimum and maximum widths, and reduced-motion behavior. Members and Thread
-widths are persisted as separate browser presentation preferences. The
+minimum and maximum widths, and reduced-motion behavior. Thread can grow to
+60rem, constrained by the available conversation area after other inline panels,
+with 512px reserved for the main conversation. When the available area cannot
+fit that width alongside Thread's minimum reading width, Thread covers the
+conversation area until closed instead of crushing either column. Covered
+content is hidden from interaction and the accessibility tree. A smaller viewport
+constrains the displayed width without overwriting the saved wider preference.
+Members and Thread widths are persisted as separate browser presentation preferences. The
 Members open/closed state and width are scoped to the current Space id, so
 switching Spaces restores each room's last Members layout without changing any
 other room. Without a stored preference, Members starts closed at its bounded
@@ -4257,9 +4357,9 @@ bounded, owner-only error projection and sensitive-data exclusions still apply.
 
 Message rhythm follows the existing speaker grouping instead of the current
 member's alignment. Message content sits 2 pixels above its reserved footer. A
-consecutive message from the same speaker starts 4 pixels after the preceding
+consecutive message from the same speaker starts 1 pixel after the preceding
 footer. When the speaker changes or the existing conversation grouping starts a
-new run, the adjacent run edges contribute 6 pixels each for a 12-pixel group
+new run, the adjacent run edges contribute 2 pixels each for a 4-pixel group
 boundary. Date separators, system regions, and other real section boundaries
 keep their wider spacing. The reserved footer height remains stable while its
 hover actions change opacity, so pointer interaction does not move later

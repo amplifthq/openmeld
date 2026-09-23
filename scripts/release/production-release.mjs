@@ -213,8 +213,7 @@ const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
     REMOTE_AGENT_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER,
   "remote-agent-receiver-first": REMOTE_AGENT_RECEIVER_FIRST_SCOPE_ORDER,
 };
-const INBOX_SOURCE_TARGET_SCHEMA_PATH =
-  "packages/schemas/src/schemas/http/inbox.ts";
+const INBOX_SCHEMA_PATH = "packages/schemas/src/schemas/http/inbox.ts";
 
 // Preferred scheduling order is not a compatibility dependency. Accumulate
 // only contract directions proven by the changed producer and receiver paths.
@@ -246,6 +245,13 @@ export function resolveProductionCompatibilityDependencies(
     {
       enabled: isNpmSetupArtifactDiff(changedPaths),
       edges: [["cli", "web"]],
+    },
+    {
+      enabled: isInboxNotificationObservationDiff(changedPaths),
+      edges: [
+        ["core", "gateway"],
+        ["gateway", "web"],
+      ],
     },
     {
       enabled: isCenterAgentEvidenceDiff(changedPaths),
@@ -474,6 +480,13 @@ function isNpmSetupArtifactDiff(paths) {
     "clients/web/src/lib/setup-bootstrap-script.ts",
   ].every((file) => paths.includes(file));
 }
+
+function isInboxNotificationObservationDiff(paths) {
+  return [
+    INBOX_SCHEMA_PATH,
+    "services/core/src/inbox/application/inbox-notification-observations.ts",
+  ].every((file) => paths.includes(file));
+}
 const RETIRED_TASK_INBOX_PRODUCER_PATH =
   "services/core/src/center-agent-tasks/application/center-agent-task-inbox-producer.ts";
 const TASK_INBOX_KIND_LINE = /^[ \t]*"center_agent_task",\r?\n/mu;
@@ -503,7 +516,7 @@ const INBOX_SOURCE_TARGET_WRITER_PATHS = new Set([
   "services/core/src/remote-agent/application/slack-inbox-source-target.ts",
   "services/core/src/runtime-transport/application/runtime-coordinator-interaction-inbox-producer.ts",
 ]);
-const INBOX_SOURCE_TARGET_REQUIRED_SCOPES = ["web", "gateway", "core"];
+const INBOX_CLOUD_SCOPES = ["web", "gateway", "core"];
 const LOCAL_SERVICE_RUNTIME_TRANSPORT_SCHEMA_PATH =
   "packages/schemas/src/schemas/daemon/runtime-transport.ts";
 const LOCAL_SERVICE_RUNTIME_CORE_RECEIVER_PATH_PREFIX =
@@ -722,8 +735,11 @@ export function resolveAutomaticReleaseScopes(input) {
   ) {
     scopes.add("cli");
   }
-  if (isInboxSourceTargetReceiverFirstDiff(input.changedPaths)) {
-    for (const scope of INBOX_SOURCE_TARGET_REQUIRED_SCOPES) {
+  if (
+    isInboxSourceTargetReceiverFirstDiff(input.changedPaths) ||
+    isInboxNotificationObservationDiff(input.changedPaths)
+  ) {
+    for (const scope of INBOX_CLOUD_SCOPES) {
       scopes.add(scope);
     }
   }
@@ -1241,7 +1257,8 @@ function resolveProductionDeployScopeOrder(
   if (
     !(
       isWorkingFolderRecoveryDiff(changedPaths) ||
-      isNpmSetupArtifactDiff(changedPaths)
+      isNpmSetupArtifactDiff(changedPaths) ||
+      isInboxNotificationObservationDiff(changedPaths)
     )
   ) {
     return preferred;
@@ -1380,7 +1397,7 @@ function resolveOtherProductionDeployOrderProfile(
     // The exact retired contract is proven against Git below. Other contracts
     // still select their ordinary profile and must be composable with Core first.
     const profile = resolveProductionDeployOrderProfile(
-      changedPaths.filter((file) => file !== INBOX_SOURCE_TARGET_SCHEMA_PATH)
+      changedPaths.filter((file) => file !== INBOX_SCHEMA_PATH)
     );
     if (
       profile === "remote-agent-receiver-first" ||
@@ -1911,7 +1928,7 @@ function assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths) {
 
 function isInboxSourceTargetReceiverFirstDiff(changedPaths) {
   return (
-    changedPaths.includes(INBOX_SOURCE_TARGET_SCHEMA_PATH) &&
+    changedPaths.includes(INBOX_SCHEMA_PATH) &&
     changedPaths.some((path) => INBOX_SOURCE_TARGET_WRITER_PATHS.has(path))
   );
 }
@@ -1927,9 +1944,7 @@ function assertInboxSourceTargetReleaseScopes(
     return;
   }
   const selected = new Set(scopes);
-  const missing = INBOX_SOURCE_TARGET_REQUIRED_SCOPES.filter(
-    (scope) => !selected.has(scope)
-  );
+  const missing = INBOX_CLOUD_SCOPES.filter((scope) => !selected.has(scope));
   if (missing.length > 0) {
     throw new Error(
       `Inbox source-target receiver-first release requires the Web, Gateway, and Core scopes before Core can write durable targets. Missing: ${missing.join(", ")}.`
@@ -2043,20 +2058,17 @@ export function buildProductionReleasePlan(input) {
 function inspectTaskInboxRetirement({ base, changedPaths, sourceSha }) {
   if (
     !(
-      changedPaths.includes(INBOX_SOURCE_TARGET_SCHEMA_PATH) &&
+      changedPaths.includes(INBOX_SCHEMA_PATH) &&
       changedPaths.includes(RETIRED_TASK_INBOX_PRODUCER_PATH)
     )
   ) {
     return false;
   }
   const mergeBase = runGit(["merge-base", base, sourceSha ?? "HEAD"]).trim();
-  const before = runGit([
-    "show",
-    `${mergeBase}:${INBOX_SOURCE_TARGET_SCHEMA_PATH}`,
-  ]);
+  const before = runGit(["show", `${mergeBase}:${INBOX_SCHEMA_PATH}`]);
   const after = sourceSha
-    ? runGit(["show", `${sourceSha}:${INBOX_SOURCE_TARGET_SCHEMA_PATH}`])
-    : readFileSync(INBOX_SOURCE_TARGET_SCHEMA_PATH, "utf8");
+    ? runGit(["show", `${sourceSha}:${INBOX_SCHEMA_PATH}`])
+    : readFileSync(INBOX_SCHEMA_PATH, "utf8");
   const retiredPatterns = [
     TASK_INBOX_KIND_LINE,
     TASK_INBOX_SOURCE_KIND_LINE,
@@ -2301,15 +2313,24 @@ export function assertProductionReleaseSource(input) {
 
 function runStep(step) {
   process.stdout.write(`\n[production-release] ${step.label}\n`);
+  const command = step.controlPath
+    ? (step.controlCommand ?? step.command)
+    : step.command;
   const args = step.controlPath
     ? [
+        ...(step.controlNodeArgs ?? []),
         fileURLToPath(new URL(`../../${step.controlPath}`, import.meta.url)),
-        ...step.args.slice(1),
+        ...(step.controlArgs ?? step.args.slice(1)),
       ]
     : step.args;
-  const result = spawnSync(resolveCommandBinary(step.command), args, {
+  const result = spawnSync(resolveCommandBinary(command), args, {
     cwd: step.cwd,
-    env: step.env ?? process.env,
+    env: {
+      ...(step.env ?? process.env),
+      ...(step.controlPath
+        ? { OPENMELD_VERIFICATION_ROOT: step.cwd ?? process.cwd() }
+        : {}),
+    },
     stdio: "inherit",
   });
   if (result.error) {
@@ -2317,7 +2338,7 @@ function runStep(step) {
   }
   if (result.status !== 0) {
     throw new Error(
-      `${step.command} ${step.args.join(" ")} failed with exit code ${String(result.status)}`
+      `${command} ${args.join(" ")} failed with exit code ${String(result.status)}`
     );
   }
 }

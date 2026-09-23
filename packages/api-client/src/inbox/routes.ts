@@ -1,10 +1,24 @@
 import type {
   InboxFeedQuery,
+  InboxNotificationObservationsQuery,
   InboxPresentation,
   ListInboxItemsQuery,
 } from "@openmeld/schemas/types";
 
 const INBOX_PATH = "/v1/inbox";
+
+export function buildInboxNotificationObservationsPath(
+  query: InboxNotificationObservationsQuery = {}
+): string {
+  const search = new URLSearchParams();
+  if (query.cursor !== undefined) {
+    search.set("cursor", query.cursor);
+  }
+  if (query.limit !== undefined) {
+    search.set("limit", String(query.limit));
+  }
+  return `${INBOX_PATH}/notification-observations${search.size ? `?${search}` : ""}`;
+}
 
 export function buildInboxFeedPath(query: InboxFeedQuery = {}): string {
   const search = new URLSearchParams();

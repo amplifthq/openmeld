@@ -45,6 +45,19 @@ export async function optimisticallyRemoveAgentProfileFromListCaches(input: {
 			),
 	} satisfies AgentProfileDeleteCacheSnapshot;
 
+	removeAgentProfileFromListCaches(input);
+	return snapshot;
+}
+
+export function removeAgentProfileFromListCaches(input: {
+	agentProfileId: string;
+	queryClient: QueryClient;
+	storageScope: string;
+}): void {
+	const profileQueryFilters = {
+		queryKey: startQueryKeys.profilesForStorageScope(input.storageScope),
+	};
+
 	input.queryClient.setQueriesData<readonly AuthProfileView[]>(
 		profileQueryFilters,
 		(profiles) => removeAgentProfileFromProfiles(profiles, input.agentProfileId)
@@ -73,8 +86,6 @@ export async function optimisticallyRemoveAgentProfileFromListCaches(input: {
 					}
 				: directory
 	);
-
-	return snapshot;
 }
 
 export function restoreAgentProfileListCaches(

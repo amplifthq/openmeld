@@ -28,7 +28,7 @@ export const SPACE_PANEL_WIDTH_METRICS = {
 	},
 	thread: {
 		defaultWidth: "28rem",
-		maxWidth: "30rem",
+		maxWidth: "60rem",
 		minWidth: "22rem",
 	},
 } as const satisfies Record<ResizableSpacePanelKind, SpacePanelWidthMetrics>;
@@ -125,7 +125,7 @@ function parseWidth(
 	};
 }
 
-function widthToPx(width: string): number {
+export function widthToPx(width: string): number {
 	const parsed = parseWidth(width);
 	if (!parsed) {
 		throw new Error(`Invalid space panel width metric: ${width}`);

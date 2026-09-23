@@ -47,6 +47,7 @@ export function SpaceThreadLoadingPanel() {
 			ariaLabel="Thread"
 			id="space-thread-panel"
 			maxWidth={panelWidth.maxWidth}
+			minRemainingWidth={512}
 			minWidth={panelWidth.minWidth}
 			onWidthChange={panelWidth.onWidthChange}
 			open

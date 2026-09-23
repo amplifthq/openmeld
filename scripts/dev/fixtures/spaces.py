@@ -3,7 +3,7 @@ import datetime
 import json
 import urllib.request
 import uuid
-from fixtures import conversations
+from fixtures import conversations, message_previews
 
 def seed(db, org, viewer, human, now, ident, insert, session, gateway_port, gateway_host, context):
     space_names = ["Product planning", "Design feedback", "Engineering daily", "Release coordination",
@@ -59,6 +59,7 @@ def seed(db, org, viewer, human, now, ident, insert, session, gateway_port, gate
         with urllib.request.urlopen(request, timeout=30) as response:
             json.load(response)
         conversations.seed(context, sid, i, preview_members)
+        message_previews.refresh(context, sid)
         if i in (0, 2, 7, 9):
             signal_index = 479 if i == 0 else 2
             signal_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"fixture-conversation:{sid}:{signal_index}"))

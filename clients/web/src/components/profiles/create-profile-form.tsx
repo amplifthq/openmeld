@@ -42,6 +42,10 @@ import {
 } from "react";
 import { LocalFolderPickerButton } from "#/components/local-runtimes/local-folder-picker-button";
 import { SelectedLocalFolder } from "#/components/local-runtimes/selected-local-folder";
+import {
+	HostedModelSelect,
+	personalRemoteModelChoices,
+} from "#/components/models/hosted-model-select";
 import { ModelBadge } from "#/components/models/model-badge";
 import { SpinnerButton } from "#/components/spinner-button";
 import type {
@@ -812,6 +816,17 @@ export function AgentProfileModelSelectionFields(
 ) {
 	const modelSelectId = useId();
 	const state = resolveAgentProfileModelSelectionState(input);
+
+	if (input.agentId === "center-agent") {
+		return (
+			<HostedModelSelect
+				choices={personalRemoteModelChoices(input.modelCatalog)}
+				disabled={input.disabled || !input.modelCatalog}
+				onValueChange={input.onChangeModelId}
+				value={input.modelId}
+			/>
+		);
+	}
 
 	if (!state) {
 		return (

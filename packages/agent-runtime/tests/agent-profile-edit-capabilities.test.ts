@@ -1,5 +1,7 @@
+import { modelCatalogSchema } from "@openmeld/schemas";
 import type { ModelCatalog } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
+import hostedCatalog from "../../../release/vendor-models.json";
 import {
   AGENT_PROFILE_EDIT_APPLICATION_CAPABILITY_MATRIX_VERSION,
   listAgentControllerCollaborationModeOptions,
@@ -82,6 +84,18 @@ const CATALOG: ModelCatalog = {
 };
 
 describe("resolveAgentProfileEditCapabilities", () => {
+  it("lets personal Remote Agents edit models from the shared hosted catalog", () => {
+    const capabilities = resolveAgentProfileEditCapabilities({
+      agentControllerRef: "hosted:remote-agent",
+      modelCatalog: modelCatalogSchema.parse(hostedCatalog),
+    });
+    expect(capabilities.modelSelection.editable).toBe(true);
+    expect(
+      capabilities.modelSelection.models.map((model) => model.id)
+    ).toContain("anthropic/claude-fable-5.1");
+    expect(capabilities.permissionMode.editable).toBe(false);
+  });
+
   it("resolves claude-code edit capabilities from the permission resolver and model catalog", () => {
     const capabilities = resolveAgentProfileEditCapabilities({
       agentControllerRef: "builtin:claude-code",

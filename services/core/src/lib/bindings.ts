@@ -128,6 +128,11 @@ type CoreAuthDispatchBindingRpc = {
 };
 
 export type RemoteAgentWorkerBindingRpc = {
+  generateCenterAgentSessionTitle?(
+    input: import("@openmeld/schemas/types").GenerateCenterAgentSessionTitleInput
+  ): Promise<
+    import("@openmeld/schemas/types").GenerateCenterAgentSessionTitleResponse
+  >;
   pluginRuntime?(
     input: import("@openmeld/schemas/types").PluginRuntimeRequest
   ): Promise<import("@openmeld/schemas/types").PluginRuntimeResponse>;

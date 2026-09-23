@@ -3,6 +3,7 @@ import {
   type AgentProfileBindingProfileOwnerValidationResult,
   type AuthorityOpenMeldServiceRuntimeId,
   createAuthorityOpenMeldServiceRuntimeId,
+  getAgentControllerModelCatalogId,
   parseAgentControllerRef,
   type RuntimeAgentControllerReport,
   type RuntimeLookupInput,
@@ -731,7 +732,7 @@ function resolveModelSelectionPatch(input: {
     );
     const controller = parsedControllerRef
       ? (input.readModelCatalog ?? readCoreModelCatalog)().agentControllers[
-          parsedControllerRef.id
+          getAgentControllerModelCatalogId(parsedControllerRef)
         ]
       : undefined;
     const supportedModels =

@@ -190,7 +190,7 @@ function OrganizationAgentProfileUsage(input: {
 		);
 	}
 	if (!limits?.length) {
-		return <span className="text-muted-foreground text-xs">Usage unknown</span>;
+		return null;
 	}
 	return variant !== "summary" ? (
 		<SettingsLocalAgentUsageLimits
