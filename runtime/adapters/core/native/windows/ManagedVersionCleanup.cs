@@ -27,8 +27,11 @@ static class ManagedVersionCleanup {
     var handles = new List<FileStream>();
     try {
       try {
+        // A read handle alone does not reject an executable's image mapping.
+        // Request write access (without writing) before deleting ANY companion.
+        // Keep these handles until the complete bundle has been removed.
         foreach (string file in files)
-          handles.Add(new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Delete));
+          handles.Add(new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.Delete));
       } catch (IOException error) when ((error.HResult & 0xffff) == 32 || (error.HResult & 0xffff) == 33) {
         return "in_use";
       }
