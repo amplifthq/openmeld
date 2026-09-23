@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { windowsProcessArtifactSchema } from "../../packages/schemas/src/schemas/release/windows-process-artifact.ts";
 
 export const WINDOWS_PROCESS_FILE = "openmeld-windows-process.exe";
 export const WINDOWS_PROCESS_MANIFEST = "windows-process-artifact.json";
@@ -10,6 +11,7 @@ const ROOT = path.resolve(
   "../.."
 );
 const INPUTS = [
+  "packages/schemas/src/schemas/release/windows-process-artifact.ts",
   "runtime/adapters/core/native/windows/OpenMeld.Windows.Process.csproj",
   "runtime/adapters/core/native/windows/ProcessJob.cs",
   "runtime/adapters/core/native/windows/Program.cs",
@@ -30,13 +32,13 @@ export function windowsProcessSourceFingerprint(root = ROOT) {
 
 export function writeWindowsProcessArtifact(directory, root = ROOT) {
   const bytes = readFileSync(path.join(directory, WINDOWS_PROCESS_FILE));
-  const manifest = {
+  const manifest = windowsProcessArtifactSchema.parse({
     schemaVersion: 1,
     platform: "windows-x64",
     sourceSha256: windowsProcessSourceFingerprint(root),
     sha256: sha256(bytes),
     sizeBytes: bytes.length,
-  };
+  });
   writeFileSync(
     path.join(directory, WINDOWS_PROCESS_MANIFEST),
     `${JSON.stringify(manifest, null, 2)}\n`
@@ -47,14 +49,12 @@ export function writeWindowsProcessArtifact(directory, root = ROOT) {
 // This verifies local build inputs and bytes, not publisher trust. Production
 // callers must acquire artifacts from their own trusted Windows build job.
 export function verifyWindowsProcessArtifact(directory, root = ROOT) {
-  const manifest = JSON.parse(
-    readFileSync(path.join(directory, WINDOWS_PROCESS_MANIFEST), "utf8")
+  const manifest = windowsProcessArtifactSchema.parse(
+    JSON.parse(
+      readFileSync(path.join(directory, WINDOWS_PROCESS_MANIFEST), "utf8")
+    )
   );
-  if (
-    manifest.schemaVersion !== 1 ||
-    manifest.platform !== "windows-x64" ||
-    manifest.sourceSha256 !== windowsProcessSourceFingerprint(root)
-  ) {
+  if (manifest.sourceSha256 !== windowsProcessSourceFingerprint(root)) {
     throw new Error(
       "The Windows process artifact does not match this checkout's native source."
     );

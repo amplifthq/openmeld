@@ -60,9 +60,10 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.401
-      - name: Build the self-contained native process helper
-        run: node scripts/release/build-windows-process-helper.mjs
       - run: pnpm install --frozen-lockfile
+      - name: Build the self-contained native process helper
+        # Build metadata uses the repository's shared schema contract.
+        run: node scripts/release/build-windows-process-helper.mjs
       - name: Build workspace dependencies
         run: pnpm exec turbo run build --filter=openmeld^... --concurrency=1
       - name: Record native build identity

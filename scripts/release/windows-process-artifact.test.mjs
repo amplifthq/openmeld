@@ -29,6 +29,10 @@ test("imports one source-matched helper and rejects tampered bytes or changed na
   const root = mkdtempSync(path.join(tmpdir(), "openmeld helper artifact "));
   try {
     const native = "runtime/adapters/core/native/windows";
+    const schema =
+      "packages/schemas/src/schemas/release/windows-process-artifact.ts";
+    mkdirSync(path.dirname(path.join(root, schema)), { recursive: true });
+    copyFileSync(path.join(ROOT, schema), path.join(root, schema));
     cpSync(path.join(ROOT, native), path.join(root, native), {
       recursive: true,
     });
