@@ -184,7 +184,7 @@ describe.skipIf(process.platform !== "win32")(
 			// Its PATH has no openmeld/Node/npm; quoting must handle the real home.
 			const followUp =
 				mode === "valid"
-					? `$record = @(Get-Content -LiteralPath $env:OPENMELD_TEST_CALLS_PATH -Encoding UTF8 | ForEach-Object { ConvertFrom-Json $_ })[-1]; & ([scriptblock]::Create($record.followUp + " 'fixture-follow-up'")); if ($LASTEXITCODE -ne 7) { exit 99 };`
+					? `$record = @(Get-Content -LiteralPath $env:OPENMELD_TEST_CALLS_PATH -Encoding UTF8 | ForEach-Object { ConvertFrom-Json $_ })[-1]; & ([scriptblock]::Create($record.followUp + " 'fixture-follow-up'")); if ($LASTEXITCODE -ne 23) { exit 99 };`
 					: "";
 			const owned = spawnAgentControllerProcess({
 				bin: resolveWindowsPowerShellPath(),

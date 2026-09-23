@@ -14,6 +14,9 @@ public static class SetupFixture {
     var commandPrefix = Environment.GetEnvironmentVariable("OPENMELD_USER_FACING_CLI_COMMAND");
     var followUp = Environment.GetEnvironmentVariable("OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND");
     File.AppendAllText(Environment.GetEnvironmentVariable("OPENMELD_TEST_CALLS_PATH"), json.Serialize(new { args, home, commandPrefix, followUp }) + "\n");
+    // A quiet, different result proves the parent preserves setup's own streams
+    // and exit 7 rather than accidentally asserting the later invocation.
+    if (args.Length == 1 && args[0] == "fixture-follow-up") { return 23; }
     if (args.Length == 2 && args[0] == "install-self" && args[1] == "--json") {
       Directory.CreateDirectory(Path.Combine(home, "bin"));
       var command = Path.Combine(home, "bin", "openmeld.exe");
