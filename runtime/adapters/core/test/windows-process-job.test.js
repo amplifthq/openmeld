@@ -99,26 +99,31 @@ test("the fixed native launcher fits Windows' CreateProcess command-line limit",
 });
 
 test(
-  "native Windows Job preserves raw streams, Unicode argv, and provider exit status",
+  "native Windows Job preserves raw streams, Unicode argv and working directory, and provider exit status",
   native,
   async () => {
     const args = ['a"b', "中文 & %PATH%", "one\ntwo", ""];
-    const child = start([
-      "-e",
-      "process.stdin.resume();process.stdin.on('end',()=>{process.stdout.write(JSON.stringify(process.argv.slice(1)));process.stderr.write('native-diagnostic');process.exitCode=7})",
-      ...args,
-    ]);
+    const cwd = await mkdtemp(join(tmpdir(), "OpenMeld native 空格 "));
+    const child = start(
+      [
+        "-e",
+        "process.stdin.resume();process.stdin.on('end',()=>{process.stdout.write(JSON.stringify({args:process.argv.slice(1),cwd:process.cwd()}));process.stderr.write('native-diagnostic');process.exitCode=7})",
+        ...args,
+      ],
+      cwd
+    );
     try {
       child.runtime.child.stdin.end("raw input");
       const [code] = await child.closed;
       assert.equal(code, 7, child.errors());
-      assert.deepEqual(JSON.parse(child.output()), args);
+      assert.deepEqual(JSON.parse(child.output()), { args, cwd });
       assert.equal(child.errors(), "native-diagnostic");
     } finally {
       assert.equal(
         (await child.runtime.terminateRemainingDescendants()).ok,
         true
       );
+      await rm(cwd, { recursive: true, force: true });
     }
   }
 );

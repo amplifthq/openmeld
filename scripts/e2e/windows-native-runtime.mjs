@@ -95,7 +95,15 @@ const env = {
   OPENMELD_GATEWAY_URL: "http://127.0.0.1:9",
   OPENMELD_AUTH_URL: "http://127.0.0.1:9",
 };
-console.log(JSON.stringify({ stage: "component_launch", status: "started" }));
+console.log(
+  JSON.stringify({
+    stage: "component_launch",
+    status: "started",
+    executable: binaries["windows-native-runtime"].path,
+    peer: binaries["windows-agent-sdk"].path,
+    cwd: root,
+  })
+);
 const owned = spawnAgentControllerProcess({
   bin: binaries["windows-native-runtime"].path,
   args: [binaries["windows-agent-sdk"].path],

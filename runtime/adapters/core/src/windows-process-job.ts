@@ -54,7 +54,10 @@ try {
 } catch {
   $cause = $_.Exception.GetBaseException()
   $code = $(if ($cause -is [ComponentModel.Win32Exception]) { $cause.NativeErrorCode } else { $cause.GetType().Name })
-  [Console]::Error.WriteLine('openmeld.windows_process.failed: ' + $code)
+  # Native Win32 exceptions carry only fixed operation labels from our helper.
+  # Other exception messages may contain request data and must not be printed.
+  $operation = $(if ($cause -is [ComponentModel.Win32Exception]) { ' (' + $cause.Message + ')' } else { '' })
+  [Console]::Error.WriteLine('openmeld.windows_process.failed: ' + $code + $operation)
   exit 125
 }
 `;
